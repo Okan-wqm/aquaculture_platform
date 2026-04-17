@@ -3,7 +3,7 @@
  * Handles CRUD operations for systems via GraphQL API
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
 
 // Types
 export interface System {
@@ -284,7 +284,7 @@ export function useSystemList(filter?: {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['systems', 'list', filter],
+    queryKey: createTenantQueryKey(tenantId, 'systems', 'list', filter),
     queryFn: async () => {
       const data = await graphqlClient.request<{ systems: PaginatedResponse }>(
         SYSTEMS_LIST_QUERY,
@@ -304,7 +304,7 @@ export function useSystemsBySite(siteId: string) {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['systems', 'bySite', siteId],
+    queryKey: createTenantQueryKey(tenantId, 'systems', 'bySite', siteId),
     queryFn: async () => {
       const data = await graphqlClient.request<{ systemsBySite: System[] }>(
         SYSTEMS_BY_SITE_QUERY,
@@ -324,7 +324,7 @@ export function useSystemsByDepartment(departmentId: string) {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['systems', 'byDepartment', departmentId],
+    queryKey: createTenantQueryKey(tenantId, 'systems', 'byDepartment', departmentId),
     queryFn: async () => {
       const data = await graphqlClient.request<{ systemsByDepartment: System[] }>(
         SYSTEMS_BY_DEPARTMENT_QUERY,
@@ -344,7 +344,7 @@ export function useRootSystems(siteId?: string) {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['systems', 'root', siteId],
+    queryKey: createTenantQueryKey(tenantId, 'systems', 'root', siteId),
     queryFn: async () => {
       const data = await graphqlClient.request<{ rootSystems: System[] }>(
         ROOT_SYSTEMS_QUERY,
@@ -364,7 +364,7 @@ export function useChildSystems(parentSystemId: string) {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['systems', 'children', parentSystemId],
+    queryKey: createTenantQueryKey(tenantId, 'systems', 'children', parentSystemId),
     queryFn: async () => {
       const data = await graphqlClient.request<{ childSystems: System[] }>(
         CHILD_SYSTEMS_QUERY,
@@ -384,7 +384,7 @@ export function useSystem(id: string, includeRelations: boolean = false) {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['systems', 'detail', id, includeRelations],
+    queryKey: createTenantQueryKey(tenantId, 'systems', 'detail', id, includeRelations),
     queryFn: async () => {
       const data = await graphqlClient.request<{ system: System }>(
         SYSTEM_QUERY,
@@ -419,11 +419,11 @@ export function useCreateSystem() {
       return data.createSystem;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['systems', 'list'] });
-      queryClient.invalidateQueries({ queryKey: ['systems', 'bySite'] });
-      queryClient.invalidateQueries({ queryKey: ['systems', 'byDepartment'] });
-      queryClient.invalidateQueries({ queryKey: ['systems', 'root'] });
-      queryClient.invalidateQueries({ queryKey: ['systems', 'children'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'systems', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'systems', 'bySite') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'systems', 'byDepartment') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'systems', 'root') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'systems', 'children') });
     },
   });
 }
@@ -450,12 +450,12 @@ export function useUpdateSystem() {
       return data.updateSystem;
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['systems', 'list'] });
-      queryClient.invalidateQueries({ queryKey: ['systems', 'bySite'] });
-      queryClient.invalidateQueries({ queryKey: ['systems', 'byDepartment'] });
-      queryClient.invalidateQueries({ queryKey: ['systems', 'root'] });
-      queryClient.invalidateQueries({ queryKey: ['systems', 'children'] });
-      queryClient.invalidateQueries({ queryKey: ['systems', 'detail', variables.id] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'systems', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'systems', 'bySite') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'systems', 'byDepartment') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'systems', 'root') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'systems', 'children') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'systems', 'detail', variables.id) });
     },
   });
 }
@@ -479,7 +479,7 @@ export function useSystemDeletePreview(id: string | null) {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['systems', 'deletePreview', id],
+    queryKey: createTenantQueryKey(tenantId, 'systems', 'deletePreview', id),
     queryFn: async () => {
       const data = await graphqlClient.request<{ systemDeletePreview: SystemDeletePreviewResult }>(
         SYSTEM_DELETE_PREVIEW_QUERY,
@@ -515,12 +515,12 @@ export function useDeleteSystem() {
       return data.deleteSystem;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['systems', 'list'] });
-      queryClient.invalidateQueries({ queryKey: ['systems', 'bySite'] });
-      queryClient.invalidateQueries({ queryKey: ['systems', 'byDepartment'] });
-      queryClient.invalidateQueries({ queryKey: ['systems', 'root'] });
-      queryClient.invalidateQueries({ queryKey: ['systems', 'children'] });
-      queryClient.invalidateQueries({ queryKey: ['equipment', 'list'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'systems', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'systems', 'bySite') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'systems', 'byDepartment') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'systems', 'root') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'systems', 'children') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'equipment', 'list') });
     },
   });
 }

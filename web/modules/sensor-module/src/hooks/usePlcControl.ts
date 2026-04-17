@@ -8,6 +8,7 @@
 
 import { useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';
 import { graphqlFetch } from '../config/api';
 import {
   // Connection queries
@@ -414,7 +415,7 @@ export function usePlcConnections(
   pagination?: PlcPagination,
 ) {
   return useQuery({
-    queryKey: ['plcConnections', filter, pagination],
+    queryKey: createTenantQueryKey(tenantId, 'plcConnections', filter, pagination),
     queryFn: async () => {
       const data = await graphqlFetch<{ plcConnections: { items: PlcConnection[] } }>(
         PLC_CONNECTIONS_QUERY,
@@ -423,12 +424,14 @@ export function usePlcConnections(
       return data.plcConnections.items;
     },
     staleTime: 15000,
+    enabled: !!tenantId,
   });
 }
 
 export function usePlcConnection(id: string) {
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: ['plcConnection', id],
+    queryKey: createTenantQueryKey(tenantId, 'plcConnection', id),
     queryFn: async () => {
       const data = await graphqlFetch<{ plcConnection: PlcConnection | null }>(
         PLC_CONNECTION_QUERY,
@@ -437,13 +440,13 @@ export function usePlcConnection(id: string) {
       return data.plcConnection;
     },
     staleTime: 15000,
-    enabled: !!id,
+    enabled: !!id && !!tenantId,
   });
 }
 
 export function usePlcConnectionCountByStatus() {
   return useQuery({
-    queryKey: ['plcConnectionCountByStatus'],
+    queryKey: createTenantQueryKey(tenantId, 'plcConnectionCountByStatus'),
     queryFn: async () => {
       const data = await graphqlFetch<{ plcConnectionCountByStatus: PlcConnectionCountByStatus }>(
         PLC_CONNECTION_COUNT_BY_STATUS_QUERY,
@@ -452,12 +455,14 @@ export function usePlcConnectionCountByStatus() {
       return data.plcConnectionCountByStatus;
     },
     staleTime: 15000,
+    enabled: !!tenantId,
   });
 }
 
 export function useOnlinePlcConnections() {
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: ['onlinePlcConnections'],
+    queryKey: createTenantQueryKey(tenantId, 'onlinePlcConnections'),
     queryFn: async () => {
       const data = await graphqlFetch<{ onlinePlcConnections: PlcConnection[] }>(
         ONLINE_PLC_CONNECTIONS_QUERY,
@@ -466,6 +471,7 @@ export function useOnlinePlcConnections() {
       return data.onlinePlcConnections;
     },
     staleTime: 15000,
+    enabled: !!tenantId,
   });
 }
 
@@ -473,9 +479,9 @@ export function usePlcConnectionMutations() {
   const queryClient = useQueryClient();
 
   const invalidate = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ['plcConnections'] });
-    queryClient.invalidateQueries({ queryKey: ['plcConnectionCountByStatus'] });
-    queryClient.invalidateQueries({ queryKey: ['onlinePlcConnections'] });
+    queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'plcConnections') });
+    queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'plcConnectionCountByStatus') });
+    queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'onlinePlcConnections') });
   }, [queryClient]);
 
   const createMutation = useMutation({
@@ -554,8 +560,9 @@ export function usePlcConnectionMutations() {
 }
 
 export function useDiscoverEndpoints(endpointUrl: string) {
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: ['discoverEndpoints', endpointUrl],
+    queryKey: createTenantQueryKey(tenantId, 'discoverEndpoints', endpointUrl),
     queryFn: async () => {
       const data = await graphqlFetch<{ discoverOpcUaEndpoints: DiscoveredEndpoint[] }>(
         DISCOVER_OPCUA_ENDPOINTS_QUERY,
@@ -570,7 +577,7 @@ export function useDiscoverEndpoints(endpointUrl: string) {
 
 export function useBrowseOpcUaNodes(plcConnectionId: string, parentNodeId?: string) {
   return useQuery({
-    queryKey: ['browseOpcUaNodes', plcConnectionId, parentNodeId],
+    queryKey: createTenantQueryKey(tenantId, 'browseOpcUaNodes', plcConnectionId, parentNodeId),
     queryFn: async () => {
       const data = await graphqlFetch<{ browseOpcUaNodes: NodeBrowseResult[] }>(
         BROWSE_OPCUA_NODES_QUERY,
@@ -592,7 +599,7 @@ export function useFeedingParameters(
   pagination?: PlcPagination,
 ) {
   return useQuery({
-    queryKey: ['feedingParameters', filter, pagination],
+    queryKey: createTenantQueryKey(tenantId, 'feedingParameters', filter, pagination),
     queryFn: async () => {
       const data = await graphqlFetch<{ feedingParameters: { items: FeedingParameter[] } }>(
         FEEDING_PARAMETERS_QUERY,
@@ -601,12 +608,14 @@ export function useFeedingParameters(
       return data.feedingParameters.items;
     },
     staleTime: 15000,
+    enabled: !!tenantId,
   });
 }
 
 export function useFeedingParameter(id: string) {
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: ['feedingParameter', id],
+    queryKey: createTenantQueryKey(tenantId, 'feedingParameter', id),
     queryFn: async () => {
       const data = await graphqlFetch<{ feedingParameter: FeedingParameter | null }>(
         FEEDING_PARAMETER_QUERY,
@@ -615,13 +624,13 @@ export function useFeedingParameter(id: string) {
       return data.feedingParameter;
     },
     staleTime: 15000,
-    enabled: !!id,
+    enabled: !!id && !!tenantId,
   });
 }
 
 export function useActiveFeedingParameter(plcConnectionId: string) {
   return useQuery({
-    queryKey: ['activeFeedingParameter', plcConnectionId],
+    queryKey: createTenantQueryKey(tenantId, 'activeFeedingParameter', plcConnectionId),
     queryFn: async () => {
       const data = await graphqlFetch<{ activeFeedingParameter: FeedingParameter | null }>(
         ACTIVE_FEEDING_PARAMETER_QUERY,
@@ -635,8 +644,9 @@ export function useActiveFeedingParameter(plcConnectionId: string) {
 }
 
 export function useFeedingParameterHistory(plcConnectionId: string, limit = 10) {
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: ['feedingParameterHistory', plcConnectionId, limit],
+    queryKey: createTenantQueryKey(tenantId, 'feedingParameterHistory', plcConnectionId, limit),
     queryFn: async () => {
       const data = await graphqlFetch<{ feedingParameterHistory: FeedingParameter[] }>(
         FEEDING_PARAMETER_HISTORY_QUERY,
@@ -653,10 +663,10 @@ export function useFeedingParameterMutations() {
   const queryClient = useQueryClient();
 
   const invalidate = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ['feedingParameters'] });
-    queryClient.invalidateQueries({ queryKey: ['feedingParameter'] });
-    queryClient.invalidateQueries({ queryKey: ['activeFeedingParameter'] });
-    queryClient.invalidateQueries({ queryKey: ['feedingParameterHistory'] });
+    queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feedingParameters') });
+    queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feedingParameter') });
+    queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'activeFeedingParameter') });
+    queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feedingParameterHistory') });
   }, [queryClient]);
 
   const createMutation = useMutation({
@@ -744,7 +754,7 @@ export function usePlcAlarms(
   pagination?: PlcPagination,
 ) {
   return useQuery({
-    queryKey: ['plcAlarms', filter, pagination],
+    queryKey: createTenantQueryKey(tenantId, 'plcAlarms', filter, pagination),
     queryFn: async () => {
       const data = await graphqlFetch<{ plcAlarms: { items: PlcAlarm[] } }>(
         PLC_ALARMS_QUERY,
@@ -754,12 +764,14 @@ export function usePlcAlarms(
     },
     staleTime: 10000,
     refetchInterval: 30000,
+    enabled: !!tenantId,
   });
 }
 
 export function useActivePlcAlarms(plcConnectionId?: string) {
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: ['activePlcAlarms', plcConnectionId],
+    queryKey: createTenantQueryKey(tenantId, 'activePlcAlarms', plcConnectionId),
     queryFn: async () => {
       const data = await graphqlFetch<{ activePlcAlarms: PlcAlarm[] }>(
         ACTIVE_PLC_ALARMS_QUERY,
@@ -769,12 +781,13 @@ export function useActivePlcAlarms(plcConnectionId?: string) {
     },
     staleTime: 10000,
     refetchInterval: 15000,
+    enabled: !!tenantId,
   });
 }
 
 export function useUnacknowledgedPlcAlarms(plcConnectionId?: string) {
   return useQuery({
-    queryKey: ['unacknowledgedPlcAlarms', plcConnectionId],
+    queryKey: createTenantQueryKey(tenantId, 'unacknowledgedPlcAlarms', plcConnectionId),
     queryFn: async () => {
       const data = await graphqlFetch<{ unacknowledgedPlcAlarms: PlcAlarm[] }>(
         UNACKNOWLEDGED_PLC_ALARMS_QUERY,
@@ -784,12 +797,14 @@ export function useUnacknowledgedPlcAlarms(plcConnectionId?: string) {
     },
     staleTime: 10000,
     refetchInterval: 15000,
+    enabled: !!tenantId,
   });
 }
 
 export function usePlcAlarmStats(plcConnectionId?: string) {
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: ['plcAlarmStats', plcConnectionId],
+    queryKey: createTenantQueryKey(tenantId, 'plcAlarmStats', plcConnectionId),
     queryFn: async () => {
       const data = await graphqlFetch<{ plcAlarmStats: PlcAlarmStats }>(
         PLC_ALARM_STATS_QUERY,
@@ -799,6 +814,7 @@ export function usePlcAlarmStats(plcConnectionId?: string) {
     },
     staleTime: 10000,
     refetchInterval: 30000,
+    enabled: !!tenantId,
   });
 }
 
@@ -806,10 +822,10 @@ export function usePlcAlarmMutations() {
   const queryClient = useQueryClient();
 
   const invalidate = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ['plcAlarms'] });
-    queryClient.invalidateQueries({ queryKey: ['activePlcAlarms'] });
-    queryClient.invalidateQueries({ queryKey: ['unacknowledgedPlcAlarms'] });
-    queryClient.invalidateQueries({ queryKey: ['plcAlarmStats'] });
+    queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'plcAlarms') });
+    queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'activePlcAlarms') });
+    queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'unacknowledgedPlcAlarms') });
+    queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'plcAlarmStats') });
   }, [queryClient]);
 
   const acknowledgeMutation = useMutation({
@@ -857,8 +873,9 @@ export function usePlcAlarmMutations() {
 // ============================================================================
 
 export function useLatestTelemetrySummary(plcConnectionId: string) {
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: ['latestTelemetrySummary', plcConnectionId],
+    queryKey: createTenantQueryKey(tenantId, 'latestTelemetrySummary', plcConnectionId),
     queryFn: async () => {
       const data = await graphqlFetch<{ latestTelemetrySummary: TelemetrySummary | null }>(
         LATEST_TELEMETRY_SUMMARY_QUERY,
@@ -874,7 +891,7 @@ export function useLatestTelemetrySummary(plcConnectionId: string) {
 
 export function useAllConnectionsTelemetrySummary() {
   return useQuery({
-    queryKey: ['allConnectionsTelemetrySummary'],
+    queryKey: createTenantQueryKey(tenantId, 'allConnectionsTelemetrySummary'),
     queryFn: async () => {
       const data = await graphqlFetch<{ allConnectionsTelemetrySummary: TelemetrySummary[] }>(
         ALL_CONNECTIONS_TELEMETRY_SUMMARY_QUERY,
@@ -884,6 +901,7 @@ export function useAllConnectionsTelemetrySummary() {
     },
     staleTime: 10000,
     refetchInterval: 15000,
+    enabled: !!tenantId,
   });
 }
 
@@ -892,7 +910,7 @@ export function usePlcTelemetryStats(
   timeRange: { from: string; to: string },
 ) {
   return useQuery({
-    queryKey: ['plcTelemetryStats', plcConnectionId, timeRange],
+    queryKey: createTenantQueryKey(tenantId, 'plcTelemetryStats', plcConnectionId, timeRange),
     queryFn: async () => {
       const data = await graphqlFetch<{ plcTelemetryStats: PlcTelemetryStats }>(
         PLC_TELEMETRY_STATS_QUERY,
@@ -910,7 +928,7 @@ export function useFeedingStatsQuery(
   timeRange: { from: string; to: string },
 ) {
   return useQuery({
-    queryKey: ['feedingStats', plcConnectionId, timeRange],
+    queryKey: createTenantQueryKey(tenantId, 'feedingStats', plcConnectionId, timeRange),
     queryFn: async () => {
       const data = await graphqlFetch<{ feedingStats: FeedingStats }>(
         FEEDING_STATS_QUERY,
@@ -928,7 +946,7 @@ export function useActuatorUsageStats(
   timeRange: { from: string; to: string },
 ) {
   return useQuery({
-    queryKey: ['actuatorUsageStats', plcConnectionId, timeRange],
+    queryKey: createTenantQueryKey(tenantId, 'actuatorUsageStats', plcConnectionId, timeRange),
     queryFn: async () => {
       const data = await graphqlFetch<{ actuatorUsageStats: ActuatorUsageStats }>(
         ACTUATOR_USAGE_STATS_QUERY,

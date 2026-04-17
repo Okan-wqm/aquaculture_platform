@@ -3,7 +3,7 @@
  * Handles CRUD operations for batches via GraphQL API
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
 
 // Types - GraphQL enum KEY'leri ile uyumlu (UPPERCASE)
 export type BatchStatus =
@@ -517,7 +517,7 @@ export function useBatchList(
   const { token, tenantId, isAuthenticated, isLoading: authLoading } = useAuth();
 
   return useQuery({
-    queryKey: ['batches', 'list', tenantId, filter, options],
+    queryKey: createTenantQueryKey(tenantId, 'batches', 'list', tenantId, filter, options),
     queryFn: async () => {
       // Double-check tenantId before request
       if (!tenantId) {
@@ -561,7 +561,7 @@ export function useBatch(id: string) {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['batches', 'detail', id],
+    queryKey: createTenantQueryKey(tenantId, 'batches', 'detail', id),
     queryFn: async () => {
       const data = await graphqlClient.request<{ batch: Batch }>(
         BATCH_QUERY,
@@ -585,7 +585,7 @@ export function useAvailableTanks(options?: {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['batches', 'availableTanks', options],
+    queryKey: createTenantQueryKey(tenantId, 'batches', 'availableTanks', options),
     queryFn: async () => {
       try {
         const data = await graphqlClient.request<{ availableTanks: AvailableTank[] }>(
@@ -615,7 +615,7 @@ export function useGenerateBatchNumber() {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['batches', 'generateNumber'],
+    queryKey: createTenantQueryKey(tenantId, 'batches', 'generateNumber'),
     queryFn: async () => {
       const data = await graphqlClient.request<{ generateBatchNumber: string }>(
         GENERATE_BATCH_NUMBER_QUERY
@@ -650,8 +650,8 @@ export function useCreateBatch() {
     },
     onSuccess: () => {
       // Invalidate batch list and batch number
-      queryClient.invalidateQueries({ queryKey: ['batches', 'list'] });
-      queryClient.invalidateQueries({ queryKey: ['batches', 'generateNumber'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'batches', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'batches', 'generateNumber') });
     },
   });
 }
@@ -736,9 +736,9 @@ export function useRecordMortality() {
     },
     onSuccess: () => {
       // Invalidate relevant queries
-      queryClient.invalidateQueries({ queryKey: ['batches'] });
-      queryClient.invalidateQueries({ queryKey: ['tankBatches'] });
-      queryClient.invalidateQueries({ queryKey: ['tanks'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'batches') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tankBatches') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tanks') });
     },
   });
 }
@@ -765,9 +765,9 @@ export function useRecordCull() {
       return data.recordCull;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['batches'] });
-      queryClient.invalidateQueries({ queryKey: ['tankBatches'] });
-      queryClient.invalidateQueries({ queryKey: ['tanks'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'batches') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tankBatches') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tanks') });
     },
   });
 }
@@ -794,9 +794,9 @@ export function useTransferBatch() {
       return data.transferBatch;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['batches'] });
-      queryClient.invalidateQueries({ queryKey: ['tankBatches'] });
-      queryClient.invalidateQueries({ queryKey: ['tanks'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'batches') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tankBatches') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tanks') });
     },
   });
 }
@@ -823,10 +823,10 @@ export function useCreateHarvestRecord() {
       return data.createHarvestRecord;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['batches'] });
-      queryClient.invalidateQueries({ queryKey: ['tankBatches'] });
-      queryClient.invalidateQueries({ queryKey: ['tanks'] });
-      queryClient.invalidateQueries({ queryKey: ['harvestRecords'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'batches') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tankBatches') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tanks') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'harvestRecords') });
     },
   });
 }

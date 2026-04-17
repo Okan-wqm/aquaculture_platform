@@ -4,7 +4,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth } from '@aquaculture/shared-ui';
+import { useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';
 import { graphqlFetch } from '../config/api';
 import {
   EDGE_DEVICES_QUERY,
@@ -297,8 +297,9 @@ export interface RegenerateTokenResponse {
 export function useEdgeDevices(filter?: EdgeDeviceFilter) {
   const { token } = useAuth();
 
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: ['edgeDevices', filter],
+    queryKey: createTenantQueryKey(tenantId, 'edgeDevices', filter),
     queryFn: async () => {
       const data = await graphqlFetch<{ edgeDevices: EdgeDeviceConnection }>(
         EDGE_DEVICES_QUERY,
@@ -319,7 +320,7 @@ export function useEdgeDevice(id: string) {
   const { token } = useAuth();
 
   return useQuery({
-    queryKey: ['edgeDevice', id],
+    queryKey: createTenantQueryKey(tenantId, 'edgeDevice', id),
     queryFn: async () => {
       const data = await graphqlFetch<{ edgeDevice: EdgeDevice | null }>(
         EDGE_DEVICE_QUERY,
@@ -338,8 +339,9 @@ export function useEdgeDevice(id: string) {
 export function useEdgeDeviceStats() {
   const { token } = useAuth();
 
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: ['edgeDeviceStats'],
+    queryKey: createTenantQueryKey(tenantId, 'edgeDeviceStats'),
     queryFn: async () => {
       const data = await graphqlFetch<{ edgeDeviceStats: EdgeDeviceStats }>(
         EDGE_DEVICE_STATS_QUERY,
@@ -371,8 +373,8 @@ export function useRegisterEdgeDevice() {
       return data.registerEdgeDevice;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['edgeDevices'] });
-      queryClient.invalidateQueries({ queryKey: ['edgeDeviceStats'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'edgeDevices') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'edgeDeviceStats') });
     },
   });
 }
@@ -384,6 +386,7 @@ export function useUpdateEdgeDevice() {
   const { token } = useAuth();
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async ({ id, input }: { id: string; input: UpdateEdgeDeviceInput }) => {
       const data = await graphqlFetch<{ updateEdgeDevice: EdgeDevice }>(
@@ -393,8 +396,8 @@ export function useUpdateEdgeDevice() {
       return data.updateEdgeDevice;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['edgeDevices'] });
-      queryClient.invalidateQueries({ queryKey: ['edgeDevice', data.id] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'edgeDevices') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'edgeDevice', data.id) });
     },
   });
 }
@@ -415,9 +418,9 @@ export function useApproveEdgeDevice() {
       return data.approveEdgeDevice;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['edgeDevices'] });
-      queryClient.invalidateQueries({ queryKey: ['edgeDevice', data.id] });
-      queryClient.invalidateQueries({ queryKey: ['edgeDeviceStats'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'edgeDevices') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'edgeDevice', data.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'edgeDeviceStats') });
     },
   });
 }
@@ -429,6 +432,7 @@ export function useSetDeviceMaintenanceMode() {
   const { token } = useAuth();
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async ({ id, enabled }: { id: string; enabled: boolean }) => {
       const data = await graphqlFetch<{ setDeviceMaintenanceMode: EdgeDevice }>(
@@ -438,9 +442,9 @@ export function useSetDeviceMaintenanceMode() {
       return data.setDeviceMaintenanceMode;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['edgeDevices'] });
-      queryClient.invalidateQueries({ queryKey: ['edgeDevice', data.id] });
-      queryClient.invalidateQueries({ queryKey: ['edgeDeviceStats'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'edgeDevices') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'edgeDevice', data.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'edgeDeviceStats') });
     },
   });
 }
@@ -461,9 +465,9 @@ export function useDecommissionEdgeDevice() {
       return data.decommissionEdgeDevice;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['edgeDevices'] });
-      queryClient.invalidateQueries({ queryKey: ['edgeDevice', data.id] });
-      queryClient.invalidateQueries({ queryKey: ['edgeDeviceStats'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'edgeDevices') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'edgeDevice', data.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'edgeDeviceStats') });
     },
   });
 }
@@ -474,6 +478,7 @@ export function useDecommissionEdgeDevice() {
 export function usePingEdgeDevice() {
   const { token } = useAuth();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async (id: string) => {
       const data = await graphqlFetch<{ pingEdgeDevice: PingResult }>(
@@ -503,7 +508,7 @@ export function useAddDeviceIoConfig() {
       return data.addDeviceIoConfig;
     },
     onSuccess: (_, { deviceId }) => {
-      queryClient.invalidateQueries({ queryKey: ['edgeDevice', deviceId] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'edgeDevice', deviceId) });
     },
   });
 }
@@ -515,6 +520,7 @@ export function useUpdateDeviceIoConfig() {
   const { token } = useAuth();
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async ({
       id,
@@ -532,7 +538,7 @@ export function useUpdateDeviceIoConfig() {
       return data.updateDeviceIoConfig;
     },
     onSuccess: (_, { deviceId }) => {
-      queryClient.invalidateQueries({ queryKey: ['edgeDevice', deviceId] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'edgeDevice', deviceId) });
     },
   });
 }
@@ -544,6 +550,7 @@ export function useRemoveDeviceIoConfig() {
   const { token } = useAuth();
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async ({ id, deviceId }: { id: string; deviceId: string }) => {
       const data = await graphqlFetch<{ removeDeviceIoConfig: boolean }>(
@@ -553,7 +560,7 @@ export function useRemoveDeviceIoConfig() {
       return data.removeDeviceIoConfig;
     },
     onSuccess: (_, { deviceId }) => {
-      queryClient.invalidateQueries({ queryKey: ['edgeDevice', deviceId] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'edgeDevice', deviceId) });
     },
   });
 }
@@ -573,7 +580,7 @@ export function usePushIoConfig() {
       return data.pushIoConfigToDevice;
     },
     onSuccess: (_, deviceId) => {
-      queryClient.invalidateQueries({ queryKey: ['edgeDevice', deviceId] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'edgeDevice', deviceId) });
     },
   });
 }
@@ -601,6 +608,7 @@ export interface SetDigitalOutputResult {
 export function useSetDigitalOutput() {
   const { token } = useAuth();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async (input: { deviceId: string; ioConfigId: string; value: boolean }) => {
       const data = await graphqlFetch<{ setDigitalOutput: SetDigitalOutputResult }>(
@@ -698,6 +706,7 @@ export interface BulkAddIoConfigResult {
 export function useScanHardware() {
   const { token } = useAuth();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async (deviceId: string) => {
       const data = await graphqlFetch<{
@@ -736,7 +745,7 @@ export function useBulkAddIoConfig() {
       return data.bulkAddDeviceIoConfigs;
     },
     onSuccess: (_, { deviceId }) => {
-      queryClient.invalidateQueries({ queryKey: ['edgeDevice', deviceId] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'edgeDevice', deviceId) });
     },
   });
 }
@@ -750,8 +759,9 @@ export function useBulkAddIoConfig() {
 export function useDeviceInstallCommands(deviceId: string) {
   const { token } = useAuth();
 
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: ['deviceInstallCommands', deviceId],
+    queryKey: createTenantQueryKey(tenantId, 'deviceInstallCommands', deviceId),
     queryFn: async () => {
       const data = await graphqlFetch<{ deviceInstallCommands: DeviceInstallCommands }>(
         DEVICE_INSTALL_COMMANDS_QUERY,
@@ -783,8 +793,8 @@ export function useCreateProvisionedDevice() {
       return data.createProvisionedDevice;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['edgeDevices'] });
-      queryClient.invalidateQueries({ queryKey: ['edgeDeviceStats'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'edgeDevices') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'edgeDeviceStats') });
     },
   });
 }
@@ -797,6 +807,7 @@ export function useRegenerateDeviceToken() {
   const { token } = useAuth();
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async (deviceId: string) => {
       const data = await graphqlFetch<{ regenerateDeviceToken: RegenerateTokenResponse }>(
@@ -806,7 +817,7 @@ export function useRegenerateDeviceToken() {
       return data.regenerateDeviceToken;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['edgeDevice', data.deviceId] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'edgeDevice', data.deviceId) });
     },
   });
 }
@@ -831,8 +842,9 @@ export interface BulkFirmwareUpdateResult {
 export function useAvailableFirmwareVersions() {
   const { token } = useAuth();
 
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: ['availableFirmwareVersions'],
+    queryKey: createTenantQueryKey(tenantId, 'availableFirmwareVersions'),
     queryFn: async () => {
       const data = await graphqlFetch<{ availableFirmwareVersions: FirmwareVersionInfo[] }>(
         AVAILABLE_FIRMWARE_VERSIONS_QUERY,
@@ -861,8 +873,8 @@ export function useUpdateEdgeDeviceFirmware() {
       return data.updateEdgeDeviceFirmware;
     },
     onSuccess: (_, { id }) => {
-      queryClient.invalidateQueries({ queryKey: ['edgeDevices'] });
-      queryClient.invalidateQueries({ queryKey: ['edgeDevice', id] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'edgeDevices') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'edgeDevice', id) });
     },
   });
 }
@@ -874,6 +886,7 @@ export function useBulkUpdateEdgeDeviceFirmware() {
   const { token } = useAuth();
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async ({ deviceIds, targetVersion }: { deviceIds: string[]; targetVersion?: string }) => {
       const data = await graphqlFetch<{ bulkUpdateEdgeDeviceFirmware: BulkFirmwareUpdateResult }>(
@@ -883,7 +896,7 @@ export function useBulkUpdateEdgeDeviceFirmware() {
       return data.bulkUpdateEdgeDeviceFirmware;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['edgeDevices'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'edgeDevices') });
     },
   });
 }

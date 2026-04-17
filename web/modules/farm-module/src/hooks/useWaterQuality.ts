@@ -3,7 +3,7 @@
  * Handles CRUD operations for water quality measurements via GraphQL API
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // TYPES
@@ -297,8 +297,9 @@ const DELETE_WATER_QUALITY = `
 export function useWaterQualityList(filters?: WaterQualityFilters) {
   const { token } = useAuth();
 
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: ['waterQuality', 'list', filters],
+    queryKey: createTenantQueryKey(tenantId, 'waterQuality', 'list', filters),
     queryFn: async () => {
       const response = await graphqlClient.request<{
         waterQualityMeasurements: {
@@ -323,8 +324,9 @@ export function useWaterQualityList(filters?: WaterQualityFilters) {
 export function useWaterQuality(id: string | null) {
   const { token } = useAuth();
 
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: ['waterQuality', 'detail', id],
+    queryKey: createTenantQueryKey(tenantId, 'waterQuality', 'detail', id),
     queryFn: async () => {
       if (!id) return null;
       const response = await graphqlClient.request<{
@@ -343,7 +345,7 @@ export function useLatestWaterQuality(tankId: string | null) {
   const { token } = useAuth();
 
   return useQuery({
-    queryKey: ['waterQuality', 'latest', tankId],
+    queryKey: createTenantQueryKey(tenantId, 'waterQuality', 'latest', tankId),
     queryFn: async () => {
       if (!tankId) return null;
       const response = await graphqlClient.request<{
@@ -362,8 +364,9 @@ export function useLatestWaterQuality(tankId: string | null) {
 export function useCriticalWaterQuality() {
   const { token } = useAuth();
 
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: ['waterQuality', 'critical'],
+    queryKey: createTenantQueryKey(tenantId, 'waterQuality', 'critical'),
     queryFn: async () => {
       const response = await graphqlClient.request<{
         criticalWaterQuality: WaterQualityMeasurement[];
@@ -388,7 +391,7 @@ export function useWaterQualityChart(
   const { token } = useAuth();
 
   return useQuery({
-    queryKey: ['waterQuality', 'chart', tankId, fromDate?.toISOString(), toDate?.toISOString()],
+    queryKey: createTenantQueryKey(tenantId, 'waterQuality', 'chart', tankId, fromDate?.toISOString(), toDate?.toISOString()),
     queryFn: async () => {
       if (!tankId || !fromDate || !toDate) return [];
       const response = await graphqlClient.request<{
@@ -397,6 +400,7 @@ export function useWaterQualityChart(
         tankId,
         fromDate: fromDate.toISOString(),
         toDate: toDate.toISOString(),
+    enabled: !!tenantId,
       });
       return response.waterQualityChart;
     },
@@ -410,8 +414,9 @@ export function useWaterQualityChart(
 export function useWaterQualityStatistics(tankId: string | null, days: number = 7) {
   const { token } = useAuth();
 
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: ['waterQuality', 'statistics', tankId, days],
+    queryKey: createTenantQueryKey(tenantId, 'waterQuality', 'statistics', tankId, days),
     queryFn: async () => {
       if (!tankId) return null;
       const response = await graphqlClient.request<{
@@ -474,7 +479,7 @@ export function useWaterQualityChartBySystem(
   const { token } = useAuth();
 
   return useQuery({
-    queryKey: ['waterQuality', 'chartBySystem', systemId, fromDate?.toISOString(), toDate?.toISOString()],
+    queryKey: createTenantQueryKey(tenantId, 'waterQuality', 'chartBySystem', systemId, fromDate?.toISOString(), toDate?.toISOString()),
     queryFn: async () => {
       if (!systemId || !fromDate || !toDate) return [];
       const response = await graphqlClient.request<{
@@ -483,6 +488,7 @@ export function useWaterQualityChartBySystem(
         systemId,
         fromDate: fromDate.toISOString(),
         toDate: toDate.toISOString(),
+    enabled: !!tenantId,
       });
       return response.waterQualityChartBySystem;
     },
@@ -500,7 +506,7 @@ export function useWaterQualityStatisticsBySystem(
   const { token } = useAuth();
 
   return useQuery({
-    queryKey: ['waterQuality', 'statisticsBySystem', systemId, days],
+    queryKey: createTenantQueryKey(tenantId, 'waterQuality', 'statisticsBySystem', systemId, days),
     queryFn: async () => {
       if (!systemId) return null;
       const response = await graphqlClient.request<{
@@ -520,6 +526,7 @@ export function useCreateWaterQuality() {
   const { token } = useAuth();
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async (input: CreateWaterQualityInput) => {
       const response = await graphqlClient.request<{
@@ -529,10 +536,10 @@ export function useCreateWaterQuality() {
     },
     onSuccess: (data) => {
       // Invalidate related queries
-      queryClient.invalidateQueries({ queryKey: ['waterQuality', 'list'] });
-      queryClient.invalidateQueries({ queryKey: ['waterQuality', 'latest', data.tankId] });
-      queryClient.invalidateQueries({ queryKey: ['waterQuality', 'critical'] });
-      queryClient.invalidateQueries({ queryKey: ['waterQuality', 'statistics', data.tankId] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'waterQuality', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'waterQuality', 'latest', data.tankId) });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'waterQuality', 'critical') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'waterQuality', 'statistics', data.tankId) });
     },
   });
 }
@@ -553,11 +560,11 @@ export function useUpdateWaterQuality() {
     },
     onSuccess: (data) => {
       // Invalidate related queries
-      queryClient.invalidateQueries({ queryKey: ['waterQuality', 'list'] });
-      queryClient.invalidateQueries({ queryKey: ['waterQuality', 'detail', data.id] });
-      queryClient.invalidateQueries({ queryKey: ['waterQuality', 'latest', data.tankId] });
-      queryClient.invalidateQueries({ queryKey: ['waterQuality', 'critical'] });
-      queryClient.invalidateQueries({ queryKey: ['waterQuality', 'statistics', data.tankId] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'waterQuality', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'waterQuality', 'detail', data.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'waterQuality', 'latest', data.tankId) });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'waterQuality', 'critical') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'waterQuality', 'statistics', data.tankId) });
     },
   });
 }
@@ -569,6 +576,7 @@ export function useDeleteWaterQuality() {
   const { token } = useAuth();
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async (id: string) => {
       const response = await graphqlClient.request<{
@@ -578,7 +586,7 @@ export function useDeleteWaterQuality() {
     },
     onSuccess: () => {
       // Invalidate all water quality queries
-      queryClient.invalidateQueries({ queryKey: ['waterQuality'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'waterQuality') });
     },
   });
 }

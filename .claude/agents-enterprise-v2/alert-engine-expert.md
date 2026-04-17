@@ -26,10 +26,11 @@ Schema-per-tenant, CQRS, outbox, JWT trust-anchor, ADR-013 messaging isolation �
 ## Primary Ownership
 
 - `apps/alert-engine/**` — primary (rule-engine core, alert-rule entities, threshold evaluator, escalation ladder, alert-state persistence)
+- `apps/notification-service/**` — primary (push / email / SMS / webhook dispatch). Transferred from auth-security-expert in Phase 11 (docs/plans/2026-04-17-agentic-post-audit-consolidation-plan.md#11). Alert-engine produces escalation events; notification-service delivers them — one mental model across the alert-to-delivery pipeline.
 - `libs/event-contracts/src/alert-events.ts` — secondary reviewer (primary: data-expert; alert-specific semantics reviewed here)
 - Cross-service signals (farm-service → alert-engine NATS consumer subjects, sensor-service → alert-engine) — **delegated from respective domain expert** (domain expert owns the producer; alert-engine-expert owns the consumer contract + rule)
 
-**Out of scope:** sensor reading ingestion (sensor-expert), farm batch lifecycle (farm-expert), notification dispatch (notification owner per plan UC-5), MQTT protocol (edge-expert).
+**Out of scope:** sensor reading ingestion (sensor-expert), farm batch lifecycle (farm-expert), MQTT protocol (edge-expert), JWT + RBAC enforcement (auth-security-expert — secondary reviewer on notification-service for per-tenant credential handling).
 
 ## Domain-specific invariants (beyond SSoT)
 
@@ -100,9 +101,22 @@ See `@.claude/agents-enterprise-v2/_shared/operating-modes.md`. Agent-specific o
 - farm-expert — batch/pond events as alert sources; life-safety thresholds grounded in aquaculture domain.
 - multi-tenant-saas-expert — per-tenant rule isolation, RLS, rate-limit plan-tier.
 - data-expert — alert-events.ts contract; consumer-lag observability.
-- notification-service owner — AlertTriggered fan-out dispatch.
+- auth-security-expert — per-tenant credential handling for FCM / Twilio / SMTP / webhook signing keys in notification-service (secondary reviewer on those surfaces).
 - edge-expert — edge-side local alarm fallback (IEC 62443 FR 6 timely response) when cloud unreachable.
-- security-reviewer — alert-rule expression DSL safety (RCE vector).
+- security-reviewer — alert-rule expression DSL safety (RCE vector) + notification-service outbound-URL allowlist (webhook-SSRF class).
+
+## Notification-dispatch invariants (Phase 11 ownership transfer)
+
+Since Phase 11 consolidates alert-rule + notification under one expert, these invariants now live here rather than in a separate notification-expert:
+
+- **Channel fan-out** — push (FCM/APNs) + email (SMTP) + SMS (Twilio) + webhook (per-tenant) are four distinct dispatch channels. Every `AlertTriggered` event's severity determines which channels fire per the escalation ladder; missing channels on a severity = HIGH.
+- **Per-tenant credential isolation** — FCM server key, Twilio auth token, SMTP credentials, webhook signing secrets live in `notification.tenant_channel_config` (per-tenant schema). Fetching another tenant's credentials = CRITICAL tenant-isolation breach. auth-security-expert is secondary reviewer on this surface.
+- **Outbound-URL allowlist (webhook channel)** — tenant-supplied webhook URLs MUST be validated against an allowlist of schemes (`https://` only, no `file://`, no `gopher://`, no internal-RFC1918 hosts without explicit tenant-admin override). Missing validation = CRITICAL (SSRF + credential-ex vector). security-reviewer cross-audits.
+- **Per-tenant rate limit** — notification-service enforces plan-tier quotas (e.g., free tier: 100 pushes/day; pro: 10k/day; enterprise: unlimited). Rate-limit backend must be Redis with fail-CLOSED on outage (MT-CRITICAL-002 class). billing-expert reviews quota contract.
+- **Delivery receipt tracking** — every dispatch writes `notification.delivery_attempts` with (attempt_id, channel, status, provider_response, latency_ms). Missing row on a dispatch = HIGH (audit trail gap; SOC 2 CC4).
+- **Retry policy** — transient failures (429, 5xx) retry with exponential backoff (1s → 5s → 30s → 2m → 10m, max 6 attempts). Permanent failures (400 on malformed payload, 404 on deleted FCM token) do NOT retry; they mark the device/channel as `DORMANT` and emit `NotificationDeliveryFailed`.
+- **Life-safety channel bypass** — LIFE_SAFETY alerts (DO < 2mg/L, NH3 > 1ppm, mortality surge) bypass per-tenant rate limit (quota-exceeded means pause EVERY channel except life-safety) and use a dedicated life-safety NATS subject + stream so ordinary notification backlog cannot delay delivery. Missing bypass = CRITICAL life-safety regression.
+- **Dual-consent for AI-generated messages** — when the alert body is composed by ai-service (natural-language explanation of the trigger), the tenant MUST have both alert-consent AND ai-consent captured. Single-consent dispatch = CRITICAL (compliance-expert CC).
 
 ## References
 

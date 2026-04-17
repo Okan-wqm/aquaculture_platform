@@ -42,7 +42,7 @@ Phase 1 maps every changed file to one or more agents via these globs. `git diff
 | `web/apps/aquamobil/**` | frontend-expert | |
 | `web/modules/hydroponics-module/**` | farm-expert | |
 | `apps/billing-service/**` | billing-expert | multi-tenant-saas-expert, security-reviewer, compliance-expert |
-| `apps/notification-service/**` | auth-security-expert | security-reviewer |
+| `apps/notification-service/**` | alert-engine-expert | security-reviewer, auth-security-expert |
 | `apps/config-service/**` | platform-kernel-expert | infra-expert |
 | `apps/event-store-service/**` | data-expert | observability-expert |
 | `apps/observability-service/**` | observability-expert | |

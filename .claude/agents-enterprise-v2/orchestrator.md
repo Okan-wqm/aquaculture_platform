@@ -74,7 +74,7 @@ All agents use `opus` with `effort: max` per platform policy. This table is the 
 | infra-expert | infra/, infrastructure/, deploy/, .github/{workflows,actions}/, nginx/, docker-compose*, Dockerfile* |
 | platform-kernel-expert | platform/libs/cqrs/, platform/libs/event-bus/, platform/configs/, libs/backend-common foundational runtime modules |
 | billing-expert | apps/billing-service/ — Stripe webhook + metered billing + subscription saga + plan-tier enforcement (delegated from multi-tenant) |
-| alert-engine-expert | apps/alert-engine/ — rule evaluation hot-path + escalation ladder + life-safety priority + per-tenant rate-limit |
+| alert-engine-expert | apps/alert-engine/ + apps/notification-service/ — rule evaluation hot-path + escalation ladder + life-safety priority + per-tenant rate-limit + push/email/SMS/webhook dispatch (Phase 11 unified ownership) |
 | observability-expert | apps/observability-service/ + infrastructure/monitoring/ + cross-service Prometheus cardinality + OTEL coverage + Loki hygiene + alert runbook discipline |
 | ~~platform-services~~ | DEPRECATED 2026-04-16 (Phase 11 split — see `.claude/agents-enterprise-v2/platform-services.md`) |
 | auth-security-expert | apps/auth-service/, apps/gateway-api/, libs/backend-common/src/{auth,guards,security,middleware}/ |

@@ -304,6 +304,25 @@ Goal: verify mobile create/edit/read flows across offline drafts, queued writes,
 Prioritize mobile-app, realtime-sync, form-write, data-readback, list-visibility, tenant-isolation, and access-boundary.
 ```
 
+## Two-Lane Orchestration (Phase 13)
+
+This pack is the **Lane-B (product quality)** half of the enterprise-v2 two-lane review pipeline. The orchestrator at `.claude/agents-enterprise-v2/orchestrator.md` dispatches both lanes in parallel:
+
+- Lane-A (code quality): `.claude/agents-enterprise-v2/` roster — domain experts + cross-cutting reviewers.
+- Lane-B (product quality): THIS roster — UI / E2E / tenant-surface product auditors.
+
+When invoking this pack standalone (no Lane-A dispatch), use the templates above and write reports under `docs/test-audits/{agent}/`. When invoked as part of a full two-lane cycle, the enterprise-v2 orchestrator handles dispatch + Phase 3.5 cross-lane compaction + Phase 5 unified-report assembly — you do not need to re-invoke the orchestrator here; just declare the topic and let the enterprise-v2 side route.
+
+Finding prefix under Lane-B dispatch is `PRODUCT-{SEVERITY}-{NNN}` so Phase 3.5 context-manager can merge root-cause duplicates across lanes (e.g., a Lane-B form-write `PRODUCT-HIGH-002` + Lane-A data-expert `DATA-HIGH-007` about the same missing column collapse into one `MERGED-HIGH-NNN` entry whose closing commit clears both origin IDs).
+
+Four agent files in this directory were promoted to Lane-A during Phase 9/10 consolidation:
+
+- `gdpr-compliance-auditor.md` + `soc2-readiness-auditor.md` → superseded by `compliance-expert` (Lane-A).
+- `ai-tool-execution-auditor.md` → superseded by `ai-safety-auditor` (Lane-A).
+- `contract-parity-auditor.md` → superseded by `contract-parity-enforcer` (Lane-A).
+
+The files remain for reference; dispatch calls from the enterprise-v2 orchestrator route to the Lane-A promotion targets, not these.
+
 ## Enterprise Rules For Running The Pack
 
 - Do not run every specialist blindly on every tiny scope. Start with the smallest complete profile that answers the question.

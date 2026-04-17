@@ -37,11 +37,16 @@ Seven phases: 1 · 2 · 3 · **3.5** · 4 · **4.5** · 5 · 6. Phase 3.5, 4.5, 
 
 Use `git diff --name-only` and map changed files to primary + also-notify agents per the routing table in `_shared/orchestrator-routing-table.md`. Every file MUST match ≥1 primary agent — unmatched = PROCESS HIGH. Special rules (cross-cutting `security-reviewer`, event-contract fan-out, `web/shared-ui/**` propagation, multi-tenant concerns → `multi-tenant-saas-expert`) live in the companion.
 
-### Phase 2: Parallel Dispatch
+### Phase 2: Parallel Dispatch — Two Lanes
 
-Invoke all identified agents in parallel using the Agent tool. Dispatch contract (task description, git-diff context, full-vs-focused flag, cross-domain hints) and example invocation in `_shared/orchestrator-phases.md`.
+Invoke all identified agents in parallel using the Agent tool across **two lanes**:
 
-Phase 3 collects reports; Phase 3.5 auto-invokes `context-manager` (compaction + dependency graph) when ≥3 experts produced reports or the corpus exceeds ~50K tokens; Phase 4 resolves cross-domain edges; Phase 4.5 runs `root-cause-auditor` for tier-claim verification + prior-cycle arbiter-ruling implementation check; Phase 5 produces the unified report at `docs/reviews/orchestrator/{date}-{topic}.md`; Phase 6 (Implementation Packaging) is out-of-band, human-explicit-only.
+- **Lane-A (code quality)** — this file's Runtime Review Roster (enterprise-v2 domain + cross-cutting experts).
+- **Lane-B (product quality)** — the `.claude/test-agents/` roster (UI/E2E/tenant-surface product auditors). See `.claude/test-agents/README.md` § Runtime Roster for the 18 Lane-B agents. Finding prefix `PRODUCT-*`.
+
+Lane selection rules (when to fire Lane-A, Lane-B, or both) and the dispatch contract live in `_shared/orchestrator-phases.md` § Phase 2. Four agents that used to live in Lane-B were promoted into Lane-A during Phase 9/10 (gdpr-compliance / soc2-readiness → compliance-expert; ai-tool-execution → ai-safety-auditor; contract-parity → contract-parity-enforcer) and MUST NOT be re-dispatched from Lane-B.
+
+Phase 3 collects reports from both lanes; Phase 3.5 cross-lane compaction auto-invokes `context-manager` (compaction + dependency graph + cross-lane consolidation) when ≥3 experts produced reports (across both lanes combined), OR when both lanes fired, OR when corpus > ~50K tokens. Phase 4 resolves cross-domain edges; Phase 4.5 runs `root-cause-auditor` for tier-claim verification + prior-cycle arbiter-ruling implementation check; Phase 5 produces the two-lane unified report at `docs/reviews/orchestrator/{date}-{topic}.md`; Phase 6 (Implementation Packaging) is out-of-band, human-explicit-only.
 
 ## Decision Rules
 

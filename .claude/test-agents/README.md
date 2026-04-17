@@ -106,6 +106,25 @@ Recommended output locations:
 
 All reviewer agents should assign finding IDs in format `{severity}-{NNN}`.
 
+## Integration with the enterprise-v2 orchestrator (Phase 13)
+
+Since Phase 13 of the post-audit consolidation plan (2026-04-17), this set is dispatched as **Lane-B (product quality)** of the unified two-lane review pipeline coordinated by `.claude/agents-enterprise-v2/orchestrator.md`.
+
+- Lane-A (code quality) = the enterprise-v2 roster (domain experts + cross-cutting reviewers).
+- Lane-B (product quality) = this roster.
+- Both lanes fire in parallel from the same orchestrator cycle; Phase 3.5 cross-lane compaction merges findings that reference the same root cause.
+
+Finding prefix in Lane-B is `PRODUCT-{SEVERITY}-{NNN}` so cross-lane compaction can distinguish Lane-A findings (prefix per agent: `FARM-*`, `DATA-*`, `FE-*`, `SEC-*`, etc.) from Lane-B findings at a glance. See `.claude/agents-enterprise-v2/_shared/orchestrator-phases.md` § Phase 2 for lane selection rules and § Phase 3.5 for cross-lane consolidation.
+
+Four agents originally in this set were promoted to Lane-A during Phase 9/10 and MUST NOT be re-dispatched from here:
+- `gdpr-compliance-auditor` + `soc2-readiness-auditor` → absorbed into `compliance-expert`.
+- `ai-tool-execution-auditor` → promoted to `ai-safety-auditor`.
+- `contract-parity-auditor` → promoted to `contract-parity-enforcer`.
+
+The file copies remain on disk for backwards compatibility (older review cycles reference them by path) but the active dispatch paths go through the Lane-A promotion targets. New PRs touching those domains should expect the Lane-A agent name in the unified report.
+
+`tenant-isolation-auditor` (Lane-B, product-surface UI leak detection) is distinct from `multi-tenant-saas-expert` (Lane-A, code-surface isolation + RLS + guards). Both dispatch in parallel on cycles touching tenant-scope surfaces; their mandates do not overlap — they cross-compact in Phase 3.5.
+
 ## Activation
 
 Point your orchestration flow at `.claude/test-agents/` when the goal is a product roundtrip audit rather than a pure architecture review.

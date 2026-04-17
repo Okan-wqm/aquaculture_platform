@@ -16,10 +16,12 @@
 
 import noBareTenantQueryKey from './rules/no-bare-tenant-query-key';
 import noDirectEventPublish from './rules/no-direct-event-publish';
+import noHighCardinalityMetricLabel from './rules/no-high-cardinality-metric-label';
 import requireEntitySchema from './rules/require-entity-schema';
 
 export const rules = {
   'require-entity-schema': requireEntitySchema,
   'no-bare-tenant-query-key': noBareTenantQueryKey,
   'no-direct-event-publish': noDirectEventPublish,
+  'no-high-cardinality-metric-label': noHighCardinalityMetricLabel,
 };

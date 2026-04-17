@@ -144,6 +144,23 @@
       }
     },
     {
+      "files": [
+        "apps/**/src/**/*.ts",
+        "libs/**/src/**/*.ts",
+        "platform/libs/**/src/**/*.ts"
+      ],
+      "excludedFiles": [
+        "**/*.spec.ts",
+        "**/*.test.ts",
+        "**/*.e2e.ts",
+        "**/__tests__/**",
+        "**/__mocks__/**"
+      ],
+      "rules": {
+        "aquaculture/no-high-cardinality-metric-label": "warn"
+      }
+    },
+    {
       "files": ["*.js", "*.jsx"],
       "extends": ["plugin:@nx/javascript"],
       "rules": {}

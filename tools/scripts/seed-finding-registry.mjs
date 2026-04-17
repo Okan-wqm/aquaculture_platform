@@ -255,6 +255,28 @@ const seedEntries = [
     override_of: null,
     notes: 'Self-discovered within the same session: wrote `49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0` as the setup-node pin without cross-checking the GitHub release page. The repo\'s other 5 workflows already pin `39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0`. Architectural fix: converge every workflow onto a single pinned SHA so dependabot github-actions rotation is one PR, divergence is visible at review. Tier-3 automation: infra-expert `require_pinned_sha` invariant (planned W5) would structurally catch an unresolvable SHA; manual catch here is the Tier-4 backstop until that invariant lands.',
   },
+  {
+    id: 'PROC-MEDIUM-003',
+    severity: 'MEDIUM',
+    state: 'RESOLVED',
+    title: 'Phase-2 workflow regressions: (a) closes-footer-check.yml bare colon in YAML step name, (b) quality-gates.yml + closes-footer-check.yml missed --legacy-peer-deps convention',
+    layer: 3,
+    evidence: [
+      '.github/workflows/closes-footer-check.yml:58',
+      '.github/workflows/quality-gates.yml:49',
+    ],
+    rule_violated: 'infra-expert CI rule: every `npm ci` in the repo uses `--legacy-peer-deps --ignore-scripts --no-audit` (convergent convention across ci-full.yml, ci-affected.yml, deploy-*.yml, e2e-*.yml). YAML step names containing `: ` MUST be quoted.',
+    owner_agent: 'infra-expert',
+    raised_in_cycle: AUDIT_CYCLE,
+    review_file: AUDIT_FILE,
+    created_at: '2026-04-17T08:10:00Z',
+    closed_at: '2026-04-17T08:15:00Z',
+    closing_commits: [],
+    deadline: null,
+    owner_user: null,
+    override_of: null,
+    notes: 'Root-cause analysis: (a) YAML bug was latent in the Phase 6 closes-footer-check.yml landing (7090c9509) — the step name "Validate Closes: trailers" was never exercised because the file never triggered on PR against main/develop from agentic. My Phase-2 edit to the same file (daed8ae8) caused GH to re-validate the workflow on push, surfacing the latent colon-in-name error. (b) The missing --legacy-peer-deps flag was a net-new regression in my Phase-2 landing — I did not look at the repo-wide convention before writing the `npm ci --ignore-scripts --no-audit --no-fund` command. Both are Tier-4 Document-it-then-automate class: detection belongs in a `lint-workflow-convergence` invariant (planned W5 sibling of require_pinned_sha) that would structurally enforce every new workflow to match the flag set. Separate pre-existing failures NOT closed here: gitleaks-action (token missing), dependency-review-action (GH Advanced Security disabled), lighthouse-ci-action SHA 404, Nx project-count check failing on CI — each is its own finding class, unrelated to Phase 2.',
+  },
 ];
 
 function canonicalJson(obj) {

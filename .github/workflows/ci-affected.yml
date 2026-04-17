@@ -76,6 +76,15 @@ jobs:
               - '.eslintrc.json'
               - '.eslintrc.js'
               - 'tsconfig.base.json'
+              # Root manifest + lockfile. Any change here rewires the
+              # workspace graph OR the dependency tree — both invalidate
+              # every downstream build. Missing these from the filter
+              # was the a8320411 blind-spot: a workspaces-array change
+              # (root cause of the @nx/eslint-plugin native-binding
+              # red herring) landed and CI-Affected skipped the full
+              # chain in 9s because has_changes=false.
+              - 'package.json'
+              - 'package-lock.json'
       - id: check
         run: |
           if [ "${{ steps.changes.outputs.apps }}" = "true" ] || \

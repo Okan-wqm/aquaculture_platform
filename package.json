@@ -11,7 +11,8 @@
     "web/shared-ui",
     "web/shell",
     "web/modules/*",
-    "mcp/*"
+    "mcp/*",
+    "tools/eslint-rules"
   ],
   "scripts": {
     "dev": "nx run-many --target=serve --all",

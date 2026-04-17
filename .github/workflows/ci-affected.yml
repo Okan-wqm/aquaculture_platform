@@ -131,18 +131,11 @@ jobs:
       # 8+ minutes downstream inside deploy/build-*-artifacts.
       - name: Install Linux platform binaries
         uses: ./.github/actions/install-platform-binaries
-
-      # Build the workspace-local ESLint plugin (`tools/eslint-rules/`).
-      # .eslintrc.json loads `eslint-plugin-aquaculture`, whose
-      # package.json `main` points at `./dist/index.js`. Under
-      # `--ignore-scripts` the plugin's own `prepare` script (tsc
-      # build) doesn't fire during npm install, so dist is empty on
-      # a fresh CI checkout. Without this step the @nx/eslint plugin
-      # loader fails during `nx show projects` → Validate Nx graph
-      # step exits 1 before it can even echo the project count.
-      # Canonical architectural shape: build first, then graph-probe.
-      - name: Build workspace-local ESLint plugin
-        run: (cd tools/eslint-rules && npm run build)
+        # The composite action now also builds tools/eslint-rules → dist/
+        # as part of its contract (see action.yml). Every consumer of
+        # platform binaries — including the deploy-digitalocean build
+        # jobs — gets a functional eslint-plugin-aquaculture before any
+        # nx invocation.
 
       - name: Validate Nx project graph integrity
         env:

@@ -106,4 +106,34 @@ runs:
 
         # ARCH-CI-011: Verify NX binary is functional before proceeding
         node -e "require('@nx/nx-linux-x64-gnu')" || { echo "::error::NX linux binary missing or broken"; exit 1; }
+
+        # Workspace-local ESLint plugin (tools/eslint-rules/, resolved
+        # as eslint-plugin-aquaculture via npm workspaces symlink).
+        # .eslintrc.json references it under `plugins: ["aquaculture"]`.
+        # Its `dist/index.js` is required by @nx/eslint/plugin during
+        # every `nx show projects` + `nx run-many` invocation. Under
+        # `npm install --ignore-scripts` the prepare script never runs,
+        # so dist/ is empty on a fresh runner. Build here so every
+        # consumer of this action gets a functional plugin before any
+        # nx invocation. Single source of truth across:
+        #   - ci-affected.yml install job
+        #   - deploy-digitalocean.yml build-backend-artifacts
+        #   - deploy-digitalocean.yml build-frontend-artifacts
+        # Was previously hard-coded in ci-affected.yml (commit 98b5c2ac)
+        # which left the deploy-workflow jobs uncovered (commit
+        # e5aafa7d's CI run surfaced the gap on build-frontend-artifacts).
+        if [ -f tools/eslint-rules/package.json ] && [ -f tools/eslint-rules/tsconfig.json ]; then
+          echo "Building workspace-local ESLint plugin (tools/eslint-rules)"
+          (cd tools/eslint-rules && npm run build) || {
+            echo "::error::Failed to build eslint-plugin-aquaculture — nx/eslint loaders will crash"
+            exit 1
+          }
+          node -e "require('eslint-plugin-aquaculture')" || {
+            echo "::error::eslint-plugin-aquaculture built but not resolvable — workspaces symlink broken"
+            exit 1
+          }
+        else
+          echo "tools/eslint-rules not present — skipping workspace-plugin build"
+        fi
+
         echo "All Linux platform binaries installed successfully"

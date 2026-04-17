@@ -1,0 +1,115 @@
+name: Finding State Sweep
+
+# =============================================================================
+# Phase 6 deliverable per
+# docs/plans/2026-04-17-agentic-post-audit-consolidation-plan.md#Phase-6.
+#
+# Daily cron that runs tools/gates/finding-registry.ts sweep:
+#   - OPEN / IN-PROGRESS finding older than 30 days → STALE.
+#   - Any non-RESOLVED finding with `deadline` < today → BLOCKED (stronger
+#     signal, applied before the staleness check).
+#
+# Why a PR, not a direct push:
+#   Auto-commits to main are a tampering surface. The sweep opens a PR that
+#   CODEOWNERS review before merge — the state transitions are visible and
+#   the hash-chain recomputation is deterministic, so the review is fast.
+#
+# Why daily (not hourly / weekly):
+#   30-day staleness drifts slowly; daily granularity catches it within
+#   1 day of the threshold without spamming the registry with identical
+#   no-op runs.
+# =============================================================================
+
+on:
+  schedule:
+    - cron: '0 7 * * *'   # 07:00 UTC daily (08:00 / 09:00 Oslo depending on DST)
+  workflow_dispatch:
+    inputs:
+      stale_after:
+        description: 'Days before OPEN → STALE (default 30)'
+        default: '30'
+        required: false
+      dry_run:
+        description: 'If true, print the sweep plan without mutating'
+        default: 'false'
+        required: false
+
+permissions:
+  contents: write        # open a PR with registry mutations
+  pull-requests: write
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # SEC-CI-002: pinned SHA per infra-expert rule.
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: '22'
+
+      - name: Install dependencies (ts-node only)
+        # --legacy-peer-deps matches repo-wide npm ci convention per
+        # PROC-MEDIUM-003 closure.
+        run: npm ci --legacy-peer-deps --ignore-scripts --no-audit
+
+      - name: Compute sweep plan (dry run)
+        id: plan
+        run: |
+          STALE_AFTER="${{ github.event.inputs.stale_after || '30' }}"
+          npx ts-node --project tools/gates/tsconfig.json \
+            tools/gates/finding-registry.ts sweep \
+            --dry-run --stale-after=${STALE_AFTER} | tee /tmp/sweep-plan.txt
+          # Exit early if nothing to do.
+          if grep -q "^Sweep clean:" /tmp/sweep-plan.txt; then
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Apply sweep
+        if: steps.plan.outputs.has_changes == 'true' && github.event.inputs.dry_run != 'true'
+        run: |
+          STALE_AFTER="${{ github.event.inputs.stale_after || '30' }}"
+          npx ts-node --project tools/gates/tsconfig.json \
+            tools/gates/finding-registry.ts sweep \
+            --stale-after=${STALE_AFTER}
+
+      - name: Verify post-sweep chain integrity
+        if: steps.plan.outputs.has_changes == 'true' && github.event.inputs.dry_run != 'true'
+        run: |
+          npx ts-node --project tools/gates/tsconfig.json \
+            tools/gates/finding-registry.ts verify
+
+      - name: Open PR with sweep mutations
+        if: steps.plan.outputs.has_changes == 'true' && github.event.inputs.dry_run != 'true'
+        uses: peter-evans/create-pull-request@c5a7806660adbe173f04e3e038b0ccdcd758773c # v6.1.0
+        with:
+          branch: automation/finding-state-sweep
+          delete-branch: true
+          title: 'chore(findings): daily state sweep — OPEN→STALE, past-deadline→BLOCKED'
+          body: |
+            Daily sweep output (30-day staleness + deadline-past escalation).
+
+            ```
+            $(cat /tmp/sweep-plan.txt)
+            ```
+
+            **CODEOWNERS review required** — the registry is append-only
+            for content but state-transitions may land here via the
+            automated sweep. Reject this PR if a listed transition
+            should not apply (e.g., a finding you intend to close this
+            week should move to RESOLVED instead of STALE).
+          commit-message: |
+            chore(findings): automated state sweep — 30-day stale + past-deadline
+
+            Closes: docs/reviews/_registry/findings.jsonl
+          labels: |
+            automation
+            registry
+            sweep
+          reviewers: Okan-wqm

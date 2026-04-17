@@ -305,6 +305,136 @@ function cmdClose(id: string, shortSha: string): number {
   return 0;
 }
 
+interface SweepConfig {
+  readonly staleAfterDays: number;
+  readonly dryRun: boolean;
+  readonly now: Date;
+}
+
+interface SweepAction {
+  readonly id: string;
+  readonly fromState: Finding['state'];
+  readonly toState: Finding['state'];
+  readonly reason: string;
+}
+
+/**
+ * Phase 6 state-sweep automation — runs daily in CI, transitions state
+ * based on declarative rules:
+ *
+ *   * OPEN / IN-PROGRESS finding older than `staleAfterDays`
+ *     (default 30) → STALE.
+ *   * Any non-RESOLVED finding with `deadline` in the past → BLOCKED.
+ *
+ * Deterministic ordering: deadline check before staleness check so a
+ * past-deadline STALE-candidate lands in BLOCKED (the stronger signal).
+ *
+ * --dry-run prints the proposed transitions WITHOUT mutating the
+ * registry. The daily workflow opens a PR with the mutations so a
+ * human reviews before merge — direct auto-commit would open a
+ * tampering surface (bot push to main).
+ */
+function planSweep(entries: readonly Finding[], config: SweepConfig): SweepAction[] {
+  const actions: SweepAction[] = [];
+  const staleThresholdMs = config.staleAfterDays * 24 * 60 * 60 * 1000;
+
+  for (const entry of entries) {
+    if (entry.state === 'RESOLVED') continue;
+
+    // Deadline check (stronger signal) runs first.
+    if (entry.deadline) {
+      const deadlineDate = new Date(entry.deadline);
+      if (!Number.isNaN(deadlineDate.getTime()) && deadlineDate < config.now) {
+        if (entry.state !== 'BLOCKED') {
+          actions.push({
+            id: entry.id,
+            fromState: entry.state,
+            toState: 'BLOCKED',
+            reason: `past deadline ${entry.deadline}`,
+          });
+        }
+        continue;
+      }
+    }
+
+    // Staleness check (OPEN + IN-PROGRESS only, not BLOCKED/STALE).
+    if (entry.state === 'OPEN' || entry.state === 'IN-PROGRESS') {
+      const created = new Date(entry.created_at);
+      if (Number.isNaN(created.getTime())) continue;
+      const ageMs = config.now.getTime() - created.getTime();
+      if (ageMs >= staleThresholdMs) {
+        actions.push({
+          id: entry.id,
+          fromState: entry.state,
+          toState: 'STALE',
+          reason: `${Math.floor(ageMs / 86400000)} days old (threshold ${config.staleAfterDays})`,
+        });
+      }
+    }
+  }
+  return actions;
+}
+
+function cmdSweep(args: string[]): number {
+  const dryRun = args.includes('--dry-run');
+  const staleArg = args.find((a) => a.startsWith('--stale-after='));
+  // Use Number.isFinite + explicit null check so `--stale-after=0` is NOT
+  // coerced back to 30 by an || fallback (0 is falsy). The 0-threshold is
+  // useful for dry-run debugging and should round-trip.
+  let staleAfterDays = 30;
+  if (staleArg) {
+    const parsed = parseInt(staleArg.replace('--stale-after=', ''), 10);
+    if (Number.isFinite(parsed) && parsed >= 0) staleAfterDays = parsed;
+  }
+
+  const entries = loadRegistry();
+  const actions = planSweep(entries, {
+    staleAfterDays,
+    dryRun,
+    now: new Date(),
+  });
+
+  if (actions.length === 0) {
+    console.log(`Sweep clean: 0 transitions needed (${entries.length} entries scanned).`);
+    return 0;
+  }
+
+  console.log(`Sweep plan (${actions.length} transitions):`);
+  for (const a of actions) {
+    console.log(`  ${a.id}: ${a.fromState} → ${a.toState}  (${a.reason})`);
+  }
+
+  if (dryRun) {
+    console.log('');
+    console.log('--dry-run: no mutations written.');
+    return 0;
+  }
+
+  // Apply transitions; earliest mutated entry anchors rechain scope.
+  let minIndex = entries.length;
+  for (const a of actions) {
+    const i = entries.findIndex((e) => e.id === a.id);
+    if (i === -1) continue;
+    const entry = entries[i];
+    if (!entry) continue;
+    entry.state = a.toState;
+    if (i < minIndex) minIndex = i;
+  }
+  rechain(entries, minIndex);
+
+  const post = verify(entries);
+  if (!post.ok) {
+    console.error(`Post-sweep integrity check FAILED: ${post.reason}`);
+    return 1;
+  }
+
+  writeRegistry(entries);
+  const tip = entries.length === 0 ? ZERO_HASH : entries[entries.length - 1]?.content_hash ?? '';
+  console.log('');
+  console.log(`Applied ${actions.length} transitions. Chain tip: ${tip}`);
+  return 0;
+}
+
 function cmdExport(format: string): number {
   const entries = loadRegistry();
   if (format === 'json-array') {
@@ -342,10 +472,11 @@ function cmdExport(format: string): number {
 function main(): void {
   const [, , sub, ...args] = process.argv;
   if (!sub) {
-    console.error('Usage: finding-registry <verify|add|close|export> [args]');
+    console.error('Usage: finding-registry <verify|add|close|sweep|export> [args]');
     console.error('  verify');
     console.error('  add <stub.json>');
     console.error('  close <finding-id> <short-sha>');
+    console.error('  sweep [--dry-run] [--stale-after=<days>]');
     console.error('  export <json-array|csv>');
     process.exit(2);
   }
@@ -375,6 +506,8 @@ function main(): void {
       process.exit(2);
     }
     exitCode = cmdExport(format);
+  } else if (sub === 'sweep') {
+    exitCode = cmdSweep(args);
   } else {
     console.error(`Unknown subcommand: ${sub}`);
     process.exit(2);

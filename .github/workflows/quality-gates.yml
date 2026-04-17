@@ -105,3 +105,20 @@ jobs:
         run: |
           npx ts-node --project tools/gates/tsconfig.json \
             tools/gates/finding-registry.ts verify
+
+      # eslint-rules-dist-drift: source/compiled-output parity.
+      # tools/eslint-rules/dist/ is committed (see .gitignore exception)
+      # so every CI runner + deploy job has a functional
+      # eslint-plugin-aquaculture without a runtime build step. The
+      # invariant is that dist/ matches what `tsc -p tsconfig.json`
+      # would produce from the current source. Without this gate, a
+      # contributor could edit rules/*.ts without rebuilding, and
+      # production would load stale compiled rules — silent divergence.
+      - name: ESLint-rules dist drift check
+        if: always()
+        run: |
+          (cd tools/eslint-rules && npm run build)
+          if ! git diff --exit-code tools/eslint-rules/dist/ ; then
+            echo "::error::tools/eslint-rules/dist/ is out of sync with source. Run \`(cd tools/eslint-rules && npm run build)\` and commit the updated dist/."
+            exit 1
+          fi

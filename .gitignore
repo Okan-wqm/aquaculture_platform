@@ -14,6 +14,19 @@ out-tsc
 static
 .nx/
 
+# Exception: tools/eslint-rules/dist/ is COMMITTED.
+# Workspace-local ESLint plugin resolved via `plugins: ["aquaculture"]`
+# in .eslintrc.json. Because CI uses `npm install --ignore-scripts`
+# (SEC-CI-007 supply-chain hygiene), the package's `prepare` script
+# does NOT run on install, so dist/ would be empty on a fresh runner.
+# Every Nx-invoking job (install graph probe, build-backend-artifacts,
+# build-frontend-artifacts) would then crash with "Cannot find module
+# 'eslint-plugin-aquaculture'". Rather than add a runtime build step
+# to every job (recursive patching), we commit dist/ and enforce
+# source/dist parity via the `eslint-rules-dist-drift` CI gate.
+!tools/eslint-rules/dist/
+!tools/eslint-rules/dist/**
+
 # Testing
 coverage
 .nyc_output

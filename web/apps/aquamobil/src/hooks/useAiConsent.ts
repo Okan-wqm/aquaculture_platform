@@ -19,6 +19,7 @@
 
 import { useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 import { useAuth } from './useAuth';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 
@@ -103,7 +104,7 @@ export function useAiConsent(): UseAiConsentReturn {
   const queryClient = useQueryClient();
 
   const query = useQuery({
-    queryKey: ['messaging', 'ai-consent', tenantId],
+    queryKey: createTenantQueryKey(tenantId, 'messaging', 'ai-consent', tenantId),
     queryFn: fetchAiConsentStatus,
     enabled: isAuthenticated && !!tenantId,
     staleTime: 5 * 60 * 1000,

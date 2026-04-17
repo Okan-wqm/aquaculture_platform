@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 import { useAuth } from './useAuth';
 import { cacheData, getCachedData } from '@/pwa/offline-queue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
@@ -84,7 +85,7 @@ export function useMyLeaveBalances(
   const cacheKey = `leaveBalances-${tenantId}-${year}`;
 
   return useQuery<LeaveBalance[]>({
-    queryKey: ['leaveBalances', tenantId, year],
+    queryKey: createTenantQueryKey(tenantId, 'leaveBalances', tenantId, year),
     queryFn: async () => {
       if (!accessToken || !tenantId) {
         throw new Error('Not authenticated');
@@ -141,7 +142,7 @@ export function useMyLeaveRequests(
   const cacheKey = `leaveRequests-${tenantId}-${status ?? 'all'}-${limit}`;
 
   return useQuery<LeaveRequest[]>({
-    queryKey: ['leaveRequests', tenantId, status, limit],
+    queryKey: createTenantQueryKey(tenantId, 'leaveRequests', tenantId, status, limit),
     queryFn: async () => {
       if (!accessToken || !tenantId) {
         throw new Error('Not authenticated');
@@ -181,7 +182,7 @@ export function useLeaveTypes() {
   const cacheKey = `leaveTypes-${tenantId}`;
 
   return useQuery<LeaveType[]>({
-    queryKey: ['leaveTypes', tenantId],
+    queryKey: createTenantQueryKey(tenantId, 'leaveTypes', tenantId),
     queryFn: async () => {
       if (!accessToken || !tenantId) {
         throw new Error('Not authenticated');
@@ -231,8 +232,8 @@ export function useSubmitLeaveRequest(): { submit: (id: string) => Promise<void>
       // WHY: prefix-only invalidation matches all variants of these queries
       // (any status filter, limit, tenantId, year combination) so every
       // mounted consumer gets fresh data after a state-changing mutation.
-      void queryClient.invalidateQueries({ queryKey: ['leaveRequests'] });
-      void queryClient.invalidateQueries({ queryKey: ['leaveBalances'] });
+      void queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'leaveRequests') });
+      void queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'leaveBalances') });
     },
   });
 
@@ -263,8 +264,8 @@ export function useCancelLeaveRequest(): { cancel: (id: string) => Promise<void>
     onSuccess: () => {
       // WHY: same prefix-only invalidation pattern as useSubmitLeaveRequest
       // to ensure all mounted leave query variants refetch.
-      void queryClient.invalidateQueries({ queryKey: ['leaveRequests'] });
-      void queryClient.invalidateQueries({ queryKey: ['leaveBalances'] });
+      void queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'leaveRequests') });
+      void queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'leaveBalances') });
     },
   });
 

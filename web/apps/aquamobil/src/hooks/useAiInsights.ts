@@ -15,6 +15,7 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 import { useAuth } from './useAuth';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import {
@@ -49,7 +50,7 @@ export function useAiDashboardInsights() {
   const { isAuthenticated, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['ai', 'dashboard-insights', tenantId],
+    queryKey: createTenantQueryKey(tenantId, 'ai', 'dashboard-insights', tenantId),
     queryFn: async () => {
       const result = await graphqlRequest<{
         farmDashboardInsights: FarmDashboardInsights | null;
@@ -77,7 +78,7 @@ export function useTankRiskAssessment(tankId: string | undefined) {
   const { isAuthenticated, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['ai', 'tank-risk', tankId, tenantId],
+    queryKey: createTenantQueryKey(tenantId, 'ai', 'tank-risk', tankId, tenantId),
     queryFn: async () => {
       const result = await graphqlRequest<{
         tankRiskAssessment: TankRiskAssessment | null;
@@ -103,7 +104,7 @@ export function useBatchGrowthPrediction(batchId: string | null | undefined) {
   const { isAuthenticated, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['ai', 'growth-prediction', batchId, tenantId],
+    queryKey: createTenantQueryKey(tenantId, 'ai', 'growth-prediction', batchId, tenantId),
     queryFn: async () => {
       const result = await graphqlRequest<{
         batchGrowthPrediction: BatchGrowthPrediction | null;
@@ -128,7 +129,7 @@ export function useFeedingAdvice(tankId: string | undefined) {
   const { isAuthenticated, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['ai', 'feeding-advice', tankId, tenantId],
+    queryKey: createTenantQueryKey(tenantId, 'ai', 'feeding-advice', tankId, tenantId),
     queryFn: async () => {
       const result = await graphqlRequest<{
         feedingAdvice: FeedingAdvice | null;

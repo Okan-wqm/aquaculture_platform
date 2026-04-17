@@ -18,6 +18,7 @@ import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import { cacheData, getCachedData } from '@/pwa/offline-queue';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 import {
   ArrowLeft,
   Package,
@@ -126,7 +127,7 @@ export function StockViewPage() {
   // ---- Data fetching -------------------------------------------------------
 
   const { data: locationsData, isLoading: locationsLoading } = useQuery<StorageLocation[]>({
-    queryKey: ['storage-locations', tenantId],
+    queryKey: createTenantQueryKey(tenantId, 'storage-locations', tenantId),
     queryFn: async () => {
       const result = await graphqlRequest<{ storageLocations: { items: StorageLocation[] } }>(
         STORAGE_LOCATIONS_QUERY,
@@ -142,7 +143,7 @@ export function StockViewPage() {
   const locations = locationsData ?? [];
 
   const { data: stockData, isLoading: stockLoading, refetch: refetchStock } = useQuery<StockItem[]>({
-    queryKey: ['stock-at-location', selectedLocationId, tenantId],
+    queryKey: createTenantQueryKey(tenantId, 'stock-at-location', selectedLocationId, tenantId),
     queryFn: async () => {
       // Attempt server fetch first
       if (isOnline) {
@@ -179,7 +180,7 @@ export function StockViewPage() {
     try {
       await refetchStock();
       // Also invalidate the query client cache to force fresh data
-      await queryClient.invalidateQueries({ queryKey: ['stock-at-location', selectedLocationId] });
+      await queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'stock-at-location', selectedLocationId) });
     } finally {
       setIsRefreshing(false);
     }

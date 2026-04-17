@@ -8,6 +8,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
 // ============================================================================
 // TYPES
@@ -129,7 +130,7 @@ export function WaterQualityRecordPage() {
   // Uses isActive filter to include ALL active equipment (tanks, sensors, pumps)
   // regardless of operational status. This matches the web RecordTab behavior.
   const { data: equipmentData, isLoading: equipmentLoading } = useQuery<EquipmentItem[]>({
-    queryKey: ['equipment-list', tenantId],
+    queryKey: createTenantQueryKey(tenantId, 'equipment-list', tenantId),
     queryFn: async () => {
       const result = await graphqlRequest<{ equipmentList: { items: EquipmentItem[] } }>(
         EQUIPMENT_LIST_QUERY, { filter: { isActive: true } },
@@ -168,7 +169,7 @@ export function WaterQualityRecordPage() {
 
   // -- Parameter configs for selected equipment ------------------------------
   const { data: parameterConfigs, isLoading: paramsLoading } = useQuery<ParameterFieldConfig[]>({
-    queryKey: ['equipment-params', selectedEquipmentId, tenantId],
+    queryKey: createTenantQueryKey(tenantId, 'equipment-params', selectedEquipmentId, tenantId),
     queryFn: async () => {
       const result = await graphqlRequest<{ equipmentParameters: EquipmentParameterConfig[] }>(
         EQUIPMENT_PARAMS_QUERY, { equipmentId: selectedEquipmentId },
@@ -202,7 +203,7 @@ export function WaterQualityRecordPage() {
         CREATE_WQ_MUTATION, { input },
       ),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['equipment-params', selectedEquipmentId] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'equipment-params', selectedEquipmentId) });
     },
   });
 

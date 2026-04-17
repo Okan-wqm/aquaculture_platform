@@ -17,6 +17,7 @@
 
 import { useCallback, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 import { useAuth } from './useAuth';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import { DIRECT_CHANNEL, CREATE_CHANNEL } from '@/graphql/messaging-operations';
@@ -26,7 +27,7 @@ import type { Channel, ChannelType, CreateChannelInput } from '@/types/messaging
  * Channel creation hook for DM and group channel flows.
  */
 export function useCreateChannel() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, tenantId } = useAuth();
   const queryClient = useQueryClient();
   const [error, setError] = useState<Error | null>(null);
 
@@ -42,7 +43,7 @@ export function useCreateChannel() {
       return result.directChannel;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['messaging', 'channels'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
       setError(null);
     },
     onError: (err: Error) => {
@@ -67,7 +68,7 @@ export function useCreateChannel() {
       return result.createChannel;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['messaging', 'channels'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
       setError(null);
     },
     onError: (err: Error) => {
@@ -93,7 +94,7 @@ export function useCreateChannel() {
       return result.createChannel;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['messaging', 'channels'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
       setError(null);
     },
     onError: (err: Error) => {

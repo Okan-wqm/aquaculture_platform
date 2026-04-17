@@ -16,6 +16,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import { useQuery } from '@tanstack/react-query';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 import {
   ArrowLeft,
   ArrowLeftRight,
@@ -114,7 +115,7 @@ export function StockTransferPage() {
   // ---- Data fetching -------------------------------------------------------
 
   const { data: itemsData, isLoading: itemsLoading } = useQuery<StorageItem[]>({
-    queryKey: ['storage-items', selectedItemType, tenantId],
+    queryKey: createTenantQueryKey(tenantId, 'storage-items', selectedItemType, tenantId),
     queryFn: async () => {
       const result = await graphqlRequest<{ storageItems: { items: StorageItem[] } }>(
         STORAGE_ITEMS_QUERY,
@@ -131,7 +132,7 @@ export function StockTransferPage() {
   const items = itemsData ?? [];
 
   const { data: locationsData, isLoading: locationsLoading } = useQuery<StorageLocation[]>({
-    queryKey: ['storage-locations', tenantId],
+    queryKey: createTenantQueryKey(tenantId, 'storage-locations', tenantId),
     queryFn: async () => {
       const result = await graphqlRequest<{ storageLocations: { items: StorageLocation[] } }>(
         STORAGE_LOCATIONS_QUERY,

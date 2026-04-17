@@ -5,8 +5,9 @@
 /**
  * WHY: Provides the list of users within the current tenant for the NewChatPage
  * user picker. Uses the UserPresence query (which returns user details including
- * online status) as a pragmatic approach -- the messaging-service can resolve
- * tenant users through the auth-service federation.
+ * online status) so one round-trip covers both identity + presence — the
+ * messaging-service resolves tenant users through the auth-service federation
+ * on this path, avoiding a second query for online state.
  *
  * Falls back to a lightweight tenant-scoped user query if available. The hook
  * filters out the current user and provides search-friendly user data.
@@ -17,6 +18,7 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 import { useAuth } from './useAuth';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { MessageUser } from '@/types/messaging';
@@ -79,7 +81,7 @@ export function useTenantUsers() {
   const { isAuthenticated, tenantId } = useAuth();
 
   const query = useQuery({
-    queryKey: ['messaging', 'tenantUsers', tenantId],
+    queryKey: createTenantQueryKey(tenantId, 'messaging', 'tenantUsers', tenantId),
     queryFn: fetchTenantUsers,
     enabled: isAuthenticated && !!tenantId,
     staleTime: 60_000,

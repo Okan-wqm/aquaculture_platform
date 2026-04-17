@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 import { useAuth } from './useAuth';
 import { cacheData, getCachedData } from '@/pwa/offline-queue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
@@ -46,7 +47,7 @@ export function useWarehouseSummary(): {
   const { data, isLoading } = useQuery<WarehouseSummary>({
     // WHY tenantId in queryKey: prevents cross-tenant cache collisions
     // in multi-tenant scenarios.
-    queryKey: ['warehouseSummary', tenantId],
+    queryKey: createTenantQueryKey(tenantId, 'warehouseSummary', tenantId),
     queryFn: async () => {
       try {
         const result = await graphqlRequest<WarehouseSummaryResponse>(

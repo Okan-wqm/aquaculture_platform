@@ -18,6 +18,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 import { useAuth } from './useAuth';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import { cacheData, getCachedData } from '@/pwa/offline-queue';
@@ -101,7 +102,7 @@ export function useChannels(socketRef?: React.RefObject<{ on: (event: string, ha
     if (!socket) return;
 
     const handleChannelUpdated = () => {
-      queryClient.invalidateQueries({ queryKey: ['messaging', 'channels'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
     };
 
     socket.on('channelUpdated', handleChannelUpdated);

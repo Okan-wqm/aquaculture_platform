@@ -15,6 +15,7 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 import { useAuth } from './useAuth';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import { TOTAL_UNREAD_MESSAGE_COUNT } from '@/graphql/messaging-operations';
@@ -35,7 +36,7 @@ export function useUnreadCount() {
   const { isAuthenticated, tenantId } = useAuth();
 
   const query = useQuery({
-    queryKey: ['messaging', 'unreadCount', tenantId],
+    queryKey: createTenantQueryKey(tenantId, 'messaging', 'unreadCount', tenantId),
     queryFn: async () => {
       const result = await graphqlRequest<{ totalUnreadMessageCount: number }>(
         TOTAL_UNREAD_MESSAGE_COUNT,

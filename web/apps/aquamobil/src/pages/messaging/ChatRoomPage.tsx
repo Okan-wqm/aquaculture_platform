@@ -12,6 +12,7 @@ import {
 } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 import {
   ArrowLeft,
   Settings,
@@ -71,7 +72,7 @@ function senderColorIndex(senderId: string): number {
 export function ChatRoomPage() {
   const navigate = useNavigate();
   const { channelId } = useParams<{ channelId: string }>();
-  const { user } = useAuth();
+  const { user, tenantId } = useAuth();
   const queryClient = useQueryClient();
 
   // Real hooks -- wired to backend
@@ -175,7 +176,7 @@ export function ChatRoomPage() {
       await graphqlRequest(DELETE_MESSAGE, { id: messageId });
       // Invalidate message cache so the deleted message disappears
       queryClient.invalidateQueries({
-        queryKey: ['messaging', 'messages', channelId],
+        queryKey: createTenantQueryKey(tenantId, 'messaging', 'messages', channelId),
       });
     } else {
       // Queue for offline sync — the main queue supports 'deleteMessage'

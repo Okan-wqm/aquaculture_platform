@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 import { useAuth } from './useAuth';
 import { cacheData, getCachedData } from '@/pwa/offline-queue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
@@ -115,7 +116,7 @@ export function useMySchedule(weekOffset = 0) {
   const cacheKey = `schedule_${weekStartDate}`;
 
   return useQuery({
-    queryKey: ['mySchedule', user?.id, weekStartDate],
+    queryKey: createTenantQueryKey(tenantId, 'mySchedule', user?.id, weekStartDate),
     queryFn: async () => {
       if (!accessToken || !tenantId || !user?.id) {
         throw new Error('Not authenticated');

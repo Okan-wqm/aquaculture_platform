@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 import { useAuth } from './useAuth';
 import { useTodaysAttendance } from './useAttendance';
 import { graphqlRequest } from '@/services/authenticated-fetch';
@@ -39,7 +40,7 @@ export function useDailyOpsStats(): { stats: DailyOpsStats; isLoading: boolean }
   }, []);
 
   const { data: feedingExecutions, isLoading: feedingLoading } = useQuery<FeedingExecutionSlice[]>({
-    queryKey: ['feedingPlan', tenantId, todayStr],
+    queryKey: createTenantQueryKey(tenantId, 'feedingPlan', tenantId, todayStr),
     queryFn: async () => {
       const result = await graphqlRequest<{ dailyFeedingExecutions: FeedingExecutionSlice[] }>(
         GET_TODAYS_FEEDING_PLAN, { date: todayStr },
@@ -53,7 +54,7 @@ export function useDailyOpsStats(): { stats: DailyOpsStats; isLoading: boolean }
 
   // Source 3: Task stats (totalToday, completedToday)
   const { data: taskStats, isLoading: taskStatsLoading } = useQuery<TaskStats>({
-    queryKey: ['taskStats', tenantId],
+    queryKey: createTenantQueryKey(tenantId, 'taskStats', tenantId),
     queryFn: async () => {
       const result = await graphqlRequest<{ taskStats: TaskStats }>(GET_TASK_STATS);
       return result.taskStats;
@@ -66,7 +67,7 @@ export function useDailyOpsStats(): { stats: DailyOpsStats; isLoading: boolean }
   // Source 4: Mortality + WQ counts (new aggregate query)
   // WHY graceful fallback: backend resolver may not be deployed yet.
   const { data: opsCounts, isLoading: opsCountsLoading } = useQuery<DailyOpsCountsResponse>({
-    queryKey: ['dailyOpsCounts', tenantId],
+    queryKey: createTenantQueryKey(tenantId, 'dailyOpsCounts', tenantId),
     queryFn: async () => {
       try {
         const result = await graphqlRequest<{ todaysDailyOpsCounts: DailyOpsCountsResponse }>(

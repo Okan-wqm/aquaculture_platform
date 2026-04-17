@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 import { useAuth } from './useAuth';
 import { cacheData, getCachedData } from '@/pwa/offline-queue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
@@ -47,7 +48,7 @@ export function useTanks() {
   const { accessToken, tenantId, isAuthenticated } = useAuth();
 
   return useQuery({
-    queryKey: ['tanks', tenantId],
+    queryKey: createTenantQueryKey(tenantId, 'tanks', tenantId),
     queryFn: async () => {
       if (!accessToken || !tenantId) {
         throw new Error('Not authenticated');

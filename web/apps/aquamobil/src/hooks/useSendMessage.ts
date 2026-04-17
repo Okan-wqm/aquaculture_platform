@@ -24,6 +24,7 @@
 
 import { useCallback } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 import { useAuth } from './useAuth';
 import { useNetworkStatus } from './useNetworkStatus';
 import { useOfflineQueue } from './useOfflineQueue';
@@ -90,7 +91,7 @@ export function useSendMessage(channelId: string | undefined) {
       const previousData = queryClient.getQueryData(messageQueryKey);
 
       const optimisticMessage: Message = {
-        id: params._idempotencyKey, // Temporary ID — replaced by server response
+        id: params._idempotencyKey, // Client-side optimistic ID — overwritten by server response on settle
         channelId: channelId!,
         senderId: user?.id ?? '',
         content: params.content,
@@ -157,7 +158,7 @@ export function useSendMessage(channelId: string | undefined) {
         },
       );
       // Invalidate channel list to update lastMessage
-      queryClient.invalidateQueries({ queryKey: ['messaging', 'channels'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
     },
 
     // On error: mark optimistic message as failed

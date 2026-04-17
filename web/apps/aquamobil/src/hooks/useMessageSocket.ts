@@ -19,6 +19,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 import { useAuth } from './useAuth';
 import type {
   NewMessageEvent,
@@ -157,9 +158,9 @@ export function useMessageSocket() {
           },
         );
         // Invalidate channel list to update lastMessage / unread counts
-        qc.invalidateQueries({ queryKey: ['messaging', 'channels'] });
+        qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
         // Increment unread count
-        qc.invalidateQueries({ queryKey: ['messaging', 'unreadCount'] });
+        qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'unreadCount') });
       });
 
       socket.on('messageUpdated', (data: unknown) => {
@@ -204,7 +205,7 @@ export function useMessageSocket() {
         const event = data as ReadReceiptEvent;
         const qc = queryClientRef.current;
         // Invalidate unread count
-        qc.invalidateQueries({ queryKey: ['messaging', 'unreadCount'] });
+        qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'unreadCount') });
         // Update receipt in message cache
         qc.setQueryData(
           ['messaging', 'messages', event.channelId, tenantId],

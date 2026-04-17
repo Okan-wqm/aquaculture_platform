@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 import { useAuth } from './useAuth';
 import { cacheData, getCachedData } from '@/pwa/offline-queue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
@@ -57,7 +58,7 @@ export function useMyAttendanceRecords(params: AttendanceRecordsParams = {}) {
   const cacheKey = `attendance-records-${startDate}-${endDate}-${limit}`;
 
   return useQuery<AttendanceRecord[]>({
-    queryKey: ['attendanceRecords', tenantId, startDate, endDate, limit],
+    queryKey: createTenantQueryKey(tenantId, 'attendanceRecords', tenantId, startDate, endDate, limit),
     queryFn: async () => {
       try {
         const result = await graphqlRequest<{
@@ -121,7 +122,7 @@ export function useMyAttendanceSummary(params: AttendanceSummaryParams = {}) {
   const cacheKey = `attendance-summary-${year}-${month}`;
 
   return useQuery<AttendanceSummary | null>({
-    queryKey: ['attendanceSummary', tenantId, month, year],
+    queryKey: createTenantQueryKey(tenantId, 'attendanceSummary', tenantId, month, year),
     queryFn: async () => {
       try {
         const result = await graphqlRequest<{
@@ -174,7 +175,7 @@ export function useTodaysAttendance(employeeId?: string) {
   return useQuery<AttendanceRecord[]>({
     // WHY employeeId in queryKey: prevents cross-employee cache collisions.
     // If a manager switches between employee views, each gets its own cache entry.
-    queryKey: ['todaysAttendance', tenantId, employeeId],
+    queryKey: createTenantQueryKey(tenantId, 'todaysAttendance', tenantId, employeeId),
     queryFn: async () => {
       try {
         const result = await graphqlRequest<{

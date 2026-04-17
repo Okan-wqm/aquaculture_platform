@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 import { useAuth } from './useAuth';
 import { useTanks } from './useTanks';
 import { graphqlRequest } from '@/services/authenticated-fetch';
@@ -38,7 +39,7 @@ export function useStockEventsSummary(): {
     data: eventsSummary,
     isLoading: eventsLoading,
   } = useQuery<StockEventsSummaryResponse>({
-    queryKey: ['stockEventsSummary', tenantId],
+    queryKey: createTenantQueryKey(tenantId, 'stockEventsSummary', tenantId),
     queryFn: async () => {
       try {
         const result = await graphqlRequest<{

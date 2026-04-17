@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 import {
   queueOperation,
   getPendingOperations,
@@ -427,8 +428,8 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
         (op) => op.type === 'createLeaveRequest' && !remainingIds.has(op.id),
       );
       if (syncedLeaveOps.length > 0) {
-        void queryClient.invalidateQueries({ queryKey: ['leaveRequests'] });
-        void queryClient.invalidateQueries({ queryKey: ['leaveBalances'] });
+        void queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'leaveRequests') });
+        void queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'leaveBalances') });
       }
 
       // BUG-07: Reset the reconnect guard after a successful sync so that

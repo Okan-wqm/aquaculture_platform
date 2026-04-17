@@ -37,8 +37,15 @@
  * queryClient.removeQueries({ queryKey: ['tenant', oldTenantId] });
  */
 export function createTenantQueryKey(
-  tenantId: string,
+  tenantId: string | null | undefined,
   ...segments: readonly unknown[]
 ): readonly unknown[] {
+  // `tenantId` is often `string | null` at the call site (useAuth() returns
+  // null before authentication resolves). The `enabled: !!tenantId` guard
+  // on every migrated useQuery prevents the resulting key from being used
+  // to dispatch a network request while null; the cache entry under
+  // ['tenant', null, ...] never materialises. Accepting the union at the
+  // signature level eliminates the Phase-8.4 migration's type-error sprawl
+  // at call sites that cannot narrow without refactoring.
   return ['tenant', tenantId, ...segments] as const;
 }

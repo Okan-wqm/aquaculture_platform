@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, ChangeEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 import { List, ListInput, BlockTitle } from 'konsta/react';
 import { ArrowLeft, Package, CheckCircle, AlertCircle, Hand, Settings, Radio } from 'lucide-react';
 import { useTanks } from '@/hooks/useTanks';
@@ -67,7 +68,7 @@ function useTodaysFeedingPlan() {
   const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
 
   const { data, isLoading, refetch } = useQuery<FeedingExecution[]>({
-    queryKey: ['feedingPlan', tenantId, dateStr],
+    queryKey: createTenantQueryKey(tenantId, 'feedingPlan', tenantId, dateStr),
     queryFn: async () => {
       if (!accessToken || !tenantId) {
         throw new Error('Not authenticated');

@@ -16,6 +16,7 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 import { useAuth } from './useAuth';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import { GET_CHANNEL } from '@/graphql/messaging-operations';
@@ -49,7 +50,7 @@ export function useChannelDetail(channelId: string | undefined) {
   const { isAuthenticated, tenantId } = useAuth();
 
   const query = useQuery({
-    queryKey: ['messaging', 'channel', channelId, tenantId],
+    queryKey: createTenantQueryKey(tenantId, 'messaging', 'channel', channelId, tenantId),
     queryFn: () => fetchChannel(channelId!),
     enabled: isAuthenticated && !!tenantId && !!channelId,
     staleTime: 30_000,

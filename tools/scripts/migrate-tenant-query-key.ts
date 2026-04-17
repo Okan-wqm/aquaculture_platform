@@ -72,41 +72,57 @@ function countBareQueryKey(content: string): number {
   return matches ? matches.length : 0;
 }
 
-/** Ensure shared-ui import has useAuth + createTenantQueryKey. */
-function ensureSharedUiImport(content: string): { content: string; added: boolean } {
+/** Ensure createTenantQueryKey + useAuth are imported.
+ *
+ * @param content - Source file text.
+ * @param importSpec - Module specifier for the helper. Defaults to
+ *                     @aquaculture/shared-ui (web/modules). aquamobil
+ *                     passes @/utils/tenant-query-keys for the local
+ *                     copy (useAuth is already ./useAuth in those
+ *                     files so no additional import is added).
+ */
+function ensureSharedUiImport(
+  content: string,
+  importSpec = '@aquaculture/shared-ui',
+): { content: string; added: boolean } {
   if (content.includes('createTenantQueryKey')) {
     return { content, added: false };
   }
 
-  // Try to extend an existing shared-ui import.
-  const existingRx = /import\s*\{([^}]+)\}\s*from\s*'@aquaculture\/shared-ui';/;
+  const sharedUiMode = importSpec === '@aquaculture/shared-ui';
+  const wantedSymbols = sharedUiMode
+    ? ['useAuth', 'createTenantQueryKey']
+    : ['createTenantQueryKey'];
+
+  // Try to extend an existing import from the same module.
+  const esc = importSpec.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+  const existingRx = new RegExp(`import\\s*\\{([^}]+)\\}\\s*from\\s*'${esc}';`);
   const match = existingRx.exec(content);
   if (match && match[1] !== undefined) {
     const symbols = match[1]
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean);
-    for (const sym of ['useAuth', 'createTenantQueryKey']) {
+    for (const sym of wantedSymbols) {
       if (!symbols.includes(sym)) symbols.push(sym);
     }
-    const newImport = `import { ${symbols.join(', ')} } from '@aquaculture/shared-ui';`;
+    const newImport = `import { ${symbols.join(', ')} } from '${importSpec}';`;
     return {
       content: content.replace(match[0], newImport),
       added: true,
     };
   }
 
-  // No shared-ui import — insert a new line after @tanstack/react-query.
+  // No existing import — insert a new line after @tanstack/react-query.
   const anchorRx = /^(import\s+\{[^}]+\}\s+from\s+'@tanstack\/react-query';)$/m;
   const anchor = anchorRx.exec(content);
   if (anchor) {
-    const insertion = `${anchor[0]}\nimport { useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';`;
+    const insertion = `${anchor[0]}\nimport { ${wantedSymbols.join(', ')} } from '${importSpec}';`;
     return {
       content: content.replace(anchor[0], insertion),
       added: true,
     };
   }
-  // Last resort: prepend at the top after any `'use client'` directive.
   return { content, added: false };
 }
 
@@ -223,12 +239,12 @@ function ensureEnabledGuard(content: string): string {
   return result.join('\n');
 }
 
-function migrate(path: string): MigrationResult {
+function migrate(path: string, importSpec?: string): MigrationResult {
   const original = readFileSync(path, 'utf8');
   const bareBefore = countBareQueryKey(original);
 
   let content = original;
-  const importStep = ensureSharedUiImport(content);
+  const importStep = ensureSharedUiImport(content, importSpec);
   content = importStep.content;
   content = insertTenantIdDestructure(content);
   content = transformQueryKeys(content);
@@ -247,16 +263,32 @@ function migrate(path: string): MigrationResult {
 }
 
 function main(): void {
-  const files = process.argv.slice(2);
-  if (files.length === 0) {
+  const argv = process.argv.slice(2);
+  if (argv.length === 0) {
     // eslint-disable-next-line no-console
     console.error(
-      'Usage: ts-node tools/scripts/migrate-tenant-query-key.ts <path...>',
+      'Usage: ts-node tools/scripts/migrate-tenant-query-key.ts ' +
+        '[--import-from <spec>] <path...>',
     );
     process.exit(2);
   }
+
+  let importSpec: string | undefined;
+  const files: string[] = [];
+  for (let i = 0; i < argv.length; i += 1) {
+    const a = argv[i];
+    if (a === '--import-from') {
+      i += 1;
+      importSpec = argv[i];
+      continue;
+    }
+    if (a !== undefined) {
+      files.push(a);
+    }
+  }
+
   for (const f of files) {
-    const result = migrate(f);
+    const result = migrate(f, importSpec);
     // eslint-disable-next-line no-console
     console.log(
       `${result.path}: ${result.bareBefore} → ${result.bareAfter} bare queryKey${result.importAdded ? ' (import added)' : ''}`,

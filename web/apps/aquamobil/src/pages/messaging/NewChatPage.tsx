@@ -14,6 +14,7 @@
 import { useState, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 import {
   ArrowLeft,
   Search,
@@ -190,13 +191,13 @@ function UserRow({
  */
 export function NewChatPage() {
   const navigate = useNavigate();
-  const { user: currentUser } = useAuth();
+  const { user: currentUser, tenantId } = useAuth();
   const { users, isLoading: usersLoading, error: usersError } = useTenantUsers();
   const { createDM, createGroup, createAiChannel, isCreating } = useCreateChannel();
 
   // Fetch available AI personas for the current tenant
   const { data: aiPersonas = [] } = useQuery({
-    queryKey: ['messaging', 'aiPersonas'],
+    queryKey: createTenantQueryKey(tenantId, 'messaging', 'aiPersonas'),
     queryFn: async () => {
       const result = await graphqlRequest<{ availableAiPersonas: AiPersona[] }>(
         AVAILABLE_AI_PERSONAS,
@@ -204,6 +205,7 @@ export function NewChatPage() {
       return result.availableAiPersonas ?? [];
     },
     staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+    enabled: !!tenantId,
   });
 
   const [searchQuery, setSearchQuery] = useState('');

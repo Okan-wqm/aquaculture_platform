@@ -101,12 +101,14 @@ export default createRule<Options, MessageIds>({
           return;
         }
 
-        const optionsArg =
-          args.length === 1 && args[0].type === 'ObjectExpression'
-            ? args[0]
-            : args.length >= 2 && args[1].type === 'ObjectExpression'
-              ? args[1]
-              : null;
+        const firstArg = args[0];
+        const secondArg = args[1];
+        let optionsArg: TSESTree.ObjectExpression | null = null;
+        if (args.length === 1 && firstArg && firstArg.type === 'ObjectExpression') {
+          optionsArg = firstArg;
+        } else if (args.length >= 2 && secondArg && secondArg.type === 'ObjectExpression') {
+          optionsArg = secondArg;
+        }
 
         if (!optionsArg) {
           context.report({ node, messageId: 'missingSchemaOption' });
@@ -114,7 +116,7 @@ export default createRule<Options, MessageIds>({
         }
 
         const schemaProp = optionsArg.properties.find(
-          (p) =>
+          (p: TSESTree.ObjectLiteralElement): boolean =>
             p.type === 'Property' &&
             p.key.type === 'Identifier' &&
             p.key.name === 'schema',

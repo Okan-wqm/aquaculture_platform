@@ -3,7 +3,8 @@
   "compilerOptions": {
     "outDir": "./dist",
     "rootDir": ".",
-    "module": "commonjs",
+    "module": "node16",
+    "moduleResolution": "node16",
     "target": "es2022",
     "declaration": true,
     "declarationMap": true,
@@ -11,7 +12,8 @@
     "strict": true,
     "skipLibCheck": true,
     "esModuleInterop": true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    "ignoreDeprecations": "6.0"
   },
   "include": ["index.ts", "rules/**/*.ts"],
   "exclude": ["node_modules", "dist", "**/*.spec.ts", "**/*.test.ts"]

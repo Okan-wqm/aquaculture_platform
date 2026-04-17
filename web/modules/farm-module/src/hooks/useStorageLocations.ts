@@ -2,7 +2,7 @@
  * Storage Locations hooks for farm-module
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
 
 export enum StorageLocationType {
   WAREHOUSE = 'WAREHOUSE',
@@ -155,7 +155,7 @@ export function useStorageLocationList(filter?: {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['storageLocations', 'list', filter],
+    queryKey: createTenantQueryKey(tenantId, 'storageLocations', 'list', filter),
     queryFn: async () => {
       const data = await graphqlClient.request<{ storageLocations: PaginatedResponse }>(
         STORAGE_LOCATIONS_LIST_QUERY,
@@ -172,7 +172,7 @@ export function useStorageLocation(id: string) {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['storageLocations', 'detail', id],
+    queryKey: createTenantQueryKey(tenantId, 'storageLocations', 'detail', id),
     queryFn: async () => {
       const data = await graphqlClient.request<{ storageLocation: StorageLocation }>(
         STORAGE_LOCATION_QUERY,
@@ -200,8 +200,8 @@ export function useCreateStorageLocation() {
       return data.createStorageLocation;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['storageLocations', 'list'] });
-      queryClient.invalidateQueries({ queryKey: ['storageOverview'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'storageLocations', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'storageOverview') });
     },
   });
 }
@@ -221,9 +221,9 @@ export function useUpdateStorageLocation() {
       return data.updateStorageLocation;
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['storageLocations', 'list'] });
-      queryClient.invalidateQueries({ queryKey: ['storageLocations', 'detail', variables.id] });
-      queryClient.invalidateQueries({ queryKey: ['storageOverview'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'storageLocations', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'storageLocations', 'detail', variables.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'storageOverview') });
     },
   });
 }
@@ -243,8 +243,8 @@ export function useDeleteStorageLocation() {
       return data.deleteStorageLocation;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['storageLocations', 'list'] });
-      queryClient.invalidateQueries({ queryKey: ['storageOverview'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'storageLocations', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'storageOverview') });
     },
   });
 }

@@ -13,17 +13,7 @@ import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import {
-  Card,
-  Button,
-  Input,
-  Textarea,
-  Alert,
-  Switch,
-  DatePicker,
-  MultiSelect,
-  MultiSelectOption,
-} from '@aquaculture/shared-ui';
+import { Card, Button, Input, Textarea, Alert, Switch, DatePicker, MultiSelect, MultiSelectOption, useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';
 import { useAuth, graphqlClient } from '@aquaculture/shared-ui';
 import { useEquipmentList } from '../../hooks/useEquipment';
 import { useFeedList, FeedingMatrix2D, Feed } from '../../hooks/useFeeds';
@@ -214,7 +204,7 @@ function useFeedingProgram(id: string | undefined) {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['feeding-program', id],
+    queryKey: createTenantQueryKey(tenantId, 'feeding-program', id),
     queryFn: async () => {
       if (!id) throw new Error('Program ID required');
       const data = await graphqlClient.request<{ feedingProgram: FeedingProgram }>(
@@ -251,7 +241,7 @@ function useCreateFeedingProgram() {
       return data.createFeedingProgram;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['feeding-programs'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feeding-programs') });
     },
   });
 }
@@ -279,8 +269,8 @@ function useUpdateFeedingProgram() {
       return data.updateFeedingProgram;
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['feeding-programs'] });
-      queryClient.invalidateQueries({ queryKey: ['feeding-program', variables.id] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feeding-programs') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feeding-program', variables.id) });
     },
   });
 }

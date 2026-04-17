@@ -10,6 +10,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';
 import { graphqlFetch } from '../config/api';
 import {
   ALERT_RULE_QUERY,
@@ -89,8 +90,9 @@ export interface UpdateAlertRuleInput {
  * Hook to fetch a single alert rule by ID
  */
 export function useAlertRule(id: string) {
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: ['alertRule', id],
+    queryKey: createTenantQueryKey(tenantId, 'alertRule', id),
     queryFn: async () => {
       const data = await graphqlFetch<{ alertRule: AlertRule }>(
         ALERT_RULE_QUERY,
@@ -99,7 +101,7 @@ export function useAlertRule(id: string) {
       return data.alertRule;
     },
     staleTime: 30000,
-    enabled: !!id,
+    enabled: !!id && !!tenantId,
   });
 }
 
@@ -108,7 +110,7 @@ export function useAlertRule(id: string) {
  */
 export function useAlertRules(filter?: AlertRulesFilter) {
   return useQuery({
-    queryKey: ['alertRules', filter],
+    queryKey: createTenantQueryKey(tenantId, 'alertRules', filter),
     queryFn: async () => {
       const vars: Record<string, unknown> = {};
       if (filter?.farmId) vars.farmId = filter.farmId;
@@ -122,6 +124,7 @@ export function useAlertRules(filter?: AlertRulesFilter) {
       return data.alertRules;
     },
     staleTime: 30000,
+    enabled: !!tenantId,
   });
 }
 
@@ -135,6 +138,7 @@ export function useAlertRules(filter?: AlertRulesFilter) {
 export function useCreateAlertRule() {
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async (input: CreateAlertRuleInput) => {
       const data = await graphqlFetch<{ createAlertRule: AlertRule }>(
@@ -144,7 +148,7 @@ export function useCreateAlertRule() {
       return data.createAlertRule;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['alertRules'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'alertRules') });
     },
   });
 }
@@ -164,8 +168,8 @@ export function useUpdateAlertRule() {
       return data.updateAlertRule;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['alertRules'] });
-      queryClient.invalidateQueries({ queryKey: ['alertRule', data.id] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'alertRules') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'alertRule', data.id) });
     },
   });
 }
@@ -176,6 +180,7 @@ export function useUpdateAlertRule() {
 export function useDeleteAlertRule() {
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async (ruleId: string) => {
       const data = await graphqlFetch<{ deleteAlertRule: boolean }>(
@@ -185,7 +190,7 @@ export function useDeleteAlertRule() {
       return data.deleteAlertRule;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['alertRules'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'alertRules') });
     },
   });
 }
@@ -205,8 +210,8 @@ export function useToggleAlertRule() {
       return data.updateAlertRule;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['alertRules'] });
-      queryClient.invalidateQueries({ queryKey: ['alertRule', data.id] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'alertRules') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'alertRule', data.id) });
     },
   });
 }

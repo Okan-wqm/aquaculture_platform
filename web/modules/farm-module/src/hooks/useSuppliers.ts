@@ -3,7 +3,7 @@
  * Handles CRUD operations for suppliers via GraphQL API
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
 
 // Enums - Values must be UPPERCASE to match GraphQL enum keys
 export enum SupplierType {
@@ -249,7 +249,7 @@ export function useSupplierList(filter?: {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['suppliers', 'list', filter],
+    queryKey: createTenantQueryKey(tenantId, 'suppliers', 'list', filter),
     queryFn: async () => {
       const data = await graphqlClient.request<{ suppliers: PaginatedResponse }>(
         SUPPLIERS_LIST_QUERY,
@@ -269,7 +269,7 @@ export function useSupplier(id: string) {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['suppliers', 'detail', id],
+    queryKey: createTenantQueryKey(tenantId, 'suppliers', 'detail', id),
     queryFn: async () => {
       const data = await graphqlClient.request<{ supplier: Supplier }>(
         SUPPLIER_QUERY,
@@ -304,7 +304,7 @@ export function useCreateSupplier() {
       return data.createSupplier;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['suppliers', 'list'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'suppliers', 'list') });
     },
   });
 }
@@ -331,8 +331,8 @@ export function useUpdateSupplier() {
       return data.updateSupplier;
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['suppliers', 'list'] });
-      queryClient.invalidateQueries({ queryKey: ['suppliers', 'detail', variables.id] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'suppliers', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'suppliers', 'detail', variables.id) });
     },
   });
 }
@@ -359,7 +359,7 @@ export function useDeleteSupplier() {
       return data.deleteSupplier;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['suppliers', 'list'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'suppliers', 'list') });
     },
   });
 }
@@ -371,7 +371,7 @@ export function useSupplierTypes() {
   const { token } = useAuth();
 
   return useQuery({
-    queryKey: ['suppliers', 'types'],
+    queryKey: createTenantQueryKey(tenantId, 'suppliers', 'types'),
     queryFn: async () => {
       const data = await graphqlClient.request<{ supplierTypes: SupplierTypeResponse[] }>(
         SUPPLIER_TYPES_QUERY,

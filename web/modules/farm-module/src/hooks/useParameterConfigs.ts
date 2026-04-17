@@ -3,7 +3,7 @@
  * Handles CRUD operations for water quality parameter configurations via GraphQL API
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // TYPES
@@ -232,8 +232,9 @@ const REORDER_PARAMETER_CONFIGS = `
 export function useParameterConfigList(filter?: ParameterConfigFilter) {
   const { token } = useAuth();
 
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: ['parameterConfigs', 'list', filter],
+    queryKey: createTenantQueryKey(tenantId, 'parameterConfigs', 'list', filter),
     queryFn: async () => {
       const response = await graphqlClient.request<{
         parameterConfigs: ParameterConfig[];
@@ -252,7 +253,7 @@ export function useParameterConfig(id: string | null) {
   const { token } = useAuth();
 
   return useQuery({
-    queryKey: ['parameterConfigs', 'detail', id],
+    queryKey: createTenantQueryKey(tenantId, 'parameterConfigs', 'detail', id),
     queryFn: async () => {
       if (!id) return null;
       const response = await graphqlClient.request<{
@@ -271,8 +272,9 @@ export function useParameterConfig(id: string | null) {
 export function useParameterConfigByCode(code: string | null) {
   const { token } = useAuth();
 
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: ['parameterConfigs', 'byCode', code],
+    queryKey: createTenantQueryKey(tenantId, 'parameterConfigs', 'byCode', code),
     queryFn: async () => {
       if (!code) return null;
       const response = await graphqlClient.request<{
@@ -292,7 +294,7 @@ export function useParameterTemplates() {
   const { token } = useAuth();
 
   return useQuery({
-    queryKey: ['parameterConfigs', 'templates'],
+    queryKey: createTenantQueryKey(tenantId, 'parameterConfigs', 'templates'),
     queryFn: async () => {
       const response = await graphqlClient.request<{
         parameterTemplates: ParameterTemplate[];
@@ -311,6 +313,7 @@ export function useCreateParameterConfig() {
   const { token } = useAuth();
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async (input: CreateParameterConfigInput) => {
       const response = await graphqlClient.request<{
@@ -319,7 +322,7 @@ export function useCreateParameterConfig() {
       return response.createParameterConfig;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['parameterConfigs'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'parameterConfigs') });
     },
   });
 }
@@ -339,7 +342,7 @@ export function useUpdateParameterConfig() {
       return response.updateParameterConfig;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['parameterConfigs'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'parameterConfigs') });
     },
   });
 }
@@ -351,6 +354,7 @@ export function useDeleteParameterConfig() {
   const { token } = useAuth();
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async (id: string) => {
       const response = await graphqlClient.request<{
@@ -359,7 +363,7 @@ export function useDeleteParameterConfig() {
       return response.deleteParameterConfig;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['parameterConfigs'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'parameterConfigs') });
     },
   });
 }
@@ -379,7 +383,7 @@ export function useApplyParameterTemplate() {
       return response.applyParameterTemplate;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['parameterConfigs'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'parameterConfigs') });
     },
   });
 }
@@ -391,6 +395,7 @@ export function useReorderParameterConfigs() {
   const { token } = useAuth();
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async (orderedIds: string[]) => {
       const response = await graphqlClient.request<{
@@ -399,7 +404,7 @@ export function useReorderParameterConfigs() {
       return response.reorderParameterConfigs;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['parameterConfigs'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'parameterConfigs') });
     },
   });
 }

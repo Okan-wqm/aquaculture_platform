@@ -4,7 +4,7 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
-import { useAuth } from '@aquaculture/shared-ui';
+import { useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';
 import { graphqlFetch } from '../config/api';
 
 // Types
@@ -105,8 +105,9 @@ const SYSTEMS_BY_DEPARTMENT_QUERY = `
 export function useSiteList(filter?: { isActive?: boolean; status?: string }) {
   const { token } = useAuth();
 
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: ['sites', 'list', filter],
+    queryKey: createTenantQueryKey(tenantId, 'sites', 'list', filter),
     queryFn: async () => {
       const data = await graphqlFetch<{ sites: PaginatedSiteResponse }>(
         SITES_LIST_QUERY,
@@ -126,7 +127,7 @@ export function useDepartmentsBySite(siteId: string) {
   const { token } = useAuth();
 
   return useQuery({
-    queryKey: ['departments', 'bySite', siteId],
+    queryKey: createTenantQueryKey(tenantId, 'departments', 'bySite', siteId),
     queryFn: async () => {
       const data = await graphqlFetch<{ departmentsBySite: Department[] }>(
         DEPARTMENTS_BY_SITE_QUERY,
@@ -145,8 +146,9 @@ export function useDepartmentsBySite(siteId: string) {
 export function useSystemsByDepartment(departmentId: string) {
   const { token } = useAuth();
 
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: ['systems', 'byDepartment', departmentId],
+    queryKey: createTenantQueryKey(tenantId, 'systems', 'byDepartment', departmentId),
     queryFn: async () => {
       const data = await graphqlFetch<{ systemsByDepartment: System[] }>(
         SYSTEMS_BY_DEPARTMENT_QUERY,

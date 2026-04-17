@@ -8,7 +8,7 @@
  * - React Query for caching and invalidation
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
 import {
   HARVEST_PLANS_QUERY,
   HARVEST_PLAN_QUERY,
@@ -385,7 +385,7 @@ export function useHarvestPlanList(filter?: HarvestPlanFilterInput) {
   const { token, tenantId, isAuthenticated, isLoading: authLoading } = useAuth();
 
   return useQuery({
-    queryKey: [HARVEST_PLANS_KEY, 'list', tenantId, filter],
+    queryKey: createTenantQueryKey(tenantId, HARVEST_PLANS_KEY, 'list', tenantId, filter),
     queryFn: async () => {
       if (!tenantId) {
         throw new Error('Tenant context required');
@@ -419,7 +419,7 @@ export function useHarvestPlan(id: string | null) {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: [HARVEST_PLANS_KEY, 'detail', id],
+    queryKey: createTenantQueryKey(tenantId, HARVEST_PLANS_KEY, 'detail', id),
     queryFn: async () => {
       const data = await graphqlClient.request<{ harvestPlan: HarvestPlan }>(
         HARVEST_PLAN_QUERY,
@@ -439,7 +439,7 @@ export function useHarvestPlanByCode(planCode: string | null) {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: [HARVEST_PLANS_KEY, 'byCode', planCode],
+    queryKey: createTenantQueryKey(tenantId, HARVEST_PLANS_KEY, 'byCode', planCode),
     queryFn: async () => {
       const data = await graphqlClient.request<{ harvestPlanByCode: HarvestPlan }>(
         HARVEST_PLAN_BY_CODE_QUERY,
@@ -459,7 +459,7 @@ export function useHarvestPlansByBatch(batchId: string | null, activeOnly = fals
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: [HARVEST_PLANS_KEY, 'byBatch', batchId, activeOnly],
+    queryKey: createTenantQueryKey(tenantId, HARVEST_PLANS_KEY, 'byBatch', batchId, activeOnly),
     queryFn: async () => {
       const data = await graphqlClient.request<{ harvestPlansByBatch: HarvestPlan[] }>(
         HARVEST_PLANS_BY_BATCH_QUERY,
@@ -479,7 +479,7 @@ export function useUpcomingHarvestPlans(days = 30) {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: [HARVEST_PLANS_KEY, 'upcoming', days],
+    queryKey: createTenantQueryKey(tenantId, HARVEST_PLANS_KEY, 'upcoming', days),
     queryFn: async () => {
       const data = await graphqlClient.request<{ upcomingHarvestPlans: HarvestPlan[] }>(
         UPCOMING_HARVEST_PLANS_QUERY,
@@ -499,7 +499,7 @@ export function useOverdueHarvestPlans() {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: [HARVEST_PLANS_KEY, 'overdue'],
+    queryKey: createTenantQueryKey(tenantId, HARVEST_PLANS_KEY, 'overdue'),
     queryFn: async () => {
       const data = await graphqlClient.request<{ overdueHarvestPlans: HarvestPlan[] }>(
         OVERDUE_HARVEST_PLANS_QUERY
@@ -518,7 +518,7 @@ export function useHarvestPlanStats() {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: [HARVEST_PLANS_KEY, 'stats'],
+    queryKey: createTenantQueryKey(tenantId, HARVEST_PLANS_KEY, 'stats'),
     queryFn: async () => {
       const data = await graphqlClient.request<{ harvestPlanStats: HarvestPlanStats }>(
         HARVEST_PLAN_STATS_QUERY
@@ -540,7 +540,7 @@ function invalidateAllHarvestPlanQueries(queryClient: ReturnType<typeof useQuery
       Array.isArray(query.queryKey) && query.queryKey[0] === HARVEST_PLANS_KEY,
   });
   // Also invalidate batches since harvest operations can affect batch state
-  queryClient.invalidateQueries({ queryKey: ['batches'] });
+  queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'batches') });
 }
 
 // ============================================================================

@@ -8,7 +8,7 @@
  * - React Query for caching and invalidation
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
 import {
   CONFIGURATIONS_QUERY,
   CONFIGURATION_QUERY,
@@ -58,7 +58,7 @@ export function useConfigurations(type?: string) {
   const { token, tenantId, isAuthenticated, isLoading: authLoading } = useAuth();
 
   return useQuery({
-    queryKey: [HYDRO_CONFIG_KEY, 'list', tenantId, type],
+    queryKey: createTenantQueryKey(tenantId, HYDRO_CONFIG_KEY, 'list', tenantId, type),
     queryFn: async () => {
       if (!tenantId) {
         throw new Error('Tenant context required');
@@ -92,7 +92,7 @@ export function useConfiguration(id: string | null) {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: [HYDRO_CONFIG_KEY, 'detail', id],
+    queryKey: createTenantQueryKey(tenantId, HYDRO_CONFIG_KEY, 'detail', id),
     queryFn: async () => {
       const data = await graphqlClient.request<{ hydroponicsConfiguration: HydroponicsConfig }>(
         CONFIGURATION_QUERY,

@@ -5,7 +5,7 @@
  * transformed into ParameterFieldConfig[] ready for DynamicMeasurementForm.
  */
 import { useQuery } from '@tanstack/react-query';
-import { useAuth, graphqlClient } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
 import type { ParameterFieldConfig } from '@aquaculture/farm-shared';
 
 // ============================================================================
@@ -69,8 +69,9 @@ interface EquipmentParameterMapping {
 export function useEquipmentParameterConfigs(equipmentId: string | null) {
   const { token } = useAuth();
 
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: ['equipmentParameterConfigs', equipmentId],
+    queryKey: createTenantQueryKey(tenantId, 'equipmentParameterConfigs', equipmentId),
     queryFn: async (): Promise<ParameterFieldConfig[]> => {
       if (!equipmentId) return [];
       const response = await graphqlClient.request<{

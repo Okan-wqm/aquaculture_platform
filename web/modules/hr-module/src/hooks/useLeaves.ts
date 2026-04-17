@@ -4,6 +4,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';
 import { useGraphQLClient, graphqlRequest } from './useGraphQL';
 import {
   GET_LEAVE_TYPES,
@@ -64,6 +65,7 @@ export const leaveKeys = {
 export function useLeaveTypes(filter?: { category?: string; isActive?: boolean }) {
   const client = useGraphQLClient();
 
+  const { tenantId } = useAuth();
   return useQuery({
     queryKey: leaveKeys.types(),
     queryFn: () =>
@@ -100,6 +102,7 @@ export function useLeaveBalances(employeeId: string, year: number) {
 export function useLeaveBalanceSummary(employeeId: string, year: number) {
   const client = useGraphQLClient();
 
+  const { tenantId } = useAuth();
   return useQuery({
     queryKey: leaveKeys.balanceSummary(employeeId, year),
     queryFn: () =>
@@ -155,6 +158,7 @@ export function useLeaveRequests(
 export function useLeaveRequest(id: string) {
   const client = useGraphQLClient();
 
+  const { tenantId } = useAuth();
   return useQuery({
     queryKey: leaveKeys.requestDetail(id),
     queryFn: () =>
@@ -164,7 +168,7 @@ export function useLeaveRequest(id: string) {
         { id }
       ),
     select: (data) => data.leaveRequest,
-    enabled: !!id,
+    enabled: !!id && !!tenantId,
   });
 }
 
@@ -189,6 +193,7 @@ export function useMyLeaveRequests(
 export function usePendingLeaveApprovals(approverId: string) {
   const client = useGraphQLClient();
 
+  const { tenantId } = useAuth();
   return useQuery({
     queryKey: leaveKeys.pendingApprovals(approverId),
     queryFn: () =>
@@ -235,7 +240,7 @@ export function useCheckLeaveOverlap(
   const client = useGraphQLClient();
 
   return useQuery({
-    queryKey: ['leaveOverlap', employeeId, startDate, endDate, excludeRequestId],
+    queryKey: createTenantQueryKey(tenantId, 'leaveOverlap', employeeId, startDate, endDate, excludeRequestId),
     queryFn: () =>
       graphqlRequest<{
         checkLeaveOverlap: {
@@ -262,7 +267,7 @@ export function useCalculateLeaveDays(
   const client = useGraphQLClient();
 
   return useQuery({
-    queryKey: ['leaveDays', leaveTypeId, startDate, endDate, options],
+    queryKey: createTenantQueryKey(tenantId, 'leaveDays', leaveTypeId, startDate, endDate, options),
     queryFn: () =>
       graphqlRequest<{
         calculateLeaveDays: {
@@ -290,6 +295,7 @@ export function useCreateLeaveRequest() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: (input: CreateLeaveRequestInput) =>
       graphqlRequest<{ createLeaveRequest: LeaveRequest }, unknown>(
@@ -333,6 +339,7 @@ export function useSubmitLeaveRequest() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: (id: string) =>
       graphqlRequest<{ submitLeaveRequest: LeaveRequest }, unknown>(
@@ -366,7 +373,7 @@ export function useApproveLeaveRequest() {
       queryClient.invalidateQueries({ queryKey: leaveKeys.requests() });
       // BUG-014: use prefix invalidation so all pendingApprovals(approverId) keys are invalidated
       queryClient.invalidateQueries({
-        queryKey: [...leaveKeys.all, 'pendingApprovals'],
+        queryKey: createTenantQueryKey(tenantId, ...leaveKeys.all, 'pendingApprovals'),
         exact: false,
       });
       queryClient.invalidateQueries({
@@ -384,6 +391,7 @@ export function useRejectLeaveRequest() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: ({ id, reason }: { id: string; reason: string }) =>
       graphqlRequest<{ rejectLeaveRequest: LeaveRequest }, unknown>(
@@ -395,7 +403,7 @@ export function useRejectLeaveRequest() {
       queryClient.invalidateQueries({ queryKey: leaveKeys.requests() });
       // BUG-014: use prefix invalidation so all pendingApprovals(approverId) keys are invalidated
       queryClient.invalidateQueries({
-        queryKey: [...leaveKeys.all, 'pendingApprovals'],
+        queryKey: createTenantQueryKey(tenantId, ...leaveKeys.all, 'pendingApprovals'),
         exact: false,
       });
       queryClient.invalidateQueries({
@@ -413,6 +421,7 @@ export function useCancelLeaveRequest() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: ({ id, reason }: { id: string; reason?: string }) =>
       graphqlRequest<{ cancelLeaveRequest: LeaveRequest }, unknown>(
@@ -438,6 +447,7 @@ export function useWithdrawLeaveRequest() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: (id: string) =>
       graphqlRequest<{ withdrawLeaveRequest: LeaveRequest }, unknown>(
@@ -464,6 +474,7 @@ export function useAdjustLeaveBalance() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: ({
       employeeId,

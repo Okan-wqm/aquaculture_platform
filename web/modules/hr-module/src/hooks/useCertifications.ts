@@ -4,6 +4,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';
 import { useGraphQLClient, graphqlRequest } from './useGraphQL';
 import {
   GET_CERTIFICATION_TYPES,
@@ -92,6 +93,7 @@ export function useCertificationTypes(filter?: {
 }) {
   const client = useGraphQLClient();
 
+  const { tenantId } = useAuth();
   return useQuery({
     queryKey: certificationKeys.typeList(filter),
     queryFn: () =>
@@ -149,6 +151,7 @@ export function useExpiringCertifications(
 export function useExpiredCertifications(departmentId?: string) {
   const client = useGraphQLClient();
 
+  const { tenantId } = useAuth();
   return useQuery({
     queryKey: certificationKeys.expired(departmentId),
     queryFn: () =>
@@ -197,6 +200,7 @@ export function useAllCertifications(
 export function useCertificationComplianceReport(departmentId?: string) {
   const client = useGraphQLClient();
 
+  const { tenantId } = useAuth();
   return useQuery({
     queryKey: certificationKeys.compliance(departmentId),
     queryFn: () =>
@@ -253,6 +257,7 @@ export function useTrainingCourses(filter?: {
 }) {
   const client = useGraphQLClient();
 
+  const { tenantId } = useAuth();
   return useQuery({
     queryKey: trainingKeys.courseList(filter),
     queryFn: () =>
@@ -291,6 +296,7 @@ export function useTrainingEnrollments(
 export function useMyTrainingEnrollments(filter?: TrainingFilterInput) {
   const client = useGraphQLClient();
 
+  const { tenantId } = useAuth();
   return useQuery({
     queryKey: trainingKeys.myEnrollments(filter),
     queryFn: () =>
@@ -331,6 +337,7 @@ export function useAddEmployeeCertification() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: (input: AddEmployeeCertificationInput) =>
       graphqlRequest<{ addEmployeeCertification: EmployeeCertification }, unknown>(
@@ -361,6 +368,7 @@ export function useVerifyCertification() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: (input: VerifyCertificationInput) =>
       graphqlRequest<{ verifyCertification: EmployeeCertification }, unknown>(
@@ -404,6 +412,7 @@ export function useRenewCertification() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: ({
       certificationId,
@@ -425,7 +434,7 @@ export function useRenewCertification() {
       queryClient.invalidateQueries({
         queryKey: certificationKeys.employee(data.renewCertification.employeeId),
       });
-      queryClient.invalidateQueries({ queryKey: [...certificationKeys.all, 'expiring'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, ...certificationKeys.all, 'expiring') });
     },
   });
 }
@@ -442,6 +451,7 @@ export function useEnrollInTraining() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: (input: EnrollInTrainingInput & {
       dueDate?: string;
@@ -472,6 +482,7 @@ export function useStartTraining() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: (enrollmentId: string) =>
       graphqlRequest<{ startTraining: TrainingEnrollment }, unknown>(
@@ -520,6 +531,7 @@ export function useWithdrawFromTraining() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: ({ enrollmentId, reason }: { enrollmentId: string; reason?: string }) =>
       graphqlRequest<{ withdrawFromTraining: TrainingEnrollment }, unknown>(

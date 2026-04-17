@@ -2,7 +2,7 @@
  * Purchase Order hooks for farm-module
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
 
 // Types
 export enum PurchaseOrderCategory {
@@ -176,7 +176,7 @@ export function usePurchaseOrders(filter?: {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['purchaseOrders', 'list', filter],
+    queryKey: createTenantQueryKey(tenantId, 'purchaseOrders', 'list', filter),
     queryFn: async () => {
       const data = await graphqlClient.request<{ purchaseOrders: PaginatedPurchaseOrders }>(
         LIST_PURCHASE_ORDERS,
@@ -193,7 +193,7 @@ export function usePurchaseOrder(id?: string) {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['purchaseOrders', 'detail', id],
+    queryKey: createTenantQueryKey(tenantId, 'purchaseOrders', 'detail', id),
     queryFn: async () => {
       const data = await graphqlClient.request<{ purchaseOrder: PurchaseOrder }>(
         GET_PURCHASE_ORDER,
@@ -210,7 +210,7 @@ export function usePendingDeliveries() {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['purchaseOrders', 'pending'],
+    queryKey: createTenantQueryKey(tenantId, 'purchaseOrders', 'pending'),
     queryFn: async () => {
       const data = await graphqlClient.request<{ pendingDeliveries: PurchaseOrder[] }>(
         GET_PENDING_DELIVERIES
@@ -237,7 +237,7 @@ export function useCreatePurchaseOrder() {
       return data.createPurchaseOrder;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['purchaseOrders'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'purchaseOrders') });
     },
   });
 }
@@ -257,7 +257,7 @@ export function useUpdatePurchaseOrderStatus() {
       return data.updatePurchaseOrderStatus;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['purchaseOrders'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'purchaseOrders') });
     },
   });
 }
@@ -277,10 +277,10 @@ export function useReceiveDelivery() {
       return data.receiveDelivery;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['purchaseOrders'] });
-      queryClient.invalidateQueries({ queryKey: ['storageInventory'] });
-      queryClient.invalidateQueries({ queryKey: ['stockMovements'] });
-      queryClient.invalidateQueries({ queryKey: ['storageOverview'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'purchaseOrders') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'storageInventory') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'stockMovements') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'storageOverview') });
     },
   });
 }
@@ -300,7 +300,7 @@ export function useCancelPurchaseOrder() {
       return data.cancelPurchaseOrder;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['purchaseOrders'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'purchaseOrders') });
     },
   });
 }

@@ -3,7 +3,7 @@
  * Handles CRUD operations for consumables via GraphQL API
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
 
 export enum ConsumableCategory {
   NET = 'NET',
@@ -196,7 +196,7 @@ export function useConsumableList(filter?: {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['consumables', 'list', filter],
+    queryKey: createTenantQueryKey(tenantId, 'consumables', 'list', filter),
     queryFn: async () => {
       const data = await graphqlClient.request<{ consumables: PaginatedResponse }>(
         CONSUMABLES_LIST_QUERY,
@@ -213,7 +213,7 @@ export function useConsumable(id: string) {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['consumables', 'detail', id],
+    queryKey: createTenantQueryKey(tenantId, 'consumables', 'detail', id),
     queryFn: async () => {
       const data = await graphqlClient.request<{ consumable: Consumable }>(
         CONSUMABLE_QUERY,
@@ -241,7 +241,7 @@ export function useCreateConsumable() {
       return data.createConsumable;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['consumables', 'list'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'consumables', 'list') });
     },
   });
 }
@@ -261,8 +261,8 @@ export function useUpdateConsumable() {
       return data.updateConsumable;
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['consumables', 'list'] });
-      queryClient.invalidateQueries({ queryKey: ['consumables', 'detail', variables.id] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'consumables', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'consumables', 'detail', variables.id) });
     },
   });
 }
@@ -282,7 +282,7 @@ export function useDeleteConsumable() {
       return data.deleteConsumable;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['consumables', 'list'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'consumables', 'list') });
     },
   });
 }

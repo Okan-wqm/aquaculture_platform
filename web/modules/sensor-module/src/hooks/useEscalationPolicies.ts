@@ -16,6 +16,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';
 import { graphqlFetch } from '../config/api';
 import {
   ESCALATION_POLICY_QUERY,
@@ -184,6 +185,7 @@ const QUERY_KEYS = {
  * Hook to fetch a single escalation policy by ID
  */
 export function useEscalationPolicy(id: string) {
+  const { tenantId } = useAuth();
   return useQuery({
     queryKey: QUERY_KEYS.policy(id),
     queryFn: async () => {
@@ -194,7 +196,7 @@ export function useEscalationPolicy(id: string) {
       return data.escalationPolicy;
     },
     staleTime: 30000,
-    enabled: !!id,
+    enabled: !!id && !!tenantId,
   });
 }
 
@@ -203,7 +205,7 @@ export function useEscalationPolicy(id: string) {
  */
 export function useEscalationPolicies(activeOnly = false) {
   return useQuery({
-    queryKey: [...QUERY_KEYS.policies, { activeOnly }],
+    queryKey: createTenantQueryKey(tenantId, ...QUERY_KEYS.policies, { activeOnly }),
     queryFn: async () => {
       const data = await graphqlFetch<{ escalationPolicies: EscalationPolicy[] }>(
         ESCALATION_POLICIES_QUERY,
@@ -212,6 +214,7 @@ export function useEscalationPolicies(activeOnly = false) {
       return data.escalationPolicies;
     },
     staleTime: 30000,
+    enabled: !!tenantId,
   });
 }
 
@@ -219,6 +222,7 @@ export function useEscalationPolicies(activeOnly = false) {
  * Hook to fetch the default escalation policy
  */
 export function useDefaultEscalationPolicy() {
+  const { tenantId } = useAuth();
   return useQuery({
     queryKey: QUERY_KEYS.defaultPolicy,
     queryFn: async () => {
@@ -259,6 +263,7 @@ export function useCurrentOnCallUser(policyId: string) {
 export function useCreateEscalationPolicy() {
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async (input: CreateEscalationPolicyInput) => {
       const data = await graphqlFetch<{ createEscalationPolicy: EscalationPolicy }>(
@@ -302,6 +307,7 @@ export function useUpdateEscalationPolicy() {
 export function useDeleteEscalationPolicy() {
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async (policyId: string) => {
       const data = await graphqlFetch<{ deleteEscalationPolicy: boolean }>(
@@ -344,6 +350,7 @@ export function useAddSuppressionWindow() {
 export function useRemoveSuppressionWindow() {
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async ({ policyId, windowId }: { policyId: string; windowId: string }) => {
       const data = await graphqlFetch<{ removeSuppressionWindow: EscalationPolicy }>(
@@ -386,6 +393,7 @@ export function useUpdateOnCallSchedule() {
 export function useCloneEscalationPolicy() {
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async (input: ClonePolicyInput) => {
       const data = await graphqlFetch<{ cloneEscalationPolicy: EscalationPolicy }>(

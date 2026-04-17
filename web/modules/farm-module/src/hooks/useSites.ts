@@ -3,7 +3,7 @@
  * Handles CRUD operations for sites via GraphQL API
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
 
 // Types
 export interface SiteLocation {
@@ -234,7 +234,7 @@ export function useSiteList(filter?: {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['sites', 'list', tenantId, filter],
+    queryKey: createTenantQueryKey(tenantId, 'sites', 'list', tenantId, filter),
     queryFn: async () => {
       const data = await graphqlClient.request<{ sites: PaginatedResponse }>(
         SITES_LIST_QUERY,
@@ -254,7 +254,7 @@ export function useSite(id: string) {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['sites', 'detail', tenantId, id],
+    queryKey: createTenantQueryKey(tenantId, 'sites', 'detail', tenantId, id),
     queryFn: async () => {
       const data = await graphqlClient.request<{ site: Site }>(
         SITE_QUERY,
@@ -289,7 +289,7 @@ export function useCreateSite() {
       return data.createSite;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['sites', 'list'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'sites', 'list') });
     },
   });
 }
@@ -316,8 +316,8 @@ export function useUpdateSite() {
       return data.updateSite;
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['sites', 'list'] });
-      queryClient.invalidateQueries({ queryKey: ['sites', 'detail', variables.id] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'sites', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'sites', 'detail', variables.id) });
     },
   });
 }
@@ -343,7 +343,7 @@ export function useSiteDeletePreview(id: string | null) {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['sites', 'deletePreview', tenantId, id],
+    queryKey: createTenantQueryKey(tenantId, 'sites', 'deletePreview', tenantId, id),
     queryFn: async () => {
       const data = await graphqlClient.request<{ siteDeletePreview: SiteDeletePreviewResult }>(
         SITE_DELETE_PREVIEW_QUERY,
@@ -379,10 +379,10 @@ export function useDeleteSite() {
       return data.deleteSite;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['sites', 'list'] });
-      queryClient.invalidateQueries({ queryKey: ['departments', 'list'] });
-      queryClient.invalidateQueries({ queryKey: ['systems', 'list'] });
-      queryClient.invalidateQueries({ queryKey: ['equipment', 'list'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'sites', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'departments', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'systems', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'equipment', 'list') });
     },
   });
 }

@@ -3,7 +3,7 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
-import { useAuth } from '@aquaculture/shared-ui';
+import { useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';
 import { graphqlFetch } from '../config/api';
 import {
   EQUIPMENT_LIST_QUERY,
@@ -89,7 +89,7 @@ export function useEquipmentList(
   const { token } = useAuth();
 
   return useQuery({
-    queryKey: ['equipmentList', filter, pagination],
+    queryKey: createTenantQueryKey(tenantId, 'equipmentList', filter, pagination),
     queryFn: async () => {
       const data = await graphqlFetch<{ equipmentList: PaginatedEquipmentResponse }>(
         EQUIPMENT_LIST_QUERY,
@@ -108,8 +108,9 @@ export function useEquipmentList(
 export function useEquipmentTypes(filter?: { category?: string; isActive?: boolean }) {
   const { token } = useAuth();
 
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: ['equipmentTypes', filter],
+    queryKey: createTenantQueryKey(tenantId, 'equipmentTypes', filter),
     queryFn: async () => {
       const data = await graphqlFetch<{ equipmentTypes: EquipmentType[] }>(
         EQUIPMENT_TYPES_QUERY,
@@ -129,7 +130,7 @@ export function useEquipment(id: string, includeRelations = false) {
   const { token } = useAuth();
 
   return useQuery({
-    queryKey: ['equipment', id, includeRelations],
+    queryKey: createTenantQueryKey(tenantId, 'equipment', id, includeRelations),
     queryFn: async () => {
       const data = await graphqlFetch<{ equipment: Equipment }>(
         EQUIPMENT_BY_ID_QUERY,
@@ -148,8 +149,9 @@ export function useEquipment(id: string, includeRelations = false) {
 export function useEquipmentByDepartment(departmentId: string) {
   const { token } = useAuth();
 
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: ['equipmentByDepartment', departmentId],
+    queryKey: createTenantQueryKey(tenantId, 'equipmentByDepartment', departmentId),
     queryFn: async () => {
       const data = await graphqlFetch<{ equipmentByDepartment: Equipment[] }>(
         EQUIPMENT_BY_DEPARTMENT_QUERY,

@@ -4,7 +4,7 @@
  * Fetches sub-equipment of type 'feeder' for a given parent equipment (tank).
  */
 import { useQuery } from '@tanstack/react-query';
-import { useAuth, graphqlClient } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
 
 export interface TankFeeder {
   id: string;
@@ -47,7 +47,7 @@ export function useTankFeeders(tankEquipmentId: string | undefined) {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['sub-equipment', 'feeders', tenantId, tankEquipmentId],
+    queryKey: createTenantQueryKey(tenantId, 'sub-equipment', 'feeders', tenantId, tankEquipmentId),
     queryFn: async () => {
       if (!tenantId || !tankEquipmentId) return [];
 
@@ -57,6 +57,7 @@ export function useTankFeeders(tankEquipmentId: string | undefined) {
         parentEquipmentId: tankEquipmentId,
         includeInactive: false,
         category: 'feeder', // server-side category filter (PERF-013)
+    enabled: !!tenantId,
       });
 
       const allSubEquipment = data.subEquipmentByParent || [];

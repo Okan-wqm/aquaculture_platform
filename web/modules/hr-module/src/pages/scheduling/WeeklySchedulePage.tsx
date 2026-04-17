@@ -14,7 +14,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { cn, useAuth } from '@aquaculture/shared-ui';
+import { cn, useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';
 import { useQuery } from '@tanstack/react-query';
 import { useGraphQLClient, graphqlRequest } from '../../hooks/useGraphQL';
 
@@ -175,7 +175,7 @@ export function WeeklySchedulePage() {
   // PERF-003: fetch only the minimal display fields needed for scheduling grid.
   const gqlClient = useGraphQLClient();
   const { data: employeesData, isLoading: loadingEmployees } = useQuery({
-    queryKey: ['scheduling-employees'],
+    queryKey: createTenantQueryKey(tenantId, 'scheduling-employees'),
     queryFn: () =>
       graphqlRequest<{
         employees: {
@@ -195,6 +195,7 @@ export function WeeklySchedulePage() {
         }
       ),
     select: (data) => data.employees,
+    enabled: !!tenantId,
   });
 
   const employees = useMemo(() => {

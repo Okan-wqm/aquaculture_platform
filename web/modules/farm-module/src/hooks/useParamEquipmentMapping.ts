@@ -3,7 +3,7 @@
  * Handles CRUD + bulk operations for mapping water quality parameters to equipment via GraphQL API
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // TYPES
@@ -154,14 +154,16 @@ const BULK_MAP_PARAMS_TO_EQUIPMENT = `
 export function useParamEquipmentMappings(filters?: ParamEquipmentMappingFilter) {
   const { token } = useAuth();
 
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: ['paramEquipmentMappings', 'list', filters],
+    queryKey: createTenantQueryKey(tenantId, 'paramEquipmentMappings', 'list', filters),
     queryFn: async () => {
       const response = await graphqlClient.request<{
         parameterEquipmentMappings: ParamEquipmentMapping[];
       }>(GET_PARAM_EQUIPMENT_MAPPINGS, {
         equipmentId: filters?.equipmentId,
         parameterConfigId: filters?.parameterConfigId,
+    enabled: !!tenantId,
       });
       return response.parameterEquipmentMappings;
     },
@@ -177,7 +179,7 @@ export function useEquipmentParameters(equipmentId: string | null) {
   const { token } = useAuth();
 
   return useQuery({
-    queryKey: ['paramEquipmentMappings', 'equipment', equipmentId],
+    queryKey: createTenantQueryKey(tenantId, 'paramEquipmentMappings', 'equipment', equipmentId),
     queryFn: async () => {
       if (!equipmentId) return [];
       const response = await graphqlClient.request<{
@@ -196,6 +198,7 @@ export function useEquipmentParameters(equipmentId: string | null) {
 export function useCreateParamEquipmentMapping() {
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async (input: CreateParamEquipmentInput) => {
       const response = await graphqlClient.request<{
@@ -204,7 +207,7 @@ export function useCreateParamEquipmentMapping() {
       return response.createParamEquipmentMapping;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['paramEquipmentMappings'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'paramEquipmentMappings') });
     },
   });
 }
@@ -223,7 +226,7 @@ export function useUpdateParamEquipmentMapping() {
       return response.updateParamEquipmentMapping;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['paramEquipmentMappings'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'paramEquipmentMappings') });
     },
   });
 }
@@ -234,6 +237,7 @@ export function useUpdateParamEquipmentMapping() {
 export function useDeleteParamEquipmentMapping() {
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async (id: string) => {
       const response = await graphqlClient.request<{
@@ -242,7 +246,7 @@ export function useDeleteParamEquipmentMapping() {
       return response.deleteParamEquipmentMapping;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['paramEquipmentMappings'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'paramEquipmentMappings') });
     },
   });
 }
@@ -261,7 +265,7 @@ export function useBulkMapParamsToEquipment() {
       return response.bulkMapParamsToEquipment;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['paramEquipmentMappings'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'paramEquipmentMappings') });
     },
   });
 }

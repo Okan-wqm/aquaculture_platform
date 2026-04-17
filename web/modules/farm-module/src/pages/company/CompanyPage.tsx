@@ -7,7 +7,7 @@
 import React, { useState, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { gql } from 'graphql-request';
-import { graphqlClient } from '@aquaculture/shared-ui';
+import { graphqlClient, useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';
 
 const GET_REGULATORY_SETTINGS = gql`
   query GetRegulatorySettings {
@@ -67,13 +67,14 @@ export const CompanyPage: React.FC = () => {
   const [saveSuccess, setSaveSuccess] = useState(false);
 
   const { data: settingsData, isLoading } = useQuery({
-    queryKey: ['regulatorySettings'],
+    queryKey: createTenantQueryKey(tenantId, 'regulatorySettings'),
     queryFn: async () => {
       const response = await graphqlClient.request<{ regulatorySettings: RegulatorySettings }>(
         GET_REGULATORY_SETTINGS,
       );
       return response.regulatorySettings;
     },
+    enabled: !!tenantId,
   });
 
   const updateSettingsMutation = useMutation({
@@ -81,7 +82,7 @@ export const CompanyPage: React.FC = () => {
       return graphqlClient.request(UPDATE_REGULATORY_SETTINGS, { input });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['regulatorySettings'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'regulatorySettings') });
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
     },

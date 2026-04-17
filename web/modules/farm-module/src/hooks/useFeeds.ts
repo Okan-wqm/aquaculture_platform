@@ -3,7 +3,7 @@
  * Handles CRUD operations for feeds via GraphQL API
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
 
 // Enums
 export enum FeedType {
@@ -476,7 +476,7 @@ export function useFeedList(filter?: {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['feeds', 'list', tenantId, filter],
+    queryKey: createTenantQueryKey(tenantId, 'feeds', 'list', tenantId, filter),
     queryFn: async () => {
       const data = await graphqlClient.request<{ feeds: PaginatedResponse }>(
         FEEDS_LIST_QUERY,
@@ -496,7 +496,7 @@ export function useFeed(id: string) {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['feeds', 'detail', tenantId, id],
+    queryKey: createTenantQueryKey(tenantId, 'feeds', 'detail', tenantId, id),
     queryFn: async () => {
       const data = await graphqlClient.request<{ feed: Feed }>(
         FEED_QUERY,
@@ -531,7 +531,7 @@ export function useCreateFeed() {
       return data.createFeed;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['feeds', 'list'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feeds', 'list') });
     },
   });
 }
@@ -558,8 +558,8 @@ export function useUpdateFeed() {
       return data.updateFeed;
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['feeds', 'list'] });
-      queryClient.invalidateQueries({ queryKey: ['feeds', 'detail', variables.id] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feeds', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feeds', 'detail', variables.id) });
     },
   });
 }
@@ -586,7 +586,7 @@ export function useDeleteFeed() {
       return data.deleteFeed;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['feeds', 'list'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feeds', 'list') });
     },
   });
 }
@@ -598,7 +598,7 @@ export function useFeedTypes() {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['feeds', 'types', tenantId],
+    queryKey: createTenantQueryKey(tenantId, 'feeds', 'types', tenantId),
     queryFn: async () => {
       const data = await graphqlClient.request<{ feedTypes: FeedTypeResponse[] }>(
         FEED_TYPES_QUERY,
@@ -618,7 +618,7 @@ export function useFeedSuppliers() {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['feeds', 'suppliers', tenantId],
+    queryKey: createTenantQueryKey(tenantId, 'feeds', 'suppliers', tenantId),
     queryFn: async () => {
       const data = await graphqlClient.request<{ feedSuppliers: FeedSupplierBasic[] }>(
         FEED_SUPPLIERS_QUERY,

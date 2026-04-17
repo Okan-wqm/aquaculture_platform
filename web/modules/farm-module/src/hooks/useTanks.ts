@@ -3,7 +3,7 @@
  * Fetches equipment (tanks, ponds, cages) with their batch metrics from Equipment GraphQL endpoint
  */
 import { useQuery } from '@tanstack/react-query';
-import { useAuth, graphqlClient } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
 
 // Types
 export interface CleanerFishDetail {
@@ -211,7 +211,7 @@ export function useTanksList(filter?: TankFilterInput, pagination?: { page?: num
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['tanks', 'list', filter, pagination],
+    queryKey: createTenantQueryKey(tenantId, 'tanks', 'list', filter, pagination),
     queryFn: async () => {
       const data = await graphqlClient.request<{ equipmentList: TanksResponse }>(
         EQUIPMENT_WITH_BATCHES_QUERY,

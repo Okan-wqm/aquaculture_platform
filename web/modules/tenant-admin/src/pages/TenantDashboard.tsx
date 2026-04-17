@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';
 import {
   Users,
   Package,
@@ -147,7 +148,7 @@ const TenantDashboard: React.FC = () => {
 
   // Modules query
   const modulesQuery = useQuery({
-    queryKey: ['dashboard', 'modules'],
+    queryKey: createTenantQueryKey(tenantId, 'dashboard', 'modules'),
     queryFn: async () => {
       const modules = await getMyModules();
       return (modules || []).map((m: MyModule): ModuleStatus => {
@@ -162,6 +163,7 @@ const TenantDashboard: React.FC = () => {
           lastActivity: 'Active',
           icon: moduleIconMap[code] || m.icon || '📦',
         };
+    enabled: !!tenantId,
       });
     },
     staleTime: 2 * 60 * 1000,
@@ -169,21 +171,23 @@ const TenantDashboard: React.FC = () => {
 
   // Users query
   const usersQuery = useQuery({
-    queryKey: ['dashboard', 'users'],
+    queryKey: createTenantQueryKey(tenantId, 'dashboard', 'users'),
     queryFn: async () => {
       const users = await getTenantUsers();
       return users || [];
     },
     staleTime: 2 * 60 * 1000,
+    enabled: !!tenantId,
   });
 
   // Subscription query
   const subscriptionQuery = useQuery({
-    queryKey: ['dashboard', 'subscription'],
+    queryKey: createTenantQueryKey(tenantId, 'dashboard', 'subscription'),
     queryFn: async () => {
       return getMySubscription();
     },
     staleTime: 5 * 60 * 1000,
+    enabled: !!tenantId,
   });
 
   // BUG-4 FIX: Enrich module list with real user counts from usage stats
@@ -219,7 +223,7 @@ const TenantDashboard: React.FC = () => {
   );
 
   const handleRefresh = () => {
-    queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+    queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'dashboard') });
   };
 
   // Calculate stats -- prefer TanStack Query stats if available (PERF-001)

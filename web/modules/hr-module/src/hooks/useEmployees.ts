@@ -5,7 +5,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useGraphQLClient, graphqlRequest } from './useGraphQL';
-import { useAuth } from '@aquaculture/shared-ui';
+import { useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';
 import {
   GET_EMPLOYEES,
   GET_EMPLOYEE,
@@ -108,6 +108,7 @@ export function useEmployees(
 export function useEmployee(id: string) {
   const client = useGraphQLClient();
 
+  const { tenantId } = useAuth();
   return useQuery({
     queryKey: employeeKeys.detail(id),
     queryFn: () =>
@@ -117,7 +118,7 @@ export function useEmployee(id: string) {
         { id }
       ),
     select: (data) => data.employee,
-    enabled: !!id,
+    enabled: !!id && !!tenantId,
   });
 }
 
@@ -146,6 +147,7 @@ export function useEmployeeByNumber(employeeNumber: string) {
 export function useSearchEmployees(search: string, limit = 10) {
   const client = useGraphQLClient();
 
+  const { tenantId } = useAuth();
   return useQuery({
     queryKey: employeeKeys.search(search),
     queryFn: () =>
@@ -176,8 +178,9 @@ export function useSearchEmployees(search: string, limit = 10) {
 export function useHRDashboardStats() {
   const client = useGraphQLClient();
 
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: ['hrDashboardStats'],
+    queryKey: createTenantQueryKey(tenantId, 'hrDashboardStats'),
     queryFn: () =>
       graphqlRequest<{
         hrDashboardStats: {
@@ -217,6 +220,7 @@ export function useCurrentEmployeeId(): string {
 export function useDirectReports(supervisorId: string) {
   const client = useGraphQLClient();
 
+  const { tenantId } = useAuth();
   return useQuery({
     queryKey: employeeKeys.directReports(supervisorId),
     queryFn: () =>
@@ -254,6 +258,7 @@ export function useDepartments(filter?: { siteId?: string; isDeleted?: boolean }
 export function useDepartment(department: string) {
   const client = useGraphQLClient();
 
+  const { tenantId } = useAuth();
   return useQuery({
     queryKey: departmentKeys.detail(department),
     queryFn: () =>
@@ -289,6 +294,7 @@ export function usePositions(_filter?: Record<string, unknown>) {
 export function useOrganizationTree() {
   const client = useGraphQLClient();
 
+  const { tenantId } = useAuth();
   return useQuery({
     queryKey: organizationKeys.tree,
     queryFn: () =>
@@ -327,6 +333,7 @@ export function useUpdateEmployee() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: (input: UpdateEmployeeInput) =>
       graphqlRequest<{ updateEmployee: Employee }, unknown>(
@@ -372,6 +379,7 @@ export function useToggleFarmWorker() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: ({ id, isFarmWorker }: { id: string; isFarmWorker: boolean }) =>
       graphqlRequest<{ toggleFarmWorker: Employee }, unknown>(
@@ -408,6 +416,7 @@ export function useAssignEmployeeToPosition() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: ({ employeeId, position }: { employeeId: string; position: string }) =>
       graphqlRequest<{ updateEmployee: { id: string; position: string; positionId?: string } }, unknown>(
@@ -447,6 +456,7 @@ export function useCreateDepartment() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: (input: CreateDepartmentInput) =>
       graphqlRequest<{ createHRDepartment: Department }, unknown>(
@@ -482,6 +492,7 @@ export function useUpdateDepartment() {
 // =====================
 
 export function useCreatePosition() {
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async (_input: { title: string }) => {
       return { createPosition: { title: _input.title } as Position };

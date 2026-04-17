@@ -7,7 +7,7 @@
  * @module FarmModule/Hooks
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
 import {
   GROWTH_MEASUREMENT_QUERY,
   GROWTH_MEASUREMENTS_QUERY,
@@ -234,7 +234,7 @@ export function useGrowthMeasurement(id: string) {
   const { token, tenantId, isAuthenticated, isLoading: authLoading } = useAuth();
 
   return useQuery({
-    queryKey: ['growth', 'detail', id],
+    queryKey: createTenantQueryKey(tenantId, 'growth', 'detail', id),
     queryFn: async () => {
       if (!tenantId) throw new Error('Tenant context required');
       const data = await graphqlClient.request<{ growthMeasurement: GrowthMeasurement }>(
@@ -269,7 +269,7 @@ export function useGrowthMeasurements(
   const { token, tenantId, isAuthenticated, isLoading: authLoading } = useAuth();
 
   return useQuery({
-    queryKey: ['growth', 'list', tenantId, filter, pagination],
+    queryKey: createTenantQueryKey(tenantId, 'growth', 'list', tenantId, filter, pagination),
     queryFn: async () => {
       if (!tenantId) throw new Error('Tenant context required');
       const data = await graphqlClient.request<{ growthMeasurements: GrowthMeasurementConnection }>(
@@ -304,7 +304,7 @@ export function useGrowthAnalysis(
   const { token, tenantId, isAuthenticated, isLoading: authLoading } = useAuth();
 
   return useQuery({
-    queryKey: ['growth', 'analysis', tenantId, batchId],
+    queryKey: createTenantQueryKey(tenantId, 'growth', 'analysis', tenantId, batchId),
     queryFn: async () => {
       if (!tenantId) throw new Error('Tenant context required');
       const data = await graphqlClient.request<{ growthAnalysis: GrowthAnalysis }>(
@@ -338,7 +338,7 @@ export function useLatestGrowthMeasurement(
   const { token, tenantId, isAuthenticated, isLoading: authLoading } = useAuth();
 
   return useQuery({
-    queryKey: ['growth', 'latest', tenantId, batchId],
+    queryKey: createTenantQueryKey(tenantId, 'growth', 'latest', tenantId, batchId),
     queryFn: async () => {
       if (!tenantId) throw new Error('Tenant context required');
       const data = await graphqlClient.request<{ latestGrowthMeasurement: GrowthMeasurement | null }>(
@@ -373,7 +373,7 @@ export function useBatchGrowthHistory(
   const { token, tenantId, isAuthenticated, isLoading: authLoading } = useAuth();
 
   return useQuery({
-    queryKey: ['growth', 'history', tenantId, batchId, limit],
+    queryKey: createTenantQueryKey(tenantId, 'growth', 'history', tenantId, batchId, limit),
     queryFn: async () => {
       if (!tenantId) throw new Error('Tenant context required');
       const data = await graphqlClient.request<{ batchGrowthHistory: GrowthMeasurement[] }>(
@@ -424,9 +424,9 @@ export function useRecordGrowthSample() {
     },
     onSuccess: (_data, variables) => {
       // Invalidate all growth-related queries
-      queryClient.invalidateQueries({ queryKey: ['growth'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'growth') });
       // Also invalidate batch queries since growth affects batch weight
-      queryClient.invalidateQueries({ queryKey: ['batches'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'batches') });
     },
   });
 }
@@ -453,8 +453,8 @@ export function useUpdateBatchWeightFromSample() {
       return data.updateBatchWeightFromSample;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['growth'] });
-      queryClient.invalidateQueries({ queryKey: ['batches'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'growth') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'batches') });
     },
   });
 }
@@ -481,7 +481,7 @@ export function useVerifyMeasurement() {
       return data.verifyMeasurement;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['growth'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'growth') });
     },
   });
 }

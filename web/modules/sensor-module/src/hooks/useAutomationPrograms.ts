@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';
 import { graphqlFetch } from '../config/api';
 import { ProgramStatus } from '../utils/automation.utils';
 
@@ -62,8 +63,9 @@ const PROGRAM_VARIABLES_QUERY = `
 `;
 
 export function useAutomationPrograms() {
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: ['automationProgramsForBinding'],
+    queryKey: createTenantQueryKey(tenantId, 'automationProgramsForBinding'),
     queryFn: async () => {
       const result = await graphqlFetch<{ automationPrograms: { items: AutomationProgramSummary[] } }>(
         PROGRAMS_LIST_QUERY,
@@ -74,12 +76,13 @@ export function useAutomationPrograms() {
       };
     },
     staleTime: 30_000,
+    enabled: !!tenantId,
   });
 }
 
 export function useAutomationProgramVariables(programId: string | null) {
   return useQuery({
-    queryKey: ['automationProgramVariables', programId],
+    queryKey: createTenantQueryKey(tenantId, 'automationProgramVariables', programId),
     queryFn: () =>
       graphqlFetch<{
         automationProgram: Omit<ProgramWithVariables, 'variables'>;

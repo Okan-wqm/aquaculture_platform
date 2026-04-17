@@ -10,7 +10,7 @@
 import React, { useState, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { gql } from 'graphql-request';
-import { graphqlClient } from '@aquaculture/shared-ui';
+import { graphqlClient, useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';
 
 const GET_REGULATORY_SETTINGS = gql`
   query GetRegulatorySettings {
@@ -154,7 +154,7 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
   const [saveSuccess, setSaveSuccess] = useState(false);
 
   const { data: settingsData, isLoading } = useQuery({
-    queryKey: ['regulatorySettings'],
+    queryKey: createTenantQueryKey(tenantId, 'regulatorySettings'),
     queryFn: async () => {
       const response = await graphqlClient.request<{ regulatorySettings: RegulatorySettings }>(
         GET_REGULATORY_SETTINGS,
@@ -165,7 +165,7 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
   });
 
   const { data: statusData } = useQuery({
-    queryKey: ['regulatoryConfigurationStatus'],
+    queryKey: createTenantQueryKey(tenantId, 'regulatoryConfigurationStatus'),
     queryFn: async () => {
       const response = await graphqlClient.request<{ regulatoryConfigurationStatus: ConfigurationStatus }>(
         GET_CONFIGURATION_STATUS,
@@ -176,7 +176,7 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
   });
 
   const { data: sitesData } = useQuery({
-    queryKey: ['sites'],
+    queryKey: createTenantQueryKey(tenantId, 'sites'),
     queryFn: async () => {
       const response = await graphqlClient.request<{ sites: { items: Site[] } }>(GET_SITES);
       return response.sites.items;
@@ -189,8 +189,8 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
       return graphqlClient.request(UPDATE_REGULATORY_SETTINGS, { input });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['regulatorySettings'] });
-      queryClient.invalidateQueries({ queryKey: ['regulatoryConfigurationStatus'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'regulatorySettings') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'regulatoryConfigurationStatus') });
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
     },

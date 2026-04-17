@@ -3,7 +3,7 @@
  * Open-Meteo hava durumu ve deniz verisi için React Query hook'ları
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { graphqlClient } from '@aquaculture/shared-ui';
+import { graphqlClient, useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -190,8 +190,9 @@ const UPDATE_WEATHER_SETTINGS_MUTATION = `
  * Fetch weather forecast data for a site
  */
 export function useWeatherForecast(siteId: string | null, days: number = 7) {
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: ['weather', 'forecast', siteId, days],
+    queryKey: createTenantQueryKey(tenantId, 'weather', 'forecast', siteId, days),
     queryFn: async () => {
       const data = await graphqlClient.request<{ weatherForecast: WeatherObservation[] }>(
         WEATHER_FORECAST_QUERY,
@@ -212,7 +213,7 @@ export function useMarineForecast(siteId: string | null, days: number = 7) {
   const end = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
 
   return useQuery({
-    queryKey: ['marine', 'forecast', siteId, days],
+    queryKey: createTenantQueryKey(tenantId, 'marine', 'forecast', siteId, days),
     queryFn: async () => {
       const data = await graphqlClient.request<{ marineObservations: MarineObservation[] }>(
         MARINE_OBSERVATIONS_QUERY,
@@ -232,8 +233,9 @@ export function useMarineForecast(siteId: string | null, days: number = 7) {
  * Fetch current weather (closest observation to now)
  */
 export function useCurrentWeather(siteId: string | null) {
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: ['weather', 'current', siteId],
+    queryKey: createTenantQueryKey(tenantId, 'weather', 'current', siteId),
     queryFn: async () => {
       const data = await graphqlClient.request<{ currentWeather: CurrentWeather | null }>(
         CURRENT_WEATHER_QUERY,
@@ -251,7 +253,7 @@ export function useCurrentWeather(siteId: string | null) {
  */
 export function useWeatherSettings() {
   return useQuery({
-    queryKey: ['weatherSettings'],
+    queryKey: createTenantQueryKey(tenantId, 'weatherSettings'),
     queryFn: async () => {
       const data = await graphqlClient.request<{ weatherSettings: WeatherSettings }>(
         WEATHER_SETTINGS_QUERY,
@@ -259,6 +261,7 @@ export function useWeatherSettings() {
       return data.weatherSettings;
     },
     staleTime: 60 * 1000, // 1 minute
+    enabled: !!tenantId,
   });
 }
 
@@ -268,6 +271,7 @@ export function useWeatherSettings() {
 export function useSyncWeather() {
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async (siteId?: string) => {
       const data = await graphqlClient.request<{ syncWeatherData: WeatherSyncResult }>(
@@ -277,9 +281,9 @@ export function useSyncWeather() {
       return data.syncWeatherData;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['weather'] });
-      queryClient.invalidateQueries({ queryKey: ['marine'] });
-      queryClient.invalidateQueries({ queryKey: ['weatherSettings'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'weather') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'marine') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'weatherSettings') });
     },
   });
 }
@@ -303,7 +307,7 @@ export function useUpdateWeatherSettings() {
       return data.updateWeatherSettings;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['weatherSettings'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'weatherSettings') });
     },
   });
 }

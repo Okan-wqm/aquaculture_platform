@@ -12,6 +12,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';
 import {
   ArrowLeft,
   Save,
@@ -604,7 +605,7 @@ const AutomationProgramEditorPage: React.FC = () => {
 
   // Query
   const { data, isLoading } = useQuery({
-    queryKey: ['automationProgram', programId],
+    queryKey: createTenantQueryKey(tenantId, 'automationProgram', programId),
     queryFn: () =>
       graphqlFetch<{
         automationProgram: AutomationProgram;
@@ -658,7 +659,7 @@ const AutomationProgramEditorPage: React.FC = () => {
       graphqlFetch<{ createAutomationProgram: { id: string } }>(CREATE_PROGRAM_MUTATION, { input }),
     onSuccess: (result) => {
       showSuccess('Program created successfully');
-      queryClient.invalidateQueries({ queryKey: ['automationPrograms'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'automationPrograms') });
       navigate(`/sensor/automation/${result.createAutomationProgram.id}`, { replace: true });
     },
     onError: (error: Error) => handleMutationError(error, 'Failed to create program'),
@@ -669,7 +670,7 @@ const AutomationProgramEditorPage: React.FC = () => {
       graphqlFetch(UPDATE_PROGRAM_MUTATION, { id: programId, input }),
     onSuccess: () => {
       showSuccess('Program updated successfully');
-      queryClient.invalidateQueries({ queryKey: ['automationProgram', programId] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'automationProgram', programId) });
     },
     onError: (error: Error) => handleMutationError(error, 'Failed to save program'),
   });
@@ -678,7 +679,7 @@ const AutomationProgramEditorPage: React.FC = () => {
     mutationFn: () => graphqlFetch(SUBMIT_FOR_REVIEW_MUTATION, { id: programId }),
     onSuccess: () => {
       setErrorMessage(null);
-      queryClient.invalidateQueries({ queryKey: ['automationProgram', programId] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'automationProgram', programId) });
     },
     onError: (error: Error) => handleMutationError(error, 'Failed to submit for review'),
   });
@@ -688,7 +689,7 @@ const AutomationProgramEditorPage: React.FC = () => {
       graphqlFetch(ADD_STEP_MUTATION, { input }),
     onSuccess: () => {
       setErrorMessage(null);
-      queryClient.invalidateQueries({ queryKey: ['automationProgram', programId] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'automationProgram', programId) });
       setShowAddStep(false);
       setNewStep({ stepName: '', stepCode: '', stepOrder: (data?.programSteps?.length ?? 0) + 1, stepType: 'normal' });
     },
@@ -699,7 +700,7 @@ const AutomationProgramEditorPage: React.FC = () => {
     mutationFn: (id: string) => graphqlFetch(REMOVE_STEP_MUTATION, { id }),
     onSuccess: () => {
       setErrorMessage(null);
-      queryClient.invalidateQueries({ queryKey: ['automationProgram', programId] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'automationProgram', programId) });
     },
     onError: (error: Error) => handleMutationError(error, 'Failed to delete step'),
   });
@@ -709,7 +710,7 @@ const AutomationProgramEditorPage: React.FC = () => {
       graphqlFetch(ADD_VARIABLE_MUTATION, { input }),
     onSuccess: () => {
       setErrorMessage(null);
-      queryClient.invalidateQueries({ queryKey: ['automationProgram', programId] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'automationProgram', programId) });
       setShowAddVariable(false);
       setNewVariable({ varName: '', dataType: 'BOOL', initialValue: '', scope: 'LOCAL', ioTagName: '', ioConfigId: '' });
       setIoDeviceId('');
@@ -721,7 +722,7 @@ const AutomationProgramEditorPage: React.FC = () => {
     mutationFn: (id: string) => graphqlFetch(REMOVE_VARIABLE_MUTATION, { id }),
     onSuccess: () => {
       setErrorMessage(null);
-      queryClient.invalidateQueries({ queryKey: ['automationProgram', programId] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'automationProgram', programId) });
     },
     onError: (error: Error) => handleMutationError(error, 'Failed to delete variable'),
   });
@@ -735,7 +736,7 @@ const AutomationProgramEditorPage: React.FC = () => {
     onSuccess: (result) => {
       setErrorMessage(null);
       setSyncResult(result.syncProgramVariables);
-      queryClient.invalidateQueries({ queryKey: ['automationProgram', programId] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'automationProgram', programId) });
       // Auto-clear sync result after 5 seconds
       setTimeout(() => setSyncResult(null), 5000);
     },
@@ -751,8 +752,8 @@ const AutomationProgramEditorPage: React.FC = () => {
     onSuccess: (result) => {
       if (result.deployProgram.success) {
         showSuccess('Deployment started successfully');
-        queryClient.invalidateQueries({ queryKey: ['automationProgram', programId] });
-        queryClient.invalidateQueries({ queryKey: ['deploymentHistory'] });
+        queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'automationProgram', programId) });
+        queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'deploymentHistory') });
       } else {
         handleMutationError(new Error(result.deployProgram.error || 'Unknown error'), 'Deployment failed');
       }
@@ -764,7 +765,7 @@ const AutomationProgramEditorPage: React.FC = () => {
     mutationFn: () => graphqlFetch(APPROVE_PROGRAM_MUTATION, { id: programId }),
     onSuccess: () => {
       showSuccess('Program approved');
-      queryClient.invalidateQueries({ queryKey: ['automationProgram', programId] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'automationProgram', programId) });
     },
     onError: (error: Error) => handleMutationError(error, 'Failed to approve program'),
   });
@@ -775,7 +776,7 @@ const AutomationProgramEditorPage: React.FC = () => {
       showSuccess('Program rejected');
       setShowRejectModal(false);
       setRejectReason('');
-      queryClient.invalidateQueries({ queryKey: ['automationProgram', programId] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'automationProgram', programId) });
     },
     onError: (error: Error) => handleMutationError(error, 'Failed to reject program'),
   });
@@ -785,7 +786,7 @@ const AutomationProgramEditorPage: React.FC = () => {
       graphqlFetch(ADD_TRANSITION_MUTATION, { input }),
     onSuccess: () => {
       setErrorMessage(null);
-      queryClient.invalidateQueries({ queryKey: ['automationProgram', programId] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'automationProgram', programId) });
       setShowAddTransition(false);
       setNewTransition({ transitionCode: '', fromStepId: '', toStepId: '', conditionExpression: '', priority: 1 });
     },
@@ -796,14 +797,14 @@ const AutomationProgramEditorPage: React.FC = () => {
     mutationFn: (id: string) => graphqlFetch(REMOVE_TRANSITION_MUTATION, { id }),
     onSuccess: () => {
       setErrorMessage(null);
-      queryClient.invalidateQueries({ queryKey: ['automationProgram', programId] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'automationProgram', programId) });
     },
     onError: (error: Error) => handleMutationError(error, 'Failed to delete transition'),
   });
 
   // Deployment history query
   const { data: deploymentHistoryData } = useQuery({
-    queryKey: ['deploymentHistory', selectedDeviceId],
+    queryKey: createTenantQueryKey(tenantId, 'deploymentHistory', selectedDeviceId),
     queryFn: () =>
       graphqlFetch<{ deploymentHistory: { items: DeploymentRecord[]; total: number; hasNextPage: boolean; hasPreviousPage: boolean; totalPages: number } }>(
         DEPLOYMENT_HISTORY_QUERY,

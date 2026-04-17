@@ -3,7 +3,7 @@
  * Handles CRUD operations for equipment via GraphQL API
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
 
 // Types
 export interface EquipmentType {
@@ -337,7 +337,7 @@ export function useEquipmentList(filter?: {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['equipment', 'list', filter],
+    queryKey: createTenantQueryKey(tenantId, 'equipment', 'list', filter),
     queryFn: async () => {
       const data = await graphqlClient.request<{ equipmentList: PaginatedResponse }>(
         EQUIPMENT_LIST_QUERY,
@@ -357,7 +357,7 @@ export function useEquipmentTypes() {
   const { token } = useAuth();
 
   return useQuery({
-    queryKey: ['equipment', 'types'],
+    queryKey: createTenantQueryKey(tenantId, 'equipment', 'types'),
     queryFn: async () => {
       const data = await graphqlClient.request<{ equipmentTypes: EquipmentType[] }>(
         EQUIPMENT_TYPES_QUERY,
@@ -455,7 +455,7 @@ export function useEquipmentDeletePreview(id: string | null) {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['equipment', 'deletePreview', id],
+    queryKey: createTenantQueryKey(tenantId, 'equipment', 'deletePreview', id),
     queryFn: async () => {
       const data = await graphqlClient.request<{ equipmentDeletePreview: EquipmentDeletePreviewResult }>(
         EQUIPMENT_DELETE_PREVIEW_QUERY,

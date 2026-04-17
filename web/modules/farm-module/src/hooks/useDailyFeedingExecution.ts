@@ -8,7 +8,7 @@
  */
 import { useMemo, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // CONSTANTS
@@ -450,7 +450,7 @@ export function useDailyFeedingExecutions(date: string, siteId?: string) {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['feeding', 'daily-executions', tenantId, date, siteId],
+    queryKey: createTenantQueryKey(tenantId, 'feeding', 'daily-executions', tenantId, date, siteId),
     queryFn: async () => {
       if (!tenantId) throw new Error('Tenant context required');
 
@@ -514,7 +514,7 @@ export function useRecordDailyFeeding(date: string) {
       return { success: true, execution: data.recordDailyFeeding };
     },
     onMutate: async (input) => {
-      await queryClient.cancelQueries({ queryKey: ['feeding', 'daily-executions', tenantId, date] });
+      await queryClient.cancelQueries({ queryKey: createTenantQueryKey(tenantId, 'feeding', 'daily-executions', tenantId, date) });
       const previousData = queryClient.getQueryData(['feeding', 'daily-executions', tenantId, date]);
 
       queryClient.setQueryData(
@@ -554,7 +554,7 @@ export function useRecordDailyFeeding(date: string) {
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['feeding', 'daily-executions', tenantId] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feeding', 'daily-executions', tenantId) });
     },
   });
 }
@@ -583,7 +583,7 @@ export function useSkipDailyFeeding(date: string) {
       return { success: true, execution: data.skipDailyFeeding };
     },
     onMutate: async (input) => {
-      await queryClient.cancelQueries({ queryKey: ['feeding', 'daily-executions', tenantId, date] });
+      await queryClient.cancelQueries({ queryKey: createTenantQueryKey(tenantId, 'feeding', 'daily-executions', tenantId, date) });
       const previousData = queryClient.getQueryData(['feeding', 'daily-executions', tenantId, date]);
 
       queryClient.setQueryData(
@@ -618,7 +618,7 @@ export function useSkipDailyFeeding(date: string) {
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['feeding', 'daily-executions', tenantId] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feeding', 'daily-executions', tenantId) });
     },
   });
 }

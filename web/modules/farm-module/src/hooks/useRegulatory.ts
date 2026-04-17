@@ -13,7 +13,7 @@
  * - React Query for caching and invalidation
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
 import {
   REGULATORY_SETTINGS_QUERY,
   REGULATORY_CONFIGURATION_STATUS_QUERY,
@@ -325,7 +325,7 @@ export function useRegulatorySettings() {
   const { token, tenantId, isAuthenticated, isLoading: authLoading } = useAuth();
 
   return useQuery({
-    queryKey: [REGULATORY_KEY, 'settings', tenantId],
+    queryKey: createTenantQueryKey(tenantId, REGULATORY_KEY, 'settings', tenantId),
     queryFn: async () => {
       if (!tenantId) {
         throw new Error('Tenant context required');
@@ -357,7 +357,7 @@ export function useRegulatoryConfigurationStatus() {
   const { token, tenantId, isAuthenticated, isLoading: authLoading } = useAuth();
 
   return useQuery({
-    queryKey: [REGULATORY_KEY, 'configStatus', tenantId],
+    queryKey: createTenantQueryKey(tenantId, REGULATORY_KEY, 'configStatus', tenantId),
     queryFn: async () => {
       const data = await graphqlClient.request<{ regulatoryConfigurationStatus: RegulatoryConfigurationStatus }>(
         REGULATORY_CONFIGURATION_STATUS_QUERY,
@@ -376,7 +376,7 @@ export function useMaskinportenStatus() {
   const { token, tenantId, isAuthenticated, isLoading: authLoading } = useAuth();
 
   return useQuery({
-    queryKey: [REGULATORY_KEY, 'maskinportenStatus'],
+    queryKey: createTenantQueryKey(tenantId, REGULATORY_KEY, 'maskinportenStatus'),
     queryFn: async () => {
       const data = await graphqlClient.request<{ maskinportenStatus: MaskinportenStatus }>(
         MASKINPORTEN_STATUS_QUERY,
@@ -395,7 +395,7 @@ export function useMattilsynetStatus() {
   const { token, tenantId, isAuthenticated, isLoading: authLoading } = useAuth();
 
   return useQuery({
-    queryKey: [REGULATORY_KEY, 'mattilsynetStatus', tenantId],
+    queryKey: createTenantQueryKey(tenantId, REGULATORY_KEY, 'mattilsynetStatus', tenantId),
     queryFn: async () => {
       const data = await graphqlClient.request<{ mattilsynetStatus: MattilsynetStatus }>(
         MATTILSYNET_STATUS_QUERY,
@@ -414,7 +414,7 @@ export function useRegulatoryHealth() {
   const { token, tenantId, isAuthenticated, isLoading: authLoading } = useAuth();
 
   return useQuery({
-    queryKey: [REGULATORY_KEY, 'health', tenantId],
+    queryKey: createTenantQueryKey(tenantId, REGULATORY_KEY, 'health', tenantId),
     queryFn: async () => {
       const data = await graphqlClient.request<{ regulatoryHealth: RegulatoryHealthStatus }>(
         REGULATORY_HEALTH_QUERY,

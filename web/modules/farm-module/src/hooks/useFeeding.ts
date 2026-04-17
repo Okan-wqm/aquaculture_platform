@@ -3,7 +3,7 @@
  * Handles growth simulation and feed consumption forecasting via GraphQL API
  */
 import { useQuery } from '@tanstack/react-query';
-import { useAuth, graphqlClient } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // TYPES
@@ -257,7 +257,7 @@ export function useGrowthSimulation(
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['feeding', 'growth-simulation', input],
+    queryKey: createTenantQueryKey(tenantId, 'feeding', 'growth-simulation', input),
     queryFn: async () => {
       const data = await graphqlClient.request<{ growthSimulation: GrowthSimulationResult }>(
         GROWTH_SIMULATION_QUERY,
@@ -280,7 +280,7 @@ export function useFeedConsumptionForecast(
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['feeding', 'forecast', input],
+    queryKey: createTenantQueryKey(tenantId, 'feeding', 'forecast', input),
     queryFn: async () => {
       const data = await graphqlClient.request<{ feedConsumptionForecast: FeedForecastResult }>(
         FEED_CONSUMPTION_FORECAST_QUERY,
@@ -306,7 +306,7 @@ export function useProjectHarvestDate(
   const { token } = useAuth();
 
   return useQuery({
-    queryKey: ['feeding', 'harvest-date', currentWeightG, targetWeightG, sgr, startDate],
+    queryKey: createTenantQueryKey(tenantId, 'feeding', 'harvest-date', currentWeightG, targetWeightG, sgr, startDate),
     queryFn: async () => {
       const data = await graphqlClient.request<{ projectHarvestDate: string }>(
         PROJECT_HARVEST_DATE_QUERY,
@@ -330,7 +330,7 @@ export function useEstimateSGR(
   const { token } = useAuth();
 
   return useQuery({
-    queryKey: ['feeding', 'sgr', species, temperature],
+    queryKey: createTenantQueryKey(tenantId, 'feeding', 'sgr', species, temperature),
     queryFn: async () => {
       const data = await graphqlClient.request<{ estimateSGR: number }>(
         ESTIMATE_SGR_QUERY,
@@ -351,7 +351,7 @@ export function useActiveTanks(options?: { enabled?: boolean }) {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['feeding', 'active-tanks', tenantId],
+    queryKey: createTenantQueryKey(tenantId, 'feeding', 'active-tanks', tenantId),
     queryFn: async () => {
       const data = await graphqlClient.request<{ activeTanks: ActiveTank[] }>(
         ACTIVE_TANKS_QUERY

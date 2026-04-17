@@ -671,7 +671,7 @@ export function useCriticalWaterQuality() {
 export function useRecentActivity(limit = 10) {
   const { tenantId } = useAuth();
   return useQuery({
-    queryKey: [...dashboardKeys.recentActivity(tenantId!), limit],
+    queryKey: createTenantQueryKey(tenantId, ...dashboardKeys.recentActivity(tenantId!), limit),
     enabled: !!tenantId,
     staleTime: 60_000,
     queryFn: async (): Promise<RecentActivity[]> => {

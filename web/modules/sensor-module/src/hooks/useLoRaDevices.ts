@@ -4,7 +4,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth } from '@aquaculture/shared-ui';
+import { useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';
 import { graphqlFetch } from '../config/api';
 import {
   LORA_DEVICES_QUERY,
@@ -66,8 +66,9 @@ export interface LoRaDownlinkResult {
 export function useLoRaDevices(edgeDeviceId: string) {
   const { token } = useAuth();
 
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: ['loraDevices', edgeDeviceId],
+    queryKey: createTenantQueryKey(tenantId, 'loraDevices', edgeDeviceId),
     queryFn: async () => {
       const data = await graphqlFetch<{ loraDevices: LoRaDevice[] }>(
         LORA_DEVICES_QUERY,
@@ -92,6 +93,7 @@ export function useAddLoRaDevice() {
   const { token } = useAuth();
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async ({
       edgeDeviceId,
@@ -107,7 +109,7 @@ export function useAddLoRaDevice() {
       return data.addLoRaDevice;
     },
     onSuccess: (_, { edgeDeviceId }) => {
-      queryClient.invalidateQueries({ queryKey: ['loraDevices', edgeDeviceId] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'loraDevices', edgeDeviceId) });
     },
   });
 }
@@ -119,6 +121,7 @@ export function useRemoveLoRaDevice() {
   const { token } = useAuth();
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async ({
       edgeDeviceId,
@@ -134,7 +137,7 @@ export function useRemoveLoRaDevice() {
       return data.removeLoRaDevice;
     },
     onSuccess: (_, { edgeDeviceId }) => {
-      queryClient.invalidateQueries({ queryKey: ['loraDevices', edgeDeviceId] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'loraDevices', edgeDeviceId) });
     },
   });
 }
@@ -146,6 +149,7 @@ export function useRemoveLoRaDevice() {
 export function useSendLoRaDownlink() {
   const { token } = useAuth();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async ({
       edgeDeviceId,

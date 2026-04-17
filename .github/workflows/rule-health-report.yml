@@ -1,0 +1,205 @@
+name: Rule Health Report
+
+# =============================================================================
+# Phase 7 of docs/plans/2026-04-17-agentic-post-audit-consolidation-plan.md.
+#
+# Monthly cron that aggregates control-plane health metrics into a
+# structured report, opened as a PR for CODEOWNERS review:
+#
+#   1. Finding registry state — OPEN / IN-PROGRESS / RESOLVED / STALE /
+#      BLOCKED counts by severity + by owner_agent + age buckets.
+#   2. Override count — allowlist entries by boundary-file + tier-4
+#      override inline-comment count per _shared/tier-claim-syntax.md.
+#   3. Agent dispatch frequency — top-N most-dispatched + least-
+#      dispatched agents across the review cycles of the month (reads
+#      docs/reviews/orchestrator/*.md headers). [Phase 12 deepens this
+#      with Prometheus `agent_dispatch_total` metric once the registry
+#      moves to PG + leader election runs on K8s.]
+#   4. Rule firing rate — gate failure frequency over the month
+#      (counted from closes-footer-check + quality-gates workflow runs
+#      that were failed-and-retried). [Phase 12 deepens via
+#      `agent_finding_issued_total` + per-gate Prometheus counters.]
+#
+# This workflow is SKELETON-STATE as of 2026-04-17: items (3) and (4)
+# compute what's readable from repo state alone (PR history + orchestrator
+# review-file headers). Full Prometheus-backed numbers arrive when
+# Phase 12 K8s readiness lands.
+# =============================================================================
+
+on:
+  schedule:
+    - cron: '0 6 1 * *'   # 06:00 UTC on the 1st of every month
+  workflow_dispatch:
+    inputs:
+      month_offset:
+        description: 'Months to look back (default 1 = previous calendar month)'
+        default: '1'
+        required: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # SEC-CI-002: pinned SHAs per infra-expert rule.
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --ignore-scripts --no-audit
+
+      - name: Compute report window
+        id: window
+        run: |
+          OFFSET="${{ github.event.inputs.month_offset || '1' }}"
+          START=$(date -u -d "$OFFSET months ago" +%Y-%m-01)
+          # End = start-of-this-month (exclusive upper bound).
+          END=$(date -u -d "$OFFSET months ago + 1 month" +%Y-%m-01)
+          STAMP=$(date -u +%Y-%m-%d)
+          echo "start=$START" >> "$GITHUB_OUTPUT"
+          echo "end=$END" >> "$GITHUB_OUTPUT"
+          echo "stamp=$STAMP" >> "$GITHUB_OUTPUT"
+          echo "month_label=$(date -u -d "$OFFSET months ago" +%Y-%m)" >> "$GITHUB_OUTPUT"
+          echo "Reporting window: $START (inclusive) to $END (exclusive)"
+
+      - name: Generate report
+        id: generate
+        run: |
+          set -euo pipefail
+          REPORT_DIR="docs/reviews/rule-health"
+          mkdir -p "$REPORT_DIR"
+          REPORT="$REPORT_DIR/${{ steps.window.outputs.stamp }}-rule-health-${{ steps.window.outputs.month_label }}.md"
+          echo "path=$REPORT" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "# Rule Health Report — ${{ steps.window.outputs.month_label }}"
+            echo ""
+            echo "**Generated**: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "**Window**: ${{ steps.window.outputs.start }} (inclusive) to ${{ steps.window.outputs.end }} (exclusive)"
+            echo "**Status**: skeleton (Phase 7 deliverable; Phase 12 deepens Prometheus-backed sections)"
+            echo ""
+            echo "## 1. Finding registry state"
+            echo ""
+            # Run finding-registry export to CSV, then aggregate.
+            npx ts-node --project tools/gates/tsconfig.json \
+              tools/gates/finding-registry.ts export csv > /tmp/registry.csv
+            echo "| Severity | OPEN | IN-PROGRESS | RESOLVED | STALE | BLOCKED | Total |"
+            echo "|---|---|---|---|---|---|---|"
+            for sev in CRITICAL HIGH MEDIUM LOW; do
+              total=$(awk -F',' -v s="$sev" 'NR>1 && $2==s {c++} END {print c+0}' /tmp/registry.csv)
+              open=$(awk -F',' -v s="$sev" 'NR>1 && $2==s && $3=="OPEN" {c++} END {print c+0}' /tmp/registry.csv)
+              inp=$(awk -F',' -v s="$sev" 'NR>1 && $2==s && $3=="IN-PROGRESS" {c++} END {print c+0}' /tmp/registry.csv)
+              res=$(awk -F',' -v s="$sev" 'NR>1 && $2==s && $3=="RESOLVED" {c++} END {print c+0}' /tmp/registry.csv)
+              stale=$(awk -F',' -v s="$sev" 'NR>1 && $2==s && $3=="STALE" {c++} END {print c+0}' /tmp/registry.csv)
+              blk=$(awk -F',' -v s="$sev" 'NR>1 && $2==s && $3=="BLOCKED" {c++} END {print c+0}' /tmp/registry.csv)
+              echo "| $sev | $open | $inp | $res | $stale | $blk | $total |"
+            done
+            echo ""
+
+            echo "### By owner_agent (top 10 by open + in-progress + stale count)"
+            echo ""
+            echo '```'
+            # Aggregate by owner agent from full jsonl (more fields than csv export).
+            REGISTRY=docs/reviews/_registry/findings.jsonl
+            node -e "
+              const fs = require('fs');
+              const lines = fs.readFileSync('$REGISTRY', 'utf8').trim().split('\n');
+              const byOwner = {};
+              for (const l of lines) {
+                const e = JSON.parse(l);
+                if (e.state === 'RESOLVED') continue;
+                byOwner[e.owner_agent] = (byOwner[e.owner_agent] ?? 0) + 1;
+              }
+              const rows = Object.entries(byOwner).sort((a,b) => b[1]-a[1]).slice(0,10);
+              for (const [n,c] of rows) console.log(n.padEnd(40), c);
+            "
+            echo '```'
+            echo ""
+
+            echo "## 2. Override count"
+            echo ""
+            BOUNDARY=.claude/allowlists/boundary-files.yaml
+            if [ -f "$BOUNDARY" ]; then
+              ENTRIES=$(grep -c '^\s*-\s*path:' "$BOUNDARY" || echo 0)
+              echo "- Boundary file allowlist entries (\`.claude/allowlists/boundary-files.yaml\`): **$ENTRIES**"
+            else
+              echo "- Boundary file allowlist: not found."
+            fi
+
+            # Inline tier-4 overrides (// auditor-override: ... pattern)
+            OVERRIDE_COUNT=$(grep -rE "// auditor-override:" \
+              --include="*.ts" --include="*.tsx" \
+              apps/ libs/ web/ platform/ 2>/dev/null | wc -l || echo 0)
+            echo "- Inline \`// auditor-override:\` comments in source: **$OVERRIDE_COUNT**"
+            echo ""
+
+            echo "## 3. Agent dispatch frequency (this month)"
+            echo ""
+            ORCHESTRATOR_DIR=docs/reviews/orchestrator
+            if [ -d "$ORCHESTRATOR_DIR" ]; then
+              COUNT=$(find "$ORCHESTRATOR_DIR" -name "${{ steps.window.outputs.month_label }}-*.md" | wc -l)
+              echo "- Orchestrator unified reports in window: **$COUNT**"
+              echo ""
+              echo '_Deep agent-dispatch metrics (agent_dispatch_total Prometheus counter) deferred to Phase 12; this skeleton reports the review-file count as a proxy._'
+            else
+              echo "- No orchestrator reports directory found."
+            fi
+            echo ""
+
+            echo "## 4. Rule firing rate (this month)"
+            echo ""
+            echo '_Rule-firing rate requires the Phase-12 Prometheus metric_ `agent_finding_issued_total` _by rule-ID label, with at least a month of live production traffic. This skeleton is in place; metric aggregation lands when Phase 12 ships._'
+            echo ""
+
+            echo "## Signals"
+            echo ""
+            echo "- Any row in §1 with STALE > 0 requires orchestrator re-dispatch in the next cycle (see context-manager Finding State Tracking rules)."
+            echo "- Override count growth month-over-month > 20% is a MEDIUM rule-health finding — too much override surface typically means an agent invariant needs refinement, not more exceptions."
+            echo "- Registry total growth + closure rate ratio < 1 (findings raised faster than closed) is a CAPACITY signal for next month's planning."
+            echo ""
+
+            echo "---"
+            echo "_Generated by_ \`.github/workflows/rule-health-report.yml\` _— Phase 7 skeleton_"
+          } > "$REPORT"
+
+          echo "Report generated at $REPORT"
+          head -50 "$REPORT"
+
+      - name: Open PR with report
+        uses: peter-evans/create-pull-request@c5a7806660adbe173f04e3e038b0ccdcd758773c # v6.1.0
+        with:
+          branch: automation/rule-health-${{ steps.window.outputs.month_label }}
+          delete-branch: true
+          title: 'chore(report): monthly rule-health report — ${{ steps.window.outputs.month_label }}'
+          body: |
+            Monthly rule-health aggregate for **${{ steps.window.outputs.month_label }}**.
+
+            Covers: finding-registry state by severity + owner; override count
+            (boundary-files allowlist + inline `// auditor-override:` comments);
+            agent dispatch frequency (orchestrator review-file count); rule
+            firing rate (skeleton until Phase 12 Prometheus backing).
+
+            Generated report: `${{ steps.generate.outputs.path }}`.
+
+            **CODEOWNERS review required** — rule-health reports ARE the
+            Phase 7 telemetry substrate. Approve to land; reject if the
+            aggregation logic under-reports an ownership or severity slice
+            that context-manager would otherwise catch.
+          commit-message: |
+            chore(report): rule-health ${{ steps.window.outputs.month_label }}
+
+            Closes: docs/reviews/rule-health/${{ steps.window.outputs.stamp }}-rule-health-${{ steps.window.outputs.month_label }}.md
+          labels: |
+            automation
+            report
+            rule-health
+          reviewers: Okan-wqm

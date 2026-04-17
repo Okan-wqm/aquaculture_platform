@@ -91,7 +91,7 @@ const BANNED_PHRASES: readonly BannedPhraseRule[] = [
     //   - Explicit plan reference: "abstract-brewing-mochi" | "declarative-riding-shamir"
     //   - Finding ID reference on same line
     allowIf:
-      /(owner\s*:\s*@[\w-]+.*deadline\s*:\s*\d{4}-\d{2}-\d{2}.*#[A-Z]+-[A-Z]+-\d+)|(\b[Pp]hase[\s-]\d(\.\d)?\b)|(\bW\d+(\.\d+)?\b)|(abstract-brewing-mochi|declarative-riding-shamir)|(#[A-Z][A-Z0-9]+-(CRITICAL|HIGH|MEDIUM|LOW)-\d{3})/i,
+      /(owner\s*:\s*@[\w-]+.*deadline\s*:\s*\d{4}-\d{2}-\d{2}.*#[A-Z]+-[A-Z]+-\d+)|(\b[Pp]hase[\s-]\d+(\.\d+)?\b)|(\bW\d+(\.\d+)?\b)|(abstract-brewing-mochi|declarative-riding-shamir)|(#[A-Z][A-Z0-9]+-(CRITICAL|HIGH|MEDIUM|LOW)-\d{3})/i,
     label: 'deferred (without plan phase / W-N / finding ID reference)',
   },
   {

@@ -3,7 +3,7 @@
  * Handles CRUD operations for work orders, maintenance schedules, and spare parts via GraphQL API
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { graphqlClient } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // TYPES - Work Orders
@@ -531,8 +531,9 @@ const SPARE_PART_FIELDS = `
 // ============================================================================
 
 export function useWorkOrders(filter?: WorkOrderFilter, page = 1, limit = 20) {
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: ['workOrders', filter, page, limit],
+    queryKey: createTenantQueryKey(tenantId, 'workOrders', filter, page, limit),
     queryFn: async () => {
       const query = `
         query WorkOrders($filter: WorkOrderFilterInput, $page: Int, $limit: Int) {
@@ -564,12 +565,14 @@ export function useWorkOrders(filter?: WorkOrderFilter, page = 1, limit = 20) {
 
       return result.workOrders;
     },
+    enabled: !!tenantId,
   });
 }
 
 export function useWorkOrder(id: string) {
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: ['workOrder', id],
+    queryKey: createTenantQueryKey(tenantId, 'workOrder', id),
     queryFn: async () => {
       const query = `
         query WorkOrder($id: ID!) {
@@ -586,13 +589,14 @@ export function useWorkOrder(id: string) {
 
       return result.workOrder;
     },
-    enabled: !!id,
+    enabled: !!id && !!tenantId,
   });
 }
 
 export function useWorkOrderStatistics(dateFrom?: string, dateTo?: string) {
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: ['workOrderStatistics', dateFrom, dateTo],
+    queryKey: createTenantQueryKey(tenantId, 'workOrderStatistics', dateFrom, dateTo),
     queryFn: async () => {
       const query = `
         query WorkOrderStatistics($dateFrom: DateTime, $dateTo: DateTime) {
@@ -636,12 +640,14 @@ export function useWorkOrderStatistics(dateFrom?: string, dateTo?: string) {
 
       return result.workOrderStatistics;
     },
+    enabled: !!tenantId,
   });
 }
 
 export function useCreateWorkOrder() {
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async (input: CreateWorkOrderInput) => {
       const mutation = `
@@ -660,8 +666,8 @@ export function useCreateWorkOrder() {
       return result.createWorkOrder;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['workOrders'] });
-      queryClient.invalidateQueries({ queryKey: ['workOrderStatistics'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrders') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrderStatistics') });
     },
   });
 }
@@ -669,6 +675,7 @@ export function useCreateWorkOrder() {
 export function useUpdateWorkOrder() {
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async (input: UpdateWorkOrderInput) => {
       const mutation = `
@@ -687,9 +694,9 @@ export function useUpdateWorkOrder() {
       return result.updateWorkOrder;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['workOrders'] });
-      queryClient.invalidateQueries({ queryKey: ['workOrder', data.id] });
-      queryClient.invalidateQueries({ queryKey: ['workOrderStatistics'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrders') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrder', data.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrderStatistics') });
     },
   });
 }
@@ -697,6 +704,7 @@ export function useUpdateWorkOrder() {
 export function useCompleteWorkOrder() {
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async (input: CompleteWorkOrderInput) => {
       const mutation = `
@@ -715,9 +723,9 @@ export function useCompleteWorkOrder() {
       return result.completeWorkOrder;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['workOrders'] });
-      queryClient.invalidateQueries({ queryKey: ['workOrder', data.id] });
-      queryClient.invalidateQueries({ queryKey: ['workOrderStatistics'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrders') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrder', data.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrderStatistics') });
     },
   });
 }
@@ -725,6 +733,7 @@ export function useCompleteWorkOrder() {
 export function useDeleteWorkOrder() {
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async (id: string) => {
       const mutation = `
@@ -744,8 +753,8 @@ export function useDeleteWorkOrder() {
       return result.deleteWorkOrder;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['workOrders'] });
-      queryClient.invalidateQueries({ queryKey: ['workOrderStatistics'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrders') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrderStatistics') });
     },
   });
 }
@@ -757,6 +766,7 @@ export function useDeleteWorkOrder() {
 export function useSubmitWorkOrderForApproval() {
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async (id: string) => {
       const mutation = `
@@ -775,9 +785,9 @@ export function useSubmitWorkOrderForApproval() {
       return result.submitWorkOrderForApproval;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['workOrders'] });
-      queryClient.invalidateQueries({ queryKey: ['workOrder', data.id] });
-      queryClient.invalidateQueries({ queryKey: ['workOrderStatistics'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrders') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrder', data.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrderStatistics') });
     },
   });
 }
@@ -785,6 +795,7 @@ export function useSubmitWorkOrderForApproval() {
 export function useApproveWorkOrder() {
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async (input: ApproveWorkOrderInput) => {
       const mutation = `
@@ -803,9 +814,9 @@ export function useApproveWorkOrder() {
       return result.approveWorkOrder;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['workOrders'] });
-      queryClient.invalidateQueries({ queryKey: ['workOrder', data.id] });
-      queryClient.invalidateQueries({ queryKey: ['workOrderStatistics'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrders') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrder', data.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrderStatistics') });
     },
   });
 }
@@ -813,6 +824,7 @@ export function useApproveWorkOrder() {
 export function useStartWorkOrder() {
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async (input: StartWorkOrderInput) => {
       const mutation = `
@@ -831,9 +843,9 @@ export function useStartWorkOrder() {
       return result.startWorkOrder;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['workOrders'] });
-      queryClient.invalidateQueries({ queryKey: ['workOrder', data.id] });
-      queryClient.invalidateQueries({ queryKey: ['workOrderStatistics'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrders') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrder', data.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrderStatistics') });
     },
   });
 }
@@ -841,6 +853,7 @@ export function useStartWorkOrder() {
 export function useVerifyWorkOrder() {
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async (input: VerifyWorkOrderInput) => {
       const mutation = `
@@ -859,9 +872,9 @@ export function useVerifyWorkOrder() {
       return result.verifyWorkOrder;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['workOrders'] });
-      queryClient.invalidateQueries({ queryKey: ['workOrder', data.id] });
-      queryClient.invalidateQueries({ queryKey: ['workOrderStatistics'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrders') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrder', data.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrderStatistics') });
     },
   });
 }
@@ -869,6 +882,7 @@ export function useVerifyWorkOrder() {
 export function useCancelWorkOrder() {
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async ({ id, reason }: { id: string; reason?: string }) => {
       const mutation = `
@@ -887,9 +901,9 @@ export function useCancelWorkOrder() {
       return result.cancelWorkOrder;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['workOrders'] });
-      queryClient.invalidateQueries({ queryKey: ['workOrder', data.id] });
-      queryClient.invalidateQueries({ queryKey: ['workOrderStatistics'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrders') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrder', data.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrderStatistics') });
     },
   });
 }
@@ -897,6 +911,7 @@ export function useCancelWorkOrder() {
 export function usePutWorkOrderOnHold() {
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async ({ id, reason }: { id: string; reason?: string }) => {
       const mutation = `
@@ -915,9 +930,9 @@ export function usePutWorkOrderOnHold() {
       return result.putWorkOrderOnHold;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['workOrders'] });
-      queryClient.invalidateQueries({ queryKey: ['workOrder', data.id] });
-      queryClient.invalidateQueries({ queryKey: ['workOrderStatistics'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrders') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrder', data.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrderStatistics') });
     },
   });
 }
@@ -925,6 +940,7 @@ export function usePutWorkOrderOnHold() {
 export function useResumeWorkOrder() {
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async (id: string) => {
       const mutation = `
@@ -943,9 +959,9 @@ export function useResumeWorkOrder() {
       return result.resumeWorkOrder;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['workOrders'] });
-      queryClient.invalidateQueries({ queryKey: ['workOrder', data.id] });
-      queryClient.invalidateQueries({ queryKey: ['workOrderStatistics'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrders') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrder', data.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrderStatistics') });
     },
   });
 }
@@ -955,8 +971,9 @@ export function useResumeWorkOrder() {
 // ============================================================================
 
 export function useMaintenanceSchedules(filter?: MaintenanceScheduleFilter, page = 1, limit = 20) {
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: ['maintenanceSchedules', filter, page, limit],
+    queryKey: createTenantQueryKey(tenantId, 'maintenanceSchedules', filter, page, limit),
     queryFn: async () => {
       const query = `
         query MaintenanceSchedules($filter: MaintenanceScheduleFilterInput, $page: Int, $limit: Int) {
@@ -988,12 +1005,14 @@ export function useMaintenanceSchedules(filter?: MaintenanceScheduleFilter, page
 
       return result.maintenanceSchedules;
     },
+    enabled: !!tenantId,
   });
 }
 
 export function useMaintenanceSchedule(id: string) {
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: ['maintenanceSchedule', id],
+    queryKey: createTenantQueryKey(tenantId, 'maintenanceSchedule', id),
     queryFn: async () => {
       const query = `
         query MaintenanceSchedule($id: ID!) {
@@ -1010,13 +1029,14 @@ export function useMaintenanceSchedule(id: string) {
 
       return result.maintenanceSchedule;
     },
-    enabled: !!id,
+    enabled: !!id && !!tenantId,
   });
 }
 
 export function useUpcomingMaintenanceSchedules(days = 7) {
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: ['upcomingMaintenanceSchedules', days],
+    queryKey: createTenantQueryKey(tenantId, 'upcomingMaintenanceSchedules', days),
     queryFn: async () => {
       const query = `
         query UpcomingMaintenanceSchedules($days: Int) {
@@ -1032,12 +1052,14 @@ export function useUpcomingMaintenanceSchedules(days = 7) {
 
       return result.upcomingMaintenanceSchedules;
     },
+    enabled: !!tenantId,
   });
 }
 
 export function useMaintenanceAlerts() {
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: ['maintenanceAlerts'],
+    queryKey: createTenantQueryKey(tenantId, 'maintenanceAlerts'),
     queryFn: async () => {
       const query = `
         query MaintenanceAlerts {
@@ -1061,6 +1083,7 @@ export function useMaintenanceAlerts() {
 
       return result.maintenanceAlerts;
     },
+    enabled: !!tenantId,
   });
 }
 
@@ -1138,6 +1161,7 @@ export interface UpdateMaintenanceScheduleInput {
 export function useCreateMaintenanceSchedule() {
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async (input: CreateMaintenanceScheduleInput) => {
       const mutation = `
@@ -1156,9 +1180,9 @@ export function useCreateMaintenanceSchedule() {
       return result.createMaintenanceSchedule;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['maintenanceSchedules'] });
-      queryClient.invalidateQueries({ queryKey: ['upcomingMaintenanceSchedules'] });
-      queryClient.invalidateQueries({ queryKey: ['maintenanceAlerts'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceSchedules') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'upcomingMaintenanceSchedules') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceAlerts') });
     },
   });
 }
@@ -1166,6 +1190,7 @@ export function useCreateMaintenanceSchedule() {
 export function useUpdateMaintenanceSchedule() {
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async (input: UpdateMaintenanceScheduleInput) => {
       const mutation = `
@@ -1184,10 +1209,10 @@ export function useUpdateMaintenanceSchedule() {
       return result.updateMaintenanceSchedule;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['maintenanceSchedules'] });
-      queryClient.invalidateQueries({ queryKey: ['maintenanceSchedule', data.id] });
-      queryClient.invalidateQueries({ queryKey: ['upcomingMaintenanceSchedules'] });
-      queryClient.invalidateQueries({ queryKey: ['maintenanceAlerts'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceSchedules') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceSchedule', data.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'upcomingMaintenanceSchedules') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceAlerts') });
     },
   });
 }
@@ -1195,6 +1220,7 @@ export function useUpdateMaintenanceSchedule() {
 export function useDeleteMaintenanceSchedule() {
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async (id: string) => {
       const mutation = `
@@ -1214,9 +1240,9 @@ export function useDeleteMaintenanceSchedule() {
       return result.deleteMaintenanceSchedule;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['maintenanceSchedules'] });
-      queryClient.invalidateQueries({ queryKey: ['upcomingMaintenanceSchedules'] });
-      queryClient.invalidateQueries({ queryKey: ['maintenanceAlerts'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceSchedules') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'upcomingMaintenanceSchedules') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceAlerts') });
     },
   });
 }
@@ -1224,6 +1250,7 @@ export function useDeleteMaintenanceSchedule() {
 export function usePauseMaintenanceSchedule() {
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async (id: string) => {
       const mutation = `
@@ -1242,8 +1269,8 @@ export function usePauseMaintenanceSchedule() {
       return result.pauseMaintenanceSchedule;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['maintenanceSchedules'] });
-      queryClient.invalidateQueries({ queryKey: ['maintenanceSchedule', data.id] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceSchedules') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceSchedule', data.id) });
     },
   });
 }
@@ -1251,6 +1278,7 @@ export function usePauseMaintenanceSchedule() {
 export function useResumeMaintenanceSchedule() {
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async (id: string) => {
       const mutation = `
@@ -1269,8 +1297,8 @@ export function useResumeMaintenanceSchedule() {
       return result.resumeMaintenanceSchedule;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['maintenanceSchedules'] });
-      queryClient.invalidateQueries({ queryKey: ['maintenanceSchedule', data.id] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceSchedules') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceSchedule', data.id) });
     },
   });
 }
@@ -1280,8 +1308,9 @@ export function useResumeMaintenanceSchedule() {
 // ============================================================================
 
 export function useSpareParts(filter?: SparePartFilter, page = 1, limit = 20) {
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: ['spareParts', filter, page, limit],
+    queryKey: createTenantQueryKey(tenantId, 'spareParts', filter, page, limit),
     queryFn: async () => {
       const query = `
         query SpareParts($filter: SparePartFilterInput, $page: Int, $limit: Int) {
@@ -1313,12 +1342,14 @@ export function useSpareParts(filter?: SparePartFilter, page = 1, limit = 20) {
 
       return result.spareParts;
     },
+    enabled: !!tenantId,
   });
 }
 
 export function useSparePart(id: string) {
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: ['sparePart', id],
+    queryKey: createTenantQueryKey(tenantId, 'sparePart', id),
     queryFn: async () => {
       const query = `
         query SparePart($id: ID!) {
@@ -1335,13 +1366,14 @@ export function useSparePart(id: string) {
 
       return result.sparePart;
     },
-    enabled: !!id,
+    enabled: !!id && !!tenantId,
   });
 }
 
 export function useLowStockAlerts() {
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: ['lowStockAlerts'],
+    queryKey: createTenantQueryKey(tenantId, 'lowStockAlerts'),
     queryFn: async () => {
       const query = `
         query LowStockAlerts {
@@ -1369,12 +1401,14 @@ export function useLowStockAlerts() {
 
       return result.lowStockAlerts;
     },
+    enabled: !!tenantId,
   });
 }
 
 export function useStockSummary() {
+  const { tenantId } = useAuth();
   return useQuery({
-    queryKey: ['stockSummary'],
+    queryKey: createTenantQueryKey(tenantId, 'stockSummary'),
     queryFn: async () => {
       const query = `
         query StockSummary {
@@ -1404,12 +1438,14 @@ export function useStockSummary() {
 
       return result.stockSummary;
     },
+    enabled: !!tenantId,
   });
 }
 
 export function useRecordStockMovement() {
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async (input: {
       sparePartId: string;
@@ -1435,10 +1471,10 @@ export function useRecordStockMovement() {
       return result.recordStockMovement;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['spareParts'] });
-      queryClient.invalidateQueries({ queryKey: ['sparePart', data.id] });
-      queryClient.invalidateQueries({ queryKey: ['lowStockAlerts'] });
-      queryClient.invalidateQueries({ queryKey: ['stockSummary'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'spareParts') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'sparePart', data.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'lowStockAlerts') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'stockSummary') });
     },
   });
 }
@@ -1494,6 +1530,7 @@ export interface UpdateSparePartInput {
 export function useCreateSparePart() {
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async (input: CreateSparePartInput) => {
       const mutation = `
@@ -1512,8 +1549,8 @@ export function useCreateSparePart() {
       return result.createSparePart;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['spareParts'] });
-      queryClient.invalidateQueries({ queryKey: ['stockSummary'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'spareParts') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'stockSummary') });
     },
   });
 }
@@ -1521,6 +1558,7 @@ export function useCreateSparePart() {
 export function useUpdateSparePart() {
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async (input: UpdateSparePartInput) => {
       const mutation = `
@@ -1539,10 +1577,10 @@ export function useUpdateSparePart() {
       return result.updateSparePart;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['spareParts'] });
-      queryClient.invalidateQueries({ queryKey: ['sparePart', data.id] });
-      queryClient.invalidateQueries({ queryKey: ['lowStockAlerts'] });
-      queryClient.invalidateQueries({ queryKey: ['stockSummary'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'spareParts') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'sparePart', data.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'lowStockAlerts') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'stockSummary') });
     },
   });
 }
@@ -1550,6 +1588,7 @@ export function useUpdateSparePart() {
 export function useDeleteSparePart() {
   const queryClient = useQueryClient();
 
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async (id: string) => {
       const mutation = `
@@ -1569,9 +1608,9 @@ export function useDeleteSparePart() {
       return result.deleteSparePart;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['spareParts'] });
-      queryClient.invalidateQueries({ queryKey: ['lowStockAlerts'] });
-      queryClient.invalidateQueries({ queryKey: ['stockSummary'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'spareParts') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'lowStockAlerts') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'stockSummary') });
     },
   });
 }

@@ -161,6 +161,22 @@
       }
     },
     {
+      "files": ["apps/**/src/**/*.ts", "libs/**/src/**/*.ts"],
+      "excludedFiles": [
+        "**/*.spec.ts",
+        "**/*.test.ts",
+        "**/*.e2e.ts",
+        "**/__tests__/**",
+        "**/__mocks__/**",
+        "**/*.interface.ts",
+        "**/*.types.ts",
+        "apps/ai-service/src/agent/agent-runner.service.ts"
+      ],
+      "rules": {
+        "aquaculture/no-claude-sdk-raw-call": "warn"
+      }
+    },
+    {
       "files": ["*.js", "*.jsx"],
       "extends": ["plugin:@nx/javascript"],
       "rules": {}

@@ -345,14 +345,29 @@ function run(cmd: string): string {
 }
 
 function stagedMigrationFiles(): string[] {
-  // ACM = added / copied / modified. Do NOT include deletions.
-  return run('git diff --cached --name-only --diff-filter=ACM')
+  // Staged mode (local dev) — scan ADDED migrations only. Once a migration
+  // has landed on any branch, its content is frozen at the DB level (TypeORM
+  // records ran migrations by name and refuses to re-execute), so
+  // MODIFICATIONS to an existing migration are dead code at the prod level.
+  // Keeping the local gate to A-only mirrors the range semantics and avoids
+  // penalising the `git add <existing-migration>` flow when a developer
+  // fixes a typo in an already-run file.
+  return run('git diff --cached --name-only --diff-filter=A')
     .split('\n')
     .filter((f) => f.length > 0 && isMigrationFile(f));
 }
 
 function rangeMigrationFiles(baseRef: string, headRef: string): string[] {
-  return run(`git diff ${baseRef}..${headRef} --name-only --diff-filter=ACM`)
+  // Range mode (CI PR) — ADDED only. Long-lived feature branches accumulate
+  // many `M` entries for migrations that landed on main after the branch
+  // diverged; flagging those would make the gate a false-positive factory
+  // on every multi-week PR. The architectural invariant being protected is
+  // "new migrations must ship with the delta-safety envelope" — pre-existing
+  // migrations are grandfathered because amending them is forbidden under
+  // the force-push ban (and even if someone tried, TypeORM would not re-run
+  // the amended body). If a brand-new migration is genuinely suspect, it
+  // appears in the A-filter and is caught here.
+  return run(`git diff ${baseRef}..${headRef} --name-only --diff-filter=A`)
     .split('\n')
     .filter((f) => f.length > 0 && isMigrationFile(f));
 }

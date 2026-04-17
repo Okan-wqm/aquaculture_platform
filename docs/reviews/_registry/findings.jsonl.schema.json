@@ -19,8 +19,8 @@
   "properties": {
     "id": {
       "type": "string",
-      "pattern": "^(DATA|SEC|PLAT|FE|EDGE|MT|FARM|SENSOR|HR|MSG|ADMIN|ANTI|ADR|AUDIT|CTX|INFRA|PROC|P0|COMPLIANCE|PERF|OBS|SUPPLY|CONTRACT|CIRCUIT|MEM|CLAUDE|BILLING|ALERT|LEGAL|AUDITTRAIL|TENANTCOST|AISAFETY|PRODUCT)-(CRITICAL|HIGH|MEDIUM|LOW)-[0-9]{3}$",
-      "description": "Finding ID per _shared/output-format.md. Format: {PREFIX}-{SEVERITY}-{NNN}. P0 reserved for Phase-0 audit bootstrap. PRODUCT-* reserved for test-agents lane-B (Phase 13). Other prefixes match agent finding-id-prefix sections."
+      "pattern": "^(DATA|SEC|PLAT|FE|EDGE|MT|FARM|SENSOR|HR|MSG|ADMIN|ANTI|ADR|AUDIT|CTX|INFRA|PROC|P0|COMPLIANCE|PERF|OBS|SUPPLY|CONTRACT|CIRCUIT|MEM|CLAUDE|BILLING|ALERT|LEGAL|AUDITTRAIL|TENANTCOST|AISAFETY|PRODUCT|DEPLOY)-(CRITICAL|HIGH|MEDIUM|LOW)-[0-9]{3}$",
+      "description": "Finding ID per _shared/output-format.md. Format: {PREFIX}-{SEVERITY}-{NNN}. P0 reserved for Phase-0 audit bootstrap. PRODUCT-* reserved for test-agents lane-B (Phase 13). DEPLOY-* reserved for deploy-resilience findings (ADR-016 class). Other prefixes match agent finding-id-prefix sections."
     },
     "severity": {
       "enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW"],

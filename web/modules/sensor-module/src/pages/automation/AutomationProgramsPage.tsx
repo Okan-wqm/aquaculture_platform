@@ -337,7 +337,7 @@ const ProgramRow: React.FC<{
 const AutomationProgramsPage: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { token } = useAuth();
+  const { token, tenantId } = useAuth();
 
   // State
   const [searchTerm, setSearchTerm] = useState('');

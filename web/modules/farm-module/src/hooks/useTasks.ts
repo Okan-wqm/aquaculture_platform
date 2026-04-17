@@ -104,6 +104,7 @@ export interface TaskFilterInput {
  */
 export function useTasks(filter?: TaskFilterInput) {
   const queryClient = useQueryClient();
+  const { tenantId } = useAuth();
 
   // Tasks query
   const tasksQuery = useQuery({

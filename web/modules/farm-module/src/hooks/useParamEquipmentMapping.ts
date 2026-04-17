@@ -176,6 +176,7 @@ export function useParamEquipmentMappings(filters?: ParamEquipmentMappingFilter)
  * Fetch all parameter mappings for a specific equipment item
  */
 export function useEquipmentParameters(equipmentId: string | null) {
+  const { tenantId } = useAuth();
   const { token } = useAuth();
 
   return useQuery({
@@ -217,6 +218,7 @@ export function useCreateParamEquipmentMapping() {
  */
 export function useUpdateParamEquipmentMapping() {
   const queryClient = useQueryClient();
+  const { tenantId } = useAuth();
 
   return useMutation({
     mutationFn: async (input: UpdateParamEquipmentInput) => {
@@ -256,6 +258,7 @@ export function useDeleteParamEquipmentMapping() {
  */
 export function useBulkMapParamsToEquipment() {
   const queryClient = useQueryClient();
+  const { tenantId } = useAuth();
 
   return useMutation({
     mutationFn: async (input: BulkMapParamsEquipmentInput) => {

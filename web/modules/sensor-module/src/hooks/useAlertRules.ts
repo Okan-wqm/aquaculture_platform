@@ -109,6 +109,7 @@ export function useAlertRule(id: string) {
  * Hook to fetch all alert rules with optional filters
  */
 export function useAlertRules(filter?: AlertRulesFilter) {
+  const { tenantId } = useAuth();
   return useQuery({
     queryKey: createTenantQueryKey(tenantId, 'alertRules', filter),
     queryFn: async () => {
@@ -158,6 +159,7 @@ export function useCreateAlertRule() {
  */
 export function useUpdateAlertRule() {
   const queryClient = useQueryClient();
+  const { tenantId } = useAuth();
 
   return useMutation({
     mutationFn: async (input: UpdateAlertRuleInput) => {
@@ -200,6 +202,7 @@ export function useDeleteAlertRule() {
  */
 export function useToggleAlertRule() {
   const queryClient = useQueryClient();
+  const { tenantId } = useAuth();
 
   return useMutation({
     mutationFn: async ({ ruleId, isActive }: { ruleId: string; isActive: boolean }) => {

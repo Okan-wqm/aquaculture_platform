@@ -303,6 +303,7 @@ export function useProjectHarvestDate(
   startDate?: string,
   options?: { enabled?: boolean }
 ) {
+  const { tenantId } = useAuth();
   const { token } = useAuth();
 
   return useQuery({
@@ -327,6 +328,7 @@ export function useEstimateSGR(
   temperature: number,
   options?: { enabled?: boolean }
 ) {
+  const { tenantId } = useAuth();
   const { token } = useAuth();
 
   return useQuery({

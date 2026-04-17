@@ -86,7 +86,7 @@ export function useEquipmentList(
   filter?: EquipmentFilterInput,
   pagination?: { page?: number; limit?: number }
 ) {
-  const { token } = useAuth();
+  const { token, tenantId } = useAuth();
 
   return useQuery({
     queryKey: createTenantQueryKey(tenantId, 'equipmentList', filter, pagination),
@@ -106,9 +106,7 @@ export function useEquipmentList(
  * Hook to fetch equipment types catalog
  */
 export function useEquipmentTypes(filter?: { category?: string; isActive?: boolean }) {
-  const { token } = useAuth();
-
-  const { tenantId } = useAuth();
+  const { token, tenantId } = useAuth();
   return useQuery({
     queryKey: createTenantQueryKey(tenantId, 'equipmentTypes', filter),
     queryFn: async () => {
@@ -127,7 +125,7 @@ export function useEquipmentTypes(filter?: { category?: string; isActive?: boole
  * Hook to fetch single equipment by ID
  */
 export function useEquipment(id: string, includeRelations = false) {
-  const { token } = useAuth();
+  const { token, tenantId } = useAuth();
 
   return useQuery({
     queryKey: createTenantQueryKey(tenantId, 'equipment', id, includeRelations),
@@ -147,9 +145,8 @@ export function useEquipment(id: string, includeRelations = false) {
  * Hook to fetch equipment by department
  */
 export function useEquipmentByDepartment(departmentId: string) {
-  const { token } = useAuth();
+  const { token, tenantId } = useAuth();
 
-  const { tenantId } = useAuth();
   return useQuery({
     queryKey: createTenantQueryKey(tenantId, 'equipmentByDepartment', departmentId),
     queryFn: async () => {

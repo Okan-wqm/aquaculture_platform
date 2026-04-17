@@ -503,6 +503,7 @@ export function useDeleteChemical() {
  * Hook to fetch chemical types (global, not tenant-specific)
  */
 export function useChemicalTypes() {
+  const { tenantId } = useAuth();
   const { token } = useAuth();
 
   return useQuery({

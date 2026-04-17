@@ -65,11 +65,12 @@ export interface UpdateAutoRuleInput {
  */
 export function useAutoRules(enabled = true) {
   const queryClient = useQueryClient();
+  const { tenantId } = useAuth();
 
   // Auto rules query
   const autoRulesQuery = useQuery({
     queryKey: createTenantQueryKey(tenantId, 'autoRules'),
-    enabled,
+    enabled: enabled && !!tenantId,
     staleTime: 60_000, // 1 dakika
     queryFn: async () => {
       const query = `
@@ -86,7 +87,6 @@ export function useAutoRules(enabled = true) {
 
       return result.autoRules;
     },
-    enabled: !!tenantId,
   });
 
   // --- Mutations ---

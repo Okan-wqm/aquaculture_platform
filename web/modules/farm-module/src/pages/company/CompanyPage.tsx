@@ -54,6 +54,7 @@ interface RegulatorySettings {
 
 export const CompanyPage: React.FC = () => {
   const queryClient = useQueryClient();
+  const { tenantId } = useAuth();
 
   const [formData, setFormData] = useState({
     companyName: '',

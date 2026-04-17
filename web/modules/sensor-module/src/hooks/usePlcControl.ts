@@ -414,6 +414,7 @@ export function usePlcConnections(
   filter?: PlcConnectionFilter,
   pagination?: PlcPagination,
 ) {
+  const { tenantId } = useAuth();
   return useQuery({
     queryKey: createTenantQueryKey(tenantId, 'plcConnections', filter, pagination),
     queryFn: async () => {
@@ -445,6 +446,7 @@ export function usePlcConnection(id: string) {
 }
 
 export function usePlcConnectionCountByStatus() {
+  const { tenantId } = useAuth();
   return useQuery({
     queryKey: createTenantQueryKey(tenantId, 'plcConnectionCountByStatus'),
     queryFn: async () => {
@@ -477,6 +479,7 @@ export function useOnlinePlcConnections() {
 
 export function usePlcConnectionMutations() {
   const queryClient = useQueryClient();
+  const { tenantId } = useAuth();
 
   const invalidate = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'plcConnections') });
@@ -576,6 +579,7 @@ export function useDiscoverEndpoints(endpointUrl: string) {
 }
 
 export function useBrowseOpcUaNodes(plcConnectionId: string, parentNodeId?: string) {
+  const { tenantId } = useAuth();
   return useQuery({
     queryKey: createTenantQueryKey(tenantId, 'browseOpcUaNodes', plcConnectionId, parentNodeId),
     queryFn: async () => {
@@ -598,6 +602,7 @@ export function useFeedingParameters(
   filter?: FeedingParameterFilter,
   pagination?: PlcPagination,
 ) {
+  const { tenantId } = useAuth();
   return useQuery({
     queryKey: createTenantQueryKey(tenantId, 'feedingParameters', filter, pagination),
     queryFn: async () => {
@@ -629,6 +634,7 @@ export function useFeedingParameter(id: string) {
 }
 
 export function useActiveFeedingParameter(plcConnectionId: string) {
+  const { tenantId } = useAuth();
   return useQuery({
     queryKey: createTenantQueryKey(tenantId, 'activeFeedingParameter', plcConnectionId),
     queryFn: async () => {
@@ -661,6 +667,7 @@ export function useFeedingParameterHistory(plcConnectionId: string, limit = 10) 
 
 export function useFeedingParameterMutations() {
   const queryClient = useQueryClient();
+  const { tenantId } = useAuth();
 
   const invalidate = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feedingParameters') });
@@ -753,6 +760,7 @@ export function usePlcAlarms(
   filter?: PlcAlarmFilter,
   pagination?: PlcPagination,
 ) {
+  const { tenantId } = useAuth();
   return useQuery({
     queryKey: createTenantQueryKey(tenantId, 'plcAlarms', filter, pagination),
     queryFn: async () => {
@@ -786,6 +794,7 @@ export function useActivePlcAlarms(plcConnectionId?: string) {
 }
 
 export function useUnacknowledgedPlcAlarms(plcConnectionId?: string) {
+  const { tenantId } = useAuth();
   return useQuery({
     queryKey: createTenantQueryKey(tenantId, 'unacknowledgedPlcAlarms', plcConnectionId),
     queryFn: async () => {
@@ -820,6 +829,7 @@ export function usePlcAlarmStats(plcConnectionId?: string) {
 
 export function usePlcAlarmMutations() {
   const queryClient = useQueryClient();
+  const { tenantId } = useAuth();
 
   const invalidate = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'plcAlarms') });
@@ -890,6 +900,7 @@ export function useLatestTelemetrySummary(plcConnectionId: string) {
 }
 
 export function useAllConnectionsTelemetrySummary() {
+  const { tenantId } = useAuth();
   return useQuery({
     queryKey: createTenantQueryKey(tenantId, 'allConnectionsTelemetrySummary'),
     queryFn: async () => {
@@ -909,6 +920,7 @@ export function usePlcTelemetryStats(
   plcConnectionId: string,
   timeRange: { from: string; to: string },
 ) {
+  const { tenantId } = useAuth();
   return useQuery({
     queryKey: createTenantQueryKey(tenantId, 'plcTelemetryStats', plcConnectionId, timeRange),
     queryFn: async () => {
@@ -927,6 +939,7 @@ export function useFeedingStatsQuery(
   plcConnectionId: string,
   timeRange: { from: string; to: string },
 ) {
+  const { tenantId } = useAuth();
   return useQuery({
     queryKey: createTenantQueryKey(tenantId, 'feedingStats', plcConnectionId, timeRange),
     queryFn: async () => {
@@ -945,6 +958,7 @@ export function useActuatorUsageStats(
   plcConnectionId: string,
   timeRange: { from: string; to: string },
 ) {
+  const { tenantId } = useAuth();
   return useQuery({
     queryKey: createTenantQueryKey(tenantId, 'actuatorUsageStats', plcConnectionId, timeRange),
     queryFn: async () => {

@@ -124,6 +124,7 @@ export function useSiteList(filter?: { isActive?: boolean; status?: string }) {
  * Hook to fetch departments by site
  */
 export function useDepartmentsBySite(siteId: string) {
+  const { tenantId } = useAuth();
   const { token } = useAuth();
 
   return useQuery({

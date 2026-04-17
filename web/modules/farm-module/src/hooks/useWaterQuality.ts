@@ -342,6 +342,7 @@ export function useWaterQuality(id: string | null) {
  * Fetch latest water quality for a tank
  */
 export function useLatestWaterQuality(tankId: string | null) {
+  const { tenantId } = useAuth();
   const { token } = useAuth();
 
   return useQuery({
@@ -388,6 +389,7 @@ export function useWaterQualityChart(
   fromDate: Date | null,
   toDate: Date | null,
 ) {
+  const { tenantId } = useAuth();
   const { token } = useAuth();
 
   return useQuery({
@@ -476,6 +478,7 @@ export function useWaterQualityChartBySystem(
   fromDate: Date | null,
   toDate: Date | null,
 ) {
+  const { tenantId } = useAuth();
   const { token } = useAuth();
 
   return useQuery({
@@ -503,6 +506,7 @@ export function useWaterQualityStatisticsBySystem(
   systemId: string | null,
   days: number = 7,
 ) {
+  const { tenantId } = useAuth();
   const { token } = useAuth();
 
   return useQuery({
@@ -550,6 +554,7 @@ export function useCreateWaterQuality() {
 export function useUpdateWaterQuality() {
   const { token } = useAuth();
   const queryClient = useQueryClient();
+  const { tenantId } = useAuth();
 
   return useMutation({
     mutationFn: async (input: UpdateWaterQualityInput) => {

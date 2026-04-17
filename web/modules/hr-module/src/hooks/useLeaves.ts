@@ -237,6 +237,7 @@ export function useCheckLeaveOverlap(
   endDate: string,
   excludeRequestId?: string
 ) {
+  const { tenantId } = useAuth();
   const client = useGraphQLClient();
 
   return useQuery({
@@ -265,6 +266,7 @@ export function useCalculateLeaveDays(
   options?: { isHalfDayStart?: boolean; isHalfDayEnd?: boolean }
 ) {
   const client = useGraphQLClient();
+  const { tenantId } = useAuth();
 
   return useQuery({
     queryKey: createTenantQueryKey(tenantId, 'leaveDays', leaveTypeId, startDate, endDate, options),
@@ -361,6 +363,7 @@ export function useSubmitLeaveRequest() {
 export function useApproveLeaveRequest() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
+  const { tenantId } = useAuth();
 
   return useMutation({
     mutationFn: ({ id, notes }: { id: string; notes?: string }) =>

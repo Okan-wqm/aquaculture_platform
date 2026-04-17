@@ -223,6 +223,7 @@ export function useLeaveTypes() {
  */
 export function useSubmitLeaveRequest(): { submit: (id: string) => Promise<void>; loading: boolean } {
   const queryClient = useQueryClient();
+  const { tenantId } = useAuth();
 
   const mutation = useMutation({
     mutationFn: async (id: string) => {
@@ -256,6 +257,7 @@ export function useSubmitLeaveRequest(): { submit: (id: string) => Promise<void>
  */
 export function useCancelLeaveRequest(): { cancel: (id: string) => Promise<void>; loading: boolean } {
   const queryClient = useQueryClient();
+  const { tenantId } = useAuth();
 
   const mutation = useMutation({
     mutationFn: async (id: string) => {

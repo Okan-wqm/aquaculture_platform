@@ -204,6 +204,7 @@ export function useEscalationPolicy(id: string) {
  * Hook to fetch all escalation policies
  */
 export function useEscalationPolicies(activeOnly = false) {
+  const { tenantId } = useAuth();
   return useQuery({
     queryKey: createTenantQueryKey(tenantId, ...QUERY_KEYS.policies, { activeOnly }),
     queryFn: async () => {

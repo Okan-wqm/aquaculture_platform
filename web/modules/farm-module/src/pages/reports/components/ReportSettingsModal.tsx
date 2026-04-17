@@ -137,6 +137,7 @@ const StatusBadge: React.FC<{ label: string; configured: boolean }> = ({ label, 
 
 export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, onClose }) => {
   const queryClient = useQueryClient();
+  const { tenantId } = useAuth();
 
   const [formData, setFormData] = useState({
     maskinportenClientId: '',

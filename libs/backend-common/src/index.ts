@@ -84,6 +84,15 @@ export * from './telemetry';
 // Metrics - Per-service Prometheus metrics (module, middleware, controller)
 export * from './metrics';
 
+// Finding registry - NestJS wrapper over event_store.findings (Phase 12.1b)
+export * from './finding-registry';
+
+// Orchestrator leader election - Redis Redlock-lite (Phase 12.2)
+export * from './orchestrator-leader-election';
+
+// Orchestrator rate limit - Claude API token budget + 429 breaker (Phase 12.4)
+export * from './orchestrator-rate-limit';
+
 // Security - Rate Limiting, Token Blacklist, Session Management, GDPR, etc.
 export * from './security';
 

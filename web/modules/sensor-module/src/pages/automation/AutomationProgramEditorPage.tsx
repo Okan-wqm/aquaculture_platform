@@ -520,6 +520,7 @@ const AutomationProgramEditorPage: React.FC = () => {
   const { programId } = useParams<{ programId: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { tenantId } = useAuth();
   const isNew = !programId || programId === 'new';
 
   // State

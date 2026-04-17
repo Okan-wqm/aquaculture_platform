@@ -368,6 +368,7 @@ export function useDeleteSupplier() {
  * Hook to fetch supplier types (global, not tenant-specific)
  */
 export function useSupplierTypes() {
+  const { tenantId } = useAuth();
   const { token } = useAuth();
 
   return useQuery({

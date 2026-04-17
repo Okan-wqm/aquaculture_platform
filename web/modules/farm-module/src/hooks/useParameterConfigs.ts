@@ -250,6 +250,7 @@ export function useParameterConfigList(filter?: ParameterConfigFilter) {
  * Fetch single parameter config by ID
  */
 export function useParameterConfig(id: string | null) {
+  const { tenantId } = useAuth();
   const { token } = useAuth();
 
   return useQuery({
@@ -291,6 +292,7 @@ export function useParameterConfigByCode(code: string | null) {
  * Fetch available parameter templates
  */
 export function useParameterTemplates() {
+  const { tenantId } = useAuth();
   const { token } = useAuth();
 
   return useQuery({
@@ -333,6 +335,7 @@ export function useCreateParameterConfig() {
 export function useUpdateParameterConfig() {
   const { token } = useAuth();
   const queryClient = useQueryClient();
+  const { tenantId } = useAuth();
 
   return useMutation({
     mutationFn: async (input: UpdateParameterConfigInput) => {
@@ -374,6 +377,7 @@ export function useDeleteParameterConfig() {
 export function useApplyParameterTemplate() {
   const { token } = useAuth();
   const queryClient = useQueryClient();
+  const { tenantId } = useAuth();
 
   return useMutation({
     mutationFn: async (input: { templateId: string; overwrite: boolean }) => {

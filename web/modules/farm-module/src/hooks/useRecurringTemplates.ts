@@ -75,11 +75,12 @@ export interface UpdateRecurringTemplateInput {
  */
 export function useRecurringTemplates(enabled = true) {
   const queryClient = useQueryClient();
+  const { tenantId } = useAuth();
 
   // Templates query
   const templatesQuery = useQuery({
     queryKey: createTenantQueryKey(tenantId, 'recurringTemplates'),
-    enabled,
+    enabled: enabled && !!tenantId,
     staleTime: 60_000, // 1 dakika
     queryFn: async () => {
       const query = `
@@ -96,7 +97,6 @@ export function useRecurringTemplates(enabled = true) {
 
       return result.recurringTemplates;
     },
-    enabled: !!tenantId,
   });
 
   // --- Mutations ---

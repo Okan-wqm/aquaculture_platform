@@ -209,6 +209,7 @@ export function useWeatherForecast(siteId: string | null, days: number = 7) {
  * Fetch marine forecast data for a site
  */
 export function useMarineForecast(siteId: string | null, days: number = 7) {
+  const { tenantId } = useAuth();
   const now = new Date();
   const end = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
 
@@ -252,6 +253,7 @@ export function useCurrentWeather(siteId: string | null) {
  * Fetch weather settings for the current tenant
  */
 export function useWeatherSettings() {
+  const { tenantId } = useAuth();
   return useQuery({
     queryKey: createTenantQueryKey(tenantId, 'weatherSettings'),
     queryFn: async () => {
@@ -293,6 +295,7 @@ export function useSyncWeather() {
  */
 export function useUpdateWeatherSettings() {
   const queryClient = useQueryClient();
+  const { tenantId } = useAuth();
 
   return useMutation({
     mutationFn: async (input: {

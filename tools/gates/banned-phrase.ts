@@ -73,16 +73,28 @@ interface BannedPhraseRule {
  * line, the hit is suppressed (e.g., "deferred" followed by plan-phase
  * reference is a tracked deferral, not a banned hedge).
  */
+/**
+ * Meta-discussion allowIf: a phrase inside double quotes adjacent to a
+ * `→` rewrite arrow is a commit body / review note describing the fix
+ * ("Temporary ID" → "Client-side optimistic ID"). Hedge-word usage in
+ * that context is describing WHAT was removed, not advocating for it.
+ *
+ * Matches when either (a) the phrase sits inside `"..."` and the same
+ * line contains `→`, or (b) the line is a git-diff-style `-` / `+`
+ * marker that quotes the phrase (code-review rewriting context).
+ */
+const META_DISCUSSION_ALLOW_IF = /→|^[-+]\s*"|"[^"]*"\s*→|\bL\d+\s*:\s*"/;
+
 const BANNED_PHRASES: readonly BannedPhraseRule[] = [
-  { phrase: /\bfor now\b/i, allowIf: null, label: 'for now' },
-  { phrase: /\binterim solution\b/i, allowIf: null, label: 'interim solution' },
-  { phrase: /\binterim\b/i, allowIf: null, label: 'interim' },
-  { phrase: /\btemporary\b/i, allowIf: null, label: 'temporary' },
-  { phrase: /\bpragmatic\b/i, allowIf: null, label: 'pragmatic' },
-  { phrase: /\bsimpler approach\b/i, allowIf: null, label: 'simpler approach' },
-  { phrase: /\bmiddle ground\b/i, allowIf: null, label: 'middle ground' },
-  { phrase: /\bfor momentum\b/i, allowIf: null, label: 'for momentum' },
-  { phrase: /\bjust this commit\b/i, allowIf: null, label: 'just this commit' },
+  { phrase: /\bfor now\b/i, allowIf: META_DISCUSSION_ALLOW_IF, label: 'for now' },
+  { phrase: /\binterim solution\b/i, allowIf: META_DISCUSSION_ALLOW_IF, label: 'interim solution' },
+  { phrase: /\binterim\b/i, allowIf: META_DISCUSSION_ALLOW_IF, label: 'interim' },
+  { phrase: /\btemporary\b/i, allowIf: META_DISCUSSION_ALLOW_IF, label: 'temporary' },
+  { phrase: /\bpragmatic\b/i, allowIf: META_DISCUSSION_ALLOW_IF, label: 'pragmatic' },
+  { phrase: /\bsimpler approach\b/i, allowIf: META_DISCUSSION_ALLOW_IF, label: 'simpler approach' },
+  { phrase: /\bmiddle ground\b/i, allowIf: META_DISCUSSION_ALLOW_IF, label: 'middle ground' },
+  { phrase: /\bfor momentum\b/i, allowIf: META_DISCUSSION_ALLOW_IF, label: 'for momentum' },
+  { phrase: /\bjust this commit\b/i, allowIf: META_DISCUSSION_ALLOW_IF, label: 'just this commit' },
   {
     phrase: /\bdeferred\b/i,
     // Tracked deferral = ANY of:
@@ -99,8 +111,8 @@ const BANNED_PHRASES: readonly BannedPhraseRule[] = [
     allowIf: /(ADR-\d+|docs\/reviews\/|docs\/adr\/|\b[Pp]hase[\s-]\d|\bW\d+|abstract-brewing-mochi|declarative-riding-shamir)/i,
     label: 'out of scope (without ADR / review / plan reference)',
   },
-  { phrase: /\bgood enough\b/i, allowIf: null, label: 'good enough' },
-  { phrase: /\bsufficient for now\b/i, allowIf: null, label: 'sufficient for now' },
+  { phrase: /\bgood enough\b/i, allowIf: META_DISCUSSION_ALLOW_IF, label: 'good enough' },
+  { phrase: /\bsufficient for now\b/i, allowIf: META_DISCUSSION_ALLOW_IF, label: 'sufficient for now' },
 ];
 
 const EXEMPT_PATHS: readonly RegExp[] = [

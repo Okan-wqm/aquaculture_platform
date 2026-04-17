@@ -81,6 +81,7 @@ export function useAutomationPrograms() {
 }
 
 export function useAutomationProgramVariables(programId: string | null) {
+  const { tenantId } = useAuth();
   return useQuery({
     queryKey: createTenantQueryKey(tenantId, 'automationProgramVariables', programId),
     queryFn: () =>

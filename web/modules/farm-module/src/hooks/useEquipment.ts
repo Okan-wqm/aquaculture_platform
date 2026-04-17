@@ -354,6 +354,7 @@ export function useEquipmentList(filter?: {
  * Hook to fetch equipment types
  */
 export function useEquipmentTypes() {
+  const { tenantId } = useAuth();
   const { token } = useAuth();
 
   return useQuery({

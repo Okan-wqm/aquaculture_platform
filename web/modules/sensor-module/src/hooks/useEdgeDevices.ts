@@ -317,6 +317,7 @@ export function useEdgeDevices(filter?: EdgeDeviceFilter) {
  * Hook to fetch single edge device by ID
  */
 export function useEdgeDevice(id: string) {
+  const { tenantId } = useAuth();
   const { token } = useAuth();
 
   return useQuery({
@@ -363,6 +364,7 @@ export function useEdgeDeviceStats() {
 export function useRegisterEdgeDevice() {
   const { token } = useAuth();
   const queryClient = useQueryClient();
+  const { tenantId } = useAuth();
 
   return useMutation({
     mutationFn: async (input: RegisterEdgeDeviceInput) => {
@@ -408,6 +410,7 @@ export function useUpdateEdgeDevice() {
 export function useApproveEdgeDevice() {
   const { token } = useAuth();
   const queryClient = useQueryClient();
+  const { tenantId } = useAuth();
 
   return useMutation({
     mutationFn: async (id: string) => {
@@ -455,6 +458,7 @@ export function useSetDeviceMaintenanceMode() {
 export function useDecommissionEdgeDevice() {
   const { token } = useAuth();
   const queryClient = useQueryClient();
+  const { tenantId } = useAuth();
 
   return useMutation({
     mutationFn: async ({ id, reason }: { id: string; reason: string }) => {
@@ -498,6 +502,7 @@ export function usePingEdgeDevice() {
 export function useAddDeviceIoConfig() {
   const { token } = useAuth();
   const queryClient = useQueryClient();
+  const { tenantId } = useAuth();
 
   return useMutation({
     mutationFn: async ({ deviceId, input }: { deviceId: string; input: AddIoConfigInput }) => {
@@ -571,6 +576,7 @@ export function useRemoveDeviceIoConfig() {
 export function usePushIoConfig() {
   const { token } = useAuth();
   const queryClient = useQueryClient();
+  const { tenantId } = useAuth();
 
   return useMutation({
     mutationFn: async (deviceId: string) => {
@@ -730,6 +736,7 @@ export function useScanHardware() {
 export function useBulkAddIoConfig() {
   const { token } = useAuth();
   const queryClient = useQueryClient();
+  const { tenantId } = useAuth();
 
   return useMutation({
     mutationFn: async ({
@@ -783,6 +790,7 @@ export function useDeviceInstallCommands(deviceId: string) {
 export function useCreateProvisionedDevice() {
   const { token } = useAuth();
   const queryClient = useQueryClient();
+  const { tenantId } = useAuth();
 
   return useMutation({
     mutationFn: async (input: CreateProvisionedDeviceInput) => {
@@ -863,6 +871,7 @@ export function useAvailableFirmwareVersions() {
 export function useUpdateEdgeDeviceFirmware() {
   const { token } = useAuth();
   const queryClient = useQueryClient();
+  const { tenantId } = useAuth();
 
   return useMutation({
     mutationFn: async ({ id, targetVersion }: { id: string; targetVersion?: string }) => {

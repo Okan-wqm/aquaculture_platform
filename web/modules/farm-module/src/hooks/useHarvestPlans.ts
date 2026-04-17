@@ -534,7 +534,10 @@ export function useHarvestPlanStats() {
 // HELPER: Invalidate all harvest plan queries
 // ============================================================================
 
-function invalidateAllHarvestPlanQueries(queryClient: ReturnType<typeof useQueryClient>) {
+function invalidateAllHarvestPlanQueries(
+  queryClient: ReturnType<typeof useQueryClient>,
+  tenantId: string | null,
+) {
   queryClient.invalidateQueries({
     predicate: (query) =>
       Array.isArray(query.queryKey) && query.queryKey[0] === HARVEST_PLANS_KEY,
@@ -569,7 +572,7 @@ export function useCreateHarvestPlan() {
       return data.createHarvestPlan;
     },
     onSuccess: () => {
-      invalidateAllHarvestPlanQueries(queryClient);
+      invalidateAllHarvestPlanQueries(queryClient, tenantId);
     },
   });
 }
@@ -596,7 +599,7 @@ export function useUpdateHarvestPlan() {
       return data.updateHarvestPlan;
     },
     onSuccess: () => {
-      invalidateAllHarvestPlanQueries(queryClient);
+      invalidateAllHarvestPlanQueries(queryClient, tenantId);
     },
   });
 }
@@ -623,7 +626,7 @@ export function useDeleteHarvestPlan() {
       return data.deleteHarvestPlan;
     },
     onSuccess: () => {
-      invalidateAllHarvestPlanQueries(queryClient);
+      invalidateAllHarvestPlanQueries(queryClient, tenantId);
     },
   });
 }
@@ -650,7 +653,7 @@ export function useApproveHarvestPlan() {
       return data.approveHarvestPlan;
     },
     onSuccess: () => {
-      invalidateAllHarvestPlanQueries(queryClient);
+      invalidateAllHarvestPlanQueries(queryClient, tenantId);
     },
   });
 }
@@ -677,7 +680,7 @@ export function useScheduleHarvestPlan() {
       return data.scheduleHarvestPlan;
     },
     onSuccess: () => {
-      invalidateAllHarvestPlanQueries(queryClient);
+      invalidateAllHarvestPlanQueries(queryClient, tenantId);
     },
   });
 }
@@ -704,7 +707,7 @@ export function useStartHarvestPlan() {
       return data.startHarvestPlan;
     },
     onSuccess: () => {
-      invalidateAllHarvestPlanQueries(queryClient);
+      invalidateAllHarvestPlanQueries(queryClient, tenantId);
     },
   });
 }
@@ -741,7 +744,7 @@ export function useCompleteHarvestPlan() {
       return data.completeHarvestPlan;
     },
     onSuccess: () => {
-      invalidateAllHarvestPlanQueries(queryClient);
+      invalidateAllHarvestPlanQueries(queryClient, tenantId);
     },
   });
 }
@@ -768,7 +771,7 @@ export function useCancelHarvestPlan() {
       return data.cancelHarvestPlan;
     },
     onSuccess: () => {
-      invalidateAllHarvestPlanQueries(queryClient);
+      invalidateAllHarvestPlanQueries(queryClient, tenantId);
     },
   });
 }
@@ -795,7 +798,7 @@ export function usePostponeHarvestPlan() {
       return data.postponeHarvestPlan;
     },
     onSuccess: () => {
-      invalidateAllHarvestPlanQueries(queryClient);
+      invalidateAllHarvestPlanQueries(queryClient, tenantId);
     },
   });
 }

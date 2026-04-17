@@ -60,6 +60,22 @@ jobs:
               - 'infrastructure/deploy/**'
               - 'docker-compose.droplet.yml'
               - 'docker-compose.prod.yml'
+              # CI install-chain tooling — the Nx graph probe + ESLint
+              # plugin loader resolve against these paths on every run.
+              # A broken `tools/eslint-rules/` tsconfig or a miswired
+              # `tools/gates/` script crashes the install job itself, so
+              # changes here MUST trigger the full chain or the fix
+              # cannot validate itself. Root cause: commit 5f3280c4
+              # fixed the eslint-rules build but CI skipped validation
+              # because the change only touched tools/, producing
+              # has_changes=false. Architectural fix: treat CI-consumed
+              # tooling as deploy-config for path-filter purposes.
+              - 'tools/eslint-rules/**'
+              - 'tools/gates/**'
+              - 'tools/scripts/**'
+              - '.eslintrc.json'
+              - '.eslintrc.js'
+              - 'tsconfig.base.json'
       - id: check
         run: |
           if [ "${{ steps.changes.outputs.apps }}" = "true" ] || \

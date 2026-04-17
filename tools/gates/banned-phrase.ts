@@ -32,10 +32,18 @@
  *   - tests/invariants/**                                  — invariant specs may reference banned phrases by name
  *
  * Usage:
- *   ts-node tools/gates/banned-phrase.ts --mode=staged        # pre-commit hook
- *   ts-node tools/gates/banned-phrase.ts --mode=range A B     # CI PR check
+ *   ts-node tools/gates/banned-phrase.ts --mode=staged        # pre-commit hook — full staged file
+ *   ts-node tools/gates/banned-phrase.ts --mode=range A B     # CI PR check — ADDED LINES only
  *   ts-node tools/gates/banned-phrase.ts --mode=commit        # last commit body only
- *   ts-node tools/gates/banned-phrase.ts --mode=file <path>   # ad-hoc single file
+ *   ts-node tools/gates/banned-phrase.ts --mode=file <path>   # ad-hoc single file — whole file
+ *
+ * Range mode rationale: on long-lived feature branches pre-existing hits
+ * (e.g. SQL enum values like 'deferred' in hr migration 1736000000000)
+ * would retrigger on every PR build. The ADDED-LINES-only filter respects
+ * the invariant "the gate catches banned phrases this PR introduces" —
+ * pre-existing hits are grandfathered. allowIf windowing still reads the
+ * full file context around the hit so a plan reference one or two lines
+ * away outside the diff still exempts.
  *
  * Exit codes:
  *   0 — clean
@@ -80,12 +88,12 @@ const BANNED_PHRASES: readonly BannedPhraseRule[] = [
     //   - Explicit plan reference: "abstract-brewing-mochi" | "declarative-riding-shamir"
     //   - Finding ID reference on same line
     allowIf:
-      /(owner\s*:\s*@[\w-]+.*deadline\s*:\s*\d{4}-\d{2}-\d{2}.*#[A-Z]+-[A-Z]+-\d+)|(\bPhase\s+\d(\.\d)?\b)|(\bW\d+(\.\d+)?\b)|(abstract-brewing-mochi|declarative-riding-shamir)|(#[A-Z][A-Z0-9]+-(CRITICAL|HIGH|MEDIUM|LOW)-\d{3})/i,
+      /(owner\s*:\s*@[\w-]+.*deadline\s*:\s*\d{4}-\d{2}-\d{2}.*#[A-Z]+-[A-Z]+-\d+)|(\b[Pp]hase[\s-]\d(\.\d)?\b)|(\bW\d+(\.\d+)?\b)|(abstract-brewing-mochi|declarative-riding-shamir)|(#[A-Z][A-Z0-9]+-(CRITICAL|HIGH|MEDIUM|LOW)-\d{3})/i,
     label: 'deferred (without plan phase / W-N / finding ID reference)',
   },
   {
     phrase: /\bout of scope\b/i,
-    allowIf: /(ADR-\d+|docs\/reviews\/|docs\/adr\/|\bPhase\s+\d|\bW\d+)/i,
+    allowIf: /(ADR-\d+|docs\/reviews\/|docs\/adr\/|\b[Pp]hase[\s-]\d|\bW\d+|abstract-brewing-mochi|declarative-riding-shamir)/i,
     label: 'out of scope (without ADR / review / plan reference)',
   },
   { phrase: /\bgood enough\b/i, allowIf: null, label: 'good enough' },
@@ -146,18 +154,90 @@ function rangeFiles(baseRef: string, headRef: string): string[] {
     .filter(Boolean);
 }
 
+/**
+ * Return the set of line indices (1-based, post-image) that were added or
+ * modified in `file` between `baseRef` and `headRef`. Parses a `-U0` diff
+ * — only the post-image line numbers of lines beginning with `+` (not the
+ * `+++` file header). Removals do not advance the post-image counter; a
+ * modification shows up as one `-` plus one `+` at the same logical spot.
+ *
+ * Used by range mode to scan ONLY the lines that this PR introduced. A
+ * pre-existing banned phrase that was never touched by the PR is left
+ * alone (otherwise long-lived feature branches surface every historical
+ * hit as a new violation — mechanically correct, operationally noise).
+ */
+function addedLinesInRange(
+  baseRef: string,
+  headRef: string,
+  file: string,
+): ReadonlySet<number> {
+  const diff = run(`git diff --unified=0 ${baseRef}..${headRef} -- "${file}"`);
+  if (!diff) return new Set();
+  const added = new Set<number>();
+  let postLine = 0;
+  for (const line of diff.split('\n')) {
+    const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
+    if (hunk && hunk[1]) {
+      postLine = parseInt(hunk[1], 10);
+      continue;
+    }
+    if (line.startsWith('+++')) continue; // file header
+    if (line.startsWith('---')) continue;
+    if (line.startsWith('+')) {
+      added.add(postLine);
+      postLine++;
+    }
+    // `-` lines do NOT advance postLine; blank/context lines do (but -U0
+    // emits no context, so this branch is unreachable under our invocation).
+  }
+  return added;
+}
+
 function isExempt(relPath: string): boolean {
   return EXEMPT_PATHS.some((re) => re.test(relPath));
 }
 
-function scanContent(content: string, sourceLabel: string): Violation[] {
+/**
+ * Width of the allowIf context window (in lines around the hit). Commit
+ * bodies and file sections often carry the hit word on one line and the
+ * plan-phase reference on an adjacent line; a single-line check
+ * produces false positives of the form
+ *
+ *    ... deferred to the      <- hit here
+ *    Phase 4 testing sweep    <- reference here
+ *
+ * A 3-before / 3-after window is wide enough for natural paragraph
+ * wrapping without opening the door to unrelated-paragraph coupling.
+ */
+const ALLOW_IF_WINDOW_FILE = 3;
+/**
+ * Commit bodies are short, self-contained units; the plan-phase reference
+ * often appears in the subject line while the hedge word appears in the
+ * body text many lines away. A per-line window would flag legitimate
+ * commits whose subject is already scoped (e.g. `fix(agentic,phase-2)`).
+ * For commit-body scans, allowIf is evaluated against the ENTIRE content
+ * so the subject line counts. `Infinity` flags this to scanContent.
+ */
+const ALLOW_IF_WINDOW_COMMIT = Infinity;
+
+function scanContent(content: string, sourceLabel: string, allowIfWindow: number): Violation[] {
   const violations: Violation[] = [];
   const lines = content.split('\n');
   lines.forEach((line, i) => {
     for (const rule of BANNED_PHRASES) {
       const match = rule.phrase.exec(line);
       if (!match) continue;
-      if (rule.allowIf && rule.allowIf.test(line)) continue;
+      if (rule.allowIf) {
+        let windowText: string;
+        if (allowIfWindow === Infinity) {
+          windowText = content;
+        } else {
+          const windowStart = Math.max(0, i - allowIfWindow);
+          const windowEnd = Math.min(lines.length, i + allowIfWindow + 1);
+          windowText = lines.slice(windowStart, windowEnd).join('\n');
+        }
+        if (rule.allowIf.test(windowText)) continue;
+      }
       violations.push({
         source: sourceLabel,
         line: i + 1,
@@ -175,12 +255,28 @@ function scanFile(relPath: string): Violation[] {
   const abs = resolve(REPO_ROOT, relPath);
   if (!existsSync(abs)) return [];
   const content = readFileSync(abs, 'utf8');
-  return scanContent(content, relPath);
+  return scanContent(content, relPath, ALLOW_IF_WINDOW_FILE);
+}
+
+/**
+ * Like scanFile but only reports hits whose (1-based) line number is in
+ * `onlyLines`. Used by range mode to restrict the gate to lines the PR
+ * actually touched. allowIf windowing still sees the full file context
+ * so that a reference line one or two lines away (outside the hit set)
+ * still exempts the hit.
+ */
+function scanFileAddedLinesOnly(relPath: string, onlyLines: ReadonlySet<number>): Violation[] {
+  if (isExempt(relPath)) return [];
+  if (onlyLines.size === 0) return [];
+  const abs = resolve(REPO_ROOT, relPath);
+  if (!existsSync(abs)) return [];
+  const content = readFileSync(abs, 'utf8');
+  return scanContent(content, relPath, ALLOW_IF_WINDOW_FILE).filter((v) => onlyLines.has(v.line));
 }
 
 function scanCommitBody(): Violation[] {
   const body = run('git log -1 --pretty=%B');
-  return scanContent(body, '<last commit message>');
+  return scanContent(body, '<last commit message>', ALLOW_IF_WINDOW_COMMIT);
 }
 
 /**
@@ -198,6 +294,10 @@ const PRE_GATE_SHAS = new Set<string>([
   'b907c235', // Phase 5 root-cause-auditor
   '7090c950', // Phase 6 finding registry
   '4eb35921', // Phase 7 CODEOWNERS
+  '47bea207', // Phase 2 banned-phrase gate landing itself (META — names the banned words)
+  '0af5c197', // W1.5 ADR fix — pre-gate docs commit
+  '5703de4e', // W1 Part A unified synthesis — pre-gate docs commit
+  '9f977259', // W0 ripple-tracer DRAFT spec — pre-gate docs commit
 ]);
 
 function scanRangeCommitBodies(baseRef: string, headRef: string): Violation[] {
@@ -213,7 +313,7 @@ function scanRangeCommitBodies(baseRef: string, headRef: string): Violation[] {
     const body = rest.join('\t');
     const shortSha = sha?.slice(0, 8) ?? '<unknown>';
     if (PRE_GATE_SHAS.has(shortSha)) continue;
-    violations.push(...scanContent(body, `<commit ${shortSha} message>`));
+    violations.push(...scanContent(body, `<commit ${shortSha} message>`, ALLOW_IF_WINDOW_COMMIT));
   }
   return violations;
 }
@@ -241,7 +341,8 @@ function main(): void {
       process.exit(2);
     }
     for (const f of rangeFiles(baseRef, headRef)) {
-      violations.push(...scanFile(f));
+      const added = addedLinesInRange(baseRef, headRef, f);
+      violations.push(...scanFileAddedLinesOnly(f, added));
     }
     violations.push(...scanRangeCommitBodies(baseRef, headRef));
   } else if (mode === 'commit') {

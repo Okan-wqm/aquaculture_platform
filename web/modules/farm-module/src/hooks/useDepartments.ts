@@ -3,7 +3,7 @@
  * Handles CRUD operations for departments via GraphQL API
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
 
 // Types
 export interface Department {
@@ -206,7 +206,7 @@ export function useDepartmentList(filter?: {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['departments', 'list', tenantId, filter],
+    queryKey: createTenantQueryKey(tenantId, 'departments', 'list', tenantId, filter),
     queryFn: async () => {
       const data = await graphqlClient.request<{ departments: PaginatedResponse }>(
         DEPARTMENTS_LIST_QUERY,
@@ -226,7 +226,7 @@ export function useDepartmentsBySite(siteId: string) {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['departments', 'bySite', siteId],
+    queryKey: createTenantQueryKey(tenantId, 'departments', 'bySite', siteId),
     queryFn: async () => {
       const data = await graphqlClient.request<{ departmentsBySite: Department[] }>(
         DEPARTMENTS_BY_SITE_QUERY,
@@ -246,7 +246,7 @@ export function useDepartment(id: string) {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['departments', 'detail', id],
+    queryKey: createTenantQueryKey(tenantId, 'departments', 'detail', id),
     queryFn: async () => {
       const data = await graphqlClient.request<{ department: Department }>(
         DEPARTMENT_QUERY,
@@ -281,8 +281,8 @@ export function useCreateDepartment() {
       return data.createDepartment;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['departments', 'list'] });
-      queryClient.invalidateQueries({ queryKey: ['departments', 'bySite'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'departments', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'departments', 'bySite') });
     },
   });
 }
@@ -309,9 +309,9 @@ export function useUpdateDepartment() {
       return data.updateDepartment;
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['departments', 'list'] });
-      queryClient.invalidateQueries({ queryKey: ['departments', 'bySite'] });
-      queryClient.invalidateQueries({ queryKey: ['departments', 'detail', variables.id] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'departments', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'departments', 'bySite') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'departments', 'detail', variables.id) });
     },
   });
 }
@@ -335,7 +335,7 @@ export function useDepartmentDeletePreview(id: string | null) {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['departments', 'deletePreview', id],
+    queryKey: createTenantQueryKey(tenantId, 'departments', 'deletePreview', id),
     queryFn: async () => {
       const data = await graphqlClient.request<{ departmentDeletePreview: DepartmentDeletePreviewResult }>(
         DEPARTMENT_DELETE_PREVIEW_QUERY,
@@ -371,10 +371,10 @@ export function useDeleteDepartment() {
       return data.deleteDepartment;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['departments', 'list'] });
-      queryClient.invalidateQueries({ queryKey: ['departments', 'bySite'] });
-      queryClient.invalidateQueries({ queryKey: ['equipment', 'list'] });
-      queryClient.invalidateQueries({ queryKey: ['systems', 'list'] });  // Systems may become orphaned
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'departments', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'departments', 'bySite') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'equipment', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'systems', 'list') });  // Systems may become orphaned
     },
   });
 }

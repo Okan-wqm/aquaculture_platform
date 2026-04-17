@@ -6,7 +6,7 @@
  * temperature ranges, weight ranges, and growth stages.
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
 import {
   FEEDING_PROTOCOL_QUERY,
   FEEDING_PROTOCOLS_QUERY,
@@ -168,7 +168,7 @@ export function useFeedingProtocols(filter?: FeedingProtocolFilter) {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['feeding-protocols', 'list', filter],
+    queryKey: createTenantQueryKey(tenantId, 'feeding-protocols', 'list', filter),
     queryFn: async () => {
       const data = await graphqlClient.request<{
         feedingProtocols: PaginatedProtocolsResponse;
@@ -187,7 +187,7 @@ export function useFeedingProtocol(id: string) {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['feeding-protocols', 'detail', id],
+    queryKey: createTenantQueryKey(tenantId, 'feeding-protocols', 'detail', id),
     queryFn: async () => {
       const data = await graphqlClient.request<{
         feedingProtocol: FeedingProtocol;
@@ -206,7 +206,7 @@ export function useFeedingProtocolsBySpecies(species: string) {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['feeding-protocols', 'by-species', species],
+    queryKey: createTenantQueryKey(tenantId, 'feeding-protocols', 'by-species', species),
     queryFn: async () => {
       const data = await graphqlClient.request<{
         feedingProtocolsBySpecies: FeedingProtocol[];
@@ -225,7 +225,7 @@ export function useDefaultFeedingProtocol(species: string, stage?: string) {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['feeding-protocols', 'default', species, stage],
+    queryKey: createTenantQueryKey(tenantId, 'feeding-protocols', 'default', species, stage),
     queryFn: async () => {
       const data = await graphqlClient.request<{
         defaultFeedingProtocol: FeedingProtocol | null;
@@ -258,7 +258,7 @@ export function useCreateFeedingProtocol() {
       return data.createFeedingProtocol;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['feeding-protocols'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feeding-protocols') });
     },
   });
 }
@@ -284,10 +284,10 @@ export function useUpdateFeedingProtocol() {
       return data.updateFeedingProtocol;
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['feeding-protocols', 'list'] });
-      queryClient.invalidateQueries({ queryKey: ['feeding-protocols', 'detail', variables.id] });
-      queryClient.invalidateQueries({ queryKey: ['feeding-protocols', 'by-species'] });
-      queryClient.invalidateQueries({ queryKey: ['feeding-protocols', 'default'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feeding-protocols', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feeding-protocols', 'detail', variables.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feeding-protocols', 'by-species') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feeding-protocols', 'default') });
     },
   });
 }
@@ -313,7 +313,7 @@ export function useDeleteFeedingProtocol() {
       return data.deleteFeedingProtocol;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['feeding-protocols'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feeding-protocols') });
     },
   });
 }
@@ -339,7 +339,7 @@ export function useSetDefaultFeedingProtocol() {
       return data.setDefaultFeedingProtocol;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['feeding-protocols'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feeding-protocols') });
     },
   });
 }

@@ -3,7 +3,7 @@
  * Handles CRUD operations for chemicals via GraphQL API
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
 
 // Enums - Values must be UPPERCASE to match GraphQL enum keys
 export enum ChemicalType {
@@ -384,7 +384,7 @@ export function useChemicalList(filter?: {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['chemicals', 'list', filter],
+    queryKey: createTenantQueryKey(tenantId, 'chemicals', 'list', filter),
     queryFn: async () => {
       const data = await graphqlClient.request<{ chemicals: PaginatedResponse }>(
         CHEMICALS_LIST_QUERY,
@@ -404,7 +404,7 @@ export function useChemical(id: string) {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['chemicals', 'detail', id],
+    queryKey: createTenantQueryKey(tenantId, 'chemicals', 'detail', id),
     queryFn: async () => {
       const data = await graphqlClient.request<{ chemical: Chemical }>(
         CHEMICAL_QUERY,
@@ -439,7 +439,7 @@ export function useCreateChemical() {
       return data.createChemical;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['chemicals', 'list'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'chemicals', 'list') });
     },
   });
 }
@@ -466,8 +466,8 @@ export function useUpdateChemical() {
       return data.updateChemical;
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['chemicals', 'list'] });
-      queryClient.invalidateQueries({ queryKey: ['chemicals', 'detail', variables.id] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'chemicals', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'chemicals', 'detail', variables.id) });
     },
   });
 }
@@ -494,7 +494,7 @@ export function useDeleteChemical() {
       return data.deleteChemical;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['chemicals', 'list'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'chemicals', 'list') });
     },
   });
 }
@@ -506,7 +506,7 @@ export function useChemicalTypes() {
   const { token } = useAuth();
 
   return useQuery({
-    queryKey: ['chemicals', 'types'],
+    queryKey: createTenantQueryKey(tenantId, 'chemicals', 'types'),
     queryFn: async () => {
       const data = await graphqlClient.request<{ chemicalTypes: ChemicalTypeResponse[] }>(
         CHEMICAL_TYPES_QUERY,
@@ -610,8 +610,8 @@ export function useUploadChemicalDocument() {
       };
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['chemicals', 'list'] });
-      queryClient.invalidateQueries({ queryKey: ['chemicals', 'detail', variables.chemicalId] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'chemicals', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'chemicals', 'detail', variables.chemicalId) });
     },
   });
 }
@@ -647,8 +647,8 @@ export function useAddChemicalDocument() {
       return data.addChemicalDocument;
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['chemicals', 'list'] });
-      queryClient.invalidateQueries({ queryKey: ['chemicals', 'detail', variables.chemicalId] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'chemicals', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'chemicals', 'detail', variables.chemicalId) });
     },
   });
 }
@@ -704,8 +704,8 @@ export function useRemoveChemicalDocument() {
       return data.removeChemicalDocument;
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['chemicals', 'list'] });
-      queryClient.invalidateQueries({ queryKey: ['chemicals', 'detail', variables.chemicalId] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'chemicals', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'chemicals', 'detail', variables.chemicalId) });
     },
   });
 }

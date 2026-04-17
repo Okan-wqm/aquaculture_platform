@@ -6,7 +6,7 @@
  * with individual tracking per batch/species.
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // TYPES
@@ -264,7 +264,7 @@ export function useCleanerFishSpecies() {
   const { token, tenantId, isAuthenticated, isLoading: authLoading } = useAuth();
 
   return useQuery({
-    queryKey: ['cleanerFish', 'species', tenantId],
+    queryKey: createTenantQueryKey(tenantId, 'cleanerFish', 'species', tenantId),
     queryFn: async () => {
       if (!tenantId) {
         throw new Error('Tenant context required');
@@ -295,7 +295,7 @@ export function useCleanerFishBatches(status?: string) {
   const { token, tenantId, isAuthenticated, isLoading: authLoading } = useAuth();
 
   return useQuery({
-    queryKey: ['cleanerFish', 'batches', tenantId, status],
+    queryKey: createTenantQueryKey(tenantId, 'cleanerFish', 'batches', tenantId, status),
     queryFn: async () => {
       if (!tenantId) {
         throw new Error('Tenant context required');
@@ -327,7 +327,7 @@ export function useTankCleanerFish(tankId: string) {
   const { token, tenantId, isAuthenticated, isLoading: authLoading } = useAuth();
 
   return useQuery({
-    queryKey: ['cleanerFish', 'tank', tenantId, tankId],
+    queryKey: createTenantQueryKey(tenantId, 'cleanerFish', 'tank', tenantId, tankId),
     queryFn: async () => {
       if (!tenantId) {
         throw new Error('Tenant context required');
@@ -378,7 +378,7 @@ export function useCreateCleanerBatch() {
       return data.createCleanerFishBatch;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['cleanerFish', 'batches'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'cleanerFish', 'batches') });
     },
   });
 }
@@ -405,9 +405,9 @@ export function useDeployCleanerFish() {
       return data.deployCleanerFish;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['cleanerFish'] });
-      queryClient.invalidateQueries({ queryKey: ['tankBatches'] });
-      queryClient.invalidateQueries({ queryKey: ['tanks'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'cleanerFish') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tankBatches') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tanks') });
     },
   });
 }
@@ -434,9 +434,9 @@ export function useTransferCleanerFish() {
       return data.transferCleanerFish;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['cleanerFish'] });
-      queryClient.invalidateQueries({ queryKey: ['tankBatches'] });
-      queryClient.invalidateQueries({ queryKey: ['tanks'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'cleanerFish') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tankBatches') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tanks') });
     },
   });
 }
@@ -463,9 +463,9 @@ export function useRecordCleanerMortality() {
       return data.recordCleanerMortality;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['cleanerFish'] });
-      queryClient.invalidateQueries({ queryKey: ['tankBatches'] });
-      queryClient.invalidateQueries({ queryKey: ['tanks'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'cleanerFish') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tankBatches') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tanks') });
     },
   });
 }
@@ -493,9 +493,9 @@ export function useRemoveCleanerFish() {
       return data.removeCleanerFish;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['cleanerFish'] });
-      queryClient.invalidateQueries({ queryKey: ['tankBatches'] });
-      queryClient.invalidateQueries({ queryKey: ['tanks'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'cleanerFish') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tankBatches') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tanks') });
     },
   });
 }

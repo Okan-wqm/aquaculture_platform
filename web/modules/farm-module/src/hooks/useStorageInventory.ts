@@ -2,7 +2,7 @@
  * Storage Inventory & Stock Movements hooks for farm-module
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
 
 // Types
 export enum StorageItemType {
@@ -290,7 +290,7 @@ export function useStorageInventory(locationId?: string, itemType?: StorageItemT
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['storageInventory', locationId, itemType],
+    queryKey: createTenantQueryKey(tenantId, 'storageInventory', locationId, itemType),
     queryFn: async () => {
       const data = await graphqlClient.request<{ storageInventory: StorageInventoryItem[] }>(
         STORAGE_INVENTORY_QUERY,
@@ -307,7 +307,7 @@ export function useStorageOverview() {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['storageOverview'],
+    queryKey: createTenantQueryKey(tenantId, 'storageOverview'),
     queryFn: async () => {
       const data = await graphqlClient.request<{ storageOverview: StorageOverview }>(
         STORAGE_OVERVIEW_QUERY
@@ -330,7 +330,7 @@ export function useStockMovements(filter?: {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['stockMovements', 'list', filter],
+    queryKey: createTenantQueryKey(tenantId, 'stockMovements', 'list', filter),
     queryFn: async () => {
       const data = await graphqlClient.request<{ stockMovements: PaginatedMovementsResponse }>(
         STOCK_MOVEMENTS_QUERY,
@@ -358,12 +358,12 @@ export function useRecordStockMovement() {
       return data.recordStockMovement;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['storageInventory'] });
-      queryClient.invalidateQueries({ queryKey: ['stockMovements'] });
-      queryClient.invalidateQueries({ queryKey: ['storageOverview'] });
-      queryClient.invalidateQueries({ queryKey: ['feeds', 'list'] });
-      queryClient.invalidateQueries({ queryKey: ['chemicals', 'list'] });
-      queryClient.invalidateQueries({ queryKey: ['consumables', 'list'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'storageInventory') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'stockMovements') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'storageOverview') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feeds', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'chemicals', 'list') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'consumables', 'list') });
     },
   });
 }
@@ -385,7 +385,7 @@ export function useRecordStockMovement() {
 export function useLotTrace(lotNumber: string | null) {
   const { token, tenantId } = useAuth();
   return useQuery<StockMovement[]>({
-    queryKey: ['lotTrace', lotNumber],
+    queryKey: createTenantQueryKey(tenantId, 'lotTrace', lotNumber),
     queryFn: async () => {
       const data = await graphqlClient.request<{ traceLot: StockMovement[] }>(
         TRACE_LOT_QUERY,
@@ -413,9 +413,9 @@ export function useTransferStock() {
       return data.transferStock;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['storageInventory'] });
-      queryClient.invalidateQueries({ queryKey: ['stockMovements'] });
-      queryClient.invalidateQueries({ queryKey: ['storageOverview'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'storageInventory') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'stockMovements') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'storageOverview') });
     },
   });
 }

@@ -3,7 +3,7 @@
  * Handles CRUD operations for tasks via GraphQL API
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { graphqlClient } from '@aquaculture/shared-ui';
+import { graphqlClient, useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';
 import {
   Task,
   TaskStats,
@@ -107,7 +107,7 @@ export function useTasks(filter?: TaskFilterInput) {
 
   // Tasks query
   const tasksQuery = useQuery({
-    queryKey: ['tasks', filter],
+    queryKey: createTenantQueryKey(tenantId, 'tasks', filter),
     staleTime: 30_000, // 30 saniye - gereksiz refetch önlenir
     queryFn: async () => {
       const query = `
@@ -130,11 +130,12 @@ export function useTasks(filter?: TaskFilterInput) {
 
       return result.tasks;
     },
+    enabled: !!tenantId,
   });
 
   // Task stats query
   const statsQuery = useQuery({
-    queryKey: ['taskStats'],
+    queryKey: createTenantQueryKey(tenantId, 'taskStats'),
     staleTime: 60_000, // 1 dakika - stats sık değişmez
     queryFn: async () => {
       const query = `
@@ -151,6 +152,7 @@ export function useTasks(filter?: TaskFilterInput) {
 
       return result.taskStats;
     },
+    enabled: !!tenantId,
   });
 
   // --- Mutations ---
@@ -173,8 +175,8 @@ export function useTasks(filter?: TaskFilterInput) {
       return result.createTask;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['tasks'] });
-      queryClient.invalidateQueries({ queryKey: ['taskStats'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tasks') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'taskStats') });
     },
     onError: (error: Error) => {
       console.error('Mutation failed:', error.message);
@@ -199,8 +201,8 @@ export function useTasks(filter?: TaskFilterInput) {
       return result.updateTask;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['tasks'] });
-      queryClient.invalidateQueries({ queryKey: ['taskStats'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tasks') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'taskStats') });
     },
     onError: (error: Error) => {
       console.error('Mutation failed:', error.message);
@@ -225,8 +227,8 @@ export function useTasks(filter?: TaskFilterInput) {
       return result.completeTask;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['tasks'] });
-      queryClient.invalidateQueries({ queryKey: ['taskStats'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tasks') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'taskStats') });
     },
     onError: (error: Error) => {
       console.error('Mutation failed:', error.message);
@@ -251,8 +253,8 @@ export function useTasks(filter?: TaskFilterInput) {
       return result.startTask;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['tasks'] });
-      queryClient.invalidateQueries({ queryKey: ['taskStats'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tasks') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'taskStats') });
     },
     onError: (error: Error) => {
       console.error('Mutation failed:', error.message);
@@ -275,8 +277,8 @@ export function useTasks(filter?: TaskFilterInput) {
       return result.deleteTask;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['tasks'] });
-      queryClient.invalidateQueries({ queryKey: ['taskStats'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tasks') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'taskStats') });
     },
     onError: (error: Error) => {
       console.error('Mutation failed:', error.message);
@@ -301,7 +303,7 @@ export function useTasks(filter?: TaskFilterInput) {
       return result.toggleChecklistItem;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tasks') });
     },
     onError: (error: Error) => {
       console.error('Mutation failed:', error.message);
@@ -326,7 +328,7 @@ export function useTasks(filter?: TaskFilterInput) {
       return result.addTaskNote;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tasks') });
     },
     onError: (error: Error) => {
       console.error('Mutation failed:', error.message);

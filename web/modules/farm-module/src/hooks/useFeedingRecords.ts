@@ -5,7 +5,7 @@
  * management via GraphQL API.
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient } from '@aquaculture/shared-ui';
+import { useAuth, graphqlClient, createTenantQueryKey } from '@aquaculture/shared-ui';
 import {
   FEEDING_RECORD_QUERY,
   FEEDING_RECORDS_QUERY,
@@ -276,7 +276,7 @@ export function useFeedingRecord(id: string) {
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['feedingRecords', 'detail', id],
+    queryKey: createTenantQueryKey(tenantId, 'feedingRecords', 'detail', id),
     queryFn: async () => {
       const data = await graphqlClient.request<{ feedingRecord: FeedingRecord }>(
         FEEDING_RECORD_QUERY,
@@ -299,7 +299,7 @@ export function useFeedingRecordsList(
   const { token, tenantId, isAuthenticated, isLoading: authLoading } = useAuth();
 
   return useQuery({
-    queryKey: ['feedingRecords', 'list', tenantId, filter, pagination],
+    queryKey: createTenantQueryKey(tenantId, 'feedingRecords', 'list', tenantId, filter, pagination),
     queryFn: async () => {
       if (!tenantId) {
         throw new Error('Tenant context required');
@@ -359,7 +359,7 @@ export function useDailyFeedingPlan(
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['feedingRecords', 'dailyPlan', tenantId, siteId, date],
+    queryKey: createTenantQueryKey(tenantId, 'feedingRecords', 'dailyPlan', tenantId, siteId, date),
     queryFn: async () => {
       const data = await graphqlClient.request<{ dailyFeedingPlan: DailyFeedingPlanResponse }>(
         DAILY_FEEDING_PLAN_QUERY,
@@ -385,7 +385,7 @@ export function useFeedingSummary(
   const { token, tenantId } = useAuth();
 
   return useQuery({
-    queryKey: ['feedingRecords', 'summary', tenantId, entityType, entityId, startDate, endDate],
+    queryKey: createTenantQueryKey(tenantId, 'feedingRecords', 'summary', tenantId, entityType, entityId, startDate, endDate),
     queryFn: async () => {
       const data = await graphqlClient.request<{ feedingSummary: FeedingSummaryResponse }>(
         FEEDING_SUMMARY_QUERY,
@@ -420,9 +420,9 @@ export function useCreateFeedingRecord() {
       return data.createFeedingRecord;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['feedingRecords'] });
-      queryClient.invalidateQueries({ queryKey: ['feeding'] });
-      queryClient.invalidateQueries({ queryKey: ['feedInventory'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feedingRecords') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feeding') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feedInventory') });
     },
   });
 }
@@ -449,8 +449,8 @@ export function useUpdateFeedingRecord() {
       return data.updateFeedingRecord;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['feedingRecords'] });
-      queryClient.invalidateQueries({ queryKey: ['feeding'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feedingRecords') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feeding') });
     },
   });
 }
@@ -469,7 +469,7 @@ export function useFeedInventoryList(
   const { token, tenantId, isAuthenticated, isLoading: authLoading } = useAuth();
 
   return useQuery({
-    queryKey: ['feedInventory', 'list', tenantId, filter, pagination],
+    queryKey: createTenantQueryKey(tenantId, 'feedInventory', 'list', tenantId, filter, pagination),
     queryFn: async () => {
       if (!tenantId) {
         throw new Error('Tenant context required');
@@ -523,8 +523,8 @@ export function useAddFeedInventory() {
       return data.addFeedInventory;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['feedInventory'] });
-      queryClient.invalidateQueries({ queryKey: ['feeding'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feedInventory') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feeding') });
     },
   });
 }
@@ -551,8 +551,8 @@ export function useConsumeFeedInventory() {
       return data.consumeFeedInventory;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['feedInventory'] });
-      queryClient.invalidateQueries({ queryKey: ['feeding'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feedInventory') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feeding') });
     },
   });
 }
@@ -579,8 +579,8 @@ export function useAdjustFeedInventory() {
       return data.adjustFeedInventory;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['feedInventory'] });
-      queryClient.invalidateQueries({ queryKey: ['feeding'] });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feedInventory') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'feeding') });
     },
   });
 }

@@ -118,6 +118,11 @@ Run `git diff --name-only` (against main or the specified base) to get the list 
 | every CQRS COMMAND handler audit capture | audit-trail-completeness-auditor | *respective domain expert* |
 | `libs/backend-common/src/ai/safety/**`, `libs/backend-common/src/ai/anthropic-client/**` | ai-safety-auditor | messaging-expert, security-reviewer |
 | `apps/observability-service/src/cost-attribution/**`, `infrastructure/monitoring/prometheus/cost-metrics.yml` | tenant-cost-attribution-agent | observability-expert, billing-expert |
+| `infra/openapi/**` | contract-parity-enforcer | *respective domain expert* |
+| `libs/backend-common/src/circuit-breaker/**` | circuit-breaker-auditor | platform-kernel-expert |
+| Performance / N+1 / EXPLAIN evidence reviews (cross-cutting) | performance-expert | *primary domain expert* |
+| Supply-chain CVE / license / SLSA (cross-cutting on package.json, Cargo.toml, Dockerfile) | supply-chain-auditor | infra-expert, security-reviewer |
+| Memory-leak pattern reviews (cross-cutting) | memory-leak-auditor | performance-expert |
 | `libs/backend-common/src/security/gdpr/**` | compliance-expert | auth-security-expert |
 | `apps/auth-service/src/{privacy,modules/gdpr}/**` | compliance-expert | auth-security-expert |
 | `apps/admin-api-service/src/security/{controllers,services}/{compliance,audit-trail}*` | compliance-expert | admin-expert |
@@ -319,6 +324,11 @@ All agents use `opus` with `effort: max` per platform policy.
 | legal-hold-auditor | Cross-service enforcement of legal hold precedence on every destructive action (delete, anonymize, retention-expiry, partition DROP, outbox GC, GDPR erasure). Litigation discovery + record retention non-negotiable. |
 | audit-trail-completeness-auditor | Cross-cutting reviewer for audit log completeness on every regulated action — SOC 2 CC4 + GDPR Art 30 alignment. Coverage of @AuditedOperation decorator, immutability invariant, retention policy. |
 | tenant-cost-attribution-agent | Per-tenant cost attribution pipeline — Prometheus cost-labelled metric emission, observability-service rollup, Stripe reconciliation, plan-tier margin SLO, cost explosion isolation per-tenant circuit breaker. |
+| performance-expert | Cross-cutting runtime performance — EXPLAIN ANALYZE discipline, p99 latency SLO per endpoint, React MFE bundle size budget, memory footprint baseline, concurrency budget. NO primary ownership; secondary reviewer dispatched in parallel with the domain expert on hot-path changes. |
+| supply-chain-auditor | Cross-cutting software supply-chain integrity — npm audit gate, transitive CVE triage, license compliance, SLSA provenance + commit signing, Docker base image CVE scan, --ignore-scripts discipline. Split from infra-expert. |
+| contract-parity-enforcer | Cross-cutting API contract drift — OpenAPI ↔ NestJS Router, GraphQL subgraph schema ↔ resolver, sensorprotocols ↔ Rust adapter, event contract consumer drift. Promoted from test-agents/contract-parity-auditor. |
+| circuit-breaker-auditor | Cross-cutting resilience — every external-dependency call wrapped in breaker, per-tenant keying for isolation, fail-CLOSED for billable/auth, fail-OPEN-degraded for non-critical. |
+| memory-leak-auditor | Cross-cutting memory-leak pattern review — heap growth, event listener orphans, unbounded Map/cache, WebSocket connection leaks, Rust spawn discipline. |
 
 ## Auxiliary Maintenance Tooling
 

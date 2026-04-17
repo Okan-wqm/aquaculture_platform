@@ -4,11 +4,11 @@
 # Pre-commit gates — Phase 2 of
 # docs/plans/2026-04-17-agentic-post-audit-consolidation-plan.md.
 #
-# Each gate fails the commit independently. migration-sql-lint only
-# scans files that are actually staged AND path-matches a migration
-# layout, so it is a no-op on non-migration commits.
+# Each gate fails the commit independently. Gates in staged-only mode
+# are no-ops on non-matching commits.
 #
-# Future Phase 2 additions: tier-claim-lint (needs ts-morph), lint-staged.
+# Future Phase 2 additions: lint-staged.
 
 npx ts-node --project tools/gates/tsconfig.json tools/gates/banned-phrase.ts --mode=staged || exit 1
 npx ts-node --project tools/gates/tsconfig.json tools/gates/migration-sql-lint.ts --mode=staged || exit 1
+npx ts-node --project tools/gates/tsconfig.json tools/gates/tier-claim-lint.ts --mode=staged || exit 1

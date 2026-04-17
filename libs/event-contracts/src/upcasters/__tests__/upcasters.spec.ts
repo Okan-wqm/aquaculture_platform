@@ -1,6 +1,7 @@
 import { EventUpcasterRegistry, createDefaultRegistry } from '../index';
 import { sensorReadingUpcaster } from '../sensor-reading.upcaster';
 import { alertTriggeredUpcaster } from '../alert-triggered.upcaster';
+import { createTimestampUpcaster } from '../timestamp-to-string.upcaster';
 
 describe('EventUpcasterRegistry', () => {
   let registry: EventUpcasterRegistry;
@@ -342,5 +343,71 @@ describe('AlertTriggered v1→v2 upcaster', () => {
     expect(result['triggerSensorId']).toBe('s1');
     expect(result['triggerValue']).toBe(99);
     expect(result['triggeringData']).toBeUndefined();
+  });
+});
+
+describe('createTimestampUpcaster factory', () => {
+  it('returns an upcaster with the requested eventType + version pair', () => {
+    const upcaster = createTimestampUpcaster('BatchStatusChanged', 1, 2);
+    expect(upcaster.eventType).toBe('BatchStatusChanged');
+    expect(upcaster.fromVersion).toBe(1);
+    expect(upcaster.toVersion).toBe(2);
+  });
+
+  it('normalises Date timestamp → ISO 8601 string and bumps version', () => {
+    const upcaster = createTimestampUpcaster('ModuleRemovedFromTenant', 1, 2);
+    const v1 = {
+      eventType: 'ModuleRemovedFromTenant',
+      version: 1,
+      tenantId: 't1',
+      timestamp: new Date('2026-04-17T12:34:56.000Z'),
+    };
+    const v2 = upcaster.upcast(v1);
+    expect(v2['version']).toBe(2);
+    expect(v2['timestamp']).toBe('2026-04-17T12:34:56.000Z');
+  });
+
+  it('normalises numeric (epoch ms) timestamp → ISO 8601 string', () => {
+    const upcaster = createTimestampUpcaster('SensorCalibrated', 1, 2);
+    const epoch = Date.UTC(2026, 3, 17, 12, 34, 56); // month is 0-indexed
+    const v1 = {
+      eventType: 'SensorCalibrated',
+      version: 1,
+      sensorId: 's1',
+      timestamp: epoch,
+    };
+    const v2 = upcaster.upcast(v1);
+    expect(v2['version']).toBe(2);
+    expect(v2['timestamp']).toBe(new Date(epoch).toISOString());
+  });
+
+  it('passes through a timestamp already stored as ISO 8601 string', () => {
+    const upcaster = createTimestampUpcaster('AlertEscalated', 1, 2);
+    const iso = '2026-04-17T08:00:00.000Z';
+    const v1 = {
+      eventType: 'AlertEscalated',
+      version: 1,
+      alertId: 'a1',
+      timestamp: iso,
+    };
+    const v2 = upcaster.upcast(v1);
+    expect(v2['version']).toBe(2);
+    expect(v2['timestamp']).toBe(iso);
+  });
+
+  it('preserves non-timestamp fields unchanged', () => {
+    const upcaster = createTimestampUpcaster('BatchStatusChanged', 1, 2);
+    const v1 = {
+      eventType: 'BatchStatusChanged',
+      version: 1,
+      batchId: 'b-42',
+      status: 'HARVESTED',
+      tenantId: 'tenant-xyz',
+      timestamp: new Date('2026-04-17T00:00:00.000Z'),
+    };
+    const v2 = upcaster.upcast(v1);
+    expect(v2['batchId']).toBe('b-42');
+    expect(v2['status']).toBe('HARVESTED');
+    expect(v2['tenantId']).toBe('tenant-xyz');
   });
 });

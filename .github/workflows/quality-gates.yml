@@ -12,7 +12,13 @@ name: Quality Gates
 #                            NOT NULL, R3 non-concurrent index on live table,
 #                            R4 session-scoped SET search_path, R5 overbroad
 #                            EXCEPTION catch (live)
-#   - (Phase 2 future: tier-claim-lint)
+#   - tier-claim-lint      : validates `// tier-N:` comment discipline
+#                            per _shared/tier-claim-syntax.md — range,
+#                            justification, mechanism reference,
+#                            block open/close symmetry, tier-4-in-domain
+#                            allowlist (live)
+#   - finding-registry     : verify subcommand — hash-chain integrity
+#                            mirror of the Jest invariant (live)
 #
 # commit-msg-validator lives in closes-footer-check.yml because its surface
 # is the commit trailer itself, not a diff walk.
@@ -86,3 +92,16 @@ jobs:
           npx ts-node --project tools/gates/tsconfig.json \
             tools/gates/migration-sql-lint.ts \
             --mode=range "${{ steps.range.outputs.base }}" "${{ steps.range.outputs.head }}"
+
+      - name: Run tier-claim-lint gate
+        if: always()
+        run: |
+          npx ts-node --project tools/gates/tsconfig.json \
+            tools/gates/tier-claim-lint.ts \
+            --mode=range "${{ steps.range.outputs.base }}" "${{ steps.range.outputs.head }}"
+
+      - name: Verify finding registry integrity (CLI mirror)
+        if: always()
+        run: |
+          npx ts-node --project tools/gates/tsconfig.json \
+            tools/gates/finding-registry.ts verify

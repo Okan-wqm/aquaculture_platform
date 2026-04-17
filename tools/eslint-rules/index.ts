@@ -14,10 +14,18 @@
  * See `/root/.claude/plans/declarative-riding-shamir.md` BLOCKER-20.
  */
 
+import noBareGraphqlQueryString from './rules/no-bare-graphql-query-string';
 import noBareTenantQueryKey from './rules/no-bare-tenant-query-key';
+import noClaudeSdkRawCall from './rules/no-claude-sdk-raw-call';
+import noDirectEventPublish from './rules/no-direct-event-publish';
+import noHighCardinalityMetricLabel from './rules/no-high-cardinality-metric-label';
 import requireEntitySchema from './rules/require-entity-schema';
 
 export const rules = {
   'require-entity-schema': requireEntitySchema,
   'no-bare-tenant-query-key': noBareTenantQueryKey,
+  'no-direct-event-publish': noDirectEventPublish,
+  'no-high-cardinality-metric-label': noHighCardinalityMetricLabel,
+  'no-claude-sdk-raw-call': noClaudeSdkRawCall,
+  'no-bare-graphql-query-string': noBareGraphqlQueryString,
 };

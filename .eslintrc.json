@@ -126,6 +126,72 @@
       }
     },
     {
+      "files": [
+        "apps/**/src/**/*.ts",
+        "libs/**/src/**/*.ts",
+        "platform/libs/**/src/**/*.ts"
+      ],
+      "excludedFiles": [
+        "**/*.spec.ts",
+        "**/*.test.ts",
+        "**/*.e2e.ts",
+        "**/__tests__/**",
+        "**/__mocks__/**",
+        "platform/libs/outbox/**"
+      ],
+      "rules": {
+        "aquaculture/no-direct-event-publish": "warn"
+      }
+    },
+    {
+      "files": [
+        "apps/**/src/**/*.ts",
+        "libs/**/src/**/*.ts",
+        "platform/libs/**/src/**/*.ts"
+      ],
+      "excludedFiles": [
+        "**/*.spec.ts",
+        "**/*.test.ts",
+        "**/*.e2e.ts",
+        "**/__tests__/**",
+        "**/__mocks__/**"
+      ],
+      "rules": {
+        "aquaculture/no-high-cardinality-metric-label": "warn"
+      }
+    },
+    {
+      "files": ["apps/**/src/**/*.ts", "libs/**/src/**/*.ts"],
+      "excludedFiles": [
+        "**/*.spec.ts",
+        "**/*.test.ts",
+        "**/*.e2e.ts",
+        "**/__tests__/**",
+        "**/__mocks__/**",
+        "**/*.interface.ts",
+        "**/*.types.ts",
+        "apps/ai-service/src/agent/agent-runner.service.ts"
+      ],
+      "rules": {
+        "aquaculture/no-claude-sdk-raw-call": "warn"
+      }
+    },
+    {
+      "files": ["web/**/*.ts", "web/**/*.tsx"],
+      "excludedFiles": [
+        "web/**/*.spec.ts",
+        "web/**/*.test.ts",
+        "web/**/*.spec.tsx",
+        "web/**/*.test.tsx",
+        "web/**/__tests__/**",
+        "web/**/__mocks__/**",
+        "web/**/generated/**"
+      ],
+      "rules": {
+        "aquaculture/no-bare-graphql-query-string": "warn"
+      }
+    },
+    {
       "files": ["*.js", "*.jsx"],
       "extends": ["plugin:@nx/javascript"],
       "rules": {}

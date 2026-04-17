@@ -60,6 +60,13 @@ const ORCHESTRATOR_MD = path.join(
   'agents-enterprise-v2',
   'orchestrator.md',
 );
+const ROUTING_TABLE_MD = path.join(
+  REPO_ROOT,
+  '.claude',
+  'agents-enterprise-v2',
+  '_shared',
+  'orchestrator-routing-table.md',
+);
 
 /**
  * Top-level repo surfaces that MUST appear in the routing table. Each entry
@@ -159,6 +166,24 @@ function readOrchestrator(): string {
   return fs.readFileSync(ORCHESTRATOR_MD, 'utf8');
 }
 
+/**
+ * Orchestrator was split into three files per
+ * docs/plans/2026-04-17-agentic-post-audit-consolidation-plan.md Phase 1
+ * W3 Wave 3: orchestrator.md keeps the runtime roster + decision rules,
+ * _shared/orchestrator-routing-table.md carries the glob → agent table,
+ * _shared/orchestrator-phases.md carries Phase 2-6 details. Surface-
+ * coverage + routing-primary-agent checks scan BOTH orchestrator.md and
+ * the routing-table companion; roster checks remain orchestrator.md-only
+ * (the table structure that extractRosterAgentNames parses lives there).
+ */
+function readOrchestratorFamily(): string {
+  const primary = fs.readFileSync(ORCHESTRATOR_MD, 'utf8');
+  const routing = fs.existsSync(ROUTING_TABLE_MD)
+    ? fs.readFileSync(ROUTING_TABLE_MD, 'utf8')
+    : '';
+  return primary + '\n' + routing;
+}
+
 function extractRosterAgentNames(content: string): Set<string> {
   const rosterStart = content.indexOf('## Runtime Review Roster');
   if (rosterStart === -1) {
@@ -179,12 +204,28 @@ function extractRosterAgentNames(content: string): Set<string> {
 }
 
 function extractRoutingAgentNames(content: string): Set<string> {
-  const routingStart = content.indexOf('### Phase 1: Change Analysis');
-  const routingEnd = content.indexOf('### Phase 2: Parallel Dispatch');
-  if (routingStart === -1 || routingEnd === -1) {
-    throw new Error('Phase 1 routing section bounds not found');
+  // Phase 1 routing lives either inline in orchestrator.md (pre-split shape)
+  // OR in _shared/orchestrator-routing-table.md under a "## Routing Table"
+  // header (post-split shape). Accept either — both contain a markdown
+  // table whose second column is the Primary Agent.
+  let routingSection: string;
+  const inlineStart = content.indexOf('### Phase 1: Change Analysis');
+  const inlineEnd = content.indexOf('### Phase 2: Parallel Dispatch');
+  const companionStart = content.indexOf('## Routing Table');
+  const companionEnd = content.indexOf('## Special dispatch rules');
+  if (inlineStart !== -1 && inlineEnd !== -1 && inlineEnd > inlineStart) {
+    routingSection = content.slice(inlineStart, inlineEnd);
+  } else if (
+    companionStart !== -1 &&
+    companionEnd !== -1 &&
+    companionEnd > companionStart
+  ) {
+    routingSection = content.slice(companionStart, companionEnd);
+  } else {
+    throw new Error(
+      'Routing table bounds not found — checked inline "### Phase 1 … ### Phase 2" and companion "## Routing Table … ## Special dispatch rules"',
+    );
   }
-  const routingSection = content.slice(routingStart, routingEnd);
   const lines = routingSection.split('\n');
   const names = new Set<string>();
   for (const line of lines) {
@@ -205,15 +246,19 @@ function extractRoutingAgentNames(content: string): Set<string> {
 }
 
 describe('orchestrator routing coverage invariant', () => {
-  const content = readOrchestrator();
+  // Surface + routing checks read BOTH orchestrator.md AND the routing-table
+  // companion (post-split shape). Roster check reads orchestrator.md ONLY —
+  // the runtime roster table structure that extractRosterAgentNames parses
+  // lives there.
+  const orchestratorOnly = readOrchestrator();
+  const family = readOrchestratorFamily();
 
   it.each(REQUIRED_SURFACES)(
     'repo surface "%s" has at least one matching glob in routing table',
     (surface) => {
-      const hasMatch = content.includes(surface);
+      const hasMatch = family.includes(surface);
       if (!hasMatch) {
-        // Provide actionable error with hint per CLAUDE.md
-        const hint = `Add a routing row like:\n  | \`${surface}/**\` | <agent-name> | |\nto the Phase 1 routing table in .claude/agents-enterprise-v2/orchestrator.md`;
+        const hint = `Add a routing row like:\n  | \`${surface}/**\` | <agent-name> | |\nto the routing table in .claude/agents-enterprise-v2/_shared/orchestrator-routing-table.md`;
         throw new Error(`Missing routing coverage for "${surface}".\n\n${hint}`);
       }
       expect(hasMatch).toBe(true);
@@ -221,8 +266,8 @@ describe('orchestrator routing coverage invariant', () => {
   );
 
   it('every primary agent referenced in routing table exists in the runtime roster', () => {
-    const rosterAgents = extractRosterAgentNames(content);
-    const routingAgents = extractRoutingAgentNames(content);
+    const rosterAgents = extractRosterAgentNames(orchestratorOnly);
+    const routingAgents = extractRoutingAgentNames(family);
 
     // Filter to ones likely to be real agent names (contain hyphen, not "legacy" or bare words)
     const suspicious = Array.from(routingAgents).filter((name) => {
@@ -247,11 +292,11 @@ describe('orchestrator routing coverage invariant', () => {
 
   it('legacy .claude/agents/ directory is NOT active in routing (archived Phase 0.1)', () => {
     // Must not have .claude/agents/ as an ACTIVE glob (only legacy or agents-enterprise-v2)
-    const activeLegacyGlob = /\|\s*`\.claude\/agents\/\*\.md`[^`]*\|/.test(content);
+    const activeLegacyGlob = /\|\s*`\.claude\/agents\/\*\.md`[^`]*\|/.test(family);
     expect(activeLegacyGlob).toBe(false);
   });
 
   it('legacy directory IS marked as archived in routing', () => {
-    expect(content).toMatch(/\.claude\/agents\.legacy/);
+    expect(family).toMatch(/\.claude\/agents\.legacy/);
   });
 });

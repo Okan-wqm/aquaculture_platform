@@ -42,9 +42,11 @@ jobs:
           echo "head=$HEAD_SHA" >> "$GITHUB_OUTPUT"
           echo "Validating range: $BASE_SHA..$HEAD_SHA"
 
-      # SEC-CI-002: pinned to full SHA per infra-expert rule
+      # SEC-CI-002: pinned to full SHA per infra-expert rule.
+      # SHA matches every other workflow in the repo (ci-affected.yml etc.)
+      # so SHA rotation via dependabot stays a single operation.
       - name: Setup Node (pinned via .nvmrc)
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
         with:
           node-version-file: '.nvmrc'
 

@@ -234,6 +234,27 @@ const seedEntries = [
     override_of: null,
     notes: 'Self-discovered finding: banned-phrase gate (Phase 2 deliverable, commit 47bea207) flagged 2 of my own pre-Phase-2 commits using bare "deferred". Resolution: (a) gate accepts plan-phase references (Phase N, W-N, abstract-brewing-mochi, declarative-riding-shamir) as valid tracking, (b) PRE_GATE_SHAS allowlist exempts pre-Phase-2 commits since amending is forbidden, (c) future commits MUST include explicit plan reference per the extended allowIf regex.',
   },
+  {
+    id: 'PROC-MEDIUM-002',
+    severity: 'MEDIUM',
+    state: 'RESOLVED',
+    title: 'Introduced UNVERIFIED actions/setup-node SHA in closes-footer-check.yml (Phase 2 landing commit) — infra-expert supply-chain rule violation',
+    layer: 3,
+    evidence: [
+      '.github/workflows/closes-footer-check.yml:32',
+    ],
+    rule_violated: 'infra-expert GHA supply-chain rule: every `uses:` MUST reference a verified 40-char commit SHA; inventing or guessing a SHA is equivalent to a floating tag reference (CRITICAL class, 2026-03 aquasecurity/trivy-action precedent)',
+    owner_agent: 'infra-expert',
+    raised_in_cycle: AUDIT_CYCLE,
+    review_file: AUDIT_FILE,
+    created_at: '2026-04-17T07:30:00Z',
+    closed_at: '2026-04-17T07:35:00Z',
+    closing_commits: [],
+    deadline: null,
+    owner_user: null,
+    override_of: null,
+    notes: 'Self-discovered within the same session: wrote `49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0` as the setup-node pin without cross-checking the GitHub release page. The repo\'s other 5 workflows already pin `39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0`. Architectural fix: converge every workflow onto a single pinned SHA so dependabot github-actions rotation is one PR, divergence is visible at review. Tier-3 automation: infra-expert `require_pinned_sha` invariant (planned W5) would structurally catch an unresolvable SHA; manual catch here is the Tier-4 backstop until that invariant lands.',
+  },
 ];
 
 function canonicalJson(obj) {

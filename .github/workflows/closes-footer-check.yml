@@ -12,7 +12,7 @@ name: Closes Footer Check
 # Missing / unresolvable trailers fail the PR, preventing agent review
 # findings from silently rotting without resolution.
 #
-# Reference: /root/.claude/plans/abstract-brewing-mochi.md#Phase-6
+# Reference: docs/plans/2026-04-17-agentic-post-audit-consolidation-plan.md#Phase-6
 # =============================================================================
 
 on:
@@ -42,8 +42,19 @@ jobs:
           echo "head=$HEAD_SHA" >> "$GITHUB_OUTPUT"
           echo "Validating range: $BASE_SHA..$HEAD_SHA"
 
+      # SEC-CI-002: pinned to full SHA per infra-expert rule
+      - name: Setup Node (pinned via .nvmrc)
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: '.nvmrc'
+
+      - name: Install ts-node + deps
+        # --ignore-scripts is MANDATORY per infra-expert supply-chain rule
+        # (ua-parser-js / coa / rc preinstall-hook exfiltration vector class).
+        run: npm ci --ignore-scripts
+
       - name: Validate Closes: trailers
-        run: node tools/scripts/validate-closes-footer.mjs "${{ steps.range.outputs.base }}" "${{ steps.range.outputs.head }}"
+        run: npx ts-node --project tools/gates/tsconfig.json tools/gates/commit-msg-validator.ts --mode=range "${{ steps.range.outputs.base }}" "${{ steps.range.outputs.head }}"
 
       - name: Validate registry integrity (hash chain)
         run: |

@@ -107,7 +107,6 @@ const EXEMPT_PATHS: readonly RegExp[] = [
   /^tools\/gates\/banned-phrase\.(ts|mjs)$/,
   /^tools\/gates\/banned-phrase\.test\.(ts|mjs)$/,
   /^tools\/scripts\/seed-finding-registry\.(mjs|ts)$/, // finding seed text references banned phrases by name (meta-text)
-  /^tools\/scripts\/validate-closes-footer\.(mjs|ts)$/, // commit-msg validator references finding-state vocabulary
   /^tests\/invariants\//,
 ];
 

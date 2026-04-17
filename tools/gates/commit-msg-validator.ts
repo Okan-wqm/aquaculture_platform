@@ -63,10 +63,21 @@ const CLOSES_TRAILER_REGEX =
  * captured in docs/reviews/_registry/findings.jsonl.
  */
 const PRE_PHASE6_SHAS: ReadonlySet<string> = new Set([
-  '32839e24', // Phase 0 audit close
-  'f931f935', // Phase 0.1 — agents legacy archive
-  '2dd09f99', // Phase 4 invariants
-  'b907c235', // Phase 5 root-cause-auditor
+  // Commits that landed BEFORE the registry was seeded OR used the old
+  // short-form finding-ID format (e.g. `#P0-1` instead of the current
+  // `#P0-CRITICAL-001`). Amending is forbidden under the force-push ban,
+  // so these specific SHAs are allowlisted. The set is frozen — every new
+  // commit is expected to carry a long-form `#PREFIX-SEVERITY-NNN`
+  // trailer referencing a live registry entry.
+  '32839e24', // Phase 0 audit close — pre-registry
+  'f931f935', // Phase 0.1 agents-legacy archive — pre-registry
+  '2dd09f99', // Phase 4 invariants — pre-registry
+  'b907c235', // Phase 5 root-cause-auditor — pre-registry
+  '71474fbf', // W2-E INFRA-1 backup SHA guard — pre-Phase-6 landing
+  'fc00fc19', // W3-C follow-up eslint-plugin rename — pre-Phase-6 landing
+  'c0e7d492', // W3-D backup-manifest-invariant CI gate — pre-Phase-6 landing
+  '955c8caa', // Phase 8.4 queryKey ESLint rule — old `#P0-1` short-form trailer
+  '973394b3', // Phase 11 platform-services split — old `#P0-5` short-form trailer
 ]);
 
 interface Commit {

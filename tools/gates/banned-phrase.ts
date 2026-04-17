@@ -22,6 +22,9 @@
  *
  * Exempt paths (from CLAUDE.md + _shared/tier-claim-syntax.md:62):
  *   - docs/adr/**, docs/reviews/**, docs/architecture/**  — may discuss rejected alternatives
+ *   - docs/plans/**                                        — plan docs carry tracked-deferral vocabulary
+ *                                                            with owner+deadline+finding-ID and quote
+ *                                                            the banned-phrase list itself verbatim
  *   - CHANGELOG.md                                         — historical record
  *   - .claude/{agents.legacy,agents-enterprise-v2,knowledge}/** — agent prompts may reference banned phrases in rule definitions
  *   - CLAUDE.md                                            — canonical source of the banned list
@@ -94,6 +97,7 @@ const EXEMPT_PATHS: readonly RegExp[] = [
   /^docs\/reviews\//,
   /^docs\/architecture\//,
   /^docs\/compliance\//,
+  /^docs\/plans\//,
   /^CHANGELOG\.md$/,
   /^\.claude\/agents\.legacy\//,
   /^\.claude\/agents-enterprise-v2\//,

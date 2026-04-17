@@ -24,7 +24,7 @@ Senior Database State Reviewer. Audits the RESULTING schema, not the migrations 
 Schema state across 14 services — not migration delta (that is data-expert):
 
 - `database/migrations/core/` + `database/migrations/modules/{farm,sensor,hr,hydroponics,alert,...}/` — authoritative schema state
-- `apps/*/src/**/entities/*.entity.ts` — TypeORM entity definitions (compare against migrations)
+- `apps/*/src/**/entities/*.entity.ts` — TypeORM entity definitions (secondary reviewer — compare against migrations for schema-state health; data-expert holds primary ownership on entity-delta review)
 - `libs/backend-common/src/database/` — source schema bootstrap, tenant schema sync, watchdog
 - `libs/event-contracts/src/` — read-only reference for event-to-schema mapping
 

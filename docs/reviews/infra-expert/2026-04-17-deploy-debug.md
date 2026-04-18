@@ -24,3 +24,24 @@ and the NATS codegen was emitting `user: farm_service` (bare name). Neither matc
 **Fix:** Two-part:
 1. Cert generation: CN-only Subject (`-subj "/CN=${svc_user}"`)
 2. NATS codegen: `user: "CN=${name}"` format
+
+## PROC-MEDIUM-005: CI-Affected path filter missing tools/eslint-rules, tools/gates, tools/scripts
+
+**Severity:** MEDIUM
+**State:** RESOLVED (commit 50df8342)
+
+The `detect-changes` paths-filter in `.github/workflows/ci-affected.yml` did not
+include `tools/eslint-rules/**`, `tools/gates/**`, or `tools/scripts/**`. When
+commit `5f3280c4` fixed a tsc build error inside `tools/eslint-rules/`, CI-Affected
+resolved with `has_changes=false` and skipped the entire build+deploy chain — the
+fix shipped unverified. Recursive chicken-egg: a CI bug's own fix cannot test itself
+unless the path it touches is already in the trigger filter.
+
+**Fix:** `50df8342` — extend the `deploy-config` filter to every path that
+participates in the CI install chain: `tools/eslint-rules/**`, `tools/gates/**`,
+`tools/scripts/**`, plus the root TS/ESLint configs that transitively feed the
+Nx graph probe and the ESLint plugin loader.
+
+**Follow-ups (separate commits):** `a8320411` added `tools/eslint-rules` to npm
+workspaces (the actual build-order root cause); `efca6627` committed the
+pre-built `tools/eslint-rules/dist/` to eliminate the runtime-build race.

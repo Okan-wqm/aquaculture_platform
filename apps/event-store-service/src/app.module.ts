@@ -4,7 +4,12 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { CqrsModule } from '@nestjs/cqrs';
 import { ScheduleModule } from '@nestjs/schedule';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
-import { LoggingModule, RlsModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common';
+import {
+  LoggingModule,
+  RlsModule,
+  SchemaDriftModule,
+  createServiceTypeOrmConfig,
+} from '@aquaculture/backend-common';
 import { InternalApiKeyGuard } from './guards/internal-api-key.guard';
 import { EventStoreModule } from './event-store/event-store.module';
 import { ProjectionsModule } from './projections/projections.module';
@@ -59,6 +64,12 @@ import { AddStoredEventsImmutabilityTriggers1782000000000 } from './migrations/1
       autoApply: true,
       excludeTables: ['stored_events', 'projection_checkpoint'],
     }),
+    /**
+     * ADR-012: runtime schema-drift validator. Schema owner is `event_store`;
+     * serviceName tag matches the service directory (event-store-service)
+     * per the adoption-invariant pairing rule.
+     */
+    SchemaDriftModule.forRoot({ serviceName: 'event-store' }),
   ],
   providers: [
     {

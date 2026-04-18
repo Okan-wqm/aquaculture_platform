@@ -153,6 +153,21 @@ const LEGACY_TRAILER_DRIFT: ReadonlyArray<[string, string]> = [
   // PROC-MEDIUM-001: closed by commit 47bea207 which predates strict
   // trailer discipline. PHASE-12.1-FIX: registry re-annotation.
   ['PROC-MEDIUM-001', '47bea207'],
+  // FE-CRITICAL-001: 6 closing commits from the Phase 8.4 bare-queryKey
+  // mass migration (506 sites across 57 web/modules + 27 web/apps/aquamobil
+  // files). 955c8caa uses a legacy "Closes: … #P0-1" trailer (the
+  // cross-tenant leak was originally tracked under the P0 finding ID
+  // before the frontend-expert audit promoted it to FE-CRITICAL-001).
+  // The five subsequent migration commits were part of a rolling fix
+  // window that pre-dated the strict-trailer-per-commit discipline.
+  // PHASE-12.1-FIX: re-annotate the registry with synthetic canonical
+  // trailer references; commits themselves stay as-is.
+  ['FE-CRITICAL-001', '955c8caa'],
+  ['FE-CRITICAL-001', 'cbbd9624'],
+  ['FE-CRITICAL-001', 'bcb9f38a'],
+  ['FE-CRITICAL-001', 'a2a345db'],
+  ['FE-CRITICAL-001', '63879cb2'],
+  ['FE-CRITICAL-001', 'a495bc1e'],
 ];
 
 const LEGACY_DRIFT_SET: ReadonlySet<string> = new Set(

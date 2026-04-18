@@ -1,6 +1,6 @@
 import { useRef, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useAuthContext, useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';
+import { useAuthContext, createTenantQueryKey } from '@aquaculture/shared-ui';
 import { graphqlRequest } from '../services/tenant-api.service';
 
 interface EdgeDevice {

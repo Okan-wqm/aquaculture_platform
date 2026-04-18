@@ -139,6 +139,7 @@ const StatusBadge: React.FC<{ status: ModuleStatus['status'] }> = ({
 const TenantDashboard: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { tenantId } = useAuth();
 
   // Use TanStack Query for stats (PERF-001)
   const { data: tenantStats } = useTenantStats();

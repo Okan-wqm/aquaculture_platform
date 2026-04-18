@@ -13,8 +13,7 @@ import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Card, Button, Input, Textarea, Alert, Switch, DatePicker, MultiSelect, MultiSelectOption, useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';
-import { useAuth, graphqlClient } from '@aquaculture/shared-ui';
+import { Card, Button, Input, Textarea, Alert, Switch, DatePicker, MultiSelect, MultiSelectOption, useAuth, createTenantQueryKey, graphqlClient } from '@aquaculture/shared-ui';
 import { useEquipmentList } from '../../hooks/useEquipment';
 import { useFeedList, FeedingMatrix2D, Feed } from '../../hooks/useFeeds';
 import { FeedingMatrixEditor } from '../../components/feeding';

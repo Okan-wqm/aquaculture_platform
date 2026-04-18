@@ -121,12 +121,5 @@ export default {
         '<rootDir>/three-store-invariants.spec.ts',
       ],
     },
-    {
-      ...commonProjectOptions,
-      displayName: 'runner',
-      // runner-smoke spawns ts-node subprocesses; isolate it from the
-      // fast specs so compile cost doesn't serialise the whole suite.
-      testMatch: ['<rootDir>/runner-smoke.spec.ts'],
-    },
   ],
 };

@@ -108,6 +108,7 @@ export default {
         '<rootDir>/orchestrator-routing-coverage.spec.ts',
         '<rootDir>/agent-ownership-uniqueness.spec.ts',
         '<rootDir>/agent-name-uniqueness.spec.ts',
+        '<rootDir>/skills-catalog.spec.ts',
       ],
     },
     {

@@ -4,6 +4,11 @@ description: Execute a migration against production — hard `DATABASE_MIGRATION
 type: skill
 version: 1
 owners: infra-expert, data-expert, database-reviewer
+handoff:
+  on_complete_invoke: [infra-expert, data-expert, database-reviewer]
+  on_security_touch: security-reviewer
+  on_event_impact: null
+  on_multi_tenant_touch: multi-tenant-saas-expert
 ---
 
 # Skill — Run Migration in Production

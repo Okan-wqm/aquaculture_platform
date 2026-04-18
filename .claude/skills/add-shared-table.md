@@ -5,6 +5,11 @@ type: skill
 version: 1
 blocker: BLOCKER-15
 owners: architectural-arbiter, data-expert, database-reviewer
+handoff:
+  on_complete_invoke: [architectural-arbiter, data-expert, database-reviewer]
+  on_security_touch: security-reviewer
+  on_event_impact: null
+  on_multi_tenant_touch: multi-tenant-saas-expert
 ---
 
 # Skill — Add Shared Table (BLOCKER-15)

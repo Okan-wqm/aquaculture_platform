@@ -4,6 +4,11 @@ description: Add a new @Column to an existing TypeORM entity with full cascade a
 type: skill
 version: 1
 owners: data-expert, respective-domain-expert, database-reviewer
+handoff:
+  on_complete_invoke: [data-expert, database-reviewer]
+  on_security_touch: null
+  on_event_impact: dynamic
+  on_multi_tenant_touch: multi-tenant-saas-expert
 ---
 
 # Skill — Add Entity Field
@@ -16,7 +21,7 @@ Do NOT invoke for fields internal to a service that never cross a bounded contex
 
 ## Prerequisites
 
-- The entity already exists — this skill does NOT create new entities (use `create-entity` skill for that).
+- The entity already exists — this skill does NOT create new entities. Creating a new entity is domain-specific work owned by the respective domain expert, not a catalogued skill.
 - The field's type is concrete (enum, scalar, nullable-uuid-reference, JSONB with Zod/Check). Ambiguous "JSONB dumping ground" columns fail the data-expert invariant — clarify the shape before invoking.
 - The owning service's schema is in `MODULE_SCHEMAS` at `libs/backend-common/src/database/constants.ts` (or equivalent SSoT).
 - For PII fields, the `SENSITIVE_FIELDS` classification level (`PUBLIC | INTERNAL | PII | SENSITIVE_PII | SPECIAL_CATEGORY`) is known.

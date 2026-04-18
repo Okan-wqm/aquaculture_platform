@@ -4,6 +4,11 @@ description: Change an existing event contract — additive vs breaking classifi
 type: skill
 version: 1
 owners: data-expert, architectural-arbiter, respective-producer-agent
+handoff:
+  on_complete_invoke: [data-expert]
+  on_security_touch: security-reviewer
+  on_event_impact: dynamic
+  on_multi_tenant_touch: multi-tenant-saas-expert
 ---
 
 # Skill — Change Event Contract

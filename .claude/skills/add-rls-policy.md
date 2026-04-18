@@ -4,6 +4,11 @@ description: Add a new Postgres Row-Level Security policy to a tenant-scoped or 
 type: skill
 version: 1
 owners: database-reviewer, auth-security-expert, data-expert
+handoff:
+  on_complete_invoke: [database-reviewer, auth-security-expert]
+  on_security_touch: security-reviewer
+  on_event_impact: null
+  on_multi_tenant_touch: multi-tenant-saas-expert
 ---
 
 # Skill — Add RLS Policy

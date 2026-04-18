@@ -4,6 +4,11 @@ description: Before any destructive migration to production, validate the most r
 type: skill
 version: 1
 owners: infra-expert, data-expert, database-reviewer
+handoff:
+  on_complete_invoke: [infra-expert, data-expert]
+  on_security_touch: null
+  on_event_impact: null
+  on_multi_tenant_touch: null
 ---
 
 # Skill — Pre-Migration Restore Test

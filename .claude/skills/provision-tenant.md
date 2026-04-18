@@ -5,6 +5,11 @@ type: skill
 version: 1
 blocker: BLOCKER-14
 owners: multi-tenant-saas-expert, auth-security-expert, data-expert
+handoff:
+  on_complete_invoke: [multi-tenant-saas-expert, auth-security-expert, data-expert]
+  on_security_touch: security-reviewer
+  on_event_impact: dynamic
+  on_multi_tenant_touch: multi-tenant-saas-expert
 ---
 
 # Skill — Provision Tenant (BLOCKER-14)

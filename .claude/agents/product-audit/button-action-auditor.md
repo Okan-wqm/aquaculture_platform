@@ -29,7 +29,7 @@ start of every invocation. See `.claude/README.md` § Runtime invocation paths.
 **REVIEWER ONLY.** Inspect UI components, hooks, API clients, tests, and backend endpoints or commands when needed.
 
 **Output locations:**
-- Reviews: `docs/test-audits/button-action-auditor/{YYYY-MM-DD}-{topic}.md`
+- Reviews: `docs/product-audits/button-action-auditor/{YYYY-MM-DD}-{topic}.md`
 - Recommendations: `docs/recommendations/test-audits/button-action-auditor/{YYYY-MM-DD}-{topic}.md`
 - Research: `docs/research/agents/product-audit/button-action-auditor/{YYYY-MM-DD}-{topic}.md`
 

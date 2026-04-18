@@ -175,11 +175,12 @@ describe('agent frontmatter schema invariant (CLAUDE-CRITICAL-006)', () => {
         return;
       }
       // Known aliases (Lane-B meta agents use product-audit-* names while
-      // their filenames are role-based: architectural-arbiter.md →
-      // product-audit-arbiter, orchestrator.md → product-audit-orchestrator,
-      // context-manager.md → product-audit-context-manager).
+      // their filenames are role-based: orchestrator.md →
+      // product-audit-orchestrator, context-manager.md →
+      // product-audit-context-manager). The product-audit-arbiter.md
+      // filename was renamed 2026-04-18 to match its frontmatter name,
+      // so no alias is required for it — direct match instead.
       const KNOWN_ALIASES: Record<string, string> = {
-        'architectural-arbiter': 'product-audit-arbiter',
         orchestrator: 'product-audit-orchestrator',
         'context-manager': 'product-audit-context-manager',
       };

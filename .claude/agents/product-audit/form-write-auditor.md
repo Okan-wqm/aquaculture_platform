@@ -31,7 +31,7 @@ start of every invocation. See `.claude/README.md` § Runtime invocation paths.
 **REVIEWER ONLY.** Trace code from form component to hook/client to controller or resolver to command/service/repository/entity/migration surface. Do not edit product code.
 
 **Output locations:**
-- Reviews: `docs/test-audits/form-write-auditor/{YYYY-MM-DD}-{topic}.md`
+- Reviews: `docs/product-audits/form-write-auditor/{YYYY-MM-DD}-{topic}.md`
 - Recommendations: `docs/recommendations/test-audits/form-write-auditor/{YYYY-MM-DD}-{topic}.md`
 - Research: `docs/research/agents/product-audit/form-write-auditor/{YYYY-MM-DD}-{topic}.md`
 

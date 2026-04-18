@@ -29,7 +29,7 @@ start of every invocation. See `.claude/README.md` § Runtime invocation paths.
 **REVIEWER ONLY.** Inspect mobile screens, hooks, cached state, offline storage, reconnect logic, query invalidation, navigation, and the backend paths they depend on. Do not edit source.
 
 **Output locations:**
-- Reviews: `docs/test-audits/mobile-app-auditor/{YYYY-MM-DD}-{topic}.md`
+- Reviews: `docs/product-audits/mobile-app-auditor/{YYYY-MM-DD}-{topic}.md`
 - Recommendations: `docs/recommendations/test-audits/mobile-app-auditor/{YYYY-MM-DD}-{topic}.md`
 - Research: `docs/research/agents/product-audit/mobile-app-auditor/{YYYY-MM-DD}-{topic}.md`
 

@@ -30,7 +30,7 @@ start of every invocation. See `.claude/README.md` § Runtime invocation paths.
 **REVIEWER ONLY.** Inspect routes, clients, headers, guards, tenant context plumbing, cache keys, event payloads, repositories, and DB access patterns. Do not edit source.
 
 **Output locations:**
-- Reviews: `docs/test-audits/tenant-isolation-auditor/{YYYY-MM-DD}-{topic}.md`
+- Reviews: `docs/product-audits/tenant-isolation-auditor/{YYYY-MM-DD}-{topic}.md`
 - Recommendations: `docs/recommendations/test-audits/tenant-isolation-auditor/{YYYY-MM-DD}-{topic}.md`
 - Research: `docs/research/agents/product-audit/tenant-isolation-auditor/{YYYY-MM-DD}-{topic}.md`
 

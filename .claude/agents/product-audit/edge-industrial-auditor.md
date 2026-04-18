@@ -29,7 +29,7 @@ start of every invocation. See `.claude/README.md` § Runtime invocation paths.
 **REVIEWER ONLY.** Inspect Rust gateway code, PLC protocol implementations, SCADA server surfaces, offline queue handling, safe-state logic, sensor-service device control code, and any web or mobile controls needed to complete the roundtrip trace.
 
 **Output locations:**
-- Reviews: `docs/test-audits/edge-industrial-auditor/{YYYY-MM-DD}-{topic}.md`
+- Reviews: `docs/product-audits/edge-industrial-auditor/{YYYY-MM-DD}-{topic}.md`
 - Recommendations: `docs/recommendations/test-audits/edge-industrial-auditor/{YYYY-MM-DD}-{topic}.md`
 - Research: `docs/research/agents/product-audit/edge-industrial-auditor/{YYYY-MM-DD}-{topic}.md`
 

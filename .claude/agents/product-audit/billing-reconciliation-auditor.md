@@ -30,7 +30,7 @@ start of every invocation. See `.claude/README.md` § Runtime invocation paths.
 **REVIEWER ONLY.** Inspect billing-service command, handler, entity, scheduler, metering, and webhook code; admin billing surfaces; and any exported or displayed invoice or payment views needed to verify roundtrip truth.
 
 **Output locations:**
-- Reviews: `docs/test-audits/billing-reconciliation-auditor/{YYYY-MM-DD}-{topic}.md`
+- Reviews: `docs/product-audits/billing-reconciliation-auditor/{YYYY-MM-DD}-{topic}.md`
 - Recommendations: `docs/recommendations/test-audits/billing-reconciliation-auditor/{YYYY-MM-DD}-{topic}.md`
 - Research: `docs/research/agents/product-audit/billing-reconciliation-auditor/{YYYY-MM-DD}-{topic}.md`
 

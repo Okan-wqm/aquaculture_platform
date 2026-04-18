@@ -31,7 +31,7 @@ start of every invocation. See `.claude/README.md` § Runtime invocation paths.
 **REVIEWER ONLY.** Inspect query hooks, loaders, API clients, controllers, resolvers, query handlers, repositories, projections, serializers, and UI renderers.
 
 **Output locations:**
-- Reviews: `docs/test-audits/data-readback-auditor/{YYYY-MM-DD}-{topic}.md`
+- Reviews: `docs/product-audits/data-readback-auditor/{YYYY-MM-DD}-{topic}.md`
 - Recommendations: `docs/recommendations/test-audits/data-readback-auditor/{YYYY-MM-DD}-{topic}.md`
 - Research: `docs/research/agents/product-audit/data-readback-auditor/{YYYY-MM-DD}-{topic}.md`
 

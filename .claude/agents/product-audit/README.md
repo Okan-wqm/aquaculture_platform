@@ -67,7 +67,7 @@ Methodology research for this set lives at:
 
 Operational runbook for invoking this set lives at:
 
-- `.claude/agents/product-audit/INVOCATION-PACK.md`
+- `docs/runbooks/product-audit-invocation.md` (moved out of `.claude/agents/` dispatch surface 2026-04-18)
 
 ## Runtime Roster
 
@@ -77,7 +77,7 @@ Meta-agents (product-audit-* prefix for global name uniqueness vs Lane-A):
 
 - `product-audit-orchestrator` (file: `orchestrator.md`)
 - `product-audit-context-manager` (file: `context-manager.md`)
-- `product-audit-arbiter` (file: `architectural-arbiter.md`)
+- `product-audit-arbiter` (file: `product-audit-arbiter.md`)
 
 Specialists:
 
@@ -117,8 +117,8 @@ Deprecated and retired to `.claude/agents.legacy/product-audit/` (no dispatch):
 
 Recommended output locations:
 
-- Per-agent reviews: `docs/test-audits/{agent}/{YYYY-MM-DD}-{topic}.md`
-- Unified report: `docs/test-audits/orchestrator/{YYYY-MM-DD}-{topic}.md`
+- Per-agent reviews: `docs/product-audits/{agent}/{YYYY-MM-DD}-{topic}.md`
+- Unified report: `docs/product-audits/orchestrator/{YYYY-MM-DD}-{topic}.md`
 
 All reviewer agents should assign finding IDs in format `{severity}-{NNN}`.
 

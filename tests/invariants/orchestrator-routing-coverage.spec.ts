@@ -332,8 +332,20 @@ describe('orchestrator routing coverage invariant', () => {
       'product-audit',
       'orchestrator.md',
     );
+    const productAuditRoutingPath = path.join(
+      REPO_ROOT,
+      '.claude',
+      'shared',
+      'product-audit-orchestrator-routing.md',
+    );
     const laneBOrchestratorContent = fs.existsSync(productAuditOrchestratorPath)
       ? fs.readFileSync(productAuditOrchestratorPath, 'utf8')
+      : '';
+    // Post-Phase-3 split (plan mutable-frolicking-yao.md): the Phase 1
+    // routing table lives in the companion shared fragment. Concat it so
+    // this reverse-coverage check reads both halves.
+    const laneBRoutingContent = fs.existsSync(productAuditRoutingPath)
+      ? fs.readFileSync(productAuditRoutingPath, 'utf8')
       : '';
     // Lane-B roster = every agent file in .claude/agents/product-audit/*.md
     // that carries a `name:` frontmatter line.
@@ -352,7 +364,8 @@ describe('orchestrator routing coverage invariant', () => {
     // Combined reachability set = every agent name that appears in ANY cell
     // of either routing table (primary OR also-notify).
     const reachable = new Set<string>();
-    const combinedRouting = family + '\n' + laneBOrchestratorContent;
+    const combinedRouting =
+      family + '\n' + laneBOrchestratorContent + '\n' + laneBRoutingContent;
     const agentNameRe = /[a-z][a-z0-9-]+-(expert|auditor|reviewer|executor|enforcer|planner|agent|writer|arbiter|manager|orchestrator|mapper|runner)\b/g;
     for (const match of combinedRouting.matchAll(agentNameRe)) {
       reachable.add(match[0]);

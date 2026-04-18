@@ -67,7 +67,8 @@ Every push runs `npx jest --config tests/invariants/jest.config.ts`.
 ## References
 
 - `agents/README.md` — Lane-A intent + activation history
-- `agents/product-audit/README.md` + `agents/product-audit/INVOCATION-PACK.md` — Lane-B intent + runbook
+- `agents/product-audit/README.md` — Lane-B intent + roster
+- `docs/runbooks/product-audit-invocation.md` — Lane-B operational runbook (moved out of `.claude/agents/` dispatch surface 2026-04-18)
 - `agents.legacy/README.md` — archival rationale + dormancy declaration
 - `knowledge/README.md` — SSoT layer model
 - `skills/README.md` — skill file format + reference-only status

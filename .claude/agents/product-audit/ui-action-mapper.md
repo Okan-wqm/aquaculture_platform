@@ -29,7 +29,7 @@ start of every invocation. See `.claude/README.md` § Runtime invocation paths.
 **REVIEWER ONLY.** Read source code, route configs, components, pages, hooks, API clients, and tests. Do not edit product code.
 
 **Output locations:**
-- Reviews: `docs/test-audits/ui-action-mapper/{YYYY-MM-DD}-{topic}.md`
+- Reviews: `docs/product-audits/ui-action-mapper/{YYYY-MM-DD}-{topic}.md`
 - Recommendations: `docs/recommendations/test-audits/ui-action-mapper/{YYYY-MM-DD}-{topic}.md`
 - Research: `docs/research/agents/product-audit/ui-action-mapper/{YYYY-MM-DD}-{topic}.md`
 

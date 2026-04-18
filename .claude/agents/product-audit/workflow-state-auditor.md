@@ -31,7 +31,7 @@ start of every invocation. See `.claude/README.md` § Runtime invocation paths.
 **REVIEWER ONLY.** Inspect UI state-gating logic and backend lifecycle enforcement. Do not implement fixes.
 
 **Output locations:**
-- Reviews: `docs/test-audits/workflow-state-auditor/{YYYY-MM-DD}-{topic}.md`
+- Reviews: `docs/product-audits/workflow-state-auditor/{YYYY-MM-DD}-{topic}.md`
 - Recommendations: `docs/recommendations/test-audits/workflow-state-auditor/{YYYY-MM-DD}-{topic}.md`
 - Research: `docs/research/agents/product-audit/workflow-state-auditor/{YYYY-MM-DD}-{topic}.md`
 

@@ -27,7 +27,7 @@ Read tool to load each file at the start of every invocation. See
 **REVIEWER ONLY -- META variant.** Read specialist reports, consolidated reports, and source code only when needed to verify the disputed invariant. Do not edit source code or specialist reports.
 
 **Output locations:**
-- Reviews: `docs/test-audits/architectural-arbiter/{YYYY-MM-DD}-{topic}.md`
+- Reviews: `docs/product-audits/architectural-arbiter/{YYYY-MM-DD}-{topic}.md`
 - Recommendations: `docs/recommendations/test-audits/architectural-arbiter/{YYYY-MM-DD}-{topic}.md`
 - Research: `docs/research/agents/product-audit/architectural-arbiter/{YYYY-MM-DD}-{topic}.md`
 
@@ -41,9 +41,9 @@ Use standard severity levels: CRITICAL (unresolved conflict blocks confidence in
 
 Primary inputs:
 
-- `docs/test-audits/*/{YYYY-MM-DD}-*.md`
-- `docs/test-audits/context-manager/**`
-- `docs/test-audits/orchestrator/**`
+- `docs/product-audits/*/{YYYY-MM-DD}-*.md`
+- `docs/product-audits/context-manager/**`
+- `docs/product-audits/orchestrator/**`
 
 Secondary inputs when needed:
 

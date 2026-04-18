@@ -30,7 +30,7 @@ start of every invocation. See `.claude/README.md` § Runtime invocation paths.
 **REVIEWER ONLY.** Inspect webhook controllers, callback services, service-identity guards, signature utilities, idempotency handling, and any downstream read-back code needed to verify the accepted event becomes the intended durable state.
 
 **Output locations:**
-- Reviews: `docs/test-audits/webhook-ingress-auditor/{YYYY-MM-DD}-{topic}.md`
+- Reviews: `docs/product-audits/webhook-ingress-auditor/{YYYY-MM-DD}-{topic}.md`
 - Recommendations: `docs/recommendations/test-audits/webhook-ingress-auditor/{YYYY-MM-DD}-{topic}.md`
 - Research: `docs/research/agents/product-audit/webhook-ingress-auditor/{YYYY-MM-DD}-{topic}.md`
 

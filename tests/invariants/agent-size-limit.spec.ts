@@ -69,12 +69,11 @@ const SCOPED_DIRS: readonly ScopedDir[] = [
   {
     label: 'agents/product-audit (Lane-B)',
     path: path.join(REPO_ROOT, '.claude', 'agents', 'product-audit'),
-    exempt: [
-      'README.md',
-      'INVOCATION-PACK.md',
-      // Meta-agent — inline dispatch decision tree. Separate port cycle.
-      'orchestrator.md',
-    ],
+    // orchestrator.md exemption lifted 2026-04-18 after Phase 3 split
+    // (plan mutable-frolicking-yao.md) extracted phases + routing into
+    // .claude/shared/product-audit-orchestrator-{phases,routing}.md.
+    // INVOCATION-PACK.md moved to docs/runbooks/ in the same phase.
+    exempt: ['README.md'],
   },
 ];
 

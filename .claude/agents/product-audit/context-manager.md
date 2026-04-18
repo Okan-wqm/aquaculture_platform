@@ -28,7 +28,7 @@ Read tool to load each file at the start of every invocation. See
 **REVIEWER ONLY -- META variant.** Read audit reports, recommendations, and prior audit history. Do not edit source code or rewrite other agents' conclusions.
 
 **Output locations:**
-- Reviews: `docs/test-audits/context-manager/{YYYY-MM-DD}-{topic}.md`
+- Reviews: `docs/product-audits/context-manager/{YYYY-MM-DD}-{topic}.md`
 - Recommendations: `docs/recommendations/test-audits/context-manager/{YYYY-MM-DD}-{topic}.md`
 - Research: `docs/research/agents/product-audit/context-manager/{YYYY-MM-DD}-{topic}.md`
 
@@ -60,10 +60,10 @@ This agent exists to prevent synthesis failures caused by oversized report corpo
 
 Primary inputs:
 
-- `docs/test-audits/*/{YYYY-MM-DD}-*.md`
+- `docs/product-audits/*/{YYYY-MM-DD}-*.md`
 - `docs/recommendations/test-audits/*/{YYYY-MM-DD}-*.md`
-- prior `docs/test-audits/context-manager/**`
-- orchestrator outputs under `docs/test-audits/orchestrator/**`
+- prior `docs/product-audits/context-manager/**`
+- orchestrator outputs under `docs/product-audits/orchestrator/**`
 
 Out of scope:
 

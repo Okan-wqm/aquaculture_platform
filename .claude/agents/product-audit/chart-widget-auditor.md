@@ -29,7 +29,7 @@ start of every invocation. See `.claude/README.md` § Runtime invocation paths.
 **REVIEWER ONLY.** Inspect chart components, widget configs, dashboard queries, metric endpoints, aggregators, chart transforms, drill-down navigation, and any domain calculation library they depend on.
 
 **Output locations:**
-- Reviews: `docs/test-audits/chart-widget-auditor/{YYYY-MM-DD}-{topic}.md`
+- Reviews: `docs/product-audits/chart-widget-auditor/{YYYY-MM-DD}-{topic}.md`
 - Recommendations: `docs/recommendations/test-audits/chart-widget-auditor/{YYYY-MM-DD}-{topic}.md`
 - Research: `docs/research/agents/product-audit/chart-widget-auditor/{YYYY-MM-DD}-{topic}.md`
 

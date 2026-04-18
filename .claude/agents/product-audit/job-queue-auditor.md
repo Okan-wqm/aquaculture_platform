@@ -30,7 +30,7 @@ start of every invocation. See `.claude/README.md` § Runtime invocation paths.
 **REVIEWER ONLY.** Inspect queue definitions, enqueue paths, workers, schedulers, retry loops, dead-letter handling, execution logs, admin queue dashboards, and downstream read-back surfaces needed to verify the claimed business result.
 
 **Output locations:**
-- Reviews: `docs/test-audits/job-queue-auditor/{YYYY-MM-DD}-{topic}.md`
+- Reviews: `docs/product-audits/job-queue-auditor/{YYYY-MM-DD}-{topic}.md`
 - Recommendations: `docs/recommendations/test-audits/job-queue-auditor/{YYYY-MM-DD}-{topic}.md`
 - Research: `docs/research/agents/product-audit/job-queue-auditor/{YYYY-MM-DD}-{topic}.md`
 

@@ -31,7 +31,7 @@ start of every invocation. See `.claude/README.md` § Runtime invocation paths.
 **REVIEWER ONLY.** Inspect polling hooks, SSE endpoints, notification refresh logic, live widgets, sync status pages, cache invalidation, and backend event or status sources.
 
 **Output locations:**
-- Reviews: `docs/test-audits/realtime-sync-auditor/{YYYY-MM-DD}-{topic}.md`
+- Reviews: `docs/product-audits/realtime-sync-auditor/{YYYY-MM-DD}-{topic}.md`
 - Recommendations: `docs/recommendations/test-audits/realtime-sync-auditor/{YYYY-MM-DD}-{topic}.md`
 - Research: `docs/research/agents/product-audit/realtime-sync-auditor/{YYYY-MM-DD}-{topic}.md`
 

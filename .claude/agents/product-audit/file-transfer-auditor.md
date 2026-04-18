@@ -31,7 +31,7 @@ start of every invocation. See `.claude/README.md` § Runtime invocation paths.
 **REVIEWER ONLY.** Inspect UI file pickers and dialogs, request payloads, backend file APIs, storage references, metadata entities, preview paths, export generators, and download authorization logic.
 
 **Output locations:**
-- Reviews: `docs/test-audits/file-transfer-auditor/{YYYY-MM-DD}-{topic}.md`
+- Reviews: `docs/product-audits/file-transfer-auditor/{YYYY-MM-DD}-{topic}.md`
 - Recommendations: `docs/recommendations/test-audits/file-transfer-auditor/{YYYY-MM-DD}-{topic}.md`
 - Research: `docs/research/agents/product-audit/file-transfer-auditor/{YYYY-MM-DD}-{topic}.md`
 

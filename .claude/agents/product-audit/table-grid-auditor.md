@@ -31,7 +31,7 @@ start of every invocation. See `.claude/README.md` § Runtime invocation paths.
 **REVIEWER ONLY.** Inspect table and grid components, query hooks, list endpoints, server filters, export handlers, and row action flows.
 
 **Output locations:**
-- Reviews: `docs/test-audits/table-grid-auditor/{YYYY-MM-DD}-{topic}.md`
+- Reviews: `docs/product-audits/table-grid-auditor/{YYYY-MM-DD}-{topic}.md`
 - Recommendations: `docs/recommendations/test-audits/table-grid-auditor/{YYYY-MM-DD}-{topic}.md`
 - Research: `docs/research/agents/product-audit/table-grid-auditor/{YYYY-MM-DD}-{topic}.md`
 

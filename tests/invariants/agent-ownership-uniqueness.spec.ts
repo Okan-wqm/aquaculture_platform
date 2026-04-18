@@ -212,8 +212,13 @@ const ROUTING_TABLE_FILES: readonly { label: string; path: string }[] = [
     path: path.join(REPO_ROOT, '.claude', 'shared', 'orchestrator-routing-table.md'),
   },
   {
-    label: 'Lane-B product-audit/orchestrator.md Phase 1 table',
-    path: path.join(REPO_ROOT, '.claude', 'agents', 'product-audit', 'orchestrator.md'),
+    label: 'Lane-B product-audit-orchestrator-routing.md',
+    path: path.join(
+      REPO_ROOT,
+      '.claude',
+      'shared',
+      'product-audit-orchestrator-routing.md',
+    ),
   },
 ];
 

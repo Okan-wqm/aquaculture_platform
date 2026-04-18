@@ -29,7 +29,7 @@ start of every invocation. See `.claude/README.md` § Runtime invocation paths.
 **REVIEWER ONLY.** Inspect shared UI primitives, pages, modals, dialogs, keyboard and focus management hooks, live-region helpers, and critical product surfaces in web and AquaMobil code when needed to verify accessibility outcomes.
 
 **Output locations:**
-- Reviews: `docs/test-audits/accessibility-auditor/{YYYY-MM-DD}-{topic}.md`
+- Reviews: `docs/product-audits/accessibility-auditor/{YYYY-MM-DD}-{topic}.md`
 - Recommendations: `docs/recommendations/test-audits/accessibility-auditor/{YYYY-MM-DD}-{topic}.md`
 - Research: `docs/research/agents/product-audit/accessibility-auditor/{YYYY-MM-DD}-{topic}.md`
 

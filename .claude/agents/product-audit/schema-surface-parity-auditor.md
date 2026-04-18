@@ -30,7 +30,7 @@ start of every invocation. See `.claude/README.md` § Runtime invocation paths.
 **REVIEWER ONLY.** Inspect frontend pages, forms, tables, DTOs, entities, migrations, read models, and serializers. Do not edit source.
 
 **Output locations:**
-- Reviews: `docs/test-audits/schema-surface-parity-auditor/{YYYY-MM-DD}-{topic}.md`
+- Reviews: `docs/product-audits/schema-surface-parity-auditor/{YYYY-MM-DD}-{topic}.md`
 - Recommendations: `docs/recommendations/test-audits/schema-surface-parity-auditor/{YYYY-MM-DD}-{topic}.md`
 - Research: `docs/research/agents/product-audit/schema-surface-parity-auditor/{YYYY-MM-DD}-{topic}.md`
 

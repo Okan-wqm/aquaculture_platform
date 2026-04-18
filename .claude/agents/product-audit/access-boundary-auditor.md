@@ -30,7 +30,7 @@ start of every invocation. See `.claude/README.md` § Runtime invocation paths.
 **REVIEWER ONLY.** Inspect routes, guards, role checks, permission models, feature flags, impersonation flows, mobile permissions, and backend authorization boundaries.
 
 **Output locations:**
-- Reviews: `docs/test-audits/access-boundary-auditor/{YYYY-MM-DD}-{topic}.md`
+- Reviews: `docs/product-audits/access-boundary-auditor/{YYYY-MM-DD}-{topic}.md`
 - Recommendations: `docs/recommendations/test-audits/access-boundary-auditor/{YYYY-MM-DD}-{topic}.md`
 - Research: `docs/research/agents/product-audit/access-boundary-auditor/{YYYY-MM-DD}-{topic}.md`
 

@@ -86,7 +86,7 @@ Trigger conditions (any ONE sufficient):
 - Both lanes fired (any review that dispatched to both Lane-A AND Lane-B MUST pass through cross-lane compaction — see §"Cross-lane consolidation" below).
 
 Actions:
-1. Dispatch `Agent(context-manager)` with the list of agents that produced reports and the paths under both `docs/reviews/{agent}/` (Lane-A) and `docs/test-audits/{agent}/` (Lane-B).
+1. Dispatch `Agent(context-manager)` with the list of agents that produced reports and the paths under both `docs/reviews/{agent}/` (Lane-A) and `docs/product-audits/{agent}/` (Lane-B).
 2. `context-manager` returns: a compacted finding set (CRITICAL/HIGH verbatim, MEDIUM grouped, LOW counted), a cross-domain dependency graph, a systemic pattern analysis, and a token budget status.
 3. Any SYSTEMIC pattern flagged by `context-manager` automatically escalates severity by +1 per the existing escalation policy.
 4. Any unresolved cross-domain edge from the dependency graph feeds into Phase 4 as a mandatory dispatch.
@@ -183,8 +183,8 @@ Produce a unified report combining all agent findings from both lanes. Save to `
 - security-reviewer: `docs/reviews/security-reviewer/{date}-{topic}.md`
 - ...
 ### Lane-B (product)
-- form-write-auditor: `docs/test-audits/form-write-auditor/{date}-{topic}.md`
-- data-readback-auditor: `docs/test-audits/data-readback-auditor/{date}-{topic}.md`
+- form-write-auditor: `docs/product-audits/form-write-auditor/{date}-{topic}.md`
+- data-readback-auditor: `docs/product-audits/data-readback-auditor/{date}-{topic}.md`
 - ...
 ```
 

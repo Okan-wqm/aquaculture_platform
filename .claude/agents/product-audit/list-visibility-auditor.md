@@ -29,7 +29,7 @@ start of every invocation. See `.claude/README.md` § Runtime invocation paths.
 **REVIEWER ONLY.** Inspect query keys, invalidation, cache updates, polling, subscriptions, list queries, detail queries, filter state, pagination, and summary widgets.
 
 **Output locations:**
-- Reviews: `docs/test-audits/list-visibility-auditor/{YYYY-MM-DD}-{topic}.md`
+- Reviews: `docs/product-audits/list-visibility-auditor/{YYYY-MM-DD}-{topic}.md`
 - Recommendations: `docs/recommendations/test-audits/list-visibility-auditor/{YYYY-MM-DD}-{topic}.md`
 - Research: `docs/research/agents/product-audit/list-visibility-auditor/{YYYY-MM-DD}-{topic}.md`
 

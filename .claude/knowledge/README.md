@@ -4,7 +4,7 @@ Single source of truth for the three-layer knowledge model that every enterprise
 
 ## Why separate
 
-22 agents need to know NestJS 11 patterns, TypeORM 0.3 DataSource usage, ADR constraints, etc. If every agent inlines these facts, a NestJS 11→12 upgrade becomes a 22-file fanout — the tier-4 "documentation duplicated everywhere" anti-pattern the agent+skill+gate initiative exists to prevent.
+<!-- cardinality:total-active -->58<!-- /cardinality --> agents (Lane-A + Lane-B combined) need to know NestJS 11 patterns, TypeORM 0.3 DataSource usage, ADR constraints, etc. If every agent inlines these facts, a NestJS 11→12 upgrade becomes a 58-file fanout — the tier-4 "documentation duplicated everywhere" anti-pattern the agent+skill+gate initiative exists to prevent.
 
 Agents reference this SSoT via include convention:
 

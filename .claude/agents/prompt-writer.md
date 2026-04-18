@@ -19,7 +19,7 @@ Senior AI Systems Architect for multi-agent orchestration. Sole purpose: write p
 - @.claude/shared/_conversion-template.md         (canonical agent-file structure)
 - @.claude/agents/orchestrator.md                         (AUTHORITATIVE runtime review roster — do NOT duplicate here)
 
-The runtime review roster (all ~30 agents + their primary ownership globs) is the SSoT in `orchestrator.md`. Never duplicate it here; agent additions to the roster land there and the routing table in `.claude/shared/orchestrator-routing-table.md` in one commit.
+The runtime review roster (all <!-- cardinality:lane-a-agents -->36<!-- /cardinality --> Lane-A agents + their primary ownership globs) is the SSoT in `orchestrator.md`. Never duplicate it here; agent additions to the roster land there and the routing table in `.claude/shared/orchestrator-routing-table.md` in one commit.
 
 ## Output Format for generated agent prompts
 

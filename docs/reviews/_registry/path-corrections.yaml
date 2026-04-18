@@ -1,0 +1,92 @@
+# Finding-Registry Path Corrections Sidecar
+#
+# docs/reviews/_registry/findings.jsonl is an append-only hash-chained
+# ledger (see finding-registry-integrity.spec.ts). Entries recorded
+# before the 2026-04-18 flatten reference directory paths that no longer
+# exist:
+#
+#   .claude/agents-enterprise-v2/  — absorbed into .claude/agents/
+#                                    (flatten commit 2582592e)
+#   .claude/test-agents/           — renamed to .claude/agents/product-audit/
+#                                    (same flatten; Lane-B meta-agents gained
+#                                    product-audit-* prefix)
+#
+# Mid-chain edits would break the hash chain, so this sidecar exposes
+# the current equivalents for reviewers reopening old findings. Claimed
+# consistency is enforced by finding-registry-integrity.spec.ts: any
+# evidence-path prefix matching a known-dead prefix below MUST have
+# this file list the owning finding's ID.
+#
+# References:
+#   /root/.claude/plans/parallel-jumping-ladybug.md#Faz-6
+#   tests/invariants/_constants.ts § DEAD_EVIDENCE_PATH_PREFIXES
+
+version: 1
+
+description: >
+  Machine-readable mapping from deprecated pre-flatten evidence paths
+  to post-flatten paths. The findings.jsonl ledger is append-only
+  hash-chained; evidence paths recorded before the 2026-04-18 flatten
+  cannot be edited in-place. This sidecar exposes the current
+  equivalents for auditability.
+
+corrections:
+  - prefix: ".claude/agents-enterprise-v2/"
+    replacement: ".claude/agents/"
+    effective_date: "2026-04-18"
+    reason: >
+      Flatten commit 2582592e moved .claude/agents-enterprise-v2/ to
+      .claude/agents/ as the canonical Claude Code auto-discovery path.
+      Agent dispatch uses the built-in Agent() tool, not the deleted
+      orchestrator-runner CLI.
+
+  - prefix: ".claude/test-agents/"
+    replacement: ".claude/agents/product-audit/"
+    effective_date: "2026-04-18"
+    reason: >
+      Renamed to product-audit/ in the same flatten; Lane-B meta-agents
+      (orchestrator, context-manager, architectural-arbiter) gained a
+      product-audit-* prefix in their name: frontmatter to guarantee
+      global uniqueness against Lane-A siblings.
+
+# Findings whose evidence array contains at least one dead-prefix path.
+# Populated from a scan of docs/reviews/_registry/findings.jsonl on
+# 2026-04-18; the finding-registry-integrity.spec.ts soft check
+# asserts every scan-detected finding ID appears here.
+affected_findings:
+  - id: P0-HIGH-002
+    state: RESOLVED
+  - id: P0-HIGH-003
+    state: RESOLVED
+  - id: P0-HIGH-005
+    state: RESOLVED
+  - id: P0-HIGH-007
+    state: RESOLVED
+  - id: COMPLIANCE-CRITICAL-001
+    state: OPEN
+    note: >
+      The GDPR Art 17 tenant erasure cascade finding is actionable
+      despite the stale evidence paths. Reviewers opening this finding
+      should apply the prefix correction above when navigating
+      references. Closer: gdpr-erasure-executor (Phase 9.2) implements
+      per-service handlers; compliance-expert reviews.
+  - id: CLAUDE-CRITICAL-001
+    state: RESOLVED
+  - id: CLAUDE-CRITICAL-002
+    state: RESOLVED
+  - id: CLAUDE-CRITICAL-003
+    state: RESOLVED
+  - id: CLAUDE-HIGH-001
+    state: RESOLVED
+  - id: CLAUDE-HIGH-003
+    state: RESOLVED
+  - id: CLAUDE-HIGH-004
+    state: RESOLVED
+  - id: CLAUDE-MEDIUM-001
+    state: RESOLVED
+  - id: CLAUDE-MEDIUM-003
+    state: RESOLVED
+  - id: CLAUDE-MEDIUM-005
+    state: RESOLVED
+  - id: CLAUDE-LOW-003
+    state: RESOLVED

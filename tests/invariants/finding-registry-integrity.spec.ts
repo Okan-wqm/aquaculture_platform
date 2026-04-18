@@ -36,6 +36,9 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import Ajv2020, { type ValidateFunction } from 'ajv/dist/2020';
+import * as YAML from 'yaml';
+
+import { DEAD_EVIDENCE_PATH_PREFIXES } from './_constants';
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const REGISTRY_PATH = path.join(REPO_ROOT, 'docs', 'reviews', '_registry', 'findings.jsonl');
@@ -139,5 +142,91 @@ describe('finding registry integrity invariant', () => {
     const ids = entries.map((e) => e.id);
     const duplicates = ids.filter((id, i) => ids.indexOf(id) !== i);
     expect(duplicates).toEqual([]);
+  });
+
+  /**
+   * Soft check — Faz 6 of parallel-jumping-ladybug.md.
+   *
+   * Append-only ledger cannot be edited, but evidence paths recorded
+   * pre-flatten (agents-enterprise-v2/, test-agents/) are dead on disk.
+   * Sidecar `path-corrections.yaml` documents the prefix-to-replacement
+   * mapping so reviewers reopening old findings have a navigable trail.
+   *
+   * Invariant: every finding whose evidence array touches a dead prefix
+   * must appear in the sidecar's affected_findings list. Prevents the
+   * sidecar from silently falling behind the ledger.
+   */
+  describe('path-corrections sidecar coverage', () => {
+    const SIDECAR_PATH = path.join(
+      REPO_ROOT,
+      'docs',
+      'reviews',
+      '_registry',
+      'path-corrections.yaml',
+    );
+
+    interface Sidecar {
+      version: number;
+      corrections: readonly { prefix: string }[];
+      affected_findings: readonly { id: string; state?: string }[];
+    }
+
+    function loadSidecar(): Sidecar | null {
+      if (!fs.existsSync(SIDECAR_PATH)) return null;
+      return YAML.parse(fs.readFileSync(SIDECAR_PATH, 'utf8')) as Sidecar;
+    }
+
+    function findingsWithDeadEvidence(): string[] {
+      const deadPrefixes = DEAD_EVIDENCE_PATH_PREFIXES as readonly string[];
+      const hits: string[] = [];
+      for (const entry of entries) {
+        const evidence = (entry as { evidence?: unknown }).evidence;
+        if (!Array.isArray(evidence)) continue;
+        const anyDead = evidence.some(
+          (e) =>
+            typeof e === 'string' && deadPrefixes.some((p) => e.startsWith(p)),
+        );
+        if (anyDead) hits.push(entry.id);
+      }
+      return hits;
+    }
+
+    it('sidecar file exists at docs/reviews/_registry/path-corrections.yaml', () => {
+      expect(fs.existsSync(SIDECAR_PATH)).toBe(true);
+    });
+
+    it('sidecar declares every known-dead evidence prefix', () => {
+      const sidecar = loadSidecar();
+      expect(sidecar).not.toBeNull();
+      if (!sidecar) return;
+      const declaredPrefixes = new Set(sidecar.corrections.map((c) => c.prefix));
+      const missing = (DEAD_EVIDENCE_PATH_PREFIXES as readonly string[]).filter(
+        (p) => !declaredPrefixes.has(p),
+      );
+      if (missing.length > 0) {
+        throw new Error(
+          `path-corrections.yaml is missing corrections for dead prefixes: ${missing.join(', ')}. ` +
+            'Add a `corrections` entry for each.',
+        );
+      }
+      expect(missing).toEqual([]);
+    });
+
+    it('every finding with dead-prefix evidence is listed in affected_findings', () => {
+      const sidecar = loadSidecar();
+      expect(sidecar).not.toBeNull();
+      if (!sidecar) return;
+      const listedIds = new Set(sidecar.affected_findings.map((f) => f.id));
+      const withDeadEvidence = findingsWithDeadEvidence();
+      const missing = withDeadEvidence.filter((id) => !listedIds.has(id));
+      if (missing.length > 0) {
+        throw new Error(
+          `findings.jsonl contains entries with dead-prefix evidence that are not in ` +
+            `path-corrections.yaml affected_findings:\n  - ${missing.join('\n  - ')}\n\n` +
+            `Append each finding ID to affected_findings (with its current state).`,
+        );
+      }
+      expect(missing).toEqual([]);
+    });
   });
 });

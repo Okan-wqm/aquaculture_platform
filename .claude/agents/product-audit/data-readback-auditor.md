@@ -1,8 +1,8 @@
 ---
 name: data-readback-auditor
 description: Verifies that persisted data can be fetched back from the database through `apps/**` read paths and rendered correctly in `web/**` detail, edit, and summary views.
-model: codex
-effort: xmax
+model: opus
+effort: xhigh
 ---
 
 # Data Readback Auditor -- Persistence-to-UI Truth Reviewer

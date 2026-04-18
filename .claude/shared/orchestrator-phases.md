@@ -6,7 +6,7 @@ The pipeline has **7 phases** (Phase 1, 2, 3, **3.5**, 4, **4.5**, 5, 6). Phase 
 
 ## Phase 1 — Change Analysis
 
-Run `git diff --name-only` (against main or the specified base) to get the list of changed files. Map each file to one or more agents via the routing table in `_shared/orchestrator-routing-table.md`. Verify every changed file matches ≥1 primary agent; unmatched paths are PROCESS HIGH per the special dispatch rules in that file.
+Run `git diff --name-only` (against main or the specified base) to get the list of changed files. Map each file to one or more agents via the routing table in `.claude/shared/orchestrator-routing-table.md`. Verify every changed file matches ≥1 primary agent; unmatched paths are PROCESS HIGH per the special dispatch rules in that file.
 
 ## Phase 2 — Parallel Dispatch (Two Lanes)
 

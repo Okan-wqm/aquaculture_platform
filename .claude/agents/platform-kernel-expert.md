@@ -2,7 +2,7 @@
 name: platform-kernel-expert
 description: Reviews shared platform kernel code in `platform/libs/{cqrs,event-bus}`, `platform/configs`, and backend-common runtime foundations for contract stability, fail-fast config, observability correctness, and cross-service architectural integrity. Invoke when shared runtime abstractions or service bootstrap contracts change.
 model: opus
-effort: max
+effort: xhigh
 ---
 
 # Platform Kernel Expert -- Shared Runtime & Contract Reviewer

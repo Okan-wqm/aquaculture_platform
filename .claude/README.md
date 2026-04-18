@@ -12,7 +12,7 @@ README for deeper detail.
 | `agents/product-audit/` | Lane-B (product-quality) roster — 24 active UI/E2E/tenant-surface auditors + 4 DEPRECATED (status-tombstone header). Meta-agents carry a `product-audit-*` name prefix to stay globally unique vs Lane-A. |
 | `agents/runners/` | Pending deletion (Phase 3 of `razing-zebra-flat` plan). The `claude-agent` CLI the runner delegates to does not exist — deleted entirely in favor of Claude Code's built-in `Agent()` dispatch. |
 | `agents.legacy/` | Archived pre-2026-04-16 agent set — 20 files + `platform-services.md` (added 2026-04-18). Retained for historical review traceability. Loader does NOT scan this directory. |
-| `shared/` | Shared fragments consumed by agents via `@`-reference: `review-contract.md` (merged operating modes + tier-claim + handoff + output format), `orchestrator-phases.md`, `orchestrator-routing-table.md`, `_conversion-template.md`. |
+| `shared/` | Shared fragments consumed by agents via `@`-reference: `operating-modes.md`, `tier-claim-syntax.md`, `handoff-protocol.md`, `output-format.md`, `orchestrator-phases.md`, `orchestrator-routing-table.md`, `_conversion-template.md`. |
 | `knowledge/` | 3-layer SSoT for tech anchors, patterns, and ADRs — `layer-1-{core,nestjs,typeorm,react,rust,timescaledb,ai}.md`, `layer-2-patterns.md`, `layer-3-adrs.md`. |
 | `skills/` | 7 procedural cascade files — `status: reference-only` per the 2026-04-18 flip; consulted as canonical recipes, not auto-invoked pipelines. |
 | `allowlists/` | Boundary-allowlist YAML for legitimate Tier-4 escape hatches (MQTT wire, Stripe webhook, generated proto, etc.). CODEOWNERS-gated. |

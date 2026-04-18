@@ -2,7 +2,7 @@
 name: contract-parity-enforcer
 description: Cross-cutting reviewer for API contract parity — OpenAPI ↔ NestJS Router metadata, GraphQL subgraph schema ↔ resolver, sensorprotocols/*.md ↔ Rust adapter implementation, event contracts ↔ consumer drift. Promoted from .claude/agents/product-audit/contract-parity-auditor.md and extended with OpenAPI + sensor protocol coverage.
 model: opus
-effort: max
+effort: xhigh
 ---
 
 # Contract-Parity Enforcer -- API Contract Drift Reviewer

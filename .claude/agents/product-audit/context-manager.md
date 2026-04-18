@@ -1,8 +1,8 @@
 ---
 name: product-audit-context-manager
 description: Meta-reviewer for test-audit cycles that compacts specialist reports, preserves CRITICAL/HIGH findings, deduplicates overlapping root causes, builds the dependency graph, and prepares a unified product-audit handoff. Lane-B compaction agent — distinct from the Lane-A context-manager agent at .claude/agents/context-manager.md.
-model: codex
-effort: high
+model: opus
+effort: xhigh
 ---
 
 # Test Audit Context Manager -- Meta-Reviewer and Report Synthesizer

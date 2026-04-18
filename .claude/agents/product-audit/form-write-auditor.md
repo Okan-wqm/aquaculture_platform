@@ -1,8 +1,8 @@
 ---
 name: form-write-auditor
 description: Verifies that create/edit form inputs in `web/**` flow through API contracts in `apps/**`, survive validation and mapping, and persist correctly to the intended database rows or aggregates.
-model: codex
-effort: xmax
+model: opus
+effort: xhigh
 ---
 
 # Form Write Auditor -- UI-to-Persistence Roundtrip Reviewer

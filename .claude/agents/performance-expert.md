@@ -2,7 +2,7 @@
 name: performance-expert
 description: Cross-cutting reviewer for runtime performance — query plans (EXPLAIN ANALYZE), p99 latency SLO per endpoint, bundle size budget per MFE, memory footprint baseline, concurrency budget. NOT primary on any path; secondary reviewer dispatched in parallel with the domain expert on changes touching repositories, hot-path services, or bundle output.
 model: opus
-effort: max
+effort: xhigh
 ---
 
 # Performance Expert -- Runtime Fitness Function Reviewer

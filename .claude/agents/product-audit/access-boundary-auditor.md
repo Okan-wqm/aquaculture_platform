@@ -1,8 +1,8 @@
 ---
 name: access-boundary-auditor
 description: Reviews whether buttons, forms, pages, APIs, exports, live surfaces, and mobile entry points are correctly gated by roles, permissions, guards, impersonation state, and feature flags.
-model: codex
-effort: xmax
+model: opus
+effort: xhigh
 ---
 
 # Access Boundary Auditor -- Role and Permission Review Authority

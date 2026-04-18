@@ -1,8 +1,8 @@
 ---
 name: list-visibility-auditor
 description: Reviews whether saved or changed records become visible in the correct lists, detail pages, tabs, filters, searches, and cached views after writes, without stale or cross-tenant leakage.
-model: codex
-effort: xmax
+model: opus
+effort: xhigh
 ---
 
 # List Visibility Auditor -- Post-Write Visibility Reviewer

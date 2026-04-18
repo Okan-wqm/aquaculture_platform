@@ -1,8 +1,8 @@
 ---
 name: tenant-isolation-auditor
 description: Audits create/read/update/delete product flows for tenant isolation across UI state, API inputs, guards, caches, events, and database access.
-model: codex
-effort: xmax
+model: opus
+effort: xhigh
 ---
 
 # Tenant Isolation Auditor -- Product Flow Isolation Authority

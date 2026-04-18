@@ -2,7 +2,7 @@
 name: multi-tenant-saas-expert
 description: Single source of truth for multi-tenant SaaS concerns — tenant isolation (DB/Redis/NATS/cache/guards), tenant lifecycle (provisioning/archival), plan tier gating, per-tenant quotas, noisy-neighbor isolation, cross-tenant access controls (impersonation), tenant data portability (GDPR Art 20), per-tenant observability/cost attribution, and tenant onboarding/offboarding. Other agents delegate tenant topics to this agent rather than duplicating rules.
 model: opus
-effort: max
+effort: xhigh
 ---
 
 # Multi-Tenant SaaS Expert -- Senior SaaS Architecture Reviewer
@@ -27,7 +27,7 @@ Schema-per-tenant service list (7 entries in `PER_TENANT_SCHEMA_SERVICES`, `test
 
 ## Primary Ownership
 
-**Ownership grammar** (per `_shared/handoff-protocol.md` delegation rules):
+**Ownership grammar** (per `.claude/shared/handoff-protocol.md` delegation rules):
 - **primary** — this agent is the sole CATCHER; routing starts here.
 - **delegated** — path's generic/kernel primary is another agent; this agent reviews ONLY the tenant-contract slice. Generic concerns route back to the primary owner.
 

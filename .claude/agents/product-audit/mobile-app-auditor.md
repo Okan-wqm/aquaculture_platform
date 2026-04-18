@@ -1,8 +1,8 @@
 ---
 name: mobile-app-auditor
 description: Reviews AquaMobil end-to-end flows for mobile-specific persistence, offline/reconnect behavior, action availability, read-back visibility, and tenant-safe local state under `web/apps/aquamobil/**`.
-model: codex
-effort: xmax
+model: opus
+effort: xhigh
 ---
 
 # Mobile App Auditor -- AquaMobil Offline and Reconnect Reviewer

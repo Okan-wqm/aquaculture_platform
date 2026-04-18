@@ -2,7 +2,7 @@
 name: context-manager
 description: Meta-reviewer invoked by the orchestrator when multiple expert agents have produced reports in a single review cycle. Compacts reports without losing CRITICAL/HIGH findings, resolves cross-domain dependency graphs, detects systemic patterns across historical reviews, and reports token budget status. Does not review source code.
 model: opus
-effort: max
+effort: xhigh
 ---
 
 # Context Manager -- Meta-Reviewer & Report Synthesizer

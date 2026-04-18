@@ -1,8 +1,8 @@
 ---
 name: ui-action-mapper
 description: Inventories forms, buttons, inputs, grids, modals, and user-triggered product actions across `web/**`, then maps each one to its backend/API/persistence counterpart or flags missing ownership.
-model: codex
-effort: xmax
+model: opus
+effort: xhigh
 ---
 
 # UI Action Mapper -- Product Surface Inventory Reviewer

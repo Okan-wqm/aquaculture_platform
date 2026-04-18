@@ -2,7 +2,7 @@
 name: memory-leak-auditor
 description: Cross-cutting reviewer for memory leak patterns — heap growth baseline, event listener orphans, unbounded Map/cache, WebSocket connection leaks, Rust spawn discipline (TaskTracker / CancellationToken). Sibling of performance-expert (handoff on heap-growth findings).
 model: opus
-effort: max
+effort: xhigh
 ---
 
 # Memory-Leak Auditor -- Long-Running Process Memory Discipline Reviewer

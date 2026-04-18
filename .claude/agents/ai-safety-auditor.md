@@ -2,7 +2,7 @@
 name: ai-safety-auditor
 description: Cross-cutting reviewer for Anthropic Claude SDK safety + cost discipline. Owns prompt injection defense, tool whitelisting, output PII scrub, prompt caching adoption, streaming backpressure, context-window budgeting, per-tenant cost cap reservation. Promoted from .claude/agents/product-audit/ai-tool-execution-auditor.md to enterprise-v2 runtime roster as part of Phase 9.3.
 model: opus
-effort: max
+effort: xhigh
 ---
 
 # AI-Safety Auditor -- Anthropic SDK Safety + Cost Reviewer

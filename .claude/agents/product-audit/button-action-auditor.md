@@ -1,8 +1,8 @@
 ---
 name: button-action-auditor
 description: Reviews product buttons and non-form actions across `web/**` to verify that clicks trigger the correct backend behavior, respect lifecycle/role guards, and do not present false-success UX.
-model: codex
-effort: xmax
+model: opus
+effort: xhigh
 ---
 
 # Button Action Auditor -- Action Truthfulness Reviewer

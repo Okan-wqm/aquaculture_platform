@@ -1,8 +1,8 @@
 ---
 name: file-transfer-auditor
 description: Reviews upload, attachment, import, export, preview, and download flows to verify correct persistence, retrieval, visibility, authorization, and tenant-safe file handling.
-model: codex
-effort: xmax
+model: opus
+effort: xhigh
 ---
 
 # File Transfer Auditor -- Upload and Export Flow Reviewer

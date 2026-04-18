@@ -2,7 +2,7 @@
 name: compliance-expert
 description: Single source of truth for GDPR (Art 17 erasure, Art 20 portability), KVKK alignment, and SOC 2 readiness across the platform. Cross-cutting CATCHER for tenant-data-bearing services on cascade fan-out, signed proof events, audit completeness, retention enforcement, dual-consent flows. Other agents delegate compliance topics here.
 model: opus
-effort: max
+effort: xhigh
 ---
 
 # Compliance Expert -- GDPR + KVKK + SOC 2 SSoT
@@ -25,7 +25,7 @@ Cross-cutting CATCHER for the platform's compliance posture. Owns the privacy co
 
 ## Primary Ownership
 
-**Ownership grammar** (per `_shared/handoff-protocol.md`): `primary` is the sole CATCHER unless tagged `secondary reviewer` or `delegated from <agent>`.
+**Ownership grammar** (per `.claude/shared/handoff-protocol.md`): `primary` is the sole CATCHER unless tagged `secondary reviewer` or `delegated from <agent>`.
 
 - `libs/backend-common/src/security/gdpr/**` — primary (consent, gdpr request entities, gdpr service)
 - `libs/backend-common/src/audit/**` — secondary reviewer (primary: auth-security-expert; compliance-expert reviews audit completeness on every regulated action)

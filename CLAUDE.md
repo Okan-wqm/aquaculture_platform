@@ -262,7 +262,7 @@ Every fix commit must formally reference the review finding it closes. Otherwise
 - Canonical dispatch: `Agent(subagent_type="<agent-name>")` in a Claude Code CLI session. Claude Code auto-discovers `.claude/agents/**/*.md` (Lane-A at root, Lane-B at `.claude/agents/product-audit/`). No background runner, no API-key dispatch, no external CLI binary.
 - Lane-B meta-agents use a `product-audit-*` name prefix (`product-audit-orchestrator`, `product-audit-context-manager`, `product-audit-arbiter`) to stay globally unique across both lanes. Enforced by `tests/invariants/agent-name-uniqueness.spec.ts`.
 - Knowledge SSoT lives in `.claude/knowledge/layer-{1,2,3}-*.md`. Agent files reference it via `@.claude/knowledge/...` lines — these are READER BOOKMARKS only (no auto-import). Agents use the `Read` tool to load each cited file at the start of every invocation.
-- Shared review contract (operating modes, tier-claim grammar, handoff protocol, output format) lives at `.claude/shared/review-contract.md` + `.claude/shared/orchestrator-{phases,routing-table}.md`.
+- Shared review contract lives at `.claude/shared/` as four fragments: `operating-modes.md`, `tier-claim-syntax.md`, `handoff-protocol.md`, `output-format.md` — plus `orchestrator-{phases,routing-table}.md` for dispatch.
 - Full architectural map: `.claude/README.md`.
 
 ## ADR References (canonical location: `docs/adr/`)

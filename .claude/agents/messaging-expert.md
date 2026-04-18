@@ -2,7 +2,7 @@
 name: messaging-expert
 description: Invoked when reviewing, auditing, or analyzing the messaging and AI domains -- including channels, messages, attachments, reactions, receipts, compliance (retention policies, legal holds, audit logs), GDPR operations, outbox pattern, presence, partitioning, AI chat bridge, sentiment analysis, embeddings, knowledge extraction, AI agent runner, tool execution, conversation management, cost tracking, and persona routing within apps/messaging-service/ and apps/ai-service/.
 model: opus
-effort: max
+effort: xhigh
 ---
 
 # Messaging & AI Domain Expert -- Senior Reviewer & Architect

@@ -53,18 +53,17 @@ Depends on: `layer-1-nestjs.md` (guards, interceptors, CQRS), `layer-2-patterns.
 
 ## Claude Agent SDK (sub-agent orchestration)
 
-- **`@anthropic-ai/claude-agent-sdk`** — used by orchestrator-reviewer agent-dispatch, NOT by runtime ai-service chat. Two distinct consumers of the same package:
-  - Runtime (`apps/ai-service`): user-facing chat, direct `messages.create` API.
-  - Review machinery (`.claude/agents/**`): sub-agent review cycles dispatched by the human-run `npx claude-agent` CLI.
+- **`@anthropic-ai/claude-agent-sdk`** — runtime dependency for `apps/ai-service` only (user-facing chat via `Anthropic.messages.create(...)`). It is NOT the review-loop dispatcher.
+- **Review-loop dispatch is Claude Code's built-in `Agent()` tool** (auto-discovery of `.claude/agents/**/*.md`). No external CLI binary, no `npx claude-agent`, no `tools/scripts/orchestrator-runner.ts` — all of that was retired on 2026-04-18 (commit `e8f06e98`). Sub-agent invocation format: `Agent(subagent_type="<name>", description="...", prompt="...")`.
 - **Sub-agent isolation** — sub-agents run in their own context. Parent must pass findings in + pull results back via explicit message-passing, not shared state. The finding-registry (`docs/reviews/_registry/findings.jsonl`) is the SSoT for cross-agent state; never mutate another agent's in-flight context.
-- **System prompt assembly** — sub-agent system prompts compose from the agent file header + `@`-referenced shared fragments (`_shared/**`) + knowledge layers (this folder). The assembly is done by the SDK; agent files never inline SSoT content (W3 invariant).
+- **System prompt assembly** — sub-agent system prompts compose from the agent file header + `@`-referenced shared fragments (`.claude/shared/**`) + knowledge layers (this folder). The assembly is done by the SDK; agent files never inline SSoT content (W3 invariant).
 
 ## Gotchas
 
 - **Model deprecation** — Anthropic deprecates models; always pin the exact ID (`claude-sonnet-4-6`) in tenant persona config, never just `"sonnet"`. Mass migration paths live in `apps/ai-service/src/tenant-config/` + a runbook in `docs/runbooks/` (not yet written — Phase 14 item).
 - **Token drift between models** — a prompt that fits 190k on Sonnet can fail on Haiku (slightly different tokenizer). Always count tokens AGAINST the target model, not a default.
 - **`anthropic-beta` header** — reserved for opt-in features (prompt caching was beta-gated until GA). Current GA features do NOT need this header; adding it unnecessarily pins you to a beta contract that can disappear.
-- **SDK version lag** — Claude Code (this CLI) tracks a different SDK version than `@anthropic-ai/sdk`. `@anthropic-ai/claude-agent-sdk` is the review-loop SDK; the ai-service runtime uses `@anthropic-ai/sdk` directly (check service package.json — they diverge).
+- **SDK version anchor** — `@anthropic-ai/claude-agent-sdk` is the ai-service runtime SDK (powers chat in `apps/ai-service`). The review-loop uses Claude Code's built-in `Agent()` tool, not this package — Claude Code itself owns its client binding. The `knowledge-ssot.spec.ts` anchor on `^0.2.37` reflects the ai-service runtime version only.
 
 ## References
 

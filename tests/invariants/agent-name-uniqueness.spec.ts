@@ -10,11 +10,12 @@
  *     - .claude/agents/   (Lane-A code-quality)
  *     - .claude/agents/product-audit/            (Lane-B product-quality)
  *
- *   Collisions produce undefined `claude-agent` CLI resolution because the
- *   runner delegates name-to-path lookup to the binary with no disambig-
- *   uation logic (tools/scripts/orchestrator-runner.ts:261). This invariant
- *   is the Tier-3 detectable gate matching the Tier-1 intent ("make it
- *   impossible") that the CLI cannot enforce today.
+ *   Collisions produce undefined Claude Code `Agent(subagent_type=...)`
+ *   resolution because auto-discovery under `.claude/agents/` (recursive)
+ *   keys on the `name:` frontmatter and the CLI does not guarantee
+ *   deterministic resolution when two files declare the same name. This
+ *   invariant is the Tier-3 detectable gate matching the Tier-1 intent
+ *   ("make it impossible") that the CLI cannot enforce today.
  *
  *   `.claude/agents.legacy/**` is EXEMPT — that directory is explicitly
  *   dormant per its README ("No new work lands here. Dispatch is disabled")

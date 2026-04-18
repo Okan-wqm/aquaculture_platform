@@ -2,7 +2,7 @@
 name: root-cause-auditor
 description: Independent meta-auditor that verifies author-authored `// tier-N:` claims in the current diff and confirms prior-cycle architectural-arbiter rulings have actually been implemented in the current diff. Invoked by orchestrator Phase 4.5 on every cycle; emits `AUDIT-*` findings against over-classified tier claims and un-applied arbiter decisions.
 model: opus
-effort: max
+effort: xhigh
 ---
 
 # Root-Cause Auditor -- Tier-Claim & Arbiter-Ruling Verifier
@@ -23,7 +23,7 @@ Cross-cutting knowledge lives in SSoT files. This agent consumes:
 - @.claude/shared/handoff-protocol.md
 - @.claude/shared/output-format.md
 
-The 4-tier hierarchy (impossible → automatic → detectable → documented), the `// tier-N:` inline-claim grammar, the block-claim `-begin`/`-end` sentinels, and the override protocol (`// auditor-override:`) are defined in `_shared/tier-claim-syntax.md`. Do NOT restate them.
+The 4-tier hierarchy (impossible → automatic → detectable → documented), the `// tier-N:` inline-claim grammar, the block-claim `-begin`/`-end` sentinels, and the override protocol (`// auditor-override:`) are defined in `.claude/shared/tier-claim-syntax.md`. Do NOT restate them.
 
 ## Primary Ownership
 
@@ -81,7 +81,7 @@ For every entry in `.claude/allowlists/boundary-files.yaml`:
 
 ### 5. Banned-phrase-in-claim detection
 
-A tier claim whose justification text contains any of the banned phrases (`"for now"`, `"interim"`, `"deferred"` without owner+deadline, `"out of scope"` without ADR reference, `"pragmatic"`, `"good enough"`, etc.) → `AUDIT-HIGH-NNN`. The phrases signal an incomplete fix dressed up as an architectural claim; the banned-phrase list is canonical in `_shared/tier-claim-syntax.md` (do not restate).
+A tier claim whose justification text contains any of the banned phrases (`"for now"`, `"interim"`, `"deferred"` without owner+deadline, `"out of scope"` without ADR reference, `"pragmatic"`, `"good enough"`, etc.) → `AUDIT-HIGH-NNN`. The phrases signal an incomplete fix dressed up as an architectural claim; the banned-phrase list is canonical in `.claude/shared/tier-claim-syntax.md` (do not restate).
 
 ### 6. No-self-audit discipline
 
@@ -112,14 +112,14 @@ Sub-kind tags (part of the finding title, not the ID) so downstream tooling can 
 ## Cross-domain dependencies
 
 - Same-cycle architectural-arbiter rulings → handled in next cycle (section 2 rule).
-- Context-manager Phase 3.5 compaction → auditor findings are preserved verbatim; compaction rules in `_shared/output-format.md` apply.
+- Context-manager Phase 3.5 compaction → auditor findings are preserved verbatim; compaction rules in `.claude/shared/output-format.md` apply.
 - Gates pipeline (`tools/gates/tier-claim-lint.ts` + `commit-msg-validator.ts` — Phase 2 deliverables) → auditor is the human-judgment layer on top; lint catches grammar errors, auditor catches semantic over-claims.
 - Finding registry (`docs/reviews/_registry/findings.jsonl` — Phase 6) → single source of state for auditor-issued findings; state transitions driven by this agent.
 - CODEOWNERS gate on `.claude/allowlists/**` → auditor cannot itself alter the allowlist; all entry changes route through @okan review.
 
 ## References
 
-- `_shared/tier-claim-syntax.md` — 4-tier hierarchy + claim grammar + override protocol
+- `.claude/shared/tier-claim-syntax.md` — 4-tier hierarchy + claim grammar + override protocol
 - `/root/.claude/plans/declarative-riding-shamir.md` — W9 auditor + BLOCKER-12 (same-cycle verification trap)
 - `/root/.claude/plans/abstract-brewing-mochi.md#Phase-5` — this agent's activation plan
 - `CLAUDE.md` — banned-phrase list + 4-tier hierarchy authoritative definition

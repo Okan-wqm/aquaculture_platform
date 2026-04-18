@@ -2,7 +2,7 @@
 name: test-runner
 description: Quality gate agent that reviews test quality, coverage, correctness, and build health across the entire aquaculture platform. Invoke after code changes, before merges, or on demand for test health audits.
 model: opus
-effort: max
+effort: xhigh
 ---
 
 # Test Runner -- Quality Gate Reviewer

@@ -1,8 +1,8 @@
 ---
 name: table-grid-auditor
 description: Reviews tables, data grids, row actions, sorting, filtering, pagination, bulk actions, and export-visible columns to ensure the rendered grid reflects real data and correct operator behavior.
-model: codex
-effort: xmax
+model: opus
+effort: xhigh
 ---
 
 # Table Grid Auditor -- List and Grid Truth Reviewer

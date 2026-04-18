@@ -11,9 +11,10 @@ effort: max
 > `apps/notification-service/**` → `alert-engine-expert`; `apps/hydroponics-service/**` → `farm-expert`.
 > A deprecation redirect previously lived at `.claude/agents/platform-services.md` — removed
 > 2026-04-18 (CLAUDE-CRITICAL-002) because the redirect map duplicated orchestrator roster information
-> and its valid `name:` frontmatter kept the deprecated agent loadable by the `claude-agent` CLI.
-> This file retained for historical review traceability only (`.claude/agents.legacy/` is not scanned
-> by Claude Code or the runner). Scheduled for deletion ≥ 2026-05-16 per legacy README grace window.
+> and its valid `name:` frontmatter kept the deprecated agent loadable by Claude Code's `Agent()`
+> auto-discovery. This file retained for historical review traceability only
+> (`.claude/agents.legacy/` is not scanned by Claude Code). Scheduled for deletion ≥ 2026-05-16 per
+> legacy README grace window.
 
 # Platform Services Reviewer & Architect
 

@@ -8,8 +8,8 @@
 ---
 name: <agent-id>
 description: <one-line: when orchestrator invokes this agent>
-model: opus|codex
-effort: max|xmax
+model: opus
+effort: xhigh
 ---
 
 # <Agent Title>
@@ -86,6 +86,6 @@ full format.
 - Frontmatter unchanged
 - Has `## Canonical References` section with ALL @-includes listed above
 - Has `## Domain-specific invariants` section (may be brief but must exist)
-- Has `## Operating Modes` section referencing _shared/
+- Has `## Operating Modes` section referencing .claude/shared/
 - Has `## Finding ID prefix` section
-- Zero inline duplication with `.claude/knowledge/layer-*.md` or `_shared/*.md`
+- Zero inline duplication with `.claude/knowledge/layer-*.md` or `.claude/shared/*.md`

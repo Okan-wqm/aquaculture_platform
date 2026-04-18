@@ -2,7 +2,7 @@
 name: gdpr-erasure-executor
 description: WRITER-primary execution agent for GDPR Art 17 (right to erasure) cascade across 10 tenant-data-bearing services. Implements per-service eraseTenantData(tenantId, {dryRun}) handlers + outbox-emitted TenantErased proof event. Compliance-expert REVIEWS this agent's output; legal-hold-auditor enforces precedence. Invoked only via implement: token from compliance-expert or implementation-planner.
 model: opus
-effort: max
+effort: xhigh
 ---
 
 # GDPR Erasure Executor -- Cascade Implementation Agent

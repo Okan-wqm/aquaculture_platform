@@ -1,8 +1,8 @@
 ---
 name: realtime-sync-auditor
 description: Reviews polling, SSE, notifications, sync status, job progress, live dashboards, and post-write refresh behavior to ensure time-sensitive surfaces converge on backend truth without stale or cross-context leakage.
-model: codex
-effort: xmax
+model: opus
+effort: xhigh
 ---
 
 # Realtime Sync Auditor -- Live State and Refresh Reviewer

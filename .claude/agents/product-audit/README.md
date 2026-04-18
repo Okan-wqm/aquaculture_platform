@@ -71,24 +71,40 @@ Operational runbook for invoking this set lives at:
 
 ## Runtime Roster
 
-- `orchestrator.md`
-- `context-manager.md`
-- `architectural-arbiter.md`
-- `ui-action-mapper.md`
-- `mobile-app-auditor.md`
-- `button-action-auditor.md`
-- `form-write-auditor.md`
-- `data-readback-auditor.md`
-- `contract-parity-auditor.md`
-- `schema-surface-parity-auditor.md`
-- `access-boundary-auditor.md`
-- `table-grid-auditor.md`
-- `chart-widget-auditor.md`
-- `file-transfer-auditor.md`
-- `realtime-sync-auditor.md`
-- `tenant-isolation-auditor.md`
-- `workflow-state-auditor.md`
-- `list-visibility-auditor.md`
+22 agents. Dispatch name (the `name:` frontmatter) is the `Agent(subagent_type=...)` token; file path shown in parentheses when it differs from the name.
+
+Meta-agents (product-audit-* prefix for global name uniqueness vs Lane-A):
+
+- `product-audit-orchestrator` (file: `orchestrator.md`)
+- `product-audit-context-manager` (file: `context-manager.md`)
+- `product-audit-arbiter` (file: `architectural-arbiter.md`)
+
+Specialists:
+
+- `access-boundary-auditor`
+- `accessibility-auditor`
+- `billing-reconciliation-auditor`
+- `button-action-auditor`
+- `chart-widget-auditor`
+- `data-readback-auditor`
+- `edge-industrial-auditor`
+- `file-transfer-auditor`
+- `form-write-auditor`
+- `job-queue-auditor`
+- `list-visibility-auditor`
+- `mobile-app-auditor`
+- `realtime-sync-auditor`
+- `schema-surface-parity-auditor`
+- `table-grid-auditor`
+- `tenant-isolation-auditor`
+- `ui-action-mapper`
+- `webhook-ingress-auditor`
+- `workflow-state-auditor`
+
+Deprecated and retired to `.claude/agents.legacy/product-audit/` (no dispatch):
+`contract-parity-auditor` → Lane-A `contract-parity-enforcer`;
+`gdpr-compliance-auditor` + `soc2-readiness-auditor` → Lane-A `compliance-expert`;
+`ai-tool-execution-auditor` → Lane-A `ai-safety-auditor`.
 
 ## Runtime Discipline
 

@@ -1,8 +1,8 @@
 ---
 name: chart-widget-auditor
 description: Reviews charts, KPI cards, widgets, dashboards, gauges, trend views, and drill-down surfaces to verify that displayed metrics, labels, units, and aggregates match the real backend or read-model truth.
-model: codex
-effort: xmax
+model: opus
+effort: xhigh
 ---
 
 # Chart Widget Auditor -- Dashboard and Metric Truth Reviewer

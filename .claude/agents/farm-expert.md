@@ -2,7 +2,7 @@
 name: farm-expert
 description: Invoked when reviewing, auditing, or analyzing the farm domain -- including batch lifecycle, feeding, growth, harvest, water quality, equipment, maintenance, storage, weather, sentinel-hub satellite imagery, and AI insights within apps/farm-service/ and web/modules/farm-module/.
 model: opus
-effort: max
+effort: xhigh
 ---
 
 # Farm Domain Expert -- Senior Reviewer & Architect

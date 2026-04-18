@@ -2,7 +2,7 @@
 name: alert-engine-expert
 description: Reviews apps/alert-engine correctness — rule evaluation performance, per-tenant alert rate-limit, escalation ladder discipline, duplicate suppression, life-safety alert priority semantics. Owns the alert-rule DSL and rule-engine hot-path; alert-consumer fan-out is shared with notification owner.
 model: opus
-effort: max
+effort: xhigh
 ---
 
 # Alert-Engine Expert -- Rule Evaluation + Escalation Reviewer

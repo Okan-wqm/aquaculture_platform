@@ -74,12 +74,6 @@ const SCOPED_DIRS: readonly ScopedDir[] = [
       'INVOCATION-PACK.md',
       // Meta-agent — inline dispatch decision tree. Separate port cycle.
       'orchestrator.md',
-      // DEPRECATED 2026-04-16 — historical content retained for review-file
-      // traceability; scheduled for deletion 2026-07-16.
-      'gdpr-compliance-auditor.md',
-      'soc2-readiness-auditor.md',
-      'ai-tool-execution-auditor.md',
-      'contract-parity-auditor.md',
     ],
   },
 ];

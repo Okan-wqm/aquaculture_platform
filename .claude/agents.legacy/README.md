@@ -28,6 +28,19 @@ This directory was the production agent roster from 2026-02 through 2026-04-15. 
 This directory may be removed after 2026-05-16 (30 days from archive) if:
 - No historical review file cites a legacy-only finding ID.
 - Enterprise-v2 has completed ≥2 successful review cycles.
+
+## 2026-04-18 addition — DEPRECATED Lane-B files archived early
+
+Four Lane-B files whose Lane-A promotion targets are live were moved here:
+- `product-audit/gdpr-compliance-auditor.md`  → Lane-A: compliance-expert
+- `product-audit/soc2-readiness-auditor.md`    → Lane-A: compliance-expert
+- `product-audit/ai-tool-execution-auditor.md` → Lane-A: ai-safety-auditor
+- `product-audit/contract-parity-auditor.md`   → Lane-A: contract-parity-enforcer
+
+Original deprecation 2026-04-16. Moved to legacy early (2026-04-18) during the
+razing-zebra-flat plan's Phase 4d — their active-directory presence was blocking
+the agent-size-limit invariant expansion with explicit exemption entries.
+Same 30-day grace window applies; eligible for deletion ≥ 2026-05-18.
 - Phase 4 `tests/invariants/agent-ownership-uniqueness.spec.ts` has passed on 5+ consecutive PRs.
 
 Until then: retained, read-only, not in dispatch path.

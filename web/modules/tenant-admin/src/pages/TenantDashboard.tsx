@@ -163,9 +163,9 @@ const TenantDashboard: React.FC = () => {
           lastActivity: 'Active',
           icon: moduleIconMap[code] || m.icon || '📦',
         };
-    enabled: !!tenantId,
       });
     },
+    enabled: !!tenantId,
     staleTime: 2 * 60 * 1000,
   });
 

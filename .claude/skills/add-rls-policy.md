@@ -158,10 +158,10 @@ CREATE OR REPLACE VIEW <schema>.<view_name> WITH (security_invoker = true) AS
 ## Cross-references
 
 - ADR-011 — schema ownership + RLS placement.
-- `.claude/agents-enterprise-v2/database-reviewer.md` — RLS invariants (FORCE, current_setting safety, security_invoker views).
-- `.claude/agents-enterprise-v2/data-expert.md` — three RLS bypass vectors (superuser, BYPASSRLS, owner-exemption).
-- `.claude/agents-enterprise-v2/multi-tenant-saas-expert.md` — 5-layer tenant isolation.
-- `.claude/agents-enterprise-v2/security-reviewer.md` — cross-cutting quality gate (tenant isolation).
+- `.claude/agents/database-reviewer.md` — RLS invariants (FORCE, current_setting safety, security_invoker views).
+- `.claude/agents/data-expert.md` — three RLS bypass vectors (superuser, BYPASSRLS, owner-exemption).
+- `.claude/agents/multi-tenant-saas-expert.md` — 5-layer tenant isolation.
+- `.claude/agents/security-reviewer.md` — cross-cutting quality gate (tenant isolation).
 - AWS Prescriptive Guidance — "Three RLS bypass vectors" reference.
 
 ## Changelog

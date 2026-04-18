@@ -187,10 +187,10 @@ Compensation failures MUST retry with exponential backoff; after retry exhaustio
 
 - ADR-011 — schema ownership (Step 2).
 - ADR-006 — event contract flat-pattern (Step 7 outbox event).
-- `.claude/agents-enterprise-v2/multi-tenant-saas-expert.md` — saga architecture primary owner.
-- `.claude/agents-enterprise-v2/admin-expert.md` — tenant-lifecycle UI surface + saga rules.
-- `.claude/agents-enterprise-v2/billing-expert.md` — Stripe PIVOT mechanics.
-- `.claude/agents-enterprise-v2/data-expert.md` — advisory-lock + `CREATE TABLE LIKE` discipline.
+- `.claude/agents/multi-tenant-saas-expert.md` — saga architecture primary owner.
+- `.claude/agents/admin-expert.md` — tenant-lifecycle UI surface + saga rules.
+- `.claude/agents/billing-expert.md` — Stripe PIVOT mechanics.
+- `.claude/agents/data-expert.md` — advisory-lock + `CREATE TABLE LIKE` discipline.
 
 ## Changelog
 

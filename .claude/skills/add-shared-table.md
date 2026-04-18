@@ -133,9 +133,9 @@ No 5th table exists in the repo yet — this skill is the gate.
 ## Cross-references
 
 - ADR-011 — schema ownership model (the 4-table canonical list).
-- `.claude/agents-enterprise-v2/data-expert.md` — shared-table gate invariant.
-- `.claude/agents-enterprise-v2/multi-tenant-saas-expert.md` — tenant-isolation defense-in-depth.
-- `.claude/agents-enterprise-v2/compliance-expert.md` — GDPR Art 17 cascade.
+- `.claude/agents/data-expert.md` — shared-table gate invariant.
+- `.claude/agents/multi-tenant-saas-expert.md` — tenant-isolation defense-in-depth.
+- `.claude/agents/compliance-expert.md` — GDPR Art 17 cascade.
 - `tests/invariants/_constants.ts` — `SHARED_SCHEMA_TABLES` allowlist.
 - `tests/invariants/schema-invariants.spec.ts` — invariant enforcement.
 - CLAUDE.md D14 — Tenant row placement authoritative reference.

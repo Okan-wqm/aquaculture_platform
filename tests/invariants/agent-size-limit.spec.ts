@@ -5,7 +5,7 @@
  * Closes Phase 6a of /root/.claude/plans/synthetic-dazzling-hippo.md
  * (finding CLAUDE-MEDIUM-003).
  *
- * .claude/agents-enterprise-v2/_shared/_conversion-template.md declares:
+ * .claude/shared/_conversion-template.md declares:
  *
  *   > Hard size cap: ≤200 lines total (including frontmatter + blank lines).
  *
@@ -17,10 +17,10 @@
  * this spec's scope expands to include them.
  *
  * Current scope (Phase 6a landing):
- *   - .claude/agents-enterprise-v2/*.md  (max currently 197 lines)
+ *   - .claude/agents/*.md  (max currently 197 lines)
  *
  * Phase 5 expansion:
- *   - adds .claude/test-agents/*.md once every Lane-B file has been ported.
+ *   - adds .claude/agents/product-audit/*.md once every Lane-B file has been ported.
  *
  * # When this spec fails
  *
@@ -33,7 +33,7 @@
  * # References
  *
  *   - /root/.claude/plans/synthetic-dazzling-hippo.md#Phase-6a
- *   - .claude/agents-enterprise-v2/_shared/_conversion-template.md § "Conversion rules (for prompt-writer)"
+ *   - .claude/shared/_conversion-template.md § "Conversion rules (for prompt-writer)"
  */
 
 import * as fs from 'fs';
@@ -61,13 +61,14 @@ interface ScopedDir {
  */
 const SCOPED_DIRS: readonly ScopedDir[] = [
   {
-    label: 'agents-enterprise-v2',
-    path: path.join(REPO_ROOT, '.claude', 'agents-enterprise-v2'),
-    exempt: ['README.md'],
+    label: 'agents (Lane-A)',
+    path: path.join(REPO_ROOT, '.claude', 'agents'),
+    // README stays exempt; product-audit/ subdir scoped separately below.
+    exempt: ['README.md', 'product-audit'],
   },
   {
-    label: 'test-agents',
-    path: path.join(REPO_ROOT, '.claude', 'test-agents'),
+    label: 'agents/product-audit (Lane-B)',
+    path: path.join(REPO_ROOT, '.claude', 'agents', 'product-audit'),
     exempt: [
       'README.md',
       'INVOCATION-PACK.md',

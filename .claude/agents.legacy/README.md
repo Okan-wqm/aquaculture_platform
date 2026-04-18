@@ -1,7 +1,7 @@
 # Legacy Agents — ARCHIVED
 
 **Status:** ARCHIVED (moved from `.claude/agents/` → `.claude/agents.legacy/` on 2026-04-16)
-**Reason:** `name:` frontmatter collision with `.claude/agents-enterprise-v2/` caused undefined dispatch behavior. Canonical agent set is now `.claude/agents-enterprise-v2/` (see that directory's README).
+**Reason:** `name:` frontmatter collision with `.claude/agents/` caused undefined dispatch behavior. Canonical agent set is now `.claude/agents/` (see that directory's README).
 
 ## What this means
 
@@ -16,8 +16,8 @@ This directory was the production agent roster from 2026-02 through 2026-04-15. 
 ## Where new work goes
 
 ```
-.claude/agents-enterprise-v2/                   ← canonical review agents
-.claude/agents-enterprise-v2/_shared/           ← shared template fragments (operating-modes, tier-claim-syntax, handoff-protocol, output-format)
+.claude/agents/                   ← canonical review agents
+.claude/shared/           ← shared template fragments (operating-modes, tier-claim-syntax, handoff-protocol, output-format)
 .claude/knowledge/                              ← 3-layer knowledge SSoT (layer-1-{core,nestjs,typeorm,react,rust}, layer-2-patterns, layer-3-adrs)
 .claude/skills/                                 ← procedural recipes (Phase 3 deliverable)
 .claude/allowlists/                             ← boundary allowlist (19 entries)
@@ -36,5 +36,5 @@ Until then: retained, read-only, not in dispatch path.
 
 - `/root/.claude/plans/abstract-brewing-mochi.md` Phase 0.1 — archival rationale and execution
 - `/root/.claude/plans/declarative-riding-shamir.md` AMENDMENT-C — original lifecycle plan (W14)
-- `.claude/agents-enterprise-v2/README.md` — canonical agent set
+- `.claude/agents/README.md` — canonical agent set
 - `docs/reviews/orchestrator/2026-04-16-v2-audit.md#P0-6` — tracked finding closing this archival

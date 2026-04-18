@@ -74,7 +74,7 @@ Producer: sensor_service (publishes AQUACULTURE_EVENTS.SensorReading.>)
 
 - ADR-014 — NATS mTLS-only auth.
 - ADR-015 — NATS cert-is-identity SSoT (services.yaml).
-- `.claude/agents-enterprise-v2/data-expert.md` — ripple-tracer consumer enumeration requirement for event-shape changes.
+- `.claude/agents/data-expert.md` — ripple-tracer consumer enumeration requirement for event-shape changes.
 - `.claude/skills/change-event-contract.md` — primary consumer of this tool.
 - `infrastructure/nats/services.yaml` — input data source.
 - `e2e/tests/integration/nats-invariants.spec.ts` — validates the yaml-vs-nats.conf agreement.

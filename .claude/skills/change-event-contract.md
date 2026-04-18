@@ -139,7 +139,7 @@ For simple optional-additive changes, use `add-entity-field` skill Step 6.
 - ADR-006 — event contract flat-pattern.
 - ADR-015 — NATS cert-is-identity SSoT (services.yaml).
 - ADR-017-draft — ripple-tracer services.yaml parser.
-- `.claude/agents-enterprise-v2/data-expert.md` — event-contract-versioning invariants.
+- `.claude/agents/data-expert.md` — event-contract-versioning invariants.
 - `tests/invariants/upcaster-chain.spec.ts` — 1:1 coverage assertion.
 - AUDIT-PACT-001 — Pact/Schemathesis is DEFERRED to post-V1; JSON Schema at NATS trust-boundary is the pre-V1 gating mechanism.
 

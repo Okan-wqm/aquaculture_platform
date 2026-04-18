@@ -9,7 +9,7 @@ effort: max
 > `billing-expert`, `alert-engine-expert`, `observability-expert`, and redistributed paths:
 > `apps/event-store-service/**` → `data-expert`; `apps/config-service/**` → `platform-kernel-expert`;
 > `apps/notification-service/**` → `alert-engine-expert`; `apps/hydroponics-service/**` → `farm-expert`.
-> A deprecation redirect previously lived at `.claude/agents-enterprise-v2/platform-services.md` — removed
+> A deprecation redirect previously lived at `.claude/agents/platform-services.md` — removed
 > 2026-04-18 (CLAUDE-CRITICAL-002) because the redirect map duplicated orchestrator roster information
 > and its valid `name:` frontmatter kept the deprecated agent loadable by the `claude-agent` CLI.
 > This file retained for historical review traceability only (`.claude/agents.legacy/` is not scanned

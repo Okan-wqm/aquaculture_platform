@@ -45,7 +45,7 @@
  *
  *   - /root/.claude/plans/abstract-brewing-mochi.md#Phase-0.3
  *   - /var/aqua-saas/docs/reviews/orchestrator/2026-04-16-v2-audit.md#P0-3
- *   - /var/aqua-saas/.claude/agents-enterprise-v2/_shared/handoff-protocol.md
+ *   - /var/aqua-saas/.claude/shared/handoff-protocol.md
  *     (Ownership grammar section)
  */
 
@@ -53,7 +53,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
-const AGENTS_DIR = path.join(REPO_ROOT, '.claude', 'agents-enterprise-v2');
+const AGENTS_DIR = path.join(REPO_ROOT, '.claude', 'agents');
 
 /**
  * Tags that legitimize an overlapping ownership claim. If any of these
@@ -178,11 +178,11 @@ describe('agent ownership uniqueness invariant', () => {
     expect(conflicts).toEqual([]);
   });
 
-  it('ownership grammar is defined in _shared/handoff-protocol.md', () => {
+  it('ownership grammar is defined in .claude/shared/handoff-protocol.md', () => {
     // Sanity check: the delegation grammar is what this invariant enforces.
     // If the grammar section goes missing, this invariant's error messages
     // point to a non-existent rule.
-    const handoffFile = path.join(AGENTS_DIR, '_shared', 'handoff-protocol.md');
+    const handoffFile = path.join(REPO_ROOT, '.claude', 'shared', 'handoff-protocol.md');
     const content = fs.readFileSync(handoffFile, 'utf8');
     expect(content).toMatch(/## Ownership grammar/);
     expect(content).toMatch(/secondary reviewer/);

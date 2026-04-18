@@ -90,4 +90,4 @@ See `rules/__tests__/require-entity-schema.spec.ts` (W2-D companion).
 - Plan: `/root/.claude/plans/declarative-riding-shamir.md` BLOCKER-20
 - Anti-pattern scan: `/var/aqua-saas/docs/reviews/_audit/2026-04-W16-anti-patterns.md` — top-5 candidates for tier-1 promotion
 - Gate manifest (W7): `.claude/gates/rules.yaml`
-- Override protocol: `.claude/agents-enterprise-v2/_shared/tier-claim-syntax.md`
+- Override protocol: `.claude/shared/tier-claim-syntax.md`

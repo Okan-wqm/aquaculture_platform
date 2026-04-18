@@ -26,7 +26,7 @@
  *                                                            with owner+deadline+finding-ID and quote
  *                                                            the banned-phrase list itself verbatim
  *   - CHANGELOG.md                                         — historical record
- *   - .claude/{agents.legacy,agents-enterprise-v2,knowledge,skills}/** — agent prompts, knowledge
+ *   - .claude/{agents,agents.legacy,shared,knowledge,skills}/** — agent prompts, knowledge
  *                                                            SSoT, and skills catalog may legitimately
  *                                                            reference banned phrases in rule
  *                                                            definitions and architectural-gate citations
@@ -139,10 +139,10 @@ const EXEMPT_PATHS: readonly RegExp[] = [
   /^docs\/plans\//,
   /^CHANGELOG\.md$/,
   /^\.claude\/agents\.legacy\//,
-  /^\.claude\/agents-enterprise-v2\//,
+  /^\.claude\/agents\//,
+  /^\.claude\/shared\//,
   /^\.claude\/knowledge\//,
   /^\.claude\/skills\//,
-  /^\.claude\/test-agents\//,
   /^CLAUDE\.md$/,
   /^tools\/gates\/banned-phrase\.(ts|mjs)$/,
   /^tools\/gates\/banned-phrase\.test\.(ts|mjs)$/,

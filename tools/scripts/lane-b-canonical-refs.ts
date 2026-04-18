@@ -41,8 +41,8 @@ start of every invocation. See \`.claude/README.md\` § Runtime invocation paths
 const COMMON_SHARED: readonly string[] = [
   '@.claude/knowledge/layer-2-patterns.md          (CQRS, Outbox, tenant isolation)',
   '@.claude/knowledge/layer-3-adrs.md              (ADR index)',
-  '@.claude/agents-enterprise-v2/_shared/operating-modes.md',
-  '@.claude/agents-enterprise-v2/_shared/output-format.md',
+  '@.claude/shared/operating-modes.md',
+  '@.claude/shared/output-format.md',
 ];
 
 const GROUP_UI: readonly string[] = [

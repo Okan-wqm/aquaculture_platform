@@ -4,7 +4,7 @@
  *
  * Closes the loop on Phase 0.2 of /root/.claude/plans/abstract-brewing-mochi.md:
  *
- *   .claude/agents-enterprise-v2/orchestrator.md contains a routing table
+ *   .claude/agents/orchestrator.md contains a routing table
  *   (File Pattern → Primary Agent) that maps every changed file to an agent.
  *   Orchestrator prompt self-enforces: "Every changed file MUST map to at
  *   least one primary agent. Any unmatched path is a PROCESS HIGH ownership
@@ -47,7 +47,7 @@
  *
  *   - /root/.claude/plans/abstract-brewing-mochi.md#Phase-0.2
  *   - /var/aqua-saas/docs/reviews/orchestrator/2026-04-16-v2-audit.md#P0-2
- *   - /var/aqua-saas/.claude/agents-enterprise-v2/orchestrator.md (routing table)
+ *   - /var/aqua-saas/.claude/agents/orchestrator.md (routing table)
  */
 
 import * as fs from 'fs';
@@ -57,14 +57,13 @@ const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const ORCHESTRATOR_MD = path.join(
   REPO_ROOT,
   '.claude',
-  'agents-enterprise-v2',
+  'agents',
   'orchestrator.md',
 );
 const ROUTING_TABLE_MD = path.join(
   REPO_ROOT,
   '.claude',
-  'agents-enterprise-v2',
-  '_shared',
+  'shared',
   'orchestrator-routing-table.md',
 );
 
@@ -258,7 +257,7 @@ describe('orchestrator routing coverage invariant', () => {
     (surface) => {
       const hasMatch = family.includes(surface);
       if (!hasMatch) {
-        const hint = `Add a routing row like:\n  | \`${surface}/**\` | <agent-name> | |\nto the routing table in .claude/agents-enterprise-v2/_shared/orchestrator-routing-table.md`;
+        const hint = `Add a routing row like:\n  | \`${surface}/**\` | <agent-name> | |\nto the routing table in .claude/shared/orchestrator-routing-table.md`;
         throw new Error(`Missing routing coverage for "${surface}".\n\n${hint}`);
       }
       expect(hasMatch).toBe(true);
@@ -290,10 +289,15 @@ describe('orchestrator routing coverage invariant', () => {
     expect(suspicious).toEqual([]);
   });
 
-  it('legacy .claude/agents/ directory is NOT active in routing (archived Phase 0.1)', () => {
-    // Must not have .claude/agents/ as an ACTIVE glob (only legacy or agents-enterprise-v2)
-    const activeLegacyGlob = /\|\s*`\.claude\/agents\/\*\.md`[^`]*\|/.test(family);
-    expect(activeLegacyGlob).toBe(false);
+  it('old directories (agents-enterprise-v2, test-agents) are NOT referenced as active in routing', () => {
+    // After the 2026-04-18 flat-layout restructure, agents live at .claude/agents/
+    // (Lane-A root) + .claude/agents/product-audit/ (Lane-B). Any routing glob
+    // pointing to .claude/agents-enterprise-v2/ or .claude/test-agents/ is drift
+    // from a pre-restructure era and must not reappear.
+    const oldEnterpriseGlob = /\|\s*`\.claude\/agents-enterprise-v2\/[^`]*`/.test(family);
+    const oldTestAgentsGlob = /\|\s*`\.claude\/test-agents\/[^`]*`/.test(family);
+    expect(oldEnterpriseGlob).toBe(false);
+    expect(oldTestAgentsGlob).toBe(false);
   });
 
   it('legacy directory IS marked as archived in routing', () => {

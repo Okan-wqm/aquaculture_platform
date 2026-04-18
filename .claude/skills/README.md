@@ -62,7 +62,7 @@ owners: <comma-separated primary agents that consult this skill>
 
 ## Cross-references
 - ADRs: {list applicable docs/adr/*.md}
-- Agent invariants: {list .claude/agents-enterprise-v2/*.md sections}
+- Agent invariants: {list .claude/agents/*.md sections}
 - Research files: {docs/research/*/*.md}
 ```
 

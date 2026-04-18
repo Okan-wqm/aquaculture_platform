@@ -179,8 +179,8 @@ Capture the FULL migration output including every DDL statement + its duration +
 ## Cross-references
 
 - ADR-016 — Deploy resilience architecture (this skill is under that umbrella).
-- `.claude/agents-enterprise-v2/infra-expert.md` — DR / resilience invariants (never-restored-backup CRITICAL).
-- `.claude/agents-enterprise-v2/data-expert.md` — destructive-migration 4-requirement gate (rollback migration, documented backup, ops stage-gate, VACUUM FULL ack).
+- `.claude/agents/infra-expert.md` — DR / resilience invariants (never-restored-backup CRITICAL).
+- `.claude/agents/data-expert.md` — destructive-migration 4-requirement gate (rollback migration, documented backup, ops stage-gate, VACUUM FULL ack).
 - `.github/workflows/backup-production.yml` — backup workflow.
 - `.github/manifests/backup-script.sha256` — INFRA-1 hash-chain.
 

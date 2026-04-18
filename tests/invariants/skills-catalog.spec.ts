@@ -12,7 +12,7 @@
  *   2. Every skill with a `blocker:` field has an `## ADR Gate` section OR
  *      a section that names the BLOCKER-NN identifier.
  *   3. Every cited agent name in `handoff.on_complete_invoke` resolves to
- *      an existing agent in .claude/agents-enterprise-v2/.
+ *      an existing agent in .claude/agents/.
  *   4. Every skill has a `## Validation checklist` section.
  *   5. No dangling skill references — any `use \`<name>\` skill` phrase in
  *      any skill body must name a file that exists under .claude/skills/.
@@ -30,7 +30,7 @@
  *
  *   - /root/.claude/plans/synthetic-dazzling-hippo.md#Phase-3b
  *   - .claude/skills/README.md § Validation (lines 105-111)
- *   - .claude/agents-enterprise-v2/_shared/handoff-protocol.md § Skill frontmatter
+ *   - .claude/shared/handoff-protocol.md § Skill frontmatter
  */
 
 import * as fs from 'fs';
@@ -38,7 +38,7 @@ import * as path from 'path';
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const SKILLS_DIR = path.join(REPO_ROOT, '.claude', 'skills');
-const AGENTS_DIR = path.join(REPO_ROOT, '.claude', 'agents-enterprise-v2');
+const AGENTS_DIR = path.join(REPO_ROOT, '.claude', 'agents');
 
 interface SkillFrontmatter {
   readonly file: string;
@@ -165,7 +165,7 @@ describe('skills catalog invariant', () => {
       if (unknown.length > 0) {
         throw new Error(
           `${skill.file}: handoff.on_complete_invoke references unknown agent(s): ${unknown.join(', ')}. ` +
-            'Either fix the typo, rename the skill, or add the agent to .claude/agents-enterprise-v2/.',
+            'Either fix the typo, rename the skill, or add the agent to .claude/agents/.',
         );
       }
     });

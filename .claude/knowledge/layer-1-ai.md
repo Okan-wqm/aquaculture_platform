@@ -55,7 +55,7 @@ Depends on: `layer-1-nestjs.md` (guards, interceptors, CQRS), `layer-2-patterns.
 
 - **`@anthropic-ai/claude-agent-sdk`** — used by orchestrator-reviewer agent-dispatch, NOT by runtime ai-service chat. Two distinct consumers of the same package:
   - Runtime (`apps/ai-service`): user-facing chat, direct `messages.create` API.
-  - Review machinery (`.claude/agents-enterprise-v2/**`): sub-agent review cycles dispatched by the human-run `npx claude-agent` CLI.
+  - Review machinery (`.claude/agents/**`): sub-agent review cycles dispatched by the human-run `npx claude-agent` CLI.
 - **Sub-agent isolation** — sub-agents run in their own context. Parent must pass findings in + pull results back via explicit message-passing, not shared state. The finding-registry (`docs/reviews/_registry/findings.jsonl`) is the SSoT for cross-agent state; never mutate another agent's in-flight context.
 - **System prompt assembly** — sub-agent system prompts compose from the agent file header + `@`-referenced shared fragments (`_shared/**`) + knowledge layers (this folder). The assembly is done by the SDK; agent files never inline SSoT content (W3 invariant).
 

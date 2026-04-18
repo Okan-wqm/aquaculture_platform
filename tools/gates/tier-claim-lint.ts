@@ -1,7 +1,7 @@
 #!/usr/bin/env ts-node
 /**
  * tier-claim-lint — enforces tier-claim comment discipline per
- * .claude/agents-enterprise-v2/_shared/tier-claim-syntax.md.
+ * .claude/shared/tier-claim-syntax.md.
  *
  * Phase 2 deliverable per
  * docs/plans/2026-04-17-agentic-post-audit-consolidation-plan.md#Phase-2.
@@ -329,7 +329,7 @@ function report(violations: readonly Violation[]): void {
   console.error('');
   console.error('Tier-claim syntax reference:');
   console.error(
-    '  .claude/agents-enterprise-v2/_shared/tier-claim-syntax.md',
+    '  .claude/shared/tier-claim-syntax.md',
   );
   console.error(
     'Allowlist (boundary files exempt from R6 tier-4-in-domain rule):',

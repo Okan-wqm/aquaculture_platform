@@ -32,7 +32,7 @@
  *
  *   - /root/.claude/plans/synthetic-dazzling-hippo.md#Phase-6c
  *   - .claude/allowlists/boundary-files.yaml
- *   - .claude/agents-enterprise-v2/_shared/tier-claim-syntax.md § "Boundary allowlist"
+ *   - .claude/shared/tier-claim-syntax.md § "Boundary allowlist"
  */
 
 import * as fs from 'fs';

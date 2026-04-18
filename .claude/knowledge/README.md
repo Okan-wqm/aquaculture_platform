@@ -49,5 +49,5 @@ Split across per-domain shards so `edge-expert` does not load NestJS, `frontend-
 ## References
 
 - `/root/.claude/plans/declarative-riding-shamir.md` BLOCKER-1 (Round-3 consensus) + A5 per-domain split (Round-2 architectural-arbiter)
-- `.claude/agents-enterprise-v2/_shared/` — companion shared fragments for operating modes, tier claims, handoff, output format
+- `.claude/shared/` — companion shared fragments for operating modes, tier claims, handoff, output format
 - `docs/reviews/_audit/2026-04-W16-unified-audit.md` — tech-anchor corrections feeding layer-1 shard content

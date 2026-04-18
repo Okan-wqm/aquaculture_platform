@@ -9,7 +9,7 @@
  * runner:
  *
  *   - tools/scripts/orchestrator-runner.ts (root runner)
- *   - .claude/agents-enterprise-v2/runners/gdpr-audit.ts (profile wrapper)
+ *   - .claude/agents/runners/gdpr-audit.ts (profile wrapper)
  *
  * Both must parse args cleanly and exit 0 on `--help` or `--dry-run`
  * without requiring the `claude-agent` CLI binary on PATH. Dry-run
@@ -39,8 +39,8 @@
  *
  *   - /root/.claude/plans/synthetic-dazzling-hippo.md#Phase-6d
  *   - tools/scripts/orchestrator-runner.ts
- *   - .claude/agents-enterprise-v2/runners/gdpr-audit.ts
- *   - .claude/agents-enterprise-v2/runners/perf-audit.ts
+ *   - .claude/agents/runners/gdpr-audit.ts
+ *   - .claude/agents/runners/perf-audit.ts
  */
 
 import { execSync, spawnSync } from 'node:child_process';
@@ -49,8 +49,8 @@ import * as path from 'path';
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const TSCONFIG = path.join(REPO_ROOT, 'tools', 'gates', 'tsconfig.json');
 const ROOT_RUNNER = path.join(REPO_ROOT, 'tools', 'scripts', 'orchestrator-runner.ts');
-const GDPR_RUNNER = path.join(REPO_ROOT, '.claude', 'agents-enterprise-v2', 'runners', 'gdpr-audit.ts');
-const PERF_RUNNER = path.join(REPO_ROOT, '.claude', 'agents-enterprise-v2', 'runners', 'perf-audit.ts');
+const GDPR_RUNNER = path.join(REPO_ROOT, '.claude', 'agents', 'runners', 'gdpr-audit.ts');
+const PERF_RUNNER = path.join(REPO_ROOT, '.claude', 'agents', 'runners', 'perf-audit.ts');
 
 function runTsNode(script: string, args: readonly string[]): { code: number; stdout: string; stderr: string } {
   const result = spawnSync(

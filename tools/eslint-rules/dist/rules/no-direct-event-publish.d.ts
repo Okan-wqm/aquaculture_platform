@@ -37,7 +37,7 @@
  * Refs:
  *  - docs/plans/2026-04-17-agentic-post-audit-consolidation-plan.md#Phase-2
  *  - docs/adr/006-event-contracts-flat-pattern.md
- *  - .claude/agents-enterprise-v2/data-expert.md#Event-contract-versioning
+ *  - .claude/agents/data-expert.md#Event-contract-versioning
  *    (outbox-only publish path — DATA-HIGH-004)
  *  - platform/libs/outbox/src/outbox-worker.service.ts (canonical caller)
  */

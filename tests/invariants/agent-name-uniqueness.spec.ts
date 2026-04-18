@@ -7,8 +7,8 @@
  *
  *   Every agent file's `name:` frontmatter must be globally unique across
  *   the active dispatch directories:
- *     - .claude/agents-enterprise-v2/   (Lane-A code-quality)
- *     - .claude/test-agents/            (Lane-B product-quality)
+ *     - .claude/agents/   (Lane-A code-quality)
+ *     - .claude/agents/product-audit/            (Lane-B product-quality)
  *
  *   Collisions produce undefined `claude-agent` CLI resolution because the
  *   runner delegates name-to-path lookup to the binary with no disambig-
@@ -35,7 +35,7 @@
  *
  *   - /root/.claude/plans/synthetic-dazzling-hippo.md#Phase-1d
  *   - /var/aqua-saas/docs/reviews/context-manager/2026-04-18-enterprise-v2-audit.md#CLAUDE-CRITICAL-001
- *   - .claude/agents-enterprise-v2/_shared/handoff-protocol.md § Ownership grammar
+ *   - .claude/shared/handoff-protocol.md § Ownership grammar
  *   - .claude/agents.legacy/README.md (dormancy declaration)
  */
 
@@ -44,8 +44,8 @@ import * as path from 'path';
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const ACTIVE_DIRS: readonly string[] = [
-  path.join(REPO_ROOT, '.claude', 'agents-enterprise-v2'),
-  path.join(REPO_ROOT, '.claude', 'test-agents'),
+  path.join(REPO_ROOT, '.claude', 'agents'),
+  path.join(REPO_ROOT, '.claude', 'agents', 'product-audit'),
 ];
 
 interface NameClaim {

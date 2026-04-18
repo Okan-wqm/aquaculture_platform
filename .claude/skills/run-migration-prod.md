@@ -200,8 +200,8 @@ Per data-expert: `DROP COLUMN` does NOT reclaim disk until `VACUUM FULL` / `CLUS
 - ADR-011 — schema ownership + migration-runner ownership.
 - ADR-012 — schema drift prevention (post-migration verification).
 - ADR-016 — deploy resilience (this skill is under that umbrella).
-- `.claude/agents-enterprise-v2/data-expert.md` — destructive-migration 4-requirement gate; migration envelope.
-- `.claude/agents-enterprise-v2/infra-expert.md` — DR / resilience invariants; IP/UG-7 lock-pile-up watch.
+- `.claude/agents/data-expert.md` — destructive-migration 4-requirement gate; migration envelope.
+- `.claude/agents/infra-expert.md` — DR / resilience invariants; IP/UG-7 lock-pile-up watch.
 - `tools/gates/migration-sql-lint.ts` — R1-R5 rules (pre-merge gate; this skill assumes already-passed).
 
 ## Changelog

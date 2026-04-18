@@ -2,7 +2,7 @@
 
 **Date:** 2026-04-12
 **Topic:** `2026-04-12-aquamobil-offline-sync`
-**Scope:** AquaMobil-only pilot audit following the mobile profile in `.claude/test-agents/INVOCATION-PACK.md`
+**Scope:** AquaMobil-only pilot audit following the mobile profile in `.claude/agents/product-audit/INVOCATION-PACK.md`
 
 ## Verdict
 

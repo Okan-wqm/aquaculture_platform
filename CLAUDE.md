@@ -259,10 +259,10 @@ Every fix commit must formally reference the review finding it closes. Otherwise
 
 ## Agent system invocation
 
-- Enterprise-v2 agents (`.claude/agents-enterprise-v2/`) + Lane-B product auditors (`.claude/test-agents/`) dispatch via `npm run review` / `npm run audit:gdpr` / `npm run audit:perf` → `ts-node tools/scripts/orchestrator-runner.ts` → `claude-agent` CLI. This is the canonical review-cycle entrypoint.
-- Claude Code's built-in `Agent()` tool scans ONLY `.claude/agents/` (flat). It does NOT reach the enterprise-v2 or test-agents rosters. Interactive `Agent(subagent_type="farm-expert")` calls will not find those agents.
-- Lane-B meta-agents use a `product-audit-*` name prefix (`product-audit-orchestrator`, `product-audit-context-manager`, `product-audit-arbiter`) to stay globally unique across Lane-A and Lane-B. Enforced by `tests/invariants/agent-name-uniqueness.spec.ts`.
-- Knowledge SSoT lives in `.claude/knowledge/layer-{1,2,3}-*.md`. Agent files reference it via `@.claude/knowledge/...` lines — these are READER BOOKMARKS only. Agents must `Read` each cited file at the start of every invocation (no auto-import).
+- Canonical dispatch: `Agent(subagent_type="<agent-name>")` in a Claude Code CLI session. Claude Code auto-discovers `.claude/agents/**/*.md` (Lane-A at root, Lane-B at `.claude/agents/product-audit/`). No background runner, no API-key dispatch, no external CLI binary.
+- Lane-B meta-agents use a `product-audit-*` name prefix (`product-audit-orchestrator`, `product-audit-context-manager`, `product-audit-arbiter`) to stay globally unique across both lanes. Enforced by `tests/invariants/agent-name-uniqueness.spec.ts`.
+- Knowledge SSoT lives in `.claude/knowledge/layer-{1,2,3}-*.md`. Agent files reference it via `@.claude/knowledge/...` lines — these are READER BOOKMARKS only (no auto-import). Agents use the `Read` tool to load each cited file at the start of every invocation.
+- Shared review contract (operating modes, tier-claim grammar, handoff protocol, output format) lives at `.claude/shared/review-contract.md` + `.claude/shared/orchestrator-{phases,routing-table}.md`.
 - Full architectural map: `.claude/README.md`.
 
 ## ADR References (canonical location: `docs/adr/`)

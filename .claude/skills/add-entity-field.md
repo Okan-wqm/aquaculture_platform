@@ -135,8 +135,8 @@ If the column is nullable OR the table is empty, one migration with `ALTER TABLE
 - ADR-006 — event contract flat-pattern (Step 6).
 - ADR-011 — schema ownership model (Steps 2, 5, 7).
 - ADR-012 — schema drift prevention (Step 5).
-- `.claude/agents-enterprise-v2/data-expert.md` — migration-delta safety invariants (Step 4).
-- `.claude/agents-enterprise-v2/database-reviewer.md` — column type discipline (Step 1).
+- `.claude/agents/data-expert.md` — migration-delta safety invariants (Step 4).
+- `.claude/agents/database-reviewer.md` — column type discipline (Step 1).
 - `tools/gates/migration-sql-lint.ts` — R2 single-step NOT NULL rejection (Step 4).
 
 ## Changelog

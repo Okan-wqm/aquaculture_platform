@@ -49,16 +49,37 @@ interface ScopedDir {
 }
 
 /**
- * Phase 5 will add .claude/test-agents to this list. Until then, those
- * files inline their own layer-1/layer-2 content and exceed the cap —
- * enforcing the cap now would red-light the CI before the template port
- * lands. The omission is intentional and tracked.
+ * Test-agents scope added 2026-04-18 after the Phase 5 Lane-B template
+ * port. Every Lane-B auditor now carries a Canonical References section
+ * and comes in under the cap; exemptions cover:
+ *   - README.md, INVOCATION-PACK.md (non-agent operational docs)
+ *   - orchestrator.md (meta-agent, carries the full two-lane dispatch
+ *     decision tree inline — cap relaxation scheduled for a later
+ *     template-port cycle)
+ *   - 4 DEPRECATED files that retain original content for historical
+ *     review-file traceability, scheduled for deletion 2026-07-16.
  */
 const SCOPED_DIRS: readonly ScopedDir[] = [
   {
     label: 'agents-enterprise-v2',
     path: path.join(REPO_ROOT, '.claude', 'agents-enterprise-v2'),
     exempt: ['README.md'],
+  },
+  {
+    label: 'test-agents',
+    path: path.join(REPO_ROOT, '.claude', 'test-agents'),
+    exempt: [
+      'README.md',
+      'INVOCATION-PACK.md',
+      // Meta-agent — inline dispatch decision tree. Separate port cycle.
+      'orchestrator.md',
+      // DEPRECATED 2026-04-16 — historical content retained for review-file
+      // traceability; scheduled for deletion 2026-07-16.
+      'gdpr-compliance-auditor.md',
+      'soc2-readiness-auditor.md',
+      'ai-tool-execution-auditor.md',
+      'contract-parity-auditor.md',
+    ],
   },
 ];
 

@@ -9,6 +9,20 @@ effort: xmax
 
 You specialize in what users see after a change. Your focus is not the write itself, but whether the product refreshes the right surfaces so the saved state becomes observable, searchable, and trustworthy.
 
+## Canonical References (READ via the Read tool before starting)
+
+Cross-cutting knowledge lives in SSoT files. The `@` prefix on each line below is
+a READER BOOKMARK — Claude Code does NOT auto-import agent body content (only
+`CLAUDE.md` honors `@`-includes). Use the Read tool to load each file at the
+start of every invocation. See `.claude/README.md` § Runtime invocation paths.
+
+- @.claude/knowledge/layer-1-core.md              (TS + Nx + Jest base)
+- @.claude/knowledge/layer-1-react.md             (React, TanStack Query, Module Federation)
+- @.claude/knowledge/layer-2-patterns.md          (CQRS, Outbox, tenant isolation)
+- @.claude/knowledge/layer-3-adrs.md              (ADR index)
+- @.claude/agents-enterprise-v2/_shared/operating-modes.md
+- @.claude/agents-enterprise-v2/_shared/output-format.md
+
 ## Operating Mode
 
 **REVIEWER ONLY.** Inspect query keys, invalidation, cache updates, polling, subscriptions, list queries, detail queries, filter state, pagination, and summary widgets.

@@ -9,6 +9,22 @@ effort: xmax
 
 You specialize in tables and grids. Your job is to verify that rows, columns, filters, sorting, pagination, row actions, bulk actions, and exports all reflect the intended backend truth.
 
+## Canonical References (READ via the Read tool before starting)
+
+Cross-cutting knowledge lives in SSoT files. The `@` prefix on each line below is
+a READER BOOKMARK — Claude Code does NOT auto-import agent body content (only
+`CLAUDE.md` honors `@`-includes). Use the Read tool to load each file at the
+start of every invocation. See `.claude/README.md` § Runtime invocation paths.
+
+- @.claude/knowledge/layer-1-core.md              (TS + Nx + Jest base)
+- @.claude/knowledge/layer-1-react.md             (React, TanStack Query, Module Federation)
+- @.claude/knowledge/layer-1-nestjs.md            (NestJS guards/DTOs/controllers)
+- @.claude/knowledge/layer-1-typeorm.md           (TypeORM entities, TenantScopedRepository)
+- @.claude/knowledge/layer-2-patterns.md          (CQRS, Outbox, tenant isolation)
+- @.claude/knowledge/layer-3-adrs.md              (ADR index)
+- @.claude/agents-enterprise-v2/_shared/operating-modes.md
+- @.claude/agents-enterprise-v2/_shared/output-format.md
+
 ## Operating Mode
 
 **REVIEWER ONLY.** Inspect table and grid components, query hooks, list endpoints, server filters, export handlers, and row action flows.

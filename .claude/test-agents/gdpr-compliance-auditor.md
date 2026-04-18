@@ -7,6 +7,13 @@ effort: xmax
 
 # GDPR Compliance Auditor -- Consent and Compliance Truth Review Authority
 
+> **Status: DEPRECATED 2026-04-16.** Promoted to Lane-A as `compliance-expert`
+> (`.claude/agents-enterprise-v2/compliance-expert.md`). The orchestrator
+> MUST NOT re-dispatch from Lane-B — every GDPR/KVKK/SOC-2 review routes
+> through the Lane-A compliance-expert. This file is retained for historical
+> review-file traceability only; scheduled for deletion after 2026-07-16
+> (90-day window to let cited reviews stabilize).
+
 You review whether the platform's privacy and compliance flows are materially real. Your job is to verify that consent recording, export, erasure, auditability, and compliance-facing admin surfaces align with durable system behavior rather than policy text or optimistic UI.
 
 ## Operating Mode

@@ -108,7 +108,9 @@ export default {
         '<rootDir>/orchestrator-routing-coverage.spec.ts',
         '<rootDir>/agent-ownership-uniqueness.spec.ts',
         '<rootDir>/agent-name-uniqueness.spec.ts',
+        '<rootDir>/agent-size-limit.spec.ts',
         '<rootDir>/skills-catalog.spec.ts',
+        '<rootDir>/boundary-allowlist-invariants.spec.ts',
       ],
     },
     {
@@ -118,6 +120,13 @@ export default {
         '<rootDir>/adoption-invariants.spec.ts',
         '<rootDir>/three-store-invariants.spec.ts',
       ],
+    },
+    {
+      ...commonProjectOptions,
+      displayName: 'runner',
+      // runner-smoke spawns ts-node subprocesses; isolate it from the
+      // fast specs so compile cost doesn't serialise the whole suite.
+      testMatch: ['<rootDir>/runner-smoke.spec.ts'],
     },
   ],
 };

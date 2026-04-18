@@ -67,7 +67,7 @@ Out of scope:
 
 ## Cross-Domain Dependencies
 
-- Send payload-shape gaps to `contract-parity-auditor`
+- Send payload-shape gaps to `contract-parity-enforcer`
 - Send save/edit/delete/create path tracing to `form-write-auditor`
 - Send fetch/display mapping to `data-readback-auditor`
 - Send role and tenant gating concerns to `tenant-isolation-auditor`

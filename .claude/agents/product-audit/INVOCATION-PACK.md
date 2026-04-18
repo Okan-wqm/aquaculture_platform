@@ -99,7 +99,7 @@ Add the specialist reviewers that match the rendered surface:
 
 Use these whenever you need root-cause coverage beyond the visible happy path:
 
-- `contract-parity-auditor`
+- `contract-parity-enforcer`
 - `schema-surface-parity-auditor`
 - `access-boundary-auditor`
 - `tenant-isolation-auditor`
@@ -147,7 +147,7 @@ Run:
 - `data-readback-auditor`
 - `list-visibility-auditor`
 - `workflow-state-auditor`
-- `contract-parity-auditor`
+- `contract-parity-enforcer`
 - `schema-surface-parity-auditor`
 - `access-boundary-auditor`
 - `table-grid-auditor`
@@ -176,7 +176,7 @@ Run:
 - `data-readback-auditor`
 - `list-visibility-auditor`
 - `workflow-state-auditor`
-- `contract-parity-auditor`
+- `contract-parity-enforcer`
 - `schema-surface-parity-auditor`
 - `tenant-isolation-auditor`
 - `product-audit-context-manager`
@@ -253,7 +253,7 @@ Use when:
 Run:
 
 - `ui-action-mapper`
-- `contract-parity-auditor`
+- `contract-parity-enforcer`
 - `schema-surface-parity-auditor`
 - `form-write-auditor`
 - `data-readback-auditor`

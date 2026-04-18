@@ -188,7 +188,7 @@ const HISTORICAL_CITATION_PATTERNS: readonly RegExp[] = [
   /promoted[\s-]to/i,
   /superseded[\s-]by/i,
   /was\s+\w+[-]\w+\s+(finding|auditor)/i,
-  /absorb(s|ed)?[\s-]+(into|from)/i,
+  /\babsorb(s|ed|ing)?\b/i,
   /frozen[\s-]reference/i,
   /\bsibling\b.+\blane/i,
   /→\s+lane-[ab]/i,

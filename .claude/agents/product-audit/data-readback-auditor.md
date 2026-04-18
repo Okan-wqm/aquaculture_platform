@@ -67,7 +67,7 @@ When needed:
 
 - Send list/detail refresh issues to `list-visibility-auditor`
 - Send tenant boundary concerns to `tenant-isolation-auditor`
-- Send serializer/DTO parity concerns to `contract-parity-auditor`
+- Send serializer/DTO parity concerns to `contract-parity-enforcer`
 - Send missing source-side persistence concerns to `form-write-auditor`
 - Send mobile offline cache drift to `mobile-app-auditor`
 

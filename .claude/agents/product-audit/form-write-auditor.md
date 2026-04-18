@@ -67,7 +67,7 @@ When required:
 
 ## Cross-Domain Dependencies
 
-- Send DTO/entity mismatch findings to `contract-parity-auditor`
+- Send DTO/entity mismatch findings to `contract-parity-enforcer`
 - Send tenant-boundary findings to `tenant-isolation-auditor`
 - Send missing post-save visibility to `data-readback-auditor` or `list-visibility-auditor`
 - Send lifecycle state violations to `workflow-state-auditor`

@@ -110,7 +110,7 @@ Use deterministic routing where file evidence makes ownership obvious:
 | `**/*Upload*.tsx`, `**/*Import*.tsx`, `**/*Export*.tsx`, `**/*Attachment*.tsx` | `file-transfer-auditor` | `form-write-auditor`, `data-readback-auditor`, `access-boundary-auditor` |
 | hooks or endpoints for `polling`, `sync`, `SSE`, notifications, live status | `realtime-sync-auditor` | `list-visibility-auditor`, `mobile-app-auditor` |
 | guards, roles, permissions, impersonation, feature flags | `access-boundary-auditor` | `tenant-isolation-auditor`, `workflow-state-auditor` |
-| DTO / input / entity / serializer / migration parity concerns | `contract-parity-auditor` | `schema-surface-parity-auditor` |
+| DTO / input / entity / serializer / migration parity concerns | `contract-parity-enforcer` | `schema-surface-parity-auditor` |
 | entity / migration / table / column with uncertain product surfacing | `schema-surface-parity-auditor` | `data-readback-auditor`, `table-grid-auditor`, `chart-widget-auditor` |
 | workflow states, approvals, archive/restore/retry transitions | `workflow-state-auditor` | `button-action-auditor`, `list-visibility-auditor` |
 | cache, query invalidation, list/detail refresh | `list-visibility-auditor` | `data-readback-auditor`, `realtime-sync-auditor` |
@@ -123,7 +123,7 @@ Route work to these agents:
 - `button-action-auditor` for non-trivial button behavior and action wiring
 - `form-write-auditor` for UI to API to DB write paths
 - `data-readback-auditor` for DB to API to UI read-back paths
-- `contract-parity-auditor` for UI/DTO/entity mismatch risk
+- `contract-parity-enforcer` for UI/DTO/entity mismatch risk
 - `schema-surface-parity-auditor` for UI-without-DB and DB-without-UI detection
 - `access-boundary-auditor` for roles, guards, permissions, feature flags, and impersonation gates
 - `table-grid-auditor` for table, grid, filter, sort, pagination, row-action, and export behavior
@@ -159,7 +159,7 @@ If an agent finds a gap that belongs to another specialist, dispatch that agent 
 Examples:
 
 - write path exists but list never refreshes -> `list-visibility-auditor`
-- UI field exists but DTO drops it -> `contract-parity-auditor`
+- UI field exists but DTO drops it -> `contract-parity-enforcer`
 - UI field exists but no entity/table/column ever stores it -> `schema-surface-parity-auditor`
 - DB table/column exists but no product surface can read, edit, or display it -> `schema-surface-parity-auditor`
 - edit works but cross-tenant visibility leaks -> `tenant-isolation-auditor`
@@ -229,7 +229,7 @@ Every finding in the unified report must preserve the source agent and original 
 
 ## Cross-Domain Dependencies
 
-- Escalate DTO, validator, mapper, and entity mismatches to `contract-parity-auditor`
+- Escalate DTO, validator, mapper, and entity mismatches to `contract-parity-enforcer`
 - Escalate UI-without-DB or DB-without-UI gaps to `schema-surface-parity-auditor`
 - Escalate guard/role/permission/impersonation issues to `access-boundary-auditor`
 - Escalate grid, table, filter, pagination, and export issues to `table-grid-auditor`

@@ -69,7 +69,7 @@ Repo evidence driving this agent:
 
 - Send write execution gaps to `form-write-auditor`
 - Send read-back gaps to `data-readback-auditor`
-- Send semantic DTO/entity drift to `contract-parity-auditor`
+- Send semantic DTO/entity drift to `contract-parity-enforcer`
 - Send table-column visibility issues to `table-grid-auditor`
 - Send chart/widget surfacing gaps to `chart-widget-auditor`
 - Send wrong-role or wrong-tenant visibility to `access-boundary-auditor` or `tenant-isolation-auditor`

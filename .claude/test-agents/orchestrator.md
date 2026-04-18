@@ -1,6 +1,6 @@
 ---
-name: orchestrator
-description: Coordinates end-to-end product audit agents to verify web and mobile UI actions, form inputs, persistence, read-back visibility, and tenant isolation across `web/**` and `apps/**`.
+name: product-audit-orchestrator
+description: Coordinates end-to-end product audit agents to verify web and mobile UI actions, form inputs, persistence, read-back visibility, and tenant isolation across web/** and apps/**. Lane-B product-quality dispatcher for two-lane cycles — distinct from the Lane-A orchestrator agent at .claude/agents-enterprise-v2/orchestrator.md.
 model: codex
 effort: high
 ---
@@ -31,22 +31,22 @@ Use standard severity levels: CRITICAL (tenant breach / destructive false succes
 
 The orchestrator is a synthesis layer, not a second full reviewer. It must minimize context churn.
 
-- When a current-cycle `context-manager` report exists, treat it as the primary input for Phase 5.
+- When a current-cycle `product-audit-context-manager` report exists, treat it as the primary input for Phase 5.
 - Do not re-read every specialist report after compaction. Open a specialist report only when one of these is true:
   - a preserved `CRITICAL` or `HIGH` finding needs exact file evidence
   - an unresolved dependency edge needs verification
-  - an `architectural-arbiter` conflict must be incorporated
-  - the current-cycle `context-manager` report is missing, malformed, or incomplete
+  - an `product-audit-arbiter` conflict must be incorporated
+  - the current-cycle `product-audit-context-manager` report is missing, malformed, or incomplete
 - Estimate raw report corpus size as `chars / 3.5`.
 - Budget thresholds:
   - `OK` if estimated raw corpus is under 30K tokens
   - `COMPRESSION_RECOMMENDED` if 30K to under 50K tokens
   - `COMPRESSION_MANDATORY` if 50K to under 100K tokens
   - `EMERGENCY` if 100K tokens or more
-- If 4 or more specialist reports exist, or budget status is not `OK`, dispatch `context-manager` before final synthesis.
+- If 4 or more specialist reports exist, or budget status is not `OK`, dispatch `product-audit-context-manager` before final synthesis.
 - If budget status is `COMPRESSION_MANDATORY` or `EMERGENCY`, Phase 5 must read only:
-  - the current-cycle `context-manager` report
-  - the current-cycle `architectural-arbiter` report, if present
+  - the current-cycle `product-audit-context-manager` report
+  - the current-cycle `product-audit-arbiter` report, if present
   - only the specialist reports explicitly needed for preserved `CRITICAL` and `HIGH` evidence
 - If budget status is `EMERGENCY` and no compacted handoff exists, do not attempt a monolithic final synthesis. Split the audit by product surface or audit profile and produce tranche reports.
 - Preserve quality by reducing repeated reading, not by downgrading finding rigor.
@@ -158,7 +158,7 @@ Examples:
 
 ### Phase 3.5: Context Compaction
 
-Dispatch `context-manager` whenever one or more of these are true:
+Dispatch `product-audit-context-manager` whenever one or more of these are true:
 
 - 4 or more specialist agents ran in the same cycle
 - any agent produced a `CRITICAL` or 3+ `HIGH` findings
@@ -166,7 +166,7 @@ Dispatch `context-manager` whenever one or more of these are true:
 - the audit spans both web and mobile or both UI and schema parity
 - estimated raw report corpus is 30K tokens or higher
 
-`context-manager` is responsible for:
+`product-audit-context-manager` is responsible for:
 
 - preserving all `CRITICAL` and `HIGH` findings verbatim with IDs
 - deduplicating repeated root causes across agents
@@ -176,7 +176,7 @@ Dispatch `context-manager` whenever one or more of these are true:
 
 ### Phase 4: Conflict Resolution
 
-If two or more agents disagree about the right root-cause fix or one recommendation would break another agent's invariant, dispatch `architectural-arbiter` before final reporting.
+If two or more agents disagree about the right root-cause fix or one recommendation would break another agent's invariant, dispatch `product-audit-arbiter` before final reporting.
 
 Typical triggers:
 
@@ -198,10 +198,10 @@ Produce a single report that answers:
 
 Phase 5 input order is mandatory:
 
-1. Read the current-cycle `context-manager` report first when it exists.
-2. Read the current-cycle `architectural-arbiter` report only if the context-manager or specialists flagged a conflict.
+1. Read the current-cycle `product-audit-context-manager` report first when it exists.
+2. Read the current-cycle `product-audit-arbiter` report only if the context-manager or specialists flagged a conflict.
 3. Re-open only the minimum specialist reports needed to quote exact file references for preserved `CRITICAL` and `HIGH` findings.
-4. Do not reopen the full specialist corpus merely to restate counts already compacted by `context-manager`.
+4. Do not reopen the full specialist corpus merely to restate counts already compacted by `product-audit-context-manager`.
 
 ## Decision Rules
 
@@ -225,8 +225,8 @@ Every finding in the unified report must preserve the source agent and original 
 - Escalate tenant scoping doubts to `tenant-isolation-auditor`
 - Escalate action availability and lifecycle transition issues to `workflow-state-auditor`
 - Escalate AquaMobil offline, reconnect, draft, and local-cache issues to `mobile-app-auditor`
-- Escalate repeated multi-agent duplication and dependency-graph synthesis to `context-manager`
-- Escalate recommendation conflicts or invariant collisions to `architectural-arbiter`
+- Escalate repeated multi-agent duplication and dependency-graph synthesis to `product-audit-context-manager`
+- Escalate recommendation conflicts or invariant collisions to `product-audit-arbiter`
 
 **Report finding ID format (MANDATORY):** Every orchestrator-owned finding must carry a unique ID in format `{severity}-{NNN}`. All inherited findings must preserve the original IDs and source agent attribution.
 
@@ -235,8 +235,8 @@ Every finding in the unified report must preserve the source agent and original 
 1. Inventory the user-visible surfaces under review.
 2. Dispatch the minimum complete agent set needed to cover inventory, write path, read-back, schema parity, access boundaries, list visibility, workflow state, contract parity, tenant isolation, live sync, tables/charts/files, and mobile behavior when relevant.
 3. Merge results into roundtrip narratives: action -> payload -> backend -> persistence -> read-back -> visible state.
-4. Dispatch `context-manager` when the cycle is large, overlapping, or above budget.
-5. Dispatch `architectural-arbiter` when recommendations conflict.
+4. Dispatch `product-audit-context-manager` when the cycle is large, overlapping, or above budget.
+5. Dispatch `product-audit-arbiter` when recommendations conflict.
 6. Use the compacted handoff as the default synthesis substrate.
 7. Flag open cross-agent dependencies.
 8. Produce a unified report with deployment confidence decision, exact file references, and explicit classification of each issue as write-gap, read-gap, visibility-gap, schema-gap, access-gap, sync-gap, or tenant-gap.

@@ -107,6 +107,7 @@ export default {
       testMatch: [
         '<rootDir>/orchestrator-routing-coverage.spec.ts',
         '<rootDir>/agent-ownership-uniqueness.spec.ts',
+        '<rootDir>/agent-name-uniqueness.spec.ts',
       ],
     },
     {

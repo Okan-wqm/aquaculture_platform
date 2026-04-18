@@ -76,7 +76,6 @@ All agents use `opus` with `effort: max` per platform policy. This table is the 
 | billing-expert | apps/billing-service/ — Stripe webhook + metered billing + subscription saga + plan-tier enforcement (delegated from multi-tenant) |
 | alert-engine-expert | apps/alert-engine/ + apps/notification-service/ — rule evaluation hot-path + escalation ladder + life-safety priority + per-tenant rate-limit + push/email/SMS/webhook dispatch (Phase 11 unified ownership) |
 | observability-expert | apps/observability-service/ + infrastructure/monitoring/ + cross-service Prometheus cardinality + OTEL coverage + Loki hygiene + alert runbook discipline |
-| ~~platform-services~~ | DEPRECATED 2026-04-16 (Phase 11 split — see `.claude/agents-enterprise-v2/platform-services.md`) |
 | auth-security-expert | apps/auth-service/, apps/gateway-api/, libs/backend-common/src/{auth,guards,security,middleware}/ |
 | security-reviewer | ALL files — cross-cutting security quality gate |
 | test-runner | ALL test files — build and test quality gate |

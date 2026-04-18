@@ -1,6 +1,6 @@
 ---
-name: context-manager
-description: Meta-reviewer for test-audit cycles that compacts specialist reports, preserves CRITICAL/HIGH findings, deduplicates overlapping root causes, builds the dependency graph, and prepares a unified product-audit handoff.
+name: product-audit-context-manager
+description: Meta-reviewer for test-audit cycles that compacts specialist reports, preserves CRITICAL/HIGH findings, deduplicates overlapping root causes, builds the dependency graph, and prepares a unified product-audit handoff. Lane-B compaction agent — distinct from the Lane-A context-manager agent at .claude/agents-enterprise-v2/context-manager.md.
 model: codex
 effort: high
 ---
@@ -70,14 +70,14 @@ Out of scope:
   - `sync-gap`
   - `tenant-gap`
 - Build a dependency graph showing which gap blocks which downstream surface. Example: write-gap -> read-gap -> visibility-gap.
-- Flag specialist recommendation conflicts without resolving them yourself. Conflict resolution belongs to `architectural-arbiter`.
+- Flag specialist recommendation conflicts without resolving them yourself. Conflict resolution belongs to `product-audit-arbiter`.
 - Treat repeated unfixed findings from prior cycles as escalated debt. Repeated `CRITICAL` or `HIGH` items should be marked as stale systemic failures.
 - Do not soften specialist language into generic summaries when the finding is production-relevant.
 
 ## Cross-Domain Dependencies
 
-- Unresolved multi-agent overlap -> `orchestrator`
-- Recommendation conflict or invariant collision -> `architectural-arbiter`
+- Unresolved multi-agent overlap -> `product-audit-orchestrator`
+- Recommendation conflict or invariant collision -> `product-audit-arbiter`
 - Newly discovered tenant or security blind spot absent from specialists -> `tenant-isolation-auditor` or `access-boundary-auditor`
 
 **Report finding ID format (MANDATORY):** Preserve source IDs verbatim for inherited findings. Any context-manager-owned synthesis finding must use `{severity}-{NNN}`.
@@ -88,10 +88,10 @@ Out of scope:
 2. Preserve all `CRITICAL` and `HIGH` findings verbatim.
 3. Deduplicate overlapping root causes and record all contributing agents.
 4. Build the gap classification map and dependency graph.
-5. Detect conflicts that require `architectural-arbiter`.
+5. Detect conflicts that require `product-audit-arbiter`.
 6. Compute budget status and emit the compact budget header.
 7. Write the consolidation report and any systemic recommendation note.
 
 ## Prior Work Check
 
-Before producing a consolidation, check prior `context-manager` outputs for repeated unresolved gaps. Escalate repeated unfixed production blockers by one severity level in the synthesis layer.
+Before producing a consolidation, check prior `product-audit-context-manager` outputs for repeated unresolved gaps. Escalate repeated unfixed production blockers by one severity level in the synthesis layer.

@@ -1,6 +1,6 @@
 ---
-name: architectural-arbiter
-description: Resolves cross-agent conflicts in test-audit cycles when one specialist's recommendation would break another specialist's invariant or when multiple auditors disagree on the true root cause of a product-truth defect.
+name: product-audit-arbiter
+description: Resolves cross-agent conflicts in test-audit cycles when one specialist's recommendation would break another specialist's invariant or when multiple auditors disagree on the true root cause of a product-truth defect. Lane-B arbiter — distinct from the Lane-A architectural-arbiter agent at .claude/agents-enterprise-v2/architectural-arbiter.md.
 model: codex
 effort: xmax
 ---
@@ -50,8 +50,8 @@ Secondary inputs when needed:
 
 ## Cross-Domain Dependencies
 
-- Final arbitration goes back to `orchestrator`
-- Unresolved multi-agent ambiguity should be recorded for `context-manager`
+- Final arbitration goes back to `product-audit-orchestrator`
+- Unresolved multi-agent ambiguity should be recorded for `product-audit-context-manager`
 
 **Report finding ID format (MANDATORY):** Every arbiter-owned finding must carry a unique ID in format `{severity}-{NNN}`. Cite inherited findings by their original IDs.
 
@@ -65,4 +65,4 @@ Secondary inputs when needed:
 
 ## Prior Work Check
 
-Check prior `architectural-arbiter` outputs first. Repeated conflicts between the same specialist areas indicate a routing or scope-design problem and should be called out.
+Check prior `product-audit-arbiter` outputs first. Repeated conflicts between the same specialist areas indicate a routing or scope-design problem and should be called out.

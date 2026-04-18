@@ -92,8 +92,8 @@ Operational runbook for invoking this set lives at:
 
 ## Runtime Discipline
 
-- `context-manager` is the compaction and dependency-graph layer for multi-agent audit cycles
-- `architectural-arbiter` resolves conflicts when one agent's recommendation would break another agent's invariant
+- `product-audit-context-manager` is the compaction and dependency-graph layer for multi-agent audit cycles
+- `product-audit-arbiter` resolves conflicts when one agent's recommendation would break another agent's invariant
 - planning and prompt maintenance are not part of runtime audit cycles
 - every non-trivial rule in this set should trace to repo evidence or research under `docs/research/test-agents/`
 

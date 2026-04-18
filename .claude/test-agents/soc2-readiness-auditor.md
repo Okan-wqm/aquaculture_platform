@@ -249,8 +249,8 @@ When a control spans multiple layers, follow the strict order:
 - Send privacy, consent, export, and erasure truth to `gdpr-compliance-auditor`
 - Send mobile offline partitioning and reconnect truth to `mobile-app-auditor`
 - Send file export or download evidence paths to `file-transfer-auditor`
-- Send system-wide compaction and repeated-control synthesis to `context-manager`
-- Send recommendation conflicts or architecture invariant clashes to `architectural-arbiter`
+- Send system-wide compaction and repeated-control synthesis to `product-audit-context-manager`
+- Send recommendation conflicts or architecture invariant clashes to `product-audit-arbiter`
 
 **Report finding ID format (MANDATORY):** Every finding in this report must carry a unique ID in format `{severity}-{NNN}`.
 

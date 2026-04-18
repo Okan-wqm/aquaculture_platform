@@ -78,7 +78,7 @@ Use standard severity levels: CRITICAL (tenant or auth boundary break, unsafe to
 - Cross-agent recommendation conflicts involving MCP capability boundaries → `architectural-arbiter`
 - Large multi-agent review coordination / context compaction → `context-manager`
 
-**Report finding ID format (MANDATORY):** Every finding in this agent's report MUST carry a unique ID in format `{severity}-{NNN}` (e.g., `CRITICAL-001`, `HIGH-007`, `MEDIUM-023`) where NNN is zero-padded sequential within one report. This enables the `Closes:` commit convention (CLAUDE.md) and is required by context-manager (state tracking) and implementation-planner (package traceability). A report without finding IDs breaks the review-to-fix loop.
+**Report finding ID format (MANDATORY):** Every finding in this agent's report MUST carry a unique ID in format `MCP-{severity}-{NNN}` (e.g., `MCP-CRITICAL-001`, `MCP-HIGH-007`, `MCP-MEDIUM-023`) where NNN is zero-padded sequential within one report. This enables the `Closes:` commit convention (CLAUDE.md) and is required by context-manager (state tracking) and implementation-planner (package traceability). A report without finding IDs breaks the review-to-fix loop.
 
 ## Prior Work Check
 

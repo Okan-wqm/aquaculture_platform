@@ -108,7 +108,6 @@ Phase 1 maps every changed file to one or more agents via these globs. `git diff
 | `libs/backend-common/src/security/gdpr/**` | compliance-expert | auth-security-expert |
 | `apps/auth-service/src/{privacy,modules/gdpr}/**` | compliance-expert | auth-security-expert |
 | `apps/admin-api-service/src/security/{controllers,services}/{compliance,audit-trail}*` | compliance-expert | admin-expert |
-| `apps/*/src/gdpr/**` | compliance-expert | *respective domain expert* |
 | `web/shell/src/{hooks/useConsent.ts,pages/ConsentSettingsPage.tsx}`, `web/modules/admin-panel/src/security/**` | compliance-expert | frontend-expert, admin-expert |
 | `docs/compliance/**` | compliance-expert | architectural-arbiter |
 | `.env*` | security-reviewer | |

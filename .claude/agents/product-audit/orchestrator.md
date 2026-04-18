@@ -115,6 +115,11 @@ Use deterministic routing where file evidence makes ownership obvious:
 | workflow states, approvals, archive/restore/retry transitions | `workflow-state-auditor` | `button-action-auditor`, `list-visibility-auditor` |
 | cache, query invalidation, list/detail refresh | `list-visibility-auditor` | `data-readback-auditor`, `realtime-sync-auditor` |
 | tenant-scoped CRUD, cache, events, exports, mobile storage | `tenant-isolation-auditor` | `access-boundary-auditor`, `mobile-app-auditor` |
+| `**/a11y/**`, `**/*.a11y.spec.ts`, component diff with `aria-*` / `role=` / keyboard-handler changes | `accessibility-auditor` | `frontend-expert`, `ui-action-mapper` |
+| `sens-api-gateway/**` + `sensorprotocols/**` + PLC/SCADA/Modbus/OPC-UA command paths | `edge-industrial-auditor` | `edge-expert`, `sensor-expert` |
+| `apps/billing-service/**`, `web/modules/tenant-admin/src/billing/**`, Stripe-backed invoice/payment/refund roundtrips | `billing-reconciliation-auditor` | `billing-expert`, `tenant-isolation-auditor` |
+| `apps/*/src/**/webhooks/**`, Stripe/SendGrid/Twilio inbound handler paths | `webhook-ingress-auditor` | `auth-security-expert`, `billing-expert` |
+| `apps/*/src/**/jobs/**`, `libs/backend-common/src/queue/**`, Bull/BullMQ/Nest Scheduler consumers | `job-queue-auditor` | `data-expert`, `observability-expert` |
 
 Route work to these agents:
 
@@ -133,6 +138,11 @@ Route work to these agents:
 - `tenant-isolation-auditor` for tenant boundaries across the roundtrip
 - `workflow-state-auditor` for lifecycle transitions and state-gated actions
 - `list-visibility-auditor` for list/detail/query-cache visibility after writes
+- `accessibility-auditor` for keyboard reachability, focus management, ARIA semantics, and assistive-tech operability
+- `edge-industrial-auditor` for Rust edge gateway, PLC/SCADA command paths, offline queues, safe-state fallbacks
+- `billing-reconciliation-auditor` for invoice/payment/refund/subscription roundtrips and operator-visible Stripe truth
+- `webhook-ingress-auditor` for inbound webhook source auth, raw-body integrity, replay/dedup protection, tenant routing
+- `job-queue-auditor` for queued/scheduled/retried/dead-lettered work and async idempotency
 
 ### Phase 2: Roundtrip Verification
 

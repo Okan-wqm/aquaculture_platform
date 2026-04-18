@@ -93,8 +93,20 @@ function scanMarkers(relFile: string): MarkerHit[] {
 }
 
 const COUNT_SOURCES: Record<string, () => number> = {
+  // `lane-a-agents` counts agents in the runtime dispatch surface. Post-
+  // Phase-4 of plan mutable-frolicking-yao.md, maintenance agents live
+  // under .claude/agents/_maintenance/ and are intentionally non-runtime;
+  // they are counted separately via `lane-a-maintenance` so the runtime
+  // roster cardinality reflects dispatch reality.
   'lane-a-agents': () => countMdFiles('.claude/agents'),
+  'lane-a-maintenance': () => countMdFiles('.claude/agents/_maintenance'),
   'lane-b-active-agents': () => countMdFiles('.claude/agents/product-audit'),
+  // 3 Lane-B meta agents (product-audit-orchestrator, -context-manager,
+  // -arbiter) carry the product-audit-* name prefix and live alongside
+  // specialists. lane-b-specialists counts the dispatchable UI auditors
+  // only, for prose that distinguishes meta vs specialist.
+  'lane-b-specialists': () =>
+    countMdFiles('.claude/agents/product-audit') - 3,
   'lane-a-legacy': () => countMdFiles('.claude/agents.legacy'),
   'lane-b-legacy': () => countMdFiles('.claude/agents.legacy/product-audit'),
   'total-active': () =>
@@ -104,7 +116,9 @@ const COUNT_SOURCES: Record<string, () => number> = {
 const DOC_FILES: readonly string[] = [
   '.claude/README.md',
   '.claude/knowledge/README.md',
-  '.claude/agents/prompt-writer.md',
+  '.claude/agents/_maintenance/prompt-writer.md',
+  '.claude/shared/orchestrator-phases.md',
+  '.claude/agents/product-audit/README.md',
   'CLAUDE.md',
 ];
 

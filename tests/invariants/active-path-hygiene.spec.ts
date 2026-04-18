@@ -102,8 +102,19 @@ function extractFrontmatterName(content: string): string | null {
 
 function collectActiveAgentNames(): Set<string> {
   const names = new Set<string>();
-  // Only .claude/agents/** participates in dispatch
-  const agentDirs = ['.claude/agents', '.claude/agents/product-audit'];
+  // All auto-discovered .claude/agents/** subdirectories participate in
+  // the name registry — runtime roster (root), Lane-B specialists
+  // (product-audit/), and maintenance tooling (_maintenance/). The
+  // maintenance-isolation invariant separately enforces that
+  // _maintenance agents are out of the runtime roster table; their
+  // names still need to resolve as valid cross-references when cited
+  // from active agent bodies (e.g., orchestrator.md Auxiliary
+  // Maintenance Tooling section).
+  const agentDirs = [
+    '.claude/agents',
+    '.claude/agents/product-audit',
+    '.claude/agents/_maintenance',
+  ];
   for (const dir of agentDirs) {
     for (const file of walkMdFiles(dir)) {
       const base = path.basename(file);

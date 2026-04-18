@@ -71,7 +71,7 @@ Operational runbook for invoking this set lives at:
 
 ## Runtime Roster
 
-22 agents. Dispatch name (the `name:` frontmatter) is the `Agent(subagent_type=...)` token; file path shown in parentheses when it differs from the name.
+<!-- cardinality:lane-b-active-agents -->22<!-- /cardinality --> agents. Dispatch name (the `name:` frontmatter) is the `Agent(subagent_type=...)` token; file path shown in parentheses when it differs from the name.
 
 Meta-agents (product-audit-* prefix for global name uniqueness vs Lane-A):
 

@@ -86,7 +86,6 @@ All agents use `opus` with `effort: xhigh` per platform policy. This table is th
 | mcp-expert | mcp/ — MCP servers, tool registry, session/auth context, prompt and knowledge safety |
 | root-cause-auditor | Phase 4.5 — author-authored tier-claim verification + prior-cycle arbiter-ruling implementation check. Emits `AUDIT-*` findings |
 | compliance-expert | Cross-cutting GDPR Art 17/20 + KVKK + SOC 2 SSoT. Owns erasure cascade across 10 tenant-data services, portability export shape, consent capture/withdrawal, dual-consent (AI), SOC 2 control evidence. Other agents delegate compliance topics here |
-| gdpr-erasure-executor | WRITER-primary execution agent for GDPR Art 17 cascade. Implements per-service eraseTenantData(tenantId, {dryRun}) handlers + outbox-emitted TenantErased proof event. Compliance-expert reviews; legal-hold-auditor enforces precedence |
 | ai-safety-auditor | Anthropic Claude SDK safety + cost reviewer — prompt-injection defense, tool whitelisting, output PII scrub, prompt caching adoption, streaming backpressure, context-window budgeting, per-tenant cost-cap reservation. Promoted from agents/product-audit/ai-tool-execution-auditor |
 | legal-hold-auditor | Cross-service enforcement of legal hold precedence on every destructive action (delete, anonymize, retention-expiry, partition DROP, outbox GC, GDPR erasure). Litigation discovery + record retention non-negotiable |
 | audit-trail-completeness-auditor | Cross-cutting reviewer for audit-log completeness on every regulated action — SOC 2 CC4 + GDPR Art 30 alignment. Coverage of @AuditedOperation decorator, immutability invariant, retention policy |
@@ -99,12 +98,13 @@ All agents use `opus` with `effort: xhigh` per platform policy. This table is th
 
 ## Auxiliary Maintenance Tooling
 
-These tools are intentionally OUTSIDE the runtime review roster:
+These tools live at `.claude/agents/_maintenance/` and are intentionally OUTSIDE the runtime review roster. The `maintenance-isolation.spec.ts` invariant enforces their absence from this orchestrator's Runtime Review Roster table (making "maintenance agent silently dispatched in a runtime cycle" a tier-1 make-impossible violation, not tier-4 prose):
 
 | Tool | Role |
 |------|------|
-| implementation-planner | Post-review planning only. Invoke in a separate, explicitly requested planning session after review is complete. |
 | prompt-writer | Agent-prompt maintenance only. Use when creating/updating agent definitions, not during normal runtime review cycles. |
+| implementation-planner | Post-review planning only. Invoke in a separate, explicitly requested planning session after review is complete. Writes plans under `docs/plans/`; never touches source code. |
+| gdpr-erasure-executor | WRITER execution agent for GDPR Art 17 cascade. Implements per-service eraseTenantData(tenantId, {dryRun}) handlers + outbox-emitted TenantErased proof event. Dispatched only via `implement:` token from compliance-expert or implementation-planner — never in an automatic review cycle. |
 
 ## Invocation Examples
 

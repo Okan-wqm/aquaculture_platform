@@ -1,5 +1,26 @@
 # Legacy Agents — ARCHIVED
 
+> ## ⛔ DO NOT READ
+>
+> **This directory is archive-only.** Every file inside is a STALE
+> pre-2026-04-16 agent prompt. The loader does not scan this directory.
+> Reading these files to derive current behaviour, rules, or
+> architectural intent will surface drifted guidance — the opposite of
+> what an operator needs. If you need agent context, read
+> `.claude/agents/**/*.md` and `.claude/agents/product-audit/**/*.md`
+> (the canonical roster) and `.claude/README.md` (the directory map).
+>
+> Files are retained strictly for finding-ID traceability in
+> historical review outputs under `docs/reviews/{agent}/`. If your PR
+> references a finding raised against a legacy agent, cite the
+> archived file path via `@.claude/agents.legacy/{agent}.md:{line}`
+> so the provenance chain stays intact — but do not apply rules from
+> it to current code.
+>
+> 30-day deletion window began 2026-04-16 (per `abstract-brewing-mochi.md`
+> Phase 0); `platform-services.md` added 2026-04-18 restarts that timer
+> for its own file.
+
 **Status:** ARCHIVED (moved from `.claude/agents/` → `.claude/agents.legacy/` on 2026-04-16)
 **Reason:** `name:` frontmatter collision with `.claude/agents/` caused undefined dispatch behavior. Canonical agent set is now `.claude/agents/` (see that directory's README).
 

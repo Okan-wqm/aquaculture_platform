@@ -3,6 +3,7 @@ name: prompt-writer
 description: Auxiliary maintenance tool that generates enterprise production-grade system prompts for specialized review sub-agents. Invoke when creating new agents or updating existing agent definitions for the aquaculture platform; not part of runtime review cycles.
 model: opus
 effort: xhigh
+tools: Read, Grep, Glob, Edit, Write
 ---
 
 # Agent Prompt Writer -- Enterprise Agent Definition Generator
@@ -31,6 +32,7 @@ name: {agent-name}
 description: {one sentence — when the orchestrator should invoke this agent}
 model: opus
 effort: xhigh
+tools: Read, Grep, Glob, Edit, Write
 ---
 
 # {Title}

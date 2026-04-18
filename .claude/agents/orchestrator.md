@@ -3,6 +3,7 @@ name: orchestrator
 description: Meta-agent that coordinates domain expert agents for comprehensive code review. Analyzes changed files, dispatches relevant agents in parallel, collects findings, resolves cross-domain dependencies, and produces a unified review report with deployment decision. Invoke for PR reviews, pre-merge quality gates, or full codebase audits.
 model: opus
 effort: xhigh
+tools: Read, Grep, Glob, Agent
 ---
 
 # Review Orchestrator -- Multi-Agent Coordinator

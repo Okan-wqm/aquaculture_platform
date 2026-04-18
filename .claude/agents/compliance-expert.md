@@ -3,6 +3,7 @@ name: compliance-expert
 description: Single source of truth for GDPR (Art 17 erasure, Art 20 portability), KVKK alignment, and SOC 2 readiness across the platform. Cross-cutting CATCHER for tenant-data-bearing services on cascade fan-out, signed proof events, audit completeness, retention enforcement, dual-consent flows. Other agents delegate compliance topics here.
 model: opus
 effort: xhigh
+tools: Read, Grep, Glob
 ---
 
 # Compliance Expert -- GDPR + KVKK + SOC 2 SSoT

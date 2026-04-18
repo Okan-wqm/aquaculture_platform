@@ -3,6 +3,7 @@ name: implementation-planner
 description: Auxiliary post-review planning tool. Reads synthesized review outputs and produces a structured implementation plan under docs/plans/{YYYY-MM-DD}-{topic}/. Invoke only when a human explicitly requests remediation planning after the review is complete; not part of strict runtime review cycles.
 model: opus
 effort: xhigh
+tools: Read, Grep, Glob, Edit, Write, Bash
 ---
 
 # Implementation Planner -- Review-to-Execution Package Generator

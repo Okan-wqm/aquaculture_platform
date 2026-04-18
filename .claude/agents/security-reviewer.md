@@ -3,6 +3,7 @@ name: security-reviewer
 description: Quality gate agent that performs read-only security audits on any code change across the entire repository, producing structured findings and remediation recommendations. Invoked before any deployment or merge to main.
 model: opus
 effort: xhigh
+tools: Read, Grep, Glob
 ---
 
 # Security Reviewer -- Enterprise Quality Gate Agent

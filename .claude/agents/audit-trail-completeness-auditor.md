@@ -3,6 +3,7 @@ name: audit-trail-completeness-auditor
 description: Cross-cutting reviewer for audit log completeness on every regulated action (command handler, destructive action, impersonation, MFA step-up, legal-hold override, Stripe webhook, PII field read). SOC 2 CC4 + GDPR Art 30 alignment. Sibling of compliance-expert (SOC 2 evidence), legal-hold-auditor (override audit), auth-security-expert (primary on libs/backend-common/src/audit/**).
 model: opus
 effort: xhigh
+tools: Read, Grep, Glob
 ---
 
 # Audit-Trail Completeness Auditor -- Regulated-Action Log Coverage Reviewer

@@ -3,6 +3,7 @@ name: job-queue-auditor
 description: Reviews queued, scheduled, retried, and dead-lettered work to verify that async jobs preserve tenant, idempotency, retry, and operator-visible truth across enqueue, execution, and read-back surfaces.
 model: opus
 effort: xhigh
+tools: Read, Grep, Glob
 ---
 
 # Job Queue Auditor -- Async Execution and Retry Truth Authority

@@ -303,4 +303,100 @@ describe('orchestrator routing coverage invariant', () => {
   it('legacy directory IS marked as archived in routing', () => {
     expect(family).toMatch(/\.claude\/agents\.legacy/);
   });
+
+  /**
+   * Reverse coverage — every roster agent must be reachable from at least
+   * one glob cell (primary OR also-notify) across Lane-A routing table
+   * AND Lane-B product-audit/orchestrator.md Phase 1 table.
+   *
+   * Closes CLAUDE-HIGH-008 — routing-coverage reverse-check gap. Five
+   * Lane-B agents (accessibility-auditor, edge-industrial-auditor,
+   * billing-reconciliation-auditor, webhook-ingress-auditor,
+   * job-queue-auditor) had zero dispatch globs until 2026-04-18 without
+   * any CI failure.
+   *
+   * Exemptions:
+   *   - Agents with `dispatch: cross-cutting` / `dispatch: ad-hoc` /
+   *     `dispatch: maintenance` frontmatter are explicitly non-glob.
+   *   - Maintenance agents at `.claude/agents/_maintenance/**` (Phase 4
+   *     filesystem separation) never appear in the runtime roster, so
+   *     they are outside this coverage check by construction.
+   */
+  it('every roster agent is reachable from at least one glob (primary OR also-notify)', () => {
+    // Build combined roster (Lane-A + Lane-B specialists).
+    const laneARoster = extractRosterAgentNames(orchestratorOnly);
+    const productAuditOrchestratorPath = path.join(
+      REPO_ROOT,
+      '.claude',
+      'agents',
+      'product-audit',
+      'orchestrator.md',
+    );
+    const laneBOrchestratorContent = fs.existsSync(productAuditOrchestratorPath)
+      ? fs.readFileSync(productAuditOrchestratorPath, 'utf8')
+      : '';
+    // Lane-B roster = every agent file in .claude/agents/product-audit/*.md
+    // that carries a `name:` frontmatter line.
+    const laneBRoster = new Set<string>();
+    const laneBDir = path.join(REPO_ROOT, '.claude', 'agents', 'product-audit');
+    if (fs.existsSync(laneBDir)) {
+      for (const f of fs.readdirSync(laneBDir)) {
+        if (!f.endsWith('.md')) continue;
+        if (f === 'README.md' || f === 'INVOCATION-PACK.md') continue;
+        const fileContent = fs.readFileSync(path.join(laneBDir, f), 'utf8');
+        const nameMatch = fileContent.match(/^name:\s*([a-z][a-z-]+)/m);
+        if (nameMatch && nameMatch[1]) laneBRoster.add(nameMatch[1]);
+      }
+    }
+
+    // Combined reachability set = every agent name that appears in ANY cell
+    // of either routing table (primary OR also-notify).
+    const reachable = new Set<string>();
+    const combinedRouting = family + '\n' + laneBOrchestratorContent;
+    const agentNameRe = /[a-z][a-z0-9-]+-(expert|auditor|reviewer|executor|enforcer|planner|agent|writer|arbiter|manager|orchestrator|mapper|runner)\b/g;
+    for (const match of combinedRouting.matchAll(agentNameRe)) {
+      reachable.add(match[0]);
+    }
+
+    // Exemptions: agents with `dispatch: cross-cutting` / `ad-hoc` /
+    // `maintenance` frontmatter are explicitly non-glob and exempt.
+    const exempt = new Set<string>();
+    const collectExempt = (dir: string): void => {
+      if (!fs.existsSync(dir)) return;
+      for (const f of fs.readdirSync(dir)) {
+        if (!f.endsWith('.md')) continue;
+        const full = path.join(dir, f);
+        const stat = fs.statSync(full);
+        if (stat.isDirectory()) {
+          collectExempt(full);
+          continue;
+        }
+        const fileContent = fs.readFileSync(full, 'utf8');
+        const nameMatch = fileContent.match(/^name:\s*([a-z][a-z-]+)/m);
+        const dispatchMatch = fileContent.match(/^dispatch:\s*(cross-cutting|ad-hoc|maintenance)/m);
+        if (nameMatch && nameMatch[1] && dispatchMatch) {
+          exempt.add(nameMatch[1]);
+        }
+      }
+    };
+    collectExempt(path.join(REPO_ROOT, '.claude', 'agents'));
+
+    const combinedRoster = new Set<string>([...laneARoster, ...laneBRoster]);
+    const unreachable = [...combinedRoster].filter(
+      (agent) => !reachable.has(agent) && !exempt.has(agent),
+    );
+
+    if (unreachable.length > 0) {
+      const hint =
+        'Every roster agent must appear in at least one glob cell (primary OR also-notify) ' +
+        'across .claude/shared/orchestrator-routing-table.md and ' +
+        '.claude/agents/product-audit/orchestrator.md Phase 1 table. Agents that are ' +
+        'intentionally cross-cutting or ad-hoc must carry `dispatch: cross-cutting` or ' +
+        '`dispatch: ad-hoc` in their frontmatter.';
+      throw new Error(
+        `Orphan agents (in roster, no dispatch glob):\n  - ${unreachable.join('\n  - ')}\n\n${hint}`,
+      );
+    }
+    expect(unreachable).toEqual([]);
+  });
 });

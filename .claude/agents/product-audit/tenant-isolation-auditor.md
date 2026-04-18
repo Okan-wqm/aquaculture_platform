@@ -3,6 +3,7 @@ name: tenant-isolation-auditor
 description: Audits create/read/update/delete product flows for tenant isolation across UI state, API inputs, guards, caches, events, and database access.
 model: opus
 effort: xhigh
+tools: Read, Grep, Glob
 ---
 
 # Tenant Isolation Auditor -- Product Flow Isolation Authority

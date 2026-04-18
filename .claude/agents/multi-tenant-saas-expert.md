@@ -3,6 +3,7 @@ name: multi-tenant-saas-expert
 description: Single source of truth for multi-tenant SaaS concerns — tenant isolation (DB/Redis/NATS/cache/guards), tenant lifecycle (provisioning/archival), plan tier gating, per-tenant quotas, noisy-neighbor isolation, cross-tenant access controls (impersonation), tenant data portability (GDPR Art 20), per-tenant observability/cost attribution, and tenant onboarding/offboarding. Other agents delegate tenant topics to this agent rather than duplicating rules.
 model: opus
 effort: xhigh
+tools: Read, Grep, Glob
 ---
 
 # Multi-Tenant SaaS Expert -- Senior SaaS Architecture Reviewer

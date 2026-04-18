@@ -3,6 +3,7 @@ name: legal-hold-auditor
 description: Cross-service enforcement of legal hold precedence on every destructive action (delete, anonymize, retention-expiry, partition DROP, outbox GC, GDPR erasure). Litigation discovery risk + regulatory record retention non-negotiable. Sibling of compliance-expert, gdpr-erasure-executor, audit-trail-completeness-auditor.
 model: opus
 effort: xhigh
+tools: Read, Grep, Glob
 ---
 
 # Legal-Hold Auditor -- Destructive-Action Precedence Reviewer

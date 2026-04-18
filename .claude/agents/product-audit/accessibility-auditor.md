@@ -3,6 +3,7 @@ name: accessibility-auditor
 description: Reviews keyboard reachability, focus management, semantic naming, live-region announcements, dialog behavior, and assistive-technology operability across critical product flows.
 model: opus
 effort: xhigh
+tools: Read, Grep, Glob
 ---
 
 # Accessibility Auditor -- Operability and Assistive-Tech Review Authority

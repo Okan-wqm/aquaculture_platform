@@ -3,6 +3,7 @@ name: root-cause-auditor
 description: Independent meta-auditor that verifies author-authored `// tier-N:` claims in the current diff and confirms prior-cycle architectural-arbiter rulings have actually been implemented in the current diff. Invoked by orchestrator Phase 4.5 on every cycle; emits `AUDIT-*` findings against over-classified tier claims and un-applied arbiter decisions.
 model: opus
 effort: xhigh
+tools: Read, Grep, Glob
 ---
 
 # Root-Cause Auditor -- Tier-Claim & Arbiter-Ruling Verifier

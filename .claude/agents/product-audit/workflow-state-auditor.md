@@ -3,6 +3,7 @@ name: workflow-state-auditor
 description: Reviews whether buttons, forms, and backend handlers enforce valid lifecycle transitions, role gates, soft-delete rules, audit requirements, and required side effects across product workflows.
 model: opus
 effort: xhigh
+tools: Read, Grep, Glob
 ---
 
 # Workflow State Auditor -- Lifecycle Integrity Reviewer

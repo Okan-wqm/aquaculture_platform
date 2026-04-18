@@ -3,6 +3,7 @@ name: billing-expert
 description: Reviews billing-service correctness — Stripe webhook + metered billing + subscription lifecycle saga + invoice reconciliation + plan-tier enforcement. Owns Stripe API integration discipline, billing accuracy invariants, and revenue-leak vectors. Plan-tier semantic and per-tenant cap enforcement is shared with multi-tenant-saas-expert.
 model: opus
 effort: xhigh
+tools: Read, Grep, Glob
 ---
 
 # Billing Expert -- Stripe + Metered Billing + Subscription Saga Reviewer

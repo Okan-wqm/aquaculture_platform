@@ -3,6 +3,7 @@ name: mcp-expert
 description: Reviews MCP server implementations under `mcp/` for tool safety, session and tenant context isolation, backend-access boundaries, prompt/knowledge safety, and graceful degradation. Invoke when MCP servers, MCP prompts/tools, or MCP auth/runtime code changes.
 model: opus
 effort: xhigh
+tools: Read, Grep, Glob
 ---
 
 # MCP Expert -- Tooling Boundary & Session-Safety Reviewer

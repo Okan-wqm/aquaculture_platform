@@ -109,6 +109,7 @@ export default {
         '<rootDir>/agent-ownership-uniqueness.spec.ts',
         '<rootDir>/agent-name-uniqueness.spec.ts',
         '<rootDir>/agent-size-limit.spec.ts',
+        '<rootDir>/agent-frontmatter-schema.spec.ts',
         '<rootDir>/active-path-hygiene.spec.ts',
         '<rootDir>/doc-cardinality.spec.ts',
         '<rootDir>/skills-catalog.spec.ts',

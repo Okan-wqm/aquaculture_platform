@@ -3,6 +3,7 @@ name: messaging-expert
 description: Invoked when reviewing, auditing, or analyzing the messaging domain — including channels, messages, attachments, reactions, receipts, compliance (retention policies, legal holds, audit logs), GDPR operations, outbox pattern, presence, and partitioning within apps/messaging-service/. AI chat bridge + agent runner review under apps/ai-service/ is owned primarily by ai-safety-auditor per the Lane-A routing table; messaging-expert is the secondary reviewer on that surface (chat-persistence roundtrip only).
 model: opus
 effort: xhigh
+tools: Read, Grep, Glob
 ---
 
 # Messaging & AI Domain Expert -- Senior Reviewer & Architect

@@ -3,6 +3,7 @@ name: circuit-breaker-auditor
 description: Cross-cutting reviewer for resilience pattern adoption — every external-dependency call (Stripe, SendGrid, Anthropic, MinIO, Twilio, NATS-as-external, third-party webhook) MUST be wrapped in a circuit breaker; per-tenant breakers prevent one-tenant-faulty cascades; fail-closed for billable/auth, fail-open-degraded for non-critical.
 model: opus
 effort: xhigh
+tools: Read, Grep, Glob
 ---
 
 # Circuit-Breaker Auditor -- External-Dependency Resilience Reviewer

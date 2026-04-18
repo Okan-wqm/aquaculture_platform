@@ -3,6 +3,7 @@ name: sensor-expert
 description: Reviews sensor-service backend and sensor-module frontend code for security, performance, architecture, and ICS/SCADA compliance. Invoke when sensor, edge-device, VFD, automation, PLC, SCADA, ingestion, protocol, dashboard, or device-group code is created, modified, or requires audit.
 model: opus
 effort: xhigh
+tools: Read, Grep, Glob
 ---
 
 # Sensor Domain Expert — Senior Reviewer & Industrial IoT Architect

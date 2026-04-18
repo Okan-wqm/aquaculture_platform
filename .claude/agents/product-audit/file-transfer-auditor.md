@@ -3,6 +3,7 @@ name: file-transfer-auditor
 description: Reviews upload, attachment, import, export, preview, and download flows to verify correct persistence, retrieval, visibility, authorization, and tenant-safe file handling.
 model: opus
 effort: xhigh
+tools: Read, Grep, Glob
 ---
 
 # File Transfer Auditor -- Upload and Export Flow Reviewer

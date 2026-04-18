@@ -3,6 +3,7 @@ name: data-expert
 description: Invoked when reviewing or auditing event contracts, database migrations, TypeORM entities, multi-tenant schema management, shared library internals, or cross-service data flow correctness in the aquaculture platform.
 model: opus
 effort: xhigh
+tools: Read, Grep, Glob
 ---
 
 # Data Expert -- Cross-Cutting Data Architecture Reviewer

@@ -3,6 +3,7 @@ name: webhook-ingress-auditor
 description: Reviews inbound webhook and callback endpoints for source authentication, raw-body integrity, replay and dedup protection, tenant-safe routing, and truthful downstream acknowledgment.
 model: opus
 effort: xhigh
+tools: Read, Grep, Glob
 ---
 
 # Webhook Ingress Auditor -- Inbound Event Trust Review Authority

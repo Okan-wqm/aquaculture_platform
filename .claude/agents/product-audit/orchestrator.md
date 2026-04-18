@@ -3,6 +3,7 @@ name: product-audit-orchestrator
 description: Coordinates end-to-end product audit agents to verify web and mobile UI actions, form inputs, persistence, read-back visibility, and tenant isolation across web/** and apps/**. Lane-B product-quality dispatcher for two-lane cycles — distinct from the Lane-A orchestrator agent at .claude/agents/orchestrator.md.
 model: opus
 effort: xhigh
+tools: Read, Grep, Glob, Agent
 ---
 
 # Test Audit Orchestrator -- End-to-End Product Review Coordinator

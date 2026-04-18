@@ -189,3 +189,109 @@ describe('agent ownership uniqueness invariant', () => {
     expect(content).toMatch(/delegated from/);
   });
 });
+
+/**
+ * Routing-table glob uniqueness (extends Phase 0.3 to the dispatch surface).
+ *
+ * Closes CLAUDE-HIGH-007 — agent-ownership-uniqueness scope gap.
+ *
+ * The orchestrator routing table(s) are the canonical dispatch surface.
+ * If two rows share the same glob but list different primary agents and
+ * neither row tags the overlap as "delegated from" / "secondary reviewer"
+ * in-cell, orchestrator dispatch is non-deterministic — exactly the
+ * CLAUDE-CRITICAL-004 bug class that was CI-silent until 2026-04-18.
+ *
+ * Scans BOTH Lane-A routing (`.claude/shared/orchestrator-routing-table.md`)
+ * AND Lane-B routing (the Phase 1 table inside
+ * `.claude/agents/product-audit/orchestrator.md`).
+ */
+
+const ROUTING_TABLE_FILES: readonly { label: string; path: string }[] = [
+  {
+    label: 'Lane-A orchestrator-routing-table.md',
+    path: path.join(REPO_ROOT, '.claude', 'shared', 'orchestrator-routing-table.md'),
+  },
+  {
+    label: 'Lane-B product-audit/orchestrator.md Phase 1 table',
+    path: path.join(REPO_ROOT, '.claude', 'agents', 'product-audit', 'orchestrator.md'),
+  },
+];
+
+interface RoutingRow {
+  source: string;
+  glob: string;
+  primary: string;
+  rawLine: string;
+}
+
+function extractRoutingRows(label: string, content: string): RoutingRow[] {
+  const rows: RoutingRow[] = [];
+  const lines = content.split('\n');
+  for (const line of lines) {
+    if (!line.startsWith('|')) continue;
+    // Skip header + separator rows
+    if (/^\|\s*-+/.test(line) || /^\|\s*File\s*(Pattern|Path)/i.test(line)) continue;
+    const cells = line.split('|').map((c) => c.trim());
+    if (cells.length < 3) continue;
+    const globCell = cells[1];
+    const primaryCell = cells[2];
+    if (!globCell || !primaryCell) continue;
+    if (!/`[^`]+`/.test(globCell)) continue; // require a backtick-wrapped glob
+    // A glob cell may contain multiple comma-separated globs.
+    const globTokens = [...globCell.matchAll(/`([^`]+)`/g)].map((m) => m[1]).filter(Boolean);
+    // Primary cell: strip trailing "(note)" prose — take first alphanumeric agent token
+    const primaryMatch = primaryCell.match(/^([a-z][a-z0-9-]+)/i);
+    if (!primaryMatch) continue;
+    const primary = primaryMatch[1];
+    for (const g of globTokens) {
+      if (!g) continue;
+      rows.push({ source: label, glob: g, primary, rawLine: line });
+    }
+  }
+  return rows;
+}
+
+describe('routing-table glob-uniqueness invariant (CLAUDE-HIGH-007)', () => {
+  const allRows: RoutingRow[] = [];
+  for (const file of ROUTING_TABLE_FILES) {
+    if (!fs.existsSync(file.path)) continue;
+    const content = fs.readFileSync(file.path, 'utf8');
+    allRows.push(...extractRoutingRows(file.label, content));
+  }
+
+  const byGlob = new Map<string, RoutingRow[]>();
+  for (const row of allRows) {
+    const key = normalizeGlob(row.glob).replace(/\s*\(.*\)\s*$/, '').trim();
+    const existing = byGlob.get(key) ?? [];
+    existing.push(row);
+    byGlob.set(key, existing);
+  }
+
+  it('no duplicate glob maps to different primary agents across the routing table(s)', () => {
+    const conflicts: string[] = [];
+    for (const [glob, rows] of byGlob.entries()) {
+      if (rows.length < 2) continue;
+      const primaries = new Set(rows.map((r) => r.primary));
+      if (primaries.size < 2) continue; // same primary listed multiple times is fine
+      // Tolerance: if any row contains "delegated from" / "secondary reviewer"
+      // in the raw line, treat that row as a non-primary claim.
+      const untagged = rows.filter(
+        (r) =>
+          !/\b(secondary reviewer|delegated from|delegated-from)\b/i.test(r.rawLine),
+      );
+      const untaggedPrimaries = new Set(untagged.map((r) => r.primary));
+      if (untaggedPrimaries.size >= 2) {
+        const sources = [...new Set(rows.map((r) => r.source))].join(' + ');
+        conflicts.push(
+          `Glob "${glob}" has multiple primary agents [${[...untaggedPrimaries].join(', ')}] across ${sources}`,
+        );
+      }
+    }
+    if (conflicts.length > 0) {
+      const hint =
+        'Exactly one routing row per glob may declare a primary agent. Tag the other row(s) with "delegated from <agent>" or "secondary reviewer" in-cell, or remove the duplicate.';
+      throw new Error(`Routing-table glob conflicts:\n  - ${conflicts.join('\n  - ')}\n\n${hint}`);
+    }
+    expect(conflicts).toEqual([]);
+  });
+});

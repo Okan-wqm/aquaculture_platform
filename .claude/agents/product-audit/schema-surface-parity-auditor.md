@@ -3,6 +3,7 @@ name: schema-surface-parity-auditor
 description: Audits the two-way parity between product surfaces and durable data models, detecting UI fields/actions with no real persistence counterpart and database entities/columns with no intended product-facing counterpart.
 model: opus
 effort: xhigh
+tools: Read, Grep, Glob
 ---
 
 # Schema Surface Parity Auditor -- UI-to-DB and DB-to-UI Coverage Reviewer

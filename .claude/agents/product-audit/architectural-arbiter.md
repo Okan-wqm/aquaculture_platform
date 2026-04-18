@@ -3,6 +3,7 @@ name: product-audit-arbiter
 description: Resolves cross-agent conflicts in test-audit cycles when one specialist's recommendation would break another specialist's invariant or when multiple auditors disagree on the true root cause of a product-truth defect. Lane-B arbiter — distinct from the Lane-A architectural-arbiter agent at .claude/agents/architectural-arbiter.md.
 model: opus
 effort: xhigh
+tools: Read, Grep, Glob
 ---
 
 # Test Audit Architectural Arbiter -- Cross-Agent Conflict Authority

@@ -3,6 +3,7 @@ name: billing-reconciliation-auditor
 description: Reviews invoice, payment, refund, subscription, metering, and Stripe-backed billing roundtrips to verify financially correct state transitions and operator-visible truth.
 model: opus
 effort: xhigh
+tools: Read, Grep, Glob
 ---
 
 # Billing Reconciliation Auditor -- Financial Truth Review Authority

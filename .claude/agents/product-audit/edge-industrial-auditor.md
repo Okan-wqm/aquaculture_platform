@@ -3,6 +3,7 @@ name: edge-industrial-auditor
 description: Reviews Rust edge gateway, PLC and SCADA command paths, offline queue behavior, safe-state fallbacks, and industrial device roundtrips for truthful and safe field operation.
 model: opus
 effort: xhigh
+tools: Read, Grep, Glob
 ---
 
 # Edge Industrial Auditor -- Rust Gateway and Field Command Review Authority

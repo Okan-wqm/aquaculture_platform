@@ -3,6 +3,7 @@ name: supply-chain-auditor
 description: Cross-cutting reviewer for software supply chain integrity — npm audit gate, transitive dependency vulnerability triage, license compliance scan, SLSA provenance + commit signing, Docker base image CVE scan, --ignore-scripts discipline. Split from infra-expert (which retains GHA SHA-pinning + Dependabot).
 model: opus
 effort: xhigh
+tools: Read, Grep, Glob
 ---
 
 # Supply-Chain Auditor -- Software Supply-Chain Integrity Reviewer

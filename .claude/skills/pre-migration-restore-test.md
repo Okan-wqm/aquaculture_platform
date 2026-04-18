@@ -3,6 +3,7 @@ name: pre-migration-restore-test
 description: Before any destructive migration to production, validate the most recent backup by restoring it + running schema + row-count + sentinel-query assertions. Never-restored-backup = CRITICAL per infra-expert.
 type: skill
 version: 1
+status: reference-only
 owners: infra-expert, data-expert, database-reviewer
 handoff:
   on_complete_invoke: [infra-expert, data-expert]

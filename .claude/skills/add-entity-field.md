@@ -3,6 +3,7 @@ name: add-entity-field
 description: Add a new @Column to an existing TypeORM entity with full cascade across DTO, migration, event-contract (additive), test fixture, and tenant-schema sync
 type: skill
 version: 1
+status: reference-only
 owners: data-expert, respective-domain-expert, database-reviewer
 handoff:
   on_complete_invoke: [data-expert, database-reviewer]

@@ -3,6 +3,7 @@ name: run-migration-prod
 description: Execute a migration against production — hard `DATABASE_MIGRATIONS_RUN=false` invariant + per-tenant runner + blue-green 3-step discipline + smoke test + rollback runbook path
 type: skill
 version: 1
+status: reference-only
 owners: infra-expert, data-expert, database-reviewer
 handoff:
   on_complete_invoke: [infra-expert, data-expert, database-reviewer]

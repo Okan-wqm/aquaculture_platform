@@ -3,6 +3,7 @@ name: change-event-contract
 description: Change an existing event contract — additive vs breaking classification, upcaster chain authoring, consumer enumeration via ripple-tracer, dual-publish protocol
 type: skill
 version: 1
+status: reference-only
 owners: data-expert, architectural-arbiter, respective-producer-agent
 handoff:
   on_complete_invoke: [data-expert]

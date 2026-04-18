@@ -3,6 +3,7 @@ name: add-rls-policy
 description: Add a new Postgres Row-Level Security policy to a tenant-scoped or shared table with FORCE ROW LEVEL SECURITY + security_invoker views + test coverage
 type: skill
 version: 1
+status: reference-only
 owners: database-reviewer, auth-security-expert, data-expert
 handoff:
   on_complete_invoke: [database-reviewer, auth-security-expert]

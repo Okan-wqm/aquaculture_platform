@@ -3,6 +3,7 @@ name: add-shared-table
 description: Add a 5th table to the `shared` schema — gated by ADR + architectural-arbiter approval. BLOCKER-15 class.
 type: skill
 version: 1
+status: reference-only
 blocker: BLOCKER-15
 owners: architectural-arbiter, data-expert, database-reviewer
 handoff:

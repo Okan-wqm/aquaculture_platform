@@ -3,6 +3,7 @@ name: provision-tenant
 description: Provision a new tenant via the 7-step saga with advisory locks, module-schema loop, reference-data copy, RLS apply, compensation handlers. BLOCKER-14 class.
 type: skill
 version: 1
+status: reference-only
 blocker: BLOCKER-14
 owners: multi-tenant-saas-expert, auth-security-expert, data-expert
 handoff:

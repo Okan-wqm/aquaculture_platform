@@ -73,3 +73,82 @@ export function isSchemaOwningService(s: string): s is SchemaOwningService {
 export function isPerTenantSchemaService(s: string): s is PerTenantSchemaService {
   return (PER_TENANT_SCHEMA_SERVICES as readonly string[]).includes(s);
 }
+
+/**
+ * Files that live under .claude/agents/** but are NOT dispatchable agents —
+ * README indices, operational runbooks. Used by multiple invariant specs
+ * (active-path-hygiene, doc-cardinality) to filter file-count enumerations.
+ */
+export const NON_AGENT_FILES = ['README.md', 'INVOCATION-PACK.md'] as const;
+
+/**
+ * Active agent dispatch directories — Claude Code CLI auto-discovers
+ * `.claude/agents/**\/*.md` and keys on `name:` frontmatter. Lane-A at root,
+ * Lane-B under product-audit/. agents.legacy/** is explicitly EXEMPT
+ * (dormant per its README; would duplicate active names).
+ */
+export const ACTIVE_AGENT_DIRS = [
+  '.claude/agents',
+  '.claude/agents/product-audit',
+] as const;
+
+/**
+ * File globs subject to active-path hygiene checks (cross-reference
+ * integrity + legacy terminology ban). Historical/archival paths are
+ * excluded by ACTIVE_PATH_EXEMPT_GLOBS.
+ */
+export const ACTIVE_HYGIENE_PATHS = [
+  '.claude/agents',
+  '.claude/agents/product-audit',
+  '.claude/shared',
+  '.claude/knowledge',
+  '.claude/skills',
+] as const;
+
+/**
+ * Root-level files also subject to hygiene checks.
+ */
+export const ACTIVE_HYGIENE_ROOT_FILES = [
+  '.claude/README.md',
+  'CLAUDE.md',
+] as const;
+
+/**
+ * Tokens banned in active paths. Each represents a pre-flatten or pre-CLI
+ * artifact whose re-appearance in live docs signals drift.
+ */
+export const DEAD_TERMINOLOGY_TOKENS = [
+  'test-agents',
+  'agents-enterprise-v2',
+  'npx claude-agent',
+  'tools/scripts/orchestrator-runner',
+] as const;
+
+/**
+ * Evidence-path prefixes recorded in `docs/reviews/_registry/findings.jsonl`
+ * that predate the 2026-04-18 flatten. The sidecar
+ * `docs/reviews/_registry/path-corrections.yaml` maps each to its current
+ * equivalent; finding-registry-integrity.spec.ts asserts every dead-prefix
+ * evidence has a sidecar entry.
+ */
+export const DEAD_EVIDENCE_PATH_PREFIXES = [
+  '.claude/agents-enterprise-v2/',
+  '.claude/test-agents/',
+] as const;
+
+/**
+ * Dynamic placeholder names that appear inline in agent body prose but
+ * resolve at runtime rather than to a static agent file. Treated as valid
+ * by active-path-hygiene cross-reference integrity check.
+ */
+export const DYNAMIC_AGENT_PLACEHOLDERS = [
+  'respective-domain-expert',
+  'respective-producer-agent',
+  'all-consumers',
+  'all-frontend',
+  'primary-destructive-handler-owner',
+  'cross-cutting',
+  'read-only',
+  'maintenance-only',
+  'no-dispatch',
+] as const;

@@ -29,7 +29,7 @@ Generic outbox shape, event-flat pattern, CQRS layering, tenant isolation basics
 ## Primary Ownership
 
 - `apps/messaging-service/**` — channels, messages, outbox, compliance (retention, legal hold, audit), presence, AI bridge, embeddings, partition manager
-- `apps/ai-service/**` — **delegated from ai-safety-auditor** (Phase 9.3 split): chat persistence + conversation lifecycle slice. Claude API safety + cost (token reservation, prompt caching, streaming backpressure, tool whitelisting, output PII scrub) routes to ai-safety-auditor primary. Per-tenant cost emission delegated further to tenant-cost-attribution-agent.
+- `apps/ai-service/**` — **delegated from ai-safety-auditor** (Phase 9.3 split): chat persistence + conversation lifecycle slice. Claude API safety + cost (token reservation, prompt caching, streaming backpressure, tool whitelisting, output PII scrub) routes to ai-safety-auditor primary. Per-tenant cost emission delegated further to tenant-cost-attribution-expert.
 - `platform/libs/outbox/**` — **secondary reviewer** (primary: data-expert). Messaging is the first production consumer, so messaging-expert catches consumer-side regressions (idempotency, ordering, dedup); kernel-level changes (entity base, worker, publisher, metrics) route primary to data-expert.
 
 Read-only reference: `libs/event-contracts/src/`, `libs/backend-common/`. Out of scope: other `apps/*/`, `web/`, `infrastructure/`, `sens-api-gateway/`.

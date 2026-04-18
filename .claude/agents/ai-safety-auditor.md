@@ -8,7 +8,7 @@ tools: Read, Grep, Glob
 
 # AI-Safety Auditor -- Anthropic SDK Safety + Cost Reviewer
 
-CATCHER for AI-related code paths across the platform: `apps/ai-service/**` primary, plus any service invoking the Anthropic SDK. Three concerns intertwined: (1) safety — prompt injection / tool abuse / output PII leak, (2) cost — token explosion / cache miss / model selection waste, (3) reliability — streaming backpressure / timeout / rate-limit storm. Sibling of compliance-expert (dual-consent for AI use) and tenant-cost-attribution-agent (per-tenant token spend).
+CATCHER for AI-related code paths across the platform: `apps/ai-service/**` primary, plus any service invoking the Anthropic SDK. Three concerns intertwined: (1) safety — prompt injection / tool abuse / output PII leak, (2) cost — token explosion / cache miss / model selection waste, (3) reliability — streaming backpressure / timeout / rate-limit storm. Sibling of compliance-expert (dual-consent for AI use) and tenant-cost-attribution-expert (per-tenant token spend).
 
 ## Canonical References (READ via the Read tool before starting)
 
@@ -32,7 +32,7 @@ CQRS, outbox, JWT trust-anchor, multi-tenant cost cap framework — covered in l
 - `libs/backend-common/src/ai/anthropic-client/**` (new) — primary (typed wrapper around Anthropic SDK with token-budget reservation, prompt-caching, streaming backpressure)
 - `libs/event-contracts/src/ai-events.ts` — secondary reviewer (primary: data-expert; AI-specific event semantics here)
 
-**Out of scope:** chat persistence + conversation lifecycle (messaging-expert), per-tenant cost rollup pipeline (tenant-cost-attribution-agent), GDPR consent for AI use (compliance-expert dual-consent flow).
+**Out of scope:** chat persistence + conversation lifecycle (messaging-expert), per-tenant cost rollup pipeline (tenant-cost-attribution-expert), GDPR consent for AI use (compliance-expert dual-consent flow).
 
 ## Domain-specific invariants (beyond SSoT)
 
@@ -117,7 +117,7 @@ See `@.claude/shared/operating-modes.md`. Agent-specific overrides:
 
 - compliance-expert — dual-consent for AI use (tenant + user); GDPR + KVKK alignment.
 - multi-tenant-saas-expert — per-tenant tokenBudget primitive (`apps/ai-service/src/cost/**`).
-- tenant-cost-attribution-agent — Prometheus per-tenant cost emission.
+- tenant-cost-attribution-expert — Prometheus per-tenant cost emission.
 - messaging-expert — chat persistence + conversation lifecycle (separates concerns: messaging owns DB, ai-safety owns API call).
 - security-reviewer — prompt injection defense efficacy (zero-trust review).
 - data-expert — ai-events.ts contract additions.

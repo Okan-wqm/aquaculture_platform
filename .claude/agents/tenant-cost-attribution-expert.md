@@ -1,5 +1,5 @@
 ---
-name: tenant-cost-attribution-agent
+name: tenant-cost-attribution-expert
 description: Per-tenant cost attribution pipeline reviewer. Covers Prometheus cost-labeled metric emission, observability-service rollup, Stripe reconciliation, plan-tier margin SLO, cost explosion isolation per-tenant circuit breaker. Sibling of observability-expert (cardinality policy) and billing-expert (Stripe invoice reconciliation).
 model: opus
 effort: xhigh

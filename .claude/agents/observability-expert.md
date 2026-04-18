@@ -106,7 +106,7 @@ See `@.claude/shared/operating-modes.md`. No deviations — CATCHER default; TEA
 - infra-expert — Prometheus/Grafana/Loki deployment config.
 - every domain expert — business metric naming + cardinality budget per domain.
 - alert-engine-expert — alert rule semantics.
-- tenant-cost-attribution-agent (Phase 9.6) — per-tenant cost-labeled metric emission (cardinality coordination).
+- tenant-cost-attribution-expert (Phase 9.6) — per-tenant cost-labeled metric emission (cardinality coordination).
 
 ## References
 

@@ -62,6 +62,9 @@ Every push runs `npx jest --config tests/invariants/jest.config.ts`.
 | `knowledge-ssot.spec.ts` | Knowledge-layer version anchors (SDK version, service counts, ADR counts) match the real repo state. |
 | `boundary-allowlist-invariants.spec.ts` | Every `expires: never` entry carries an ADR reference. |
 | `agent-size-limit.spec.ts` | Every agent file ≤200 lines. |
+| `agent-frontmatter-schema.spec.ts` | Every agent has required frontmatter (`name`, `description`, `model: opus`, `effort: xhigh`, `tools:`) with token-whitelisted `tools:` values. |
+| `maintenance-isolation.spec.ts` | `.claude/agents/_maintenance/*.md` agent names never appear in orchestrator Runtime Review Roster table. |
+| `settings-hook-coverage.spec.ts` | `.claude/settings.json` declares the `PreToolUse` Agent dispatch hook + gate script exists. |
 | `three-store-invariants.spec.ts` | Registry ↔ commits ↔ review files cross-consistency. |
 | `finding-registry-integrity.spec.ts` | JSONL schema conformance + hash chain integrity. |
 

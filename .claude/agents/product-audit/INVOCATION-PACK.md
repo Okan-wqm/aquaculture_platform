@@ -1,6 +1,6 @@
-# Test Agents Invocation Pack
+# Lane-B Product-Audit Invocation Pack
 
-This file defines how to run the `test-agents` set in a repeatable, enterprise-style way.
+This file defines how to run the Lane-B product-audit set in a repeatable, enterprise-style way.
 
 The goal is not "run random reviewers until we have a lot of notes."
 The goal is to produce bounded, high-signal audit cycles that answer:
@@ -269,7 +269,7 @@ Run:
 Use this as the orchestrator brief:
 
 ```text
-Run a strict review-only test-agents audit for topic `{YYYY-MM-DD}-full-platform-e2e`.
+Run a strict review-only Lane-B product-audit for topic `{YYYY-MM-DD}-full-platform-e2e`.
 Goal: verify end-to-end product truth across web, mobile, API, persistence, read-back, visibility, tenant isolation, access boundaries, tables, charts, exports, files, and live/sync surfaces.
 Primary outputs:
 - docs/test-audits/orchestrator/{YYYY-MM-DD}-full-platform-e2e.md
@@ -283,7 +283,7 @@ Reopen specialist reports only when exact evidence is needed for preserved CRITI
 ### Template B: CRUD Roundtrip Sweep
 
 ```text
-Run a strict review-only test-agents audit for topic `{YYYY-MM-DD}-{surface}-crud-roundtrip`.
+Run a strict review-only Lane-B product-audit for topic `{YYYY-MM-DD}-{surface}-crud-roundtrip`.
 Goal: verify create/edit/delete/archive/restore flows from UI action to persistence to read-back to visible product state.
 Prioritize form-write, data-readback, list-visibility, workflow-state, contract parity, schema parity, and tenant isolation.
 ```
@@ -291,7 +291,7 @@ Prioritize form-write, data-readback, list-visibility, workflow-state, contract 
 ### Template C: Dashboard Truth Sweep
 
 ```text
-Run a strict review-only test-agents audit for topic `{YYYY-MM-DD}-{surface}-truth`.
+Run a strict review-only Lane-B product-audit for topic `{YYYY-MM-DD}-{surface}-truth`.
 Goal: verify that tables, charts, KPI cards, widgets, exports, and drill-down surfaces reflect real backend or calculated truth.
 Prioritize table-grid, chart-widget, file-transfer, data-readback, list-visibility, schema-surface parity, and tenant isolation.
 ```
@@ -299,7 +299,7 @@ Prioritize table-grid, chart-widget, file-transfer, data-readback, list-visibili
 ### Template D: Mobile Offline Sweep
 
 ```text
-Run a strict review-only test-agents audit for topic `{YYYY-MM-DD}-aquamobil-offline-sync`.
+Run a strict review-only Lane-B product-audit for topic `{YYYY-MM-DD}-aquamobil-offline-sync`.
 Goal: verify mobile create/edit/read flows across offline drafts, queued writes, reconnect, sync status, notifications, cached views, access boundaries, and tenant isolation.
 Prioritize mobile-app, realtime-sync, form-write, data-readback, list-visibility, tenant-isolation, and access-boundary.
 ```

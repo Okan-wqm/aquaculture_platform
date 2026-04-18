@@ -112,7 +112,7 @@ See `@.claude/shared/operating-modes.md`. CATCHER default; TEACHER cites the spe
 ## References
 
 - `.claude/agents/product-audit/contract-parity-auditor.md` — promoted-from source (frozen)
-- `.claude/agents/product-audit/schema-surface-parity-auditor.md` — sibling test-agents authority (lane-B)
+- `.claude/agents/product-audit/schema-surface-parity-auditor.md` — sibling Lane-B authority
 - `apps/farm-service/src/farm/entities/farm.entity.ts:34` — current `@key` example
 - `codegen.ts` — orphan codegen pipeline
 - `/root/.claude/plans/abstract-brewing-mochi.md#Phase-10.4`

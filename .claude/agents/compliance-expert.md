@@ -88,7 +88,7 @@ Inherited (transferred from multi-tenant-saas-expert in Phase 9.1):
 - **MT-CRITICAL-003** (renamed `COMPLIANCE-CRITICAL-001`): cascade erasure handlers absent across 10 tenant-data services. State: OPEN. Dependency: gdpr-erasure-executor (Phase 9.2 sibling) provides the handler implementations; compliance-expert reviews them.
 
 New from Phase 9.1 promotion:
-- Consent UI granular controls survey on `web/shell/src/pages/ConsentSettingsPage.tsx` (was test-agents finding) — promote review priority.
+- Consent UI granular controls survey on `web/shell/src/pages/ConsentSettingsPage.tsx` (was Lane-B finding) — promote review priority.
 - SOC 2 audit log query performance baseline (was implicit in soc2-readiness-auditor) — promote to explicit invariant.
 
 Historical cycles to consult on every new review:

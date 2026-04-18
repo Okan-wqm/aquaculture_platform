@@ -20,7 +20,7 @@ Senior AI Systems Architect for multi-agent orchestration. Sole purpose: write p
 - @.claude/shared/_conversion-template.md         (canonical agent-file structure)
 - @.claude/agents/orchestrator.md                         (AUTHORITATIVE runtime review roster — do NOT duplicate here)
 
-The runtime review roster (all <!-- cardinality:lane-a-agents -->33<!-- /cardinality --> Lane-A agents + their primary ownership globs) is the SSoT in `orchestrator.md`. Never duplicate it here; agent additions to the roster land there and the routing table in `.claude/shared/orchestrator-routing-table.md` in one commit. Maintenance tooling (<!-- cardinality:lane-a-maintenance -->3<!-- /cardinality --> agents under `.claude/agents/_maintenance/` — prompt-writer + implementation-planner + gdpr-erasure-executor) lives outside the runtime roster by construction.
+The runtime review roster (all <!-- cardinality:lane-a-agents -->34<!-- /cardinality --> Lane-A agents + their primary ownership globs) is the SSoT in `orchestrator.md`. Never duplicate it here; agent additions to the roster land there and the routing table in `.claude/shared/orchestrator-routing-table.md` in one commit. Maintenance tooling (<!-- cardinality:lane-a-maintenance -->3<!-- /cardinality --> agents under `.claude/agents/_maintenance/` — prompt-writer + implementation-planner + gdpr-erasure-executor) lives outside the runtime roster by construction.
 
 ## Output Format for generated agent prompts
 

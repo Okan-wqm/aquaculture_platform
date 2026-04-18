@@ -305,6 +305,27 @@ describe('orchestrator routing coverage invariant', () => {
   });
 
   /**
+   * Phase 4.5 mechanical-trigger clause invariant (CLAUDE-MEDIUM-009).
+   *
+   * The orchestrator-phases.md § Phase 4.5 prose must contain an explicit
+   * "MUST dispatch root-cause-auditor when" clause. Silent prose removal
+   * is the CLAUDE-MEDIUM-009 failure mode — Phase 4.5 dispatch becomes
+   * discretionary again and tier-claim verification degrades.
+   */
+  it('Phase 4.5 prose contains the mechanical root-cause-auditor dispatch clause', () => {
+    const phasesPath = path.join(REPO_ROOT, '.claude', 'shared', 'orchestrator-phases.md');
+    const content = fs.existsSync(phasesPath) ? fs.readFileSync(phasesPath, 'utf8') : '';
+    const hasClause = /MUST dispatch\s+`?root-cause-auditor`?/i.test(content);
+    if (!hasClause) {
+      throw new Error(
+        'orchestrator-phases.md is missing the "MUST dispatch root-cause-auditor when ..." clause. ' +
+          'Restore the clause in § Phase 4.5; its removal turns mechanical trigger back into prose-only guidance.',
+      );
+    }
+    expect(hasClause).toBe(true);
+  });
+
+  /**
    * Reverse coverage — every roster agent must be reachable from at least
    * one glob cell (primary OR also-notify) across Lane-A routing table
    * AND Lane-B product-audit/orchestrator.md Phase 1 table.

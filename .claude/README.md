@@ -8,7 +8,7 @@ README for deeper detail.
 
 | Path | Purpose |
 |---|---|
-| `agents/` | Lane-A (code-quality) agent roster — <!-- cardinality:lane-a-agents -->33<!-- /cardinality --> domain + cross-cutting experts. Claude Code auto-discovers these. |
+| `agents/` | Lane-A (code-quality) agent roster — <!-- cardinality:lane-a-agents -->34<!-- /cardinality --> domain + cross-cutting experts. Claude Code auto-discovers these. |
 | `agents/_maintenance/` | Out-of-runtime maintenance tooling — <!-- cardinality:lane-a-maintenance -->3<!-- /cardinality --> agents (prompt-writer, implementation-planner, gdpr-erasure-executor). Auto-discovered by loader but excluded from runtime dispatch by the `maintenance-isolation` invariant. |
 | `agents/product-audit/` | Lane-B (product-quality) roster — <!-- cardinality:lane-b-active-agents -->22<!-- /cardinality --> active UI/E2E/tenant-surface auditors. <!-- cardinality:lane-b-legacy -->4<!-- /cardinality --> deprecated files retired to `agents.legacy/product-audit/` on 2026-04-18. Meta-agents carry a `product-audit-*` name prefix to stay globally unique vs Lane-A. |
 | `agents.legacy/` | Archived pre-2026-04-16 agent set — <!-- cardinality:lane-a-legacy -->20<!-- /cardinality --> Lane-A files (`platform-services.md` added 2026-04-18) + 4 Lane-B deprecated files under `product-audit/`. Retained for historical review traceability. Loader does NOT scan this directory. |

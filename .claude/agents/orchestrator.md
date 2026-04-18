@@ -95,6 +95,7 @@ All agents use `opus` with `effort: xhigh` per platform policy. This table is th
 | contract-parity-enforcer | Cross-cutting API contract drift — OpenAPI ↔ NestJS Router, GraphQL subgraph schema ↔ resolver, sensorprotocols ↔ Rust adapter, event-contract consumer drift. Promoted from agents/product-audit/contract-parity-auditor |
 | circuit-breaker-auditor | Cross-cutting resilience — every external-dependency call wrapped in breaker, per-tenant keying for isolation, fail-CLOSED for billable/auth, fail-OPEN-degraded for non-critical |
 | memory-leak-auditor | Cross-cutting memory-leak pattern review — heap growth, event listener orphans, unbounded Map/cache, WebSocket connection leaks, Rust spawn discipline |
+| build-validator | Cross-cutting build + type-check quality gate. Dispatches on any diff touching apps/, libs/, platform/, web/. Runs `nx affected --target=build` + `npm run type-check`; `BUILD-CRITICAL-*` blocks merge |
 
 ## Auxiliary Maintenance Tooling
 

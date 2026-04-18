@@ -4,5 +4,18 @@
       "Read(./.env)",
       "Read(./.env.*)"
     ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node --experimental-strip-types --disable-warning=ExperimentalWarning $CLAUDE_PROJECT_DIR/tools/gates/agent-dispatch-gate.ts"
+          }
+        ]
+      }
+    ]
   }
 }

@@ -111,6 +111,7 @@ export default {
         '<rootDir>/agent-size-limit.spec.ts',
         '<rootDir>/agent-frontmatter-schema.spec.ts',
         '<rootDir>/maintenance-isolation.spec.ts',
+        '<rootDir>/settings-hook-coverage.spec.ts',
         '<rootDir>/active-path-hygiene.spec.ts',
         '<rootDir>/doc-cardinality.spec.ts',
         '<rootDir>/skills-catalog.spec.ts',

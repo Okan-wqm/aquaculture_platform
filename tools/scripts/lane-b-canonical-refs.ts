@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env ts-node
 /**
  * Lane-B Canonical References injector — Phase 5 of
  * /root/.claude/plans/synthetic-dazzling-hippo.md.
@@ -25,34 +25,33 @@
  * injection is skipped.
  *
  * Usage:
- *   node tools/scripts/lane-b-canonical-refs.mjs [--dry-run]
+ *   npx ts-node --project tools/gates/tsconfig.json tools/scripts/lane-b-canonical-refs.ts [--dry-run]
  */
 
 import { readFileSync, writeFileSync, readdirSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, resolve, join } from 'node:path';
+import { resolve, join } from 'node:path';
 
-const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+const REPO_ROOT = resolve(__dirname, '..', '..');
 const LANE_B = resolve(REPO_ROOT, '.claude', 'test-agents');
 const SSOT_PREAMBLE = `Cross-cutting knowledge lives in SSoT files. The \`@\` prefix on each line below is
 a READER BOOKMARK — Claude Code does NOT auto-import agent body content (only
 \`CLAUDE.md\` honors \`@\`-includes). Use the Read tool to load each file at the
 start of every invocation. See \`.claude/README.md\` § Runtime invocation paths.`;
 
-const COMMON_SHARED = [
+const COMMON_SHARED: readonly string[] = [
   '@.claude/knowledge/layer-2-patterns.md          (CQRS, Outbox, tenant isolation)',
   '@.claude/knowledge/layer-3-adrs.md              (ADR index)',
   '@.claude/agents-enterprise-v2/_shared/operating-modes.md',
   '@.claude/agents-enterprise-v2/_shared/output-format.md',
 ];
 
-const GROUP_UI = [
+const GROUP_UI: readonly string[] = [
   '@.claude/knowledge/layer-1-core.md              (TS + Nx + Jest base)',
   '@.claude/knowledge/layer-1-react.md             (React, TanStack Query, Module Federation)',
   ...COMMON_SHARED,
 ];
 
-const GROUP_ROUNDTRIP = [
+const GROUP_ROUNDTRIP: readonly string[] = [
   '@.claude/knowledge/layer-1-core.md              (TS + Nx + Jest base)',
   '@.claude/knowledge/layer-1-react.md             (React, TanStack Query, Module Federation)',
   '@.claude/knowledge/layer-1-nestjs.md            (NestJS guards/DTOs/controllers)',
@@ -60,20 +59,20 @@ const GROUP_ROUNDTRIP = [
   ...COMMON_SHARED,
 ];
 
-const GROUP_BACKEND = [
+const GROUP_BACKEND: readonly string[] = [
   '@.claude/knowledge/layer-1-core.md              (TS + Nx + Jest base)',
   '@.claude/knowledge/layer-1-nestjs.md            (NestJS guards/DTOs/controllers)',
   '@.claude/knowledge/layer-1-typeorm.md           (TypeORM entities, TenantScopedRepository)',
   ...COMMON_SHARED,
 ];
 
-const GROUP_EDGE = [
+const GROUP_EDGE: readonly string[] = [
   '@.claude/knowledge/layer-1-core.md              (TS + Nx + Jest base)',
   '@.claude/knowledge/layer-1-rust.md              (Rust 1.83, Tokio, FFI discipline)',
   ...COMMON_SHARED,
 ];
 
-const GROUPS = {
+const GROUPS: Record<string, readonly string[]> = {
   // UI auditors — UI-only or mostly-UI
   'accessibility-auditor': GROUP_UI,
   'button-action-auditor': GROUP_UI,
@@ -99,7 +98,7 @@ const GROUPS = {
   'edge-industrial-auditor': GROUP_EDGE,
 };
 
-const SKIP = new Set([
+const SKIP = new Set<string>([
   'README.md',
   'INVOCATION-PACK.md',
   'orchestrator.md',
@@ -113,7 +112,7 @@ const SKIP = new Set([
 
 const dryRun = process.argv.includes('--dry-run');
 
-function buildSection(refs) {
+function buildSection(refs: readonly string[]): string {
   return (
     '## Canonical References (READ via the Read tool before starting)\n\n' +
     SSOT_PREAMBLE +
@@ -123,7 +122,7 @@ function buildSection(refs) {
   );
 }
 
-function injectAfterTitle(content, section) {
+function injectAfterTitle(content: string, section: string): string {
   // Locate the first `##` heading; insert `section` immediately before it.
   // Expected shape: frontmatter → blank → `# Title` → blank → intro lines → `## Operating Mode`
   const firstH2 = content.indexOf('\n## ');

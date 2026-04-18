@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env ts-node
 /**
  * Seed the 15 CLAUDE-* findings from the 2026-04-18 enterprise-v2 audit into
  * docs/reviews/_registry/findings.jsonl. Idempotent: entries are added only
@@ -12,15 +12,14 @@
  * through tools/gates/finding-registry.ts close.
  *
  * Usage:
- *   node tools/scripts/seed-claude-audit-findings.mjs [--dry-run]
+ *   npx ts-node --project tools/gates/tsconfig.json tools/scripts/seed-claude-audit-findings.ts [--dry-run]
  */
 
 import { createHash } from 'node:crypto';
 import { writeFileSync, existsSync, readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, resolve } from 'node:path';
+import { resolve } from 'node:path';
 
-const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+const REPO_ROOT = resolve(__dirname, '..', '..');
 const REGISTRY = resolve(REPO_ROOT, 'docs', 'reviews', '_registry', 'findings.jsonl');
 const ZERO_HASH = '0'.repeat(64);
 
@@ -28,8 +27,41 @@ const AUDIT_FILE = 'docs/reviews/context-manager/2026-04-18-enterprise-v2-audit.
 const AUDIT_CYCLE = '2026-04-18-enterprise-v2-audit';
 const RAISED_AT = '2026-04-18T00:00:00Z';
 
-function mk(id, severity, layer, title, evidence, ruleViolated, notes) {
-  const entry = {
+type Severity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+type Layer = 1 | 2 | 3 | null;
+
+interface FindingEntry {
+  id: string;
+  severity: Severity;
+  state: 'OPEN' | 'IN-PROGRESS' | 'RESOLVED' | 'STALE' | 'BLOCKED';
+  title: string;
+  evidence: string[];
+  rule_violated: string;
+  owner_agent: string;
+  raised_in_cycle: string;
+  review_file: string;
+  created_at: string;
+  closed_at: string | null;
+  closing_commits: string[];
+  deadline: string | null;
+  owner_user: string | null;
+  override_of: string | null;
+  notes: string;
+  layer?: 1 | 2 | 3;
+  prev_hash?: string;
+  content_hash?: string;
+}
+
+function mk(
+  id: string,
+  severity: Severity,
+  layer: Layer,
+  title: string,
+  evidence: string[],
+  ruleViolated: string,
+  notes: string,
+): FindingEntry {
+  const entry: FindingEntry = {
     id,
     severity,
     state: 'OPEN',
@@ -56,7 +88,7 @@ function mk(id, severity, layer, title, evidence, ruleViolated, notes) {
   return entry;
 }
 
-const entries = [
+const entries: FindingEntry[] = [
   mk(
     'CLAUDE-CRITICAL-001',
     'CRITICAL',
@@ -174,9 +206,7 @@ const entries = [
     'MEDIUM',
     3,
     'Skills deprecation frontmatter (status, superseded_by) documented but not enforced by any invariant',
-    [
-      '.claude/skills/README.md:90',
-    ],
+    ['.claude/skills/README.md:90'],
     '.claude/skills/README.md § Skill lifecycle',
     'Fix direction: covered by skills-catalog.spec.ts landing (see CLAUDE-HIGH-001 and CLAUDE-MEDIUM-002 overlap).',
   ),
@@ -197,10 +227,7 @@ const entries = [
     'MEDIUM',
     1,
     'layer-1-ai.md Claude Agent SDK version anchor not verified against package.json',
-    [
-      '.claude/knowledge/layer-1-ai.md:3',
-      'package.json:1',
-    ],
+    ['.claude/knowledge/layer-1-ai.md:3', 'package.json:1'],
     'knowledge-ssot.spec.ts covers 4 other anchors; AI anchor uncovered',
     'Fix direction: extend knowledge-ssot.spec.ts with layer-1-ai describe block.',
   ),
@@ -221,9 +248,7 @@ const entries = [
     'LOW',
     3,
     '.claude/agents.legacy/ loader exclusion not asserted by any test',
-    [
-      '.claude/agents.legacy/README.md:3',
-    ],
+    ['.claude/agents.legacy/README.md:3'],
     'Defensive invariant absent',
     'Fix direction: superseded by CLAUDE-CRITICAL-001 new agent-name-uniqueness.spec.ts which walks the whole .claude/ tree.',
   ),
@@ -232,9 +257,7 @@ const entries = [
     'LOW',
     null,
     'add-entity-field.md cites non-existent create-entity skill',
-    [
-      '.claude/skills/add-entity-field.md:19',
-    ],
+    ['.claude/skills/add-entity-field.md:19'],
     'Dangling reference — listed skill does not exist on disk',
     'Fix direction: remove the "use create-entity skill for that" phrase.',
   ),
@@ -243,43 +266,45 @@ const entries = [
     'LOW',
     null,
     'platform-services.md contains untranslated Turkish paragraph inside an otherwise-English corpus',
-    [
-      '.claude/agents-enterprise-v2/platform-services.md:12',
-    ],
+    ['.claude/agents-enterprise-v2/platform-services.md:12'],
     'Corpus language consistency',
     'Fix direction: translate during Phase 1c archival commit.',
   ),
 ];
 
-function canonicalJson(value) {
+function canonicalJson(value: unknown): string {
   if (value === null || typeof value !== 'object') return JSON.stringify(value);
   if (Array.isArray(value)) return '[' + value.map(canonicalJson).join(',') + ']';
-  const keys = Object.keys(value).sort();
-  return '{' + keys.map((k) => JSON.stringify(k) + ':' + canonicalJson(value[k])).join(',') + '}';
+  const obj = value as Record<string, unknown>;
+  const keys = Object.keys(obj).sort();
+  return '{' + keys.map((k) => JSON.stringify(k) + ':' + canonicalJson(obj[k])).join(',') + '}';
 }
 
-function sha256hex(s) {
+function sha256hex(s: string): string {
   return createHash('sha256').update(s, 'utf8').digest('hex');
 }
 
-function rechain(all, startIndex) {
-  let prev = startIndex === 0 ? ZERO_HASH : all[startIndex - 1].content_hash;
+function rechain(all: FindingEntry[], startIndex: number): void {
+  let prev =
+    startIndex === 0 ? ZERO_HASH : all[startIndex - 1]?.content_hash ?? ZERO_HASH;
   for (let i = startIndex; i < all.length; i++) {
-    all[i].prev_hash = prev;
-    const { content_hash: _ignore, ...forHash } = all[i];
-    all[i].content_hash = sha256hex(canonicalJson(forHash));
-    prev = all[i].content_hash;
+    const entry = all[i];
+    if (!entry) continue;
+    entry.prev_hash = prev;
+    const { content_hash: _ignore, ...forHash } = entry;
+    entry.content_hash = sha256hex(canonicalJson(forHash));
+    prev = entry.content_hash;
   }
 }
 
 const dryRun = process.argv.includes('--dry-run');
 
-const existing = existsSync(REGISTRY)
+const existing: FindingEntry[] = existsSync(REGISTRY)
   ? readFileSync(REGISTRY, 'utf8')
       .trim()
       .split('\n')
       .filter(Boolean)
-      .map((l) => JSON.parse(l))
+      .map((l) => JSON.parse(l) as FindingEntry)
   : [];
 
 const existingIds = new Set(existing.map((e) => e.id));
@@ -295,11 +320,13 @@ rechain(all, existing.length);
 
 if (dryRun) {
   console.log(`DRY RUN: would append ${toAdd.length} entries.`);
-  console.log(`Chain tip would be: ${all[all.length - 1].content_hash}`);
+  const tip = all[all.length - 1];
+  if (tip) console.log(`Chain tip would be: ${tip.content_hash}`);
   process.exit(0);
 }
 
 const out = all.map((e) => JSON.stringify(e)).join('\n') + '\n';
 writeFileSync(REGISTRY, out, 'utf8');
 console.log(`Appended ${toAdd.length} CLAUDE-* findings. Registry size: ${all.length}.`);
-console.log(`Chain tip: ${all[all.length - 1].content_hash}`);
+const tip = all[all.length - 1];
+if (tip) console.log(`Chain tip: ${tip.content_hash}`);

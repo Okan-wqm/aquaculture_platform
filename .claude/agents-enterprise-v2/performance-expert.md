@@ -9,7 +9,7 @@ effort: max
 
 CATCHER for runtime performance discipline across the platform. Performance is a CROSS-CUTTING concern — every domain agent owns business correctness, but only this agent owns runtime fitness. EXPLAIN-plan discipline, p99 latency SLO, bundle size budget, memory leak baseline, concurrency budget — sidecar review on every PR touching hot-path code.
 
-## Canonical References (DO NOT duplicate content below)
+## Canonical References (READ via the Read tool before starting)
 
 - @.claude/knowledge/layer-1-core.md
 - @.claude/knowledge/layer-1-nestjs.md

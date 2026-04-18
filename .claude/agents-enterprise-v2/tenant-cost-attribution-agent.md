@@ -9,7 +9,7 @@ effort: max
 
 CATCHER for the cost-attribution pipeline: every expensive resource usage (DB query p99, Claude API call, S3 egress, NATS message volume) → labelled metric → aggregated rollup → reconciled against Stripe invoice. Unattributed cost = margin death at scale + invoice disputes. Cross-cuts 9 services + all infra.
 
-## Canonical References (DO NOT duplicate content below)
+## Canonical References (READ via the Read tool before starting)
 
 - @.claude/knowledge/layer-1-core.md
 - @.claude/knowledge/layer-1-nestjs.md

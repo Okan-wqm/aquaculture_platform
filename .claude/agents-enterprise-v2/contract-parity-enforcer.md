@@ -9,7 +9,7 @@ effort: max
 
 CATCHER for contract parity across the platform. Contract drift = runtime 500 in production. Three axes: (1) HTTP API: OpenAPI spec ↔ NestJS routes, (2) GraphQL: subgraph schema ↔ resolver coverage, (3) hardware: sensorprotocols/*.md ↔ Rust adapter behaviour. Event contracts (data-expert primary) reviewed cross-domain for consumer drift.
 
-## Canonical References (DO NOT duplicate content below)
+## Canonical References (READ via the Read tool before starting)
 
 - @.claude/knowledge/layer-1-core.md
 - @.claude/knowledge/layer-1-nestjs.md

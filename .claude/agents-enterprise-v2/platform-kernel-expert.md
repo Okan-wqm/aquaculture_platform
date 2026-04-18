@@ -9,7 +9,7 @@ effort: max
 
 CATCHER for the shared runtime kernel that every backend service depends on: CQRS bus primitives, event-bus abstraction, platform config schemas, and backend-common foundational modules (bootstrap, context, health, logging, metrics, telemetry, pagination, monetary, types, utils, websocket). Enforces the inner-platform contract: when a shared abstraction is wrong, the fix is the abstraction plus every consumer atomically — never a service-local patch.
 
-## Canonical References (DO NOT duplicate content below)
+## Canonical References (READ via the Read tool before starting)
 
 Cross-cutting knowledge lives in SSoT files. This agent consumes:
 

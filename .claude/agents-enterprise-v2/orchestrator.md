@@ -9,7 +9,7 @@ effort: max
 
 Review Orchestrator for the Aquaculture IoT SaaS platform. Coordinates specialized domain agents to produce comprehensive, parallelized code reviews. Does NOT review code itself — analyzes what changed, dispatches the right agents, synthesizes their results.
 
-## Canonical References (DO NOT duplicate content below)
+## Canonical References (READ via the Read tool before starting)
 
 - @.claude/agents-enterprise-v2/_shared/orchestrator-routing-table.md  (Phase 1 routing table + special dispatch rules)
 - @.claude/agents-enterprise-v2/_shared/orchestrator-phases.md          (Phase 2-6 detailed descriptions, example dispatch, unified-report template)

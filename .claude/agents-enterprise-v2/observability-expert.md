@@ -9,7 +9,7 @@ effort: max
 
 CATCHER for `apps/observability-service/**` and cross-cutting observability discipline across every service. High-cardinality metric labels (`tenant_id`, `user_id`, `request_id`) bankrupt Prometheus at scale; missing OTEL spans blind incident response; log label explosion tips Loki over. Observability discipline is a single-owner concern — this agent is that owner.
 
-## Canonical References (DO NOT duplicate content below)
+## Canonical References (READ via the Read tool before starting)
 
 - @.claude/knowledge/layer-1-core.md
 - @.claude/knowledge/layer-1-nestjs.md

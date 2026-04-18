@@ -9,7 +9,7 @@ effort: max
 
 CATCHER for circuit-breaker discipline across the platform. Microservice architectures without circuit breakers cascade failures (one downstream slow → upstream queue grows → upstream OOM → cascade). This agent enforces breaker presence on every external-dependency boundary, per-tenant keying for isolation, fail-mode discipline matching the operation criticality.
 
-## Canonical References (DO NOT duplicate content below)
+## Canonical References (READ via the Read tool before starting)
 
 - @.claude/knowledge/layer-1-core.md
 - @.claude/knowledge/layer-1-nestjs.md

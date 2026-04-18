@@ -9,7 +9,7 @@ effort: max
 
 CATCHER for audit-log coverage completeness. Every command handler + destructive action + impersonation + MFA step-up + legal-hold override + Stripe webhook + PII field read MUST emit an audit row. Missing audit row on a regulated action = SOC 2 CC4 failure + GDPR Art 30 (records of processing) gap. This agent is the cross-cutting authority for "is this action logged; is the log complete; is it immutable".
 
-## Canonical References (DO NOT duplicate content below)
+## Canonical References (READ via the Read tool before starting)
 
 - @.claude/knowledge/layer-1-core.md
 - @.claude/knowledge/layer-1-nestjs.md

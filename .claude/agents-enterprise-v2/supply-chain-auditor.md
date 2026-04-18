@@ -9,7 +9,7 @@ effort: max
 
 CATCHER for the supply-chain attack surface. infra-expert keeps SHA-pinning + Dependabot scheduling (operationally adjacent to GHA workflows), while this agent owns the dependency-tree audit, transitive vulnerability triage, license compliance, and SLSA provenance discipline. Supply-chain is the #1 attack vector in 2024/2025 — single-owner sign-off is a CC6/PI1 SOC 2 control alignment.
 
-## Canonical References (DO NOT duplicate content below)
+## Canonical References (READ via the Read tool before starting)
 
 - @.claude/knowledge/layer-1-core.md
 - @.claude/knowledge/layer-1-nestjs.md

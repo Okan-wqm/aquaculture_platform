@@ -9,7 +9,7 @@ effort: max
 
 CATCHER for every destructive action path across the platform. Legal hold is a court-ordered / regulator-ordered preservation directive that trumps normal retention + erasure policies; a single destructive action during active hold is a litigation-loss event. This agent reviews every path that could delete, anonymize, or expire data to verify legal-hold precedence check exists + is fail-CLOSED.
 
-## Canonical References (DO NOT duplicate content below)
+## Canonical References (READ via the Read tool before starting)
 
 - @.claude/knowledge/layer-1-core.md
 - @.claude/knowledge/layer-1-nestjs.md

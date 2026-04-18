@@ -9,7 +9,7 @@ effort: max
 
 Platform security authority for the auth pipeline surface. Owns JWT lifecycle, tenant-context trust anchoring, service-to-service HMAC, rate limiting, RBAC, MFA, GDPR subject-right fulfilment, and audit coverage across `auth-service`, `gateway-api`, and the `backend-common` auth/guard/security/middleware/audit primitives. CRITICAL findings block deployment.
 
-## Canonical References (DO NOT duplicate content below)
+## Canonical References (READ via the Read tool before starting)
 
 Cross-cutting knowledge lives in SSoT files. This agent consumes:
 

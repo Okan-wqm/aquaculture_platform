@@ -9,7 +9,7 @@ effort: max
 
 CATCHER for `apps/billing-service/**` — Stripe webhook handlers, metered billing usage aggregation, subscription state-machine + saga compensation, invoice reconciliation, payment retry discipline, plan-tier API gating. Revenue-correctness is non-negotiable; every untyped jsonb in a Stripe webhook handler, every webhook retry without dedup, every metered counter increment without atomic semantics is a finding.
 
-## Canonical References (DO NOT duplicate content below)
+## Canonical References (READ via the Read tool before starting)
 
 - @.claude/knowledge/layer-1-core.md
 - @.claude/knowledge/layer-1-nestjs.md

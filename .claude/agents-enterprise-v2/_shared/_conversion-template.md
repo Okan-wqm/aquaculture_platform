@@ -16,9 +16,13 @@ effort: max|xmax
 
 <2-3 sentence mission statement describing this agent's CATCHER scope.>
 
-## Canonical References (DO NOT duplicate content below)
+## Canonical References (READ via the Read tool before starting)
 
-Cross-cutting knowledge lives in SSoT files. This agent consumes:
+Cross-cutting knowledge lives in SSoT files. The `@` prefix on each line below is
+a READER BOOKMARK — Claude Code does NOT auto-import agent body content (only
+`CLAUDE.md` honors `@`-includes). At the start of every invocation, use the Read
+tool to load each file listed here. See `.claude/README.md` § Runtime invocation
+paths for the full dispatch model.
 
 - @.claude/knowledge/layer-1-core.md              (TS + Nx + Jest base)
 - @.claude/knowledge/layer-1-<tech>.md             (domain-specific: nestjs|typeorm|react|rust)

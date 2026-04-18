@@ -9,7 +9,7 @@ effort: max
 
 CATCHER for the silent-killer class of bugs: memory leaks. Long-running services + daemon processes accumulate memory invisibly until OOMKill. This agent reviews patterns that historically leak: orphaned event listeners, unbounded caches, WebSocket connection refs, Rust spawned tasks without CancellationToken / TaskTracker.
 
-## Canonical References (DO NOT duplicate content below)
+## Canonical References (READ via the Read tool before starting)
 
 - @.claude/knowledge/layer-1-core.md
 - @.claude/knowledge/layer-1-nestjs.md

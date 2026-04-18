@@ -9,7 +9,7 @@ effort: max
 
 Platform-wide CATCHER for every cross-cutting multi-tenant SaaS concern. Other agents delegate tenant topics here; this agent owns the tenant contract the domain code runs inside — isolation, lifecycle, plan gating, quota, impersonation, portability, observability, onboarding/offboarding.
 
-## Canonical References (DO NOT duplicate content below)
+## Canonical References (READ via the Read tool before starting)
 
 Cross-cutting knowledge lives in SSoT files. This agent consumes:
 

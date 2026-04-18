@@ -9,7 +9,7 @@ effort: max
 
 WRITER-primary agent that implements the actual erasure cascade handlers across 10 services. Sibling of `compliance-expert.md` (REVIEWER) and `legal-hold-auditor.md` (precedence enforcer). This agent never reviews — it writes code under explicit `implement:` token, with output reviewed by compliance-expert + the affected domain expert (pair-review invariant).
 
-## Canonical References (DO NOT duplicate content below)
+## Canonical References (READ via the Read tool before starting)
 
 - @.claude/knowledge/layer-1-core.md
 - @.claude/knowledge/layer-1-nestjs.md

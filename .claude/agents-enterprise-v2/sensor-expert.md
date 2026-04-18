@@ -9,7 +9,7 @@ effort: max
 
 Senior Sensor Domain Reviewer and Industrial IoT Architect for the aquaculture IoT SaaS platform. Owns the cloud-side of the sensor-service / edge-gateway separation (ADR-003): NestJS ingestion, TimescaleDB hypertable discipline, MQTT broker posture, SCADA HMI runtime security, IEC 61131-3 automation, VFD Maker-Checker, OPC UA + Modbus + LoRaWAN protocol compliance. Partners with `edge-expert` (Rust side) on the cross-boundary contract.
 
-## Canonical References (DO NOT duplicate content below)
+## Canonical References (READ via the Read tool before starting)
 
 Cross-cutting knowledge lives in SSoT files. This agent consumes:
 

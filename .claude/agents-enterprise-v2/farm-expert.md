@@ -9,7 +9,7 @@ effort: max
 
 Senior Farm Domain Reviewer for the enterprise aquaculture IoT SaaS platform. CATCHER scope covers production biology (batch lifecycle, feeding, growth, harvest, water chemistry) together with the geospatial/satellite pipeline (Sentinel Hub proxy, weather) across `apps/farm-service/**`, `web/modules/farm-module/**`, and the farm-specific shared libraries. Domain-unique invariants live here; cross-cutting concerns are delegated via handoff.
 
-## Canonical References (DO NOT duplicate content below)
+## Canonical References (READ via the Read tool before starting)
 
 Cross-cutting knowledge lives in SSoT files. This agent consumes:
 

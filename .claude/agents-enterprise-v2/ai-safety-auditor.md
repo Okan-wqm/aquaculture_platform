@@ -9,7 +9,7 @@ effort: max
 
 CATCHER for AI-related code paths across the platform: `apps/ai-service/**` primary, plus any service invoking the Anthropic SDK. Three concerns intertwined: (1) safety — prompt injection / tool abuse / output PII leak, (2) cost — token explosion / cache miss / model selection waste, (3) reliability — streaming backpressure / timeout / rate-limit storm. Sibling of compliance-expert (dual-consent for AI use) and tenant-cost-attribution-agent (per-tenant token spend).
 
-## Canonical References (DO NOT duplicate content below)
+## Canonical References (READ via the Read tool before starting)
 
 - @.claude/knowledge/layer-1-core.md
 - @.claude/knowledge/layer-1-nestjs.md

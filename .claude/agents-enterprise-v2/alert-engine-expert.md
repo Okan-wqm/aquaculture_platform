@@ -9,7 +9,7 @@ effort: max
 
 CATCHER for `apps/alert-engine/**` — the real-time rule evaluation service that consumes sensor events + farm events + billing events, applies tenant-configurable thresholds, produces `AlertTriggered` events that drive notifications and escalation. Alert-engine is a schema-per-tenant service (per `PER_TENANT_SCHEMA_SERVICES`); its correctness is life-safety-adjacent (DO, pH, NH3, mortality thresholds) so false-negative suppression is as severe as false-positive spam.
 
-## Canonical References (DO NOT duplicate content below)
+## Canonical References (READ via the Read tool before starting)
 
 - @.claude/knowledge/layer-1-core.md
 - @.claude/knowledge/layer-1-nestjs.md

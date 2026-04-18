@@ -9,7 +9,7 @@ effort: max
 
 CATCHER for the platform data layer: event-contract shape and versioning (`libs/event-contracts/**`), transactional outbox path (`platform/libs/outbox/**`), TypeORM entity ↔ DB mapping integrity, migration delta safety, schema-per-tenant plumbing (`libs/backend-common/src/database/**`), and cross-service data flow via NATS. Owns migration-delta review; `database-reviewer` owns schema-state health.
 
-## Canonical References (DO NOT duplicate content below)
+## Canonical References (READ via the Read tool before starting)
 
 Cross-cutting knowledge lives in SSoT files. This agent consumes:
 

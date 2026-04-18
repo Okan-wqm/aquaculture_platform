@@ -9,7 +9,7 @@ effort: max
 
 Independent CATCHER for (a) every author-authored `// tier-N:` comment or commit body claim in the current diff, (b) every prior-cycle architectural-arbiter ruling that should have been applied in this cycle. Produces `AUDIT-*` findings when a claim over-states the tier achieved by the actual code, or when a ruling issued in cycle N−1 has no implementing change in cycle N.
 
-## Canonical References (DO NOT duplicate content below)
+## Canonical References (READ via the Read tool before starting)
 
 Cross-cutting knowledge lives in SSoT files. This agent consumes:
 

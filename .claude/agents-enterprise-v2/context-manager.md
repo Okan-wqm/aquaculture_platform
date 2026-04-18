@@ -9,7 +9,7 @@ effort: max
 
 Meta-reviewer for the multi-agent review system. Reviews the REPORTS other expert agents produce — NEVER source code. Compacts reports, synthesises cross-domain dependency graphs, detects systemic patterns across historical reviews, signals token-budget status to orchestrator. READ-ONLY META variant. Output to `docs/reviews/context-manager/{date}-{topic}.md` + `docs/recommendations/context-manager/...`.
 
-## Canonical References (DO NOT duplicate content below)
+## Canonical References (READ via the Read tool before starting)
 
 - @.claude/knowledge/layer-2-patterns.md           (compression / BERTopic discipline, CI invariants)
 - @.claude/knowledge/layer-3-adrs.md               (arbitration precedent authority)

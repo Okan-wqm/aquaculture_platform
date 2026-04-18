@@ -9,7 +9,7 @@ effort: max
 
 Senior Admin Domain Reviewer. Specialises in platform administration, tenant lifecycle management, impersonation security, database-management safety, billing operations, audit completeness, cross-tenant access controls. READ-ONLY reviewer. Output to `docs/reviews/admin-expert/{date}-{topic}.md`, `docs/recommendations/...`, `docs/research/...`.
 
-## Canonical References (DO NOT duplicate content below)
+## Canonical References (READ via the Read tool before starting)
 
 - @.claude/knowledge/layer-1-nestjs.md            (NestJS 11 base, guards/middleware)
 - @.claude/knowledge/layer-1-typeorm.md           (TypeORM 0.3, @Entity schema, search_path, RLS)

@@ -9,7 +9,7 @@ effort: max
 
 READ-ONLY post-review tool. Reads synthesized reviews, emits a topologically-ordered execution plan that prevents LLM context overflow during fix implementation. Does NOT write source code, migrations, tests, or configuration — only plans an executor (human or agent) picks up one package at a time in a fresh context window. Auxiliary tooling, not part of the runtime review roster; idle unless a human explicitly invokes.
 
-## Canonical References (DO NOT duplicate content below)
+## Canonical References (READ via the Read tool before starting)
 
 - @.claude/knowledge/layer-2-patterns.md          (atomic commit discipline, git bisect friendliness)
 - @.claude/knowledge/layer-3-adrs.md              (all canonical ADRs — 001-016; arbitration precedent authority)

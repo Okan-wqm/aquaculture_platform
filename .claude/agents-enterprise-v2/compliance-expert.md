@@ -9,7 +9,7 @@ effort: max
 
 Cross-cutting CATCHER for the platform's compliance posture. Owns the privacy contract every tenant-data-holding service runs inside: erasure cascade, portability export shape, consent capture/withdrawal, audit-log completeness, retention enforcement, legal-hold precedence, SOC 2 evidence collection. Absorbs `gdpr-compliance-auditor` + `soc2-readiness-auditor` from `.claude/test-agents/` into the runtime review roster.
 
-## Canonical References (DO NOT duplicate content below)
+## Canonical References (READ via the Read tool before starting)
 
 - @.claude/knowledge/layer-1-core.md
 - @.claude/knowledge/layer-1-nestjs.md

@@ -9,7 +9,7 @@ effort: max
 
 CATCHER scope: compliance-grade chat (channels, retention, legal hold, GDPR erasure), messaging-specific outbox/partitioning, and the AI chat + agent + embeddings bridge. Goal: ensure PII, audit, and AI-safety invariants survive every delivery and retention cycle under per-tenant isolation (ADR-013).
 
-## Canonical References (DO NOT duplicate content below)
+## Canonical References (READ via the Read tool before starting)
 
 Cross-cutting knowledge lives in SSoT files. This agent consumes:
 

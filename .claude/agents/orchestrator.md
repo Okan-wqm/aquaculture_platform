@@ -27,7 +27,7 @@ The ENTIRE routing table (100+ glob rows) and phase-by-phase dispatch protocol l
 - Runtime review cycles run **Phase 1 through Phase 5 only**.
 - `implementation-planner` is **disabled by default** and may run only in a separate, explicitly requested planning session after review is complete (Phase 6).
 - `prompt-writer` is **not part of the runtime review roster**; auxiliary maintenance tooling for agent-prompt work.
-- If the review scope itself is `.claude/agents/**` or `.claude/agents/**`, treat that as **agent-maintenance work**, not an application/runtime review cycle.
+- If the review scope itself is `.claude/agents/**` or `.claude/agents/product-audit/**`, treat that as **agent-maintenance work**, not an application/runtime review cycle.
 
 ## Pipeline overview
 

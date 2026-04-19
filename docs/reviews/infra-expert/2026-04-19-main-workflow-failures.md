@@ -125,6 +125,29 @@ This document records the root causes and the architectural fixes per CLAUDE.md 
 
 ---
 
+## INFRA-CRITICAL-008 — Boot signal `migration_runner_applied` never fires after db-migrate centralization
+
+- **Severity:** CRITICAL (deploy gate stuck "23 signal(s) pending" indefinitely; all containers report healthy but boot signal assertion times out)
+- **Layer:** 2
+- **Evidence:** Run `24636862240` deploy log:
+  ```
+  === Boot signal assertion ===
+    manifest: infrastructure/deploy/required-signals.yaml
+    services: 12
+  --- Round 1/18: 23 signal(s) pending ---
+  --- Round 12/18: 23 signal(s) pending ---
+  ```
+  All 12 services healthy, all migrations applied centrally by `aqua-db-migrate`, but `migration_runner_applied` signal never matches.
+- **Root cause:** the WS7 / ADR-016 Phase F deploy gate's `migration_runner_applied` signal pattern was `"migration(s)"` (substring of `Applied N migration(s): …`). After db-migrate centralization, every service's per-service migration runner sees 0 pending migrations on warm start and instead logs `No pending migrations on "<schema>"` — a string that does NOT contain `migration(s)` (with parens). The signal silently never fires; the gate silently rejects every deploy.
+- **Architectural fix (T1, canonical single-source-of-truth signal):**
+  - `MigrationRunnerService.onApplicationBootstrap()` now emits an unconditional end-of-run line — `Migration runner complete for schema "<sourceSchema>": tenants=<N>` — at the success exit. Fires on BOTH cold start (>0 pending applied) and warm start (0 pending). Failure paths (security throw, runner exception) intentionally do not emit it, so the contract still proves the runner reached the success exit.
+  - `required-signals.yaml` signal_library pattern changed from `"migration(s)"` to `"Migration runner complete"` (substring of the new canonical line).
+  - The pre-existing per-schema logs (`Applied N migration(s) on "X"` and `No pending migrations on "X"`) are unchanged — they still document per-schema progress; they are just no longer the contract surface for the deploy gate.
+  - Refactored the orphan `if (!tenantAware) return;` early-return into a single `tenantAware` branch so the canonical complete log lands once per runner invocation regardless of fan-out shape.
+- **Why not just loosen the pattern:** a substring like `"migration"` would match `migration failed`, `running migration`, etc. — any noise word would falsely satisfy the contract. The canonical-log approach pins the signal to a single code emission point, which is the discipline `required-signals.yaml`'s `signalSource` convention requires.
+
+---
+
 ## Out of scope for this review
 
 - **CI - Full** workflow failures (user team does not run it).

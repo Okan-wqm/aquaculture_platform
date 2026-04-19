@@ -158,32 +158,44 @@ export function createMigrationRunnerService(
       await this.runForSchema(sourceSchema);
 
       // ── Phase 2 — tenant schemas (only for tenant-aware services) ──
-      if (!tenantAware) {
-        return;
-      }
-
-      const tenantSchemas = await this.listTenantSchemas();
-      if (tenantSchemas.length === 0) {
-        this.logger.log(
-          'Phase 2: no tenant schemas present — skipping tenant fan-out',
-        );
-        return;
-      }
-
-      this.logger.log(
-        `Phase 2: fanning out to ${tenantSchemas.length} tenant schema(s)`,
-      );
-      for (const tenantSchema of tenantSchemas) {
-        // Defense-in-depth: listTenantSchemas already filters via regex,
-        // but we re-assert before SQL interpolation.
-        if (!TENANT_SCHEMA_RE.test(tenantSchema)) {
-          throw new Error(
-            `[MigrationRunner:${sourceSchema}] Refusing unsafe tenant ` +
-              `schema name "${tenantSchema}" — expected /${TENANT_SCHEMA_RE.source}/.`,
+      let tenantCount = 0;
+      if (tenantAware) {
+        const tenantSchemas = await this.listTenantSchemas();
+        tenantCount = tenantSchemas.length;
+        if (tenantSchemas.length === 0) {
+          this.logger.log(
+            'Phase 2: no tenant schemas present — skipping tenant fan-out',
           );
+        } else {
+          this.logger.log(
+            `Phase 2: fanning out to ${tenantSchemas.length} tenant schema(s)`,
+          );
+          for (const tenantSchema of tenantSchemas) {
+            // Defense-in-depth: listTenantSchemas already filters via regex,
+            // but we re-assert before SQL interpolation.
+            if (!TENANT_SCHEMA_RE.test(tenantSchema)) {
+              throw new Error(
+                `[MigrationRunner:${sourceSchema}] Refusing unsafe tenant ` +
+                  `schema name "${tenantSchema}" — expected /${TENANT_SCHEMA_RE.source}/.`,
+              );
+            }
+            await this.runForSchema(tenantSchema);
+          }
         }
-        await this.runForSchema(tenantSchema);
       }
+
+      // Canonical end-of-run signal (WS7 / required-signals.yaml contract).
+      // Fires on EVERY successful runner completion regardless of whether
+      // any migration was actually applied — a warm-start path where
+      // db-migrate already applied every pending DDL still emits this.
+      // The pre-existing "Applied N migration(s)" / "No pending migrations"
+      // logs only fire on the per-schema hot path; they don't represent
+      // the runner-as-a-whole completing, which is what the deploy-time
+      // boot signal is asserting. Pattern matched by required-signals.yaml
+      // signal_library.migration_runner_applied (substring).
+      this.logger.log(
+        `Migration runner complete for schema "${sourceSchema}": tenants=${tenantCount}`,
+      );
     }
 
     /**

@@ -51,8 +51,20 @@ signal_library:
     signalSource: "libs/backend-common/src/database/schema-drift-validator.service.ts"
 
   migration_runner_applied:
-    pattern: "migration(s)"   # matches "Applied N migration(s): ..."
-    description: "Migration runner finished (could be zero applied — ok on warm start)"
+    # Canonical end-of-run signal emitted unconditionally by
+    # MigrationRunnerService.onApplicationBootstrap(). Replaces the
+    # earlier "migration(s)" substring which only matched the
+    # cold-start hot path (>0 pending). After db-migrate centralization
+    # services almost always see 0 pending and logged "No pending
+    # migrations on X" — that text does NOT contain "migration(s)" with
+    # parens, so the old pattern silently never fired and the boot gate
+    # rejected every deploy. The new "Migration runner complete" line
+    # is emitted from a single place and matches both warm and cold
+    # starts. Failure paths (security throw, runner exception) do NOT
+    # emit it, so the contract still proves the runner reached the
+    # success exit.
+    pattern: "Migration runner complete"
+    description: "Migration runner reached success exit (cold or warm start)"
     signalSource: "libs/backend-common/src/database/migration-runner/migration-runner.service.ts"
 
 # ---------------------------------------------------------------------------

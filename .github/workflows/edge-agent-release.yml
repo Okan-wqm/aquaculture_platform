@@ -179,7 +179,7 @@ jobs:
           done
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@da05d552573ad5aba039eaac05058a918a7bf631 # v2.2.1
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v2.2.1
         with:
           name: "Edge Agent ${{ steps.version.outputs.tag }}"
           tag_name: ${{ steps.version.outputs.tag }}

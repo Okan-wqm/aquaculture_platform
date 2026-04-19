@@ -52,6 +52,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    env:
+      # OCI distribution-spec requires lowercase image references
+      # (https://github.com/opencontainers/distribution-spec/blob/main/spec.md#pulling-manifests).
+      # `${{ github.repository }}` resolves to `Okan-wqm/aquaculture_platform` —
+      # the uppercase `O` makes Trivy 0.69+ reject the ref with
+      # "could not parse reference". Compute the namespace once here.
+      IMAGE_NAMESPACE: ghcr.io/okan-wqm/aquaculture_platform
     steps:
       - name: Checkout repository
         # SEC-CI-002: pinned to SHA
@@ -60,7 +67,7 @@ jobs:
       - name: Pull pre-built image from GHCR
         run: |
           # Use pre-built images instead of building (MUCH faster!)
-          docker pull ghcr.io/${{ github.repository }}/gateway-api:latest || echo "Image not found, skipping"
+          docker pull "${IMAGE_NAMESPACE}/gateway-api:latest" || echo "Image not found, skipping"
         continue-on-error: true
 
       # SEC-CI-008: exit-code '1' ensures CVEs block the pipeline
@@ -68,7 +75,7 @@ jobs:
         # SEC-CI-002: pinned to SHA (was @master)
         uses: aquasecurity/trivy-action@c1824fd6edce30d7ab345a9989de00bbd46ef284 # v0.34.0
         with:
-          image-ref: 'ghcr.io/${{ github.repository }}/gateway-api:latest'
+          image-ref: '${{ env.IMAGE_NAMESPACE }}/gateway-api:latest'
           format: 'sarif'
           output: 'trivy-image.sarif'
           exit-code: '1'

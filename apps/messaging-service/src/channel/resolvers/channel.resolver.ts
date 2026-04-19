@@ -226,8 +226,19 @@ export class ChannelResolver {
     @Args('role', { type: () => ChannelMemberRole, defaultValue: ChannelMemberRole.MEMBER })
     role: ChannelMemberRole,
   ): Promise<ChannelMember> {
+    // INFRA-CRITICAL-013: GraphQL enum input boundary normalization.
+    // The GraphQL enum literal can be either the TS enum NAME ('MEMBER')
+    // or VALUE ('member') depending on coercion path; the CHECK constraint
+    // chk_member_role only accepts the VALUE form. Normalize at the input
+    // boundary so every downstream consumer sees the canonical lowercase
+    // value. ChannelMemberRole[input] returns the value when input is a
+    // valid key, otherwise undefined; the ?? input fallback preserves
+    // already-normalized values without round-tripping.
+    const normalizedRole = (
+      (ChannelMemberRole as Record<string, ChannelMemberRole>)[role] ?? role
+    );
     return this.commandBus.execute<AddMemberCommand, ChannelMember>(
-      new AddMemberCommand(tenantId, user.sub, channelId, targetUserId, role),
+      new AddMemberCommand(tenantId, user.sub, channelId, targetUserId, normalizedRole),
     );
   }
 

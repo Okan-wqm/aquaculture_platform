@@ -126,7 +126,6 @@ export const tenantKeys = {
  * Hook to get current tenant information
  */
 export function useMyTenant() {
-  const { tenantId } = useAuth();
   return useQuery({
     queryKey: tenantKeys.tenant(),
     queryFn: getMyTenant,
@@ -152,7 +151,6 @@ export function useTenantStats() {
  * Hook to get tenant modules
  */
 export function useTenantModules() {
-  const { tenantId } = useAuth();
   return useQuery({
     queryKey: tenantKeys.modules(),
     queryFn: getMyTenantModules,
@@ -180,7 +178,6 @@ export function useTenantUsers(options?: {
  * Hook to get tenant database information
  */
 export function useTenantDatabase() {
-  const { tenantId } = useAuth();
   return useQuery({
     queryKey: tenantKeys.database(),
     queryFn: getTenantDatabase,
@@ -209,8 +206,6 @@ export function useAssignModuleManager() {
  */
 export function useRemoveModuleManager() {
   const queryClient = useQueryClient();
-
-  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: (moduleId: string) => removeModuleManager(moduleId),
     onSuccess: () => {
@@ -289,7 +284,6 @@ interface EdgeDevicesFilters {
  * Hook to fetch edge devices with filters and pagination
  */
 export function useEdgeDevices(filters: EdgeDevicesFilters) {
-  const { tenantId } = useAuth();
   return useQuery({
     queryKey: tenantKeys.devices(filters as unknown as Record<string, unknown>),
     queryFn: () => getEdgeDevices({
@@ -332,6 +326,7 @@ export function useDeviceEvents(deviceId: string, enabled = true, limit = 20) {
  */
 export function useDeviceAction() {
   const queryClient = useQueryClient();
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: ({ mutation, variables }: { mutation: string; variables: Record<string, unknown> }) =>
       graphqlRequest(mutation, variables),
@@ -350,7 +345,6 @@ export function useDeviceAction() {
  * Hook to fetch message threads
  */
 export function useMessageThreads() {
-  const { tenantId } = useAuth();
   return useQuery({
     queryKey: tenantKeys.threads(),
     queryFn: () => getMyThreads(),
@@ -382,7 +376,6 @@ export function useThreadMessages(threadId: string | null) {
  */
 export function useSendMessage() {
   const queryClient = useQueryClient();
-  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: ({ threadId, content, senderName }: { threadId: string; content: string; senderName: string }) =>
       sendMessage({ threadId, content, senderName }),
@@ -415,7 +408,6 @@ export function useCreateThread() {
  * Hook to fetch support tickets
  */
 export function useSupportTickets() {
-  const { tenantId } = useAuth();
   return useQuery({
     queryKey: tenantKeys.tickets(),
     queryFn: () => getMyTickets(),
@@ -460,7 +452,6 @@ export function useCreateTicket() {
  */
 export function useAddTicketComment() {
   const queryClient = useQueryClient();
-  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: ({ ticketId, content, authorName }: { ticketId: string; content: string; authorName: string }) =>
       addTicketComment({ ticketId, content, authorName }),
@@ -493,7 +484,6 @@ export function useSubmitTicketRating() {
  * Hook to fetch announcements
  */
 export function useAnnouncements() {
-  const { tenantId } = useAuth();
   return useQuery({
     queryKey: tenantKeys.announcements(),
     queryFn: () => getMyAnnouncements(),
@@ -519,7 +509,6 @@ export function useAcknowledgeAnnouncement() {
  */
 export function useMarkAnnouncementViewed() {
   const queryClient = useQueryClient();
-  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: (announcementId: string) => viewAnnouncement(announcementId),
     onSuccess: () => {
@@ -563,7 +552,6 @@ export function useTenantUsersRaw(options: {
 // the tenant admin's platform access choice to the API.
 export function useCreateTenantUser() {
   const queryClient = useQueryClient();
-  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: (input: {
       firstName: string;
@@ -599,7 +587,6 @@ export function useUpdateTenantUser() {
  */
 export function useDeleteTenantUser() {
   const queryClient = useQueryClient();
-  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: (userId: string) => deleteTenantUserApi(userId),
     onSuccess: () => {
@@ -629,7 +616,6 @@ export function useDeactivateTenantUser() {
  * Hook to fetch real module UUIDs (BUG-019)
  */
 export function useModuleIds() {
-  const { tenantId } = useAuth();
   return useQuery({
     queryKey: tenantKeys.moduleIds(),
     queryFn: async () => {
@@ -656,7 +642,6 @@ interface LocalModuleUsageStat {
  * Hook to fetch module usage stats
  */
 export function useModuleUsageStats() {
-  const { tenantId } = useAuth();
   return useQuery({
     queryKey: tenantKeys.moduleUsageStats(),
     queryFn: async () => {
@@ -694,7 +679,6 @@ export function useTableSchema(schemaName: string, tableName: string, enabled = 
  */
 export function useTableData(input: GetTableDataInput & { enabled?: boolean }) {
   const { enabled = false, ...rest } = input;
-  const { tenantId } = useAuth();
   return useQuery({
     queryKey: tenantKeys.tableData(rest.schemaName, rest.tableName, rest.offset ?? 0, rest.limit ?? 50),
     queryFn: () => getTableData(rest),
@@ -729,7 +713,6 @@ export function useNotificationPreferences(enabled = false) {
  */
 export function useUpdateNotificationPreferences() {
   const queryClient = useQueryClient();
-  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: (input: Partial<import('../lib/types').NotificationPreferences>) =>
       updateNotificationPrefsApi(input),
@@ -775,7 +758,6 @@ interface TenantUserBasic {
  * Hook to fetch mobile users and settings in parallel
  */
 export function useMobileUsersData(enabled = false) {
-  const { tenantId } = useAuth();
   return useQuery({
     queryKey: tenantKeys.mobileUsersSettings(),
     queryFn: async () => {
@@ -809,7 +791,6 @@ export function useMobileUsersData(enabled = false) {
  */
 export function useUpdateMobileUserSettings() {
   const queryClient = useQueryClient();
-  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: (input: {
       userId: string;

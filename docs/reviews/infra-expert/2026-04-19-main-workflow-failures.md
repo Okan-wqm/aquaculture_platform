@@ -1,0 +1,65 @@
+# Review: Main-branch GitHub Actions failure remediation
+
+- **Branch reviewed:** `main` HEAD `842e9df4` (2026-04-17 19:26 UTC)
+- **Cycle:** 2026-04-19 incident response
+- **Reviewer:** infra-expert (auxiliary review for the four-failure incident)
+- **Plan reference:** `/root/.claude/plans/sparkling-swimming-turtle.md`
+
+## Context
+
+Four workflows on `main` were red simultaneously, blocking the deploy chain to the DigitalOcean droplet and emitting nightly failure noise on three schedules:
+
+1. `CI - Affected → deploy / build-frontend-artifacts` (push-triggered) — broke deploy.
+2. `Security - Trivy` (weekly schedule) — image scan parse error.
+3. `Backup - Production Postgres` (nightly schedule) — env contract violation.
+4. `Infrastructure - Terraform Drift Detection` (nightly schedule) — AWS surface unused.
+
+This document records the root causes and the architectural fixes per CLAUDE.md tier hierarchy.
+
+---
+
+## INFRA-CRITICAL-001 — tenant-admin build broken on `main` HEAD
+
+- **Severity:** CRITICAL (blocks every deploy from `main`)
+- **Layer:** 1
+- **Evidence:** `web/modules/tenant-admin/src/pages/TenantDashboard.tsx:167` — TS1109 in CI run `24582890424` job `71885380750`.
+- **Root cause:** `enabled: !!tenantId,` was placed inside the `(modules || []).map((m) => { return {...}; })` callback's return-object close, where it parsed as a stray label expression. The corrected shape (now landed): the `enabled` key belongs to the enclosing `useQuery({...})` options object, after `queryFn:` closes.
+- **Latent surface:** the syntax error masked 21 TS6133 (unused-locals) errors in `useDevicePolling.ts` and `useTenantData.ts` — leftovers from the `cleanup-tenant-query-key` codemod (commit `0a4f88f8`) that landed on `agentic` and never reached `main`. Fix-forward had to bring all three files to a buildable state in one atomic commit.
+- **Architectural tier:** T1 (correct shape via cherry-pick + manual TS2304 fix in `useDeviceAction()` where `tenantId` is legitimately referenced for cache invalidation).
+- **Prevention surface:** explored — pre-push hook running `nx affected --target=build,lint`. Rejected because the workstation cannot sustain the build cost on every push (lint OOMs at default Node heap, build saturates). CI - Affected remains the canonical gate; the architectural prevention layer for *this class* of error has to live at the GitHub branch-protection layer once the team's velocity preferences allow it.
+
+## INFRA-HIGH-002 — Trivy image-ref violates OCI lowercase requirement
+
+- **Severity:** HIGH (nightly security scan red)
+- **Layer:** 3
+- **Evidence:** `.github/workflows/security-trivy.yml:71` (and `:63`); CI run `24621760712` Trivy 0.69.1 error: `failed to parse the image name: could not parse reference: ghcr.io/Okan-wqm/aquaculture_platform/gateway-api:latest`.
+- **Root cause:** workflow expanded `${{ github.repository }}` → `Okan-wqm/aquaculture_platform`. The owner segment's uppercase `O` violates the OCI distribution spec (image references must be lowercase). Trivy 0.69+ enforces this strictly.
+- **Architectural tier:** T1 — workflow-level `env: IMAGE_NAMESPACE: ghcr.io/okan-wqm/aquaculture_platform` is now the single source of truth for the image namespace; both `docker pull` and `image-ref:` reference it via `${{ env.IMAGE_NAMESPACE }}`.
+
+## INFRA-HIGH-003 — Backup workflow lacks fail-fast secret preflight
+
+- **Severity:** HIGH (nightly backup red since the secrets were not provisioned)
+- **Layer:** 3
+- **Evidence:** `.github/workflows/backup-production.yml:94–102`; CI run `24621923865` log line `tools/scripts/database/backup-databases.sh: line 41: SPACES_BUCKET: SPACES_BUCKET required`.
+- **Root cause:** the script (which is the SSoT for the env contract) validates seven required secrets at line 41. The workflow did not validate them on the runner before opening the SSH tunnel + syncing the script + invoking it remotely (~30s wasted per failure run). Missing-secret errors surfaced inside the droplet log instead of the GitHub job log header.
+- **Architectural tier:** T3 — added a runner-side preflight step that mirrors the script's env contract and emits `::error::Missing required secrets: ...` with the Settings URL inline. The script remains the SSoT; the workflow preflight just shifts the failure to the earliest possible point.
+- **Operator action required:** the seven backup secrets (plus three SSH secrets) must be provisioned at `https://github.com/Okan-wqm/aquaculture_platform/settings/secrets/actions` before the next scheduled run can succeed. Code-side change unblocks the *detection*, not the *credential supply*.
+
+## INFRA-HIGH-004 — AWS Terraform surface unused; nightly drift fails on missing OIDC role
+
+- **Severity:** HIGH (nightly drift red; plan + apply workflows latently broken)
+- **Layer:** 4
+- **Evidence:** `.github/workflows/infra-terraform-drift.yml:42` (also `infra-terraform-plan.yml:67`, `infra-terraform-apply.yml:63,189`); CI run `24623695869`: `aws-actions/configure-aws-credentials: Could not load credentials from any providers`.
+- **Root cause:** the platform deploys to **DigitalOcean** per `docs/DEPLOY.md`. The AWS-targeted Terraform tree (`infrastructure/terraform/{environments,bootstrap}/` + `modules/{eks,rds,rds-proxy,elasticache,secrets-manager,networking}/`) and its three workflows assume an AWS OIDC role that was never provisioned. The surface cannot succeed in this account.
+- **Architectural tier:** T1 — delete the surface that cannot succeed. Removed three workflows + the entire AWS-targeted Terraform tree. Preserved `infrastructure/terraform/modules/staging-droplet/` (DO-targeted) as the seed for any future DO Terraform work.
+- **Out of scope:** introducing a DO-Spaces Terraform backend or a DO-credential drift workflow. Tracked as future work when DO IaC actually exists.
+
+---
+
+## Out of scope for this review
+
+- **CI - Full** workflow failures (user team does not run it).
+- **Branch protection on `main`** (user prefers fast direct-push iteration during the current dev phase).
+- **Pre-push hook** (workstation cannot sustain `nx affected --target=build,lint` cost; explored and rejected).
+- **Dangling docs:** `docs/runbooks/staging-environment.md:98–290` references `infrastructure/terraform/environments/staging/` which is forward-looking (Phase 2 plan, never created). Left intact — the runbook is a plan document, not an active code path.
+- **`tools/scripts/database/backup-databases.sh`** itself — its env-validation block is the SSoT we mirrored; no changes required.

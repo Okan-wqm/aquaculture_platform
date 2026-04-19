@@ -316,8 +316,14 @@ export async function setupTenantSchemas(
       }
     }
 
-    // Create monthly partitions for partitioned tables (messages, message_receipts)
-    await createTestPartitions(dataSource, schemaName);
+    // Partitions for `messages` / `message_receipts` are created by
+    // PartitionManagerService.onApplicationBootstrap (the runtime SSoT).
+    // Per INFRA-CRITICAL-012, the test fixture must NOT create its own
+    // partitions — the runtime service uses naming `<table>_<year>_<month>`
+    // and PostgreSQL detects overlapping FOR VALUES ranges (regardless of
+    // partition NAME), so any duplicate creator deadlocks the boot. The
+    // PartitionManagerService runs at app bootstrap inside the test's
+    // createE2eTestApp() flow and ensures current + next 2 months exist.
   }
 }
 
@@ -366,56 +372,6 @@ async function clonePartitionedTable(
   await dataSource.query(
     `CREATE TABLE "${targetSchema}"."${tablename}" (${colDefs.join(', ')}) PARTITION BY ${partExpr}`,
   );
-}
-
-/**
- * Create monthly partitions for partitioned tables in a tenant schema.
- * Creates partitions covering the current month and 2 months forward.
- */
-async function createTestPartitions(
-  dataSource: DataSource,
-  schemaName: string,
-): Promise<void> {
-  const partitionedTables = ['messages', 'message_receipts'];
-  const now = new Date();
-
-  for (const tablename of partitionedTables) {
-    // Check if this table exists and is partitioned in this schema
-    const exists: { exists: boolean }[] = await dataSource.query(
-      `SELECT EXISTS (
-        SELECT 1 FROM pg_partitioned_table pt
-        JOIN pg_class c ON pt.partrelid = c.oid
-        JOIN pg_namespace n ON c.relnamespace = n.oid
-        WHERE n.nspname = $1 AND c.relname = $2
-      ) as exists`,
-      [schemaName, tablename],
-    );
-
-    if (!exists[0]?.exists) continue;
-
-    // Create partitions for current month +-2
-    for (let offset = -1; offset <= 2; offset++) {
-      const partDate = new Date(now.getFullYear(), now.getMonth() + offset, 1);
-      const nextDate = new Date(now.getFullYear(), now.getMonth() + offset + 1, 1);
-      const partName = `${tablename}_y${partDate.getFullYear()}m${String(partDate.getMonth() + 1).padStart(2, '0')}`;
-
-      const partExists: { exists: boolean }[] = await dataSource.query(
-        `SELECT EXISTS (
-          SELECT 1 FROM pg_tables WHERE schemaname = $1 AND tablename = $2
-        ) as exists`,
-        [schemaName, partName],
-      );
-
-      if (!partExists[0]?.exists) {
-        const fromStr = partDate.toISOString().slice(0, 10);
-        const toStr = nextDate.toISOString().slice(0, 10);
-        await dataSource.query(
-          `CREATE TABLE "${schemaName}"."${partName}" PARTITION OF "${schemaName}"."${tablename}"
-           FOR VALUES FROM ('${fromStr}') TO ('${toStr}')`,
-        );
-      }
-    }
-  }
 }
 
 // ── Cleanup ─────────────────────────────────────────────────────────────────

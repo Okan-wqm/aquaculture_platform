@@ -129,7 +129,7 @@ Closes: docs/reviews/edge-plan/2026-04-19-edge-hardening.md#FINDING-ID
 | DEC-013 | Config integrity: config.yaml.sig ed25519 | HIGH | OPEN | Okan (temp — PROC-001) | Faz 2 | 2026-05-31 | Plan §3 R-15 |
 | DEC-014 | Retained message rejection: broker ACL + edge reject | MEDIUM | OPEN | Okan (temp — PROC-001) | Faz 2 | 2026-05-31 | Plan §3 R-16 |
 | DEC-015 | Shutdown race: drain-before-safe-state | HIGH | OPEN | Okan (temp — PROC-001) | Faz 2 | 2026-05-31 | Plan §3 R-17 |
-| DEC-016 | Edge schema placement: shared vs per-tenant | MEDIUM | OPEN | Okan (temp — PROC-001) | Faz 0 | 2026-05-03 | ADR-022 pending |
+| DEC-016 | Edge schema placement: shared vs per-tenant | MEDIUM | RESOLVED | Okan (temp — PROC-001) | Faz 0 | 2026-05-03 | ADR-022 written + post-audit revised (3 CRITICAL + 6 HIGH + 7 MEDIUM + 3 LOW closed §11); dedicated `edge` schema chosen; ADR-011 W5 gate compliance |
 | DEC-017 | SL-3 Upgrade Path (secure boot + dm-verity + remote attestation + WASM re-eval) | MEDIUM | OPEN | Okan | Faz 11 (opsiyonel) | 2026-09-30 | ADR-023 pending; trigger: fleet 500+ OR SL-3 explicit requirement |
 | DEC-018 | JSON script runtime deprecation horizon (coexistence → removal) | MEDIUM | OPEN | Okan | Faz 5 freeze / Faz 10 removal | 2026-09-30 | ADR-017 §9 JSON coexistence; silent removal yasak |
 | DEC-019 | Audit Log HMAC Chain + Cloud Anchor (ADR-020) | HIGH | RESOLVED | Okan | Faz 2 | 2026-05-31 | ADR-020 written + post-audit revised (4 CRITICAL + 5 HIGH + 4 MEDIUM closed §14); decoupled from ADR-021 via §5a interim ceremony; ADR-018 §12 dependency satisfied |

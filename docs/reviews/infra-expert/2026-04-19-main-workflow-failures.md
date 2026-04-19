@@ -90,6 +90,41 @@ This document records the root causes and the architectural fixes per CLAUDE.md 
 
 ---
 
+## INFRA-CRITICAL-007 — RLS ⊥ columnstore mutual exclusion: chose RLS, dropped compression
+
+- **Severity:** CRITICAL (deploy chain still red after INFRA-CRITICAL-006 reorder)
+- **Layer:** 1
+- **Evidence:** Run `24636448772` deploy job `72033366423` log:
+  ```
+  Migration failed
+    schema: observability
+    migration: AddTenantCostRollup1805000000000
+    error: columnstore cannot be used on table with row security
+  ```
+- **Root cause:** TimescaleDB ≥2.18 enforces a HARD MUTUAL EXCLUSION between RLS and columnstore on the same hypertable. The INFRA-CRITICAL-006 reorder (RLS-first) traded one engine rejection for another:
+  | Order tried | Engine response |
+  |---|---|
+  | compress → RLS | `operation not supported on hypertables that have columnstore enabled` |
+  | RLS → compress | `columnstore cannot be used on table with row security` |
+  Order does not unlock either side.
+- **Architectural fork (must pick exactly one):**
+  - **(A)** keep columnstore, drop RLS → tenant isolation moves entirely to the service layer.
+  - **(B)** keep RLS, drop columnstore → preserves DB-level defense-in-depth, loses ~50% storage savings on cold buckets.
+- **Decision: (B).** User-confirmed. Rationale:
+  - Multi-tenant SaaS: tenant isolation is the load-bearing platform invariant; RLS is the DB-level enforcement of that invariant.
+  - Documented retention scale: ~29k rows/day × 90 days = ~2.6M rows total; PostgreSQL handles this trivially without compression.
+  - Compression savings (~1-2 GB/year) are immaterial vs the integrity guarantee RLS provides.
+  - Future cold-storage compression can be reintroduced via a continuous aggregate (no RLS on the aggregate, RLS-equivalent filter pushed into the materialized query) when the dataset grows enough to justify it.
+- **Fix landed:**
+  - Removed `ALTER TABLE … SET (timescaledb.compress, …)` block.
+  - Removed `add_compression_policy(…, INTERVAL '14 days', …)` call.
+  - Kept `create_hypertable` (for chunking) and `add_retention_policy(…, INTERVAL '90 days', …)` (time-based pruning).
+  - Kept full RLS (ENABLE + FORCE + tenant_scope policy + `observability_service_admin` bypass).
+  - `down()`: removed `remove_compression_policy` call (nothing to remove).
+  - Load-bearing inline comment in `up()` documents the constraint, the architectural fork, and the chosen branch — any future engineer attempting to re-add columnstore will see the trade-off and the path through continuous aggregate.
+
+---
+
 ## Out of scope for this review
 
 - **CI - Full** workflow failures (user team does not run it).

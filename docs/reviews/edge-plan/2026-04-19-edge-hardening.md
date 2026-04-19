@@ -134,6 +134,7 @@ Closes: docs/reviews/edge-plan/2026-04-19-edge-hardening.md#FINDING-ID
 | DEC-018 | JSON script runtime deprecation horizon (coexistence → removal) | MEDIUM | OPEN | Okan | Faz 5 freeze / Faz 10 removal | 2026-09-30 | ADR-017 §9 JSON coexistence; silent removal yasak |
 | DEC-019 | Audit Log HMAC Chain + Cloud Anchor (ADR-020) | HIGH | RESOLVED | Okan | Faz 2 | 2026-05-31 | ADR-020 written + post-audit revised (4 CRITICAL + 5 HIGH + 4 MEDIUM closed §14); decoupled from ADR-021 via §5a interim ceremony; ADR-018 §12 dependency satisfied |
 | DEC-021 | Slot 8 daily_anchor_signing_key — ADR-021 post-unblock adoption | MEDIUM | OPEN | Okan (temp — PROC-001) | After ADR-021 rewrite | 2026-09-30 | ADR-020 §5a interim anchor key retirement path; slot 8 formal ceremony supersedes interim YubiHSM 2 Nano office-safe key when ADR-021 DEC-020 resolves |
+| DEC-022 | ADR-024 safety-schema rewrite (post-audit life-safety bugs) | CRITICAL | OPEN | Okan (temp — PROC-001) | Faz 0-1 | 2026-06-07 | edge-industrial-auditor NEEDS_MAJOR_REVISION — 4 CRITICAL life-safety bugs: aerator fail-safe contradiction, class-binding mutable, Chemistry fail-OFF O2 catastrophic, dual-Modbus = SPoF. Requires field-ops redundancy survey + engineer attestation ADR + ActuatorClass split + binary-const caps + type-system RFID ban |
 | DEC-020 | ADR-021 §1-§4+§11 architectural rewrite (post-audit BLOCK verdict) | CRITICAL | OPEN | Okan | Faz 0-2 | 2026-05-17 | YubiHSM 2 FROST, AWS CloudHSM Ed25519, AWS KMS FROST participant claims factually wrong; vendor PoC + rewrite required; triple BLOCKER for ADR-017/018/019 Accepted |
 
 ---
@@ -193,11 +194,11 @@ Plan §5 Faz 8.
 | SEC | 8 | 8 | 0 | 0 |
 | PRF | 8 | 8 | 0 | 0 |
 | TST | 10 | 10 | 0 | 0 |
-| DEC | 21 | 17 | 3 | 1 BLOCKED |
-| STL | 9 | 9 | 0 | 0 |
+| DEC | 22 | 18 | 3 | 2 BLOCKED |
+| STL | 9 | 8 | 1 | 0 |
 | PROC | 2 | 0 | 2 | 0 |
 | PLA | 11 | 11 | 0 | 0 |
-| **Toplam** | **78** | **72** | **5** | **1 (DEC-020 blocks ADR-017/019 Accepted; ADR-018 unblocked on audit-chain side via ADR-020)** |
+| **Toplam** | **79** | **71** | **6** | **2 (DEC-020 blocks ADR-017/019 Accepted; DEC-022 blocks ADR-024 Accepted; ADR-018 audit-chain side unblocked via ADR-020)** |
 
 **Next action:** Faz 0'ın kalan 3 ADR'ını aç (ADR-019 Firmware, ADR-020 Hardware, ADR-021 Key Ceremony, ADR-022 Schema), sonra Faz 1 wiring'e geç.
 

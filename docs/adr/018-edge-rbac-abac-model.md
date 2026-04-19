@@ -90,7 +90,8 @@ pub struct EdgeTrustAnchor {
     pub command_signing_root_pubkey: VerifyingKey,       // → authz::verify_command_envelope (root chain)
     pub rescue_firmware_signing_pubkey: VerifyingKey,    // → updater::rescue
     pub emergency_policy_signing_pubkey: VerifyingKey,   // → authz::emergency
-    // NOT included: program_signing_pubkey (ADR-017 §12 — 6. key, bytecode için)
+    // NOT included: program_signing_pubkey (ADR-019 §1 slot 6, bytecode için) and
+    //                provisioning_signing_pubkey (ADR-019 §1 slot 7, tenant sealing için)
 }
 
 // Binary'de 5 ayrı compile-time const; program_signing ADR-021 (DEC-008) ile tanımlanır.
@@ -557,7 +558,7 @@ Aquaculture rolleri çeşitli (veterinary/feed-tech/maintenance/shift/auditor); 
 ### Negative
 - **Platform iş yükü:** Per-operator key provisioning + HSM slot genişlemesi (per-tenant); custom_roles editor UI; manifest signing pipeline; staged rollout orchestration; audit log cloud relay + anchor
 - **Implementation kod:** `src/authz/` ~2500-3000 satır (mod/policy/context/emergency/manifest/tests); `src/keystore/` rollback counter backends
-- **ADR cross-dependencies:** ADR-019 (sealed tenant + A/B anti-rollback) + ADR-020 (audit HMAC chain) + ADR-021 (key ceremony 6 slots — 5 RBAC/firmware + 1 program_signing) → ADR-018 Accepted için tümü ≥ Proposed
+- **ADR cross-dependencies:** ADR-019 (sealed tenant + A/B anti-rollback + canonical 7-slot key ceremony map) + ADR-020 (audit HMAC chain) + ADR-021 (key ceremony implementation of 7-slot canonical map: 5 RBAC/firmware + 1 program_signing + 1 provisioning) → ADR-018 Accepted için tümü ≥ Proposed
 - **Offline grace + anti-rollback gerilim:** 180-gün offline + epoch rotation → tier-2/3 kayıt alanı büyüyebilir; Faz 2 capacity planning
 
 ### SL-3 readiness claim DELETED
@@ -643,5 +644,5 @@ Aquaculture rolleri çeşitli (veterinary/feed-tech/maintenance/shift/auditor); 
 - ADR-017 (ST Bytecode — RbacGatedWriter + AuthorizedContext consumer)
 - ADR-019 (DEC-002) — Firmware Signing + A/B Partition + **Provisioning Blob sealed tenant binding** (BLOCKER)
 - ADR-020 (DEC-019) — Audit Log HMAC Chain (BLOCKER)
-- ADR-021 (DEC-008) — Platform Key Ceremony (6 HSM slots: 5 RBAC/firmware + 1 program_signing) (BLOCKER)
+- ADR-021 (DEC-008) — Platform Key Ceremony (canonical 7-slot map per ADR-019 §1: 5 RBAC/firmware + 1 program_signing + 1 provisioning) (BLOCKER)
 - ADR-023 (DEC-017) — SL-3 Upgrade Path (remote attestation, dm-verity, secure boot)

@@ -46,7 +46,7 @@ ST Source (.st)
 AST + TypeCheck (Statement + Expression variants — §2 opcode tablosu complete mapping)
   ↓ st_compiler.rs (YENİ, ~1500-2000 satır, Faz 3)
 Closed Opcode Set (IEC 61131-3 ST subset — §2'de listelenir, genişletme ADR amendment gerektirir)
-  ↓ Platform-side sign (ed25519, program_signing_key — DEC-008'de tanımlanacak 4. HSM slot)
+  ↓ Platform-side sign (ed25519, program_signing_key — canonical 7-slot map ADR-019 §1; slot 6)
 Signed .stbc Artifact (immutable; verify-once-execute-many)
   ↓ MQTT deploy_program {format: "stbc", ...} (Permission::DeployProgram + two-person integrity)
 Edge verify + load (ed25519 verify, policy_version + tenant_id match, size bound check BEFORE deserialize)
@@ -346,7 +346,7 @@ pub struct StBytecode {
 // 2. Refuse if format_version not in [CURRENT, CURRENT-1]
 // 3. Refuse if tenant_id != signature-bound config.tenant_id (ADR-018 FINDING-001 via ADR-019 sealed binding)
 // 4. Refuse if policy_version <= persisted highest_seen_version (ADR-018 monotonic storage)
-// 5. ed25519 verify over full serialized form (program_signing_key — DEC-008 to define 4th HSM slot)
+// 5. ed25519 verify over full serialized form (program_signing_key — canonical 7-slot map ADR-019 §1; slot 6)
 // 6. Deserialize opcodes (Vec<Opcode>); refuse if len > header.max_opcodes
 // 7. Compiler invariants spot-check: every loop body contains GasTick; every WriteTag target in allowed_write_tags
 // 8. Store bytecode + register with scheduler

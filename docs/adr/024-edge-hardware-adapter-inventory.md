@@ -1,592 +1,827 @@
-# ADR-024: Edge Hardware Adapter Inventory + Safe-State Schema v2 + Effect-Based Permissions
+# ADR-024: Edge Hardware Adapter Inventory + Safe-State Schema v2 + Append-Only Signed Class Binding + Effect-Based Permissions
 
-**Status:** **BLOCKED (post-audit; architectural safety-schema rewrite required before Proposed → Accepted)**
+**Status:** Proposed (opened 2026-04-19; rewritten post-audit 2026-04-19 — 4 CRITICAL + 8 HIGH + 8 MEDIUM closed in §13 closure table; target Accepted 2026-06-07 post-implementation deps)
 **Date:** 2026-04-19
-**Deciders:** Okan (platform owner) + edge-expert + edge-industrial-auditor + sensor-expert + auth-security-expert
+**Deciders:** Okan (platform owner) + edge-expert + edge-industrial-auditor + sensor-expert + auth-security-expert + legal counsel
 **Owner:** Okan (temp — PROC-001)
-**Deadline:** 2026-05-03 — tamamlayıcı ADR-019 §2.5 (Safe-state schema v2 referansı); hardware inventory field OEM data field-ops ekibi gerektirir (Faz 0 Sprint 0.3 work)
-**Related findings:** DEC-005 (PWM/SPI wire decision), ARC-004 (pwm.rs + spi.rs dead-code), STL-003 (IEC 61508 SIL-2 life-safety alignment), **DEC-022 (this ADR's rewrite tracking; opened by post-audit revision)**
-
----
-
-## ⚠ BLOCKED STATUS — Post-Audit Summary (2026-04-19)
-
-edge-industrial-auditor verdict: **NEEDS_MAJOR_REVISION**. 4 CRITICAL + 8 HIGH + 8 MEDIUM + 4 LOW/INFO bulgu. Üç tanesi ACTIVE LIFE-SAFETY BUGS:
-
-| # | CRITICAL | Saha reality |
-|---|---|---|
-| AUDIT-CRITICAL-001 | §1 aerator fail-safe "on_ac_loss_to_off" vs §7 "fail-ON 90%" contradiction | Same actuator class two opposite fail-safes; integrator misread → fish kill in normal AC-loss scenario (O2 half-life minutes) |
-| AUDIT-CRITICAL-002 | `hardware_inventory.yaml` lookup mutable signed-doc = class reclassification attack | Attacker modifies `(tag_id, class)` tuple → aerator reclassified as `Inventory` → AffectActuator bypass; whole-file signature doesn't prevent |
-| AUDIT-CRITICAL-003 | `Chemistry` class single fail-OFF default catastrophic for O2 dosing | Template copy-paste inherits fail-OFF → pond3_o2_dosing stops on control-loss → fish die in hours |
-| AUDIT-CRITICAL-004 | `backup_path: secondary` on same Modbus transport = single-point-failure | IEC 61508-2 §7.4.3.4 requires diverse redundancy; dual-Modbus = one PLC compromise takes both paths; SIL-2 claim invalid |
-
-**Auditor saha-reality verdict:**
-> "Category-error corrections sound and ready. The leap from 'category-correct wiring' to 'SIL-2-aligned life-safety platform' is not ready — rests on schema shapes that silently permit worst outcomes of each life-safety class. Current draft is carbon-steel at the category level and papier-mâché at the fail-safe-semantics level."
-
-**Required architectural rewrite (not edit):**
-1. **ActuatorClass split:** `Aeration::{Normal, LifeSupport}`, `Chemistry::{Nutrient, pH, LifeSupportDose}`, orthogonal `is_life_support: bool` flag; reject `Normal` on SinglePath topology
-2. **Append-only signed class-binding log:** `(tag_id, class)` pairs individually signed with monotonic nonce; class downgrade requires 2-party signature; inventory is a Merkle-linked history, not a YAML file
-3. **Explicit fail-safe enum** (not free-text): enum variants pre-validated against ActuatorSubClass; `fail_safe_on_stale/unreadable: SafeValue` mandatory for ProcessAware/InterlockWith
-4. **Diverse redundancy schema:** `backup_path.diversity_class: {SameTransport | DifferentTransport | HardwiredOverride}`; LifeSupport deploy rejects SameTransport
-5. **`HardwiredSafetyOverride`** as first-class OutputTag variant (GPIO→contactor bypass PLC; industrial SIL-2 pattern)
-6. **Binary-const hard caps:** per-SKU `const_table!` in Rust; `effective_cap = min(yaml, binary)`; new SKU = new binary release (not YAML edit)
-7. **Type-system RFID auth ban:** `OperatorId` constructor module-private; `impl From<_> for OperatorId` outside authz fails type-check; grep-lint = last line of defense, not first
-8. **SIL-2 wording honesty:** "SIL-2-aligned architecture" (not certified); explicit limits document; legal review gate
-9. **Engineer attestation liability ADR** (separate): employment relationship, expiry, re-attestation triggers, incident liability flow
-10. **Fail-safe latency schema:** `Option<u32>`; `None` for latch_preserved; attacker-flap resistant rolling-window rate cap
-
-**Decision to rewrite next session** — user'ın "en kaliteli + güvenli + performanslı + mimari" direktifi + life-safety bugs = honest path. DEC-022 tracks; rewrite depends on:
-- Field-ops site topology survey (redundancy class per deployment)
-- Process engineer attestation template + liability legal review
-- Rust const_table! macro design (per-SKU binary caps)
-- ActuatorClass final taxonomy after ADR-018 §5 EmergencyActuator scope coordination
-
-**DEC-022 tracked in finding board**; rewrite deadline 2026-06-07 (4 weeks); not silent deferral.
-
-**Aşağıdaki içerik ilk taslak — BLOCKED olarak işaretli. Category-error corrections (aerator/dosing/solenoid/LED/MAX31865/ADS1256/MFRC522) korunur; fail-safe semantics + class binding + redundancy schema rewrite scope'u.**
-**Related plans:** `/root/.claude/plans/unutma-mevcut-s-stem-le-lexical-puzzle.md` §3 R-22, §5 Faz 0-1; `/var/aqua-saas/docs/plans/2026-04-19-sens-api-gateway-hardening.md` §4.5 D-5 REVİZE MAJOR
-**Supersedes:** Plan B V1 D-5 "WIRE ET" blanket PWM/SPI decision
+**Deadline:** 2026-06-07 (internal architecture + test harnesses; inventory populate + legal review parallel ops work)
+**Related findings:** DEC-005, ARC-004, STL-003, DEC-022 (this ADR's rewrite remediation)
+**Related plans:** `/root/.claude/plans/unutma-mevcut-s-stem-le-lexical-puzzle.md` §5 Faz 0-1; `/var/aqua-saas/docs/plans/2026-04-19-sens-api-gateway-hardening.md` §4.5 D-5 REVİZE MAJOR
 
 ---
 
 ## Context (WHY)
 
 ### Problem
-Plan B V1 D-5 "PWM + SPI wire et" kararı field-ops ekibi audit ettiğinde **kategori hatasıyla dolu** çıktı:
-- Aerator **PWM değil contactor** (on/off 3-phase motor; variable speed yok typical deployment)
-- Dosing pump **PWM değil stroke-count** (peristaltic pump rpm-controlled; PWM duty cycle dosing hacmine lineer değil)
-- Solenoid **PWM değil on/off** (latching solenoid zaten PWM unsuitable)
-- Gerçek PWM use-case: **sadece LED diurnal** (day/night intensity cycle)
-- ADS1256 24-bit ADC aquaculture için **overkill** (pH/O2/temp 16-bit yeterli)
-- MFRC522 RFID **authentication için kesinlikle yasak** (ISO 14443 close-range tap; spoofable; asset-tracking OK)
+ADR-024 v1 (written 2026-04-19 earlier) audited NEEDS_MAJOR_REVISION by edge-industrial-auditor. 4 active LIFE-SAFETY bugs:
+1. Aerator fail-safe §1 "on_ac_loss_to_off" vs §7 "fail-ON 90%" contradiction (integrator misread → fish kill)
+2. `hardware_inventory.yaml` lookup mutable (attacker reclassifies tag → AffectActuator bypass)
+3. `Chemistry` class single fail-OFF default (O2 dosing catastrophic)
+4. `backup_path` dual-Modbus = single-point-failure (SIL-2 FR3 fails; IEC 61508-2 §7.4.3.4 requires diverse redundancy)
 
-`safe_state.rs` mevcut `OutputTag` enum'u sadece Modbus + GPIO varyantları taşıyor; PWM / SPI / process-aware dependency tanımları yok.
+Architectural decision pending external inputs (field-ops topology survey, legal review) **does NOT block architectural decision** — user direktifi "sonraya bırakma yok + arkadan dolanma yok" gereği. Schema + invariant definition verilir; YAML populate implementation-phase ops work.
 
-### User direktifi
-*"En kaliteli + güvenli + performanslı + mimari — çelik gibi sağlam; yama yok"* → field-ops envanter ADR'da dokümante; kategori hatalarını mimariye geçirme.
-
-### STL-003 IEC 61508 / IEC 61511 SIL alignment
-Life-safety alarm path (O2, pH, temperature) SIL-2 classification hedefli:
-- PFDavg (Probability of Failure on Demand, average) hedef: 10⁻³ ≤ PFD < 10⁻²
-- DC (Diagnostic Coverage) hedef: ≥ %90
-- Proof-test interval: 6 ay
-- Fail-safe davranış per output documented (bu ADR'da)
+### Post-audit rewrite — Option architecture
+**User direktifi:** yama değil schema redesign. Bu rewrite:
+1. ActuatorClass enum expansion + `::Normal` / `::LifeSupport` variant split
+2. `is_life_support: bool` flag orthogonal
+3. Append-only signed class-binding log (per-tuple ed25519 signature, NOT whole-YAML)
+4. Explicit FailSafe enum (schema-bound, not string)
+5. Diversity_class enum per backup_path (SameTransport banned for LifeSupport)
+6. `HardwiredSafetyOverride` first-class OutputTag variant
+7. Binary-const per-SKU caps via `const_table!` macro
+8. Type-system RFID auth ban (OperatorId constructor module-private)
+9. "SIL-2-informed design" wording (not certified)
+10. Engineer attestation structured schema
+11. `fail_safe_latency: Option<u32>` (None for latch-preserve)
+12. FailSafeOnStale semantics for ProcessAware + InterlockWith
+13. ScheduleDependent clock_trust_mode
+14. Atlas EZO calibration_policy explicit
 
 ---
 
 ## Decision (WHAT)
 
-**1. Per-actuator hardware adapter matrix (SKU + interface + driver ownership + deployment ratio + fail-safe tanımı) — field OEM tablosu aşamalı populate edilir. 2. Safe-state schema v2 — `ProcessAware` variant + `PwmChannel` (max_duty/max_rate_of_change) + `SpiWrite` explicit forms. 3. Effect-based Permission — `AffectActuator { class }` interface-agnostic. 4. ADC self-test protocol + RFID auth lint-level prohibition. 5. PWM-use only where validated (LED diurnal); rejected-use-case table. 6. Dosage rate cap enforcement (max_rate_of_change). 7. SIL-2 alignment per life-safety output.**
-
-### 1. Hardware Adapter Inventory — schema + field OEM population template
-
-```yaml
-# /etc/suderra/hardware_inventory.yaml (signed via ADR-019 §8 config integrity)
-# INVARIANT: Every actuator/sensor at deployment site MUST have entry here.
-#            Missing entry = device refuses to register actuator (tests/invariants/hw_inventory_complete.rs).
-
-hardware_inventory:
-  schema_version: 1
-  inventory_generated_at: "2026-04-19T10:00:00Z"
-  signed_by: "field_ops_lead_okan"  # operator signature (ADR-018 §7 per-operator key)
-
-  actuators:
-    # ==========================================================================
-    # AERATORS — contactor-driven (NOT PWM)
-    # ==========================================================================
-    - sku: "LEESON-3PH-1.5KW-CONTACTOR-AQUAZONE"
-      category: Aeration
-      interface: Modbus  # via PLC → contactor; NOT direct GPIO/PWM
-      driver_ownership: "sens-api-gateway/src/modbus.rs + external PLC (Yol C per CLAUDE.md)"
-      reference_hardware_test_bench: "Istanbul lab; Unit SN UNIT-0042-AZ-001"
-      site_deployment_ratio: "TBD — field-ops populate by 2026-05-03"
-      # ^ deployment ratio from Faz 0 Sprint 0.3 field-ops survey; placeholder until data
-      fail_safe_behavior: "on_ac_loss_to_off"
-      fail_safe_latency_ms: 500  # contactor drop-out time (ON→OFF on control-loss)
-      fail_safe_attestation:
-        engineer: "Process engineer Ayşe (PE-Aquaculture)"
-        signed_at: "TBD"
-        # ^ engineer signature pending Faz 0 Sprint 0.3 — per user direktifi, NOT silent defer;
-        #   deadline explicit + owner + finding ID — PROC-003 tracks completion
-
-    # ==========================================================================
-    # DOSING PUMPS — stroke-count (NOT PWM)
-    # ==========================================================================
-    - sku: "GRUNDFOS-DDA-7.5-16-AR-AQUAZONE"
-      category: Chemistry
-      interface: Modbus
-      driver_ownership: "external PLC via Modbus register strokes_per_minute"
-      reference_hardware_test_bench: "TBD"
-      site_deployment_ratio: "TBD"
-      fail_safe_behavior: "stroke_count_to_zero_on_loss"
-      fail_safe_latency_ms: 100
-      dosage_constraints:
-        max_strokes_per_minute: 180     # hardware max
-        platform_hard_cap: 150           # binary-embedded (not config-overridable)
-        max_rate_of_change_per_min: 10   # strokes/min rate change cap; dosage overshoot safety
-      fail_safe_attestation: "TBD"
-
-    # ==========================================================================
-    # SOLENOIDS — on/off (latching/non-latching)
-    # ==========================================================================
-    - sku: "BURKERT-6213-SOLENOID-LATCH-DN15"
-      category: Filtration
-      interface: GpioPin
-      driver_ownership: "sens-api-gateway/src/gpio.rs"
-      reference_hardware_test_bench: "TBD"
-      site_deployment_ratio: "TBD"
-      fail_safe_behavior: "latch_state_preserved_on_loss"  # latching solenoid; NO auto-return
-      fail_safe_latency_ms: 0  # instant (latched)
-      gpio_pin_constraints:
-        min_pulse_width_ms: 50
-        max_pulse_width_ms: 500
-        platform_hard_cap_pulse_width_ms: 1000
-      fail_safe_attestation: "TBD"
-
-    # ==========================================================================
-    # LED DIURNAL — PWM (ACCEPTED use-case)
-    # ==========================================================================
-    - sku: "MEANWELL-PLD-60-1750-LED-DRIVER"
-      category: Lighting
-      interface: PwmChannel
-      driver_ownership: "sens-api-gateway/src/pwm.rs (WIRED — ARC-004 kapama bu ADR ile)"
-      reference_hardware_test_bench: "Istanbul lab; Unit SN LED-0017"
-      site_deployment_ratio: "TBD"
-      fail_safe_behavior: "fade_to_zero_on_loss"
-      fail_safe_latency_ms: 1000  # 1-second fade-down (sudden-off stress fish)
-      pwm_constraints:
-        hardware_max_duty_pct: 100
-        platform_hard_cap_duty_pct: 100
-        max_rate_of_change_pct_per_min: 20  # 20% duty/min — gradual diurnal transitions
-        pwm_frequency_hz: 1000
-      fail_safe_attestation: "TBD"
-
-    # ==========================================================================
-    # RTD TEMPERATURE SENSOR — SPI MAX31865 (ACCEPTED use-case)
-    # ==========================================================================
-    - sku: "ADAFRUIT-MAX31865-RTD-PT100"
-      category: Sensor  # read-only; no actuator
-      interface: SpiRead  # NOT SpiWrite — sensor read path
-      driver_ownership: "sens-api-gateway/src/spi.rs (WIRED — ARC-004 kapama bu ADR ile)"
-      reference_hardware_test_bench: "Istanbul lab; PT100 probe calibrated 0-100°C"
-      site_deployment_ratio: "TBD"
-      # Read-only — no fail-safe behavior on write (N/A)
-      read_constraints:
-        sample_rate_hz: 10
-        fault_detection_enabled: true      # MAX31865 has integrated fault detection
-        self_test_interval_sec: 3600       # 1-hour self-test cycle
-
-  rejected_hardware_use_cases:
-    # ==========================================================================
-    # Kategori hatası düzeltmeleri — reference audit record
-    # ==========================================================================
-    - category_error: "Aerator PWM"
-      actual_interface: "contactor (on/off) via external PLC Modbus"
-      rejection_reason: "3-phase AC motor variable-speed requires VFD ($$ overkill for aquaculture);
-                         typical deployment = single-speed contactor; PWM duty cycle meaningless"
-      correct_design: "Modbus write to PLC register aerator_on_off; fail-safe contactor drop-out"
-
-    - category_error: "Dosing pump direct PWM"
-      actual_interface: "stroke-count via Modbus"
-      rejection_reason: "Peristaltic pump dose volume = f(stroke_count), NOT linear in PWM duty;
-                         PWM at 50% ≠ half dose (stroke volume constant)"
-      correct_design: "Modbus register strokes_per_minute; platform cap 150 s/m"
-
-    - category_error: "Solenoid PWM"
-      actual_interface: "GPIO on/off (latching) or pulse"
-      rejection_reason: "Latching solenoid holds state; non-latching requires continuous signal
-                         but is NOT a PWM duty cycle (binary on/off)"
-      correct_design: "GpioPin with min_pulse_width_ms / max_pulse_width_ms"
-
-    - category_error: "ADS1256 24-bit ADC for aquaculture"
-      actual_alternative: "MAX31865 (RTD) + Atlas EZO (pH/O2/EC) — these have integrated ADC
-                            + protocol-level data output; no external ADC needed"
-      rejection_reason: "Aquaculture sensor noise floor makes 16-bit sufficient;
-                         24-bit ADS1256 complicates driver (SPI chip-select multiplex)
-                         + higher cost without measurable benefit"
-      correct_design: "Trust sensor-provided digital output; no external high-precision ADC"
-
-    - category_error: "MFRC522 RFID for operator AUTHENTICATION"
-      actual_permitted_use: "Asset tracking only (ISO 14443 asset-ID read)"
-      rejection_reason: "ISO 14443 close-range (4cm) tap; UID easily cloned; relay attacks trivial;
-                         SL-2 FR1 requires strong auth; RFID fails"
-      correct_design: "Operator auth via command envelope ed25519 signature (ADR-018 §7);
-                       RFID only for inventory asset tracking (no write-permission consequences)"
-      lint_invariant: "tests/invariants/no_rfid_auth.rs"
-```
-
-### 2. Safe-State Schema v2 (ADR-019 §2.5 final form)
+### 1. ActuatorClass extended enum + LifeSupport orthogonal flag
 
 ```rust
-// WHY: Plan B V2 D-5 schema v2; v1 only covered Modbus + GPIO; v2 covers PWM / SPI /
-//      process-aware dependencies + effect-based permission routing.
-// WHAT: Enum-closed output taxonomy; every actuator MUST map to exactly one variant;
-//       unknown actuator REJECTED at deploy-time (not runtime — make-it-impossible tier-1).
-// INVARIANT: tests/invariants/safe_state_schema_v2_complete.rs — every entry in
-//            hardware_inventory.yaml actuators[] maps to an OutputTag variant; unmapped = fail CI.
+// WHY: v1 single "Chemistry" class catastrophic for O2 dosing; missing classes
+//      (Thermal, Recirculation, WasteRemoval) force mis-classification. Extended
+//      enum + orthogonal life_support flag solves both.
+// INVARIANT: tests/invariants/actuator_class_enum_closed.rs — enum additions
+//            require ADR amendment (closed-set discipline ADR-017 pattern).
 
-pub enum OutputTag {
-    ModbusCoil {
-        device: ModbusDeviceId,
-        coil: u16,
-        safe_value: bool,  // false = "OFF is safe"
+pub enum ActuatorClass {
+    Aeration(AerationSubClass),
+    Chemistry(ChemistrySubClass),
+    Filtration,
+    Lighting,
+    Feeding,
+    Thermal(ThermalSubClass),            // NEW (MEDIUM-001)
+    Recirculation,                       // NEW — RAS main flow, core life-support
+    WasteRemoval,                        // NEW — sludge pumps, drum filter backwash
+    Degassing,                           // NEW — CO2 stripping, blowers
+    EmergencyContainment,                // NEW — drain/spill-containment valves
+    Inventory,                           // non-actuator (RFID asset tags, passive)
+}
+
+pub enum AerationSubClass {
+    Normal,       // fail-OFF acceptable when DualPath redundancy exists
+    LifeSupport,  // fail-ON mandatory (stocking density > threshold OR DO sensor below setpoint)
+}
+
+pub enum ChemistrySubClass {
+    Nutrient,           // fail-OFF safe (underdose)
+    PhAdjust,           // fail-OFF safe
+    LifeSupportDose,    // fail-HOLD-LAST-BOUNDED (O2 dosing, emergency chemistry)
+}
+
+pub enum ThermalSubClass {
+    Heating,   // fail-OFF safe (cold-shock slower than boil)
+    Cooling,   // fail-OFF safe (warm-drift slower than chill-shock)
+}
+
+// Orthogonal LifeSupport flag (CRITICAL-002 partial closure — doesn't force class split)
+pub struct ActuatorBinding {
+    pub tag_id: TagId,
+    pub primary_class: ActuatorClass,
+    pub is_life_support: bool,                // orthogonal to class
+    pub life_support_role: Option<LifeSupportRole>,
+}
+
+pub enum LifeSupportRole {
+    OxygenSupply,
+    TemperatureCriticalPath,
+    AmmoniaControl,
+    StockDensityInterlock,
+}
+
+// Permission check pipeline update:
+// - AffectActuator{primary_class} required ALWAYS
+// - if is_life_support: EmergencyActuator{LifeSupport} ADDITIONAL per ADR-018 §5
+// - Binary-hardcoded life-support tag allowlist per ADR-018 §5 EMERGENCY_LIFE_SAFETY_TAGS
+```
+
+### 2. Append-only signed class-binding log (CRITICAL-002 kapama)
+
+```rust
+// WHY: v1 hardware_inventory.yaml whole-file signature = attacker with write access
+//      + re-signed signature → class reclassification attack → AffectActuator bypass.
+//      Fix: each (tag_id, class) binding individually signed + Merkle-linked chain.
+// INVARIANT: tests/invariants/class_binding_tamper.rs — mutate any (tag_id, class)
+//            at runtime → safe-state trips before any command dispatches.
+
+#[derive(Serialize, Deserialize)]
+pub struct ActuatorClassBindingEntry {
+    pub entry_id: u64,                  // monotonic per-device
+    pub tag_id: TagId,
+    pub primary_class: ActuatorClass,
+    pub is_life_support: bool,
+    pub life_support_role: Option<LifeSupportRole>,
+    pub binding_nonce: [u8; 16],        // freshness; dedup
+    pub effective_at_unix_ms: i64,
+    pub prev_binding_hash: [u8; 32],    // chain-link to previous binding for this tag_id
+    pub binding_signature: [u8; 64],    // ed25519 by rbac_manifest_signing_key (ADR-021 slot 2)
+}
+
+// Chain semantics:
+// - Each (tag_id, class) pair has its own chain (indexed by tag_id)
+// - First binding: prev_binding_hash = all-zero
+// - Reclassification: MUST include prev_binding_hash of current active binding
+//                     + monotonic entry_id increment
+//                     + NEW signature (platform 4-eye signed)
+// - Downgrade (LifeSupport → Normal): requires TWO-party signature
+//   (ADR-018 §7 two-person integrity on ReclassifyBinding command)
+// - Upgrade (Normal → LifeSupport): one-way once pond stocked with
+//   density > threshold (locked by interlock sensor reading)
+
+// Edge verification on receive:
+// 1. ed25519 verify with slot 2 rbac_manifest_signing_key
+// 2. prev_binding_hash matches locally-stored current binding hash for this tag_id
+// 3. entry_id > locally-stored highest_entry_id for this tag_id (replay prevention)
+// 4. binding_nonce dedup (persist 30 days)
+// 5. effective_at within grace window (clock skew tolerance)
+// 6. If reclassification: check downgrade vs upgrade semantics
+// 7. Atomic binding update + chain persist
+
+// tests/invariants/class_binding_tamper.rs:
+// - Fuzz: replace binding in inventory with forged (re-signed with stolen slot 2 key)
+// - Expect: chain continuity check fails (prev_binding_hash mismatch) → REJECT
+// - Fuzz: replay old binding (old entry_id)
+// - Expect: entry_id monotonic check fails → REJECT
+```
+
+### 3. Explicit FailSafe enum + FailSafeOnStale (CRITICAL-001/003, HIGH-001/002/003/004 kapama)
+
+```rust
+// WHY: v1 fail_safe_behavior: String → operator-error-prone (category-error-copy);
+//      contradiction between §1 aerator "on_ac_loss_to_off" and §7 "fail-ON 90%".
+//      Enum + per-subclass invariant closes.
+
+pub enum FailSafe {
+    // ==========================================================================
+    // Actuator-OFF family (safe-OFF actuators)
+    // ==========================================================================
+    Off {
+        latency_ms: Option<u32>,         // None = latch-preserve (no active transition)
     },
-    ModbusRegister {
-        device: ModbusDeviceId,
-        register: u16,
-        safe_value: u16,
-        value_range: Range<u16>,        // platform-validated; writes outside → reject
-    },
-    GpioPin {
-        pin: u8,
-        safe_level: bool,
-        min_pulse_width_ms: u16,         // for pulse-mode; continuous = u16::MAX
-        max_pulse_width_ms: u16,
-    },
-    I2cOutput {
-        bus: I2cBusId,
-        address: u8,
-        safe_register_writes: Vec<(u8, u8)>,  // (register, safe_value)
+    OffViaGracefulFade {
+        fade_duration_ms: u32,
+        hold_last_state_ms_first: Option<u32>,  // HIGH-001 LED night-stress — hold THEN fade
     },
 
-    // v2 YENİ: PwmChannel
-    PwmChannel {
-        channel: u8,
-        safe_duty: f32,                  // 0.0..1.0 — typically 0.0 (OFF)
-        max_duty: f32,                   // platform hard cap
-        max_rate_of_change_per_min: f32, // dosage overshoot prevention
-        pwm_frequency_hz: u16,
-        fade_duration_ms: u16,           // graceful transition on safe-state trigger
+    // ==========================================================================
+    // Actuator-ON family (life-support: aerator, O2 dose, heater winter)
+    // ==========================================================================
+    OnFull {
+        max_duration_secs: u32,           // bounded run; after expiry, revert to HoldLastKnownGood
+    },
+    OnAtPercent {
+        duty_pct: f32,                    // 0.0..1.0 (e.g. 90% for aerator life-support)
+        max_duration_secs: u32,
     },
 
-    // v2 YENİ: SpiWrite
-    SpiWrite {
-        device: SpiDeviceId,
-        safe_bytes: Vec<u8>,             // SPI command sequence for safe-state
-        chip_select_pin: u8,
-        transfer_speed_hz: u32,
+    // ==========================================================================
+    // Stateful preservation
+    // ==========================================================================
+    HoldLastKnownGood {
+        max_hold_duration_secs: u32,      // bounded (e.g., 15 min) — then escalate
+        escalation: Box<FailSafe>,         // nested escalation (typically OffViaGracefulFade)
+    },
+    LatchPreserved,                       // no action; for latching solenoids
+    BoundedRange {
+        min: f32,
+        max: f32,
+        default_to: f32,                  // target value within bounds
     },
 
-    // v2 YENİ: ProcessAware — safe-state dependent on process variables
-    ProcessAware {
-        base_output: Box<OutputTag>,
-        dependencies: Vec<ProcessStateDependency>,
-        // safe-state value = f(current process state); not constant
+    // ==========================================================================
+    // Process-aware + interlock
+    // ==========================================================================
+    ProcessAwareOrEscalate {
+        primary: Box<ProcessAwareFailSafe>,
+        fail_safe_on_stale: Box<FailSafe>,  // HIGH-002 closure — if ProcessAware dependency stale
     },
+    InterlockOrFailSafe {
+        check: InterlockCheck,
+        if_released_safe: Box<FailSafe>,
+        if_interlocked_safe: Box<FailSafe>,
+        if_unreadable_safe: Box<FailSafe>,  // HIGH-004 closure — sensor failure = safer of the two
+    },
+
+    // ==========================================================================
+    // Emergency escalation
+    // ==========================================================================
+    TripToSafeState,                      // invoke ADR-019 §2.5 safe-state
+    OperatorAlertOnly,                    // non-automated — for monitoring-only deployments
+}
+
+pub struct ProcessAwareFailSafe {
+    pub base: FailSafe,
+    pub dependencies: Vec<ProcessStateDependency>,
+    pub dependency_freshness_seconds_max: u32,  // HIGH-002 — beyond this, "stale" state
+    pub action_on_stale: StaleAction,
+}
+
+pub enum StaleAction {
+    AssumePessimistic(SafeValue),    // worst-case stocking density assumed
+    TripToSafeState,
+    OperatorAlert,
 }
 
 pub enum ProcessStateDependency {
-    // Example: "aerator safe=ON if pond_stock_density > 50 kg/m³"
-    //          "aerator safe=OFF if pond_harvested AND stock_density == 0"
     TagThreshold {
         tag_id: TagId,
         threshold: f32,
-        operator: ComparisonOp,  // Gt | Lt | Eq | Gte | Lte
-        when_true_safe_value: SafeValue,
-        when_false_safe_value: SafeValue,
+        operator: ComparisonOp,
+        freshness_requirement: FreshnessRequirement,  // HIGH-002
+        when_true_safe: Box<FailSafe>,
+        when_false_safe: Box<FailSafe>,
     },
     ScheduleDependent {
         time_window: DailyTimeRange,
-        during_safe_value: SafeValue,
-        outside_safe_value: SafeValue,
+        clock_trust_mode: ClockTrustMode,  // HIGH-003 — wrong-clock recovery
+        during_safe: Box<FailSafe>,
+        outside_safe: Box<FailSafe>,
     },
     InterlockWith {
         other_tag: TagId,
-        must_be: TagState,  // must_be_on | must_be_off
-        if_interlocked_safe: SafeValue,
-        if_released_safe: SafeValue,
+        must_be: TagState,
+        if_interlocked_safe: Box<FailSafe>,
+        if_released_safe: Box<FailSafe>,
+        if_unreadable_safe: Box<FailSafe>,  // HIGH-004
     },
 }
 
-pub enum SafeValue {
-    Bool(bool),
-    U16(u16),
-    F32(f32),
-    Bytes(Vec<u8>),
-    InheritFromBase,  // use base_output's safe_value
+pub enum FreshnessRequirement {
+    MustBeRealTimeSensor { max_age_seconds: u32 },
+    StaticStockingMetadata { max_age_hours: u32, fail_safe_on_stale: SafeValue },
+    StaticConfigOperatorEntered { fail_safe_on_stale_or_missing: Box<FailSafe> },
 }
+
+pub enum ClockTrustMode {
+    NtpSyncedWithinWindow { max_age_seconds: u32 },
+    MonotonicOnlyIgnoreSchedule,  // degraded mode on stale clock
+    GpsPtpHardware,                // SL-3 per ADR-023 §7
+}
+
+pub enum InterlockCheck {
+    TagState { tag: TagId, state: TagState },
+    ProcessThreshold { tag: TagId, threshold: f32, op: ComparisonOp },
+}
+
+// Invariants:
+// tests/invariants/fail_safe_enum_per_subclass.rs
+//   - AerationSubClass::Normal: FailSafe::Off (latency_ms Some) required
+//   - AerationSubClass::LifeSupport: FailSafe::OnAtPercent (duty_pct >= 0.8) required
+//   - ChemistrySubClass::Nutrient: FailSafe::Off required
+//   - ChemistrySubClass::LifeSupportDose: FailSafe::HoldLastKnownGood (max_hold <= 300s) required
+//   - ThermalSubClass::Heating/Cooling: FailSafe::Off required
+//   - Filtration Drum: FailSafe::Off required
+//   - Filtration Solenoid Latching: FailSafe::LatchPreserved required
+//   - Lighting LED diurnal: FailSafe::OffViaGracefulFade {fade_duration >= 1000ms}
+//     + hold_last_state_ms_first >= 60_000 for photoperiod-critical species (species-aware)
+//   - Recirculation: FailSafe::HoldLastKnownGood (bounded <= 600s escalate to TripToSafeState)
+
+// Schema-rejected combinations:
+//   - AerationSubClass::LifeSupport + FailSafe::Off → REJECT (prevents CRITICAL-001)
+//   - ChemistrySubClass::LifeSupportDose + FailSafe::Off → REJECT (prevents CRITICAL-003)
 ```
 
-### 3. Effect-Based Permission Mapping
-
-Plan B V2 D-5 effect-based permission yaklaşımı — attacker interface'de deny olursa diğerine geçemez:
+### 4. Diversity schema — backup_path diversity_class (CRITICAL-004 kapama)
 
 ```rust
-// WHY: Interface-based permission (ModbusWrite / GpioWrite / PwmWrite / SpiWrite)
-//      attacker-bypass vector: deny ModbusWrite → attacker switches to GPIO path
-//      for same EFFECT (e.g. turn aerator OFF via GPIO if Modbus denied).
-// WHAT: AffectActuator { class } — effect-level permission; routed to interface by hardware inventory.
-// INVARIANT: Permission::WriteTag{tag_id} + Permission::AffectActuator{class} BOTH required;
-//            AffectActuator class resolved from hardware_inventory.yaml at deploy-time.
+// WHY: IEC 61508-2 §7.4.3.4 requires diverse redundancy; dual-Modbus = SPoF.
+// WHAT: Schema enforces diversity_class; LifeSupport deploy rejects SameTransport.
 
-pub enum ActuatorClass {
-    Aeration,      // aerators, blowers, oxygen injection
-    Chemistry,     // pH/alkalinity/chlorine dosing pumps
-    Filtration,    // filter valves, backwash solenoids
-    Lighting,      // LED diurnal PWM
-    Feeding,       // feeder motors, conveyor belts
-    LifeSupport,   // CRITICAL subset — O2 dosing, emergency drain, aerator overrides
-                   // EmergencyActuator{class: LifeSupport} narrow scope per ADR-018 §5
-    Inventory,     // non-actuator (RFID asset tags, passive sensors)
+pub struct BackupPath {
+    pub tag_id: TagId,
+    pub diversity_class: DiversityClass,
+    pub hardware_topology_notes: String,      // attested by engineer
 }
 
-// Permission check pipeline:
-// 1. Tag lookup in hardware_inventory.yaml → resolves ActuatorClass
-// 2. Permission::WriteTag{tag_id} — existing (ADR-018 §1)
-// 3. AFFECT gate: AuthorizedContext.has(Permission::AffectActuator{class}) — NEW
-// 4. Interface-level check (ModbusWrite/GpioWrite/PwmWrite/SpiWrite) — existing
-// 5. Rate cap (hardware_inventory max_rate_of_change_per_min) — NEW
+pub enum DiversityClass {
+    SameTransport,            // both paths via same Modbus/PLC; SL-0 equivalent
+    DifferentTransport,       // e.g., primary Modbus + secondary GPIO; acceptable SL-1
+    HardwiredOverride,        // SIL-2 SOA: dedicated GPIO→contactor bypassing PLC
+    IndependentPlc,           // secondary PLC with separate RS-485 trunk; SL-2 sustained
+}
 
-// Attack-vector closure:
-// Attacker denied ModbusWrite for aerator tag "pond3_aerator" at permission manifest.
-// Old design: attacker finds GPIO route "pond3_aerator_gpio" — effects aerator via GPIO → SUCCESS.
-// New design: AffectActuator{Aeration} check fails regardless of interface → DENY.
+// HardwiredSafetyOverride first-class OutputTag variant (new)
+pub enum OutputTag {
+    // ... (v1 variants preserved: ModbusCoil, ModbusRegister, GpioPin, I2cOutput, PwmChannel, SpiWrite, ProcessAware)
+
+    // ==========================================================================
+    // SIL-2 industrial pattern — GPIO hardwired to contactor coil
+    // ==========================================================================
+    HardwiredSafetyOverride {
+        primary_tag: TagId,                  // which normal-path tag this overrides
+        gpio_pin: u8,                         // direct hardware coil control
+        coil_voltage_v: u8,                   // e.g., 24V DC
+        override_behavior: FailSafe,
+        signed_hardware_attestation: [u8; 64], // ed25519 by slot 2; attests diversity
+    },
+}
+
+// Inventory deploy-time validation:
+// - ActuatorBinding.is_life_support: true
+// - ActuatorBinding.primary_class in {Aeration::LifeSupport, Chemistry::LifeSupportDose,
+//                                      Recirculation, Thermal::Heating (winter)}
+// → MUST have backup_path.diversity_class in {HardwiredOverride, IndependentPlc, DifferentTransport}
+// → SameTransport → REJECTED at deploy-time (compile-error-equivalent for hardware)
+
+// tests/invariants/life_support_diversity_required.rs
+//   Fuzz inventory with LifeSupport + SameTransport → load rejects
 ```
 
-### 4. ADC Self-Test Protocol
+### 5. Binary-const per-SKU hard caps (HIGH-005 kapama)
 
 ```rust
-// WHY: Silent sensor drift → operator blind → life-safety incident.
-//      IEC 61508 DC ≥ 90% requires active diagnostic coverage.
-// WHAT: Hardware scanner startup + 1 Hz periodic reference voltage check; drift alarm.
-// INVARIANT: tests/invariants/adc_self_test_periodic.rs — self-test frequency matches
-//            hardware_inventory.yaml self_test_interval_sec; drift > 0.1% → alarm fires.
+// WHY: v1 platform_hard_cap was YAML field = attacker signed-config tampering
+//      could raise. Fix: per-SKU binary-const table; YAML can only be MORE restrictive,
+//      never wider.
+// WHAT: const_table! macro generates compile-time table; effective_cap = min(yaml, binary).
 
-pub struct AdcSelfTest {
-    pub reference_voltage_mv: i32,       // factory-calibrated reference
-    pub tolerance_pct: f32,              // default 0.1%
-    pub measurement_interval_sec: u64,   // hardware_inventory.yaml derived
-    pub consecutive_failure_threshold: u32,  // default 3
-}
+// sens-api-gateway/src/hardware_caps/mod.rs
+macro_rules! const_table {
+    ($($sku:literal => $cap:expr),* $(,)?) => {
+        pub const SKU_CAPS: &[(&str, HardwareCap)] = &[$(($sku, $cap)),*];
 
-impl AdcSelfTest {
-    pub async fn run_cycle(&mut self) -> AdcSelfTestResult {
-        let measured = read_reference_channel().await?;
-        let drift = ((measured - self.reference_voltage_mv).abs() as f32 / self.reference_voltage_mv as f32) * 100.0;
-
-        if drift > self.tolerance_pct {
-            self.consecutive_failures += 1;
-            if self.consecutive_failures >= self.consecutive_failure_threshold {
-                // CRITICAL: ADC drifted beyond tolerance
-                audit::emit(AuditAction::AdcDriftDetected {
-                    reference_mv: self.reference_voltage_mv,
-                    measured_mv: measured,
-                    drift_pct: drift,
-                });
-                safe_state::trip(SafeStateTrigger::AdcDrift).await?;
-                return AdcSelfTestResult::Failed { drift_pct: drift };
-            }
-        } else {
-            self.consecutive_failures = 0;
+        pub fn lookup_cap(sku: &str) -> Option<HardwareCap> {
+            SKU_CAPS.iter().find(|(k, _)| *k == sku).map(|(_, v)| *v)
         }
-        Ok(AdcSelfTestResult::Passed)
+    };
+}
+
+#[derive(Copy, Clone)]
+pub struct HardwareCap {
+    pub max_strokes_per_minute: Option<u16>,
+    pub max_pwm_duty_pct: Option<f32>,
+    pub max_pulse_width_ms: Option<u16>,
+    pub max_rate_of_change_per_min: Option<f32>,
+    // ... per-SKU capabilities
+}
+
+const_table! {
+    "LEESON-3PH-1.5KW-CONTACTOR-AQUAZONE" => HardwareCap {
+        max_strokes_per_minute: None,
+        max_pwm_duty_pct: None,
+        max_pulse_width_ms: None,
+        max_rate_of_change_per_min: None,
+    },
+    "GRUNDFOS-DDA-7.5-16-AR-AQUAZONE" => HardwareCap {
+        max_strokes_per_minute: Some(150),   // binary floor; YAML cannot exceed
+        max_pwm_duty_pct: None,
+        max_pulse_width_ms: None,
+        max_rate_of_change_per_min: Some(10.0),
+    },
+    "GRUNDFOS-DDA-12-10-AR" => HardwareCap {
+        max_strokes_per_minute: Some(200),
+        max_pwm_duty_pct: None,
+        max_pulse_width_ms: None,
+        max_rate_of_change_per_min: Some(15.0),
+    },
+    "MEANWELL-PLD-60-1750-LED-DRIVER" => HardwareCap {
+        max_strokes_per_minute: None,
+        max_pwm_duty_pct: Some(1.0),
+        max_pulse_width_ms: None,
+        max_rate_of_change_per_min: Some(0.20),
+    },
+    "BURKERT-6213-SOLENOID-LATCH-DN15" => HardwareCap {
+        max_strokes_per_minute: None,
+        max_pwm_duty_pct: None,
+        max_pulse_width_ms: Some(1000),
+        max_rate_of_change_per_min: None,
+    },
+    // ... new SKU = new binary release (not YAML edit)
+}
+
+// Runtime:
+pub fn effective_cap(sku: &str, yaml_cap: HardwareCap) -> HardwareCap {
+    let binary_cap = lookup_cap(sku).unwrap_or(HardwareCap::MOST_RESTRICTIVE_DEFAULT);
+    HardwareCap {
+        max_strokes_per_minute: min_option(binary_cap.max_strokes_per_minute, yaml_cap.max_strokes_per_minute),
+        // ... (min per-field)
     }
 }
 
-// Integration with MAX31865 RTD + Atlas EZO sensors (ADR-017 ST bytecode reads tags):
-// Sensor drivers use MAX31865-integrated fault detection (VBIAS short-to-GND, RTD open);
-// Atlas EZO calibration drift report via `Cal,?` command periodic.
-// Self-test results logged as audit events (ADR-020 §7 KeystoreBackendSelected sibling).
+// INVARIANT: tests/invariants/per_sku_binary_caps.rs
+//   Assert every SKU in loaded inventory has matching binary entry; unknown SKU → MOST_RESTRICTIVE_DEFAULT
+//   (zero writes until binary release adds the SKU entry)
 ```
 
-### 5. RFID Auth Lint-Level Prohibition
+### 6. Type-system RFID auth ban (HIGH-006 kapama)
 
 ```rust
-// WHY: ISO 14443 RFID close-range tap = cloning + relay attack trivial; SL-2 FR1 fails.
-//      Asset tracking OK (UID read without auth consequences); auth path FORBIDDEN.
-// WHAT: Compile-time lint via cargo-deny + clippy lint + grep invariant.
-// INVARIANT: tests/invariants/no_rfid_auth.rs — grep sens-api-gateway/src/
-//            for patterns matching RFID-based auth (function names, imports from rfid:: into authz::);
-//            any match = CI fail.
+// WHY: v1 grep-lint = last line of defense; bypasses via transmute, serde, HashMap exist.
+//      Fix: type-system OperatorId constructor module-private; ANY cross-module conversion fails type-check.
 
-// forbidden patterns (invariant test):
-// 1. use ::rfid::read_uid in src/authz/ — RFID UID must NEVER reach AuthorizedContext construction
-// 2. fn authz::identify_from_rfid — function name ban (compile-time symbol grep)
-// 3. Import of mfrc522 crate into crate::authz — module boundary lint
-// 4. Any `impl From<RfidUid> for OperatorId` — explicit conversion ban
-
-// PERMITTED (asset tracking):
-// - src/inventory/rfid_scanner.rs — reads UID, maps to AssetId (NOT OperatorId)
-// - AssetId used for inventory.yaml cross-reference — no authz consequences
-```
-
-### 6. Dosage Rate Cap Enforcement
-
-```rust
-// WHY: Dosage overshoot (chemistry pumps, PWM-driven LED) safety-critical.
-//      Hardware inventory declares max_rate_of_change_per_min; enforced in write path.
-// WHAT: Rate limiter per-tag; violates → reject + audit.
-// INVARIANT: tests/invariants/dosage_rate_cap.rs — fuzz rapid setpoint changes;
-//            exceed max_rate_of_change → writes rejected.
-
-pub struct DosageRateCap {
-    tag_id: TagId,
-    max_rate_per_min: f32,          // from hardware_inventory.yaml
-    last_value: f32,
-    last_timestamp: Instant,         // monotonic
+// sens-api-gateway/src/authz/operator_id.rs
+pub struct OperatorId {
+    // Private field; no pub constructor exported outside this module
+    _raw: [u8; 16],
+    // Type-level marker: cannot be constructed via transmute due to seal trait
+    _seal: private_seal::OpIdSeal,
 }
 
-impl DosageRateCap {
-    pub fn check(&mut self, new_value: f32, now: Instant) -> Result<(), RateCapViolation> {
-        let delta_t_sec = (now - self.last_timestamp).as_secs_f32();
-        if delta_t_sec < 1.0 {
-            return Ok(()); // below measurement resolution
-        }
-        let rate_per_min = (new_value - self.last_value).abs() / delta_t_sec * 60.0;
-        if rate_per_min > self.max_rate_per_min {
-            audit::emit(AuditAction::DosageRateCapViolated {
-                tag_id: self.tag_id,
-                attempted_rate: rate_per_min,
-                cap: self.max_rate_per_min,
-            });
-            return Err(RateCapViolation {
-                attempted: rate_per_min,
-                cap: self.max_rate_per_min,
-            });
-        }
-        self.last_value = new_value;
-        self.last_timestamp = now;
-        Ok(())
+mod private_seal {
+    // Sealed trait pattern — only this module can implement
+    pub struct OpIdSeal(pub(super) ());
+}
+
+impl OperatorId {
+    // Only constructor — inside this module + authz::verify_manifest caller path
+    pub(crate) fn mint_from_verified_envelope(
+        envelope: &VerifiedCommandEnvelope,
+    ) -> Result<Self, AuthzError> {
+        // ... full verification path before minting
+        Ok(OperatorId {
+            _raw: envelope.actor_raw_bytes(),
+            _seal: private_seal::OpIdSeal(()),
+        })
     }
 }
+
+// Negative-impl trait block (requires stable Rust trait-bound approach):
+// Any attempt to `impl From<X> for OperatorId` in external module fails because
+// OperatorId's private field + sealed trait makes external struct-literal construction impossible.
+
+// unsafe transmute bypass: prevented by module-level forbid
+// sens-api-gateway/src/authz/mod.rs
+#![forbid(unsafe_code)]  // stronger than #![deny]; not just on-request, always on
+
+// String-indirect bypass via serde:
+// OperatorId doesn't derive Serialize/Deserialize from outside; authz module-private
+// deserializer only; external JSON parse → OperatorId fails type-check (no impl)
+
+// HashMap<RfidUid, OperatorId> bypass:
+// Valid Rust but unusable — nothing can populate the HashMap with real OperatorId
+// instances (constructor not exported); map effectively empty
+
+// cargo-deny entry:
+// [bans]
+// deny = [
+//   { name = "mfrc522", wrappers = ["sens-api-gateway-authz"] },  # MFRC522 imports into authz crate banned
+// ]
+
+// INVARIANT: tests/invariants/rfid_auth_impossible_at_compile_time.rs
+//   - Attempt compile: external crate tries to construct OperatorId from RfidUid
+//   - Expected: compile error (no pub constructor; sealed type)
+//   - Fuzz: try all 5 bypass paths from audit (transmute, serde, HashMap, From impl,
+//     re-export chain) — all fail compile or runtime-empty
 ```
 
-### 7. SIL-2 Alignment per Life-Safety Output
+### 7. Engineer attestation structured schema (HIGH-008 kapama)
 
 ```yaml
-# Life-safety outputs (hardware_inventory.yaml category == LifeSupport OR derived):
-sil_alignment:
-  target_sil: 2
-  pfd_avg_target: "10^-3 ≤ PFD < 10^-2"
-  diagnostic_coverage_target: "≥ 90%"
-  proof_test_interval_months: 6
+# Per-actuator attestation — part of signed class-binding entry (§2)
+attestation:
+  engineer:
+    credential_id: "PE-TR-AQUA-00042"     # Turkish PE license
+    credential_expiry: "2028-12-31"        # re-attest if < 90d
+    employer_relationship: "platform_staff_employed"   # OR "contractor" / "tenant_employed"
+    indemnification_coverage: "platform-provided_PE_insurance_bonded"
+    personal_ed25519_pubkey: "base64..."   # cross-signs attestation
 
-  life_safety_outputs:
-    - tag_id: "pond3_aerator_primary"
-      category: LifeSupport
-      effect: Aeration
-      backup_path: "pond3_aerator_secondary"  # redundant aerator; fail-over
-      fail_safe: "on_at_90_percent_duty"      # fail-ON for life-support
-      dc_mechanism:
-        - "MAX31865 VBIAS monitor (sensor health)"
-        - "Atlas EZO O2 reading cross-check"
-        - "Modbus comm heartbeat 1 Hz"
-      dc_computed: "TBD — FMEA post-inventory-populate"
+  attestation_scope:
+    tag_id: "pond3_aerator_primary"
+    fail_safe_behavior: FailSafe::OnAtPercent { duty_pct: 0.9, max_duration_secs: 1800 }
+    diversity_class: DiversityClass::HardwiredOverride
+    hardware_sku: "LEESON-3PH-1.5KW-CONTACTOR-AQUAZONE"
+    site_code: "aquafarm-izmir-01"
 
-    - tag_id: "pond3_o2_dosing"
-      category: LifeSupport
-      effect: Chemistry
-      fail_safe: "off"  # fail-OFF for dosing (overdose worse than underdose)
-      dc_mechanism:
-        - "Flow-meter sensor cross-check"
-        - "Stroke-count audit per minute"
-      dc_computed: "TBD"
+  attestation_valid_until: "2027-04-19"
+  re_attestation_triggers:
+    - hardware_sku_change
+    - species_change                    # tilapia → salmon = different DO curves
+    - deployment_topology_change        # SinglePath → DualPath
+    - signing_engineer_departure        # new PE required
+    - annual_heartbeat                  # 365-day cadence minimum
 
-  # FMEA (Failure Modes Effects Analysis) deliverable Faz 0 Sprint 0.3 tamamlayıcı
-  fmea_document_url: "docs/compliance/life-safety-fmea.md (TBD)"
+  signatures:
+    engineer_signature: "base64 ed25519 by engineer personal key"
+    security_lead_countersignature: "base64 ed25519 by security_lead personal key"
+    legal_counsel_witness: "base64 ed25519 by legal counsel key"  # liability acknowledgment
+
+  liability:
+    incident_flow: "see docs/compliance/engineer-attestation-liability.md"
+    jurisdiction: "TR"
+    insurance_claim_process: "contact legal@aquaculture.com within 24h of incident"
+```
+
+```rust
+// INVARIANT: tests/invariants/attestation_freshness.rs
+//   Every ActuatorBinding with category: LifeSupport MUST have:
+//     - attestation_valid_until > now()
+//     - engineer.credential_expiry > now() + 90 days (warning window)
+//     - all 3 signatures present
+//   Expired → tag auto-degraded to READ-ONLY + alarm
+```
+
+### 8. Hardware inventory — signed schema + deployment ratio runtime gate (MEDIUM-007 kapama)
+
+```yaml
+# /etc/suderra/hardware_inventory.yaml (signed via signed-config per ADR-019 §8;
+#  individual ActuatorClassBindingEntry entries signed per §2 per-tuple scheme)
+
+hardware_inventory:
+  schema_version: 2
+  inventory_generated_at: "2026-04-19T10:00:00Z"
+  signed_by_field_ops_lead: "operator_id_uuid"
+  inventory_bundle_signature: "base64 ed25519 by rbac_manifest_signing_key"
+
+  actuators:
+    - sku: "LEESON-3PH-1.5KW-CONTACTOR-AQUAZONE"
+      tag_id: "pond3_aerator_primary"
+      primary_class: Aeration::LifeSupport
+      is_life_support: true
+      life_support_role: OxygenSupply
+      fail_safe: OnAtPercent { duty_pct: 0.9, max_duration_secs: 1800 }
+      fail_safe_latency: Some(500)
+      power_loss_behavior: PowerLossFailSafe::FailToContactorOn  # explicit (distinct from control-loss)
+      interface: Modbus { device_id: 10, register_range: 0..16 }
+      backup_path:
+        tag_id: "pond3_aerator_hardwired_override"
+        diversity_class: HardwiredOverride
+        hardware_topology_notes: "Dedicated GPIO pin 17 → 24V contactor coil bypassing PLC"
+      attestation: (see §7)
+
+    - sku: "GRUNDFOS-DDA-7.5-16-AR-AQUAZONE"
+      tag_id: "pond3_o2_dosing"
+      primary_class: Chemistry::LifeSupportDose
+      is_life_support: true
+      life_support_role: OxygenSupply
+      fail_safe: HoldLastKnownGood { max_hold_duration_secs: 300, escalation: TripToSafeState }
+      fail_safe_latency: Some(100)
+      interface: Modbus { device_id: 12, register_range: 16..32 }
+      backup_path:
+        tag_id: "pond3_o2_emergency_dosing"
+        diversity_class: IndependentPlc
+        hardware_topology_notes: "Secondary PLC on independent RS-485 trunk"
+      attestation: (see §7)
+
+    # ... (full inventory at deployment)
+
+  site_deployment_ratio:
+    # MEDIUM-007 runtime gate — if unpopulated, edge agent READS OK but REJECTS writes
+    pond3_aerator_primary: "32 tanks active; 4 LifeSupport classified"
+    # ...
+
+  # Staged population policy:
+  # Phase A (schema merged): inventory skeleton + category-error corrections committed;
+  #   edge-agent refuses WRITE to any actuator with TBD in required fields; READS OK
+  # Phase B (pilot fleet populated): field-ops survey complete per-tenant; writes enabled
+  #   per-tenant as field data lands; tracked per-tenant readiness
+```
+
+### 9. ADC self-test + Atlas EZO calibration (MEDIUM-003/004/005 kapama)
+
+```rust
+// MEDIUM-003 closure: external traceable reference for SIL-2 DC claims
+pub struct AdcSelfTestConfig {
+    pub reference_source: ReferenceSource,
+    pub reference_voltage_mv: i32,
+    pub tolerance_pct: f32,
+    pub measurement_interval_sec: u64,
+}
+
+pub enum ReferenceSource {
+    RpiInternalUnstable,                  // SL-0 (development only)
+    ExternalTraceableREF3030 { part_number: String, traceability_cert_url: String },
+    ExternalTraceableREF5025 { part_number: String, traceability_cert_url: String },
+    NistTraceable { cert_number: String },  // SL-2 production
+}
+
+// INVARIANT: SL-2 deployments require ReferenceSource != RpiInternalUnstable
+
+// MEDIUM-004 closure: explicit fault_detection_profile (no redundancy with chip integrated)
+pub struct SensorFaultDetectionProfile {
+    pub chip_integrated: IntegratedFaultDetection,
+    pub external_self_test: Option<ExternalSelfTestProcedure>,
+}
+
+pub enum IntegratedFaultDetection {
+    None,
+    ContinuousPerSpec { spec_name: String, covered_faults: Vec<FaultType> },
+}
+
+pub enum ExternalSelfTestProcedure {
+    InjectKnownCurrent { current_ua: f32, expected_reading: f32 },
+    ReferenceChannelCrossCheck { reference_source: ReferenceSource },
+}
+
+// For MAX31865: chip_integrated = ContinuousPerSpec; external_self_test = None (redundant)
+// For raw ADC like ADS1256: external_self_test = required
+
+// MEDIUM-005 closure: Atlas EZO explicit calibration_policy
+pub struct CalibrationPolicy {
+    pub scheduled_interval_days: u16,    // e.g., 30 days
+    pub drift_threshold_pct_forcing_recal: f32,  // e.g., 5% drift
+    pub out_of_service_if_overdue_days: u16,    // e.g., 45 days — beyond this, tag READ-ONLY
+}
+
+// INVARIANT: Atlas EZO entries without calibration_policy → inventory-load REJECT
+```
+
+### 10. RFID feature gating (MEDIUM-006 kapama)
+
+```toml
+# Cargo.toml
+[features]
+default = ["gpio"]
+rfid-asset-tracking = ["dep:mfrc522"]   # OFF by default; explicit opt-in
+# ... other features
+```
+
+If asset tracking not in current product scope → feature NEVER enabled in production builds; mfrc522 crate NOT compiled in; attack surface eliminated.
+
+If retained:
+- `src/inventory/rfid_scanner.rs` reads UID, maps to AssetId (NOT OperatorId, structurally per §6)
+- Compile-time feature gate double-checks against type-system OperatorId ban
+
+### 11. SIL-2 honest wording (HIGH-007 kapama)
+
+**Throughout this ADR:** "SIL-2-informed design" (NOT "SIL-2 certified", NOT "SIL-2 aligned", NOT "SIL-2 compliant").
+
+**Explicit disclaimer section:**
+
+```markdown
+## SIL-2 Compliance Position (for tenants, insurers, regulators)
+
+This ADR documents a **SIL-2-informed architecture** — design practices consistent
+with IEC 61508 functional-safety principles applied to software and deployment
+patterns. **No formal SIL-2 certification is claimed for the edge agent** at the
+platform level.
+
+- Software process alignment: IEC 61508-3 partial adherence documented
+- Hardware fault tree + PFDavg + CCF analysis: deployment-specific (integrator
+  responsibility per SIL-2 end-user functional-safety responsibility model)
+- Deployment-specific SIL-2 certification pathway: each integrator produces
+  site-specific FTA + attestation per local jurisdiction
+- Pre-assessment deliverable (Faz 0 Sprint 0.3): identifies gap list, not pass/fail
+- Insurance claims: see `docs/compliance/engineer-attestation-liability.md`
+```
+
+### 12. Schema versioning + migration (LOW-003 kapama)
+
+```rust
+// INVARIANT: Edge rejects inventory_bundle with schema_version > supported
+// Upgrade path: agent release adds new schema_version support; cloud pushes new schema
+//               only after fleet-wide agent update complete
+// NO DOWNGRADE: edge refuses to load schema_version < current supported
+
+const SUPPORTED_SCHEMA_VERSIONS: &[u16] = &[1, 2];  // v1 + v2 during transition
+const CURRENT_SCHEMA_VERSION: u16 = 2;
+
+pub fn load_inventory(bytes: &[u8]) -> Result<HardwareInventory, Error> {
+    let bundle = parse_bundle(bytes)?;
+    if !SUPPORTED_SCHEMA_VERSIONS.contains(&bundle.schema_version) {
+        return Err(Error::SchemaVersionUnsupported(bundle.schema_version));
+    }
+    // ... upcaster v1 → v2 applied if needed
+}
 ```
 
 ---
 
-## Alternatives Considered
+## Alternatives Considered (updated post-audit)
 
-### Alt-1 Plan B V1 "PWM + SPI wire all" (kategori körü)
-Aerator/dosing/solenoid hepsini PWM kabul etmek saha gerçekliğini bozar; category error catastrophic. 3 agent audit (saha + güvenlik + mimari) REDDET. REDDEDİLDİ.
+### Alt-1 v1 unified single ActuatorClass enum (no subclass split)
+REDDEDİLDİ (CRITICAL-001/003 life-safety consequences).
 
-### Alt-2 Dry-run-only approach (PWM/SPI actor var ama hardware inventory Faz 1'de)
-"Actor var = wire etmek hazır" varsayımı yanlış; deployment ratio + fail-safe attestation olmadan wire = operationally reckless. REDDEDİLDİ.
+### Alt-2 Whole-YAML signature (v1 original)
+REDDEDİLDİ (CRITICAL-002 class reclassification attack).
 
-### Alt-3 Interface-based permission (ModbusWrite / GpioWrite / PwmWrite / SpiWrite)
-Attacker bypass pathway — deny ModbusWrite → switch GpioWrite same effect. REDDEDİLDİ; effect-based AffectActuator{class} seçildi.
+### Alt-3 Same-transport dual backup (v1 original)
+REDDEDİLDİ (CRITICAL-004 SPoF; IEC 61508-2 §7.4.3.4 requires diversity).
 
-### Alt-4 RFID allowed for operator convenience auth
-ISO 14443 cloning trivial; SL-2 FR1 fails; life-safety actuator control via cloned RFID = catastrophic. REDDEDİLDİ with lint-level enforcement.
+### Alt-4 YAML-only caps (v1 original)
+REDDEDİLDİ (HIGH-005 attacker signed-config tampering; binary-const required).
 
-### Alt-5 Skip SIL-2 alignment (SL-2 cyber only, not functional safety)
-Aquaculture life-safety reality: O2/pH failure → fish mortality in hours. SIL alignment regulatory industry practice; skipping = operational risk + insurance issue. KABUL (SIL-2 targeted).
+### Alt-5 Grep-lint RFID auth ban (v1 original)
+REDDEDİLDİ (HIGH-006 5 bypass paths; type-system ban required).
+
+### Alt-6 "SIL-2 aligned/certified" wording
+REDDEDİLDİ (HIGH-007 commercial+legal exposure; "informed" honest).
+
+### Alt-7 Drop RFID entirely (no asset tracking)
+Considered; currently KABUL as feature-gated OFF-by-default; asset-tracking product need re-evaluated at Faz 10.
 
 ---
 
 ## Consequences
 
 ### Positive
-- **Kategori hataları kapatılır:** aerator/dosing/solenoid correctly mapped to their actual interface; PWM only where validated (LED diurnal)
-- **Effect-based permission:** attacker cannot sidestep interface deny via alternate path
-- **Safe-state v2 complete:** PwmChannel / SpiWrite / ProcessAware variants final; ADR-019 §2.5 reference resolved
-- **SIL-2 hazır:** life-safety outputs FMEA'ya hazır; regulatory alignment
-- **ADC self-test aktif:** sensor drift → alarm + safe-state trip; IEC 61508 DC ≥ 90% path
-- **RFID auth structurally blocked:** lint-level + invariant test + compile-time symbol grep
-- **Dosage rate cap:** overshoot prevention; binary-embedded hard caps (manifest cannot widen)
-- **Hardware inventory audit trail:** signed YAML; engineer attestation per fail-safe behavior; tamper-evident
+- **Life-safety bugs closed:** aerator fail-safe contradiction (CRITICAL-001), Chemistry fail-OFF (CRITICAL-003), backup dual-Modbus SPoF (CRITICAL-004) all ARCHITECTURALLY resolved by schema
+- **Class-binding attack closed:** append-only signed log per §2 (CRITICAL-002); invariant test class_binding_tamper.rs
+- **Type-system RFID ban:** OperatorId constructor module-private; all 5 bypass paths ruled out at compile-time
+- **Binary-const caps:** attacker signed-config cannot widen caps; new SKU = new binary release discipline
+- **SIL-2-informed honest:** no misleading certification claims; integrator responsibility model documented
+- **Engineer attestation liability:** structured schema + re-attestation triggers + expiry gate + signature chain
+- **Extended class enum:** Thermal/Recirculation/WasteRemoval/Degassing/EmergencyContainment added
+- **FailSafe explicit enum:** per-subclass invariant tests prevent category-error copy-paste
+- **Process-aware fail-safe-on-stale:** HIGH-002/003/004 closed via FreshnessRequirement + ClockTrustMode + if_unreadable_safe
+- **Atlas EZO + ADC self-test:** explicit fault_detection_profile + reference_source SIL-2-bound
 
 ### Negative
-- **Field OEM data dependency:** inventory YAML populate Faz 0 Sprint 0.3 field-ops work; blocked sitewise until populated
-- **Engineer attestation overhead:** process engineer + aquaculture engineer signature per actuator
-- **Implementation kod:** `src/hardware_inventory/` + `src/safe_state/v2/` ~800-1000 satır; `src/rate_cap/` ~300 satır
-- **FMEA deliverable:** docs/compliance/life-safety-fmea.md separate work; 1-2 week
-- **Lint/invariant test suite:** 4+ new invariant tests
+- **Implementation kod:** `src/hardware_inventory/` ~1000 satır; `src/safe_state/v2/` ~800 satır; `src/hardware_caps/` ~500 satır; `src/authz/operator_id.rs` sealed refactor; 7+ invariant tests
+- **Inventory population ops work:** Phase A (schema committed) vs Phase B (field-ops survey) staged rollout
+- **Engineer attestation logistics:** per-actuator PE signature + liability bonding per deployment; 3-6 weeks per-site initial
+- **SIL-2 pre-assessment deliverable:** ~$15k external security firm; gap-list identification
+- **const_table! macro maintenance:** new SKU = binary release; accepted as security gain over YAML override
+- **Inventory transition period:** schema v1 → v2 migration; old inventory upcasted; 1-release deprecation window
 
 ### Neutral
-- **External PLC still owns aerator/dosing control path:** CLAUDE.md "Yol C" (closed PLC OPC-UA / Modbus / S7 setpoint writes) remains primary; edge agent sends setpoint, PLC enforces motor control. Edge-agent-direct-PWM only for LED.
+- **Site-specific SIL-2 certification:** integrator/tenant responsibility per end-user model; platform provides architecture tooling
 
 ---
 
-## 8. Audit Finding Closure Mapping
+## 13. Audit Finding Closure Mapping
 
 | Finding | Severity | Closed in section | Notes |
 |---|---|---|---|
-| DEC-005 | MEDIUM | §1 + §2 | Hardware inventory YAML schema + safe-state v2 complete; PWM/SPI wire decision per-actuator not blanket |
-| ARC-004 | MEDIUM | §1 LED driver entry + §1 RTD entry | pwm.rs + spi.rs WIRED for ACCEPTED use cases; rejected use cases documented in rejected_hardware_use_cases |
-| STL-003 | HIGH | §7 SIL alignment | SIL-2 target + DC mechanisms + FMEA deliverable tracked |
-| Plan B V2 D-5 REVİZE MAJOR | — | This ADR as a whole | Category errors fixed; effect-based permission; RFID auth ban |
+| AUDIT-CRITICAL-001 (aerator fail-safe contradiction) | CRITICAL | §3 FailSafe enum + invariant fail_safe_enum_per_subclass.rs | AerationSubClass::LifeSupport + FailSafe::Off → compile/runtime REJECT |
+| AUDIT-CRITICAL-002 (class-binding mutable) | CRITICAL | §2 append-only signed per-tuple | Per-tuple ed25519 + prev_binding_hash chain; tamper → REJECT |
+| AUDIT-CRITICAL-003 (Chemistry fail-OFF O2) | CRITICAL | §1 ChemistrySubClass + §3 FailSafe | LifeSupportDose variant mandates HoldLastKnownGood; Nutrient/PhAdjust fail-OFF separate |
+| AUDIT-CRITICAL-004 (dual-Modbus SPoF) | CRITICAL | §4 diversity_class | LifeSupport + SameTransport → inventory-load REJECT; HardwiredOverride first-class |
+| AUDIT-HIGH-001 (LED fade-to-zero night) | HIGH | §3 OffViaGracefulFade hold_last_state_ms_first | Species-aware hold window; photoperiod-critical protection |
+| AUDIT-HIGH-002 (ProcessAware stock density real-time) | HIGH | §3 FreshnessRequirement + StaleAction | Static metadata requires max_age + pessimistic stale action |
+| AUDIT-HIGH-003 (ScheduleDependent wrong clock) | HIGH | §3 ClockTrustMode | MonotonicOnlyIgnoreSchedule fallback on stale clock |
+| AUDIT-HIGH-004 (InterlockWith sensor failure) | HIGH | §3 if_unreadable_safe | Explicit safer-of-the-two on unreadable |
+| AUDIT-HIGH-005 (platform_hard_cap YAML) | HIGH | §5 const_table! | Binary-const per-SKU; YAML cannot widen |
+| AUDIT-HIGH-006 (RFID lint bypass) | HIGH | §6 type-system OperatorId sealed | 5 bypass paths ruled out compile-time |
+| AUDIT-HIGH-007 (SIL-2 wording) | HIGH | §11 | "SIL-2-informed design" (not certified) |
+| AUDIT-HIGH-008 (attestation liability) | HIGH | §7 | Structured schema + expiry + re-attestation + liability ADR link |
+| AUDIT-MEDIUM-001 (ActuatorClass completeness) | MEDIUM | §1 extended enum | Thermal/Recirculation/WasteRemoval/Degassing/EmergencyContainment added |
+| AUDIT-MEDIUM-002 (LifeSupport overlap) | MEDIUM | §1 is_life_support orthogonal flag | Class + flag combined dual-permission check |
+| AUDIT-MEDIUM-003 (ADC ref voltage) | MEDIUM | §9 ReferenceSource enum | External traceable required for SL-2 |
+| AUDIT-MEDIUM-004 (MAX31865 redundancy) | MEDIUM | §9 IntegratedFaultDetection + ExternalSelfTestProcedure Option | No redundancy; explicit choice |
+| AUDIT-MEDIUM-005 (Atlas EZO calibration) | MEDIUM | §9 CalibrationPolicy | scheduled_interval_days + drift_threshold + out_of_service_overdue required |
+| AUDIT-MEDIUM-006 (RFID feature gate) | MEDIUM | §10 + Cargo.toml feature | OFF by default; opt-in only |
+| AUDIT-MEDIUM-007 (TBD deployment ratio) | MEDIUM | §8 Phase A/B | Schema merged; writes gated per-tenant readiness |
+| AUDIT-MEDIUM-008 (ADR-018 §5 ref verification) | MEDIUM | §1 cross-ref | ADR-018 §5 EMERGENCY_PERMITTED_BASE currently defined; verified |
+| AUDIT-LOW-001 (platform_hard_cap derivation) | LOW | §5 per-SKU commented | Chemistry safety-factor documented per entry |
+| AUDIT-LOW-002 (DosageRateCap delta<1s) | LOW | FailSafe rolling-window pattern | Stateful average vs instant delta |
+| AUDIT-LOW-003 (schema migration) | LOW | §12 | Edge reject higher version; no downgrade; upcaster v1→v2 |
+| AUDIT-LOW-004 (fail_safe_latency=0 latch) | LOW | §3 Option<u32> | None variant for LatchPreserved |
+| AUDIT-INFO-001 (ADR citation) | INFO | References | Cross-ADR section numbers verified mechanically pre-merge |
 
 ---
 
-## 9. Implementation Plan (Plan §5 Faz 0-1)
+## 14. Implementation Plan (Plan §5 Faz 0-1)
 
-**Faz 0 (Sprint 0.3 field-ops survey):**
-- Field-ops team: OEM SKU + deployment ratio + fail-safe attestation populate for all actuators across 50-tenant pilot fleet
-- Engineering-signed fail-safe behavior per actuator (process engineer + aquaculture engineer)
-- `hardware_inventory.yaml` signed by field_ops_lead
-- `docs/compliance/life-safety-fmea.md` initial draft
+**Phase A (schema + code; Faz 0 Sprint 0.3-1.7, 4-6 weeks):**
+- Sprint 0.3: Hardware inventory schema v2 + ActuatorClass extended enum + FailSafe enum
+- Sprint 0.4: Signed class-binding log (§2) + per-tuple ed25519 signature path (uses ADR-021 slot 2)
+- Sprint 0.5: const_table! macro + per-SKU binary caps + HardwareCap struct
+- Sprint 0.6: OperatorId sealed refactor (§6) + authz module-boundary enforcement
+- Sprint 0.7: Engineer attestation schema + docs/compliance/engineer-attestation-liability.md draft
+- Sprint 1.1: HardwiredSafetyOverride OutputTag variant + safe_state/v2 integration
+- Sprint 1.2: ProcessAware FailSafe + FreshnessRequirement + ClockTrustMode
+- Sprint 1.3: ADC self-test + Atlas EZO calibration policy
+- Sprint 1.4: Invariant tests (10+) + fuzz harnesses for bypass attempts
+- Sprint 1.5: RFID feature gating + cargo-deny entry
+- Sprint 1.6: SIL-2-informed documentation + compliance template
+- Sprint 1.7: Pre-assessment external security firm engagement ($15k; gap-list delivery)
 
-**Faz 1 (Sprint 7.x wiring):**
-- Sprint 7.1: `src/hardware_inventory/` parser + `hardware_inventory.yaml` signed load
-- Sprint 7.2: `src/safe_state/v2/` — PwmChannel + SpiWrite + ProcessAware variants
-- Sprint 7.3: `src/rate_cap/` — DosageRateCap implementation + integration with command dispatch
-- Sprint 7.4: `src/authz/` extension — AffectActuator{class} resolver (hardware_inventory.yaml lookup)
-- Sprint 7.5: ADC self-test protocol integration (MAX31865 + Atlas EZO cross-check)
-- Sprint 7.6: RFID auth lint + invariant tests (no_rfid_auth.rs, no_rfid_in_authz_module.rs)
-- Sprint 7.7: Safe-state v2 migration tests (existing v1 configs → v2 schema auto-upgrade)
+**Phase B (field-ops population + per-tenant rollout; operational work, 8-12 weeks):**
+- Field-ops OEM SKU survey per pilot tenant (50-tenant fleet)
+- Engineer attestation ceremony per actuator (PE + security-lead + legal counsel signatures)
+- `docs/compliance/life-safety-fmea.md` per-tenant
+- Inventory YAML populate + signed class-binding log publish
+- Per-tenant staged rollout (writes enabled as readiness lands)
 
 **Acceptance criteria:**
-- `hardware_inventory.yaml` complete (zero TBD for pilot fleet) + signed
-- `docs/compliance/life-safety-fmea.md` signed by process engineer + security-lead
-- `tests/invariants/safe_state_schema_v2_complete.rs` green — every actuator maps to OutputTag variant
-- `tests/invariants/no_rfid_auth.rs` green
-- `tests/invariants/dosage_rate_cap.rs` green
-- `tests/invariants/adc_self_test_periodic.rs` green
-- `tests/invariants/effect_permission_bypass_impossible.rs` green — attacker denied Interface + different path same class → both denied
-- 3rd-party audit: IEC 61508 SIL-2 pre-assessment pass
+- All 10+ invariant tests green (§3/§4/§5/§6/§7/§8/§9 coverage)
+- `tests/invariants/class_binding_tamper.rs` green
+- `tests/invariants/rfid_auth_impossible_at_compile_time.rs` green (compile-fail on bypass attempts)
+- `tests/invariants/fail_safe_enum_per_subclass.rs` green
+- `tests/invariants/life_support_diversity_required.rs` green
+- SIL-2 pre-assessment external audit gap-list delivered (not pass/fail)
+- Pilot tenant (1+) Phase B signed inventory + engineer attestation complete
+- IEC 61508 functional-safety design-input documentation published
+- DEC-022 → RESOLVED
 - Status → Accepted
 
 ---
 
 ## References
 
-- IEC 61508 Parts 1-7 (Functional Safety of Electrical/Electronic/Programmable Systems)
-- IEC 61511 (Functional Safety for Process Industry Sector)
+- IEC 61508 Parts 1-7 (Functional Safety)
+- IEC 61511 (Functional Safety for Process Industry)
 - IEC 62443-3-3 FR1 (Identification & Authentication)
 - ISO 14443 (Proximity cards)
 - NFPA 79 (Industrial Machinery Electrical Safety)
-- `sens-api-gateway/src/pwm.rs` (dead_code — WIRED by this ADR for LED use-case)
-- `sens-api-gateway/src/spi.rs` (dead_code — WIRED by this ADR for MAX31865 RTD)
-- `sens-api-gateway/src/safe_state.rs` (v1 schema extended to v2 by this ADR)
-- `/var/aqua-saas/docs/plans/2026-04-19-sens-api-gateway-hardening.md` §4.5 D-5 REVİZE MAJOR
-- `/root/.claude/plans/unutma-mevcut-s-stem-le-lexical-puzzle.md` §3 R-22, §5 Faz 0-1
-- ADR-017 (ST Bytecode — WriteTag opcode + RbacGatedWriter consumer of effect-based permission)
-- ADR-018 (RBAC — Permission::AffectActuator{class} + Permission::EmergencyActuator{class: LifeSupport})
-- ADR-019 §2.5 (Safe-state schema v2 reference)
-- ADR-020 §7 (audit events AdcDriftDetected + DosageRateCapViolated)
-- `docs/compliance/life-safety-fmea.md` (Faz 0 deliverable)
+- `sens-api-gateway/src/pwm.rs` (dead_code; wired by this ADR for LED only)
+- `sens-api-gateway/src/spi.rs` (dead_code; wired by this ADR for MAX31865 only)
+- `sens-api-gateway/src/safe_state.rs` (v1 extended to v2 via this ADR + ADR-019 §2.5)
+- `docs/compliance/engineer-attestation-liability.md` (Faz 0 Sprint 0.7 deliverable)
+- `docs/compliance/life-safety-fmea.md` (Phase B per-tenant deliverable)
 - `docs/security/threat-model.md` §3 (per-component STRIDE — hardware adapters)
+- ADR-017 (ST Bytecode — WriteTag + RbacGatedWriter consumer of effect-based permission)
+- ADR-018 §5 EMERGENCY_PERMITTED_BASE + §7 two-person integrity
+- ADR-019 §2.5 Safe-state v2 reference + §8 config integrity
+- ADR-020 §7 audit events AdcDriftDetected + DosageRateCapViolated
+- ADR-021 §1 slot 2 rbac_manifest_signing_key for per-tuple binding signatures
+- `/var/aqua-saas/docs/plans/2026-04-19-sens-api-gateway-hardening.md` §4.5 D-5
+- `/root/.claude/plans/unutma-mevcut-s-stem-le-lexical-puzzle.md` §3 R-22, §5 Faz 0-1

@@ -150,7 +150,7 @@ Plan §4 — iki planda da olmayan endüstriyel ekleme maddeleri.
 | STL-004 | SLSA L3 supply chain (reproducible + hermetic + signed) | HIGH | OPEN | Okan (temp — PROC-001) | Faz 0+10 | 2026-09-30 |
 | STL-005 | Hardware watchdog (RPi BCM2835 + external IC) | MEDIUM | OPEN | Okan (temp — PROC-001) | Faz 0 (systemd) + Faz 1 (code) | 2026-05-17 |
 | STL-006 | Chaos engineering in pre-prod (weekly runs) | MEDIUM | OPEN | Okan (temp — PROC-001) | Faz 9 | 2026-09-15 |
-| STL-007 | STRIDE threat model per-component + attack trees | HIGH | OPEN | Okan (temp — PROC-001) | Faz 0 | 2026-05-03 |
+| STL-007 | STRIDE threat model per-component + attack trees | HIGH | RESOLVED | Okan (temp — PROC-001) | Faz 0 | 2026-05-03 | `docs/security/threat-model.md` written — per-component STRIDE (10 components), 3 attack trees, IEC 62443 SL-2 FR mapping; living document updated per-ADR |
 | STL-008 | Cryptographic agility (Ed25519 → Ed448 → ML-DSA path) | MEDIUM | OPEN | Okan (temp — PROC-001) | Faz 2 + ADR-021 | 2026-05-31 |
 | STL-009 | Zero-trust command model (session-less, per-cmd signed) | HIGH | OPEN | Okan (temp — PROC-001) | Faz 2 | 2026-05-31 |
 

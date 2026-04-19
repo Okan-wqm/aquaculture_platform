@@ -127,9 +127,52 @@ export class AddTenantCostRollup1805000000000 implements MigrationInterface {
     `);
 
     // ------------------------------------------------------------------
+    // RLS — MUST run BEFORE the TimescaleDB compression / columnstore
+    // block below. TimescaleDB ≥ 2.18 reframes `timescaledb.compress` as
+    // "columnstore mode" on the hypertable; once columnstore is on, the
+    // engine rejects subsequent vanilla `ALTER TABLE ENABLE/FORCE ROW
+    // LEVEL SECURITY` with:
+    //
+    //   ERROR: operation not supported on hypertables that have
+    //          columnstore enabled
+    //
+    // RLS is metadata + policy state that lives at the relation level,
+    // independent of the chunk-storage layout, so it is safe to set
+    // before the table becomes a hypertable; `create_hypertable()`
+    // preserves the policy. Architecturally this also matches the
+    // "configure access control before storage layout" ordering used
+    // for ADR-011 shared-schema tables (audit_logs et al).
+    // ------------------------------------------------------------------
+    await queryRunner.query(`
+      ALTER TABLE observability.tenant_cost_rollup ENABLE ROW LEVEL SECURITY
+    `);
+    await queryRunner.query(`
+      ALTER TABLE observability.tenant_cost_rollup FORCE ROW LEVEL SECURITY
+    `);
+    await queryRunner.query(`
+      DROP POLICY IF EXISTS tenant_cost_rollup_tenant_scope
+        ON observability.tenant_cost_rollup
+    `);
+    await queryRunner.query(`
+      CREATE POLICY tenant_cost_rollup_tenant_scope
+        ON observability.tenant_cost_rollup
+        FOR ALL
+        TO PUBLIC
+        USING (
+          tenant_id::text = current_setting('app.current_tenant', true)
+          OR current_setting('app.platform_role', true) = 'observability_service_admin'
+        )
+        WITH CHECK (
+          tenant_id::text = current_setting('app.current_tenant', true)
+          OR current_setting('app.platform_role', true) = 'observability_service_admin'
+        )
+    `);
+
+    // ------------------------------------------------------------------
     // Convert to TimescaleDB hypertable — if the extension is available.
     // Mirrors the graceful-skip pattern from sensor-service migrations
     // (dev/CI may run on pure PG without timescaledb).
+    // Order is load-bearing: RLS block above MUST land first (see note).
     // ------------------------------------------------------------------
     const timescaleAvailable = await this.checkTimescaleDB(queryRunner);
     if (timescaleAvailable) {
@@ -143,6 +186,11 @@ export class AddTenantCostRollup1805000000000 implements MigrationInterface {
       `);
 
       // Compression — old buckets rarely re-queried at per-row grain.
+      // Enabling this flips the hypertable into TimescaleDB ≥ 2.18
+      // columnstore mode, which locks out any subsequent ALTER TABLE
+      // operations that aren't TimescaleDB-aware (RLS, FK, CHECK adds).
+      // Anything new must land in a separate migration BEFORE this
+      // ALTER, not after.
       await queryRunner.query(`
         ALTER TABLE observability.tenant_cost_rollup
           SET (
@@ -169,47 +217,15 @@ export class AddTenantCostRollup1805000000000 implements MigrationInterface {
         )
       `);
     }
-
-    // ------------------------------------------------------------------
-    // RLS
-    // ------------------------------------------------------------------
-    await queryRunner.query(`
-      ALTER TABLE observability.tenant_cost_rollup ENABLE ROW LEVEL SECURITY
-    `);
-    await queryRunner.query(`
-      ALTER TABLE observability.tenant_cost_rollup FORCE ROW LEVEL SECURITY
-    `);
-    await queryRunner.query(`
-      DROP POLICY IF EXISTS tenant_cost_rollup_tenant_scope
-        ON observability.tenant_cost_rollup
-    `);
-    await queryRunner.query(`
-      CREATE POLICY tenant_cost_rollup_tenant_scope
-        ON observability.tenant_cost_rollup
-        FOR ALL
-        TO PUBLIC
-        USING (
-          tenant_id::text = current_setting('app.current_tenant', true)
-          OR current_setting('app.platform_role', true) = 'observability_service_admin'
-        )
-        WITH CHECK (
-          tenant_id::text = current_setting('app.current_tenant', true)
-          OR current_setting('app.platform_role', true) = 'observability_service_admin'
-        )
-    `);
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`SET LOCAL search_path = 'observability', 'public'`);
 
-    await queryRunner.query(`
-      DROP POLICY IF EXISTS tenant_cost_rollup_tenant_scope
-        ON observability.tenant_cost_rollup
-    `);
-    await queryRunner.query(`
-      ALTER TABLE IF EXISTS observability.tenant_cost_rollup DISABLE ROW LEVEL SECURITY
-    `);
-
+    // First detach TimescaleDB-managed background jobs so that DROP
+    // TABLE doesn't race with retention or compression workers. The
+    // policies' if_exists flag makes this idempotent under partial
+    // teardown.
     const timescaleAvailable = await this.checkTimescaleDB(queryRunner);
     if (timescaleAvailable) {
       await queryRunner.query(`
@@ -224,8 +240,13 @@ export class AddTenantCostRollup1805000000000 implements MigrationInterface {
       `);
     }
 
-    // Indexes + constraints drop implicitly with the table.
-    await queryRunner.query(`DROP TABLE IF EXISTS observability.tenant_cost_rollup`);
+    // DROP TABLE CASCADE tears down everything else in one shot —
+    // policies, RLS state, indexes, hypertable metadata, columnstore
+    // chunks. Avoids the columnstore-vs-ALTER restriction entirely; no
+    // intermediate ALTER TABLE / DROP POLICY needed.
+    await queryRunner.query(`
+      DROP TABLE IF EXISTS observability.tenant_cost_rollup CASCADE
+    `);
   }
 
   private async checkTimescaleDB(queryRunner: QueryRunner): Promise<boolean> {

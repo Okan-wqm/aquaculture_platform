@@ -69,6 +69,27 @@ This document records the root causes and the architectural fixes per CLAUDE.md 
 
 ---
 
+## INFRA-CRITICAL-006 — `AddTenantCostRollup` migration: RLS after columnstore enable rejected by TimescaleDB ≥2.18
+
+- **Severity:** CRITICAL (blocks every deploy at the db-migrate container; no service starts)
+- **Layer:** 1
+- **Evidence:** `apps/observability-service/src/database/migrations/1805000000000-AddTenantCostRollup.ts:146` (RLS) and `:172` (`timescaledb.compress`); CI run `24635946979` deploy job `72031661385`; log:
+  ```
+  aqua-db-migrate | Migration failed
+    schema: observability
+    migration: AddTenantCostRollup1805000000000
+    error: operation not supported on hypertables that have columnstore enabled
+  ##[error]aqua-db-migrate failed — schema migration aborted BEFORE service containers started.
+  ```
+- **Root cause:** TimescaleDB ≥2.18 reframes `timescaledb.compress` as columnstore mode on the hypertable; once columnstore is on, the engine rejects subsequent vanilla `ALTER TABLE ENABLE/FORCE ROW LEVEL SECURITY`. The migration enabled compression first (line 172), then attempted RLS (line 146 in original) — second operation crashed the migration.
+- **Architectural fix (T1, reorder to honour the columnstore lock-out):**
+  - **`up()`:** CREATE TABLE → CREATE INDEX → **RLS (ENABLE / FORCE / CREATE POLICY)** → `create_hypertable` → `SET (timescaledb.compress …)` → `add_compression_policy` → `add_retention_policy`. RLS lands on a regular table; `create_hypertable` preserves policies. No functional change to the resulting object — same constraints, same indexes, same hypertable, same 14-day compression, same 90-day retention, same tenant-scoped policy with `observability_service_admin` bypass.
+  - **`down()`:** `remove_retention_policy` → `remove_compression_policy` → `DROP TABLE … CASCADE`. CASCADE is the TimescaleDB-canonical teardown — atomically removes policies, RLS state, indexes, hypertable metadata, and compressed chunks in one shot, side-stepping the same columnstore-vs-ALTER restriction. Removed the redundant manual `DROP POLICY` + `DISABLE RLS` calls that would have hit the same engine rejection.
+- **Cross-audit:** `apps/sensor-service/src/database/migrations/1735900000000-CreateSensorMetrics.ts` also uses `timescaledb.compress` but does **not** add RLS — no ordering conflict, no change required. No other migrations in `apps/**/database/migrations/` touch both compression and RLS on the same table.
+- **Prevention:** the ordering invariant ("RLS before compression on hypertables") is documented inline in the migration's RLS block as a load-bearing comment — any future engineer reordering the operations will see the rationale + the exact engine error they will trigger.
+
+---
+
 ## Out of scope for this review
 
 - **CI - Full** workflow failures (user team does not run it).

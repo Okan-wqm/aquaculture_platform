@@ -2,7 +2,7 @@
  * Update existing feeds with maxFishWeightG
  * Maps known feed codes to their max weight based on species weight ranges
  */
-const http = require('http');
+import http from 'node:http';
 
 const TENANT_ID = 'ad6ca8fd-cdf7-4e6b-b68e-f17ad6484490';
 let TOKEN = '';

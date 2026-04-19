@@ -56,6 +56,19 @@ This document records the root causes and the architectural fixes per CLAUDE.md 
 
 ---
 
+## INFRA-MEDIUM-005 — `scripts/*.js` use CommonJS under `type: module`
+
+- **Severity:** MEDIUM (blocks dependabot PRs via schema-validation job; latent for the other two scripts)
+- **Layer:** 3
+- **Evidence:** `scripts/package.json` declares `"type": "module"`. Three sibling files used `const X = require('Y')`:
+  - `scripts/validate-pagination-schema.js:14` (the one CI tripped on, dependabot PR #10 schema-validation job `72031489535`)
+  - `scripts/seed-feeds.js:8` (latent)
+  - `scripts/update-feeds-max-weight.js:5` (latent)
+- **Root cause:** Node 22 honours the parent `package.json` `type: module` declaration and refuses to evaluate `require()` in any `.js` file underneath it.
+- **Architectural fix (T1):** all three files converted from `const X = require('Y')` → `import X from 'node:Y'`. None of them use `module.exports`, `__dirname`, or `__filename`, so the conversion is mechanical (one line per file). Aligns the file content with the directory's module contract instead of weakening the contract via `.cjs` renames.
+
+---
+
 ## Out of scope for this review
 
 - **CI - Full** workflow failures (user team does not run it).

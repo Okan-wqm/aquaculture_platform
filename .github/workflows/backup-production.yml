@@ -37,6 +37,37 @@ jobs:
         with:
           fetch-depth: 1
 
+      # Fail fast on the runner if any required secret is empty, before we
+      # spin up the SSH tunnel + 30s repo sync only to fail at line 41 of
+      # backup-databases.sh inside the droplet. Mirrors the env contract of
+      # tools/scripts/database/backup-databases.sh (the SSoT for required vars).
+      - name: Preflight — assert backup secrets present
+        env:
+          SPACES_BUCKET: ${{ secrets.SPACES_BUCKET }}
+          SPACES_ENDPOINT: ${{ secrets.SPACES_ENDPOINT }}
+          SPACES_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_KEY_ID }}
+          SPACES_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_ACCESS_KEY }}
+          BACKUP_POSTGRES_USER: ${{ secrets.BACKUP_POSTGRES_USER }}
+          BACKUP_POSTGRES_DB: ${{ secrets.BACKUP_POSTGRES_DB }}
+          BACKUP_POSTGRES_PASSWORD: ${{ secrets.BACKUP_POSTGRES_PASSWORD }}
+          DROPLET_HOST: ${{ secrets.DROPLET_HOST }}
+          DROPLET_USER: ${{ secrets.DROPLET_USER }}
+          DROPLET_SSH_KEY: ${{ secrets.DROPLET_SSH_KEY }}
+        run: |
+          missing=()
+          for v in SPACES_BUCKET SPACES_ENDPOINT SPACES_ACCESS_KEY_ID SPACES_SECRET_ACCESS_KEY \
+                   BACKUP_POSTGRES_USER BACKUP_POSTGRES_DB BACKUP_POSTGRES_PASSWORD \
+                   DROPLET_HOST DROPLET_USER DROPLET_SSH_KEY; do
+            eval "val=\${$v}"
+            [ -z "$val" ] && missing+=("$v")
+          done
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::Missing required repository secrets: ${missing[*]}"
+            echo "Provision them at: https://github.com/${{ github.repository }}/settings/secrets/actions"
+            exit 1
+          fi
+          echo "All ${#missing[@]:-0} backup secrets present (10 required)."
+
       # The droplet already has the backup script on disk (repo is checked out
       # under /var/aqua-saas). We SSH in and invoke it with the required env.
       #

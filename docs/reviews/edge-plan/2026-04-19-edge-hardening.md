@@ -130,6 +130,9 @@ Closes: docs/reviews/edge-plan/2026-04-19-edge-hardening.md#FINDING-ID
 | DEC-014 | Retained message rejection: broker ACL + edge reject | MEDIUM | OPEN | TBD | Faz 2 | 2026-05-31 | Plan §3 R-16 |
 | DEC-015 | Shutdown race: drain-before-safe-state | HIGH | OPEN | TBD | Faz 2 | 2026-05-31 | Plan §3 R-17 |
 | DEC-016 | Edge schema placement: shared vs per-tenant | MEDIUM | OPEN | TBD | Faz 0 | 2026-05-03 | ADR-022 pending |
+| DEC-017 | SL-3 Upgrade Path (secure boot + dm-verity + remote attestation + WASM re-eval) | MEDIUM | OPEN | Okan | Faz 11 (opsiyonel) | 2026-09-30 | ADR-023 pending; trigger: fleet 500+ OR SL-3 explicit requirement |
+| DEC-018 | JSON script runtime deprecation horizon (coexistence → removal) | MEDIUM | OPEN | Okan | Faz 5 freeze / Faz 10 removal | 2026-09-30 | ADR-017 §9 JSON coexistence; silent removal yasak |
+| DEC-019 | Audit Log HMAC Chain + Cloud Anchor (ADR-020) | HIGH | OPEN | Okan | Faz 2 | 2026-05-31 | ADR-018 §12 dependency; BLOCKER for ADR-018 Accepted |
 
 ---
 
@@ -148,6 +151,15 @@ Plan §4 — iki planda da olmayan endüstriyel ekleme maddeleri.
 | STL-007 | STRIDE threat model per-component + attack trees | HIGH | OPEN | TBD | Faz 0 | 2026-05-03 |
 | STL-008 | Cryptographic agility (Ed25519 → Ed448 → ML-DSA path) | MEDIUM | OPEN | TBD | Faz 2 + ADR-021 | 2026-05-31 |
 | STL-009 | Zero-trust command model (session-less, per-cmd signed) | HIGH | OPEN | TBD | Faz 2 | 2026-05-31 |
+
+---
+
+## Bulgular — PROC (Process / Meta)
+
+| ID | Başlık | Severity | State | Owner | Faz | Deadline | Kanıt |
+|---|---|---|---|---|---|---|---|
+| PROC-001 | Finding board TBD sweep — 69 row named owner assignment | MEDIUM | OPEN | Okan | Faz 0 | 2026-05-03 | `grep "\| TBD \|"` — tümü Okan fallback veya named owner atanmalı; ADR Accepted öncesi zorunlu |
+| PROC-002 | ADR-017 + ADR-018 post-audit revision closure | HIGH | RESOLVED | Okan | Faz 0 | 2026-05-03 | 3-agent re-audit sonrası ADR-017 commit 8a953d1c + ADR-018 §7 closure table; her iki ADR audit bulgularını kapatır |
 
 ---
 
@@ -179,10 +191,11 @@ Plan §5 Faz 8.
 | SEC | 8 | 8 | 0 | 0 |
 | PRF | 8 | 8 | 0 | 0 |
 | TST | 10 | 10 | 0 | 0 |
-| DEC | 16 | 14 | 2 | 0 |
+| DEC | 19 | 17 | 2 | 0 |
 | STL | 9 | 9 | 0 | 0 |
+| PROC | 2 | 1 | 1 | 0 |
 | PLA | 11 | 11 | 0 | 0 |
-| **Toplam** | **71** | **69** | **2** | **0** |
+| **Toplam** | **76** | **73** | **3** | **0** |
 
 **Next action:** Faz 0'ın kalan 3 ADR'ını aç (ADR-019 Firmware, ADR-020 Hardware, ADR-021 Key Ceremony, ADR-022 Schema), sonra Faz 1 wiring'e geç.
 

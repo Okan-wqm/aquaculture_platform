@@ -86,11 +86,18 @@ mod lora;
 // lives as a reviewable domain unit.
 mod firmware;
 
+// Batch 20l ARC-008 god-file split: IEC 61131-3 program
+// lifecycle + ST validator (cmd_deploy_program, cmd_get_program,
+// cmd_rollback_program, cmd_validate_st) + load/save
+// program_state helpers extracted to `commands/program.rs`.
+// Deploy-lock + atomic-persist + rollback-on-failure contract
+// documented inline.
+mod program;
+
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::VecDeque;
-use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -520,242 +527,10 @@ impl CommandHandler {
     // cmd_enable_script, cmd_disable_script moved to
     // `commands/script.rs`. Dispatch unchanged.
 
-    // ========================================================================
-    // IEC 61131-3 Program Commands (v2.1)
-    // ========================================================================
-
-    /// Deploy an IEC 61131-3 program
-    ///
-    /// This command:
-    /// 1. Validates the program definition
-    /// 2. Saves previous version for rollback
-    /// 3. Persists the program to disk
-    /// 4. Deploys the script portion
-    /// 5. Engine will pick up FB definitions on next reload
-    async fn cmd_deploy_program(&mut self, params: &Value) -> (bool, Value, Option<String>) {
-        let _deploy_guard = self.deploy_lock.lock().await;
-        info!("Executing deploy_program command");
-
-        // Get scripting limits from config
-        let (max_fbs, min_scan, max_scan) = {
-            let state = self.state.read().await;
-            (
-                state.config.scripting.max_function_blocks,
-                state.config.scripting.min_scan_cycle_ms,
-                state.config.scripting.max_scan_cycle_ms,
-            )
-        };
-
-        // Parse program definition
-        let program: ProgramDefinition = match serde_json::from_value(params.clone()) {
-            Ok(p) => p,
-            Err(e) => {
-                error!("Failed to parse program definition: {}", e);
-                return (
-                    false,
-                    json!(null),
-                    Some(format!("Invalid program definition: {}", e)),
-                );
-            }
-        };
-
-        // Validate
-        if program.function_blocks.len() > max_fbs {
-            return (
-                false,
-                json!(null),
-                Some(format!("Too many function blocks (max {})", max_fbs)),
-            );
-        }
-
-        if program.scan_cycle_ms < min_scan || program.scan_cycle_ms > max_scan {
-            return (
-                false,
-                json!(null),
-                Some(format!(
-                    "Scan cycle must be between {}ms and {}ms",
-                    min_scan, max_scan
-                )),
-            );
-        }
-
-        // Load current state (for rollback)
-        let mut state = self.load_program_state();
-        let previous = state.program.take();
-
-        // Save previous version for rollback
-        if let Some(prev) = previous {
-            if prev.id == program.id {
-                state.previous_version = Some(Box::new(prev));
-            }
-        }
-
-        // Deploy script portion (v2.2 - uses shared storage, v1.2.0 - async API)
-        let script_id = program.script.id.clone();
-        if let Err(e) = self.script_storage.add_script(program.script.clone()).await {
-            error!("Failed to deploy script: {}", e);
-            return (
-                false,
-                json!(null),
-                Some(format!("Failed to deploy script: {}", e)),
-            );
-        }
-
-        // Update state
-        state.program = Some(program.clone());
-        state.deployed_at = Some(Utc::now().to_rfc3339());
-
-        // Persist to disk
-        // v1.3.3: If persistence fails, rollback the script deployment to maintain consistency
-        if let Err(e) = self.save_program_state(&state) {
-            error!("Failed to save program state: {}", e);
-
-            // Rollback: remove the script we just added
-            if let Err(rollback_err) = self.script_storage.delete(&script_id).await {
-                error!(
-                    "CRITICAL: Failed to rollback script deployment after state save failure: {}. \
-                    System may be in inconsistent state - manual intervention required.",
-                    rollback_err
-                );
-            } else {
-                warn!("Rolled back script deployment due to state save failure");
-            }
-
-            return (
-                false,
-                json!(null),
-                Some(format!("Failed to persist program (rolled back): {}", e)),
-            );
-        }
-
-        info!(
-            program_id = %program.id,
-            program_name = %program.name,
-            version = program.version,
-            fb_count = program.function_blocks.len(),
-            execution_mode = ?program.execution_mode,
-            "Program deployed successfully"
-        );
-
-        (
-            true,
-            json!({
-                "id": program.id,
-                "name": program.name,
-                "version": program.version,
-                "functionBlockCount": program.function_blocks.len(),
-                "executionMode": format!("{:?}", program.execution_mode),
-                "scanCycleMs": program.scan_cycle_ms,
-                "message": "Program deployed successfully. Engine will reload on next cycle."
-            }),
-            None,
-        )
-    }
-
-    /// Get currently deployed program
-    async fn cmd_get_program(&self) -> (bool, Value, Option<String>) {
-        info!("Executing get_program command");
-
-        let state = self.load_program_state();
-
-        match state.program {
-            Some(program) => (
-                true,
-                json!({
-                    "id": program.id,
-                    "name": program.name,
-                    "version": program.version,
-                    "description": program.description,
-                    "executionMode": format!("{:?}", program.execution_mode),
-                    "scanCycleMs": program.scan_cycle_ms,
-                    "functionBlockCount": program.function_blocks.len(),
-                    "functionBlocks": program.function_blocks.iter()
-                        .map(|fb| json!({
-                            "id": fb.id,
-                            "type": fb.fb_type
-                        }))
-                        .collect::<Vec<_>>(),
-                    "deployedAt": state.deployed_at,
-                    "hasPreviousVersion": state.previous_version.is_some()
-                }),
-                None,
-            ),
-            None => (
-                true,
-                json!({
-                    "program": null,
-                    "message": "No program deployed"
-                }),
-                None,
-            ),
-        }
-    }
-
-    /// Rollback to previous program version
-    async fn cmd_rollback_program(&mut self) -> (bool, Value, Option<String>) {
-        let _deploy_guard = self.deploy_lock.lock().await;
-        info!("Executing rollback_program command");
-
-        let mut state = self.load_program_state();
-
-        let previous = match state.previous_version.take() {
-            Some(prev) => *prev,
-            None => {
-                return (
-                    false,
-                    json!(null),
-                    Some("No previous version available for rollback".to_string()),
-                );
-            }
-        };
-
-        let prev_id = previous.id.clone();
-        let prev_name = previous.name.clone();
-        let prev_version = previous.version;
-
-        // Deploy previous version's script (v2.2 - uses shared storage, v1.2.0 - async API)
-        if let Err(e) = self
-            .script_storage
-            .add_script(previous.script.clone())
-            .await
-        {
-            error!("Rollback failed - script deployment error: {}", e);
-            return (false, json!(null), Some(format!("Rollback failed: {}", e)));
-        }
-
-        // Update state
-        state.program = Some(previous);
-        state.deployed_at = Some(Utc::now().to_rfc3339());
-        state.previous_version = None; // Clear - can't rollback twice
-
-        // Persist
-        if let Err(e) = self.save_program_state(&state) {
-            error!("Rollback state save failed: {}", e);
-            return (
-                false,
-                json!(null),
-                Some(format!("Rollback state save failed: {}", e)),
-            );
-        }
-
-        info!(
-            program_id = %prev_id,
-            version = prev_version,
-            "Rolled back to previous version"
-        );
-
-        (
-            true,
-            json!({
-                "id": prev_id,
-                "name": prev_name,
-                "version": prev_version,
-                "message": "Rolled back to previous version successfully"
-            }),
-            None,
-        )
-    }
-
+    // Batch 20l ARC-008 god-file split: cmd_deploy_program,
+    // cmd_get_program, cmd_rollback_program moved to
+    // commands/program.rs. Deploy-lock + atomic-persist +
+    // rollback-on-failure contract documented inline.
     // ========================================================================
     // PLC Programming Commands (v1.3.0)
     // ========================================================================
@@ -1856,128 +1631,11 @@ impl CommandHandler {
     // cmd_write_s7 moved to `commands/write.rs` (both are honest
     // stubs; Sprint 6.x fills them in per plan §5 Faz 5).
 
-    /// Validate IEC 61131-3 Structured Text code
-    /// v2.2: Uses the real AST-based parser/validator
-    /// Runs on blocking thread pool to avoid blocking the async MQTT event loop.
-    async fn cmd_validate_st(&mut self, params: &Value) -> (bool, Value, Option<String>) {
-        let source = match params.get("source").and_then(|v| v.as_str()) {
-            Some(s) => s,
-            None => {
-                return (false, json!({"valid": false}), Some("Missing 'source' parameter".to_string()));
-            }
-        };
+    // Batch 20l ARC-008 god-file split: cmd_validate_st
+    // moved to commands/program.rs.
 
-        // Size limit: prevent DoS on edge device parser
-        const MAX_SOURCE_LEN: usize = 1_000_000; // 1MB
-        if source.len() > MAX_SOURCE_LEN {
-            return (
-                false,
-                json!({"valid": false, "errors": [{"message": format!("Source too large: {} bytes (max {})", source.len(), MAX_SOURCE_LEN)}]}),
-                Some("Source code exceeds maximum size".to_string()),
-            );
-        }
-
-        // Run CPU-intensive parsing on blocking thread pool with 60s timeout
-        let source_owned = source.to_string();
-        let validation_future = tokio::task::spawn_blocking(move || {
-            let mut result = validate_st(&source_owned);
-            // Strip AST from response to reduce MQTT payload size (can be MB for large programs)
-            result.ast = None;
-            result
-        });
-
-        let result = match tokio::time::timeout(Duration::from_secs(60), validation_future).await {
-            Err(_) => {
-                return (false, json!({"valid": false}), Some("ST validation timed out after 60s".to_string()));
-            }
-            Ok(Err(e)) => {
-                return (false, json!({"valid": false}), Some(format!("Validation task failed: {}", e)));
-            }
-            Ok(Ok(r)) => r,
-        };
-
-        let success = result.valid;
-
-        (
-            success,
-            serde_json::to_value(&result).unwrap_or(json!({"valid": false})),
-            if success { None } else { Some(format!("{} error(s) found", result.errors.len())) },
-        )
-    }
-
-    /// Load program state from disk
-    /// v1.2.6: Added error logging to prevent silent data loss
-    /// v1.3.3: Added backup of corrupted files for forensic analysis
-    fn load_program_state(&self) -> ProgramState {
-        match fs::read_to_string(&self.program_state_path) {
-            Ok(content) => match serde_json::from_str(&content) {
-                Ok(state) => state,
-                Err(e) => {
-                    error!(
-                        path = ?self.program_state_path,
-                        error = %e,
-                        "Failed to parse program state - file may be corrupted"
-                    );
-
-                    // v1.3.3: Backup corrupted file for forensic analysis
-                    let backup_path = format!(
-                        "{}.corrupted.{}",
-                        self.program_state_path.display(),
-                        chrono::Utc::now().format("%Y%m%d_%H%M%S")
-                    );
-                    match fs::copy(&self.program_state_path, &backup_path) {
-                        Ok(_) => {
-                            warn!(
-                                "Corrupted program state backed up to: {}. \
-                                Using default state. Manual investigation recommended.",
-                                backup_path
-                            );
-                        }
-                        Err(backup_err) => {
-                            error!(
-                                "Failed to backup corrupted program state: {}. \
-                                Original file at: {:?}. DATA MAY BE LOST.",
-                                backup_err, self.program_state_path
-                            );
-                        }
-                    }
-
-                    ProgramState::default()
-                }
-            },
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                debug!(path = ?self.program_state_path, "Program state file not found - using default");
-                ProgramState::default()
-            }
-            Err(e) => {
-                warn!(
-                    path = ?self.program_state_path,
-                    error = %e,
-                    "Failed to read program state file - using default"
-                );
-                ProgramState::default()
-            }
-        }
-    }
-
-    /// Save program state to disk
-    /// v2.3: Atomic write (tmp + rename) to prevent corruption on power loss
-    fn save_program_state(&self, state: &ProgramState) -> anyhow::Result<()> {
-        // Ensure parent directory exists
-        if let Some(parent) = self.program_state_path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-
-        let content = serde_json::to_string_pretty(state)?;
-
-        // Write to temp file first, then atomically rename
-        let tmp_path = self.program_state_path.with_extension("json.tmp");
-        fs::write(&tmp_path, &content)?;
-        fs::rename(&tmp_path, &self.program_state_path)?;
-
-        debug!(path = ?self.program_state_path, "Program state saved (atomic)");
-        Ok(())
-    }
+    // Batch 20l ARC-008 god-file split: load_program_state,
+    // save_program_state moved to commands/program.rs.
 
     /// Handle config update from cloud
     async fn handle_config_update(&self, payload: &[u8]) -> anyhow::Result<()> {

@@ -96,7 +96,12 @@ mod config_integrity;
 // guard predicate, ShutdownPhase state machine with tier-1 drain-before-
 // safe-state ordering. Types + pure functions; runtime supervisor wiring
 // lands in Faz 2 Sprint 6.7.
-#[allow(dead_code)] // Faz 2 Sprint 6.7 wires consumers; types pre-staged.
+//
+// Batch 29: `ShutdownPhase` enum is now consumed by main.rs shutdown
+// sequence for operator-observable phase logging. Other sub-modules
+// (ClockAuthority trait, retained_msg predicate) remain un-wired
+// pending Sprint 6.7 supervisor integration.
+#[allow(dead_code)] // Faz 2 Sprint 6.7 wires remaining consumers; ShutdownPhase used by main.rs log.
 mod runtime_safety;
 // Batch 11 — plan §5 Faz 2 item 7 + D-6 mTLS 3-stage rollout + leaf cert
 // pinning + 2-phase rotation + TLS 1.3 cipher-suite allowlist + 6-gate
@@ -1927,13 +1932,26 @@ async fn run_agent(
     // ════════════════════════════════════════════════════════════════════
 
     // ── (1) + (2) Signal all tasks and wait for completion ──
+    //
+    // Batch 29: emit structured ShutdownPhase transitions for
+    // operator observability. Phase=StoppingInbound covers the
+    // signal-broadcast step (1); phase=Draining covers the
+    // per-task wait-for-completion step (2). Combined into a
+    // single shutdown() call by the coordinator — the log
+    // captures entry + exit so duration is recoverable.
+    use crate::runtime_safety::shutdown_phase::ShutdownPhase;
     info!(
-        "Initiating graceful shutdown with {}s timeout...",
+        shutdown_phase = ?ShutdownPhase::StoppingInbound,
+        "Initiating graceful shutdown with {}s timeout — phase transition to StoppingInbound + Draining",
         SHUTDOWN_TIMEOUT_SECS
     );
     shutdown_coordinator
         .shutdown(Duration::from_secs(SHUTDOWN_TIMEOUT_SECS))
         .await;
+    info!(
+        shutdown_phase = ?ShutdownPhase::Drained,
+        "Task drain complete — phase transition to Drained"
+    );
 
     // Log persistence statistics on shutdown (IEC 61131-3 compliance)
     if let Some(ref persistence) = script_persistence {
@@ -1955,6 +1973,10 @@ async fn run_agent(
 
     // ── (3) LIFE-SAFETY: Set all actuator outputs to safe-state ──
     // This MUST happen BEFORE hardware disconnect so the bus is still live.
+    info!(
+        shutdown_phase = ?ShutdownPhase::ApplyingSafeState,
+        "Phase transition to ApplyingSafeState"
+    );
     {
         let state_guard = state.read().await;
         let modbus_ref = state_guard.modbus_handle.as_ref();
@@ -1971,6 +1993,10 @@ async fn run_agent(
         );
     }
 
+    info!(
+        shutdown_phase = ?ShutdownPhase::Flushing,
+        "Phase transition to Flushing — offline queue checkpoint + audit log fsync"
+    );
     // ── (4) Flush offline queue to disk (WAL checkpoint + fsync) ──
     // Ensures no telemetry is lost if the process is about to exit.
     {
@@ -2044,6 +2070,10 @@ async fn run_agent(
         }
     }
 
+    info!(
+        shutdown_phase = ?ShutdownPhase::DisconnectingMqtt,
+        "Phase transition to DisconnectingMqtt"
+    );
     // ── (7) Disconnect MQTT gracefully ──
     {
         let mut state_guard = state.write().await;
@@ -2053,6 +2083,11 @@ async fn run_agent(
             }
         }
     }
+
+    info!(
+        shutdown_phase = ?ShutdownPhase::Shutdown,
+        "Graceful shutdown complete — process exit imminent"
+    );
 
     Ok(())
 }

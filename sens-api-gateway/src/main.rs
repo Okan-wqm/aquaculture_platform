@@ -975,6 +975,38 @@ async fn async_main() -> Result<()> {
                      migration path documented in config.yaml."
                 );
             }
+            // Batch 38: boot-time Faz 2 security-posture banner.
+            // Consolidates the runtime-config values operators
+            // most-frequently need to verify on device bring-up.
+            // Pre-Batch-38 operators had to issue cmd_get_config
+            // (which pre-Batch-36 didn't even surface these
+            // fields) OR SSH+cat /etc/suderra/config.yaml. With
+            // this banner the journalctl boot log carries all
+            // tunable security thresholds — no runtime query
+            // needed to verify a config rollout landed correctly.
+            info!("Faz 2 security posture (Batch 31-37 foundations):");
+            info!(
+                "  RBAC gate: preview-logging active (Sprint 6.4 wires enforcement)"
+            );
+            info!(
+                "  Two-person integrity: preview-logging active for UpdateFirmware/DeployProgram/ForceValue/SafeStateTrigger/Reboot"
+            );
+            info!(
+                "  Retained-msg rejection: active on commands + config topics (plan D-14)"
+            );
+            info!(
+                "  Shutdown drain: command handler drain-aware; timeout={}s drain_budget={}ms (plan D-15)",
+                cfg.runtime.shutdown_timeout_secs,
+                cfg.runtime.drain_timeout_ms
+            );
+            info!(
+                "  Replay window: max_age={}s max_skew={}s (IEC 62443 SL-2 FR-7)",
+                cfg.runtime.max_command_age_secs,
+                cfg.runtime.max_command_skew_secs
+            );
+            info!(
+                "  Process hardening: prctl(PR_SET_DUMPABLE=0) + panic-abort hook active (Sprint 6.3 partial)"
+            );
             cfg
         }
         Err(e) => {

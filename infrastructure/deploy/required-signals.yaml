@@ -104,7 +104,7 @@ signal_library:
 # ---------------------------------------------------------------------------
 services:
   # ── Centralized migration runner (ADR-016 Phase E SSoT) ──
-  - name: aqua-db-migrate
+  - name: db-migrate
     signals:
       - db_migrate_complete
     window_seconds: 300   # cold migrations across 14 schemas + tenant

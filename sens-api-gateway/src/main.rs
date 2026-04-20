@@ -391,6 +391,25 @@ pub struct AppState {
     /// migration in Sprint 6.3). Batch 15 uses existing derivation to
     /// preserve HC-1 backward-compat.
     pub offline_queue: Option<std::sync::Arc<crate::offline_queue::AsyncOfflineQueue>>,
+
+    /// BackupManager for GDPR Art 20 edge portability + disaster
+    /// recovery (Batch 18 Faz 1 ARC-009 wiring).
+    ///
+    /// WHY: Pre-Batch-18 the `backup.rs` module (715 lines) was dead-
+    /// code; no way to export config / scripts / function-block states
+    /// / SQLite snapshot for GDPR Art 20 data-portability requests OR
+    /// for operator-initiated disaster recovery snapshot.
+    ///
+    /// WHAT: `BackupManager` holds backup_dir + max_backups + device_id
+    /// + auth-secret loaded from `BACKUP_AUTH_SECRET` env. Arc so the
+    /// future HTTP endpoint (Sprint 6.x) and the CLI subcommand path
+    /// can share the same manager instance (retention cleanup is
+    /// stateful — shared instance avoids double-cleanup races).
+    ///
+    /// OBS-18-001 (session-observations.md): scheduled/periodic backup
+    /// NOT wired. Triggering via HTTP endpoint OR CLI subcommand lands
+    /// in Sprint 6.x.
+    pub backup_manager: Option<std::sync::Arc<crate::backup::BackupManager>>,
 }
 
 impl AppState {
@@ -438,6 +457,12 @@ impl AppState {
             // drops on disconnect (v1.6.0 baseline); Some → queue-and-
             // drain.
             offline_queue: None,
+            // BATCH-18 ARC-009: None-init; `init_backup_manager()`
+            // below constructs BackupManager iff
+            // config.backup.enabled == true. None → no backup
+            // functionality (v1.6.0 baseline); Some → HTTP/CLI-
+            // triggered backup available.
+            backup_manager: None,
         }
     }
 
@@ -660,6 +685,89 @@ impl AppState {
         Ok(())
     }
 
+    /// Construct BackupManager (Batch 18 Faz 1 Step 8 / ARC-009).
+    ///
+    /// WHY: Plan §5 Faz 1 Step 8 + ADR-020 §6 GDPR Art 20 edge
+    /// portability — operators need a tool to dump device config +
+    /// script state + SQLite snapshot for portability requests OR
+    /// disaster-recovery capture. BackupManager implements the
+    /// gzipped-binary export format documented in `backup.rs`; this
+    /// method completes the wire-up.
+    ///
+    /// WHAT:
+    /// - Returns `Ok(())` + leaves `self.backup_manager = None` when
+    ///   `config.backup.enabled == false` (silent disabled path).
+    /// - Returns `Err(String)` when enabled but `mkdir_p(backup_dir)`
+    ///   fails → fail-closed boot. A declared-enabled backup that
+    ///   silently can't write would give operators FALSE CONFIDENCE
+    ///   their data is being captured.
+    /// - Resolves `backup_dir` from `config.backup.backup_dir` override
+    ///   OR defaults to `${SUDERRA_DATA_DIR}/backups/` — matches the
+    ///   Batch 4a systemd `ReadWritePaths` whitelist.
+    /// - Device ID sourced from `config.device_id` (existing field) OR
+    ///   falls back to hostname if unset. Device ID is ONLY used for
+    ///   cross-device restore rejection (`verify_device_id=true`), not
+    ///   for security — the real device binding is Batch 5b
+    ///   ProvisioningBlob.verified_device_id.
+    ///
+    /// INVARIANTS:
+    /// - AppState.backup_manager populated ONLY on successful init.
+    ///   Downstream consumers (future HTTP endpoint, CLI subcommand)
+    ///   pattern-match `self.backup_manager.as_ref()` and no-op cleanly
+    ///   when disabled.
+    /// - `BACKUP_AUTH_SECRET` env var loaded at BackupManager::new()
+    ///   time. Future HTTP endpoint (Sprint 6.x) validates incoming
+    ///   requests via `BackupManager::validate_auth(provided)`.
+    ///
+    /// OBS-18-001 (session-observations.md): scheduled/periodic backup
+    /// NOT wired. Manual trigger via HTTP + CLI lands in Sprint 6.x.
+    pub fn init_backup_manager(&mut self) -> Result<(), String> {
+        if !self.config.backup.enabled {
+            return Ok(());
+        }
+
+        let backup_dir = self
+            .config
+            .backup
+            .backup_dir
+            .clone()
+            .unwrap_or_else(|| {
+                let data_dir = std::env::var("SUDERRA_DATA_DIR")
+                    .unwrap_or_else(|_| "/var/lib/suderra".to_string());
+                std::path::PathBuf::from(data_dir).join("backups")
+            });
+
+        // Device ID for cross-device restore rejection. Not a security
+        // boundary — just a usability safeguard so a backup from
+        // device A can't be accidentally restored onto device B.
+        // `config.device_id` is a required String field at config-
+        // load time; use directly.
+        let device_id = self.config.device_id.clone();
+
+        let manager = crate::backup::BackupManager::new(backup_dir.clone(), device_id.clone())
+            .with_max_backups(self.config.backup.max_backups);
+
+        // Fail-closed on mkdir: declared-enabled backup MUST be able to
+        // write, or operators get false confidence.
+        if let Err(e) = manager.init() {
+            return Err(format!(
+                "backup_dir `{}` init failed: {}",
+                backup_dir.display(),
+                e
+            ));
+        }
+
+        self.backup_manager = Some(std::sync::Arc::new(manager));
+
+        info!(
+            "BackupManager wired: backup_dir={} device_id={} max_backups={}",
+            backup_dir.display(),
+            device_id,
+            self.config.backup.max_backups
+        );
+        Ok(())
+    }
+
     /// Initialize hardware handles (must be called within LocalSet context)
     pub fn init_hardware_handles(&mut self) {
         // Initialize Modbus actor
@@ -870,6 +978,23 @@ async fn async_main() -> Result<()> {
         let mut state_guard = state.write().await;
         if let Err(msg) = state_guard.init_offline_queue().await {
             error!("OfflineQueue init failed (fail-closed boot): {}", msg);
+            std::process::exit(1);
+        }
+    }
+
+    // Initialize BackupManager (Faz 1 Step 8 / ARC-009 / Batch 18).
+    //
+    // WHY: GDPR Art 20 edge portability + disaster-recovery snapshot.
+    // Pre-Batch-18 the module was dead-code.
+    //
+    // WHAT: Constructs BackupManager + calls init() to mkdir backup_dir
+    // when config.backup.enabled=true. Fail-closed boot on mkdir error
+    // (declared-enabled backup MUST be able to write). HTTP endpoint +
+    // CLI subcommand triggers land in Sprint 6.x.
+    {
+        let mut state_guard = state.write().await;
+        if let Err(msg) = state_guard.init_backup_manager() {
+            error!("BackupManager init failed (fail-closed boot): {}", msg);
             std::process::exit(1);
         }
     }

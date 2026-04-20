@@ -36,8 +36,43 @@
 //!
 //! # IEC 62443 SL2 Compliance
 //! - FR7: Resource Availability (backup and restore for recovery)
-
-// v1.2.4: API reserved for backup feature - silence dead_code warnings
+//!
+//! # ARC-009 wire decision (Batch 18 — Faz 1 Step 8)
+//!
+//! **Decision:** WIRE-PARTIAL (constructor wired Batch 18, triggers
+//! Sprint 6.x).
+//!
+//! **Why (WIRE):** Plan §5 Faz 1 Step 8 + ADR-020 §6 — GDPR Art 20
+//! edge portability + disaster-recovery are both non-optional.
+//! Operators must be able to export device state on request OR capture
+//! a recovery snapshot. Pre-Batch-18 this was dead-code; no path
+//! existed from operator → dump file.
+//!
+//! **What Batch 18 wired:**
+//! - `BackupManager::new(..)` constructor invoked from
+//!   `AppState::init_backup_manager()` when `config.backup.enabled`.
+//! - `BackupManager::init()` (mkdir backup_dir) fail-closed on error —
+//!   declared-enabled backup MUST be able to write.
+//! - `BackupManager::with_max_backups()` retention config honored.
+//! - Arc-wrapped instance held in `AppState.backup_manager` so the
+//!   Sprint 6.x HTTP endpoint + CLI subcommand can share the same
+//!   retention cleanup state (avoids double-cleanup races).
+//!
+//! **What's NOT wired yet (Sprint 6.x):**
+//! - `BackupManager::create_backup()` — invoked from future HTTP POST
+//!   `/admin/backup` endpoint (auth via `BACKUP_AUTH_SECRET` +
+//!   `validate_auth`) AND from `suderra-agent backup-create` CLI.
+//! - `BackupManager::restore_backup()` — invoked from future HTTP POST
+//!   `/admin/backup/restore` OR `suderra-agent backup-restore` CLI.
+//! - Scheduled periodic backup (cron-style) — not in scope; Sprint 6.x
+//!   owners decide whether operators want automatic snapshots.
+//!
+//! **Why `#![allow(dead_code)]` stays:** `create_backup`,
+//! `restore_backup`, `validate_auth`, and helpers are not invoked
+//! until Sprint 6.x wires HTTP + CLI. Until then the functions are
+//! compiled but unreferenced — removing the allow would force dead-
+//! code pruning of code that's about to be invoked. Tracked as
+//! OBS-18-001 / OBS-18-002.
 #![allow(dead_code)]
 
 use serde::{Deserialize, Serialize};

@@ -190,6 +190,15 @@ pub struct AgentConfig {
     #[serde(default)]
     pub offline_queue: OfflineQueueConfig,
 
+    /// Backup manager configuration (Batch 18 ARC-009 wire).
+    /// Default: disabled. Per plan §5 Faz 1 Step 8 + ADR-020 §6 GDPR
+    /// Art 20 edge portability — config/script/FB/SQLite snapshot to
+    /// gzipped binary at `backup_dir`. Operator reads via future HTTP
+    /// endpoint (auth via `BACKUP_AUTH_SECRET` env) OR manually
+    /// copies for operator-controlled data export.
+    #[serde(default)]
+    pub backup: BackupConfig,
+
     /// Telemetry configuration
     #[serde(default)]
     pub telemetry: TelemetryConfig,
@@ -503,6 +512,68 @@ impl Default for OfflineQueueConfig {
             max_size: default_offline_max_size(),
             max_age_secs: default_offline_max_age_secs(),
             max_disk_bytes: default_offline_max_disk_bytes(),
+        }
+    }
+}
+
+// =============================================================================
+// BackupConfig — Batch 18 ARC-009 (backup.rs wire, GDPR Art 20)
+// =============================================================================
+//
+// WHY: Plan §5 Faz 1 Step 8 + ADR-020 §6 — `backup.rs` (715 lines)
+// implements config/script/FB/SQLite snapshot → gzipped binary export.
+// Pre-Batch-18 the module was dead-code; no way to dump device state
+// for GDPR Art 20 portability requests or disaster recovery.
+//
+// WHAT:
+//   - `enabled: bool` (default false) — master toggle.
+//   - `backup_dir: Option<PathBuf>` — override. None →
+//     `${SUDERRA_DATA_DIR}/backups/` (default `/var/lib/suderra/backups/`,
+//     Batch 4a systemd-whitelisted).
+//   - `max_backups: usize` (default 10) — retention cap; older
+//     backups auto-deleted after each create (BackupManager::
+//     cleanup_old_backups).
+//
+// OBS-18-001 (session-observations.md): scheduled/periodic backup is
+// NOT wired. Operators must manually trigger via future HTTP endpoint
+// OR `suderra-agent backup-create` CLI subcommand (Sprint 6.x).
+// Current batch wires the manager; triggering landing in Sprint 6.x.
+//
+// OBS-18-002 (session-observations.md): `BACKUP_AUTH_SECRET` env var
+// already loaded by `BackupManager::new()` for HTTP auth defense, but
+// no HTTP endpoint yet exists. Sprint 6.x HTTP wiring inherits the
+// existing secret validation via `BackupManager::validate_auth()`.
+//
+// INVARIANT: enabled=true + backup_dir unwritable → fail-closed boot.
+// A declared-enabled backup that silently can't write would give
+// operators false confidence their data is being captured.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackupConfig {
+    /// Master toggle for the backup manager.
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Optional backup directory override. None →
+    /// `${SUDERRA_DATA_DIR}/backups/`.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub backup_dir: Option<std::path::PathBuf>,
+
+    /// Maximum number of backup files to keep on disk. Older backups
+    /// are auto-deleted after each `create_backup()` call.
+    #[serde(default = "default_backup_max_count")]
+    pub max_backups: usize,
+}
+
+fn default_backup_max_count() -> usize {
+    10
+}
+
+impl Default for BackupConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            backup_dir: None,
+            max_backups: default_backup_max_count(),
         }
     }
 }

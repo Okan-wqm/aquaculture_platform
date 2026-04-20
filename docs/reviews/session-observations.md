@@ -335,6 +335,79 @@ Sprint 7.1 hardware-inventory landing.
 
 ---
 
+## BATCH-18 wiring observations (BackupManager runtime)
+
+### OBS-18-001 — BackupManager constructed but no trigger path
+
+**File:** `sens-api-gateway/src/main.rs` (init_backup_manager) +
+`sens-api-gateway/src/backup.rs` (create_backup)
+
+**Observation:** Batch 18 wires `AppState.backup_manager: Option<Arc<
+BackupManager>>` and calls `init()` (mkdir backup_dir) at boot, but
+there is NO path from operator → `BackupManager::create_backup(..)`
+invocation. The instance sits idle. GDPR Art 20 portability requires
+an export mechanism; Batch 18 only lands the runtime handle.
+
+**Risk:** Operators may believe backup is active because
+`config.backup.enabled=true` + successful mkdir logs "BackupManager
+wired", but no actual backup file will ever be written without a
+trigger. False confidence is the same failure mode OBS-14-005
+(HealthState push-paths) flagged for health telemetry.
+
+**Proper fix:** Sprint 6.x wires two trigger paths:
+1. HTTP POST `/admin/backup` — auth via `BACKUP_AUTH_SECRET` +
+   `BackupManager::validate_auth()` — returns binary `.sdb` stream OR
+   writes to backup_dir.
+2. `suderra-agent backup-create [--description STR]` CLI subcommand —
+   operator-initiated local snapshot without HTTP exposure.
+
+Scheduled/periodic backup is OUT of scope — Sprint 6.x owners decide
+based on operator UX research whether automatic snapshots are wanted
+(GDPR doesn't require them; disaster-recovery operators often prefer
+manual control to avoid backup-flood).
+
+**Status:** DEFERRED TO SPRINT 6.x (HTTP + CLI wire-up).
+Owner: platform-team. Deadline: Sprint 6.x.
+
+**Why I didn't fix in Batch 18:** Batch 18's scope per plan §5 Faz 1
+Step 8 is the WIRE decision + constructor invocation so BackupManager
+is no longer dead code. HTTP endpoint wiring requires admin-api route
+design + CSRF/auth integration + OpenAPI contract — that's Sprint 6.x
+territory, outside ARC-009 scope.
+
+---
+
+### OBS-18-002 — BACKUP_AUTH_SECRET loaded but no auth boundary exists
+
+**File:** `sens-api-gateway/src/backup.rs:118-121`
+
+**Observation:** `BackupManager::new()` loads
+`BACKUP_AUTH_SECRET` from environment at construction time and stores
+it in `backup_auth_secret: Option<String>`. `validate_auth(provided)`
+constant-time-compares provided key against stored secret. But no
+HTTP endpoint currently invokes `validate_auth()` — the secret is
+loaded and held in memory without consumer.
+
+**Risk:** An operator reading the code might assume BACKUP_AUTH_SECRET
+is actively enforcing something post-Batch-18. It isn't. The secret
+only becomes load-bearing once Sprint 6.x HTTP endpoint lands.
+
+**Proper fix:** Sprint 6.x HTTP endpoint reads `Authorization:
+Bearer <secret>` header → calls `backup_manager.validate_auth(token)`
+→ returns 401 on mismatch BEFORE streaming any backup bytes. CLI path
+does not use the secret (local UNIX socket / systemd-gated binary is
+the auth boundary there).
+
+**Additional concern:** Secret-in-memory lifetime. `BackupManager` is
+Arc-shared; the secret lives in process memory for the agent's entire
+lifetime. Sprint 6.x should consider wrapping in `secrecy::Secret<
+String>` + zeroize-on-drop per ADR-018 §5 master-key hygiene.
+
+**Status:** DEFERRED TO SPRINT 6.x (HTTP endpoint + secrecy wrap).
+Owner: platform-team. Deadline: Sprint 6.x.
+
+---
+
 ## Meta-invariants
 
 1. **Every observation carries:** file path + line number + observation

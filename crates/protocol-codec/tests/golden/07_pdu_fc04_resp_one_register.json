@@ -1,0 +1,9 @@
+{
+  "name": "pdu_fc04_resp_one_register",
+  "description": "FC 0x04 Read Input Registers response with a single register value 0x0FA0 (4000 decimal — e.g. raw ADC count).",
+  "decoder": "decode_read_input_registers_response",
+  "wire_hex": "04020FA0",
+  "expected_ok": {
+    "registers": [4000]
+  }
+}

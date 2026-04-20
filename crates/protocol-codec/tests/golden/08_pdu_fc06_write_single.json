@@ -1,0 +1,10 @@
+{
+  "name": "pdu_fc06_write_single",
+  "description": "FC 0x06 Write Single Register: addr=0x0010, value=0xABCD (5-byte PDU, server echo identical to request).",
+  "decoder": "decode_write_single_register",
+  "wire_hex": "0600 10ABCD",
+  "expected_ok": {
+    "address": 16,
+    "value": 43981
+  }
+}

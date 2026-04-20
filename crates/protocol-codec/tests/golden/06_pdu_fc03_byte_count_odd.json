@@ -1,0 +1,9 @@
+{
+  "name": "pdu_fc03_byte_count_odd",
+  "description": "FC 0x03 response with odd byte_count (3) — registers come in pairs, decoder must reject.",
+  "decoder": "decode_read_holding_registers_response",
+  "wire_hex": "0303000001",
+  "expected_err": {
+    "kind": "LengthMismatch"
+  }
+}

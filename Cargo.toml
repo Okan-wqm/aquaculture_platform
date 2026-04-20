@@ -10,6 +10,10 @@ members = [
 exclude = [
     "sens-api-gateway",
     "sens-api-gateway/fuzz",
+    # Each crate's fuzz/ directory has its own cargo-fuzz manifest
+    # (libfuzzer-sys, requires nightly to run). Excluded from the
+    # workspace so `cargo build --workspace` stays on stable.
+    "crates/protocol-codec/fuzz",
 ]
 
 [workspace.package]

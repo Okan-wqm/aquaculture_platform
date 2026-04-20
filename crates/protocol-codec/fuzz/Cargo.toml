@@ -1,0 +1,56 @@
+[package]
+name = "protocol-codec-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+rust-version = "1.88"
+
+# cargo-fuzz uses its own manifest, separate from the workspace, so it
+# can pull in libfuzzer-sys (which historically requires nightly). The
+# parent virtual workspace excludes this directory; running fuzz targets
+# requires `cargo +nightly fuzz run <target>` from this directory.
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+protocol-codec = { path = ".." }
+
+[[bin]]
+name = "mbap_header"
+path = "fuzz_targets/mbap_header.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "rtu_frame"
+path = "fuzz_targets/rtu_frame.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ascii_frame"
+path = "fuzz_targets/ascii_frame.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "holding_registers_response"
+path = "fuzz_targets/holding_registers_response.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "exception_response"
+path = "fuzz_targets/exception_response.rs"
+test = false
+doc = false
+bench = false
+
+[profile.release]
+debug = true

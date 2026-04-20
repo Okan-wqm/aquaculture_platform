@@ -403,15 +403,29 @@ impl CommandHandler {
             // IEC 62443 SL-2 FR-7: Command replay protection.
             // MQTT QoS 1 can re-deliver the same message. Reject:
             //   (1) Commands already seen (dedup by command_id)
-            //   (2) Commands with stale timestamps (> MAX_COMMAND_AGE_SECS)
+            //   (2) Commands with stale timestamps (> max_command_age_secs)
             // Retained-flag rejection moved UP to pre-parse per
             // Batch 25 D-14.
-            const MAX_COMMAND_AGE_SECS: i64 = 300; // 5 minutes
+            //
+            // Batch 34: replay-window + skew-tolerance are NOW
+            // config-driven via config.runtime.max_command_age_secs
+            // + max_command_skew_secs. Pre-Batch-34 both were
+            // hardcoded (300s / 60s).
+            let (max_age_secs, max_skew_secs) = {
+                let state_guard = self.state.read().await;
+                (
+                    state_guard.config.runtime.max_command_age_secs as i64,
+                    state_guard.config.runtime.max_command_skew_secs as i64,
+                )
+            };
             if let Ok(cmd_time) = chrono::DateTime::parse_from_rfc3339(&command.timestamp) {
                 let age = chrono::Utc::now().signed_duration_since(cmd_time);
-                if age.num_seconds() > MAX_COMMAND_AGE_SECS || age.num_seconds() < -60 {
-                    warn!("Rejecting stale/future command: {} age={}s (id: {})",
-                        command.command, age.num_seconds(), command.command_id);
+                if age.num_seconds() > max_age_secs || age.num_seconds() < -max_skew_secs {
+                    warn!(
+                        "Rejecting stale/future command: {} age={}s (id: {}, max_age={}s, max_skew={}s)",
+                        command.command, age.num_seconds(), command.command_id,
+                        max_age_secs, max_skew_secs
+                    );
                     return Ok(());
                 }
             }

@@ -1022,6 +1022,27 @@ pub struct RuntimeConfig {
     #[serde(default = "default_drain_timeout_ms")]
     pub drain_timeout_ms: u64,
 
+    /// Maximum acceptable command age in seconds (IEC 62443
+    /// SL-2 FR-7 replay protection). Commands older than this
+    /// are rejected to bound the replay window on a compromised
+    /// QoS 1 redelivery path. Batch 34: exposed as config
+    /// (pre-Batch-34 was a hardcoded 300s constant). Default
+    /// 300s (5 minutes) matches pre-Batch-34 hardcoded value.
+    /// Tightening to 60s is a common hardening posture for
+    /// well-synced NTS fleets; operators must first verify
+    /// clock skew across all devices is within the new window.
+    #[serde(default = "default_max_command_age_secs")]
+    pub max_command_age_secs: u64,
+
+    /// Maximum acceptable command CLOCK-SKEW in seconds — the
+    /// negative-age tolerance for commands whose RFC3339
+    /// timestamp is FUTURE-dated (cloud clock ahead of edge
+    /// clock). Batch 34 exposes as config; default 60s matches
+    /// pre-Batch-34 hardcoded value. Tighten only after fleet-
+    /// wide NTS sync is verified.
+    #[serde(default = "default_max_command_skew_secs")]
+    pub max_command_skew_secs: u64,
+
     /// MQTT reconnect minimum delay in seconds
     #[serde(default = "default_mqtt_reconnect_min_secs")]
     pub mqtt_reconnect_min_secs: u64,
@@ -1043,6 +1064,8 @@ impl Default for RuntimeConfig {
             provisioning_timeout_secs: default_provisioning_timeout_secs(),
             shutdown_timeout_secs: default_shutdown_timeout_secs(),
             drain_timeout_ms: default_drain_timeout_ms(),
+            max_command_age_secs: default_max_command_age_secs(),
+            max_command_skew_secs: default_max_command_skew_secs(),
             mqtt_reconnect_min_secs: default_mqtt_reconnect_min_secs(),
             mqtt_reconnect_max_secs: default_mqtt_reconnect_max_secs(),
         }
@@ -1622,6 +1645,23 @@ fn default_drain_timeout_ms() -> u64 {
     // actual per-command timeouts are operator-configurable
     // (plc_upload: 30s, firmware download: 300s).
     50
+}
+
+fn default_max_command_age_secs() -> u64 {
+    // Batch 34: matches the prior hardcoded constant in
+    // commands/mod.rs (300s). IEC 62443 SL-2 FR-7 replay
+    // protection — commands older than this bound are
+    // rejected. 5-minute default balances operator-timezone
+    // clock skew against replay-window tightness.
+    300
+}
+
+fn default_max_command_skew_secs() -> u64 {
+    // Batch 34: matches pre-Batch-34 hardcoded 60s. Negative-
+    // age tolerance for future-dated commands (cloud clock
+    // ahead of edge clock). 60s is generous for well-synced
+    // NTS fleets; operators can tighten after verifying sync.
+    60
 }
 fn default_mqtt_reconnect_min_secs() -> u64 {
     1

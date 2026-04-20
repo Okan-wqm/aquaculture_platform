@@ -509,3 +509,14 @@ unsafe_op_in_unsafe_fn = "deny"  # SECURITY: require unsafe block inside unsafe 
 [[bin]]
 name = "suderra-agent"
 path = "src/main.rs"
+
+# Batch 23 ARC-001+002+003+006+007+009: plan §5 Faz 1 Step 1
+# mandates invariant tests under `tests/invariants/`. Cargo
+# doesn't auto-discover sub-directories as test targets — each
+# invariant test file is explicitly registered here. This keeps
+# the plan-referenced path structure (`tests/invariants/
+# app_state_wired.rs`) while satisfying Cargo's flat-target
+# discovery model.
+[[test]]
+name = "app_state_wired"
+path = "tests/invariants/app_state_wired.rs"

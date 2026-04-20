@@ -30,6 +30,14 @@ mod diagnostic;
 // churning unrelated handlers.
 mod failover;
 
+// Batch 20e ARC-008 god-file split: script CRUD handlers
+// (cmd_list_scripts, cmd_get_script, cmd_deploy_script,
+// cmd_delete_script, cmd_enable_script, cmd_disable_script)
+// extracted to `commands/script.rs`. All 6 route through the
+// v2.2 AppState-shared `ScriptStorage` singleton; sanitize_for_log
+// applied to every operator-visible script_id path.
+mod script;
+
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -1299,232 +1307,10 @@ impl CommandHandler {
         }
     }
 
-    // === Script Commands ===
-
-    /// List all scripts (v2.2 - uses shared storage, v1.2.0 - async API)
-    async fn cmd_list_scripts(&self) -> (bool, Value, Option<String>) {
-        info!("Executing list_scripts command");
-
-        // v1.2.0: Use async get_all() with internal locking
-        let all_scripts = self.script_storage.get_all().await;
-        let scripts: Vec<Value> = all_scripts
-            .iter()
-            .map(|s| {
-                json!({
-                    "id": s.definition.id,
-                    "name": s.definition.name,
-                    "description": s.definition.description,
-                    "enabled": s.definition.enabled,
-                    "status": format!("{:?}", s.status).to_lowercase(),
-                    "triggers": s.definition.triggers.len(),
-                    "actions": s.definition.actions.len(),
-                    "last_run": s.last_run,
-                    "last_result": s.last_result,
-                    "error_count": s.error_count
-                })
-            })
-            .collect();
-
-        (
-            true,
-            json!({"scripts": scripts, "count": scripts.len()}),
-            None,
-        )
-    }
-
-    /// Get a specific script (v1.2.0 - async API)
-    async fn cmd_get_script(&self, params: &Value) -> (bool, Value, Option<String>) {
-        let script_id = match params.get("id").and_then(|v| v.as_str()) {
-            Some(id) => id,
-            None => {
-                return (
-                    false,
-                    json!(null),
-                    Some("Missing 'id' parameter".to_string()),
-                );
-            }
-        };
-
-        // v1.2.2: Sanitize script ID for logging
-        info!(
-            "Executing get_script command for: {}",
-            sanitize_for_log(script_id)
-        );
-
-        // v1.2.0: Use async get() with internal locking
-        match self.script_storage.get(script_id).await {
-            Some(script) => {
-                let data = json!({
-                    "id": script.definition.id,
-                    "name": script.definition.name,
-                    "description": script.definition.description,
-                    "version": script.definition.version,
-                    "enabled": script.definition.enabled,
-                    "status": format!("{:?}", script.status).to_lowercase(),
-                    "triggers": script.definition.triggers,
-                    "conditions": script.definition.conditions,
-                    "actions": script.definition.actions,
-                    "on_error": script.definition.on_error,
-                    "last_run": script.last_run,
-                    "last_result": script.last_result,
-                    "error_count": script.error_count,
-                    "created_at": script.created_at,
-                    "updated_at": script.updated_at
-                });
-                (true, data, None)
-            }
-            None => (
-                false,
-                json!(null),
-                Some(format!(
-                    "Script '{}' not found",
-                    sanitize_for_log(script_id)
-                )),
-            ),
-        }
-    }
-
-    /// Deploy (add/update) a script (v1.2.0 - async API)
-    async fn cmd_deploy_script(&mut self, params: &Value) -> (bool, Value, Option<String>) {
-        info!("Executing deploy_script command");
-
-        // Parse script definition from params
-        let definition: ScriptDefinition = match serde_json::from_value(params.clone()) {
-            Ok(def) => def,
-            Err(e) => {
-                return (
-                    false,
-                    json!(null),
-                    Some(format!("Invalid script definition: {}", e)),
-                );
-            }
-        };
-
-        let script_id = definition.id.clone();
-        let script_name = definition.name.clone();
-
-        // v1.2.0: Use async add_script() with internal locking
-        match self.script_storage.add_script(definition).await {
-            Ok(()) => {
-                info!("Script deployed: {} ({})", script_name, script_id);
-                (
-                    true,
-                    json!({
-                        "id": script_id,
-                        "name": script_name,
-                        "message": "Script deployed successfully"
-                    }),
-                    None,
-                )
-            }
-            Err(e) => {
-                error!("Failed to deploy script: {}", e);
-                (false, json!(null), Some(format!("Deploy failed: {}", e)))
-            }
-        }
-    }
-
-    /// Delete a script (v1.2.0 - async API)
-    async fn cmd_delete_script(&mut self, params: &Value) -> (bool, Value, Option<String>) {
-        let script_id = match params.get("id").and_then(|v| v.as_str()) {
-            Some(id) => id,
-            None => {
-                return (
-                    false,
-                    json!(null),
-                    Some("Missing 'id' parameter".to_string()),
-                );
-            }
-        };
-
-        // v1.2.2: Sanitize script ID for logging
-        info!(
-            "Executing delete_script command for: {}",
-            sanitize_for_log(script_id)
-        );
-
-        // v1.2.0: Use async delete() with internal locking
-        match self.script_storage.delete(script_id).await {
-            Ok(true) => (true, json!({"id": script_id, "deleted": true}), None),
-            Ok(false) => (
-                false,
-                json!(null),
-                Some(format!(
-                    "Script '{}' not found",
-                    sanitize_for_log(script_id)
-                )),
-            ),
-            Err(e) => (false, json!(null), Some(format!("Delete failed: {}", e))),
-        }
-    }
-
-    /// Enable a script (v1.2.0 - async API)
-    async fn cmd_enable_script(&mut self, params: &Value) -> (bool, Value, Option<String>) {
-        let script_id = match params.get("id").and_then(|v| v.as_str()) {
-            Some(id) => id,
-            None => {
-                return (
-                    false,
-                    json!(null),
-                    Some("Missing 'id' parameter".to_string()),
-                );
-            }
-        };
-
-        // v1.2.2: Sanitize script ID for logging
-        info!(
-            "Executing enable_script command for: {}",
-            sanitize_for_log(script_id)
-        );
-
-        // v1.2.0: Use async enable() with internal locking
-        match self.script_storage.enable(script_id).await {
-            Ok(true) => (true, json!({"id": script_id, "enabled": true}), None),
-            Ok(false) => (
-                false,
-                json!(null),
-                Some(format!(
-                    "Script '{}' not found",
-                    sanitize_for_log(script_id)
-                )),
-            ),
-            Err(e) => (false, json!(null), Some(format!("Enable failed: {}", e))),
-        }
-    }
-
-    /// Disable a script (v1.2.0 - async API)
-    async fn cmd_disable_script(&mut self, params: &Value) -> (bool, Value, Option<String>) {
-        let script_id = match params.get("id").and_then(|v| v.as_str()) {
-            Some(id) => id,
-            None => {
-                return (
-                    false,
-                    json!(null),
-                    Some("Missing 'id' parameter".to_string()),
-                );
-            }
-        };
-
-        // v1.2.2: Sanitize script ID for logging
-        info!(
-            "Executing disable_script command for: {}",
-            sanitize_for_log(script_id)
-        );
-
-        // v1.2.0: Use async disable() with internal locking
-        match self.script_storage.disable(script_id).await {
-            Ok(true) => (true, json!({"id": script_id, "enabled": false}), None),
-            Ok(false) => (
-                false,
-                json!(null),
-                Some(format!(
-                    "Script '{}' not found",
-                    sanitize_for_log(script_id)
-                )),
-            ),
-            Err(e) => (false, json!(null), Some(format!("Disable failed: {}", e))),
-        }
-    }
+    // Batch 20e ARC-008 god-file split: cmd_list_scripts,
+    // cmd_get_script, cmd_deploy_script, cmd_delete_script,
+    // cmd_enable_script, cmd_disable_script moved to
+    // `commands/script.rs`. Dispatch unchanged.
 
     // ========================================================================
     // IEC 61131-3 Program Commands (v2.1)

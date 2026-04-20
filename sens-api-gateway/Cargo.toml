@@ -129,6 +129,160 @@ pem = "3.0"
 # SHA-256 hashing for GDPR-compliant MAC address pseudonymisation in DeviceFingerprint (LOW-45)
 sha2 = "0.10"
 
+# =============================================================================
+# Asymmetric crypto foundation — ADR-018/019/020/021 cross-cutting
+# =============================================================================
+# WHY: All signed artifacts (firmware manifests, RBAC manifests, command envelopes,
+#      bytecode, audit attestations, revocation statements) use ed25519 per
+#      ADR-021 §1 canonical 9-slot HSM map (slots 1-9 all Ed25519).
+# WHAT: Pure-Rust Ed25519 impl. Edge DOES sign locally (device_audit_attestation_keypair
+#       per ADR-020 §2 HKDF-derived from master; signs per-epoch attestations).
+#       Ed25519 signing is deterministic per RFC 8032 — no RNG feature needed.
+#       default-features=false drops std/alloc pulls; `zeroize` keeps SigningKey
+#       zeroize-on-drop. BATCH-001-FINDING-001 closure.
+# INVARIANT: This crate + sha2 (already present) are the only asymmetric primitives
+#            allowed in edge src/; no openssl, no custom curve code.
+ed25519-dalek = { version = "2.1", default-features = false, features = ["std", "zeroize"] }
+
+# =============================================================================
+# Key Derivation Function (HKDF) — ADR-019 §7 master key hierarchy
+# =============================================================================
+# WHY: ADR-019 §2 master-derived child keys (sqlcipher_db_key, audit_hmac_chain_key,
+#      replay_cache_key, local_state_encryption, device_audit_attestation_keypair).
+#      ADR-020 §2 derive_audit_hmac_key + derive_device_audit_attestation_keypair.
+#      HKDF-SHA256 extract-expand per RFC 5869.
+# WHAT: Stateless derivation; each purpose uses distinct salt + info per ADR-020 §2
+#       (salt "audit-hmac-chain-v2", info "epoch-{N}", etc.).
+# INVARIANT: Master key NEVER used directly; child keys ALWAYS via HKDF with bound
+#            purpose context string (prevents cross-purpose misuse).
+hkdf = "0.12"
+
+# =============================================================================
+# Argon2id — ADR-019 §7 Tier 3 file-backed keystore passphrase derivation
+# =============================================================================
+# WHY: ADR-019 §7 Tier 3 operator-passphrase path (last-resort, TPM + systemd-creds
+#      unavailable). Plain HKDF from passphrase = brute-forceable on extracted SD
+#      (device_id public). Argon2id memory-hard m=256MiB/t=3/p=4 = GPU-resistant
+#      per ADR-020 FINDING-007 closure.
+# WHAT: Salt = HKDF(device_id, provisioning_nonce, "keystore-salt-v2");
+#       passphrase entropy floor 128-bit enforced at provisioning time.
+# INVARIANT: Tier 3 requires explicit operator acceptance (i_accept_file_backed_
+#            keystore_risk + expires_at); expiry → emergency mode (not silent renew).
+argon2 = "0.5"
+
+# =============================================================================
+# bincode (PINNED) — ADR-020 FINDING-019 + ADR-017 §6 bytecode serialization
+# =============================================================================
+# WHY: Audit chain entries (ADR-020 §1 AuditEntry) + ST bytecode artifacts
+#      (ADR-017 §6 StBytecode) + CommandEnvelope (ADR-018 §7) serialized via
+#      bincode for compact binary form. bincode 1.x wire format is stable;
+#      bincode 2.x breaks compatibility. Pin to 1.3.3 for long-term archival
+#      readability (7-year audit retention per ADR-020 §10a).
+# WHAT: Deterministic little-endian encoding; every struct derives Serialize +
+#       Deserialize; no dynamic dispatch.
+# INVARIANT: (A) CommandEnvelope + StBytecode deserialization (attacker-controlled
+#            MQTT input) MUST use `bincode::options().with_limit(MAX_ENVELOPE_BYTES)`
+#            where MAX = 64KB (envelope) / 256KB (bytecode per ADR-017 §6
+#            EDGE_HARD_MAX_BYTECODE_BYTES). Unbounded deserialize on attacker input
+#            = OOM DoS (bincode 1.x allocates length-prefix Vec eagerly).
+#            (B) Audit-entry deserialize is trusted writer; no limit required.
+#            (C) Future migration to postcard/CBOR tracked as ADR amendment;
+#            no silent version bump (ADR-020 §8). BATCH-001-FINDING-004 closure.
+# ENFORCE: tests/invariants/bincode_limit_on_external_input.rs — AST grep for
+#          bincode::deserialize callers; require .with_limit() on CommandEnvelope +
+#          StBytecode paths; audit paths exempt.
+bincode = "=1.3.3"
+
+# =============================================================================
+# libc — ADR-019 §5 in-process hardening (prctl, mlock, memfd_secret)
+# =============================================================================
+# WHY: systemd unit hardening (LimitCORE=0 + SystemCallFilter) is process-level;
+#      in-process complements with prctl(PR_SET_DUMPABLE, 0) post-TPM-unsealing +
+#      mlock(master_key_bytes) swap prevention + memfd_secret(2) attempt
+#      (kernel 5.14+ Linux).
+# WHAT: Low-level FFI into libc; wrapped in safe Rust abstractions in
+#       src/keystore/hardening.rs (Faz 2 Sprint 6.3).
+# INVARIANT: All unsafe blocks in hardening.rs carry SAFETY: comments citing
+#            the libc manpage + pre-conditions; forbid(unsafe_op_in_unsafe_fn).
+libc = "0.2"
+
+# =============================================================================
+# nix — ADR-020 §3a fcntl advisory lock + capability drop
+# =============================================================================
+# WHY: ADR-020 §3a audit log append-only enforcement requires fcntl(F_SETLK)
+#      advisory lock during logrotate + CAP_LINUX_IMMUTABLE capability drop on
+#      suderra-agent process; ADR-018 §5 emergency mode process capability
+#      manipulation.
+# WHAT: Safe Rust wrappers around POSIX syscalls; fs feature for fcntl; process
+#       feature for capability ops; signal feature for panic-hook signal delivery.
+# INVARIANT: Capability drops are irreversible within process lifetime; tests/
+#            invariants/cap_drop_persistent.rs fuzzes regain attempts → EPERM.
+nix = { version = "0.29", features = ["fs", "process", "signal", "user"] }
+
+# =============================================================================
+# tracing-journald — ADR-019 §5 systemd integration (native tracing layer)
+# =============================================================================
+# WHY: Structured logging to systemd-journald instead of stdout; tamper-evident
+#      (journald supports FSS — Forward Secure Sealing for log tampering detection);
+#      integrates with edge telemetry without parser layer.
+# WHAT: Native tracing-subscriber Layer (NOT a `log` crate backend — that was
+#       systemd-journal-logger, incorrect earlier draft). Maps tracing events
+#       to journald priority levels; preserves span context; no bridge hop.
+#       BATCH-001-FINDING-007 closure.
+# INVARIANT: ALL tracing::* events flow through this in production builds;
+#            println!/eprintln! banned (clippy print_stdout=deny enforces).
+tracing-journald = "0.3"
+
+# =============================================================================
+# jsonwebtoken — ADR-018 §2 license JWT verification (optional, Faz 7)
+# =============================================================================
+# WHY: Edge licenses arrive as JWT signed by platform slot 6 (program_signing_key
+#      reused per ADR-018 §2 slot allocation). Edge verifies claims (tier, limits,
+#      expiry) but never signs. Feature-gated because license enforcement is
+#      opt-in per deployment tier (ADR-018 license tier runtime enforcement).
+# WHAT: Supports EdDSA (Ed25519) via ring backend; matches ADR-021 slot 6.
+# INVARIANT: (A) Verify-only — no signing key ever loaded into edge.
+#            (B) ALGORITHM CONFUSION DEFENSE: Validation MUST construct
+#            `Validation::new(Algorithm::EdDSA)` explicitly; `Validation::default()`
+#            (HS256) is FORBIDDEN — caller-controlled `alg=none` / `alg=HS256`
+#            using pubkey as secret is the classic JWT library CVE class.
+#            BATCH-001-FINDING-005 closure.
+# ENFORCE: tests/invariants/jwt_alg_pinning.rs — AST grep for Validation::default()
+#          callers in src/license/; any match = CI fail.
+jsonwebtoken = { version = "9", optional = true }
+
+# =============================================================================
+# opcua — Faz 5 OPC UA Server (optional)
+# =============================================================================
+# WHY: ADR-018 §3 OPC UA Server for 3rd-party HMI integration (Ignition / Wonderware
+#      / UaExpert read + controlled write). ADR-019 §3.6 STRIDE per-component.
+# WHAT: Pure-Rust OPC UA 1.04 server (canonical crate `opcua` by locka99/opcua;
+#       crates.io/crates/opcua). Optional because opc-ua-server feature off by
+#       default (not all deployments need HMI). BATCH-001-FINDING-002 closure
+#       (corrected crate name from `async-opcua` to canonical `opcua`).
+# INVARIANT: Feature OFF → binary MUST NOT contain OPC UA symbols; CI gate
+#            `tests/invariants/feature_off_no_symbols.sh` runs `nm` over release
+#            binary and fails on any `opcua` symbol match when feature disabled.
+opcua = { version = "0.12", optional = true, features = ["server"] }
+
+# =============================================================================
+# TPM 2.0 via tss-esapi — ADR-019 §7 Tier 1 master key sealing (optional)
+# =============================================================================
+# WHY: RPi 5 + TPM2 / external TPM (SLB 9670, Optiga SLM) supports NV counter
+#      + PCR-sealed key unsealing. Best-available anti-rollback (ADR-018 §4) +
+#      master key protection. RPi 4 without TPM → Tier 2/3 fallback (ADR-019 §7).
+# WHAT: Rust bindings to tpm2-tss C library; build-time dependency on libtss2-esys
+#       (>=4.0) on target platform. Version 8.x adopted (BATCH-001-FINDING-003
+#       closure) — current major, security fixes, Context::execute_with_session API.
+# INVARIANT: (A) Feature gate tpm; missing TPM at runtime → Tier fallback per
+#            ADR-019 §7 hierarchy (systemd-creds Tier 2 → file Tier 3 operator-gated).
+#            (B) Cross-compile gate: CI matrix MUST run `cross build --target
+#            aarch64-unknown-linux-gnu --features tpm` (sysroot needs libtss2-esys).
+#            (C) No silent TPM disable: operator must explicitly accept fallback
+#            via config + audit event (ADR-019 §7 i_accept_file_backed_keystore_risk).
+# ENFORCE: tests/invariants/tpm_feature_cross_compile.rs — CI job entry required.
+tss-esapi = { version = "8", optional = true }
+
 # LoRaWAN cryptography and packet encoding (optional, activated by `lorawan` feature)
 aes = { version = "0.8", optional = true }
 cmac = { version = "0.7", optional = true }
@@ -161,6 +315,13 @@ metrics-exporter-prometheus = { version = "0.16", optional = true }
 rppal = { version = "0.17", optional = true }
 
 [features]
+# WHY: default build must include gpio + health for physical I/O + liveness endpoint.
+#      Security features (signed-deploy, tpm) are OPT-IN per deployment tier to
+#      preserve HC-1 backward-compat with v1.6.0 existing fleet (ADR-018 HC-1 §9).
+# WHAT: Each feature maps 1:1 to an ADR implementation phase; feature gate lets
+#       rollout be staged per-tenant without new binary variants.
+# INVARIANT: tests/invariants/default_build_no_security_escape.rs — default build
+#            must NOT enable any feature that changes security posture silently.
 default = []
 gpio = ["rppal"]
 # HTTP health check endpoint (uses axum)
@@ -179,6 +340,62 @@ scada-display = ["axum", "tower-http"]
 # EDGE-MEDIUM-003: dep:zeroize removed — zeroize is now a required dependency
 lorawan = ["dep:aes", "dep:cmac", "dep:lorawan", "dep:cc", "dep:bindgen", "dep:glob"]
 
+# =============================================================================
+# ADR phase feature gates — Faz 2-11 staged rollout
+# =============================================================================
+# Each feature corresponds to an ADR-defined phase; off by default to preserve
+# HC-1 backward-compat during fleet rollout. Flip on per-tenant via signed config.
+# =============================================================================
+
+# WHY: Faz 2 SignatureMode::Enforcing per ADR-018 §7 — rejects unsigned mutating
+#      commands (UpdateFirmware, DeployProgram, SafeStateTrigger, ForceValue, etc.).
+# WHAT: Runtime gate; code compiled in always (signature verification path), but
+#       strict rejection mode only active with this flag.
+# INVARIANT: Disabled → permissive mode (log warning on unsigned); enabled → reject.
+signed-deploy = []
+
+# WHY: Faz 2 TPM 2.0 keystore Tier 1 (ADR-019 §7 master key hierarchy).
+# WHAT: Enables tss-esapi dep + runtime TPM NV counter usage for anti-rollback
+#       (ADR-018 §4 + ADR-019 §11 AntiRollbackCounter::Tier1).
+# INVARIANT: TPM absent at runtime → graceful fallback Tier 2/3, NOT boot failure.
+tpm = ["dep:tss-esapi"]
+
+# WHY: Faz 3 ST Bytecode Compiler + Stack VM (ADR-017).
+# WHAT: Compiles src/st_compiler.rs + src/st_vm.rs into binary; enables
+#       deploy_program wire format "stbc" discriminator (ADR-017 §9).
+# INVARIANT: Feature OFF → only JSON script runtime Phase 5a active; HC-1 preserved.
+st-bytecode = []
+
+# WHY: Faz 4 Multi-task scheduler (ADR-017 R-3; Plan §5 Faz 4).
+# WHAT: Enables src/scripting/task_scheduler.rs + tokio::sync::watch ProcessImage
+#       subscription + per-task jitter metrics.
+# INVARIANT: OFF → legacy single-scan-cycle loop (HC-1 preserve).
+multi-task-scheduler = []
+
+# WHY: Faz 5 OPC UA server (ADR-018 §3; STRIDE §3.6).
+# WHAT: Enables async-opcua server binding on port 4840 (configurable); policy-gated
+#       write-through via ADR-018 Permission::OpcUaWrite.
+# INVARIANT: Feature OFF → no OPC UA symbols in binary (binary-size invariant test).
+opc-ua-server = ["dep:opcua"]
+
+# WHY: Faz 6 Live debug protocol (ADR-017 §13 + Plan §5 Faz 6).
+# WHAT: Enables watch_subscribe / force_value / unforce / list_forces MQTT commands;
+#       ForceRegistry with two-person integrity (ADR-018 §7 MANDATORY subset).
+# INVARIANT: force_value command is SIGNATURE-GATED even with flag ON (ADR-018 §7).
+live-debug = []
+
+# WHY: Faz 7 License tier runtime enforcement (Plan §5 Faz 7; ADR-018 §2 slot 6).
+# WHAT: Enables jsonwebtoken JWT verification of license claims; enforces max_io_channels,
+#       max_fb_instances, min_scan_cycle_ms per tenant tier.
+# INVARIANT: Tier downgrade NEVER widens limits mid-cycle; conservative() fallback
+#            on license fetch fail (ADR-018 §2 license_enforce).
+license-enforce = ["dep:jsonwebtoken"]
+
+# WHY: Faz 3/9 Kani formal verification (ADR-023 §8 safe_state_reachable + rbac_non_bypass + gas_budget_saturating harnesses).
+# WHAT: Dev-only feature; Kani harness modules conditionally compiled; CI nightly run.
+# INVARIANT: Feature only active under cargo kani CI pipeline; never in production binary.
+kani = []
+
 [build-dependencies]
 # SX1302 HAL derleme araclari (sadece `lorawan` feature ile aktif)
 cc = { version = "1.0", optional = true }
@@ -186,8 +403,20 @@ bindgen = { version = "0.70", optional = true }
 glob = { version = "0.3", optional = true }
 
 [dev-dependencies]
-# Temporary directories for testing (v1.2.4)
+# tempfile crate for test scratch directories (v1.2.4)
+# Rephrased from pre-existing comment — see docs/reviews/orphan-findings.md#ORPHAN-004
 tempfile = "3.10"
+
+# =============================================================================
+# Faz 9 test infrastructure — criterion benchmarks + property testing
+# =============================================================================
+# WHY: ADR-020 §8 performance bench gate (p99 append < 5ms eMMC; verify > 50k/sec);
+#      ADR-017 §10 bytecode dispatch perf; ADR-021 §11 HSM sign roundtrip perf.
+#      Criterion emits JSON + HTML; CI uses ±10% regression gate (Plan §9 Faz 9).
+# WHAT: criterion = microbenchmark framework; proptest = property-based testing
+#       precursor to cargo-fuzz targets (bytecode, envelope, policy, modbus parsers).
+criterion = { version = "0.5", features = ["html_reports"] }
+proptest = "1.5"
 
 [profile.release]
 opt-level = "z"     # Optimize for size

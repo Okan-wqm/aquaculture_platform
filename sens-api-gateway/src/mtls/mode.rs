@@ -32,9 +32,9 @@ pub const MAX_LEAF_CERT_AGE_DAYS_STRICT: u32 = 398;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MtlsMode {
-    #[default]
     /// Stage 1 (days 0–30). Pinning disabled — fingerprint mismatch logged
     /// as warning but TLS handshake proceeds. Leaf cert max-age 60 days.
+    #[default]
     Legacy,
     /// Stage 2 (days 30–60). Pinning enforced for all NEW sessions but
     /// mismatches still accepted with structured audit event. Leaf cert

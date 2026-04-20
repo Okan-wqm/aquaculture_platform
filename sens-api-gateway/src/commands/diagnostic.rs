@@ -112,6 +112,8 @@ impl CommandHandler {
                 "mode": format!("{:?}", state.config.config_integrity.mode).to_lowercase(),
                 "factory_pubkey_configured": state.config.config_integrity.factory_pubkey_hex.is_some(),
             },
+            // Batch 45: command-envelope signature mode.
+            "signature_mode": format!("{:?}", state.config.signature_mode).to_lowercase(),
             // Batch 32+34: shutdown + replay-protection thresholds.
             "runtime": {
                 "shutdown_timeout_secs": state.config.runtime.shutdown_timeout_secs,

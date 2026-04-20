@@ -1012,6 +1012,11 @@ async fn async_main() -> Result<()> {
                 "  Config integrity: mode={:?} (verify wires in Sprint 6.6; plan D-13)",
                 cfg.config_integrity.mode
             );
+            // Batch 45: command-envelope signature mode.
+            info!(
+                "  Signature mode: {:?} (envelope verify + jti dedup wire in Sprint 6.4; plan §2 HC-6)",
+                cfg.signature_mode
+            );
             cfg
         }
         Err(e) => {

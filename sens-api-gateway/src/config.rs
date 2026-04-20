@@ -252,6 +252,23 @@ pub struct AgentConfig {
     #[serde(default)]
     pub config_integrity: ConfigIntegrityConfig,
 
+    /// Command-envelope signature verification mode (Batch 45,
+    /// plan §2 HC-6 / Sprint 6.4). Controls whether incoming
+    /// MQTT commands require a valid ed25519 signature for
+    /// mutating operations. Pre-Sprint-6.4 the MODE field is
+    /// exposed here + logged at boot for operator visibility;
+    /// the actual envelope verify path wires in Sprint 6.4
+    /// along with the Moka-backed jti dedup cache.
+    ///
+    /// Rollout discipline (plan §2 HC-6):
+    /// - Disabled (default) — HC-1 backward compat; unsigned
+    ///   commands accepted.
+    /// - Permissive — unsigned mutating commands logged but
+    ///   accepted; signed envelopes MUST verify.
+    /// - Enforcing — unsigned mutating commands rejected.
+    #[serde(default)]
+    pub signature_mode: crate::command_envelope::envelope::SignatureMode,
+
     /// Cache configuration (v1.2.0)
     #[serde(default)]
     pub cache: CacheConfig,

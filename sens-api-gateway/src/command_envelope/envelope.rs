@@ -57,11 +57,17 @@ use crate::authz::policy::Ed25519SignatureBytes;
 pub const MAX_CMD_NAME_BYTES: usize = 128;
 
 /// Signature enforcement state machine (plan §2 HC-6). The mode is set by
-/// config.yaml `security.signature_mode` and hot-reloaded on SIGHUP.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// config.yaml `signature_mode` (Batch 45) and hot-reloaded on SIGHUP.
+///
+/// Batch 45: `Default::default()` returns `Disabled` to preserve HC-1
+/// backward compat — operators running pre-Batch-45 configs (no field)
+/// get the same de-facto behavior. Explicit Permissive/Enforcing
+/// migration comes from operator-editable config.yaml.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SignatureMode {
     /// Legacy compatibility. Any envelope accepted. Operator opt-in only.
+    #[default]
     Disabled,
     /// Transitional. Unsigned mutating commands logged but accepted; signed
     /// envelopes MUST verify.

@@ -14,9 +14,6 @@
 passthrough = [
     "RUST_BACKTRACE",
     "RUST_LOG",
-    # BATCH-001-CI-FIX-011: aws-lc-sys bindgen library uses libclang at
-    # build time. LIBCLANG_PATH points it at the llvm-14 install below.
-    "LIBCLANG_PATH",
 ]
 
 # Shared pre-build across all 3 cross targets:
@@ -39,10 +36,18 @@ pre-build = [
     "echo 'deb http://apt.llvm.org/xenial/ llvm-toolchain-xenial-14 main' > /etc/apt/sources.list.d/llvm14.list",
     "apt-get update && apt-get install -y --no-install-recommends clang-14 libclang-14-dev",
     "ln -sf /usr/bin/clang-14 /usr/bin/clang",
+    # BATCH-001-CI-FIX-012: cross's [target.X.env] `passthrough` propagates
+    # host-defined env vars TO the container; it does NOT set values inside
+    # the container. LIBCLANG_PATH must be discoverable via bindgen's
+    # default search paths. Symlink libclang.so into /usr/lib so bindgen
+    # finds it without any env var. `libclang.so.1` is the LLVM 14 shared
+    # library; bindgen's clang-sys loader matches `libclang*.so*`.
+    "ln -sf /usr/lib/llvm-14/lib/libclang.so.1 /usr/lib/libclang.so",
 ]
-# LIBCLANG_PATH set via cross env.aarch64-specific:
-[target.aarch64-unknown-linux-gnu.env]
-passthrough = ["LIBCLANG_PATH=/usr/lib/llvm-14/lib"]
+# BATCH-001-CI-FIX-012: LIBCLANG_PATH env block removed. The symlink
+# approach in pre-build provides libclang in the bindgen default search
+# path; setting env via cross's passthrough was non-functional (it only
+# propagates host env, not sets values).
 
 # ARMv7 (Raspberry Pi 3, older Revolution Pi)
 [target.armv7-unknown-linux-gnueabihf]
@@ -53,6 +58,13 @@ pre-build = [
     "echo 'deb http://apt.llvm.org/xenial/ llvm-toolchain-xenial-14 main' > /etc/apt/sources.list.d/llvm14.list",
     "apt-get update && apt-get install -y --no-install-recommends clang-14 libclang-14-dev",
     "ln -sf /usr/bin/clang-14 /usr/bin/clang",
+    # BATCH-001-CI-FIX-012: cross's [target.X.env] `passthrough` propagates
+    # host-defined env vars TO the container; it does NOT set values inside
+    # the container. LIBCLANG_PATH must be discoverable via bindgen's
+    # default search paths. Symlink libclang.so into /usr/lib so bindgen
+    # finds it without any env var. `libclang.so.1` is the LLVM 14 shared
+    # library; bindgen's clang-sys loader matches `libclang*.so*`.
+    "ln -sf /usr/lib/llvm-14/lib/libclang.so.1 /usr/lib/libclang.so",
 ]
 [target.armv7-unknown-linux-gnueabihf.env]
 passthrough = ["LIBCLANG_PATH=/usr/lib/llvm-14/lib"]
@@ -68,6 +80,13 @@ pre-build = [
     "echo 'deb http://apt.llvm.org/xenial/ llvm-toolchain-xenial-14 main' > /etc/apt/sources.list.d/llvm14.list",
     "apt-get update && apt-get install -y --no-install-recommends clang-14 libclang-14-dev",
     "ln -sf /usr/bin/clang-14 /usr/bin/clang",
+    # BATCH-001-CI-FIX-012: cross's [target.X.env] `passthrough` propagates
+    # host-defined env vars TO the container; it does NOT set values inside
+    # the container. LIBCLANG_PATH must be discoverable via bindgen's
+    # default search paths. Symlink libclang.so into /usr/lib so bindgen
+    # finds it without any env var. `libclang.so.1` is the LLVM 14 shared
+    # library; bindgen's clang-sys loader matches `libclang*.so*`.
+    "ln -sf /usr/lib/llvm-14/lib/libclang.so.1 /usr/lib/libclang.so",
 ]
 [target.x86_64-unknown-linux-gnu.env]
 passthrough = ["LIBCLANG_PATH=/usr/lib/llvm-14/lib"]

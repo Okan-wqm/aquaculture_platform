@@ -63,14 +63,30 @@ fn drain_timeout_must_fit_inside_shutdown_timeout() {
 
 #[test]
 fn coherence_rules_stable_under_new_field_additions() {
-    // FUTURE-COMPAT CONTRACT: Batches 39+42 have added 5
-    // rules (3 Batch 39 + 2 Batch 42). Sprint 6.x additions
-    // (keystore coherence rules per plan §5 Faz 2 Step 1;
-    // authz coherence rules per Step 4; etc.) MUST extend
-    // validate_faz2_security_coherence additively — existing
-    // rules preserved. Any change to an existing rule
-    // requires ADR documentation + operator migration notes.
-    let _contract = "Batch 39+42 5 rules are ABI-stable; Sprint 6.x additions are additive-only";
+    // FUTURE-COMPAT CONTRACT: Batches 39+42+49 have added 8
+    // rules total (3 Batch 39 + 2 Batch 42 + 3 Batch 49).
+    // Sprint 6.x additions (keystore coherence rules per
+    // plan §5 Faz 2 Step 1; authz coherence rules per
+    // Step 4; etc.) MUST extend validate_faz2_security_
+    // coherence additively — existing rules preserved. Any
+    // change to an existing rule requires ADR documentation
+    // + operator migration notes.
+    //
+    // Rule roster (as of Batch 50):
+    //   Rule 1: mtls.mode=strict ⟹ enforce_fingerprint_
+    //           pinning=true (Batch 39).
+    //   Rule 2: max_command_skew_secs <= max_command_age_
+    //           secs (Batch 39).
+    //   Rule 3: drain_timeout_ms < shutdown_timeout_secs *
+    //           1000 (Batch 39).
+    //   Rule 4: config_integrity Permissive/Enforcing
+    //           requires factory_pubkey_hex (Batch 42).
+    //   Rule 5: factory_pubkey_hex if present must be
+    //           64-char lowercase hex (Batch 42).
+    //   Rule 6: rate_limit_max_commands > 0 (Batch 49).
+    //   Rule 7: rate_limit_window_secs > 0 (Batch 49).
+    //   Rule 8: max_command_age_secs > 0 (Batch 49).
+    let _contract = "8 rules are ABI-stable; Sprint 6.x additions are additive-only";
     assert!(!_contract.is_empty());
 }
 

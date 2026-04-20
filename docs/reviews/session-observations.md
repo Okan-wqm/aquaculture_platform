@@ -294,6 +294,47 @@ given size + coordination needs.
 
 ---
 
+## BATCH-17 observations (pwm/spi inventory-pending decisions)
+
+### OBS-17-001 — pwm.rs + spi.rs marked WHITELIST-PENDING-INVENTORY
+
+**Files:** `pwm.rs`, `spi.rs`
+
+**Observation:** Plan §5 Faz 1 Step 8 explicitly flags these two as
+"ADR-019 envanter sonrası" — their WIRE-or-REMOVE decision depends on
+ADR-019 §5 Hardware Adapter Inventory which enumerates deployed
+hardware per device. Pre-Batch-17 no marker; future reviewers couldn't
+tell this was intentional deferral.
+
+**Fix:** Module docstrings now carry **WHITELIST-PENDING-INVENTORY**
+marker with:
+- Per-use-case WIRE/REMOVE matrix (pwm: LED diurnal WIRE / aerator
+  REMOVE per ADR-024 §3; spi: MAX31865 RTD WIRE / ADS1256 REMOVE /
+  MFRC522 REMOVE per ADR-024 §6 RFID auth ban).
+- Why this state (fleet inventory blocks the decision).
+- Re-evaluation trigger: Faz 2 Sprint 7.1 hardware-inventory.yaml
+  loader, at which point each gets split/wired/removed per the
+  inventory truth.
+- Plan cross-references.
+
+**Critical safety note (pwm.rs):** Wiring PWM for aerator speed
+control would structurally bypass the Batch 3 `FailSafe::OnFull`
+life-safety contract (ADR-024 §3 — aerator LifeSupport class requires
+digital on/off + hardwired safety override, NOT PWM). The aerator
+REMOVE decision is not optional — it's a safety-architectural
+constraint.
+
+**Critical security note (spi.rs):** MFRC522 is on the permanent BAN
+list per ADR-024 §6 (RFID auth cloneable). If the spi.rs module stays
+WIRE after Sprint 7.1, consumers MUST NOT include an MFRC522 driver
+path. Safer alternative: split into `src/spi/max31865.rs` purpose-
+specific driver that can't re-introduce MFRC522.
+
+**Status:** FIXED-IN-BATCH-17. Decision re-evaluation scheduled for
+Sprint 7.1 hardware-inventory landing.
+
+---
+
 ## Meta-invariants
 
 1. **Every observation carries:** file path + line number + observation

@@ -80,24 +80,23 @@ impl StaticBackendPolicy {
 
     /// Convenience: every tenant routes to NestJS. Used by tests that
     /// want to assert "no Rust-routed message under any condition".
-    /// WHY `#[allow(dead_code)]`: the prod binary boots through
-    /// `from_config` only; this helper exists for tests + future
-    /// callers (e.g. a "drain everything" feature flag) and removing
-    /// it now would mean re-introducing it the moment that need lands.
-    #[allow(dead_code)]
+    /// `cfg(test)`-gated so a future production caller cannot reach
+    /// it without a code edit that surfaces in review — Tier 1 "make
+    /// it impossible" beats `#[allow(dead_code)]` + a comment.
+    /// Architectural-equivalent prod path is
+    /// `StaticBackendPolicy::new(IngestBackend::Node, HashMap::new())`.
+    #[cfg(test)]
     #[must_use]
     pub fn node_only() -> Self {
         Self::new(IngestBackend::Node, HashMap::new())
     }
 
-    /// Convenience: every tenant routes to the Rust sidecar. The
-    /// future "all tenants migrated" steady state plus the drain-loop
-    /// integration tests that need the gate to let everything
-    /// through. WHY `#[allow(dead_code)]`: same reasoning as
-    /// [`Self::node_only`] — the prod binary uses `from_config` until
-    /// Faz 3 cutover, and gating this on `cfg(test)` would force a
-    /// re-introduction at cutover.
-    #[allow(dead_code)]
+    /// Convenience: every tenant routes to the Rust sidecar. Same
+    /// `cfg(test)` discipline as [`Self::node_only`] — Faz 3 cutover
+    /// (when the steady state truly is "everyone on Rust") will reach
+    /// for `from_config` with `default_backend = "rust"` directly,
+    /// not for this helper.
+    #[cfg(test)]
     #[must_use]
     pub fn rust_only() -> Self {
         Self::new(IngestBackend::Rust, HashMap::new())

@@ -12,16 +12,11 @@ description = "Pure parser/codec for industrial sensor protocols (Modbus, LoRaWA
 [lib]
 path = "src/lib.rs"
 
-[dependencies]
-bytes = { workspace = true }
-nom = { workspace = true }
-serde = { workspace = true }
-thiserror = { workspace = true }
-hex = { workspace = true }
-
-[dev-dependencies]
-proptest = { workspace = true }
-serde_json = { workspace = true }
+# [dependencies] intentionally empty during Faz 0 PR-A scaffold.
+# Concrete protocol crates (nom, bytes, hex, serde, thiserror, proptest)
+# land alongside the first protocol module in Faz 1; pulling them in now
+# would force a Cargo.lock containing transitive dependencies that the
+# workspace does not yet exercise (and surfaces unrelated CVEs).
 
 [lints]
 workspace = true

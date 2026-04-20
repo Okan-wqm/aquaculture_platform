@@ -12,15 +12,8 @@ description = "Rust binding for @platform/event-contracts. JSON Schema → typed
 [lib]
 path = "src/lib.rs"
 
-[dependencies]
-serde = { workspace = true }
-serde_json = { workspace = true }
-uuid = { workspace = true }
-chrono = { workspace = true }
-thiserror = { workspace = true }
-
-[dev-dependencies]
-proptest = { workspace = true }
+# [dependencies] intentionally empty during Faz 0 PR-A scaffold. The
+# typify build script + generated serde structs land in Faz 2.
 
 [lints]
 workspace = true

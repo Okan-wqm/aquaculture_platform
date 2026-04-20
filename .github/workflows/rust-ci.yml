@@ -110,21 +110,31 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - name: rustsec audit-check
-        uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
+      # rustsec/audit-check installs cargo-audit from source, which currently
+      # requires rustc >= 1.89 (smol_str 0.3.6 transitive). taiki-e/install-action
+      # ships precompiled binaries — no MSRV treadmill, no source build, ~5s.
+      - name: Install cargo-audit (precompiled)
+        uses: taiki-e/install-action@055f5df8c3f65ea01cd41e9dc855becd88953486 # v2.75.18
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          tool: cargo-audit
+      - name: cargo audit
+        run: cargo audit --deny warnings
 
   cross-build:
     name: cross-build (musl)
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # aarch64-unknown-linux-musl is intentionally OUT of the matrix until
+    # Faz 2: sensor-ingestion targets cloud x86_64 Docker images, and the
+    # edge agent (sens-api-gateway) keeps its own ARM64 cross-compile
+    # pipeline. Faz 2 will reintroduce aarch64 via the `cross` tool
+    # (cross-rs/cross), which handles the musl-cross toolchain inside a
+    # container — no fragile messense GitHub-release download.
     strategy:
       fail-fast: false
       matrix:
         target:
           - x86_64-unknown-linux-musl
-          - aarch64-unknown-linux-musl
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Install Rust toolchain (with target)
@@ -132,16 +142,10 @@ jobs:
         with:
           toolchain: 1.88.0
           targets: ${{ matrix.target }}
-      - name: Install musl cross toolchain
+      - name: Install musl gcc
         run: |
           sudo apt-get update
           sudo apt-get install -y musl-tools
-          # aarch64 musl gcc — required by .cargo/config.toml linker entry
-          if [ "${{ matrix.target }}" = "aarch64-unknown-linux-musl" ]; then
-            curl -sSL https://github.com/messense/aarch64-linux-musl-cross/releases/download/v11.2.1/aarch64-linux-musl-cross.tgz | sudo tar -xzC /opt
-            echo "/opt/aarch64-linux-musl-cross/bin" >> "$GITHUB_PATH"
-            ln -sf /opt/aarch64-linux-musl-cross/bin/aarch64-linux-musl-gcc /usr/local/bin/aarch64-linux-musl-gcc
-          fi
       - name: Cache cargo registry + target
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:

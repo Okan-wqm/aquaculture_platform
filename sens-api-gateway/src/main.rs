@@ -367,6 +367,30 @@ pub struct AppState {
     /// This batch wires the server + AppState field ONLY.
     #[cfg(feature = "health")]
     pub health_state: Option<crate::health::HealthState>,
+
+    /// Durable telemetry queue (Batch 15 Faz 1 ARC-002 wiring).
+    ///
+    /// WHY: Pre-Batch-15 the MQTT publish path silently DROPPED telemetry
+    /// when broker was unreachable. ADR-020 §6 + IEC 62443 FR6 Timely
+    /// Response require queue-and-forward. `offline_queue.rs` (1527 lines)
+    /// already implemented the SQLCipher-backed queue; this field + the
+    /// `init_offline_queue()` method complete the wire-up.
+    ///
+    /// WHAT: `AsyncOfflineQueue` wraps the sync `OfflineQueue` in
+    /// tokio::spawn_blocking so SQLCipher's blocking calls don't stall
+    /// the tokio runtime. Stored as `Arc` so the MQTT publish task (Sprint
+    /// 6.2) and the drain-on-reconnect task can share access.
+    ///
+    /// `None` when disabled in config OR feature-compile-gated OFF in the
+    /// future. Current behavior: None → MQTT publish continues to drop on
+    /// disconnect (v1.6.0 baseline); Some → MQTT publish enqueues on
+    /// disconnect + drain on reconnect.
+    ///
+    /// OBS-15-001 (session-observations.md): SQLCipher key derivation
+    /// TODAY uses machine-id (plan HC-5 flags for HKDF(master_key)
+    /// migration in Sprint 6.3). Batch 15 uses existing derivation to
+    /// preserve HC-1 backward-compat.
+    pub offline_queue: Option<std::sync::Arc<crate::offline_queue::AsyncOfflineQueue>>,
 }
 
 impl AppState {
@@ -407,6 +431,13 @@ impl AppState {
             // pattern for optional orchestrator endpoints.
             #[cfg(feature = "health")]
             health_state: None,
+            // BATCH-15 ARC-002: None-init; `init_offline_queue()` below
+            // constructs AsyncOfflineQueue (opens SQLCipher DB, applies
+            // machine-id key, initializes schema) iff
+            // config.offline_queue.enabled == true. None → MQTT publish
+            // drops on disconnect (v1.6.0 baseline); Some → queue-and-
+            // drain.
+            offline_queue: None,
         }
     }
 
@@ -536,6 +567,97 @@ impl AppState {
 
         info!("HealthServer wired: bind={}", addr);
         Ok(Some(server_handle))
+    }
+
+    /// Construct AsyncOfflineQueue (Batch 15 Faz 1 Step 1.3 / ARC-002).
+    ///
+    /// WHY: MQTT publish path pre-Batch-15 dropped telemetry when broker
+    /// unreachable. ADR-020 §6 + FR6 Timely Response require queue-and-
+    /// forward so no telemetry is lost across transient outages.
+    ///
+    /// WHAT:
+    /// - Returns `Ok(())` and leaves `self.offline_queue = None` when
+    ///   `config.offline_queue.enabled == false` (silent disabled path).
+    /// - Returns `Err(String)` when enabled but SQLCipher open fails
+    ///   → fail-closed boot. A declared-enabled queue that silently
+    ///   isn't running would hide data-loss from operators.
+    /// - On success, wraps `OfflineQueue` in `AsyncOfflineQueue` + `Arc`
+    ///   and assigns to `self.offline_queue`.
+    ///
+    /// INVARIANTS:
+    /// - DB path resolves via `config.offline_queue.db_path_override` OR
+    ///   defaults to `${SUDERRA_DATA_DIR}/offline_queue.db` — the same
+    ///   `/var/lib/suderra/offline_queue.db` that the Batch 4a systemd
+    ///   hardening whitelisted under `ReadWritePaths`.
+    /// - Parent dir is created if missing (owners: `suderra:suderra` via
+    ///   the systemd User/Group; mode 0750). Mkdir failures → fail-closed.
+    /// - SQLCipher encryption key is machine-id-derived per existing
+    ///   `apply_db_encryption_key()` — tracked for HKDF(master_key)
+    ///   migration in Sprint 6.3 per OBS-15-001.
+    ///
+    /// OBS-15-002 (session-observations.md): MQTT publish path is NOT
+    /// wired to enqueue on disconnect yet. This batch wires the queue
+    /// construction + AppState field; MQTT publish integration lands in
+    /// Sprint 6.2 when the mqtt.rs module threads
+    /// `state.offline_queue.as_ref()` into its publish pipeline.
+    pub async fn init_offline_queue(&mut self) -> Result<(), String> {
+        if !self.config.offline_queue.enabled {
+            return Ok(());
+        }
+
+        let db_path = self
+            .config
+            .offline_queue
+            .db_path_override
+            .clone()
+            .unwrap_or_else(|| {
+                // Match the existing main.rs:1127 SUDERRA_DATA_DIR pattern.
+                let data_dir = std::env::var("SUDERRA_DATA_DIR")
+                    .unwrap_or_else(|_| "/var/lib/suderra".to_string());
+                std::path::PathBuf::from(data_dir).join("offline_queue.db")
+            });
+
+        // Ensure parent directory exists (Batch 4a systemd hardening
+        // creates /var/lib/suderra as owned by suderra:suderra; we
+        // may still need subdirectory creation for operator-overridden
+        // non-standard paths).
+        if let Some(parent) = db_path.parent() {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                return Err(format!(
+                    "offline_queue parent dir `{}` mkdir failed: {}",
+                    parent.display(),
+                    e
+                ));
+            }
+        }
+
+        let queue = match crate::offline_queue::OfflineQueue::with_disk_limit(
+            &db_path,
+            self.config.offline_queue.max_size,
+            self.config.offline_queue.max_age_secs,
+            self.config.offline_queue.max_disk_bytes,
+        ) {
+            Ok(q) => q,
+            Err(e) => {
+                return Err(format!(
+                    "offline_queue DB open at `{}` failed: {:#}",
+                    db_path.display(),
+                    e
+                ));
+            }
+        };
+
+        let async_queue = crate::offline_queue::AsyncOfflineQueue::new(queue);
+        self.offline_queue = Some(std::sync::Arc::new(async_queue));
+
+        info!(
+            "OfflineQueue wired: path={} max_size={} max_age={}s max_disk={}MB",
+            db_path.display(),
+            self.config.offline_queue.max_size,
+            self.config.offline_queue.max_age_secs,
+            self.config.offline_queue.max_disk_bytes / (1024 * 1024)
+        );
+        Ok(())
     }
 
     /// Initialize hardware handles (must be called within LocalSet context)
@@ -734,6 +856,23 @@ async fn async_main() -> Result<()> {
             }
         }
     };
+
+    // Initialize OfflineQueue (Faz 1 Step 1.3 / ARC-002 / Batch 15).
+    //
+    // WHY: Pre-Batch-15, MQTT publish dropped telemetry when broker
+    // unreachable. ADR-020 §6 + FR6 require durable queue-and-forward.
+    //
+    // WHAT: Opens SQLCipher DB at `${SUDERRA_DATA_DIR}/offline_queue.db`
+    // (overridable via config) when config.offline_queue.enabled=true.
+    // Fail-closed boot on open error. MQTT publish integration (Sprint
+    // 6.2) threads `state.offline_queue.as_ref()` into the publish path.
+    {
+        let mut state_guard = state.write().await;
+        if let Err(msg) = state_guard.init_offline_queue().await {
+            error!("OfflineQueue init failed (fail-closed boot): {}", msg);
+            std::process::exit(1);
+        }
+    }
 
     // Setup graceful shutdown
     // Pass state so SIGHUP can reload config in-place (SEC-010)

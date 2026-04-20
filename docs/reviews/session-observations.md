@@ -133,6 +133,99 @@ Deadline: Sprint 6.7 (shutdown coordinator wiring).
 
 ---
 
+## BATCH-15 wiring observations (OfflineQueue runtime)
+
+### OBS-15-001 — SQLCipher key derivation uses machine-id (plan HC-5)
+
+**File:** `sens-api-gateway/src/offline_queue.rs:apply_db_encryption_key`
+
+**Observation:** `OfflineQueue::with_disk_limit()` (line 321) calls
+`apply_db_encryption_key(&conn)` which derives the SQLCipher key from
+the device's machine-id (existing v1.6.0 behavior). Plan §2 HC-5
+explicitly flags this for replacement by HKDF(master_key).
+
+**Risk:**
+- Machine-id is reset on OS reinstall → key irrecoverable → queue data
+  lost.
+- Machine-id is OS-visible (not secret) → any process with read
+  permission can reconstruct the key.
+- Machine-id is per-HOST, not per-device-identity → migrating a
+  provisioned agent to a new physical machine breaks queue persistence.
+
+**Proper fix (Sprint 6.3 keystore runtime):** HKDF-SHA256(master_key,
+info="suderra:sqlcipher:offline-queue:v2") per Batch 4b
+`KeyPurpose::SqlCipherOfflineQueue`. Migration path: boot detect v1
+key → open existing DB → re-encrypt under v2 key → atomic swap.
+
+**Why I didn't fix in Batch 15:** Keystore runtime (Sprint 6.3)
+doesn't exist yet; there's no `master_key` to derive from. Using the
+v1.6.0 existing derivation preserves HC-1 backward-compat for current
+deployments.
+
+**Status:** DEFERRED to Sprint 6.3 (keystore runtime). Owner:
+platform-team. Deadline: Sprint 6.3. Tracked via plan §2 HC-5.
+
+### OBS-15-002 — MQTT publish path NOT wired to enqueue on disconnect
+
+**File(s):** `sens-api-gateway/src/mqtt.rs`,
+`sens-api-gateway/src/offline_queue.rs`
+
+**Observation:** Batch 15 wires OfflineQueue construction + AppState
+field assignment. However, the MQTT `publish_raw()` code path does
+NOT currently call `state.offline_queue.as_ref().enqueue_async()` on
+publish-failure OR check the queue on reconnect to drain pending
+messages. The queue exists but is unused.
+
+**Risk:** Operators who set `offline_queue.enabled=true` expecting
+durability will see NO BEHAVIORAL CHANGE — messages still drop on
+broker disconnect.
+
+**Proper fix (Sprint 6.2 MQTT integration):**
+1. MQTT publish wrapper checks broker connection state:
+   - Connected + queue empty → publish directly.
+   - Connected + queue has messages → drain queue first (priority
+     order), then publish new.
+   - Disconnected → `queue.enqueue_async(topic, payload, priority, qos,
+     retain)`.
+2. Reconnect handler (`mqtt.rs::on_connect`) triggers drain task:
+   - `loop { peek_batch_async(100) → publish each → ack_batch_async() }`
+     until queue empty OR broker disconnects again.
+3. Backpressure: if queue overflow (`max_size` reached), apply
+   `drop_oldest_low_priority` policy so critical messages (audit,
+   alarm) survive sustained outages.
+
+**Why I didn't fix in Batch 15:** MQTT integration touches the hot-
+path publish code across 4+ call sites in mqtt.rs / commands.rs /
+scripting/engine.rs. That's a larger refactor deserving its own
+batch. Queue construction is the prerequisite; this batch provides
+it. Sprint 6.2 integrates.
+
+**Status:** DEFERRED to Sprint 6.2 (MQTT client integration). Owner:
+platform-team. Deadline: Sprint 6.2.
+
+### OBS-15-003 — ORPHAN-006 offline queue flush shutdown no-op still unresolved
+
+**File:** `sens-api-gateway/src/main.rs:1390-1396` (graceful shutdown
+step 4)
+
+**Observation:** `ORPHAN-006` (orphan-findings.md) noted that shutdown
+step 4 logs "Offline queue flush step complete" but the code is a
+no-op placeholder. Batch 15 wires the queue; the shutdown flush is
+still a no-op.
+
+**Risk:** On SIGTERM during broker outage, SQLite WAL may not be
+checkpointed + fsync'd within the systemd `TimeoutStopSec` window →
+last queued audit/telemetry rows potentially lost.
+
+**Proper fix (Sprint 6.7 shutdown coordinator):** `offline_queue`
+module exposes `async checkpoint_and_fsync()` awaited in shutdown
+step 4. Per ORPHAN-006 recommendation.
+
+**Status:** DEFERRED to Sprint 6.7 (shutdown coordinator). Links to
+ORPHAN-006 closure. Owner: platform-team. Deadline: Sprint 6.7.
+
+---
+
 ## Meta-invariants
 
 1. **Every observation carries:** file path + line number + observation

@@ -183,6 +183,13 @@ pub struct AgentConfig {
     #[serde(default)]
     pub health: HealthServerConfig,
 
+    /// Offline queue configuration (Batch 15 ARC-002).
+    /// Default: disabled. Per plan §5 Faz 1 Step 1.3 — SQLCipher-backed
+    /// durable queue for telemetry across broker outages. Enable via
+    /// `config.yaml::offline_queue.enabled: true`.
+    #[serde(default)]
+    pub offline_queue: OfflineQueueConfig,
+
     /// Telemetry configuration
     #[serde(default)]
     pub telemetry: TelemetryConfig,
@@ -413,6 +420,89 @@ impl Default for HealthServerConfig {
         Self {
             enabled: false,
             bind: default_health_bind(),
+        }
+    }
+}
+
+// =============================================================================
+// OfflineQueueConfig — Batch 15 ARC-002 (OfflineQueue wire)
+// =============================================================================
+//
+// WHY: Plan §5 Faz 1 Step 1.3 — `offline_queue.rs` (1527 lines) implements
+// a SQLCipher-backed durable queue for telemetry that was NOT YET wired
+// into the MQTT publish path. Pre-Batch-15: when broker is unreachable,
+// in-flight telemetry is simply dropped. ADR-020 §6 + IEC 62443 FR6
+// Timely Response require queue-and-forward so no telemetry is lost
+// across transient broker outages.
+//
+// WHAT: Config struct with:
+//   - `enabled` — master toggle (default false per plan HC-6 rollout
+//     discipline; explicit opt-in per deployment).
+//   - `db_path_override` — Option<PathBuf>. When None, uses
+//     `${SUDERRA_DATA_DIR}/offline_queue.db` (default
+//     `/var/lib/suderra/offline_queue.db`). Operator override for
+//     non-standard layouts.
+//   - `max_size` — row count cap. Default 10_000 telemetry messages
+//     (~10MB at 1KB avg/msg). After cap, drop_oldest_low_priority.
+//   - `max_age_secs` — row TTL. Default 7 days (604800s). Older rows
+//     auto-expunged on enqueue.
+//   - `max_disk_bytes` — disk cap. Default 100MB (104857600). SQLCipher
+//     + indexes overhead considered.
+//
+// OBS-15-001 (session-observations.md): SQLCipher key is derived from
+// machine-id today (plan HC-5 flags this as needing replacement by
+// HKDF(master_key) per Sprint 6.3 keystore runtime). Batch 15 uses the
+// existing v1.6.0 machine-id derivation to preserve HC-1 backward-
+// compat. Migration tracked.
+//
+// INVARIANT: When `enabled == false`, the AsyncOfflineQueue is not
+// constructed; the MQTT publish path (Sprint 6.2 wiring) falls back to
+// the current v1.6.0 drop-on-disconnect behavior. When enabled but DB
+// open fails, boot FAILS-CLOSED (fatal error) — a declared-enabled queue
+// that silently isn't running would hide data-loss from operators.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OfflineQueueConfig {
+    /// Master toggle.
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Optional path override. None → `${SUDERRA_DATA_DIR}/offline_queue.db`.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub db_path_override: Option<std::path::PathBuf>,
+
+    /// Maximum row count before drop_oldest_low_priority kicks in.
+    #[serde(default = "default_offline_max_size")]
+    pub max_size: usize,
+
+    /// Maximum row age in seconds. 0 = no expiration (not recommended).
+    #[serde(default = "default_offline_max_age_secs")]
+    pub max_age_secs: u64,
+
+    /// Maximum disk footprint in bytes. 0 = no limit (not recommended).
+    #[serde(default = "default_offline_max_disk_bytes")]
+    pub max_disk_bytes: u64,
+}
+
+fn default_offline_max_size() -> usize {
+    10_000
+}
+
+fn default_offline_max_age_secs() -> u64 {
+    7 * 24 * 60 * 60 // 7 days
+}
+
+fn default_offline_max_disk_bytes() -> u64 {
+    100 * 1024 * 1024 // 100 MB
+}
+
+impl Default for OfflineQueueConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            db_path_override: None,
+            max_size: default_offline_max_size(),
+            max_age_secs: default_offline_max_age_secs(),
+            max_disk_bytes: default_offline_max_disk_bytes(),
         }
     }
 }

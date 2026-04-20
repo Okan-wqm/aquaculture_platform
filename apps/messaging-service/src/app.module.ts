@@ -156,6 +156,14 @@ const complexityCache = new Map<string, number>();
         createServiceTypeOrmConfig(configService, {
           serviceName: 'messaging',
           schema: 'messaging',
+          // INFRA-CRITICAL-020: env-aware migrationsRun timing.
+          // Test E2E (DATABASE_MIGRATIONS_RUN=true) → TypeORM applies
+          // migrations at DataSource init, BEFORE NestJS lifecycle hooks
+          // fire → SourceSchemaBootstrapService finds tables → no false-fail.
+          // Production (DATABASE_MIGRATIONS_RUN=false) → unchanged; aqua-db-migrate
+          // runs as a separate container BEFORE service containers start.
+          migrationsRunFromEnv: (cs) =>
+            cs.get<string>('DATABASE_MIGRATIONS_RUN', 'false') === 'true',
           entities: [
             Channel,
             ChannelMember,

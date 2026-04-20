@@ -153,7 +153,8 @@ export class RateLimitService {
 Veri koruma hakları için kapsamlı GDPR uyumluluk modülü.
 
 ```typescript
-import { GdprModule, GDPR_SERVICE, IGdprService, CONSENT_MANAGER, IConsentManager } from '@platform/backend-common';
+import { GDPR_SERVICE, IGdprService, CONSENT_MANAGER, IConsentManager } from '@platform/backend-common';
+import { GdprModule } from '@platform/backend-common/gdpr';
 
 @Injectable()
 export class PrivacyService {
@@ -321,13 +322,8 @@ IP_WHITELIST=127.0.0.1,::1
 ## Module Import
 
 ```typescript
-import {
-  SecurityModule,
-  GdprModule,
-  ThrottlerGuard,
-  RolesGuard,
-  IdorGuard,
-} from '@platform/backend-common';
+import { SecurityModule, ThrottlerGuard, RolesGuard, IdorGuard } from '@platform/backend-common';
+import { GdprModule } from '@platform/backend-common/gdpr';
 
 @Module({
   imports: [

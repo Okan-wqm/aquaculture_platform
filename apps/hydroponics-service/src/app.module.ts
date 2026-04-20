@@ -12,29 +12,8 @@ import {
 import { GraphQLError } from 'graphql';
 import depthLimit from 'graphql-depth-limit';
 import { fieldExtensionsEstimator, getComplexity, simpleEstimator } from 'graphql-query-complexity';
-import {
-  TenantContextMiddleware,
-  CorrelationIdMiddleware,
-  RequestContextMiddleware,
-  UserContextMiddleware,
-  RolesGuard,
-  TenantGuard,
-  ThrottlerModule,
-  ThrottlerGuard,
-  SlidingWindowStrategy,
-  ServiceIdentityGuard,
-  SourceSchemaBootstrapService,
-  createTenantSchemaMiddleware,
-  createTenantConnectionBootstrap,
-  TenantSchemaSyncService,
-  SourceSchemaWriteGuardService,
-  AuditLogModule,
-  AuditLogInterceptor,
-  RlsModule,
-  SchemaDriftModule,
-  PlatformJwtModule,
-  createServiceTypeOrmConfig,
-} from '@aquaculture/backend-common';
+import { TenantContextMiddleware, CorrelationIdMiddleware, RequestContextMiddleware, UserContextMiddleware, RolesGuard, TenantGuard, ThrottlerModule, ThrottlerGuard, SlidingWindowStrategy, ServiceIdentityGuard, SourceSchemaBootstrapService, createTenantSchemaMiddleware, createTenantConnectionBootstrap, TenantSchemaSyncService, SourceSchemaWriteGuardService, RlsModule, SchemaDriftModule, PlatformJwtModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common';
+import { AuditLogModule, AuditLogInterceptor } from '@aquaculture/backend-common/audit';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('hydroponics');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('hydroponics');
 import { HydroponicsSetupModule } from './setup/setup.module';

@@ -537,6 +537,36 @@ impl CommandHandler {
             is_safety_critical
         );
 
+        // Batch 37 Sprint 6.4 partial: two-person-integrity
+        // preview. ADR-018 §7 mandates a SECOND signature
+        // (co-approval) for the `UpdateFirmware / DeployProgram
+        // / ForceValue / SafeStateTrigger / Reboot` subset.
+        // Pre-Sprint-6.4 we don't have an envelope carrying a
+        // co-approver field; this warn-log surfaces the
+        // pending requirement so operators planning rollout
+        // know which commands will tighten:
+        //
+        // - Rollout sequencing: cloud signer adds co-approval
+        //   field BEFORE edge enforcement flips on.
+        // - Training anchor: operators running firmware
+        //   updates or force commands get visible notice that
+        //   the workflow will require a second operator.
+        // - Audit-entry anchor: Sprint 6.2 sink records this
+        //   field as `two_person_integrity_pending` until
+        //   Sprint 6.4 switches it to `required` /
+        //   `verified` / `rejected_co_approval`.
+        let requires_two_person = required_perm
+            .as_ref()
+            .map(|p| p.requires_two_person_integrity())
+            .unwrap_or(false);
+        if requires_two_person {
+            warn!(
+                "TWO-PERSON-INTEGRITY preview: command='{}' requires Sprint 6.4 co-approval (ADR-018 §7). \
+                 Pre-Sprint-6.4 accepted without second signature; plan rollout to update cloud signer first.",
+                sanitize_for_log(&command.command)
+            );
+        }
+
         let (success, result, error) = match command.command.as_str() {
             "ping" => self.cmd_ping().await,
             "get_info" => self.cmd_get_info().await,

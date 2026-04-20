@@ -53,6 +53,7 @@ mod batch;
 mod cache;
 mod config;
 mod error;
+mod events;
 mod mqtt;
 mod payload;
 mod persistence;
@@ -173,52 +174,26 @@ async fn async_main(cfg: Config) -> anyhow::Result<()> {
     // exercised at runtime end-to-end.
     let drain_cache = Arc::clone(&cache);
 
-    // Stage 9: batch aggregator + persistence sink wired in.
-    // The drain pushes validated SensorReadings into the batch
-    // aggregator; the aggregator emits Vec<SensorReading> chunks on
-    // either time (100ms) or size (10K) trigger; the sink consumes
-    // those chunks. Production sink is `PostgresSink` (TimescaleDB
-    // COPY) — landed in a follow-on commit on this PR; this stage
-    // wires `LoggingSink` for the stub-mode boot so the entire chain
-    // is exercised end-to-end without a postgres dependency at
-    // start-up.
-    let batch_cancel = tokio_util::sync::CancellationToken::new();
-    let (aggregator, batch_in_tx, batch_out_rx) = batch::BatchAggregator::new(
-        batch::BatchOpts::default(),
-        batch::DEFAULT_INPUT_CHANNEL_CAPACITY,
-        batch::DEFAULT_OUTPUT_CHANNEL_CAPACITY,
-    )
-    .context("constructing batch aggregator")?;
-    let batch_cancel_for_run = batch_cancel.clone();
-    let aggregator_handle = tokio::spawn(async move {
-        match aggregator.run(batch_cancel_for_run).await {
-            Ok(count) => tracing::info!(count, "batch aggregator exited"),
-            Err(e) => tracing::error!(error = %e, "batch aggregator exited with error"),
-        }
-    });
-    // Persistence sink: PostgresSink when [postgres] is configured,
-    // LoggingSink otherwise. The trait keeps the drain pipeline
-    // unaware of which backend is wired.
-    let sink: Arc<dyn persistence::BatchSink> = if let Some(pg_cfg) = cfg.postgres.clone() {
-        tracing::info!(
-            host = %pg_cfg.host,
-            port = pg_cfg.port,
-            db = %pg_cfg.db_name,
-            "connecting PostgresSink"
-        );
-        Arc::new(
-            persistence::PostgresSink::connect(&pg_cfg)
-                .await
-                .context("connecting PostgresSink")?,
-        )
-    } else {
-        tracing::info!("postgres config absent; falling back to LoggingSink");
-        Arc::new(persistence::LoggingSink::new())
-    };
-    let sink_handle = {
-        let sink = Arc::clone(&sink);
-        tokio::spawn(persistence::run_sink_loop(sink, batch_out_rx))
-    };
+    // Stage 9 + 11: batch aggregator + persistence sink wired in via
+    //   `start_persistence_pipeline`. Helper extracted to keep
+    //   async_main inside the workspace cognitive-complexity / line
+    //   budget; the helper owns the construct + spawn sequence as a
+    //   single unit, mirroring the events-side `start_event_publisher`.
+    let PersistencePipelineBundle {
+        batch_in_tx,
+        batch_cancel,
+        aggregator_handle,
+        sink_handle,
+    } = start_persistence_pipeline(cfg.postgres.clone()).await?;
+
+    // Stage 12: NATS event publisher (extracted into `start_event_publisher`
+    //   to keep async_main inside the workspace cognitive-complexity +
+    //   line budget; the helper owns the connect + boot-smoke + spawn
+    //   sequence as a single unit).
+    let EventPublisherBundle {
+        events_in_tx,
+        publisher_handle,
+    } = start_event_publisher(cfg.nats.clone()).await?;
 
     tokio::select! {
         () = wait_for_shutdown_signal() => {
@@ -238,6 +213,13 @@ async fn async_main(cfg: Config) -> anyhow::Result<()> {
     batch_cancel.cancel();
     let _ = aggregator_handle.await;
     let _ = sink_handle.await;
+    // Drop the event-channel sender so run_publisher_loop sees the
+    // channel close and exits. There is exactly one sender held by
+    // async_main (the bundle returned from start_event_publisher); when
+    // stage 13 wires the drain → events_in_tx path, the drain holds a
+    // clone and this drop is still the last close.
+    drop(events_in_tx);
+    let _ = publisher_handle.await;
     // Surface the post-shutdown cache footprint in the log so an
     // operator can correlate cache fill with broker traffic. The
     // explicit reference also keeps the cache alive past the select!
@@ -248,6 +230,138 @@ async fn async_main(cfg: Config) -> anyhow::Result<()> {
         "topic cache state at shutdown"
     );
     Ok(())
+}
+
+/// What [`start_persistence_pipeline`] hands back to `async_main`:
+/// the sender the drain pipeline pushes validated readings into, the
+/// cancellation token + join handles for orderly shutdown.
+struct PersistencePipelineBundle {
+    batch_in_tx: tokio::sync::mpsc::Sender<crate::payload::SensorReading>,
+    batch_cancel: tokio_util::sync::CancellationToken,
+    aggregator_handle: tokio::task::JoinHandle<()>,
+    sink_handle: tokio::task::JoinHandle<()>,
+}
+
+/// Construct the batch aggregator, choose the persistence sink
+/// (`PostgresSink` when `[postgres]` is configured; `LoggingSink`
+/// otherwise), and spawn both loops.
+///
+/// WHY a helper:
+///   Mirrors [`start_event_publisher`]; both extractions keep
+///   `async_main` inside the workspace cognitive-complexity / line
+///   budget. Each subsystem owns its own boot helper so a future
+///   change to the persistence wiring does not balloon `async_main`.
+async fn start_persistence_pipeline(
+    pg_cfg: Option<persistence::PostgresConfig>,
+) -> anyhow::Result<PersistencePipelineBundle> {
+    let batch_cancel = tokio_util::sync::CancellationToken::new();
+    let (aggregator, batch_in_tx, batch_out_rx) = batch::BatchAggregator::new(
+        batch::BatchOpts::default(),
+        batch::DEFAULT_INPUT_CHANNEL_CAPACITY,
+        batch::DEFAULT_OUTPUT_CHANNEL_CAPACITY,
+    )
+    .context("constructing batch aggregator")?;
+    let batch_cancel_for_run = batch_cancel.clone();
+    let aggregator_handle = tokio::spawn(async move {
+        match aggregator.run(batch_cancel_for_run).await {
+            Ok(count) => tracing::info!(count, "batch aggregator exited"),
+            Err(e) => tracing::error!(error = %e, "batch aggregator exited with error"),
+        }
+    });
+    let sink: Arc<dyn persistence::BatchSink> = if let Some(cfg) = pg_cfg {
+        tracing::info!(
+            host = %cfg.host,
+            port = cfg.port,
+            db = %cfg.db_name,
+            "connecting PostgresSink"
+        );
+        Arc::new(
+            persistence::PostgresSink::connect(&cfg)
+                .await
+                .context("connecting PostgresSink")?,
+        )
+    } else {
+        tracing::info!("postgres config absent; falling back to LoggingSink");
+        Arc::new(persistence::LoggingSink::new())
+    };
+    let sink_handle = tokio::spawn(persistence::run_sink_loop(sink, batch_out_rx));
+    Ok(PersistencePipelineBundle {
+        batch_in_tx,
+        batch_cancel,
+        aggregator_handle,
+        sink_handle,
+    })
+}
+
+/// What [`start_event_publisher`] hands back to `async_main`: the
+/// sender the drain pipeline pushes events into, plus the spawned
+/// publisher-loop join handle. Bundled into a struct so the call site
+/// reads one line and the helper owns the full connect + smoke + spawn
+/// sequence as a single unit (architectural cut: keep `async_main`
+/// inside the workspace cognitive-complexity / line budget).
+struct EventPublisherBundle {
+    events_in_tx: tokio::sync::mpsc::Sender<event_contracts_rs::SensorReadingEvent>,
+    publisher_handle: tokio::task::JoinHandle<()>,
+}
+
+/// Build the event publisher (NATS or logging fallback), run the
+/// boot-time self-smoke, and spawn the publisher loop on the supplied
+/// channel. Returns the live sender + join handle inside an
+/// [`EventPublisherBundle`].
+///
+/// WHY a helper:
+///   `async_main` is at the workspace's cognitive-complexity ceiling;
+///   inlining the connect + smoke + spawn sequence would push it over
+///   the budget. The helper owns one cohesive unit of work and is
+///   independently testable at the unit level (the tests in
+///   `events.rs` cover every code path this helper traverses).
+async fn start_event_publisher(
+    nats_cfg: Option<nats_client::MtlsConfig>,
+) -> anyhow::Result<EventPublisherBundle> {
+    // Bounded channel: 10K matches the batch aggregator's flush size
+    // so a single batch worth of pending events fits without blocking
+    // the producer side.
+    let (events_in_tx, events_in_rx) =
+        tokio::sync::mpsc::channel::<event_contracts_rs::SensorReadingEvent>(10_000);
+
+    // Hold the logging handle separately so self_smoke_check can
+    // observe + reset it without downcasting from `dyn EventPublisher`.
+    let (publisher, logging_handle): (
+        Arc<dyn events::EventPublisher>,
+        Option<events::LoggingEventPublisher>,
+    ) = if let Some(cfg) = nats_cfg {
+        tracing::info!(
+            server_url = %cfg.server_url,
+            "connecting NatsEventPublisher (mTLS)"
+        );
+        let p = events::NatsEventPublisher::connect(&cfg)
+            .await
+            .context("connecting NatsEventPublisher")?;
+        (Arc::new(p), None)
+    } else {
+        tracing::info!("nats config absent; falling back to LoggingEventPublisher");
+        let logging = events::LoggingEventPublisher::new();
+        (Arc::new(logging.clone()), Some(logging))
+    };
+
+    // Boot-time self-smoke: exercises the publisher path before any
+    // traffic arrives so a deploy-time misconfiguration (bad cert,
+    // wrong subject prefix, broken serializer wiring) surfaces at
+    // start-up. Resets the LoggingEventPublisher counter to zero on
+    // success so steady-state state is observably clean.
+    events::self_smoke_check(&publisher, logging_handle.as_ref())
+        .await
+        .context("event publisher self-smoke check")?;
+
+    let publisher_handle = {
+        let publisher = Arc::clone(&publisher);
+        tokio::spawn(events::run_publisher_loop(publisher, events_in_rx))
+    };
+
+    Ok(EventPublisherBundle {
+        events_in_tx,
+        publisher_handle,
+    })
 }
 
 /// Pull messages off the MQTT stream and drop them. A placeholder for

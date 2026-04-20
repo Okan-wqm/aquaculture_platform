@@ -1,3 +1,7 @@
+// BATCH-001-CI-FIX-015: pre-staged types for Sprint 6.1-6.8 runtime wiring.
+// Re-exports are intentionally unused until the runtime consumers land.
+#![allow(unused_imports)]
+
 //! # Keystore — master-key hierarchy types (ADR-018 §4, §5, §7)
 //!
 //! Batch 4b — **Pure type definitions**. No runtime behavior here; the TPM FFI,

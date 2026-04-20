@@ -1,3 +1,7 @@
+// BATCH-001-CI-FIX-015: pre-staged types for Sprint 6.1-6.8 runtime wiring.
+// Re-exports are intentionally unused until the runtime consumers land.
+#![allow(unused_imports)]
+
 //! # Config integrity — factory-signed `config.yaml.sig` (plan D-13, ADR-020 §6)
 //!
 //! Every edge device boots with `/etc/suderra/config.yaml` AND a sidecar

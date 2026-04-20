@@ -1,3 +1,7 @@
+// BATCH-001-CI-FIX-015: pre-staged types for Sprint 6.1-6.8 runtime wiring.
+// Re-exports are intentionally unused until the runtime consumers land.
+#![allow(unused_imports)]
+
 //! # Audit — append-only signed audit log (ADR-020)
 //!
 //! The audit module is the edge agent's **primary forensic surface**. Every

@@ -1,3 +1,7 @@
+// BATCH-001-CI-FIX-015: pre-staged types for Sprint 6.1-6.8 runtime wiring.
+// Re-exports are intentionally unused until the runtime consumers land.
+#![allow(unused_imports)]
+
 //! # Updater — firmware A/B partition + signed manifest types (ADR-019)
 //!
 //! Every firmware update arriving on an edge device is wrapped in a

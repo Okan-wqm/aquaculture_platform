@@ -1,3 +1,7 @@
+// BATCH-001-CI-FIX-015: pre-staged types for Sprint 6.1-6.8 runtime wiring.
+// Re-exports are intentionally unused until the runtime consumers land.
+#![allow(unused_imports)]
+
 //! # mTLS 3-stage rollout + leaf cert pinning (plan §5 Faz 2 item 7 + D-6)
 //!
 //! Edge-to-broker MQTT + edge-to-cloud HTTPS both require mutual TLS. Plan

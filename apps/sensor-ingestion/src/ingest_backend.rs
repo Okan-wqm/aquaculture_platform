@@ -1,6 +1,6 @@
 //! Per-tenant `IngestBackend` selection — the strangler-fig rollout
-//! gate per ADR-025 and `docs/adr/_draft/021-per-tenant-ingest-backend-
-//! toggle.md`.
+//! gate per ADR-025 (Rust sidecar architecture) + ADR-027
+//! (`docs/adr/027-per-tenant-ingest-backend-toggle.md`).
 //!
 //! WHY this module exists separately from `main`:
 //!   The rollout decision (which tenant the Rust sidecar processes vs

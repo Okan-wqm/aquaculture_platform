@@ -8,6 +8,10 @@ target/
 # TLS certificates (infrastructure/docker/scripts/generate-internal-certs.sh)
 certs/
 
+# sensor-ingestion runtime config (real, not the .example committed alongside).
+# Carries deploy-specific cert paths + DB password; never check it in.
+infrastructure/sensor-ingestion/config.toml
+
 # Dependencies
 node_modules
 

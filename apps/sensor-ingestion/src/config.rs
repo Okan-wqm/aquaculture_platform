@@ -58,7 +58,7 @@ pub struct Config {
     pub postgres: Option<crate::persistence::PostgresConfig>,
 
     /// Per-tenant `IngestBackend` selection — the strangler-fig
-    /// rollout switch (ADR-025 / `docs/adr/_draft/021-per-tenant-
+    /// rollout switch (ADR-025 / ADR-027 `docs/adr/027-per-tenant-
     /// ingest-backend-toggle.md`). Default: `Node`, every tenant routes
     /// to NestJS `sensor-service`. Tenants explicitly listed under
     /// `tenant_overrides` are processed by this Rust sidecar.

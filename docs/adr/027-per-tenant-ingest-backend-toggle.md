@@ -1,6 +1,6 @@
-# ADR-021: Per-Tenant `IngestBackend` Toggle for the Rust Sidecar Rollout
+# ADR-027: Per-Tenant `IngestBackend` Toggle for the Rust Sidecar Rollout
 
-**Status:** Proposed (Faz 2 stage 13 — 2026-04-20)
+**Status:** Accepted (Faz 2 stage 14 — 2026-04-20)
 **Date:** 2026-04-20
 **Deciders:** Okan (platform owner) + sensor-service maintainers
 **Owner:** Okan

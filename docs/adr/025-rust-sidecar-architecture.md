@@ -1,10 +1,9 @@
 # ADR-025: Rust Sidecar Architecture for sensor-service Ingestion
 
-**Status:** Proposed (Faz 0 PR-A — opened 2026-04-20)
+**Status:** Accepted (Faz 2 stage 14 — 2026-04-20)
 **Date:** 2026-04-20
 **Deciders:** Okan (platform owner) + sensor-service maintainers + sens-api-gateway maintainer
 **Owner:** Okan
-**Deadline:** Faz 0 baseline ölçümü tamamlandıktan sonra Accepted (target 2026-05-04)
 **Related plans:** `docs/plans/sensor-rust-migration/PLAN.md`
 **Related ADRs:** ADR-006 (event flat pattern), ADR-011 (schema-per-tenant), ADR-014/015 (NATS cert-only auth)
 

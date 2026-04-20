@@ -1,0 +1,10 @@
+# Anything cargo or git would re-create, plus paths the runtime doesn't need.
+target
+.git
+.gitignore
+docs
+e2e
+tests
+node_modules
+**/.cache
+**/*.log

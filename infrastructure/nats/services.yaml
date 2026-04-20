@@ -140,6 +140,31 @@ services:
       - "_INBOX.>"
 
   # ---------------------------------------------------------------------------
+  # sensor-ingestion: Rust sidecar (ADR-025 / ADR-027) — co-equal producer of
+  # SensorReading events alongside sensor-service during the strangler-fig
+  # rollout. Distinct CN so the broker can attribute every published event
+  # to its actual producer (audit + per-tenant rollback granularity).
+  # ---------------------------------------------------------------------------
+  - name: sensor_ingestion
+    description: Rust ingestion sidecar — MQTT subscribe → COPY → SensorReading event publish
+    publish:
+      # Matches platform/libs/event-bus/src/nats/nats-event-bus.ts:310-312
+      # deriveSubject `events.{tenantId}.{eventType}` — same JetStream
+      # `events.>` stream the NestJS publisher targets, byte-equivalent.
+      - "events.>"
+      # Legacy pattern kept for downstream consumers that still subscribe
+      # to the AQUACULTURE_EVENTS namespace. Remove once every consumer
+      # has migrated to the `events.>` stream.
+      - "AQUACULTURE_EVENTS.SensorReading.>"
+      - "$JS.API.>"
+      - "_INBOX.>"
+    subscribe:
+      # Cache-miss lookup reply path (sensor.lookup.by-topic request-
+      # reply lands with the cache-fetcher work in Faz 3).
+      - "_INBOX.>"
+      - "$JS.API.>"
+
+  # ---------------------------------------------------------------------------
   # gateway-api + admin-api-service (shared account)
   # ---------------------------------------------------------------------------
   - name: gateway_service

@@ -173,6 +173,19 @@ services:
           memory: 384M
           cpus: '0.4'
 
+  # Rust ingestion sidecar (ADR-025 / ADR-027). Staging override —
+  # base service definition lives in docker-compose.droplet.yml.
+  sensor-ingestion:
+    image: ghcr.io/okan-wqm/aquaculture_platform/sensor-ingestion:${IMAGE_TAG:-staging}
+    container_name: aqua-sensor-ingestion-staging
+    environment:
+      RUST_LOG: ${SENSOR_INGESTION_LOG:-debug}
+    deploy:
+      resources:
+        limits:
+          memory: 192M
+          cpus: '0.25'
+
   admin-api-service:
     image: ghcr.io/okan-wqm/aquaculture_platform/admin-api-service:${IMAGE_TAG:-staging}
     container_name: aqua-admin-api-staging

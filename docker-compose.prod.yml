@@ -331,6 +331,39 @@ services:
       timeout: 10s
       retries: 3
 
+  # Rust ingestion sidecar — ADR-025 / ADR-027. Co-equal producer of
+  # `events.{tenantId}.SensorReading`. Per-tenant feature-flag rollout
+  # via `[ingest_backend]` in config.toml; default Node so existing
+  # tenants stay on the NestJS path until explicit opt-in.
+  sensor-ingestion:
+    image: ghcr.io/okan-wqm/aquaculture_platform/sensor-ingestion:${TAG:-latest}
+    container_name: aqua-sensor-ingestion
+    restart: unless-stopped
+    user: "65532:65532"
+    environment:
+      RUST_LOG: ${SENSOR_INGESTION_LOG:-info}
+      SENSOR_INGESTION_CONFIG: /etc/sensor-ingestion/config.toml
+    volumes:
+      # Operator-rotated config + cert bind-mounts. ADR-014/015: certs
+      # NEVER baked into the image; the secrets-rotation job updates
+      # files on disk, sidecar restart picks them up.
+      - ./infrastructure/sensor-ingestion/config.toml:/etc/sensor-ingestion/config.toml:ro
+      - ./certs/sensor-ingestion:/etc/sensor-ingestion/certs:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - aqua-internal
+    deploy:
+      resources:
+        limits:
+          # Plan § Faz 2 — Deployment + Strangler Fig. 256MB / 0.35vCPU.
+          memory: 256M
+          cpus: '0.35'
+        reservations:
+          memory: 192M
+          cpus: '0.25'
+
   hr-service:
     image: ghcr.io/okan-wqm/aquaculture_platform/hr-service:${TAG:-latest}
     container_name: aqua-hr

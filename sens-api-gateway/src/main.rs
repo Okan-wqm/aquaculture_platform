@@ -16,6 +16,11 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing))]
 
 mod alarms; // v1.2.4: Alarm management (IEC 62682)
+// Batch 2 — ADR-018 §1 + ADR-024 §1 Permission enum + ActuatorClass taxonomy.
+// Pure types, zero runtime behavior in this batch; AuthorizedContext sealed type
+// + manifest verifier land in Faz 2 Sprint 6.1 (ADR-018 §11).
+#[allow(dead_code)] // Faz 2 wires consumers; enum + newtypes pre-staged for reference stability.
+mod authz;
 mod backup; // v1.2.4: Backup and restore functionality
 mod bounded;
 mod commands;

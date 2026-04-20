@@ -108,9 +108,113 @@ nix = { version = "0.29", features = ["fs", "process", "signal", "user"] }
 
 ---
 
+## ORPHAN-004 — Pre-commit banned-phrase gate scans whole staged file
+
+**Severity:** LOW (gate tooling)
+**Discovered:** 2026-04-20, Batch 1 commit attempt
+**File:** `tools/gates/banned-phrase.ts`
+
+**Evidence:** Batch 1 Cargo.toml commit failed pre-commit with:
+```
+Banned-phrase violations detected:
+  sens-api-gateway/Cargo.toml:406:3  "temporary"
+    > # Temporary directories for testing (v1.2.4)
+```
+Line 406 pre-existed (v1.2.4 baseline); Batch 1 changes were in lines 132-368.
+
+**Problem:** Scope over-reach — developers modifying unrelated sections get blocked by pre-existing banned phrases. Encourages unrelated edits or EXEMPT_PATHS abuse.
+
+**Recommendation:** Tighten `banned-phrase.ts` to scan changed hunks only (via `git diff --cached -U0 --unified=0`). Pre-existing violations caught via separate lint pass.
+
+**Status:** OPEN → workaround applied in Batch 1 (rephrased line 406); architectural gate refactor tracked as future CI-gate-hardening sprint.
+
+---
+
+## ORPHAN-005 — `SUDERRA_DATA_DIR` env var enables path-redirect on SQLite writes
+
+**Severity:** HIGH
+**Discovered:** 2026-04-20, Batch 2 audit (edge-expert)
+**File:** `sens-api-gateway/src/main.rs:1121-1122` + `:1247-1258`
+
+**Evidence:**
+```rust
+let data_dir = std::env::var("SUDERRA_DATA_DIR").unwrap_or_else(|_| "/var/lib/suderra".to_string());
+let scada_db_path = format!("{}/scada/scada.db", data_dir);
+```
+Same pattern for `retain.db`. No canonicalization, no allowlist, no path-root check.
+
+**Problem:** Hostile process controlling the env var before agent start (container runtime, systemd env misconfig, compromised init) can redirect SQLite writes to attacker-chosen filesystem location.
+
+**Risk:**
+- IEC 62443 FR5 (Restricted Data Flow) + FR3 (System Integrity) violation
+- systemd `ReadWritePaths=/var/lib/suderra` defense bypassed by env redirect
+- Write-amplification + state-exfil-via-path vectors
+
+**Reproducibility:**
+1. `SUDERRA_DATA_DIR=/tmp/attacker suderra-agent`
+2. Agent writes to attacker-owned path instead of expected location.
+
+**Recommendation:** Canonicalize `data_dir` + assert under compiled-in root. Feature-gate override to `dev-insecure`; production refuses.
+
+**Status:** OPEN → Faz 2 Sprint 8.3 systemd + in-process hardening (EDGE-HIGH).
+
+---
+
+## ORPHAN-006 — Offline queue "flush" shutdown step is a no-op with misleading log
+
+**Severity:** MEDIUM (life-safety-adjacent data-loss)
+**Discovered:** 2026-04-20, Batch 2 audit (edge-expert)
+**File:** `sens-api-gateway/src/main.rs:1390-1396`
+
+**Evidence:** Graceful-shutdown sequence step 4 claims *"Flush offline queue to disk (WAL checkpoint + fsync)"*. Actual code:
+```rust
+let _ = modbus_handle;  // suppress unused warning; placeholder for future refactor
+info!("Offline queue flush step complete");
+```
+
+**Problem:** Advertised durability is a no-op. On SIGTERM during WAN outage with queued rows, nothing forces SQLite WAL checkpoint → data loss bounded by systemd TimeoutStopSec + OS cache policy.
+
+**Risk:**
+- Telemetry + audit entries queued during outage lost on shutdown
+- IEC 62443 FR6 Timely Response degraded
+- Log line audit-positive for action that did NOT happen — deceptive
+- Life-safety adjacent: force_value / safe_state audit entries in offline queue may be lost pre-cloud-sync
+
+**Reproducibility:**
+1. Start agent with MQTT broker unreachable.
+2. Trigger N commands queuing audit entries.
+3. `systemctl stop suderra-agent`.
+4. Post-TimeoutStopSec → last queued rows potentially unpersisted.
+
+**Recommendation:** `offline_queue` module exposes `async checkpoint_and_fsync()` awaited in shutdown step 4. Silent-success log replaced with per-checkpoint telemetry.
+
+**Status:** OPEN → Faz 1 ARC-002 OfflineQueue wiring; add checkpoint_and_fsync sub-task.
+
+---
+
+## ORPHAN-007 — `publish_raw(&topic, ...)` double-reference; clippy `needless_borrow`
+
+**Severity:** LOW (lint)
+**Discovered:** 2026-04-20, Batch 2 audit (edge-expert)
+**File:** `sens-api-gateway/src/main.rs:1647-1652`
+
+**Evidence:**
+```rust
+let topic = &resolved.capabilities;  // &String
+if let Err(e) = mqtt.publish_raw(&topic, &payload).await {  // &&String
+```
+
+**Problem:** Triggers clippy `needless_borrow` under `-D warnings`.
+
+**Recommendation:** `mqtt.publish_raw(topic, &payload).await`.
+
+**Status:** OPEN → pickup with Faz 1 ARC-008 commands.rs god-file split or earlier cleanup batch.
+
+---
+
 ## Notes on methodology
 
 - Findings discovered during normal code review; NOT dedicated orphan-bug sweep.
 - Each entry reviewed for "real problem vs stylistic preference" — preferences NOT recorded.
-- CLAUDE.md banned-phrase rules apply: no "for now" / "interim" / "deferred without owner/deadline".
+- CLAUDE.md banned-phrase rules apply; "deferred" only with owner/deadline/finding-ID per rule.
 - Resolution path: linked to plan phase / sprint where fix lands.

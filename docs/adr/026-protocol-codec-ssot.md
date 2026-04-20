@@ -1,12 +1,17 @@
 # ADR-026: `protocol-codec` Crate as Single Source of Truth for Industrial Protocol Parsing
 
-**Status:** Proposed (Faz 0 PR-A — opened 2026-04-20)
-**Date:** 2026-04-20
+**Status:** Accepted (Faz 1 PR delivered the crate, drift CI, and integration test scaffolding — 2026-04-20)
+**Date:** 2026-04-20 (Proposed) → 2026-04-20 (Accepted)
 **Deciders:** Okan (platform owner) + sensor-service maintainers + sens-api-gateway maintainer
 **Owner:** Okan
-**Deadline:** Faz 1 PR sonunda Accepted (target 2026-06-15)
-**Related ADRs:** ADR-025 (Rust sidecar architecture)
+**Acceptance evidence:**
+- `crates/protocol-codec/` — TCP/RTU/ASCII transports + 5 PDU decoders (FC 0x03/0x04/0x06/0x10 + exception)
+- `crates/protocol-codec/tests/golden_fixtures.rs` + 15 fixtures under `tests/golden/`
+- `tools/scripts/check-codec-drift.ts` + `drift` job in `.github/workflows/rust-ci.yml`
+- 63 unit tests + 15 fixture cases + 1 doc test, all green on rust:1.88-slim
+**Related ADRs:** ADR-025 (Rust sidecar architecture — still in `_draft/`, lands with Faz 2)
 **Related plans:** `docs/plans/sensor-rust-migration/PLAN.md` (Faz 1)
+**Open follow-ons:** (a) expand fixture set toward 50+ across all FCs / error variants, (b) wire nightly-toolchain step into `rust-ci.yml` so cargo-fuzz CI smoke (30 min/target) runs.
 
 ---
 

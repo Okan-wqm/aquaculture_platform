@@ -497,46 +497,44 @@ impl CommandHandler {
             state.config.device_id.clone()
         };
 
-        // IEC 62443 SL-2: Audit log safety-critical commands before execution
-        let is_safety_critical = matches!(
-            command.command.as_str(),
-            "deploy_program" | "deploy_script" | "deploy_to_codesys" | "deploy_auto"
-                | "rollback_program" | "plc_upload" | "plc_start" | "plc_stop"
-                | "plc_delete" | "write_modbus" | "write_gpio" | "reboot"
-                | "restart_agent" | "delete_script"
-                | "update_io_config" | "set_output" | "deploy_process"
-                | "deploy_scada_package" | "update_firmware"
-        );
+        // Batch 33+35 Sprint 6.1 partial: compute required-
+        // permission ONCE and reuse for:
+        //   (a) the IEC 62443 SL-2 safety-critical audit log
+        //       (was a hardcoded command-name list; now derived
+        //       from the canonical Permission::is_mutating()
+        //       classifier — eliminates the 3rd parallel
+        //       commands list after MUTATING_COMMANDS +
+        //       required_permission_for_command).
+        //   (b) the RBAC-gate-preview debug log.
+        //
+        // Pre-Batch-35 is_safety_critical was a bespoke match
+        // that drifted from the Permission enum — a new
+        // mutating command could be added to the enum without
+        // being added to the audit list, silently suppressing
+        // audit emission. Batch 35 ties both to the same SSoT.
+        let required_perm =
+            required_permission::permission_for_command(&command.command, &command.params);
+        let is_safety_critical = required_perm
+            .as_ref()
+            .map(|p| p.is_mutating())
+            .unwrap_or(false);
         if is_safety_critical {
             warn!(
-                "AUDIT: Safety-critical command initiated: command='{}', id='{}', device_id='{}', timestamp='{}'",
+                "AUDIT: Safety-critical command initiated: command='{}', id='{}', device_id='{}', timestamp='{}', required_permission={:?}",
                 sanitize_for_log(&command.command),
                 command.command_id,
                 device_id,
-                Utc::now().to_rfc3339()
+                Utc::now().to_rfc3339(),
+                required_perm
             );
         }
 
-        // Batch 33 Sprint 6.1 partial: log the Permission that
-        // Sprint 6.4 RBAC gate WILL require for this command.
-        // Pre-Sprint-6.4 this is INFORMATIONAL ONLY — no actor
-        // extraction, no evaluate call. Operators get visibility
-        // into the required-permission landscape before the
-        // gate flips on:
-        //   - Helps detect commands that would fail authz once
-        //     enforced (RBAC manifest drift detection).
-        //   - Anchors audit log format so Sprint 6.2 sink can
-        //     parse the field.
-        //   - Catches gaps in the Batch 28 mapper at runtime —
-        //     if an operator runs a command that maps to
-        //     SafeStateTrigger (fail-closed fallback for unknown
-        //     commands), the log makes the gap visible.
-        let required_perm =
-            required_permission::permission_for_command(&command.command, &command.params);
+        // RBAC-gate-preview log (Sprint 6.4 gate activates here).
         debug!(
-            "RBAC-gate-preview: command='{}' required_permission={:?} (gate activates Sprint 6.4)",
+            "RBAC-gate-preview: command='{}' required_permission={:?} is_safety_critical={} (gate activates Sprint 6.4)",
             sanitize_for_log(&command.command),
-            required_perm
+            required_perm,
+            is_safety_critical
         );
 
         let (success, result, error) = match command.command.as_str() {

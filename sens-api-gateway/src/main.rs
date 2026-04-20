@@ -71,6 +71,13 @@ mod audit;
 // Faz 2 Sprint 6.4.
 #[allow(dead_code)] // Faz 2 Sprint 6.4 wires consumers; types pre-staged.
 mod command_envelope;
+// Batch 8 — ADR-019 firmware A/B partition + signed manifest verification.
+// Types + verify_firmware_manifest pure function with closure-injected
+// ed25519 verify. Runtime wiring (tryboot overlay write, bootloader flag
+// flip, per-file SHA-256 stream + TOCTOU re-verify, cold-boot confirmation)
+// lands in Faz 2 Sprint 6.5.
+#[allow(dead_code)] // Faz 2 Sprint 6.5 wires consumers; types pre-staged.
+mod updater;
 mod shutdown;
 mod spi;
 mod telemetry; // v1.2.4: SPI support for high-speed peripherals

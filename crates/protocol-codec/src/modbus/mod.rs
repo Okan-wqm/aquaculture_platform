@@ -11,6 +11,7 @@
 //!   - No transport I/O, no logging — pure decode. The caller decides
 //!     whether to retry, drop, or audit.
 
+pub mod pdu;
 pub mod tcp;
 
 /// Modbus function codes the gateway + sidecar both accept.

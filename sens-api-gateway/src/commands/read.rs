@@ -81,6 +81,37 @@ impl CommandHandler {
         // v2.2: gpio_handle actor pattern (deprecated gpio_manager removed).
         let gpio_available = state.gpio_handle.is_some();
 
+        // Batch 43: query Linux prctl(PR_GET_DUMPABLE) to verify
+        // the Batch 24 coredump-disable hardening is still
+        // effective. Surfaces the runtime-observable flag so
+        // operators can verify post-Batch-24 that the hardening
+        // actually took effect (systemd unit overrides OR some
+        // future subprocess fork + setuid transition could have
+        // reset the flag).
+        //
+        // On non-Linux platforms (dev laptop builds) the field
+        // is absent — prctl doesn't exist; serializing a
+        // placeholder would mislead operators.
+        let coredump_disabled: Option<bool> = {
+            #[cfg(target_os = "linux")]
+            {
+                const PR_GET_DUMPABLE: libc::c_int = 3;
+                // SAFETY: prctl(PR_GET_DUMPABLE) reads a per-
+                // process kernel flag; no memory touched.
+                // Stable syscall since Linux 2.4.
+                let flag = unsafe { libc::prctl(PR_GET_DUMPABLE, 0, 0, 0, 0) };
+                if flag >= 0 {
+                    Some(flag == 0)
+                } else {
+                    None
+                }
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                None
+            }
+        };
+
         let hardware_info = json!({
             "modbus": {
                 "configured": !modbus_devices.is_empty(),
@@ -95,6 +126,13 @@ impl CommandHandler {
             "platform": {
                 "os": std::env::consts::OS,
                 "arch": std::env::consts::ARCH
+            },
+            // Batch 43: process-hardening status for operator
+            // visibility. coredump_disabled indicates the Batch
+            // 24 prctl(PR_SET_DUMPABLE=0) is in effect; None on
+            // non-Linux builds means prctl unavailable.
+            "process_hardening": {
+                "coredump_disabled": coredump_disabled,
             }
         });
 

@@ -32,6 +32,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::clock::MonotonicAnchor;
+
 /// Phase of the graceful-shutdown state machine. Each phase represents a
 /// durable checkpoint — systemd's `TimeoutStopSec=90s` budget is
 /// distributed across phase transitions.
@@ -84,9 +86,14 @@ impl ShutdownPhase {
     }
 }
 
-/// Drain loop state — tracks the in-flight command count and the drain
-/// start anchor. Used by the shutdown coordinator to decide whether to
-/// advance to `Drained` (count == 0) or force-cancel (timeout elapsed).
+/// Drain loop state — tracks the in-flight command count, the drain
+/// start anchor, and the timeout budget. Used by the shutdown coordinator
+/// to decide whether to advance to `Drained` (count == 0) or force-cancel
+/// (timeout elapsed).
+///
+/// EDGE-MEDIUM-002 closure: the `drain_started_at: MonotonicAnchor` field
+/// keeps the drain-start timestamp co-located with `is_timed_out` decision
+/// logic, preventing cross-module state spread during Sprint 6.7 wiring.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DrainState {
     /// In-flight command count. `0` means drain complete — the
@@ -95,11 +102,24 @@ pub struct DrainState {
     /// Drain budget in milliseconds. Plan D-15 default 50ms; configurable
     /// via `config.yaml::shutdown.drain_timeout_ms`.
     pub drain_timeout_ms: u32,
+    /// Monotonic anchor at the `StoppingInbound → Draining` transition.
+    /// Used by `is_timed_out` to decide force-cancel.
+    pub drain_started_at: MonotonicAnchor,
 }
 
 impl DrainState {
     pub fn is_drained(&self) -> bool {
         self.in_flight == 0
+    }
+
+    /// True iff `now - drain_started_at >= drain_timeout_ms`. On monotonic-
+    /// clock anomaly (backward / overflow) returns true (fail-closed:
+    /// prefer to force-cancel than hang).
+    pub fn is_timed_out(&self, now: MonotonicAnchor) -> bool {
+        match now.saturating_duration_since(self.drain_started_at) {
+            Ok(elapsed) => elapsed.as_millis() as u32 >= self.drain_timeout_ms,
+            Err(_) => true,
+        }
     }
 }
 
@@ -153,18 +173,32 @@ impl ShutdownTransition {
 
 /// Error when a transition cannot be applied (current phase doesn't match
 /// the transition's `from_phase`).
+///
+/// EDGE-LOW-001 closure: carries the attempted transition value so audit
+/// entries can discriminate between multiple transitions sharing a common
+/// from_phase (forward-compat when the enum grows).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ShutdownTransitionError {
     pub current_phase: ShutdownPhase,
-    pub attempted_transition_from: ShutdownPhase,
+    pub attempted_transition: ShutdownTransition,
+}
+
+impl ShutdownTransitionError {
+    /// Convenience: the from_phase the transition required (vs current_phase
+    /// actually observed).
+    pub fn expected_from_phase(&self) -> ShutdownPhase {
+        self.attempted_transition.from_phase()
+    }
 }
 
 impl std::fmt::Display for ShutdownTransitionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "shutdown_transition_invalid:current={:?}:expected_from={:?}",
-            self.current_phase, self.attempted_transition_from
+            "shutdown_transition_invalid:current={:?}:attempted={:?}:expected_from={:?}",
+            self.current_phase,
+            self.attempted_transition,
+            self.attempted_transition.from_phase()
         )
     }
 }
@@ -183,7 +217,7 @@ pub fn apply_transition(
     if current != transition.from_phase() {
         return Err(ShutdownTransitionError {
             current_phase: current,
-            attempted_transition_from: transition.from_phase(),
+            attempted_transition: transition,
         });
     }
     Ok(transition.to_phase())
@@ -257,7 +291,11 @@ mod tests {
         )
         .expect_err("skip must fail");
         assert_eq!(err.current_phase, ShutdownPhase::Running);
-        assert_eq!(err.attempted_transition_from, ShutdownPhase::Drained);
+        assert_eq!(err.expected_from_phase(), ShutdownPhase::Drained);
+        assert_eq!(
+            err.attempted_transition,
+            ShutdownTransition::DrainedToApplyingSafeState
+        );
     }
 
     #[test]
@@ -268,18 +306,71 @@ mod tests {
         )
         .expect_err("wrong from");
         assert_eq!(err.current_phase, ShutdownPhase::Flushing);
-        assert_eq!(err.attempted_transition_from, ShutdownPhase::Running);
+        assert_eq!(err.expected_from_phase(), ShutdownPhase::Running);
+        assert_eq!(
+            err.attempted_transition,
+            ShutdownTransition::RunningToStoppingInbound
+        );
     }
 
     /// WHY: DrainState::is_drained reflects in_flight == 0.
     #[test]
     fn drain_state_is_drained_iff_in_flight_zero() {
-        let d = DrainState { in_flight: 0, drain_timeout_ms: 50 };
+        let anchor = MonotonicAnchor::for_test(1_000);
+        let d = DrainState {
+            in_flight: 0,
+            drain_timeout_ms: 50,
+            drain_started_at: anchor,
+        };
         assert!(d.is_drained());
-        let d = DrainState { in_flight: 1, drain_timeout_ms: 50 };
+        let d = DrainState {
+            in_flight: 1,
+            drain_timeout_ms: 50,
+            drain_started_at: anchor,
+        };
         assert!(!d.is_drained());
-        let d = DrainState { in_flight: 100, drain_timeout_ms: 50 };
+        let d = DrainState {
+            in_flight: 100,
+            drain_timeout_ms: 50,
+            drain_started_at: anchor,
+        };
         assert!(!d.is_drained());
+    }
+
+    /// WHY (EDGE-MEDIUM-002 regression guard): DrainState::is_timed_out
+    ///      computes elapsed from `drain_started_at` to `now`. Returns true
+    ///      iff elapsed >= drain_timeout_ms.
+    #[test]
+    fn drain_state_is_timed_out_forward_elapsed() {
+        let start = MonotonicAnchor::for_test(0);
+        let d = DrainState {
+            in_flight: 5,
+            drain_timeout_ms: 50,
+            drain_started_at: start,
+        };
+        // 10ms elapsed — not timed out.
+        assert!(!d.is_timed_out(MonotonicAnchor::for_test(10_000_000)));
+        // 49ms elapsed — not timed out (strict >=).
+        assert!(!d.is_timed_out(MonotonicAnchor::for_test(49_000_000)));
+        // 50ms elapsed — timed out (threshold).
+        assert!(d.is_timed_out(MonotonicAnchor::for_test(50_000_000)));
+        // 100ms elapsed — timed out.
+        assert!(d.is_timed_out(MonotonicAnchor::for_test(100_000_000)));
+    }
+
+    /// WHY: Monotonic-clock anomaly (now < start) triggers fail-closed
+    ///      force-cancel. Prevents the drain loop hanging on clock
+    ///      glitches.
+    #[test]
+    fn drain_state_is_timed_out_fail_closed_on_clock_backward() {
+        let start = MonotonicAnchor::for_test(100_000_000);
+        let d = DrainState {
+            in_flight: 5,
+            drain_timeout_ms: 50,
+            drain_started_at: start,
+        };
+        // now < start → MonotonicBackward error → fail-closed true.
+        assert!(d.is_timed_out(MonotonicAnchor::for_test(50_000_000)));
     }
 
     /// WHY: Transition from_phase/to_phase roundtrip accessor integrity.
@@ -290,17 +381,19 @@ mod tests {
         assert_eq!(t.to_phase(), ShutdownPhase::ApplyingSafeState);
     }
 
-    /// WHY: Error Display format for audit surface.
+    /// WHY (EDGE-LOW-001 closure): Error Display includes attempted
+    ///      transition AND expected_from phase.
     #[test]
-    fn transition_error_display_carries_phases() {
+    fn transition_error_display_carries_phases_and_transition() {
         let err = ShutdownTransitionError {
             current_phase: ShutdownPhase::Running,
-            attempted_transition_from: ShutdownPhase::Drained,
+            attempted_transition: ShutdownTransition::DrainedToApplyingSafeState,
         };
         let s = format!("{}", err);
         assert!(s.contains("shutdown_transition_invalid"));
         assert!(s.contains("Running"));
         assert!(s.contains("Drained"));
+        assert!(s.contains("DrainedToApplyingSafeState"));
     }
 
     #[test]

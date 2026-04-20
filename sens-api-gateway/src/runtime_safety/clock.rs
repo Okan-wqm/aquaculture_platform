@@ -49,8 +49,23 @@ pub struct MonotonicAnchor {
 }
 
 impl MonotonicAnchor {
-    /// Construct from a nanosecond count (used by the runtime impl).
-    pub fn from_nanos_since_process_epoch(nanos: u128) -> Self {
+    /// Construct from a nanosecond count. `pub(crate)` so only the
+    /// `ClockAuthority` runtime impl (inside this crate) can mint an
+    /// anchor; external callers + unrelated edge modules get the
+    /// newtype seal — they receive anchors from `ClockAuthority::
+    /// monotonic_now()` exclusively.
+    ///
+    /// EDGE-LOW-002 closure: demoted from `pub` to `pub(crate)` to
+    /// enforce the seal. Tests use `for_test` below.
+    pub(crate) fn from_nanos_since_process_epoch(nanos: u128) -> Self {
+        Self { nanos_since_epoch: nanos }
+    }
+
+    /// Test-only ctor — mints an anchor from arbitrary nanos for use in
+    /// unit tests. `#[cfg(test)]`-gated so it is NOT available in
+    /// production builds.
+    #[cfg(test)]
+    pub fn for_test(nanos: u128) -> Self {
         Self { nanos_since_epoch: nanos }
     }
 
@@ -58,34 +73,54 @@ impl MonotonicAnchor {
         self.nanos_since_epoch
     }
 
-    /// Compute `self - earlier`. Returns None if `earlier` is later than
-    /// `self` — which should be impossible on a correctly-functioning
-    /// monotonic clock; None surfaces as a clock-anomaly error rather
-    /// than panicking.
-    pub fn saturating_duration_since(&self, earlier: MonotonicAnchor) -> Option<Duration> {
-        self.nanos_since_epoch
+    /// Compute `self - earlier`. Returns structured errors:
+    /// - `Err(MonotonicBackward)` if `earlier` is later than `self` (clock
+    ///   anomaly — kernel/emulator bug signal).
+    /// - `Err(MonotonicOverflow)` if delta exceeds `u64::MAX` nanoseconds
+    ///   (~584 years — impossible on real uptime, catches VM clock drift).
+    ///
+    /// EDGE-MEDIUM-001 closure: previously returned `Option<Duration>`
+    /// collapsing both failure classes to None. Result<_, ClockError>
+    /// gives operators the telemetry signal they need.
+    pub fn saturating_duration_since(
+        &self,
+        earlier: MonotonicAnchor,
+    ) -> Result<Duration, ClockError> {
+        let delta = self
+            .nanos_since_epoch
             .checked_sub(earlier.nanos_since_epoch)
-            .and_then(|delta| u64::try_from(delta).ok())
-            .map(Duration::from_nanos)
+            .ok_or(ClockError::MonotonicBackward)?;
+        let delta_u64 = u64::try_from(delta).map_err(|_| ClockError::MonotonicOverflow)?;
+        Ok(Duration::from_nanos(delta_u64))
     }
 }
 
-/// Wall-clock reading — carries BOTH the SystemTime value AND a
-/// freshness claim derived from the NTS synchronization state.
+/// Wall-clock reading — carries the SystemTime value, the monotonic
+/// anchor at the same instant, AND the NTS synchronization age (EDGE-
+/// HIGH-001 closure).
 ///
-/// The freshness claim is the caller's assertion that:
-/// - `system_time` is within ±`nts_sync_max_skew_secs` of the last NTS
-///   sync moment (per the runtime's `chronyc tracking` query).
-/// - `monotonic_anchor` is the monotonic reading at the same instant.
+/// **Why the NTS sync age is a first-class field:** without it, a
+/// consumer stashing a `WallClockReading` for 10 minutes cannot tell
+/// "fresh-when-read, stale-now" from "fresh-now". Making the sync age
+/// explicit lets consumers (audit writer, signature freshness checker)
+/// gate on `nts_sync_age_secs <= threshold` at USE time, not at
+/// READ time.
 ///
-/// Consumers (audit writer, signature freshness checker) that need a
-/// trustworthy wall-clock time consume a `WallClockReading` rather than
-/// a bare `SystemTime` — the type forces the runtime to have performed
-/// the NTS-sync check.
+/// **Invariants enforced by the runtime impl** (Sprint 6.7):
+/// - `nts_sync_age_secs` <= `ClockAuthority::nts_sync_max_skew_secs()`
+///   at the moment this reading was produced; `trustworthy_wall_clock`
+///   returns `Err(NtsSyncStale)` otherwise.
+/// - `system_time` is within the NTS-sync skew window.
+/// - `monotonic_anchor` is the monotonic reading at the same instant
+///   as `system_time`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WallClockReading {
     pub system_time: SystemTime,
     pub monotonic_anchor: MonotonicAnchor,
+    /// Age of the last NTS synchronization at the moment this reading
+    /// was produced. Consumers compare against a policy threshold to
+    /// gate stale-reading reuse.
+    pub nts_sync_age_secs: u64,
 }
 
 /// Errors from clock authority operations.
@@ -101,6 +136,13 @@ pub enum ClockError {
     /// Indicates kernel bug or emulator/VM quirk. Fail-closed.
     MonotonicBackward,
 
+    /// Monotonic delta exceeded `u64::MAX` nanoseconds (~584 years).
+    /// Unreachable on real uptime; catches VM clock-drift scenarios
+    /// where the monotonic counter is bogus. EDGE-MEDIUM-001 closure —
+    /// previously collapsed into the `None` return of
+    /// `saturating_duration_since` alongside the backward case.
+    MonotonicOverflow,
+
     /// Wall clock is before UNIX_EPOCH. Pre-provisioning power-on with RTC
     /// battery drained scenario. Fail-closed for regulated-action paths.
     PreEpochWallClock,
@@ -111,6 +153,7 @@ impl std::fmt::Display for ClockError {
         match self {
             Self::NtsSyncStale { .. } => f.write_str("nts_sync_stale"),
             Self::MonotonicBackward => f.write_str("monotonic_backward"),
+            Self::MonotonicOverflow => f.write_str("monotonic_overflow"),
             Self::PreEpochWallClock => f.write_str("pre_epoch_wall_clock"),
         }
     }
@@ -146,32 +189,46 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU64, Ordering};
 
-    /// WHY: MonotonicAnchor subtraction returns None on backward delta —
-    ///      regression guard against silent underflow.
+    /// WHY (EDGE-MEDIUM-001 regression guard): backward delta returns
+    ///      structured MonotonicBackward error.
     #[test]
-    fn monotonic_anchor_saturating_duration_since_backward_returns_none() {
-        let earlier = MonotonicAnchor::from_nanos_since_process_epoch(1_000_000);
-        let later = MonotonicAnchor::from_nanos_since_process_epoch(5_000_000);
-        // Backward: later earlier than earlier → checked_sub returns None.
-        let result = earlier.saturating_duration_since(later);
-        assert!(result.is_none());
+    fn monotonic_anchor_saturating_duration_since_backward_returns_error() {
+        let earlier = MonotonicAnchor::for_test(1_000_000);
+        let later = MonotonicAnchor::for_test(5_000_000);
+        let err = earlier
+            .saturating_duration_since(later)
+            .expect_err("backward must error");
+        assert_eq!(err, ClockError::MonotonicBackward);
     }
 
     #[test]
     fn monotonic_anchor_saturating_duration_since_forward_returns_duration() {
-        let earlier = MonotonicAnchor::from_nanos_since_process_epoch(1_000_000);
-        let later = MonotonicAnchor::from_nanos_since_process_epoch(5_000_000);
+        let earlier = MonotonicAnchor::for_test(1_000_000);
+        let later = MonotonicAnchor::for_test(5_000_000);
         let d = later.saturating_duration_since(earlier).expect("ok");
         assert_eq!(d, Duration::from_nanos(4_000_000));
+    }
+
+    /// WHY (EDGE-MEDIUM-001): delta > u64::MAX nanos returns overflow
+    ///      error (distinct from backward).
+    #[test]
+    fn monotonic_anchor_saturating_duration_since_overflow_returns_error() {
+        let earlier = MonotonicAnchor::for_test(0);
+        // delta = u128::MAX exceeds u64::MAX → MonotonicOverflow.
+        let later = MonotonicAnchor::for_test(u128::MAX);
+        let err = later
+            .saturating_duration_since(earlier)
+            .expect_err("overflow must error");
+        assert_eq!(err, ClockError::MonotonicOverflow);
     }
 
     /// WHY: Anchor ordering — Ord + PartialOrd derive preserve insertion
     ///      ordering for scheduling queues.
     #[test]
     fn monotonic_anchor_ord_preserves_insertion_order() {
-        let a = MonotonicAnchor::from_nanos_since_process_epoch(100);
-        let b = MonotonicAnchor::from_nanos_since_process_epoch(200);
-        let c = MonotonicAnchor::from_nanos_since_process_epoch(150);
+        let a = MonotonicAnchor::for_test(100);
+        let b = MonotonicAnchor::for_test(200);
+        let c = MonotonicAnchor::for_test(150);
         let mut v = vec![a, b, c];
         v.sort();
         assert_eq!(v, vec![a, c, b]);
@@ -190,6 +247,10 @@ mod tests {
         assert_eq!(
             format!("{}", ClockError::MonotonicBackward),
             "monotonic_backward"
+        );
+        assert_eq!(
+            format!("{}", ClockError::MonotonicOverflow),
+            "monotonic_overflow"
         );
         assert_eq!(
             format!("{}", ClockError::PreEpochWallClock),
@@ -234,12 +295,14 @@ mod tests {
         assert_object_safe(&m);
     }
 
-    /// WHY: WallClockReading value preserved — fields accessible.
+    /// WHY: WallClockReading value preserved — fields accessible, including
+    ///      the nts_sync_age_secs field added for EDGE-HIGH-001 closure.
     #[test]
     fn wall_clock_reading_field_access() {
         let reading = WallClockReading {
             system_time: SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000),
-            monotonic_anchor: MonotonicAnchor::from_nanos_since_process_epoch(12_345),
+            monotonic_anchor: MonotonicAnchor::for_test(12_345),
+            nts_sync_age_secs: 42,
         };
         assert_eq!(
             reading
@@ -250,5 +313,28 @@ mod tests {
             1_700_000_000
         );
         assert_eq!(reading.monotonic_anchor.nanos_since_process_epoch(), 12_345);
+        assert_eq!(reading.nts_sync_age_secs, 42);
+    }
+
+    /// WHY (EDGE-HIGH-001 regression guard): `nts_sync_age_secs` is a
+    ///      first-class field. A consumer gates trust on this value at
+    ///      USE time (not at READ time), closing the "stash a reading
+    ///      and reuse past freshness" attack surface.
+    #[test]
+    fn wall_clock_reading_carries_nts_sync_age_for_consumer_gating() {
+        // Policy: audit writer accepts readings with sync age < 3600s.
+        let policy_threshold = 3600u64;
+        let fresh = WallClockReading {
+            system_time: SystemTime::UNIX_EPOCH,
+            monotonic_anchor: MonotonicAnchor::for_test(0),
+            nts_sync_age_secs: 60,
+        };
+        let stale = WallClockReading {
+            system_time: SystemTime::UNIX_EPOCH,
+            monotonic_anchor: MonotonicAnchor::for_test(0),
+            nts_sync_age_secs: 7200,
+        };
+        assert!(fresh.nts_sync_age_secs < policy_threshold);
+        assert!(stale.nts_sync_age_secs >= policy_threshold);
     }
 }

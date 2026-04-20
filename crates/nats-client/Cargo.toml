@@ -12,11 +12,20 @@ description = "async-nats factory wired for ADR-014/015 mTLS-only auth. Cert CN 
 [lib]
 path = "src/lib.rs"
 
-# [dependencies] intentionally empty during Faz 0 PR-A scaffold. async-nats
-# 0.37 + rustls + rustls-pemfile land alongside the connection factory in
-# Faz 2. (Pulling async-nats now drags rustls-webpki 0.102.8, which carries
-# RUSTSEC-2026-0099 + GHSA-965h-392x-2mh5 — neither relevant until we use
-# the client, but cargo-deny correctly flags any unused vulnerable dep.)
+[dependencies]
+async-nats = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt", "time", "fs"] }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+bytes = { workspace = true }
+futures = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "test-util"] }
+tempfile = "3.10"
+serde_json = { workspace = true }
+trybuild = "1.0"
 
 [lints]
 workspace = true

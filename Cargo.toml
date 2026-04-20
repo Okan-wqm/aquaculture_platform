@@ -54,7 +54,7 @@ metrics-exporter-prometheus = "0.16"
 nom = "7.1"
 hex = "0.4"
 
-async-nats = "0.37"
+async-nats = "0.47"
 rustls = "0.23"
 rustls-pemfile = "2.2"
 rustls-native-certs = "0.8"

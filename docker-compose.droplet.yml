@@ -186,6 +186,16 @@ services:
       # IP-1: PostgreSQL SSL — entrypoint wrapper copies certs to $PGDATA
       # with correct postgres:postgres ownership + chmod 600 on key.
       POSTGRES_SSL: "on"
+      # INFRA-CRITICAL-018: image-family default-PGDATA divergence.
+      # Old image (timescale/timescaledb:Alpine): PGDATA=/var/lib/postgresql/data
+      # HA image (timescale/timescaledb-ha:Ubuntu): PGDATA=/home/postgres/pgdata/data
+      # Existing data volume `postgres_data` was created at the legacy path —
+      # we must explicitly pin PGDATA to /var/lib/postgresql/data so the HA
+      # image reads the existing cluster instead of trying to initdb a
+      # different (mostly-empty image-baked) directory and failing.
+      # Single source of truth: this is the canonical PGDATA across every
+      # compose file regardless of which image variant is in use.
+      PGDATA: /var/lib/postgresql/data
     entrypoint: ["/usr/local/bin/postgres-ssl-entrypoint.sh"]
     command: >
       postgres

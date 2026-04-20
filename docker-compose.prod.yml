@@ -46,6 +46,10 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-aquaculture}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
       POSTGRES_DB: ${POSTGRES_DB:-aquaculture}
+      # INFRA-CRITICAL-018: pin PGDATA to legacy path so the HA image
+      # (which defaults to /home/postgres/pgdata/data) reads existing
+      # volume data at /var/lib/postgresql/data uniformly across env.
+      PGDATA: /var/lib/postgresql/data
       POSTGRES_SSL: "on"
     command: >
       postgres

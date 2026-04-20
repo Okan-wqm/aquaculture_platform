@@ -107,21 +107,46 @@ In flight on branch `agentic-rust-faz2-sensor-ingestion` (stacked on `agentic-ru
 | 1. `tenant-context` crate implementation | `dbb9264b` | ✅ done | `TenantId(Uuid)` opaque newtype, `SchemaName` ADR-011-shape (`tenant_<32-hex-lowercase>`) with audit-log-poisoning-safe `try_parse`, `TenantCtx<'brand>` + `Scoped<'brand, T>` GhostCell pattern (invariant `PhantomData<fn(&'brand ()) -> &'brand ()>`), `with_tenant` HRTB closure entry point. `unwrap_scoped` is the load-bearing function — brand on `&self` and `Scoped` MUST unify. **trybuild `compile_fail` test** proves cross-brand smuggle does not compile (rustc explicitly says `Scoped<'brand, T> is invariant over the parameter 'brand`). 13 unit + 1 trybuild compile_fail. No `Display` on `TenantId` so `format!("{}", id)` cannot bypass the masking layer. |
 | 2. `nats-client` mTLS factory | `e29c7416` | ✅ done | `MtlsConfig` (server URL + 3 cert paths + connect timeout) is the ONLY constructor path. `NatsClient::connect` builds `async_nats::ConnectOptions` with `require_tls(true)` + `add_root_certificates` + `add_client_certificate` and **no** `add_user_password` / `with_token` / `connect_unauthenticated`. **3 trybuild compile_fail tests** prove those constructors do not exist (any future addition fails the test). 10 unit tests cover scheme validation (nats:// + tls:// allowed; tcp/http/no-scheme rejected) + serde round-trip + missing-cert-file error path. **Architectural decision:** bumped `async-nats` 0.37 → 0.47 to drop the vulnerable `rustls-webpki 0.102.8` (RUSTSEC-2026-0098 + 0099). cargo-deny now reports `advisories ok`. |
 | 3. `observability` tracing init + `Masked<T>` PII wrapper | `a2009c90` | ✅ done | `init_tracing(&TracingOpts)` installs JSON or pretty subscriber, opens a process-lifetime `service` span (mem::forget'd on purpose) carrying `service.name` / `service.version` / `deployment.environment`. `AlreadyInitialised` returned on second call. `Masked<T: AsRef<[u8]>>` redacts to `<first 2>***<last 2>` (or `***` for <5 bytes); `Display` + `Debug` + `serde::Serialize` all hit the mask path (accidental `format!("{x}")` cannot leak). `Masked::reveal` makes unmasking call-sites visible in code review. Optional `otlp` feature wired in `Cargo.toml`; exporter init lands when a collector URL is in scope. 8 unit tests. |
-| 4. `sensor-ingestion` binary skeleton | `9097b1d8` | ✅ done | `apps/sensor-ingestion/` binary with synchronous bootstrap (config load → tracing init → tokio runtime build → `runtime.block_on(async_main)`) + SIGTERM/SIGINT handler. `Config` struct with `observability` + `runtime` (`worker_threads=2`, `max_blocking_threads=8`, `thread_stack_kb=256` per plan) + optional `mqtt` + optional `nats` sections. Path resolution: `--config` argv → `SENSOR_INGESTION_CONFIG` env → `/etc/sensor-ingestion/config.toml`. Process exit codes 0/1/2/3/4 documented. `async_main` is currently a SIGTERM-wait stub; data path lands in subsequent commits on this PR. 10 unit tests (7 config + 3 runtime). |
+| 4. `sensor-ingestion` binary skeleton | `9097b1d8` | ✅ done | `apps/sensor-ingestion/` binary with synchronous bootstrap (config load → tracing init → tokio runtime build → `runtime.block_on(async_main)`) + SIGTERM/SIGINT handler. `Config` struct with `observability` + `runtime` (`worker_threads=2`, `max_blocking_threads=8`, `thread_stack_kb=256` per plan) + optional `mqtt` + optional `nats` sections. Path resolution: `--config` argv → `SENSOR_INGESTION_CONFIG` env → `/etc/sensor-ingestion/config.toml`. Process exit codes 0/1/2/3/4 documented. 10 unit tests (7 config + 3 runtime). |
+| 5. MQTT subscriber (rumqttc 0.25) | `59ef849a` | ✅ done | `apps/sensor-ingestion/src/mqtt.rs`: rumqttc on its own task → mpsc channel (cap 50K per plan). `validate_config` + `parse_broker_url` (mqtt://host:port or mqtts://; truncated error echo for log-poisoning bounds), `start()` opens AsyncClient, subscribes every filter, returns `MqttMessageStream`. `shutdown()` graceful drain. **Architectural debt opened (tracked, not deferred): RUST-CVE-001** in `docs/reviews/_registry/findings.jsonl` — rumqttc 0.25.1 transitively pins vulnerable `rustls-webpki 0.102.8` (RUSTSEC-2026-0098/0099/0049 + rustls-pemfile 0134 unmaintained). Owner: Okan-Wqm, deadline 2026-06-30, threat-model justification (platform-PKI-only TLS chain), 4 RUSTSEC IDs ignored in `deny.toml` with full inline rationale. 14 mqtt unit tests. |
+| 6. Topic parser + tenant extraction | `7f4b599b` | ✅ done | `apps/sensor-ingestion/src/topic.rs`: `parse(topic) -> Result<ParsedTopic, TopicParseError>` for `sensors/<tenant-uuid>/<sensor-uuid>/data` and `tenants/<tenant-uuid>/devices/<device-uuid>/io_data` shapes. Uses `TenantId::try_parse` + `Uuid::try_parse` — **regex YASAK**. Error variants discriminator-only (audit-log poisoning closed, regression-tested). Wildcard `#`/`+` rejected as InvalidTenantId. Wired into drain loop with parse-failure counter. 22 unit tests. Sub-agent commit. |
+| 7. Payload validator + topic↔payload tenant match | `81417d88` | ✅ done | `apps/sensor-ingestion/src/payload.rs`: `validate(bytes, topic_tenant)`. Strict serde_json with `deny_unknown_fields` (closes prototype-pollution class — ADR-025 § Threat 3). UUIDs via `uuid::try_parse`. **Topic↔payload TenantMismatch** enforced (ADR-025 § Threat 2 runtime layer). Rejects NaN/Inf (serde_json itself rejects 1e400 with Json error — even stronger than is_finite check; tests assert `matches!(err, Json | NotFiniteValue)`). Rejects quality outside 0..=3 + producer_ts outside [2024-01-01, 2100-01-01). Error variants discriminator-only. 24 unit tests. |
+| 8. Tenant-scoped topic cache (moka + papaya) | `cdd6f9f3` | ✅ done | `apps/sensor-ingestion/src/cache.rs`: `TopicCache::new(capacity)` with bounded total + per-tenant LRU. moka 0.12 sync variant for the storage layer (TinyLFU+LRU + per-key invalidate + eviction listener); papaya 0.2 lock-free map for per-tenant counter. Composite key `(TenantId, Uuid)` — cross-tenant cache poisoning structurally impossible (SEC-M16, regression-tested). 16 unit tests including concurrent multi-thread get/insert (4 worker × 8 task × 64 ops, no panic, no race). Wired into drain loop: cache.get on every parsed topic, cache_hit logged. Sub-agent commit (cherry-pick from isolated worktree). |
 
 #### Gate Check (Faz 2 done = all of)
 - [x] `tenant-context` exposes `TenantId` / `SchemaName` / `Scoped` / `with_tenant` with **compile-time** cross-tenant safety verified via trybuild
 - [x] `nats-client` enforces ADR-014/015 mTLS-only auth structurally; user/pass/token/unauth constructors verified absent via trybuild
 - [x] `observability` provides `init_tracing` + `Masked<T>` PII wrapper with display/debug/serde all masking
 - [x] `sensor-ingestion` binary boots end-to-end (config load + tracing + tokio runtime + signal handling)
-- [ ] MQTT subscribe loop (`rumqttc` 0.25, mTLS, QoS-1) — next commit
-- [ ] Topic parse + tenant resolution (`papaya` cache, NATS request-reply on miss) — follow-on
-- [ ] Payload validate (UUID via `uuid::try_parse` — NOT regex; topic↔payload tenantId match enforced) — follow-on
+- [x] MQTT subscribe loop (rumqttc 0.25, mTLS, QoS-1) + RUST-CVE-001 tracked
+- [x] Topic parse + tenant id extraction (uuid::try_parse, no regex)
+- [x] Payload validate (uuid::try_parse, deny_unknown_fields, topic↔payload tenant match enforced)
+- [x] Tenant-scoped bounded cache (moka + papaya) with cross-tenant isolation regression test
 - [ ] Batch aggregator + `tokio-postgres::CopyInSink` binary COPY — follow-on
 - [ ] NATS event publish via `event-contracts-rs` codegen — follow-on (requires the codegen)
+- [ ] mTLS through MqttConfig (cert paths) — follow-on
 - [ ] Per-tenant feature flag (`INGEST_BACKEND=rust|node`) — follow-on
 - [ ] `sensor-ingestion` Docker image + compose service — follow-on
 - [ ] ADR-025 (sidecar) + ADR-027 (per-tenant ingest backend toggle) promoted out of `_draft/` once the binary lands a real ingestion path
+
+#### End-to-end validation transcript (rust:1.88-slim Docker)
+```
+cargo fmt --all -- --check                                    ✅
+cargo clippy --workspace --all-targets --all-features
+                  -- -D warnings                               ✅
+cargo test --workspace --all-features --no-fail-fast          ✅
+  test result: ok. 86 passed; 0 failed   (sensor-ingestion: 24+22+24+16)
+  test result: ok. 8 passed; 0 failed    (observability)
+  test result: ok. 10 passed; 0 failed   (nats-client)
+  test result: ok. 13 passed; 0 failed   (tenant-context)
+  test result: ok. 63 passed; 0 failed   (protocol-codec)
+  test result: ok. 1 passed; 0 failed    (golden_fixtures = 15 fixtures)
+  test result: ok. 1 passed; 0 failed    (cross_tenant_compile_fail)
+  test result: ok. 1 passed; 0 failed    (auth_surface_compile_fail = 3 cases)
+  test result: ok. 1 passed; 0 failed    (doc test)
+cargo-deny check advisories                                   ✅ ok
+```
+Total: 180 unit + 15 fixture + 4 trybuild compile_fail + 1 doc = 200 tests.
 
 ## Faz 3 — sensor-service küçültme
 Not started.

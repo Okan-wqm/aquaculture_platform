@@ -353,29 +353,33 @@ impl CommandHandler {
         if message.topic == topics.commands {
             debug!("Received command message");
 
-            // Batch 25 plan D-14 retained-message rejection (tier-1
-            // fail-fast). An attacker with broker-publish capability
-            // can mark commands `retain=true`; the broker then
-            // replays the retained command to EVERY device on
-            // reconnect, forever, until manually cleared via a
-            // zero-byte publish. This is the MQTT-equivalent of a
-            // classic replay attack.
+            // Batch 25+31 plan D-14 retained-message rejection
+            // (tier-1 fail-fast). Batch 25 added the inline
+            // boolean check; Batch 31 routes it through the
+            // canonical `runtime_safety::retained_msg::
+            // is_retained_command_rejected` predicate so the
+            // rejection decision + reason is a single typed
+            // value. Sprint 6.2 audit-sink wire will consume
+            // `RetainedMsgRejectionReason` as the structured
+            // audit event payload.
             //
-            // Reject BEFORE `serde_json::from_slice` — fail-fast
-            // denies the attacker the ability to burn parse CPU
-            // with crafted payloads. The topic-level check here
-            // supplements broker-side ACL (Mosquitto `allow_retained
-            // = false` for command topics) per defense-in-depth.
-            //
-            // NO audit event yet — the audit sink is pre-staged
-            // (Batch 6 types) but not wired to a runtime backend
-            // (Sprint 6.2). Once wired, retained-command rejection
-            // MUST emit an audit event so operators can detect
-            // attack attempts post-hoc.
-            if message.retain {
+            // Topic-matcher: comparing against `topics.commands`
+            // directly (exact match). Sprint 6.7 may widen to
+            // regex-based tenant-scoped command-topic family.
+            let commands_topic = topics.commands.clone();
+            let rejection = crate::runtime_safety::retained_msg::is_retained_command_rejected(
+                message.retain,
+                &message.topic,
+                |t| t == commands_topic,
+            );
+            if !matches!(
+                rejection,
+                crate::runtime_safety::retained_msg::RetainedMsgRejectionReason::NotRejected
+            ) {
                 warn!(
-                    "Rejecting retained MQTT command message on topic '{}' ({} bytes payload). \
-                     Attacker-controlled broker replay vector; audit when Sprint 6.2 lands.",
+                    "Rejecting retained MQTT command: reason={}, topic='{}', {} bytes payload. \
+                     Attacker-controlled broker replay vector; audit sink wires in Sprint 6.2.",
+                    rejection,
                     message.topic,
                     message.payload.len()
                 );
@@ -433,17 +437,25 @@ impl CommandHandler {
             }
         } else if message.topic == topics.config {
             debug!("Received config update");
-            // Batch 25 plan D-14: retained-message rejection for
-            // config updates. A retained config push would be
-            // re-applied on every device reconnect — attacker
-            // could lock the device to a poisoned config (e.g.,
-            // disable alarms, raise thresholds, redirect MQTT
-            // broker). Reject fail-fast pre-parse, same as
-            // command topic.
-            if message.retain {
+            // Batch 25+31 plan D-14: retained-message rejection
+            // for config updates. Routed through the canonical
+            // `runtime_safety::retained_msg` predicate. Same
+            // replay-attack vector as command topic — retained
+            // config would re-apply on every reconnect.
+            let config_topic = topics.config.clone();
+            let rejection = crate::runtime_safety::retained_msg::is_retained_command_rejected(
+                message.retain,
+                &message.topic,
+                |t| t == config_topic,
+            );
+            if !matches!(
+                rejection,
+                crate::runtime_safety::retained_msg::RetainedMsgRejectionReason::NotRejected
+            ) {
                 warn!(
-                    "Rejecting retained MQTT config-update message on topic '{}' ({} bytes). \
+                    "Rejecting retained MQTT config-update: reason={}, topic='{}', {} bytes. \
                      Broker-replay poisoning vector.",
+                    rejection,
                     message.topic,
                     message.payload.len()
                 );

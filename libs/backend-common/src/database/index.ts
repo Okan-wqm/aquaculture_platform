@@ -23,10 +23,21 @@ export * from './tenant-schema.utils';
 // Migration Logger (structured logging for TypeORM migrations outside DI)
 export { MigrationLogger } from './migration-logger';
 
-// Migration helpers (pinSearchPath, dropPartialTables) — shared by
-// migration authors so search_path boilerplate + partial-state cleanup
-// live in one place. See base-migration.ts for rationale.
-export { pinSearchPath, dropPartialTables } from './base-migration';
+// Migration helpers (pinSearchPath, dropPartialTables,
+// parseAlterColumnTypeTargets, dropDependentPartialIndexes) — shared by
+// migration authors so search_path boilerplate, partial-state cleanup,
+// and ALTER-COLUMN-TYPE dependency resolution live in one place.
+// See base-migration.ts for rationale.
+export {
+  pinSearchPath,
+  dropPartialTables,
+  parseAlterColumnTypeTargets,
+  dropDependentPartialIndexes,
+} from './base-migration';
+export type {
+  AlterColumnTypeTarget,
+  BlockingPartialIndex,
+} from './base-migration';
 
 // TENANT_AWARE_SCHEMAS — SSoT for schema-per-tenant services. Imported
 // by migration-runner.service.ts (boot-time fan-out), aqua-db-migrate

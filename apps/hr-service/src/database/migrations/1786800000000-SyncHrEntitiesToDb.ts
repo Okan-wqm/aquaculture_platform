@@ -1,5 +1,9 @@
 import { Logger } from '@nestjs/common';
 import { MigrationInterface, QueryRunner } from 'typeorm';
+import {
+  dropDependentPartialIndexes,
+  parseAlterColumnTypeTargets,
+} from '@aquaculture/backend-common';
 
 /**
  * SyncHrEntitiesToDb
@@ -373,84 +377,76 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
       return;
     }
 
-    // 7. Apply validator-relevant hr-scoped queries to source hr schema
-    //    with SAVEPOINT-per-statement isolation.
+    // 7. Pre-flight: DROP partial indexes whose WHERE predicate would
+    //    block any `ALTER COLUMN TYPE` statement in `relevantQueries`.
     //
-    //    Why SAVEPOINT: PG aborts the entire enclosing transaction on
-    //    the first failed DDL statement, marking the connection as
-    //    "current transaction is aborted, commands ignored until end
-    //    of transaction block". Without per-statement SAVEPOINT, one
-    //    failure aborts the remaining ~490 statements and the migration
-    //    makes zero net progress on the boot signal.
-    //
-    //    Why per-statement isolation is safe under the validator contract:
-    //
-    //    SchemaDriftValidator (libs/backend-common/src/database/
-    //    schema-drift-validator.service.ts:120-216) checks four things:
-    //      a) entity-declared column exists in DB
-    //      b) uuid columns have uuid type in DB
-    //      c) NOT NULL declared = DB nullability
-    //      d) entity declares schema= matches DB physical schema
-    //
-    //    A skipped statement only fails the boot signal if it leaves
-    //    one of these four checks broken. Concretely:
-    //      - Failed ADD COLUMN IF NOT EXISTS: rare (idempotent form);
-    //        if it does fail, validator flags the missing column —
-    //        deploy gate catches it on next boot, operator sees the
-    //        statement-level failure log line.
-    //      - Failed ALTER COLUMN TYPE for enum-to-enum: leaves OLD enum
-    //        in place. Validator type-check (lines 198-216) only flags
-    //        `entityType === 'uuid' && dbColumn.data_type !== 'uuid'`
-    //        — it does NOT compare entity enum types to DB enum types.
-    //        Skipped enum cast is invisible to the validator → boot
-    //        signal still passes.
-    //      - Failed ALTER COLUMN SET NOT NULL: leaves DB nullable.
-    //        Validator flags as drift only if entity declares !nullable
-    //        AND DB allows NULL. Caught on next boot, log shows skip.
-    //
-    //    Concrete failure mode this fix handles (deploy 7, 2026-04-20 18:11):
+    //    Concrete failure mode this fix solves (deploy 7, 2026-04-20 18:11):
     //
     //      ALTER TABLE hr.employee_certifications ALTER COLUMN status
     //      TYPE hr.employee_certifications_status_enum USING …
     //      → "operator does not exist:
     //         employee_certifications_status_enum = certification_status"
     //
-    //    Caused by partial index `IDX_emp_cert_expiry` with WHERE clause
+    //    Root cause: partial index `IDX_emp_cert_expiry` declared
     //    `WHERE (status = 'active'::hr.certification_status)`. PG re-
-    //    validates the WHERE expression during ALTER COLUMN TYPE; the
-    //    new enum cannot be compared to the old enum literal in the
-    //    index predicate. The DROP CONSTRAINT/INDEX needed to unblock
-    //    isn't emitted by log() (the index pre-exists this entity-set,
-    //    so log() has no record of it). With SAVEPOINT, this single
-    //    statement is rolled back, OLD enum stays, all other 490
-    //    statements proceed.
-    let appliedCount = 0;
-    let failedCount = 0;
-    const failedSamples: string[] = [];
+    //    validates the WHERE expression against the NEW enum during
+    //    ALTER COLUMN TYPE; the new-enum = old-enum equality operator
+    //    does not exist, so the ALTER aborts. `RdbmsSchemaBuilder.log()`
+    //    cannot emit a preceding DROP INDEX because the index is a
+    //    legacy artefact not declared by the current entity model.
+    //
+    //    `dropDependentPartialIndexes` closes the gap deterministically:
+    //    parse every `ALTER COLUMN TYPE` target the migration will run,
+    //    query pg_indexes for partial indexes whose predicate references
+    //    the target column, DROP each one explicitly. After the migration
+    //    body runs, any index the entity model currently declares is
+    //    re-created by TypeORM's own CREATE INDEX emissions. Legacy
+    //    indexes the entity does not declare stay dropped — correct
+    //    end-state under the entity-first schema contract (ADR-012).
+    //
+    //    This replaces the SAVEPOINT-per-statement band-aid introduced
+    //    in 5df00179. That band-aid shifted the failure from db-migrate
+    //    to the SchemaDriftValidator boot signal (new enum never applied,
+    //    drift persisted, `Schema drift scan clean` never emitted, deploy
+    //    rolled back after 7.5 min). With pre-flight DROP the ALTER runs
+    //    deterministically and the apply loop no longer needs to tolerate
+    //    skipped statements.
+    const alterTypeTargets = parseAlterColumnTypeTargets(
+      relevantQueries.map((q) => q.query),
+    );
+    if (alterTypeTargets.length > 0) {
+      const droppedIndexes = await dropDependentPartialIndexes(
+        queryRunner,
+        alterTypeTargets,
+      );
+      this.logger.log(
+        `Source hr schema: pre-flight DROP of ${droppedIndexes.length} ` +
+          `dependent partial index(es) on ${alterTypeTargets.length} ALTER-COLUMN-TYPE target(s). ` +
+          (droppedIndexes.length > 0
+            ? `Dropped: ${droppedIndexes
+                .map(
+                  (d) =>
+                    `${d.schema}.${d.indexName} (blocking ${d.table}.${d.column})`,
+                )
+                .join(', ')}.`
+            : 'No blocking partial indexes present.'),
+      );
+    }
+
+    // 8. Apply validator-relevant hr-scoped queries to source hr schema.
+    //
+    //    Deterministic now — with blocking partial indexes DROPped in
+    //    step 7 there is no expected failure surface. Any exception that
+    //    escapes this loop propagates to the orchestrator and rolls back
+    //    the enclosing migration transaction (which is what we want: a
+    //    real failure should be visible in the deploy log, not silently
+    //    swallowed by a SAVEPOINT rollback).
     for (const q of relevantQueries) {
       this.logger.debug(`[hr] ${q.query.slice(0, 120).replace(/\s+/g, ' ')}`);
-      await queryRunner.query('SAVEPOINT stmt_savepoint');
-      try {
-        await queryRunner.query(q.query, q.parameters as unknown[] | undefined);
-        await queryRunner.query('RELEASE SAVEPOINT stmt_savepoint');
-        appliedCount++;
-      } catch (err) {
-        await queryRunner.query('ROLLBACK TO SAVEPOINT stmt_savepoint');
-        await queryRunner.query('RELEASE SAVEPOINT stmt_savepoint');
-        failedCount++;
-        const msg = err instanceof Error ? err.message : String(err);
-        if (failedSamples.length < 5) {
-          failedSamples.push(
-            `[${q.query.slice(0, 80).replace(/\s+/g, ' ')}] -> ${msg.slice(0, 150)}`,
-          );
-        }
-      }
+      await queryRunner.query(q.query, q.parameters as unknown[] | undefined);
     }
     this.logger.log(
-      `Source hr schema: applied=${appliedCount}, failed=${failedCount} (failed statements rolled back via SAVEPOINT, migration continues). ` +
-        (failedCount > 0
-          ? `First ${failedSamples.length} failures: ${failedSamples.join(' | ')}`
-          : 'Zero failures.'),
+      `Source hr schema: applied ${relevantQueries.length} validator-relevant catch-up queries.`,
     );
 
     // 8. Propagate to every existing tenant clone.
@@ -501,34 +497,47 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
         continue;
       }
 
-      let tenantApplied = 0;
-      let tenantFailed = 0;
-      for (const q of relevantQueries) {
-        // Rewrite schema-qualified identifiers from hr -> tenant.
-        // The regex is anchored on the quoted form TypeORM always emits
-        // (`"hr".`) so we don't accidentally rewrite occurrences of
-        // the substring `hr` inside column names or comments.
-        const rewrittenQuery = q.query.replace(/"hr"\./g, `"${tenantSchema}".`);
-        // Same SAVEPOINT-per-statement isolation as source apply.
-        // Without this the bare try/catch is useless: PG marks the
-        // transaction as aborted after the first failure and every
-        // subsequent statement fails with "current transaction is
-        // aborted, commands ignored until end of transaction block".
-        // SAVEPOINT lets each statement be atomically applied or
-        // rolled back within the parent transaction.
-        await queryRunner.query('SAVEPOINT tenant_stmt_savepoint');
-        try {
-          await queryRunner.query(rewrittenQuery, q.parameters as unknown[] | undefined);
-          await queryRunner.query('RELEASE SAVEPOINT tenant_stmt_savepoint');
-          tenantApplied++;
-        } catch (err) {
-          await queryRunner.query('ROLLBACK TO SAVEPOINT tenant_stmt_savepoint');
-          await queryRunner.query('RELEASE SAVEPOINT tenant_stmt_savepoint');
-          tenantFailed++;
-        }
+      // Rewrite `"hr".` → `"${tenantSchema}".` once per query so the
+      // pre-flight DROP and the apply loop see the same schema-rebased
+      // text. The regex is anchored on the quoted form TypeORM always
+      // emits so we don't accidentally rewrite occurrences of the
+      // substring `hr` inside column names or comments.
+      const tenantQueries = relevantQueries.map((q) => ({
+        query: q.query.replace(/"hr"\./g, `"${tenantSchema}".`),
+        parameters: q.parameters,
+      }));
+
+      // Pre-flight DROP against the tenant schema — tenant clones
+      // inherited the legacy partial indexes when the hr source schema
+      // was propagated at tenant onboarding, so each clone needs the
+      // same dependency resolution.
+      const tenantAlterTargets = parseAlterColumnTypeTargets(
+        tenantQueries.map((q) => q.query),
+      );
+      if (tenantAlterTargets.length > 0) {
+        const droppedTenantIndexes = await dropDependentPartialIndexes(
+          queryRunner,
+          tenantAlterTargets,
+        );
+        this.logger.log(
+          `[${tenantSchema}] pre-flight DROP of ${droppedTenantIndexes.length} ` +
+            `dependent partial index(es) on ${tenantAlterTargets.length} ALTER-COLUMN-TYPE target(s). ` +
+            (droppedTenantIndexes.length > 0
+              ? `Dropped: ${droppedTenantIndexes
+                  .map((d) => `${d.indexName} (blocking ${d.table}.${d.column})`)
+                  .join(', ')}.`
+              : 'No blocking partial indexes present.'),
+        );
+      }
+
+      // Deterministic apply — pre-flight resolved every known blocker.
+      // Any exception here surfaces to the orchestrator and rolls back
+      // the migration transaction. No silent SAVEPOINT swallowing.
+      for (const q of tenantQueries) {
+        await queryRunner.query(q.query, q.parameters as unknown[] | undefined);
       }
       this.logger.log(
-        `[${tenantSchema}] applied ${tenantApplied}/${relevantQueries.length} validator-relevant catch-up queries (failed=${tenantFailed} rolled back via SAVEPOINT).`,
+        `[${tenantSchema}] applied ${tenantQueries.length} validator-relevant catch-up queries.`,
       );
     }
   }

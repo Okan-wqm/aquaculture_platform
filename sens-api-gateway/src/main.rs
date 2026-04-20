@@ -46,7 +46,13 @@ mod atlas_ezo;
 mod io_poll;
 mod security; // v1.2.2: Security hardening utilities
 mod st_validator; // v2.2: IEC 61131-3 Structured Text parser and validator
-mod safe_state; // LIFE-SAFETY: actuator safe-state on shutdown
+mod safe_state; // LIFE-SAFETY: actuator safe-state on shutdown (v1 schema)
+// Batch 3 — ADR-024 §3 §4 FailSafe enum + OutputTag v2 + DiversityClass +
+// HardwiredSafetyOverride + ProcessAware dependencies. Pure types, zero runtime
+// behavior in this batch; v1 SafeStateManager remains the runtime owner.
+// Faz 2 Sprint 7.2 migrates consumers to v2.
+#[allow(dead_code)] // Faz 2 wires consumers; v2 types pre-staged for reference stability.
+mod safe_state_v2;
 mod shutdown;
 mod spi;
 mod telemetry; // v1.2.4: SPI support for high-speed peripherals

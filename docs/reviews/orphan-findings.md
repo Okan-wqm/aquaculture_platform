@@ -212,6 +212,99 @@ if let Err(e) = mqtt.publish_raw(&topic, &payload).await {  // &&String
 
 ---
 
+## ORPHAN-008 — Modbus write path routes ALL writes to the FIRST configured device regardless of per-tag mapping
+
+**Severity:** MEDIUM (multi-PLC deployment correctness)
+**Discovered:** 2026-04-20, Batch 3 audit (edge-expert while reading main.rs for safe_state_v2 wiring context)
+**File:** `sens-api-gateway/src/main.rs:1190-1208`
+
+**Evidence:**
+```rust
+ProtocolConfig::Modbus { register, .. } => {
+    if let Some(ref handle) = s.modbus_handle {
+        if let Some(device) = s.config.modbus.first() {  // <-- ALWAYS first
+            if matches!(config.io_type, crate::process_image::IoType::DO) {
+                handle.write_coil(&device.name, *register, cmd.value != 0.0).await
+                    .map_err(|e| format!("Modbus coil: {}", e))
+            } else {
+                let raw_value = reverse_scale(cmd.value, &config);
+                handle.write_register(&device.name, *register, raw_value as u16).await
+                    .map_err(|e| format!("Modbus register: {}", e))
+            }
+        } else {
+            Err("No Modbus devices".to_string())
+        }
+    } else {
+        Err("Modbus unavailable".to_string())
+    }
+}
+```
+
+**Problem:** `s.config.modbus.first()` unconditionally picks the first-declared Modbus device regardless of which tag is being written. In multi-PLC deployments (2+ PLCs sharing an edge — e.g. primary PLC for aeration + secondary PLC for chemistry dosing), every write addressed at a tag owned by PLC #2 is silently routed to PLC #1. The only hint that the routing is wrong is "register X doesn't exist on this device" from the upstream PLC — and for overlapping register ranges, the wrong PLC accepts the write and the wrong actuator fires.
+
+**Risk:**
+- Life-safety routing error: aerator write-command routes to chemistry PLC → wrong actuator fires during recovery.
+- Cross-class actuator collision (ADR-024 §2 class-binding defense bypassed downstream — the signed class binding cannot protect a write that reaches the WRONG device).
+- Audit trail mis-attribution: audit log records the command as delivered to tag X, but the actuator that fires is on a different PLC.
+- SL-2 FR3 (System Integrity) degraded under multi-PLC topologies.
+
+**Reproducibility:**
+1. `config.yaml` with two `modbus:` device blocks (`plc_primary`, `plc_secondary`)
+2. TagConfig with `ProtocolConfig::Modbus { register: 100 }` where the tag's documented owner is `plc_secondary`
+3. Issue `cmd_write` targeting that tag
+4. Expect write delivered to `plc_secondary`; observe write delivered to `plc_primary`.
+
+**Recommendation:**
+- Add explicit `device_name: String` field to `ProtocolConfig::Modbus` (OR resolve via the signed `ActuatorClassBindingEntry` when ADR-024 §2 lands).
+- Dispatch lookup: `s.config.modbus.iter().find(|d| d.name == target_device_name)`.
+- No-match → hard error, not silent fallback to `.first()`.
+- Root-cause fix; not a clippy lint fix.
+
+**Status:** OPEN → Faz 1 ARC-008 commands.rs split + ADR-024 §2 signed-binding-driven dispatcher (Faz 2 Sprint 6.2) jointly resolve.
+
+---
+
+## ORPHAN-009 — `reverse_scale(...) as u16` silent truncation on Modbus analog write
+
+**Severity:** LOW (out-of-band numeric truncation)
+**Discovered:** 2026-04-20, Batch 3 audit (edge-expert same read path as ORPHAN-008)
+**File:** `sens-api-gateway/src/main.rs:1199-1201`
+
+**Evidence:**
+```rust
+let raw_value = reverse_scale(cmd.value, &config);
+handle.write_register(&device.name, *register, raw_value as u16).await
+```
+
+**Problem:** `reverse_scale` returns `f32` (or at minimum a wider numeric type than `u16`). Casting to `u16` with `as` performs saturating-on-integer / wrapping-on-float truncation in Rust:
+- `f32::NAN as u16` → 0 (silent NaN → zero)
+- `f32::INFINITY as u16` → `u16::MAX`
+- Negative f32 → 0
+- `100_000.0_f32 as u16` → `u16::MAX` (saturating per Rust 1.45+)
+
+Each case silently writes an out-of-range value to the PLC register — the operator-commanded value may wind up zero or at max duty with no operator-visible indication.
+
+**Risk:**
+- PWM duty 0 when operator commanded 25 → pump stops when commanded to slow.
+- PWM duty `u16::MAX` when operator commanded above-range → pump runs at full when commanded above spec.
+- Audit log captures the float input but the PLC receives a different number — investigation ambiguity.
+- ADR-024 §3 `BoundedRange` / `FailSafe::BoundedRange` contract bypass (the bound is enforced ON the type in-memory but erased at the boundary).
+
+**Reproducibility:**
+1. TagConfig with `scale: { min: 0.0, max: 100.0 }`
+2. Command with value `150.0` (out of range)
+3. Expect: reject with range error
+4. Observe: silent cast `150.0_f32 as u16 = 150`; wrong domain meaning (150/scale ≠ 150 engineering units)
+
+**Recommendation:**
+- Replace `raw_value as u16` with `u16::try_from(raw_value.round() as i32)` guarded by `match`; out-of-range → `Err(ModbusWriteError::ValueOutOfRegisterRange)`.
+- Reject non-finite inputs (`.is_finite()`) before rounding; NaN/±∞ → error, not zero.
+- Paired with ORPHAN-008: Modbus write handler becomes a validated transition, not an `as`-cast.
+
+**Status:** OPEN → Faz 1 ARC-008 commands.rs split delivers validated Modbus write handler.
+
+---
+
 ## Notes on methodology
 
 - Findings discovered during normal code review; NOT dedicated orphan-bug sweep.

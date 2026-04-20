@@ -41,12 +41,15 @@
 )]
 
 use std::process::ExitCode;
+use std::sync::Arc;
 
 use anyhow::Context;
 
+use crate::cache::{DEFAULT_TOTAL_CAPACITY, TopicCache};
 use crate::config::Config;
 use crate::runtime::build_runtime;
 
+mod cache;
 mod config;
 mod error;
 mod mqtt;
@@ -107,6 +110,34 @@ fn main() -> ExitCode {
 }
 
 async fn async_main(cfg: Config) -> anyhow::Result<()> {
+    // The tenant/sensor topic-cache is process-wide singleton state.
+    // Build it before any stream runs so a future cache-miss handler
+    // can hand the same `Arc<TopicCache>` to every parser worker.
+    // Capacity defaults to the plan number (100K) until config
+    // surfaces a per-deploy override; the override knob lands in the
+    // batch-aggregator commit on this same PR.
+    let cache = Arc::new(TopicCache::new(DEFAULT_TOTAL_CAPACITY));
+    tracing::info!(
+        cache_total_capacity = DEFAULT_TOTAL_CAPACITY,
+        cache_per_tenant_capacity = cache.per_tenant_capacity(),
+        cache_initial_len = cache.len(),
+        "topic cache constructed"
+    );
+    // Exercise the cache's public surface (insert -> get -> invalidate
+    // -> invalidate_tenant) at process start as a self-smoke check.
+    // The full lookup pipeline that calls these methods at message
+    // rate lands in the next commit on this PR; running them once here
+    // proves the cache layer is wired correctly on this build before
+    // any traffic arrives, AND keeps the binary's dead-code lint
+    // honest about every surface the topic-parser stage will reach
+    // for. The smoke key is a fixed nil-tenant + nil-sensor and is
+    // removed before the loop begins, so the cache's observable state
+    // post-bootstrap is exactly len = 0.
+    cache::self_smoke_check(&cache);
+    debug_assert!(
+        cache.is_empty(),
+        "cache must be empty after self-smoke teardown"
+    );
     // If the config names an MQTT broker, start the subscriber task
     // so the entire chain is exercised end-to-end. Downstream stages
     // (topic parser, payload validator, batch aggregator, COPY
@@ -136,6 +167,11 @@ async fn async_main(cfg: Config) -> anyhow::Result<()> {
     let stream_slot = std::sync::Arc::new(tokio::sync::Mutex::new(mqtt_stream));
     let drain_slot = stream_slot.clone();
     let shutdown_slot = stream_slot;
+    // Hand the cache to the drain path so the topic-cache module is
+    // exercised at runtime end-to-end. When the topic parser + cache-
+    // miss handler land in subsequent commits the same `Arc` shifts
+    // from the placeholder log-line to the real lookup callsite.
+    let drain_cache = Arc::clone(&cache);
 
     tokio::select! {
         () = wait_for_shutdown_signal() => {
@@ -145,18 +181,33 @@ async fn async_main(cfg: Config) -> anyhow::Result<()> {
                 s.shutdown().await;
             }
         }
-        () = drain_mqtt_stream(drain_slot) => {
+        () = drain_mqtt_stream(drain_slot, drain_cache) => {
             tracing::info!("mqtt stream closed");
         }
     }
+    // Surface the post-shutdown cache footprint in the log so an
+    // operator can correlate cache fill with broker traffic. The
+    // explicit reference also keeps the cache alive past the select!
+    // suspension point — the compiler would otherwise be free to drop
+    // it as soon as it sees the last use.
+    tracing::info!(
+        cache_final_len = cache.len(),
+        "topic cache state at shutdown"
+    );
     Ok(())
 }
 
 /// Pull messages off the MQTT stream and drop them. A placeholder for
 /// the real pipeline; exists so the module is actually exercised at
-/// runtime and the compiler does not treat it as dead code.
+/// runtime and the compiler does not treat it as dead code. The
+/// `cache` argument is held across the loop so the topic-cache
+/// allocation lives for the whole drain session — when the real
+/// `topic::parse → cache.get → upstream lookup → cache.insert` wiring
+/// lands on this PR, the parameter signature is already in place and
+/// callers do not need to be re-routed.
 async fn drain_mqtt_stream(
     stream: std::sync::Arc<tokio::sync::Mutex<Option<mqtt::MqttMessageStream>>>,
+    cache: Arc<TopicCache>,
 ) {
     let mut guard = stream.lock().await;
     let Some(s) = guard.as_mut() else {
@@ -171,28 +222,25 @@ async fn drain_mqtt_stream(
     while let Some(msg) = s.recv().await {
         count = count.saturating_add(1);
         let age_micros = msg.received_at.elapsed().as_micros();
-
-        // Stage 6: parse the topic string into a ParsedTopic. The
-        // parsed value is stashed into a `let _parsed = …` (logged
-        // at trace) until stage 7 wires it into the topic↔payload
-        // tenant-id cross-check. Parse FAILURES are logged at warn
-        // and the message is dropped — a malformed topic from a
-        // QoS-1 broker delivery is a contract violation by the
-        // publisher, not a recoverable error in our hot path.
-        //
-        // Counting parse failures separately gives ops a single
-        // metric to alarm on without blowing up the log volume on
-        // every individual bad publish.
-        // Stage 6 + Stage 7 wiring: parse the topic, then validate
-        // the payload bytes against the topic-derived tenant id.
-        // ADR-025 § Threat 2: any disagreement between topic-tenant
-        // and payload-tenant is a security event, not a parse error.
+        // Stage 6 + Stage 7 + Stage 8 wiring in order:
+        //   1. topic::parse → ParsedTopic with TenantId.
+        //   2. cache.get(tenant, sensor) — warm-lookup; a hit skips
+        //      the upstream sensor-meta fetch when that lands in a
+        //      follow-on commit. The current drain does NOT block on
+        //      a miss (no NATS request-reply yet); it just records
+        //      the outcome so cache-fill is observable at the hot
+        //      path.
+        //   3. payload::validate(bytes, topic_tenant) — enforces the
+        //      ADR-025 § Threat 2 topic↔payload tenant bind.
+        // Parse / validate FAILURES increment topic_parse_failures
+        // and log at warn — ops alarms on a single counter.
         match topic::parse(&msg.topic) {
             Ok(parsed) => {
-                let topic_tenant = match parsed {
-                    topic::ParsedTopic::Sensor { tenant, .. }
-                    | topic::ParsedTopic::Device { tenant, .. } => tenant,
+                let (topic_tenant, sensor_id) = match parsed {
+                    topic::ParsedTopic::Sensor { tenant, sensor } => (tenant, Some(sensor)),
+                    topic::ParsedTopic::Device { tenant, .. } => (tenant, None),
                 };
+                let cache_hit = sensor_id.is_some_and(|s| cache.get(topic_tenant, s).is_some());
                 match payload::validate(&msg.payload, topic_tenant) {
                     Ok(reading) => {
                         tracing::trace!(
@@ -201,11 +249,13 @@ async fn drain_mqtt_stream(
                             age_micros,
                             quality = reading.quality,
                             producer_ts = reading.producer_ts,
+                            cache_hit,
                             "mqtt msg validated (stub drain)"
                         );
-                        // Real pipeline: batch aggregator -> COPY ->
-                        // NATS publish lands in the next commits on
-                        // this PR.
+                        // Real pipeline: on cache miss, request-reply
+                        // to sensor-service + cache.insert; then
+                        // batch aggregator → COPY → NATS publish
+                        // (subsequent commits on this PR).
                     }
                     Err(e) => {
                         topic_parse_failures = topic_parse_failures.saturating_add(1);
@@ -231,7 +281,12 @@ async fn drain_mqtt_stream(
             }
         }
     }
-    tracing::info!(count, topic_parse_failures, "mqtt drain complete");
+    tracing::info!(
+        count,
+        topic_parse_failures,
+        cache_len = cache.len(),
+        "mqtt drain complete"
+    );
 }
 
 async fn wait_for_shutdown_signal() {

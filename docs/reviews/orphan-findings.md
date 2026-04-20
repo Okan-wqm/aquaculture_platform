@@ -380,6 +380,65 @@ pub struct TagId(pub String);
 
 ---
 
+## 2026-04-20 ORPHAN-012 — `tools/gates/tsconfig.json` `ignoreDeprecations: "6.0"` rejected by TS 5.9.3 (all pre-commit gates fail)
+
+**Evidence:**
+- `tools/gates/tsconfig.json:12` — `"ignoreDeprecations": "6.0"`
+- `/var/aqua-saas/node_modules/typescript/package.json` — version 5.9.3
+- TS 5.9.3 compiler source (`_tsc.js:124516`): `if (ignoreDeprecations === "5.0")` — the ONLY value the compiler accepts at that version; anything else yields `TS5103: Invalid value for '--ignoreDeprecations'`.
+- Commit `033abbac` (2026-04-19) added the `"6.0"` line with the stated intent of silencing the `moduleResolution="Node"` deprecation. `"6.0"` means "ignore options deprecated as of TS 6.0" — but TS 5.9 does not know about future-version deprecations; only `"5.0"` is a legal past-version.
+- Reproduction from this worktree: `NODE_OPTIONS= npx --no ts-node --project tools/gates/tsconfig.json tools/gates/banned-phrase.ts --mode=staged` → `TS5103: Invalid value`. Same path is invoked by `.husky/pre-commit` for every commit.
+
+**Problem:** All three pre-commit gates (`banned-phrase.ts`, `migration-sql-lint.ts`, `tier-claim-lint.ts`) crash before any staged-file scan runs, so every commit is blocked end-to-end. Stage 5/6/7 commits on `agentic-rust-faz2-sensor-ingestion` presumably landed because a transient npx cache was populated with TypeScript 6.0.3 (confirmed present at `~/.npm/_npx/1bf7c3c15bf47d04/node_modules/typescript/package.json:6.0.3` before this session cleared it). A 6.0 compiler accepts the `"6.0"` value; a 5.9 compiler does not. The hook's green/red behaviour therefore depends on which TS version npx happens to resolve — not on the code being committed. That is environment drift, not a discipline gate.
+
+**Risk:**
+- Tier-1 "make it impossible" violation — commits succeed or fail based on ambient npx state rather than staged content.
+- Future developer onboarding: a fresh clone + default `npx ts-node` pulls the 5.x workspace binary, every `git commit` fails with a wall of TypeScript 5103 noise, time-to-first-commit is catastrophic.
+- Any CI runner without the 6.0.3 npx cache treats every PR as failing the pre-commit gate locally, misleading reviewers about the actual gate signal.
+
+**Root-cause analysis updated 2026-04-20 (post agent session):**
+
+The first attempted fix (changing `"6.0"` → `"5.0"`) ALSO breaks: in an
+npx environment that resolves a TS 6.x compiler, the inverse error
+fires — `TS5107: Option 'moduleResolution=node10' is deprecated and
+will stop functioning in TypeScript 7.0. Specify '"ignoreDeprecations":
+"6.0"' to silence this error.` Both values are wrong against SOME
+TypeScript version that npx can land on.
+
+The TRUE root cause is therefore NOT the value of `ignoreDeprecations`
+but the LACK of a pinned `ts-node` / `typescript` version for the
+pre-commit gate runner. `npx ts-node` resolves whatever the local npm
+cache happens to expose, which can be either 5.9.x (rejects "6.0") or
+6.0.x (rejects "5.0") depending on cache state. The same single-byte
+character change cannot satisfy both.
+
+The cherry-pick of stage 8 reverted the agent's `"5.0"` value back to
+`"6.0"` because the cherry-pick was integrated in an environment with
+TS 6.0.3 in npx. The orphan finding stays open until a real fix lands.
+
+**Real architectural fix (TBD, not in this commit):**
+- Add `ts-node` + `typescript` as explicit `devDependencies` of the
+  repo root (or of `tools/gates/`) at a single pinned version so
+  `npx ts-node` resolves the pinned binary deterministically.
+- Match `ignoreDeprecations` value to the pinned TS major (`"5.0"` if
+  pinned to 5.x, `"6.0"` if pinned to 6.x).
+- Add a `tools/gates` integration test that `require`s each gate
+  script and asserts it exits without `TS5107`/`TS5103` against the
+  pinned TS version — tier-3 "make it detectable" so any future
+  pin-version drift blows up in CI, not in every developer's commit.
+
+**Follow-on tracking:**
+- Owner: Okan-Wqm.
+- Deadline: 2026-05-15 (out of scope for the Faz 2 PR; tracked here so
+  the next plan-aware session can pick it up).
+- No finding-registry.jsonl entry added (hash-chain coupling + the
+  pre-commit gate that would validate the entry is the very thing
+  that is broken). Promotion to the JSONL registry belongs to the
+  context-manager agent with a stable single-writer context AND a
+  working pre-commit hook chain.
+
+---
+
 ## Notes on methodology
 
 - Findings discovered during normal code review; NOT dedicated orphan-bug sweep.

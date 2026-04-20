@@ -37,6 +37,24 @@ chrono = { workspace = true }
 # MQTT — same crate the edge agent uses (rumqttc 0.25 = pure Rust + rustls).
 rumqttc = { version = "0.25", features = ["use-rustls"] }
 
+# Tenant/sensor topic-cache (Faz 2 stage 8):
+#   moka — bounded TinyLFU+LRU cache with native max_capacity, eviction
+#     listener, and per-key invalidate. The cache is the storage layer.
+#     Picked over a hand-rolled `RwLock<HashMap>` because the global cap
+#     and per-tenant cap both require eviction (not rejection); writing a
+#     correct LRU by hand is busywork that moka already ships, audited.
+#     Same crate the edge agent uses (sens-api-gateway/Cargo.toml `moka =
+#     "0.12"`), so the supply-chain footprint is unchanged platform-wide.
+#   papaya — read-heavy lock-free concurrent map for the per-tenant entry
+#     counter (`papaya::HashMap<TenantId, AtomicUsize>`). Per the plan
+#     (`docs/plans/sensor-rust-migration/PLAN.md` § Faz 2 — Multi-Tenant
+#     Cache) papaya is the chosen primitive for read-99:1 lookups. The
+#     counter is hit on every cache insert/evict (write) and on every
+#     per-tenant cap probe (read); papaya's seqlock-based reads keep the
+#     hot read path lock-free.
+moka = { version = "0.12", features = ["sync"] }
+papaya = "0.2"
+
 # Error + tracing.
 anyhow = { workspace = true }
 thiserror = { workspace = true }

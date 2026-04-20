@@ -9,6 +9,12 @@
 //! v1.2.2 Security:
 //! - Log sanitization to prevent log injection attacks
 
+// Batch 20b ARC-008 god-file split: internal helpers moved to
+// `commands/helpers.rs`. Re-imported here for CommandHandler
+// consumption — all helpers are `pub(super)` so they remain
+// invisible outside the `commands` module tree.
+mod helpers;
+
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -16,7 +22,7 @@ use std::collections::VecDeque;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tokio::sync::{Mutex, RwLock};
 use tracing::{debug, error, info, warn};
 
@@ -33,111 +39,15 @@ use crate::process_image::{TagConfig, TagQuality, IoType, TagSource, ProtocolCon
 use crate::alarms::{AlarmDefinition, AlarmPriority};
 use crate::security::sanitize_for_log;
 
+use self::helpers::RateLimiter;
+#[allow(unused_imports)] // param helpers: not all handlers use every extractor; imported at module scope for uniform call syntax across moved sub-modules (Batches 20c+).
+use self::helpers::{get_bool_param, get_str_param, get_u64_param, require_str_param, require_u64_param};
+
 /// Default delay before system reboot (seconds) - v1.2.6
 const DEFAULT_REBOOT_DELAY_SECS: u64 = 5;
 
 /// Default delay before agent restart (seconds) - v1.2.6
 const DEFAULT_RESTART_DELAY_SECS: u64 = 2;
-
-/// Simple sliding window rate limiter
-struct RateLimiter {
-    /// Timestamps of recent commands
-    timestamps: VecDeque<Instant>,
-    /// Maximum allowed commands in window
-    max_commands: usize,
-    /// Window duration
-    window: Duration,
-}
-
-impl RateLimiter {
-    fn new(max_commands: usize, window: Duration) -> Self {
-        Self {
-            timestamps: VecDeque::with_capacity(max_commands),
-            max_commands,
-            window,
-        }
-    }
-
-    /// Check if a command should be allowed
-    /// Returns true if allowed, false if rate limited
-    fn check(&mut self) -> bool {
-        let now = Instant::now();
-
-        // Remove timestamps outside the window
-        while let Some(&oldest) = self.timestamps.front() {
-            if now.duration_since(oldest) > self.window {
-                self.timestamps.pop_front();
-            } else {
-                break;
-            }
-        }
-
-        // Check if under limit
-        if self.timestamps.len() < self.max_commands {
-            self.timestamps.push_back(now);
-            true
-        } else {
-            false
-        }
-    }
-
-    /// Get current command count in window
-    #[allow(dead_code)]
-    fn current_count(&self) -> usize {
-        self.timestamps.len()
-    }
-}
-
-// ============================================================================
-// Parameter Extraction Helpers
-// ============================================================================
-// These helpers are provided for future command handlers.
-// Currently unused but kept for consistency and future use.
-
-/// Helper to extract a required string parameter from JSON params
-#[allow(dead_code)]
-fn require_str_param<'a>(
-    params: &'a Value,
-    key: &str,
-) -> Result<&'a str, (bool, Value, Option<String>)> {
-    params.get(key).and_then(|v| v.as_str()).ok_or_else(|| {
-        (
-            false,
-            json!(null),
-            Some(format!("Missing required parameter: {}", key)),
-        )
-    })
-}
-
-/// Helper to extract a required u64 parameter from JSON params
-#[allow(dead_code)]
-fn require_u64_param(params: &Value, key: &str) -> Result<u64, (bool, Value, Option<String>)> {
-    params.get(key).and_then(|v| v.as_u64()).ok_or_else(|| {
-        (
-            false,
-            json!(null),
-            Some(format!("Missing required parameter: {}", key)),
-        )
-    })
-}
-
-/// Helper to extract an optional string parameter from JSON params
-#[allow(dead_code)]
-fn get_str_param<'a>(params: &'a Value, key: &str) -> Option<&'a str> {
-    params.get(key).and_then(|v| v.as_str())
-}
-
-/// Helper to extract an optional u64 parameter from JSON params
-#[allow(dead_code)]
-fn get_u64_param(params: &Value, key: &str) -> Option<u64> {
-    params.get(key).and_then(|v| v.as_u64())
-}
-
-/// Helper to extract an optional bool parameter from JSON params
-#[allow(dead_code)]
-fn get_bool_param(params: &Value, key: &str) -> Option<bool> {
-    params.get(key).and_then(|v| v.as_bool())
-}
 
 // ============================================================================
 // IEC 61131-3 Program Definition (v2.1)
@@ -271,8 +181,8 @@ impl CommandHandler {
                 if !self.rate_limiter.check() {
                     warn!(
                         "Command rate limit exceeded ({} commands in {} seconds). Dropping message.",
-                        self.rate_limiter.max_commands,
-                        self.rate_limiter.window.as_secs()
+                        self.rate_limiter.max_commands(),
+                        self.rate_limiter.window().as_secs()
                     );
                     continue;
                 }

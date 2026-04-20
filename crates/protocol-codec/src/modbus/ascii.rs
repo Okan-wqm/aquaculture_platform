@@ -78,7 +78,9 @@ pub fn parse_ascii_frame(input: &[u8]) -> Result<AsciiFrame, ParseError> {
         });
     }
     let Some((&first, rest)) = input.split_first() else {
-        return Err(ParseError::Truncated { needed: ASCII_MIN_FRAME_LEN });
+        return Err(ParseError::Truncated {
+            needed: ASCII_MIN_FRAME_LEN,
+        });
     };
     if first != ASCII_START {
         return Err(ParseError::Malformed("ASCII frame must start with ':'"));
@@ -101,10 +103,10 @@ pub fn parse_ascii_frame(input: &[u8]) -> Result<AsciiFrame, ParseError> {
                 "chunks_exact(2) yielded non-pair slice — should be unreachable",
             ));
         };
-        let high_nibble = hex_digit_value(hi)
-            .ok_or(ParseError::Malformed("non-hex digit in ASCII frame"))?;
-        let low_nibble = hex_digit_value(lo)
-            .ok_or(ParseError::Malformed("non-hex digit in ASCII frame"))?;
+        let high_nibble =
+            hex_digit_value(hi).ok_or(ParseError::Malformed("non-hex digit in ASCII frame"))?;
+        let low_nibble =
+            hex_digit_value(lo).ok_or(ParseError::Malformed("non-hex digit in ASCII frame"))?;
         decoded.push((high_nibble << 4) | low_nibble);
     }
 
@@ -180,8 +182,8 @@ const fn hex_digit_char(nibble: u8) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::{
-        frame_with_lrc, hex_digit_char, hex_digit_value, lrc, parse_ascii_frame, AsciiFrame,
-        ASCII_MIN_FRAME_LEN,
+        ASCII_MIN_FRAME_LEN, AsciiFrame, frame_with_lrc, hex_digit_char, hex_digit_value, lrc,
+        parse_ascii_frame,
     };
     use crate::error::ParseError;
 
@@ -271,7 +273,7 @@ mod tests {
         let wire = b"01030000000AF2\r\n";
         match parse_ascii_frame(wire) {
             Err(ParseError::Malformed(msg)) => {
-                assert!(msg.contains(":"), "{msg}");
+                assert!(msg.contains(':'), "{msg}");
             }
             other => panic!("expected Malformed, got {other:?}"),
         }

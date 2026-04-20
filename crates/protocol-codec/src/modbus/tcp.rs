@@ -109,14 +109,18 @@ pub fn parse_mbap_header(input: &[u8]) -> Result<(MbapHeader, &[u8]), ParseError
     let pdu_length = length - 1;
 
     Ok((
-        MbapHeader { transaction_id, unit_id, pdu_length },
+        MbapHeader {
+            transaction_id,
+            unit_id,
+            pdu_length,
+        },
         rest,
     ))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_mbap_header, MbapHeader, MBAP_HEADER_LEN, MBAP_LENGTH_MAX};
+    use super::{MBAP_HEADER_LEN, MBAP_LENGTH_MAX, MbapHeader, parse_mbap_header};
     use crate::error::ParseError;
 
     fn build_header(txn: u16, length: u16, unit: u8) -> [u8; MBAP_HEADER_LEN] {
@@ -138,7 +142,11 @@ mod tests {
         let (hdr, rest) = parse_mbap_header(&bytes).unwrap();
         assert_eq!(
             hdr,
-            MbapHeader { transaction_id: 0x1234, unit_id: 0xff, pdu_length: 0 }
+            MbapHeader {
+                transaction_id: 0x1234,
+                unit_id: 0xff,
+                pdu_length: 0
+            }
         );
         assert!(rest.is_empty());
     }

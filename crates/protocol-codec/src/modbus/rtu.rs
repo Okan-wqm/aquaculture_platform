@@ -132,9 +132,7 @@ pub struct RtuGoldenSpec {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        crc16_modbus, frame_with_crc, parse_rtu_frame, RtuFrame, RTU_MIN_FRAME_LEN,
-    };
+    use super::{RTU_MIN_FRAME_LEN, RtuFrame, crc16_modbus, frame_with_crc, parse_rtu_frame};
     use crate::error::ParseError;
 
     // --- CRC reference vectors ---------------------------------------
@@ -169,7 +167,10 @@ mod tests {
         let body = [0x01_u8, 0x03, 0x00, 0x00, 0x00, 0x0A];
         let wire = frame_with_crc(&body);
         // Wire order: body || CRC LO || CRC HI = 01 03 00 00 00 0A C5 CD
-        assert_eq!(wire.as_slice(), &[0x01, 0x03, 0x00, 0x00, 0x00, 0x0A, 0xC5, 0xCD]);
+        assert_eq!(
+            wire.as_slice(),
+            &[0x01, 0x03, 0x00, 0x00, 0x00, 0x0A, 0xC5, 0xCD]
+        );
 
         let parsed = parse_rtu_frame(&wire).unwrap();
         assert_eq!(

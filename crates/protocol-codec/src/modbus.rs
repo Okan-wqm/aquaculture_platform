@@ -40,7 +40,7 @@ pub fn is_allowed_function_code(fc: u8) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_allowed_function_code, ALLOWED_FUNCTION_CODES};
+    use super::{ALLOWED_FUNCTION_CODES, is_allowed_function_code};
 
     #[test]
     fn whitelist_size_matches_documented_eight() {
@@ -56,7 +56,10 @@ mod tests {
         // sit outside the whitelist and are how an attacker would
         // pivot to device introspection.
         for fc in [0x07_u8, 0x08, 0x11, 0x14, 0x15, 0x16, 0x17, 0x18, 0x2b] {
-            assert!(!is_allowed_function_code(fc), "FC {fc:#04x} must be rejected");
+            assert!(
+                !is_allowed_function_code(fc),
+                "FC {fc:#04x} must be rejected"
+            );
         }
     }
 

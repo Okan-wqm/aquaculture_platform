@@ -88,11 +88,19 @@ mod tests {
             "frame truncated: needed 5 more byte(s)",
         );
         assert_eq!(
-            ParseError::LengthMismatch { declared: 999, max: 254 }.to_string(),
+            ParseError::LengthMismatch {
+                declared: 999,
+                max: 254
+            }
+            .to_string(),
             "length field 999 out of range (allowed 1..=254)",
         );
         assert_eq!(
-            ParseError::BadChecksum { expected: 0x1234, got: 0x5678 }.to_string(),
+            ParseError::BadChecksum {
+                expected: 0x1234,
+                got: 0x5678
+            }
+            .to_string(),
             "checksum mismatch: expected 0x1234, got 0x5678",
         );
         assert_eq!(

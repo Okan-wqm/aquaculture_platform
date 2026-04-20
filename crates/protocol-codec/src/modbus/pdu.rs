@@ -20,7 +20,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::error::ParseError;
-use crate::modbus::{is_allowed_function_code, ALLOWED_FUNCTION_CODES};
+use crate::modbus::is_allowed_function_code;
 
 /// Function code for Read Holding Registers.
 pub const FC_READ_HOLDING_REGISTERS: u8 = 0x03;
@@ -79,10 +79,7 @@ pub fn decode_read_holding_registers_response(
         return Err(ParseError::Truncated { needed: 3 });
     };
 
-    if byte_count == 0
-        || byte_count % 2 != 0
-        || byte_count > READ_HOLDING_REGISTERS_MAX_BYTES
-    {
+    if byte_count == 0 || byte_count % 2 != 0 || byte_count > READ_HOLDING_REGISTERS_MAX_BYTES {
         return Err(ParseError::LengthMismatch {
             declared: u16::from(byte_count),
             max: u16::from(READ_HOLDING_REGISTERS_MAX_BYTES),
@@ -124,8 +121,8 @@ pub fn is_pdu_function_code_allowed(fc: u8) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        decode_read_holding_registers_response, is_pdu_function_code_allowed,
         FC_READ_HOLDING_REGISTERS, READ_HOLDING_REGISTERS_MAX_BYTES,
+        decode_read_holding_registers_response, is_pdu_function_code_allowed,
     };
     use crate::error::ParseError;
     use crate::modbus::ALLOWED_FUNCTION_CODES;
@@ -244,7 +241,10 @@ mod tests {
     fn allowed_function_codes_roundtrip() {
         // Every whitelist entry passes the convenience predicate.
         for fc in ALLOWED_FUNCTION_CODES {
-            assert!(is_pdu_function_code_allowed(fc), "{fc:#04x} should be allowed");
+            assert!(
+                is_pdu_function_code_allowed(fc),
+                "{fc:#04x} should be allowed"
+            );
         }
     }
 }

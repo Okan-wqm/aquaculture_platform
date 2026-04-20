@@ -1,5 +1,10 @@
 # See http://help.github.com/ignore-files/ for more about ignoring files.
 
+# Cargo build artefacts (workspace + crate-level). Cargo.lock IS committed
+# (binaries land in apps/sensor-ingestion in Faz 2; reproducibility wins).
+target/
+**/target/
+
 # TLS certificates (infrastructure/docker/scripts/generate-internal-certs.sh)
 certs/
 

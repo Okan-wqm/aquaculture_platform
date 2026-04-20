@@ -189,23 +189,38 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
       }
     }
 
-    // 3. Pre-create the typeorm_metadata bookkeeping table.
+    // 3. Pre-create the typeorm_metadata bookkeeping table on a SEPARATE
+    //    auto-commit connection.
     //
-    //    RdbmsSchemaBuilder.log() (called below) eagerly queries
-    //    `<schema>.typeorm_metadata` to read view/check-constraint
-    //    history. TypeORM only auto-creates that table during a real
-    //    synchronize() call (which we never run); calling log() against
-    //    a schema that has never seen synchronize fails with:
+    //    Why a separate connection: RdbmsSchemaBuilder.log() (called
+    //    below) opens its OWN queryRunner from the connection pool, NOT
+    //    the queryRunner this migration body received. The migration's
+    //    queryRunner is mid-transaction (orchestrator wraps each
+    //    migration in BEGIN…COMMIT via MigrationExecutor.transaction='each').
+    //    A CREATE TABLE issued on the in-transaction queryRunner is
+    //    INVISIBLE to log()'s freshly-acquired queryRunner until COMMIT
+    //    — but COMMIT only fires AFTER up() returns. Result: log() sees
+    //    no typeorm_metadata table and crashes with
     //      QueryFailedError: relation "hr.typeorm_metadata" does not exist
     //
-    //    The columns/types match
+    //    Fix: route the CREATE TABLE through `conn.query()` (DataSource.query)
+    //    which acquires a fresh queryRunner from the pool, runs the
+    //    statement OUTSIDE any explicit transaction (PostgreSQL
+    //    auto-commits each DDL statement in implicit-txn mode), then
+    //    releases the connection. The CREATE TABLE is committed before
+    //    we proceed to log().
+    //
+    //    Column shape mirrors
     //    `node_modules/typeorm/schema-builder/RdbmsSchemaBuilder.js:856-940`
-    //    1:1 (the createTypeormMetadataTable() helper that synchronize()
-    //    invokes). We CREATE TABLE IF NOT EXISTS so this is safe to
-    //    re-run on a droplet where a prior synchronize already created
-    //    the table. No data is written here — the table exists empty
-    //    purely to satisfy log()'s metadata read.
-    await queryRunner.query(`
+    //    (TypeORM's own createTypeormMetadataTable() helper that
+    //    synchronize() invokes internally). IF NOT EXISTS keeps it
+    //    idempotent across re-runs.
+    //
+    //    Note on search_path: conn.query()'s fresh queryRunner does NOT
+    //    inherit the orchestrator's pinned `hr` search_path; the SQL
+    //    therefore uses fully-qualified `"hr"."typeorm_metadata"` to
+    //    target the right schema regardless of session search_path.
+    await conn.query(`
       CREATE TABLE IF NOT EXISTS "hr"."typeorm_metadata" (
         "type" varchar NOT NULL,
         "database" varchar,

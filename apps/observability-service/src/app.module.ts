@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD, Reflector } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { LoggingModule, RlsModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common';
+import { LoggingModule, RlsModule, SchemaDriftModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScheduleModule } from '@nestjs/schedule';
 import { PrometheusModule } from './prometheus/prometheus.module';
@@ -58,6 +58,20 @@ import { InternalApiGuard } from './guards/internal-api.guard';
       autoApply: false,
       excludeTables: [],
     }),
+    /**
+     * INFRA-CRITICAL-016: SchemaDriftValidator registration.
+     *
+     * Observability-service has no @Entity() declarations (it consumes
+     * aggregated metrics via raw SQL across tenant schemas, not via
+     * TypeORM entities), so the validator runs against an empty
+     * entityMetadatas list. Even at zero entities the validator emits
+     *   `Schema drift scan clean: checked 0 entities`
+     * — substring `Schema drift scan clean` matches the deploy-gate's
+     * `schema_drift_clean` signal_library entry. Without this
+     * registration, observability cannot satisfy the manifest contract
+     * declared in infrastructure/deploy/required-signals.yaml.
+     */
+    SchemaDriftModule.forRoot({ serviceName: 'observability' }),
   ],
   providers: [
     // WHY: useFactory bypasses reflect-metadata resolution which fails in Docker Alpine.

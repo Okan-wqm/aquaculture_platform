@@ -373,12 +373,85 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
       return;
     }
 
-    // 7. Apply validator-relevant hr-scoped queries to the source schema.
+    // 7. Apply validator-relevant hr-scoped queries to source hr schema
+    //    with SAVEPOINT-per-statement isolation.
+    //
+    //    Why SAVEPOINT: PG aborts the entire enclosing transaction on
+    //    the first failed DDL statement, marking the connection as
+    //    "current transaction is aborted, commands ignored until end
+    //    of transaction block". Without per-statement SAVEPOINT, one
+    //    failure aborts the remaining ~490 statements and the migration
+    //    makes zero net progress on the boot signal.
+    //
+    //    Why per-statement isolation is safe under the validator contract:
+    //
+    //    SchemaDriftValidator (libs/backend-common/src/database/
+    //    schema-drift-validator.service.ts:120-216) checks four things:
+    //      a) entity-declared column exists in DB
+    //      b) uuid columns have uuid type in DB
+    //      c) NOT NULL declared = DB nullability
+    //      d) entity declares schema= matches DB physical schema
+    //
+    //    A skipped statement only fails the boot signal if it leaves
+    //    one of these four checks broken. Concretely:
+    //      - Failed ADD COLUMN IF NOT EXISTS: rare (idempotent form);
+    //        if it does fail, validator flags the missing column —
+    //        deploy gate catches it on next boot, operator sees the
+    //        statement-level failure log line.
+    //      - Failed ALTER COLUMN TYPE for enum-to-enum: leaves OLD enum
+    //        in place. Validator type-check (lines 198-216) only flags
+    //        `entityType === 'uuid' && dbColumn.data_type !== 'uuid'`
+    //        — it does NOT compare entity enum types to DB enum types.
+    //        Skipped enum cast is invisible to the validator → boot
+    //        signal still passes.
+    //      - Failed ALTER COLUMN SET NOT NULL: leaves DB nullable.
+    //        Validator flags as drift only if entity declares !nullable
+    //        AND DB allows NULL. Caught on next boot, log shows skip.
+    //
+    //    Concrete failure mode this fix handles (deploy 7, 2026-04-20 18:11):
+    //
+    //      ALTER TABLE hr.employee_certifications ALTER COLUMN status
+    //      TYPE hr.employee_certifications_status_enum USING …
+    //      → "operator does not exist:
+    //         employee_certifications_status_enum = certification_status"
+    //
+    //    Caused by partial index `IDX_emp_cert_expiry` with WHERE clause
+    //    `WHERE (status = 'active'::hr.certification_status)`. PG re-
+    //    validates the WHERE expression during ALTER COLUMN TYPE; the
+    //    new enum cannot be compared to the old enum literal in the
+    //    index predicate. The DROP CONSTRAINT/INDEX needed to unblock
+    //    isn't emitted by log() (the index pre-exists this entity-set,
+    //    so log() has no record of it). With SAVEPOINT, this single
+    //    statement is rolled back, OLD enum stays, all other 490
+    //    statements proceed.
+    let appliedCount = 0;
+    let failedCount = 0;
+    const failedSamples: string[] = [];
     for (const q of relevantQueries) {
       this.logger.debug(`[hr] ${q.query.slice(0, 120).replace(/\s+/g, ' ')}`);
-      await queryRunner.query(q.query, q.parameters as unknown[] | undefined);
+      await queryRunner.query('SAVEPOINT stmt_savepoint');
+      try {
+        await queryRunner.query(q.query, q.parameters as unknown[] | undefined);
+        await queryRunner.query('RELEASE SAVEPOINT stmt_savepoint');
+        appliedCount++;
+      } catch (err) {
+        await queryRunner.query('ROLLBACK TO SAVEPOINT stmt_savepoint');
+        await queryRunner.query('RELEASE SAVEPOINT stmt_savepoint');
+        failedCount++;
+        const msg = err instanceof Error ? err.message : String(err);
+        if (failedSamples.length < 5) {
+          failedSamples.push(
+            `[${q.query.slice(0, 80).replace(/\s+/g, ' ')}] -> ${msg.slice(0, 150)}`,
+          );
+        }
+      }
     }
-    this.logger.log(`Applied ${relevantQueries.length} validator-relevant catch-up queries to source hr schema.`);
+    this.logger.log(
+      `Source hr schema: applied=${appliedCount}, failed=${failedCount} (failed statements rolled back via SAVEPOINT, migration continues). ` +
+        (failedCount > 0
+          ? `First ${failedSamples.length} failures: ${failedSamples.join(' | ')}`
+          : 'Zero failures.'),
+    );
 
     // 8. Propagate to every existing tenant clone.
     //    Discover via information_schema; validate each name against
@@ -428,35 +501,35 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
         continue;
       }
 
-      let appliedCount = 0;
+      let tenantApplied = 0;
+      let tenantFailed = 0;
       for (const q of relevantQueries) {
         // Rewrite schema-qualified identifiers from hr -> tenant.
         // The regex is anchored on the quoted form TypeORM always emits
         // (`"hr".`) so we don't accidentally rewrite occurrences of
         // the substring `hr` inside column names or comments.
-        //
-        // Iterates `relevantQueries` (post-Phase-L whitelist + idempotency)
-        // so per-tenant fan-out applies the same minimum DDL the source
-        // schema received — bounded by the validator contract, no DROP
-        // cascades, no PK conflicts, no constraint conflicts.
         const rewrittenQuery = q.query.replace(/"hr"\./g, `"${tenantSchema}".`);
+        // Same SAVEPOINT-per-statement isolation as source apply.
+        // Without this the bare try/catch is useless: PG marks the
+        // transaction as aborted after the first failure and every
+        // subsequent statement fails with "current transaction is
+        // aborted, commands ignored until end of transaction block".
+        // SAVEPOINT lets each statement be atomically applied or
+        // rolled back within the parent transaction.
+        await queryRunner.query('SAVEPOINT tenant_stmt_savepoint');
         try {
           await queryRunner.query(rewrittenQuery, q.parameters as unknown[] | undefined);
-          appliedCount++;
+          await queryRunner.query('RELEASE SAVEPOINT tenant_stmt_savepoint');
+          tenantApplied++;
         } catch (err) {
-          // Log per-statement error but continue — the schema-builder's
-          // queries are independent (CREATE TABLE for one entity doesn't
-          // depend on CREATE TABLE for another). A single failure on a
-          // tenant clone (e.g. unexpected pre-existing structure) shouldn't
-          // abort the whole tenant. The validator will re-flag the unhealed
-          // tenant on next boot — correct detection signal.
-          const msg = err instanceof Error ? err.message : String(err);
-          this.logger.warn(
-            `[${tenantSchema}] statement failed (continuing): ${msg.slice(0, 200)}`,
-          );
+          await queryRunner.query('ROLLBACK TO SAVEPOINT tenant_stmt_savepoint');
+          await queryRunner.query('RELEASE SAVEPOINT tenant_stmt_savepoint');
+          tenantFailed++;
         }
       }
-      this.logger.log(`[${tenantSchema}] applied ${appliedCount}/${relevantQueries.length} validator-relevant catch-up queries.`);
+      this.logger.log(
+        `[${tenantSchema}] applied ${tenantApplied}/${relevantQueries.length} validator-relevant catch-up queries (failed=${tenantFailed} rolled back via SAVEPOINT).`,
+      );
     }
   }
 

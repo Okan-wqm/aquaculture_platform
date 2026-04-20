@@ -33,7 +33,13 @@ passthrough = [
 [target.aarch64-unknown-linux-gnu]
 image = "ghcr.io/cross-rs/aarch64-unknown-linux-gnu:0.2.5"
 pre-build = [
-    "apt-get update && apt-get install -y --no-install-recommends perl make cmake pkg-config gnupg ca-certificates wget",
+    # BATCH-001-CI-FIX-013: `apt-transport-https` REQUIRED on Ubuntu 16.04
+    # Xenial to fetch https:// apt repos. Without it, the apt.llvm.org
+    # HTTPS URL silently fails with "method driver /usr/lib/apt/methods/
+    # https could not be found" — the subsequent apt-get install of
+    # clang-14 has no package to find, bindgen gets no libclang, and
+    # aws-lc-sys build fails with "Unable to find libclang".
+    "apt-get update && apt-get install -y --no-install-recommends apt-transport-https perl make cmake pkg-config gnupg ca-certificates wget",
     "wget -qO - https://apt.llvm.org/llvm-snapshot.gpg.key | apt-key add -",
     "echo 'deb http://apt.llvm.org/xenial/ llvm-toolchain-xenial-14 main' > /etc/apt/sources.list.d/llvm14.list",
     "apt-get update && apt-get install -y --no-install-recommends clang-14 libclang-14-dev",
@@ -44,7 +50,13 @@ pre-build = [
 [target.armv7-unknown-linux-gnueabihf]
 image = "ghcr.io/cross-rs/armv7-unknown-linux-gnueabihf:0.2.5"
 pre-build = [
-    "apt-get update && apt-get install -y --no-install-recommends perl make cmake pkg-config gnupg ca-certificates wget",
+    # BATCH-001-CI-FIX-013: `apt-transport-https` REQUIRED on Ubuntu 16.04
+    # Xenial to fetch https:// apt repos. Without it, the apt.llvm.org
+    # HTTPS URL silently fails with "method driver /usr/lib/apt/methods/
+    # https could not be found" — the subsequent apt-get install of
+    # clang-14 has no package to find, bindgen gets no libclang, and
+    # aws-lc-sys build fails with "Unable to find libclang".
+    "apt-get update && apt-get install -y --no-install-recommends apt-transport-https perl make cmake pkg-config gnupg ca-certificates wget",
     "wget -qO - https://apt.llvm.org/llvm-snapshot.gpg.key | apt-key add -",
     "echo 'deb http://apt.llvm.org/xenial/ llvm-toolchain-xenial-14 main' > /etc/apt/sources.list.d/llvm14.list",
     "apt-get update && apt-get install -y --no-install-recommends clang-14 libclang-14-dev",
@@ -57,7 +69,13 @@ pre-build = [
 [target.x86_64-unknown-linux-gnu]
 image = "ghcr.io/cross-rs/x86_64-unknown-linux-gnu:0.2.5"
 pre-build = [
-    "apt-get update && apt-get install -y --no-install-recommends perl make cmake pkg-config gnupg ca-certificates wget",
+    # BATCH-001-CI-FIX-013: `apt-transport-https` REQUIRED on Ubuntu 16.04
+    # Xenial to fetch https:// apt repos. Without it, the apt.llvm.org
+    # HTTPS URL silently fails with "method driver /usr/lib/apt/methods/
+    # https could not be found" — the subsequent apt-get install of
+    # clang-14 has no package to find, bindgen gets no libclang, and
+    # aws-lc-sys build fails with "Unable to find libclang".
+    "apt-get update && apt-get install -y --no-install-recommends apt-transport-https perl make cmake pkg-config gnupg ca-certificates wget",
     "wget -qO - https://apt.llvm.org/llvm-snapshot.gpg.key | apt-key add -",
     "echo 'deb http://apt.llvm.org/xenial/ llvm-toolchain-xenial-14 main' > /etc/apt/sources.list.d/llvm14.list",
     "apt-get update && apt-get install -y --no-install-recommends clang-14 libclang-14-dev",

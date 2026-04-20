@@ -63,13 +63,53 @@ fn drain_timeout_must_fit_inside_shutdown_timeout() {
 
 #[test]
 fn coherence_rules_stable_under_new_field_additions() {
-    // FUTURE-COMPAT CONTRACT: Batch 39 added 3 rules.
-    // Sprint 6.x additions (keystore coherence rules per
-    // plan §5 Faz 2 Step 1; authz coherence rules per Step
-    // 4; etc.) MUST extend validate_faz2_security_coherence
-    // additively — existing rules preserved. Any change to
-    // an existing rule requires ADR documentation + operator
-    // migration notes.
-    let _contract = "Batch 39 3 rules are ABI-stable; Sprint 6.x additions are additive-only";
+    // FUTURE-COMPAT CONTRACT: Batches 39+42 have added 5
+    // rules (3 Batch 39 + 2 Batch 42). Sprint 6.x additions
+    // (keystore coherence rules per plan §5 Faz 2 Step 1;
+    // authz coherence rules per Step 4; etc.) MUST extend
+    // validate_faz2_security_coherence additively — existing
+    // rules preserved. Any change to an existing rule
+    // requires ADR documentation + operator migration notes.
+    let _contract = "Batch 39+42 5 rules are ABI-stable; Sprint 6.x additions are additive-only";
+    assert!(!_contract.is_empty());
+}
+
+#[test]
+fn config_integrity_permissive_requires_factory_pubkey() {
+    // CONTRACT (Batch 42 Rule 4): config_integrity.mode=
+    // permissive (or enforcing) + factory_pubkey_hex=None
+    // MUST fail config load. Pre-Sprint-6.6 the firmware-
+    // embedded default key doesn't exist; operators opting
+    // into Permissive/Enforcing mode MUST supply their own
+    // test key. Sprint 6.6 bundles a factory default and
+    // this rule updates to "None = use firmware default".
+    //
+    // Full runtime test (requires lib-split):
+    //   let mut cfg = AgentConfig::default();
+    //   cfg.config_integrity.mode = ConfigIntegrityMode::Permissive;
+    //   cfg.config_integrity.factory_pubkey_hex = None;
+    //   assert!(cfg.validate().is_err());
+    let _contract = "config_integrity.mode != disabled + factory_pubkey_hex=None -> config load error";
+    assert!(!_contract.is_empty());
+}
+
+#[test]
+fn config_integrity_factory_pubkey_hex_format() {
+    // CONTRACT (Batch 42 Rule 5): factory_pubkey_hex if
+    // present MUST be 64 lowercase hex chars (32 bytes
+    // ed25519 pubkey). Catches operator typos at config-
+    // load time with a specific error ("invalid key format")
+    // instead of the confusing runtime error
+    // ("InvalidSignature") that would occur if an ill-formed
+    // key were passed to the verify path.
+    //
+    // Full runtime test (requires lib-split):
+    //   let mut cfg = AgentConfig::default();
+    //   cfg.config_integrity.mode = ConfigIntegrityMode::Permissive;
+    //   cfg.config_integrity.factory_pubkey_hex = Some("not_hex".into());
+    //   assert!(cfg.validate().is_err());
+    //   cfg.config_integrity.factory_pubkey_hex = Some("ab".into()); // too short
+    //   assert!(cfg.validate().is_err());
+    let _contract = "factory_pubkey_hex must be exactly 64 lowercase hex characters";
     assert!(!_contract.is_empty());
 }

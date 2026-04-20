@@ -3,48 +3,71 @@
 #
 # rusqlite's bundled-sqlcipher-vendored-openssl compiles OpenSSL from source,
 # which needs perl and make in the cross-compilation container.
+#
+# aws-lc-sys 0.40 (BATCH-001-CI-FIX-002) needs cmake + libclang 9+ at build
+# time. cross 0.2.5 images are based on Ubuntu 16.04 Xenial which ships
+# libclang 3.8 — too old for bindgen. We pin LLVM 14 via apt.llvm.org which
+# still maintains xenial packages (BATCH-001-CI-FIX-011). Once cross releases
+# 0.3.0 with Ubuntu 20.04+ images, this LLVM repo install can be removed.
 
 [build.env]
 passthrough = [
     "RUST_BACKTRACE",
     "RUST_LOG",
+    # BATCH-001-CI-FIX-011: aws-lc-sys bindgen library uses libclang at
+    # build time. LIBCLANG_PATH points it at the llvm-14 install below.
+    "LIBCLANG_PATH",
 ]
+
+# Shared pre-build across all 3 cross targets:
+#   1. perl + make: rusqlite bundled-sqlcipher-vendored-openssl builds OpenSSL
+#   2. cmake + pkg-config: aws-lc-sys 0.40 build.rs probes + configures AWS-LC
+#   3. LLVM 14 from apt.llvm.org: bindgen needs libclang >= 9; Xenial's
+#      libclang 3.8 is too old. LLVM 14 is the last version with Xenial
+#      repo support, stable, and widely deployed in prod CI.
+#   4. LIBCLANG_PATH env set so bindgen finds the llvm-14 libclang.
+#
+# The LLVM repo install adds ~60-90s per cold container build. Cached via
+# Docker layer cache for subsequent runs.
 
 # ARM64 (Raspberry Pi 4/5, Revolution Pi Connect 4)
 [target.aarch64-unknown-linux-gnu]
 image = "ghcr.io/cross-rs/aarch64-unknown-linux-gnu:0.2.5"
 pre-build = [
-    # perl + make: rusqlite bundled-sqlcipher-vendored-openssl compiles OpenSSL
-    # cmake + clang + libclang-dev: aws-lc-sys 0.40 builds via cmake + uses
-    #   bindgen to generate FFI bindings when cross-target has no pregenerated
-    #   source. BATCH-001-CI-FIX-010: without these, armv7/aarch64 builds fail
-    #   with "Missing dependency: cmake" and "External bindgen command failed".
-    # pkg-config: aws-lc-sys build.rs probes openssl via pkg-config for linkage.
-    "apt-get update && apt-get install -y perl make cmake clang libclang-dev pkg-config"
+    "apt-get update && apt-get install -y --no-install-recommends perl make cmake pkg-config gnupg ca-certificates wget",
+    "wget -qO - https://apt.llvm.org/llvm-snapshot.gpg.key | apt-key add -",
+    "echo 'deb http://apt.llvm.org/xenial/ llvm-toolchain-xenial-14 main' > /etc/apt/sources.list.d/llvm14.list",
+    "apt-get update && apt-get install -y --no-install-recommends clang-14 libclang-14-dev",
+    "ln -sf /usr/bin/clang-14 /usr/bin/clang",
 ]
+# LIBCLANG_PATH set via cross env.aarch64-specific:
+[target.aarch64-unknown-linux-gnu.env]
+passthrough = ["LIBCLANG_PATH=/usr/lib/llvm-14/lib"]
 
 # ARMv7 (Raspberry Pi 3, older Revolution Pi)
 [target.armv7-unknown-linux-gnueabihf]
 image = "ghcr.io/cross-rs/armv7-unknown-linux-gnueabihf:0.2.5"
 pre-build = [
-    # perl + make: rusqlite bundled-sqlcipher-vendored-openssl compiles OpenSSL
-    # cmake + clang + libclang-dev: aws-lc-sys 0.40 builds via cmake + uses
-    #   bindgen to generate FFI bindings when cross-target has no pregenerated
-    #   source. BATCH-001-CI-FIX-010: without these, armv7/aarch64 builds fail
-    #   with "Missing dependency: cmake" and "External bindgen command failed".
-    # pkg-config: aws-lc-sys build.rs probes openssl via pkg-config for linkage.
-    "apt-get update && apt-get install -y perl make cmake clang libclang-dev pkg-config"
+    "apt-get update && apt-get install -y --no-install-recommends perl make cmake pkg-config gnupg ca-certificates wget",
+    "wget -qO - https://apt.llvm.org/llvm-snapshot.gpg.key | apt-key add -",
+    "echo 'deb http://apt.llvm.org/xenial/ llvm-toolchain-xenial-14 main' > /etc/apt/sources.list.d/llvm14.list",
+    "apt-get update && apt-get install -y --no-install-recommends clang-14 libclang-14-dev",
+    "ln -sf /usr/bin/clang-14 /usr/bin/clang",
 ]
+[target.armv7-unknown-linux-gnueabihf.env]
+passthrough = ["LIBCLANG_PATH=/usr/lib/llvm-14/lib"]
 
-# x86_64 Linux
+# x86_64 Linux — aws-lc-sys ships pregenerated bindings for this target, so
+# libclang is NOT strictly needed. We still install it for consistency +
+# because other transitive deps may use bindgen (e.g. rusqlite feature flags).
 [target.x86_64-unknown-linux-gnu]
 image = "ghcr.io/cross-rs/x86_64-unknown-linux-gnu:0.2.5"
 pre-build = [
-    # perl + make: rusqlite bundled-sqlcipher-vendored-openssl compiles OpenSSL
-    # cmake + clang + libclang-dev: aws-lc-sys 0.40 builds via cmake + uses
-    #   bindgen to generate FFI bindings when cross-target has no pregenerated
-    #   source. BATCH-001-CI-FIX-010: without these, armv7/aarch64 builds fail
-    #   with "Missing dependency: cmake" and "External bindgen command failed".
-    # pkg-config: aws-lc-sys build.rs probes openssl via pkg-config for linkage.
-    "apt-get update && apt-get install -y perl make cmake clang libclang-dev pkg-config"
+    "apt-get update && apt-get install -y --no-install-recommends perl make cmake pkg-config gnupg ca-certificates wget",
+    "wget -qO - https://apt.llvm.org/llvm-snapshot.gpg.key | apt-key add -",
+    "echo 'deb http://apt.llvm.org/xenial/ llvm-toolchain-xenial-14 main' > /etc/apt/sources.list.d/llvm14.list",
+    "apt-get update && apt-get install -y --no-install-recommends clang-14 libclang-14-dev",
+    "ln -sf /usr/bin/clang-14 /usr/bin/clang",
 ]
+[target.x86_64-unknown-linux-gnu.env]
+passthrough = ["LIBCLANG_PATH=/usr/lib/llvm-14/lib"]

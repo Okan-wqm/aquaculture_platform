@@ -2178,7 +2178,73 @@ impl AgentConfig {
             }
         }
 
+        // Batch 39: Faz 2 security-posture coherence checks.
+        // Catches operator typos that produce nonsensical
+        // combinations BEFORE the agent boots with them.
+        // Pre-Batch-39 a config like `mtls.mode: strict` with
+        // `enforce_fingerprint_pinning: false` would load
+        // silently, producing a confusing runtime log where
+        // Strict mode claims fingerprint verification but
+        // silently skips it.
+        self.validate_faz2_security_coherence()?;
+
         debug!("Configuration validation passed");
+        Ok(())
+    }
+
+    /// Faz 2 security-posture coherence checks (Batch 39).
+    ///
+    /// Catches operator typos that produce nonsensical
+    /// combinations. Each rule returns an error string that
+    /// points operators directly at the conflicting fields
+    /// AND the expected relationship — fail-to-boot messages
+    /// are the LAST chance to guide operators before silent
+    /// misbehavior.
+    fn validate_faz2_security_coherence(&self) -> Result<()> {
+        // Rule 1: mtls.mode=strict implies fingerprint pinning
+        // enforced. Strict mode's whole point is "reject TLS
+        // handshake on fingerprint mismatch"; disabling
+        // pinning in Strict mode is self-contradictory.
+        if matches!(self.mtls.mode, crate::mtls::MtlsMode::Strict)
+            && !self.mtls.enforce_fingerprint_pinning
+        {
+            anyhow::bail!(
+                "Config coherence: mtls.mode=strict requires mtls.enforce_fingerprint_pinning=true (Strict mode's primary contract is fingerprint enforcement)"
+            );
+        }
+
+        // Rule 2: max_command_skew_secs should be reasonable
+        // relative to max_command_age_secs. A skew larger than
+        // age would mean the agent accepts future-dated
+        // commands beyond the replay window — logically
+        // unsound (any command in the future-skew envelope
+        // would also be within the age envelope when clocks
+        // re-sync).
+        if self.runtime.max_command_skew_secs > self.runtime.max_command_age_secs {
+            anyhow::bail!(
+                "Config coherence: runtime.max_command_skew_secs ({}) must be <= runtime.max_command_age_secs ({}) — skew larger than age is logically unsound",
+                self.runtime.max_command_skew_secs,
+                self.runtime.max_command_age_secs
+            );
+        }
+
+        // Rule 3: drain_timeout_ms should be reasonable
+        // relative to shutdown_timeout_secs. Drain budget in
+        // milliseconds converting to seconds MUST be less
+        // than the outer shutdown budget — otherwise a drain
+        // that hits its timeout would exhaust the outer budget
+        // leaving no time for safe-state + flush + MQTT
+        // disconnect phases.
+        let drain_as_secs = self.runtime.drain_timeout_ms / 1000;
+        if drain_as_secs >= self.runtime.shutdown_timeout_secs {
+            anyhow::bail!(
+                "Config coherence: runtime.drain_timeout_ms ({}ms = {}s) must be < runtime.shutdown_timeout_secs ({}s) — leaving no time for safe-state + flush phases",
+                self.runtime.drain_timeout_ms,
+                drain_as_secs,
+                self.runtime.shutdown_timeout_secs
+            );
+        }
+
         Ok(())
     }
 

@@ -61,6 +61,12 @@ import { ModuleQuantities, ModuleLineItem } from './billing/entities/subscriptio
         createServiceTypeOrmConfig(configService, {
           serviceName: 'billing',
           schema: 'billing',
+          // INFRA-CRITICAL-021 contract: factory mandates explicit entities
+          // (defense-in-depth against the global-metadata fallback path).
+          // Empty array + autoLoadEntities (factory default) means every
+          // entity registered via TypeOrmModule.forFeature() in any imported
+          // domain module is auto-merged into the connection entity list.
+          entities: [],
           // BillingMigrationRunnerService (provider below) executes pending
           // migrations at OnApplicationBootstrap with search_path pinning
           // + per-migration transaction isolation. Factory default

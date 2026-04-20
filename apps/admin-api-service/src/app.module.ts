@@ -57,6 +57,12 @@ import { UsersModule } from './users/users.module';
         createServiceTypeOrmConfig(configService, {
           serviceName: 'admin-api',
           schema: 'admin',
+          // INFRA-CRITICAL-021 contract: factory mandates explicit entities
+          // (defense-in-depth against the global-metadata fallback path).
+          // Empty array + autoLoadEntities (factory default) means every
+          // entity registered via TypeOrmModule.forFeature() in any imported
+          // domain module is auto-merged into the connection entity list.
+          entities: [],
           // MEDIUM-007: dashboard fans out 5 parallel metric queries. With a
           // pool of 10, two concurrent dashboard loads drained the pool;
           // operators saw `connection pool exhausted` under normal admin

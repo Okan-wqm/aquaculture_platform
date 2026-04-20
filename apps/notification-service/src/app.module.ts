@@ -56,6 +56,12 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
           // them to `notification`. After the move, the search_path pin
           // here will resolve them first.
           schema: 'notification',
+          // INFRA-CRITICAL-021 contract: factory mandates explicit entities
+          // (defense-in-depth against the global-metadata fallback path).
+          // Empty array + autoLoadEntities (factory default) means every
+          // entity registered via TypeOrmModule.forFeature() in any imported
+          // domain module is auto-merged into the connection entity list.
+          entities: [],
           migrations: [__dirname + '/database/migrations/*.{js,ts}'],
         }),
     }),

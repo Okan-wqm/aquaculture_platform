@@ -47,6 +47,12 @@ import { TenantModule } from './modules/tenant/tenant.module';
         createServiceTypeOrmConfig(configService, {
           serviceName: 'auth',
           schema: 'auth',
+          // INFRA-CRITICAL-021 contract: factory mandates explicit entities
+          // (defense-in-depth against the global-metadata fallback path).
+          // Empty array + autoLoadEntities (factory default) means every
+          // entity registered via TypeOrmModule.forFeature() in any imported
+          // domain module is auto-merged into the connection entity list.
+          entities: [],
           // Enterprise: TypeORM's built-in migrationsRun is idempotent and
           // safe for multi-replica because the `migrations` table acts as a
           // distributed lock via row-level uniqueness on `name`. auth-service

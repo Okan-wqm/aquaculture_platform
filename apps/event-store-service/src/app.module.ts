@@ -34,6 +34,12 @@ import { AddStoredEventsImmutabilityTriggers1782000000000 } from './migrations/1
         createServiceTypeOrmConfig(configService, {
           serviceName: 'event-store',
           schema: 'event_store',
+          // INFRA-CRITICAL-021 contract: factory mandates explicit entities
+          // (defense-in-depth against the global-metadata fallback path).
+          // Empty array + autoLoadEntities (factory default) means every
+          // entity registered via TypeOrmModule.forFeature() in any imported
+          // domain module is auto-merged into the connection entity list.
+          entities: [],
           migrations: [AddStoredEventsImmutabilityTriggers1782000000000],
           // event-store opts in to TypeORM's built-in migration runner via
           // DATABASE_MIGRATIONS_RUN (default true). No MigrationRunnerService

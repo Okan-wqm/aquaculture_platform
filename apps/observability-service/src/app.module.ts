@@ -35,6 +35,12 @@ import { InternalApiGuard } from './guards/internal-api.guard';
         createServiceTypeOrmConfig(configService, {
           serviceName: 'observability',
           schema: 'observability',
+          // INFRA-CRITICAL-021 contract: factory mandates explicit entities
+          // (defense-in-depth against the global-metadata fallback path).
+          // Empty array + autoLoadEntities (factory default) means every
+          // entity registered via TypeOrmModule.forFeature() in any imported
+          // domain module is auto-merged into the connection entity list.
+          entities: [],
           // No migrations — observability-service uses synchronize=true in
           // dev (factory honours DATABASE_SYNC) and reads cross-schema
           // aggregates in prod. RLS module above handles schema bootstrap.

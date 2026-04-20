@@ -451,6 +451,13 @@ dependencies = [
 [[package]]
 name = "event-contracts-rs"
 version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "uuid",
+]
 
 [[package]]
 name = "fastrand"
@@ -1710,8 +1717,10 @@ name = "sensor-ingestion"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "bytes",
  "chrono",
+ "event-contracts-rs",
  "futures",
  "moka",
  "nats-client",
@@ -1725,6 +1734,7 @@ dependencies = [
  "tenant-context",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-util",
  "toml 0.8.23",
  "tracing",
  "uuid",

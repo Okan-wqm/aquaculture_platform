@@ -49,11 +49,13 @@ use crate::cache::{DEFAULT_TOTAL_CAPACITY, TopicCache};
 use crate::config::Config;
 use crate::runtime::build_runtime;
 
+mod batch;
 mod cache;
 mod config;
 mod error;
 mod mqtt;
 mod payload;
+mod persistence;
 mod runtime;
 mod topic;
 
@@ -168,10 +170,37 @@ async fn async_main(cfg: Config) -> anyhow::Result<()> {
     let drain_slot = stream_slot.clone();
     let shutdown_slot = stream_slot;
     // Hand the cache to the drain path so the topic-cache module is
-    // exercised at runtime end-to-end. When the topic parser + cache-
-    // miss handler land in subsequent commits the same `Arc` shifts
-    // from the placeholder log-line to the real lookup callsite.
+    // exercised at runtime end-to-end.
     let drain_cache = Arc::clone(&cache);
+
+    // Stage 9: batch aggregator + persistence sink wired in.
+    // The drain pushes validated SensorReadings into the batch
+    // aggregator; the aggregator emits Vec<SensorReading> chunks on
+    // either time (100ms) or size (10K) trigger; the sink consumes
+    // those chunks. Production sink is `PostgresSink` (TimescaleDB
+    // COPY) — landed in a follow-on commit on this PR; this stage
+    // wires `LoggingSink` for the stub-mode boot so the entire chain
+    // is exercised end-to-end without a postgres dependency at
+    // start-up.
+    let batch_cancel = tokio_util::sync::CancellationToken::new();
+    let (aggregator, batch_in_tx, batch_out_rx) = batch::BatchAggregator::new(
+        batch::BatchOpts::default(),
+        batch::DEFAULT_INPUT_CHANNEL_CAPACITY,
+        batch::DEFAULT_OUTPUT_CHANNEL_CAPACITY,
+    )
+    .context("constructing batch aggregator")?;
+    let batch_cancel_for_run = batch_cancel.clone();
+    let aggregator_handle = tokio::spawn(async move {
+        match aggregator.run(batch_cancel_for_run).await {
+            Ok(count) => tracing::info!(count, "batch aggregator exited"),
+            Err(e) => tracing::error!(error = %e, "batch aggregator exited with error"),
+        }
+    });
+    let sink: Arc<dyn persistence::BatchSink> = Arc::new(persistence::LoggingSink::new());
+    let sink_handle = {
+        let sink = Arc::clone(&sink);
+        tokio::spawn(persistence::run_sink_loop(sink, batch_out_rx))
+    };
 
     tokio::select! {
         () = wait_for_shutdown_signal() => {
@@ -181,10 +210,16 @@ async fn async_main(cfg: Config) -> anyhow::Result<()> {
                 s.shutdown().await;
             }
         }
-        () = drain_mqtt_stream(drain_slot, drain_cache) => {
+        () = drain_mqtt_stream(drain_slot, drain_cache, batch_in_tx.clone()) => {
             tracing::info!("mqtt stream closed");
         }
     }
+    // Drop the input sender so the aggregator drains its remaining
+    // buffer and exits cleanly; cancel as a belt-and-braces.
+    drop(batch_in_tx);
+    batch_cancel.cancel();
+    let _ = aggregator_handle.await;
+    let _ = sink_handle.await;
     // Surface the post-shutdown cache footprint in the log so an
     // operator can correlate cache fill with broker traffic. The
     // explicit reference also keeps the cache alive past the select!
@@ -208,6 +243,7 @@ async fn async_main(cfg: Config) -> anyhow::Result<()> {
 async fn drain_mqtt_stream(
     stream: std::sync::Arc<tokio::sync::Mutex<Option<mqtt::MqttMessageStream>>>,
     cache: Arc<TopicCache>,
+    batch_in: tokio::sync::mpsc::Sender<crate::payload::SensorReading>,
 ) {
     let mut guard = stream.lock().await;
     let Some(s) = guard.as_mut() else {
@@ -250,12 +286,20 @@ async fn drain_mqtt_stream(
                             quality = reading.quality,
                             producer_ts = reading.producer_ts,
                             cache_hit,
-                            "mqtt msg validated (stub drain)"
+                            "mqtt msg validated"
                         );
-                        // Real pipeline: on cache miss, request-reply
-                        // to sensor-service + cache.insert; then
-                        // batch aggregator → COPY → NATS publish
-                        // (subsequent commits on this PR).
+                        // Stage 9: hand the validated reading to the
+                        // batch aggregator. send().await blocks if
+                        // the batch buffer is full, which propagates
+                        // backpressure all the way to the broker
+                        // (MQTT QoS-1 inflight). A closed sender
+                        // means the aggregator already exited; drop
+                        // the message and let the loop end naturally
+                        // when the broker delivers the next.
+                        if batch_in.send(reading).await.is_err() {
+                            tracing::warn!("batch aggregator gone; ending drain loop");
+                            break;
+                        }
                     }
                     Err(e) => {
                         topic_parse_failures = topic_parse_failures.saturating_add(1);

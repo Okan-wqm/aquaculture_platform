@@ -19,9 +19,11 @@ protocol-codec = { path = "../../crates/protocol-codec" }
 tenant-context = { path = "../../crates/tenant-context" }
 nats-client = { path = "../../crates/nats-client" }
 observability = { path = "../../crates/observability" }
+event-contracts-rs = { path = "../../crates/event-contracts-rs" }
 
 # Async runtime + IO.
 tokio = { workspace = true, features = ["full"] }
+tokio-util = "0.7"
 futures = { workspace = true }
 bytes = { workspace = true }
 
@@ -56,44 +58,20 @@ moka = { version = "0.12", features = ["sync"] }
 papaya = "0.2"
 
 # Persistence (Faz 2 stage 9):
-#   tokio-postgres — async pure-Rust postgres client. Picked because
-#     (a) it ships native binary COPY IN via `BinaryCopyInWriter` —
-#     text COPY is YASAK on the hot path per plan § Faz 2 (the binary
-#     framing is ~3-5x faster + zero string allocation per tuple);
-#     (b) it composes natively with rustls (NO openssl per workspace
-#     deny.toml ban); (c) it is the upstream that `deadpool-postgres`
-#     wraps, so the pool primitive and the driver primitive share a
-#     version pin transparently.
-#   tokio-postgres-rustls — TLS bridge crate from the tokio-postgres
-#     authors. Required because `tokio-postgres` itself is TLS-agnostic
-#     (`NoTls` by default). The rustls bridge gives us SCRAM channel
-#     binding (`tls-server-end-point`) — the postgres-side auth check
-#     that `sslmode=verify-full` alone does NOT enforce. Without
-#     channel binding, an MITM with a forged-but-trusted cert can still
-#     phish a SCRAM exchange; with it, the SCRAM client-final message
-#     binds to the server cert hash and the swap fails.
-#   deadpool-postgres — connection pool sitting on top of
-#     `tokio-postgres`. Plan named deadpool explicitly (PLAN.md § Faz 2
-#     Crate Seçimleri). Picked over hand-rolled round-robin because
-#     it ships health-checks, recycle hooks, and a typed `Manager` —
-#     re-implementing those would be a strict downgrade in correctness.
-#   rustls + rustls-pemfile — workspace-pinned TLS primitive + PEM
-#     loader for the rustls ClientConfig builder. Same crates the
-#     workspace nats-client crate already uses; supply-chain footprint
-#     unchanged. webpki-roots is intentionally NOT pulled — the
-#     deployment runs against an internal CA and the rustls
-#     ClientConfig loads the platform CA explicitly via the PEM the
-#     operator supplies in PostgresConfig.ca_cert_pem.
-tokio-postgres = { version = "0.7", features = ["with-uuid-1", "with-chrono-0_4"] }
-tokio-postgres-rustls = "0.13"
-deadpool-postgres = { version = "0.14", features = ["rt_tokio_1"] }
-rustls = { workspace = true }
-rustls-pemfile = { workspace = true }
+#   This commit ships the batch aggregator + LoggingSink only. The
+#   PostgresSink + deadpool-postgres + tokio-postgres + rustls TLS
+#   bridge land in the follow-on commit on this PR alongside the
+#   testcontainers integration test. Pulling those deps here without
+#   exercising them would either generate dead-code warnings or
+#   require a `#[allow(dead_code)]` excuse — the architectural rule
+#   (no workaround, no carry-debt) says ship deps in lockstep with
+#   their use.
 
 # Error + tracing.
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+async-trait = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3.10"

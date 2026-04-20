@@ -520,3 +520,8 @@ path = "src/main.rs"
 [[test]]
 name = "app_state_wired"
 path = "tests/invariants/app_state_wired.rs"
+
+# Batch 24 Sprint 6.3 partial invariant — prctl + panic hook.
+[[test]]
+name = "process_hardening"
+path = "tests/invariants/process_hardening.rs"

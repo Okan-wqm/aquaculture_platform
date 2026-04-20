@@ -15,6 +15,13 @@
 // Test code is exempt — panicking on assertion failure is idiomatic in tests.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing))]
 
+// Batch 24 plan §5 Faz 2 Step 2 partial: boot-time process
+// hardening primitives (prctl PR_SET_DUMPABLE=0 + panic-abort
+// hook). Invoked first in `fn main()` before any tokio runtime
+// or argument parsing, before any pages that could hold future
+// secrets (Sprint 6.3 keystore master-key mlock) are allocated.
+mod process_hardening;
+
 mod alarms; // v1.2.4: Alarm management (IEC 62682)
 // Batch 2 — ADR-018 §1 + ADR-024 §1 Permission enum + ActuatorClass taxonomy.
 // Pure types, zero runtime behavior in this batch; AuthorizedContext sealed type
@@ -815,6 +822,28 @@ impl AppState {
 /// - `--version`, `-V`: Print version and exit
 /// - `--help`, `-h`: Print help and exit
 fn main() {
+    // Batch 24 plan §5 Faz 2 Step 2 partial: boot-time process
+    // hardening. MUST run before any page allocation that could
+    // later hold secrets (Sprint 6.3 keystore master-key mlock)
+    // and before any tokio-spawned task whose panic would bypass
+    // the main-thread hook.
+    //
+    // Non-fatal on failure — logged as error but boot continues.
+    // Sprint 6.3 hardening adds a `config.security.process_
+    // hardening_enforce` flag that makes this fail-closed. Today
+    // it's best-effort so an unusual environment (cfg=docker-
+    // rootless where prctl may be restricted) doesn't brick the
+    // boot.
+    if let Err(e) = process_hardening::harden_process() {
+        // WHY: pre-tracing bootstrap — tracing is not yet
+        // initialized; eprintln! is the only reliable output.
+        #[allow(clippy::print_stderr)]
+        {
+            eprintln!("WARNING: process hardening failed: {}", e);
+            eprintln!("Boot continuing without coredump-disable; future keystore wire-up will require this.");
+        }
+    }
+
     // Handle CLI arguments (v1.2.1)
     let args: Vec<String> = std::env::args().collect();
 

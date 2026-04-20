@@ -40,7 +40,7 @@ export interface CompanyAddress {
 }
 
 @ObjectType()
-@Entity('regulatory_settings')
+@Entity('regulatory_settings', { schema: 'farm' })
 @Index(['tenantId'], { unique: true })
 export class RegulatorySettings {
   @Field(() => ID)

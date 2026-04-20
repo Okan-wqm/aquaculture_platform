@@ -87,7 +87,7 @@ export class CheckInHistoryEntry {
 }
 
 @ObjectType()
-@Entity('work_rotations')
+@Entity('work_rotations', { schema: 'hr' })
 @Index(['tenantId', 'employeeId', 'startDate'])
 @Index(['tenantId', 'status', 'startDate'])
 @Index(['tenantId', 'workAreaId', 'startDate'])

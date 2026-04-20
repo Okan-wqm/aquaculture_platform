@@ -82,7 +82,7 @@ export class IncidentTimelineEvent {
  * Represents an actual alert occurrence
  */
 @ObjectType()
-@Entity('alert_incidents')
+@Entity('alert_incidents', { schema: 'alert' })
 @Index(['tenantId', 'status'])
 @Index(['severity'])
 @Index(['createdAt'])

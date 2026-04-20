@@ -10,7 +10,7 @@ import { ObjectType, Field, ID } from '@nestjs/graphql';
 import { PlanLimits, PlanPricing } from './subscription.entity';
 
 /**
- * IP-2: Scheduled plan change — deferred subscription modifications.
+ * IP-2: Scheduled plan change — postponed subscription modifications.
  *
  * When a tenant downgrades their plan, the change is not applied immediately.
  * Instead, a ScheduledPlanChange row is created with status=PENDING. The
@@ -29,7 +29,7 @@ export enum ScheduledChangeStatus {
 }
 
 @ObjectType()
-@Entity('scheduled_plan_changes')
+@Entity('scheduled_plan_changes', { schema: 'billing' })
 @Index(['tenantId', 'status'])
 @Index(['effectiveDate', 'status'])
 export class ScheduledPlanChange {

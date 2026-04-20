@@ -24,7 +24,7 @@ export enum WeeklyPlanStatus {
 registerEnumType(WeeklyPlanStatus, { name: 'WeeklyPlanStatus' });
 
 @ObjectType()
-@Entity('weekly_plans')
+@Entity('weekly_plans', { schema: 'hr' })
 @Index(['tenantId', 'employeeId', 'weekStartDate'], { unique: true })
 @Index(['tenantId', 'weekStartDate'])
 @Index(['tenantId', 'weekEndDate']) // For date range queries (overtime summary)

@@ -89,7 +89,7 @@ export class PlanPricing {
 }
 
 @ObjectType()
-@Entity('subscriptions')
+@Entity('subscriptions', { schema: 'billing' })
 @Index(['tenantId'], { unique: true })
 @Index(['status'])
 @Index(['currentPeriodEnd'])

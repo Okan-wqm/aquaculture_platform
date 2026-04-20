@@ -15,7 +15,7 @@ import { Employee } from '../../hr/entities/employee.entity';
 import { LeaveType } from './leave-type.entity';
 
 @ObjectType()
-@Entity('leave_balances')
+@Entity('leave_balances', { schema: 'hr' })
 @Index(['tenantId', 'employeeId', 'leaveTypeId', 'year'], { unique: true })
 @Index(['tenantId', 'employeeId', 'year'])
 @Index(['tenantId', 'leaveTypeId', 'year'])

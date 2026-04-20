@@ -12,7 +12,7 @@ import {
  * Persists alert audit log entries to PostgreSQL.
  * Replaces the previous in-memory audit store (max 2000 entries, lost on restart).
  */
-@Entity('alert_audit_log')
+@Entity('alert_audit_log', { schema: 'alert' })
 @Index(['tenantId', 'timestamp'])
 @Index(['category', 'timestamp'])
 @Index(['eventType', 'timestamp'])

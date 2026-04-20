@@ -96,7 +96,7 @@ export class BillingAddress {
 }
 
 @ObjectType()
-@Entity('invoices')
+@Entity('invoices', { schema: 'billing' })
 @Index(['tenantId', 'invoiceNumber'], { unique: true })
 @Index(['tenantId', 'status'])
 @Index(['tenantId', 'dueDate'])

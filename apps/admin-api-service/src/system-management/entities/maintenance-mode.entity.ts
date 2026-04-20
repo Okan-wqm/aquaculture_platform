@@ -43,7 +43,7 @@ export interface AffectedService {
   message?: string;
 }
 
-@Entity('maintenance_modes')
+@Entity('maintenance_modes', { schema: 'admin' })
 @Index(['scope', 'status'])
 @Index(['scheduledStart', 'scheduledEnd'])
 @Index(['tenantId'])

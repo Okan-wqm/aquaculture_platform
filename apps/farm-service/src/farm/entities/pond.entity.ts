@@ -55,7 +55,7 @@ registerEnumType(PondStatus, {
  * Pond entity - represents a water body within a farm
  */
 @ObjectType()
-@Entity('ponds')
+@Entity('ponds', { schema: 'farm' })
 @Index(['farmId', 'name'], { unique: true })
 @Index(['tenantId', 'status'])
 export class Pond {

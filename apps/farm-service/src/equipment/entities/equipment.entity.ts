@@ -114,7 +114,7 @@ export interface TankSpecifications {
   };
 }
 
-@Entity('equipment')
+@Entity('equipment', { schema: 'farm' })
 @Index(['tenantId', 'code'], { unique: true })
 @Index(['tenantId', 'departmentId'])
 @Index(['tenantId', 'subSystemId'])

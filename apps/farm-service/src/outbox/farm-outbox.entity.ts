@@ -16,7 +16,7 @@ import { OutboxEntityBase } from '@platform/outbox';
  *
  * @see Phase 2 of farm domain real-time visibility plan.
  */
-@Entity({ name: 'farm_outbox', synchronize: false })
+@Entity({ schema: 'farm', name: 'farm_outbox', synchronize: false })
 @Index('idx_farm_outbox_poll_entity', ['createdAt'], {
   where: '"publishedAt" IS NULL',
 })

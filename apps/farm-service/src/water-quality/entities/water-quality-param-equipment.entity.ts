@@ -76,7 +76,7 @@ registerEnumType(MonitoringFrequency, {
 // ============================================================================
 
 @ObjectType()
-@Entity('water_quality_param_equipment')
+@Entity('water_quality_param_equipment', { schema: 'farm' })
 @Index(['tenantId', 'parameterConfigId', 'equipmentId'], { unique: true })
 @Index(['tenantId', 'equipmentId'])
 @Index(['tenantId', 'parameterConfigId'])

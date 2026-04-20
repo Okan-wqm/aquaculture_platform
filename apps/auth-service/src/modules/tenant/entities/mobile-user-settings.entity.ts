@@ -95,7 +95,7 @@ export const DEFAULT_MOBILE_FEATURES: MobileAllowedFeatures = {
  * Controls which features a user can access on the AquaMobil PWA
  */
 @ObjectType('MobileUserSettings')
-@Entity('mobile_user_settings')
+@Entity('mobile_user_settings', { schema: 'auth' })
 export class MobileUserSettings {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')

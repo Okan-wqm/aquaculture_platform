@@ -24,7 +24,7 @@ export enum ScheduleEntryStatus {
 registerEnumType(ScheduleEntryStatus, { name: 'ScheduleEntryStatus' });
 
 @ObjectType()
-@Entity('schedule_entries')
+@Entity('schedule_entries', { schema: 'hr' })
 @Index(['tenantId', 'scheduleId', 'date'])
 @Index(['tenantId', 'employeeId', 'date'])
 @Index(['tenantId', 'date', 'status'])

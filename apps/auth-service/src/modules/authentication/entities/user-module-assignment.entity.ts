@@ -28,7 +28,7 @@ import { User } from './user.entity';
  * TENANT_ADMINs inherit access from TenantModule assignments.
  */
 @ObjectType()
-@Entity('user_module_assignments')
+@Entity('user_module_assignments', { schema: 'auth' })
 @Unique('UQ_user_module', ['userId', 'moduleId'])
 @Index('IDX_user_module_assignments_user', ['userId'])
 @Index('IDX_user_module_assignments_module', ['moduleId'])
@@ -90,7 +90,7 @@ export class UserModuleAssignment {
   assignedBy!: string;
 
   /**
-   * Assignment expiration date (for temporary assignments)
+   * Assignment expiration date (for time-limited assignments)
    */
   @Field(() => String, { nullable: true })
   @Column({ type: 'timestamptz', nullable: true })

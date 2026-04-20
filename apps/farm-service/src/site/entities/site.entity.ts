@@ -128,7 +128,7 @@ export interface SiteSettings {
 // ============================================================================
 
 @ObjectType()
-@Entity('sites')
+@Entity('sites', { schema: 'farm' })
 @Index(['tenantId', 'code'], { unique: true })
 @Index(['tenantId', 'name'], { unique: true })
 @Index(['tenantId', 'status'])

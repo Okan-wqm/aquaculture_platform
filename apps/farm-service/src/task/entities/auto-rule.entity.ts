@@ -51,7 +51,7 @@ registerEnumType(AutoRuleTrigger, {
 // ============================================================================
 
 @ObjectType()
-@Entity('auto_rules')
+@Entity('auto_rules', { schema: 'farm' })
 @Index(['tenantId', 'isActive'])
 export class AutoRule {
   @Field(() => ID)

@@ -25,7 +25,7 @@ import { Tenant } from './tenant.entity';
  * Created by SUPER_ADMIN when assigning modules to a tenant.
  */
 @ObjectType()
-@Entity('tenant_modules')
+@Entity('tenant_modules', { schema: 'auth' })
 @Unique('UQ_tenant_module', ['tenantId', 'moduleId'])
 @Index('IDX_tenant_modules_tenant', ['tenantId'])
 @Index('IDX_tenant_modules_module', ['moduleId'])

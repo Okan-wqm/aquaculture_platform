@@ -34,7 +34,7 @@ registerEnumType(InventoryCountStatus, {
   description: 'Workflow status of an inventory count session',
 });
 
-@Entity('inventory_counts')
+@Entity('inventory_counts', { schema: 'farm' })
 @Index(['tenantId', 'countNumber'], { unique: true })
 @Index(['tenantId', 'status'])
 @Index(['tenantId', 'storageLocationId'])

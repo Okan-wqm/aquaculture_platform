@@ -34,7 +34,7 @@ registerEnumType(ModuleCode, {
  * Each module provides specific functionality (Farm management, HR, etc.)
  */
 @ObjectType()
-@Entity('modules')
+@Entity('modules', { schema: 'auth' })
 @Index('IDX_modules_code', ['code'], { unique: true })
 export class Module {
   @Field(() => ID)

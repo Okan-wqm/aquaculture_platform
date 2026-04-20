@@ -14,7 +14,7 @@ import {
   Unique,
 } from 'typeorm';
 
-@Entity('code_sequences')
+@Entity('code_sequences', { schema: 'farm' })
 @Unique(['tenantId', 'entityType', 'year'])
 @Index(['tenantId', 'entityType'])
 export class CodeSequence {

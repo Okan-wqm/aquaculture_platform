@@ -60,7 +60,7 @@ export class LeaveAttachment {
 }
 
 @ObjectType()
-@Entity('leave_requests')
+@Entity('leave_requests', { schema: 'hr' })
 // Unique index
 @Index('idx_leave_request_number', ['tenantId', 'requestNumber'], { unique: true })
 // Composite indexes for common query patterns

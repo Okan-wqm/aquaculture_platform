@@ -114,7 +114,7 @@ export interface PlanFeatures {
  * Plan Definition Entity
  * Centralized management of all subscription plans
  */
-@Entity('plan_definitions')
+@Entity('plan_definitions', { schema: 'admin' })
 @Index(['tier'])
 @Index(['visibility'])
 @Index(['isActive'])

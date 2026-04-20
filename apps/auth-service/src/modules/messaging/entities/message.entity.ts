@@ -75,7 +75,7 @@ export class MessageAttachment {
  * conflict with messaging-service's Message type.
  * DB table name remains 'messages' (auth schema).
  */
-@Entity('messages')
+@Entity('messages', { schema: 'auth' })
 @ObjectType('SupportMessage')
 @Index(['threadId', 'createdAt'])
 export class Message {

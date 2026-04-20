@@ -38,7 +38,7 @@ export interface VfdAutomationParameterChange {
  * based on sensor conditions.
  */
 @ObjectType({ description: 'VFD automation rule for event-driven parameter changes' })
-@Entity('vfd_automation_rules')
+@Entity('vfd_automation_rules', { schema: 'sensor' })
 @Index(['tenantId', 'isActive'])
 export class VfdAutomationRule {
   @Field(() => ID)

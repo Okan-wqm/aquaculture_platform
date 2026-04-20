@@ -19,7 +19,7 @@ export enum ProjectionStatus {
  * Projection checkpoint entity
  * Tracks the current position for each projection/subscription
  */
-@Entity('projection_checkpoints')
+@Entity('projection_checkpoints', { schema: 'event_store' })
 @Index(['tenantId', 'projectionName'], { unique: true })
 @Index(['tenantId'])
 @Index(['status'])

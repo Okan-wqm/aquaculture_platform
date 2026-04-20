@@ -1,6 +1,6 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from 'typeorm';
 
-@Entity('sensor_audit_logs')
+@Entity('sensor_audit_logs', { schema: 'sensor' })
 @Index(['tenantId', 'entityType', 'entityId'])
 @Index(['tenantId', 'changedAt'])
 export class AuditLog {

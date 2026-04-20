@@ -446,7 +446,7 @@ import type { FeedingProgramTank } from './feeding-program-tank.entity';
  * ```
  */
 @ObjectType()
-@Entity('feeding_programs')
+@Entity('feeding_programs', { schema: 'farm' })
 @Index(['tenantId', 'status'])
 @Index(['tenantId', 'code'], { unique: true })
 @Index(['tenantId', 'siteId'])

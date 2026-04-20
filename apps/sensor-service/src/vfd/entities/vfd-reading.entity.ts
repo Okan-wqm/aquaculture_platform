@@ -75,7 +75,7 @@ export interface VfdStatusBits {
  * Stores VFD parameter readings with timestamp
  */
 @ObjectType({ description: 'VFD device reading with parameters' })
-@Entity('vfd_readings')
+@Entity('vfd_readings', { schema: 'sensor' })
 @Index(['vfdDeviceId', 'timestamp'])
 @Index(['tenantId', 'timestamp'])
 export class VfdReading {

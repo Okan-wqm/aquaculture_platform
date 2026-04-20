@@ -71,7 +71,7 @@ export interface CustomPlanLineItem {
  * 4. Admin approves (status: approved)
  * 5. Plan is activated with subscription (status: active)
  */
-@Entity('custom_plans')
+@Entity('custom_plans', { schema: 'admin' })
 @Index(['tenantId'])
 @Index(['status'])
 @Index(['validFrom'])

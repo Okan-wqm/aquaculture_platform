@@ -23,7 +23,7 @@ import { User } from './user.entity';
  * - credentialId is unique across the system to prevent credential confusion
  */
 @ObjectType()
-@Entity('webauthn_credentials')
+@Entity('webauthn_credentials', { schema: 'auth' })
 @Index('IDX_webauthn_user', ['userId'])
 @Index('IDX_webauthn_credential_id', ['credentialId'], { unique: true })
 export class WebAuthnCredential {

@@ -64,6 +64,13 @@ mod keystore;
 // land in Faz 2 Sprint 6.2.
 #[allow(dead_code)] // Faz 2 Sprint 6.2 wires consumers; types pre-staged.
 mod audit;
+// Batch 7 — Zero-Trust CommandEnvelope + jti dedup + canonical params +
+// mutating-command allowlist (plan §4.10). Types + verify_envelope pure
+// function with closure-injected SHA-256 and ed25519 verify. Runtime wiring
+// (Moka + SQLCipher persistence + command dispatcher integration) lands in
+// Faz 2 Sprint 6.4.
+#[allow(dead_code)] // Faz 2 Sprint 6.4 wires consumers; types pre-staged.
+mod command_envelope;
 mod shutdown;
 mod spi;
 mod telemetry; // v1.2.4: SPI support for high-speed peripherals

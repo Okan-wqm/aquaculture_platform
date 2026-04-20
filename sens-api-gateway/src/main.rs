@@ -91,6 +91,12 @@ mod config_integrity;
 // lands in Faz 2 Sprint 6.7.
 #[allow(dead_code)] // Faz 2 Sprint 6.7 wires consumers; types pre-staged.
 mod runtime_safety;
+// Batch 11 — plan §5 Faz 2 item 7 + D-6 mTLS 3-stage rollout + leaf cert
+// pinning + 2-phase rotation + TLS 1.3 cipher-suite allowlist + 6-gate
+// verify_leaf_cert pure function. Types + pure function; runtime rustls
+// wiring lands in Faz 2 Sprint 6.8.
+#[allow(dead_code)] // Faz 2 Sprint 6.8 wires consumers; types pre-staged.
+mod mtls;
 mod shutdown;
 mod spi;
 mod telemetry; // v1.2.4: SPI support for high-speed peripherals

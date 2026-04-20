@@ -495,6 +495,150 @@ inventory.yaml loader (same Faz 2 gating as OBS-17-001 pwm/spi).
 
 ---
 
+## Post-Batch-19 session continuation (Batches 20-51)
+
+After Batch 19 the session continued with ~32 additional
+batches of Faz 1 + Faz 2 foundation work. Each batch carried
+its own architectural justification in the commit message;
+this section consolidates the batch-level index so the
+ledger stays current.
+
+### Faz 1 completion
+
+- **Batches 20a-20n** (Faz 1 Step 5 ARC-008 commands.rs god-
+  file split) — 4392 → 680 lines (85% reduction). 13 domain
+  sub-modules: `helpers`, `diagnostic`, `failover`, `script`,
+  `read`, `write`, `system`, `io_config`, `lora`, `firmware`,
+  `program`, `plc`, `ide_deploy`. Each compile-verified
+  individually.
+- **Batch 21** — ARC-006 `TagQuality::Simulated` enum variant
+  for default-build I2C sim data. OPC UA quality code 216
+  (0xD8 = Good|LocalOverride) distinct from Good (192).
+- **Batch 22** — ARC-007 `TlsMode` enum + `rodbus =
+  "=1.5.0-RC1"` exact-pin. Tier-1 "make it impossible" for
+  half-configured mTLS (client_cert set without client_key).
+- **Batch 23** — tests/invariants harness scaffolding. 6
+  invariant tests for ARC-001/002/003/006/007/009 contracts.
+
+### Faz 2 foundation (partial)
+
+- **Batch 24** (Sprint 6.3 partial) — boot-time
+  `prctl(PR_SET_DUMPABLE=0)` + panic-abort hook. 4
+  invariant tests including real kernel syscall pair
+  verification.
+- **Batch 25** (D-14) — retained MQTT command + config
+  rejection pre-parse. 3 invariant tests.
+- **Batch 26** (D-15) — CommandHandler::run drain-aware
+  pattern; no mid-handle_message cancellation. 3 invariant
+  tests.
+- **Batch 27** (Sprint 6.8 foundation) — `MtlsConfig` in
+  AgentConfig + boot log. 4 invariant tests. Establishes
+  the 3-stage rollout pattern (Legacy/Warn/Strict).
+- **Batch 28** (Sprint 6.1 partial) — command →
+  Permission mapper in `commands::required_permission`.
+  Fail-closed fallback to `SafeStateTrigger` for unknown
+  commands. 5 invariant tests.
+- **Batch 29** — ShutdownPhase enum logging in main.rs
+  shutdown sequence. 6 phase-transition log lines.
+- **Batch 30** — SUDERRA_DATA_DIR SSoT helper. 6 duplicate
+  sites consolidated to single `data_dir::data_dir()` fn.
+  FHS §5.8 default `/var/lib/suderra`.
+- **Batch 31** — `runtime_safety::retained_msg` predicate
+  wire replacing inline boolean check.
+- **Batch 32** — `shutdown_timeout_secs` config field
+  wired (was dead pre-Batch-32). New `drain_timeout_ms`
+  config field with 50ms plan D-15 default.
+- **Batch 33** — RBAC-gate-preview debug log in
+  execute_command emitting required_permission.
+- **Batch 34** — `max_command_age_secs` +
+  `max_command_skew_secs` exposed as runtime config
+  (IEC 62443 SL-2 FR-7).
+- **Batch 35** — `is_safety_critical` consolidated via
+  `Permission::is_mutating()` SSoT. Hardcoded command-name
+  list removed.
+- **Batch 36** — `cmd_get_config` expanded with mtls +
+  runtime + backup + offline_queue sections. Allowlist
+  discipline preserved.
+- **Batch 37** — Two-person-integrity preview warn log
+  for `Permission::requires_two_person_integrity()`
+  commands (ADR-018 §7).
+- **Batch 38** — Boot-time Faz 2 security-posture banner
+  consolidating 6 runtime knobs in one operator-visible
+  journalctl section.
+- **Batch 39** — `validate_faz2_security_coherence()` with
+  3 initial coherence rules (mtls-strict ⟹ pinning,
+  skew <= age, drain < shutdown_timeout).
+- **Batch 40** — 4 invariant tests pinning Batch 39 rules
+  at integration-test level.
+- **Batch 41** — MUTATING_COMMANDS ↔ Permission::is_
+  mutating agreement invariant. 4 contract tests.
+- **Batch 42** (Sprint 6.6 foundation) —
+  `ConfigIntegrityConfig` pre-staged (Disabled/Permissive/
+  Enforcing mode, factory_pubkey_hex, sidecar_path).
+  Coherence Rules 4+5 (Permissive requires pubkey,
+  pubkey must be 64-hex).
+- **Batch 43** — prctl(PR_GET_DUMPABLE) runtime query
+  exposed via cmd_get_hardware.process_hardening.
+- **Batch 44** — 2 invariant tests for Batch 42 rules
+  (coherence_rules tests count 4 → 6).
+- **Batch 45** (Sprint 6.4 foundation) — `SignatureMode`
+  exposed in AgentConfig. Third 3-stage rollout knob
+  after mtls + config_integrity.
+- **Batch 46** — 4 invariant tests pinning Batch 45
+  rollout contracts.
+- **Batch 47** — `permission_for_command` promoted from
+  `pub(super)` to `pub(crate)` for Sprint 6.4 envelope-
+  verify consumer.
+- **Batch 48** — Shutdown-initiation log emits both
+  outer_timeout + drain_budget so operators see the
+  complete timeout picture in one log line.
+- **Batch 49** — Coherence Rules 6+7+8 (rate_limit_max_
+  commands > 0, rate_limit_window_secs > 0, max_command_
+  age_secs > 0). Prevents mysteriously unresponsive
+  agent on zero-valued config.
+- **Batch 50** — coherence_rules roster documentation
+  refresh (5 → 8 rules after Batch 49).
+- **Batch 51** — RateLimiter semantic invariants (4
+  contract-anchor tests: FIFO eviction, monotonic clock,
+  bounded memory, integration point).
+
+### Session-level totals
+
+- Commits: 39 batches across Faz 1 + Faz 2 foundation.
+- Invariant harness: 10 test files, 42+ tests passing.
+- CI: 8 consecutive green 3-arch runs through the series.
+- Baseline: 153-warning `cargo check --features health`
+  unchanged across every batch.
+- rodbus exact-pinned (no SemVer drift).
+- 3 rollout-stage knobs uniformly pre-staged (mtls +
+  config_integrity + signature_mode).
+
+### Residual scope (Sprint 6.x deep wire)
+
+Each Sprint 6.x target has foundation + pre-staging but
+the actual wire requires multi-day infrastructure work:
+
+- Sprint 6.2 audit sink: file-append + HMAC chain +
+  cloud relay + audit-verify CLI.
+- Sprint 6.3 keystore: TPM FFI + mlock + memfd_secret
+  + Argon2id master-key derivation.
+- Sprint 6.4 envelope verify: Moka dedup + SQLCipher
+  persist + actor extraction from signed envelope.
+- Sprint 6.5 updater: A/B partition + tryboot overlay
+  + TOCTOU re-verify + downgrade prevention.
+- Sprint 6.6 config integrity verify: file read + SHA-
+  256 compute + ed25519 verify + fail-closed boot.
+- Sprint 6.7 supervisor refactor: ClockAuthority chrony
+  wire + DrainState coordinator integration +
+  lib-split for invariant runtime tests.
+- Sprint 6.8 mTLS: rustls ClientConfig + verify_leaf_
+  cert plug + cert lifecycle rotation.
+
+These are the natural inflection point for the next
+session or sprint cadence.
+
+---
+
 ## Meta-invariants
 
 1. **Every observation carries:** file path + line number + observation

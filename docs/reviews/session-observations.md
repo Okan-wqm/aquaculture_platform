@@ -408,6 +408,93 @@ Owner: platform-team. Deadline: Sprint 6.x.
 
 ---
 
+## BATCH-19 wiring observations (alarms.rs WIRE-FULL reveal)
+
+### OBS-19-001 — Stale blanket `#![allow(dead_code)]` masked wired code
+
+**File:** `sens-api-gateway/src/alarms.rs:13-14` (pre-Batch-19)
+
+**Observation:** The module carried a blanket
+`#![allow(dead_code)]` with a comment `"API reserved for alarms
+feature"`. Pre-Batch-19 this was stale: alarms.rs has been runtime-
+invoked since io_poll v1.x. Verification paths:
+- `AppState.alarm_manager: Arc<RwLock<AlarmManager>>` (main.rs:315)
+  constructed in `AppState::new()` (main.rs:432).
+- `cmd_register_atlas_alarms` handler (commands.rs ~3456) registers
+  pH/DO/temperature high_limit/low_limit alarm definitions.
+- `io_poll::poll_atlas_sensors()` (io_poll.rs:147) calls
+  `AlarmManager::process_source(tag_name, value)` on EVERY Atlas
+  tag read — hot-path invocation.
+
+**Risk:** The blanket allow masked potential legitimate dead-code
+warnings. If Sprint 6.x alarms-related code were added and then
+later removed without a consumer, the allow would have silently
+hidden the newly-orphaned symbols. Defensive suppressions that
+aren't routinely re-evaluated become invisibility cloaks.
+
+**Fix applied in Batch 19:** Removed the blanket allow. Module now
+has ARC-009 WIRE-FULL decision block in its docstring. `cargo check
+--features health` reports ZERO new warnings specific to alarms.rs
+— confirming every `pub fn` has a consumer and the module is
+legitimately full-wired.
+
+**Audit opportunity:** Grep-search the rest of `sens-api-gateway/
+src/` for blanket `#![allow(dead_code)]` and audit each for staleness.
+Current inventory (Batch 19 sweep):
+- `backup.rs` — KEEP (Batch 18 documented WIRE-PARTIAL; Sprint 6.x
+  triggers pending).
+- `bounded.rs`, `error.rs`, `interning.rs` — KEEP (Batch 16
+  documented WHITELIST).
+- `pwm.rs`, `spi.rs` — KEEP (Batch 17 documented WHITELIST-
+  PENDING-INVENTORY).
+- `alarms.rs` — REMOVED in Batch 19 (this batch).
+
+**Status:** FIXED-IN-BATCH-19.
+
+---
+
+### OBS-19-002 — Optional alarm-class hierarchy deferred to Faz 10
+
+**File:** `sens-api-gateway/src/alarms.rs` + plan §5 Faz 1 Step 8
+
+**Observation:** Plan §5 Faz 1 Step 8 says: `alarms.rs → WIRE
+(mevcut basit alarm path genişletilir — opsiyonel alarm class
+hiyerarşi Faz 10'a)`. The "optional alarm class hierarchy"
+(IEC 61508 SIL-aligned alarm class taxonomy — lifecritical /
+routine / diagnostic) is EXPLICITLY deferred to Faz 10 per plan.
+
+**Current Batch 19 state:** `AlarmPriority` enum exists with
+Diagnostic/Low/Medium/High/Critical. That is a PRIORITY taxonomy,
+NOT a safety-integrity-class taxonomy. Faz 10 §4.3 "IEC 61508 /
+IEC 61511 SIL Alignment" adds SIL-2 classification (PFDavg 10⁻³ ≤
+PFD < 10⁻²) + diagnostic coverage (DC) ≥ 90% + proof-test interval
+6 months + fail-safe documentation per output.
+
+**Risk:** Priority ≠ safety class. An operator reading "CRITICAL"
+priority alarm might assume SIL-2 guarantees apply (proof-test,
+diagnostic coverage). Pre-Faz-10 the alarm path does NOT make those
+guarantees. Misinterpretation could gate a life-safety decision on
+an unverified signal.
+
+**Proper fix (Faz 10 §4.3):** Add `AlarmSafetyClass` enum
+(SIL0 | SIL1 | SIL2 | SIL3) orthogonal to `AlarmPriority`.
+Alarm definitions for life-safety outputs (O2/pH/temp per ADR-024
+§3 LifeSupport class) MUST declare a safety class that matches
+their output's FailSafe contract. Plan §4.3 outputs: diagnostic
+coverage self-test, periodic reference-voltage check, proof-test
+runbook per output.
+
+**Status:** DEFERRED TO FAZ 10. Owner: platform-team. Deadline:
+Faz 10 §4.3 IEC 61508 SIL alignment.
+
+**Why I didn't fix in Batch 19:** Plan explicitly scopes Batch 19
+to "WIRE — existing simple alarm path extended". SIL alignment
+requires ADR-019 §5 hardware-inventory-driven safety-class
+assignment per output, which is blocked on Sprint 7.1 hardware-
+inventory.yaml loader (same Faz 2 gating as OBS-17-001 pwm/spi).
+
+---
+
 ## Meta-invariants
 
 1. **Every observation carries:** file path + line number + observation

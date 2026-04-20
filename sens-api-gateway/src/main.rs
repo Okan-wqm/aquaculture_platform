@@ -59,6 +59,11 @@ mod safe_state_v2;
 // Wired here so `cargo check` validates the module graph before runtime lands.
 #[allow(dead_code)] // Faz 2 Sprint 6.3 wires consumers; types pre-staged.
 mod keystore;
+// Batch 6 — ADR-020 audit log AuditEntry + HMAC chain. Pure types + closure-
+// injected HMAC append function; runtime sink + cloud relay + audit-verify CLI
+// land in Faz 2 Sprint 6.2.
+#[allow(dead_code)] // Faz 2 Sprint 6.2 wires consumers; types pre-staged.
+mod audit;
 mod shutdown;
 mod spi;
 mod telemetry; // v1.2.4: SPI support for high-speed peripherals

@@ -49,6 +49,7 @@ use crate::runtime::build_runtime;
 
 mod config;
 mod error;
+mod mqtt;
 mod runtime;
 
 // Bootstrap exists in a window where `tracing` is not yet installed
@@ -103,18 +104,81 @@ fn main() -> ExitCode {
     }
 }
 
-async fn async_main(_cfg: Config) -> anyhow::Result<()> {
-    // The actual ingestion pipeline is wired in subsequent commits on
-    // this PR. For this stage we only prove the runtime + tracing +
-    // signal handling work end-to-end so deployment teams can pin
-    // the binary in compose files before the data path lands.
-    tracing::info!("sensor-ingestion stub running; waiting for SIGTERM/SIGINT");
+async fn async_main(cfg: Config) -> anyhow::Result<()> {
+    // If the config names an MQTT broker, start the subscriber task
+    // so the entire chain is exercised end-to-end. Downstream stages
+    // (topic parser, payload validator, batch aggregator, COPY
+    // pipeline) are wired onto this receiver in subsequent commits
+    // on this PR; until they land we log-and-drop so the module is
+    // live at runtime and the dead-code lint cannot hide a typo.
+    let mqtt_stream = if let Some(mqtt_cfg) = cfg.mqtt.clone() {
+        tracing::info!(
+            broker = %mqtt_cfg.broker_url,
+            filters = ?mqtt_cfg.topic_filters,
+            "starting mqtt subscriber"
+        );
+        Some(
+            mqtt::start(mqtt_cfg)
+                .await
+                .context("starting mqtt subscriber")?,
+        )
+    } else {
+        tracing::info!("mqtt config absent; skipping subscriber (stub mode)");
+        None
+    };
+
+    // Split the stream into an Arc<Mutex<Option<...>>> so both the
+    // drain task and the signal-handler path can reach it. The signal
+    // path needs ownership to call shutdown(); the drain path needs
+    // &mut for recv(). The Mutex mediates the handoff.
+    let stream_slot = std::sync::Arc::new(tokio::sync::Mutex::new(mqtt_stream));
+    let drain_slot = stream_slot.clone();
+    let shutdown_slot = stream_slot;
+
     tokio::select! {
         () = wait_for_shutdown_signal() => {
-            tracing::info!("shutdown signal received, exiting");
+            tracing::info!("shutdown signal received, closing mqtt subscriber");
+            let taken = shutdown_slot.lock().await.take();
+            if let Some(s) = taken {
+                s.shutdown().await;
+            }
+        }
+        () = drain_mqtt_stream(drain_slot) => {
+            tracing::info!("mqtt stream closed");
         }
     }
     Ok(())
+}
+
+/// Pull messages off the MQTT stream and drop them. A placeholder for
+/// the real pipeline; exists so the module is actually exercised at
+/// runtime and the compiler does not treat it as dead code.
+async fn drain_mqtt_stream(
+    stream: std::sync::Arc<tokio::sync::Mutex<Option<mqtt::MqttMessageStream>>>,
+) {
+    let mut guard = stream.lock().await;
+    let Some(s) = guard.as_mut() else {
+        // No MQTT configured — block forever so the select! arm that
+        // owns this future cannot race the SIGTERM arm.
+        drop(guard);
+        std::future::pending::<()>().await;
+        return;
+    };
+    let mut count: u64 = 0;
+    while let Some(msg) = s.recv().await {
+        count = count.saturating_add(1);
+        let age_micros = msg.received_at.elapsed().as_micros();
+        tracing::trace!(
+            topic = %msg.topic,
+            bytes = msg.payload.len(),
+            age_micros,
+            "mqtt msg (stub drain)"
+        );
+        // The real pipeline replaces this in the next commit:
+        // topic::parse -> payload::validate -> batch aggregator ->
+        // COPY -> NATS publish.
+    }
+    tracing::info!(count, "mqtt drain complete");
 }
 
 async fn wait_for_shutdown_signal() {

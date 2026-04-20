@@ -23,10 +23,19 @@ observability = { path = "../../crates/observability" }
 # Async runtime + IO.
 tokio = { workspace = true, features = ["full"] }
 futures = { workspace = true }
+bytes = { workspace = true }
 
 # Config + serde.
 serde = { workspace = true }
+serde_json = { workspace = true }
 toml = "0.8"
+
+# Identity + time.
+uuid = { workspace = true }
+chrono = { workspace = true }
+
+# MQTT — same crate the edge agent uses (rumqttc 0.25 = pure Rust + rustls).
+rumqttc = { version = "0.25", features = ["use-rustls"] }
 
 # Error + tracing.
 anyhow = { workspace = true }
@@ -35,6 +44,7 @@ tracing = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3.10"
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "test-util"] }
 
 [lints]
 workspace = true

@@ -104,6 +104,45 @@ not a code bug. Runbook (docs/runbooks/edge-deployment.md — Sprint
 **Status:** NOT A CODE DEFECT — deployment convention issue. Tracked
 for Sprint 6.6 runbook. No code change.
 
+### OBS-14-004 — Pre-existing `State(state)` pattern scope bug revealed by default=["health"]
+
+**File:** `sens-api-gateway/src/health.rs:707,720,733,740`
+
+**Observation:** Batch 14 changed `default = []` → `default = ["health"]`
+which compiled the 4 cfg-gated handlers for the first time. Handlers use
+`State(state): axum::extract::State<HealthState>` destructuring pattern.
+The pattern matching needs `State` as a BARE NAME in scope — a full-path
+type annotation doesn't satisfy tuple-struct pattern syntax. The
+`use axum::{... extract::State ...}` was inside `start_health_server`'s
+function body, so handler functions (which live OUTSIDE that body) never
+saw the import.
+
+**Risk:** Pre-existing compile error that was MASKED by the off-by-default
+feature. Revealed by Batch 14's default change. Before Batch 14, nobody
+building with default features would have seen this.
+
+**Proper fix (applied in Batch 14 CI-FIX-017):**
+- Move `use axum::extract::State;` to module level (cfg-gated).
+- Remove redundant function-local `use axum::{...}` in `start_health_server`
+  (router methods use full paths).
+- Also drop the unused `Duration` import in `std::time` (line 27).
+
+**Status:** FIXED-IN-CI-FIX-017. Commit: TBD.
+
+### OBS-14-005 — Pre-existing `scada_server.rs` warnings (Html unused, state param)
+
+**File:** `sens-api-gateway/src/scada_server.rs:42, 1622`
+
+**Observation:** Pre-existing warnings in main branch (not from my
+batches). Not reachable by --no-default-features CI build because
+`scada-display` feature gates them. Reachable under the current CI
+`--features scada-display` build.
+
+**Status:** PRE-EXISTING, NOT MY BATCHES. Tracked as non-blocking for
+Batch 14/15. Sprint-owner dead-code cleanup scope.
+
+---
+
 ### OBS-14-003 — `start_health_server` spawns task inside itself; no outer cancel hook
 
 **File:** `sens-api-gateway/src/health.rs:671-703`

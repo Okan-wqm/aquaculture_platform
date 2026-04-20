@@ -24,7 +24,7 @@ use std::collections::VecDeque;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use tracing::{error, info};
 
 /// Health status response
@@ -667,14 +667,29 @@ impl Default for HealthState {
 ///
 /// # Returns
 /// A join handle that can be used to wait for the server to stop.
+// BATCH-001-CI-FIX-017 (Batch 14 bug revealed by default="health"):
+// `State` tuple-struct pattern at health_handler et al. needs `State` as a
+// BARE NAME in scope — a full path `axum::extract::State` in the type
+// annotation doesn't satisfy tuple-struct pattern syntax. Handlers live
+// OUTSIDE `start_health_server`, so the function-local `use axum::{...}`
+// inside that body didn't cover them. Before Batch 14 the `health` feature
+// was OFF by default, so the cfg-gated handlers never compiled and the
+// scope bug stayed silent.
+//
+// Fix: module-level `use axum::extract::State` (cfg-gated) so all
+// `#[cfg(feature = "health")]` handlers see it. Function-local imports
+// inside `start_health_server` removed (router methods use full paths).
+//
+// Logged as OBS-14-004 in session-observations.md.
+#[cfg(feature = "health")]
+use axum::extract::State;
+
 #[cfg(feature = "health")]
 pub async fn start_health_server(
     addr: SocketAddr,
     state: HealthState,
 ) -> tokio::task::JoinHandle<()> {
-    use axum::{
-        Json, Router, extract::State, http::StatusCode, response::IntoResponse, routing::get,
-    };
+    use axum::{Router, routing::get};
 
     // Build the router
     let app = Router::new()

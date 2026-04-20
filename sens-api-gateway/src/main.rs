@@ -84,6 +84,13 @@ mod updater;
 // in Faz 2 Sprint 6.6.
 #[allow(dead_code)] // Faz 2 Sprint 6.6 wires consumers; types pre-staged.
 mod config_integrity;
+// Batch 10 — plan D-7/D-14/D-15 runtime safety primitives: ClockAuthority
+// trait (NTS-authenticated wall clock + monotonic anchor), retained-msg
+// guard predicate, ShutdownPhase state machine with tier-1 drain-before-
+// safe-state ordering. Types + pure functions; runtime supervisor wiring
+// lands in Faz 2 Sprint 6.7.
+#[allow(dead_code)] // Faz 2 Sprint 6.7 wires consumers; types pre-staged.
+mod runtime_safety;
 mod shutdown;
 mod spi;
 mod telemetry; // v1.2.4: SPI support for high-speed peripherals

@@ -15,6 +15,9 @@ import { ConvertTimestampToTimestamptz1781500000000 } from './migrations/1781500
 import { AddMfaCompletedToImpersonationSessions1782100000000 } from './migrations/1782100000000-AddMfaCompletedToImpersonationSessions';
 import { MoveSharedTablesFromAdminToShared1782200000000 } from './migrations/1782200000000-MoveSharedTablesFromAdminToShared';
 import { MoveUserPermissionsToShared1786900000000 } from './migrations/1786900000000-MoveUserPermissionsToShared';
+import { GrantSharedSchemaPrivileges1787000000000 } from './migrations/1787000000000-GrantSharedSchemaPrivileges';
+import { CreateAdminAuditLogsTable1787100000000 } from './migrations/1787100000000-CreateAdminAuditLogsTable';
+import { RealignSharedAuditLogsSchema1787200000000 } from './migrations/1787200000000-RealignSharedAuditLogsSchema';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AuditLogModule } from './audit/audit.module';
 import { PasswordResetModule } from './auth/password-reset.module';
@@ -70,6 +73,9 @@ import { UsersModule } from './users/users.module';
             AddMfaCompletedToImpersonationSessions1782100000000,
             MoveSharedTablesFromAdminToShared1782200000000,
             MoveUserPermissionsToShared1786900000000,
+            GrantSharedSchemaPrivileges1787000000000,
+            CreateAdminAuditLogsTable1787100000000,
+            RealignSharedAuditLogsSchema1787200000000,
           ],
           // admin-api opts in to TypeORM's built-in migration runner via the
           // legacy DATABASE_MIGRATIONS_RUN env var (default true). All other

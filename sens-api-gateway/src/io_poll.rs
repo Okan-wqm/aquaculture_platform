@@ -21,11 +21,20 @@ pub struct IoDataPayload {
     pub tags: HashMap<String, IoTagData>,
 }
 
-/// Single tag data in io_data payload
+/// Single tag data in io_data payload.
+///
+/// Batch 21 ARC-006: `simulated` field attached when tag quality
+/// is `TagQuality::Simulated`. Platform UI badges the tag as
+/// non-authoritative so operators cannot confuse sim data with
+/// live sensor reads. Field is `#[serde(skip)]` when false —
+/// real-hardware reads don't carry an unused field in every
+/// payload.
 #[derive(Debug, Serialize)]
 pub struct IoTagData {
     pub value: serde_json::Value,
     pub quality: String,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub simulated: bool,
 }
 
 /// Main I/O polling loop
@@ -113,7 +122,11 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
                         let result = i2c.read_register(&cfg.tag_name, *read_register, *read_length as usize).await;
                         if result.success {
                             let value = bytes_to_f64(&result.data);
-                            process_image.update_tag(&cfg.tag_name, value, TagQuality::Good, TagSource::I2c).await;
+                            // ARC-006: sim reads surface as
+                            // TagQuality::Simulated so SCADA
+                            // cannot mistake sim for live data.
+                            let quality = if result.simulated { TagQuality::Simulated } else { TagQuality::Good };
+                            process_image.update_tag(&cfg.tag_name, value, quality, TagSource::I2c).await;
                         } else {
                             warn!("I2C register read failed for '{}': {}", cfg.tag_name, result.error.as_deref().unwrap_or("unknown"));
                             process_image.update_tag(&cfg.tag_name, 0.0, TagQuality::CommFailure, TagSource::I2c).await;
@@ -123,7 +136,9 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
                         let result = i2c.read_direct(&cfg.tag_name, *read_length as usize).await;
                         if result.success {
                             let value = bytes_to_f64(&result.data);
-                            process_image.update_tag(&cfg.tag_name, value, TagQuality::Good, TagSource::I2c).await;
+                            // ARC-006: sim read quality routing.
+                            let quality = if result.simulated { TagQuality::Simulated } else { TagQuality::Good };
+                            process_image.update_tag(&cfg.tag_name, value, quality, TagSource::I2c).await;
                         } else {
                             warn!("I2C direct read failed for '{}': {}", cfg.tag_name, result.error.as_deref().unwrap_or("unknown"));
                             process_image.update_tag(&cfg.tag_name, 0.0, TagQuality::CommFailure, TagSource::I2c).await;
@@ -144,6 +159,15 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
         {
             let mut mgr = s.alarm_manager.write().await;
             for (tag_name, tag_value) in &all_tags {
+                // ARC-006: skip simulated-quality tags. Sim
+                // reads produce a stable placeholder (0.0); a
+                // configured low-limit alarm at e.g. 5.0 would
+                // otherwise fire spuriously on every sim poll
+                // cycle, burying the real-alarm signal in
+                // default-build deployments.
+                if tag_value.quality.is_simulated() {
+                    continue;
+                }
                 let events = mgr.process_source(tag_name, tag_value.value);
                 alarm_events.extend(events);
             }
@@ -179,6 +203,9 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
         io_tags.insert(name.clone(), IoTagData {
             value,
             quality: format!("{:?}", tag.quality).to_lowercase(),
+            // ARC-006: attach marker when the underlying read
+            // came from the simulation branch.
+            simulated: tag.quality.is_simulated(),
         });
     }
 

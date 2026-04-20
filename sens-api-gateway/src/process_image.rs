@@ -4,7 +4,26 @@ use tokio::sync::RwLock;
 use chrono::{DateTime, Utc};
 use serde::{Serialize, Deserialize};
 
-/// Tag data quality following OPC UA quality codes
+/// Tag data quality following OPC UA quality codes.
+///
+/// Batch 21 ARC-006: `Simulated` variant added to make operator-
+/// facing truth unambiguous when hardware is absent (default build)
+/// OR the i2c bus is in simulation mode. A sim read MUST NOT be
+/// marked `Good` — an operator reading a SCADA screen or trend
+/// chart cannot distinguish good-from-sim without this signal.
+///
+/// OPC UA quality code mapping:
+/// - `Good` = 192 (0xC0 — "Good, local").
+/// - `Uncertain` = 64 (0x40).
+/// - `Bad` = 0 (0x00).
+/// - `CommFailure` = 24 (0x18 — communication failure).
+/// - `NotInitialized` = 32 (0x20 — initial value).
+/// - `Simulated` = 216 (0xD8 — "Good, local override (sensor
+///   simulated)"). Closest standard mapping is
+///   `Good(0xC0) | LocalOverride(0x18)` which IEC 61131-3 and
+///   OPC UA both define as the "substitute value" quality. This
+///   tells OPC UA clients this value is locally overridden and not
+///   a live sensor read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TagQuality {
@@ -13,10 +32,15 @@ pub enum TagQuality {
     Bad,
     CommFailure,
     NotInitialized,
+    /// ARC-006: sensor value is simulated (no real hardware read).
+    /// Default build or missing `gpio`/`i2c` feature produces
+    /// `Simulated`-quality tags so operators never confuse sim
+    /// data with live sensor reads.
+    Simulated,
 }
 
 impl TagQuality {
-    /// Convert to OPC UA numeric quality code
+    /// Convert to OPC UA numeric quality code.
     pub fn to_quality_code(self) -> u8 {
         match self {
             TagQuality::Good => 192,
@@ -24,7 +48,18 @@ impl TagQuality {
             TagQuality::Bad => 0,
             TagQuality::CommFailure => 24,
             TagQuality::NotInitialized => 32,
+            // Good (0xC0) + LocalOverride (0x18) = 0xD8 per OPC UA
+            // quality mask composition.
+            TagQuality::Simulated => 216,
         }
+    }
+
+    /// Whether this quality represents a simulated (non-hardware)
+    /// read. Used by MQTT publish path to attach `"simulated":
+    /// true` to the outgoing payload so platform UI can badge the
+    /// tag as non-authoritative.
+    pub fn is_simulated(self) -> bool {
+        matches!(self, TagQuality::Simulated)
     }
 }
 

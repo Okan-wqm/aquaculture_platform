@@ -107,6 +107,11 @@ impl CommandHandler {
                 "enforce_fingerprint_pinning": state.config.mtls.enforce_fingerprint_pinning,
                 "min_tls_version": state.config.mtls.min_tls_version,
             },
+            // Batch 42: config-integrity sidecar mode.
+            "config_integrity": {
+                "mode": format!("{:?}", state.config.config_integrity.mode).to_lowercase(),
+                "factory_pubkey_configured": state.config.config_integrity.factory_pubkey_hex.is_some(),
+            },
             // Batch 32+34: shutdown + replay-protection thresholds.
             "runtime": {
                 "shutdown_timeout_secs": state.config.runtime.shutdown_timeout_secs,

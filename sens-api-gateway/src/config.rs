@@ -234,11 +234,23 @@ pub struct AgentConfig {
     /// mTLS rollout-stage configuration (Batch 27, plan §5 Faz 2
     /// item 7). Controls cert-age checks + fingerprint-pinning
     /// enforcement across the Legacy → Warn → Strict 3-stage
-    /// rollout. Wired into rustls client builder in Sprint 6.8;
+    /// rollout. Wired into rustls client builder in Sprint 6-.8;
     /// pre-Sprint-6.8 the value is surfaced at boot log for
     /// operator visibility but does not yet affect TLS handshakes.
     #[serde(default)]
     pub mtls: MtlsConfig,
+
+    /// Config-integrity sidecar verification (Batch 42, plan D-13
+    /// / ADR-020 §6 / Sprint 6.6). Controls whether boot reads
+    /// `/etc/suderra/config.yaml.sig`, computes SHA-256 of
+    /// `config.yaml`, and verifies the factory-ed25519
+    /// signature against the embedded public key.
+    /// Pre-Sprint-6.6 the MODE field is surfaced at boot log for
+    /// operator visibility; the actual verify path wires in
+    /// Sprint 6.6 once the factory key is bundled in the
+    /// firmware image.
+    #[serde(default)]
+    pub config_integrity: ConfigIntegrityConfig,
 
     /// Cache configuration (v1.2.0)
     #[serde(default)]
@@ -1351,6 +1363,80 @@ impl ModbusTlsConfig {
     }
 }
 
+// ============================================================================
+// ConfigIntegrityConfig — Batch 42 plan D-13 / Sprint 6.6
+// ============================================================================
+//
+// WHY: Plan D-13 + ADR-020 §6 mandate that every edge device boots with
+// `/etc/suderra/config.yaml.sig` alongside `config.yaml`. The sidecar
+// carries a SignedConfigMeta whose ed25519 signature covers SHA-256 of
+// the config bytes + device binding + monotonic config version. Fail-
+// closed boot on sig invalid prevents an attacker who gains write-access
+// to /etc/suderra from swapping in a poisoned config (disable alarms,
+// redirect MQTT broker, raise thresholds).
+//
+// Pre-Sprint-6.6 the VERIFY PATH doesn't exist yet — factory key isn't
+// bundled, sidecar writer CLI doesn't ship. Batch 42 pre-stages the
+// CONFIG KNOB (mode field) + boot-time log so operators know the rollout
+// path exists. Sprint 6.6 wires the actual verify.
+//
+// ROLLOUT STAGES (3-mode state machine, mirrors MtlsMode pattern):
+// - Disabled (default): no sidecar check. Pre-Batch-42 behavior.
+// - Permissive: sidecar read + verify attempted; failure LOGGED but boot
+//   continues. Early-detection posture for operator-managed migration.
+// - Enforcing: sidecar verify required; failure exits boot.
+//
+// FACTORY KEY: the operator-bundled approach vs firmware-embedded
+// approach is a Sprint 6.6 decision. Pre-Sprint-6.6 the factory_pubkey_
+// hex field accepts a hex-encoded 32-byte key so operators can test the
+// flow against their own keyring before the factory bundle lands.
+
+/// Config-integrity verification mode. 3-stage rollout pattern
+/// identical to MtlsMode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConfigIntegrityMode {
+    /// No sidecar verification (pre-Batch-42 behavior). HC-1
+    /// backward-compatible default.
+    #[default]
+    Disabled,
+    /// Verify attempted; log-only on failure. Early-detection
+    /// posture for operator migration.
+    Permissive,
+    /// Verify required; fail-closed boot on failure.
+    Enforcing,
+}
+
+/// Config-integrity sidecar verification knobs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConfigIntegrityConfig {
+    /// Rollout mode: disabled / permissive / enforcing.
+    #[serde(default)]
+    pub mode: ConfigIntegrityMode,
+
+    /// Hex-encoded 32-byte ed25519 public key used to verify
+    /// the config signature. Sprint 6.6 replaces with a
+    /// firmware-embedded factory key; pre-Sprint-6.6 operators
+    /// can test with their own keyring. None = use the
+    /// firmware-embedded key (Sprint 6.6 target).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub factory_pubkey_hex: Option<String>,
+
+    /// Sidecar path override. None → `/etc/suderra/config.yaml.sig`.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub sidecar_path: Option<std::path::PathBuf>,
+}
+
+impl Default for ConfigIntegrityConfig {
+    fn default() -> Self {
+        Self {
+            mode: ConfigIntegrityMode::default(),
+            factory_pubkey_hex: None,
+            sidecar_path: None,
+        }
+    }
+}
+
 /// TLS mode enum (Batch 22 ARC-007).
 ///
 /// Type-level encoding of the three valid Modbus-over-TLS
@@ -2243,6 +2329,45 @@ impl AgentConfig {
                 drain_as_secs,
                 self.runtime.shutdown_timeout_secs
             );
+        }
+
+        // Rule 4: config_integrity Permissive/Enforcing mode
+        // requires a factory pubkey to be usable. Pre-Sprint-
+        // 6.6 the firmware-embedded key doesn't exist yet, so
+        // operators MUST supply `factory_pubkey_hex` when
+        // opting into Permissive/Enforcing. Once Sprint 6.6
+        // bundles the default key, `factory_pubkey_hex = None`
+        // will mean "use firmware default" — a rule update
+        // lands with that sprint.
+        if !matches!(self.config_integrity.mode, ConfigIntegrityMode::Disabled)
+            && self.config_integrity.factory_pubkey_hex.is_none()
+        {
+            anyhow::bail!(
+                "Config coherence: config_integrity.mode={:?} requires config_integrity.factory_pubkey_hex (pre-Sprint-6.6 firmware key bundle). Set factory_pubkey_hex to a 64-char hex string OR set mode=disabled",
+                self.config_integrity.mode
+            );
+        }
+
+        // Rule 5: factory_pubkey_hex if present MUST be a
+        // 64-char lowercase hex string (32 bytes ed25519
+        // public key). Prevents operator typos from getting
+        // past config load into the verify path where an
+        // invalid key would cause all sigs to fail with a
+        // confusing `InvalidSignature` error — catching it
+        // at config-load time gives a specific `invalid key
+        // format` error.
+        if let Some(ref hex) = self.config_integrity.factory_pubkey_hex {
+            if hex.len() != 64 {
+                anyhow::bail!(
+                    "Config coherence: config_integrity.factory_pubkey_hex must be 64 hex chars (32 bytes ed25519 pubkey), got {} chars",
+                    hex.len()
+                );
+            }
+            if !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+                anyhow::bail!(
+                    "Config coherence: config_integrity.factory_pubkey_hex contains non-hex characters"
+                );
+            }
         }
 
         Ok(())

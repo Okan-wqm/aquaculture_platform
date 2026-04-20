@@ -1007,6 +1007,11 @@ async fn async_main() -> Result<()> {
             info!(
                 "  Process hardening: prctl(PR_SET_DUMPABLE=0) + panic-abort hook active (Sprint 6.3 partial)"
             );
+            // Batch 42: config-integrity sidecar mode.
+            info!(
+                "  Config integrity: mode={:?} (verify wires in Sprint 6.6; plan D-13)",
+                cfg.config_integrity.mode
+            );
             cfg
         }
         Err(e) => {

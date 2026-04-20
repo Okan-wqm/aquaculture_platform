@@ -555,3 +555,8 @@ path = "tests/invariants/config_coherence.rs"
 [[test]]
 name = "mutating_commands_vs_permission"
 path = "tests/invariants/mutating_commands_vs_permission.rs"
+
+# Batch 46 plan §2 HC-6 Sprint 6.4 — SignatureMode config rollout.
+[[test]]
+name = "signature_mode"
+path = "tests/invariants/signature_mode.rs"

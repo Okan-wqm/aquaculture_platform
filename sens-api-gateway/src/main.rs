@@ -78,6 +78,12 @@ mod command_envelope;
 // lands in Faz 2 Sprint 6.5.
 #[allow(dead_code)] // Faz 2 Sprint 6.5 wires consumers; types pre-staged.
 mod updater;
+// Batch 9 — plan D-13 config.yaml.sig factory-signed integrity. Types +
+// verify_config_integrity pure function with closure-injected ed25519
+// verify. Runtime startup wiring (fail-closed boot if verify fails) lands
+// in Faz 2 Sprint 6.6.
+#[allow(dead_code)] // Faz 2 Sprint 6.6 wires consumers; types pre-staged.
+mod config_integrity;
 mod shutdown;
 mod spi;
 mod telemetry; // v1.2.4: SPI support for high-speed peripherals

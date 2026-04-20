@@ -3,6 +3,9 @@
 # TLS certificates (infrastructure/docker/scripts/generate-internal-certs.sh)
 certs/
 
+# perf-baseline JSON outputs (noise; markdown summary is the durable artefact)
+docs/perf/runs/
+
 # Dependencies
 node_modules
 

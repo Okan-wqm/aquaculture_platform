@@ -201,6 +201,19 @@ import { AddFarmOutboxNotifyTrigger1782100000000 } from './database/migrations/1
             AddFarmOutboxLeaseColumns1782000000000,
             AddFarmOutboxNotifyTrigger1782100000000,
           ],
+          // INFRA-CRITICAL-020 contract: env-aware migration timing.
+          // - Production: DATABASE_MIGRATIONS_RUN=false (default). The
+          //   aqua-db-migrate container runs migrations BEFORE service
+          //   containers start, so this service's TypeORM does NOT touch
+          //   the migration table at boot — MigrationRunnerService below
+          //   verifies the schema is healthy and proceeds.
+          // - E2E tests: harness sets DATABASE_MIGRATIONS_RUN=true so
+          //   TypeORM runs migrations at DataSource init — BEFORE the
+          //   SourceSchemaBootstrapService onApplicationBootstrap hook
+          //   fires, which would otherwise hard-fail on an empty source
+          //   schema (INFRA-CRITICAL-009, INFRA-CRITICAL-020).
+          migrationsRunFromEnv: (cs) =>
+            cs.get<string>('DATABASE_MIGRATIONS_RUN', 'false') === 'true',
         }),
     }),
 

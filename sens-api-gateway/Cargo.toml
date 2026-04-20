@@ -560,3 +560,8 @@ path = "tests/invariants/mutating_commands_vs_permission.rs"
 [[test]]
 name = "signature_mode"
 path = "tests/invariants/signature_mode.rs"
+
+# Batch 51 — RateLimiter sliding-window semantics.
+[[test]]
+name = "rate_limiter_semantics"
+path = "tests/invariants/rate_limiter_semantics.rs"

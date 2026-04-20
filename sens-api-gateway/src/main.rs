@@ -340,10 +340,33 @@ pub struct AppState {
     /// commands.rs already reference this field (commits 3f51ba70 +
     /// e8232bca) but the field was never added to AppState — compile was
     /// silently broken on main. Added here as `None` with runtime init
-    /// gated by Faz 1 ARC-001 wiring (plan §5 Faz 1 step 1.2). Current
-    /// behavior: `None` → `cmd_failover_force` returns the "no failover
-    /// manager" operator-facing error, matching the existing match arm.
+    /// in Batch 13 (Faz 1 ARC-001 wiring). Current behavior: `None` →
+    /// `cmd_failover_force` returns the "no failover manager"
+    /// operator-facing error, matching the existing match arm.
     pub failover_manager: Option<std::sync::Arc<crate::mqtt_failover::FailoverManager>>,
+
+    /// HealthState for HTTP health/ready/metrics/diagnostics endpoints.
+    /// Batch 14 Faz 1 Step 1.4 / ARC-003 wiring.
+    ///
+    /// WHY: Cloned clones share the same `Arc<HealthStateInner>` so
+    /// downstream subsystems (MQTT client, script engine, modbus driver)
+    /// can push counter updates to the same backing state the HTTP
+    /// server reads from. Keeping it on AppState lets Sprint 6.2+ wire
+    /// the push-paths via `state.health_state.as_ref()`.
+    ///
+    /// WHAT: `None` when the `health` feature is disabled at compile
+    /// time OR when `config.health.enabled == false` at runtime. On a
+    /// default build (health feature ON by default per Batch 14) + default
+    /// config (health.enabled=false) the field stays None — zero cost.
+    /// Operator opt-in via `config.yaml::health.enabled = true` triggers
+    /// construction in `init_health_server()`.
+    ///
+    /// OBS-14-001 (session-observations.md): push-paths from MQTT/modbus/
+    /// script engine are NOT WIRED yet. Counters will report 0 at runtime
+    /// until Sprint 6.2 threads HealthState clones into those subsystems.
+    /// This batch wires the server + AppState field ONLY.
+    #[cfg(feature = "health")]
+    pub health_state: Option<crate::health::HealthState>,
 }
 
 impl AppState {
@@ -373,9 +396,17 @@ impl AppState {
             scada_db: None,
             is_activated: false,
             tenant_id: None,
-            // BATCH-001-CI-FIX-007: None-init; Faz 1 ARC-001 wires the
-            // actual FailoverManager from config.mqtt.failover settings.
+            // BATCH-001-CI-FIX-007: None-init; Batch 13 (Faz 1 ARC-001)
+            // wires the actual FailoverManager from config.mqtt.failover
+            // settings via `init_failover_manager()`.
             failover_manager: None,
+            // BATCH-14 ARC-003: None-init; `init_health_server()` below
+            // constructs HealthState + spawns the HTTP server iff
+            // config.health.enabled == true. None when feature OFF or
+            // config disabled — matches the plan's zero-cost-when-unused
+            // pattern for optional orchestrator endpoints.
+            #[cfg(feature = "health")]
+            health_state: None,
         }
     }
 
@@ -443,6 +474,68 @@ impl AppState {
             self.config.mqtt.failover.backup_broker.as_deref()
         );
         Some(health_check_handle)
+    }
+
+    /// Construct HealthState + spawn the HTTP health server (Batch 14 Faz 1
+    /// Step 1.4 / ARC-003).
+    ///
+    /// WHY: Docker / k8s / systemd orchestrators need `/health /ready
+    /// /metrics /diagnostics` endpoints for liveness + readiness gating.
+    /// The existing `health.rs` module already implements the axum routes
+    /// and the `HealthState` counter struct; this method completes the
+    /// wire-up by constructing + assigning + spawning.
+    ///
+    /// WHAT:
+    /// - Returns `Ok(Some(JoinHandle))` with the spawned server handle
+    ///   when `config.health.enabled == true` AND the bind address parses.
+    /// - Returns `Ok(None)` when `config.health.enabled == false` (normal
+    ///   disabled path — no error, no warning).
+    /// - Returns `Err(ConfigParseError)` when enabled but bind address
+    ///   fails to parse — FAIL-CLOSED boot; misconfiguration does not
+    ///   silently drop the endpoint.
+    ///
+    /// INVARIANTS:
+    /// - AppState.health_state is populated ONLY when server actually
+    ///   spawned. Downstream push-paths (Sprint 6.2) can `match`
+    ///   `self.health_state.as_ref()` and no-op cleanly when disabled.
+    /// - Server bind is default localhost:8080 per the HealthServerConfig
+    ///   Default impl — operator must explicitly open to routable
+    ///   interfaces (SL-2 defense-in-depth).
+    /// - `HealthState::set_config_loaded(true)` is called immediately
+    ///   after construction so `/ready` reflects the real post-config
+    ///   state from the first probe.
+    ///
+    /// OBS-14-001 (session-observations.md): MQTT/modbus/script engine
+    /// counter-update paths NOT wired in this batch. Counters read 0
+    /// until Sprint 6.2.
+    #[cfg(feature = "health")]
+    pub async fn init_health_server(&mut self) -> Result<Option<tokio::task::JoinHandle<()>>, String> {
+        if !self.config.health.enabled {
+            return Ok(None);
+        }
+
+        let addr: std::net::SocketAddr = match self.config.health.bind.parse() {
+            Ok(a) => a,
+            Err(e) => {
+                return Err(format!(
+                    "health.bind `{}` is not a valid SocketAddr: {}",
+                    self.config.health.bind, e
+                ));
+            }
+        };
+
+        let health_state = crate::health::HealthState::new();
+        health_state.set_config_loaded(true);
+
+        // Clone for the server task; keep the original on AppState so
+        // downstream subsystems can push counter updates to the SAME
+        // Arc<HealthStateInner> (HealthState::Clone is Arc-cheap).
+        let server_handle =
+            crate::health::start_health_server(addr, health_state.clone()).await;
+        self.health_state = Some(health_state);
+
+        info!("HealthServer wired: bind={}", addr);
+        Ok(Some(server_handle))
     }
 
     /// Initialize hardware handles (must be called within LocalSet context)
@@ -616,6 +709,30 @@ async fn async_main() -> Result<()> {
     let _failover_health_check: Option<tokio::task::JoinHandle<()>> = {
         let mut state_guard = state.write().await;
         state_guard.init_failover_manager()
+    };
+
+    // Initialize HealthServer (Faz 1 Step 1.4 / ARC-003 / Batch 14).
+    //
+    // WHY: Orchestrator liveness probes (Docker / k8s / systemd) need the
+    // HTTP endpoints. Server spawns on localhost:8080 by default (per
+    // HealthServerConfig::default()) only when config.health.enabled=true;
+    // otherwise stays None at zero cost.
+    //
+    // WHAT: `init_health_server()` returns Err on invalid bind address
+    // (fail-closed boot — misconfig never silently drops the endpoint);
+    // Ok(None) on disabled config; Ok(Some(handle)) on successful spawn.
+    // The JoinHandle is dropped here — Sprint 6.7 wires it into the
+    // ShutdownPhase::Draining force-cancel list.
+    #[cfg(feature = "health")]
+    let _health_server_handle: Option<tokio::task::JoinHandle<()>> = {
+        let mut state_guard = state.write().await;
+        match state_guard.init_health_server().await {
+            Ok(h) => h,
+            Err(msg) => {
+                error!("HealthServer init failed (fail-closed boot): {}", msg);
+                std::process::exit(1);
+            }
+        }
     };
 
     // Setup graceful shutdown

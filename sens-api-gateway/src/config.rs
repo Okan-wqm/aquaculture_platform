@@ -175,6 +175,14 @@ pub struct AgentConfig {
     /// MQTT configuration
     pub mqtt: MqttConfig,
 
+    /// Health HTTP server configuration (Batch 14 ARC-003).
+    /// Default: disabled with localhost:8080 bind. Per plan §5 Faz 1
+    /// Step 1.4 HealthServer wire — orchestrators (Docker / k8s /
+    /// systemd) probe /health + /ready + /metrics + /diagnostics for
+    /// liveness + readiness gating.
+    #[serde(default)]
+    pub health: HealthServerConfig,
+
     /// Telemetry configuration
     #[serde(default)]
     pub telemetry: TelemetryConfig,
@@ -355,6 +363,56 @@ impl Default for MqttFailoverConfig {
             health_check_interval_secs: default_failover_health_check_secs(),
             max_failures: default_failover_max_failures(),
             recovery_delay_secs: default_failover_recovery_delay_secs(),
+        }
+    }
+}
+
+// =============================================================================
+// HealthServerConfig — Batch 14 ARC-003 (HealthServer wire)
+// =============================================================================
+//
+// WHY: Plan §5 Faz 1 Step 1.4 — `health.rs` implements an axum HTTP server
+// exposing `/health /ready /metrics /diagnostics` for orchestrator liveness
+// probes (Docker, k8s, systemd). Pre-Batch-14 the file was dead-code.
+// OBS-14-001 (see session-observations.md): HealthState counter update
+// paths from MQTT / modbus / script engine subsystems are NOT wired —
+// metrics will report 0 until Sprint 6.2 threads HealthState clones into
+// those subsystems. This batch wires the server + AppState field only.
+//
+// WHAT: Config struct with:
+//   - `enabled` — master toggle (default false per plan HC-6 rollout
+//     discipline; explicit opt-in per deployment).
+//   - `bind` — SocketAddr string. Default `127.0.0.1:8080` (LOCALHOST
+//     ONLY — orchestrators probe via loopback or sidecar; external
+//     scrape requires explicit operator reconfigure to the routable
+//     interface).
+//
+// INVARIANT: Server binds to `bind` ONLY when `enabled == true`. Invalid
+// SocketAddr parse fails at boot with operator-visible ERROR; no silent
+// fallback to a different address.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HealthServerConfig {
+    /// Master toggle for the HTTP health server.
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Bind address for the health server. Default `127.0.0.1:8080` —
+    /// LOCALHOST ONLY. Operators MUST explicitly reconfigure to route
+    /// externally (e.g. `0.0.0.0:8080` or a specific interface);
+    /// default is intentionally non-routable per SL-2 defense-in-depth.
+    #[serde(default = "default_health_bind")]
+    pub bind: String,
+}
+
+fn default_health_bind() -> String {
+    "127.0.0.1:8080".to_string()
+}
+
+impl Default for HealthServerConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            bind: default_health_bind(),
         }
     }
 }

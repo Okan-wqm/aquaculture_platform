@@ -364,7 +364,16 @@ rppal = { version = "0.17", optional = true }
 #       rollout be staged per-tenant without new binary variants.
 # INVARIANT: tests/invariants/default_build_no_security_escape.rs — default build
 #            must NOT enable any feature that changes security posture silently.
-default = []
+# BATCH-001-CI-FIX-016 (Batch 14 ARC-003): `health` added to default
+# features per plan §5 Faz 1 Step 1.4. The HTTP health server is needed
+# by every deployment running under docker / k8s / systemd liveness
+# probes. Server itself only binds when `config.health.enabled=true`
+# (serde default false), so enabling the feature in the binary is
+# zero-cost for operators who leave the config disabled — ~200KB
+# axum+tower link-cost paid once per binary. `gpio` is NOT added to
+# defaults because not every target has RPi hardware; operators
+# explicitly enable via `--features gpio` in per-deployment build.
+default = ["health"]
 gpio = ["rppal"]
 # HTTP health check endpoint (uses axum)
 health = ["axum"]

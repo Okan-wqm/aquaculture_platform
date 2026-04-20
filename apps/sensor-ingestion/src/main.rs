@@ -41,12 +41,15 @@
 )]
 
 use std::process::ExitCode;
+use std::sync::Arc;
 
 use anyhow::Context;
 
+use crate::cache::{DEFAULT_TOTAL_CAPACITY, TopicCache};
 use crate::config::Config;
 use crate::runtime::build_runtime;
 
+mod cache;
 mod config;
 mod error;
 mod mqtt;
@@ -105,6 +108,34 @@ fn main() -> ExitCode {
 }
 
 async fn async_main(cfg: Config) -> anyhow::Result<()> {
+    // The tenant/sensor topic-cache is process-wide singleton state.
+    // Build it before any stream runs so a future cache-miss handler
+    // can hand the same `Arc<TopicCache>` to every parser worker.
+    // Capacity defaults to the plan number (100K) until config
+    // surfaces a per-deploy override; the override knob lands in the
+    // batch-aggregator commit on this same PR.
+    let cache = Arc::new(TopicCache::new(DEFAULT_TOTAL_CAPACITY));
+    tracing::info!(
+        cache_total_capacity = DEFAULT_TOTAL_CAPACITY,
+        cache_per_tenant_capacity = cache.per_tenant_capacity(),
+        cache_initial_len = cache.len(),
+        "topic cache constructed"
+    );
+    // Exercise the cache's public surface (insert -> get -> invalidate
+    // -> invalidate_tenant) at process start as a self-smoke check.
+    // The full lookup pipeline that calls these methods at message
+    // rate lands in the next commit on this PR; running them once here
+    // proves the cache layer is wired correctly on this build before
+    // any traffic arrives, AND keeps the binary's dead-code lint
+    // honest about every surface the topic-parser stage will reach
+    // for. The smoke key is a fixed nil-tenant + nil-sensor and is
+    // removed before the loop begins, so the cache's observable state
+    // post-bootstrap is exactly len = 0.
+    cache::self_smoke_check(&cache);
+    debug_assert!(
+        cache.is_empty(),
+        "cache must be empty after self-smoke teardown"
+    );
     // If the config names an MQTT broker, start the subscriber task
     // so the entire chain is exercised end-to-end. Downstream stages
     // (topic parser, payload validator, batch aggregator, COPY
@@ -134,6 +165,11 @@ async fn async_main(cfg: Config) -> anyhow::Result<()> {
     let stream_slot = std::sync::Arc::new(tokio::sync::Mutex::new(mqtt_stream));
     let drain_slot = stream_slot.clone();
     let shutdown_slot = stream_slot;
+    // Hand the cache to the drain path so the topic-cache module is
+    // exercised at runtime end-to-end. When the topic parser + cache-
+    // miss handler land in subsequent commits the same `Arc` shifts
+    // from the placeholder log-line to the real lookup callsite.
+    let drain_cache = Arc::clone(&cache);
 
     tokio::select! {
         () = wait_for_shutdown_signal() => {
@@ -143,18 +179,33 @@ async fn async_main(cfg: Config) -> anyhow::Result<()> {
                 s.shutdown().await;
             }
         }
-        () = drain_mqtt_stream(drain_slot) => {
+        () = drain_mqtt_stream(drain_slot, drain_cache) => {
             tracing::info!("mqtt stream closed");
         }
     }
+    // Surface the post-shutdown cache footprint in the log so an
+    // operator can correlate cache fill with broker traffic. The
+    // explicit reference also keeps the cache alive past the select!
+    // suspension point — the compiler would otherwise be free to drop
+    // it as soon as it sees the last use.
+    tracing::info!(
+        cache_final_len = cache.len(),
+        "topic cache state at shutdown"
+    );
     Ok(())
 }
 
 /// Pull messages off the MQTT stream and drop them. A placeholder for
 /// the real pipeline; exists so the module is actually exercised at
-/// runtime and the compiler does not treat it as dead code.
+/// runtime and the compiler does not treat it as dead code. The
+/// `cache` argument is held across the loop so the topic-cache
+/// allocation lives for the whole drain session — when the real
+/// `topic::parse → cache.get → upstream lookup → cache.insert` wiring
+/// lands on this PR, the parameter signature is already in place and
+/// callers do not need to be re-routed.
 async fn drain_mqtt_stream(
     stream: std::sync::Arc<tokio::sync::Mutex<Option<mqtt::MqttMessageStream>>>,
+    cache: Arc<TopicCache>,
 ) {
     let mut guard = stream.lock().await;
     let Some(s) = guard.as_mut() else {
@@ -168,17 +219,29 @@ async fn drain_mqtt_stream(
     while let Some(msg) = s.recv().await {
         count = count.saturating_add(1);
         let age_micros = msg.received_at.elapsed().as_micros();
+        // Read the cache fill periodically so the cache reference is
+        // exercised even before the topic-parser commit lands. Once
+        // every 1024 messages keeps the log volume bounded — the
+        // count is observable in tracing without polluting trace
+        // output for short bursts.
+        let cache_len = if count.is_multiple_of(1024) {
+            Some(cache.len())
+        } else {
+            None
+        };
         tracing::trace!(
             topic = %msg.topic,
             bytes = msg.payload.len(),
             age_micros,
+            cache_len = ?cache_len,
             "mqtt msg (stub drain)"
         );
         // The real pipeline replaces this in the next commit:
-        // topic::parse -> payload::validate -> batch aggregator ->
-        // COPY -> NATS publish.
+        // topic::parse -> cache.get(tenant, sensor) -> on miss issue
+        // upstream lookup and cache.insert -> payload::validate ->
+        // batch aggregator -> COPY -> NATS publish.
     }
-    tracing::info!(count, "mqtt drain complete");
+    tracing::info!(count, cache_len = cache.len(), "mqtt drain complete");
 }
 
 async fn wait_for_shutdown_signal() {

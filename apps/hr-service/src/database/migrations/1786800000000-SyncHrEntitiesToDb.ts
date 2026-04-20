@@ -1,4 +1,5 @@
-import { Logger, MigrationInterface, QueryRunner } from 'typeorm';
+import { Logger } from '@nestjs/common';
+import { MigrationInterface, QueryRunner } from 'typeorm';
 
 /**
  * SyncHrEntitiesToDb

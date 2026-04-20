@@ -1,4 +1,5 @@
-import { MigrationInterface, Logger, QueryRunner } from 'typeorm';
+import { Logger } from '@nestjs/common';
+import { MigrationInterface, QueryRunner } from 'typeorm';
 
 /**
  * PropagateTenantIdUuidToAllSchemas

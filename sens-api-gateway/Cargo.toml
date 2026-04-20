@@ -72,10 +72,21 @@ regex = "1.10"
 # BATCH-001-CI-FIX-004: Bumped to 1.5.0-RC1 to pull in sfio-rustls-config
 # 0.4.0 which uses rustls-webpki 0.103.12 (patches RUSTSEC-2026-0049/
 # 0098/0099). The rodbus 1.5 API MAY break the empty-Path workaround —
-# Sprint 1.8 ARC-007 rewrite to `enum TlsMode { Full{cert,key},
-# ServerOnly, None }` is required before enabling modbus TLS in
-# production. Documented in ORPHAN-002 → now TRACKED for Sprint 1.8.
-rodbus = "1.5.0-RC1"
+# Batch 22 ARC-007: exact-pin to a single rodbus RC version.
+# Plan §5 Faz 1 Step 7 requires patch-level pinning to block
+# untracked minor upgrades. Caret-default `"1.5.0-RC1"` (used
+# pre-Batch-22) semantically meant `>=1.5.0-RC1, <2.0.0` so
+# Cargo could silently bump through 1.6.x / 1.7.x on every
+# cargo update. `"=1.5.0-RC1"` is the EXACT-pin operator — any
+# version change must be explicit + reviewed. Future bump path:
+# `~1.5.0` (patch-allowing) when rodbus 1.5.0 stable releases;
+# `~1.5` when 1.5.x stabilizes across patches.
+#
+# ARC-007 Tier 1 counterpart: TlsMode enum in config.rs encodes
+# the Full/ServerOnly/Disabled states at the Rust type level so
+# the modbus.rs consumer path cannot observe a half-configured
+# TLS combination (client cert without client key etc).
+rodbus = "=1.5.0-RC1"
 # Keep tokio-serial for RTU serial port support
 tokio-serial = "5.4"
 

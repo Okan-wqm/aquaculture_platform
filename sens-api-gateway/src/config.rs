@@ -1227,6 +1227,14 @@ impl Default for ModbusSecurityConfig {
 ///
 /// Enables encrypted Modbus/TCP communication using TLS.
 /// Supports both server authentication and mutual TLS (mTLS).
+///
+/// Serde-deserialized from YAML as the backward-compat wire
+/// format. Consumers should call `to_mode()` at load time to
+/// convert to the type-level `TlsMode` enum (Batch 22 ARC-007)
+/// which encodes "server-only vs mTLS vs disabled" at the Rust
+/// type level and prevents the `client_cert set but client_key
+/// missing` class of misconfiguration from being representable
+/// in the consumer path.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ModbusTlsConfig {
     /// Enable TLS encryption for Modbus TCP
@@ -1249,6 +1257,93 @@ pub struct ModbusTlsConfig {
     /// Skip server certificate verification (NOT recommended for production)
     #[serde(default)]
     pub insecure_skip_verify: bool,
+}
+
+impl ModbusTlsConfig {
+    /// Convert the serde-deserialized config to the type-level
+    /// `TlsMode` enum. Fails at load time on any invalid
+    /// combination (e.g., client cert set without client key,
+    /// TLS enabled without server_name + ca_cert_path).
+    ///
+    /// Batch 22 ARC-007: this is the tier-1 "make it impossible"
+    /// boundary. Downstream consumers pattern-match on TlsMode
+    /// and cannot observe half-configured TLS state.
+    pub fn to_mode(&self) -> Result<TlsMode, String> {
+        if !self.enabled {
+            return Ok(TlsMode::Disabled);
+        }
+
+        let server_name = self.server_name.as_ref().ok_or_else(|| {
+            "TLS enabled but `server_name` is missing (required for SNI validation)".to_string()
+        })?;
+        let ca_cert_path = self.ca_cert_path.as_ref().ok_or_else(|| {
+            "TLS enabled but `ca_cert_path` is missing (required for server cert validation)"
+                .to_string()
+        })?;
+
+        match (self.client_cert_path.as_ref(), self.client_key_path.as_ref()) {
+            (None, None) => Ok(TlsMode::ServerOnly {
+                server_name: server_name.clone(),
+                ca_cert_path: ca_cert_path.clone(),
+                insecure_skip_verify: self.insecure_skip_verify,
+            }),
+            (Some(cert), Some(key)) => Ok(TlsMode::Full {
+                server_name: server_name.clone(),
+                ca_cert_path: ca_cert_path.clone(),
+                client_cert_path: cert.clone(),
+                client_key_path: key.clone(),
+                insecure_skip_verify: self.insecure_skip_verify,
+            }),
+            (Some(_), None) => Err(
+                "TLS mTLS requires both `client_cert_path` and `client_key_path`; `client_key_path` is missing"
+                    .to_string(),
+            ),
+            (None, Some(_)) => Err(
+                "TLS mTLS requires both `client_cert_path` and `client_key_path`; `client_cert_path` is missing"
+                    .to_string(),
+            ),
+        }
+    }
+}
+
+/// TLS mode enum (Batch 22 ARC-007).
+///
+/// Type-level encoding of the three valid Modbus-over-TLS
+/// configurations. A value of type `TlsMode` is statically
+/// guaranteed to be ONE of these three states — the consumer
+/// path cannot observe a half-configured combination like
+/// "client cert set but client key missing".
+///
+/// WHY NOT KEEP SERDE AT THIS LEVEL: Serde-derived enums with
+/// internally-tagged representation would surface discriminator
+/// fields in the YAML config, breaking backward compat with the
+/// existing `enabled: true` / `client_cert_path: ...` flat
+/// schema. The TlsMode enum is the INTERNAL consumer-facing
+/// representation; `ModbusTlsConfig` remains the serde-
+/// deserialized wire format + `to_mode()` is the load-time
+/// conversion boundary.
+#[derive(Debug, Clone)]
+pub enum TlsMode {
+    /// TLS not in use — plaintext Modbus TCP.
+    Disabled,
+    /// Server-only TLS: agent validates the PLC server cert;
+    /// PLC does NOT validate the agent client cert. Minimum
+    /// useful TLS posture for legacy PLCs without client-cert
+    /// infrastructure.
+    ServerOnly {
+        server_name: String,
+        ca_cert_path: String,
+        insecure_skip_verify: bool,
+    },
+    /// Full mutual TLS: both sides present certs + both validate.
+    /// IEC 62443 SL2 FR4 preferred posture.
+    Full {
+        server_name: String,
+        ca_cert_path: String,
+        client_cert_path: String,
+        client_key_path: String,
+        insecure_skip_verify: bool,
+    },
 }
 
 /// Modbus device configuration

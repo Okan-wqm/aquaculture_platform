@@ -305,6 +305,51 @@ Each case silently writes an out-of-range value to the PLC register — the oper
 
 ---
 
+## ORPHAN-010 — systemd unit `ReadWritePaths=/var/lib/suderra-agent` diverges from runtime code which writes to `/var/lib/suderra`
+
+**Severity:** MEDIUM (production write-deny under hardened sandbox)
+**Discovered:** 2026-04-20, Batch 4a (edge-expert while hardening systemd unit)
+**File:** `sens-api-gateway/systemd/suderra-agent.service:39` (pre-Batch-4a) vs `sens-api-gateway/src/main.rs:1127`, `src/scripting/engine.rs:180`, `src/commands.rs:235,859`, `src/scada_server.rs:62`, `src/backup.rs:27`, `src/config.rs:934`
+
+**Evidence:**
+
+`suderra-agent.service` pre-hardening:
+```
+ReadWritePaths=/var/lib/suderra-agent /etc/suderra
+```
+
+`src/main.rs:1127`:
+```rust
+let data_dir = std::env::var("SUDERRA_DATA_DIR").unwrap_or_else(|_| "/var/lib/suderra".to_string());
+```
+
+`src/scada_server.rs:62`:
+```rust
+const SCADA_DIR: &str = "/var/lib/suderra/scada";
+```
+
+**Problem:** systemd unit whitelists `/var/lib/suderra-agent` (no trailing content) for writes under `ProtectSystem=strict`, but every live write path in the agent targets `/var/lib/suderra` (no `-agent` suffix). Under the pre-Batch-4a loose sandbox (`ProtectSystem=strict` was present but without stricter layering), the mismatch was silently tolerated because `/var/lib/suderra` is not owned by another service and the agent ran with broader ambient permissions. Under the Batch-4a hardened sandbox (`ProtectKernelModules`, `ProtectHostname`, `SystemCallFilter`, `DevicePolicy=closed`), every agent write to `/var/lib/suderra/*` would become EROFS/EACCES — offline queue SQLCipher, scada deploy artifacts, firmware update staging, backups, LoRa session state all break.
+
+**Risk:**
+- Every SQLCipher open on offline_queue fails → telemetry + audit queue fails → cloud-sync gap → IEC 62443 FR6 timely-response violation.
+- Firmware update staging fails silently → operator thinks update succeeded, next boot rolls back → fleet-wide update stall.
+- Paired with ORPHAN-005 (SUDERRA_DATA_DIR redirect): hostile process sets `SUDERRA_DATA_DIR=/var/lib/suderra-agent` to align with the buggy ReadWritePaths — defense bypass.
+
+**Reproducibility:**
+1. Apply pre-Batch-4a systemd unit verbatim.
+2. Boot v1.6.0+ agent.
+3. Observe EROFS/EACCES in journal for every SQLCipher open.
+
+**Recommendation:**
+- **Source-of-truth:** code path wins (`/var/lib/suderra`).
+- systemd `ReadWritePaths=/var/lib/suderra /var/log/suderra`.
+- Remove `/etc/suderra` from ReadWritePaths — config is operator-owned and factory-signed (plan D-13), agent never writes to `/etc/suderra`.
+- Resolved in Batch 4a hardened unit.
+
+**Status:** RESOLVED-IN-BATCH-4A — hardened `suderra-agent.service` uses `/var/lib/suderra` + `/var/log/suderra` and explicit `ReadOnlyPaths=/etc/suderra`.
+
+---
+
 ## Notes on methodology
 
 - Findings discovered during normal code review; NOT dedicated orphan-bug sweep.

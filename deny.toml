@@ -27,6 +27,12 @@ allow = [
     "CDLA-Permissive-2.0",
 ]
 confidence-threshold = 0.93
+# Workspace members carry `license = "Proprietary"` (publish = false, first-
+# party). "Proprietary" is not a valid SPDX identifier, so cargo-deny would
+# otherwise flag them as unlicensed. private.ignore tells cargo-deny to skip
+# license enforcement for crates that are workspace-private — exactly the
+# semantic we want. Third-party deps still go through the SPDX allow list above.
+private = { ignore = true }
 
 [[licenses.exceptions]]
 allow = ["OpenSSL"]

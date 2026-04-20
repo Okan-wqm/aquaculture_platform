@@ -1,0 +1,40 @@
+[package]
+name = "sensor-ingestion"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+description = "Rust sidecar for the sensor-service ingestion hot path. MQTT subscribe -> protocol-codec parse -> tenant-scoped validate -> TimescaleDB COPY -> NATS event publish. Per-tenant feature-flag rollout per ADR-025."
+
+[[bin]]
+name = "sensor-ingestion"
+path = "src/main.rs"
+
+[dependencies]
+# Workspace crates the binary wires together.
+protocol-codec = { path = "../../crates/protocol-codec" }
+tenant-context = { path = "../../crates/tenant-context" }
+nats-client = { path = "../../crates/nats-client" }
+observability = { path = "../../crates/observability" }
+
+# Async runtime + IO.
+tokio = { workspace = true, features = ["full"] }
+futures = { workspace = true }
+
+# Config + serde.
+serde = { workspace = true }
+toml = "0.8"
+
+# Error + tracing.
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3.10"
+
+[lints]
+workspace = true

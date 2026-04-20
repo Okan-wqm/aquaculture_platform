@@ -12,10 +12,33 @@ description = "Tracing + OTLP + Prometheus initialisation, common across every R
 [lib]
 path = "src/lib.rs"
 
-# [dependencies] intentionally empty during Faz 0 PR-A scaffold. tracing,
-# tracing-subscriber, tracing-opentelemetry, opentelemetry, opentelemetry_sdk,
-# opentelemetry-otlp, metrics + metrics-exporter-prometheus land alongside
-# the init function + masking layer in Faz 2.
+[dependencies]
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+secrecy = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+# OTLP exporter is feature-gated to keep the default surface small.
+# sensor-ingestion enables it at deployment time; library callers can
+# opt in via `features = ["otlp"]`.
+opentelemetry = { workspace = true, optional = true }
+opentelemetry_sdk = { workspace = true, optional = true }
+opentelemetry-otlp = { workspace = true, optional = true }
+tracing-opentelemetry = { workspace = true, optional = true }
+
+[features]
+default = []
+otlp = [
+    "dep:opentelemetry",
+    "dep:opentelemetry_sdk",
+    "dep:opentelemetry-otlp",
+    "dep:tracing-opentelemetry",
+]
+
+[dev-dependencies]
+serde_json = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 
 [lints]
 workspace = true

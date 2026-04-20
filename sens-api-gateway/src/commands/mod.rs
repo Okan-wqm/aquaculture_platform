@@ -54,6 +54,14 @@ mod read;
 // tokio::spawn pattern documented for reboot/restart.
 mod system;
 
+// Batch 20h ARC-008 god-file split: protocol-write handlers
+// (cmd_write_modbus, cmd_write_gpio, cmd_write_opcua, cmd_write_s7)
+// extracted to `commands/write.rs`. OPC UA + S7 are honest stubs;
+// Sprint 6.x fills them in per plan §5 Faz 5. IO-config lifecycle
+// (update_io_config, set_output) lands in a separate sub-module
+// because it depends on the io-config parse/persist helpers.
+mod write;
+
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -843,176 +851,10 @@ impl CommandHandler {
     // cmd_scan_hardware, cmd_read_modbus moved to
     // `commands/read.rs`.
 
-    /// Write to Modbus register
-    async fn cmd_write_modbus(&self, params: &Value) -> (bool, Value, Option<String>) {
-        info!("Executing write_modbus command");
-
-        let device_name = match params.get("device").and_then(|v| v.as_str()) {
-            Some(d) => d,
-            None => {
-                return (
-                    false,
-                    json!(null),
-                    Some("Missing 'device' parameter".to_string()),
-                );
-            }
-        };
-
-        let address = match params.get("address").and_then(|v| v.as_u64()) {
-            Some(a) if a <= u16::MAX as u64 => a as u16,
-            Some(a) => {
-                return (
-                    false,
-                    json!(null),
-                    Some(format!(
-                        "Address {} exceeds maximum u16 value ({})",
-                        a,
-                        u16::MAX
-                    )),
-                );
-            }
-            None => {
-                return (
-                    false,
-                    json!(null),
-                    Some("Missing 'address' parameter".to_string()),
-                );
-            }
-        };
-
-        let value = match params.get("value").and_then(|v| v.as_u64()) {
-            Some(v) if v <= u16::MAX as u64 => v as u16,
-            Some(v) => {
-                return (
-                    false,
-                    json!(null),
-                    Some(format!(
-                        "Value {} exceeds maximum u16 value ({})",
-                        v,
-                        u16::MAX
-                    )),
-                );
-            }
-            None => {
-                return (
-                    false,
-                    json!(null),
-                    Some("Missing 'value' parameter".to_string()),
-                );
-            }
-        };
-
-        // Get modbus handle (thread-safe)
-        let modbus_handle = {
-            let state = self.state.read().await;
-            state.modbus_handle.clone()
-        };
-
-        let handle = match modbus_handle {
-            Some(h) => h,
-            None => {
-                return (
-                    false,
-                    json!(null),
-                    Some("No Modbus devices configured".to_string()),
-                );
-            }
-        };
-
-        match handle.write_register(device_name, address, value).await {
-            Ok(()) => {
-                info!("Wrote {} to register {} on {}", value, address, device_name);
-                (
-                    true,
-                    json!({"device": device_name, "address": address, "value": value}),
-                    None,
-                )
-            }
-            Err(e) => {
-                error!("Failed to write Modbus register: {}", e);
-                (false, json!(null), Some(format!("Write failed: {}", e)))
-            }
-        }
-    }
-
+    // Batch 20h ARC-008 god-file split: cmd_write_modbus,
+    // cmd_write_gpio moved to `commands/write.rs`.
     // Batch 20f ARC-008 god-file split: cmd_read_gpio moved to
     // `commands/read.rs`.
-
-    /// Write to GPIO pin (v2.2: uses gpio_handle actor pattern)
-    async fn cmd_write_gpio(&self, params: &Value) -> (bool, Value, Option<String>) {
-        info!("Executing write_gpio command");
-
-        let pin = match params.get("pin").and_then(|v| v.as_u64()) {
-            Some(p) if p <= u8::MAX as u64 => p as u8,
-            Some(p) => {
-                return (
-                    false,
-                    json!(null),
-                    Some(format!("GPIO pin {} exceeds valid range (0-255)", p)),
-                );
-            }
-            None => {
-                return (
-                    false,
-                    json!(null),
-                    Some("Missing 'pin' parameter".to_string()),
-                );
-            }
-        };
-
-        let state_value = match params.get("state").and_then(|v| v.as_str()) {
-            Some(s) => s,
-            None => {
-                return (
-                    false,
-                    json!(null),
-                    Some("Missing 'state' parameter (high/low)".to_string()),
-                );
-            }
-        };
-
-        // v2.2: Convert to bool for gpio_handle API
-        let pin_value = match state_value.to_lowercase().as_str() {
-            "high" | "1" | "true" | "on" => true,
-            "low" | "0" | "false" | "off" => false,
-            _ => {
-                return (
-                    false,
-                    json!(null),
-                    Some("Invalid state. Use 'high' or 'low'".to_string()),
-                );
-            }
-        };
-
-        // Get gpio_handle from state (clone to release lock)
-        let gpio_handle = {
-            let state = self.state.read().await;
-            state.gpio_handle.clone()
-        };
-
-        let gpio_handle = match gpio_handle {
-            Some(h) => h,
-            None => {
-                return (
-                    false,
-                    json!(null),
-                    Some("No GPIO pins configured".to_string()),
-                );
-            }
-        };
-
-        // v2.2: Use async gpio_handle.write_pin() instead of sync gpio_manager
-        match gpio_handle.write_pin(pin, pin_value).await {
-            Ok(()) => {
-                info!("Set GPIO pin {} to {}", pin, state_value);
-                (true, json!({"pin": pin, "state": state_value}), None)
-            }
-            Err(e) => {
-                error!("Failed to write GPIO pin: {}", e);
-                (false, json!(null), Some(format!("Write failed: {}", e)))
-            }
-        }
-    }
 
     // Batch 20e ARC-008 god-file split: cmd_list_scripts,
     // cmd_get_script, cmd_deploy_script, cmd_delete_script,
@@ -2351,45 +2193,9 @@ impl CommandHandler {
         }
     }
 
-    /// Write a value to an OPC-UA node on a PLC
-    /// Stub: not yet implemented
-    async fn cmd_write_opcua(&self, params: &Value) -> (bool, Value, Option<String>) {
-        warn!("cmd_write_opcua called but OPC-UA write is not yet implemented");
-
-        let address = params.get("address").and_then(|v| v.as_str()).unwrap_or("<unknown>");
-        let value = params.get("value").unwrap_or(&json!(null));
-
-        (
-            false,
-            json!({
-                "protocol": "opcua",
-                "address": address,
-                "requested_value": value,
-                "implemented": false,
-            }),
-            Some("OPC-UA write not yet implemented".to_string()),
-        )
-    }
-
-    /// Write a value to an S7 PLC via S7comm protocol
-    /// Stub: not yet implemented
-    async fn cmd_write_s7(&self, params: &Value) -> (bool, Value, Option<String>) {
-        warn!("cmd_write_s7 called but S7 write is not yet implemented");
-
-        let address = params.get("address").and_then(|v| v.as_str()).unwrap_or("<unknown>");
-        let value = params.get("value").unwrap_or(&json!(null));
-
-        (
-            false,
-            json!({
-                "protocol": "s7comm",
-                "address": address,
-                "requested_value": value,
-                "implemented": false,
-            }),
-            Some("S7 write not yet implemented".to_string()),
-        )
-    }
+    // Batch 20h ARC-008 god-file split: cmd_write_opcua,
+    // cmd_write_s7 moved to `commands/write.rs` (both are honest
+    // stubs; Sprint 6.x fills them in per plan §5 Faz 5).
 
     /// Validate IEC 61131-3 Structured Text code
     /// v2.2: Uses the real AST-based parser/validator

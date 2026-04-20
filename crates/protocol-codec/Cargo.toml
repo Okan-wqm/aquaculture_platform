@@ -1,0 +1,27 @@
+[package]
+name = "protocol-codec"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+description = "Pure parser/codec for industrial sensor protocols (Modbus, LoRaWAN, OPC-UA, S7, EtherNet/IP). Single source of truth shared between sens-api-gateway (edge) and sensor-ingestion (cloud)."
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+bytes = { workspace = true }
+nom = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+hex = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

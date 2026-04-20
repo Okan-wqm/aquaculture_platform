@@ -1,0 +1,56 @@
+{
+  "name": "protocol-codec",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "library",
+  "sourceRoot": "crates/protocol-codec/src",
+  "tags": ["scope:rust", "type:crate", "layer:codec"],
+  "targets": {
+    "build": {
+      "executor": "@aqua/cargo:run",
+      "options": {
+        "command": "build",
+        "package": "protocol-codec",
+        "release": false
+      },
+      "outputs": ["{workspaceRoot}/target/debug/libprotocol_codec.rlib"],
+      "cache": true
+    },
+    "build-release": {
+      "executor": "@aqua/cargo:run",
+      "options": {
+        "command": "build",
+        "package": "protocol-codec",
+        "release": true
+      },
+      "outputs": ["{workspaceRoot}/target/release/libprotocol_codec.rlib"],
+      "cache": true
+    },
+    "test": {
+      "executor": "@aqua/cargo:run",
+      "options": {
+        "command": "test",
+        "package": "protocol-codec",
+        "allFeatures": true
+      },
+      "cache": true
+    },
+    "lint": {
+      "executor": "@aqua/cargo:run",
+      "options": {
+        "command": "clippy",
+        "package": "protocol-codec",
+        "args": ["--all-targets", "--all-features", "--", "-D", "warnings"]
+      },
+      "cache": true
+    },
+    "fmt-check": {
+      "executor": "@aqua/cargo:run",
+      "options": {
+        "command": "fmt",
+        "package": "protocol-codec",
+        "args": ["--", "--check"]
+      },
+      "cache": true
+    }
+  }
+}

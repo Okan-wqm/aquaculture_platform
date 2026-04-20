@@ -1,0 +1,103 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/protocol-codec",
+    "crates/tenant-context",
+    "crates/event-contracts-rs",
+    "crates/nats-client",
+    "crates/observability",
+]
+exclude = [
+    "sens-api-gateway",
+    "sens-api-gateway/fuzz",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+authors = ["Aquaculture Platform Team <platform@aquaculture.dev>"]
+license = "Proprietary"
+repository = "https://github.com/Okan-wqm/aquaculture_platform"
+publish = false
+
+[workspace.dependencies]
+tokio = { version = "1.43", features = ["full"] }
+async-trait = "0.1"
+futures = "0.3"
+
+bytes = "1.7"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+uuid = { version = "1.10", features = ["v4", "v7", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+anyhow = "1.0"
+thiserror = "2.0"
+secrecy = { version = "0.8", features = ["serde"] }
+
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-opentelemetry = "0.28"
+opentelemetry = { version = "0.27", features = ["trace"] }
+opentelemetry_sdk = { version = "0.27", features = ["rt-tokio", "trace"] }
+opentelemetry-otlp = { version = "0.27", features = ["grpc-tonic"] }
+
+metrics = "0.24"
+metrics-exporter-prometheus = "0.16"
+
+nom = "7.1"
+hex = "0.4"
+
+async-nats = "0.37"
+rustls = "0.23"
+rustls-pemfile = "2.2"
+rustls-native-certs = "0.8"
+
+proptest = "1.5"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = true
+panic = "abort"
+debug = false
+
+[profile.release-with-debug]
+inherits = "release"
+debug = true
+strip = false
+
+[profile.bench]
+opt-level = 3
+lto = "thin"
+debug = true
+
+[profile.dev]
+opt-level = 0
+debug = true
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+unused_must_use = "deny"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+indexing_slicing = "deny"
+unimplemented = "deny"
+todo = "deny"
+dbg_macro = "deny"
+print_stdout = "deny"
+print_stderr = "deny"
+mod_module_files = "deny"
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"

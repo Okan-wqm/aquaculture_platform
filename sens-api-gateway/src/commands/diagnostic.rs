@@ -79,6 +79,14 @@ impl CommandHandler {
 
         let state = self.state.read().await;
 
+        // Batch 36: extended to surface Faz 2 security posture
+        // fields (mtls rollout stage, replay-protection
+        // thresholds, shutdown/drain timeouts). Operators
+        // running the platform UI's "Device → Config" view
+        // see the ACTIVE values rather than assuming defaults.
+        // Preserved allowlist discipline — every new field is
+        // explicitly listed; secrets (mqtt.password, master-key
+        // paths, cert keys) remain absent.
         let config = json!({
             "device_id": state.config.device_id,
             "device_code": state.config.device_code,
@@ -92,6 +100,30 @@ impl CommandHandler {
             },
             "logging": {
                 "level": state.config.logging.level,
+            },
+            // Batch 27: mTLS rollout stage visibility.
+            "mtls": {
+                "mode": format!("{:?}", state.config.mtls.mode).to_lowercase(),
+                "enforce_fingerprint_pinning": state.config.mtls.enforce_fingerprint_pinning,
+                "min_tls_version": state.config.mtls.min_tls_version,
+            },
+            // Batch 32+34: shutdown + replay-protection thresholds.
+            "runtime": {
+                "shutdown_timeout_secs": state.config.runtime.shutdown_timeout_secs,
+                "drain_timeout_ms": state.config.runtime.drain_timeout_ms,
+                "max_command_age_secs": state.config.runtime.max_command_age_secs,
+                "max_command_skew_secs": state.config.runtime.max_command_skew_secs,
+                "rate_limit_max_commands": state.config.runtime.rate_limit_max_commands,
+                "rate_limit_window_secs": state.config.runtime.rate_limit_window_secs,
+            },
+            // Batch 18: backup lifecycle visibility.
+            "backup": {
+                "enabled": state.config.backup.enabled,
+                "max_backups": state.config.backup.max_backups,
+            },
+            // Batch 15: offline queue visibility.
+            "offline_queue": {
+                "enabled": state.config.offline_queue.enabled,
             },
             "modbus_devices": state.config.modbus.len(),
             "gpio_pins": state.config.gpio.len(),

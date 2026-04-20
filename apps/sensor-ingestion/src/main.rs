@@ -50,6 +50,7 @@ use crate::runtime::build_runtime;
 mod config;
 mod error;
 mod mqtt;
+mod payload;
 mod runtime;
 mod topic;
 
@@ -182,15 +183,41 @@ async fn drain_mqtt_stream(
         // Counting parse failures separately gives ops a single
         // metric to alarm on without blowing up the log volume on
         // every individual bad publish.
+        // Stage 6 + Stage 7 wiring: parse the topic, then validate
+        // the payload bytes against the topic-derived tenant id.
+        // ADR-025 § Threat 2: any disagreement between topic-tenant
+        // and payload-tenant is a security event, not a parse error.
         match topic::parse(&msg.topic) {
             Ok(parsed) => {
-                tracing::trace!(
-                    topic = %msg.topic,
-                    bytes = msg.payload.len(),
-                    age_micros,
-                    parsed = ?parsed,
-                    "mqtt msg parsed (stub drain)"
-                );
+                let topic_tenant = match parsed {
+                    topic::ParsedTopic::Sensor { tenant, .. }
+                    | topic::ParsedTopic::Device { tenant, .. } => tenant,
+                };
+                match payload::validate(&msg.payload, topic_tenant) {
+                    Ok(reading) => {
+                        tracing::trace!(
+                            topic = %msg.topic,
+                            bytes = msg.payload.len(),
+                            age_micros,
+                            quality = reading.quality,
+                            producer_ts = reading.producer_ts,
+                            "mqtt msg validated (stub drain)"
+                        );
+                        // Real pipeline: batch aggregator -> COPY ->
+                        // NATS publish lands in the next commits on
+                        // this PR.
+                    }
+                    Err(e) => {
+                        topic_parse_failures = topic_parse_failures.saturating_add(1);
+                        tracing::warn!(
+                            topic = %msg.topic,
+                            bytes = msg.payload.len(),
+                            age_micros,
+                            error = %e,
+                            "mqtt msg payload validate failed (dropping)"
+                        );
+                    }
+                }
             }
             Err(e) => {
                 topic_parse_failures = topic_parse_failures.saturating_add(1);
@@ -203,9 +230,6 @@ async fn drain_mqtt_stream(
                 );
             }
         }
-        // The real pipeline replaces this in the next commit:
-        // topic::parse -> payload::validate -> batch aggregator ->
-        // COPY -> NATS publish.
     }
     tracing::info!(count, topic_parse_failures, "mqtt drain complete");
 }

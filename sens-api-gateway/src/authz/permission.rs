@@ -162,9 +162,24 @@ impl OperatorId {
 /// performance finding; Batch 2 stays on `String` to preserve HC-1 ergonomics.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct TagId(pub String);
+pub struct TagId(String);
 
 impl TagId {
+    /// Construct a `TagId` from an owned string. Used at manifest parse
+    /// boundaries and in tests. Wire-format parsing goes through
+    /// `serde(transparent)` which reaches the private field via
+    /// `Deserialize` — that's the sole serde-layer carve-out and is the
+    /// intended path for JSON/YAML manifest ingestion.
+    ///
+    /// **Seal consistency (EDGE-LOW-003 closure):** inner field is private
+    /// to match the `DeviceId` / `TenantId` / `OperatorId` sealed-newtype
+    /// pattern established in Batch 2. External tuple-ctor invocation
+    /// `TagId("raw".to_string())` is now a compile error; callers use
+    /// `TagId::from(s)` or `TagId::new(s)` — both names accepted.
+    pub fn new(s: String) -> Self {
+        Self(s)
+    }
+
     /// Returns the tag identifier as a string slice.
     ///
     /// **WHY:** Enables ergonomic interop with existing `tag_name: &str` APIs
@@ -595,7 +610,7 @@ mod tests {
     #[test]
     fn permission_serde_roundtrip_write_tag_with_param() {
         let p = Permission::WriteTag {
-            tag_id: TagId("pond3_aerator".to_string()),
+            tag_id: TagId::from("pond3_aerator".to_string()),
         };
         let json = serde_json::to_string(&p).expect("serialize");
         let parsed: Permission = serde_json::from_str(&json).expect("deserialize");
@@ -631,7 +646,7 @@ mod tests {
         assert!(!Permission::WatchSubscribe.requires_two_person_integrity());
         assert!(
             !Permission::WriteTag {
-                tag_id: TagId("x".to_string())
+                tag_id: TagId::from("x".to_string())
             }
             .requires_two_person_integrity()
         );
@@ -647,7 +662,7 @@ mod tests {
 
         assert!(
             Permission::WriteTag {
-                tag_id: TagId("x".to_string())
+                tag_id: TagId::from("x".to_string())
             }
             .is_mutating()
         );
@@ -665,7 +680,7 @@ mod tests {
 
     #[test]
     fn tag_id_as_str_matches_construction() {
-        let t = TagId("pond3_aerator".to_string());
+        let t = TagId::from("pond3_aerator".to_string());
         assert_eq!(t.as_str(), "pond3_aerator");
     }
 
@@ -764,7 +779,7 @@ mod tests {
         // Write-side — interface-specific:
         assert!(
             Permission::WriteTag {
-                tag_id: TagId("x".to_string())
+                tag_id: TagId::from("x".to_string())
             }
             .is_mutating()
         );
@@ -785,7 +800,7 @@ mod tests {
         );
         assert!(
             Permission::OpcUaWrite {
-                tag_id: TagId("x".to_string())
+                tag_id: TagId::from("x".to_string())
             }
             .is_mutating()
         );
@@ -831,7 +846,7 @@ mod tests {
 
         // Struct variant with TagId:
         let p = Permission::WriteTag {
-            tag_id: TagId("pond3_aerator".to_string()),
+            tag_id: TagId::from("pond3_aerator".to_string()),
         };
         assert_eq!(
             serde_json::to_string(&p).expect("ok"),

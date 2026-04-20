@@ -41,6 +41,14 @@
 //            submodule-internal helpers stay crate-private.
 pub mod permission;
 
+// Batch 5a — AuthorizedContext sealed proof + PolicyEngine trait. The
+// `AuthorizedContext` ctor is `pub(crate)` and called ONLY from
+// `super::policy::PolicyEngine::authorize` implementations. External
+// callers cannot mint an AuthorizedContext; command handlers that take one
+// as an argument are the make-it-impossible gate per ADR-018 §11.
+pub mod context;
+pub mod policy;
+
 // Re-export the commonly-used types for ergonomic downstream use.
 // Keep this list in sync with public API surface; every addition here is a
 // commitment to forward-compat for downstream consumers (ST VM, commands,
@@ -60,4 +68,21 @@ pub use permission::{
     TagId,
     TenantId,
     ThermalSubClass,
+};
+
+pub use context::{
+    ActorIdentity,
+    AuthorizationDecision,
+    AuthorizationDenyReason,
+    AuthorizedContext,
+};
+
+pub use policy::{
+    AuthorizationRequest,
+    CoApproverEvidence,
+    DenyAllPolicyEngine,
+    Ed25519SignatureBytes,
+    InvalidSignatureLength,
+    PolicyEngine,
+    PolicyEngineError,
 };

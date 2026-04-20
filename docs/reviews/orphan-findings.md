@@ -350,6 +350,36 @@ const SCADA_DIR: &str = "/var/lib/suderra/scada";
 
 ---
 
+## ORPHAN-011 — `TagId(pub String)` inner field escaped the sealed-newtype pattern in Batch 2
+
+**Severity:** LOW (seal consistency; no security-critical surface exposed)
+**Discovered:** 2026-04-20, Batch 5a audit (edge-expert EDGE-LOW-003)
+**File:** `sens-api-gateway/src/authz/permission.rs:165` (pre-Batch-5a)
+
+**Evidence (pre-Batch-5a):**
+```rust
+pub struct TagId(pub String);
+```
+
+**Problem:** Batch 2 applied the sealed-newtype pattern to `DeviceId`, `TenantId`, `OperatorId`, `ModbusDeviceId`, `ModbusRegisterRange` — inner fields private, construction via `pub(crate) new_from_verified` or validated ctor. `TagId` escaped the pattern: the inner `String` was `pub`, so external tuple-ctor invocation `TagId("raw".to_string())` bypassed any future validation discipline (max length, charset, reserved-prefix). Not a security-critical leak (TagId is operator-facing inventory identifier without signing authority), but breaks the invariant that "every identifier newtype in `authz::` has a private inner field" and makes future validation addition a breaking change for external callers.
+
+**Risk:**
+- Type-consistency drift across the identifier family — reviewers reading `permission.rs` see `DeviceId([u8; 16])` sealed but `TagId(pub String)` open; cognitive load + seal-confidence erosion.
+- Future validation (e.g., max 256 char, no NUL bytes, no shell metacharacters for audit log safety) cannot be added without a breaking API change if external callers rely on tuple construction.
+- Inconsistent with ADR-018 §3 sealed-identifier discipline.
+
+**Reproducibility:**
+- grep `authz::permission::TagId\(` in downstream crates — currently 0 external callers, but the surface was open.
+
+**Recommendation:**
+- Seal: `pub struct TagId(String)` + `pub fn new(s: String) -> Self` + retain `impl From<String> for TagId` for idiomatic conversion.
+- Migrate any tuple-ctor call sites to `TagId::from(...)` or `TagId::new(...)`.
+- `#[serde(transparent)]` reaches the private field via `Deserialize` — that's the intended manifest-parse carve-out.
+
+**Status:** RESOLVED-IN-BATCH-5A — `TagId(String)` with private inner + `pub fn new` + `From<String>` preserved; 8 internal tuple-ctor test sites migrated to `TagId::from(...)`. No external callers needed migration (verified via crate-wide grep).
+
+---
+
 ## Notes on methodology
 
 - Findings discovered during normal code review; NOT dedicated orphan-bug sweep.

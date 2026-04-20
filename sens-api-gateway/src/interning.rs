@@ -14,8 +14,23 @@
 //! - Device IDs that appear in many log messages
 //! - MQTT topic patterns used repeatedly
 //! - Modbus register names polled every cycle
+//!
+//! ## ARC-009 decision (Batch 16 / Faz 1 Step 8): **WHITELIST** (pre-staged)
+//!
+//! **Why WHITELIST (not REMOVE, not immediate WIRE):** plan §5 Faz 1
+//! Step 8 + PRF-006 track this for Faz 3 activation — the ST bytecode
+//! VM scan-cycle is the hot path where interning eliminates per-tick
+//! allocations of tag / topic / register names. Wiring today without
+//! a real hot-path consumer would be YAGNI churn; keeping pre-staged
+//! preserves the API surface for the Faz 3 cutover.
+//!
+//! **Re-evaluate:** Faz 3 Sprint ST-VM landing — replace every
+//! hot-path `String::from(...)` with `interner.get_or_intern(name)`.
+//! At that point the `#![allow(dead_code)]` below can be removed.
+//!
+//! Plan ref: §5 Faz 1 Step 8 / ARC-009 / PRF-006.
 
-// v1.2.4: API reserved for future memory optimization - silence dead_code warnings
+// Pre-staged for Faz 3 hot-path activation per ARC-009 WHITELIST.
 #![allow(dead_code)]
 
 use lasso::{Spur, ThreadedRodeo};

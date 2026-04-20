@@ -265,6 +265,35 @@ ORPHAN-006 closure. Owner: platform-team. Deadline: Sprint 6.7.
 
 ---
 
+## BATCH-16 observations (ARC-009 WHITELIST decisions)
+
+### OBS-16-001 — 3 utility modules marked WHITELIST-with-rationale
+
+**Files:** `bounded.rs`, `error.rs`, `interning.rs`
+
+**Observation:** Plan §5 Faz 1 Step 8 ARC-009 requires an explicit
+WIRE/REMOVE/WHITELIST decision for each dead-code file. Pre-Batch-16
+these three had generic `#![allow(dead_code)]` with no architectural
+rationale — future reviewers can't tell if they're kept intentionally
+or forgotten.
+
+**Fix:** Replace the generic header with a decision block citing:
+1. ARC-009 decision: WHITELIST (with "pre-staged for Faz X" note).
+2. Why not REMOVE + why not immediate WIRE.
+3. Re-evaluation trigger (specific future Sprint landing).
+4. Plan reference.
+
+**Status:** FIXED-IN-BATCH-16. Each file's module-level docstring now
+carries the decision block. `#![allow(dead_code)]` retained with
+pointer to the activation sprint.
+
+**Remaining ARC-009 items:** alarms.rs (WIRE, 968 lines), backup.rs
+(WIRE, 715 lines), pwm.rs (ADR-019 envelope), spi.rs (ADR-019
+envelope), security.rs (WIRE expand). Each deserves its own batch
+given size + coordination needs.
+
+---
+
 ## Meta-invariants
 
 1. **Every observation carries:** file path + line number + observation

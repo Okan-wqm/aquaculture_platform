@@ -1,7 +1,22 @@
 //! Bounded Collections Module
 //!
-//! NOTE: Complete bounded collection API for embedded/safety-critical use.
-//! Some methods are for direct buffer manipulation outside the agent core.
+//! ## ARC-009 decision (Batch 16 / Faz 1 Step 8): **WHITELIST**
+//!
+//! Utility crate-local module — stack-allocated bounded collections
+//! (`heapless::Vec`-based) that enforce compile-time capacity limits.
+//! Supports IEC 62443 SL-2 FR5 Resource Availability (prevent memory
+//! exhaustion via unbounded heap growth).
+//!
+//! **Why WHITELIST (not REMOVE, not WIRE):** downstream consumers will
+//! land in Faz 3 (ST bytecode VM stack) and Faz 4 (multi-task scheduler
+//! bounded queues). Removing today → re-introduction later; wiring a
+//! placeholder consumer today → YAGNI violation. Keep the module,
+//! document the decision, let real consumers land naturally.
+//!
+//! **Re-evaluate:** Faz 3 Sprint ST VM stack — if `StVmStack` uses
+//! `heapless::Vec` directly, consider REMOVE. Otherwise WIRE.
+//!
+//! Plan ref: §5 Faz 1 Step 8 / ARC-009.
 #![allow(dead_code)]
 //!
 //! Provides stack-allocated, bounded collections using heapless crate.

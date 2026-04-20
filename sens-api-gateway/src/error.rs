@@ -1,7 +1,22 @@
 //! Error types for Suderra Edge Agent
 //!
-//! NOTE: Complete error hierarchy. Some variants and helpers are for future
-//! error handling paths and diagnostics.
+//! ## ARC-009 decision (Batch 16 / Faz 1 Step 8): **WHITELIST**
+//!
+//! Complete domain-error taxonomy — Modbus granular errors, persistence
+//! errors, MQTT errors, etc. Some variants are currently unreferenced
+//! because the consuming handler code path hasn't landed yet (Sprint
+//! 6.x runtime wiring).
+//!
+//! **Why WHITELIST (not REMOVE, not WIRE):** removing would force
+//! error-type duplication when consumers finally land in Sprint 6.2
+//! (MQTT publisher error mapping), Sprint 6.5 (firmware update apply
+//! error mapping), etc. Each batch's runtime wiring picks the variants
+//! it needs.
+//!
+//! **Re-evaluate:** after Faz 2 runtime sprints — any variant still
+//! unreferenced in the real handler map can be REMOVED. Not now.
+//!
+//! Plan ref: §5 Faz 1 Step 8 / ARC-009.
 #![allow(dead_code)]
 //!
 //! ## Modbus Error Granularity (v1.2.0)

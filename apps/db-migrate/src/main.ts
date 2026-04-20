@@ -217,10 +217,18 @@ async function main(): Promise<number> {
       // Resolve each schema's migration glob against the bundle root so
       // the process works regardless of the process.cwd() at invocation.
       const migrations = entry.migrationsGlob.map((g) => resolve(root, g));
+      // Phase H: opt-in entity glob resolution. When the slot declares
+      // `entitiesGlob` in SCHEMA_REGISTRY, the orchestrator loads those
+      // entities so migrations can introspect canonical metadata
+      // (RdbmsSchemaBuilder.log() catch-up sync). Resolved against
+      // bundleRoot like migration globs — TypeORM's loader runs from
+      // its own cwd, so relative paths match zero files.
+      const entities = entry.entitiesGlob?.map((g) => resolve(root, g));
       const result = await runSchemaMigrations({
         schema: entry.schema,
         role: entry.role,
         migrations,
+        ...(entities ? { entities } : {}),
         database,
         log,
       });

@@ -44,6 +44,7 @@
  * workflow greps this output for "Schema migration complete".
  */
 import { DataSource, MigrationExecutor, QueryRunner } from 'typeorm';
+import type { EntityMetadata } from 'typeorm';
 
 /**
  * Safe SQL identifier regex — must match the regex used by
@@ -83,6 +84,29 @@ export interface RunSchemaOptions {
   role?: string;
   /** TypeORM migrations path(s) or class list. */
   migrations: string[];
+  /**
+   * Optional entity glob path(s) loaded into the per-slot DataSource.
+   *
+   * When supplied, TypeORM resolves the glob, dynamic-requires each
+   * file, and registers every exported class as an entity. The slot's
+   * migrations can then introspect `connection.entityMetadatas` (e.g.
+   * RdbmsSchemaBuilder.log() for catch-up sync migrations).
+   *
+   * When omitted, the DataSource has zero entity metadata — preserves
+   * the pre-Phase-H runtime behaviour.
+   *
+   * Loaded entities are filtered post-init: any entity whose declared
+   * @Entity({ schema }) does not match `opts.schema` is rejected with
+   * a warn log and removed from `entityMetadatas`. This stops cross-
+   * schema entities (e.g. admin-api's read-only billing entities) from
+   * polluting the metadata graph and breaking entity-driven migrations.
+   *
+   * Caller MUST resolve relative globs to absolute paths against the
+   * bundle root — TypeORM's `entities` glob loader is invoked from its
+   * own cwd, not the caller's, so a relative path would silently match
+   * zero files. main.ts performs the resolve.
+   */
+  entities?: string[];
   /** Database connection parameters. */
   database: {
     host: string;
@@ -160,6 +184,11 @@ export async function runSchemaMigrations(
     database: database.database,
     schema,
     migrations,
+    // Phase H: opt-in entity loading per slot. Undefined when the slot
+    // has no entitiesGlob — preserves the pre-Phase-H entity-less
+    // DataSource. See docblock on RunSchemaOptions.entities for the
+    // foreign-schema filter that runs immediately after initialize().
+    entities: opts.entities,
     migrationsRun: false,
     synchronize: false,
     logging: false,
@@ -171,6 +200,61 @@ export async function runSchemaMigrations(
   });
 
   await dataSource.initialize();
+
+  // ── Phase H post-init filter — reject foreign-schema entities ──
+  //
+  // When the slot opted in to entity loading, walk the resulting
+  // entityMetadatas and remove any entity whose declared @Entity({ schema })
+  // does not match this slot's schema. The defense matters because:
+  //   1. A glob like `apps/admin-api-service/src/**/*.entity.ts` would
+  //      otherwise pull in entities declaring `schema: 'billing'` /
+  //      `schema: 'auth'` / `schema: 'shared'` (admin-api owns 4 of these
+  //      cross-schema read views), polluting the metadata graph.
+  //   2. RdbmsSchemaBuilder.log() inspects EVERY metadata entry. With
+  //      foreign-schema entities present it would emit DDL targeting
+  //      schemas the slot has no business mutating.
+  //   3. The filter logs every rejection with a warn record so
+  //      misconfigured opt-ins are visible in deploy output instead
+  //      of silently producing wrong DDL.
+  //
+  // EntityMetadata.schema is undefined when an entity declares no
+  // explicit schema (defaults to public). Such entities are also
+  // rejected unless the slot itself targets `public`.
+  if (opts.entities && opts.entities.length > 0) {
+    const beforeCount = dataSource.entityMetadatas.length;
+    const foreignEntities = dataSource.entityMetadatas.filter(
+      (m) => (m.schema ?? 'public') !== schema,
+    );
+    if (foreignEntities.length > 0) {
+      log({
+        level: 'warn',
+        message:
+          `[${schema}] rejecting ${foreignEntities.length} foreign-schema ` +
+          `entities loaded by entitiesGlob (declared schema does not match slot)`,
+        context: 'DbMigrate',
+        schema,
+        rejected: foreignEntities.map(
+          (m) => `${m.tableName}(declared schema='${m.schema ?? 'public'}')`,
+        ),
+      });
+      // Mutate in place: TypeORM's MigrationExecutor + RdbmsSchemaBuilder
+      // both read from this exact array reference. Replacing it with a
+      // filtered copy is the cheapest way to constrain downstream work.
+      (dataSource as unknown as { entityMetadatas: EntityMetadata[] })
+        .entityMetadatas = dataSource.entityMetadatas.filter(
+        (m) => (m.schema ?? 'public') === schema,
+      );
+    }
+    log({
+      level: 'info',
+      message:
+        `[${schema}] loaded ${dataSource.entityMetadatas.length}/${beforeCount} ` +
+        `schema-matched entities for entity-aware migrations`,
+      context: 'DbMigrate',
+      schema,
+    });
+  }
+
   const queryRunner = dataSource.createQueryRunner();
 
   try {

@@ -231,6 +231,15 @@ pub struct AgentConfig {
     #[serde(default)]
     pub runtime: RuntimeConfig,
 
+    /// mTLS rollout-stage configuration (Batch 27, plan §5 Faz 2
+    /// item 7). Controls cert-age checks + fingerprint-pinning
+    /// enforcement across the Legacy → Warn → Strict 3-stage
+    /// rollout. Wired into rustls client builder in Sprint 6.8;
+    /// pre-Sprint-6.8 the value is surfaced at boot log for
+    /// operator visibility but does not yet affect TLS handshakes.
+    #[serde(default)]
+    pub mtls: MtlsConfig,
+
     /// Cache configuration (v1.2.0)
     #[serde(default)]
     pub cache: CacheConfig,
@@ -1635,6 +1644,71 @@ fn default_alarms_topic() -> String {
 
 fn default_lora_events_topic() -> String {
     "tenants/{tenant_id}/devices/{device_id}/lora_events".to_string()
+}
+
+// ============================================================================
+// MtlsConfig — Batch 27 plan §5 Faz 2 item 7 (mTLS 3-stage rollout)
+// ============================================================================
+//
+// WHY: Plan §5 Faz 2 item 7 mandates a 3-stage mTLS rollout
+// (Legacy → Warn → Strict) to migrate devices off long-lived certs
+// without breaking fleet-wide TLS on day-one cutover. The
+// `crate::mtls::MtlsMode` enum encodes the stages as a type; this
+// struct is the serde-deserialized wire format that puts the mode
+// into `config.yaml`.
+//
+// Pre-Sprint-6.8 the mode field is logged at boot for operator
+// visibility but does NOT yet alter rustls handshake behavior.
+// Full wire (pinning + leaf-cert-age check + cipher suite allowlist
+// + 2-phase rotation) lands in Sprint 6.8 per plan §11 PR #19.
+//
+// WHAT:
+// - `mode: MtlsMode` with default `Legacy` — preserves HC-1 v1.6.0
+//   backward compat. Operators must explicitly opt in to Warn/
+//   Strict; no automatic cutover.
+// - `enforce_fingerprint_pinning: bool` — Sprint 6.8 target. Split
+//   from mode so an operator can enable pinning in Legacy mode for
+//   early detection without full rollout commitment.
+// - `min_tls_version` — TLS 1.2 default; Strict mode may bump to
+//   TLS 1.3. Explicit field rather than derived from mode so the
+//   cipher-suite allowlist in Sprint 6.8 is operator-tunable.
+
+/// mTLS rollout-stage configuration. See `crate::mtls::MtlsMode`
+/// for the type-level state machine.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MtlsConfig {
+    /// Rollout stage: `legacy`, `warn`, or `strict`. Defaults to
+    /// `legacy` for v1.6.0 → v2.0.0 backward compat.
+    #[serde(default)]
+    pub mode: crate::mtls::MtlsMode,
+
+    /// Enforce leaf-cert fingerprint pinning. Independent of
+    /// `mode` — an operator can enable pinning in Legacy stage
+    /// for early-detection value. Defaults to `false` pre-Sprint-
+    /// 6.8; Strict mode will flip the default to `true`.
+    #[serde(default)]
+    pub enforce_fingerprint_pinning: bool,
+
+    /// Minimum TLS protocol version accepted. Options:
+    /// `tls_1_2` (default) or `tls_1_3`. Strict mode deployments
+    /// should bump to `tls_1_3` once all PLCs + MQTT brokers in
+    /// the fleet support it.
+    #[serde(default = "default_min_tls_version")]
+    pub min_tls_version: String,
+}
+
+fn default_min_tls_version() -> String {
+    "tls_1_2".to_string()
+}
+
+impl Default for MtlsConfig {
+    fn default() -> Self {
+        Self {
+            mode: crate::mtls::MtlsMode::default(),
+            enforce_fingerprint_pinning: false,
+            min_tls_version: default_min_tls_version(),
+        }
+    }
 }
 
 impl AgentConfig {

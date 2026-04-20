@@ -535,3 +535,8 @@ path = "tests/invariants/retained_msg_rejection.rs"
 [[test]]
 name = "shutdown_drain"
 path = "tests/invariants/shutdown_drain.rs"
+
+# Batch 27 plan §5 Faz 2 item 7 — mTLS rollout-mode config.
+[[test]]
+name = "mtls_config"
+path = "tests/invariants/mtls_config.rs"

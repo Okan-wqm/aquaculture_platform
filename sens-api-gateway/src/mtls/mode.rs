@@ -23,9 +23,16 @@ pub const MAX_LEAF_CERT_AGE_DAYS_STRICT: u32 = 398;
 
 /// mTLS enforcement mode. Set by `config.yaml::mtls.mode` + cloud-manifest
 /// override with ±30-day staged rollout jitter.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// Batch 27: `Default::default()` returns `Legacy` — the rollout's first
+/// stage. Preserves HC-1 v1.6.0 backward compat (operators running
+/// pre-Batch-27 configs get the same de-facto behavior without explicit
+/// opt-in). Explicit `Warn`/`Strict` migration comes from operator-
+/// editable config.yaml.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MtlsMode {
+    #[default]
     /// Stage 1 (days 0–30). Pinning disabled — fingerprint mismatch logged
     /// as warning but TLS handshake proceeds. Leaf cert max-age 60 days.
     Legacy,

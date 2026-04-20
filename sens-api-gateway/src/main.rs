@@ -102,7 +102,14 @@ mod runtime_safety;
 // pinning + 2-phase rotation + TLS 1.3 cipher-suite allowlist + 6-gate
 // verify_leaf_cert pure function. Types + pure function; runtime rustls
 // wiring lands in Faz 2 Sprint 6.8.
-#[allow(dead_code)] // Faz 2 Sprint 6.8 wires consumers; types pre-staged.
+//
+// Batch 27: `mtls::MtlsMode` is now consumed by `config::MtlsConfig`
+// (serde-deserialized wire format); boot-time log exposes the mode
+// for operator visibility. Other mtls sub-modules (verify, pinning,
+// cipher, error) remain dead-code pending Sprint 6.8 rustls wire —
+// the allow stays at mod-level until Sprint 6.8 flips the whole
+// subtree on at once.
+#[allow(dead_code)] // mode.rs consumed; verify/pinning/cipher/error pending Sprint 6.8.
 mod mtls;
 mod shutdown;
 mod spi;
@@ -937,6 +944,34 @@ async fn async_main() -> Result<()> {
             info!("  Device ID: {}", cfg.device_id);
             info!("  Device Code: {}", cfg.device_code);
             info!("  API URL: {}", cfg.api_url);
+            // Batch 27 plan §5 Faz 2 item 7: expose mTLS rollout
+            // stage at boot for operator visibility. Pre-Sprint-
+            // 6.8 this is INFORMATIONAL ONLY — rustls handshake
+            // behavior is unchanged. Once Sprint 6.8 wires the
+            // verify_leaf_cert pure function into the rustls
+            // client builder, the mode will drive:
+            //   Legacy → log mismatches, accept handshake.
+            //   Warn   → audit-emit mismatches, accept handshake.
+            //   Strict → reject handshake on any mismatch.
+            info!(
+                "  mTLS mode: {:?} (fingerprint_pinning={}, min_tls={})",
+                cfg.mtls.mode,
+                cfg.mtls.enforce_fingerprint_pinning,
+                cfg.mtls.min_tls_version
+            );
+            if matches!(cfg.mtls.mode, crate::mtls::MtlsMode::Legacy)
+                && cfg.mtls.enforce_fingerprint_pinning
+            {
+                // Non-standard but legitimate combo (operator wants
+                // early-detection value without full Warn/Strict
+                // migration); log it so audit reviewers notice.
+                warn!(
+                    "mTLS rollout: Legacy stage + fingerprint_pinning=true. \
+                     This is an EARLY-DETECTION posture; mismatches will be \
+                     logged but handshakes still accepted. Plan Sprint 6.8 \
+                     migration path documented in config.yaml."
+                );
+            }
             cfg
         }
         Err(e) => {

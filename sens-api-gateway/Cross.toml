@@ -14,19 +14,37 @@ passthrough = [
 [target.aarch64-unknown-linux-gnu]
 image = "ghcr.io/cross-rs/aarch64-unknown-linux-gnu:0.2.5"
 pre-build = [
-    "apt-get update && apt-get install -y perl make"
+    # perl + make: rusqlite bundled-sqlcipher-vendored-openssl compiles OpenSSL
+    # cmake + clang + libclang-dev: aws-lc-sys 0.40 builds via cmake + uses
+    #   bindgen to generate FFI bindings when cross-target has no pregenerated
+    #   source. BATCH-001-CI-FIX-010: without these, armv7/aarch64 builds fail
+    #   with "Missing dependency: cmake" and "External bindgen command failed".
+    # pkg-config: aws-lc-sys build.rs probes openssl via pkg-config for linkage.
+    "apt-get update && apt-get install -y perl make cmake clang libclang-dev pkg-config"
 ]
 
 # ARMv7 (Raspberry Pi 3, older Revolution Pi)
 [target.armv7-unknown-linux-gnueabihf]
 image = "ghcr.io/cross-rs/armv7-unknown-linux-gnueabihf:0.2.5"
 pre-build = [
-    "apt-get update && apt-get install -y perl make"
+    # perl + make: rusqlite bundled-sqlcipher-vendored-openssl compiles OpenSSL
+    # cmake + clang + libclang-dev: aws-lc-sys 0.40 builds via cmake + uses
+    #   bindgen to generate FFI bindings when cross-target has no pregenerated
+    #   source. BATCH-001-CI-FIX-010: without these, armv7/aarch64 builds fail
+    #   with "Missing dependency: cmake" and "External bindgen command failed".
+    # pkg-config: aws-lc-sys build.rs probes openssl via pkg-config for linkage.
+    "apt-get update && apt-get install -y perl make cmake clang libclang-dev pkg-config"
 ]
 
 # x86_64 Linux
 [target.x86_64-unknown-linux-gnu]
 image = "ghcr.io/cross-rs/x86_64-unknown-linux-gnu:0.2.5"
 pre-build = [
-    "apt-get update && apt-get install -y perl make"
+    # perl + make: rusqlite bundled-sqlcipher-vendored-openssl compiles OpenSSL
+    # cmake + clang + libclang-dev: aws-lc-sys 0.40 builds via cmake + uses
+    #   bindgen to generate FFI bindings when cross-target has no pregenerated
+    #   source. BATCH-001-CI-FIX-010: without these, armv7/aarch64 builds fail
+    #   with "Missing dependency: cmake" and "External bindgen command failed".
+    # pkg-config: aws-lc-sys build.rs probes openssl via pkg-config for linkage.
+    "apt-get update && apt-get install -y perl make cmake clang libclang-dev pkg-config"
 ]

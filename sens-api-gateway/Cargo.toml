@@ -315,7 +315,15 @@ tss-esapi = { version = "7", optional = true }
 # 0.x via their own dependency specifiers so the upgrade is transparent.
 # INVARIANT: cargo audit on Cargo.lock must report 0 RUSTSEC-2026-* advisories
 #            for aws-lc-sys family.
-aws-lc-sys = "0.40"
+#
+# BATCH-001-CI-FIX-009: `features = ["bindgen"]` uses the `bindgen` library
+# crate to generate bindings at compile time instead of requiring the
+# external `bindgen-cli` binary in the sysroot. Without this, cross-compile
+# to armv7/aarch64 via `cross` fails with:
+#   "Failure invoking external bindgen! External bindgen command failed."
+# Using the library feature adds ~15s to the first cold build but keeps
+# the CI stack self-contained (no apt install bindgen-cli needed).
+aws-lc-sys = { version = "0.40", features = ["bindgen"] }
 
 # LoRaWAN cryptography and packet encoding (optional, activated by `lorawan` feature)
 aes = { version = "0.8", optional = true }

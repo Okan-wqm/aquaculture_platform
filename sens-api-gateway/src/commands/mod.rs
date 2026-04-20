@@ -503,6 +503,28 @@ impl CommandHandler {
             );
         }
 
+        // Batch 33 Sprint 6.1 partial: log the Permission that
+        // Sprint 6.4 RBAC gate WILL require for this command.
+        // Pre-Sprint-6.4 this is INFORMATIONAL ONLY — no actor
+        // extraction, no evaluate call. Operators get visibility
+        // into the required-permission landscape before the
+        // gate flips on:
+        //   - Helps detect commands that would fail authz once
+        //     enforced (RBAC manifest drift detection).
+        //   - Anchors audit log format so Sprint 6.2 sink can
+        //     parse the field.
+        //   - Catches gaps in the Batch 28 mapper at runtime —
+        //     if an operator runs a command that maps to
+        //     SafeStateTrigger (fail-closed fallback for unknown
+        //     commands), the log makes the gap visible.
+        let required_perm =
+            required_permission::permission_for_command(&command.command, &command.params);
+        debug!(
+            "RBAC-gate-preview: command='{}' required_permission={:?} (gate activates Sprint 6.4)",
+            sanitize_for_log(&command.command),
+            required_perm
+        );
+
         let (success, result, error) = match command.command.as_str() {
             "ping" => self.cmd_ping().await,
             "get_info" => self.cmd_get_info().await,

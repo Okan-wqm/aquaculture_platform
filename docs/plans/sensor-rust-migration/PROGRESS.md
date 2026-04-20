@@ -57,7 +57,25 @@ Not started yet. Will create a separate branch `agentic-rust-faz0-baseline` once
 ---
 
 ## Faz 1 — `protocol-codec` Crate
-Not started.
+
+In flight on branch `agentic-rust-faz1-protocol-codec` (stacked on `agentic-rust-faz0`).
+
+| Stage | Commit | Status | Notes |
+|---|---|---|---|
+| 1. `error.rs` + `modbus/mod.rs` skeleton | `fc5fe066` | ✅ done | `ParseError` enum (7 fine-grained variants: `Truncated`, `LengthMismatch`, `BadChecksum`, `UnsupportedFunctionCode`, `InvalidProtocolId`, `TenantMismatch`, `Malformed`) — each variant carries enough on-the-wire context to triage from the audit log. `modbus/mod.rs` declares `ALLOWED_FUNCTION_CODES` whitelist (FC 0x01–0x06, 0x0f, 0x10) matching the gateway whitelist; tests assert all eight diagnostic / pivot FCs (0x07, 0x08, 0x11, 0x14, 0x15, 0x16, 0x17, 0x18, 0x2b) are rejected. `Cargo.toml` deps unblocked: `thiserror`, `serde` (+ `serde_json`, `hex` dev). `lib.rs` opens the gateway-style `cfg_attr(test, allow(unwrap_used / expect_used / panic / indexing_slicing))` test window. |
+| 2. `modbus/tcp.rs` MBAP header decode | `b7844b6e` | ✅ done | 7-byte MBAP header parser via `slice::split_first_chunk::<7>()` (no `clippy::indexing_slicing` surface). Length field bounded to `1..=254` per Modbus spec §4.1. Lenient about extra trailing bytes (returns `&input[7..]` so streaming callers can chain into PDU decode). 6 in-module tests + 1 doc test (with inline `#![allow(clippy::unwrap_used)]` since doc tests don't inherit the crate-level cfg_attr). |
+| 3. PROGRESS.md update + open PR | _this commit_ | 🔄 in progress | Stack PR onto PR #13. Subsequent commits in this PR add: PDU decode (FC 0x03 read holding registers response first), then RTU + ASCII transports, then golden-fixture set + drift CI script, then cargo-fuzz target. |
+
+#### Gate Check (Faz 1 done = all of)
+- [x] `crates/protocol-codec/src/error.rs` defines `ParseError` with the variants the plan requires
+- [x] `crates/protocol-codec/src/modbus/tcp.rs` decodes MBAP headers from arbitrary byte slices
+- [ ] FC 0x03 (Read Holding Registers) response decodes to `Vec<u16>` with bounds checking — next commit
+- [ ] Modbus RTU transport decode (CRC-16-Modbus, byte-stuffed framing) — follow-on commit
+- [ ] Modbus ASCII transport decode (LRC, `:` start / CRLF terminator) — follow-on commit
+- [ ] 50+ golden hex fixtures under `crates/protocol-codec/tests/golden/` — follow-on commit
+- [ ] `tools/scripts/check-codec-drift.sh` invokes both Rust and TS golden tests, diffs output, exits non-zero on drift — follow-on commit
+- [ ] `cargo-fuzz` targets for `parse_mbap_header`, RTU framer, ASCII framer; CI smoke at 30 minutes per target — follow-on commit
+- [ ] ADR-026 promoted from `_draft/` to `docs/adr/026-...` once the above gates close
 
 ## Faz 2 — `sensor-ingestion` Sidecar
 Not started.

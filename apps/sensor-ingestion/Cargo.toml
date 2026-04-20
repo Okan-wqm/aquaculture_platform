@@ -57,15 +57,26 @@ rumqttc = { version = "0.25", features = ["use-rustls"] }
 moka = { version = "0.12", features = ["sync"] }
 papaya = "0.2"
 
-# Persistence (Faz 2 stage 9):
-#   This commit ships the batch aggregator + LoggingSink only. The
-#   PostgresSink + deadpool-postgres + tokio-postgres + rustls TLS
-#   bridge land in the follow-on commit on this PR alongside the
-#   testcontainers integration test. Pulling those deps here without
-#   exercising them would either generate dead-code warnings or
-#   require a `#[allow(dead_code)]` excuse — the architectural rule
-#   (no workaround, no carry-debt) says ship deps in lockstep with
-#   their use.
+# Persistence (Faz 2 stage 11): live TimescaleDB COPY pipeline.
+#   tokio-postgres — async pure-Rust postgres client with native
+#     binary COPY IN via `BinaryCopyInWriter` (text COPY is YASAK
+#     on the hot path; binary framing is ~3-5x faster).
+#   tokio-postgres-rustls — TLS bridge from the tokio-postgres authors.
+#     tokio-postgres itself is TLS-agnostic (`NoTls` by default); the
+#     rustls bridge gives us SCRAM channel binding (tls-server-end-point)
+#     so an MITM with a forged-but-trusted cert cannot phish the SCRAM
+#     exchange even if `sslmode=verify-full` alone passed.
+#   deadpool-postgres — async connection pool. Plan-named explicitly
+#     (PLAN.md § Faz 2). Health-checks + recycle hooks ship in the
+#     crate; re-implementing those would be a strict downgrade.
+#   rustls-pemfile — workspace-pinned PEM loader for the rustls
+#     ClientConfig builder. Same crate the workspace nats-client
+#     already uses.
+tokio-postgres = { version = "0.7", features = ["with-uuid-1", "with-chrono-0_4"] }
+tokio-postgres-rustls = "0.13"
+deadpool-postgres = { version = "0.14", features = ["rt_tokio_1"] }
+rustls = { workspace = true }
+rustls-pemfile = { workspace = true }
 
 # Error + tracing.
 anyhow = { workspace = true }

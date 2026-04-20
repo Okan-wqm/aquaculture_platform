@@ -196,7 +196,25 @@ async fn async_main(cfg: Config) -> anyhow::Result<()> {
             Err(e) => tracing::error!(error = %e, "batch aggregator exited with error"),
         }
     });
-    let sink: Arc<dyn persistence::BatchSink> = Arc::new(persistence::LoggingSink::new());
+    // Persistence sink: PostgresSink when [postgres] is configured,
+    // LoggingSink otherwise. The trait keeps the drain pipeline
+    // unaware of which backend is wired.
+    let sink: Arc<dyn persistence::BatchSink> = if let Some(pg_cfg) = cfg.postgres.clone() {
+        tracing::info!(
+            host = %pg_cfg.host,
+            port = pg_cfg.port,
+            db = %pg_cfg.db_name,
+            "connecting PostgresSink"
+        );
+        Arc::new(
+            persistence::PostgresSink::connect(&pg_cfg)
+                .await
+                .context("connecting PostgresSink")?,
+        )
+    } else {
+        tracing::info!("postgres config absent; falling back to LoggingSink");
+        Arc::new(persistence::LoggingSink::new())
+    };
     let sink_handle = {
         let sink = Arc::clone(&sink);
         tokio::spawn(persistence::run_sink_loop(sink, batch_out_rx))

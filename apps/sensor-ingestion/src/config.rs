@@ -47,6 +47,13 @@ pub struct Config {
     /// Filled in by a follow-on commit when the publisher lands.
     #[serde(default)]
     pub nats: Option<nats_client::MtlsConfig>,
+
+    /// PostgreSQL / TimescaleDB connection. When present the binary
+    /// wires `PostgresSink` as the persistence layer; when absent the
+    /// stub `LoggingSink` is used (sidecar boots clean without a DB
+    /// for smoke tests).
+    #[serde(default)]
+    pub postgres: Option<crate::persistence::PostgresConfig>,
 }
 
 /// Tokio runtime tuning. Defaults track the plan exactly so the

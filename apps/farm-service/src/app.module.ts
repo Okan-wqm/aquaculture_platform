@@ -176,12 +176,6 @@ import { AddFarmOutboxNotifyTrigger1782100000000 } from './database/migrations/1
         createServiceTypeOrmConfig(configService, {
           serviceName: 'farm',
           schema: 'farm',
-          // INFRA-CRITICAL-021 contract: factory mandates explicit entities
-          // (defense-in-depth against the global-metadata fallback path).
-          // Empty array + autoLoadEntities (factory default) means every
-          // entity registered via TypeOrmModule.forFeature() in any imported
-          // domain module is auto-merged into the connection entity list.
-          entities: [],
           // migrationsRun: false (default) — MigrationRunnerService in
           // database.module executes migrations at OnApplicationBootstrap
           // so SourceSchemaBootstrapService.synchronize() (OnModuleInit)

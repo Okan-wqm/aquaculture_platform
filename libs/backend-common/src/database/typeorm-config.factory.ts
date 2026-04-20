@@ -111,31 +111,11 @@ export interface ServiceTypeOrmOptions {
   migrations: MixedList<MigrationInput>;
 
   /**
-   * Explicit entity list — REQUIRED.
-   *
-   * Pass an empty array (`entities: []`) if the service relies entirely on
-   * `TypeOrmModule.forFeature()` autoload (the factory always sets
-   * `autoLoadEntities: true` so every forFeature() registration is merged
-   * in; an empty seed list + autoLoad gives the same effect as the legacy
-   * "no entities arg" path).
-   *
-   * Why this is required (INFRA-CRITICAL-021 defense-in-depth):
-   *
-   *   With `entities: undefined` AND `autoLoadEntities: false`, TypeORM
-   *   falls back to scanning the process-wide `getMetadataArgsStorage()`,
-   *   which silently picks up every `@Entity()`-decorated class that
-   *   any imported file has loaded as a side effect — surfacing as
-   *   cross-service drift in the SchemaDriftValidator (e.g. farm-service
-   *   "owning" `event_store.findings` because some transitive import
-   *   triggered the FindingEntity decorator).
-   *
-   *   The Phase A barrel surgery in `libs/backend-common/src/index.ts`
-   *   removed the most common contamination vector, but mandating an
-   *   explicit `entities` array at the factory level closes the failure
-   *   mode permanently — it becomes structurally impossible for any
-   *   service to fall through to the global-metadata scan path.
+   * Optional explicit entity list. Default is `autoLoadEntities: true`
+   * which picks up everything imported via `TypeOrmModule.forFeature`.
+   * Override only when a service has entities outside the forFeature graph.
    */
-  entities: MixedList<EntityInput>;
+  entities?: MixedList<EntityInput>;
 
   /**
    * Service-specific override of the platform default pool size (10).
@@ -235,21 +215,6 @@ export function createServiceTypeOrmConfig(
     );
   }
 
-  // INFRA-CRITICAL-021 defense-in-depth: refuse to start a service whose
-  // entities list is undefined. The TypeScript signature already requires
-  // it, but a JS caller (or a typecast) could still slip through; the
-  // runtime check guarantees the global-metadata fallback path is never
-  // reachable from this factory.
-  if (opts.entities == null) {
-    throw new Error(
-      `[${opts.serviceName}] createServiceTypeOrmConfig: opts.entities is REQUIRED. ` +
-        `Pass an explicit entity list, OR pass [] to rely entirely on TypeOrmModule.forFeature() ` +
-        `autoload (which the factory always merges in via autoLoadEntities: true). ` +
-        `Allowing undefined would let TypeORM scan getMetadataArgsStorage() globally, ` +
-        `re-opening the cross-service entity contamination class (DEFECT-1).`,
-    );
-  }
-
   // SECURITY: fail-fast in production if the password is missing. We check
   // process.env directly here (instead of configService.get) so a forgotten
   // ConfigModule.forRoot wiring cannot mask the requirement.
@@ -299,14 +264,7 @@ export function createServiceTypeOrmConfig(
     password: dbPassword || 'postgres',
     database: configService.get('DATABASE_NAME', 'aquaculture'),
     // INTENTIONAL: do NOT set `schema` — see factory docblock §"Why schema is NOT applied".
-    //
-    // `autoLoadEntities: true` is unconditional: NestJS merges every
-    // `TypeOrmModule.forFeature([...])` registration into the entities
-    // list. Combined with the now-mandatory `opts.entities` array, the
-    // effective list is `opts.entities ∪ forFeature` — and never falls
-    // back to scanning getMetadataArgsStorage() globally (which was the
-    // contamination vector closed in INFRA-CRITICAL-021).
-    autoLoadEntities: true,
+    autoLoadEntities: opts.entities == null,
     entities: opts.entities,
     subscribers: opts.subscribers,
     synchronize: configService.get('DATABASE_SYNC', 'false') === 'true',

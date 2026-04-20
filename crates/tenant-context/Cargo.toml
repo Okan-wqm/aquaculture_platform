@@ -12,8 +12,14 @@ description = "Compile-time tenant pinning — TenantId, SchemaName newtypes + S
 [lib]
 path = "src/lib.rs"
 
-# [dependencies] intentionally empty during Faz 0 PR-A scaffold; uuid +
-# serde + thiserror land in Faz 2 with the first concrete TenantId type.
+[dependencies]
+uuid = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+trybuild = "1.0"
 
 [lints]
 workspace = true

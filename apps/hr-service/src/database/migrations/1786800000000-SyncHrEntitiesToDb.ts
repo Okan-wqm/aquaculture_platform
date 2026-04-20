@@ -293,14 +293,32 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
       // ALTER TABLE … ADD "col" — TypeORM omits the COLUMN keyword;
       // the negative lookahead excludes ADD CONSTRAINT …
       if (/^ALTER\s+TABLE\b[^;]*?\bADD\s+(?!CONSTRAINT\b)"/i.test(t)) return true;
-      // ALTER TABLE … ALTER COLUMN … TYPE / SET NOT NULL
-      if (
-        /^ALTER\s+TABLE\b[^;]*?\bALTER\s+COLUMN\b[^;]*?\b(TYPE|SET\s+NOT\s+NULL)\b/i.test(
-          t,
-        )
-      ) {
-        return true;
-      }
+      // ALTER TABLE … ALTER COLUMN … <any sub-action>
+      //
+      // Includes TYPE / SET NOT NULL (validator's direct concerns) AND
+      // DROP DEFAULT / SET DEFAULT / DROP NOT NULL (supporting statements
+      // log() emits as a sequence around TYPE changes).
+      //
+      // Why all sub-actions: log() emits the trio
+      //   ALTER COLUMN x DROP DEFAULT
+      //   ALTER COLUMN x TYPE … USING …
+      //   ALTER COLUMN x SET DEFAULT …
+      // when changing a column's type if the column has a default.
+      // Filtering DROP DEFAULT out leaves PG trying to auto-cast the
+      // OLD default to the NEW type, which fails for enum types
+      // (deploy 6 failure mode 2026-04-20 17:50 UTC:
+      //  "default for column status cannot be cast automatically to
+      //   type training_enrollments_status_enum"). Keeping the whole
+      // trio together lets PG drop, change, restore in proper order.
+      //
+      // ALTER COLUMN sub-actions are all narrow column-level operations
+      // that touch only the named column; they cannot conflict with
+      // PRIMARY KEY, UNIQUE, FOREIGN KEY, or CHECK constraints (those
+      // are table-level objects, not column attributes). DROP NOT NULL
+      // is also safe — the validator only flags NOT-NULL-declared-but-
+      // DB-nullable mismatches; relaxing nullability does not violate
+      // its check surface.
+      if (/^ALTER\s+TABLE\b[^;]*?\bALTER\s+COLUMN\b/i.test(t)) return true;
       return false;
     };
 

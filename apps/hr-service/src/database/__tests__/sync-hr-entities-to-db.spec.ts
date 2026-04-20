@@ -24,13 +24,11 @@ describe('SyncHrEntitiesToDb1786800000000 — Phase L whitelist + idempotency', 
     if (/^CREATE\s+TYPE\b/i.test(t)) return true;
     if (/^CREATE\s+TABLE\b/i.test(t)) return true;
     if (/^ALTER\s+TABLE\b[^;]*?\bADD\s+(?!CONSTRAINT\b)"/i.test(t)) return true;
-    if (
-      /^ALTER\s+TABLE\b[^;]*?\bALTER\s+COLUMN\b[^;]*?\b(TYPE|SET\s+NOT\s+NULL)\b/i.test(
-        t,
-      )
-    ) {
-      return true;
-    }
+    // Phase L+: any ALTER COLUMN sub-action passes (TYPE / SET NOT NULL
+    // / DROP NOT NULL / SET DEFAULT / DROP DEFAULT). The trio
+    // DROP-DEFAULT → TYPE → SET-DEFAULT must stay together for PG's
+    // enum type changes to succeed (deploy 6 regression).
+    if (/^ALTER\s+TABLE\b[^;]*?\bALTER\s+COLUMN\b/i.test(t)) return true;
     return false;
   };
 
@@ -69,6 +67,18 @@ describe('SyncHrEntitiesToDb1786800000000 — Phase L whitelist + idempotency', 
       [
         'ALTER TABLE … ALTER COLUMN SET NOT NULL',
         `ALTER TABLE "hr"."payrolls" ALTER COLUMN "tenantId" SET NOT NULL`,
+      ],
+      [
+        'ALTER TABLE … ALTER COLUMN DROP DEFAULT (deploy 6 trio precondition)',
+        `ALTER TABLE "hr"."training_enrollments" ALTER COLUMN "status" DROP DEFAULT`,
+      ],
+      [
+        'ALTER TABLE … ALTER COLUMN SET DEFAULT (deploy 6 trio postcondition)',
+        `ALTER TABLE "hr"."training_enrollments" ALTER COLUMN "status" SET DEFAULT 'enrolled'`,
+      ],
+      [
+        'ALTER TABLE … ALTER COLUMN DROP NOT NULL (validator does not flag relaxed nullability)',
+        `ALTER TABLE "hr"."weekly_plans" ALTER COLUMN "notifiedAt" DROP NOT NULL`,
       ],
     ])('keeps %s', (_label, sql) => {
       expect(isValidatorRelevant(sql)).toBe(true);

@@ -38,11 +38,14 @@ wildcards = "deny"
 highlight = "all"
 workspace-default-features = "allow"
 external-default-features = "allow"
-
-[bans.deny]
 # OpenSSL banned platform-wide — rustls only (matches sens-api-gateway policy).
 # In-process cert handling: use rustls + x509-parser + pem.
 # Dependency bypasses go through ADR amendment, not deny.toml exceptions.
+deny = [
+    { name = "openssl" },
+    { name = "openssl-sys" },
+    { name = "native-tls" },
+]
 
 [sources]
 unknown-registry = "deny"

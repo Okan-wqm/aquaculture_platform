@@ -15,7 +15,7 @@ exclude = [
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 authors = ["Aquaculture Platform Team <platform@aquaculture.dev>"]
 license = "Proprietary"
 repository = "https://github.com/Okan-wqm/aquaculture_platform"

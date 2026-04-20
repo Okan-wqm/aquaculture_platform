@@ -388,6 +388,63 @@ impl AppState {
         }
     }
 
+    /// Initialize FailoverManager from `config.mqtt.failover` (Faz 1 Step 1.2 /
+    /// ARC-001 / Batch 13 closure).
+    ///
+    /// Returns the health-check JoinHandle IF a manager was constructed; None
+    /// if failover is disabled OR no primary broker is configured (primary
+    /// broker hostname is required to build the manager — no fallback).
+    ///
+    /// Wiring rules:
+    /// - `config.mqtt.failover.enabled == false` → no manager. Consumers
+    ///   (`cmd_failover_force`/`cmd_failover_recover`) return the structured
+    ///   `FailoverManager not initialized` operator-facing error.
+    /// - `config.mqtt.broker == None` → no manager (can't fail over without
+    ///   knowing the primary). Log a warning so misconfiguration is visible.
+    /// - Otherwise → build FailoverManager, assign to `self.failover_manager`,
+    ///   spawn `start_health_check_task()`, return JoinHandle for shutdown
+    ///   coordination.
+    ///
+    /// Shutdown integration note: the returned JoinHandle should be registered
+    /// with `ShutdownCoordinator` (Batch 10 ShutdownPhase machine) so the
+    /// health check task is force-cancelled during the Draining phase.
+    /// Main.rs wiring owns that registration; this method just builds + spawns.
+    pub fn init_failover_manager(&mut self) -> Option<tokio::task::JoinHandle<()>> {
+        if !self.config.mqtt.failover.enabled {
+            return None;
+        }
+
+        let primary_host = match self.config.mqtt.broker.as_ref() {
+            Some(h) if !h.is_empty() => h.clone(),
+            _ => {
+                warn!(
+                    "MQTT failover enabled but `config.mqtt.broker` is None \
+                     — FailoverManager NOT started; `cmd_failover_force` \
+                     will return BackupBrokerNotConfigured-class error"
+                );
+                return None;
+            }
+        };
+
+        let (manager, _state_rx) = crate::mqtt_failover::FailoverManager::new(
+            primary_host,
+            self.config.mqtt.port,
+            self.config.mqtt.failover.clone(),
+        );
+
+        let manager_arc = std::sync::Arc::new(manager);
+        let health_check_handle = manager_arc.start_health_check_task();
+        self.failover_manager = Some(manager_arc);
+
+        info!(
+            "FailoverManager wired: primary={}:{} backup={:?}",
+            self.config.mqtt.broker.as_deref().unwrap_or("<none>"),
+            self.config.mqtt.port,
+            self.config.mqtt.failover.backup_broker.as_deref()
+        );
+        Some(health_check_handle)
+    }
+
     /// Initialize hardware handles (must be called within LocalSet context)
     pub fn init_hardware_handles(&mut self) {
         // Initialize Modbus actor
@@ -549,6 +606,17 @@ async fn async_main() -> Result<()> {
         let state_guard = state.read().await;
         state_guard.init_script_storage().await;
     }
+
+    // Initialize FailoverManager (Faz 1 Step 1.2 / ARC-001 / Batch 13).
+    // Returns JoinHandle of the health-check task if the manager is
+    // constructed; None if config.mqtt.failover is disabled OR primary
+    // broker is not configured. The JoinHandle is dropped here — future
+    // work wires it into ShutdownCoordinator (Batch 10) for graceful
+    // cancellation during the Draining phase.
+    let _failover_health_check: Option<tokio::task::JoinHandle<()>> = {
+        let mut state_guard = state.write().await;
+        state_guard.init_failover_manager()
+    };
 
     // Setup graceful shutdown
     // Pass state so SIGHUP can reload config in-place (SEC-010)

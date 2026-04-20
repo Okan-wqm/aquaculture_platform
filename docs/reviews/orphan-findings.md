@@ -439,6 +439,51 @@ TS 6.0.3 in npx. The orphan finding stays open until a real fix lands.
 
 ---
 
+## 2026-04-20 ORPHAN-013 — NATS subject drift: publishers emit `events.{tenantId}.{eventType}`, subscribers listen on `events.{eventType}`
+
+**Severity:** HIGH (silently miss every tenant-scoped publish)
+**Discovered:** 2026-04-20, Faz 2 stage 12 `NatsEventPublisher` implementation review
+**Files:**
+- `platform/libs/event-bus/src/nats/nats-event-bus.ts:310-312` — publisher `deriveSubject`
+- `apps/alert-engine/src/alert/event-handlers/sensor-reading.handler.ts:80-81` — subscriber
+- Cross-referenced: `docs/test-audits/tenant-isolation-auditor/2026-04-13-full-platform-e2e.md` lines 21-29
+
+**Evidence — publisher (3 segments):**
+```typescript
+private deriveSubject(event: IEvent): string {
+  const segment = event.tenantId ?? 'system';
+  return `events.${segment}.${event.eventType}`;
+}
+```
+
+**Evidence — subscriber (2 segments after normalisation):**
+```typescript
+// Must match the topic published by sensor-service: 'SensorReading'
+await this.eventBus.subscribe('SensorReading', this);
+// → normalizeSubject() prepends 'events.' → 'events.SensorReading'
+```
+
+**Problem:** NATS subjects use exact-segment matching. `events.<uuid>.SensorReading` (3 segments) and `events.SensorReading` (2 segments) are different subjects. The subscriber receives zero messages for tenant-scoped publishes.
+
+**Risk:**
+- Alert evaluation silently misses every sensor reading on the NATS wire layer — only the in-process EventBus or alternative transports keep alarms flowing.
+- The Rust sidecar (Faz 2 stage 12 `events::subject_for`) deliberately replicates the 3-segment publisher shape to stay byte-equivalent per ADR-025 dual-write equivalence. Sidecar emits valid wire shapes that downstream subscribers also miss until the drift is reconciled.
+
+**Architectural fix options (choose consciously):**
+1. **Subscriber-side wildcard** — change `subscribe('SensorReading')` to `events.*.SensorReading`. Tier-3 "make it detectable" once a contract test pins it.
+2. **Publisher-side flatten** — emit `events.{eventType}` + put `tenantId` in a NATS header. Tier-2 "make it automatic"; cost is rewriting every downstream consumer that filters by subject.
+3. **Both, behind `event-version: v2` header** — migrate one consumer at a time; cleanest, heaviest.
+
+**Why NOT closed by Faz 2:**
+The Faz 2 sidecar's job was to replicate the existing publisher contract byte-for-byte (the plan's dual-write equivalence test mandates this). Fixing the drift is a multi-service refactor changing the publisher's subject shape and every downstream subscriber in lockstep — out of scope for the sidecar PR.
+
+**Follow-on tracking:**
+- Owner: Okan-Wqm + sensor-service / alert-engine / event-bus maintainers (platform-wide subject contract change).
+- Deadline: TBD — wants a 30-min architectural review meeting to pick option 1, 2, or 3 before any fix lands.
+- Closure path: dedicated PR updates `nats-event-bus.ts` + every subscriber + the Rust sidecar's `events::subject_for` atomically, plus a contract test in `e2e/tests/integration/nats-subject-contract.spec.ts` pinning the chosen convention.
+
+---
+
 ## Notes on methodology
 
 - Findings discovered during normal code review; NOT dedicated orphan-bug sweep.

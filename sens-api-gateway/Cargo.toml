@@ -550,3 +550,8 @@ path = "tests/invariants/required_permission_mapping.rs"
 [[test]]
 name = "config_coherence"
 path = "tests/invariants/config_coherence.rs"
+
+# Batch 41 Sprint 6.1/6.4 — MUTATING_COMMANDS ↔ Permission::is_mutating agreement.
+[[test]]
+name = "mutating_commands_vs_permission"
+path = "tests/invariants/mutating_commands_vs_permission.rs"

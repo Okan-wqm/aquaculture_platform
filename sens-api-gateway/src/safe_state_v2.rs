@@ -772,8 +772,10 @@ pub enum OutputTag {
 /// direct `bincode::serialize(&the_struct)` is forbidden (would include the
 /// signature field itself in the payload → unverifiable).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct HardwareAttestationSig(pub [u8; 64]);
+pub struct HardwareAttestationSig(
+    #[serde(with = "serde_big_array::BigArray")]
+    pub [u8; 64],
+);
 
 impl HardwareAttestationSig {
     /// Expose the raw signature bytes.

@@ -334,6 +334,16 @@ pub struct AppState {
     /// Activation state
     pub is_activated: bool,
     pub tenant_id: Option<String>,
+
+    /// FailoverManager for MQTT primary→backup broker transition.
+    /// BATCH-001-CI-FIX-007: `cmd_failover_force`/`cmd_failover_recover` in
+    /// commands.rs already reference this field (commits 3f51ba70 +
+    /// e8232bca) but the field was never added to AppState — compile was
+    /// silently broken on main. Added here as `None` with runtime init
+    /// gated by Faz 1 ARC-001 wiring (plan §5 Faz 1 step 1.2). Current
+    /// behavior: `None` → `cmd_failover_force` returns the "no failover
+    /// manager" operator-facing error, matching the existing match arm.
+    pub failover_manager: Option<std::sync::Arc<crate::mqtt_failover::FailoverManager>>,
 }
 
 impl AppState {
@@ -363,6 +373,9 @@ impl AppState {
             scada_db: None,
             is_activated: false,
             tenant_id: None,
+            // BATCH-001-CI-FIX-007: None-init; Faz 1 ARC-001 wires the
+            // actual FailoverManager from config.mqtt.failover settings.
+            failover_manager: None,
         }
     }
 

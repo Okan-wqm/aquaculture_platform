@@ -21,6 +21,10 @@ futures = "0.3"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.9"
+# serde_big_array: serde Serialize/Deserialize for fixed-width byte arrays
+# larger than 32 bytes (serde auto-impl caps at [T; 32]). Used by Batch 5a
+# Ed25519SignatureBytes([u8; 64]). Added as BATCH-001-CI-FIX-006.
+serde-big-array = "0.5"
 
 # HTTP client for provisioning API
 # Use rustls for cross-compilation support (no OpenSSL dependency)
@@ -61,13 +65,17 @@ regex = "1.10"
 # Modbus TCP/RTU for PLC communication (v1.2.0: rodbus with TLS support)
 # rodbus provides native TLS support for IEC 62443 SL2 FR4 compliance
 #
-# BUG-005 (version pin): The server-only TLS path in modbus.rs passes empty
-# Path::new("") for the client cert/key arguments to TlsClientConfig::full_pki().
-# This relies on rodbus 1.4 treating an empty OsStr path as "no client certificate".
-# If rodbus changes this behavior in a future minor version, Modbus TLS connections
-# without client certs will silently fail or panic.
-# Do NOT bump this dependency without re-testing server-only TLS (no mTLS) connections.
-rodbus = "=1.4.0"
+# BUG-005 (version pin, HISTORICAL — see BATCH-001-CI-FIX-004 below):
+# rodbus 1.4.0 required a Path::new("") workaround in modbus.rs for
+# TlsClientConfig::full_pki() server-only path (no mTLS client cert).
+#
+# BATCH-001-CI-FIX-004: Bumped to 1.5.0-RC1 to pull in sfio-rustls-config
+# 0.4.0 which uses rustls-webpki 0.103.12 (patches RUSTSEC-2026-0049/
+# 0098/0099). The rodbus 1.5 API MAY break the empty-Path workaround —
+# Sprint 1.8 ARC-007 rewrite to `enum TlsMode { Full{cert,key},
+# ServerOnly, None }` is required before enabling modbus TLS in
+# production. Documented in ORPHAN-002 → now TRACKED for Sprint 1.8.
+rodbus = "1.5.0-RC1"
 # Keep tokio-serial for RTU serial port support
 tokio-serial = "5.4"
 
@@ -252,18 +260,24 @@ tracing-journald = "0.3"
 jsonwebtoken = { version = "9", optional = true }
 
 # =============================================================================
-# opcua — Faz 5 OPC UA Server (optional)
+# async-opcua — Faz 5 OPC UA Server (optional)
 # =============================================================================
 # WHY: ADR-018 §3 OPC UA Server for 3rd-party HMI integration (Ignition / Wonderware
 #      / UaExpert read + controlled write). ADR-019 §3.6 STRIDE per-component.
-# WHAT: Pure-Rust OPC UA 1.04 server (canonical crate `opcua` by locka99/opcua;
-#       crates.io/crates/opcua). Optional because opc-ua-server feature off by
-#       default (not all deployments need HMI). BATCH-001-FINDING-002 closure
-#       (corrected crate name from `async-opcua` to canonical `opcua`).
+# WHAT: Pure-Rust async OPC UA 1.04 server via `async-opcua` — the
+#       maintained successor fork of locka99/opcua. Optional because
+#       opc-ua-server feature off by default (not all deployments need HMI).
+#
+#       BATCH-001-CI-FIX-005: Switched from `opcua 0.12` → `async-opcua
+#       0.18` because opcua 0.12.0 pulls ancient `url 1.7.2` + `idna 0.1.5`
+#       which carries RUSTSEC-2024-0421 (punycode label acceptance bypass).
+#       async-opcua uses modern `url 2.5` + `idna 1.1`. API is rewritten
+#       for tokio async — Sprint 6.1/6.5 wiring consumes the new API.
+#
 # INVARIANT: Feature OFF → binary MUST NOT contain OPC UA symbols; CI gate
 #            `tests/invariants/feature_off_no_symbols.sh` runs `nm` over release
 #            binary and fails on any `opcua` symbol match when feature disabled.
-opcua = { version = "0.12", optional = true, features = ["server"] }
+async-opcua = { version = "0.18", optional = true, features = ["server"] }
 
 # =============================================================================
 # TPM 2.0 via tss-esapi — ADR-019 §7 Tier 1 master key sealing (optional)
@@ -272,8 +286,11 @@ opcua = { version = "0.12", optional = true, features = ["server"] }
 #      + PCR-sealed key unsealing. Best-available anti-rollback (ADR-018 §4) +
 #      master key protection. RPi 4 without TPM → Tier 2/3 fallback (ADR-019 §7).
 # WHAT: Rust bindings to tpm2-tss C library; build-time dependency on libtss2-esys
-#       (>=4.0) on target platform. Version 8.x adopted (BATCH-001-FINDING-003
-#       closure) — current major, security fixes, Context::execute_with_session API.
+#       (>=4.0) on target platform. Version 7.x is the current STABLE major
+#       (BATCH-001-CI-FIX-001: Batch 1 originally pinned "8" but 8.x only
+#       ships alpha.2 — Cargo `^8` semver excludes pre-release, so resolver
+#       could not pick a version. Reverted to stable 7.6.x. Alpha 8.x is
+#       tracked for future migration when it ships stable.).
 # INVARIANT: (A) Feature gate tpm; missing TPM at runtime → Tier fallback per
 #            ADR-019 §7 hierarchy (systemd-creds Tier 2 → file Tier 3 operator-gated).
 #            (B) Cross-compile gate: CI matrix MUST run `cross build --target
@@ -281,7 +298,24 @@ opcua = { version = "0.12", optional = true, features = ["server"] }
 #            (C) No silent TPM disable: operator must explicitly accept fallback
 #            via config + audit event (ADR-019 §7 i_accept_file_backed_keystore_risk).
 # ENFORCE: tests/invariants/tpm_feature_cross_compile.rs — CI job entry required.
-tss-esapi = { version = "8", optional = true }
+tss-esapi = { version = "7", optional = true }
+
+# =============================================================================
+# aws-lc-sys — transitive dep via rustls/rumqttc/reqwest/hyper-rustls
+# =============================================================================
+# WHY (BATCH-001-CI-FIX-002 / RUSTSEC-2026-0044/0045/0047/0048): aws-lc-sys
+# 0.36.0 carries 4 RUSTSEC advisories (2 HIGH: PKCS7_verify bypass, CRL
+# distribution point logic error; 2 medium: X.509 Name Constraints bypass,
+# AES-CCM timing side-channel). All fixed in >=0.39. Advisory drop date
+# 2026-03-02 / 2026-03-19 — post-dates last green Edge Agent Release on
+# 2026-03-05 (agent-v1.8.2).
+# WHAT: Explicit direct dep forces resolver to pick 0.40.x (current latest
+# stable) even though we don't use aws-lc-sys directly. Transitive deps
+# (rustls, aws-lc-rs, rumqttc, reqwest, rodbus) accept any compatible
+# 0.x via their own dependency specifiers so the upgrade is transparent.
+# INVARIANT: cargo audit on Cargo.lock must report 0 RUSTSEC-2026-* advisories
+#            for aws-lc-sys family.
+aws-lc-sys = "0.40"
 
 # LoRaWAN cryptography and packet encoding (optional, activated by `lorawan` feature)
 aes = { version = "0.8", optional = true }
@@ -376,7 +410,7 @@ multi-task-scheduler = []
 # WHAT: Enables async-opcua server binding on port 4840 (configurable); policy-gated
 #       write-through via ADR-018 Permission::OpcUaWrite.
 # INVARIANT: Feature OFF → no OPC UA symbols in binary (binary-size invariant test).
-opc-ua-server = ["dep:opcua"]
+opc-ua-server = ["dep:async-opcua"]
 
 # WHY: Faz 6 Live debug protocol (ADR-017 §13 + Plan §5 Faz 6).
 # WHAT: Enables watch_subscribe / force_value / unforce / list_forces MQTT commands;

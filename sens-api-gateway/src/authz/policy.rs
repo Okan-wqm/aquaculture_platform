@@ -99,8 +99,11 @@ pub struct CoApproverEvidence {
 /// **EDGE-LOW-002 closure:** matches the Batch 2 validated-newtype pattern
 /// (`ModbusRegisterRange::new`). Tier-1 make-it-impossible for the
 /// signature-length class of bug.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Ed25519SignatureBytes([u8; 64]);
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Ed25519SignatureBytes(
+    #[serde(with = "serde_big_array::BigArray")]
+    [u8; 64],
+);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct InvalidSignatureLength {

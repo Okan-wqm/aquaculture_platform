@@ -1,0 +1,108 @@
+# =============================================================================
+# cargo-audit policy — upstream-blocked advisory acceptance (tracked)
+# =============================================================================
+# Per plan §5 Faz 0 + CLAUDE.md architectural discipline:
+#
+#   Delay-tracked-with-IDs is permitted ONLY with explicit owner + deadline
+#   + tracked finding ID. No silent acceptance, no indefinite postponement.
+#
+# Each ignore entry MUST carry owner + deadline + finding-ID + upstream
+# blocker reference. When the upstream fix lands, the entry REMOVED (not
+# renewed).
+#
+# ---------------------------------------------------------------------------
+# Policy review cadence
+# ---------------------------------------------------------------------------
+# - Monthly review of this file. If an entry's deadline passes without
+#   upstream fix, open a RESOLVED-BY-FORK-OR-REPLACE decision (fork the
+#   upstream or replace with a different crate).
+# - New ignore entries require an ADR-level architectural decision; never
+#   add here without the 4-step hierarchy:
+#     1. Try make-it-impossible (upgrade dep)
+#     2. Try make-it-automatic (cargo update)
+#     3. Try make-it-detectable (this file — tracked ignore)
+#     4. Document as ADR amendment
+# ---------------------------------------------------------------------------
+
+[advisories]
+
+# Advisories below are UPSTREAM-BLOCKED (the immediate dep-tree author
+# has not yet released a version with the fix). Each must be tracked.
+ignore = [
+    # -----------------------------------------------------------------
+    # rustls-webpki 0.102.8 advisory chain — rumqttc 0.25.1 transitive
+    # -----------------------------------------------------------------
+    # Finding: EDGE-CI-001
+    # Owner:   platform-team (okan@noras-wt.com)
+    # Deadline: 2026-07-01
+    # Upstream: rumqttc/bytebeamio — main branch (2026-04-20 check) still
+    #   carries rustls-webpki 0.102.8. A rumqttc 0.26+ release is expected
+    #   but not yet shipped. Impact on us: we pin leaf cert fingerprints
+    #   (Batch 11 mTLS types) so name-constraint / CRL validation code
+    #   paths are NOT exercised by our deployment — the advisories are
+    #   theoretical risk only.
+    # Mitigation: Sprint 6.8 mTLS runtime wiring uses SHA-256 fingerprint
+    #   pinning, not name-constraint validation. If rumqttc 0.26 does not
+    #   ship by 2026-07-01, decision path: (a) suderra fork of rumqttc
+    #   bumping rustls-webpki, OR (b) replace with paho-mqtt-rust.
+    "RUSTSEC-2026-0098", # Name constraints for URI names incorrectly accepted
+    "RUSTSEC-2026-0099", # Name constraints accepted for wildcard cert asserts
+    "RUSTSEC-2026-0049", # CRLs not considered authoritative by Distribution Point
+
+    # -----------------------------------------------------------------
+    # rsa 0.9.10 Marvin Attack (RUSTSEC-2023-0071) — NO UPSTREAM FIX
+    # -----------------------------------------------------------------
+    # Finding: EDGE-CI-002
+    # Owner:   platform-team (okan@noras-wt.com)
+    # Deadline: NO_FIX_AVAILABLE — re-evaluate quarterly.
+    # Upstream: rustcrypto/RSA — the advisory notes fix requires a rewrite
+    #   of the decryption path; maintainers have NOT published a fix. The
+    #   crate is still recommended for non-decryption use (signing,
+    #   verification). Our async-opcua usage is for OPC UA X.509 server
+    #   cert VERIFICATION (not decryption); Marvin Attack requires timing-
+    #   measurable decryption oracle, which our path does not expose.
+    # Mitigation: OPC UA feature (`opc-ua-server`) is OFF by default. Only
+    #   deployments explicitly enabling the feature ship the rsa crate.
+    #   When enabled, the server only verifies client certs — no RSA-OAEP
+    #   decryption is performed. Sprint 6.5 enforces this via the
+    #   feature-flag discipline.
+    "RUSTSEC-2023-0071",
+
+    # -----------------------------------------------------------------
+    # Unmaintained-but-still-safe advisories (Warning-level)
+    # -----------------------------------------------------------------
+    # These do not represent active vulnerabilities — they signal that
+    # upstream is no longer actively maintained. Architectural decision:
+    # accept until a replacement with behavioral parity ships.
+
+    # Finding: EDGE-CI-003 — bincode 1.3.3 unmaintained
+    # Owner: platform-team; Deadline: 2026-09-01 (bincode 2.x migration)
+    # Why: Plan Batch 1 PINS bincode=1.3.3 for wire-format stability of
+    #   audit HMAC chain + rbac manifest canonical bytes (Batches 6/5b/8).
+    #   Bumping to bincode 2.x changes the on-wire byte representation
+    #   breaking every historical audit entry + signature. Migration is
+    #   a coordinated fleet event + ADR-level decision.
+    "RUSTSEC-2025-0141",
+
+    # Finding: EDGE-CI-004 — derivative 2.2.0 unmaintained
+    # Owner: platform-team; Deadline: 2026-09-01 (async-opcua upstream)
+    # Why: async-opcua 0.18 transitively pulls derivative 2.2.0 via its
+    #   OPC UA binary serialization layer. No active advisory — just
+    #   unmaintained signal. Upstream async-opcua roadmap (github) has
+    #   an issue tracking this migration.
+    "RUSTSEC-2024-0388",
+
+    # Finding: EDGE-CI-005 — rustls-pemfile 2.2.0 unmaintained
+    # Owner: platform-team; Deadline: 2026-07-01 (with rumqttc 0.26)
+    # Why: Same rumqttc 0.25.1 transitive as rustls-webpki 0.102.8.
+    #   rumqttc 0.26 is expected to switch to `rustls-pki-types` (the
+    #   successor). Removal tied to EDGE-CI-001 resolution.
+    "RUSTSEC-2025-0134",
+
+    # Finding: EDGE-CI-006 — atomic-polyfill 1.0.3 unmaintained
+    # Owner: platform-team; Deadline: 2026-09-01
+    # Why: New transitive via async-opcua 0.18; upstream has migrated
+    #   to std::sync::atomic in nightly but stable API still uses
+    #   atomic-polyfill. No active vulnerability.
+    "RUSTSEC-2023-0089",
+]

@@ -15,6 +15,13 @@
 // invisible outside the `commands` module tree.
 mod helpers;
 
+// Batch 20c ARC-008 god-file split: diagnostic handlers
+// (cmd_ping, cmd_get_info, cmd_get_config, cmd_set_log_level)
+// extracted to `commands/diagnostic.rs` as a separate `impl
+// CommandHandler` block. Dispatch remains in `execute_command`
+// below; the sub-module adds only the method implementations.
+mod diagnostic;
+
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -423,63 +430,10 @@ impl CommandHandler {
         }
     }
 
-    /// Ping command - simple health check
-    async fn cmd_ping(&self) -> (bool, Value, Option<String>) {
-        info!("Executing ping command");
-        (
-            true,
-            json!({"pong": true, "timestamp": Utc::now().to_rfc3339()}),
-            None,
-        )
-    }
-
-    /// Get device info
-    async fn cmd_get_info(&self) -> (bool, Value, Option<String>) {
-        info!("Executing get_info command");
-
-        let state = self.state.read().await;
-
-        let info = json!({
-            "device_id": state.config.device_id,
-            "device_code": state.config.device_code,
-            "agent_version": env!("CARGO_PKG_VERSION"),
-            "os": std::env::consts::OS,
-            "arch": std::env::consts::ARCH,
-            "tenant_id": state.tenant_id,
-            "mqtt_broker": state.config.mqtt.broker,
-            "is_activated": state.is_activated,
-        });
-
-        (true, info, None)
-    }
-
-    /// Get current config
-    async fn cmd_get_config(&self) -> (bool, Value, Option<String>) {
-        info!("Executing get_config command");
-
-        let state = self.state.read().await;
-
-        // Return safe subset of config (no secrets)
-        let config = json!({
-            "device_id": state.config.device_id,
-            "device_code": state.config.device_code,
-            "api_url": state.config.api_url,
-            "telemetry": {
-                "interval_seconds": state.config.telemetry.interval_seconds,
-                "include_cpu": state.config.telemetry.include_cpu,
-                "include_memory": state.config.telemetry.include_memory,
-                "include_disk": state.config.telemetry.include_disk,
-                "include_temperature": state.config.telemetry.include_temperature,
-            },
-            "logging": {
-                "level": state.config.logging.level,
-            },
-            "modbus_devices": state.config.modbus.len(),
-            "gpio_pins": state.config.gpio.len(),
-        });
-
-        (true, config, None)
-    }
+    // Batch 20c ARC-008 god-file split: cmd_ping, cmd_get_info,
+    // cmd_get_config moved to `commands/diagnostic.rs`. Dispatch
+    // unchanged — the method calls in `execute_command` resolve to
+    // the sub-module's `impl CommandHandler` block.
 
     /// Reboot the device
     ///
@@ -960,54 +914,8 @@ impl CommandHandler {
         )
     }
 
-    /// Set log level
-    async fn cmd_set_log_level(&self, params: &Value) -> (bool, Value, Option<String>) {
-        let level = match params.get("level").and_then(|v| v.as_str()) {
-            Some(l) => l,
-            None => {
-                return (
-                    false,
-                    json!(null),
-                    Some("Missing 'level' parameter".to_string()),
-                );
-            }
-        };
-
-        // Validate level
-        let valid_levels = ["trace", "debug", "info", "warn", "error"];
-        if !valid_levels.contains(&level.to_lowercase().as_str()) {
-            return (
-                false,
-                json!(null),
-                Some(format!("Invalid level. Valid: {:?}", valid_levels)),
-            );
-        }
-
-        // v1.2.2: Sanitize for logging (even though whitelist validated)
-        info!("Setting log level to: {}", sanitize_for_log(level));
-
-        // Update config
-        let mut state = self.state.write().await;
-        let previous_level = state.config.logging.level.clone();
-        state.config.logging.level = level.to_lowercase();
-
-        // Note: Actually changing the tracing level at runtime requires more setup
-        // For now, we just update the config (effective after restart)
-        // v1.3.3: Provide clearer feedback about what changed and what's needed
-
-        (
-            true,
-            json!({
-                "previous_level": previous_level,
-                "requested_level": level.to_lowercase(),
-                "applied_immediately": false,
-                "note": "Log level configuration updated. Changes will take effect after agent restart. \
-                        Use 'restart_agent' command to apply immediately, or the agent will use the new \
-                        level on next startup."
-            }),
-            None,
-        )
-    }
+    // Batch 20c ARC-008 god-file split: cmd_set_log_level moved
+    // to `commands/diagnostic.rs`. Dispatch unchanged.
 
     /// Get hardware info - lists all connected devices and sensors
     async fn cmd_get_hardware(&self) -> (bool, Value, Option<String>) {

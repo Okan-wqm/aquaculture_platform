@@ -12,7 +12,8 @@
     "web/shell",
     "web/modules/*",
     "mcp/*",
-    "tools/eslint-rules"
+    "tools/eslint-rules",
+    "tools/executors/cargo"
   ],
   "scripts": {
     "dev": "nx run-many --target=serve --all",

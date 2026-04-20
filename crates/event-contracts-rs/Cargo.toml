@@ -7,13 +7,22 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 publish.workspace = true
-description = "Rust binding for @platform/event-contracts. JSON Schema → typed Rust struct codegen (typify). Enforces ADR-006 flat event pattern + branded EventId at compile time."
+description = "Rust binding for @platform/event-contracts. Mirrors the TS event interfaces (libs/event-contracts/src/) byte-for-byte on the JSON wire so the Rust ingestion sidecar publishes events indistinguishable from NestJS producers. Enforces ADR-006 flat event pattern and a branded EventId at compile time."
 
 [lib]
 path = "src/lib.rs"
 
-# [dependencies] intentionally empty during Faz 0 PR-A scaffold. The
-# typify build script + generated serde structs land in Faz 2.
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+# `serde_json::Value` is reused in tests for hand-crafted JSON
+# compatibility checks against the TypeScript SSoT.
+serde_json = { workspace = true }
 
 [lints]
 workspace = true

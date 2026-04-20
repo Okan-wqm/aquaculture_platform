@@ -540,3 +540,8 @@ path = "tests/invariants/shutdown_drain.rs"
 [[test]]
 name = "mtls_config"
 path = "tests/invariants/mtls_config.rs"
+
+# Batch 28 Sprint 6.1 partial — command → Permission mapping.
+[[test]]
+name = "required_permission_mapping"
+path = "tests/invariants/required_permission_mapping.rs"

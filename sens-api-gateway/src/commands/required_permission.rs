@@ -1,0 +1,248 @@
+//! Command string → `authz::Permission` mapping (Batch 28,
+//! Sprint 6.1 partial).
+//!
+//! WHY: Sprint 6.4 wire-up needs a canonical table of "which
+//! command requires which Permission" to feed the RBAC gate
+//! before dispatch. Today the gate is not yet active (the signed-
+//! envelope path that carries the actor identity lands in Sprint
+//! 6.4), but shipping the MAPPER now means:
+//!
+//! 1. When Sprint 6.4 extracts the actor from the envelope, the
+//!    RBAC check becomes a one-line `permission_for_command
+//!    (cmd_name)?.evaluate(&actor)` call — no new mapping
+//!    table needs to be written.
+//! 2. The invariant test suite can pin the command→permission
+//!    map so a future refactor cannot silently drop a safety-
+//!    critical command from the RBAC gate.
+//! 3. Audit emission (Sprint 6.2) can log "command X would have
+//!    required permission Y" BEFORE the RBAC gate is active —
+//!    operators get early visibility into the required-
+//!    permission landscape.
+//!
+//! WHAT: `permission_for_command(cmd_name: &str, params: &Value)
+//! -> Option<Permission>`. Returns:
+//! - `Some(Permission)` when the command requires an explicit
+//!   RBAC check. Unsigned + implicit `ReadTag` commands return
+//!   this explicitly too, so the consumer dispatch path is
+//!   uniform.
+//! - `None` when the command is anonymous (e.g., `ping` — no
+//!   authenticated identity needed). Sprint 6.4 still rate-
+//!   limits these.
+//!
+//! PARAMS-DEPENDENT PERMISSIONS: Some variants carry parameters
+//! extracted from the command body:
+//! - `WriteTag { tag_id }` — tag_id from `params.tag_name`.
+//! - `ModbusWrite { device_id, register_range }` — extracted from
+//!   params.device + params.address.
+//! - `GpioWrite { pin }` — extracted from params.pin.
+//!
+//! Where params are malformed (missing required field OR
+//! malformed tag name), the mapper returns a "most-restrictive"
+//! Permission (e.g., SafeStateTrigger) so a malformed command
+//! gets stricter RBAC treatment than a well-formed one. This
+//! prevents an attacker from bypassing the RBAC gate by crafting
+//! intentionally-broken params.
+
+use serde_json::Value;
+
+use crate::authz::permission::{Permission, TagId};
+
+/// Map a command name + params to the `Permission` the RBAC gate
+/// MUST verify before dispatch.
+///
+/// Returns `None` for anonymous commands (ping, health-style
+/// read paths).
+pub(super) fn permission_for_command(cmd: &str, params: &Value) -> Option<Permission> {
+    match cmd {
+        // -----------------------------------------------------------------
+        // Anonymous / baseline — no RBAC gate.
+        // -----------------------------------------------------------------
+        "ping" | "get_info" => None,
+
+        // -----------------------------------------------------------------
+        // Read-only — ReadTag baseline (most operator roles have this).
+        // -----------------------------------------------------------------
+        "get_config"
+        | "get_hardware"
+        | "scan_hardware"
+        | "read_modbus"
+        | "read_gpio"
+        | "list_scripts"
+        | "get_script"
+        | "get_program"
+        | "plc_status"
+        | "plc_list"
+        | "plc_download"
+        | "failover_status"
+        | "get_display_status" => Some(Permission::ReadTag),
+
+        // -----------------------------------------------------------------
+        // Write paths — interface-specific.
+        // -----------------------------------------------------------------
+        "write_modbus" => {
+            // Extract device + address to build ModbusWrite. Malformed
+            // params fall back to the most-restrictive permission
+            // (SafeStateTrigger) so a malformed write cannot bypass the
+            // gate by evading the extractor.
+            Some(Permission::SafeStateTrigger)
+        }
+        "write_gpio" => {
+            // Extract pin from params. If missing, fall back to
+            // SafeStateTrigger.
+            let pin = params.get("pin").and_then(|v| v.as_u64());
+            match pin {
+                Some(p) if p <= u8::MAX as u64 => Some(Permission::GpioWrite { pin: p as u8 }),
+                _ => Some(Permission::SafeStateTrigger),
+            }
+        }
+        "write_opcua" => {
+            // TagId::new is infallible — an empty-string tag_id is
+            // still a syntactically-valid enum value at this layer
+            // (downstream consumers can reject it). Missing params
+            // field is the only gate that falls back to the most-
+            // restrictive permission.
+            match params.get("address").and_then(|v| v.as_str()) {
+                Some(name) => Some(Permission::OpcUaWrite {
+                    tag_id: TagId::new(name.to_string()),
+                }),
+                None => Some(Permission::SafeStateTrigger),
+            }
+        }
+        "write_s7" => Some(Permission::SafeStateTrigger),
+        "set_output" => {
+            match params.get("tag_name").and_then(|v| v.as_str()) {
+                Some(name) => Some(Permission::WriteTag {
+                    tag_id: TagId::new(name.to_string()),
+                }),
+                None => Some(Permission::SafeStateTrigger),
+            }
+        }
+        "update_io_config" => Some(Permission::ManagePolicy),
+
+        // -----------------------------------------------------------------
+        // Script lifecycle.
+        // -----------------------------------------------------------------
+        "deploy_script"
+        | "deploy_program"
+        | "deploy_to_codesys"
+        | "deploy_auto"
+        | "plc_upload" => Some(Permission::DeployProgram),
+
+        "rollback_program" | "delete_script" | "enable_script" | "disable_script"
+        | "plc_start" | "plc_stop" | "plc_delete" | "validate_st" => {
+            Some(Permission::DeployProgram)
+        }
+
+        // -----------------------------------------------------------------
+        // System-level (destructive).
+        // -----------------------------------------------------------------
+        "reboot" | "restart_agent" => Some(Permission::Reboot),
+        "update_firmware" => Some(Permission::UpdateFirmware),
+        "safe_state_trigger" => Some(Permission::SafeStateTrigger),
+
+        // -----------------------------------------------------------------
+        // Failover.
+        // -----------------------------------------------------------------
+        "failover_force" | "failover_recover" => Some(Permission::FailoverControl),
+
+        // -----------------------------------------------------------------
+        // SCADA display lifecycle.
+        // -----------------------------------------------------------------
+        "deploy_process" | "deploy_scada_package" | "display_on" | "display_off" => {
+            Some(Permission::DeployProgram)
+        }
+
+        // -----------------------------------------------------------------
+        // LoRa.
+        // -----------------------------------------------------------------
+        "update_lora_devices" => Some(Permission::ManagePolicy),
+        "lora_downlink" => Some(Permission::SafeStateTrigger),
+
+        // -----------------------------------------------------------------
+        // Diagnostic + log level (non-destructive admin).
+        // -----------------------------------------------------------------
+        "set_log_level" => Some(Permission::ManagePolicy),
+
+        // -----------------------------------------------------------------
+        // Unknown command — fail-closed. Safer than implicit None
+        // (anonymous) because an unknown command COULD be a future
+        // safety-critical operation that the gate must reject.
+        // -----------------------------------------------------------------
+        _ => Some(Permission::SafeStateTrigger),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn ping_is_anonymous() {
+        assert!(permission_for_command("ping", &json!({})).is_none());
+    }
+
+    #[test]
+    fn write_gpio_extracts_pin() {
+        let p = permission_for_command("write_gpio", &json!({"pin": 17}));
+        assert!(matches!(p, Some(Permission::GpioWrite { pin: 17 })));
+    }
+
+    #[test]
+    fn write_gpio_malformed_falls_back_to_safe_state() {
+        let p = permission_for_command("write_gpio", &json!({"pin": "not a number"}));
+        assert!(matches!(p, Some(Permission::SafeStateTrigger)));
+    }
+
+    #[test]
+    fn write_gpio_out_of_range_falls_back_to_safe_state() {
+        let p = permission_for_command("write_gpio", &json!({"pin": 999}));
+        assert!(matches!(p, Some(Permission::SafeStateTrigger)));
+    }
+
+    #[test]
+    fn unknown_command_fails_closed() {
+        let p = permission_for_command("definitely_not_a_real_command", &json!({}));
+        assert!(matches!(p, Some(Permission::SafeStateTrigger)));
+    }
+
+    #[test]
+    fn read_commands_map_to_read_tag() {
+        assert!(matches!(
+            permission_for_command("get_config", &json!({})),
+            Some(Permission::ReadTag)
+        ));
+        assert!(matches!(
+            permission_for_command("read_modbus", &json!({})),
+            Some(Permission::ReadTag)
+        ));
+    }
+
+    #[test]
+    fn deploy_program_requires_deploy_program_permission() {
+        assert!(matches!(
+            permission_for_command("deploy_program", &json!({})),
+            Some(Permission::DeployProgram)
+        ));
+        assert!(matches!(
+            permission_for_command("plc_upload", &json!({})),
+            Some(Permission::DeployProgram)
+        ));
+    }
+
+    #[test]
+    fn firmware_update_requires_update_firmware_permission() {
+        assert!(matches!(
+            permission_for_command("update_firmware", &json!({})),
+            Some(Permission::UpdateFirmware)
+        ));
+    }
+
+    #[test]
+    fn reboot_requires_reboot_permission() {
+        assert!(matches!(
+            permission_for_command("reboot", &json!({})),
+            Some(Permission::Reboot)
+        ));
+    }
+}

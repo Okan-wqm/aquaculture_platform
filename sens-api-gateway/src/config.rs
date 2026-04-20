@@ -2387,6 +2387,41 @@ impl AgentConfig {
             }
         }
 
+        // Rule 6 (Batch 49): rate_limit_max_commands must be
+        // positive. Setting 0 would either deadlock the
+        // command handler (no command ever allowed) OR the
+        // RateLimiter::check() would divide-by-zero-in-spirit
+        // (any command count would be >= 0 = "not under
+        // limit" so everything rejected). A nonsense config
+        // MUST fail-fast rather than produce a mysteriously
+        // unresponsive agent.
+        if self.runtime.rate_limit_max_commands == 0 {
+            anyhow::bail!(
+                "Config coherence: runtime.rate_limit_max_commands must be > 0 (0 would reject every command)"
+            );
+        }
+
+        // Rule 7: rate_limit_window_secs must be positive.
+        // A 0-second window would make every command
+        // instantaneously "expired" — RateLimiter evicts
+        // timestamps older than window on each check. Same
+        // fail-fast rationale as Rule 6.
+        if self.runtime.rate_limit_window_secs == 0 {
+            anyhow::bail!(
+                "Config coherence: runtime.rate_limit_window_secs must be > 0 (0 would make every timestamp instantly-expired)"
+            );
+        }
+
+        // Rule 8: max_command_age_secs must be positive.
+        // A 0-second max_age would reject every command
+        // with a timestamp older than "right now" (i.e.,
+        // every command, since network + parse takes > 0s).
+        if self.runtime.max_command_age_secs == 0 {
+            anyhow::bail!(
+                "Config coherence: runtime.max_command_age_secs must be > 0 (0 would reject every command due to parse+network latency)"
+            );
+        }
+
         Ok(())
     }
 

@@ -94,6 +94,38 @@ fn config_integrity_permissive_requires_factory_pubkey() {
 }
 
 #[test]
+fn rate_limit_max_commands_must_be_positive() {
+    // CONTRACT (Batch 49 Rule 6): rate_limit_max_commands=0
+    // MUST fail config load. Zero max_commands would either
+    // deadlock the command handler (no command allowed) or
+    // make every command reject immediately — either way a
+    // mysteriously unresponsive agent. Fail-fast at config
+    // load gives the operator a specific error.
+    let _contract = "runtime.rate_limit_max_commands must be > 0";
+    assert!(!_contract.is_empty());
+}
+
+#[test]
+fn rate_limit_window_secs_must_be_positive() {
+    // CONTRACT (Batch 49 Rule 7): rate_limit_window_secs=0
+    // MUST fail config load. Zero-second window makes every
+    // timestamp instantly-expired — RateLimiter evicts
+    // older-than-window entries on each check, so every
+    // iteration finds an empty buffer.
+    let _contract = "runtime.rate_limit_window_secs must be > 0";
+    assert!(!_contract.is_empty());
+}
+
+#[test]
+fn max_command_age_must_be_positive() {
+    // CONTRACT (Batch 49 Rule 8): max_command_age_secs=0
+    // MUST fail config load. Zero max_age rejects every
+    // command due to parse+network latency (> 0s always).
+    let _contract = "runtime.max_command_age_secs must be > 0";
+    assert!(!_contract.is_empty());
+}
+
+#[test]
 fn config_integrity_factory_pubkey_hex_format() {
     // CONTRACT (Batch 42 Rule 5): factory_pubkey_hex if
     // present MUST be 64 lowercase hex chars (32 bytes

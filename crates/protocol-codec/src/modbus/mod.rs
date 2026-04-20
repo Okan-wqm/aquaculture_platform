@@ -11,6 +11,7 @@
 //!   - No transport I/O, no logging — pure decode. The caller decides
 //!     whether to retry, drop, or audit.
 
+pub mod ascii;
 pub mod pdu;
 pub mod rtu;
 pub mod tcp;

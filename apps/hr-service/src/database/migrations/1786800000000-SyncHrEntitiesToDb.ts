@@ -189,12 +189,39 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
       }
     }
 
-    // 3. Ask TypeORM what queries it would emit to align DB to entities.
+    // 3. Pre-create the typeorm_metadata bookkeeping table.
+    //
+    //    RdbmsSchemaBuilder.log() (called below) eagerly queries
+    //    `<schema>.typeorm_metadata` to read view/check-constraint
+    //    history. TypeORM only auto-creates that table during a real
+    //    synchronize() call (which we never run); calling log() against
+    //    a schema that has never seen synchronize fails with:
+    //      QueryFailedError: relation "hr.typeorm_metadata" does not exist
+    //
+    //    The columns/types match
+    //    `node_modules/typeorm/schema-builder/RdbmsSchemaBuilder.js:856-940`
+    //    1:1 (the createTypeormMetadataTable() helper that synchronize()
+    //    invokes). We CREATE TABLE IF NOT EXISTS so this is safe to
+    //    re-run on a droplet where a prior synchronize already created
+    //    the table. No data is written here — the table exists empty
+    //    purely to satisfy log()'s metadata read.
+    await queryRunner.query(`
+      CREATE TABLE IF NOT EXISTS "hr"."typeorm_metadata" (
+        "type" varchar NOT NULL,
+        "database" varchar,
+        "schema" varchar,
+        "table" varchar,
+        "name" varchar,
+        "value" text
+      )
+    `);
+
+    // 4. Ask TypeORM what queries it would emit to align DB to entities.
     //    `log()` returns SqlInMemory: { upQueries, downQueries }.
     const sqlInMemory = await conn.driver.createSchemaBuilder().log();
     const allUpQueries = sqlInMemory.upQueries;
 
-    // 4. Filter for hr-scoped statements. TypeORM emits schema-qualified
+    // 5. Filter for hr-scoped statements. TypeORM emits schema-qualified
     //    identifiers like `"hr"."payrolls"` when entities declare
     //    `schema: 'hr'`. Any query lacking the `"hr".` prefix is
     //    rejected — defense against the schema-builder accidentally
@@ -212,14 +239,14 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
       return;
     }
 
-    // 5. Apply hr-scoped queries to the source schema.
+    // 6. Apply hr-scoped queries to the source schema.
     for (const q of hrUpQueries) {
       this.logger.debug(`[hr] ${q.query.slice(0, 120).replace(/\s+/g, ' ')}`);
       await queryRunner.query(q.query, q.parameters as unknown[] | undefined);
     }
     this.logger.log(`Applied ${hrUpQueries.length} catch-up queries to source hr schema.`);
 
-    // 6. Propagate to every existing tenant clone.
+    // 7. Propagate to every existing tenant clone.
     //    Discover via information_schema; validate each name against
     //    the injection-safe regex; rewrite `"hr".` -> `"${tenant}".`
     //    in each query before execution.

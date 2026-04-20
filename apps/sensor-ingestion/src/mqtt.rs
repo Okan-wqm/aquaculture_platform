@@ -24,10 +24,14 @@
 //! `deny.toml`. Resolution requires an upstream rumqttc release, a
 //! local fork, or a migration to an alternative MQTT crate.
 
+use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
-use rumqttc::{AsyncClient, Event, EventLoop, MqttOptions, Packet, QoS, Transport};
+use rumqttc::{
+    AsyncClient, Event, EventLoop, MqttOptions, Packet, QoS, TlsConfiguration, Transport,
+};
 use thiserror::Error;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -70,6 +74,31 @@ pub enum MqttError {
         #[source]
         source: rumqttc::ClientError,
     },
+
+    /// Broker URL uses `mqtts://` but one or more of the required
+    /// mTLS material paths is missing from [`MqttConfig`]. Surfaced
+    /// at process start by [`validate_config`] so misconfiguration
+    /// cannot fall through to a silently-insecure connection.
+    #[error("mqtts:// broker requires server_ca_cert_pem, client_cert_pem, and client_key_pem")]
+    MtlsMaterialMissing,
+
+    /// One of the cert / key files in [`MqttConfig`] could not be
+    /// read. Mirrors `persistence::SinkError::TlsMaterial` so an
+    /// operator sees the same shape of error from every TLS-bearing
+    /// subsystem in the sidecar.
+    #[error("cannot read TLS material at {path}")]
+    TlsMaterial {
+        /// File path that failed to load.
+        path: PathBuf,
+        /// Underlying I/O error.
+        #[source]
+        source: std::io::Error,
+    },
+
+    /// rustls / x509 parsing or `with_client_auth_cert` failed on
+    /// the supplied PEM material.
+    #[error("rustls TLS configuration error: {0}")]
+    Tls(String),
 }
 
 /// One MQTT message handed to downstream stages.
@@ -108,6 +137,14 @@ impl MqttMessageStream {
 }
 
 /// Validate the [`MqttConfig`] without touching the network.
+///
+/// WHY also enforce mTLS material here:
+///   The same rule has to hold at every entrypoint that constructs the
+///   subscriber. Asserting it inside [`start`] only would let a future
+///   call site that bypasses [`start`] (e.g. a unit test that builds
+///   the EventLoop directly) silently fall back to system-roots TLS.
+///   Centralising the rule in `validate_config` makes the gate a
+///   total function over `MqttConfig`.
 pub fn validate_config(cfg: &MqttConfig) -> Result<(), MqttError> {
     if cfg.topic_filters.is_empty() {
         return Err(MqttError::NoTopicFilters);
@@ -115,7 +152,15 @@ pub fn validate_config(cfg: &MqttConfig) -> Result<(), MqttError> {
     if cfg.qos > 1 {
         return Err(MqttError::UnsupportedQos(cfg.qos));
     }
-    parse_broker_url(&cfg.broker_url).map(|_| ())
+    parse_broker_url(&cfg.broker_url)?;
+    if cfg.tls_required()
+        && (cfg.server_ca_cert_pem.is_none()
+            || cfg.client_cert_pem.is_none()
+            || cfg.client_key_pem.is_none())
+    {
+        return Err(MqttError::MtlsMaterialMissing);
+    }
+    Ok(())
 }
 
 /// Spawn the rumqttc EventLoop task and return a stream of incoming
@@ -128,12 +173,16 @@ pub async fn start(cfg: MqttConfig) -> Result<MqttMessageStream, MqttError> {
     opts.set_keep_alive(Duration::from_secs(30));
 
     if parsed_url.tls {
-        // Use rumqttc's default rustls transport — cert chain from
-        // system roots. Full mTLS (client cert + custom CA) lands
-        // alongside the NATS credential wiring in a follow-on commit
-        // when we thread the TlsConfiguration builder through
-        // MqttConfig.
-        opts.set_transport(Transport::tls_with_default_config());
+        // Build a rustls ClientConfig with the platform CA pinned and
+        // the client cert wired in. WHY no system roots: the platform
+        // PKI is the single trust anchor (ADR-014/015 cert-is-identity);
+        // a Web-PKI CA must not be able to MITM the broker connection.
+        // WHY mTLS: the broker's ACL pivots on the client cert CN, so
+        // omitting the cert means the sidecar would authenticate as
+        // "anonymous" and fail every authorisation check at first
+        // publish — better to fail loudly here at boot.
+        let tls = build_rustls_client_config(&cfg).await?;
+        opts.set_transport(Transport::tls_with_config(TlsConfiguration::Rustls(tls)));
     }
 
     let (client, event_loop) = AsyncClient::new(opts, 1024);
@@ -152,6 +201,92 @@ pub async fn start(cfg: MqttConfig) -> Result<MqttMessageStream, MqttError> {
 
     let handle = tokio::spawn(run_event_loop(event_loop, tx));
     Ok(MqttMessageStream { rx, handle })
+}
+
+/// Build the `rustls::ClientConfig` that backs `Transport::Rustls`.
+/// Platform CA pinned; system roots intentionally NOT consulted (same
+/// posture as `crate::persistence::PostgresSink::connect`).
+///
+/// # Errors
+/// - [`MqttError::MtlsMaterialMissing`] — defence in depth; the public
+///   [`validate_config`] already gates this path, but we re-check so a
+///   future internal call site that skipped the validator still fails
+///   safely.
+/// - [`MqttError::TlsMaterial`] — one of the cert/key files cannot be
+///   read.
+/// - [`MqttError::Tls`] — PEM parsing failed, the CA file contained
+///   zero certificates, or rustls refused the cert/key pair.
+async fn build_rustls_client_config(
+    cfg: &MqttConfig,
+) -> Result<Arc<rustls::ClientConfig>, MqttError> {
+    // Defence in depth: validate_config already enforces this, but a
+    // direct caller of build_rustls_client_config would otherwise
+    // silently dereference None.
+    let (Some(ca_path), Some(cert_path), Some(key_path)) = (
+        cfg.server_ca_cert_pem.as_ref(),
+        cfg.client_cert_pem.as_ref(),
+        cfg.client_key_pem.as_ref(),
+    ) else {
+        return Err(MqttError::MtlsMaterialMissing);
+    };
+
+    // 1. Server CA — only this CA is trusted; system roots are
+    //    deliberately omitted. Mirrors persistence.rs:220-230.
+    let ca_bytes = tokio::fs::read(ca_path)
+        .await
+        .map_err(|source| MqttError::TlsMaterial {
+            path: ca_path.clone(),
+            source,
+        })?;
+    let mut roots = rustls::RootCertStore::empty();
+    let mut ca_cursor = std::io::Cursor::new(ca_bytes);
+    for cert in rustls_pemfile::certs(&mut ca_cursor) {
+        let cert = cert.map_err(|e| MqttError::Tls(e.to_string()))?;
+        roots.add(cert).map_err(|e| MqttError::Tls(e.to_string()))?;
+    }
+    if roots.is_empty() {
+        return Err(MqttError::Tls(
+            "server_ca_cert_pem contained zero certificates".to_owned(),
+        ));
+    }
+
+    // 2. Client cert chain.
+    let cert_bytes = tokio::fs::read(cert_path)
+        .await
+        .map_err(|source| MqttError::TlsMaterial {
+            path: cert_path.clone(),
+            source,
+        })?;
+    let mut cert_cursor = std::io::Cursor::new(cert_bytes);
+    let cert_chain: Vec<_> = rustls_pemfile::certs(&mut cert_cursor)
+        .collect::<Result<_, _>>()
+        .map_err(|e| MqttError::Tls(e.to_string()))?;
+    if cert_chain.is_empty() {
+        return Err(MqttError::Tls(
+            "client_cert_pem contained zero certificates".to_owned(),
+        ));
+    }
+
+    // 3. Client private key. rustls_pemfile::private_key already
+    //    accepts PKCS#1 / PKCS#8 / SEC-1 transparently.
+    let key_bytes = tokio::fs::read(key_path)
+        .await
+        .map_err(|source| MqttError::TlsMaterial {
+            path: key_path.clone(),
+            source,
+        })?;
+    let mut key_cursor = std::io::Cursor::new(key_bytes);
+    let key = rustls_pemfile::private_key(&mut key_cursor)
+        .map_err(|e| MqttError::Tls(e.to_string()))?
+        .ok_or_else(|| MqttError::Tls("client_key_pem contained no private key".to_owned()))?;
+
+    // 4. Final ClientConfig — the rumqttc TLS layer wraps this in
+    //    Arc<ClientConfig> per its TlsConfiguration::Rustls signature.
+    let client_config = rustls::ClientConfig::builder()
+        .with_root_certificates(roots)
+        .with_client_auth_cert(cert_chain, key)
+        .map_err(|e| MqttError::Tls(e.to_string()))?;
+    Ok(Arc::new(client_config))
 }
 
 /// rumqttc EventLoop driver.
@@ -244,7 +379,14 @@ fn parse_broker_url(raw: &str) -> Result<ParsedBrokerUrl, MqttError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{MqttError, ParsedBrokerUrl, parse_broker_url, qos_from_u8, validate_config};
+    use std::io::Write;
+    use std::path::PathBuf;
+
+    use tempfile::NamedTempFile;
+
+    use super::{
+        MqttError, ParsedBrokerUrl, parse_broker_url, qos_from_u8, start, validate_config,
+    };
     use crate::config::MqttConfig;
 
     fn cfg(broker: &str, filters: Vec<&str>, qos: u8) -> MqttConfig {
@@ -253,7 +395,32 @@ mod tests {
             client_id: "test".to_owned(),
             topic_filters: filters.into_iter().map(String::from).collect(),
             qos,
+            server_ca_cert_pem: None,
+            client_cert_pem: None,
+            client_key_pem: None,
         }
+    }
+
+    /// Write a minimal PEM stub to a NamedTempFile and return both —
+    /// the caller keeps the handle alive so the file is not deleted
+    /// before the test reads it. The contents are intentionally NOT
+    /// a valid cert: tests that just assert "all three paths supplied"
+    /// pass before any TLS parse runs (validate_config), and tests
+    /// that DO parse use this same stub to drive the rustls error
+    /// path deterministically.
+    fn pem_stub(label: &str) -> NamedTempFile {
+        let mut f = NamedTempFile::new().unwrap();
+        // Empty body — rustls_pemfile yields no items, which we map to
+        // MqttError::Tls("...zero certificates...") for the CA branch
+        // and to MqttError::Tls("...no private key...") for the key
+        // branch.
+        writeln!(f, "-----BEGIN {label}-----").unwrap();
+        writeln!(f, "-----END {label}-----").unwrap();
+        f
+    }
+
+    fn pem_path(f: &NamedTempFile) -> PathBuf {
+        f.path().to_path_buf()
     }
 
     #[test]
@@ -371,5 +538,73 @@ mod tests {
         use rumqttc::QoS;
         assert!(matches!(qos_from_u8(0), QoS::AtMostOnce));
         assert!(matches!(qos_from_u8(1), QoS::AtLeastOnce));
+    }
+
+    #[test]
+    fn validate_config_rejects_mqtts_without_certs() {
+        // mqtts:// implies the broker expects mTLS — and the platform
+        // CA must be pinned. validate_config must refuse to start
+        // before any socket opens, so a misconfiguration cannot fall
+        // through to system-roots TLS.
+        let c = cfg("mqtts://broker:8883", vec!["sensors/#"], 1);
+        match validate_config(&c) {
+            Err(MqttError::MtlsMaterialMissing) => {}
+            other => panic!("expected MtlsMaterialMissing, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn validate_config_accepts_mqtts_with_all_certs() {
+        // Validator only checks "all three paths supplied"; it does
+        // not read the files yet. Real PEM parsing happens inside
+        // start() / build_rustls_client_config and is covered by the
+        // start_returns_* async tests below.
+        let ca = pem_stub("CERTIFICATE");
+        let cert = pem_stub("CERTIFICATE");
+        let key = pem_stub("PRIVATE KEY");
+        let mut c = cfg("mqtts://broker:8883", vec!["sensors/#"], 1);
+        c.server_ca_cert_pem = Some(pem_path(&ca));
+        c.client_cert_pem = Some(pem_path(&cert));
+        c.client_key_pem = Some(pem_path(&key));
+        assert!(validate_config(&c).is_ok());
+    }
+
+    #[tokio::test]
+    async fn start_returns_tls_material_error_when_ca_missing() {
+        // CA path points to a file that does not exist; the cert+key
+        // can be present (they are read AFTER the CA in the helper).
+        // The expectation: TlsMaterial error before any socket opens.
+        let cert = pem_stub("CERTIFICATE");
+        let key = pem_stub("PRIVATE KEY");
+        let mut c = cfg("mqtts://broker:8883", vec!["sensors/#"], 1);
+        c.server_ca_cert_pem = Some(PathBuf::from("/nonexistent/ca.pem"));
+        c.client_cert_pem = Some(pem_path(&cert));
+        c.client_key_pem = Some(pem_path(&key));
+        match start(c).await {
+            Err(MqttError::TlsMaterial { path, .. }) => {
+                assert_eq!(path.to_str().unwrap(), "/nonexistent/ca.pem");
+            }
+            other => panic!("expected TlsMaterial, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn start_returns_tls_error_on_invalid_pem() {
+        // Empty PEM stubs: rustls_pemfile reads zero items from the
+        // CA file → build_rustls_client_config maps that to
+        // MqttError::Tls("...zero certificates..."). The point is to
+        // pin the rustls error path; the exact message is not part of
+        // the contract.
+        let ca = pem_stub("CERTIFICATE");
+        let cert = pem_stub("CERTIFICATE");
+        let key = pem_stub("PRIVATE KEY");
+        let mut c = cfg("mqtts://broker:8883", vec!["sensors/#"], 1);
+        c.server_ca_cert_pem = Some(pem_path(&ca));
+        c.client_cert_pem = Some(pem_path(&cert));
+        c.client_key_pem = Some(pem_path(&key));
+        match start(c).await {
+            Err(MqttError::Tls(_)) => {}
+            other => panic!("expected Tls error, got {other:?}"),
+        }
     }
 }

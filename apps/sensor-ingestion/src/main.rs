@@ -54,6 +54,7 @@ mod cache;
 mod config;
 mod error;
 mod events;
+mod ingest_backend;
 mod mqtt;
 mod payload;
 mod persistence;
@@ -195,6 +196,20 @@ async fn async_main(cfg: Config) -> anyhow::Result<()> {
         publisher_handle,
     } = start_event_publisher(cfg.nats.clone()).await?;
 
+    // Stage 13: per-tenant IngestBackend policy. Built from the
+    //   `[ingest_backend]` TOML section (defaults to "every tenant on
+    //   Node" when the section is absent — safe rollout). The drain
+    //   loop holds an Arc<dyn IngestBackendPolicy> so the eventual
+    //   swap to a NATS-served dynamic policy in Faz 3 is mechanical.
+    let policy: Arc<dyn ingest_backend::IngestBackendPolicy> = Arc::new(
+        ingest_backend::StaticBackendPolicy::from_config(&cfg.ingest_backend),
+    );
+    tracing::info!(
+        default_backend = ?cfg.ingest_backend.default_backend,
+        tenant_overrides = cfg.ingest_backend.tenant_overrides.len(),
+        "ingest backend policy constructed"
+    );
+
     tokio::select! {
         () = wait_for_shutdown_signal() => {
             tracing::info!("shutdown signal received, closing mqtt subscriber");
@@ -203,7 +218,7 @@ async fn async_main(cfg: Config) -> anyhow::Result<()> {
                 s.shutdown().await;
             }
         }
-        () = drain_mqtt_stream(drain_slot, drain_cache, batch_in_tx.clone()) => {
+        () = drain_mqtt_stream(drain_slot, drain_cache, batch_in_tx.clone(), policy) => {
             tracing::info!("mqtt stream closed");
         }
     }
@@ -376,6 +391,7 @@ async fn drain_mqtt_stream(
     stream: std::sync::Arc<tokio::sync::Mutex<Option<mqtt::MqttMessageStream>>>,
     cache: Arc<TopicCache>,
     batch_in: tokio::sync::mpsc::Sender<crate::payload::SensorReading>,
+    policy: Arc<dyn ingest_backend::IngestBackendPolicy>,
 ) {
     let mut guard = stream.lock().await;
     let Some(s) = guard.as_mut() else {
@@ -387,6 +403,10 @@ async fn drain_mqtt_stream(
     };
     let mut count: u64 = 0;
     let mut topic_parse_failures: u64 = 0;
+    // Stage 13: per-tenant IngestBackend gate. Counts messages routed
+    // to NestJS (dropped here in the sidecar) so an operator can
+    // correlate sidecar throughput against the rollout fraction.
+    let mut node_routed_count: u64 = 0;
     while let Some(msg) = s.recv().await {
         count = count.saturating_add(1);
         let age_micros = msg.received_at.elapsed().as_micros();
@@ -408,6 +428,27 @@ async fn drain_mqtt_stream(
                     topic::ParsedTopic::Sensor { tenant, sensor } => (tenant, Some(sensor)),
                     topic::ParsedTopic::Device { tenant, .. } => (tenant, None),
                 };
+                // Stage 13: gate on the per-tenant IngestBackend
+                // policy AFTER topic parse (we need the tenant id to
+                // ask the policy) and BEFORE payload validate (a
+                // Node-routed tenant must not pay the validate cost
+                // and must not push to the batch buffer). The broker
+                // already received QoS-1 ack at recv() time; this is
+                // the sidecar acknowledging the message and dropping
+                // it because NestJS owns the stream — exactly the
+                // strangler-fig contract.
+                if matches!(
+                    policy.backend_for(topic_tenant),
+                    config::IngestBackend::Node
+                ) {
+                    node_routed_count = node_routed_count.saturating_add(1);
+                    tracing::trace!(
+                        topic = %msg.topic,
+                        bytes = msg.payload.len(),
+                        "mqtt msg routed to node backend (dropped here)"
+                    );
+                    continue;
+                }
                 let cache_hit = sensor_id.is_some_and(|s| cache.get(topic_tenant, s).is_some());
                 match payload::validate(&msg.payload, topic_tenant) {
                     Ok(reading) => {
@@ -460,6 +501,7 @@ async fn drain_mqtt_stream(
     tracing::info!(
         count,
         topic_parse_failures,
+        node_routed_count,
         cache_len = cache.len(),
         "mqtt drain complete"
     );

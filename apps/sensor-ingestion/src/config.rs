@@ -11,9 +11,11 @@
 //! only the TOML path; the env-var merge layer lands when the
 //! deployment pipeline calls for it (Faz 2 stage 5+).
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 use crate::error::ConfigError;
 
@@ -54,6 +56,14 @@ pub struct Config {
     /// for smoke tests).
     #[serde(default)]
     pub postgres: Option<crate::persistence::PostgresConfig>,
+
+    /// Per-tenant `IngestBackend` selection — the strangler-fig
+    /// rollout switch (ADR-025 / `docs/adr/_draft/021-per-tenant-
+    /// ingest-backend-toggle.md`). Default: `Node`, every tenant routes
+    /// to NestJS `sensor-service`. Tenants explicitly listed under
+    /// `tenant_overrides` are processed by this Rust sidecar.
+    #[serde(default)]
+    pub ingest_backend: IngestBackendConfig,
 }
 
 /// Tokio runtime tuning. Defaults track the plan exactly so the
@@ -107,9 +117,17 @@ const fn default_thread_stack_kb() -> usize {
     256
 }
 
-/// MQTT broker connection. The actual subscriber (rumqttc) lands in a
-/// follow-on commit; this struct is here so the config TOML schema is
-/// stable from day one.
+/// MQTT broker connection.
+///
+/// WHY the three TLS material fields are `Option<PathBuf>`:
+///   The dev-mode local broker uses plain `mqtt://`; cloud production
+///   uses `mqtts://` with the platform CA pinned (no system roots) and
+///   a client cert that authenticates the sidecar (ADR-014/015 cert-
+///   is-identity, mirrored from the NATS posture). The `Option` keeps
+///   dev-mode boot frictionless — but [`crate::mqtt::validate_config`]
+///   refuses to start when the URL scheme is `mqtts://` and any of the
+///   three paths is missing, so a misconfiguration cannot fall through
+///   to silent system-roots TLS.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MqttConfig {
     /// Broker URL (`mqtts://broker:8883` or `mqtt://broker:1883`).
@@ -124,10 +142,100 @@ pub struct MqttConfig {
     /// baseline).
     #[serde(default = "default_qos")]
     pub qos: u8,
+    /// PEM-encoded broker CA certificate. REQUIRED when `broker_url`
+    /// uses the `mqtts://` scheme. System roots are NEVER consulted —
+    /// the platform CA is the only trust anchor. Optional for plain
+    /// `mqtt://` to keep local-broker dev boots frictionless.
+    #[serde(default)]
+    pub server_ca_cert_pem: Option<PathBuf>,
+    /// PEM-encoded client certificate used for mTLS. REQUIRED when
+    /// `broker_url` uses the `mqtts://` scheme.
+    #[serde(default)]
+    pub client_cert_pem: Option<PathBuf>,
+    /// PEM-encoded client private key paired with `client_cert_pem`.
+    /// REQUIRED when `broker_url` uses the `mqtts://` scheme.
+    #[serde(default)]
+    pub client_key_pem: Option<PathBuf>,
+}
+
+impl MqttConfig {
+    /// Returns true when the broker URL uses the `mqtts://` scheme.
+    /// The mTLS material fields are then required; the validator
+    /// enforces the rule at process start so misconfiguration cannot
+    /// surface only at first publish.
+    #[must_use]
+    pub fn tls_required(&self) -> bool {
+        self.broker_url.starts_with("mqtts://")
+    }
 }
 
 const fn default_qos() -> u8 {
     1
+}
+
+/// Backend that processes a tenant's ingestion stream — the strangler-
+/// fig rollout knob per ADR-025. `Node` keeps the existing NestJS
+/// `sensor-service` pipeline; `Rust` routes the tenant to this sidecar.
+///
+/// WHY the lowercase serde representation:
+///   The TOML config uses lowercase string literals (`"node"`,
+///   `"rust"`) to match the operator-facing CLI / log convention and
+///   the `INGEST_BACKEND` env-var values from `docs/adr/_draft/025-
+///   rust-sidecar-architecture.md` Faz 2.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum IngestBackend {
+    /// Tenant stays on the NestJS `sensor-service` ingestion path —
+    /// the safe default for every tenant not explicitly opted in.
+    Node,
+    /// Tenant is processed by this Rust sidecar.
+    Rust,
+}
+
+impl Default for IngestBackend {
+    fn default() -> Self {
+        Self::Node
+    }
+}
+
+/// Per-tenant `IngestBackend` selection. Constructed from the
+/// `[ingest_backend]` TOML section; consumed by
+/// [`crate::ingest_backend::StaticBackendPolicy::from_config`].
+///
+/// WHY a HashMap of UUIDs and not a bitmap or interval set:
+///   Tenants opt in one at a time as the rollout proceeds. The override
+///   table is expected to grow from 0 entries (greenfield) through
+///   single digits during pilot to the full tenant set at cutover. A
+///   HashMap lookup is O(1) and the operator-facing diff stays
+///   readable in PR review (each tenant id is a single TOML line).
+///
+/// WHY default = Node (no overrides):
+///   Safe rollout: a misconfigured `[ingest_backend]` section degrades
+///   to "no behaviour change" rather than "every tenant flipped". The
+///   policy gate in `main::drain_mqtt_stream` then drops messages for
+///   every tenant, which is observable via the `node_routed_count`
+///   counter — operators see the gate is on but the override list is
+///   empty, instead of the sidecar silently double-processing.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IngestBackendConfig {
+    /// Backend used for any tenant that is not in `tenant_overrides`.
+    /// Defaults to [`IngestBackend::Node`].
+    #[serde(default)]
+    pub default_backend: IngestBackend,
+
+    /// Per-tenant override table. Tenants present here are processed
+    /// by the named backend regardless of `default_backend`.
+    #[serde(default)]
+    pub tenant_overrides: HashMap<Uuid, IngestBackend>,
+}
+
+impl Default for IngestBackendConfig {
+    fn default() -> Self {
+        Self {
+            default_backend: IngestBackend::Node,
+            tenant_overrides: HashMap::new(),
+        }
+    }
 }
 
 impl Config {
@@ -291,5 +399,101 @@ mod tests {
         let n = cfg.nats.unwrap();
         assert_eq!(n.server_url, "tls://nats.internal:4222");
         assert_eq!(n.connect_timeout.as_secs(), 15);
+    }
+
+    #[test]
+    fn mqtt_tls_required_only_for_mqtts() {
+        // WHY assert both branches: tls_required is the gate the
+        // validator uses to decide whether to enforce the cert-paths-
+        // present rule, so a regression on it would silently let
+        // mqtts:// boot without the platform CA pinned.
+        let mut m = super::MqttConfig {
+            broker_url: "mqtt://broker:1883".to_owned(),
+            client_id: "x".to_owned(),
+            topic_filters: vec!["sensors/#".to_owned()],
+            qos: 1,
+            server_ca_cert_pem: None,
+            client_cert_pem: None,
+            client_key_pem: None,
+        };
+        assert!(!m.tls_required(), "plain mqtt:// must not require TLS");
+        m.broker_url = "mqtts://broker:8883".to_owned();
+        assert!(m.tls_required(), "mqtts:// must require TLS");
+    }
+
+    #[test]
+    fn mqtt_config_default_tls_paths_are_none() {
+        // Round-trip through TOML without supplying any of the new TLS
+        // material fields. WHY: every existing operator config file
+        // pre-stage-13 omits these; the deserializer must default them
+        // to None or every existing TOML file would suddenly fail to
+        // parse.
+        let toml = r#"
+            [observability]
+            service_name = "sensor-ingestion"
+            service_version = "0.1.0"
+
+            [mqtt]
+            broker_url = "mqtt://broker:1883"
+            client_id = "x"
+            topic_filters = ["sensors/#"]
+        "#;
+        let f = write_config(toml);
+        let cfg = Config::load_from_path(f.path()).unwrap();
+        let m = cfg.mqtt.unwrap();
+        assert!(m.server_ca_cert_pem.is_none());
+        assert!(m.client_cert_pem.is_none());
+        assert!(m.client_key_pem.is_none());
+    }
+
+    #[test]
+    fn ingest_backend_section_parses_when_present() {
+        // The TOML inline-table syntax for the override map is the
+        // operator-facing default per ADR-025 §rollout. WHY assert
+        // the round-trip: the rename_all = "lowercase" and Default
+        // impl together decide every behaviour the rollout depends on.
+        let toml = r#"
+            [observability]
+            service_name = "sensor-ingestion"
+            service_version = "0.1.0"
+
+            [ingest_backend]
+            default_backend = "node"
+            tenant_overrides = { "11111111-1111-1111-1111-111111111111" = "rust" }
+        "#;
+        let f = write_config(toml);
+        let cfg = Config::load_from_path(f.path()).unwrap();
+        assert_eq!(
+            cfg.ingest_backend.default_backend,
+            super::IngestBackend::Node
+        );
+        let overridden = uuid::Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap();
+        assert_eq!(
+            cfg.ingest_backend
+                .tenant_overrides
+                .get(&overridden)
+                .copied(),
+            Some(super::IngestBackend::Rust)
+        );
+        assert_eq!(cfg.ingest_backend.tenant_overrides.len(), 1);
+    }
+
+    #[test]
+    fn ingest_backend_defaults_when_section_missing() {
+        // No [ingest_backend] block at all — the rollout must default
+        // to "every tenant on Node" so a misconfigured deploy cannot
+        // silently flip every tenant onto the Rust path.
+        let toml = r#"
+            [observability]
+            service_name = "sensor-ingestion"
+            service_version = "0.1.0"
+        "#;
+        let f = write_config(toml);
+        let cfg = Config::load_from_path(f.path()).unwrap();
+        assert_eq!(
+            cfg.ingest_backend.default_backend,
+            super::IngestBackend::Node
+        );
+        assert!(cfg.ingest_backend.tenant_overrides.is_empty());
     }
 }

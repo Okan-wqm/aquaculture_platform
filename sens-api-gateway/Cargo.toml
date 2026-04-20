@@ -530,3 +530,8 @@ path = "tests/invariants/process_hardening.rs"
 [[test]]
 name = "retained_msg_rejection"
 path = "tests/invariants/retained_msg_rejection.rs"
+
+# Batch 26 plan D-15 — shutdown drain-before-safe-state ordering.
+[[test]]
+name = "shutdown_drain"
+path = "tests/invariants/shutdown_drain.rs"

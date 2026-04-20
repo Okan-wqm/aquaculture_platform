@@ -1774,11 +1774,27 @@ async fn run_agent(
         info!("SCADA display server started with full HMI runtime");
     }
 
-    // Step 7: Start command handler with shutdown awareness
+    // Step 7: Start command handler with DIRECT shutdown awareness.
+    //
+    // Batch 26 plan D-15: CommandHandler::run() now consumes the
+    // shutdown receiver directly and checks BETWEEN iterations,
+    // never mid-`handle_message`. Pre-Batch-26 the wrapper
+    // `run_until_shutdown` used `tokio::select!` which would
+    // cancel-drop the run() future — including any in-flight
+    // `handle_message` awaiting an actuator write. That dropped
+    // future left Modbus/GPIO/I2C register writes in a partial-
+    // transaction state for a microsecond-scale window before
+    // safe-state apply ran.
+    //
+    // With the drain-aware pattern, in-flight commands complete
+    // naturally; the outer shutdown_coordinator's timeout still
+    // bounds total drain (any command slower than the timeout
+    // gets force-aborted via the coordinator's tokio::time::
+    // timeout around the JoinHandle).
     let command_handler = CommandHandler::new(state.clone()).await;
     let command_shutdown = shutdown_coordinator.subscribe();
     let command_handle = tokio::spawn(async move {
-        shutdown::run_until_shutdown(command_handler.run(), command_shutdown).await;
+        command_handler.run(command_shutdown).await;
     });
     shutdown_coordinator.register_task("command", command_handle);
 

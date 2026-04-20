@@ -243,15 +243,64 @@ impl CommandHandler {
         }
     }
 
-    /// Run the command handler loop
-    pub async fn run(mut self) {
-        info!("Command handler started");
+    /// Run the command handler loop.
+    ///
+    /// Batch 26 plan D-15: accepts `shutdown_rx` directly rather
+    /// than relying on `tokio::select!`-wrapped `run_until_shutdown`
+    /// for cancellation. The select!-based wrapper would DROP the
+    /// future mid-`handle_message` on shutdown — if an incoming
+    /// command was invoking `set_output` on a Modbus register, the
+    /// drop would cancel the in-flight write AFTER the bus
+    /// transaction had started, leaving the actuator in a partial-
+    /// write state. Subsequent safe-state apply might THEN overwrite
+    /// a partially-written register, but there's a microsecond-
+    /// level window where the actuator could be in an
+    /// indeterminate state.
+    ///
+    /// The DRAIN pattern: check shutdown flag BETWEEN iterations,
+    /// never mid-`handle_message`. In-flight commands complete
+    /// naturally; new commands are not accepted after shutdown
+    /// signal. The outer shutdown coordinator's timeout still
+    /// bounds total drain time (any command that takes longer
+    /// than the timeout gets force-aborted by the coordinator's
+    /// `tokio::time::timeout` around the JoinHandle).
+    pub async fn run(mut self, mut shutdown_rx: tokio::sync::broadcast::Receiver<()>) {
+        info!("Command handler started (D-15 drain-aware)");
 
         loop {
-            // Wait a bit before checking for messages
+            // Check shutdown BETWEEN iterations. An in-flight
+            // handle_message from the previous iteration has
+            // already completed at this point; new commands are
+            // NOT accepted once shutdown has been signaled.
+            //
+            // `try_recv` on a broadcast receiver returns:
+            // - Ok(()) — signal received, exit loop cleanly.
+            // - Err(TryRecvError::Empty) — no signal yet, continue.
+            // - Err(TryRecvError::Closed) — sender dropped, exit
+            //   (equivalent to shutdown — nobody left to signal).
+            // - Err(TryRecvError::Lagged) — a very high volume of
+            //   signals filled the channel. Treat as shutdown too.
+            match shutdown_rx.try_recv() {
+                Ok(()) => {
+                    info!("Command handler received shutdown; loop exit after drain");
+                    return;
+                }
+                Err(tokio::sync::broadcast::error::TryRecvError::Closed) => {
+                    warn!("Shutdown sender dropped; command handler exiting");
+                    return;
+                }
+                Err(tokio::sync::broadcast::error::TryRecvError::Lagged(_)) => {
+                    info!("Shutdown channel lagged; treating as shutdown signal");
+                    return;
+                }
+                Err(tokio::sync::broadcast::error::TryRecvError::Empty) => {
+                    // No shutdown yet, proceed with poll cycle.
+                }
+            }
+
+            // Wait a bit before checking for messages.
             tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-            // Check for incoming messages
             let message = {
                 let mut state = self.state.write().await;
                 if let Some(ref mut mqtt) = state.mqtt_client {
@@ -262,7 +311,6 @@ impl CommandHandler {
             };
 
             if let Some(msg) = message {
-                // Rate limit check - protect against command flooding
                 if !self.rate_limiter.check() {
                     warn!(
                         "Command rate limit exceeded ({} commands in {} seconds). Dropping message.",
@@ -272,6 +320,10 @@ impl CommandHandler {
                     continue;
                 }
 
+                // CRITICAL: handle_message runs to completion here,
+                // not inside a tokio::select! — the D-15 drain-
+                // before-safe-state guarantee depends on NO mid-
+                // execution cancellation point.
                 if let Err(e) = self.handle_message(msg).await {
                     error!("Failed to handle message: {}", e);
                 }

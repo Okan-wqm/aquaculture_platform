@@ -49,6 +49,14 @@ pub mod permission;
 pub mod context;
 pub mod policy;
 
+// Batch 5b — RbacManifest wire format + canonical-bytes length-prefix
+// serialization + `verify_manifest` gate (signature + tenant + version +
+// expiry). Consumers obtain a validated `RbacManifest` ONLY via
+// `verify::verify_manifest`; direct access to `SignedRbacManifest.manifest`
+// is discouraged by the invariant test in Sprint 6.1.
+pub mod manifest;
+pub mod verify;
+
 // Re-export the commonly-used types for ergonomic downstream use.
 // Keep this list in sync with public API surface; every addition here is a
 // commitment to forward-compat for downstream consumers (ST VM, commands,
@@ -86,3 +94,15 @@ pub use policy::{
     PolicyEngine,
     PolicyEngineError,
 };
+
+pub use manifest::{
+    CanonicalBytesError,
+    CustomRole,
+    Ed25519PublicKeyBytes,
+    InvalidPubKeyLength,
+    OperatorBinding,
+    RbacManifest,
+    SignedRbacManifest,
+};
+
+pub use verify::{verify_manifest, ManifestVerifyError};

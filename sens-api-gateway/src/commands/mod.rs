@@ -15,14 +15,23 @@
 // invisible outside the `commands` module tree.
 mod helpers;
 
-// Batch 28 Sprint 6.1 partial: command → authz::Permission
-// mapping table. `permission_for_command(cmd, params) ->
-// Option<Permission>` is a pure function that lets Sprint 6.4
-// wire the RBAC gate in one line. Today the function exists
-// but is NOT YET INVOKED by execute_command — the gate check
-// is Sprint 6.4 scope after envelope-signed actor extraction.
-#[allow(dead_code)] // permission_for_command used by Sprint 6.4 RBAC gate + invariant tests.
-mod required_permission;
+// Batch 28+47 Sprint 6.1/6.4 foundation: command →
+// authz::Permission mapping table. `permission_for_command(
+// cmd, params) -> Option<Permission>` is the canonical SSoT
+// table for RBAC gate decisions.
+//
+// Batch 28 introduced the function with `pub(super)` visibility
+// (only commands/ sub-modules could call it).
+// Batch 47 promotes it to `pub(crate)` via `pub mod` + the fn
+// signature below — Sprint 6.4 envelope verify path in
+// `command_envelope::*` needs to call it without duplicating
+// the table, and requiring that duplication would drift the
+// RBAC surface across modules.
+//
+// Consumers today (Batch 33 RBAC-gate-preview, Batch 35
+// is_safety_critical SSoT, Batch 37 two-person-integrity
+// preview) all route through this function in execute_command.
+pub(crate) mod required_permission;
 
 // Batch 20c ARC-008 god-file split: diagnostic handlers
 // (cmd_ping, cmd_get_info, cmd_get_config, cmd_set_log_level)

@@ -52,7 +52,18 @@ use crate::authz::permission::{Permission, TagId};
 ///
 /// Returns `None` for anonymous commands (ping, health-style
 /// read paths).
-pub(super) fn permission_for_command(cmd: &str, params: &Value) -> Option<Permission> {
+///
+/// VISIBILITY: `pub(crate)` so the Sprint 6.4 envelope-verify
+/// path in `command_envelope::*` can call this directly without
+/// duplicating the mapping table. Earlier batches used
+/// `pub(super)` because the only consumer was
+/// `commands::execute_command`; Batch 47 opens the SSoT for
+/// cross-module use. External-crate callers still cannot reach
+/// this function — `permission_for_command` is an internal
+/// security-sensitive dispatch helper; exposing it outside the
+/// suderra-agent crate would let downstream code second-guess
+/// the canonical mapping.
+pub(crate) fn permission_for_command(cmd: &str, params: &Value) -> Option<Permission> {
     match cmd {
         // -----------------------------------------------------------------
         // Anonymous / baseline — no RBAC gate.

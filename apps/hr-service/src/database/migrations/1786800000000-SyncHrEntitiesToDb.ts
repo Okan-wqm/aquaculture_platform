@@ -243,84 +243,124 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
     //    touching foreign-schema entities loaded into the same bundle.
     const hrUpQueries = allUpQueries.filter((q) => /"hr"\./i.test(q.query));
 
-    // 6. Filter out DESTRUCTIVE statements — keep only the additive subset.
+    // 6. Whitelist gate — keep ONLY statements that satisfy a
+    //    SchemaDriftValidator concern, then rewrite each for idempotency.
     //
-    //    log() emits a complete schema-alignment plan: DROP statements
-    //    (for snake_case columns being renamed to camelCase, old enum
-    //    types being replaced, indexes being recreated) FOLLOWED by
-    //    CREATE/ADD statements. For a catch-up migration on a live
-    //    database, applying the destructive subset is wrong on three
-    //    architectural grounds:
+    //    log() emits a complete schema-alignment plan including ADD
+    //    CONSTRAINT (PK/UNIQUE/FK), CREATE INDEX, COMMENT — all of which
+    //    are syntactically "additive" but semantically destructive when
+    //    the live DB already disagrees:
+    //      - deploy 4 (2026-04-20 17:08): DROP TYPE work_week_day
+    //        cascading dependency
+    //      - deploy 5 (2026-04-20 17:25): ADD CONSTRAINT … PRIMARY KEY
+    //        on hr.scheduling_settings (table already has different PK)
     //
-    //      a) SchemaDriftValidator only flags MISSING-FROM-DB columns
-    //         (libs/backend-common/src/database/schema-drift-validator.service.ts:181-194).
-    //         Extra columns/types/indexes do NOT fail the boot signal.
-    //         Skipping DROPs leaves orphan snake_case columns; orphans
-    //         are invisible to the validator → boot signal still flips
-    //         GREEN.
+    //    The architectural defect is that the previous filter (verb-
+    //    blacklist on DROP) classified by VERB while the failure modes
+    //    are classified by OBJECT CLASS. ADD CONSTRAINT PRIMARY KEY is
+    //    semantically destructive on a table with an existing PK; "ADD"
+    //    is the wrong axis to filter on.
     //
-    //      b) DROP TYPE cascades fail unpredictably ("cannot drop type
-    //         work_week_day because other objects depend on it" — actual
-    //         deploy crash 2026-04-20 17:08 UTC). PostgreSQL refuses to
-    //         drop a type referenced by any column in any schema; log()
-    //         emits DROPs in an order that doesn't account for cross-
-    //         table dependencies. A partial DROP cascade leaves the
-    //         migration mid-transaction with no clean recovery.
+    //    Phase L fix (data-expert plan, 2026-04-20): replace the verb-
+    //    blacklist with an OBJECT-CLASS WHITELIST that is mathematically
+    //    tied to the SchemaDriftValidator contract
+    //    (libs/backend-common/src/database/schema-drift-validator.service.ts:120-216):
     //
-    //      c) Data preservation: many DROP COLUMNs are snake_case-to-
-    //         camelCase renames where the OLD column name has live data.
-    //         A DROP-then-ADD pattern would lose that data even though
-    //         the entity rename is purely cosmetic. Accepting the orphan
-    //         snake_case columns preserves history; future data-aware
-    //         migrations can backfill or formally drop them.
+    //      Validator concern              | Required DDL
+    //      -------------------------------|--------------------------------
+    //      Table in entity-declared schema| CREATE TABLE
+    //      Entity column exists in DB     | CREATE TABLE + ADD COLUMN
+    //      uuid columns have uuid type    | ALTER COLUMN TYPE
+    //      NOT NULL declared = DB nullable| ALTER COLUMN SET NOT NULL
+    //      enum types resolvable          | CREATE TYPE (enum support)
     //
-    //    The filter rejects:
-    //      - Top-level `DROP <object>` (TABLE, TYPE, INDEX, SCHEMA,
-    //        VIEW, FUNCTION, CONSTRAINT)
-    //      - `ALTER TABLE … DROP COLUMN/CONSTRAINT`
+    //    Anything else log() emits is unrelated to the validator's
+    //    check surface and therefore overreach for this migration.
+    //    Concrete unrelated classes: ADD CONSTRAINT (any kind),
+    //    CREATE INDEX, COMMENT, every DROP variant.
     //
-    //    Everything else (CREATE TABLE, CREATE INDEX, CREATE TYPE,
-    //    ALTER … ADD COLUMN, ALTER … ALTER COLUMN TYPE, ALTER … ADD
-    //    CONSTRAINT) passes through.
-    const isDestructive = (sql: string): boolean => {
-      const trimmed = sql.trim();
+    //    Default-closed: an unrecognised statement class falls through
+    //    to "skip". If TypeORM adds a new statement shape in a future
+    //    version, this migration ignores it rather than crashing on it.
+    //    This is what makes the whitelist Tier-1 ("make it impossible")
+    //    rather than Tier-3 ("make it detectable").
+    const isValidatorRelevant = (sql: string): boolean => {
+      const t = sql.trim();
+      // CREATE TYPE — needed so subsequent ADD COLUMN with enum type can resolve
+      if (/^CREATE\s+TYPE\b/i.test(t)) return true;
+      // CREATE TABLE — for entirely missing tables (hr_outbox, payroll_audit)
+      if (/^CREATE\s+TABLE\b/i.test(t)) return true;
+      // ALTER TABLE … ADD "col" — TypeORM omits the COLUMN keyword;
+      // the negative lookahead excludes ADD CONSTRAINT …
+      if (/^ALTER\s+TABLE\b[^;]*?\bADD\s+(?!CONSTRAINT\b)"/i.test(t)) return true;
+      // ALTER TABLE … ALTER COLUMN … TYPE / SET NOT NULL
       if (
-        /^DROP\s+(TABLE|TYPE|INDEX|SCHEMA|VIEW|FUNCTION|CONSTRAINT)\b/i.test(
-          trimmed,
+        /^ALTER\s+TABLE\b[^;]*?\bALTER\s+COLUMN\b[^;]*?\b(TYPE|SET\s+NOT\s+NULL)\b/i.test(
+          t,
         )
-      ) {
-        return true;
-      }
-      if (
-        /\bALTER\s+TABLE\b[^;]*?\bDROP\s+(COLUMN|CONSTRAINT)\b/i.test(trimmed)
       ) {
         return true;
       }
       return false;
     };
-    const additiveQueries = hrUpQueries.filter((q) => !isDestructive(q.query));
-    const skippedDestructive = hrUpQueries.length - additiveQueries.length;
+
+    // 6b. Idempotency rewriter — make each whitelisted statement re-runnable.
+    //
+    //    Per-tenant fan-out may have partially applied some columns on
+    //    a prior failed deploy attempt; re-execution must not crash on
+    //    "already exists". Three rewrites cover the kept classes:
+    //
+    //      1. CREATE TABLE → CREATE TABLE IF NOT EXISTS
+    //      2. ALTER TABLE … ADD "col" → ALTER TABLE … ADD COLUMN IF NOT EXISTS "col"
+    //         (TypeORM emits without the COLUMN keyword; we splice it in
+    //          alongside IF NOT EXISTS, available since PostgreSQL 9.6.)
+    //      3. CREATE TYPE wrapped in DO/EXCEPTION duplicate_object swallow
+    //         (PostgreSQL has no CREATE TYPE IF NOT EXISTS form)
+    //
+    //    Note residual: a swallowed CREATE TYPE leaves the OLD enum in
+    //    place. If the old enum is missing values the entity declares,
+    //    runtime INSERT of a new enum value will fail later (not at
+    //    boot). The validator does not catch enum-value drift today —
+    //    tracked as INFRA-MEDIUM follow-up, not a deploy blocker.
+    const makeIdempotent = (sql: string): string => {
+      let s = sql;
+      s = s.replace(/^CREATE\s+TABLE\s+"/i, 'CREATE TABLE IF NOT EXISTS "');
+      s = s.replace(
+        /(\bALTER\s+TABLE\s+"[^"]+"\."[^"]+"\s+)ADD\s+"/i,
+        '$1ADD COLUMN IF NOT EXISTS "',
+      );
+      if (/^CREATE\s+TYPE\b/i.test(s)) {
+        s = `DO $$ BEGIN ${s}; EXCEPTION WHEN duplicate_object THEN NULL; END $$`;
+      }
+      return s;
+    };
+
+    const relevantQueries = hrUpQueries
+      .filter((q) => isValidatorRelevant(q.query))
+      .map((q) => ({ ...q, query: makeIdempotent(q.query) }));
+    const skippedNonValidator = hrUpQueries.length - relevantQueries.length;
 
     this.logger.log(
       `RdbmsSchemaBuilder emitted ${allUpQueries.length} queries; ` +
         `${hrUpQueries.length} target hr schema; ` +
-        `${additiveQueries.length} are additive (${skippedDestructive} destructive skipped); ` +
+        `${relevantQueries.length} are validator-relevant ` +
+        `(${skippedNonValidator} non-validator-relevant skipped: constraints/indexes/comments/drops); ` +
         `${allUpQueries.length - hrUpQueries.length} foreign-schema skipped.`,
     );
 
-    if (additiveQueries.length === 0) {
+    if (relevantQueries.length === 0) {
       this.logger.warn(
-        'No additive hr-scoped queries to apply — schema already covers all entity-declared columns. Migration is a no-op.',
+        'No validator-relevant hr-scoped queries to apply — schema already covers all entity-declared columns. Migration is a no-op.',
       );
       return;
     }
 
-    // 7. Apply additive hr-scoped queries to the source schema.
-    for (const q of additiveQueries) {
+    // 7. Apply validator-relevant hr-scoped queries to the source schema.
+    for (const q of relevantQueries) {
       this.logger.debug(`[hr] ${q.query.slice(0, 120).replace(/\s+/g, ' ')}`);
       await queryRunner.query(q.query, q.parameters as unknown[] | undefined);
     }
-    this.logger.log(`Applied ${additiveQueries.length} additive catch-up queries to source hr schema.`);
+    this.logger.log(`Applied ${relevantQueries.length} validator-relevant catch-up queries to source hr schema.`);
 
     // 8. Propagate to every existing tenant clone.
     //    Discover via information_schema; validate each name against
@@ -371,15 +411,16 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
       }
 
       let appliedCount = 0;
-      for (const q of additiveQueries) {
+      for (const q of relevantQueries) {
         // Rewrite schema-qualified identifiers from hr -> tenant.
         // The regex is anchored on the quoted form TypeORM always emits
         // (`"hr".`) so we don't accidentally rewrite occurrences of
         // the substring `hr` inside column names or comments.
         //
-        // Iterates `additiveQueries` (not `hrUpQueries`) so the same
-        // additive-only safety applies per-tenant: no DROP cascades,
-        // no data loss on snake_case→camelCase column renames.
+        // Iterates `relevantQueries` (post-Phase-L whitelist + idempotency)
+        // so per-tenant fan-out applies the same minimum DDL the source
+        // schema received — bounded by the validator contract, no DROP
+        // cascades, no PK conflicts, no constraint conflicts.
         const rewrittenQuery = q.query.replace(/"hr"\./g, `"${tenantSchema}".`);
         try {
           await queryRunner.query(rewrittenQuery, q.parameters as unknown[] | undefined);
@@ -387,16 +428,17 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
         } catch (err) {
           // Log per-statement error but continue — the schema-builder's
           // queries are independent (CREATE TABLE for one entity doesn't
-          // depend on CREATE TABLE for another). A single failure (e.g.
-          // a column already exists from a partial prior run) shouldn't
-          // abort the entire tenant.
+          // depend on CREATE TABLE for another). A single failure on a
+          // tenant clone (e.g. unexpected pre-existing structure) shouldn't
+          // abort the whole tenant. The validator will re-flag the unhealed
+          // tenant on next boot — correct detection signal.
           const msg = err instanceof Error ? err.message : String(err);
           this.logger.warn(
             `[${tenantSchema}] statement failed (continuing): ${msg.slice(0, 200)}`,
           );
         }
       }
-      this.logger.log(`[${tenantSchema}] applied ${appliedCount}/${additiveQueries.length} additive catch-up queries.`);
+      this.logger.log(`[${tenantSchema}] applied ${appliedCount}/${relevantQueries.length} validator-relevant catch-up queries.`);
     }
   }
 

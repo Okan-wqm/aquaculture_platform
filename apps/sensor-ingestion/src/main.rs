@@ -51,6 +51,7 @@ mod config;
 mod error;
 mod mqtt;
 mod runtime;
+mod topic;
 
 // Bootstrap exists in a window where `tracing` is not yet installed
 // and there is no other reporting channel. Allow `eprintln!` for the
@@ -165,20 +166,48 @@ async fn drain_mqtt_stream(
         return;
     };
     let mut count: u64 = 0;
+    let mut topic_parse_failures: u64 = 0;
     while let Some(msg) = s.recv().await {
         count = count.saturating_add(1);
         let age_micros = msg.received_at.elapsed().as_micros();
-        tracing::trace!(
-            topic = %msg.topic,
-            bytes = msg.payload.len(),
-            age_micros,
-            "mqtt msg (stub drain)"
-        );
+
+        // Stage 6: parse the topic string into a ParsedTopic. The
+        // parsed value is stashed into a `let _parsed = …` (logged
+        // at trace) until stage 7 wires it into the topic↔payload
+        // tenant-id cross-check. Parse FAILURES are logged at warn
+        // and the message is dropped — a malformed topic from a
+        // QoS-1 broker delivery is a contract violation by the
+        // publisher, not a recoverable error in our hot path.
+        //
+        // Counting parse failures separately gives ops a single
+        // metric to alarm on without blowing up the log volume on
+        // every individual bad publish.
+        match topic::parse(&msg.topic) {
+            Ok(parsed) => {
+                tracing::trace!(
+                    topic = %msg.topic,
+                    bytes = msg.payload.len(),
+                    age_micros,
+                    parsed = ?parsed,
+                    "mqtt msg parsed (stub drain)"
+                );
+            }
+            Err(e) => {
+                topic_parse_failures = topic_parse_failures.saturating_add(1);
+                tracing::warn!(
+                    topic = %msg.topic,
+                    bytes = msg.payload.len(),
+                    age_micros,
+                    error = %e,
+                    "mqtt msg topic parse failed (dropping)"
+                );
+            }
+        }
         // The real pipeline replaces this in the next commit:
         // topic::parse -> payload::validate -> batch aggregator ->
         // COPY -> NATS publish.
     }
-    tracing::info!(count, "mqtt drain complete");
+    tracing::info!(count, topic_parse_failures, "mqtt drain complete");
 }
 
 async fn wait_for_shutdown_signal() {

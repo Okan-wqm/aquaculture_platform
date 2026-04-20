@@ -1998,14 +1998,25 @@ async fn run_agent(
     // hardcoded 30s constant overrode the config field,
     // leaving operator-editable configuration dead.
     use crate::runtime_safety::shutdown_phase::ShutdownPhase;
-    let shutdown_timeout_secs = {
+    let (shutdown_timeout_secs, drain_timeout_ms) = {
         let state_guard = state.read().await;
-        state_guard.config.runtime.shutdown_timeout_secs
+        (
+            state_guard.config.runtime.shutdown_timeout_secs,
+            state_guard.config.runtime.drain_timeout_ms,
+        )
     };
+    // Batch 48: include both outer-shutdown timeout + per-
+    // task drain timeout in the shutdown-initiation log so
+    // operators diagnosing a hang know BOTH budgets at a
+    // glance. Pre-Batch-48 only the outer timeout was logged;
+    // a task that hit the drain budget before the outer
+    // budget would require a boot-banner lookup to understand
+    // why.
     info!(
         shutdown_phase = ?ShutdownPhase::StoppingInbound,
-        "Initiating graceful shutdown with {}s timeout — phase transition to StoppingInbound + Draining",
-        shutdown_timeout_secs
+        "Initiating graceful shutdown: outer_timeout={}s, drain_budget={}ms — phase transition to StoppingInbound + Draining",
+        shutdown_timeout_secs,
+        drain_timeout_ms
     );
     shutdown_coordinator
         .shutdown(Duration::from_secs(shutdown_timeout_secs))

@@ -294,6 +294,35 @@ impl CommandHandler {
         if message.topic == topics.commands {
             debug!("Received command message");
 
+            // Batch 25 plan D-14 retained-message rejection (tier-1
+            // fail-fast). An attacker with broker-publish capability
+            // can mark commands `retain=true`; the broker then
+            // replays the retained command to EVERY device on
+            // reconnect, forever, until manually cleared via a
+            // zero-byte publish. This is the MQTT-equivalent of a
+            // classic replay attack.
+            //
+            // Reject BEFORE `serde_json::from_slice` — fail-fast
+            // denies the attacker the ability to burn parse CPU
+            // with crafted payloads. The topic-level check here
+            // supplements broker-side ACL (Mosquitto `allow_retained
+            // = false` for command topics) per defense-in-depth.
+            //
+            // NO audit event yet — the audit sink is pre-staged
+            // (Batch 6 types) but not wired to a runtime backend
+            // (Sprint 6.2). Once wired, retained-command rejection
+            // MUST emit an audit event so operators can detect
+            // attack attempts post-hoc.
+            if message.retain {
+                warn!(
+                    "Rejecting retained MQTT command message on topic '{}' ({} bytes payload). \
+                     Attacker-controlled broker replay vector; audit when Sprint 6.2 lands.",
+                    message.topic,
+                    message.payload.len()
+                );
+                return Ok(());
+            }
+
             // Parse command
             let command: CommandMessage = match serde_json::from_slice(&message.payload) {
                 Ok(cmd) => cmd,
@@ -312,13 +341,9 @@ impl CommandHandler {
             // MQTT QoS 1 can re-deliver the same message. Reject:
             //   (1) Commands already seen (dedup by command_id)
             //   (2) Commands with stale timestamps (> MAX_COMMAND_AGE_SECS)
-            //   (3) Retained messages on the command topic
+            // Retained-flag rejection moved UP to pre-parse per
+            // Batch 25 D-14.
             const MAX_COMMAND_AGE_SECS: i64 = 300; // 5 minutes
-            if message.retain {
-                warn!("Rejecting retained command message: {} (id: {})",
-                    command.command, command.command_id);
-                return Ok(());
-            }
             if let Ok(cmd_time) = chrono::DateTime::parse_from_rfc3339(&command.timestamp) {
                 let age = chrono::Utc::now().signed_duration_since(cmd_time);
                 if age.num_seconds() > MAX_COMMAND_AGE_SECS || age.num_seconds() < -60 {
@@ -349,6 +374,22 @@ impl CommandHandler {
             }
         } else if message.topic == topics.config {
             debug!("Received config update");
+            // Batch 25 plan D-14: retained-message rejection for
+            // config updates. A retained config push would be
+            // re-applied on every device reconnect — attacker
+            // could lock the device to a poisoned config (e.g.,
+            // disable alarms, raise thresholds, redirect MQTT
+            // broker). Reject fail-fast pre-parse, same as
+            // command topic.
+            if message.retain {
+                warn!(
+                    "Rejecting retained MQTT config-update message on topic '{}' ({} bytes). \
+                     Broker-replay poisoning vector.",
+                    message.topic,
+                    message.payload.len()
+                );
+                return Ok(());
+            }
             self.handle_config_update(&message.payload).await?;
         }
 

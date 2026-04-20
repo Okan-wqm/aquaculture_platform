@@ -525,3 +525,8 @@ path = "tests/invariants/app_state_wired.rs"
 [[test]]
 name = "process_hardening"
 path = "tests/invariants/process_hardening.rs"
+
+# Batch 25 plan D-14 — retained MQTT message rejection.
+[[test]]
+name = "retained_msg_rejection"
+path = "tests/invariants/retained_msg_rejection.rs"

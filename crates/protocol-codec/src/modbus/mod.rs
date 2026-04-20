@@ -12,6 +12,7 @@
 //!     whether to retry, drop, or audit.
 
 pub mod pdu;
+pub mod rtu;
 pub mod tcp;
 
 /// Modbus function codes the gateway + sidecar both accept.

@@ -13,6 +13,7 @@ import { EventBusModule } from '@platform/event-bus';
 
 import { ConvertTimestampToTimestamptz1781500000000 } from './migrations/1781500000000-ConvertTimestampToTimestamptz';
 import { AddMfaCompletedToImpersonationSessions1782100000000 } from './migrations/1782100000000-AddMfaCompletedToImpersonationSessions';
+import { MoveSharedTablesFromAdminToShared1782200000000 } from './migrations/1782200000000-MoveSharedTablesFromAdminToShared';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AuditLogModule } from './audit/audit.module';
 import { PasswordResetModule } from './auth/password-reset.module';
@@ -66,6 +67,7 @@ import { UsersModule } from './users/users.module';
           migrations: [
             ConvertTimestampToTimestamptz1781500000000,
             AddMfaCompletedToImpersonationSessions1782100000000,
+            MoveSharedTablesFromAdminToShared1782200000000,
           ],
           // admin-api opts in to TypeORM's built-in migration runner via the
           // legacy DATABASE_MIGRATIONS_RUN env var (default true). All other

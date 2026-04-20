@@ -242,26 +242,87 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
     //    rejected — defense against the schema-builder accidentally
     //    touching foreign-schema entities loaded into the same bundle.
     const hrUpQueries = allUpQueries.filter((q) => /"hr"\./i.test(q.query));
+
+    // 6. Filter out DESTRUCTIVE statements — keep only the additive subset.
+    //
+    //    log() emits a complete schema-alignment plan: DROP statements
+    //    (for snake_case columns being renamed to camelCase, old enum
+    //    types being replaced, indexes being recreated) FOLLOWED by
+    //    CREATE/ADD statements. For a catch-up migration on a live
+    //    database, applying the destructive subset is wrong on three
+    //    architectural grounds:
+    //
+    //      a) SchemaDriftValidator only flags MISSING-FROM-DB columns
+    //         (libs/backend-common/src/database/schema-drift-validator.service.ts:181-194).
+    //         Extra columns/types/indexes do NOT fail the boot signal.
+    //         Skipping DROPs leaves orphan snake_case columns; orphans
+    //         are invisible to the validator → boot signal still flips
+    //         GREEN.
+    //
+    //      b) DROP TYPE cascades fail unpredictably ("cannot drop type
+    //         work_week_day because other objects depend on it" — actual
+    //         deploy crash 2026-04-20 17:08 UTC). PostgreSQL refuses to
+    //         drop a type referenced by any column in any schema; log()
+    //         emits DROPs in an order that doesn't account for cross-
+    //         table dependencies. A partial DROP cascade leaves the
+    //         migration mid-transaction with no clean recovery.
+    //
+    //      c) Data preservation: many DROP COLUMNs are snake_case-to-
+    //         camelCase renames where the OLD column name has live data.
+    //         A DROP-then-ADD pattern would lose that data even though
+    //         the entity rename is purely cosmetic. Accepting the orphan
+    //         snake_case columns preserves history; future data-aware
+    //         migrations can backfill or formally drop them.
+    //
+    //    The filter rejects:
+    //      - Top-level `DROP <object>` (TABLE, TYPE, INDEX, SCHEMA,
+    //        VIEW, FUNCTION, CONSTRAINT)
+    //      - `ALTER TABLE … DROP COLUMN/CONSTRAINT`
+    //
+    //    Everything else (CREATE TABLE, CREATE INDEX, CREATE TYPE,
+    //    ALTER … ADD COLUMN, ALTER … ALTER COLUMN TYPE, ALTER … ADD
+    //    CONSTRAINT) passes through.
+    const isDestructive = (sql: string): boolean => {
+      const trimmed = sql.trim();
+      if (
+        /^DROP\s+(TABLE|TYPE|INDEX|SCHEMA|VIEW|FUNCTION|CONSTRAINT)\b/i.test(
+          trimmed,
+        )
+      ) {
+        return true;
+      }
+      if (
+        /\bALTER\s+TABLE\b[^;]*?\bDROP\s+(COLUMN|CONSTRAINT)\b/i.test(trimmed)
+      ) {
+        return true;
+      }
+      return false;
+    };
+    const additiveQueries = hrUpQueries.filter((q) => !isDestructive(q.query));
+    const skippedDestructive = hrUpQueries.length - additiveQueries.length;
+
     this.logger.log(
       `RdbmsSchemaBuilder emitted ${allUpQueries.length} queries; ` +
-        `${hrUpQueries.length} target the hr schema (${allUpQueries.length - hrUpQueries.length} foreign-schema queries skipped).`,
+        `${hrUpQueries.length} target hr schema; ` +
+        `${additiveQueries.length} are additive (${skippedDestructive} destructive skipped); ` +
+        `${allUpQueries.length - hrUpQueries.length} foreign-schema skipped.`,
     );
 
-    if (hrUpQueries.length === 0) {
+    if (additiveQueries.length === 0) {
       this.logger.warn(
-        'No hr-scoped queries to apply — schema is already in sync with entities. Migration is a no-op.',
+        'No additive hr-scoped queries to apply — schema already covers all entity-declared columns. Migration is a no-op.',
       );
       return;
     }
 
-    // 6. Apply hr-scoped queries to the source schema.
-    for (const q of hrUpQueries) {
+    // 7. Apply additive hr-scoped queries to the source schema.
+    for (const q of additiveQueries) {
       this.logger.debug(`[hr] ${q.query.slice(0, 120).replace(/\s+/g, ' ')}`);
       await queryRunner.query(q.query, q.parameters as unknown[] | undefined);
     }
-    this.logger.log(`Applied ${hrUpQueries.length} catch-up queries to source hr schema.`);
+    this.logger.log(`Applied ${additiveQueries.length} additive catch-up queries to source hr schema.`);
 
-    // 7. Propagate to every existing tenant clone.
+    // 8. Propagate to every existing tenant clone.
     //    Discover via information_schema; validate each name against
     //    the injection-safe regex; rewrite `"hr".` -> `"${tenant}".`
     //    in each query before execution.
@@ -310,11 +371,15 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
       }
 
       let appliedCount = 0;
-      for (const q of hrUpQueries) {
+      for (const q of additiveQueries) {
         // Rewrite schema-qualified identifiers from hr -> tenant.
         // The regex is anchored on the quoted form TypeORM always emits
         // (`"hr".`) so we don't accidentally rewrite occurrences of
         // the substring `hr` inside column names or comments.
+        //
+        // Iterates `additiveQueries` (not `hrUpQueries`) so the same
+        // additive-only safety applies per-tenant: no DROP cascades,
+        // no data loss on snake_case→camelCase column renames.
         const rewrittenQuery = q.query.replace(/"hr"\./g, `"${tenantSchema}".`);
         try {
           await queryRunner.query(rewrittenQuery, q.parameters as unknown[] | undefined);
@@ -331,7 +396,7 @@ export class SyncHrEntitiesToDb1786800000000 implements MigrationInterface {
           );
         }
       }
-      this.logger.log(`[${tenantSchema}] applied ${appliedCount}/${hrUpQueries.length} catch-up queries.`);
+      this.logger.log(`[${tenantSchema}] applied ${appliedCount}/${additiveQueries.length} additive catch-up queries.`);
     }
   }
 

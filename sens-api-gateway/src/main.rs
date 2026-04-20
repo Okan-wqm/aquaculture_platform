@@ -53,6 +53,12 @@ mod safe_state; // LIFE-SAFETY: actuator safe-state on shutdown (v1 schema)
 // Faz 2 Sprint 7.2 migrates consumers to v2.
 #[allow(dead_code)] // Faz 2 wires consumers; v2 types pre-staged for reference stability.
 mod safe_state_v2;
+// Batch 4b — ADR-018 §4 §5 §7 Keystore trait + KeyPurpose typestate + KeyMaterial
+// sealed secret + FileBackedAcceptance gated newtype. Pure types, zero runtime
+// behavior (TPM FFI + mlock + Argon2id derivation land in Faz 2 Sprint 6.3).
+// Wired here so `cargo check` validates the module graph before runtime lands.
+#[allow(dead_code)] // Faz 2 Sprint 6.3 wires consumers; types pre-staged.
+mod keystore;
 mod shutdown;
 mod spi;
 mod telemetry; // v1.2.4: SPI support for high-speed peripherals

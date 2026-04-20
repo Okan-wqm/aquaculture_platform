@@ -175,10 +175,9 @@ const MAX_SCAN_CYCLE_MS: u64 = 10000;
 
 /// Get default program state path
 /// v1.2.6: Creates directory if it doesn't exist
+/// Batch 30: route through crate::data_dir SSoT helper.
 fn default_program_state_path() -> PathBuf {
-    let data_dir =
-        std::env::var("SUDERRA_DATA_DIR").unwrap_or_else(|_| "/var/lib/suderra".to_string());
-    let path = PathBuf::from(&data_dir);
+    let path = crate::data_dir::data_dir();
 
     // Ensure data directory exists (v1.2.6: early validation)
     if !path.exists() {
@@ -1654,7 +1653,7 @@ impl ScriptEngine {
 
         return ActionResult::failure(
             ActionType::Alert,
-            "alert() action is not yet connected to MQTT transport; use log() for now",
+            "alert() action is not yet connected to MQTT transport; use log() until Sprint 6.4 wires the alert publisher",
         );
     }
 
@@ -1760,7 +1759,7 @@ impl ScriptEngine {
 
         ActionResult::failure(
             ActionType::PublishMqtt,
-            "publishMqtt() action is not yet connected to MQTT transport; use log() for now",
+            "publishMqtt() action is not yet connected to MQTT transport; use log() until Sprint 6.4 wires the publisher",
         )
     }
 

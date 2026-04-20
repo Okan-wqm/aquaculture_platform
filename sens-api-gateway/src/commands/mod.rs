@@ -234,10 +234,8 @@ impl CommandHandler {
             )
         };
 
-        // Program state file location
-        let data_dir =
-            std::env::var("SUDERRA_DATA_DIR").unwrap_or_else(|_| "/var/lib/suderra".to_string());
-        let program_state_path = PathBuf::from(&data_dir).join("program.json");
+        // Batch 30: route through crate::data_dir SSoT helper.
+        let program_state_path = crate::data_dir::data_dir().join("program.json");
 
         Self {
             state,

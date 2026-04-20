@@ -22,6 +22,13 @@
 // secrets (Sprint 6.3 keystore master-key mlock) are allocated.
 mod process_hardening;
 
+// Batch 30: SSoT for SUDERRA_DATA_DIR env var resolution + FHS
+// default path. Six sites across main.rs/commands/mod.rs/
+// scripting/engine.rs previously duplicated the `env::var
+// unwrap_or_else` pattern; consolidated here so a future FHS
+// policy change is a single-file edit.
+mod data_dir;
+
 mod alarms; // v1.2.4: Alarm management (IEC 62682)
 // Batch 2 — ADR-018 §1 + ADR-024 §1 Permission enum + ActuatorClass taxonomy.
 // Pure types, zero runtime behavior in this batch; AuthorizedContext sealed type
@@ -654,12 +661,7 @@ impl AppState {
             .offline_queue
             .db_path_override
             .clone()
-            .unwrap_or_else(|| {
-                // Match the existing main.rs:1127 SUDERRA_DATA_DIR pattern.
-                let data_dir = std::env::var("SUDERRA_DATA_DIR")
-                    .unwrap_or_else(|_| "/var/lib/suderra".to_string());
-                std::path::PathBuf::from(data_dir).join("offline_queue.db")
-            });
+            .unwrap_or_else(|| data_dir::data_dir().join("offline_queue.db"));
 
         // Ensure parent directory exists (Batch 4a systemd hardening
         // creates /var/lib/suderra as owned by suderra:suderra; we
@@ -750,11 +752,7 @@ impl AppState {
             .backup
             .backup_dir
             .clone()
-            .unwrap_or_else(|| {
-                let data_dir = std::env::var("SUDERRA_DATA_DIR")
-                    .unwrap_or_else(|_| "/var/lib/suderra".to_string());
-                std::path::PathBuf::from(data_dir).join("backups")
-            });
+            .unwrap_or_else(|| data_dir::data_dir().join("backups"));
 
         // Device ID for cross-device restore rejection. Not a security
         // boundary — just a usability safeguard so a backup from
@@ -1699,8 +1697,11 @@ async fn run_agent(
     #[cfg(feature = "scada-display")]
     {
         // Initialize SCADA SQLite database
-        let data_dir = std::env::var("SUDERRA_DATA_DIR").unwrap_or_else(|_| "/var/lib/suderra".to_string());
-        let scada_db_path = format!("{}/scada/scada.db", data_dir);
+        let scada_db_path = data_dir::data_dir()
+            .join("scada")
+            .join("scada.db")
+            .to_string_lossy()
+            .to_string();
         let scada_db = match scada_db::ScadaDb::new(&scada_db_path) {
             Ok(db) => {
                 info!("SCADA database initialized: {}", scada_db_path);
@@ -1839,20 +1840,20 @@ async fn run_agent(
     shutdown_coordinator.register_task("command", command_handle);
 
     // Step 8: Initialize SQLite persistence for RETAIN variables (IEC 61131-3)
-    // v1.2.3: Log when using default data directory
+    // Batch 30: route through data_dir:: SSoT helper. Log whether
+    // the path came from env override or FHS default so operators
+    // can diagnose misconfigured SUDERRA_DATA_DIR at a glance.
     let persistence = {
-        let data_dir = match std::env::var("SUDERRA_DATA_DIR") {
-            Ok(dir) => {
-                info!("Using data directory from SUDERRA_DATA_DIR: {}", dir);
-                dir
-            }
-            Err(_) => {
-                let default_dir = "/var/lib/suderra".to_string();
-                debug!("SUDERRA_DATA_DIR not set, using default: {}", default_dir);
-                default_dir
-            }
-        };
-        let db_path = format!("{}/retain.db", data_dir);
+        match std::env::var(data_dir::DATA_DIR_ENV_VAR) {
+            Ok(dir) => info!("Using data directory from {}: {}", data_dir::DATA_DIR_ENV_VAR, dir),
+            Err(_) => debug!(
+                "{} not set, using default: {}",
+                data_dir::DATA_DIR_ENV_VAR,
+                data_dir::DEFAULT_DATA_DIR
+            ),
+        }
+        let db_path = data_dir::data_dir().join("retain.db");
+        let db_path = db_path.to_string_lossy().to_string();
 
         match SqlitePersistence::new(&db_path) {
             Ok(p) => {

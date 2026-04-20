@@ -1006,9 +1006,21 @@ pub struct RuntimeConfig {
     #[serde(default = "default_provisioning_timeout_secs")]
     pub provisioning_timeout_secs: u64,
 
-    /// Shutdown timeout in seconds
+    /// Shutdown timeout in seconds. OUTER budget for the whole
+    /// graceful-shutdown sequence (signal → drain → safe-state →
+    /// flush → disconnect MQTT). Individual tasks timed out
+    /// inside shutdown_coordinator.shutdown() use this value.
     #[serde(default = "default_shutdown_timeout_secs")]
     pub shutdown_timeout_secs: u64,
+
+    /// Per-task DRAIN budget in milliseconds (plan D-15).
+    /// In-flight commands get at most this duration between
+    /// shutdown signal and force-cancel. Separate from the
+    /// outer `shutdown_timeout_secs` because drain is per-task
+    /// while shutdown_timeout bounds the whole sequence.
+    /// Default 50ms matches plan D-15 specification.
+    #[serde(default = "default_drain_timeout_ms")]
+    pub drain_timeout_ms: u64,
 
     /// MQTT reconnect minimum delay in seconds
     #[serde(default = "default_mqtt_reconnect_min_secs")]
@@ -1030,6 +1042,7 @@ impl Default for RuntimeConfig {
             circuit_breaker_recovery_secs: default_circuit_breaker_recovery_secs(),
             provisioning_timeout_secs: default_provisioning_timeout_secs(),
             shutdown_timeout_secs: default_shutdown_timeout_secs(),
+            drain_timeout_ms: default_drain_timeout_ms(),
             mqtt_reconnect_min_secs: default_mqtt_reconnect_min_secs(),
             mqtt_reconnect_max_secs: default_mqtt_reconnect_max_secs(),
         }
@@ -1590,7 +1603,25 @@ fn default_provisioning_timeout_secs() -> u64 {
     30
 }
 fn default_shutdown_timeout_secs() -> u64 {
-    10
+    // Batch 32: matches the prior hardcoded SHUTDOWN_TIMEOUT_SECS
+    // constant in main.rs (30s). Pre-Batch-32 the config field
+    // was DEAD — declared but never read, defaulting to 10s
+    // while main.rs used 30s. Operators who explicitly set 10s
+    // in config.yaml were getting 30s behavior silently.
+    30
+}
+
+fn default_drain_timeout_ms() -> u64 {
+    // Plan D-15 specifies 50ms. This is the per-task
+    // cancel-vs-drain budget: in-flight commands get at most
+    // 50ms between shutdown signal and force-cancel. Typical
+    // command dispatch completes in sub-millisecond; the 50ms
+    // headroom accommodates network-aware commands
+    // (plc_upload, firmware fetch) that await a remote
+    // response. Force-cancel after 50ms is the outer backstop;
+    // actual per-command timeouts are operator-configurable
+    // (plc_upload: 30s, firmware download: 300s).
+    50
 }
 fn default_mqtt_reconnect_min_secs() -> u64 {
     1

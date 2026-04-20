@@ -1415,8 +1415,18 @@ fn setup_shutdown_handler(
     Ok(rx)
 }
 
-/// Shutdown timeout for graceful task termination
-const SHUTDOWN_TIMEOUT_SECS: u64 = 30;
+/// Shutdown timeout for graceful task termination.
+///
+/// Batch 32: fallback only — the ACTIVE value is
+/// `config.runtime.shutdown_timeout_secs` (default 30s).
+/// Pre-Batch-32 this constant shadowed the config field; code
+/// used 30s while the config field was 10s and dead. Kept as a
+/// fallback for the narrow case where the config load failed
+/// AND we're still in the shutdown path — unreachable in
+/// practice because failed config load exits before any
+/// shutdown handler is registered.
+#[allow(dead_code)] // fallback constant; active value from config.runtime.shutdown_timeout_secs.
+const SHUTDOWN_TIMEOUT_SECS_FALLBACK: u64 = 30;
 
 /// Main agent loop
 async fn run_agent(
@@ -1940,14 +1950,23 @@ async fn run_agent(
     // per-task wait-for-completion step (2). Combined into a
     // single shutdown() call by the coordinator — the log
     // captures entry + exit so duration is recoverable.
+    //
+    // Batch 32: shutdown_timeout is NOW config-driven from
+    // `config.runtime.shutdown_timeout_secs`. Pre-Batch-32 the
+    // hardcoded 30s constant overrode the config field,
+    // leaving operator-editable configuration dead.
     use crate::runtime_safety::shutdown_phase::ShutdownPhase;
+    let shutdown_timeout_secs = {
+        let state_guard = state.read().await;
+        state_guard.config.runtime.shutdown_timeout_secs
+    };
     info!(
         shutdown_phase = ?ShutdownPhase::StoppingInbound,
         "Initiating graceful shutdown with {}s timeout — phase transition to StoppingInbound + Draining",
-        SHUTDOWN_TIMEOUT_SECS
+        shutdown_timeout_secs
     );
     shutdown_coordinator
-        .shutdown(Duration::from_secs(SHUTDOWN_TIMEOUT_SECS))
+        .shutdown(Duration::from_secs(shutdown_timeout_secs))
         .await;
     info!(
         shutdown_phase = ?ShutdownPhase::Drained,

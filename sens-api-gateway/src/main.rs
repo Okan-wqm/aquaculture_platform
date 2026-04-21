@@ -1090,35 +1090,79 @@ impl AppState {
     ///   (forensic-trail invariant per IEC 62443 SL-2 FR6 is
     ///   non-negotiable — no permissive fallback).
     ///
-    /// KEY SOURCE: reads 64-char hex from `audit.hmac_key_hex`
-    /// config. Coherence Rule 15 enforces presence when
-    /// mode=Enabled; Coherence Rule 16 enforces 64-char hex
-    /// format. Phase 2 / Batch 80 swaps this to
-    /// KeyPurpose::AuditHmacChain derivation from the master
-    /// key (Sprint 6.3 keystore dependency).
+    /// KEY SOURCE PRIORITY (Batch 84 Sprint 6.3):
+    /// 1. If AppState.keystore is Some, derive the HMAC key
+    ///    via `keystore.derive_key(KeyPurpose::AuditHmacChain,
+    ///    context=b"")`. Preferred path — gives rotation +
+    ///    zeroize discipline from KeyMaterial.
+    /// 2. Else if audit.hmac_key_hex is Some, use the
+    ///    config-supplied hex. Rollout-stage path for
+    ///    deployments still running keystore.mode=Disabled.
+    /// 3. Else fail-closed: audit.mode=Enabled requires
+    ///    EITHER a live keystore OR hmac_key_hex
+    ///    (enforced by coherence Rule 15).
     pub fn init_audit_sink(&mut self) -> Result<(), String> {
         use crate::audit::{AuditHmacKey, AuditSink};
         use crate::config::AuditMode;
+        use crate::keystore::KeyPurpose;
 
         if matches!(self.config.audit.mode, AuditMode::Disabled) {
             info!("Audit sink init skipped: audit.mode=Disabled (HC-1 backward compat)");
             return Ok(());
         }
 
-        let key_hex = self.config.audit.hmac_key_hex.as_deref().ok_or_else(|| {
-            "audit.hmac_key_hex is None — Batch 78 Rule 15 should have caught this".to_string()
-        })?;
-
-        // Parse 64-char hex → [u8; 32]. Rule 16 pre-validates
-        // format at config-load; this is defense-in-depth.
+        // Key source resolution: keystore-derived preferred,
+        // config hex fallback.
         let mut key_bytes = [0u8; 32];
-        for (i, b) in key_bytes.iter_mut().enumerate() {
-            let pair = key_hex.get(i * 2..i * 2 + 2).ok_or_else(|| {
-                format!("audit.hmac_key_hex: hex slice error at byte {}", i)
+        let key_source_label: &str;
+
+        if let Some(ks) = self.keystore.as_ref() {
+            // Batch 84: derive from master via
+            // KeyPurpose::AuditHmacChain.
+            let ks = ks.clone();
+            // Blocking-context helper: tokio::task::block_in_
+            // place requires multi-thread runtime; init_audit_
+            // sink runs in async_main BEFORE the LocalSet wrap,
+            // so the tokio runtime we're on IS multi-thread.
+            // derive_key is async; block on it here rather
+            // than propagating async up through init_* which
+            // are otherwise sync.
+            let derived = tokio::runtime::Handle::current().block_on(async move {
+                ks.derive_key(KeyPurpose::AuditHmacChain, b"").await
+            });
+            let material = derived.map_err(|e| {
+                format!(
+                    "Audit sink key derivation failed: keystore.derive_key(AuditHmacChain): {}",
+                    e
+                )
             })?;
-            *b = u8::from_str_radix(pair, 16).map_err(|e| {
-                format!("audit.hmac_key_hex: hex parse at byte {}: {}", i, e)
-            })?;
+            key_bytes.copy_from_slice(material.expose_secret());
+            key_source_label = "keystore-derived(KeyPurpose::AuditHmacChain)";
+            info!(
+                "Audit HMAC key: derived from keystore (backend={:?}, purpose=AuditHmacChain)",
+                self.keystore.as_ref().map(|k| k.backend())
+            );
+        } else if let Some(key_hex) = self.config.audit.hmac_key_hex.as_deref() {
+            // Rollout-stage: config hex fallback.
+            for (i, b) in key_bytes.iter_mut().enumerate() {
+                let pair = key_hex.get(i * 2..i * 2 + 2).ok_or_else(|| {
+                    format!("audit.hmac_key_hex: hex slice error at byte {}", i)
+                })?;
+                *b = u8::from_str_radix(pair, 16).map_err(|e| {
+                    format!("audit.hmac_key_hex: hex parse at byte {}: {}", i, e)
+                })?;
+            }
+            key_source_label = "config(audit.hmac_key_hex)";
+            warn!(
+                "Audit HMAC key: using config.audit.hmac_key_hex rollout-stage path. \
+                 Provision keystore.mode=Auto (or FileBacked) to migrate to master-derived key."
+            );
+        } else {
+            return Err(
+                "Audit sink requires key source: either keystore.mode != Disabled OR audit.hmac_key_hex set. \
+                 Neither is configured (coherence Rule 15 should have caught this)."
+                    .to_string(),
+            );
         }
 
         let log_path = self
@@ -1129,10 +1173,8 @@ impl AppState {
             .unwrap_or_else(|| std::path::PathBuf::from("/var/log/suderra/audit.log"));
 
         let hmac_key = AuditHmacKey::from_bytes(key_bytes);
-        // key_bytes is still on stack; zero it to match the
-        // zeroize-on-drop discipline of AuditHmacKey. The
-        // struct's Drop handles the moved-in copy; this
-        // handles the local copy.
+        // Zeroize the local copy after move; AuditHmacKey
+        // also zeroize-on-drops the owned copy.
         {
             use zeroize::Zeroize;
             key_bytes.zeroize();
@@ -1146,8 +1188,9 @@ impl AppState {
         })?;
 
         info!(
-            "Audit sink opened: path={} mode=Enabled",
-            log_path.display()
+            "Audit sink opened: path={} mode=Enabled key_source={}",
+            log_path.display(),
+            key_source_label
         );
 
         self.audit_sink = Some(std::sync::Arc::new(sink));

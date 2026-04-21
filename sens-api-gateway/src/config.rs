@@ -2920,18 +2920,20 @@ impl AgentConfig {
             }
         }
 
-        // Rule 15 (Batch 78): audit.mode=Enabled requires
-        // audit.hmac_key_hex. Phase 2 / Batch 80 removes this
-        // rule by sourcing the key from Sprint 6.3 keystore
-        // derivation; pre-Sprint-6.3 the operator MUST supply
-        // the key via config. Matches Rule 12 discipline for
-        // rbac_manifest.
+        // Rule 15 (Batch 78, relaxed Batch 84): audit.mode=
+        // Enabled requires EITHER a live keystore (keystore.
+        // mode != Disabled) OR audit.hmac_key_hex. The
+        // keystore-derived path (preferred) derives the HMAC
+        // key via KeyPurpose::AuditHmacChain; hex config is
+        // the rollout-stage fallback.
         if matches!(self.audit.mode, AuditMode::Enabled)
             && self.audit.hmac_key_hex.is_none()
+            && matches!(self.keystore.mode, KeystoreMode::Disabled)
         {
             anyhow::bail!(
-                "Config coherence: audit.mode=Enabled requires audit.hmac_key_hex (64-char lowercase hex HMAC key). \
-                 Generate via `openssl rand -hex 32`. Phase 2 / Batch 80 sources this from keystore derivation."
+                "Config coherence: audit.mode=Enabled requires EITHER keystore.mode != Disabled (preferred — \
+                 derives HMAC key via KeyPurpose::AuditHmacChain) OR audit.hmac_key_hex (rollout-stage fallback, \
+                 64-char lowercase hex). Both are currently unset."
             );
         }
 

@@ -96,22 +96,10 @@ describe('drift-class parity — registry ↔ validator ↔ primitive ↔ harnes
     const missing: Array<{ id: DriftClassId; primitive: string }> = [];
     for (const spec of Object.values(DRIFT_CLASSES)) {
       if (spec.primitive === null) continue;
-      // Phase 3 primitives (alignColumnType, alignColumnNullability,
-      // addMissingColumns, dropOrphanedColumns, alignEnumLabels,
-      // alignCheckConstraints) are NOT YET shipped. Allow the primitive
-      // field to name them — the invariant asserts presence once they
-      // ship. Gate on Phase 3 COMPLETE via a separate CI spec after
-      // Phase 3 lands.
-      // Primitives that DO exist today (Phase 2 scope): pinSearchPath.
-      const phase3PrimitivesShippedInPhase3: readonly string[] = [
-        'alignColumnType',
-        'alignColumnNullability',
-        'addMissingColumns',
-        'dropOrphanedColumns',
-        'alignEnumLabels',
-        'alignCheckConstraints',
-      ];
-      if (phase3PrimitivesShippedInPhase3.includes(spec.primitive)) continue;
+      // Phase 3 complete — every non-null primitive MUST be exported.
+      // The previous Phase 3 allowlist bypass has been removed; any
+      // class that declares a primitive name must actually export it
+      // from @aquaculture/backend-common.
       if (!exported.has(spec.primitive)) {
         missing.push({ id: spec.id, primitive: spec.primitive });
       }

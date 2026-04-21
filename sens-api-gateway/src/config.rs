@@ -269,6 +269,18 @@ pub struct AgentConfig {
     #[serde(default)]
     pub signature_mode: crate::command_envelope::envelope::SignatureMode,
 
+    /// Clock authority configuration (Batch 56, plan D-7 /
+    /// Sprint 6.7). Controls NTS-sync staleness threshold used
+    /// by the future `ChronyNtsClockAuthority` to reject wall-
+    /// clock reads when chronyd has been silent too long.
+    /// Pre-Sprint-6.7 the SystemClockAuthority (Batch 55)
+    /// reports nts_sync_age_secs=0 unconditionally so the
+    /// threshold check never fires; operators can still tune
+    /// the threshold so their config.yaml is ready for
+    /// Sprint 6.7 swap-in.
+    #[serde(default)]
+    pub clock: ClockConfig,
+
     /// Cache configuration (v1.2.0)
     #[serde(default)]
     pub cache: CacheConfig,
@@ -1381,6 +1393,55 @@ impl ModbusTlsConfig {
 }
 
 // ============================================================================
+// ClockConfig — Batch 56 plan D-7 / Sprint 6.7
+// ============================================================================
+//
+// WHY: Plan D-7 mandates NTS-authenticated wall-clock discipline. The
+// edge agent uses `CLOCK_MONOTONIC` (via Instant) for TTL enforcement +
+// `SystemTime` for audit timestamps, BUT SystemTime must be freshness-
+// checked against chronyd's last-sync age. A wall clock whose NTS sync
+// is > threshold stale cannot be trusted for regulated-action paths
+// (audit timestamps, signature freshness windows).
+//
+// Pre-Sprint-6.7 SystemClockAuthority (Batch 55) reports
+// nts_sync_age_secs=0 unconditionally — the threshold check never fires.
+// Sprint 6.7 wires the real chronyd query + fail-closed gate.
+//
+// ClockConfig is the operator knob: `config.clock.nts_sync_max_skew_secs
+// = 3600` today (default); operators can tighten to 300 for SCADA
+// deployments that require fresh audit timestamps, or loosen to 86400
+// for legacy-device compat during NTS rollout.
+
+/// Clock authority configuration (Batch 56, plan D-7).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClockConfig {
+    /// Maximum NTS-sync staleness in seconds. Sprint 6.7
+    /// `ChronyNtsClockAuthority.trustworthy_wall_clock()`
+    /// returns `Err(NtsSyncStale)` when the last chronyd
+    /// re-sync is older than this threshold.
+    /// Default 3600s (1 hour) per plan D-7.
+    #[serde(default = "default_nts_sync_max_skew_secs")]
+    pub nts_sync_max_skew_secs: u64,
+}
+
+fn default_nts_sync_max_skew_secs() -> u64 {
+    // Matches `crate::runtime_safety::system_clock::
+    // DEFAULT_NTS_SYNC_MAX_SKEW_SECS`. Duplicated here because
+    // config.rs runs at module-load time before runtime_safety
+    // can be guaranteed to have been linked; keeping a local
+    // default avoids circular-init ordering.
+    3600
+}
+
+impl Default for ClockConfig {
+    fn default() -> Self {
+        Self {
+            nts_sync_max_skew_secs: default_nts_sync_max_skew_secs(),
+        }
+    }
+}
+
+// ============================================================================
 // ConfigIntegrityConfig — Batch 42 plan D-13 / Sprint 6.6
 // ============================================================================
 //
@@ -2419,6 +2480,20 @@ impl AgentConfig {
         if self.runtime.max_command_age_secs == 0 {
             anyhow::bail!(
                 "Config coherence: runtime.max_command_age_secs must be > 0 (0 would reject every command due to parse+network latency)"
+            );
+        }
+
+        // Rule 9 (Batch 56): clock.nts_sync_max_skew_secs
+        // must be positive. A 0-second threshold would make
+        // Sprint 6.7 ChronyNtsClockAuthority reject every
+        // wall-clock read (any NTS sync age > 0 would fail
+        // freshness check). Operators wanting "immediate
+        // rejection" should set `clock.mode: disabled` (or
+        // leave the authority un-wired in AppState) rather
+        // than 0-threshold — clearer operator intent.
+        if self.clock.nts_sync_max_skew_secs == 0 {
+            anyhow::bail!(
+                "Config coherence: clock.nts_sync_max_skew_secs must be > 0 (0 would reject every wall-clock read under Sprint 6.7 Chrony wire)"
             );
         }
 

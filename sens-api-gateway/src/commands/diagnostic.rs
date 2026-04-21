@@ -114,6 +114,10 @@ impl CommandHandler {
             },
             // Batch 45: command-envelope signature mode.
             "signature_mode": format!("{:?}", state.config.signature_mode).to_lowercase(),
+            // Batch 56: clock authority NTS threshold.
+            "clock": {
+                "nts_sync_max_skew_secs": state.config.clock.nts_sync_max_skew_secs,
+            },
             // Batch 32+34: shutdown + replay-protection thresholds.
             "runtime": {
                 "shutdown_timeout_secs": state.config.runtime.shutdown_timeout_secs,

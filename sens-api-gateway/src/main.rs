@@ -1022,6 +1022,11 @@ async fn async_main() -> Result<()> {
                 "  Signature mode: {:?} (envelope verify + jti dedup wire in Sprint 6.4; plan §2 HC-6)",
                 cfg.signature_mode
             );
+            // Batch 56: clock authority NTS threshold.
+            info!(
+                "  Clock authority: nts_sync_max_skew_secs={} (ChronyNtsClockAuthority wires in Sprint 6.7; plan D-7)",
+                cfg.clock.nts_sync_max_skew_secs
+            );
             cfg
         }
         Err(e) => {

@@ -102,16 +102,14 @@ fn default_runtime_config_passes_all_coherence_rules() {
 
 #[test]
 fn coherence_rules_stable_under_new_field_additions() {
-    // FUTURE-COMPAT CONTRACT: Batches 39+42+49 have added 8
-    // rules total (3 Batch 39 + 2 Batch 42 + 3 Batch 49).
-    // Sprint 6.x additions (keystore coherence rules per
-    // plan §5 Faz 2 Step 1; authz coherence rules per
-    // Step 4; etc.) MUST extend validate_faz2_security_
-    // coherence additively — existing rules preserved. Any
-    // change to an existing rule requires ADR documentation
-    // + operator migration notes.
+    // FUTURE-COMPAT CONTRACT: Batches 39+42+49+56 have added
+    // 9 rules total (3 Batch 39 + 2 Batch 42 + 3 Batch 49 +
+    // 1 Batch 56). Sprint 6.x additions MUST extend validate_
+    // faz2_security_coherence additively — existing rules
+    // preserved. Any change to an existing rule requires
+    // ADR documentation + operator migration notes.
     //
-    // Rule roster (as of Batch 50):
+    // Rule roster (as of Batch 56):
     //   Rule 1: mtls.mode=strict ⟹ enforce_fingerprint_
     //           pinning=true (Batch 39).
     //   Rule 2: max_command_skew_secs <= max_command_age_
@@ -125,7 +123,8 @@ fn coherence_rules_stable_under_new_field_additions() {
     //   Rule 6: rate_limit_max_commands > 0 (Batch 49).
     //   Rule 7: rate_limit_window_secs > 0 (Batch 49).
     //   Rule 8: max_command_age_secs > 0 (Batch 49).
-    let _contract = "8 rules are ABI-stable; Sprint 6.x additions are additive-only";
+    //   Rule 9: clock.nts_sync_max_skew_secs > 0 (Batch 56).
+    let _contract = "9 rules are ABI-stable; Sprint 6.x additions are additive-only";
     assert!(!_contract.is_empty());
 }
 
@@ -177,6 +176,19 @@ fn max_command_age_must_be_positive() {
     // MUST fail config load. Zero max_age rejects every
     // command due to parse+network latency (> 0s always).
     let _contract = "runtime.max_command_age_secs must be > 0";
+    assert!(!_contract.is_empty());
+}
+
+#[test]
+fn nts_sync_max_skew_secs_must_be_positive() {
+    // CONTRACT (Batch 56 Rule 9): clock.nts_sync_max_skew_
+    // secs=0 MUST fail config load. Zero threshold would
+    // make Sprint 6.7 ChronyNtsClockAuthority reject every
+    // wall-clock read under freshness check. Operators
+    // wanting the "always-reject" posture should leave
+    // the authority un-wired rather than 0-threshold —
+    // clearer operator intent.
+    let _contract = "clock.nts_sync_max_skew_secs must be > 0";
     assert!(!_contract.is_empty());
 }
 

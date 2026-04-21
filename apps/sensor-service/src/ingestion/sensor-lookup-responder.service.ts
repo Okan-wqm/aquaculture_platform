@@ -229,13 +229,43 @@ export class SensorLookupResponderService
     }
 
     // The wire shape mirrors the Rust SensorMeta serde shape:
-    //   { sensorId, tenantId, channelIds[] } — all camelCase, all
-    //   lower-case hyphenated UUID strings. Pinned by both spec files.
-    const reply = {
+    //   { sensorId, tenantId, channelIds[], farmId?, pondId? } — all
+    //   camelCase, all lower-case hyphenated UUID strings. Pinned by
+    //   both spec files.
+    //
+    // WHY farmId / pondId are conditionally added (not always written
+    // as `key: undefined`):
+    //   `JSON.stringify` drops `undefined` values silently — if we
+    //   wrote `farmId: undefined` the wire shape would be the same as
+    //   omitting the property, BUT a future refactor that swapped the
+    //   stringify path for a typed serialiser would surface the
+    //   undefined as `null`. Building the reply with the property
+    //   only present when the value exists makes the absent-not-null
+    //   contract structural, not stringify-dependent.
+    //
+    // WHY this matters byte-for-byte:
+    //   The Rust `SensorMeta` derives use
+    //   `skip_serializing_if = "Option::is_none"` — `farmId: null`
+    //   would deserialise as `Some(Uuid::nil())` after a serde tweak
+    //   OR fail decode outright depending on the tweak. Absence is
+    //   the only safe encoding for "no farm".
+    const reply: {
+      sensorId: string;
+      tenantId: string;
+      channelIds: string[];
+      farmId?: string;
+      pondId?: string;
+    } = {
       sensorId: sensor.id,
       tenantId: sensor.tenantId,
       channelIds: channels.map((c) => c.id),
     };
+    if (sensor.farmId) {
+      reply.farmId = sensor.farmId;
+    }
+    if (sensor.pondId) {
+      reply.pondId = sensor.pondId;
+    }
     this.respond(msg, reply);
   }
 

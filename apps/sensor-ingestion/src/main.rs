@@ -438,17 +438,28 @@ fn maybe_spawn_cache_fill(
 /// continues — persistence is the load-bearing path, publisher is
 /// best-effort). Extracted to keep `drain_mqtt_stream` inside the
 /// workspace `clippy::too_many_lines = 100` budget.
+///
+/// Faz 3 follow-on (enrichment): `cached_meta` is `Some` when the
+/// drain's cache lookup hit. The published
+/// [`event_contracts_rs::SensorMetricIngestedEvent`] carries
+/// `farm_id` / `pond_id` populated from the cache when present —
+/// downstream consumers (and the NestJS `NatsIngestionConsumerService`)
+/// then use those values directly without their own DB roundtrip on
+/// the warm-cache happy path. On a cache miss `cached_meta` is `None`
+/// and both event fields stay `None`; the consumer falls back to its
+/// own cache lookup (defence-in-depth + cold-path fallback).
 async fn forward_validated_reading(
     reading: crate::payload::SensorReading,
     batch_in: &tokio::sync::mpsc::Sender<crate::payload::SensorReading>,
     events_in: &tokio::sync::mpsc::Sender<event_contracts_rs::SensorMetricIngestedEvent>,
+    cached_meta: Option<&crate::cache::SensorMeta>,
 ) -> bool {
     // Faz 3 stage 1: synthesise the SensorMetricIngested event from
     // the validated reading BEFORE the batch send so the event-publish
     // channel observes every reading the persistence channel does.
     // The validator pinned tenant/sensor/channel ids; downstream
     // assertions can rely on TenantMismatch having been enforced.
-    let ev = event_contracts_rs::SensorMetricIngestedEvent::new(
+    let mut ev = event_contracts_rs::SensorMetricIngestedEvent::new(
         *reading.tenant_id.as_uuid(),
         reading.sensor_id,
         reading.channel_id,
@@ -456,6 +467,21 @@ async fn forward_validated_reading(
         reading.quality,
         reading.producer_ts,
     );
+    // Faz 3 follow-on (enrichment): copy farm_id / pond_id from the
+    // warm cache onto the event. WHY here (not in `new()`):
+    //   `SensorMetricIngestedEvent::new` keeps a payload-only
+    //   signature — adding optional cache-derived fields to the
+    //   constructor would force every existing caller (test code,
+    //   future producers) to thread an Option<&SensorMeta> through.
+    //   Mutating after construction keeps `new()` minimal AND keeps
+    //   the cache-miss path a true no-op (the fields stay `None`).
+    if let Some(meta) = cached_meta {
+        // farm_id/pond_id on SensorMeta are themselves Option — copy
+        // through so a sensor with a farm but no pond produces an
+        // event with `farmId` set and `pondId` absent.
+        ev.farm_id = meta.farm_id;
+        ev.pond_id = meta.pond_id;
+    }
     if events_in.send(ev).await.is_err() {
         // Publisher loop gone — log and continue; persistence still
         // works, control-plane alarms catch the publisher failure mode.
@@ -470,6 +496,152 @@ async fn forward_validated_reading(
         return false;
     }
     true
+}
+
+/// Faz 3 follow-on (channel-id validation): cache-warm gate.
+///
+/// Returns `true` when the message MUST be dropped (channel id is not
+/// registered for the resolved sensor); `false` otherwise. Extracted
+/// out of `drain_mqtt_stream` to keep that hot-path function inside
+/// the workspace `clippy::too_many_lines = 100` budget.
+///
+/// Architectural-tier-1 invariant pinned by the function signature:
+///   The validation runs ONLY when `cached_meta.is_some()`. A cache
+///   MISS short-circuits to `false` (do not drop) — the cold path
+///   keeps the previous "publish what the payload carries" semantic
+///   and the NestJS consumer remains the validation backstop.
+fn should_drop_unknown_channel(
+    cached_meta: Option<&crate::cache::SensorMeta>,
+    reading: &crate::payload::SensorReading,
+    topic: &str,
+    topic_tenant: tenant_context::TenantId,
+) -> bool {
+    let Some(meta) = cached_meta else {
+        return false;
+    };
+    if meta.channel_ids.contains(&reading.channel_id) {
+        return false;
+    }
+    tracing::warn!(
+        topic = %topic,
+        tenant = %topic_tenant.as_uuid(),
+        sensor = %reading.sensor_id,
+        channel = %reading.channel_id,
+        known_channels = meta.channel_ids.len(),
+        "mqtt msg references channel not registered for sensor (dropping; cache-warm gate)"
+    );
+    true
+}
+
+/// Per-message bookkeeping counters surfaced in the drain's tail log.
+/// Extracted into a struct so [`drain_mqtt_stream`] can pass a single
+/// `&mut` reference into the message-processing helper instead of a
+/// long argument list — also keeps the drain inside the workspace
+/// `clippy::too_many_lines = 100` budget.
+#[derive(Debug, Default)]
+struct DrainCounters {
+    count: u64,
+    topic_parse_failures: u64,
+    node_routed_count: u64,
+    cache_miss_lookup_spawn_count: u64,
+    unknown_channel_count: u64,
+}
+
+/// Outcome of a single message's pipeline pass. The drain converts
+/// this into either `continue` (next message) or `break` (aggregator
+/// channel closed; end the drain).
+enum DrainStep {
+    Continue,
+    BreakLoop,
+}
+
+/// Process one MQTT message: parse the topic, route by per-tenant
+/// IngestBackend policy, lookup the warm cache, validate the payload,
+/// validate the channel id (cache-warm gate), and forward the
+/// validated reading + synthesised event to the persistence + publish
+/// channels. Increments the counters in `c` for every observable
+/// outcome the tail log surfaces.
+///
+/// WHY a helper: keeps `drain_mqtt_stream` inside the workspace
+/// `clippy::too_many_lines = 100` budget by hoisting the per-message
+/// fan-out out of the loop body.
+async fn process_one_message(
+    msg: &mqtt::RawMqttMessage,
+    cache: &Arc<TopicCache>,
+    batch_in: &tokio::sync::mpsc::Sender<crate::payload::SensorReading>,
+    events_in: &tokio::sync::mpsc::Sender<event_contracts_rs::SensorMetricIngestedEvent>,
+    policy: &Arc<dyn ingest_backend::IngestBackendPolicy>,
+    lookup_client: Option<&Arc<sensor_lookup::SensorLookupClient>>,
+    c: &mut DrainCounters,
+) -> DrainStep {
+    let age_micros = msg.received_at.elapsed().as_micros();
+    let parsed = match topic::parse(&msg.topic) {
+        Ok(p) => p,
+        Err(e) => {
+            c.topic_parse_failures = c.topic_parse_failures.saturating_add(1);
+            tracing::warn!(
+                topic = %msg.topic,
+                bytes = msg.payload.len(),
+                age_micros,
+                error = %e,
+                "mqtt msg topic parse failed (dropping)"
+            );
+            return DrainStep::Continue;
+        }
+    };
+    let (topic_tenant, sensor_id) = match parsed {
+        topic::ParsedTopic::Sensor { tenant, sensor } => (tenant, Some(sensor)),
+        topic::ParsedTopic::Device { tenant, .. } => (tenant, None),
+    };
+    if matches!(
+        policy.backend_for(topic_tenant),
+        config::IngestBackend::Node
+    ) {
+        c.node_routed_count = c.node_routed_count.saturating_add(1);
+        tracing::trace!(
+            topic = %msg.topic,
+            bytes = msg.payload.len(),
+            "mqtt msg routed to node backend (dropped here)"
+        );
+        return DrainStep::Continue;
+    }
+    let cached_meta = sensor_id.and_then(|s| cache.get(topic_tenant, s));
+    let cache_hit = cached_meta.is_some();
+    if maybe_spawn_cache_fill(cache_hit, sensor_id, topic_tenant, lookup_client, cache) {
+        c.cache_miss_lookup_spawn_count = c.cache_miss_lookup_spawn_count.saturating_add(1);
+    }
+    let reading = match payload::validate(&msg.payload, topic_tenant) {
+        Ok(r) => r,
+        Err(e) => {
+            c.topic_parse_failures = c.topic_parse_failures.saturating_add(1);
+            tracing::warn!(
+                topic = %msg.topic,
+                bytes = msg.payload.len(),
+                age_micros,
+                error = %e,
+                "mqtt msg payload validate failed (dropping)"
+            );
+            return DrainStep::Continue;
+        }
+    };
+    if should_drop_unknown_channel(cached_meta.as_deref(), &reading, &msg.topic, topic_tenant) {
+        c.unknown_channel_count = c.unknown_channel_count.saturating_add(1);
+        return DrainStep::Continue;
+    }
+    tracing::trace!(
+        topic = %msg.topic,
+        bytes = msg.payload.len(),
+        age_micros,
+        quality = reading.quality,
+        producer_ts = reading.producer_ts,
+        cache_hit,
+        "mqtt msg validated"
+    );
+    if forward_validated_reading(reading, batch_in, events_in, cached_meta.as_deref()).await {
+        DrainStep::Continue
+    } else {
+        DrainStep::BreakLoop
+    }
 }
 
 /// Pull messages off the MQTT stream and feed them through the
@@ -500,119 +672,33 @@ async fn drain_mqtt_stream(
         std::future::pending::<()>().await;
         return;
     };
-    let mut count: u64 = 0;
-    let mut topic_parse_failures: u64 = 0;
-    // Stage 13: per-tenant IngestBackend gate. Counts messages routed
-    // to NestJS (dropped here in the sidecar) so an operator can
-    // correlate sidecar throughput against the rollout fraction.
-    let mut node_routed_count: u64 = 0;
-    // Faz 3 follow-on: cache-miss spawns. Counts how often the drain
-    // fired the fire-and-forget responder request. Surfaced in the
-    // tail log so the cache-fill rate is observable.
-    let mut cache_miss_lookup_spawn_count: u64 = 0;
+    // Per-message bookkeeping is hoisted into [`DrainCounters`] so
+    // [`process_one_message`] can mutate them through a single `&mut`
+    // borrow — keeps the loop body tight and the function inside the
+    // workspace `clippy::too_many_lines = 100` budget.
+    let mut counters = DrainCounters::default();
     while let Some(msg) = s.recv().await {
-        count = count.saturating_add(1);
-        let age_micros = msg.received_at.elapsed().as_micros();
-        // Stage 6 + Stage 7 + Stage 8 wiring in order:
-        //   1. topic::parse → ParsedTopic with TenantId.
-        //   2. cache.get(tenant, sensor) — warm-lookup; a hit skips
-        //      the upstream sensor-meta fetch when that lands in a
-        //      follow-on commit. The current drain does NOT block on
-        //      a miss (no NATS request-reply yet); it just records
-        //      the outcome so cache-fill is observable at the hot
-        //      path.
-        //   3. payload::validate(bytes, topic_tenant) — enforces the
-        //      ADR-025 § Threat 2 topic↔payload tenant bind.
-        // Parse / validate FAILURES increment topic_parse_failures
-        // and log at warn — ops alarms on a single counter.
-        match topic::parse(&msg.topic) {
-            Ok(parsed) => {
-                let (topic_tenant, sensor_id) = match parsed {
-                    topic::ParsedTopic::Sensor { tenant, sensor } => (tenant, Some(sensor)),
-                    topic::ParsedTopic::Device { tenant, .. } => (tenant, None),
-                };
-                // Stage 13: gate on the per-tenant IngestBackend
-                // policy AFTER topic parse (we need the tenant id to
-                // ask the policy) and BEFORE payload validate (a
-                // Node-routed tenant must not pay the validate cost
-                // and must not push to the batch buffer). The broker
-                // already received QoS-1 ack at recv() time; this is
-                // the sidecar acknowledging the message and dropping
-                // it because NestJS owns the stream — exactly the
-                // strangler-fig contract.
-                if matches!(
-                    policy.backend_for(topic_tenant),
-                    config::IngestBackend::Node
-                ) {
-                    node_routed_count = node_routed_count.saturating_add(1);
-                    tracing::trace!(
-                        topic = %msg.topic,
-                        bytes = msg.payload.len(),
-                        "mqtt msg routed to node backend (dropped here)"
-                    );
-                    continue;
-                }
-                let cache_hit = sensor_id.is_some_and(|s| cache.get(topic_tenant, s).is_some());
-                // Faz 3 follow-on: on cache MISS, fire the
-                // cache-fill helper. Helper is a no-op when sensor_id
-                // is None, lookup_client is None, or cache_hit is
-                // already true — keeps the hot-path callsite a one-
-                // liner and the function inside the workspace
-                // cognitive-complexity / line budget.
-                if maybe_spawn_cache_fill(
-                    cache_hit,
-                    sensor_id,
-                    topic_tenant,
-                    lookup_client.as_ref(),
-                    &cache,
-                ) {
-                    cache_miss_lookup_spawn_count =
-                        cache_miss_lookup_spawn_count.saturating_add(1);
-                }
-                match payload::validate(&msg.payload, topic_tenant) {
-                    Ok(reading) => {
-                        tracing::trace!(
-                            topic = %msg.topic,
-                            bytes = msg.payload.len(),
-                            age_micros,
-                            quality = reading.quality,
-                            producer_ts = reading.producer_ts,
-                            cache_hit,
-                            "mqtt msg validated"
-                        );
-                        if !forward_validated_reading(reading, &batch_in, &events_in).await {
-                            break;
-                        }
-                    }
-                    Err(e) => {
-                        topic_parse_failures = topic_parse_failures.saturating_add(1);
-                        tracing::warn!(
-                            topic = %msg.topic,
-                            bytes = msg.payload.len(),
-                            age_micros,
-                            error = %e,
-                            "mqtt msg payload validate failed (dropping)"
-                        );
-                    }
-                }
-            }
-            Err(e) => {
-                topic_parse_failures = topic_parse_failures.saturating_add(1);
-                tracing::warn!(
-                    topic = %msg.topic,
-                    bytes = msg.payload.len(),
-                    age_micros,
-                    error = %e,
-                    "mqtt msg topic parse failed (dropping)"
-                );
-            }
+        counters.count = counters.count.saturating_add(1);
+        let step = process_one_message(
+            &msg,
+            &cache,
+            &batch_in,
+            &events_in,
+            &policy,
+            lookup_client.as_ref(),
+            &mut counters,
+        )
+        .await;
+        if matches!(step, DrainStep::BreakLoop) {
+            break;
         }
     }
     tracing::info!(
-        count,
-        topic_parse_failures,
-        node_routed_count,
-        cache_miss_lookup_spawn_count,
+        count = counters.count,
+        topic_parse_failures = counters.topic_parse_failures,
+        node_routed_count = counters.node_routed_count,
+        cache_miss_lookup_spawn_count = counters.cache_miss_lookup_spawn_count,
+        unknown_channel_count = counters.unknown_channel_count,
         cache_len = cache.len(),
         "mqtt drain complete"
     );

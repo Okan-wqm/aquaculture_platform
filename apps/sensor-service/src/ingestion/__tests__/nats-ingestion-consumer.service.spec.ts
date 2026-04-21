@@ -211,10 +211,19 @@ describe('NatsIngestionConsumerService', () => {
   });
 
   describe('handle — happy path', () => {
-    it('enqueues a SensorMetricInput onto BatchProcessor', async () => {
+    it('enqueues a SensorMetricInput onto BatchProcessor (event-side farm/pond honored)', async () => {
+      // Faz 3 follow-on: the sidecar populates `event.farmId` /
+      // `event.pondId` from its warm cache. The consumer MUST honor
+      // those values (event-side is the SoT when the cache was warm
+      // at publish time). This test threads explicit event-side
+      // values that match the sensor row to keep the assertion shape
+      // unchanged from the pre-Faz-3-follow-on behaviour while
+      // proving the new fallback chain accepts the event-side path.
       const batch = makeBatch();
       const { svc } = makeService({ batch });
-      await svc.handle(fakeEvent());
+      await svc.handle(
+        fakeEvent({ farmId: FARM_ID, pondId: POND_ID }),
+      );
       expect(batch.enqueue).toHaveBeenCalledTimes(1);
       const firstCall = batch.enqueue.mock.calls[0];
       if (!firstCall) throw new Error('expected at least one enqueue call');
@@ -240,10 +249,12 @@ describe('NatsIngestionConsumerService', () => {
       expect(arg.time?.toISOString()).toBe('2024-10-27T03:33:20.000Z');
     });
 
-    it('publishes a typed SensorReadingEvent after enqueue', async () => {
+    it('publishes a typed SensorReadingEvent after enqueue (event-side farm/pond honored)', async () => {
       const bus = makeBus();
       const { svc } = makeService({ bus });
-      await svc.handle(fakeEvent());
+      await svc.handle(
+        fakeEvent({ farmId: FARM_ID, pondId: POND_ID }),
+      );
       expect(bus.publish).toHaveBeenCalledTimes(1);
       const firstCall = bus.publish.mock.calls[0];
       if (!firstCall) throw new Error('expected at least one publish call');
@@ -255,7 +266,79 @@ describe('NatsIngestionConsumerService', () => {
       expect(ev.sensorId).toBe(SENSOR_ID);
       expect(ev.tenantId).toBe(TENANT_ID);
       expect(ev.farmId).toBe(FARM_ID);
+      expect(ev.pondId).toBe(POND_ID);
       expect(ev.readingTemperature).toBe(24.5);
+    });
+
+    it('event-side farm/pond preferred over sensor cache when both present', async () => {
+      // Faz 3 follow-on architectural payoff: the sidecar's resolved
+      // farm/pond is the SoT when present. Sensor row in the consumer
+      // cache might be stale relative to the sidecar's view (the
+      // sidecar's lookup-responder reply is fresher than the
+      // consumer's TTL-bounded cache after a recent write).
+      //
+      // Test setup: event carries farm A / pond A; sensor row carries
+      // farm B / pond B. The consumer MUST prefer A on BOTH the
+      // SensorMetricInput AND the typed SensorReadingEvent — proving
+      // the fallback chain `event.* ?? sensor.* ?? undefined` actually
+      // walks left-to-right.
+      const EVENT_FARM = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+      const EVENT_POND = 'bbbbbbbb-cccc-dddd-eeee-ffffffffffff';
+      const SENSOR_FARM = 'cccccccc-dddd-eeee-ffff-aaaaaaaaaaaa';
+      const SENSOR_POND = 'dddddddd-eeee-ffff-aaaa-bbbbbbbbbbbb';
+      const batch = makeBatch();
+      const bus = makeBus();
+      const { svc } = makeService({
+        batch,
+        bus,
+        sensor: fakeSensor({ farmId: SENSOR_FARM, pondId: SENSOR_POND }),
+      });
+      await svc.handle(
+        fakeEvent({ farmId: EVENT_FARM, pondId: EVENT_POND }),
+      );
+      // SensorMetricInput receives the EVENT-side ids.
+      const enqArg = batch.enqueue.mock.calls[0]?.[0];
+      if (!enqArg) throw new Error('expected enqueue arg');
+      expect(enqArg.farmId).toBe(EVENT_FARM);
+      expect(enqArg.pondId).toBe(EVENT_POND);
+      // Typed event also carries the EVENT-side ids.
+      const typedEv = bus.publish.mock.calls[0]?.[0] as unknown as Record<
+        string,
+        unknown
+      >;
+      expect(typedEv.farmId).toBe(EVENT_FARM);
+      expect(typedEv.pondId).toBe(EVENT_POND);
+    });
+
+    it('falls back to sensor cache farm/pond when event has none', async () => {
+      // Cache-miss path on the sidecar side: the sidecar leaves
+      // event.farmId / event.pondId absent. The consumer's own cache
+      // covers the gap — defence-in-depth + cold-path correctness.
+      // Test: event has no farm/pond; sensor row carries the values;
+      // both the SensorMetricInput AND the typed event surface the
+      // sensor-side values.
+      const batch = makeBatch();
+      const bus = makeBus();
+      const { svc } = makeService({
+        batch,
+        bus,
+        sensor: fakeSensor({ farmId: FARM_ID, pondId: POND_ID }),
+      });
+      await svc.handle(
+        // Explicitly omit farmId / pondId from the event — the
+        // sidecar's cold-path emission shape.
+        fakeEvent({ farmId: undefined, pondId: undefined }),
+      );
+      const enqArg = batch.enqueue.mock.calls[0]?.[0];
+      if (!enqArg) throw new Error('expected enqueue arg');
+      expect(enqArg.farmId).toBe(FARM_ID);
+      expect(enqArg.pondId).toBe(POND_ID);
+      const typedEv = bus.publish.mock.calls[0]?.[0] as unknown as Record<
+        string,
+        unknown
+      >;
+      expect(typedEv.farmId).toBe(FARM_ID);
+      expect(typedEv.pondId).toBe(POND_ID);
     });
 
     it('publish failure does not abort persistence — enqueue already happened', async () => {

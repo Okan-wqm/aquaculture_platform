@@ -151,6 +151,18 @@ pub const DEFAULT_TOTAL_CAPACITY: usize = 100_000;
 ///                                     `TenantId`'s `#[serde(transparent)]`)
 ///     * `channel_ids` → `channelIds` (array of UUIDs, lower-case
 ///                                     hyphenated)
+///     * `farm_id`     → `farmId`     (optional UUID; key OMITTED when
+///                                     `None`, never `null`)
+///     * `pond_id`     → `pondId`     (optional UUID; key OMITTED when
+///                                     `None`, never `null`)
+///
+/// WHY `farm_id` / `pond_id` use `skip_serializing_if = "Option::is_none"`:
+///   The "no farm" sensor (e.g. an operator-owned sentinel device with
+///   no pond binding) is structurally common. Encoding that case as the
+///   ABSENCE of the JSON key (a single-byte difference vs. presence)
+///   instead of a `"farmId": null` literal keeps the wire compact AND
+///   matches the BaseEvent contract on the TS side, which omits
+///   undefined optionals rather than serialising them as `null`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SensorMeta {
@@ -164,6 +176,21 @@ pub struct SensorMeta {
     /// event and the cache layer invalidates the entry. The vector is
     /// short (typically 1-8 entries) and immutable after construction.
     pub channel_ids: Vec<Uuid>,
+    /// Optional farm scope. WHAT: cached at resolve time so the drain
+    /// can populate the published `SensorMetricIngestedEvent.farmId`
+    /// without a per-message DB hit. WHY optional: a sensor can be
+    /// registered without a farm binding (sentinel / unassigned /
+    /// pre-onboarding device). `skip_serializing_if = "Option::is_none"`
+    /// + `default` make the wire shape: key absent = no farm, key
+    ///   present + valid UUID = farm bound. There is no `null` middle
+    ///   state (would force every consumer to special-case a third shape).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub farm_id: Option<Uuid>,
+    /// Optional pond scope. Mirrors [`SensorMeta::farm_id`] semantics.
+    /// A sensor with a farm but no pond is legitimate (farm-level
+    /// telemetry not tied to a specific pond).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub pond_id: Option<Uuid>,
     // Future fields the value is reserved to carry once the upstream
     // resolution surface stabilises:
     //   * calibration: linear/2-point/poly3 coefficient struct
@@ -464,11 +491,19 @@ pub fn self_smoke_check(cache: &TopicCache) {
         sensor_id: sensor_a,
         tenant_id: tenant,
         channel_ids: Vec::new(),
+        // farm/pond intentionally absent for the smoke fixture — the
+        // cache surface is identical for the with-farm/without-farm
+        // case, and exercising the None branch keeps the smoke-fixture
+        // identical to its post-Faz-2 shape.
+        farm_id: None,
+        pond_id: None,
     });
     cache.insert(SensorMeta {
         sensor_id: sensor_b,
         tenant_id: tenant,
         channel_ids: Vec::new(),
+        farm_id: None,
+        pond_id: None,
     });
 
     // get → MUST hit (proves the storage round-trips).
@@ -520,6 +555,13 @@ mod tests {
             sensor_id: sensor,
             tenant_id: tenant,
             channel_ids: vec![Uuid::nil()],
+            // Default test fixture has no farm/pond binding — keeps
+            // every existing tenant-isolation / capacity test focused
+            // on the cache contract; the new wire-shape and round-trip
+            // tests below build their own SensorMeta with farm/pond
+            // populated where the test scenario calls for it.
+            farm_id: None,
+            pond_id: None,
         }
     }
 
@@ -815,12 +857,16 @@ mod tests {
 
     #[test]
     fn sensor_meta_serde_round_trip() {
-        // Construct a fully-populated SensorMeta, encode to JSON,
-        // decode back, assert structural equality. Pins that the
-        // serde derives are bidirectional and lossless.
+        // Construct a fully-populated SensorMeta (BOTH the without-
+        // farm/pond AND the with-farm/pond cases), encode to JSON,
+        // decode back, assert structural equality. Pins that the serde
+        // derives are bidirectional and lossless on every field —
+        // including the Faz-3-follow-on `farm_id` / `pond_id` Options.
         let tenant = fixed_tenant(0x77);
         let sensor = fixed_sensor(0xB0, 0x01);
-        let meta = SensorMeta {
+
+        // Variant 1: no farm / pond binding (the sentinel-device case).
+        let meta_none = SensorMeta {
             sensor_id: sensor,
             tenant_id: tenant,
             channel_ids: vec![
@@ -828,21 +874,50 @@ mod tests {
                 fixed_sensor(0xB0, 0xBB),
                 fixed_sensor(0xB0, 0xCC),
             ],
+            farm_id: None,
+            pond_id: None,
         };
-        let json = serde_json::to_string(&meta).expect("serialise");
-        let back: SensorMeta = serde_json::from_str(&json).expect("deserialise");
-        assert_eq!(back, meta, "SensorMeta JSON round-trip must be lossless");
+        let json = serde_json::to_string(&meta_none).expect("serialise (none)");
+        let back: SensorMeta = serde_json::from_str(&json).expect("deserialise (none)");
+        assert_eq!(
+            back, meta_none,
+            "SensorMeta JSON round-trip (no farm/pond) must be lossless"
+        );
+
+        // Variant 2: both farm + pond present (the steady-state case).
+        let farm_uuid = fixed_sensor(0xB0, 0xF0);
+        let pond_uuid = fixed_sensor(0xB0, 0xF1);
+        let meta_some = SensorMeta {
+            sensor_id: sensor,
+            tenant_id: tenant,
+            channel_ids: vec![fixed_sensor(0xB0, 0xAA)],
+            farm_id: Some(farm_uuid),
+            pond_id: Some(pond_uuid),
+        };
+        let json = serde_json::to_string(&meta_some).expect("serialise (some)");
+        let back: SensorMeta = serde_json::from_str(&json).expect("deserialise (some)");
+        assert_eq!(
+            back, meta_some,
+            "SensorMeta JSON round-trip (with farm/pond) must be lossless"
+        );
+        assert_eq!(back.farm_id, Some(farm_uuid));
+        assert_eq!(back.pond_id, Some(pond_uuid));
     }
 
     #[test]
     #[allow(non_snake_case)]
     fn sensor_meta_wire_shape_camelCase() {
         // The NestJS responder writes camelCase keys
-        // (`sensorId`, `tenantId`, `channelIds`). Pin the exact key
-        // names + value formats so a derive rename cannot silently
-        // break the responder pair contract. Also pins UUID
-        // lower-case-hyphenated formatting for both the sensor uuid
-        // and every channel uuid.
+        // (`sensorId`, `tenantId`, `channelIds`, optional `farmId` /
+        // `pondId`). Pin the exact key names + value formats so a
+        // derive rename cannot silently break the responder pair
+        // contract. Also pins UUID lower-case-hyphenated formatting
+        // for sensor / tenant / channel / farm / pond uuids.
+        //
+        // This test exercises the WITH-farm/pond shape so the wire
+        // contract pins the camelCase mapping for every field. The
+        // sibling `sensor_meta_omits_farm_pond_when_none` test pins the
+        // ABSENT-key shape for the None variant.
         let sensor =
             Uuid::parse_str("11111111-1111-1111-1111-111111111111").expect("parse sensor uuid");
         let tenant_uuid =
@@ -851,20 +926,27 @@ mod tests {
             Uuid::parse_str("33333333-3333-3333-3333-333333333333").expect("parse channel a");
         let channel_b =
             Uuid::parse_str("44444444-4444-4444-4444-444444444444").expect("parse channel b");
+        let farm_uuid =
+            Uuid::parse_str("55555555-5555-5555-5555-555555555555").expect("parse farm uuid");
+        let pond_uuid =
+            Uuid::parse_str("66666666-6666-6666-6666-666666666666").expect("parse pond uuid");
         let meta = SensorMeta {
             sensor_id: sensor,
             tenant_id: TenantId::from_uuid(tenant_uuid),
             channel_ids: vec![channel_a, channel_b],
+            farm_id: Some(farm_uuid),
+            pond_id: Some(pond_uuid),
         };
         let val: serde_json::Value = serde_json::to_value(&meta).expect("serialise to value");
         let obj = val.as_object().expect("top-level must be a JSON object");
 
-        // Exactly three keys, all camelCase. A new field added without
-        // updating both sides of the wire would fail this length check.
+        // Exactly five keys when both farm + pond are present, all
+        // camelCase. A new field added without updating both sides of
+        // the wire would fail this length check.
         assert_eq!(
             obj.len(),
-            3,
-            "SensorMeta wire shape must have exactly 3 keys; got {obj:?}"
+            5,
+            "SensorMeta wire shape with farm+pond must have exactly 5 keys; got {obj:?}"
         );
         assert!(obj.contains_key("sensorId"), "missing camelCase 'sensorId'");
         assert!(obj.contains_key("tenantId"), "missing camelCase 'tenantId'");
@@ -872,6 +954,8 @@ mod tests {
             obj.contains_key("channelIds"),
             "missing camelCase 'channelIds'"
         );
+        assert!(obj.contains_key("farmId"), "missing camelCase 'farmId'");
+        assert!(obj.contains_key("pondId"), "missing camelCase 'pondId'");
 
         // sensorId / tenantId are lower-case hyphenated UUID strings.
         assert_eq!(
@@ -881,6 +965,16 @@ mod tests {
         assert_eq!(
             obj.get("tenantId").and_then(serde_json::Value::as_str),
             Some("22222222-2222-2222-2222-222222222222")
+        );
+        // farmId / pondId same UUID format. Pinning here keeps the
+        // wire format consistent with every other UUID-bearing field.
+        assert_eq!(
+            obj.get("farmId").and_then(serde_json::Value::as_str),
+            Some("55555555-5555-5555-5555-555555555555")
+        );
+        assert_eq!(
+            obj.get("pondId").and_then(serde_json::Value::as_str),
+            Some("66666666-6666-6666-6666-666666666666")
         );
         // channelIds is a JSON array of lower-case hyphenated UUID strings.
         let arr = obj
@@ -895,6 +989,73 @@ mod tests {
         assert_eq!(
             arr.get(1).and_then(serde_json::Value::as_str),
             Some("44444444-4444-4444-4444-444444444444")
+        );
+    }
+
+    #[test]
+    fn sensor_meta_omits_farm_pond_when_none() {
+        // WHAT this test pins:
+        //   When farm_id / pond_id are None, the wire JSON MUST NOT
+        //   include the keys at all — not even as `null`. This is the
+        //   single-byte-difference invariant: an operator's "no farm"
+        //   sensor produces a strictly smaller JSON than the
+        //   with-farm case, AND a downstream consumer that uses
+        //   `obj.contains_key("farmId")` as a presence check sees the
+        //   correct boolean instead of having to special-case `null`.
+        //
+        // WHY the explicit serde_json::Value walk:
+        //   Asserting on the rendered string would couple the test to
+        //   key ordering (serde-json preserves insertion order on
+        //   stable, but pinning that is incidental). Walking the
+        //   object map asserts the absence of keys directly, which is
+        //   the actual contract we want to pin.
+        let sensor =
+            Uuid::parse_str("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa").expect("parse sensor uuid");
+        let tenant_uuid =
+            Uuid::parse_str("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb").expect("parse tenant uuid");
+        let meta = SensorMeta {
+            sensor_id: sensor,
+            tenant_id: TenantId::from_uuid(tenant_uuid),
+            channel_ids: vec![],
+            farm_id: None,
+            pond_id: None,
+        };
+        let val: serde_json::Value = serde_json::to_value(&meta).expect("serialise to value");
+        let obj = val.as_object().expect("top-level must be a JSON object");
+
+        // Exactly THREE keys when neither farm nor pond is set —
+        // proves the absence is structural, not a `null` presence.
+        assert_eq!(
+            obj.len(),
+            3,
+            "SensorMeta wire shape WITHOUT farm/pond must have exactly 3 keys; got {obj:?}"
+        );
+        assert!(
+            !obj.contains_key("farmId"),
+            "farmId MUST be absent (not null) when farm_id is None"
+        );
+        assert!(
+            !obj.contains_key("pondId"),
+            "pondId MUST be absent (not null) when pond_id is None"
+        );
+        // The three required keys are still present.
+        assert!(obj.contains_key("sensorId"));
+        assert!(obj.contains_key("tenantId"));
+        assert!(obj.contains_key("channelIds"));
+
+        // Belt-and-braces: the rendered JSON string also must not
+        // contain the substrings `"farmId"` / `"pondId"` anywhere. A
+        // custom Serialize impl that smuggled a key in some other way
+        // would fail this assertion even if the Value-level walk
+        // missed it.
+        let json = serde_json::to_string(&meta).expect("serialise to string");
+        assert!(
+            !json.contains("\"farmId\""),
+            "rendered JSON must not contain farmId; got: {json}"
+        );
+        assert!(
+            !json.contains("\"pondId\""),
+            "rendered JSON must not contain pondId; got: {json}"
         );
     }
 }

@@ -384,6 +384,32 @@ pub struct SensorMetricIngestedEvent {
     /// produced the reading. Validated by the sidecar to lie in
     /// `[2024-01-01, 2100-01-01)` (`apps/sensor-ingestion/src/payload.rs`).
     pub producer_ts: i64,
+
+    /// Optional farm scope, populated by the sidecar's drain when the
+    /// `(tenant, sensor)` pair was present in the warm `TopicCache`.
+    /// WHY this lives ON the event (vs. consumer-side enrichment):
+    ///   The cache-warm sidecar is the source of truth for `(sensor →
+    ///   farm)` at the moment the event was minted; carrying the
+    ///   resolved value forward saves the consumer a per-event
+    ///   `metaCache.getSensor` round trip on the happy path. Cache-
+    ///   miss path leaves this `None`; the NestJS consumer falls back
+    ///   to its own cache (defence-in-depth, also covers the case
+    ///   where the sidecar's cache is stale and the consumer's is
+    ///   fresh). Architectural-tier-1: with both sides present the
+    ///   shape cannot leak a wrong farm — every consumer prefers the
+    ///   most specific (event-side) value, falling back only when
+    ///   absent.
+    /// `skip_serializing_if = "Option::is_none"` matches the BaseEvent
+    /// pattern: optional fields are absent on the wire, never `null`.
+    /// `default` keeps backward compatibility — older sidecar builds
+    /// that do not write the key still decode cleanly (`None`).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub farm_id: Option<Uuid>,
+    /// Optional pond scope. Mirrors [`SensorMetricIngestedEvent::farm_id`]
+    /// semantics — populated when the sidecar's cache was warm at
+    /// publish time, absent otherwise.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub pond_id: Option<Uuid>,
 }
 
 impl SensorMetricIngestedEvent {
@@ -417,6 +443,14 @@ impl SensorMetricIngestedEvent {
             value,
             quality_code,
             producer_ts,
+            // farm_id / pond_id default to None on construction; the
+            // sidecar's drain populates them from the warm TopicCache
+            // AFTER `new()` returns when a cache hit is available.
+            // Keeping them None here keeps the constructor's signature
+            // stable with the pre-Faz-3-follow-on shape so call sites
+            // that do not yet enrich do not have to change.
+            farm_id: None,
+            pond_id: None,
         }
     }
 
@@ -700,6 +734,9 @@ mod tests {
 
     #[test]
     fn metric_event_serde_camel_case() {
+        // This test covers BOTH the farm/pond-absent (default ::new)
+        // case AND the farm/pond-present case, pinning the camelCase
+        // wire contract for every field on the struct.
         let ev = SensorMetricIngestedEvent::new(
             fixed_uuid(0xAA),
             fixed_uuid(0xBB),
@@ -728,6 +765,117 @@ mod tests {
         assert!(v.get("raw_value").is_none());
         assert!(v.get("quality_code").is_none());
         assert!(v.get("producer_ts").is_none());
+        // farm/pond are None by default post-`new()` — the wire MUST
+        // omit the keys entirely (no `"farmId": null`). Pinning this
+        // here mirrors `SensorReadingEvent::optional_fields_omitted_when_none`
+        // and proves the Faz-3-follow-on addition does not regress the
+        // BaseEvent "absent-not-null" optional-field contract.
+        assert!(
+            v.get("farmId").is_none(),
+            "farmId MUST be absent (not null) when farm_id is None"
+        );
+        assert!(
+            v.get("pondId").is_none(),
+            "pondId MUST be absent (not null) when pond_id is None"
+        );
+
+        // Now flip both to Some and re-serialise. camelCase keys MUST
+        // appear as `farmId` / `pondId` (not `farm_id` / `pond_id`).
+        // Mutate `ev` in place — the previous assertions on the
+        // no-farm/pond shape are complete by this point so no clone
+        // is needed.
+        let mut ev_with_scope = ev;
+        ev_with_scope.farm_id = Some(fixed_uuid(0xEE));
+        ev_with_scope.pond_id = Some(fixed_uuid(0xFF));
+        let json2 = serde_json::to_string(&ev_with_scope).unwrap();
+        let v2: Value = serde_json::from_str(&json2).unwrap();
+        assert!(
+            v2.get("farmId").is_some(),
+            "farmId MUST be present as camelCase key when Some"
+        );
+        assert!(
+            v2.get("pondId").is_some(),
+            "pondId MUST be present as camelCase key when Some"
+        );
+        // snake_case still absent — the rename_all attribute survives
+        // the new fields.
+        assert!(v2.get("farm_id").is_none());
+        assert!(v2.get("pond_id").is_none());
+    }
+
+    #[test]
+    fn metric_event_round_trip_with_farm_pond() {
+        // End-to-end round-trip covering BOTH the farm/pond-absent
+        // AND the farm/pond-present shapes. The `serde(default)` on
+        // the new fields means a JSON body that omits the keys still
+        // deserialises cleanly (backward compatibility with older
+        // sidecar builds that never write the keys).
+        //
+        // Variant 1: farm/pond absent — ::new() default shape.
+        let ev_none = SensorMetricIngestedEvent::new(
+            fixed_uuid(0xAA),
+            fixed_uuid(0xBB),
+            fixed_uuid(0xCC),
+            5.0,
+            2,
+            1_730_000_000_000,
+        );
+        assert!(ev_none.farm_id.is_none(), "new() starts with farm_id None");
+        assert!(ev_none.pond_id.is_none(), "new() starts with pond_id None");
+        let bytes = ev_none.to_json_bytes().unwrap();
+        let back = SensorMetricIngestedEvent::from_json_bytes(&bytes).unwrap();
+        assert_eq!(back, ev_none);
+        assert!(back.farm_id.is_none());
+        assert!(back.pond_id.is_none());
+
+        // Variant 2: farm/pond present — steady-state enriched shape.
+        let farm = fixed_uuid(0xEE);
+        let pond = fixed_uuid(0xFF);
+        let mut ev_some = SensorMetricIngestedEvent::new(
+            fixed_uuid(0xAA),
+            fixed_uuid(0xBB),
+            fixed_uuid(0xCC),
+            5.0,
+            2,
+            1_730_000_000_000,
+        );
+        ev_some.farm_id = Some(farm);
+        ev_some.pond_id = Some(pond);
+        let bytes = ev_some.to_json_bytes().unwrap();
+        let back = SensorMetricIngestedEvent::from_json_bytes(&bytes).unwrap();
+        assert_eq!(back, ev_some);
+        assert_eq!(back.farm_id, Some(farm));
+        assert_eq!(back.pond_id, Some(pond));
+
+        // Variant 3: old-sidecar wire blob with NO farmId / pondId keys
+        // MUST still decode (serde default covers the missing-key case).
+        // This is the backward-compat invariant: a pre-Faz-3-follow-on
+        // publisher cannot break a new consumer.
+        let old_blob = r#"{
+            "eventId": "550e8400-e29b-41d4-a716-446655440000",
+            "eventType": "SensorMetricIngested",
+            "timestamp": "2026-04-21T12:00:00.000Z",
+            "tenantId": "11111111-1111-1111-1111-111111111111",
+            "version": 1,
+            "aggregateId": "22222222-2222-2222-2222-222222222222",
+            "aggregateType": "Sensor",
+            "sensorId": "22222222-2222-2222-2222-222222222222",
+            "channelId": "33333333-3333-3333-3333-333333333333",
+            "rawValue": 24.5,
+            "value": 24.5,
+            "qualityCode": 1,
+            "producerTs": 1730000000000
+        }"#;
+        let old =
+            SensorMetricIngestedEvent::from_json_bytes(old_blob.as_bytes()).expect("decode old");
+        assert!(
+            old.farm_id.is_none(),
+            "pre-Faz-3-follow-on blob (no farmId) must default to None"
+        );
+        assert!(
+            old.pond_id.is_none(),
+            "pre-Faz-3-follow-on blob (no pondId) must default to None"
+        );
     }
 
     #[test]

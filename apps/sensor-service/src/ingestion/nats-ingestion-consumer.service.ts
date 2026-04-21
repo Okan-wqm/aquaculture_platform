@@ -213,6 +213,24 @@ export class NatsIngestionConsumerService
     // 4. Build the SensorMetricInput and hand to the existing
     //    BatchProcessor. The batch processor flushes on time (500ms)
     //    or size (500 rows), preserving the platform invariant 4.
+    //
+    // WHY prefer event-side farmId / pondId over sensor.farmId /
+    //    sensor.pondId:
+    //    The Rust sidecar's drain (Faz 3 follow-on) populates
+    //    `event.farmId` / `event.pondId` from its warm `TopicCache`
+    //    at the moment the event was minted. That value is the SoT
+    //    when the cache was warm at publish time — preferring it
+    //    saves the per-event DB roundtrip on the warm-cache happy
+    //    path AND keeps the consumer aligned with what every other
+    //    downstream subscriber sees on the wire.
+    //
+    //    Fallback chain: `event.* ?? sensor.* ?? undefined`. The
+    //    `sensor.*` step is defence-in-depth — covers the cache-miss
+    //    path (sidecar's cache was cold; it left the field absent on
+    //    the wire) AND the staleness inversion (sidecar's cache is
+    //    stale relative to the consumer's). The `?? undefined`
+    //    terminator preserves the SensorMetricInput contract which
+    //    forbids `null` for these optional FK columns.
     const metric: SensorMetricInput = {
       time: new Date(event.producerTs),
       sensorId: event.sensorId,
@@ -223,8 +241,8 @@ export class NatsIngestionConsumerService
       qualityCode: event.qualityCode,
       sourceProtocol: 'rust-sidecar',
       sourceTimestamp: new Date(event.producerTs),
-      farmId: sensor.farmId ?? undefined,
-      pondId: sensor.pondId ?? undefined,
+      farmId: event.farmId ?? sensor.farmId ?? undefined,
+      pondId: event.pondId ?? sensor.pondId ?? undefined,
     };
     this.batchProcessor.enqueue(metric);
     this.enqueuedCount++;
@@ -262,6 +280,16 @@ export class NatsIngestionConsumerService
     sensor: Sensor,
     channel: SensorDataChannel,
   ): SensorReadingEvent {
+    // Same fallback chain as the SensorMetricInput build above:
+    //   event.* (sidecar cache-warm SoT)  →  sensor.* (consumer-side
+    //   cache fallback / cold-path)  →  undefined.
+    // Architectural-tier-1 reasoning: with both sides present the
+    // most-specific value (event-side, minted at sidecar publish
+    // time) wins; with only the consumer side present the consumer's
+    // own cache covers the cold path. There is no shape in which the
+    // typed event can leak a wrong farm — every transition is a
+    // strictly more-stale value falling back to a strictly less-
+    // stale one (or to `undefined`).
     const reading: SensorReadingEvent = {
       ...createBaseEvent('SensorReading', event.tenantId, {
         aggregateId: sensor.id,
@@ -269,8 +297,8 @@ export class NatsIngestionConsumerService
       }),
       eventType: 'SensorReading',
       sensorId: sensor.id,
-      farmId: sensor.farmId ?? undefined,
-      pondId: sensor.pondId ?? undefined,
+      farmId: event.farmId ?? sensor.farmId ?? undefined,
+      pondId: event.pondId ?? sensor.pondId ?? undefined,
     };
 
     const v = event.value;

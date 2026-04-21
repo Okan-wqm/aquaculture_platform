@@ -31,6 +31,8 @@ const TENANT_ID_OTHER = '22222222-2222-2222-2222-222222222222';
 const SENSOR_ID = '33333333-3333-3333-3333-333333333333';
 const CHANNEL_ID_A = '44444444-4444-4444-4444-444444444444';
 const CHANNEL_ID_B = '55555555-5555-5555-5555-555555555555';
+const FARM_ID = '66666666-6666-6666-6666-666666666666';
+const POND_ID = '77777777-7777-7777-7777-777777777777';
 
 const codec = StringCodec();
 
@@ -141,7 +143,11 @@ describe('SensorLookupResponderService', () => {
   });
 
   describe('handleLookupRequest — happy path', () => {
-    it('responds with full sensor + channelIds array', async () => {
+    it('responds with full sensor + channelIds array (no farm/pond binding)', async () => {
+      // Default fakeSensor() has no farmId / pondId — the absent-key
+      // shape that the Rust SensorMeta with `farm_id: None, pond_id:
+      // None` decodes from. This pins the "operator-owned sentinel
+      // device" wire shape: 3 keys, never `null` for absent fields.
       const cache = makeCache({
         sensor: fakeSensor(),
         channels: [fakeChannel(CHANNEL_ID_A), fakeChannel(CHANNEL_ID_B)],
@@ -159,6 +165,65 @@ describe('SensorLookupResponderService', () => {
         tenantId: TENANT_ID,
         channelIds: [CHANNEL_ID_A, CHANNEL_ID_B],
       });
+      // Belt-and-braces: the substrings `"farmId"` / `"pondId"` MUST
+      // NOT appear anywhere in the wire body when the sensor has no
+      // farm/pond binding. A stringify quirk that emitted them as
+      // `null` (impossible today, but a future refactor could change
+      // this) would fail here before reaching the Rust decoder.
+      expect(reply).not.toContain('"farmId"');
+      expect(reply).not.toContain('"pondId"');
+    });
+
+    it('responds with farmId + pondId when sensor has both bound', async () => {
+      // Steady-state happy path: sensor is registered with both farm
+      // AND pond. Both keys MUST appear in the wire shape so the Rust
+      // sidecar's drain populates the published
+      // SensorMetricIngestedEvent.farmId / .pondId from this reply.
+      const cache = makeCache({
+        sensor: fakeSensor({ farmId: FARM_ID, pondId: POND_ID }),
+        channels: [fakeChannel(CHANNEL_ID_A)],
+      });
+      const svc = makeService(cache);
+      const msg = makeMsg({ tenantId: TENANT_ID, sensorId: SENSOR_ID });
+      await svc.handleLookupRequest(msg);
+      const reply = msg._replies[0]!;
+      const parsed = JSON.parse(reply) as Record<string, unknown>;
+      expect(parsed).toEqual({
+        sensorId: SENSOR_ID,
+        tenantId: TENANT_ID,
+        channelIds: [CHANNEL_ID_A],
+        farmId: FARM_ID,
+        pondId: POND_ID,
+      });
+    });
+
+    it('omits farmId / pondId keys (does NOT serialise as null) when sensor has neither', async () => {
+      // Same architectural payoff as the equivalent Rust test
+      // `sensor_meta_omits_farm_pond_when_none`: the absent-not-null
+      // contract pinned at the wire boundary. Rust decoders for
+      // `Option<Uuid>` accept either "key absent" or "value null",
+      // but an absent key is the SoT — keeping the byte shape
+      // canonical means a downstream consumer (or audit log diff)
+      // cannot drift on the optional-field encoding.
+      const cache = makeCache({
+        sensor: fakeSensor({ farmId: undefined, pondId: undefined }),
+      });
+      const svc = makeService(cache);
+      const msg = makeMsg({ tenantId: TENANT_ID, sensorId: SENSOR_ID });
+      await svc.handleLookupRequest(msg);
+      const reply = msg._replies[0]!;
+      const parsed = JSON.parse(reply) as Record<string, unknown>;
+      // Object.prototype.hasOwnProperty.call avoids any prototype-chain
+      // surprise — pure structural check on the parsed object.
+      expect(Object.prototype.hasOwnProperty.call(parsed, 'farmId')).toBe(
+        false,
+      );
+      expect(Object.prototype.hasOwnProperty.call(parsed, 'pondId')).toBe(
+        false,
+      );
+      expect(Object.keys(parsed).sort()).toEqual(
+        ['channelIds', 'sensorId', 'tenantId'].sort(),
+      );
     });
 
     it('reply shape uses camelCase keys (matches Rust SensorMeta serde shape)', async () => {

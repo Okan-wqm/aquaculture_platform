@@ -254,6 +254,26 @@ export type {
   NatsMigrationEventSinkOptions,
 } from './nats-migration-event-sink';
 
+// @TenantFanOut + @AllowTenantDelta — Phase 6 R21/R24 migration-class
+// metadata. Orchestrator reads fan-out policy; Class I drift check
+// reads tenant delta allowlist. See tenant-fanout.decorator.ts.
+export {
+  TenantFanOut,
+  AllowTenantDelta,
+  TENANT_FANOUT_META_KEY,
+  ALLOW_TENANT_DELTA_META_KEY,
+  getTenantFanOutMetadata,
+  getAllowedTenantDeltaPrefixes,
+  isTenantDeltaAllowed,
+} from './tenant-fanout.decorator';
+export type {
+  TenantLockClass,
+  TenantFanOutOptions,
+  TenantFanOutMetadata,
+  AllowTenantDeltaOptions,
+  AllowTenantDeltaMetadata,
+} from './tenant-fanout.decorator';
+
 // @ExpandContract — declarative marker for blue-green migration phases.
 // Phase 4 PR-gate reads this metadata to authorize breaking diffs on
 // contract-phase migrations. See expand-contract.decorator.ts.

@@ -12,6 +12,7 @@ import {
   TENANT_SCHEMA_NAME_RE,
 } from './tenant-aware-schemas';
 import { lookupEmergencyOverride } from './emergency-override-check';
+import { isTenantDeltaAllowed } from './tenant-fanout.decorator';
 
 /**
  * createSchemaDriftValidator
@@ -701,8 +702,24 @@ export function createSchemaDriftValidator(
               diffs.push(`col '${col}' source=${sourceSig} vs tenant=${tenantSig}`);
             }
           }
+          // Extra-on-tenant columns — suppress those matching an
+          // @AllowTenantDelta({columnPrefix}) on the entity class
+          // (plan v3 R24). A tenant carrying enterprise-tier add-on
+          // columns whose names match the declared prefix is an
+          // AUTHORIZED delta, not a drift.
+          const entityCtor =
+            typeof entity.target === 'function'
+              ? (entity.target as Function)
+              : undefined;
           for (const [col] of tenantShape) {
             if (!sourceShape.has(col)) {
+              if (
+                entityCtor !== undefined &&
+                isTenantDeltaAllowed(entityCtor, col)
+              ) {
+                // Allowlisted — silently skip.
+                continue;
+              }
               diffs.push(`extra col '${col}'`);
             }
           }

@@ -42,7 +42,10 @@
  */
 import { randomBytes } from 'node:crypto';
 
-import { getEncryptedAtRestMetadata } from '@aquaculture/backend-common';
+import {
+  getEncryptedAtRestMetadata,
+  isTenantDeltaAllowed,
+} from '@aquaculture/backend-common';
 import type { DataSourceOptions, EntityMetadata, QueryRunner } from 'typeorm';
 
 export interface DriftReport {
@@ -423,8 +426,20 @@ async function scanDrift(
               );
             }
           }
+          // Extra-on-tenant columns — honor @AllowTenantDelta per
+          // production validator semantics (R24).
+          const entityCtor =
+            typeof entity.target === 'function'
+              ? (entity.target as Function)
+              : undefined;
           for (const [col] of tenantShape) {
             if (!sourceShape.has(col)) {
+              if (
+                entityCtor !== undefined &&
+                isTenantDeltaAllowed(entityCtor, col)
+              ) {
+                continue;
+              }
               diffs.push(`extra col '${col}'`);
             }
           }

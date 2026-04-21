@@ -227,9 +227,9 @@
     "supertest": "^7.2.2",
     "testcontainers": "11.14.0",
     "ts-jest": "29.4.6",
-    "ts-node": "^10.9.2",
+    "ts-node": "10.9.2",
     "tsc-alias": "^1.8.16",
-    "typescript": "~5.9.2",
+    "typescript": "5.9.3",
     "vite": "7.3.1"
   },
   "engines": {

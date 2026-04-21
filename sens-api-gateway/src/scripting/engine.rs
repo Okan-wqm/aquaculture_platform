@@ -605,8 +605,9 @@ impl ScriptEngine {
 
         for script_id in startup_scripts {
             info!("Running startup script: {}", script_id);
-            // Use depth=0 for startup scripts (top-level execution)
-            if let Err(e) = self.execute_with_depth(&script_id, 0).await {
+            // Batch 104: route through execute_script (public
+            // API, depth=0) for HealthState instrumentation.
+            if let Err(e) = self.execute_script(&script_id).await {
                 error!("Startup script {} failed: {}", script_id, e);
             }
         }
@@ -673,8 +674,9 @@ impl ScriptEngine {
             // Execute triggered scripts
             for script_id in scripts_to_run {
                 debug!("Trigger fired for script: {}", script_id);
-                // Use depth=0 for trigger-based executions (top-level)
-                if let Err(e) = self.execute_with_depth(&script_id, 0).await {
+                // Batch 104: route through execute_script
+                // (depth=0) for HealthState instrumentation.
+                if let Err(e) = self.execute_script(&script_id).await {
                     error!("Script {} execution failed: {}", script_id, e);
                 }
             }
@@ -734,7 +736,9 @@ impl ScriptEngine {
 
             for script_id in scripts_to_run {
                 debug!(script_id = %script_id, "Executing script in scan cycle");
-                if let Err(e) = self.execute_with_depth(&script_id, 0).await {
+                // Batch 104: route through execute_script
+                // (depth=0) for HealthState instrumentation.
+                if let Err(e) = self.execute_script(&script_id).await {
                     error!(script_id = %script_id, error = %e, "Script execution failed");
                 }
             }
@@ -1111,9 +1115,29 @@ impl ScriptEngine {
             .collect()
     }
 
-    /// Execute a script by ID (public API - uses depth=0)
+    /// Execute a script by ID (public API - uses depth=0).
+    ///
+    /// Batch 104 observability: TOP-LEVEL script executions
+    /// increment HealthState counters here. Recursive
+    /// sub-script calls (via execute_with_depth from inside
+    /// an action handler) are internal; counting them would
+    /// conflate "operator-visible script runs" with
+    /// "implementation-detail sub-invocations" — the former
+    /// is the actionable fleet signal.
     pub async fn execute_script(&mut self, script_id: &str) -> anyhow::Result<ExecutionResult> {
-        self.execute_with_depth(script_id, 0).await
+        let result = self.execute_with_depth(script_id, 0).await;
+        // Snapshot HealthState Arc under a brief read guard.
+        let health_state = {
+            let s = self.state.read().await;
+            s.health_state.clone()
+        };
+        if let Some(hs) = health_state {
+            match &result {
+                Ok(exec_result) if exec_result.success => hs.inc_script_executions(),
+                _ => hs.inc_script_errors(),
+            }
+        }
+        result
     }
 
     /// Execute a script with depth tracking (v2.0 - infinite loop protection)

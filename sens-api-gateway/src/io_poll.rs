@@ -137,6 +137,29 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
                 match driver_type {
                     I2cDriverType::AtlasEzo { sensor_type } => {
                         let (value, quality) = ezo_driver.read_measurement(&cfg.tag_name, sensor_type).await;
+                        // Batch 104 observability: TagQuality
+                        // already encodes Atlas EZO
+                        // success/error semantically. Map to
+                        // the modbus counter family:
+                        // - Good / Simulated → success (real
+                        //   sensor data or declared sim).
+                        // - Bad / Uncertain / CommFailure /
+                        //   ConfigError → error.
+                        // No driver-signature refactor needed
+                        // (the gap flagged in Batch 103
+                        // observations is closed at the
+                        // interpretation site, not the
+                        // source).
+                        if let Some(hs) = s.health_state.as_ref() {
+                            match quality {
+                                TagQuality::Good | TagQuality::Simulated => {
+                                    hs.inc_modbus_reads();
+                                }
+                                _ => {
+                                    hs.inc_modbus_errors();
+                                }
+                            }
+                        }
                         process_image.update_tag_raw(&cfg.tag_name, value, quality, TagSource::I2c).await;
                     }
                     I2cDriverType::GenericRegister { read_register, read_length } => {

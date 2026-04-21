@@ -98,6 +98,47 @@ const SAFE_IDENTIFIER_REGEX = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 /** Default tenant column names to discover (camelCase + snake_case). */
 const DEFAULT_TENANT_ID_COLUMNS = ['tenantId', 'tenant_id'] as const;
 
+/**
+ * Tables whose rows are IDENTITY PRIMITIVES — queried during the pre-
+ * authentication discovery phase BEFORE tenant context can be established.
+ *
+ * Applying `tenant_isolation_policy` to these tables is a category error:
+ *
+ *   - `users` is searched by email/token at login, password reset,
+ *     invitation acceptance. At query time there is NO `app.current_tenant`
+ *     GUC set (the tenant is DETERMINED by the user row). The policy's
+ *     USING clause `tenantId = current_tenant` evaluates to UNKNOWN and
+ *     returns 0 rows, breaking login for every tenant.
+ *
+ *   - `tenants` is searched by slug/domain during login UX (multi-tenant
+ *     subdomain routing, tenant status checks). Same pre-auth cross-tenant
+ *     access pattern.
+ *
+ *   - SUPER_ADMIN users by design have `tenantId = NULL`, which can never
+ *     satisfy `tenantId = <any uuid>` — so RLS structurally hides every
+ *     platform administrator from the login flow.
+ *
+ * Defense-in-depth on these tables is enforced OUT-OF-BAND:
+ *   1. Schema-role isolation (`auth_service` PG role is the only client).
+ *   2. Application-layer explicit `WHERE tenantId = ?` on all post-auth
+ *      tenant-scoped queries.
+ *   3. JWT-authenticated handlers with TenantGuard enforce tenant context.
+ *
+ * The helper auto-skips these table names in any schema it sweeps. This
+ * lives at the helper layer (not only at the caller's `excludeTables`)
+ * because the invariant is platform-wide: no identity primitive in ANY
+ * schema may be RLS-protected by tenant_isolation_policy. Tier-1 "make
+ * impossible" — a new service that accidentally uses `autoApply: true`
+ * against an auth-like schema cannot re-introduce the 2026-04-21 login
+ * outage. Logged at WARN so the skip is greppable in deploy audits.
+ *
+ * To install per-tenant isolation on a table that HAPPENS to share one of
+ * these names (highly unusual), the caller must pass an explicit
+ * `allowIdentityTables: true` option (not yet exposed — add with care
+ * and an ADR if a legitimate case ever arises).
+ */
+export const DEFAULT_IDENTITY_TABLES = ['users', 'tenants'] as const;
+
 /** The single, canonical policy name. Stable across migrations so DROP IF EXISTS works. */
 export const TENANT_ISOLATION_POLICY_NAME = 'tenant_isolation_policy';
 
@@ -206,6 +247,7 @@ async function discoverTenantScopedTables(
   schema: string,
   tenantIdColumns: readonly string[],
   excludeTables: readonly string[],
+  logger: RlsHelperLogger,
 ): Promise<DiscoveredTable[]> {
   // Validate every input identifier — the schema name and column names are
   // interpolated into the SQL below via parameters, but we still validate so
@@ -235,7 +277,8 @@ async function discoverTenantScopedTables(
     [schema, [...tenantIdColumns]],
   );
 
-  const excludeSet = new Set(excludeTables);
+  const callerExcludeSet = new Set(excludeTables);
+  const identityTableSet = new Set<string>(DEFAULT_IDENTITY_TABLES);
   const discovered = new Map<string, string>();
 
   // Each table appears once per matching column; the ORDER BY above means the
@@ -243,7 +286,22 @@ async function discoverTenantScopedTables(
   // `tenantIdColumns`. We keep that and ignore subsequent rows for the same
   // table.
   for (const row of rows) {
-    if (excludeSet.has(row.table_name)) continue;
+    if (callerExcludeSet.has(row.table_name)) continue;
+    // Tier-1 "make impossible" — identity primitives are skipped regardless
+    // of caller excludes. A future service that forgets to list `users` in
+    // excludeTables cannot accidentally re-introduce the 2026-04-21 login
+    // outage. WARN-logged so the skip is greppable in deploy audits and
+    // visible to operators reviewing RLS rollouts.
+    if (identityTableSet.has(row.table_name)) {
+      logger.warn(
+        `[apply-tenant-rls] Skipping IDENTITY-PRIMITIVE table "${schema}"."${row.table_name}" — ` +
+          `tenant_isolation_policy is architecturally incompatible with pre-auth ` +
+          `identity lookup (see DEFAULT_IDENTITY_TABLES docblock). Defense-in-depth ` +
+          `for this table must be enforced via schema-role isolation + application-` +
+          `layer tenant scoping.`,
+      );
+      continue;
+    }
     if (discovered.has(row.table_name)) continue;
     discovered.set(row.table_name, row.column_name);
   }
@@ -302,6 +360,7 @@ export async function applyTenantRlsToSchema(
     schema,
     tenantIdColumns,
     excludeTables,
+    logger,
   );
 
   if (tables.length === 0) {
@@ -387,6 +446,7 @@ export async function removeTenantRlsFromSchema(
     schema,
     tenantIdColumns,
     excludeTables,
+    logger,
   );
 
   for (const { tableName } of tables) {

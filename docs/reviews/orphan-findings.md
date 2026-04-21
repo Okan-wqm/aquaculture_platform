@@ -447,6 +447,43 @@ let perm = Permission::WriteTag(TagId::from("pond3_aerator".to_string()));
 
 ---
 
+## ORPHAN-HIGH-014 — No PR-time CI gate exists for `sens-api-gateway/**` (Rust edge agent)
+
+**File:** `.github/workflows/*.yml`
+
+**Discovered:** Batch 70 investigation — ORPHAN-HIGH-012 closure prompted "how did test-compile drift persist for 55+ batches" audit. Result: there is NO PR-time CI workflow referencing `sens-api-gateway/**`.
+
+**Evidence:**
+```bash
+$ grep -l "sens-api-gateway\|cargo" .github/workflows/*.yml
+.github/workflows/edge-agent-release.yml   # ONLY match
+```
+
+`edge-agent-release.yml` triggers on `agent-v*` tags + manual `workflow_dispatch` only. The `v2.0.0-batch*` tags used during the Batch 13-69 session do NOT match the `agent-v*` pattern.
+
+**Problem:**
+- Every edge-agent PR landed without automated compile / clippy / test-compile validation.
+- ORPHAN-HIGH-012 (test-compile drift) is a direct consequence — no gate ran `cargo check --features health --tests` at PR time, so 18 errors accumulated silently across multiple batches.
+- Other classes of silent regression (license CVE, cargo-audit, binary size, missing feature flags) had the same zero-gate exposure.
+- The `ci-affected.yml` path-filter intentionally scopes apps/libs/web/deploy-config but omits `sens-api-gateway/**` — not a workflow bug, a workflow gap.
+
+**Risk:**
+- Every Rust-touching PR is a "merge and pray" — reviewer eyeballs are the only gate.
+- IEC 62443 SL-2 FR3 (System Integrity) requires automated verification of safety-critical code paths; manual review does not satisfy audit evidence requirements.
+- The release workflow only catches drift at TAG TIME — a broken batch can land on the branch and ONLY surface when someone tries to cut a release.
+
+**Recommendation:**
+- RESOLVED-IN-BATCH-70: added `.github/workflows/ci-edge.yml` with `cargo check --features health` + `cargo check --features health --tests` gates (latter closes ORPHAN-HIGH-012 recurrence vector).
+- Follow-up steps (post ORPHAN-HIGH-013 triage):
+  - Add `cargo test --features health` unit-test job.
+  - Add `cargo clippy --features health` with strategic `--deny` additions (avoid `-D warnings` until 153-baseline is cleaned).
+  - Add `cargo fmt --check` once a fmt baseline is snapshot.
+  - Add `cargo audit` + `cargo deny check` on PR (currently only on release).
+
+**Status:** RESOLVED-IN-BATCH-70 (minimum viable gate). Follow-up hardening pending ORPHAN-HIGH-013 closure.
+
+---
+
 ## Notes on methodology
 
 - Findings discovered during normal code review; NOT dedicated orphan-bug sweep.

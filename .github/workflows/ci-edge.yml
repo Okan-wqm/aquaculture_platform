@@ -1,0 +1,118 @@
+name: CI - Edge Agent (sens-api-gateway)
+
+# Batch 70: PR-time CI gate for the Rust edge agent.
+#
+# WHY this exists:
+#   Until Batch 70, the ONLY workflow referencing `sens-api-gateway/**`
+#   was `edge-agent-release.yml`, triggered ONLY on `agent-v*` tags or
+#   manual workflow_dispatch. Every PR touching the edge agent landed
+#   WITHOUT automated compile / test-compile validation.
+#
+#   ORPHAN-HIGH-012 surfaced this gap — test-code drift (18 errors
+#   across 6 modules) existed on HEAD for an unknown window because
+#   no PR-time gate ran `cargo check --features health --tests`.
+#
+# WHAT this workflow enforces:
+#   1. `cargo check --features health` — production compile (deny
+#      lints from Cargo.toml [lints.clippy] apply at this stage:
+#      unwrap_used, expect_used, indexing_slicing, todo,
+#      unimplemented, dbg_macro, print_stdout, print_stderr,
+#      large_stack_arrays, unsafe_op_in_unsafe_fn).
+#   2. `cargo check --features health --tests` — TEST CRATE
+#      compile gate (the root-cause fix for ORPHAN-HIGH-012).
+#      Catches production-type→test-code drift at PR time.
+#
+# WHAT this workflow DOES NOT enforce (yet):
+#   - `cargo test --features health` — the 6 pre-existing unit-test
+#     failures tracked as ORPHAN-HIGH-013 must be triaged first.
+#     Adding the unit-test gate before those close would block all
+#     subsequent PRs and force future batches to work around red
+#     tests — the exact "yama" (patch) pattern the plan forbids.
+#     Follow-up: append a `test-unit` job once ORPHAN-HIGH-013 is
+#     fully RESOLVED (6 sub-findings).
+#   - `cargo clippy -- -D warnings` — the 153-warning baseline is
+#     intentionally allowed; elevating all warnings to errors would
+#     require a parallel baseline-cleanup batch.
+#   - `cargo fmt --check` — no prior fmt baseline asserted; adding
+#     the check without baseline verification risks red CI from
+#     legacy formatting.
+#   - Cross-arch build — `cross build` is slow (~12 min) and stays
+#     scoped to the release workflow. Host-native checks catch the
+#     vast majority of drift in seconds.
+#
+# WHY only on path changes:
+#   Edge agent is ~35K LoC Rust; running on every PR (including
+#   TypeScript-only changes) burns CI minutes + slot contention.
+#   Path-filter matches `edge-agent-release.yml`'s scope exactly.
+
+on:
+  push:
+    branches: [main, develop, agentic, 'feature/*', 'hotfix/*']
+    paths:
+      - 'sens-api-gateway/**'
+      - '.github/workflows/ci-edge.yml'
+  pull_request:
+    branches: [main, develop, agentic]
+    paths:
+      - 'sens-api-gateway/**'
+      - '.github/workflows/ci-edge.yml'
+  workflow_dispatch:
+
+# SEC-CI-021: minimum token permissions.
+permissions:
+  contents: read
+
+# Cancel in-progress runs on the same branch — saves CI minutes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_TOOLCHAIN: stable
+
+jobs:
+  check:
+    name: compile + test-compile gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+
+      - name: Cache cargo registry + target
+        uses: actions/cache@0c907a75c2c80ebcb7f088228285e798b750cf8f # v4.2.1
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            sens-api-gateway/target/
+          key: ${{ runner.os }}-cargo-edge-${{ hashFiles('sens-api-gateway/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-edge-
+
+      - name: cargo check (production, features=health)
+        working-directory: sens-api-gateway
+        # Production compile gate. Cargo.toml [lints.clippy/rust] deny
+        # entries apply at this stage — any use of unwrap()/expect()/
+        # indexing, any todo!/unimplemented!/dbg!, any print_stdout/
+        # print_stderr, any unsafe_op_in_unsafe_fn will hard-fail here.
+        # 153-warning baseline is INTENTIONALLY not asserted as a count
+        # gate (follow-up batch); this step fails only on hard errors.
+        run: cargo check --features health
+
+      - name: cargo check --tests (ORPHAN-HIGH-012 closure)
+        working-directory: sens-api-gateway
+        # TEST CRATE compile gate. Closes ORPHAN-HIGH-012 root cause:
+        # test-code drift out of sync with current production API
+        # types (Permission::ReadTag tuple→unit, WriteTag tuple→struct,
+        # FileBackedAcceptance missing Debug) MUST be caught at PR
+        # time, not discovered N batches later in a manual verify run.
+        # Pre-Batch-69 this produced 18 errors on HEAD; Batch 69 fixed
+        # them and this step now gates against recurrence.
+        run: cargo check --features health --tests

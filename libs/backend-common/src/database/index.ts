@@ -139,6 +139,17 @@ export type {
   SchemaSnapshot,
 } from './schema-drift/pg-catalog-introspector';
 
+// Phase 3 primitives — declarative schema healers for drift classes
+// A-G. Each primitive composes over withDdlSafety and sql.* branded
+// fragments; raw-string SQL is a compile error at the call site.
+// addMissingColumns heals Class D (entity declares column, DB lacks).
+export { addMissingColumns } from './schema-primitives/add-missing-columns';
+export type {
+  AddMissingColumnSpec,
+  AddMissingColumnsOptions,
+  AddMissingColumnsResult,
+} from './schema-primitives/add-missing-columns';
+
 // @EncryptedAtRest — declarative marker for cryptographically-encrypted
 // columns. Drift validator Class J enforces bytea storage; Phase 3
 // primitives refuse DDL against decorated columns. See ADR-023.

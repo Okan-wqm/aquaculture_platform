@@ -110,6 +110,20 @@ export { createSchemaDriftValidator } from './schema-drift-validator.service';
 export { SchemaDriftModule } from './schema-drift/schema-drift.module';
 export type { SchemaDriftModuleOptions } from './schema-drift/schema-drift.module';
 
+// Drift-class registry — single source of truth for validator ↔ primitive
+// parity. See docs/plans/2026-04-21-db-migrate-enterprise-refactor.md §R11
+// + libs/backend-common/src/database/schema-drift/drift-classes.ts docblock.
+export {
+  DRIFT_CLASSES,
+  DRIFT_CLASS_LIST,
+  isDriftClassId,
+} from './schema-drift/drift-classes';
+export type {
+  DriftClassId,
+  DriftClassSpec,
+  DriftSeverity,
+} from './schema-drift/drift-classes';
+
 // Audit-column TIMESTAMP → TIMESTAMPTZ conversion (NEW-H1).
 // `convertAuditColumnsToTimestamptz` and `revertAuditColumnsToTimestamp`
 // are imported by per-service migrations in `auth`, `admin-api`, `farm`,

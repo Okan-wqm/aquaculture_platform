@@ -380,6 +380,73 @@ pub struct TagId(pub String);
 
 ---
 
+## ORPHAN-HIGH-012 — test-code drift hid `cargo test` from CI for an unknown window (discovered in Batch 68)
+
+**File:** `sens-api-gateway/src/{authz/context.rs, authz/policy.rs, authz/manifest.rs, authz/verify.rs, audit/entry.rs, keystore/acceptance.rs}`
+
+**Discovered:** Batch 68 Sprint 6.1 full-wire verification step — `cargo check --features health --tests` surfaced 18 compile errors while `cargo check --features health` (production) stayed green at the 153-warning baseline. Stashing Batch 68 changes + re-running reproduced the same 18 errors on HEAD — the drift PRE-EXISTED Batch 68.
+
+**Evidence (sample — pre-Batch-69):**
+```rust
+// src/audit/entry.rs:684
+permission: Permission::ReadTag(crate::authz::TagId::from("x".to_string())),
+//                     ^^^^^^^^^ ReadTag is a UNIT variant (not tuple) — E0618
+// src/authz/context.rs:300
+let perm = Permission::WriteTag(TagId::from("pond3_aerator".to_string()));
+//                     ^^^^^^^^^ WriteTag is a STRUCT variant — E0533
+// src/keystore/acceptance.rs:279
+.expect_err("mismatch must fail");  // Ok-type FileBackedAcceptance missing Debug — E0277
+```
+
+**Problem:**
+- Earlier batches refined `Permission::ReadTag` from `ReadTag(TagId)` → unit-variant `ReadTag` (tag-level read gating pushed to AuthorizationRequest layer).
+- `Permission::WriteTag` refined `WriteTag(TagId)` → struct-variant `WriteTag { tag_id: TagId }` (BATCH-002-FINDING-001 named-field discipline).
+- Test code in 5 modules still referenced the old tuple-variant shape → 12 compile errors.
+- `FileBackedAcceptance` (sealed-construction struct) never derived `Debug`; `.expect_err(...)` requires Ok-type Debug → 6 compile errors.
+
+**Why it matters:**
+- `cargo test --no-run` was silently broken for an unknown number of batches — the 91+ invariant tests added between Batch 63 and Batch 67 could not run in CI.
+- CI enforced `cargo check --features health` + `cargo clippy` but NOT `cargo check --tests`, which is why drift propagated unnoticed.
+- Tier-1 "make-it-impossible" invariant tests could have been silently broken across multiple batches.
+
+**Recommendation:**
+- RESOLVED-IN-BATCH-69: updated all 12 `Permission::ReadTag(...)` / `Permission::WriteTag(...)` test call sites + derived `#[derive(Debug)]` on `FileBackedAcceptance` (private fields preserved — Debug-prints don't enable fabrication; field values already round-trip through public `AcceptanceToken` shape).
+- CI HARDENING (follow-up): add `cargo check --features health --tests` gate to the 3-arch matrix so this drift class cannot recur silently.
+
+**Status:** RESOLVED-IN-BATCH-69 (test-call-site drift + FileBackedAcceptance Debug). CI-gate hardening pending follow-up commit.
+
+---
+
+## ORPHAN-HIGH-013 — 6 pre-existing unit-test failures surfaced once Batch 69 restored test-compile
+
+**File:** 6 modules across `sens-api-gateway/src/`
+
+**Discovered:** Batch 69 — ORPHAN-HIGH-012 closure unblocked `cargo test --features health`; 808 passed + 6 failed:
+
+1. `audit::chain::tests::tamper_e1_detail_invalidates_e2_prev_hmac_link`
+2. `command_envelope::mutating::tests::mutating_commands_is_sorted`
+3. `commands::tests::test_command_response_serialization`
+4. `hardware_scanner::tests::test_i2c_bus_to_discovered_ios`
+5. `runtime_safety::system_clock::tests::monotonic_now_returns_non_decreasing_anchors` (likely flake — `MonotonicBackward` panic at first-anchor creation, clock-jitter sensitive)
+6. `st_validator::tests::test_parse_case_statement` (E100/E110 on CASE statement assign-vs-colon lexer disambiguation)
+
+**Problem:**
+- Each failure is in a module Batches 68+69 did NOT touch — pre-existing bugs masked by ORPHAN-HIGH-012 compile gate.
+- Semantic categories span HMAC chain tamper-detection, mutating-command sort invariant, CommandResponse serde shape, I2C bus enumeration, monotonic-clock anchor ordering, ST CASE parser.
+
+**Risk:**
+- Each failure = claim-against-invariant the test was written to protect but that CURRENTLY DOES NOT HOLD. Shipping in this state = shipping broken invariants.
+- Flaky MonotonicBackward worst-case: could mask real clock-authority regressions if treated as "known flake."
+
+**Recommendation:**
+- Triage each failure as separate batch (one-per-batch, small blast radius + finding-ID traceability).
+- Priority: (5) monotonic-clock flake → (1) HMAC tamper → (2) mutating sort → (3) CommandResponse serde → (6) ST CASE parser → (4) I2C enumeration.
+- Each fix commit carries `Closes: docs/reviews/orphan-findings.md#ORPHAN-HIGH-013-N`.
+
+**Status:** TRIAGE-PENDING — 6 sub-findings to be split into individual batches after current plan Sprint 6.x deep-wire run.
+
+---
+
 ## Notes on methodology
 
 - Findings discovered during normal code review; NOT dedicated orphan-bug sweep.

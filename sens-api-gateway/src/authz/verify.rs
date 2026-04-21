@@ -210,7 +210,7 @@ mod tests {
             }],
             roles: vec![CustomRole {
                 name: "operator".to_string(),
-                permissions: vec![Permission::ReadTag(TagId::from("pond3_temp".to_string()))],
+                permissions: vec![Permission::ReadTag],
                 valid_from_unix_secs: valid_from,
                 valid_until_unix_secs: valid_until,
                 is_emergency_role: false,

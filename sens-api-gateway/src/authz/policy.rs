@@ -307,7 +307,7 @@ mod tests {
     fn authorization_request_builder_defaults_co_approver_none() {
         let req = AuthorizationRequest::new(
             operator(),
-            Permission::ReadTag(TagId::from("t".to_string())),
+            Permission::ReadTag,
             tenant(),
             42,
             SystemTime::UNIX_EPOCH,
@@ -358,7 +358,7 @@ mod tests {
         let engine = DenyAllPolicyEngine::new(AuthorizationDenyReason::PermissionNotGranted);
         let req = AuthorizationRequest::new(
             operator(),
-            Permission::ReadTag(TagId::from("t".to_string())),
+            Permission::ReadTag,
             tenant(),
             42,
             SystemTime::UNIX_EPOCH,

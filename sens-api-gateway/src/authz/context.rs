@@ -283,7 +283,7 @@ mod tests {
     ///      defense. Actor field must render through audit_label.
     #[test]
     fn authorized_context_debug_redacts_operator_id() {
-        let ctx = build_ctx(Permission::ReadTag(TagId::from("pond3_temp".to_string())), false);
+        let ctx = build_ctx(Permission::ReadTag, false);
         let debug = format!("{:?}", ctx);
         assert!(
             debug.contains("op:<operator>"),
@@ -297,7 +297,7 @@ mod tests {
     ///      need; smoke-test all getters roundtrip ctor inputs.
     #[test]
     fn authorized_context_getters_roundtrip() {
-        let perm = Permission::WriteTag(TagId::from("pond3_aerator".to_string()));
+        let perm = Permission::WriteTag { tag_id: TagId::from("pond3_aerator".to_string()) };
         let ctx = build_ctx(perm.clone(), true);
         assert_eq!(ctx.granted_permission(), &perm);
         assert_eq!(ctx.tenant().as_bytes(), &[0x42u8; 16]);
@@ -365,7 +365,7 @@ mod tests {
     ///      sure Allow maps to Ok and Deny maps to Err.
     #[test]
     fn decision_into_result_maps_both_arms() {
-        let ctx = build_ctx(Permission::ReadTag(TagId::from("t".to_string())), false);
+        let ctx = build_ctx(Permission::ReadTag, false);
         assert!(AuthorizationDecision::Allow(ctx).into_result().is_ok());
         assert!(matches!(
             AuthorizationDecision::Deny(AuthorizationDenyReason::PermissionNotGranted)
@@ -388,7 +388,7 @@ mod tests {
             fn clone(&self) {}
         }
         impl<T: ?Sized> NotCloneMarker for T {}
-        let ctx = build_ctx(Permission::ReadTag(TagId::from("t".to_string())), false);
+        let ctx = build_ctx(Permission::ReadTag, false);
         // If a future derive/impl adds Clone to AuthorizedContext, this line
         // fails to compile with E0034 ("multiple applicable items in scope").
         let _: () = ctx.clone();
@@ -416,7 +416,7 @@ mod tests {
         // admits everything today; its purpose is documentary — it marks
         // intent for future code review. Serialize/Deserialize omission is
         // primarily enforced by the struct's private fields + no derive.
-        let ctx = build_ctx(Permission::ReadTag(TagId::from("t".to_string())), false);
+        let ctx = build_ctx(Permission::ReadTag, false);
         _must_not_impl_serialize(&ctx);
     }
 }

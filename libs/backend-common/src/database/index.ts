@@ -162,6 +162,11 @@ export type {
   AlignEnumLabelsOptions,
   AlignEnumLabelsResult,
 } from './schema-primitives/align-enum-labels';
+export { dropOrphanedColumns } from './schema-primitives/drop-orphaned-columns';
+export type {
+  DropOrphanedColumnsOptions,
+  DropOrphanedColumnsResult,
+} from './schema-primitives/drop-orphaned-columns';
 
 // @EncryptedAtRest — declarative marker for cryptographically-encrypted
 // columns. Drift validator Class J enforces bytea storage; Phase 3

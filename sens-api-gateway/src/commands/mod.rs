@@ -134,6 +134,13 @@ mod plc;
 // deploy_lock as cmd_deploy_program for mutual exclusion.
 mod ide_deploy;
 
+// Batch 72 Sprint 6.1 follow-up: RBAC manifest hot-reload
+// command handler (cmd_update_policy). Operator-driven MQTT
+// path to rotate manifests without an agent restart;
+// delegates to RbacManifestStore::hot_reload_from_bytes for
+// the full verify + floor + atomic swap chain.
+mod rbac;
+
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -793,6 +800,8 @@ impl CommandHandler {
             "update_lora_devices" => self.cmd_update_lora_devices(&command.params).await,
             #[cfg(feature = "lorawan")]
             "lora_downlink" => self.cmd_lora_downlink(&command.params).await,
+            // RBAC manifest hot-reload (Batch 72 Sprint 6.1)
+            "update_policy" => self.cmd_update_policy(&command.params).await,
             _ => {
                 // v1.2.2: Sanitize user-provided command name to prevent log injection
                 warn!("Unknown command: {}", sanitize_for_log(&command.command));

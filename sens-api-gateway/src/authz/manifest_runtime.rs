@@ -169,19 +169,15 @@ impl RbacManifestStore {
         }
     }
 
-    /// Inner load — returns the verified RbacManifest or
-    /// Err(reason).
+    /// Inner load — reads bytes from `path`, then delegates to
+    /// `verify_and_floor`. Returns the verified RbacManifest
+    /// or Err(reason).
     fn load_from_file_inner(
         &self,
         signing_pubkey_hex: Option<&str>,
         path: &Path,
         expected_tenant: &TenantId,
     ) -> Result<RbacManifest, String> {
-        let hex = signing_pubkey_hex.ok_or_else(|| {
-            "manifest_signing_pubkey_hex is None — Batch 66 Rule 12 should have caught this".to_string()
-        })?;
-        let pubkey = parse_ed25519_pubkey_hex(hex)?;
-
         let bytes = std::fs::read(path).map_err(|e| {
             format!(
                 "Failed to read RBAC manifest at {}: {}",
@@ -189,12 +185,42 @@ impl RbacManifestStore {
                 e
             )
         })?;
-        let signed: SignedRbacManifest = serde_json::from_slice(&bytes).map_err(|e| {
-            format!(
-                "Failed to parse RBAC manifest JSON at {}: {}",
-                path.display(),
-                e
-            )
+
+        self.verify_and_floor(signing_pubkey_hex, &bytes, expected_tenant)
+            .map_err(|e| format!("{} (source={})", e, path.display()))
+    }
+
+    /// Shared verify + version-floor logic. Called from both the
+    /// boot-time file loader AND the Batch 72 MQTT hot-reload
+    /// handler — SSoT for manifest acceptance.
+    ///
+    /// Steps:
+    /// 1. Parse `bytes` as SignedRbacManifest JSON.
+    /// 2. Resolve ed25519 pubkey from hex string.
+    /// 3. Read persistent `highest_seen_policy_version` floor
+    ///    (fail-closed on store-read error).
+    /// 4. Call pure `verify_manifest` with a verify closure
+    ///    wrapping `ed25519_dalek::VerifyingKey::verify_strict`.
+    /// 5. On success, UPSERT the new version into the persistent
+    ///    floor (`MAX(existing, incoming)` — one-way ratchet).
+    ///
+    /// Returns the verified manifest — callers own the atomic
+    /// in-memory swap via `self.current.write()` + any disk-
+    /// persistence responsibility (file loader has no write;
+    /// MQTT hot-reload persists to disk for post-restart continuity).
+    fn verify_and_floor(
+        &self,
+        signing_pubkey_hex: Option<&str>,
+        bytes: &[u8],
+        expected_tenant: &TenantId,
+    ) -> Result<RbacManifest, String> {
+        let hex = signing_pubkey_hex.ok_or_else(|| {
+            "manifest_signing_pubkey_hex is None — Batch 66 Rule 12 should have caught this".to_string()
+        })?;
+        let pubkey = parse_ed25519_pubkey_hex(hex)?;
+
+        let signed: SignedRbacManifest = serde_json::from_slice(bytes).map_err(|e| {
+            format!("Failed to parse RBAC manifest JSON: {}", e)
         })?;
 
         // Batch 71 Sprint 6.1 full wire: read the persisted
@@ -239,6 +265,106 @@ impl RbacManifestStore {
         Ok(verified)
     }
 
+    /// Hot-reload the manifest from operator-supplied bytes
+    /// (Batch 72 Sprint 6.1 follow-up MQTT `update_policy`
+    /// handler path).
+    ///
+    /// On success:
+    /// 1. Verified manifest is swapped into `self.current`
+    ///    under RwLock write-guard (atomic — readers observe
+    ///    either old or new, never partial).
+    /// 2. Bytes are persisted to `manifest_path_override` (or
+    ///    the default `/etc/suderra/rbac_manifest.json`) via
+    ///    atomic tempfile + rename, so a subsequent agent
+    ///    reboot loads the new manifest from disk.
+    /// 3. Returns the new policy_version.
+    ///
+    /// On failure: `self.current` is UNCHANGED. This matches
+    /// the fail-closed discipline of `load_from_file`: if the
+    /// new manifest is invalid (bad signature, tenant mismatch,
+    /// rollback attempt), the agent keeps operating under the
+    /// previously-verified manifest rather than regressing.
+    ///
+    /// WHY atomic file persist: an agent restart must load the
+    /// SAME manifest that's currently in memory. A write-failure
+    /// mid-persistence could leave a partial file that next-boot
+    /// fails to parse — the tempfile+rename pattern ensures the
+    /// file is either the OLD content or the COMPLETE NEW content.
+    pub fn hot_reload_from_bytes(
+        &self,
+        signing_pubkey_hex: Option<&str>,
+        bytes: &[u8],
+        expected_tenant: &TenantId,
+        manifest_path_override: Option<&Path>,
+    ) -> Result<u64, String> {
+        let verified = self.verify_and_floor(signing_pubkey_hex, bytes, expected_tenant)?;
+        let new_version = verified.policy_version;
+
+        // In-memory atomic swap. Must happen BEFORE disk write
+        // because the RwLock write-guard is the authoritative
+        // SSoT — if disk write fails after in-memory swap, the
+        // agent keeps serving the new manifest and logs the
+        // persistence failure. The alternative (disk-first)
+        // creates a window where a crash between disk-write and
+        // memory-swap leaves disk ahead of memory.
+        match self.current.write() {
+            Ok(mut guard) => {
+                *guard = Some(verified);
+            }
+            Err(_) => {
+                return Err(
+                    "RwLock poisoned on RBAC manifest hot-reload swap".to_string(),
+                );
+            }
+        }
+
+        // Atomic disk persist: tempfile in same dir + rename.
+        // Same-dir requirement ensures rename() is within the
+        // filesystem boundary (cross-fs rename is not atomic).
+        let path = manifest_path_override
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| std::path::PathBuf::from(DEFAULT_MANIFEST_PATH));
+
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| {
+                format!(
+                    "Hot-reload disk persist: mkdir {} failed: {} (in-memory swap succeeded, policy_version={})",
+                    parent.display(),
+                    e,
+                    new_version
+                )
+            })?;
+        }
+
+        let tmp_path = path.with_extension("json.tmp");
+        std::fs::write(&tmp_path, bytes).map_err(|e| {
+            format!(
+                "Hot-reload disk persist: tempfile write to {} failed: {} (in-memory swap succeeded, policy_version={})",
+                tmp_path.display(),
+                e,
+                new_version
+            )
+        })?;
+        std::fs::rename(&tmp_path, &path).map_err(|e| {
+            // Rename failed — attempt to clean up tempfile.
+            let _ = std::fs::remove_file(&tmp_path);
+            format!(
+                "Hot-reload disk persist: rename {} → {} failed: {} (in-memory swap succeeded, policy_version={})",
+                tmp_path.display(),
+                path.display(),
+                e,
+                new_version
+            )
+        })?;
+
+        info!(
+            "RBAC manifest hot-reloaded: policy_version={} persisted={}",
+            new_version,
+            path.display()
+        );
+        Ok(new_version)
+    }
+
     /// Look up an operator's ed25519 pubkey bytes from the
     /// verified manifest. Returns None when:
     /// - Store is empty (manifest not loaded — Disabled mode,
@@ -259,6 +385,20 @@ impl RbacManifestStore {
             .iter()
             .find(|b| b.operator_id.as_bytes() == operator_id.as_bytes())?;
         Some(*binding.pubkey.as_bytes())
+    }
+
+    /// Snapshot-observer helper: returns `(operator_count,
+    /// role_count)` of the currently-loaded manifest, or None
+    /// when the store is empty.
+    ///
+    /// Batch 72 Sprint 6.1 hot-reload response includes these
+    /// counts so operators see the post-reload manifest shape
+    /// without a separate GET round-trip.
+    pub fn snapshot_counts(&self) -> Option<(usize, usize)> {
+        self.current
+            .read()
+            .ok()
+            .and_then(|g| g.as_ref().map(|m| (m.operator_bindings.len(), m.roles.len())))
     }
 
     /// Snapshot-observer helper: returns whether the store

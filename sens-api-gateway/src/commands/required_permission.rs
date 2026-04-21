@@ -175,6 +175,17 @@ pub(crate) fn permission_for_command(cmd: &str, params: &Value) -> Option<Permis
         "set_log_level" => Some(Permission::ManagePolicy),
 
         // -----------------------------------------------------------------
+        // RBAC manifest hot-reload (Batch 72 Sprint 6.1).
+        // -----------------------------------------------------------------
+        // WHY ManagePolicy specifically: this command ROTATES
+        // the RBAC manifest itself — the trust anchor for every
+        // other operator→permission binding. An attacker who
+        // could invoke this with lesser permission could grant
+        // themselves arbitrary future permissions. Plan §3 R-5
+        // + ADR-018 §3 specify ManagePolicy as the gate.
+        "update_policy" => Some(Permission::ManagePolicy),
+
+        // -----------------------------------------------------------------
         // Unknown command — fail-closed. Safer than implicit None
         // (anonymous) because an unknown command COULD be a future
         // safety-critical operation that the gate must reject.
@@ -254,6 +265,18 @@ mod tests {
         assert!(matches!(
             permission_for_command("reboot", &json!({})),
             Some(Permission::Reboot)
+        ));
+    }
+
+    #[test]
+    fn update_policy_requires_manage_policy_permission() {
+        // Batch 72 Sprint 6.1 hot-reload: update_policy rotates
+        // the RBAC manifest itself — the trust anchor for every
+        // other operator→permission binding. It MUST require
+        // ManagePolicy, not a weaker permission.
+        assert!(matches!(
+            permission_for_command("update_policy", &json!({})),
+            Some(Permission::ManagePolicy)
         ));
     }
 }

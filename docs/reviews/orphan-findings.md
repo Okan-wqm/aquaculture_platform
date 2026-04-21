@@ -493,6 +493,16 @@ The Faz 2 sidecar's job was to replicate the existing publisher contract byte-fo
 - Deadline: TBD — wants a 30-min architectural review meeting to pick option 1, 2, or 3 before any fix lands.
 - Closure path: dedicated PR updates `nats-event-bus.ts` + every subscriber + the Rust sidecar's `events::subject_for` atomically, plus a contract test in `e2e/tests/integration/nats-subject-contract.spec.ts` pinning the chosen convention.
 
+**Status update 2026-04-21 (unified branch):** RESOLVED. PR
+`agentic-rust-unified` adds `IEventBus.subscribeWildcard` +
+`subscribeForTenant` helpers + 8 consumer migrations + 21-assertion
+contract test. Tier-1 "make it impossible": hand-formatting subjects
+at call sites IS the drift surface; centralising the subject
+construction in two named helpers removes the wrong-shape from the
+surface area entirely. Old `subscribe()` reimplemented to delegate
+to `subscribeWildcard` so existing callers keep working with the
+fixed semantic.
+
 ---
 
 ## 2026-04-21 ORPHAN-014 — Six `mqtt-listener.service.spec.ts` tests fail on `agentic-rust-faz2-sensor-ingestion` HEAD (independent of Faz 3 work)
@@ -562,3 +572,26 @@ green.
 - Each entry reviewed for "real problem vs stylistic preference" — preferences NOT recorded.
 - CLAUDE.md banned-phrase rules apply; "deferred" only with owner/deadline/finding-ID per rule.
 - Resolution path: linked to plan phase / sprint where fix lands.
+## 2026-04-21 ORPHAN-015 — `apps/alert-engine/src/alert/event-handlers/__tests__/sensor-reading.handler.spec.ts` "evaluation execution" test uses legacy nested `readings` shape, handler expects flat `readingXxx`
+
+**Severity:** MEDIUM (1 pre-existing test failure on every PR touching alert-engine)
+**Discovered:** 2026-04-21, ORPHAN-013 fix validation run.
+**Files:**
+- `apps/alert-engine/src/alert/event-handlers/__tests__/sensor-reading.handler.spec.ts:215-223` (test)
+- `apps/alert-engine/src/alert/event-handlers/sensor-reading.handler.ts:45-53` (handler `extractReadingsFromEvent` + ARC-C01 flat-field assumption)
+
+**Evidence:** Test passes the event with `readings: { temperature: 25, ph: 7.2 }` (legacy v1 nested shape); the handler iterates over `readingXxx` flat fields per ARC-C01 / `libs/event-contracts/src/sensor-events.ts:SensorReadingEvent`. The `evaluateSensorReading` IS called once but with `readings: {}` because the handler found no flat `readingXxx` fields on the event.
+
+```
+Expected: ObjectContaining {"readings": {"ph": 7.2, "temperature": 25}, ...}
+Received: {"readings": {}, ...}
+```
+
+Verified pre-existing on `main` (HEAD `23b1362a`). Not introduced by ORPHAN-013 work — the same 1 failure shows on a fresh main checkout running the same test.
+
+**Architectural fix (TBD, not in this PR):** rewrite the test to construct the event with flat `readingTemperature: 25, readingPh: 7.2` fields (the post-ARC-C01 shape) and assert the same flat shape in the `evaluateSensorReading` call args. Optionally add a SECOND test that exercises the upcaster path (legacy nested → flat) since the upcaster lives in `libs/event-contracts/src/upcasters/sensor-reading.upcaster.ts`.
+
+**Follow-on tracking:**
+- Owner: alert-engine maintainers.
+- Deadline: 2026-05-15.
+- Closure path: a `test(alert-engine):` commit that updates the test fixture + adds the upcaster-path companion test.

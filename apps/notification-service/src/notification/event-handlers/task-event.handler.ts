@@ -85,14 +85,18 @@ export class TaskEventHandler
   ) {}
 
   async onModuleInit(): Promise<void> {
-    // Subscribe to all task events
-    await this.eventBus.subscribe('TaskCreated', this);
-    await this.eventBus.subscribe('TaskAssigned', this);
-    await this.eventBus.subscribe('TaskStatusChanged', this);
-    await this.eventBus.subscribe('TaskCompleted', this);
-    await this.eventBus.subscribe('TaskOverdue', this);
+    // WHAT — `subscribeWildcard` builds `events.*.{eventType}`, capturing
+    // every tenant's task lifecycle.
+    // WHY explicit wildcard — push-notification dispatch is cross-tenant;
+    // one notification-service handles every tenant's users. Explicit
+    // helper pins the publisher↔subscriber subject contract (3 segments).
+    await this.eventBus.subscribeWildcard('TaskCreated', this);
+    await this.eventBus.subscribeWildcard('TaskAssigned', this);
+    await this.eventBus.subscribeWildcard('TaskStatusChanged', this);
+    await this.eventBus.subscribeWildcard('TaskCompleted', this);
+    await this.eventBus.subscribeWildcard('TaskOverdue', this);
     this.logger.log(
-      'Subscribed to TaskCreated, TaskAssigned, TaskStatusChanged, TaskCompleted, and TaskOverdue events',
+      'Subscribed to TaskCreated, TaskAssigned, TaskStatusChanged, TaskCompleted, and TaskOverdue events (cross-tenant wildcard)',
     );
   }
 

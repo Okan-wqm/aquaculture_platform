@@ -179,6 +179,13 @@ export type {
   AlignColumnTypeOptions,
   AlignColumnTypeResult,
 } from './schema-primitives/align-column-type';
+// Phase 3.5 — chunked Class H backfill primitive (large-table safe).
+export { backfillColumn } from './schema-primitives/backfill-column';
+export type {
+  BackfillColumnOptions,
+  BackfillColumnResult,
+  BackfillProgress,
+} from './schema-primitives/backfill-column';
 
 // @EncryptedAtRest — declarative marker for cryptographically-encrypted
 // columns. Drift validator Class J enforces bytea storage; Phase 3

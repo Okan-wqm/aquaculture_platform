@@ -78,5 +78,17 @@ export class RetentionBootstrapModule implements OnModuleInit {
       // must preserve until natural closure.
       legalHoldClause: 'revoked_at IS NULL AND expires_at > NOW()',
     });
+    registerRetentionPolicy({
+      id: 'migration_backfill_progress.7y',
+      ownerTag: 'soc2-cc8.1',
+      schema: 'observability',
+      tableName: 'migration_backfill_progress',
+      timestampColumn: 'applied_at',
+      retentionDays: 2556, // 7 years
+      // Contract-phase @ExpandContract migrations read this table
+      // at runtime to resolve dependsOn (R6 gate). 7 years is long
+      // enough that no practical release train deletes its own
+      // dependency surface. Matches schema_object_history window.
+    });
   }
 }

@@ -112,7 +112,10 @@ pub fn subject_for(ev: &SensorMetricIngestedEvent) -> String {
     // the `SENSOR_METRIC_INGESTED_EVENT_TYPE` const, so the literal
     // "SensorMetricIngested" is the only possible third segment for
     // this event family.
-    format!("events.{}.{}", ev.tenant_id, SENSOR_METRIC_INGESTED_EVENT_TYPE)
+    format!(
+        "events.{}.{}",
+        ev.tenant_id, SENSOR_METRIC_INGESTED_EVENT_TYPE
+    )
 }
 
 // -----------------------------------------------------------------

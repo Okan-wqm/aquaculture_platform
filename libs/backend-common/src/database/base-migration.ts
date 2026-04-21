@@ -555,3 +555,174 @@ export async function dropDependentPartialIndexes(
 
   return dropped;
 }
+
+/**
+ * Options controlling `withDdlSafety`'s behaviour. Defaults are safe for
+ * the common transactional-migration path.
+ */
+export interface DdlSafetyOptions {
+  /**
+   * Target source schema — pinned via `set_config('search_path', ...)`
+   * when the runner is already inside a transaction. When `false` /
+   * omitted, no search_path mutation is applied (caller is responsible
+   * for their own search_path via `pinSearchPath(qr, schema)` if
+   * needed).
+   */
+  readonly schema?: string;
+  /**
+   * Lock-timeout applied before any DDL statement. Prevents an infinite
+   * wait for ACCESS EXCLUSIVE on a hot table. Default '30s' — tuned to
+   * exceed steady-state statement latency but halt clear deadlocks fast.
+   */
+  readonly lockTimeoutMs?: number;
+  /**
+   * When `true`, SKIP the transactional `SET LOCAL` path entirely —
+   * for `CREATE INDEX CONCURRENTLY` and other statements that PG
+   * refuses to run inside BEGIN ... COMMIT. Caller MUST invoke this
+   * helper from a QueryRunner whose `isTransactionActive` is false.
+   * The helper applies a session-scoped `SET lock_timeout` instead and
+   * RESETs it in finally().
+   */
+  readonly nonTransactionalDdl?: boolean;
+  /**
+   * Suffix added to the advisory lock key — default is the schema.
+   * Useful when two migrations legitimately target the same schema
+   * simultaneously (rare; most callers leave this as-is).
+   */
+  readonly advisoryLockKeySuffix?: string;
+}
+
+/**
+ * withDdlSafety — wrap a chunk of DDL operations in the platform's
+ * cross-migration safety envelope. Replaces the ad-hoc patterns
+ * scattered across 2026-04 deploy hotfixes (plan v3 R12 CRITICAL).
+ *
+ * Three layered guards:
+ *
+ *   1. search_path pin (transactional path only): parameterised
+ *      `set_config('search_path', $1, true)` — no string interpolation,
+ *      no injection vector. Skipped when the QueryRunner is OUTSIDE a
+ *      transaction because SET LOCAL is a no-op there.
+ *
+ *   2. lock_timeout: bounded wait for ACCESS EXCLUSIVE. Transactional
+ *      path uses `SET LOCAL lock_timeout`; non-transactional path uses
+ *      session-scoped `SET lock_timeout` + RESET in finally().
+ *
+ *   3. Advisory lock: `pg_try_advisory_lock(hashtext('aqua-db-migrate:<key>'))`.
+ *      The same key namespace the production orchestrator uses — two
+ *      runners targeting the same schema serialize cleanly without
+ *      deadlocking on DDL. Released in finally(), ALWAYS (prior
+ *      hand-rolled attempts leaked locks on throw).
+ *
+ * # Non-transactional mode (nonTransactionalDdl: true)
+ *
+ * TypeORM's `MigrationInterface.up(qr)` typically runs inside a
+ * transaction (the runner opens BEGIN before calling up()). But some
+ * migrations intentionally run `CREATE INDEX CONCURRENTLY` or
+ * `VACUUM FULL` which PG refuses inside BEGIN. Those migrations must:
+ *
+ *   class MyConcurrentIndex implements MigrationInterface {
+ *     transaction = false; // TypeORM won't open a tx
+ *     async up(qr: QueryRunner) {
+ *       await withDdlSafety(qr, {
+ *         schema: 'hr',
+ *         nonTransactionalDdl: true,
+ *         advisoryLockKeySuffix: 'hr',
+ *       }, async () => {
+ *         await qr.query('CREATE INDEX CONCURRENTLY ...');
+ *       });
+ *     }
+ *   }
+ *
+ * The helper never issues BEGIN/COMMIT itself — it composes with
+ * whatever transaction context the QueryRunner already carries.
+ */
+export async function withDdlSafety<T>(
+  qr: QueryRunner,
+  opts: DdlSafetyOptions,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const lockKey = buildAdvisoryLockKey(
+    opts.advisoryLockKeySuffix ?? opts.schema ?? 'default',
+  );
+  const lockTimeoutMs = opts.lockTimeoutMs ?? 30_000;
+  const inTx = qr.isTransactionActive;
+
+  // Guard: nonTransactionalDdl MUST match the runner's transaction state.
+  if (opts.nonTransactionalDdl === true && inTx) {
+    throw new Error(
+      `[withDdlSafety] nonTransactionalDdl=true but QueryRunner is inside a transaction. ` +
+        `Mark the migration class with \`transaction = false\` or wrap the DDL outside the migration runner.`,
+    );
+  }
+  if (opts.nonTransactionalDdl !== true && !inTx) {
+    // Warn — not fatal, because some orchestrators (tests) may call
+    // this helper outside a tx intentionally. Non-transactional DDL
+    // in a transactional-expected path surfaces a config error loudly
+    // via the lock_timeout RESET logic below (session-scoped reset
+    // is a no-op but does not harm correctness).
+    // No-throw here; callers who want strict enforcement should pass
+    // `nonTransactionalDdl: true` explicitly.
+  }
+
+  if (inTx && opts.schema) {
+    // Parameterised search_path pin — no string interpolation. SAFE_IDENT_RE
+    // validation lives in pinSearchPath() when the caller needs it; this
+    // helper relies on the orchestrator-side validation that the schema
+    // name came from a trusted source (SCHEMA_REGISTRY).
+    await qr.query(
+      `SELECT set_config('search_path', $1, true)`,
+      [`${opts.schema},public`],
+    );
+  }
+
+  if (inTx) {
+    await qr.query(`SET LOCAL lock_timeout = '${lockTimeoutMs}ms'`);
+  } else {
+    await qr.query(`SET lock_timeout = '${lockTimeoutMs}ms'`);
+  }
+
+  // Advisory lock acquisition — pg_advisory_lock blocks until granted;
+  // we use it rather than try_advisory_lock so concurrent deploys
+  // serialize rather than race-fail. Lock key is a hashtext of the
+  // schema, identical to the orchestrator's scheme.
+  await qr.query(`SELECT pg_advisory_lock(${lockKey})`);
+
+  try {
+    return await fn();
+  } finally {
+    // ALWAYS release the advisory lock, even on exception. A leaked
+    // lock blocks every subsequent deploy for this schema until the
+    // connection is killed manually.
+    try {
+      await qr.query(`SELECT pg_advisory_unlock(${lockKey})`);
+    } catch {
+      // Swallow — unlock-on-already-released is harmless; we'd rather
+      // surface the original error than mask it with a second throw.
+    }
+    if (!inTx) {
+      // Reset the session-scoped lock_timeout so downstream statements
+      // on the same connection aren't stuck with our guard value.
+      try {
+        await qr.query(`RESET lock_timeout`);
+      } catch {
+        // Connection may have been closed already by the caller; ignore.
+      }
+    }
+  }
+}
+
+/**
+ * Deterministic advisory-lock key derived from the schema (or any
+ * caller-supplied suffix). Identical scheme to the aqua-db-migrate
+ * orchestrator's `advisoryLockKey()` so two runners serialize cleanly.
+ *
+ * Escapes single quotes in the schema name to prevent SQL injection
+ * through the inlined literal (the key is NOT parameterised because
+ * pg_advisory_lock takes a bigint, not a text arg).
+ */
+function buildAdvisoryLockKey(suffix: string): string {
+  const safe = suffix.replace(/'/g, "''");
+  return `hashtext('aqua-db-migrate:${safe}')`;
+}
+

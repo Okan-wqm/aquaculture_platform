@@ -40,6 +40,7 @@ export {
   dropPartialTables,
   parseAlterColumnTypeTargets,
   dropDependentPartialIndexes,
+  withDdlSafety,
 } from './base-migration';
 export type {
   AlterColumnTypeTarget,
@@ -47,6 +48,7 @@ export type {
   BlockingDependencyKind,
   /** @deprecated alias for {@link BlockingDependency} */
   BlockingPartialIndex,
+  DdlSafetyOptions,
 } from './base-migration';
 
 // TENANT_AWARE_SCHEMAS — SSoT for schema-per-tenant services. Imported

@@ -52,7 +52,8 @@ export type DriftClass =
   | 'schema_location'
   | 'uuid_type'
   | 'nullability'
-  | 'missing_column';
+  | 'missing_column'
+  | 'orphan_column';
 
 /**
  * Scan DB against entity metadata declarations; return a DriftReport
@@ -108,6 +109,7 @@ async function scanDrift(
     uuid_type: 0,
     nullability: 0,
     missing_column: 0,
+    orphan_column: 0,
   };
 
   for (const entity of entities) {
@@ -181,6 +183,22 @@ async function scanDrift(
           `[${ctx.schema}.${tableName}.${dbName}] entity declares NOT NULL but DB column is nullable`,
         );
         byClass.nullability++;
+      }
+    }
+
+    // Class E — orphan_column: DB has a column the entity does not
+    // declare. Mirrors the production validator's Class E detection.
+    // WARN severity per drift-classes.ts — but the harness reports it
+    // via byClass.orphan_column so tests can gate on presence.
+    const entityColumnNames = new Set(
+      entity.columns.map((c) => c.databaseName),
+    );
+    for (const dbCol of columnRows) {
+      if (!entityColumnNames.has(dbCol.column_name)) {
+        violations.push(
+          `[${ctx.schema}.${tableName}.${dbCol.column_name}] DB has column but entity does not declare it (orphan_column)`,
+        );
+        byClass.orphan_column++;
       }
     }
   }

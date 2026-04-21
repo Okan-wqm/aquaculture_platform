@@ -250,6 +250,29 @@ export function createSchemaDriftValidator(
           );
         }
       }
+
+      // Class E — orphan_column: DB has a column the entity does not
+      // declare. Severity WARN (not error) because dropping the column
+      // is a data-loss operation gated by an allowlist (Phase 3
+      // dropOrphanedColumns primitive). Logged to the same violations
+      // channel so operators see the drift surface; does NOT prevent
+      // "Schema drift scan clean" emission in the default SCHEMA_DRIFT_
+      // FATAL=false mode, but Phase 8 Stage 2+ elevates to error once
+      // every existing E violation is either allowlisted or dropped.
+      //
+      // Implementation note: we iterate DB columns and check absence
+      // in the entity's declared column set. The entity.columns set is
+      // keyed by databaseName (TypeORM's naming-strategy-normalised form).
+      const entityColumnNames = new Set(
+        entity.columns.map((c) => c.databaseName),
+      );
+      for (const dbCol of columnRows) {
+        if (!entityColumnNames.has(dbCol.column_name)) {
+          violations.push(
+            `[${schema}.${tableName}.${dbCol.column_name}] DB has column but entity does not declare it (orphan_column — see drift-classes.ts Class E)`,
+          );
+        }
+      }
     }
   }
 

@@ -136,6 +136,40 @@ describe('expectNoDriftAgainst — 4-class drift detection', () => {
     });
   });
 
+  it('detects Class E (orphan column — DB has column, entity does not)', async () => {
+    await withEphemeralSchema(ctx!, async (_e, qr) => {
+      await qr.query(`CREATE SCHEMA IF NOT EXISTS drifttest`);
+      try {
+        // DB has an EXTRA 'legacy_flag' column the entity does not declare.
+        await qr.query(
+          `CREATE TABLE drifttest.fixture_entity (
+             id uuid PRIMARY KEY,
+             name text NOT NULL,
+             score int,
+             legacy_flag boolean
+           )`,
+        );
+        const report = await expectNoDriftAgainst(
+          { qr, schema: 'drifttest' },
+          [FixtureEntity],
+        );
+        expect(report.byClass.orphan_column).toBe(1);
+        expect(
+          report.violations.some(
+            (v) =>
+              v.includes('legacy_flag') && v.includes('orphan_column'),
+          ),
+        ).toBe(true);
+        // Other classes should be clean.
+        expect(report.byClass.missing_column).toBe(0);
+        expect(report.byClass.uuid_type).toBe(0);
+        expect(report.byClass.nullability).toBe(0);
+      } finally {
+        await qr.query(`DROP SCHEMA IF EXISTS drifttest CASCADE`);
+      }
+    });
+  });
+
   it('detects Class A (schema location — table in wrong schema)', async () => {
     await withEphemeralSchema(ctx!, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS drifttest`);

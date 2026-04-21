@@ -211,6 +211,18 @@ export type {
   BackfillProgress,
 } from './schema-primitives/backfill-column';
 
+// Emergency override runtime read — aqua-ctl + validator integration
+// point. Lookups observability.emergency_overrides for ACTIVE rows
+// matching (service, kind, environment). Fail-safe: lookup errors
+// never grant bypass. See emergency-override-check.ts docblock.
+export { lookupEmergencyOverride } from './emergency-override-check';
+export type {
+  EmergencyOverrideKind,
+  EmergencyOverrideRow,
+  EmergencyOverrideLookupResult,
+  EmergencyOverrideLookupOptions,
+} from './emergency-override-check';
+
 // MigrationEventSink — decoupled hook for lifecycle-event emission from
 // the per-service MigrationRunnerService. Phase 6 integration layer.
 // See migration-event-sink.ts for the three provided implementations

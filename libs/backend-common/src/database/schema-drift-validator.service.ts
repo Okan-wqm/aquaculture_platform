@@ -11,6 +11,7 @@ import {
   TENANT_AWARE_SCHEMAS,
   TENANT_SCHEMA_NAME_RE,
 } from './tenant-aware-schemas';
+import { lookupEmergencyOverride } from './emergency-override-check';
 
 /**
  * createSchemaDriftValidator
@@ -196,6 +197,31 @@ export function createSchemaDriftValidator(
       );
 
       if (fatal) {
+        // R16 emergency-override check — an operator-issued
+        // drift_fatal_bypass for this service in this environment
+        // suppresses the throw. Validator still logs the drift
+        // (schema.drift.detected already emitted above) so the audit
+        // trail is intact; the bypass only prevents the fatal exit.
+        // Fail-safe: lookup errors never grant bypass.
+        const environment =
+          this.configService.get<string>('AQUA_ENV') ??
+          this.configService.get<string>('NODE_ENV', 'development')!;
+        const bypass = await lookupEmergencyOverride({
+          dataSource: this.dataSource,
+          serviceName,
+          kind: 'drift_fatal_bypass',
+          environment,
+        });
+        if (bypass.active && bypass.row !== undefined) {
+          this.logger.warn(
+            `schema.drift.bypassed service="${serviceName}" — ` +
+              `drift_fatal_bypass override active (id=${bypass.row.id}, ` +
+              `actor=${bypass.row.actor}, reason="${bypass.row.reason}", ` +
+              `expiresAt=${bypass.row.expiresAt.toISOString()}). ` +
+              `Continuing boot despite ${errorViolations.length} violation(s).`,
+          );
+          return;
+        }
         throw new Error(
           `Schema drift detected in ${errorViolations.length} place(s). ` +
             `Set SCHEMA_DRIFT_FATAL=false to start the service anyway, but ` +

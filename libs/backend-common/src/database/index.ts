@@ -152,6 +152,17 @@ export type {
   SnapshotChangeSeverity,
 } from './schema-drift/diff-snapshots';
 
+// Phase 7 R14 — snapshot PII scrubber. Produces a redacted copy of a
+// SchemaSnapshot suitable for cross-region upload or public channels.
+export {
+  scrubSnapshot,
+  DEFAULT_PII_COLUMN_NAMES,
+} from './schema-drift/snapshot-scrubber';
+export type {
+  ScrubbedSnapshot,
+  ScrubOptions,
+} from './schema-drift/snapshot-scrubber';
+
 // Phase 3 primitives — declarative schema healers for drift classes
 // A-G. Each primitive composes over withDdlSafety and sql.* branded
 // fragments; raw-string SQL is a compile error at the call site.

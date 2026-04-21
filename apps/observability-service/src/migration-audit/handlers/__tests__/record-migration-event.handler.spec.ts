@@ -165,6 +165,56 @@ describe('RecordMigrationEventHandler', () => {
     expect(call.migrationName).toBe('');
   });
 
+  it('persists pre-sanitized errorDetail verbatim (NATS consumer path)', async () => {
+    const repo = makeRepoMock();
+    const cfg = makeConfigMock({});
+    const handler = new RecordMigrationEventHandler(repo, cfg);
+
+    await handler.execute(
+      new RecordMigrationEventCommand({
+        serviceName: 'hr',
+        migrationName: 'M',
+        eventType: 'failed',
+        errorDetail: {
+          sqlState: '23505',
+          template: 'unique constraint violation',
+          constraintName: 'pk_employees',
+          relation: 'hr.employees',
+        },
+      }),
+    );
+    const call = repo.insert.mock.calls[0]![0]!;
+    expect(call.errorDetail).toEqual({
+      sqlState: '23505',
+      template: 'unique constraint violation',
+      constraintName: 'pk_employees',
+      relation: 'hr.employees',
+    });
+  });
+
+  it('throws when payload carries BOTH error and errorDetail (ambiguity)', async () => {
+    const repo = makeRepoMock();
+    const cfg = makeConfigMock({});
+    const handler = new RecordMigrationEventHandler(repo, cfg);
+
+    await expect(
+      handler.execute(
+        new RecordMigrationEventCommand({
+          serviceName: 'hr',
+          migrationName: 'M',
+          eventType: 'failed',
+          error: new Error('raw'),
+          errorDetail: {
+            sqlState: '23505',
+            template: 'x',
+            constraintName: null,
+            relation: null,
+          },
+        }),
+      ),
+    ).rejects.toThrow(/ambiguous/);
+  });
+
   it('uses provided occurredAt when given (preserves orchestrator clock)', async () => {
     const repo = makeRepoMock();
     const cfg = makeConfigMock({});

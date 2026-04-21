@@ -54,8 +54,29 @@ export class RecordMigrationEventHandler
       tenantIdHash = hmacTenantHash(p.tenantSchema);
     }
 
+    // Caller may EITHER pass `error` (raw) for sanitization, OR
+    // `errorDetail` (already-sanitized — NATS consumer path). Both is
+    // ambiguous — throw rather than silently ignoring one.
+    if (p.error !== undefined && p.errorDetail !== undefined) {
+      throw new Error(
+        '[RecordMigrationEventHandler] payload carries BOTH error and errorDetail — ambiguous. Supply exactly one.',
+      );
+    }
+
     let errorDetail: Record<string, unknown> | null = null;
-    if (p.error !== undefined && p.error !== null) {
+    if (p.errorDetail !== undefined) {
+      // Pre-sanitized — persist verbatim. NATS publisher already
+      // scrubbed via sanitizePgError before crossing the wire.
+      errorDetail = {
+        sqlState: p.errorDetail.sqlState,
+        template: p.errorDetail.template,
+        constraintName: p.errorDetail.constraintName,
+        relation: p.errorDetail.relation,
+        ...(p.errorDetail.columns !== undefined
+          ? { columns: p.errorDetail.columns }
+          : {}),
+      };
+    } else if (p.error !== undefined && p.error !== null) {
       // sanitizePgError strips row-leak patterns (Key (ssn)=(...), Failing
       // row contains (...)) and runs the secondary maskPii() backstop.
       // Persisted fields expose SQLSTATE + constraint + relation +

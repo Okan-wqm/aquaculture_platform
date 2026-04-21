@@ -42,6 +42,20 @@ export interface RecordMigrationEventPayload {
    * error_detail JSONB column. Omit for success events.
    */
   readonly error?: unknown;
+  /**
+   * Pre-sanitized error payload — used by the NATS consumer path where
+   * sanitization already happened on the publisher side. Handler
+   * persists this verbatim (no re-sanitization). Callers MUST NOT
+   * populate both `error` and `errorDetail` — the handler throws on
+   * that ambiguity.
+   */
+  readonly errorDetail?: Readonly<{
+    sqlState: string | null;
+    template: string;
+    constraintName: string | null;
+    relation: string | null;
+    columns?: readonly string[];
+  }>;
   /** Override environment; defaults to AQUA_ENV or 'development'. */
   readonly environment?: string;
 }

@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { MigrationEventEntity } from '../database/entities/migration-event.entity';
 import { SchemaObjectHistoryEntity } from '../database/entities/schema-object-history.entity';
+import { SchemaMigrationEventsConsumer } from './consumers/schema-migration-events.consumer';
 import { RecordMigrationEventHandler } from './handlers/record-migration-event.handler';
 import { MigrationEventRepository } from './repositories/migration-event.repository';
 import { MigrationEventsRetentionService } from './services/migration-events-retention.service';
@@ -30,6 +31,7 @@ import { CqrsMigrationEventSink } from './sinks/cqrs-migration-event-sink';
     RecordMigrationEventHandler,
     CqrsMigrationEventSink,
     MigrationEventsRetentionService,
+    SchemaMigrationEventsConsumer,
   ],
   exports: [MigrationEventRepository, CqrsMigrationEventSink],
 })

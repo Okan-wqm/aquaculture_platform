@@ -585,3 +585,8 @@ path = "tests/invariants/moka_jti_dedup.rs"
 [[test]]
 name = "dedup_two_layer"
 path = "tests/invariants/dedup_two_layer.rs"
+
+# Batch 64 Sprint 6.4 partial — envelope adapter parse-and-verify.
+[[test]]
+name = "envelope_adapter"
+path = "tests/invariants/envelope_adapter.rs"

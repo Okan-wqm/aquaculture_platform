@@ -17,6 +17,7 @@ import { DataProcessorService } from './data-processor.service';
 import { MqttListenerService } from './mqtt-listener.service';
 import { NatsIngestionConsumerService } from './nats-ingestion-consumer.service';
 import { SensorCacheInvalidationHandler } from './sensor-cache-invalidation.handler';
+import { SensorLookupResponderService } from './sensor-lookup-responder.service';
 import { SensorMetaCacheService } from './sensor-meta-cache.service';
 import { SensorTopicCacheService } from './sensor-topic-cache.service';
 
@@ -50,6 +51,14 @@ import { SensorTopicCacheService } from './sensor-topic-cache.service';
     // scenarios (channel renames, sensor suspends) do not wait the
     // 60s TTL.
     SensorCacheInvalidationHandler,
+    // Faz 3 follow-on — request-reply responder for the Rust
+    // sidecar's cache-miss `sensor.lookup.by-topic` request. Backed
+    // by SensorMetaCacheService so the sensor + channel lookup
+    // shares the same in-memory cache the consumer + invalidation
+    // handler use. Without this provider the sidecar's TopicCache
+    // would never fill — every message would pay the
+    // payload-only-data path.
+    SensorLookupResponderService,
   ],
   exports: [
     BatchProcessorService,
@@ -60,6 +69,7 @@ import { SensorTopicCacheService } from './sensor-topic-cache.service';
     SensorMetaCacheService,
     NatsIngestionConsumerService,
     SensorCacheInvalidationHandler,
+    SensorLookupResponderService,
   ],
 })
 // eslint-disable-next-line @typescript-eslint/no-extraneous-class

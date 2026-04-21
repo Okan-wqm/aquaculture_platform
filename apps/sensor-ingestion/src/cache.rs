@@ -101,6 +101,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use moka::notification::RemovalCause;
 use moka::sync::Cache;
 use papaya::HashMap as PapayaMap;
+use serde::{Deserialize, Serialize};
 use tenant_context::TenantId;
 use uuid::Uuid;
 
@@ -131,7 +132,27 @@ pub const DEFAULT_TOTAL_CAPACITY: usize = 100_000;
 /// of "did the cache return a wrong-tenant value?" a one-line
 /// `assert_eq!(meta.tenant_id, expected_tenant)` rather than a key/
 /// value pairwise check at every consumer.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// WHY `Serialize` / `Deserialize` derives:
+///   The cache-miss responder pair (Rust `sensor_lookup` ↔ NestJS
+///   `SensorLookupResponderService`) ships this struct over NATS
+///   request-reply on `sensor.lookup.by-topic`. The wire shape MUST be
+///   the camelCase JSON shape (`sensorId`, `tenantId`, `channelIds`)
+///   pinned by the `sensor_meta_wire_shape_camelCase` test below — the
+///   NestJS responder writes that shape and the Rust client decodes it
+///   directly into [`SensorMeta`]. Pinning the shape in this module
+///   keeps the wire contract co-located with the in-memory type that
+///   produces it; a refactor that renames a field surfaces in the
+///   wire-shape test before any deploy.
+///
+///   Field name mapping:
+///     * `sensor_id`   → `sensorId`   (UUID lower-case hyphenated)
+///     * `tenant_id`   → `tenantId`   (UUID lower-case hyphenated, via
+///                                     `TenantId`'s `#[serde(transparent)]`)
+///     * `channel_ids` → `channelIds` (array of UUIDs, lower-case
+///                                     hyphenated)
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SensorMeta {
     /// Unique sensor identifier (the second half of the cache key).
     pub sensor_id: Uuid,
@@ -780,5 +801,100 @@ mod tests {
         // visible in the test surface.
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<TopicCache>();
+    }
+
+    // -----------------------------------------------------------
+    // Wire-shape tests for the cache-miss responder pair.
+    //
+    // The Rust `sensor_lookup` client decodes the NestJS responder's
+    // JSON body directly into `SensorMeta`. The two tests below pin
+    // the shared wire shape so a future field rename or a derive
+    // change surfaces here BEFORE either the responder (NestJS) or
+    // the client (Rust) deploys with a mismatch.
+    // -----------------------------------------------------------
+
+    #[test]
+    fn sensor_meta_serde_round_trip() {
+        // Construct a fully-populated SensorMeta, encode to JSON,
+        // decode back, assert structural equality. Pins that the
+        // serde derives are bidirectional and lossless.
+        let tenant = fixed_tenant(0x77);
+        let sensor = fixed_sensor(0xB0, 0x01);
+        let meta = SensorMeta {
+            sensor_id: sensor,
+            tenant_id: tenant,
+            channel_ids: vec![
+                fixed_sensor(0xB0, 0xAA),
+                fixed_sensor(0xB0, 0xBB),
+                fixed_sensor(0xB0, 0xCC),
+            ],
+        };
+        let json = serde_json::to_string(&meta).expect("serialise");
+        let back: SensorMeta = serde_json::from_str(&json).expect("deserialise");
+        assert_eq!(back, meta, "SensorMeta JSON round-trip must be lossless");
+    }
+
+    #[test]
+    #[allow(non_snake_case)]
+    fn sensor_meta_wire_shape_camelCase() {
+        // The NestJS responder writes camelCase keys
+        // (`sensorId`, `tenantId`, `channelIds`). Pin the exact key
+        // names + value formats so a derive rename cannot silently
+        // break the responder pair contract. Also pins UUID
+        // lower-case-hyphenated formatting for both the sensor uuid
+        // and every channel uuid.
+        let sensor =
+            Uuid::parse_str("11111111-1111-1111-1111-111111111111").expect("parse sensor uuid");
+        let tenant_uuid =
+            Uuid::parse_str("22222222-2222-2222-2222-222222222222").expect("parse tenant uuid");
+        let channel_a =
+            Uuid::parse_str("33333333-3333-3333-3333-333333333333").expect("parse channel a");
+        let channel_b =
+            Uuid::parse_str("44444444-4444-4444-4444-444444444444").expect("parse channel b");
+        let meta = SensorMeta {
+            sensor_id: sensor,
+            tenant_id: TenantId::from_uuid(tenant_uuid),
+            channel_ids: vec![channel_a, channel_b],
+        };
+        let val: serde_json::Value = serde_json::to_value(&meta).expect("serialise to value");
+        let obj = val.as_object().expect("top-level must be a JSON object");
+
+        // Exactly three keys, all camelCase. A new field added without
+        // updating both sides of the wire would fail this length check.
+        assert_eq!(
+            obj.len(),
+            3,
+            "SensorMeta wire shape must have exactly 3 keys; got {obj:?}"
+        );
+        assert!(obj.contains_key("sensorId"), "missing camelCase 'sensorId'");
+        assert!(obj.contains_key("tenantId"), "missing camelCase 'tenantId'");
+        assert!(
+            obj.contains_key("channelIds"),
+            "missing camelCase 'channelIds'"
+        );
+
+        // sensorId / tenantId are lower-case hyphenated UUID strings.
+        assert_eq!(
+            obj.get("sensorId").and_then(serde_json::Value::as_str),
+            Some("11111111-1111-1111-1111-111111111111")
+        );
+        assert_eq!(
+            obj.get("tenantId").and_then(serde_json::Value::as_str),
+            Some("22222222-2222-2222-2222-222222222222")
+        );
+        // channelIds is a JSON array of lower-case hyphenated UUID strings.
+        let arr = obj
+            .get("channelIds")
+            .and_then(serde_json::Value::as_array)
+            .expect("channelIds must be an array");
+        assert_eq!(arr.len(), 2, "channelIds must carry 2 elements");
+        assert_eq!(
+            arr.first().and_then(serde_json::Value::as_str),
+            Some("33333333-3333-3333-3333-333333333333")
+        );
+        assert_eq!(
+            arr.get(1).and_then(serde_json::Value::as_str),
+            Some("44444444-4444-4444-4444-444444444444")
+        );
     }
 }

@@ -59,6 +59,7 @@ mod mqtt;
 mod payload;
 mod persistence;
 mod runtime;
+mod sensor_lookup;
 mod topic;
 
 // Bootstrap exists in a window where `tracing` is not yet installed
@@ -196,6 +197,16 @@ async fn async_main(cfg: Config) -> anyhow::Result<()> {
         publisher_handle,
     } = start_event_publisher(cfg.nats.clone()).await?;
 
+    // Faz 3 follow-on: cache-miss responder client. Builds an mTLS
+    // NatsClient when [nats] is configured; returns None in stub mode
+    // so the binary still boots without a broker for local smoke runs
+    // (cache stays cold in that mode — exactly the previous behaviour).
+    // The drain holds an `Option<Arc<SensorLookupClient>>` and only
+    // fires the fire-and-forget cache-fill helper when Some.
+    let lookup_client = sensor_lookup::start_sensor_lookup_client(cfg.nats.clone())
+        .await
+        .context("starting sensor lookup client")?;
+
     // Stage 13: per-tenant IngestBackend policy. Built from the
     //   `[ingest_backend]` TOML section (defaults to "every tenant on
     //   Node" when the section is absent — safe rollout). The drain
@@ -224,6 +235,7 @@ async fn async_main(cfg: Config) -> anyhow::Result<()> {
             batch_in_tx.clone(),
             events_in_tx.clone(),
             policy,
+            lookup_client.clone(),
         ) => {
             tracing::info!("mqtt stream closed");
         }
@@ -386,20 +398,99 @@ async fn start_event_publisher(
     })
 }
 
-/// Pull messages off the MQTT stream and drop them. A placeholder for
-/// the real pipeline; exists so the module is actually exercised at
-/// runtime and the compiler does not treat it as dead code. The
-/// `cache` argument is held across the loop so the topic-cache
-/// allocation lives for the whole drain session — when the real
-/// `topic::parse → cache.get → upstream lookup → cache.insert` wiring
-/// lands on this PR, the parameter signature is already in place and
-/// callers do not need to be re-routed.
+/// Cache-miss → fire-and-forget responder spawn. Returns `true` when a
+/// spawn was issued (so the caller can bump its counter), `false`
+/// otherwise. Extracted out of `drain_mqtt_stream` to keep that hot-
+/// path function inside the workspace `clippy::too_many_lines = 100`
+/// budget.
+///
+/// WHY a free function:
+///   The helper holds no state; passing the dependencies in
+///   explicitly keeps the call site easy to test and avoids growing
+///   the drain's parameter list with a one-shot policy object.
+fn maybe_spawn_cache_fill(
+    cache_hit: bool,
+    sensor_id: Option<uuid::Uuid>,
+    tenant: tenant_context::TenantId,
+    lookup_client: Option<&Arc<sensor_lookup::SensorLookupClient>>,
+    cache: &Arc<TopicCache>,
+) -> bool {
+    if cache_hit {
+        return false;
+    }
+    let (Some(sensor), Some(client)) = (sensor_id, lookup_client) else {
+        return false;
+    };
+    sensor_lookup::spawn_lookup_and_populate_cache(
+        Arc::clone(client),
+        Arc::clone(cache),
+        tenant,
+        sensor,
+    );
+    true
+}
+
+/// Aggregator-channel push: send the synthesised event to the
+/// publisher channel AND the validated reading to the batch
+/// aggregator. Returns `false` when the batch aggregator's channel is
+/// closed (caller breaks the drain loop); returns `true` for the
+/// healthy case OR when only the publisher channel is closed (drain
+/// continues — persistence is the load-bearing path, publisher is
+/// best-effort). Extracted to keep `drain_mqtt_stream` inside the
+/// workspace `clippy::too_many_lines = 100` budget.
+async fn forward_validated_reading(
+    reading: crate::payload::SensorReading,
+    batch_in: &tokio::sync::mpsc::Sender<crate::payload::SensorReading>,
+    events_in: &tokio::sync::mpsc::Sender<event_contracts_rs::SensorMetricIngestedEvent>,
+) -> bool {
+    // Faz 3 stage 1: synthesise the SensorMetricIngested event from
+    // the validated reading BEFORE the batch send so the event-publish
+    // channel observes every reading the persistence channel does.
+    // The validator pinned tenant/sensor/channel ids; downstream
+    // assertions can rely on TenantMismatch having been enforced.
+    let ev = event_contracts_rs::SensorMetricIngestedEvent::new(
+        *reading.tenant_id.as_uuid(),
+        reading.sensor_id,
+        reading.channel_id,
+        reading.value,
+        reading.quality,
+        reading.producer_ts,
+    );
+    if events_in.send(ev).await.is_err() {
+        // Publisher loop gone — log and continue; persistence still
+        // works, control-plane alarms catch the publisher failure mode.
+        tracing::warn!("event publisher gone; continuing without publish");
+    }
+    // Stage 9: hand the validated reading to the batch aggregator.
+    // send().await blocks if the buffer is full, propagating backpressure
+    // to the broker (MQTT QoS-1 inflight). A closed sender means the
+    // aggregator exited — return false so the drain loop ends naturally.
+    if batch_in.send(reading).await.is_err() {
+        tracing::warn!("batch aggregator gone; ending drain loop");
+        return false;
+    }
+    true
+}
+
+/// Pull messages off the MQTT stream and feed them through the
+/// validate / batch / event-publish pipeline. The `cache` argument is
+/// held across the loop so the topic-cache allocation lives for the
+/// whole drain session; on cache miss + lookup_client present the
+/// drain spawns a fire-and-forget responder request (fill helps the
+/// NEXT message for the same `(tenant, sensor)` key).
 async fn drain_mqtt_stream(
     stream: std::sync::Arc<tokio::sync::Mutex<Option<mqtt::MqttMessageStream>>>,
     cache: Arc<TopicCache>,
     batch_in: tokio::sync::mpsc::Sender<crate::payload::SensorReading>,
     events_in: tokio::sync::mpsc::Sender<event_contracts_rs::SensorMetricIngestedEvent>,
     policy: Arc<dyn ingest_backend::IngestBackendPolicy>,
+    // Faz 3 follow-on: cache-miss responder client. `None` in stub
+    // mode (no [nats] configured) — drain falls back to its previous
+    // hit/miss-only behaviour. `Some` when [nats] is configured: a
+    // cache miss spawns a fire-and-forget lookup that fills the cache
+    // for SUBSEQUENT messages on the same `(tenant, sensor)` key.
+    // The current message proceeds with payload-only data either way.
+    lookup_client: Option<Arc<sensor_lookup::SensorLookupClient>>,
 ) {
     let mut guard = stream.lock().await;
     let Some(s) = guard.as_mut() else {
@@ -415,6 +506,10 @@ async fn drain_mqtt_stream(
     // to NestJS (dropped here in the sidecar) so an operator can
     // correlate sidecar throughput against the rollout fraction.
     let mut node_routed_count: u64 = 0;
+    // Faz 3 follow-on: cache-miss spawns. Counts how often the drain
+    // fired the fire-and-forget responder request. Surfaced in the
+    // tail log so the cache-fill rate is observable.
+    let mut cache_miss_lookup_spawn_count: u64 = 0;
     while let Some(msg) = s.recv().await {
         count = count.saturating_add(1);
         let age_micros = msg.received_at.elapsed().as_micros();
@@ -458,6 +553,22 @@ async fn drain_mqtt_stream(
                     continue;
                 }
                 let cache_hit = sensor_id.is_some_and(|s| cache.get(topic_tenant, s).is_some());
+                // Faz 3 follow-on: on cache MISS, fire the
+                // cache-fill helper. Helper is a no-op when sensor_id
+                // is None, lookup_client is None, or cache_hit is
+                // already true — keeps the hot-path callsite a one-
+                // liner and the function inside the workspace
+                // cognitive-complexity / line budget.
+                if maybe_spawn_cache_fill(
+                    cache_hit,
+                    sensor_id,
+                    topic_tenant,
+                    lookup_client.as_ref(),
+                    &cache,
+                ) {
+                    cache_miss_lookup_spawn_count =
+                        cache_miss_lookup_spawn_count.saturating_add(1);
+                }
                 match payload::validate(&msg.payload, topic_tenant) {
                     Ok(reading) => {
                         tracing::trace!(
@@ -469,42 +580,7 @@ async fn drain_mqtt_stream(
                             cache_hit,
                             "mqtt msg validated"
                         );
-                        // Faz 3 stage 1: synthesise a SensorMetricIngested
-                        // event from the validated reading. Done BEFORE
-                        // batch_in.send so the event-publish channel
-                        // observes every reading the persistence channel
-                        // does — even if the batch aggregator goes away
-                        // first, sensor-service still gets the event and
-                        // can fall back on its own NestJS persistence
-                        // path (Faz 3 NATS consumer, ADR-022).
-                        // The event uses the SAME tenant/sensor/channel
-                        // ids the payload validator pinned, so any
-                        // downstream tenant-binding assertion can rely on
-                        // the validator's TenantMismatch check.
-                        let ev = event_contracts_rs::SensorMetricIngestedEvent::new(
-                            *reading.tenant_id.as_uuid(),
-                            reading.sensor_id,
-                            reading.channel_id,
-                            reading.value,
-                            reading.quality,
-                            reading.producer_ts,
-                        );
-                        if events_in.send(ev).await.is_err() {
-                            // Publisher loop gone — log and continue;
-                            // persistence still works, control-plane
-                            // alarms catch the publisher failure mode.
-                            tracing::warn!("event publisher gone; continuing without publish");
-                        }
-                        // Stage 9: hand the validated reading to the
-                        // batch aggregator. send().await blocks if
-                        // the batch buffer is full, which propagates
-                        // backpressure all the way to the broker
-                        // (MQTT QoS-1 inflight). A closed sender
-                        // means the aggregator already exited; drop
-                        // the message and let the loop end naturally
-                        // when the broker delivers the next.
-                        if batch_in.send(reading).await.is_err() {
-                            tracing::warn!("batch aggregator gone; ending drain loop");
+                        if !forward_validated_reading(reading, &batch_in, &events_in).await {
                             break;
                         }
                     }
@@ -536,6 +612,7 @@ async fn drain_mqtt_stream(
         count,
         topic_parse_failures,
         node_routed_count,
+        cache_miss_lookup_spawn_count,
         cache_len = cache.len(),
         "mqtt drain complete"
     );

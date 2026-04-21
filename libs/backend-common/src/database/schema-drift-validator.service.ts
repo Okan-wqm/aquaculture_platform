@@ -85,7 +85,18 @@ export function createSchemaDriftValidator(
         this.configService.get('SCHEMA_DRIFT_FATAL', 'false') === 'true';
 
       this.logger.log('Scanning entity metadata for schema drift...');
-      const violations: string[] = [];
+      // Severity-aware violations (plan v3 Phase 2 + Phase 8 Stage 1).
+      // ERRORS block the "Schema drift scan clean" boot signal; the
+      // deploy asserter (scripts/deploy/assert-service-signals.ts)
+      // times out at round 30/30 if the signal never emits, rolling
+      // back the deploy.
+      // WARNINGS surface operationally (logged as warn, visible in
+      // Grafana drift dashboard) but do NOT block the signal. Phase 8
+      // Stage 1+ may elevate specific warn classes to error after
+      // per-service cleanup. See drift-classes.ts for the per-class
+      // severity mapping (Class E orphan_column = warn; Class A-D = error).
+      const errorViolations: string[] = [];
+      const warningViolations: string[] = [];
       let skippedNotOwned = 0;
 
       for (const entity of this.dataSource.entityMetadatas) {
@@ -122,13 +133,29 @@ export function createSchemaDriftValidator(
           skippedNotOwned++;
           continue;
         }
-        await this.validateEntity(entity, violations);
+        await this.validateEntity(entity, errorViolations, warningViolations);
       }
 
-      if (violations.length === 0) {
+      // Warnings: logged separately so operators see Class E/F/G drift
+      // accumulation without the signal being blocked. Phase 0 Grafana
+      // drift dashboard aggregates this via the `schema.drift.warn`
+      // literal substring matcher.
+      if (warningViolations.length > 0) {
+        this.logger.warn(
+          `schema.drift.warn service="${serviceName}" — ${warningViolations.length} warn-severity drift(s):\n  ${warningViolations.join('\n  ')}`,
+        );
+      }
+
+      if (errorViolations.length === 0) {
+        // Boot signal emits cleanly even when warnings exist. The deploy
+        // asserter's substring match is `Schema drift scan clean`;
+        // operational signal for warn-level drift is separate.
         this.logger.log(
           `Schema drift scan clean: checked ${this.dataSource.entityMetadatas.length - skippedNotOwned} owned entities, ` +
-            `skipped ${skippedNotOwned} cross-schema read views (synchronize=false)`,
+            `skipped ${skippedNotOwned} cross-schema read views (synchronize=false)` +
+            (warningViolations.length > 0
+              ? `, with ${warningViolations.length} warn-severity drift(s) logged separately`
+              : ''),
         );
         return;
       }
@@ -137,16 +164,16 @@ export function createSchemaDriftValidator(
       // "schema.drift.detected" should be matched in log dashboards /
       // alert rules so operators are paged when an entity drifts.
       this.logger.error(
-        `schema.drift.detected service="${serviceName}" — ${violations.length} violation(s):\n  ${violations.join('\n  ')}`,
+        `schema.drift.detected service="${serviceName}" — ${errorViolations.length} violation(s):\n  ${errorViolations.join('\n  ')}`,
       );
 
       if (fatal) {
         throw new Error(
-          `Schema drift detected in ${violations.length} place(s). ` +
+          `Schema drift detected in ${errorViolations.length} place(s). ` +
             `Set SCHEMA_DRIFT_FATAL=false to start the service anyway, but ` +
             `the drift must be fixed — either via a migration that aligns the ` +
             `DB to the entity, or by reverting the entity change if it was ` +
-            `premature. First violation: ${violations[0]}`,
+            `premature. First violation: ${errorViolations[0]}`,
         );
       }
     }
@@ -157,7 +184,8 @@ export function createSchemaDriftValidator(
      */
     private async validateEntity(
       entity: EntityMetadata,
-      violations: string[],
+      errorViolations: string[],
+      warningViolations: string[],
     ): Promise<void> {
       const schema = entity.schema ?? 'public';
       const tableName = entity.tableName;
@@ -193,7 +221,7 @@ export function createSchemaDriftValidator(
         return;
       }
       if (firstRow.schemaname !== schema) {
-        violations.push(
+        errorViolations.push(
           `[${tableName}] entity declares schema='${schema}' but table lives in '${firstRow.schemaname}'`,
         );
         return;
@@ -223,7 +251,7 @@ export function createSchemaDriftValidator(
           // every INSERT/SELECT against that column crashes today, NOT
           // "after migration". Operators in a genuine mid-migration
           // window can suppress via SCHEMA_DRIFT_FATAL=false (default).
-          violations.push(
+          errorViolations.push(
             `[${schema}.${tableName}.${dbName}] entity declares column but DB has no such column`,
           );
           continue;
@@ -235,7 +263,7 @@ export function createSchemaDriftValidator(
         const entityType = typeof column.type === 'string' ? column.type : '';
         if (entityType === 'uuid') {
           if (dbColumn.data_type !== 'uuid') {
-            violations.push(
+            errorViolations.push(
               `[${schema}.${tableName}.${dbName}] entity declares uuid but DB is ${dbColumn.data_type}`,
             );
           }
@@ -245,30 +273,30 @@ export function createSchemaDriftValidator(
         // null risk. The reverse (DB says NOT NULL, entity says nullable)
         // is safe (no runtime error possible), so skip that direction.
         if (!column.isNullable && dbColumn.is_nullable === 'YES') {
-          violations.push(
+          errorViolations.push(
             `[${schema}.${tableName}.${dbName}] entity declares NOT NULL but DB column is nullable`,
           );
         }
       }
 
       // Class E — orphan_column: DB has a column the entity does not
-      // declare. Severity WARN (not error) because dropping the column
-      // is a data-loss operation gated by an allowlist (Phase 3
-      // dropOrphanedColumns primitive). Logged to the same violations
-      // channel so operators see the drift surface; does NOT prevent
-      // "Schema drift scan clean" emission in the default SCHEMA_DRIFT_
-      // FATAL=false mode, but Phase 8 Stage 2+ elevates to error once
-      // every existing E violation is either allowlisted or dropped.
+      // declare. Severity WARN (not error) per drift-classes.ts — dropping
+      // the column is a data-loss operation gated by an allowlist
+      // (Phase 3 dropOrphanedColumns primitive). Routes to
+      // `warningViolations` so operators see the drift surface WITHOUT
+      // blocking the "Schema drift scan clean" boot signal — avoids
+      // the deploy-asserter timeout regression that a 4-class → 5-class
+      // elevation would otherwise cause.
       //
-      // Implementation note: we iterate DB columns and check absence
-      // in the entity's declared column set. The entity.columns set is
-      // keyed by databaseName (TypeORM's naming-strategy-normalised form).
+      // Phase 8 Stage 2+ may elevate specific orphan columns to error
+      // severity once every existing E violation is either allowlisted
+      // or dropped via Phase 3's dropOrphanedColumns primitive.
       const entityColumnNames = new Set(
         entity.columns.map((c) => c.databaseName),
       );
       for (const dbCol of columnRows) {
         if (!entityColumnNames.has(dbCol.column_name)) {
-          violations.push(
+          warningViolations.push(
             `[${schema}.${tableName}.${dbCol.column_name}] DB has column but entity does not declare it (orphan_column — see drift-classes.ts Class E)`,
           );
         }

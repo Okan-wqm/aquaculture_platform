@@ -3,6 +3,32 @@
 Plan-independent real problems uncovered while reading code. See memory
 `feedback_orphan_findings_doc.md` for the policy.
 
+## TEST-PREEXISTING-001 — schema-manager.spec.ts: 3 tests fail regardless of current branch changes (2026-04-21)
+
+**Status**: OPEN. Documented during Phase 2 implementation; not caused by
+any v3 refactor commit.
+
+**Scope**: `libs/backend-common/src/database/__tests__/schema-manager.spec.ts`
+
+**Symptoms**:
+- `should drop schema on failure (rollback)` — fails with "Schema creation failed"
+- `should reset search_path to public using set_config` — fails
+- `should handle migration errors gracefully` — fails
+
+Reproducible on baseline (git stash of unrelated changes → same 3 fail).
+Last commit to touch the spec was `734fd574` (L3 audit remediation) —
+predates the db-migrate enterprise refactor.
+
+**Why surfaced now**: the Phase 2 severity-aware validator refactor
+triggered a broader `nx affected --target=test` run which included
+schema-manager tests. They would have failed identically on main
+before Phase 1 kick-off.
+
+**Next step**: owner audit — likely a test-fixture mismatch with
+schema-manager.service.ts behaviour (mock expectations drifted vs
+real service). NOT blocking the v3 refactor; tracked here so future
+reviewers know it's not a v3-introduced regression.
+
 ## DEPLOY-CRITICAL-004 — nullability + uuid drift survives first-phase HR heal, blocks SchemaDriftValidator clean signal
 
 **Status:** RESOLVED — fixed by the commit that introduced this entry.

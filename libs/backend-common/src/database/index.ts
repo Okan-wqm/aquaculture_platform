@@ -100,6 +100,30 @@ export * from './rls';
 // event-store); each calls the factory with its own source schema name.
 export * from './migration-runner';
 
+// MigrationRunnerModule — Phase 6 platform wiring wrapper. Services
+// import `MigrationRunnerModule.forRoot({schema: 'hr'})` instead of
+// pasting the factory providers block. Auto-threads the MigrationEventSink
+// + ConfigService through Nest DI.
+export { MigrationRunnerModule } from './migration-runner/migration-runner.module';
+export type { MigrationRunnerModuleOptions } from './migration-runner/migration-runner.module';
+
+// Retention — single-enforcer-many-policies pattern (plan v3 R17).
+// Tables with SOC2 / KVKK retention windows register a policy at
+// module-init; RetentionEnforcementService iterates all on a daily
+// cron. See retention/retention-policy.ts docblock.
+export * from './retention';
+
+// assertExpandContractDependency — R6 runtime gate. Called by
+// MigrationRunnerService before executing each migration; contract-phase
+// classes MUST have their dependsOn expand migration recorded in
+// observability.migration_backfill_progress for the environment.
+// See assert-expand-contract-dependency.ts docblock.
+export { assertExpandContractDependency } from './assert-expand-contract-dependency';
+export type {
+  AssertDependencyOptions,
+  AssertDependencyResult,
+} from './assert-expand-contract-dependency';
+
 // Schema drift validator — OnApplicationBootstrap provider factory that
 // compares entity metadata against information_schema on every boot and
 // fails fast on divergence (uuid→text drift, wrong schema, nullability
@@ -136,6 +160,12 @@ export type {
   IntrospectedColumn,
   IntrospectedEnum,
   IntrospectedTable,
+  IntrospectedPartialIndex,
+  IntrospectedExcludeConstraint,
+  IntrospectedForeignKeyAction,
+  IntrospectedGeneratedColumn,
+  IntrospectedHypertable,
+  IntrospectedRlsPolicy,
   SchemaSnapshot,
 } from './schema-drift/pg-catalog-introspector';
 
@@ -247,6 +277,26 @@ export type {
   MigrationEventPublisher,
   NatsMigrationEventSinkOptions,
 } from './nats-migration-event-sink';
+
+// @TenantFanOut + @AllowTenantDelta — Phase 6 R21/R24 migration-class
+// metadata. Orchestrator reads fan-out policy; Class I drift check
+// reads tenant delta allowlist. See tenant-fanout.decorator.ts.
+export {
+  TenantFanOut,
+  AllowTenantDelta,
+  TENANT_FANOUT_META_KEY,
+  ALLOW_TENANT_DELTA_META_KEY,
+  getTenantFanOutMetadata,
+  getAllowedTenantDeltaPrefixes,
+  isTenantDeltaAllowed,
+} from './tenant-fanout.decorator';
+export type {
+  TenantLockClass,
+  TenantFanOutOptions,
+  TenantFanOutMetadata,
+  AllowTenantDeltaOptions,
+  AllowTenantDeltaMetadata,
+} from './tenant-fanout.decorator';
 
 // @ExpandContract — declarative marker for blue-green migration phases.
 // Phase 4 PR-gate reads this metadata to authorize breaking diffs on

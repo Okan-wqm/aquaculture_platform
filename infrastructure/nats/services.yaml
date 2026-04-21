@@ -300,3 +300,44 @@ services:
       - "AQUACULTURE_EVENTS.>"
       - "$JS.API.>"
       - "_INBOX.>"
+
+  # ---------------------------------------------------------------------------
+  # observability-service: migration audit sink + security events sink
+  # ---------------------------------------------------------------------------
+  # WHAT — observability is a consumer-only service. It subscribes to two
+  #   cross-service event bridges:
+  #     1. events.platform.schema-migration.> — SchemaMigrationEventsConsumer
+  #        translates each started/applied/failed/skipped event into a
+  #        RecordMigrationEventCommand → observability.migration_events +
+  #        observability.migration_backfill_progress (ADR-022, plan v3 R6).
+  #     2. events.security.events.> — SecurityEventsConsumerService counts
+  #        security events for Prometheus + structured log sink.
+  #
+  # WHY — Phase 6 added the NATS consumer path to observability-service but
+  #   the SSoT entry was missed. Without an entry here:
+  #     - generate-nats-conf.py never emits a `CN=observability_service` user
+  #       in nats.conf authorization{} → server rejects the TLS handshake
+  #       with `Authorization Violation` + container restart loop.
+  #     - generate-internal-certs.sh never mints the mTLS client cert, so
+  #       the compose mount path is empty → `ENOENT` on boot.
+  #   Both failure modes surfaced as the "observability restart loop" in
+  #   the 2026-04-21 deploy where the boot-signal assertion
+  #   ("Schema drift scan clean") never emitted because the Nest bootstrap
+  #   aborted at NatsEventBus.onModuleInit before SchemaDriftValidator ran.
+  #
+  # PUBLISH — minimal $JS.API + _INBOX only; observability does not emit
+  #   domain events. Generator requires publish to be non-empty.
+  #
+  # SUBSCRIBE — scoped to the two consumer subjects + JetStream/_INBOX. No
+  #   AQUACULTURE_EVENTS.> blanket subscribe; observability does not consume
+  #   domain events (R26: NATS subject ACL narrowing — least privilege).
+  - name: observability_service
+    description: Observability — migration audit sink, security events sink, Prometheus/OTEL exporter
+    publish:
+      - "$JS.API.>"
+      - "_INBOX.>"
+    subscribe:
+      - "events.platform.schema-migration.>"
+      - "events.security.events.>"
+      - "$JS.API.>"
+      - "_INBOX.>"

@@ -114,6 +114,21 @@ x-nats-hydroponics-env: &nats-hydroponics-env
   NATS_TLS_KEY: /etc/ssl/nats-clients/hydroponics_service-key.pem
   NATS_TLS_ENABLED: "true"
 
+# observability-service connects as a CONSUMER to NATS (migration audit sink +
+# security events sink). Phase 6 Step 6 added SchemaMigrationEventsConsumer
+# which subscribes to `events.platform.schema-migration.>`; the existing
+# SecurityEventsConsumerService subscribes to `events.security.events.>`. Both
+# require a cert-CN-authenticated NATS identity per ADR-015. Registered in
+# infrastructure/nats/services.yaml as `observability_service` so the cert
+# generator mints clients/observability_service-{cert,key}.pem and
+# generate-nats-conf.py emits the matching `CN=observability_service` user.
+x-nats-observability-env: &nats-observability-env
+  NATS_URL: tls://nats:4222
+  NATS_TLS_CA: /etc/ssl/nats-ca.pem
+  NATS_TLS_CERT: /etc/ssl/nats-clients/observability_service-cert.pem
+  NATS_TLS_KEY: /etc/ssl/nats-clients/observability_service-key.pem
+  NATS_TLS_ENABLED: "true"
+
 x-nats-ca-mount: &nats-ca-mount ./certs/nats/ca-cert.pem:/etc/ssl/nats-ca.pem:ro
 # SECURITY (HIGH-002 / V4): per-service mTLS client certs.
 # NATS runs `verify_and_map: true` — cert CN maps directly to NATS user.
@@ -1270,12 +1285,31 @@ services:
       # Observability reads cross-service metrics from the main aquaculture DB
       # (sensor, auth, alert, farm schemas). No own entities — schema-based isolation.
       DATABASE_NAME: aquaculture
+      # Phase 6 Step 6 + SecurityEventsModule both import EventBusModule.forRoot();
+      # NatsEventBus.onModuleInit connects to NATS at bootstrap. Under NODE_ENV=production
+      # the nats-connection.factory hard-fails if no auth is configured — cert CN is the
+      # NATS identity (ADR-015). Previously MISSING here, which aborted Nest bootstrap
+      # before SchemaDriftValidator emitted its "Schema drift scan clean" signal and put
+      # the container in a restart loop. Cert identity registered in
+      # infrastructure/nats/services.yaml → observability_service.
+      <<: *nats-observability-env
     depends_on:
       postgres:
+        condition: service_healthy
+      # NATS MUST be healthy before observability starts — NatsEventBus.onModuleInit
+      # throws (and crashes the process) if the broker isn't accepting TLS handshakes.
+      # Adding the healthy-gate prevents a restart-loop race where observability boots
+      # seconds before nats finishes loading certs.
+      nats:
         condition: service_healthy
       # WS10: ADR-016 Phase E Phase 1 — schema pre-applied by aqua-db-migrate.
       db-migrate:
         condition: service_completed_successfully
+    volumes:
+      # Per-service mTLS client cert + CA bundle — cert CN `observability_service`
+      # is the NATS user identity (verify_and_map in nats.conf).
+      - *nats-ca-mount
+      - *nats-clients-mount
     # Attached to aqua-internal only — no published ports, not reachable from external network
     networks:
       - aqua-internal

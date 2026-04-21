@@ -24,6 +24,12 @@ function makeSnapshot(overrides: Partial<SchemaSnapshot> = {}): SchemaSnapshot {
     tables: [],
     enums: [],
     checkConstraints: [],
+    partialIndexes: [],
+    excludeConstraints: [],
+    foreignKeyActions: [],
+    generatedColumns: [],
+    hypertables: [],
+    rlsPolicies: [],
     capturedAt: '2026-04-21T09:00:00.000Z',
     ...overrides,
   };

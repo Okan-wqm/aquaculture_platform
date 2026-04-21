@@ -3,7 +3,7 @@
  * Uses fixture entities to verify each of the 4 drift classes (A-D) is
  * detected correctly, and that a clean shape produces zero violations.
  */
-import { EncryptedAtRest } from '@aquaculture/backend-common';
+import { AllowTenantDelta, EncryptedAtRest } from '@aquaculture/backend-common';
 import { Check, Column, Entity, PrimaryColumn } from 'typeorm';
 
 import {
@@ -71,6 +71,16 @@ class EmployeeSensitiveEntity {
   @Column({ type: 'bytea', name: 'national_id', nullable: false })
   @EncryptedAtRest({ keyId: 'tenant-pii-v1', algorithm: 'pgp_sym' })
   nationalId!: Buffer;
+}
+
+@Entity({ name: 'widget_delta', schema: 'drifttest' })
+@AllowTenantDelta({ columnPrefix: ['enterprise_', 'custom_'] })
+class WidgetDeltaEntity {
+  @PrimaryColumn({ type: 'uuid' })
+  id!: string;
+
+  @Column({ type: 'text', nullable: false })
+  name!: string;
 }
 
 describe('expectNoDriftAgainst — 4-class drift detection', () => {
@@ -587,6 +597,47 @@ describe('expectNoDriftAgainst — 4-class drift detection', () => {
       } finally {
         await qr.query(`DROP SCHEMA IF EXISTS drifttest CASCADE`);
         await qr.query(`DROP SCHEMA IF EXISTS ${tenantMissing} CASCADE`);
+      }
+    });
+  });
+
+  it('Class I suppresses allowlisted-prefix extra columns per @AllowTenantDelta (R24)', async () => {
+    await withEphemeralSchema(ctx!, async (_e, qr) => {
+      await qr.query(`CREATE SCHEMA IF NOT EXISTS drifttest`);
+      const tenant = 'tenant_eeeeeeeeeeeeeeee';
+      await qr.query(`CREATE SCHEMA IF NOT EXISTS ${tenant}`);
+      try {
+        await qr.query(
+          `CREATE TABLE drifttest.widget_delta (
+             id uuid PRIMARY KEY,
+             name text NOT NULL
+           )`,
+        );
+        // Tenant carries two extra columns: one authorized (enterprise_*
+        // matches the @AllowTenantDelta prefix) and one unauthorized
+        // (legacy_* does NOT match).
+        await qr.query(
+          `CREATE TABLE ${tenant}.widget_delta (
+             id uuid PRIMARY KEY,
+             name text NOT NULL,
+             enterprise_sla_tier text,
+             legacy_flag boolean
+           )`,
+        );
+        const report = await expectNoDriftAgainst(
+          { qr, schema: 'drifttest', tenantScan: true },
+          [WidgetDeltaEntity],
+        );
+        // ONLY the unauthorized column should emit a violation.
+        expect(report.byClass.per_tenant_shape_divergence).toBe(1);
+        expect(
+          report.violations.some(
+            (v) => v.includes('legacy_flag') && !v.includes('enterprise_'),
+          ),
+        ).toBe(true);
+      } finally {
+        await qr.query(`DROP SCHEMA IF EXISTS drifttest CASCADE`);
+        await qr.query(`DROP SCHEMA IF EXISTS ${tenant} CASCADE`);
       }
     });
   });

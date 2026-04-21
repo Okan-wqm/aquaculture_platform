@@ -15,6 +15,14 @@ function makeRepoMock(): jest.Mocked<MigrationEventRepository> {
   } as unknown as jest.Mocked<MigrationEventRepository>;
 }
 
+function makeProgressRepoMock(): {
+  query: jest.Mock;
+} & Record<string, unknown> {
+  return {
+    query: jest.fn(async () => []),
+  };
+}
+
 function makeConfigMock(
   entries: Record<string, string | undefined>,
 ): ConfigService {
@@ -30,7 +38,8 @@ describe('RecordMigrationEventHandler', () => {
   it('persists a platform-level event with defaults (no tenant, no error)', async () => {
     const repo = makeRepoMock();
     const cfg = makeConfigMock({ AQUA_ENV: 'staging' });
-    const handler = new RecordMigrationEventHandler(repo, cfg);
+    const progressRepo = makeProgressRepoMock() as unknown as import('typeorm').Repository<import('../../../database/entities/migration-backfill-progress.entity').MigrationBackfillProgressEntity>;
+    const handler = new RecordMigrationEventHandler(repo, cfg, progressRepo);
 
     const cmd = new RecordMigrationEventCommand({
       serviceName: 'hr',
@@ -54,7 +63,8 @@ describe('RecordMigrationEventHandler', () => {
   it('hashes tenantSchema via HMAC pepper (no cleartext persisted)', async () => {
     const repo = makeRepoMock();
     const cfg = makeConfigMock({});
-    const handler = new RecordMigrationEventHandler(repo, cfg);
+    const progressRepo = makeProgressRepoMock() as unknown as import('typeorm').Repository<import('../../../database/entities/migration-backfill-progress.entity').MigrationBackfillProgressEntity>;
+    const handler = new RecordMigrationEventHandler(repo, cfg, progressRepo);
 
     await handler.execute(
       new RecordMigrationEventCommand({
@@ -79,8 +89,10 @@ describe('RecordMigrationEventHandler', () => {
     const repo1 = makeRepoMock();
     const repo2 = makeRepoMock();
     const cfg = makeConfigMock({});
-    const handler1 = new RecordMigrationEventHandler(repo1, cfg);
-    const handler2 = new RecordMigrationEventHandler(repo2, cfg);
+    const progressRepo1 = makeProgressRepoMock() as unknown as import('typeorm').Repository<import('../../../database/entities/migration-backfill-progress.entity').MigrationBackfillProgressEntity>;
+    const progressRepo2 = makeProgressRepoMock() as unknown as import('typeorm').Repository<import('../../../database/entities/migration-backfill-progress.entity').MigrationBackfillProgressEntity>;
+    const handler1 = new RecordMigrationEventHandler(repo1, cfg, progressRepo1);
+    const handler2 = new RecordMigrationEventHandler(repo2, cfg, progressRepo2);
 
     const cmd = new RecordMigrationEventCommand({
       serviceName: 'hr',
@@ -99,7 +111,8 @@ describe('RecordMigrationEventHandler', () => {
   it('sanitizes PG errors before persisting error_detail (row-leak stripped)', async () => {
     const repo = makeRepoMock();
     const cfg = makeConfigMock({});
-    const handler = new RecordMigrationEventHandler(repo, cfg);
+    const progressRepo = makeProgressRepoMock() as unknown as import('typeorm').Repository<import('../../../database/entities/migration-backfill-progress.entity').MigrationBackfillProgressEntity>;
+    const handler = new RecordMigrationEventHandler(repo, cfg, progressRepo);
 
     const pgError = Object.assign(
       new Error(
@@ -131,7 +144,8 @@ describe('RecordMigrationEventHandler', () => {
   it('defaults environment to development when AQUA_ENV unset', async () => {
     const repo = makeRepoMock();
     const cfg = makeConfigMock({});
-    const handler = new RecordMigrationEventHandler(repo, cfg);
+    const progressRepo = makeProgressRepoMock() as unknown as import('typeorm').Repository<import('../../../database/entities/migration-backfill-progress.entity').MigrationBackfillProgressEntity>;
+    const handler = new RecordMigrationEventHandler(repo, cfg, progressRepo);
 
     await handler.execute(
       new RecordMigrationEventCommand({
@@ -148,7 +162,8 @@ describe('RecordMigrationEventHandler', () => {
   it('routes validator_warn / validator_error events correctly', async () => {
     const repo = makeRepoMock();
     const cfg = makeConfigMock({ AQUA_ENV: 'production' });
-    const handler = new RecordMigrationEventHandler(repo, cfg);
+    const progressRepo = makeProgressRepoMock() as unknown as import('typeorm').Repository<import('../../../database/entities/migration-backfill-progress.entity').MigrationBackfillProgressEntity>;
+    const handler = new RecordMigrationEventHandler(repo, cfg, progressRepo);
 
     await handler.execute(
       new RecordMigrationEventCommand({
@@ -168,7 +183,8 @@ describe('RecordMigrationEventHandler', () => {
   it('persists pre-sanitized errorDetail verbatim (NATS consumer path)', async () => {
     const repo = makeRepoMock();
     const cfg = makeConfigMock({});
-    const handler = new RecordMigrationEventHandler(repo, cfg);
+    const progressRepo = makeProgressRepoMock() as unknown as import('typeorm').Repository<import('../../../database/entities/migration-backfill-progress.entity').MigrationBackfillProgressEntity>;
+    const handler = new RecordMigrationEventHandler(repo, cfg, progressRepo);
 
     await handler.execute(
       new RecordMigrationEventCommand({
@@ -195,7 +211,8 @@ describe('RecordMigrationEventHandler', () => {
   it('throws when payload carries BOTH error and errorDetail (ambiguity)', async () => {
     const repo = makeRepoMock();
     const cfg = makeConfigMock({});
-    const handler = new RecordMigrationEventHandler(repo, cfg);
+    const progressRepo = makeProgressRepoMock() as unknown as import('typeorm').Repository<import('../../../database/entities/migration-backfill-progress.entity').MigrationBackfillProgressEntity>;
+    const handler = new RecordMigrationEventHandler(repo, cfg, progressRepo);
 
     await expect(
       handler.execute(
@@ -218,7 +235,8 @@ describe('RecordMigrationEventHandler', () => {
   it('uses provided occurredAt when given (preserves orchestrator clock)', async () => {
     const repo = makeRepoMock();
     const cfg = makeConfigMock({});
-    const handler = new RecordMigrationEventHandler(repo, cfg);
+    const progressRepo = makeProgressRepoMock() as unknown as import('typeorm').Repository<import('../../../database/entities/migration-backfill-progress.entity').MigrationBackfillProgressEntity>;
+    const handler = new RecordMigrationEventHandler(repo, cfg, progressRepo);
 
     const when = new Date('2026-04-21T10:00:00.000Z');
     await handler.execute(
@@ -232,5 +250,95 @@ describe('RecordMigrationEventHandler', () => {
 
     const call = repo.insert.mock.calls[0]![0]!;
     expect(call.occurredAt.toISOString()).toBe('2026-04-21T10:00:00.000Z');
+  });
+
+  describe('R6 migration_backfill_progress write', () => {
+    it('writes an UPSERT row on applied + source-schema event', async () => {
+      const repo = makeRepoMock();
+      const cfg = makeConfigMock({ AQUA_ENV: 'production' });
+      const progressRepo = makeProgressRepoMock();
+      const handler = new RecordMigrationEventHandler(
+        repo,
+        cfg,
+        progressRepo as unknown as import('typeorm').Repository<import('../../../database/entities/migration-backfill-progress.entity').MigrationBackfillProgressEntity>,
+      );
+
+      await handler.execute(
+        new RecordMigrationEventCommand({
+          serviceName: 'hr',
+          migrationName: 'AddFooExpand1234',
+          eventType: 'applied',
+          durationMs: 100,
+          occurredAt: new Date('2026-04-21T11:00:00.000Z'),
+        }),
+      );
+
+      expect(progressRepo.query).toHaveBeenCalledTimes(1);
+      const [sql, params] = progressRepo.query.mock.calls[0]!;
+      expect(sql).toContain(
+        'INSERT INTO observability.migration_backfill_progress',
+      );
+      expect(sql).toContain(
+        'ON CONFLICT (migration_name, environment) DO NOTHING',
+      );
+      expect(params).toEqual([
+        'AddFooExpand1234',
+        'production',
+        'hr',
+        '2026-04-21T11:00:00.000Z',
+      ]);
+    });
+
+    it('does NOT write progress row for tenant fan-out applied events', async () => {
+      const repo = makeRepoMock();
+      const cfg = makeConfigMock({});
+      const progressRepo = makeProgressRepoMock();
+      const handler = new RecordMigrationEventHandler(
+        repo,
+        cfg,
+        progressRepo as unknown as import('typeorm').Repository<import('../../../database/entities/migration-backfill-progress.entity').MigrationBackfillProgressEntity>,
+      );
+
+      await handler.execute(
+        new RecordMigrationEventCommand({
+          serviceName: 'hr',
+          migrationName: 'AddFooExpand1234',
+          eventType: 'applied',
+          tenantSchema: 'tenant_1234567890abcdef',
+          durationMs: 100,
+        }),
+      );
+
+      expect(progressRepo.query).not.toHaveBeenCalled();
+    });
+
+    it('does NOT write progress row for non-applied event types', async () => {
+      const repo = makeRepoMock();
+      const cfg = makeConfigMock({});
+      const progressRepo = makeProgressRepoMock();
+      const handler = new RecordMigrationEventHandler(
+        repo,
+        cfg,
+        progressRepo as unknown as import('typeorm').Repository<import('../../../database/entities/migration-backfill-progress.entity').MigrationBackfillProgressEntity>,
+      );
+
+      for (const eventType of [
+        'start',
+        'failed',
+        'skipped',
+        'validator_clean',
+        'validator_warn',
+        'validator_error',
+      ] as const) {
+        await handler.execute(
+          new RecordMigrationEventCommand({
+            serviceName: 'hr',
+            migrationName: 'X',
+            eventType,
+          }),
+        );
+      }
+      expect(progressRepo.query).not.toHaveBeenCalled();
+    });
   });
 });

@@ -62,26 +62,43 @@ describe('parseAlterColumnTypeTargets', () => {
 });
 
 describe('dropDependentPartialIndexes', () => {
+  /**
+   * Fake QueryRunner that routes the two read queries (pg_indexes,
+   * pg_constraint) through supplied row sets and records every DDL
+   * issued for assertion.
+   */
   const makeQueryRunner = (
-    pgIndexesRows: Array<{ indexname: string; indexdef: string }>,
+    pgIndexRows: Array<{
+      indexname: string;
+      indexdef: string;
+      conname: string | null;
+      contype: string | null;
+    }>,
+    pgCheckRows: Array<{ conname: string; condef: string }> = [],
   ): { qr: QueryRunner; query: jest.Mock } => {
     const query = jest.fn(async (sql: string) => {
-      if (/FROM pg_indexes/i.test(sql)) return pgIndexesRows;
+      if (/FROM pg_indexes/i.test(sql)) return pgIndexRows;
+      if (/FROM pg_constraint/i.test(sql)) return pgCheckRows;
       if (/^DROP INDEX/i.test(sql)) return [];
+      if (/^ALTER\s+TABLE.*DROP\s+CONSTRAINT/i.test(sql)) return [];
       throw new Error(`Unexpected SQL: ${sql}`);
     });
     return { qr: { query } as unknown as QueryRunner, query };
   };
 
-  it('drops partial indexes whose WHERE predicate references the target column', async () => {
+  it('drops standalone partial indexes whose WHERE predicate references the target column', async () => {
     const { qr, query } = makeQueryRunner([
       {
         indexname: 'IDX_emp_cert_expiry',
         indexdef: `CREATE INDEX "IDX_emp_cert_expiry" ON "hr"."employee_certifications" ("tenant_id", "expiry_date") WHERE (status = 'active'::hr.certification_status)`,
+        conname: null,
+        contype: null,
       },
       {
         indexname: 'IDX_emp_cert_pk',
         indexdef: `CREATE UNIQUE INDEX "IDX_emp_cert_pk" ON "hr"."employee_certifications" ("id")`,
+        conname: null,
+        contype: null,
       },
     ]);
 
@@ -94,14 +111,14 @@ describe('dropDependentPartialIndexes', () => {
         schema: 'hr',
         table: 'employee_certifications',
         column: 'status',
-        indexName: 'IDX_emp_cert_expiry',
-        indexDef: expect.stringContaining('WHERE'),
+        kind: 'partial_index',
+        name: 'IDX_emp_cert_expiry',
+        definition: expect.stringContaining('WHERE'),
       },
     ]);
     expect(query).toHaveBeenCalledWith(
       `DROP INDEX IF EXISTS "hr"."IDX_emp_cert_expiry"`,
     );
-    // Non-partial index must not be dropped.
     expect(
       query.mock.calls.some(
         ([sql]) =>
@@ -110,11 +127,112 @@ describe('dropDependentPartialIndexes', () => {
     ).toBe(false);
   });
 
+  it('drops EXCLUDE-constraint-backed partial indexes via DROP CONSTRAINT (not DROP INDEX)', async () => {
+    const { qr, query } = makeQueryRunner([
+      {
+        indexname: 'leave_no_overlap',
+        indexdef: `CREATE INDEX "leave_no_overlap" ON "hr"."leave_requests" USING gist (tenant_id, period) WHERE (status = 'approved'::hr.leave_status)`,
+        conname: 'leave_no_overlap',
+        contype: 'x',
+      },
+    ]);
+
+    const dropped = await dropDependentPartialIndexes(qr, [
+      { schema: 'hr', table: 'leave_requests', column: 'status' },
+    ]);
+
+    expect(dropped).toEqual([
+      {
+        schema: 'hr',
+        table: 'leave_requests',
+        column: 'status',
+        kind: 'excl_or_unique_constraint',
+        name: 'leave_no_overlap',
+        definition: expect.stringContaining('leave_no_overlap'),
+      },
+    ]);
+    expect(query).toHaveBeenCalledWith(
+      `ALTER TABLE "hr"."leave_requests" DROP CONSTRAINT "leave_no_overlap"`,
+    );
+    // Must NOT attempt DROP INDEX — PG rejects that on constraint-backed indexes.
+    expect(
+      query.mock.calls.some(
+        ([sql]) =>
+          typeof sql === 'string' &&
+          /^DROP INDEX/i.test(sql) &&
+          sql.includes('leave_no_overlap'),
+      ),
+    ).toBe(false);
+  });
+
+  it('drops CHECK constraints whose definition references the target column', async () => {
+    const { qr, query } = makeQueryRunner(
+      [],
+      [
+        {
+          conname: 'chk_status_valid',
+          condef: `CHECK ((status = 'active'::hr.leave_status OR status = 'closed'::hr.leave_status))`,
+        },
+      ],
+    );
+
+    const dropped = await dropDependentPartialIndexes(qr, [
+      { schema: 'hr', table: 'leave_requests', column: 'status' },
+    ]);
+
+    expect(dropped).toEqual([
+      {
+        schema: 'hr',
+        table: 'leave_requests',
+        column: 'status',
+        kind: 'check_constraint',
+        name: 'chk_status_valid',
+        definition: expect.stringContaining('status'),
+      },
+    ]);
+    expect(query).toHaveBeenCalledWith(
+      `ALTER TABLE "hr"."leave_requests" DROP CONSTRAINT "chk_status_valid"`,
+    );
+  });
+
+  it('does not double-drop a constraint that appears as both a backed index and in the CHECK list', async () => {
+    const { qr, query } = makeQueryRunner(
+      [
+        {
+          indexname: 'idx_backed',
+          indexdef: `CREATE INDEX "idx_backed" ON "hr"."t" ("id") WHERE (status = 'open'::hr.st)`,
+          conname: 'shared_name',
+          contype: 'u',
+        },
+      ],
+      [
+        {
+          conname: 'shared_name',
+          condef: `CHECK (status = 'open'::hr.st)`,
+        },
+      ],
+    );
+
+    const dropped = await dropDependentPartialIndexes(qr, [
+      { schema: 'hr', table: 't', column: 'status' },
+    ]);
+
+    expect(dropped).toHaveLength(1);
+    expect(dropped[0]?.kind).toBe('excl_or_unique_constraint');
+    const dropConstraintCalls = query.mock.calls.filter(
+      ([sql]) =>
+        typeof sql === 'string' && /DROP\s+CONSTRAINT\s+"shared_name"/i.test(sql),
+    );
+    expect(dropConstraintCalls).toHaveLength(1);
+  });
+
   it('leaves partial indexes that do not reference the target column intact', async () => {
     const { qr, query } = makeQueryRunner([
       {
-        indexname: 'IDX_emp_cert_active_by_tenant',
-        indexdef: `CREATE INDEX "IDX_emp_cert_active_by_tenant" ON "hr"."employee_certifications" ("tenant_id") WHERE (deleted_at IS NULL)`,
+        indexname: 'IDX_by_tenant_not_deleted',
+        indexdef: `CREATE INDEX "IDX_by_tenant_not_deleted" ON "hr"."employee_certifications" ("tenant_id") WHERE (deleted_at IS NULL)`,
+        conname: null,
+        contype: null,
       },
     ]);
 
@@ -125,22 +243,29 @@ describe('dropDependentPartialIndexes', () => {
     expect(dropped).toEqual([]);
     expect(
       query.mock.calls.some(
-        ([sql]) => typeof sql === 'string' && sql.startsWith('DROP INDEX'),
+        ([sql]) =>
+          typeof sql === 'string' &&
+          (sql.startsWith('DROP INDEX') ||
+            /DROP\s+CONSTRAINT/i.test(sql)),
       ),
     ).toBe(false);
   });
 
-  it('issues one pg_indexes lookup per (schema, table) group', async () => {
+  it('issues one pg_indexes lookup + one pg_constraint lookup per (schema, table) group', async () => {
     const { qr, query } = makeQueryRunner([]);
     await dropDependentPartialIndexes(qr, [
       { schema: 'hr', table: 'employee_certifications', column: 'status' },
       { schema: 'hr', table: 'employee_certifications', column: 'category' },
       { schema: 'hr', table: 'training_enrollments', column: 'status' },
     ]);
-    const lookupCalls = query.mock.calls.filter(([sql]) =>
+    const indexLookups = query.mock.calls.filter(([sql]) =>
       /FROM pg_indexes/i.test(String(sql)),
     );
-    expect(lookupCalls).toHaveLength(2);
+    const constraintLookups = query.mock.calls.filter(([sql]) =>
+      /FROM pg_constraint/i.test(String(sql)),
+    );
+    expect(indexLookups).toHaveLength(2);
+    expect(constraintLookups).toHaveLength(2);
   });
 
   it('rejects unsafe schema, table, or column identifiers', async () => {
@@ -167,6 +292,8 @@ describe('dropDependentPartialIndexes', () => {
       {
         indexname: 'IDX_combined',
         indexdef: `CREATE INDEX "IDX_combined" ON "hr"."t" ("id") WHERE (status_extended = 'active'::text)`,
+        conname: null,
+        contype: null,
       },
     ]);
     const dropped = await dropDependentPartialIndexes(qr, [
@@ -175,7 +302,7 @@ describe('dropDependentPartialIndexes', () => {
     expect(dropped).toEqual([]);
     expect(
       query.mock.calls.some(
-        ([sql]) => typeof sql === 'string' && sql.startsWith('DROP INDEX'),
+        ([sql]) => typeof sql === 'string' && /DROP\s+INDEX/i.test(sql),
       ),
     ).toBe(false);
   });

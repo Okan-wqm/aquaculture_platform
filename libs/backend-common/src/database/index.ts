@@ -36,6 +36,9 @@ export {
 } from './base-migration';
 export type {
   AlterColumnTypeTarget,
+  BlockingDependency,
+  BlockingDependencyKind,
+  /** @deprecated alias for {@link BlockingDependency} */
   BlockingPartialIndex,
 } from './base-migration';
 

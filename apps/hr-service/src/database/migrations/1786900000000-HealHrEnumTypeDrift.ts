@@ -215,21 +215,21 @@ export class HealHrEnumTypeDrift1786900000000 implements MigrationInterface {
       relevantQueries.map((q) => q.query),
     );
     if (alterTypeTargets.length > 0) {
-      const droppedIndexes = await dropDependentPartialIndexes(
+      const droppedDeps = await dropDependentPartialIndexes(
         queryRunner,
         alterTypeTargets,
       );
       this.logger.log(
-        `Source hr schema: pre-flight DROP of ${droppedIndexes.length} ` +
-          `dependent partial index(es) on ${alterTypeTargets.length} ALTER-COLUMN-TYPE target(s). ` +
-          (droppedIndexes.length > 0
-            ? `Dropped: ${droppedIndexes
+        `Source hr schema: pre-flight DROP of ${droppedDeps.length} ` +
+          `dependent object(s) on ${alterTypeTargets.length} ALTER-COLUMN-TYPE target(s). ` +
+          (droppedDeps.length > 0
+            ? `Dropped: ${droppedDeps
                 .map(
                   (d) =>
-                    `${d.schema}.${d.indexName} (blocking ${d.table}.${d.column})`,
+                    `${d.kind}:${d.schema}.${d.name} (blocking ${d.table}.${d.column})`,
                 )
                 .join(', ')}.`
-            : 'No blocking partial indexes present.'),
+            : 'No blocking partial indexes, constraint-backed indexes, or CHECK constraints present.'),
       );
     }
 
@@ -300,18 +300,18 @@ export class HealHrEnumTypeDrift1786900000000 implements MigrationInterface {
         tenantQueries.map((q) => q.query),
       );
       if (tenantAlterTargets.length > 0) {
-        const droppedTenantIndexes = await dropDependentPartialIndexes(
+        const droppedTenantDeps = await dropDependentPartialIndexes(
           queryRunner,
           tenantAlterTargets,
         );
         this.logger.log(
-          `[${tenantSchema}] pre-flight DROP of ${droppedTenantIndexes.length} ` +
-            `dependent partial index(es) on ${tenantAlterTargets.length} ALTER-COLUMN-TYPE target(s). ` +
-            (droppedTenantIndexes.length > 0
-              ? `Dropped: ${droppedTenantIndexes
-                  .map((d) => `${d.indexName} (blocking ${d.table}.${d.column})`)
+          `[${tenantSchema}] pre-flight DROP of ${droppedTenantDeps.length} ` +
+            `dependent object(s) on ${tenantAlterTargets.length} ALTER-COLUMN-TYPE target(s). ` +
+            (droppedTenantDeps.length > 0
+              ? `Dropped: ${droppedTenantDeps
+                  .map((d) => `${d.kind}:${d.name} (blocking ${d.table}.${d.column})`)
                   .join(', ')}.`
-              : 'No blocking partial indexes present.'),
+              : 'No blocking partial indexes, constraint-backed indexes, or CHECK constraints present.'),
         );
       }
 

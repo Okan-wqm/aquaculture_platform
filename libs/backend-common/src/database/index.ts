@@ -139,6 +139,19 @@ export type {
   SchemaSnapshot,
 } from './schema-drift/pg-catalog-introspector';
 
+// Phase 4 PR-gate foundation — pairwise snapshot diff + severity
+// partitioning. Pure, side-effect-free; consumed by the CI diff
+// script that compares pre-merge vs post-migrate shadow snapshots.
+export {
+  diffSnapshots,
+  partitionBySeverity,
+} from './schema-drift/diff-snapshots';
+export type {
+  SnapshotChange,
+  SnapshotChangeKind,
+  SnapshotChangeSeverity,
+} from './schema-drift/diff-snapshots';
+
 // Phase 3 primitives — declarative schema healers for drift classes
 // A-G. Each primitive composes over withDdlSafety and sql.* branded
 // fragments; raw-string SQL is a compile error at the call site.

@@ -20,6 +20,9 @@ import {
   ITokenBlacklist,
   SESSION_MANAGER,
   TOKEN_BLACKLIST,
+  requestContextStorage,
+  getRequestContext,
+  BypassRlsService,
 } from '@aquaculture/backend-common';
 import { IEventBus } from '@platform/event-bus';
 import { createBaseEvent } from '@platform/event-contracts';
@@ -73,6 +76,14 @@ export class AuthenticationService {
     private readonly auditLogService: AuditLogService,
     private readonly tokenService: TokenService,
     private readonly mfaService: MfaService,
+    /**
+     * SECURITY (DEPLOY-CRITICAL-007): audit-logged RLS bypass primitive for
+     * the SUPER_ADMIN login path. Platform-level users (tenantId=NULL)
+     * cannot satisfy `tenant_isolation_policy` on auth.refresh_tokens —
+     * see login() for the tenant-vs-platform branching and the full
+     * architectural rationale.
+     */
+    private readonly bypassRls: BypassRlsService,
     @Optional() private readonly timingSafe?: TimingSafeService,
     @Optional() @Inject(SESSION_MANAGER) private readonly sessionManager?: ISessionManager,
     @Optional() @Inject(TOKEN_BLACKLIST) private readonly tokenBlacklist?: ITokenBlacklist,
@@ -374,7 +385,75 @@ export class AuthenticationService {
       ]);
 
       await this.ensureMinDuration(startTime);
-      return this.tokenService.generateTokens(user, ipAddress, userAgent);
+
+      // ────────────────────────────────────────────────────────────────────
+      // SECURITY (DEPLOY-CRITICAL-007): Establish post-authentication RLS
+      // context for token + session writes.
+      // ────────────────────────────────────────────────────────────────────
+      //
+      // Login is a TWO-PHASE operation:
+      //
+      //   Phase 1 (PRE-AUTH) — identify the user by email. Cross-tenant by
+      //     design; the tenant is DETERMINED by the user row. Uses auth.users
+      //     which is intentionally NOT RLS-gated (identity primitive — see
+      //     DEPLOY-CRITICAL-006 + DEFAULT_IDENTITY_TABLES in
+      //     apply-tenant-rls.helper.ts).
+      //
+      //   Phase 2 (POST-DISCOVERY) — write refresh_tokens and session rows
+      //     SCOPED to the just-identified user's tenant. These tables ARE
+      //     RLS-gated (auth.refresh_tokens carries tenant_isolation_policy),
+      //     so the pool connection MUST have `app.current_tenant` set to the
+      //     user's tenantId before the INSERT, OR the write fails with
+      //     "new row violates row-level security policy" (the 2026-04-21
+      //     login incident manifestation).
+      //
+      // The TenantContextMiddleware only sets `tenantId` when an
+      // x-tenant-id header is present OR a JWT is already minted — neither
+      // is true on the login endpoint. Hence we must establish the context
+      // HERE, once we know the user's tenant.
+      //
+      // # Two paths, both architectural (neither is a bypass-the-problem hack)
+      //
+      //   A) Tenant user (user.tenantId IS NOT NULL) — nest an
+      //      AsyncLocalStorage frame with the discovered tenantId. The
+      //      RlsConnectionBootstrap pool patch reads this on the next
+      //      connection checkout and emits SET app.current_tenant = <uuid>;
+      //      the INSERT into refresh_tokens succeeds under the normal policy
+      //      predicate. NO bypass — the write is strictly tenant-scoped, as
+      //      intended by the RLS design.
+      //
+      //   B) SUPER_ADMIN (user.tenantId IS NULL) — platform-level session.
+      //      The row has tenantId=NULL and cannot satisfy
+      //      `"tenantId" = <uuid>` regardless of context. Use the
+      //      AUDIT-LOGGED BypassRlsService.withBypass() so the bypass is
+      //      visible in deploy-audit log grep ("RLS BYPASS GRANTED
+      //      [auth-service:super-admin-login-tokens]"). Same primitive used
+      //      by admin-api-service for cross-tenant analytics. SUPER_ADMIN
+      //      login frequency is low, so the WARN log volume is negligible.
+      //
+      // # Why not mutate the existing RequestContext frame?
+      //
+      // BypassRlsService's docblock explicitly warns against mutating the
+      // existing frame: other async work in flight may still be reading it.
+      // `requestContextStorage.run(next, fn)` creates a strictly scoped
+      // nested frame that AsyncLocalStorage unwinds automatically on
+      // callback return (success or throw). No manual cleanup, no leakage
+      // between concurrent requests.
+      if (user.tenantId) {
+        const scopedContext = {
+          ...getRequestContext(),
+          tenantId: user.tenantId,
+          userId: user.id,
+        };
+        return await requestContextStorage.run(scopedContext, () =>
+          this.tokenService.generateTokens(user, ipAddress, userAgent),
+        );
+      }
+      // SUPER_ADMIN: audited bypass for platform-level session creation.
+      return await this.bypassRls.withBypass(
+        'auth-service:super-admin-login-tokens',
+        () => this.tokenService.generateTokens(user, ipAddress, userAgent),
+      );
     } catch (error) {
       await this.ensureMinDuration(startTime);
       throw error;

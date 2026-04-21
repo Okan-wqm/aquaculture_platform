@@ -27,6 +27,7 @@ import {
   TimingSafeService,
   SESSION_MANAGER,
   TOKEN_BLACKLIST,
+  BypassRlsService,
 } from '@aquaculture/backend-common';
 import { DataSource } from 'typeorm';
 
@@ -188,6 +189,20 @@ describe('AuthenticationService', () => {
         { provide: TimingSafeService, useValue: mockTimingSafe },
         { provide: SESSION_MANAGER, useValue: mockSessionManager },
         { provide: TOKEN_BLACKLIST, useValue: mockTokenBlacklist },
+        // DEPLOY-CRITICAL-007: AuthenticationService injects BypassRlsService
+        // so the SUPER_ADMIN login path can create refresh tokens on a
+        // tenantId=NULL row (which cannot satisfy tenant_isolation_policy
+        // regardless of app.current_tenant). The mock forwards through
+        // withBypass so the unit test exercises the SAME call chain as
+        // production — just without the audit WARN log.
+        {
+          provide: BypassRlsService,
+          useValue: {
+            withBypass: async <T>(_op: string, cb: () => Promise<T> | T): Promise<T> =>
+              cb(),
+            withBypassSync: <T>(_op: string, cb: () => T): T => cb(),
+          },
+        },
       ],
     }).compile();
 

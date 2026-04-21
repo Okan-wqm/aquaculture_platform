@@ -695,6 +695,17 @@ services:
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
       SUPER_ADMIN_EMAIL: ${SUPER_ADMIN_EMAIL:-admin@localhost.dev}
       SUPER_ADMIN_PASSWORD: ${SUPER_ADMIN_PASSWORD:?SUPER_ADMIN_PASSWORD is required}
+      # SECURITY (HIGH-006): HMAC password pepper.
+      # Defense-in-depth against offline attack on a stolen password DB —
+      # even with the full hash set, the attacker must ALSO compromise the
+      # droplet filesystem (where .env lives at mode 600, separate blast
+      # radius from PostgreSQL) before attempting any of the bcrypt hashes.
+      # Generate on a new environment with: `openssl rand -base64 48` and
+      # persist to .env on the droplet (NEVER commit .env — deny-listed in
+      # .claude/settings.json and .gitignore).
+      # Full architectural rationale + lazy-migration flow from legacy
+      # unpeppered hashes: libs/backend-common/src/auth/password.util.ts.
+      PASSWORD_PEPPER: "${PASSWORD_PEPPER:?PASSWORD_PEPPER is required in production — generate with openssl rand -base64 48 and store in .env on droplet}"
       # MFA & WebAuthn (optional -- MFA disabled if not set)
       MFA_ENCRYPTION_KEY: ${MFA_ENCRYPTION_KEY:-}
       WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-app.suderra.com}

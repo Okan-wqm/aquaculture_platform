@@ -317,4 +317,130 @@ describe('apply-tenant-rls.helper', () => {
       expect(warns.some((w) => w.includes('No tenant-scoped tables'))).toBe(true);
     });
   });
+
+  describe('identity-table auto-skip (DEPLOY-CRITICAL-006 regression guard)', () => {
+    /**
+     * Tier-1 "make impossible" invariant — the helper MUST never install
+     * tenant_isolation_policy on `users` or `tenants` in ANY schema,
+     * regardless of caller config. A regression here would immediately
+     * re-break login across the platform (users table) OR tenant status
+     * checks (tenants table).
+     *
+     * The 2026-04-21 incident had auth-service register
+     * RlsModule.forPoolService({ autoApply: true }) without listing
+     * `users` in excludeTables. The policy got installed; login broke
+     * for every tenant. This test guards against the code path that
+     * allowed it.
+     */
+    it('skips auth.users even when caller forgets to exclude it', async () => {
+      const logs: string[] = [];
+      const warns: string[] = [];
+      const logger = {
+        log: (msg: string): void => void logs.push(msg),
+        warn: (msg: string): void => void warns.push(msg),
+      };
+
+      const replies = [
+        [{ schema: 'auth' }],
+        [
+          // Discovery returns users alongside a legitimately RLS-gated table.
+          { table_name: 'users', column_name: 'tenantId' },
+          { table_name: 'invitations', column_name: 'tenantId' },
+        ],
+        // 4 DDL statements × 1 non-skipped table (invitations) = 4 replies
+        undefined, undefined, undefined, undefined,
+      ];
+      const { runner, calls } = makeMockRunner(replies);
+
+      await applyTenantRlsToSchema(runner, { logger });
+
+      // users was skipped → no DDL against auth.users
+      const usersDdl = calls.filter((c) => c.sql.includes('"auth"."users"'));
+      expect(usersDdl).toHaveLength(0);
+
+      // invitations got the full DDL sequence (4 statements)
+      const invitationsDdl = calls.filter((c) =>
+        c.sql.includes('"auth"."invitations"'),
+      );
+      expect(invitationsDdl.length).toBe(4);
+      expect(invitationsDdl[0]?.sql).toContain('ENABLE ROW LEVEL SECURITY');
+      expect(invitationsDdl[3]?.sql).toContain('CREATE POLICY');
+
+      // The skip was WARN-logged with the reason — operators see it in
+      // deploy audits; alerts can grep the "IDENTITY-PRIMITIVE" substring.
+      const skipWarn = warns.find((w) => w.includes('IDENTITY-PRIMITIVE'));
+      expect(skipWarn).toBeDefined();
+      expect(skipWarn).toContain('users');
+      expect(skipWarn).toContain('auth');
+    });
+
+    it('skips tenants table with the same guard', async () => {
+      const logs: string[] = [];
+      const warns: string[] = [];
+      const logger = {
+        log: (msg: string): void => void logs.push(msg),
+        warn: (msg: string): void => void warns.push(msg),
+      };
+
+      const replies = [
+        [{ schema: 'billing' }],
+        [
+          { table_name: 'tenants', column_name: 'tenantId' },
+          { table_name: 'subscriptions', column_name: 'tenantId' },
+        ],
+        // 4 DDL × 1 table = 4 replies
+        undefined, undefined, undefined, undefined,
+      ];
+      const { runner, calls } = makeMockRunner(replies);
+
+      await applyTenantRlsToSchema(runner, { logger });
+
+      const tenantsDdl = calls.filter((c) => c.sql.includes('"billing"."tenants"'));
+      expect(tenantsDdl).toHaveLength(0);
+
+      const subsDdl = calls.filter((c) =>
+        c.sql.includes('"billing"."subscriptions"'),
+      );
+      expect(subsDdl.length).toBe(4);
+
+      expect(warns.some((w) => w.includes('IDENTITY-PRIMITIVE') && w.includes('tenants'))).toBe(true);
+    });
+
+    it('auto-skip applies even when excludeTables is non-empty (combined)', async () => {
+      // Defense-in-depth: the identity-table skip is independent of
+      // excludeTables. A caller that excludes outbox but forgets users
+      // still gets users skipped.
+      const logs: string[] = [];
+      const warns: string[] = [];
+      const logger = {
+        log: (msg: string): void => void logs.push(msg),
+        warn: (msg: string): void => void warns.push(msg),
+      };
+
+      const replies = [
+        [{ schema: 'auth' }],
+        [
+          { table_name: 'users', column_name: 'tenantId' },
+          { table_name: 'auth_outbox', column_name: 'tenantId' },
+          { table_name: 'refresh_tokens', column_name: 'tenantId' },
+        ],
+        // 4 DDL × 1 non-skipped table (refresh_tokens)
+        undefined, undefined, undefined, undefined,
+      ];
+      const { runner, calls } = makeMockRunner(replies);
+
+      await applyTenantRlsToSchema(runner, {
+        logger,
+        excludeTables: ['auth_outbox'],
+      });
+
+      // Zero DDL on users (identity skip) and zero on outbox (explicit skip)
+      expect(calls.filter((c) => c.sql.includes('"users"')).length).toBe(0);
+      expect(calls.filter((c) => c.sql.includes('"auth_outbox"')).length).toBe(0);
+      // Full DDL sequence on refresh_tokens
+      expect(
+        calls.filter((c) => c.sql.includes('"refresh_tokens"')).length,
+      ).toBe(4);
+    });
+  });
 });

@@ -2,6 +2,17 @@ import { Injectable, Logger, OnApplicationBootstrap, Type } from '@nestjs/common
 import { ConfigService } from '@nestjs/config';
 import { DataSource, EntityMetadata } from 'typeorm';
 
+import { DRIFT_CLASSES, type DriftClassId } from './schema-drift/drift-classes';
+import {
+  getEncryptedAtRestMetadata,
+  type EncryptedAtRestMetadata,
+} from './encrypted-at-rest.decorator';
+import {
+  TENANT_AWARE_SCHEMAS,
+  TENANT_SCHEMA_NAME_RE,
+} from './tenant-aware-schemas';
+import { lookupEmergencyOverride } from './emergency-override-check';
+
 /**
  * createSchemaDriftValidator
  * ============================================================================
@@ -84,8 +95,25 @@ export function createSchemaDriftValidator(
       const fatal =
         this.configService.get('SCHEMA_DRIFT_FATAL', 'false') === 'true';
 
-      this.logger.log('Scanning entity metadata for schema drift...');
-      const violations: string[] = [];
+      const tenantScanEnabled =
+        this.configService.get('SCHEMA_DRIFT_TENANT_SCAN_ENABLED', 'false') ===
+        'true';
+
+      this.logger.log(
+        `Scanning entity metadata for schema drift${tenantScanEnabled ? ' (+ per-tenant shape divergence)' : ''}...`,
+      );
+      // Severity-aware violations (plan v3 Phase 2 + Phase 8 Stage 1).
+      // ERRORS block the "Schema drift scan clean" boot signal; the
+      // deploy asserter (scripts/deploy/assert-service-signals.ts)
+      // times out at round 30/30 if the signal never emits, rolling
+      // back the deploy.
+      // WARNINGS surface operationally (logged as warn, visible in
+      // Grafana drift dashboard) but do NOT block the signal. Phase 8
+      // Stage 1+ may elevate specific warn classes to error after
+      // per-service cleanup. See drift-classes.ts for the per-class
+      // severity mapping (Class E orphan_column = warn; Class A-D = error).
+      const errorViolations: string[] = [];
+      const warningViolations: string[] = [];
       let skippedNotOwned = 0;
 
       for (const entity of this.dataSource.entityMetadatas) {
@@ -122,13 +150,41 @@ export function createSchemaDriftValidator(
           skippedNotOwned++;
           continue;
         }
-        await this.validateEntity(entity, violations);
+        await this.validateEntity(entity, errorViolations, warningViolations);
       }
 
-      if (violations.length === 0) {
+      // Class I — per-tenant shape divergence (opt-in via
+      // SCHEMA_DRIFT_TENANT_SCAN_ENABLED=true). Runs AFTER the source-
+      // schema scan because the source is the reference shape; tenant
+      // clones are compared against it.
+      if (tenantScanEnabled) {
+        await this.scanPerTenantShapeDivergence(
+          this.dataSource.entityMetadatas,
+          errorViolations,
+          warningViolations,
+        );
+      }
+
+      // Warnings: logged separately so operators see Class E/F/G drift
+      // accumulation without the signal being blocked. Phase 0 Grafana
+      // drift dashboard aggregates this via the `schema.drift.warn`
+      // literal substring matcher.
+      if (warningViolations.length > 0) {
+        this.logger.warn(
+          `schema.drift.warn service="${serviceName}" — ${warningViolations.length} warn-severity drift(s):\n  ${warningViolations.join('\n  ')}`,
+        );
+      }
+
+      if (errorViolations.length === 0) {
+        // Boot signal emits cleanly even when warnings exist. The deploy
+        // asserter's substring match is `Schema drift scan clean`;
+        // operational signal for warn-level drift is separate.
         this.logger.log(
           `Schema drift scan clean: checked ${this.dataSource.entityMetadatas.length - skippedNotOwned} owned entities, ` +
-            `skipped ${skippedNotOwned} cross-schema read views (synchronize=false)`,
+            `skipped ${skippedNotOwned} cross-schema read views (synchronize=false)` +
+            (warningViolations.length > 0
+              ? `, with ${warningViolations.length} warn-severity drift(s) logged separately`
+              : ''),
         );
         return;
       }
@@ -137,16 +193,41 @@ export function createSchemaDriftValidator(
       // "schema.drift.detected" should be matched in log dashboards /
       // alert rules so operators are paged when an entity drifts.
       this.logger.error(
-        `schema.drift.detected service="${serviceName}" — ${violations.length} violation(s):\n  ${violations.join('\n  ')}`,
+        `schema.drift.detected service="${serviceName}" — ${errorViolations.length} violation(s):\n  ${errorViolations.join('\n  ')}`,
       );
 
       if (fatal) {
+        // R16 emergency-override check — an operator-issued
+        // drift_fatal_bypass for this service in this environment
+        // suppresses the throw. Validator still logs the drift
+        // (schema.drift.detected already emitted above) so the audit
+        // trail is intact; the bypass only prevents the fatal exit.
+        // Fail-safe: lookup errors never grant bypass.
+        const environment =
+          this.configService.get<string>('AQUA_ENV') ??
+          this.configService.get<string>('NODE_ENV', 'development')!;
+        const bypass = await lookupEmergencyOverride({
+          dataSource: this.dataSource,
+          serviceName,
+          kind: 'drift_fatal_bypass',
+          environment,
+        });
+        if (bypass.active && bypass.row !== undefined) {
+          this.logger.warn(
+            `schema.drift.bypassed service="${serviceName}" — ` +
+              `drift_fatal_bypass override active (id=${bypass.row.id}, ` +
+              `actor=${bypass.row.actor}, reason="${bypass.row.reason}", ` +
+              `expiresAt=${bypass.row.expiresAt.toISOString()}). ` +
+              `Continuing boot despite ${errorViolations.length} violation(s).`,
+          );
+          return;
+        }
         throw new Error(
-          `Schema drift detected in ${violations.length} place(s). ` +
+          `Schema drift detected in ${errorViolations.length} place(s). ` +
             `Set SCHEMA_DRIFT_FATAL=false to start the service anyway, but ` +
             `the drift must be fixed — either via a migration that aligns the ` +
             `DB to the entity, or by reverting the entity change if it was ` +
-            `premature. First violation: ${violations[0]}`,
+            `premature. First violation: ${errorViolations[0]}`,
         );
       }
     }
@@ -157,7 +238,8 @@ export function createSchemaDriftValidator(
      */
     private async validateEntity(
       entity: EntityMetadata,
-      violations: string[],
+      errorViolations: string[],
+      warningViolations: string[],
     ): Promise<void> {
       const schema = entity.schema ?? 'public';
       const tableName = entity.tableName;
@@ -193,8 +275,11 @@ export function createSchemaDriftValidator(
         return;
       }
       if (firstRow.schemaname !== schema) {
-        violations.push(
+        this.route(
+          'schema_location',
           `[${tableName}] entity declares schema='${schema}' but table lives in '${firstRow.schemaname}'`,
+          errorViolations,
+          warningViolations,
         );
         return;
       }
@@ -210,6 +295,24 @@ export function createSchemaDriftValidator(
       );
       const columns = new Map(columnRows.map((r) => [r.column_name, r]));
 
+      // Enum-column index for Class F batched lookup. Populated during
+      // the per-column loop below and consumed after, so we issue one
+      // pg_enum query per entity instead of N+1.
+      const entityEnumColumns: Array<{
+        dbName: string;
+        typeName: string;
+        declaredLabels: readonly string[];
+      }> = [];
+
+      // @EncryptedAtRest metadata for this entity (Class J contract).
+      // Keyed by property name, not DB column name — columns[].propertyName
+      // maps to EntityMetadata.columns[].propertyName so we resolve by
+      // the TypeScript property.
+      const encryptedProperties: ReadonlyMap<string, EncryptedAtRestMetadata> =
+        entity.target && typeof entity.target === 'function'
+          ? getEncryptedAtRestMetadata(entity.target as Function)
+          : new Map();
+
       for (const column of entity.columns) {
         const dbName = column.databaseName;
         const dbColumn = columns.get(dbName);
@@ -223,8 +326,11 @@ export function createSchemaDriftValidator(
           // every INSERT/SELECT against that column crashes today, NOT
           // "after migration". Operators in a genuine mid-migration
           // window can suppress via SCHEMA_DRIFT_FATAL=false (default).
-          violations.push(
+          this.route(
+            'missing_column',
             `[${schema}.${tableName}.${dbName}] entity declares column but DB has no such column`,
+            errorViolations,
+            warningViolations,
           );
           continue;
         }
@@ -233,10 +339,38 @@ export function createSchemaDriftValidator(
         // type field can be many things (string identifier, ctor, object)
         // so we pattern-match on the identifier form only.
         const entityType = typeof column.type === 'string' ? column.type : '';
-        if (entityType === 'uuid') {
+
+        // Class J — encrypted_column_protection. If the property is
+        // decorated with @EncryptedAtRest, the DB column MUST be bytea;
+        // and Class B (uuid type) is SUPPRESSED because the entity's
+        // declared type is the cipher's logical output, not the storage
+        // shape (see ADR-023). The contract is refusal — Phase 3
+        // primitives throw rather than attempt to align a decorated
+        // column; remediation is the key-rotation runbook.
+        const encMeta = encryptedProperties.get(column.propertyName);
+        const isEncrypted = encMeta !== undefined;
+        if (isEncrypted) {
+          if (dbColumn.data_type !== 'bytea') {
+            this.route(
+              'encrypted_column_protection',
+              `[${schema}.${tableName}.${dbName}] column is @EncryptedAtRest(keyId='${encMeta.keyId}', algorithm='${encMeta.algorithm}') but DB type is '${dbColumn.data_type}' — required: bytea. REFUSAL CLASS: do NOT write a migration to alter this column; see docs/runbooks/encrypted-column-key-rotation.md`,
+              errorViolations,
+              warningViolations,
+            );
+          }
+          // Suppress Class B / F / etc. for the decorated column — the
+          // entity's declared shape is a logical marker, not the storage
+          // contract. Continuing past here skips Class B (uuid_type) +
+          // enum collection. Class C (nullability) still applies — a
+          // nullable vs NOT NULL change IS a schema-semantic change that
+          // survives encryption.
+        } else if (entityType === 'uuid') {
           if (dbColumn.data_type !== 'uuid') {
-            violations.push(
+            this.route(
+              'uuid_type',
               `[${schema}.${tableName}.${dbName}] entity declares uuid but DB is ${dbColumn.data_type}`,
+              errorViolations,
+              warningViolations,
             );
           }
         }
@@ -245,33 +379,404 @@ export function createSchemaDriftValidator(
         // null risk. The reverse (DB says NOT NULL, entity says nullable)
         // is safe (no runtime error possible), so skip that direction.
         if (!column.isNullable && dbColumn.is_nullable === 'YES') {
-          violations.push(
+          this.route(
+            'nullability',
             `[${schema}.${tableName}.${dbName}] entity declares NOT NULL but DB column is nullable`,
+            errorViolations,
+            warningViolations,
           );
+        }
+
+        // Class F — enum_labels: collect enum-typed entity columns for
+        // batched pg_enum lookup below. TypeORM exposes `column.enum`
+        // (array of declared labels) and `column.enumName` (explicit
+        // type name). When `enumName` is absent TypeORM auto-derives
+        // `{table}_{column}_enum` (see resolveEnumTypeName()).
+        // Decorated columns are skipped here too (see Class J above).
+        if (!isEncrypted && entityType === 'enum' && Array.isArray(column.enum)) {
+          const declaredLabels = (column.enum as readonly unknown[])
+            .filter((x): x is string => typeof x === 'string');
+          if (declaredLabels.length > 0) {
+            entityEnumColumns.push({
+              dbName,
+              typeName: this.resolveEnumTypeName(
+                column.enumName,
+                tableName,
+                dbName,
+              ),
+              declaredLabels,
+            });
+          }
         }
       }
 
+      // Class F — enum_labels: diff entity-declared labels against
+      // pg_enum labels. Two drift directions surface here:
+      //   1. Entity has a label DB lacks → INSERTs with the new value
+      //      crash (operator-visible failure).
+      //   2. DB has a label entity lacks → legacy values still queryable
+      //      but a removal in the entity is not a silent rename; needs
+      //      explicit remap via alignEnumLabels primitive.
+      // Severity sourced from registry (see drift-classes.ts Class F).
+      if (entityEnumColumns.length > 0) {
+        await this.scanEnumLabelDrift(
+          schema,
+          tableName,
+          entityEnumColumns,
+          errorViolations,
+          warningViolations,
+        );
+      }
+
+      // Class G — check_constraint: diff entity-declared @Check() decorators
+      // against pg_constraint contype='c'. Coarse count-based signal during
+      // rollout: PG canonicalizes the predicate text (ARRAY ordering, type
+      // casts, OR-branch reorder), so exact-string match produces false
+      // positives until Phase 3 alignCheckConstraints ships a normalizer.
+      // Counts-only drift is enough for the common failure modes:
+      //   - entity adds a @Check but migration was skipped → count mismatch
+      //   - DB has legacy CHECK the entity dropped → count mismatch
+      await this.scanCheckConstraintDrift(
+        schema,
+        tableName,
+        entity.checks ?? [],
+        errorViolations,
+        warningViolations,
+      );
+
       // Class E — orphan_column: DB has a column the entity does not
-      // declare. Severity WARN (not error) because dropping the column
-      // is a data-loss operation gated by an allowlist (Phase 3
-      // dropOrphanedColumns primitive). Logged to the same violations
-      // channel so operators see the drift surface; does NOT prevent
-      // "Schema drift scan clean" emission in the default SCHEMA_DRIFT_
-      // FATAL=false mode, but Phase 8 Stage 2+ elevates to error once
-      // every existing E violation is either allowlisted or dropped.
+      // declare. Severity WARN (not error) per drift-classes.ts — dropping
+      // the column is a data-loss operation gated by an allowlist
+      // (Phase 3 dropOrphanedColumns primitive). Routes via registry
+      // severity, so operators see the drift surface WITHOUT blocking
+      // the "Schema drift scan clean" boot signal.
       //
-      // Implementation note: we iterate DB columns and check absence
-      // in the entity's declared column set. The entity.columns set is
-      // keyed by databaseName (TypeORM's naming-strategy-normalised form).
+      // Phase 8 Stage 2+ may elevate specific orphan columns to error
+      // severity once every existing E violation is either allowlisted
+      // or dropped via Phase 3's dropOrphanedColumns primitive.
       const entityColumnNames = new Set(
         entity.columns.map((c) => c.databaseName),
       );
       for (const dbCol of columnRows) {
         if (!entityColumnNames.has(dbCol.column_name)) {
-          violations.push(
+          this.route(
+            'orphan_column',
             `[${schema}.${tableName}.${dbCol.column_name}] DB has column but entity does not declare it (orphan_column — see drift-classes.ts Class E)`,
+            errorViolations,
+            warningViolations,
           );
         }
+      }
+    }
+
+    /**
+     * Push a violation to the error or warning bucket based on
+     * DRIFT_CLASSES[classId].severity. The registry is the SSoT —
+     * no hard-coded class→bucket mapping lives in this file. Flipping
+     * a class severity is a single-line edit in drift-classes.ts; both
+     * the validator AND the harness pick up the change without code
+     * edits elsewhere.
+     */
+    private route(
+      classId: DriftClassId,
+      message: string,
+      errorViolations: string[],
+      warningViolations: string[],
+    ): void {
+      const severity = DRIFT_CLASSES[classId].severity;
+      if (severity === 'error') {
+        errorViolations.push(message);
+      } else {
+        warningViolations.push(message);
+      }
+    }
+
+    /**
+     * Canonical pg_enum type name for an entity column. When the entity
+     * explicitly sets `@Column({ enumName: 'foo' })` we use that;
+     * otherwise TypeORM auto-generates `{table}_{column}_enum`
+     * (lowercase, underscore-joined). Mirrors TypeORM's
+     * `PostgresQueryRunner.buildEnumName()` naming convention so the
+     * validator reads the same type identifier the schema-builder writes.
+     */
+    private resolveEnumTypeName(
+      enumName: string | undefined,
+      tableName: string,
+      columnDbName: string,
+    ): string {
+      if (enumName && typeof enumName === 'string') return enumName;
+      return `${tableName}_${columnDbName}_enum`;
+    }
+
+    /**
+     * Batch-query pg_enum for every enum-typed column in one round-trip
+     * per entity, then diff declared vs actual labels. Schema-qualified
+     * via n.nspname so two schemas with the same enum type name don't
+     * cross-contaminate (e.g. source hr schema + tenant_<uuid>
+     * replicas; the validator only considers the entity's declared
+     * schema).
+     */
+    private async scanEnumLabelDrift(
+      schema: string,
+      tableName: string,
+      entityEnumColumns: ReadonlyArray<{
+        dbName: string;
+        typeName: string;
+        declaredLabels: readonly string[];
+      }>,
+      errorViolations: string[],
+      warningViolations: string[],
+    ): Promise<void> {
+      const typeNames = entityEnumColumns.map((c) => c.typeName);
+      const rows: Array<{
+        type_name: string;
+        label: string;
+        sort_order: number;
+      }> = await this.dataSource.query(
+        `SELECT t.typname AS type_name, e.enumlabel AS label, e.enumsortorder AS sort_order
+           FROM pg_type t
+           JOIN pg_namespace n ON n.oid = t.typnamespace
+           JOIN pg_enum e ON e.enumtypid = t.oid
+          WHERE n.nspname = $1
+            AND t.typname = ANY($2::text[])
+          ORDER BY t.typname, e.enumsortorder`,
+        [schema, typeNames],
+      );
+
+      const dbLabelsByType = new Map<string, string[]>();
+      for (const row of rows) {
+        const list = dbLabelsByType.get(row.type_name) ?? [];
+        list.push(row.label);
+        dbLabelsByType.set(row.type_name, list);
+      }
+
+      for (const col of entityEnumColumns) {
+        const dbLabels = dbLabelsByType.get(col.typeName);
+        if (!dbLabels) {
+          // Entity declares an enum column but the pg_enum TYPE itself
+          // does not exist in the entity's declared schema. Usually a
+          // missed migration — the @Column({enum:[...]}) decorator
+          // alone does not create the DB type; TypeORM CREATE TYPE is
+          // emitted by the schema-builder, which the runner owns.
+          this.route(
+            'enum_labels',
+            `[${schema}.${tableName}.${col.dbName}] entity declares enum type '${col.typeName}' but no such pg_enum exists in schema '${schema}'`,
+            errorViolations,
+            warningViolations,
+          );
+          continue;
+        }
+        const dbSet = new Set(dbLabels);
+        const declaredSet = new Set(col.declaredLabels);
+        const missingInDb = col.declaredLabels.filter((l) => !dbSet.has(l));
+        const missingInEntity = dbLabels.filter((l) => !declaredSet.has(l));
+        if (missingInDb.length === 0 && missingInEntity.length === 0) continue;
+        const parts: string[] = [];
+        if (missingInDb.length > 0) {
+          parts.push(`entity-only: [${missingInDb.join(', ')}]`);
+        }
+        if (missingInEntity.length > 0) {
+          parts.push(`db-only: [${missingInEntity.join(', ')}]`);
+        }
+        this.route(
+          'enum_labels',
+          `[${schema}.${tableName}.${col.dbName}] enum '${col.typeName}' label drift — ${parts.join(' | ')}`,
+          errorViolations,
+          warningViolations,
+        );
+      }
+    }
+
+    /**
+     * Class I — per-tenant shape divergence. For every entity whose
+     * declared schema is in TENANT_AWARE_SCHEMAS, enumerate the
+     * `tenant_<uuid16>` clones and diff each clone's (column_name,
+     * data_type, is_nullable) shape against the source schema. Any
+     * divergence ships as a single violation per (tenant, table).
+     *
+     * Design: opt-in via SCHEMA_DRIFT_TENANT_SCAN_ENABLED because the
+     * O(tenants × entities) cost at boot is non-trivial on production
+     * (35 schemas × N entities). When enabled the helper batches via
+     * two queries (one for source, one UNION ALL across tenant schemas)
+     * rather than N+1 per tenant.
+     *
+     * Severity is read from the registry (warn during rollout; Phase
+     * 8 Stage 2 elevates to error once Phase 6 heal primitives ship).
+     */
+    private async scanPerTenantShapeDivergence(
+      entities: readonly EntityMetadata[],
+      errorViolations: string[],
+      warningViolations: string[],
+    ): Promise<void> {
+      const tenantAwareEntities = entities.filter(
+        (e) =>
+          e.schema !== undefined &&
+          TENANT_AWARE_SCHEMAS.has(e.schema) &&
+          e.synchronize !== false,
+      );
+      if (tenantAwareEntities.length === 0) return;
+
+      // Enumerate tenant schemas once — same set applies to every
+      // tenant-aware entity.
+      const tenantSchemaRows: Array<{ schema_name: string }> =
+        await this.dataSource.query(
+          `SELECT schema_name FROM information_schema.schemata
+            WHERE schema_name ~ '^tenant_[a-f0-9]{16}$'
+            ORDER BY schema_name`,
+        );
+      const tenantSchemas = tenantSchemaRows
+        .map((r) => r.schema_name)
+        .filter((s) => TENANT_SCHEMA_NAME_RE.test(s));
+      if (tenantSchemas.length === 0) {
+        this.logger.debug(
+          'Tenant-scan enabled but no tenant_<uuid> schemas exist — skipping Class I',
+        );
+        return;
+      }
+
+      // Fetch all columns for every tenant_*.table + source.table in a
+      // single query. Filter in Node afterwards — simpler than N dynamic
+      // SQL queries, and information_schema.columns is bounded.
+      const tableNames = Array.from(
+        new Set(tenantAwareEntities.map((e) => e.tableName)),
+      );
+      const sourceSchemas = Array.from(
+        new Set(
+          tenantAwareEntities
+            .map((e) => e.schema)
+            .filter((s): s is string => typeof s === 'string'),
+        ),
+      );
+      const schemasToScan = [...sourceSchemas, ...tenantSchemas];
+
+      const columnRows: Array<{
+        table_schema: string;
+        table_name: string;
+        column_name: string;
+        data_type: string;
+        is_nullable: string;
+      }> = await this.dataSource.query(
+        `SELECT table_schema, table_name, column_name, data_type, is_nullable
+           FROM information_schema.columns
+          WHERE table_schema = ANY($1::text[])
+            AND table_name = ANY($2::text[])`,
+        [schemasToScan, tableNames],
+      );
+
+      // Bucket by "schema.table" for diffing.
+      const shapesBySchemaTable = new Map<string, Map<string, string>>();
+      for (const row of columnRows) {
+        const key = `${row.table_schema}.${row.table_name}`;
+        const shape = shapesBySchemaTable.get(key) ?? new Map<string, string>();
+        shape.set(row.column_name, `${row.data_type}|${row.is_nullable}`);
+        shapesBySchemaTable.set(key, shape);
+      }
+
+      for (const entity of tenantAwareEntities) {
+        const sourceKey = `${entity.schema}.${entity.tableName}`;
+        const sourceShape = shapesBySchemaTable.get(sourceKey);
+        if (!sourceShape) continue; // source table missing — Class A territory, already reported.
+
+        for (const tenant of tenantSchemas) {
+          const tenantKey = `${tenant}.${entity.tableName}`;
+          const tenantShape = shapesBySchemaTable.get(tenantKey);
+          if (!tenantShape) {
+            // Tenant schema exists but doesn't carry this table. Could
+            // be mid-provisioning or a tenant opted-out of this module.
+            // Flag as divergence so operators see the gap.
+            this.route(
+              'per_tenant_shape_divergence',
+              `[${tenant}.${entity.tableName}] tenant schema missing table that source '${entity.schema}' declares`,
+              errorViolations,
+              warningViolations,
+            );
+            continue;
+          }
+          const diffs: string[] = [];
+          for (const [col, sourceSig] of sourceShape) {
+            const tenantSig = tenantShape.get(col);
+            if (tenantSig === undefined) {
+              diffs.push(`missing col '${col}'`);
+            } else if (tenantSig !== sourceSig) {
+              diffs.push(`col '${col}' source=${sourceSig} vs tenant=${tenantSig}`);
+            }
+          }
+          for (const [col] of tenantShape) {
+            if (!sourceShape.has(col)) {
+              diffs.push(`extra col '${col}'`);
+            }
+          }
+          if (diffs.length > 0) {
+            this.route(
+              'per_tenant_shape_divergence',
+              `[${tenant}.${entity.tableName}] shape diverges from source '${entity.schema}.${entity.tableName}' — ${diffs.slice(0, 5).join(' ; ')}${diffs.length > 5 ? ` (+${diffs.length - 5} more)` : ''}`,
+              errorViolations,
+              warningViolations,
+            );
+          }
+        }
+      }
+    }
+
+    /**
+     * Count-based Class G detection. Queries pg_constraint for CHECK
+     * (contype='c') constraints on the table, compares cardinality
+     * against `entity.checks.length`. Coarse signal — flags net add/
+     * remove drift without relying on predicate-text equality (PG
+     * rewrites ARRAY literals, type casts, operator-class qualifiers
+     * that the entity source code does not contain).
+     *
+     * Phase 3 alignCheckConstraints upgrades this to per-predicate
+     * diffing with a normalizer that canonicalizes whitespace, ARRAY
+     * order, and the `'x'::text::hr.my_enum` cast form.
+     *
+     * Excludes not-null constraints (PG treats them as contype='n').
+     * Excludes constraints generated automatically by SERIAL / identity
+     * (contype='c' but conname starts with '{table}_{col}_check' and
+     * conbin matches the standard IS NOT NULL predicate); filtered by
+     * conbin IS NOT NULL + explicit contype='c' only.
+     */
+    private async scanCheckConstraintDrift(
+      schema: string,
+      tableName: string,
+      entityChecks: ReadonlyArray<{ name?: string; expression: string }>,
+      errorViolations: string[],
+      warningViolations: string[],
+    ): Promise<void> {
+      const rows: Array<{ conname: string; definition: string }> =
+        await this.dataSource.query(
+          `SELECT c.conname, pg_get_constraintdef(c.oid) AS definition
+             FROM pg_constraint c
+             JOIN pg_class t ON t.oid = c.conrelid
+             JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = $1
+              AND t.relname = $2
+              AND c.contype = 'c'`,
+          [schema, tableName],
+        );
+      const dbCount = rows.length;
+      const entityCount = entityChecks.length;
+      if (dbCount === entityCount) return;
+      const entityExprs = entityChecks
+        .map((c) => c.expression.trim())
+        .filter((e) => e.length > 0);
+      const dbDefs = rows.map((r) => `${r.conname}: ${r.definition}`);
+      if (entityCount > dbCount) {
+        const delta = entityCount - dbCount;
+        this.route(
+          'check_constraint',
+          `[${schema}.${tableName}] entity declares ${entityCount} @Check() but DB has ${dbCount} CHECK constraint(s) — ${delta} missing in DB (entity-side: ${entityExprs.join(' ; ')})`,
+          errorViolations,
+          warningViolations,
+        );
+      } else {
+        const delta = dbCount - entityCount;
+        this.route(
+          'check_constraint',
+          `[${schema}.${tableName}] DB has ${dbCount} CHECK constraint(s) but entity declares ${entityCount} @Check() — ${delta} orphaned in DB (db-side: ${dbDefs.join(' ; ')})`,
+          errorViolations,
+          warningViolations,
+        );
       }
     }
   }

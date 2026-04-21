@@ -7,16 +7,21 @@
  * as a standalone callable for the migration harness — no NestJS runtime
  * dependency, no container lifecycle assumptions.
  *
- * Checks the same 4 drift classes the production validator does:
+ * Checks the drift classes the production validator covers (Phase 2):
  *   A. Schema location — entity declares `schema: 'hr'`, DB table lives in 'hr'
  *   B. UUID type — entity `@Column('uuid')`, DB column is uuid (not text/varchar)
  *   C. Nullability — entity `nullable: false`, DB is_nullable === 'NO'
  *   D. Missing column — entity declares column the DB lacks
+ *   E. Orphan column — DB has a column the entity does not declare
+ *   F. Enum labels — entity enum[] differs from pg_enum labels
+ *   G. Check constraint — entity @Check() count diverges from pg_constraint
+ *   I. Per-tenant shape divergence (opt-in via ctx.tenantScan) — tenant_*
+ *      schemas diverge from source
+ *   J. Encrypted column protection — @EncryptedAtRest requires bytea storage
  *
- * Plan v3 R11 expands the validator to 10 classes. Those land here as
- * Phase 2 ships; Step 5 only implements the 4 production classes so the
- * HR-drift regression (Phase 1 Step 6) reproduces the boot-signal timeout
- * exactly as production observes it.
+ * Plan v3 R11 — Class H (data_cast_incompatible) is a semantic check (can
+ * we cast existing rows?) and lives in Phase 3.5 backfill primitives,
+ * not in the validator contract.
  *
  * # Usage
  *
@@ -37,6 +42,7 @@
  */
 import { randomBytes } from 'node:crypto';
 
+import { getEncryptedAtRestMetadata } from '@aquaculture/backend-common';
 import type { DataSourceOptions, EntityMetadata, QueryRunner } from 'typeorm';
 
 export interface DriftReport {
@@ -53,7 +59,11 @@ export type DriftClass =
   | 'uuid_type'
   | 'nullability'
   | 'missing_column'
-  | 'orphan_column';
+  | 'orphan_column'
+  | 'enum_labels'
+  | 'check_constraint'
+  | 'encrypted_column_protection'
+  | 'per_tenant_shape_divergence';
 
 /**
  * Scan DB against entity metadata declarations; return a DriftReport
@@ -71,7 +81,17 @@ export type DriftClass =
  *                   per call.
  */
 export async function expectNoDriftAgainst(
-  ctx: { qr: QueryRunner; schema: string },
+  ctx: {
+    qr: QueryRunner;
+    schema: string;
+    /**
+     * Opt-in Class I (per-tenant shape divergence) check. When true,
+     * the harness enumerates `tenant_<uuid16>` schemas and diffs each
+     * clone's table shape against the source schema. Defaults false —
+     * mirrors production's SCHEMA_DRIFT_TENANT_SCAN_ENABLED opt-in.
+     */
+    tenantScan?: boolean;
+  },
   entities: readonly (new (...args: unknown[]) => object)[],
 ): Promise<DriftReport> {
   const { DataSource } = await import('typeorm');
@@ -100,7 +120,7 @@ export async function expectNoDriftAgainst(
 }
 
 async function scanDrift(
-  ctx: { qr: QueryRunner; schema: string },
+  ctx: { qr: QueryRunner; schema: string; tenantScan?: boolean },
   entities: readonly EntityMetadata[],
 ): Promise<DriftReport> {
   const violations: string[] = [];
@@ -110,6 +130,10 @@ async function scanDrift(
     nullability: 0,
     missing_column: 0,
     orphan_column: 0,
+    enum_labels: 0,
+    check_constraint: 0,
+    encrypted_column_protection: 0,
+    per_tenant_shape_divergence: 0,
   };
 
   for (const entity of entities) {
@@ -152,6 +176,22 @@ async function scanDrift(
     );
     const columns = new Map(columnRows.map((r) => [r.column_name, r]));
 
+    // Enum columns — collected during the per-column loop, diffed
+    // against pg_enum after (Class F). Keeps pg_enum to 1 round-trip
+    // per entity instead of N+1.
+    const entityEnumColumns: Array<{
+      dbName: string;
+      typeName: string;
+      declaredLabels: readonly string[];
+    }> = [];
+
+    // @EncryptedAtRest metadata for this entity (mirrors production
+    // Class J semantics).
+    const encryptedProperties =
+      entity.target && typeof entity.target === 'function'
+        ? getEncryptedAtRestMetadata(entity.target as Function)
+        : new Map();
+
     for (const column of entity.columns) {
       const dbName = column.databaseName;
       const dbColumn = columns.get(dbName);
@@ -169,7 +209,20 @@ async function scanDrift(
       // checks; broader type-coercion detection ships with R11 Phase 2)
       const entityType =
         typeof column.type === 'string' ? column.type : '';
-      if (entityType === 'uuid' && dbColumn.data_type !== 'uuid') {
+
+      // Class J — encrypted_column_protection: DB column must be bytea
+      // when property is @EncryptedAtRest. Suppresses Class B + F for
+      // decorated columns (ADR-023).
+      const encMeta = encryptedProperties.get(column.propertyName);
+      const isEncrypted = encMeta !== undefined;
+      if (isEncrypted) {
+        if (dbColumn.data_type !== 'bytea') {
+          violations.push(
+            `[${ctx.schema}.${tableName}.${dbName}] column is @EncryptedAtRest(keyId='${encMeta.keyId}', algorithm='${encMeta.algorithm}') but DB type is '${dbColumn.data_type}' — required: bytea (encrypted_column_protection)`,
+          );
+          byClass.encrypted_column_protection++;
+        }
+      } else if (entityType === 'uuid' && dbColumn.data_type !== 'uuid') {
         violations.push(
           `[${ctx.schema}.${tableName}.${dbName}] entity declares uuid but DB is ${dbColumn.data_type}`,
         );
@@ -177,13 +230,118 @@ async function scanDrift(
       }
 
       // Class C — nullability (only catches entity-NOT-NULL / DB-nullable
-      // direction; the reverse is safe)
+      // direction; the reverse is safe). Applies regardless of encryption.
       if (!column.isNullable && dbColumn.is_nullable === 'YES') {
         violations.push(
           `[${ctx.schema}.${tableName}.${dbName}] entity declares NOT NULL but DB column is nullable`,
         );
         byClass.nullability++;
       }
+
+      // Class F — enum column collection for batched lookup below.
+      // Skipped for encrypted columns (Class J contract).
+      if (!isEncrypted && entityType === 'enum' && Array.isArray(column.enum)) {
+        const declaredLabels = (column.enum as readonly unknown[])
+          .filter((x): x is string => typeof x === 'string');
+        if (declaredLabels.length > 0) {
+          entityEnumColumns.push({
+            dbName,
+            typeName:
+              typeof column.enumName === 'string'
+                ? column.enumName
+                : `${tableName}_${dbName}_enum`,
+            declaredLabels,
+          });
+        }
+      }
+    }
+
+    // Class F — enum_labels: diff entity-declared labels vs pg_enum.
+    // Mirrors production validator's Class F detection. WARN severity
+    // per drift-classes.ts rollout window (Phase 8 Stage 2 elevates),
+    // but the harness reports via byClass.enum_labels so tests can
+    // assert drift surface regardless of production severity.
+    if (entityEnumColumns.length > 0) {
+      const typeNames = entityEnumColumns.map((c) => c.typeName);
+      const rows: Array<{ type_name: string; label: string }> =
+        await ctx.qr.query(
+          `SELECT t.typname AS type_name, e.enumlabel AS label
+             FROM pg_type t
+             JOIN pg_namespace n ON n.oid = t.typnamespace
+             JOIN pg_enum e ON e.enumtypid = t.oid
+            WHERE n.nspname = $1
+              AND t.typname = ANY($2::text[])
+            ORDER BY t.typname, e.enumsortorder`,
+          [ctx.schema, typeNames],
+        );
+      const dbLabelsByType = new Map<string, string[]>();
+      for (const row of rows) {
+        const list = dbLabelsByType.get(row.type_name) ?? [];
+        list.push(row.label);
+        dbLabelsByType.set(row.type_name, list);
+      }
+      for (const col of entityEnumColumns) {
+        const dbLabels = dbLabelsByType.get(col.typeName);
+        if (!dbLabels) {
+          violations.push(
+            `[${ctx.schema}.${tableName}.${col.dbName}] entity declares enum type '${col.typeName}' but no such pg_enum exists in schema '${ctx.schema}' (enum_labels)`,
+          );
+          byClass.enum_labels++;
+          continue;
+        }
+        const dbSet = new Set(dbLabels);
+        const declaredSet = new Set(col.declaredLabels);
+        const missingInDb = col.declaredLabels.filter((l) => !dbSet.has(l));
+        const missingInEntity = dbLabels.filter((l) => !declaredSet.has(l));
+        if (missingInDb.length === 0 && missingInEntity.length === 0) continue;
+        const parts: string[] = [];
+        if (missingInDb.length > 0) {
+          parts.push(`entity-only: [${missingInDb.join(', ')}]`);
+        }
+        if (missingInEntity.length > 0) {
+          parts.push(`db-only: [${missingInEntity.join(', ')}]`);
+        }
+        violations.push(
+          `[${ctx.schema}.${tableName}.${col.dbName}] enum '${col.typeName}' label drift — ${parts.join(' | ')} (enum_labels)`,
+        );
+        byClass.enum_labels++;
+      }
+    }
+
+    // Class G — check_constraint: count-based drift signal. Mirrors
+    // production validator semantics — flags net add/remove between
+    // entity @Check() decorators and pg_constraint contype='c' without
+    // predicate-text equality (PG canonicalizes ARRAY order + type
+    // casts in ways the entity source does not).
+    const entityChecks = (entity as unknown as {
+      checks?: ReadonlyArray<{ expression: string }>;
+    }).checks ?? [];
+    const checkRows: Array<{ conname: string; definition: string }> =
+      await ctx.qr.query(
+        `SELECT c.conname, pg_get_constraintdef(c.oid) AS definition
+           FROM pg_constraint c
+           JOIN pg_class t ON t.oid = c.conrelid
+           JOIN pg_namespace n ON n.oid = t.relnamespace
+          WHERE n.nspname = $1
+            AND t.relname = $2
+            AND c.contype = 'c'`,
+        [ctx.schema, tableName],
+      );
+    if (checkRows.length !== entityChecks.length) {
+      const entityExprs = entityChecks.map((c) => c.expression.trim()).join(' ; ');
+      const dbDefs = checkRows
+        .map((r) => `${r.conname}: ${r.definition}`)
+        .join(' ; ');
+      if (entityChecks.length > checkRows.length) {
+        violations.push(
+          `[${ctx.schema}.${tableName}] entity declares ${entityChecks.length} @Check() but DB has ${checkRows.length} — ${entityChecks.length - checkRows.length} missing in DB (entity-side: ${entityExprs}) (check_constraint)`,
+        );
+      } else {
+        violations.push(
+          `[${ctx.schema}.${tableName}] DB has ${checkRows.length} CHECK but entity declares ${entityChecks.length} — ${checkRows.length - entityChecks.length} orphaned (db-side: ${dbDefs}) (check_constraint)`,
+        );
+      }
+      byClass.check_constraint++;
     }
 
     // Class E — orphan_column: DB has a column the entity does not
@@ -199,6 +357,84 @@ async function scanDrift(
           `[${ctx.schema}.${tableName}.${dbCol.column_name}] DB has column but entity does not declare it (orphan_column)`,
         );
         byClass.orphan_column++;
+      }
+    }
+  }
+
+  // Class I — per_tenant_shape_divergence (opt-in). Mirrors production
+  // validator's scanPerTenantShapeDivergence: diff every tenant_<uuid16>
+  // clone's table shape against the source schema. Gated by
+  // ctx.tenantScan to keep the harness fast by default.
+  if (ctx.tenantScan) {
+    const tenantSchemaRows: Array<{ schema_name: string }> = await ctx.qr.query(
+      `SELECT schema_name FROM information_schema.schemata
+        WHERE schema_name ~ '^tenant_[a-f0-9]{16}$'
+        ORDER BY schema_name`,
+    );
+    const tenantSchemas = tenantSchemaRows.map((r) => r.schema_name);
+    if (tenantSchemas.length > 0 && entities.length > 0) {
+      const tableNames = Array.from(
+        new Set(entities.map((e) => e.tableName)),
+      );
+      const schemasToScan = [ctx.schema, ...tenantSchemas];
+      const shapeRows: Array<{
+        table_schema: string;
+        table_name: string;
+        column_name: string;
+        data_type: string;
+        is_nullable: string;
+      }> = await ctx.qr.query(
+        `SELECT table_schema, table_name, column_name, data_type, is_nullable
+           FROM information_schema.columns
+          WHERE table_schema = ANY($1::text[])
+            AND table_name = ANY($2::text[])`,
+        [schemasToScan, tableNames],
+      );
+      const shapesBySchemaTable = new Map<string, Map<string, string>>();
+      for (const row of shapeRows) {
+        const key = `${row.table_schema}.${row.table_name}`;
+        const shape =
+          shapesBySchemaTable.get(key) ?? new Map<string, string>();
+        shape.set(row.column_name, `${row.data_type}|${row.is_nullable}`);
+        shapesBySchemaTable.set(key, shape);
+      }
+      for (const entity of entities) {
+        const sourceKey = `${ctx.schema}.${entity.tableName}`;
+        const sourceShape = shapesBySchemaTable.get(sourceKey);
+        if (!sourceShape) continue;
+        for (const tenant of tenantSchemas) {
+          const tenantKey = `${tenant}.${entity.tableName}`;
+          const tenantShape = shapesBySchemaTable.get(tenantKey);
+          if (!tenantShape) {
+            violations.push(
+              `[${tenant}.${entity.tableName}] tenant schema missing table that source '${ctx.schema}' declares (per_tenant_shape_divergence)`,
+            );
+            byClass.per_tenant_shape_divergence++;
+            continue;
+          }
+          const diffs: string[] = [];
+          for (const [col, sourceSig] of sourceShape) {
+            const tenantSig = tenantShape.get(col);
+            if (tenantSig === undefined) {
+              diffs.push(`missing col '${col}'`);
+            } else if (tenantSig !== sourceSig) {
+              diffs.push(
+                `col '${col}' source=${sourceSig} vs tenant=${tenantSig}`,
+              );
+            }
+          }
+          for (const [col] of tenantShape) {
+            if (!sourceShape.has(col)) {
+              diffs.push(`extra col '${col}'`);
+            }
+          }
+          if (diffs.length > 0) {
+            violations.push(
+              `[${tenant}.${entity.tableName}] shape diverges from source '${ctx.schema}.${entity.tableName}' — ${diffs.slice(0, 5).join(' ; ')}${diffs.length > 5 ? ` (+${diffs.length - 5} more)` : ''} (per_tenant_shape_divergence)`,
+            );
+            byClass.per_tenant_shape_divergence++;
+          }
+        }
       }
     }
   }

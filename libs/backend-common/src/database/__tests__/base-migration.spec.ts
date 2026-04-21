@@ -2,6 +2,7 @@ import type { QueryRunner } from 'typeorm';
 import {
   dropDependentPartialIndexes,
   parseAlterColumnTypeTargets,
+  withDdlSafety,
 } from '../base-migration';
 
 describe('parseAlterColumnTypeTargets', () => {
@@ -305,5 +306,139 @@ describe('dropDependentPartialIndexes', () => {
         ([sql]) => typeof sql === 'string' && /DROP\s+INDEX/i.test(sql),
       ),
     ).toBe(false);
+  });
+});
+
+describe('withDdlSafety', () => {
+  /**
+   * Mock QueryRunner that records every query and supports an
+   * `isTransactionActive` toggle so we can exercise both the in-tx
+   * and non-tx paths.
+   */
+  const makeQr = (
+    inTx: boolean,
+    fail?: { onSql: RegExp; error: Error },
+  ): { qr: QueryRunner; queries: Array<{ sql: string; params?: unknown[] }> } => {
+    const queries: Array<{ sql: string; params?: unknown[] }> = [];
+    const query = jest.fn(async (sql: string, params?: unknown[]) => {
+      queries.push({ sql, params });
+      if (fail && fail.onSql.test(sql)) throw fail.error;
+      return [];
+    });
+    return {
+      qr: { query, isTransactionActive: inTx } as unknown as QueryRunner,
+      queries,
+    };
+  };
+
+  it('pins search_path via set_config parameterised when inside a transaction', async () => {
+    const { qr, queries } = makeQr(true);
+    await withDdlSafety(qr, { schema: 'hr' }, async () => undefined);
+    const pin = queries.find((q) => /set_config\(.search_path/.test(q.sql));
+    expect(pin).toBeDefined();
+    expect(pin?.params).toEqual(['hr,public']);
+  });
+
+  it('skips search_path pin when not in a transaction (SET LOCAL is a no-op there)', async () => {
+    const { qr, queries } = makeQr(false);
+    await withDdlSafety(
+      qr,
+      { schema: 'hr', nonTransactionalDdl: true },
+      async () => undefined,
+    );
+    const pin = queries.find((q) => /set_config\(.search_path/.test(q.sql));
+    expect(pin).toBeUndefined();
+  });
+
+  it('applies SET LOCAL lock_timeout inside a transaction', async () => {
+    const { qr, queries } = makeQr(true);
+    await withDdlSafety(
+      qr,
+      { schema: 'hr', lockTimeoutMs: 5000 },
+      async () => undefined,
+    );
+    const lt = queries.find((q) => /SET LOCAL lock_timeout/i.test(q.sql));
+    expect(lt?.sql).toContain("'5000ms'");
+  });
+
+  it('applies session-scoped SET lock_timeout + RESET outside a transaction', async () => {
+    const { qr, queries } = makeQr(false);
+    await withDdlSafety(
+      qr,
+      { schema: 'hr', nonTransactionalDdl: true, lockTimeoutMs: 10_000 },
+      async () => undefined,
+    );
+    const setLt = queries.find(
+      (q) => /^SET lock_timeout/i.test(q.sql) && !/^SET LOCAL/i.test(q.sql),
+    );
+    const resetLt = queries.find((q) => /RESET lock_timeout/i.test(q.sql));
+    expect(setLt?.sql).toContain("'10000ms'");
+    expect(resetLt).toBeDefined();
+  });
+
+  it('acquires AND releases the advisory lock even when the inner fn throws', async () => {
+    const { qr, queries } = makeQr(true);
+    await expect(
+      withDdlSafety(qr, { schema: 'hr' }, async () => {
+        throw new Error('inner failure');
+      }),
+    ).rejects.toThrow('inner failure');
+
+    const locks = queries.filter((q) => /pg_advisory_lock/.test(q.sql));
+    const unlocks = queries.filter((q) => /pg_advisory_unlock/.test(q.sql));
+    expect(locks.length).toBe(1);
+    expect(unlocks.length).toBe(1);
+  });
+
+  it('derives the advisory key from hashtext(aqua-db-migrate:<schema>)', async () => {
+    const { qr, queries } = makeQr(true);
+    await withDdlSafety(qr, { schema: 'messaging' }, async () => undefined);
+    const lock = queries.find((q) => /pg_advisory_lock/.test(q.sql));
+    expect(lock?.sql).toContain("hashtext('aqua-db-migrate:messaging')");
+  });
+
+  it('escapes single-quote characters in the lock-key suffix (injection guard)', async () => {
+    const { qr, queries } = makeQr(true);
+    await withDdlSafety(
+      qr,
+      { schema: `hr'; DROP TABLE users;--` },
+      async () => undefined,
+    );
+    const lock = queries.find((q) => /pg_advisory_lock/.test(q.sql))!;
+    // Single quote gets doubled inside the literal — no statement break.
+    expect(lock.sql).toContain("hr''; DROP TABLE users;--");
+  });
+
+  it('throws when nonTransactionalDdl=true but the runner is in a transaction', async () => {
+    const { qr } = makeQr(true);
+    await expect(
+      withDdlSafety(
+        qr,
+        { schema: 'hr', nonTransactionalDdl: true },
+        async () => undefined,
+      ),
+    ).rejects.toThrow(/nonTransactionalDdl/);
+  });
+
+  it('returns the inner function result unchanged', async () => {
+    const { qr } = makeQr(true);
+    const result = await withDdlSafety(qr, { schema: 'hr' }, async () => 42);
+    expect(result).toBe(42);
+  });
+
+  it('releases the lock even when pg_advisory_unlock itself fails', async () => {
+    const queries: Array<{ sql: string }> = [];
+    const query = jest.fn(async (sql: string) => {
+      queries.push({ sql });
+      if (/pg_advisory_unlock/.test(sql)) {
+        throw new Error('unlock failure — should be swallowed');
+      }
+      return [];
+    });
+    const qr = { query, isTransactionActive: true } as unknown as QueryRunner;
+    // Inner fn succeeds; unlock fails. Outer must NOT throw because
+    // the caller's return value is the true result.
+    const result = await withDdlSafety(qr, { schema: 'hr' }, async () => 'ok');
+    expect(result).toBe('ok');
   });
 });

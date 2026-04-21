@@ -4,6 +4,75 @@
 
 **Policy:** Append-only. Findings RESOLVED via commits carry closure note + commit SHA. Never silently dropped.
 
+## TEST-PREEXISTING-002 — pre-existing TS errors in leader-election + watchdog specs (2026-04-21)
+
+**Status**: OPEN. Unrelated to the db-migrate enterprise refactor;
+surfaced during a Phase 6 Step 2 type-check sweep.
+
+**Scope**:
+- `libs/backend-common/src/orchestrator-leader-election/leader-election.service.spec.ts`
+- `libs/backend-common/src/database/__tests__/watchdog.integration.spec.ts`
+
+**Symptoms (tsc errors under tsconfig.spec.json)**:
+
+```
+leader-election.service.spec.ts(46,9): error TS2416:
+  Property 'set' in type 'FakeRedis' is not assignable to the same property
+  in base type 'RedisLike'. Types of parameters 'args' and 'callback' are
+  incompatible.
+leader-election.service.spec.ts(79,9): error TS2416:
+  Property 'eval' in type 'FakeRedis' is not assignable ...
+  Target signature provides too few arguments. Expected 4 or more, but got 3.
+watchdog.integration.spec.ts(145,17): error TS2322:
+  Type 'Date' is not assignable to type 'string'.
+```
+
+Root cause: `ioredis` updated its type signatures for `set()` + `eval()`
+(variadic + callback overloads added); the `FakeRedis` test double in
+leader-election.service.spec.ts does not match the new shape. Similarly
+the watchdog spec passes a Date where the current `RedisKey` type
+expects a string.
+
+**Why surfaced now**: Phase 6 Step 2 tightened the migration-runner
+factory's type signature (added optional `eventSink`). The downstream
+tsc run over tsconfig.spec.json reported these pre-existing errors
+alongside the ones I fixed (three specs had colliding top-level
+`main` const names).
+
+**Next step**: owner audit for `orchestrator-leader-election` module.
+Likely fix: update FakeRedis.set signature to accept
+`Callback<"OK"> | string | number` in the variadic tail, OR switch to
+`jest-mock-redis` upstream lib. NOT blocking the v3 refactor — the
+runtime code doesn't fail; tsc errors are test-shim only.
+
+## TEST-PREEXISTING-001 — schema-manager.spec.ts: 3 tests fail regardless of current branch changes (2026-04-21)
+
+**Status**: OPEN. Documented during Phase 2 implementation; not caused by
+any v3 refactor commit.
+
+**Scope**: `libs/backend-common/src/database/__tests__/schema-manager.spec.ts`
+
+**Symptoms**:
+- `should drop schema on failure (rollback)` — fails with "Schema creation failed"
+- `should reset search_path to public using set_config` — fails
+- `should handle migration errors gracefully` — fails
+
+Reproducible on baseline (git stash of unrelated changes → same 3 fail).
+Last commit to touch the spec was `734fd574` (L3 audit remediation) —
+predates the db-migrate enterprise refactor.
+
+**Why surfaced now**: the Phase 2 severity-aware validator refactor
+triggered a broader `nx affected --target=test` run which included
+schema-manager tests. They would have failed identically on main
+before Phase 1 kick-off.
+
+**Next step**: owner audit — likely a test-fixture mismatch with
+schema-manager.service.ts behaviour (mock expectations drifted vs
+real service). NOT blocking the v3 refactor; tracked here so future
+reviewers know it's not a v3-introduced regression.
+
+## DEPLOY-CRITICAL-004 — nullability + uuid drift survives first-phase HR heal, blocks SchemaDriftValidator clean signal
+
 **ID format:** `ORPHAN-{NNN}`
 
 **Related memory:** `feedback_orphan_findings_doc.md`

@@ -139,19 +139,32 @@ export const DRIFT_CLASSES: Readonly<Record<DriftClassId, DriftClassSpec>> =
     enum_labels: {
       id: 'enum_labels',
       label: 'F',
-      severity: 'error',
+      // WARN during rollout window — Phase 8 Stage 2 elevates to 'error'
+      // once every existing F violation is either resolved via
+      // alignEnumLabels primitive or explicitly allowlisted. Rationale:
+      // deploy-asserter would time out on day-1 if we flipped error
+      // without first seeing which services carry legitimate divergence
+      // (e.g. migration-in-progress enum renames).
+      severity: 'warn',
       primitive: 'alignEnumLabels',
       description:
-        'Entity enum values differ from DB pg_enum labels (additive drift is auto-fix; removal requires explicit remap).',
+        'Entity enum values differ from DB pg_enum labels (additive drift is auto-fix; removal requires explicit remap). Rollout severity=warn until Phase 8 Stage 2 elevates.',
       planRef: 'v3-R11',
     },
     check_constraint: {
       id: 'check_constraint',
       label: 'G',
-      severity: 'error',
+      // WARN during rollout window — Phase 8 Stage 2 elevates to 'error'
+      // once every existing G violation is resolved via
+      // alignCheckConstraints primitive. Entity @Check() predicate text
+      // diverges from pg_get_constraintdef() in harmless ways (PG canonical-
+      // izes ARRAY literals, adds type casts, reorders OR branches), so
+      // the initial detection is deliberately a coarse count-based signal
+      // to avoid false positives while the normalizer stabilizes.
+      severity: 'warn',
       primitive: 'alignCheckConstraints',
       description:
-        'Entity @Check() decorator declares a constraint the DB lacks (or vice versa).',
+        'Entity @Check() decorator declares a constraint the DB lacks (or vice versa). Rollout severity=warn until Phase 8 Stage 2 elevates.',
       planRef: 'v3-R11',
     },
     data_cast_incompatible: {
@@ -166,10 +179,15 @@ export const DRIFT_CLASSES: Readonly<Record<DriftClassId, DriftClassSpec>> =
     per_tenant_shape_divergence: {
       id: 'per_tenant_shape_divergence',
       label: 'I',
-      severity: 'error',
+      // WARN during rollout window — Phase 8 Stage 2 elevates to 'error'
+      // after Phase 6 ships per-tenant heals. Per-tenant scan is
+      // opt-in via SCHEMA_DRIFT_TENANT_SCAN_ENABLED=true because the
+      // O(tenants × tables × columns) cost at boot is non-trivial
+      // in production (35 schemas × N entities).
+      severity: 'warn',
       primitive: null,
       description:
-        'Two tenant_* schemas have diverging shapes for the same entity-declared table. Phase 6 heals per-tenant.',
+        'Two tenant_* schemas have diverging shapes for the same entity-declared table. Refusal class — Phase 6 heals per-tenant; rollout severity=warn (opt-in via SCHEMA_DRIFT_TENANT_SCAN_ENABLED).',
       planRef: 'v3-R11-multi-tenant',
     },
     encrypted_column_protection: {

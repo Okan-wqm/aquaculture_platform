@@ -40,6 +40,7 @@ export {
   dropPartialTables,
   parseAlterColumnTypeTargets,
   dropDependentPartialIndexes,
+  withDdlSafety,
 } from './base-migration';
 export type {
   AlterColumnTypeTarget,
@@ -47,6 +48,7 @@ export type {
   BlockingDependencyKind,
   /** @deprecated alias for {@link BlockingDependency} */
   BlockingPartialIndex,
+  DdlSafetyOptions,
 } from './base-migration';
 
 // TENANT_AWARE_SCHEMAS — SSoT for schema-per-tenant services. Imported
@@ -136,6 +138,148 @@ export type {
   IntrospectedTable,
   SchemaSnapshot,
 } from './schema-drift/pg-catalog-introspector';
+
+// Phase 4 PR-gate foundation — pairwise snapshot diff + severity
+// partitioning. Pure, side-effect-free; consumed by the CI diff
+// script that compares pre-merge vs post-migrate shadow snapshots.
+export {
+  diffSnapshots,
+  partitionBySeverity,
+} from './schema-drift/diff-snapshots';
+export type {
+  SnapshotChange,
+  SnapshotChangeKind,
+  SnapshotChangeSeverity,
+} from './schema-drift/diff-snapshots';
+
+// Phase 7 R14 — snapshot PII scrubber. Produces a redacted copy of a
+// SchemaSnapshot suitable for cross-region upload or public channels.
+export {
+  scrubSnapshot,
+  DEFAULT_PII_COLUMN_NAMES,
+} from './schema-drift/snapshot-scrubber';
+export type {
+  ScrubbedSnapshot,
+  ScrubOptions,
+} from './schema-drift/snapshot-scrubber';
+
+// Phase 3 primitives — declarative schema healers for drift classes
+// A-G. Each primitive composes over withDdlSafety and sql.* branded
+// fragments; raw-string SQL is a compile error at the call site.
+// addMissingColumns heals Class D (entity declares column, DB lacks).
+// alignColumnNullability heals Class C (entity NOT NULL, DB nullable).
+export { addMissingColumns } from './schema-primitives/add-missing-columns';
+export type {
+  AddMissingColumnSpec,
+  AddMissingColumnsOptions,
+  AddMissingColumnsResult,
+} from './schema-primitives/add-missing-columns';
+export { alignColumnNullability } from './schema-primitives/align-column-nullability';
+export type {
+  AlignColumnNullabilitySpec,
+  AlignColumnNullabilityOptions,
+  AlignColumnNullabilityResult,
+} from './schema-primitives/align-column-nullability';
+export { alignEnumLabels } from './schema-primitives/align-enum-labels';
+export type {
+  AlignEnumLabelsTarget,
+  AlignEnumLabelsOptions,
+  AlignEnumLabelsResult,
+} from './schema-primitives/align-enum-labels';
+export { dropOrphanedColumns } from './schema-primitives/drop-orphaned-columns';
+export type {
+  DropOrphanedColumnsOptions,
+  DropOrphanedColumnsResult,
+} from './schema-primitives/drop-orphaned-columns';
+export { alignCheckConstraints } from './schema-primitives/align-check-constraints';
+export type {
+  CheckConstraintSpec,
+  AlignCheckConstraintsOptions,
+  AlignCheckConstraintsResult,
+} from './schema-primitives/align-check-constraints';
+export { alignColumnType } from './schema-primitives/align-column-type';
+export type {
+  AlignColumnTypeSpec,
+  AlignColumnTypeOptions,
+  AlignColumnTypeResult,
+} from './schema-primitives/align-column-type';
+// Phase 3.5 — chunked Class H backfill primitive (large-table safe).
+export { backfillColumn } from './schema-primitives/backfill-column';
+export type {
+  BackfillColumnOptions,
+  BackfillColumnResult,
+  BackfillProgress,
+} from './schema-primitives/backfill-column';
+
+// Emergency override runtime read — aqua-ctl + validator integration
+// point. Lookups observability.emergency_overrides for ACTIVE rows
+// matching (service, kind, environment). Fail-safe: lookup errors
+// never grant bypass. See emergency-override-check.ts docblock.
+export { lookupEmergencyOverride } from './emergency-override-check';
+export type {
+  EmergencyOverrideKind,
+  EmergencyOverrideRow,
+  EmergencyOverrideLookupResult,
+  EmergencyOverrideLookupOptions,
+} from './emergency-override-check';
+
+// MigrationEventSink — decoupled hook for lifecycle-event emission from
+// the per-service MigrationRunnerService. Phase 6 integration layer.
+// See migration-event-sink.ts for the three provided implementations
+// (NoopMigrationEventSink, InMemoryMigrationEventSink for tests,
+// LoggerMigrationEventSink for dev/staging).
+export {
+  NoopMigrationEventSink,
+  InMemoryMigrationEventSink,
+  LoggerMigrationEventSink,
+} from './migration-event-sink';
+export type {
+  MigrationEventSink,
+  MigrationSinkEvent,
+  MigrationSinkEventType,
+} from './migration-event-sink';
+// NATS bridge publisher — Phase 6 Step 5. Translates lifecycle events
+// into SchemaMigrationEvent wire shape + publishes under
+// SCHEMA_MIGRATION_SUBJECT_PREFIX. Observability-service consumer
+// subscribes in Step 6.
+export { NatsMigrationEventSink } from './nats-migration-event-sink';
+export type {
+  MigrationEventPublisher,
+  NatsMigrationEventSinkOptions,
+} from './nats-migration-event-sink';
+
+// @ExpandContract — declarative marker for blue-green migration phases.
+// Phase 4 PR-gate reads this metadata to authorize breaking diffs on
+// contract-phase migrations. See expand-contract.decorator.ts.
+export {
+  ExpandContract,
+  EXPAND_CONTRACT_META_KEY,
+  getExpandContractMetadata,
+  authorizesBreaking,
+  classifyMigrationsForBreaking,
+} from './expand-contract.decorator';
+export type {
+  ExpandContractPhase,
+  ExpandContractOptions,
+  ExpandContractMetadata,
+  MigrationClassification,
+  BatchClassificationResult,
+} from './expand-contract.decorator';
+
+// @EncryptedAtRest — declarative marker for cryptographically-encrypted
+// columns. Drift validator Class J enforces bytea storage; Phase 3
+// primitives refuse DDL against decorated columns. See ADR-023.
+export {
+  EncryptedAtRest,
+  ENCRYPTED_AT_REST_META_KEY,
+  getEncryptedAtRestMetadata,
+  getEncryptedAtRestForProperty,
+} from './encrypted-at-rest.decorator';
+export type {
+  EncryptionAlgorithm,
+  EncryptedAtRestOptions,
+  EncryptedAtRestMetadata,
+} from './encrypted-at-rest.decorator';
 
 // Audit-column TIMESTAMP → TIMESTAMPTZ conversion (NEW-H1).
 // `convertAuditColumnsToTimestamptz` and `revertAuditColumnsToTimestamp`

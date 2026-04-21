@@ -21,6 +21,11 @@ export * from './storage-events';
 // Security events (auth failures, rate limit, CSP violations, etc.)
 export * from './security';
 
+// Schema-migration events (Phase 6 NATS event-bridge). Emitted by each
+// service's MigrationRunnerService via NatsMigrationEventSink; the
+// observability-service consumer persists via RecordMigrationEventCommand.
+export * from './schema-migration-events';
+
 // Event upcasters (v1 → v2 schema migration at deserialization time)
 export * from './upcasters';
 

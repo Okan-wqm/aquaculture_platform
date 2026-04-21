@@ -179,10 +179,15 @@ export const DRIFT_CLASSES: Readonly<Record<DriftClassId, DriftClassSpec>> =
     per_tenant_shape_divergence: {
       id: 'per_tenant_shape_divergence',
       label: 'I',
-      severity: 'error',
+      // WARN during rollout window — Phase 8 Stage 2 elevates to 'error'
+      // after Phase 6 ships per-tenant heals. Per-tenant scan is
+      // opt-in via SCHEMA_DRIFT_TENANT_SCAN_ENABLED=true because the
+      // O(tenants × tables × columns) cost at boot is non-trivial
+      // in production (35 schemas × N entities).
+      severity: 'warn',
       primitive: null,
       description:
-        'Two tenant_* schemas have diverging shapes for the same entity-declared table. Phase 6 heals per-tenant.',
+        'Two tenant_* schemas have diverging shapes for the same entity-declared table. Refusal class — Phase 6 heals per-tenant; rollout severity=warn (opt-in via SCHEMA_DRIFT_TENANT_SCAN_ENABLED).',
       planRef: 'v3-R11-multi-tenant',
     },
     encrypted_column_protection: {

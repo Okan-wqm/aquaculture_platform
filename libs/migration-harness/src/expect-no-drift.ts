@@ -15,10 +15,13 @@
  *   E. Orphan column — DB has a column the entity does not declare
  *   F. Enum labels — entity enum[] differs from pg_enum labels
  *   G. Check constraint — entity @Check() count diverges from pg_constraint
+ *   I. Per-tenant shape divergence (opt-in via ctx.tenantScan) — tenant_*
+ *      schemas diverge from source
  *   J. Encrypted column protection — @EncryptedAtRest requires bytea storage
  *
- * Plan v3 R11 expands the validator to 10 classes. H (data_cast_incompatible)
- * and I (per_tenant_shape_divergence) land in subsequent Phase 2 steps.
+ * Plan v3 R11 — Class H (data_cast_incompatible) is a semantic check (can
+ * we cast existing rows?) and lives in Phase 3.5 backfill primitives,
+ * not in the validator contract.
  *
  * # Usage
  *
@@ -59,7 +62,8 @@ export type DriftClass =
   | 'orphan_column'
   | 'enum_labels'
   | 'check_constraint'
-  | 'encrypted_column_protection';
+  | 'encrypted_column_protection'
+  | 'per_tenant_shape_divergence';
 
 /**
  * Scan DB against entity metadata declarations; return a DriftReport
@@ -77,7 +81,17 @@ export type DriftClass =
  *                   per call.
  */
 export async function expectNoDriftAgainst(
-  ctx: { qr: QueryRunner; schema: string },
+  ctx: {
+    qr: QueryRunner;
+    schema: string;
+    /**
+     * Opt-in Class I (per-tenant shape divergence) check. When true,
+     * the harness enumerates `tenant_<uuid16>` schemas and diffs each
+     * clone's table shape against the source schema. Defaults false —
+     * mirrors production's SCHEMA_DRIFT_TENANT_SCAN_ENABLED opt-in.
+     */
+    tenantScan?: boolean;
+  },
   entities: readonly (new (...args: unknown[]) => object)[],
 ): Promise<DriftReport> {
   const { DataSource } = await import('typeorm');
@@ -106,7 +120,7 @@ export async function expectNoDriftAgainst(
 }
 
 async function scanDrift(
-  ctx: { qr: QueryRunner; schema: string },
+  ctx: { qr: QueryRunner; schema: string; tenantScan?: boolean },
   entities: readonly EntityMetadata[],
 ): Promise<DriftReport> {
   const violations: string[] = [];
@@ -119,6 +133,7 @@ async function scanDrift(
     enum_labels: 0,
     check_constraint: 0,
     encrypted_column_protection: 0,
+    per_tenant_shape_divergence: 0,
   };
 
   for (const entity of entities) {
@@ -342,6 +357,84 @@ async function scanDrift(
           `[${ctx.schema}.${tableName}.${dbCol.column_name}] DB has column but entity does not declare it (orphan_column)`,
         );
         byClass.orphan_column++;
+      }
+    }
+  }
+
+  // Class I — per_tenant_shape_divergence (opt-in). Mirrors production
+  // validator's scanPerTenantShapeDivergence: diff every tenant_<uuid16>
+  // clone's table shape against the source schema. Gated by
+  // ctx.tenantScan to keep the harness fast by default.
+  if (ctx.tenantScan) {
+    const tenantSchemaRows: Array<{ schema_name: string }> = await ctx.qr.query(
+      `SELECT schema_name FROM information_schema.schemata
+        WHERE schema_name ~ '^tenant_[a-f0-9]{16}$'
+        ORDER BY schema_name`,
+    );
+    const tenantSchemas = tenantSchemaRows.map((r) => r.schema_name);
+    if (tenantSchemas.length > 0 && entities.length > 0) {
+      const tableNames = Array.from(
+        new Set(entities.map((e) => e.tableName)),
+      );
+      const schemasToScan = [ctx.schema, ...tenantSchemas];
+      const shapeRows: Array<{
+        table_schema: string;
+        table_name: string;
+        column_name: string;
+        data_type: string;
+        is_nullable: string;
+      }> = await ctx.qr.query(
+        `SELECT table_schema, table_name, column_name, data_type, is_nullable
+           FROM information_schema.columns
+          WHERE table_schema = ANY($1::text[])
+            AND table_name = ANY($2::text[])`,
+        [schemasToScan, tableNames],
+      );
+      const shapesBySchemaTable = new Map<string, Map<string, string>>();
+      for (const row of shapeRows) {
+        const key = `${row.table_schema}.${row.table_name}`;
+        const shape =
+          shapesBySchemaTable.get(key) ?? new Map<string, string>();
+        shape.set(row.column_name, `${row.data_type}|${row.is_nullable}`);
+        shapesBySchemaTable.set(key, shape);
+      }
+      for (const entity of entities) {
+        const sourceKey = `${ctx.schema}.${entity.tableName}`;
+        const sourceShape = shapesBySchemaTable.get(sourceKey);
+        if (!sourceShape) continue;
+        for (const tenant of tenantSchemas) {
+          const tenantKey = `${tenant}.${entity.tableName}`;
+          const tenantShape = shapesBySchemaTable.get(tenantKey);
+          if (!tenantShape) {
+            violations.push(
+              `[${tenant}.${entity.tableName}] tenant schema missing table that source '${ctx.schema}' declares (per_tenant_shape_divergence)`,
+            );
+            byClass.per_tenant_shape_divergence++;
+            continue;
+          }
+          const diffs: string[] = [];
+          for (const [col, sourceSig] of sourceShape) {
+            const tenantSig = tenantShape.get(col);
+            if (tenantSig === undefined) {
+              diffs.push(`missing col '${col}'`);
+            } else if (tenantSig !== sourceSig) {
+              diffs.push(
+                `col '${col}' source=${sourceSig} vs tenant=${tenantSig}`,
+              );
+            }
+          }
+          for (const [col] of tenantShape) {
+            if (!sourceShape.has(col)) {
+              diffs.push(`extra col '${col}'`);
+            }
+          }
+          if (diffs.length > 0) {
+            violations.push(
+              `[${tenant}.${entity.tableName}] shape diverges from source '${ctx.schema}.${entity.tableName}' — ${diffs.slice(0, 5).join(' ; ')}${diffs.length > 5 ? ` (+${diffs.length - 5} more)` : ''} (per_tenant_shape_divergence)`,
+            );
+            byClass.per_tenant_shape_divergence++;
+          }
+        }
       }
     }
   }

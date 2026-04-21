@@ -7,6 +7,10 @@ import {
   getEncryptedAtRestMetadata,
   type EncryptedAtRestMetadata,
 } from './encrypted-at-rest.decorator';
+import {
+  TENANT_AWARE_SCHEMAS,
+  TENANT_SCHEMA_NAME_RE,
+} from './tenant-aware-schemas';
 
 /**
  * createSchemaDriftValidator
@@ -90,7 +94,13 @@ export function createSchemaDriftValidator(
       const fatal =
         this.configService.get('SCHEMA_DRIFT_FATAL', 'false') === 'true';
 
-      this.logger.log('Scanning entity metadata for schema drift...');
+      const tenantScanEnabled =
+        this.configService.get('SCHEMA_DRIFT_TENANT_SCAN_ENABLED', 'false') ===
+        'true';
+
+      this.logger.log(
+        `Scanning entity metadata for schema drift${tenantScanEnabled ? ' (+ per-tenant shape divergence)' : ''}...`,
+      );
       // Severity-aware violations (plan v3 Phase 2 + Phase 8 Stage 1).
       // ERRORS block the "Schema drift scan clean" boot signal; the
       // deploy asserter (scripts/deploy/assert-service-signals.ts)
@@ -140,6 +150,18 @@ export function createSchemaDriftValidator(
           continue;
         }
         await this.validateEntity(entity, errorViolations, warningViolations);
+      }
+
+      // Class I — per-tenant shape divergence (opt-in via
+      // SCHEMA_DRIFT_TENANT_SCAN_ENABLED=true). Runs AFTER the source-
+      // schema scan because the source is the reference shape; tenant
+      // clones are compared against it.
+      if (tenantScanEnabled) {
+        await this.scanPerTenantShapeDivergence(
+          this.dataSource.entityMetadatas,
+          errorViolations,
+          warningViolations,
+        );
       }
 
       // Warnings: logged separately so operators see Class E/F/G drift
@@ -536,6 +558,137 @@ export function createSchemaDriftValidator(
           errorViolations,
           warningViolations,
         );
+      }
+    }
+
+    /**
+     * Class I — per-tenant shape divergence. For every entity whose
+     * declared schema is in TENANT_AWARE_SCHEMAS, enumerate the
+     * `tenant_<uuid16>` clones and diff each clone's (column_name,
+     * data_type, is_nullable) shape against the source schema. Any
+     * divergence ships as a single violation per (tenant, table).
+     *
+     * Design: opt-in via SCHEMA_DRIFT_TENANT_SCAN_ENABLED because the
+     * O(tenants × entities) cost at boot is non-trivial on production
+     * (35 schemas × N entities). When enabled the helper batches via
+     * two queries (one for source, one UNION ALL across tenant schemas)
+     * rather than N+1 per tenant.
+     *
+     * Severity is read from the registry (warn during rollout; Phase
+     * 8 Stage 2 elevates to error once Phase 6 heal primitives ship).
+     */
+    private async scanPerTenantShapeDivergence(
+      entities: readonly EntityMetadata[],
+      errorViolations: string[],
+      warningViolations: string[],
+    ): Promise<void> {
+      const tenantAwareEntities = entities.filter(
+        (e) =>
+          e.schema !== undefined &&
+          TENANT_AWARE_SCHEMAS.has(e.schema) &&
+          e.synchronize !== false,
+      );
+      if (tenantAwareEntities.length === 0) return;
+
+      // Enumerate tenant schemas once — same set applies to every
+      // tenant-aware entity.
+      const tenantSchemaRows: Array<{ schema_name: string }> =
+        await this.dataSource.query(
+          `SELECT schema_name FROM information_schema.schemata
+            WHERE schema_name ~ '^tenant_[a-f0-9]{16}$'
+            ORDER BY schema_name`,
+        );
+      const tenantSchemas = tenantSchemaRows
+        .map((r) => r.schema_name)
+        .filter((s) => TENANT_SCHEMA_NAME_RE.test(s));
+      if (tenantSchemas.length === 0) {
+        this.logger.debug(
+          'Tenant-scan enabled but no tenant_<uuid> schemas exist — skipping Class I',
+        );
+        return;
+      }
+
+      // Fetch all columns for every tenant_*.table + source.table in a
+      // single query. Filter in Node afterwards — simpler than N dynamic
+      // SQL queries, and information_schema.columns is bounded.
+      const tableNames = Array.from(
+        new Set(tenantAwareEntities.map((e) => e.tableName)),
+      );
+      const sourceSchemas = Array.from(
+        new Set(
+          tenantAwareEntities
+            .map((e) => e.schema)
+            .filter((s): s is string => typeof s === 'string'),
+        ),
+      );
+      const schemasToScan = [...sourceSchemas, ...tenantSchemas];
+
+      const columnRows: Array<{
+        table_schema: string;
+        table_name: string;
+        column_name: string;
+        data_type: string;
+        is_nullable: string;
+      }> = await this.dataSource.query(
+        `SELECT table_schema, table_name, column_name, data_type, is_nullable
+           FROM information_schema.columns
+          WHERE table_schema = ANY($1::text[])
+            AND table_name = ANY($2::text[])`,
+        [schemasToScan, tableNames],
+      );
+
+      // Bucket by "schema.table" for diffing.
+      const shapesBySchemaTable = new Map<string, Map<string, string>>();
+      for (const row of columnRows) {
+        const key = `${row.table_schema}.${row.table_name}`;
+        const shape = shapesBySchemaTable.get(key) ?? new Map<string, string>();
+        shape.set(row.column_name, `${row.data_type}|${row.is_nullable}`);
+        shapesBySchemaTable.set(key, shape);
+      }
+
+      for (const entity of tenantAwareEntities) {
+        const sourceKey = `${entity.schema}.${entity.tableName}`;
+        const sourceShape = shapesBySchemaTable.get(sourceKey);
+        if (!sourceShape) continue; // source table missing — Class A territory, already reported.
+
+        for (const tenant of tenantSchemas) {
+          const tenantKey = `${tenant}.${entity.tableName}`;
+          const tenantShape = shapesBySchemaTable.get(tenantKey);
+          if (!tenantShape) {
+            // Tenant schema exists but doesn't carry this table. Could
+            // be mid-provisioning or a tenant opted-out of this module.
+            // Flag as divergence so operators see the gap.
+            this.route(
+              'per_tenant_shape_divergence',
+              `[${tenant}.${entity.tableName}] tenant schema missing table that source '${entity.schema}' declares`,
+              errorViolations,
+              warningViolations,
+            );
+            continue;
+          }
+          const diffs: string[] = [];
+          for (const [col, sourceSig] of sourceShape) {
+            const tenantSig = tenantShape.get(col);
+            if (tenantSig === undefined) {
+              diffs.push(`missing col '${col}'`);
+            } else if (tenantSig !== sourceSig) {
+              diffs.push(`col '${col}' source=${sourceSig} vs tenant=${tenantSig}`);
+            }
+          }
+          for (const [col] of tenantShape) {
+            if (!sourceShape.has(col)) {
+              diffs.push(`extra col '${col}'`);
+            }
+          }
+          if (diffs.length > 0) {
+            this.route(
+              'per_tenant_shape_divergence',
+              `[${tenant}.${entity.tableName}] shape diverges from source '${entity.schema}.${entity.tableName}' — ${diffs.slice(0, 5).join(' ; ')}${diffs.length > 5 ? ` (+${diffs.length - 5} more)` : ''}`,
+              errorViolations,
+              warningViolations,
+            );
+          }
+        }
       }
     }
 

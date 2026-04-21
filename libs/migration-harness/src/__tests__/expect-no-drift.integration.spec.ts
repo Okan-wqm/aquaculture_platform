@@ -474,6 +474,149 @@ describe('expectNoDriftAgainst — 4-class drift detection', () => {
     });
   });
 
+  it('Class I clean when tenant clones match source schema shape', async () => {
+    await withEphemeralSchema(ctx!, async (_e, qr) => {
+      await qr.query(`CREATE SCHEMA IF NOT EXISTS drifttest`);
+      const tenant1 = 'tenant_1234567890abcdef';
+      const tenant2 = 'tenant_fedcba0987654321';
+      await qr.query(`CREATE SCHEMA IF NOT EXISTS ${tenant1}`);
+      await qr.query(`CREATE SCHEMA IF NOT EXISTS ${tenant2}`);
+      try {
+        for (const s of ['drifttest', tenant1, tenant2]) {
+          await qr.query(
+            `CREATE TABLE ${s}.fixture_entity (
+               id uuid PRIMARY KEY,
+               name text NOT NULL,
+               score int
+             )`,
+          );
+        }
+        const report = await expectNoDriftAgainst(
+          { qr, schema: 'drifttest', tenantScan: true },
+          [FixtureEntity],
+        );
+        expect(report.byClass.per_tenant_shape_divergence).toBe(0);
+      } finally {
+        await qr.query(`DROP SCHEMA IF EXISTS drifttest CASCADE`);
+        await qr.query(`DROP SCHEMA IF EXISTS ${tenant1} CASCADE`);
+        await qr.query(`DROP SCHEMA IF EXISTS ${tenant2} CASCADE`);
+      }
+    });
+  });
+
+  it('detects Class I (tenant clone has extra column vs source)', async () => {
+    await withEphemeralSchema(ctx!, async (_e, qr) => {
+      await qr.query(`CREATE SCHEMA IF NOT EXISTS drifttest`);
+      const tenantGood = 'tenant_aaaaaaaaaaaaaaaa';
+      const tenantBad = 'tenant_bbbbbbbbbbbbbbbb';
+      await qr.query(`CREATE SCHEMA IF NOT EXISTS ${tenantGood}`);
+      await qr.query(`CREATE SCHEMA IF NOT EXISTS ${tenantBad}`);
+      try {
+        await qr.query(
+          `CREATE TABLE drifttest.fixture_entity (
+             id uuid PRIMARY KEY,
+             name text NOT NULL,
+             score int
+           )`,
+        );
+        await qr.query(
+          `CREATE TABLE ${tenantGood}.fixture_entity (
+             id uuid PRIMARY KEY,
+             name text NOT NULL,
+             score int
+           )`,
+        );
+        // Tenant-bad carries an extra legacy column the source no longer has.
+        await qr.query(
+          `CREATE TABLE ${tenantBad}.fixture_entity (
+             id uuid PRIMARY KEY,
+             name text NOT NULL,
+             score int,
+             legacy_flag boolean
+           )`,
+        );
+        const report = await expectNoDriftAgainst(
+          { qr, schema: 'drifttest', tenantScan: true },
+          [FixtureEntity],
+        );
+        expect(report.byClass.per_tenant_shape_divergence).toBe(1);
+        expect(
+          report.violations.some(
+            (v) =>
+              v.includes(tenantBad) &&
+              v.includes('extra col') &&
+              v.includes('legacy_flag') &&
+              v.includes('per_tenant_shape_divergence'),
+          ),
+        ).toBe(true);
+      } finally {
+        await qr.query(`DROP SCHEMA IF EXISTS drifttest CASCADE`);
+        await qr.query(`DROP SCHEMA IF EXISTS ${tenantGood} CASCADE`);
+        await qr.query(`DROP SCHEMA IF EXISTS ${tenantBad} CASCADE`);
+      }
+    });
+  });
+
+  it('detects Class I (tenant clone missing table entirely)', async () => {
+    await withEphemeralSchema(ctx!, async (_e, qr) => {
+      await qr.query(`CREATE SCHEMA IF NOT EXISTS drifttest`);
+      const tenantMissing = 'tenant_cccccccccccccccc';
+      await qr.query(`CREATE SCHEMA IF NOT EXISTS ${tenantMissing}`);
+      try {
+        await qr.query(
+          `CREATE TABLE drifttest.fixture_entity (
+             id uuid PRIMARY KEY,
+             name text NOT NULL,
+             score int
+           )`,
+        );
+        // Tenant schema exists but the table was never provisioned.
+        const report = await expectNoDriftAgainst(
+          { qr, schema: 'drifttest', tenantScan: true },
+          [FixtureEntity],
+        );
+        expect(report.byClass.per_tenant_shape_divergence).toBe(1);
+        expect(
+          report.violations.some(
+            (v) =>
+              v.includes(tenantMissing) &&
+              v.includes('missing table') &&
+              v.includes('per_tenant_shape_divergence'),
+          ),
+        ).toBe(true);
+      } finally {
+        await qr.query(`DROP SCHEMA IF EXISTS drifttest CASCADE`);
+        await qr.query(`DROP SCHEMA IF EXISTS ${tenantMissing} CASCADE`);
+      }
+    });
+  });
+
+  it('Class I is off when tenantScan flag is false (default)', async () => {
+    await withEphemeralSchema(ctx!, async (_e, qr) => {
+      await qr.query(`CREATE SCHEMA IF NOT EXISTS drifttest`);
+      const tenant = 'tenant_dddddddddddddddd';
+      await qr.query(`CREATE SCHEMA IF NOT EXISTS ${tenant}`);
+      try {
+        await qr.query(
+          `CREATE TABLE drifttest.fixture_entity (
+             id uuid PRIMARY KEY,
+             name text NOT NULL,
+             score int
+           )`,
+        );
+        // No tenant table — would flag Class I if scan was enabled.
+        const report = await expectNoDriftAgainst(
+          { qr, schema: 'drifttest' /* tenantScan omitted */ },
+          [FixtureEntity],
+        );
+        expect(report.byClass.per_tenant_shape_divergence).toBe(0);
+      } finally {
+        await qr.query(`DROP SCHEMA IF EXISTS drifttest CASCADE`);
+        await qr.query(`DROP SCHEMA IF EXISTS ${tenant} CASCADE`);
+      }
+    });
+  });
+
   it('detects Class A (schema location — table in wrong schema)', async () => {
     await withEphemeralSchema(ctx!, async (_e, qr) => {
       await qr.query(`CREATE SCHEMA IF NOT EXISTS drifttest`);

@@ -167,6 +167,12 @@ export type {
   DropOrphanedColumnsOptions,
   DropOrphanedColumnsResult,
 } from './schema-primitives/drop-orphaned-columns';
+export { alignCheckConstraints } from './schema-primitives/align-check-constraints';
+export type {
+  CheckConstraintSpec,
+  AlignCheckConstraintsOptions,
+  AlignCheckConstraintsResult,
+} from './schema-primitives/align-check-constraints';
 
 // @EncryptedAtRest — declarative marker for cryptographically-encrypted
 // columns. Drift validator Class J enforces bytea storage; Phase 3

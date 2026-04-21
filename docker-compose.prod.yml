@@ -311,6 +311,11 @@ services:
       # SECURITY (HIGH-001): sensor-service NATS account with sensor-scoped subject ACLs.
               # SECURITY (CRITICAL-001): RS256 public-key verification (consumer only).
       JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
+      # ADR-022 — production stays on `legacy` until the staging soak
+      # (24h) on control-plane is green. Flip to `control-plane` via
+      # the prod .env once the equivalence test passes for every
+      # tenant in the per-tenant IngestBackend rollout (ADR-027).
+      SENSOR_SERVICE_PROFILE: ${SENSOR_SERVICE_PROFILE:-legacy}
     volumes:
       - ./certs/jwt/public.pem:/var/run/jwt/public.pem:ro
       # SECURITY (HIGH-002): NATS mTLS — CA cert, shared client cert, and client key.

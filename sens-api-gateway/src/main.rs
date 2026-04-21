@@ -2051,6 +2051,46 @@ fn setup_shutdown_handler(
                                              Security-sensitive fields (MQTT credentials, \
                                              TLS certificates) take effect on next reconnect."
                                         );
+
+                                        // Batch 80 Sprint 6.2 Phase 2: audit sink
+                                        // reopen for logrotate compatibility. Standard
+                                        // Unix daemon pattern: SIGHUP = (config reload
+                                        // OR log-file handle refresh). Logrotate's
+                                        // create + rename pattern leaves the agent's
+                                        // fd pointing at the ROTATED file; reopen()
+                                        // closes the rotated fd + opens the new empty
+                                        // file at the same path. Batch 76 primitive
+                                        // preserves in-memory chain state
+                                        // (last_hmac, last_sequence) across the
+                                        // reopen so cross-file linkage holds.
+                                        //
+                                        // Acquires a fresh read-guard (write-guard
+                                        // was dropped above in the lora-reload
+                                        // branch; on non-lora paths we hold it
+                                        // still — use read() path that's
+                                        // idempotent).
+                                        let sink_snap = state
+                                            .read()
+                                            .await
+                                            .audit_sink
+                                            .clone();
+                                        if let Some(sink) = sink_snap {
+                                            match sink.reopen() {
+                                                Ok(()) => {
+                                                    info!(
+                                                        "Audit sink reopened successfully on SIGHUP (logrotate-compatible)"
+                                                    );
+                                                }
+                                                Err(e) => {
+                                                    error!(
+                                                        "Audit sink reopen FAILED on SIGHUP: {}. \
+                                                         Agent continues but subsequent appends may target the rotated file. \
+                                                         Operator should investigate /var/log/suderra/audit.log permissions.",
+                                                        e
+                                                    );
+                                                }
+                                            }
+                                        }
                                     }
                                     Err(e) => {
                                         error!(

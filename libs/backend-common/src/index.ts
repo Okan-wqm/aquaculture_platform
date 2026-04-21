@@ -45,6 +45,18 @@ export type { VerifyPasswordResult } from './auth/password.util';
 // Utils - PII masking for GDPR-compliant logging
 export { maskEmail, logSafeUserId, maskPhone, maskPii, maskPiiDeep } from './utils/pii-mask.util';
 
+// Utils - HMAC tenant hash for GDPR Art 17 cascade-safe pseudonymisation.
+// Every table/event that persists a tenant identifier beyond tenant lifetime
+// must hash via this helper (not raw sha256, which is rainbow-table reversible).
+// Prereq for db-migrate enterprise-refactor plan Phase 0 observability schema.
+// See docs/adr/022-pseudonymisation-key-management.md.
+export {
+  TENANT_HASH_PEPPER_ENV,
+  hmacTenantHash,
+  tenantHashesEqual,
+  assertTenantHashPepperSet,
+} from './utils/hmac-tenant-hash.util';
+
 // Filters
 export * from './filters/http-exception.filter';
 

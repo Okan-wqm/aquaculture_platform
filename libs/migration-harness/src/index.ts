@@ -38,3 +38,9 @@ export type {
   MigrationClass,
   PriorStateCallback,
 } from './define-migration-test';
+
+export {
+  expectNoDriftAgainst,
+  registerDriftMatcher,
+} from './expect-no-drift';
+export type { DriftClass, DriftReport } from './expect-no-drift';

@@ -100,6 +100,13 @@ export * from './rls';
 // event-store); each calls the factory with its own source schema name.
 export * from './migration-runner';
 
+// MigrationRunnerModule — Phase 6 platform wiring wrapper. Services
+// import `MigrationRunnerModule.forRoot({schema: 'hr'})` instead of
+// pasting the factory providers block. Auto-threads the MigrationEventSink
+// + ConfigService through Nest DI.
+export { MigrationRunnerModule } from './migration-runner/migration-runner.module';
+export type { MigrationRunnerModuleOptions } from './migration-runner/migration-runner.module';
+
 // Schema drift validator — OnApplicationBootstrap provider factory that
 // compares entity metadata against information_schema on every boot and
 // fails fast on divergence (uuid→text drift, wrong schema, nullability

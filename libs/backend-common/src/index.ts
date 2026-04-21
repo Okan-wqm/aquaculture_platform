@@ -57,6 +57,20 @@ export {
   assertTenantHashPepperSet,
 } from './utils/hmac-tenant-hash.util';
 
+// Utils - PG error sanitizer. Strips row data from PostgreSQL errors before
+// they hit NATS events or structured logs. Unique-constraint violations and
+// CHECK-constraint failures include offending row values by default
+// (`Key (ssn)=(123-45-6789)`); sanitizePgError extracts the safe parts
+// (SQLSTATE, constraint name, relation, column list) and redacts values.
+// Prereq for db-migrate enterprise-refactor plan Phase 0 MigrationTenantFailed
+// event emission. See plan v3 R25.
+export {
+  sanitizePgError,
+  assertNoPgRowLeak,
+  PG_ERROR_ROW_LEAK_PATTERN,
+} from './utils/sanitize-pg-error.util';
+export type { SanitizedPgError } from './utils/sanitize-pg-error.util';
+
 // Filters
 export * from './filters/http-exception.filter';
 

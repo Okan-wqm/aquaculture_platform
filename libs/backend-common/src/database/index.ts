@@ -124,6 +124,19 @@ export type {
   DriftSeverity,
 } from './schema-drift/drift-classes';
 
+// pg_catalog introspector — normalized ORM-agnostic snapshot of a PG
+// schema. Consumed by SchemaDriftValidator + Phase 4 PR gate. Replaces
+// TypeORM's createSchemaBuilder().log() which is known to miss
+// partial-index predicates, EXCLUDE operator classes, GIN opclass.
+export { introspectSchema } from './schema-drift/pg-catalog-introspector';
+export type {
+  IntrospectedCheckConstraint,
+  IntrospectedColumn,
+  IntrospectedEnum,
+  IntrospectedTable,
+  SchemaSnapshot,
+} from './schema-drift/pg-catalog-introspector';
+
 // Audit-column TIMESTAMP → TIMESTAMPTZ conversion (NEW-H1).
 // `convertAuditColumnsToTimestamptz` and `revertAuditColumnsToTimestamp`
 // are imported by per-service migrations in `auth`, `admin-api`, `farm`,

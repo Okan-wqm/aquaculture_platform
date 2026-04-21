@@ -38,10 +38,47 @@ use tracing::{debug, error, info, warn};
 /// is world-readable and therefore insufficient as sole key material (IEC 62443 FR4).
 ///
 /// Returns an error if machine-id or secret key cannot be obtained.
+///
+/// ## Caching discipline (Batch 96 architectural fix)
+///
+/// The derived hex is cached in a process-global `OnceLock`
+/// on first successful computation. Subsequent calls return
+/// the cached value WITHOUT re-reading /etc/machine-id or
+/// /etc/suderra/db.key. This:
+///
+/// 1. Eliminates the parallel-test flake where env-var
+///    mutation on one thread raced against file-read on
+///    another (Batch 88+90 partial mitigations via
+///    ENV_RACE_MUTEX + LazyLock were targeted fixes;
+///    this is the root-cause architectural fix).
+/// 2. Bounds the filesystem-read cost to ONE syscall per
+///    process lifetime rather than N-per-connection.
+/// 3. Matches the production invariant: the derived key
+///    never changes during a process lifetime (machine-id
+///    is stable, secret file is touched only at provision
+///    time). Any key rotation inherently requires an
+///    agent restart (Batch 85 rotate_master documents this
+///    explicitly).
+///
+/// Test discipline: the cache persists across tests within a
+/// single `cargo test` process. The first test to call
+/// `derive_db_encryption_key` latches the value; subsequent
+/// tests with different `SUDERRA_DB_KEY_PATH` env values
+/// would observe the cached first-call result. This is
+/// intentional — tests that need a specific path MUST set
+/// the env BEFORE the first call, exactly as the sandbox
+/// LazyLock in the test module does.
 pub(crate) fn derive_db_encryption_key() -> Result<String> {
     use sha2::Sha256;
     use hmac::{Hmac, Mac};
+    use std::sync::OnceLock;
     type HmacSha256 = Hmac<Sha256>;
+
+    static CACHED: OnceLock<String> = OnceLock::new();
+
+    if let Some(hex) = CACHED.get() {
+        return Ok(hex.clone());
+    }
 
     let machine_id = machine_uid::get()
         .map_err(|e| anyhow::anyhow!(
@@ -55,8 +92,15 @@ pub(crate) fn derive_db_encryption_key() -> Result<String> {
         .context("Failed to create HMAC instance")?;
     mac.update(machine_id.as_bytes());
     let result = mac.finalize().into_bytes();
+    let hex: String = result.iter().map(|b| format!("{:02x}", b)).collect();
 
-    Ok(result.iter().map(|b| format!("{:02x}", b)).collect())
+    // Store via OnceLock::get_or_init to handle the race
+    // where multiple threads invoke derive_db_encryption_
+    // key() before any has cached. First writer wins; other
+    // threads observe the winner's value (happens-before
+    // via OnceLock's internal barrier).
+    let cached_ref = CACHED.get_or_init(|| hex.clone());
+    Ok(cached_ref.clone())
 }
 
 /// Load or create the device-local secret key for database encryption.
@@ -1303,22 +1347,21 @@ impl Clone for AsyncOfflineQueue {
 mod tests {
     use super::*;
 
-    /// Test-wide shared key-path sandbox (Batch 88 + Batch 90
-    /// race-fix). Set ONCE on first backup-test invocation;
-    /// guarded by a Mutex that backup tests acquire for the
-    /// DURATION of their OfflineQueue::new + derivation call
-    /// so parallel `cargo test` execution cannot race on the
-    /// env-var write + the subsequent env-var read inside
-    /// `load_or_create_db_secret()`.
+    /// Test-wide shared key-path sandbox (Batch 88 / 90 / 96
+    /// architecture). Set ONCE on first backup-test
+    /// invocation; the Batch 96 `OnceLock<String>` cache
+    /// inside `derive_db_encryption_key` then latches the
+    /// derived hex + all subsequent calls return the cached
+    /// value without re-reading the env or filesystem — the
+    /// root-cause architectural fix for the parallel-test
+    /// race that previously required a Mutex guard.
     ///
-    /// WHY Mutex (not just LazyLock): Rust env API is
-    /// process-global + lacks read/write memory-ordering
-    /// guarantees (especially in 2024 edition where set_var
-    /// is unsafe). Even with LazyLock setting the value
-    /// once, a concurrent reader on a different thread can
-    /// observe the OLD value due to CPU-level reordering.
-    /// Holding a Mutex across write + read restores
-    /// happens-before ordering.
+    /// Tests that need the sandbox call `ensure_key_sandbox()`
+    /// which triggers LazyLock init (sets env) + returns.
+    /// Subsequent calls are no-op. First call that reaches
+    /// `derive_db_encryption_key` does the derivation using
+    /// the sandbox path; OnceLock caches; all further tests
+    /// see the cached value regardless of thread interleaving.
     static TEST_KEY_PATH_INIT: std::sync::LazyLock<std::path::PathBuf> =
         std::sync::LazyLock::new(|| {
             let dir = std::env::temp_dir().join(format!(
@@ -1328,32 +1371,20 @@ mod tests {
             std::fs::create_dir_all(&dir).expect("mkdir test key dir");
             let path = dir.join("db.key");
             // SAFETY: set_var happens ONCE inside LazyLock::
-            // new, which provides its own synchronization.
-            // Backup tests guard subsequent read via ENV_RACE_
-            // MUTEX below for CPU memory-ordering.
+            // new (internal synchronization). Correct
+            // memory-ordering visibility is guaranteed by
+            // Batch 96's OnceLock<String> cache in
+            // derive_db_encryption_key — once any thread
+            // latches the derived hex, no thread re-reads
+            // the env regardless of interleaving.
             unsafe {
                 std::env::set_var("SUDERRA_DB_KEY_PATH", &path);
             }
             path
         });
 
-    /// Mutex held across the entire body of file-backed backup
-    /// tests — serializes parallel invocations so env-var
-    /// write (LazyLock init) happens-before env-var read
-    /// (load_or_create_db_secret). Matches the existing
-    /// test-serialization pattern in
-    /// `src/authz/manifest_version_store.rs::tests::TEST_LOCK`.
-    static ENV_RACE_MUTEX: std::sync::LazyLock<std::sync::Mutex<()>> =
-        std::sync::LazyLock::new(|| std::sync::Mutex::new(()));
-
-    fn ensure_key_sandbox() -> std::sync::MutexGuard<'static, ()> {
+    fn ensure_key_sandbox() {
         let _ = &*TEST_KEY_PATH_INIT;
-        ENV_RACE_MUTEX.lock().unwrap_or_else(|poisoned| {
-            // Recover from a prior-panic poison — SQLite test
-            // fixtures don't leave the env in an inconsistent
-            // state beyond what LazyLock already guarantees.
-            poisoned.into_inner()
-        })
     }
 
     #[test]
@@ -1561,11 +1592,12 @@ mod tests {
 
     #[test]
     fn test_backup_to() {
-        // Batch 88+90: share SUDERRA_DB_KEY_PATH sandbox +
-        // hold ENV_RACE_MUTEX across the whole test body to
-        // serialize concurrent file-backed backup tests (env
-        // API lacks read/write memory-ordering guarantees).
-        let _guard = ensure_key_sandbox();
+        // Batch 88/90/96: sandbox the SUDERRA_DB_KEY_PATH
+        // before first derive_db_encryption_key call. Batch
+        // 96's OnceLock cache in the derive function makes
+        // the Mutex guard unnecessary — the first call
+        // latches the derived hex; parallel tests are safe.
+        ensure_key_sandbox();
         let temp_dir = tempfile::tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
         let backup_path = temp_dir.path().join("backup.db");
@@ -1588,7 +1620,7 @@ mod tests {
 
     #[test]
     fn test_backup_rolling() {
-        let _guard = ensure_key_sandbox();
+        ensure_key_sandbox();
         let temp_dir = tempfile::tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
         let backup_dir = temp_dir.path().join("backups");

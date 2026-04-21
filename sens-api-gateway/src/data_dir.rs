@@ -66,13 +66,26 @@ pub fn data_dir_as_string() -> String {
 mod tests {
     use super::*;
 
+    /// Batch 96: serialize env-var-touching tests in this
+    /// module. Two tests set + remove SUDERRA_DATA_DIR on
+    /// opposite paths; parallel cargo test harness races
+    /// them -> one observes the other's in-flight state.
+    /// Mutex pattern mirrors authz/manifest_version_store's
+    /// TEST_LOCK.
+    static ENV_TEST_LOCK: std::sync::LazyLock<std::sync::Mutex<()>> =
+        std::sync::LazyLock::new(|| std::sync::Mutex::new(()));
+
+    fn env_test_guard() -> std::sync::MutexGuard<'static, ()> {
+        ENV_TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
     #[test]
     fn default_when_env_var_unset() {
+        let _g = env_test_guard();
         // SAFETY: Rust 2024 edition requires unsafe for env mutation
         // — setting/removing env vars is not thread-safe (other
-        // threads may be reading concurrently). Test harness
-        // serializes tests by default; the unsafe block is sound
-        // for this single-threaded test context.
+        // threads may be reading concurrently). Mutex above
+        // serializes this test against honors_env_var_override.
         unsafe {
             std::env::remove_var(DATA_DIR_ENV_VAR);
         }
@@ -82,6 +95,7 @@ mod tests {
 
     #[test]
     fn honors_env_var_override() {
+        let _g = env_test_guard();
         unsafe {
             std::env::set_var(DATA_DIR_ENV_VAR, "/tmp/edge-test-data");
         }

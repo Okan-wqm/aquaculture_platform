@@ -25,7 +25,6 @@ jobs:
           # ignore entries in deny.toml [advisories] + .cargo/audit.toml. Drift
           # between these three lists is a review-blocker. Full rationale +
           # threat-model justification lives in deny.toml.
-          allow-ghsas: |
-            GHSA-xgp8-3hg3-c2mh
-            GHSA-965h-392x-2mh5
-            GHSA-pwjx-qhcg-rvj4
+          # allow-ghsas expects a COMMA-separated list. Prior `|` multi-line form
+          # produced a single blob string that the action could not parse.
+          allow-ghsas: GHSA-xgp8-3hg3-c2mh,GHSA-965h-392x-2mh5,GHSA-pwjx-qhcg-rvj4

@@ -441,6 +441,34 @@ pub struct AppState {
     /// NOT wired. Triggering via HTTP endpoint OR CLI subcommand lands
     /// in Sprint 6.x.
     pub backup_manager: Option<std::sync::Arc<crate::backup::BackupManager>>,
+
+    /// JTI dedup table for command-envelope replay defense
+    /// (Batch 59, plan §4.10 / Sprint 6.4).
+    ///
+    /// WHY: Plan §4.10 zero-trust command model mandates a
+    /// sliding-window jti dedup cache to reject replay
+    /// attempts. Batch 57 shipped `MokaJtiDedupTable` as the
+    /// hot-window tier; Batch 58 added the config knob.
+    /// Batch 59 wires the actual runtime INSTANCE into
+    /// AppState so Sprint 6.4 full wire can invoke
+    /// `check_and_mark` in execute_command without any
+    /// AppState-shape change.
+    ///
+    /// WHAT: `Arc<dyn JtiDedupTable>` held through a trait
+    /// object so Sprint 6.4 can swap to the composite
+    /// `LayeredJtiDedupTable` (Moka + SQLCipher) without
+    /// touching consumers.
+    ///
+    /// Pre-Sprint-6.4 the instance is CONSTRUCTED at boot +
+    /// lives in AppState but is NOT YET INVOKED by any
+    /// command-path. execute_command gets its check_and_mark
+    /// call in the Sprint 6.4 full wire.
+    ///
+    /// NONE when signature_mode=Disabled (no replay defense
+    /// needed for legacy-compat deployments) — zero-cost-
+    /// when-unused pattern.
+    pub jti_dedup_table:
+        Option<std::sync::Arc<dyn crate::command_envelope::JtiDedupTable>>,
 }
 
 impl AppState {
@@ -494,6 +522,12 @@ impl AppState {
             // functionality (v1.6.0 baseline); Some → HTTP/CLI-
             // triggered backup available.
             backup_manager: None,
+            // Batch 59 Sprint 6.4 foundation: None-init; `init_
+            // jti_dedup_table()` below constructs MokaJtiDedupTable
+            // iff signature_mode != Disabled. None → no replay-
+            // defense (legacy-compat); Some → Sprint 6.4
+            // execute_command check_and_mark.
+            jti_dedup_table: None,
         }
     }
 
@@ -788,6 +822,55 @@ impl AppState {
             self.config.backup.max_backups
         );
         Ok(())
+    }
+
+    /// Construct the JTI dedup table (Batch 59 Sprint 6.4
+    /// foundation).
+    ///
+    /// WHY: Plan §4.10 zero-trust command model requires a
+    /// sliding-window jti dedup cache. Batch 57 shipped
+    /// MokaJtiDedupTable; Batch 59 constructs the runtime
+    /// instance at boot so Sprint 6.4 can invoke it from
+    /// execute_command without AppState-shape churn.
+    ///
+    /// WHAT:
+    /// - Reads `config.envelope_dedup.{moka_capacity,
+    ///   moka_ttl_secs}` for capacity + TTL.
+    /// - Constructs MokaJtiDedupTable::with_capacity_and_ttl.
+    /// - Arc-wraps as `dyn JtiDedupTable` trait object so
+    ///   Sprint 6.4 can swap to LayeredJtiDedupTable without
+    ///   touching consumers.
+    /// - Stores in `self.jti_dedup_table`.
+    ///
+    /// MODE GATE: when signature_mode=Disabled, leaves the
+    /// field as None — zero-cost-when-unused per HC-1
+    /// backward-compat. Permissive/Enforcing mode constructs
+    /// the table.
+    ///
+    /// INFALLIBLE: Moka cache construction doesn't touch disk
+    /// or syscalls; can't fail. Returns `()` not `Result`.
+    pub fn init_jti_dedup_table(&mut self) {
+        use crate::command_envelope::envelope::SignatureMode;
+        use crate::command_envelope::MokaJtiDedupTable;
+
+        if matches!(self.config.signature_mode, SignatureMode::Disabled) {
+            info!(
+                "JTI dedup table skipped: signature_mode=Disabled (HC-1 backward compat)"
+            );
+            return;
+        }
+
+        let capacity = self.config.envelope_dedup.moka_capacity;
+        let ttl_secs = self.config.envelope_dedup.moka_ttl_secs;
+        let ttl = std::time::Duration::from_secs(ttl_secs);
+
+        let table = MokaJtiDedupTable::with_capacity_and_ttl(capacity, ttl);
+        self.jti_dedup_table = Some(std::sync::Arc::new(table));
+
+        info!(
+            "JTI dedup table initialized: signature_mode={:?} moka_capacity={} moka_ttl_secs={}",
+            self.config.signature_mode, capacity, ttl_secs
+        );
     }
 
     /// Initialize hardware handles (must be called within LocalSet context)
@@ -1169,6 +1252,25 @@ async fn async_main() -> Result<()> {
             error!("BackupManager init failed (fail-closed boot): {}", msg);
             std::process::exit(1);
         }
+    }
+
+    // Initialize JTI dedup table (Batch 59 Sprint 6.4 foundation).
+    //
+    // WHY: Plan §4.10 zero-trust command model requires a
+    // sliding-window jti dedup cache for replay defense. Batch
+    // 57 shipped MokaJtiDedupTable + Batch 58 added the config
+    // knob; Batch 59 constructs the RUNTIME instance in
+    // AppState so Sprint 6.4 full wire can invoke it from
+    // execute_command without AppState-shape churn.
+    //
+    // INFALLIBLE: Moka cache construction doesn't touch disk or
+    // syscalls; can't fail. init_jti_dedup_table() returns ().
+    //
+    // MODE GATE: skipped when signature_mode=Disabled. Permissive/
+    // Enforcing mode constructs the table.
+    {
+        let mut state_guard = state.write().await;
+        state_guard.init_jti_dedup_table();
     }
 
     // Setup graceful shutdown

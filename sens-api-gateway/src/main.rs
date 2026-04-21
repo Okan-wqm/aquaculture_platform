@@ -504,6 +504,24 @@ pub struct AppState {
     /// when None, matching the log-only fallback semantic.
     pub audit_sink: Option<std::sync::Arc<crate::audit::AuditSink>>,
 
+    /// Clock authority for trusted wall-clock reads (Batch 90
+    /// Sprint 6.7 wire).
+    ///
+    /// WHY: Plan §5 Faz 2 item 10 + D-7 mandate a fail-closed
+    /// clock path that knows NTS sync age. Batches 55 + 89
+    /// shipped the trait + both impls (SystemClockAuthority
+    /// trusting-0-age baseline + ChronyNtsClockAuthority
+    /// real-query path). Batch 90 wires AppState to pick one
+    /// based on `config.clock.enable_chrony_query`.
+    ///
+    /// WHAT: `Arc<dyn ClockAuthority>` — trait object behind
+    /// Arc for cross-task sharing. Always Some (no Option
+    /// shape) because consumers depend on a clock being
+    /// present; Disabled fallback is just the trusting
+    /// System impl rather than None.
+    pub clock_authority:
+        std::sync::Arc<dyn crate::runtime_safety::ClockAuthority>,
+
     /// Master-key keystore for HKDF-derived per-purpose keys
     /// (Batch 83 Sprint 6.3).
     ///
@@ -603,6 +621,15 @@ impl AppState {
             // config-hex keys; Some → consumers migrate to
             // KeyPurpose::* HKDF-derived keys.
             keystore: None,
+            // Batch 90 Sprint 6.7 wire: default to
+            // SystemClockAuthority (always-trusting 0-age
+            // baseline per HC-1 backward compat).
+            // `init_clock_authority()` below swaps to
+            // ChronyNtsClockAuthority when
+            // `clock.enable_chrony_query = true`.
+            clock_authority: std::sync::Arc::new(
+                crate::runtime_safety::SystemClockAuthority::new(),
+            ),
         }
     }
 
@@ -1321,6 +1348,43 @@ impl AppState {
         Ok(())
     }
 
+    /// Pick the concrete ClockAuthority impl (Batch 90 Sprint
+    /// 6.7 wire). Called from boot after config is loaded.
+    ///
+    /// SELECTION:
+    /// - `clock.enable_chrony_query = true` →
+    ///   `ChronyNtsClockAuthority` (queries chronyc tracking
+    ///   with 10s cache + subprocess fallback sentinel).
+    /// - `false` (HC-1 default) → `SystemClockAuthority`
+    ///   (always-trusting 0-age). The ctor-time baseline
+    ///   already set this; we reconstruct to pick up the
+    ///   operator-configured threshold.
+    ///
+    /// NEVER fails — chrony subprocess failures surface at
+    /// READ TIME as the sentinel age, not at init. Boot
+    /// continues regardless.
+    pub fn init_clock_authority(&mut self) {
+        use crate::runtime_safety::{ChronyNtsClockAuthority, SystemClockAuthority};
+
+        let threshold = self.config.clock.nts_sync_max_skew_secs;
+        if self.config.clock.enable_chrony_query {
+            info!(
+                "Clock authority: ChronyNtsClockAuthority threshold={}s (Sprint 6.7 real NTS query)",
+                threshold
+            );
+            self.clock_authority =
+                std::sync::Arc::new(ChronyNtsClockAuthority::new(threshold));
+        } else {
+            info!(
+                "Clock authority: SystemClockAuthority threshold={}s (HC-1 trusting-0-age baseline; set clock.enable_chrony_query=true for real NTS age)",
+                threshold
+            );
+            self.clock_authority = std::sync::Arc::new(
+                SystemClockAuthority::with_nts_threshold(threshold),
+            );
+        }
+    }
+
     /// Initialize hardware handles (must be called within LocalSet context)
     pub fn init_hardware_handles(&mut self) {
         // Initialize Modbus actor
@@ -1804,6 +1868,28 @@ async fn async_main() -> Result<()> {
             );
             std::process::exit(1);
         }
+    }
+
+    // Initialize clock authority (Batch 90 Sprint 6.7 wire).
+    //
+    // WHY: Plan §5 Faz 2 item 10 + D-7. Selects between
+    // SystemClockAuthority (HC-1 trusting baseline) and
+    // ChronyNtsClockAuthority (real chronyc-tracking query)
+    // based on config.clock.enable_chrony_query.
+    //
+    // Runs EARLY in boot — before keystore + audit — because
+    // future batches migrating envelope freshness + audit
+    // timestamp paths to the trait will query clock at those
+    // init sites (currently they use SystemTime::now()
+    // directly). Positioning the init first avoids any
+    // ordering constraint if Sprint 6.7 consumer migration
+    // batches need the clock during their own init.
+    //
+    // NEVER fails — chrony subprocess errors surface as
+    // sentinel u64::MAX age at read time.
+    {
+        let mut state_guard = state.write().await;
+        state_guard.init_clock_authority();
     }
 
     // Initialize keystore (Batch 83 Sprint 6.3).

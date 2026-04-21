@@ -1303,12 +1303,22 @@ impl Clone for AsyncOfflineQueue {
 mod tests {
     use super::*;
 
-    /// Test-wide shared key-path sandbox (Batch 88). Set once
-    /// on first backup-test invocation; subsequent tests reuse
-    /// the same path so parallel `cargo test` execution
-    /// doesn't race on env-var mutation. The path lives in a
-    /// module-scope LazyLock-managed tempdir that survives the
-    /// test process.
+    /// Test-wide shared key-path sandbox (Batch 88 + Batch 90
+    /// race-fix). Set ONCE on first backup-test invocation;
+    /// guarded by a Mutex that backup tests acquire for the
+    /// DURATION of their OfflineQueue::new + derivation call
+    /// so parallel `cargo test` execution cannot race on the
+    /// env-var write + the subsequent env-var read inside
+    /// `load_or_create_db_secret()`.
+    ///
+    /// WHY Mutex (not just LazyLock): Rust env API is
+    /// process-global + lacks read/write memory-ordering
+    /// guarantees (especially in 2024 edition where set_var
+    /// is unsafe). Even with LazyLock setting the value
+    /// once, a concurrent reader on a different thread can
+    /// observe the OLD value due to CPU-level reordering.
+    /// Holding a Mutex across write + read restores
+    /// happens-before ordering.
     static TEST_KEY_PATH_INIT: std::sync::LazyLock<std::path::PathBuf> =
         std::sync::LazyLock::new(|| {
             let dir = std::env::temp_dir().join(format!(
@@ -1317,19 +1327,33 @@ mod tests {
             ));
             std::fs::create_dir_all(&dir).expect("mkdir test key dir");
             let path = dir.join("db.key");
-            // SAFETY: set_var is process-global; we set it
-            // ONCE inside LazyLock::new so concurrent readers
-            // see a stable value. No subsequent remove_var
-            // call from this module; tempdir auto-cleanup at
-            // process exit.
+            // SAFETY: set_var happens ONCE inside LazyLock::
+            // new, which provides its own synchronization.
+            // Backup tests guard subsequent read via ENV_RACE_
+            // MUTEX below for CPU memory-ordering.
             unsafe {
                 std::env::set_var("SUDERRA_DB_KEY_PATH", &path);
             }
             path
         });
 
-    fn ensure_key_sandbox() {
+    /// Mutex held across the entire body of file-backed backup
+    /// tests — serializes parallel invocations so env-var
+    /// write (LazyLock init) happens-before env-var read
+    /// (load_or_create_db_secret). Matches the existing
+    /// test-serialization pattern in
+    /// `src/authz/manifest_version_store.rs::tests::TEST_LOCK`.
+    static ENV_RACE_MUTEX: std::sync::LazyLock<std::sync::Mutex<()>> =
+        std::sync::LazyLock::new(|| std::sync::Mutex::new(()));
+
+    fn ensure_key_sandbox() -> std::sync::MutexGuard<'static, ()> {
         let _ = &*TEST_KEY_PATH_INIT;
+        ENV_RACE_MUTEX.lock().unwrap_or_else(|poisoned| {
+            // Recover from a prior-panic poison — SQLite test
+            // fixtures don't leave the env in an inconsistent
+            // state beyond what LazyLock already guarantees.
+            poisoned.into_inner()
+        })
     }
 
     #[test]
@@ -1537,10 +1561,11 @@ mod tests {
 
     #[test]
     fn test_backup_to() {
-        // Batch 88: share SUDERRA_DB_KEY_PATH sandbox across
-        // tests (set-once via LazyLock) so parallel cargo
-        // test doesn't race on env-var mutation.
-        ensure_key_sandbox();
+        // Batch 88+90: share SUDERRA_DB_KEY_PATH sandbox +
+        // hold ENV_RACE_MUTEX across the whole test body to
+        // serialize concurrent file-backed backup tests (env
+        // API lacks read/write memory-ordering guarantees).
+        let _guard = ensure_key_sandbox();
         let temp_dir = tempfile::tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
         let backup_path = temp_dir.path().join("backup.db");
@@ -1563,7 +1588,7 @@ mod tests {
 
     #[test]
     fn test_backup_rolling() {
-        ensure_key_sandbox();
+        let _guard = ensure_key_sandbox();
         let temp_dir = tempfile::tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
         let backup_dir = temp_dir.path().join("backups");

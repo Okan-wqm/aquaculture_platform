@@ -1757,6 +1757,20 @@ pub struct ClockConfig {
     /// Default 3600s (1 hour) per plan D-7.
     #[serde(default = "default_nts_sync_max_skew_secs")]
     pub nts_sync_max_skew_secs: u64,
+
+    /// Enable chronyc-tracking subprocess query for real
+    /// NTS sync age (Batch 90 Sprint 6.7 wire). Default
+    /// false — HC-1 backward compat leaves the clock
+    /// authority at `SystemClockAuthority` (always-trusting
+    /// 0-age). Set true to swap to `ChronyNtsClockAuthority`
+    /// + get real fail-closed on stale NTS.
+    ///
+    /// REQUIRES: chronyd running + `chronyc` binary in PATH
+    /// + the agent user has query access. See
+    /// `docs/runbooks/edge-chrony-setup.md` (Phase 2 /
+    /// Batch 91) for the operator checklist.
+    #[serde(default)]
+    pub enable_chrony_query: bool,
 }
 
 fn default_nts_sync_max_skew_secs() -> u64 {
@@ -1772,6 +1786,7 @@ impl Default for ClockConfig {
     fn default() -> Self {
         Self {
             nts_sync_max_skew_secs: default_nts_sync_max_skew_secs(),
+            enable_chrony_query: false,
         }
     }
 }

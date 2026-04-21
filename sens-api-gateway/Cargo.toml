@@ -575,3 +575,8 @@ path = "tests/invariants/config_integrity_verify_runtime.rs"
 [[test]]
 name = "system_clock"
 path = "tests/invariants/system_clock.rs"
+
+# Batch 57 Sprint 6.4 partial — Moka jti dedup hot-window tier.
+[[test]]
+name = "moka_jti_dedup"
+path = "tests/invariants/moka_jti_dedup.rs"

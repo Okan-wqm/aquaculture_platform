@@ -57,6 +57,7 @@
 pub mod canonical;
 pub mod envelope;
 pub mod jti;
+pub mod moka_dedup;
 pub mod mutating;
 
 pub use canonical::{canonical_params, CanonicalParamsError, CmdHash};
@@ -65,4 +66,5 @@ pub use envelope::{
     MAX_CMD_NAME_BYTES, MAX_NONCE_BYTES,
 };
 pub use jti::{DedupResult, InvalidJti, Jti, JtiDedupTable, MAX_JTI_BYTES};
+pub use moka_dedup::{MokaJtiDedupTable, DEFAULT_MOKA_CAPACITY, DEFAULT_MOKA_TTL_SECS};
 pub use mutating::{is_mutating, MUTATING_COMMANDS};

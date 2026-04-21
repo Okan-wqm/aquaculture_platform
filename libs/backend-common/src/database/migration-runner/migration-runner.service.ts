@@ -96,6 +96,7 @@ import {
   type MigrationEventSink,
   type MigrationSinkEventType,
 } from '../migration-event-sink';
+import { assertExpandContractDependency } from '../assert-expand-contract-dependency';
 
 export interface MigrationRunnerOptions {
   /**
@@ -353,6 +354,30 @@ export function createMigrationRunnerService(
 
             const migrationStartedAt = Date.now();
             this.emit(schema, migration.name, 'start');
+
+            // R6 runtime gate — contract-phase @ExpandContract
+            // migrations MUST NOT run until their dependsOn expand-phase
+            // migration has been applied in this environment. The
+            // assertion lives at the runner layer so authors don't
+            // have to remember to call it in every contract-phase
+            // up() body. Fail-safe: bootstrap environments (pre-
+            // Phase-0 observability schema) skip cleanly without
+            // blocking.
+            const migrationCtor =
+              typeof migration.instance === 'object' &&
+              migration.instance !== null
+                ? (migration.instance as { constructor: Function }).constructor
+                : undefined;
+            if (migrationCtor !== undefined) {
+              const env =
+                this.configService.get<string>('AQUA_ENV') ??
+                this.configService.get<string>('NODE_ENV', 'development')!;
+              await assertExpandContractDependency({
+                dataSource: this.dataSource,
+                migrationClass: migrationCtor,
+                environment: env,
+              });
+            }
 
             // Per-migration transaction so a partial failure in migration
             // N does not leak uncommitted DDL into migration N+1.

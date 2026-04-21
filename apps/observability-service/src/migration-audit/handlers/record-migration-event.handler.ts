@@ -1,6 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { InjectRepository } from '@nestjs/typeorm';
 import { CommandHandler, type ICommandHandler } from '@platform/cqrs';
+import { Repository } from 'typeorm';
 
 import {
   hmacTenantHash,
@@ -9,6 +11,7 @@ import {
 
 import { RecordMigrationEventCommand } from '../commands/record-migration-event.command';
 import { MigrationEventRepository } from '../repositories/migration-event.repository';
+import { MigrationBackfillProgressEntity } from '../../database/entities/migration-backfill-progress.entity';
 import type { MigrationEventEntity } from '../../database/entities/migration-event.entity';
 
 /**
@@ -38,6 +41,8 @@ export class RecordMigrationEventHandler
   constructor(
     private readonly repo: MigrationEventRepository,
     private readonly configService: ConfigService,
+    @InjectRepository(MigrationBackfillProgressEntity)
+    private readonly progressRepo: Repository<MigrationBackfillProgressEntity>,
   ) {}
 
   async execute(
@@ -106,6 +111,39 @@ export class RecordMigrationEventHandler
       errorDetail,
       environment,
     });
+
+    // R6 runtime gate feed: every successful MIGRATION apply (not
+    // every event type; validator_* / start / skipped / failed do
+    // not count) writes an UPSERT row to migration_backfill_progress.
+    // Contract-phase @ExpandContract migrations read this truth
+    // before executing their up() body. Keeping the write inside the
+    // handler means it is automatic for every service that already
+    // routes applied events through the CQRS bus — no new
+    // integration per service.
+    //
+    // Tenant fan-out events (tenantSchema present) are the SAME
+    // logical migration applying to a tenant clone, not a distinct
+    // migration to backfill. We gate the progress write to
+    // source-schema events (tenantSchema absent) so dependency
+    // lookup stays environment-scoped, not per-tenant.
+    if (p.eventType === 'applied' && p.tenantSchema === undefined) {
+      // ON CONFLICT DO NOTHING via a raw INSERT. TypeORM save() would
+      // UPDATE on conflict which would overwrite the original
+      // timestamp — we keep the FIRST successful apply's timestamp,
+      // always.
+      await this.progressRepo.query(
+        `INSERT INTO observability.migration_backfill_progress
+           (migration_name, environment, service_name, applied_at)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (migration_name, environment) DO NOTHING`,
+        [
+          p.migrationName,
+          environment,
+          p.serviceName,
+          (p.occurredAt ?? new Date()).toISOString(),
+        ],
+      );
+    }
 
     this.logger.debug(
       `migration-audit: ${p.serviceName} ${p.eventType} ${p.migrationName}${tenantIdHash ? ` tenant=${tenantIdHash.slice(0, 12)}…` : ''}`,

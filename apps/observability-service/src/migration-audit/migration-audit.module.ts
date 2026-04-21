@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { CqrsModule } from '@platform/cqrs';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
+import { MigrationBackfillProgressEntity } from '../database/entities/migration-backfill-progress.entity';
 import { MigrationEventEntity } from '../database/entities/migration-event.entity';
 import { SchemaObjectHistoryEntity } from '../database/entities/schema-object-history.entity';
 import { SchemaMigrationEventsConsumer } from './consumers/schema-migration-events.consumer';
@@ -29,7 +30,11 @@ import { CqrsMigrationEventSink } from './sinks/cqrs-migration-event-sink';
 @Module({
   imports: [
     CqrsModule,
-    TypeOrmModule.forFeature([MigrationEventEntity, SchemaObjectHistoryEntity]),
+    TypeOrmModule.forFeature([
+      MigrationEventEntity,
+      SchemaObjectHistoryEntity,
+      MigrationBackfillProgressEntity,
+    ]),
   ],
   providers: [
     MigrationEventRepository,

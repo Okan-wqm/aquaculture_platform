@@ -113,6 +113,17 @@ export type { MigrationRunnerModuleOptions } from './migration-runner/migration-
 // cron. See retention/retention-policy.ts docblock.
 export * from './retention';
 
+// assertExpandContractDependency — R6 runtime gate. Called by
+// MigrationRunnerService before executing each migration; contract-phase
+// classes MUST have their dependsOn expand migration recorded in
+// observability.migration_backfill_progress for the environment.
+// See assert-expand-contract-dependency.ts docblock.
+export { assertExpandContractDependency } from './assert-expand-contract-dependency';
+export type {
+  AssertDependencyOptions,
+  AssertDependencyResult,
+} from './assert-expand-contract-dependency';
+
 // Schema drift validator — OnApplicationBootstrap provider factory that
 // compares entity metadata against information_schema on every boot and
 // fails fast on divergence (uuid→text drift, wrong schema, nullability

@@ -143,12 +143,19 @@ export type {
 // A-G. Each primitive composes over withDdlSafety and sql.* branded
 // fragments; raw-string SQL is a compile error at the call site.
 // addMissingColumns heals Class D (entity declares column, DB lacks).
+// alignColumnNullability heals Class C (entity NOT NULL, DB nullable).
 export { addMissingColumns } from './schema-primitives/add-missing-columns';
 export type {
   AddMissingColumnSpec,
   AddMissingColumnsOptions,
   AddMissingColumnsResult,
 } from './schema-primitives/add-missing-columns';
+export { alignColumnNullability } from './schema-primitives/align-column-nullability';
+export type {
+  AlignColumnNullabilitySpec,
+  AlignColumnNullabilityOptions,
+  AlignColumnNullabilityResult,
+} from './schema-primitives/align-column-nullability';
 
 // @EncryptedAtRest — declarative marker for cryptographically-encrypted
 // columns. Drift validator Class J enforces bytea storage; Phase 3

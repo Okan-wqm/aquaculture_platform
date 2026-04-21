@@ -1608,6 +1608,21 @@ fn main() {
                 println!("Suderra Edge Agent v{}", env!("CARGO_PKG_VERSION"));
                 return;
             }
+            "--confirm-active" => {
+                // Batch 110 Sprint 6.5 Phase 2: post-boot
+                // confirm CLI. Called by a systemd unit /
+                // timer after N seconds of healthy agent
+                // operation. Resolves the currently-active
+                // slot + applies PartitionRoll::Confirm.
+                //
+                // Usage: suderra-agent --confirm-active
+                //
+                // No MQTT required — direct PartitionStore
+                // mutation. Exit 0 on success, 1 on any
+                // failure.
+                let code = run_confirm_active();
+                std::process::exit(code);
+            }
             "--audit-verify" => {
                 // Batch 77 Sprint 6.2 Phase 2: offline audit
                 // log verification CLI path.
@@ -1653,6 +1668,7 @@ fn main() {
                 println!("OPTIONS:");
                 println!("    --init                    Generate default configuration file");
                 println!("    --audit-verify <path>     Verify NDJSON audit log chain (Batch 77)");
+                println!("    --confirm-active          Confirm the currently-active A/B slot (Batch 110)");
                 println!("    --version                 Print version information");
                 println!("    --help                    Print this help message");
                 println!();
@@ -2149,6 +2165,80 @@ async fn async_main() -> Result<()> {
 /// pattern in the --init and --help branches.
 #[allow(clippy::print_stdout)]
 #[allow(clippy::print_stderr)]
+/// Post-boot A/B slot confirm CLI entry point (Batch 110
+/// Sprint 6.5 Phase 2).
+///
+/// Invoked by `suderra-agent --confirm-active`. Called from
+/// a systemd unit / timer (`suderra-agent-confirm.timer`)
+/// that runs N seconds AFTER agent start when a
+/// PendingConfirm slot is waiting for operator health-
+/// check to promote it.
+///
+/// Flow:
+/// 1. Open PartitionStore at default path.
+/// 2. Snapshot; resolve active slot.
+/// 3. Apply `PartitionRoll::Confirm { slot: active }`.
+/// 4. Exit 0 on success (new state Active) + pretty-print
+///    the transition; exit 1 on any error.
+///
+/// Pre-tracing: same println/eprintln pattern as --init,
+/// --audit-verify per the existing CLI convention.
+#[allow(clippy::print_stdout)]
+#[allow(clippy::print_stderr)]
+fn run_confirm_active() -> i32 {
+    let store = match crate::updater::PartitionStore::open(None) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("--confirm-active: PartitionStore open failed: {}", e);
+            return 1;
+        }
+    };
+
+    let snap = match store.snapshot() {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("--confirm-active: snapshot failed: {}", e);
+            return 1;
+        }
+    };
+
+    let active = snap.active;
+
+    // If the active slot is already Active (not
+    // PendingConfirm), there's nothing to confirm. Exit 0
+    // idempotently — systemd timer can fire repeatedly
+    // without error.
+    if snap.state_of(active) == crate::updater::SlotState::Active {
+        println!(
+            "--confirm-active: slot {:?} already Active (idempotent no-op)",
+            active
+        );
+        return 0;
+    }
+
+    let cold_boot_budget_secs =
+        crate::updater::partition::DEFAULT_COLD_BOOT_BUDGET_SECS;
+
+    match store.apply_roll(
+        crate::updater::PartitionRoll::Confirm { slot: active },
+        cold_boot_budget_secs,
+    ) {
+        Ok(new_state) => {
+            println!("--confirm-active: OK");
+            println!("  confirmed_slot: {:?}", active);
+            println!(
+                "  new_active:     {:?} (was PendingConfirm)",
+                new_state.active
+            );
+            0
+        }
+        Err(e) => {
+            eprintln!("--confirm-active: apply_roll failed: {}", e);
+            1
+        }
+    }
+}
+
 fn run_audit_verify(log_path: &str) -> i32 {
     let key_hex = match std::env::var("SUDERRA_AUDIT_KEY_HEX") {
         Ok(v) => v,

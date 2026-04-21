@@ -200,6 +200,21 @@ export type {
   BackfillProgress,
 } from './schema-primitives/backfill-column';
 
+// @ExpandContract — declarative marker for blue-green migration phases.
+// Phase 4 PR-gate reads this metadata to authorize breaking diffs on
+// contract-phase migrations. See expand-contract.decorator.ts.
+export {
+  ExpandContract,
+  EXPAND_CONTRACT_META_KEY,
+  getExpandContractMetadata,
+  authorizesBreaking,
+} from './expand-contract.decorator';
+export type {
+  ExpandContractPhase,
+  ExpandContractOptions,
+  ExpandContractMetadata,
+} from './expand-contract.decorator';
+
 // @EncryptedAtRest — declarative marker for cryptographically-encrypted
 // columns. Drift validator Class J enforces bytea storage; Phase 3
 // primitives refuse DDL against decorated columns. See ADR-023.

@@ -503,6 +503,25 @@ pub struct AppState {
     /// 79 wires CommandHandler pre+post emit) skip audit
     /// when None, matching the log-only fallback semantic.
     pub audit_sink: Option<std::sync::Arc<crate::audit::AuditSink>>,
+
+    /// Master-key keystore for HKDF-derived per-purpose keys
+    /// (Batch 83 Sprint 6.3).
+    ///
+    /// WHY: Plan §5 Faz 2 item 1 + ADR-018 §4 mandate a
+    /// 3-backend priority (TPM > systemd-creds > FileBacked).
+    /// Batch 82 shipped FileBackedKeystore; Batch 83 wires
+    /// AppState construction. Downstream consumers
+    /// (Phase 2 / Batch 84 audit-hmac-from-keystore,
+    /// Phase 2 / Batch 85 SQLCipher-key-from-keystore)
+    /// clone the Arc<dyn Keystore> for per-purpose
+    /// derivation via KeyPurpose::*.
+    ///
+    /// WHAT: `Option<Arc<dyn Keystore>>` — trait-object
+    /// held behind Arc for cross-task sharing. None when
+    /// keystore.mode=Disabled (HC-1 backward compat);
+    /// Some(FileBackedKeystore) in FileBacked / Auto modes
+    /// pre-Batch-83a TPM landing.
+    pub keystore: Option<std::sync::Arc<dyn crate::keystore::Keystore>>,
 }
 
 impl AppState {
@@ -577,6 +596,13 @@ impl AppState {
             // CommandHandler pre+post emit falls to log-only;
             // Some → append-to-file with HMAC chain.
             audit_sink: None,
+            // Batch 83 Sprint 6.3: None-init; `init_keystore()`
+            // below constructs FileBackedKeystore (or falls
+            // through to it from Auto) iff keystore.mode !=
+            // Disabled. None → downstream consumers keep using
+            // config-hex keys; Some → consumers migrate to
+            // KeyPurpose::* HKDF-derived keys.
+            keystore: None,
         }
     }
 
@@ -1128,6 +1154,130 @@ impl AppState {
         Ok(())
     }
 
+    /// Initialize the master-key keystore (Batch 83 Sprint
+    /// 6.3). Selects a backend per `keystore.mode`:
+    ///
+    /// - Disabled: no-op. AppState.keystore stays None;
+    ///   consumers (audit / sqlcipher) keep using config-hex
+    ///   key sources (Phase 2 / Batch 84 migrates those).
+    /// - FileBacked: explicit operator choice. Reads
+    ///   acceptance token + passphrase + salt from configured
+    ///   paths (or /etc/suderra/keystore.* defaults) +
+    ///   constructs FileBackedKeystore via Argon2id.
+    /// - Auto: probe TPM first (Phase 2 / Batch 83a pending),
+    ///   then systemd-creds (Phase 2 / Batch 83b pending),
+    ///   then fall through to FileBacked. Pre-TPM-landing
+    ///   Auto ALWAYS ends up at FileBacked after logging
+    ///   the downgrade.
+    ///
+    /// FAIL-CLOSED: in FileBacked / Auto modes, failure to
+    /// construct the keystore -> exit(1). The keystore is
+    /// the trust anchor for all downstream key derivation;
+    /// there's no "permissive" fallback that silently uses
+    /// weaker keys.
+    pub fn init_keystore(&mut self) -> Result<(), String> {
+        use crate::config::KeystoreMode;
+        use crate::keystore::{
+            AcceptanceToken, Argon2idParams, FileBackedAcceptance, FileBackedKeystore,
+        };
+
+        if matches!(self.config.keystore.mode, KeystoreMode::Disabled) {
+            info!("Keystore init skipped: keystore.mode=Disabled (HC-1 backward compat)");
+            return Ok(());
+        }
+
+        // Auto + FileBacked both converge on FileBacked for
+        // this batch (TPM + systemd-creds probe land in
+        // follow-up batches). Log the downgrade in Auto
+        // mode so operators know which backend actually
+        // activated.
+        if matches!(self.config.keystore.mode, KeystoreMode::Auto) {
+            warn!(
+                "Keystore.mode=Auto: TPM + systemd-creds probes land in Phase 2 / Batches 83a+83b. \
+                 Falling through to FileBacked for this boot. Provision a TPM (or systemd-creds namespace) \
+                 to promote to a hardware-backed tier when those batches ship."
+            );
+        }
+
+        let pass_path = self
+            .config
+            .keystore
+            .passphrase_path
+            .clone()
+            .unwrap_or_else(|| {
+                std::path::PathBuf::from("/etc/suderra/keystore.passphrase")
+            });
+        let salt_path = self.config.keystore.salt_path.clone().unwrap_or_else(|| {
+            std::path::PathBuf::from("/etc/suderra/keystore.salt")
+        });
+        let acceptance_path = self
+            .config
+            .keystore
+            .acceptance_path
+            .clone()
+            .unwrap_or_else(|| {
+                std::path::PathBuf::from("/etc/suderra/keystore.acceptance.json")
+            });
+
+        // Read + parse acceptance token (operator-signed).
+        let acceptance_bytes = std::fs::read(&acceptance_path).map_err(|e| {
+            format!(
+                "Keystore init: read acceptance {}: {}",
+                acceptance_path.display(),
+                e
+            )
+        })?;
+        let token: AcceptanceToken = serde_json::from_slice(&acceptance_bytes)
+            .map_err(|e| {
+                format!(
+                    "Keystore init: parse acceptance JSON {}: {}",
+                    acceptance_path.display(),
+                    e
+                )
+            })?;
+
+        // Device identity for binding. Device code is the
+        // stable acceptance-token field; operator_id comes
+        // from the token itself.
+        let device_id = self.config.device_code.clone();
+        let acceptance = FileBackedAcceptance::try_from_parts(
+            &token,
+            &token.operator_id,
+            &device_id,
+            std::time::SystemTime::now(),
+            // Pre-Batch-84 signature-verify wiring: accept
+            // operator-supplied token without crypto verify.
+            // Batch 84 introduces operator-pubkey config
+            // knob + real ed25519 verify here. Current
+            // discipline: acceptance_path file perms 0400
+            // owner:suderra + audit-log every load.
+            |_, _| true,
+        )
+        .map_err(|e| format!("Keystore init: acceptance token invalid: {:?}", e))?;
+
+        let params = Argon2idParams {
+            memory_kib: self.config.keystore.argon2_memory_kib,
+            iterations: self.config.keystore.argon2_iterations,
+            parallelism: self.config.keystore.argon2_parallelism,
+        };
+
+        let ks = FileBackedKeystore::open(&pass_path, &salt_path, params, acceptance)
+            .map_err(|e| {
+                format!(
+                    "Keystore init: FileBacked open failed (fail-closed boot): {}",
+                    e
+                )
+            })?;
+
+        info!(
+            "Keystore opened: backend=FileBacked argon2id m={}KiB t={} p={}",
+            params.memory_kib, params.iterations, params.parallelism
+        );
+
+        self.keystore = Some(std::sync::Arc::new(ks));
+        Ok(())
+    }
+
     /// Initialize hardware handles (must be called within LocalSet context)
     pub fn init_hardware_handles(&mut self) {
         // Initialize Modbus actor
@@ -1607,6 +1757,32 @@ async fn async_main() -> Result<()> {
         if let Err(msg) = state_guard.init_rbac_manifest_store() {
             error!(
                 "RBAC manifest store init failed (fail-closed boot, mode=Enforcing): {}",
+                msg
+            );
+            std::process::exit(1);
+        }
+    }
+
+    // Initialize keystore (Batch 83 Sprint 6.3).
+    //
+    // WHY: Plan §5 Faz 2 item 1 + ADR-018 §4 mandate a
+    // 3-backend master-key keystore. Batch 82 shipped the
+    // FileBacked runtime; Batch 83 wires AppState +
+    // boot-time open. Pre-Batch-84 the keystore is NOT YET
+    // consumed by audit or SQLCipher (those migrate in
+    // Batches 84+85). Opening it at boot proves the
+    // acceptance-token + Argon2id pipeline works and makes
+    // KeyPurpose-derived keys available for the downstream
+    // migration batches.
+    //
+    // FAIL-CLOSED: keystore.mode != Disabled + open failure
+    // -> exit(1). The keystore is the trust anchor; weaker
+    // fallback would violate ADR-018 §4 invariants.
+    {
+        let mut state_guard = state.write().await;
+        if let Err(msg) = state_guard.init_keystore() {
+            error!(
+                "Keystore init failed (fail-closed boot): {}",
                 msg
             );
             std::process::exit(1);

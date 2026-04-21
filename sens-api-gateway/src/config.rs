@@ -310,6 +310,15 @@ pub struct AgentConfig {
     #[serde(default)]
     pub audit: AuditConfig,
 
+    /// Keystore configuration (Batch 83 Sprint 6.3). Selects
+    /// the master-key backend (TPM / systemd-creds /
+    /// FileBacked) + supplies the per-backend paths.
+    /// Disabled (default) leaves AppState.keystore = None —
+    /// existing deployments keep using config-supplied hex
+    /// keys from audit/sqlcipher config surfaces.
+    #[serde(default)]
+    pub keystore: KeystoreConfig,
+
     /// Cache configuration (v1.2.0)
     #[serde(default)]
     pub cache: CacheConfig,
@@ -1565,6 +1574,105 @@ impl Default for AuditConfig {
             mode: AuditMode::default(),
             log_path: None,
             hmac_key_hex: None,
+        }
+    }
+}
+
+// ============================================================================
+// KeystoreConfig — Batch 83 Sprint 6.3 / ADR-018 §4
+// ============================================================================
+//
+// WHY: Plan §5 Faz 2 item 1 + ADR-018 §4 mandate a 3-backend priority
+// (TPM > systemd-creds > FileBacked). Batch 82 landed the FileBacked
+// implementation; Batch 83 exposes the config surface + AppState field
+// wiring. Batches 83a/83b land TPM + systemd-creds backends; pre-
+// Batch-84 Auto mode falls back to FileBacked with a warn log.
+
+/// Keystore backend selection policy. `Auto` is the
+/// recommended production setting — the runtime probes TPM
+/// first, then systemd-creds, then FileBacked. Explicit
+/// modes are for test/dev OR operators forcing a specific
+/// fallback tier.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum KeystoreMode {
+    /// No keystore opened. HC-1 backward compat default —
+    /// existing deployments using config-supplied hex keys
+    /// (audit.hmac_key_hex) keep working. Phase 2 / Batch
+    /// 84 migrates those surfaces to KeyPurpose::*-derived
+    /// keys when this flips away from Disabled.
+    #[default]
+    Disabled,
+    /// Auto-select: TPM probe -> systemd-creds probe ->
+    /// FileBacked (requires acceptance token). Matches
+    /// ADR-018 §4 priority order. Pre-TPM-landing (Batch
+    /// 83a pending) Auto falls through to FileBacked after
+    /// logging the downgrade.
+    Auto,
+    /// Force FileBacked. Operator-explicit choice; requires
+    /// acceptance token + passphrase + salt files.
+    FileBacked,
+}
+
+/// Keystore knobs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KeystoreConfig {
+    /// Backend selection policy.
+    #[serde(default)]
+    pub mode: KeystoreMode,
+
+    /// Passphrase file path (FileBacked only). Default:
+    /// /etc/suderra/keystore.passphrase (0400 owner:suderra).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub passphrase_path: Option<std::path::PathBuf>,
+
+    /// Salt file path (FileBacked only). Default:
+    /// /etc/suderra/keystore.salt (0400 owner:suderra). Must
+    /// be >= 16 bytes.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub salt_path: Option<std::path::PathBuf>,
+
+    /// Acceptance token JSON path (FileBacked only). The
+    /// operator signs an explicit acknowledgment that file-
+    /// backed is used instead of TPM. Default:
+    /// /etc/suderra/keystore.acceptance.json.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub acceptance_path: Option<std::path::PathBuf>,
+
+    /// Argon2id memory cost (KiB). Default: 65536 (64 MiB).
+    /// Must be >= 19456 (OWASP 2024 floor).
+    #[serde(default = "default_argon2_memory_kib")]
+    pub argon2_memory_kib: u32,
+
+    /// Argon2id iterations. Default: 3. Must be >= 2.
+    #[serde(default = "default_argon2_iterations")]
+    pub argon2_iterations: u32,
+
+    /// Argon2id parallelism. Default: 4. Must be >= 1.
+    #[serde(default = "default_argon2_parallelism")]
+    pub argon2_parallelism: u32,
+}
+
+fn default_argon2_memory_kib() -> u32 {
+    65_536
+}
+fn default_argon2_iterations() -> u32 {
+    3
+}
+fn default_argon2_parallelism() -> u32 {
+    4
+}
+
+impl Default for KeystoreConfig {
+    fn default() -> Self {
+        Self {
+            mode: KeystoreMode::default(),
+            passphrase_path: None,
+            salt_path: None,
+            acceptance_path: None,
+            argon2_memory_kib: default_argon2_memory_kib(),
+            argon2_iterations: default_argon2_iterations(),
+            argon2_parallelism: default_argon2_parallelism(),
         }
     }
 }
@@ -2860,6 +2968,58 @@ impl AgentConfig {
                     "Config coherence: audit.log_path={} has no parent directory. \
                      Provide an absolute path with a parent dir.",
                     path.display()
+                );
+            }
+        }
+
+        // Rule 18 (Batch 83): Argon2id params MUST meet
+        // OWASP 2024 floor (memory >= 19456 KiB, iterations
+        // >= 2, parallelism >= 1) when keystore.mode !=
+        // Disabled. Matches Argon2idParams::validate()
+        // semantic in keystore/file_backed.rs but fails
+        // early at config-load (better operator UX than
+        // letting the keystore::open call surface the same
+        // error at boot).
+        if !matches!(self.keystore.mode, KeystoreMode::Disabled) {
+            if self.keystore.argon2_memory_kib < 19_456 {
+                anyhow::bail!(
+                    "Config coherence: keystore.argon2_memory_kib={} below OWASP 2024 floor (19456 KiB = 19 MiB). \
+                     Set to >= 19456, or set keystore.mode=disabled to skip keystore.",
+                    self.keystore.argon2_memory_kib
+                );
+            }
+            if self.keystore.argon2_iterations < 2 {
+                anyhow::bail!(
+                    "Config coherence: keystore.argon2_iterations={} below OWASP 2024 floor (2). \
+                     Set to >= 2, or set keystore.mode=disabled.",
+                    self.keystore.argon2_iterations
+                );
+            }
+            if self.keystore.argon2_parallelism == 0 {
+                anyhow::bail!(
+                    "Config coherence: keystore.argon2_parallelism must be >= 1, got 0."
+                );
+            }
+        }
+
+        // Rule 19 (Batch 83): keystore.mode=FileBacked
+        // requires all three file paths (passphrase, salt,
+        // acceptance) — when explicit FileBacked is chosen,
+        // the operator CANNOT rely on defaults for one and
+        // set another explicitly. Auto mode uses defaults
+        // for any unset path.
+        if matches!(self.keystore.mode, KeystoreMode::FileBacked) {
+            let has_any = self.keystore.passphrase_path.is_some()
+                || self.keystore.salt_path.is_some()
+                || self.keystore.acceptance_path.is_some();
+            let has_all = self.keystore.passphrase_path.is_some()
+                && self.keystore.salt_path.is_some()
+                && self.keystore.acceptance_path.is_some();
+            if has_any && !has_all {
+                anyhow::bail!(
+                    "Config coherence: keystore.mode=file_backed with SOME paths set requires ALL paths set \
+                     (passphrase_path, salt_path, acceptance_path). Either set all three explicitly or \
+                     omit all three to use /etc/suderra/keystore.* defaults."
                 );
             }
         }

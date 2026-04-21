@@ -2772,6 +2772,68 @@ async fn run_agent(
     // Step 6b: Start I/O poll loop
     tokio::spawn(io_poll::io_poll_loop(state.clone()));
 
+    // Batch 93 Sprint 6.4 final: start background sweep_expired
+    // task for the jti dedup table. Runs every 5 minutes,
+    // deleting SQLCipher rows whose expires_at is in the past.
+    //
+    // WHY periodic (not lazy-only): lazy sweep runs only on
+    // probe-miss for a specific jti; untouched expired rows
+    // accumulate without eviction. Under low-traffic fleet
+    // tenants, the SQLCipher file would grow unbounded across
+    // the 72-hour window * N replay-attempt rate. 5-minute
+    // cadence caps the staleness + bounds the file size
+    // (rough ceiling: throughput × 5min per sweep cycle).
+    //
+    // SKIPPED when jti_dedup_table = None (signature_mode=
+    // Disabled) — no table to sweep.
+    {
+        let dedup_table = {
+            let state_guard = state.read().await;
+            state_guard.jti_dedup_table.clone()
+        };
+        if let Some(dedup_table) = dedup_table {
+            let sweep_shutdown = shutdown_coordinator.subscribe();
+            let sweep_handle = tokio::spawn(async move {
+                let mut shutdown = sweep_shutdown;
+                let mut interval =
+                    tokio::time::interval(std::time::Duration::from_secs(300));
+                // Skip the immediate first tick (would fire
+                // right at boot when the table is empty).
+                interval.tick().await;
+                loop {
+                    tokio::select! {
+                        _ = interval.tick() => {
+                            let now = std::time::SystemTime::now();
+                            match dedup_table.sweep_expired(now).await {
+                                Ok(0) => {
+                                    // Quiet — nothing to log.
+                                }
+                                Ok(n) => {
+                                    info!(
+                                        "JTI dedup sweep: evicted {} expired entries",
+                                        n
+                                    );
+                                }
+                                Err(e) => {
+                                    warn!(
+                                        "JTI dedup sweep failed: {:?} (will retry in 5m)",
+                                        e
+                                    );
+                                }
+                            }
+                        }
+                        _ = shutdown.recv() => {
+                            info!("JTI dedup sweep task shutting down");
+                            break;
+                        }
+                    }
+                }
+            });
+            shutdown_coordinator.register_task("jti_dedup_sweep", sweep_handle);
+            info!("JTI dedup sweep task started (5-minute cadence)");
+        }
+    }
+
     // Step 6c: Start SCADA display server (v1.6.0, v2.4: full HMI runtime)
     #[cfg(feature = "scada-display")]
     {

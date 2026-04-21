@@ -54,6 +54,13 @@ pub struct MqttClient {
     message_rx: mpsc::Receiver<IncomingMessage>,
     /// Event loop task handle for graceful shutdown (v1.2.6)
     event_loop_handle: Option<tokio::task::JoinHandle<()>>,
+    /// Optional metrics observer (Batch 102 observability
+    /// wire). When Some, publish / receive / connect /
+    /// disconnect events increment the corresponding
+    /// HealthState counters + update the connection gauge.
+    /// None = no-op (HC-1 backward compat + test paths that
+    /// don't spin up the health server).
+    health_state: Option<crate::health::HealthState>,
 }
 
 /// Incoming message from MQTT
@@ -192,8 +199,18 @@ pub struct CommandResponse {
 }
 
 impl MqttClient {
-    /// Create and connect MQTT client
-    pub async fn new(config: &AgentConfig) -> Result<Self> {
+    /// Create and connect MQTT client (Batch 102: optional
+    /// HealthState for observability wire).
+    ///
+    /// `health_state` — Some when the caller has a live
+    /// HealthState Arc (standard main.rs boot path);
+    /// None in test contexts that don't spin up the
+    /// health server. All counter increments + connection
+    /// gauge updates short-circuit to no-op when None.
+    pub async fn new(
+        config: &AgentConfig,
+        health_state: Option<crate::health::HealthState>,
+    ) -> Result<Self> {
         // Get MQTT settings
         let broker = config
             .mqtt
@@ -279,6 +296,10 @@ impl MqttClient {
         let client_clone = client.clone();
         let min_backoff = config.runtime.mqtt_reconnect_min_secs;
         let max_backoff = config.runtime.mqtt_reconnect_max_secs;
+        // Batch 102: clone the HealthState Arc into the event-
+        // loop task so ConnAck/Disconnect/Publish events update
+        // the gauge + counters without a separate IPC channel.
+        let health_state_for_task = health_state.clone();
         let event_loop_handle = tokio::spawn(async move {
             Self::handle_events(
                 &mut eventloop,
@@ -287,6 +308,7 @@ impl MqttClient {
                 topics_clone,
                 min_backoff,
                 max_backoff,
+                health_state_for_task,
             )
             .await;
         });
@@ -298,6 +320,7 @@ impl MqttClient {
             device_code: config.device_code.clone(),
             message_rx,
             event_loop_handle: Some(event_loop_handle),
+            health_state,
         };
 
         // Subscribe to command and config topics
@@ -317,6 +340,7 @@ impl MqttClient {
         topics: ResolvedTopics,
         min_backoff_secs: u64,
         max_backoff_secs: u64,
+        health_state: Option<crate::health::HealthState>,
     ) {
         let mut consecutive_errors: u32 = 0;
         let mut first_connect = true;
@@ -345,6 +369,15 @@ impl MqttClient {
             match poll_result {
                 Ok(Event::Incoming(Packet::Publish(publish))) => {
                     consecutive_errors = 0; // Reset on success
+
+                    // Batch 102: observability counter.
+                    // Increment BEFORE the size check so
+                    // dropped oversized messages still
+                    // show up in the received count
+                    // (operators need to see them).
+                    if let Some(hs) = health_state.as_ref() {
+                        hs.inc_mqtt_received();
+                    }
 
                     // Reject oversized payloads to prevent memory exhaustion on constrained devices.
                     const MAX_MQTT_PAYLOAD: usize = 1_048_576; // 1 MiB
@@ -424,6 +457,13 @@ impl MqttClient {
                         connack.code, connack.session_present
                     );
 
+                    // Batch 102: flip the connection gauge ON
+                    // + bump mqtt_last_connected timestamp via
+                    // set_mqtt_connected(true).
+                    if let Some(hs) = health_state.as_ref() {
+                        hs.set_mqtt_connected(true);
+                    }
+
                     // Resubscribe after reconnection: when clean_session=true,
                     // the broker drops all subscriptions on disconnect.
                     // Default is now false (persistent session), but resubscribe if
@@ -461,6 +501,13 @@ impl MqttClient {
                 Ok(Event::Incoming(Packet::Disconnect)) => {
                     // v1.2.6: Log disconnection events
                     warn!("🔴 MQTT DISCONNECTED by broker");
+
+                    // Batch 102: flip the connection gauge
+                    // OFF. Reconnect attempts hit the
+                    // ConnAck path above on success.
+                    if let Some(hs) = health_state.as_ref() {
+                        hs.set_mqtt_connected(false);
+                    }
                 }
                 Ok(Event::Outgoing(outgoing)) => {
                     // v1.2.6: Log outgoing events at trace level
@@ -549,6 +596,7 @@ impl MqttClient {
             .publish(&self.topics.status, QoS::AtLeastOnce, true, payload)
             .await
             .context("Failed to publish status")?;
+        self.record_publish();
 
         // v1.2.6: Enhanced publish logging
         info!(
@@ -583,6 +631,7 @@ impl MqttClient {
             .publish(&self.topics.telemetry, QoS::AtLeastOnce, false, payload)
             .await
             .context("Failed to publish telemetry")?;
+        self.record_publish();
 
         // v1.2.6: Enhanced telemetry logging
         info!(
@@ -603,6 +652,7 @@ impl MqttClient {
             .publish(&self.topics.responses, QoS::AtLeastOnce, false, payload)
             .await
             .context("Failed to publish response")?;
+        self.record_publish();
 
         // v1.2.6: Enhanced response logging
         info!(
@@ -618,6 +668,7 @@ impl MqttClient {
         self.client
             .publish(&self.topics.io_data, rumqttc::QoS::AtMostOnce, false, data)
             .await?;
+        self.record_publish();
         Ok(())
     }
 
@@ -627,6 +678,7 @@ impl MqttClient {
         self.client
             .publish(&self.topics.alarms, rumqttc::QoS::AtLeastOnce, false, data)
             .await?;
+        self.record_publish();
         Ok(())
     }
 
@@ -636,6 +688,7 @@ impl MqttClient {
         self.client
             .publish(&self.topics.lora_events, rumqttc::QoS::AtMostOnce, false, data)
             .await?;
+        self.record_publish();
         Ok(())
     }
 
@@ -648,8 +701,27 @@ impl MqttClient {
             .publish(topic, QoS::AtLeastOnce, false, payload)
             .await
             .with_context(|| format!("Failed to publish to {}", topic))?;
+        self.record_publish();
         debug!("Published {} bytes to {}", payload.len(), topic);
         Ok(())
+    }
+
+    /// Private Batch 102 observability hook — called by every
+    /// publish method after a successful `.client.publish()
+    /// .await?`. Increments the MQTT sent counter on the
+    /// registered HealthState (no-op when
+    /// `health_state = None`).
+    ///
+    /// Kept private + single-source so adding a new publish
+    /// method automatically picks up instrumentation if the
+    /// author calls this helper. A future code review can
+    /// grep for `.client.publish(` without `record_publish`
+    /// to find uninstrumented paths.
+    #[inline]
+    fn record_publish(&self) {
+        if let Some(hs) = self.health_state.as_ref() {
+            hs.inc_mqtt_sent();
+        }
     }
 
     /// Receive next incoming message

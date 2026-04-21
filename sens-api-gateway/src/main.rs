@@ -2704,7 +2704,15 @@ async fn run_agent(
     info!("Connecting to MQTT broker...");
     let mqtt_client = {
         let state_guard = state.read().await;
-        MqttClient::new(&state_guard.config)
+        // Batch 102: pass HealthState so MqttClient wires
+        // publish/receive/connect/disconnect observability
+        // counters. health_state is Some from
+        // init_health_server (boot step earlier).
+        // HealthState is Arc<HealthStateInner> internally;
+        // plain .clone() is Arc-bump (O(1)). MqttClient
+        // stores it directly (no outer Arc wrapping needed).
+        let health_for_mqtt = state_guard.health_state.clone();
+        MqttClient::new(&state_guard.config, health_for_mqtt)
             .await
             .context("Failed to connect to MQTT broker")?
     };

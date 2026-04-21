@@ -5,6 +5,10 @@ import Ajv, {
 } from 'ajv';
 import addFormats from 'ajv-formats';
 import { FARM_EVENT_SCHEMAS, type FarmEventType } from './farm-events.schema';
+import {
+  SENSOR_EVENT_SCHEMAS,
+  type SensorEventType,
+} from './sensor-events.schema';
 
 /**
  * @module EventContractsValidator
@@ -74,6 +78,17 @@ for (const [eventType, schema] of Object.entries(FARM_EVENT_SCHEMAS)) {
   // structurally compatible with `AnySchema` at runtime.
   const validator = ajv.compile(schema as AnySchema);
   farmValidators.set(eventType as FarmEventType, validator);
+}
+
+/**
+ * Sensor-domain validator cache. Same compile-once posture as the
+ * farm validators above; populated at module load.
+ */
+const sensorValidators = new Map<SensorEventType, ValidateFunction>();
+
+for (const [eventType, schema] of Object.entries(SENSOR_EVENT_SCHEMAS)) {
+  const validator = ajv.compile(schema as AnySchema);
+  sensorValidators.set(eventType as SensorEventType, validator);
 }
 
 /**
@@ -162,6 +177,54 @@ export function validateFarmEvent(
  * one of the allowed values`. Falls back to a generic message if
  * `errors` is null or empty.
  */
+/**
+ * Result of a sensor event validation call. Same discriminated shape
+ * as [`FarmEventValidationResult`] so callers can branch uniformly.
+ */
+export type SensorEventValidationResult =
+  | { valid: true }
+  | { valid: false; errors: string };
+
+/**
+ * Validate a decoded NATS payload against the sensor event schema for
+ * the given event type. Mirrors [`validateFarmEvent`]; the only
+ * differences are the validator cache + the error string prefix so
+ * operators can grep "sensor event" vs "farm event" in logs.
+ *
+ * Use this in the NestJS NATS consumer
+ * (`apps/sensor-service/src/ingestion/nats-ingestion-consumer.service.ts`)
+ * AND in any future cache-miss responder downstream that decodes
+ * untrusted JSON before acting on it. The Rust producer's
+ * `serde(deny_unknown_fields)` already validates the wire on the
+ * publish side; this is the receive-side counterpart.
+ */
+export function validateSensorEvent(
+  eventType: string,
+  payload: unknown,
+): SensorEventValidationResult {
+  const validator = sensorValidators.get(eventType as SensorEventType);
+  if (!validator) {
+    return {
+      valid: false,
+      errors: `Unknown sensor event type: ${eventType}`,
+    };
+  }
+  if (typeof payload !== 'object' || payload === null) {
+    return {
+      valid: false,
+      errors: `Payload must be a JSON object (got ${typeof payload})`,
+    };
+  }
+  const isValid = validator(payload);
+  if (!isValid) {
+    return {
+      valid: false,
+      errors: formatFirstError(validator.errors),
+    };
+  }
+  return { valid: true };
+}
+
 function formatFirstError(
   errors: ErrorObject[] | null | undefined,
 ): string {

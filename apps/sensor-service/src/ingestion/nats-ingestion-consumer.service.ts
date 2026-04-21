@@ -16,6 +16,7 @@ import {
   createBaseEvent,
   type SensorMetricIngestedEvent,
   type SensorReadingEvent,
+  validateSensorEvent,
 } from '@platform/event-contracts';
 
 import { SensorDataChannel } from '../database/entities/sensor-data-channel.entity';
@@ -80,6 +81,8 @@ export class NatsIngestionConsumerService
 
   /** Accumulators for bulk-flush observability (logged every minute). */
   private receivedCount = 0;
+  /** Schema validation failures — dropped before enrichment. */
+  private rejectedSchemaCount = 0;
   private skippedNoSensorCount = 0;
   private skippedNoChannelCount = 0;
   private enqueuedCount = 0;
@@ -121,11 +124,13 @@ export class NatsIngestionConsumerService
     this.statsTimer = setInterval(() => {
       this.logger.log(
         `NatsIngestionConsumer stats — received=${this.receivedCount} ` +
+          `rejectedSchema=${this.rejectedSchemaCount} ` +
           `skippedNoSensor=${this.skippedNoSensorCount} ` +
           `skippedNoChannel=${this.skippedNoChannelCount} ` +
           `enqueued=${this.enqueuedCount} published=${this.publishedCount}`,
       );
       this.receivedCount = 0;
+      this.rejectedSchemaCount = 0;
       this.skippedNoSensorCount = 0;
       this.skippedNoChannelCount = 0;
       this.enqueuedCount = 0;
@@ -174,6 +179,24 @@ export class NatsIngestionConsumerService
    */
   async handle(event: SensorMetricIngestedEvent): Promise<void> {
     this.receivedCount++;
+
+    // 0. JSON Schema validation — defence-in-depth at the trust
+    //    boundary. The Rust producer's `serde(deny_unknown_fields)`
+    //    rejects shape drift on the publish side; this validator
+    //    rejects anything that arrives malformed (extra field, wrong
+    //    discriminator, range violation on qualityCode/producerTs).
+    //    Drops here NEVER throw — we want JetStream to ack-and-discard
+    //    a poison payload, not redeliver it forever.
+    const schemaResult = validateSensorEvent('SensorMetricIngested', event);
+    if (!schemaResult.valid) {
+      this.rejectedSchemaCount++;
+      this.logger.warn(
+        `SensorMetricIngested rejected by schema validator (eventId=${
+          (event as { eventId?: unknown }).eventId ?? 'unknown'
+        }): ${schemaResult.errors}`,
+      );
+      return;
+    }
 
     // 1. Sensor metadata lookup (cached) — needed for tenantId
     //    cross-check + farmId / pondId enrichment.

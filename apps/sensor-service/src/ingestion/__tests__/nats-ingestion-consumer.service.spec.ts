@@ -208,6 +208,32 @@ describe('NatsIngestionConsumerService', () => {
       const { svc } = makeService({ sensor: null });
       await expect(svc.handle(fakeEvent())).resolves.toBeUndefined();
     });
+
+    it('drops events that fail JSON Schema validation BEFORE touching the cache', async () => {
+      // qualityCode: 99 violates the 0..=3 bound the schema enforces.
+      // The event would have been rejected by the Rust producer's
+      // serde(deny_unknown_fields), but the consumer-side validator
+      // catches the case where a future producer somehow emits this.
+      const batch = makeBatch();
+      const metaCache = {
+        getSensor: jest.fn().mockResolvedValue(fakeSensor()),
+        getChannels: jest.fn().mockResolvedValue([fakeChannel('temperature')]),
+        invalidateSensor: jest.fn(),
+        invalidateTenant: jest.fn(),
+      };
+      const svc = new NatsIngestionConsumerService(
+        batch,
+        { get: jest.fn() } as unknown as ConfigService,
+        metaCache as unknown as import('../sensor-meta-cache.service').SensorMetaCacheService,
+        makeBus(),
+      );
+      await svc.handle(fakeEvent({ qualityCode: 99 }));
+      // Schema rejection short-circuits BEFORE the cache lookup —
+      // proves the validator runs first (defence in depth, not a
+      // post-hoc check).
+      expect(metaCache.getSensor).not.toHaveBeenCalled();
+      expect(batch.enqueue).not.toHaveBeenCalled();
+    });
   });
 
   describe('handle — happy path', () => {

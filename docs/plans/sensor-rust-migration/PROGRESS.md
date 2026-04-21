@@ -170,7 +170,13 @@ In flight on branch `agentic-rust-faz3-control-plane` (PR #17, stacked on Faz 2 
 | 1. `SensorMetricIngestedEvent` + Rust sidecar publisher rework + drain wiring | `71b4c1ce` | ✅ done | NEW event type in TS (`libs/event-contracts/src/sensor-events.ts`) + Rust (`crates/event-contracts-rs/src/lib.rs`). Rust sidecar `events.rs` refactored: `EventPublisher::publish_sensor_metric` (was `publish_sensor_reading`), subject `events.{tenantId}.SensorMetricIngested`. Drain → `events_in_tx` wired (closes Faz 2 stage 12 NOT-DONE). 26 event-contracts-rs tests + 131 sensor-ingestion tests. ADR-022 draft created. |
 | 2. NATS consumer service in sensor-service | `24459449` | ✅ done | `apps/sensor-service/src/ingestion/nats-ingestion-consumer.service.ts` — implements `IEventHandler<SensorMetricIngestedEvent>`. Subscribes to `events.*.SensorMetricIngested`. Per event: enrich via 60s-TTL sensor + channel cache, ADR-025 Threat 2 tenant-bind re-check, call `BatchProcessorService.enqueue` (preserves invariant 4), re-emit typed `SensorReadingEvent`. ChannelKey → readingXxx mapping covers temperature/ph/do/salinity/ammonia/nitrite/nitrate/turbidity/water_level. Drop-don't-throw on enrichment failures (avoids JetStream poison-pill loop). 29 unit tests. |
 | 3. `SENSOR_SERVICE_PROFILE` env-gated module loader | `24459449` | ✅ done | `apps/sensor-service/src/config/sensor-service-profile.service.ts` — `SensorServiceProfile.{Legacy,ControlPlane}` enum + `SensorServiceProfileService` (default = Legacy, safe rollout). `MqttListenerService.onModuleInit` and `DataIngestionService.onModuleInit` skip boot on control-plane profile. `NatsIngestionConsumerService` runs on BOTH profiles (strangler-fig — sidecar may publish for some tenants while legacy MQTT runs for others). 8 unit tests for the profile service. |
-| 4. ADR-022 promote + e2e dual-write equivalence + compose budget | TBD | 🚧 in progress | This stage. ADR-022 stays in `_draft/` until the 24h soak completes; PROGRESS.md (this file) bumped to reflect stages 0-3 done; ORPHAN-014 logged for the 6 pre-existing mqtt-listener test failures (independent of Faz 3 work, verified on Faz 2 baseline). |
+| 4. Compose plumbing + e2e dual-write equivalence gate | `53530000` | ✅ done | `SENSOR_SERVICE_PROFILE` + memory/cpu envelope substitution across droplet/staging/prod compose; staging defaults to control-plane to soak the dual-write contract on every deploy; `e2e/tests/sensor-ingest-equivalence.e2e.spec.ts` gated by `SENSOR_INGEST_EQUIVALENCE_E2E=1` so jest CI is not blocked on broker infra. |
+| 5. Cache extract + lifecycle invalidation handler | `fa9cf329` | ✅ done | `SensorMetaCacheService` extracted; `SensorCacheInvalidationHandler` subscribes to `SensorConfigurationUpdated` / `Suspended` / `Reactivated` and drops matching cache entries eagerly. 60s TTL becomes the upper bound on staleness when no invalidation event arrived. 22 new tests across the two services. |
+| 6. Per-tenant rollout runbook | `14e8be14` | ✅ done | `docs/runbooks/sensor-ingest-rust-rollout.md` — pre-rollout checklist, per-tenant 5-min flip + observation window, per-tenant 2-min rollback, cutover (everyone on Rust), observability log queries, escalation. |
+| 7. Cache-miss responder (cache load-bearing) | `206452c1` | ✅ done | `apps/sensor-ingestion/src/sensor_lookup.rs` — fire-and-forget NATS request `sensor.lookup.by-topic` on cache miss; `apps/sensor-service/src/ingestion/sensor-lookup-responder.service.ts` — responder using `SensorMetaCacheService`. SensorMeta gains Serialize/Deserialize. Wire shape `{sensorId, tenantId, channelIds}` pinned by tests on both sides. Cache transitions from dead code to load-bearing. 7 new Rust tests + 13 new TS tests. |
+| 8. Sidecar enrichment + channel-id validation | `0e93ba9c` | ✅ done | `SensorMeta` extended with `farm_id` / `pond_id`; `SensorMetricIngestedEvent` extended with same Optional fields (TS + Rust); drain populates farm/pond from cached meta when warm; channel-id validation gate (only on cache hit, NEVER false-positive on miss); NestJS consumer prefers event-side farm/pond over its own cache (sidecar SoT when warm). 143 cargo + 27 event-contracts-rs + 74 jest tests green. |
+| 9. ORPHAN-014 fix | `02f644bc` | ✅ done | `findByCodeOnly` mock added to `mqtt-listener.service.spec.ts` factory — flips the suite from `6 failed, 58 passed` to `64 passed, 64 total`. Was a discipline gap, not an open-handle leak as initially hypothesised. |
+| 10. ORPHAN-012 partial fix | `e4f472f7` | ✅ done | `tools/gates/tsconfig.json` `ignoreDeprecations: "6.0"` removed — pre-commit gates run cleanly on TS 5.9.x. Deeper fix (pin ts-node + typescript explicitly + add a tools/gates integration test) tracked separately. |
 
 #### Gate Check (Faz 3 done = all of)
 - [x] Wire-distinct `SensorMetricIngested` event in TS + Rust event-contracts (stage 1)
@@ -178,10 +184,17 @@ In flight on branch `agentic-rust-faz3-control-plane` (PR #17, stacked on Faz 2 
 - [x] NATS consumer in NestJS sensor-service translates raw → typed + persists via existing BatchProcessor (stage 2)
 - [x] `SENSOR_SERVICE_PROFILE=control-plane` env disables legacy MQTT data plane (stage 3)
 - [x] `SensorServiceProfileService` is the SSoT for the env-var read (no other code path touches `process.env.SENSOR_SERVICE_PROFILE`) (stage 3)
-- [ ] e2e dual-write equivalence (`e2e/tests/sensor-ingest-equivalence.e2e.ts`) — Faz 3 stage 4 TBD
-- [ ] Compose budget update: sensor-service drops to 192 MB / 0.2 vCPU on control-plane profile — Faz 3 stage 4 TBD
-- [ ] ADR-022 promoted out of `_draft/` to canonical `docs/adr/` after 24h soak — Faz 3 stage 4 TBD
-- [x] ORPHAN-014 reconciled: 64/64 mqtt-listener tests green after `findByCodeOnly` mock added (commit follow-on)
+- [x] e2e dual-write equivalence scaffold ships gated by `SENSOR_INGEST_EQUIVALENCE_E2E=1` (stage 4)
+- [x] Compose plumbing for `SENSOR_SERVICE_PROFILE` + memory/cpu envelopes across droplet/staging/prod (stage 4)
+- [x] `SensorMetaCacheService` extracted as the SSoT for sensor + channel cache; lifecycle-event invalidation handler drops entries eagerly (stage 5)
+- [x] Per-tenant rollout runbook ships before any operator flips (stage 6)
+- [x] `TopicCache` is load-bearing — sidecar populates lazily via `sensor.lookup.by-topic` request-reply (stage 7)
+- [x] Sidecar publishes enriched events (farm/pond) AND validates channel-ids on cache hit (stage 8)
+- [x] ORPHAN-014 reconciled: 64/64 mqtt-listener tests green (stage 9)
+- [x] ORPHAN-012 partial fix unblocks pre-commit (stage 10)
+- [ ] ADR-022 promoted out of `_draft/` to canonical `docs/adr/` after 24h staging soak — operator gate
+- [ ] Stage harness compose service for the live e2e gate (`SENSOR_INGEST_EQUIVALENCE_E2E=1` end-to-end run with a real Mosquitto + NATS + Timescale + sidecar + sensor-service spin-up) — operator gate
+- [ ] JSON Schema validator for `SensorMetricIngestedEvent` in `libs/event-contracts/src/schemas/` — defence-in-depth at the trust boundary, follow-on commit
 
 ## Faz 4 — Konsolidasyon
 Not started.

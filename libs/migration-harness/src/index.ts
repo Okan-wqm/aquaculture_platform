@@ -16,8 +16,17 @@
  *   - docs/patterns/nx-lib-creation.md — deviations applied to this lib
  *   - docs/plans/2026-04-21-db-migrate-enterprise-refactor.md §Phase 1
  *
- * API surface will grow across Phase 1 commits — this file is currently the
- * placeholder. Real exports land in subsequent commits (defineMigrationTest,
- * expectNoDriftAgainst, toHaveNoDrift matcher).
+ * API surface grows across Phase 1 commits. Current exports:
+ *   - bootPostgresContainer / shutdownHarness / withEphemeralSchema (setup.ts)
+ * Next commits:
+ *   - defineMigrationTest — declarative per-migration test wrapper
+ *   - expectNoDriftAgainst + toHaveNoDrift matcher — validator assertion
+ *   - HR-drift regression spec (proof of concept)
  */
-export {};
+export {
+  DEFAULT_POSTGRES_IMAGE,
+  bootPostgresContainer,
+  shutdownHarness,
+  withEphemeralSchema,
+} from './setup';
+export type { BootOptions, HarnessContext } from './setup';

@@ -61,6 +61,11 @@ pub mod policy;
 pub mod manifest;
 pub mod verify;
 
+// Batch 67 — RbacManifestStore runtime loader (Sprint 6.1 full wire
+// partial). Holds the verified manifest in memory + exposes operator→
+// pubkey lookup for Batch 68+ envelope Gate 7 swap.
+pub mod manifest_runtime;
+
 // Re-export the commonly-used types for ergonomic downstream use.
 // Keep this list in sync with public API surface; every addition here is a
 // commitment to forward-compat for downstream consumers (ST VM, commands,

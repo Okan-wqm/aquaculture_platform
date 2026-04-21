@@ -34,10 +34,17 @@ export class BillingEventHandler
   ) {}
 
   async onModuleInit(): Promise<void> {
-    await this.eventBus.subscribe('InvoiceOverdue', this);
-    await this.eventBus.subscribe('PaymentFailed', this);
-    await this.eventBus.subscribe('SubscriptionCreated', this);
-    this.logger.log('Subscribed to InvoiceOverdue, PaymentFailed, and SubscriptionCreated events');
+    // WHAT — `subscribeWildcard` builds `events.*.{eventType}` for each
+    // billing event, matching the publisher's `events.{tenantId}.{eventType}`
+    // for every tenant.
+    // WHY explicit wildcard — notification dispatch is cross-tenant by design
+    // (one notification-service instance handles every tenant's billing
+    // notifications). The explicit helper makes the cross-tenant intent
+    // unambiguous and pins the publisher↔subscriber subject contract.
+    await this.eventBus.subscribeWildcard('InvoiceOverdue', this);
+    await this.eventBus.subscribeWildcard('PaymentFailed', this);
+    await this.eventBus.subscribeWildcard('SubscriptionCreated', this);
+    this.logger.log('Subscribed to InvoiceOverdue, PaymentFailed, and SubscriptionCreated events (cross-tenant wildcard)');
   }
 
   getEventType(): string {
@@ -85,9 +92,11 @@ export class BillingEventHandler
    * Handle InvoiceOverdue — notify tenant billing contact
    */
   private async handleInvoiceOverdue(event: InvoiceOverdueEvent): Promise<void> {
-    // InvoiceOverdueEvent doesn't carry an email — log for now.
-    // In production, the handler would look up the tenant's billing email
-    // from a local cache or via a query to admin-api.
+    // InvoiceOverdueEvent does not carry an email — log only in this
+    // handler. In production, the handler would look up the tenant's
+    // billing email from a local cache or via a query to admin-api;
+    // that wiring is tracked under the notification-service backlog
+    // (no finding ID yet — separate from this PR).
     this.logger.warn(
       `InvoiceOverdue: invoice ${event.invoiceNumber} for tenant ${event.tenantId.substring(0, 8)}... ` +
       `is ${event.daysOverdue} days overdue (${event.currency} ${event.amount}). ` +

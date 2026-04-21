@@ -109,9 +109,14 @@ export class AlertTriggeredEventHandler
   ) {}
 
   async onModuleInit(): Promise<void> {
-    // Subscribe to alert triggered events
-    await this.eventBus.subscribe('AlertTriggered', this);
-    this.logger.log('Subscribed to AlertTriggered events');
+    // WHAT — `subscribeWildcard` builds `events.*.AlertTriggered`,
+    // matching the publisher's `events.{tenantId}.AlertTriggered` for
+    // every tenant.
+    // WHY explicit wildcard — alert push notifications are cross-tenant by
+    // design (one notification-service handles every tenant). Explicit
+    // helper pins the publisher↔subscriber subject contract (3 segments).
+    await this.eventBus.subscribeWildcard('AlertTriggered', this);
+    this.logger.log('Subscribed to AlertTriggered events (cross-tenant wildcard)');
   }
 
   getEventType(): string {

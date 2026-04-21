@@ -366,16 +366,109 @@ export class NatsEventBus
    * events published to `events.{anyTenantId}.{eventType}` and
    * `events.system.{eventType}`.
    *
-   * Handlers that need only a single tenant's events should call
-   * `subscribeTo('events.{tenantId}.{eventType}', handler)` directly.
+   * NOTE: kept on the class so existing callers keep compiling. New consumers
+   * should call `subscribeWildcard` (semantically identical here, but the
+   * name asserts intent) or `subscribeForTenant` (per-tenant subscription).
    */
   async subscribe<TEvent extends IEvent>(
     eventType: string,
     handler: IEventHandler<TEvent>,
   ): Promise<void> {
-    // Wildcard '*' matches any single segment — all tenants and 'system'
-    const topic = `events.*.${eventType}`;
-    await this.subscribeTo(topic, handler);
+    // Wildcard '*' matches any single segment — all tenants and 'system'.
+    // Delegates through the explicit helper so there is exactly one place
+    // that constructs `events.*.{eventType}` (no string-format drift).
+    await this.subscribeWildcard(eventType, handler);
+  }
+
+  /**
+   * Subscribe to an event type ACROSS EVERY TENANT.
+   *
+   * WHAT — Builds `events.*.{eventType}` and delegates to `subscribeTo`.
+   * The wildcard `*` matches a single segment, so every per-tenant publish
+   * (`events.{tenantId}.{eventType}`) and the platform-level publish
+   * (`events.system.{eventType}`) are both captured by this one subscription.
+   *
+   * WHY explicit helper instead of letting consumers format the subject —
+   * the publisher emits exactly 3 dot-separated segments. Hand-formatting
+   * at the call site is the drift surface ORPHAN-013 documented (a 2-segment
+   * subscriber silently misses every publish; NATS matching is segment-exact,
+   * not "starts with"). Centralising the format string here makes the wrong
+   * shape impossible to write accidentally — Tier-1 "make it impossible".
+   */
+  async subscribeWildcard<TEvent extends IEvent>(
+    eventType: string,
+    handler: IEventHandler<TEvent>,
+  ): Promise<void> {
+    const subject = `events.*.${eventType}`;
+    await this.subscribeTo(subject, handler);
+  }
+
+  /**
+   * Subscribe to an event type FOR A SPECIFIC TENANT only.
+   *
+   * WHAT — Builds `events.{tenantId}.{eventType}` (literal segments, no
+   * wildcards) and delegates to `subscribeTo`. Receives ONLY that tenant's
+   * publishes — never `events.system.*` and never any other tenant's events.
+   *
+   * WHY validate tenantId at this boundary instead of trusting the caller —
+   * the subject IS the routing key. NATS `.` is the segment delimiter, `*`
+   * is the single-segment wildcard, `>` is the tail wildcard. A tenantId
+   * containing any of those metacharacters silently expands the subject to
+   * a different shape (e.g. `tenantId = "foo.bar"` → 4 segments) or matches
+   * across tenants (subject-injection). Reject obviously malformed values
+   * here so the wrong shape can never reach the broker — Tier-1 boundary
+   * defence. Full UUID validation is the caller's concern; this helper only
+   * enforces the structural invariant that the segment is a single, literal,
+   * non-empty token.
+   *
+   * @throws {TypeError} If tenantId contains NATS subject metacharacters,
+   *   whitespace, or is empty. The bad value is masked to the first 8 chars
+   *   in the error message so an attacker cannot exfiltrate the value via
+   *   error logs.
+   */
+  async subscribeForTenant<TEvent extends IEvent>(
+    eventType: string,
+    tenantId: string,
+    handler: IEventHandler<TEvent>,
+  ): Promise<void> {
+    this.assertSafeTenantSegment(tenantId);
+    const subject = `events.${tenantId}.${eventType}`;
+    await this.subscribeTo(subject, handler);
+  }
+
+  /**
+   * Reject any tenantId value that would corrupt the NATS subject shape.
+   *
+   * WHAT rejected — empty string, anything containing `.` (segment delimiter),
+   * `*` (single-segment wildcard), `>` (tail wildcard), or any whitespace
+   * (CR / LF / tab / space). These are the characters that change subject
+   * routing semantics; everything else (including hyphens, the canonical UUID
+   * form) passes through untouched.
+   *
+   * WHY mask the value in the error — error messages are forwarded to log
+   * aggregation; surfacing the full attacker-controlled string would let it
+   * exfiltrate by injecting log noise. First 8 chars is enough for a human
+   * operator to correlate with the offending caller without echoing the full
+   * payload.
+   */
+  private assertSafeTenantSegment(tenantId: string): void {
+    if (typeof tenantId !== 'string' || tenantId.length === 0) {
+      throw new TypeError(
+        `subscribeForTenant: tenantId must be a non-empty string`,
+      );
+    }
+    // /[\s.*>]/ — whitespace OR any NATS subject metacharacter
+    if (/[\s.*>]/.test(tenantId)) {
+      const masked =
+        tenantId.length > 8
+          ? `${tenantId.substring(0, 8)}…`
+          : tenantId.substring(0, 8);
+      throw new TypeError(
+        `subscribeForTenant: tenantId contains forbidden characters ` +
+          `(NATS subject metacharacters or whitespace). ` +
+          `Value (masked, first 8 chars): "${masked}"`,
+      );
+    }
   }
 
   async subscribeTo<TEvent extends IEvent>(

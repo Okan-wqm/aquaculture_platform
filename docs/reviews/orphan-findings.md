@@ -158,3 +158,56 @@ pipeline on the commit that introduced this entry — aqua-db-migrate
 logs `applied <N> validator-relevant catch-up queries` with no
 SAVEPOINT rollback, HR boot emits `Schema drift scan clean`, deploy
 completes green without rollback.
+
+---
+
+## 2026-04-21 ORPHAN-013 — NATS subject convention drift: publishers emit `events.{tenantId}.{eventType}`, subscribers built `events.{eventType}`
+
+**Severity:** HIGH (silently miss every tenant-scoped publish)
+**Discovered:** 2026-04-20, Faz 2 stage 12 publisher implementation review.
+**Files:**
+- `platform/libs/event-bus/src/nats/nats-event-bus.ts:310-312` — `deriveSubject` (3-segment publisher)
+- `platform/libs/event-bus/src/nats/nats-event-bus.ts:380` (former) — `subscribe` calling `normalizeSubject` to produce 2-segment subscriber
+- Cross-referenced: `docs/test-audits/tenant-isolation-auditor/2026-04-13-full-platform-e2e.md` lines 21-29
+
+**Problem:** NATS subject matching is exact-segment. The publisher emitted `events.<uuid>.SensorReading` (3 segments); the subscriber listened on `events.SensorReading` (2 segments). The two never matched. Alert-engine + every other consumer that called `eventBus.subscribe('SensorReading', handler)` silently received zero tenant-scoped events.
+
+**Architectural fix (this PR):**
+1. **`IEventBus.subscribeWildcard<T>(eventType, handler)`** — builds `events.*.{eventType}`, captures every tenant + the platform-level `events.system.{eventType}` channel. Used by system-wide consumers (alert-engine, AI, audit, cross-tenant analytics).
+2. **`IEventBus.subscribeForTenant<T>(eventType, tenantId, handler)`** — builds `events.{tenantId}.{eventType}`, receives only that tenant. Used by per-tenant dashboards, GDPR audit, noisy-neighbor isolation, per-tenant durable JetStream consumers. Validates tenantId for NATS subject metacharacters (`.`, `*`, `>`, whitespace) and masks the bad value in the error message (no exfil).
+3. **Old `IEventBus.subscribe(eventType, handler)` reimplemented** to delegate to `subscribeWildcard` — same shape consumers obviously expected, no caller depended on the broken 2-segment behaviour.
+4. **Migrated consumers in lockstep** (this commit):
+   - `apps/alert-engine/src/alert/event-handlers/sensor-reading.handler.ts` (the originally-broken handler)
+   - 6 notification-service handlers
+   - 1 farm-service handler
+5. **Contract test** — `e2e/tests/integration/nats-subject-contract.spec.ts` pins publisher↔subscriber subject agreement, segment count, NATS metacharacter rejection, mask-on-exfil. 21 assertions across 6 describe blocks.
+
+**Architectural-tier classification:** Tier-1 "make it impossible" — hand-formatting subjects at call sites IS the drift surface; centralising the format string in `subscribeWildcard` / `subscribeForTenant` removes the wrong-shape from the surface area entirely.
+
+**Status:** RESOLVED — see commits on `agentic-orphan-013-nats-subject-contract` (PR TBD).
+
+---
+
+## 2026-04-21 ORPHAN-015 — `apps/alert-engine/src/alert/event-handlers/__tests__/sensor-reading.handler.spec.ts` "evaluation execution" test uses legacy nested `readings` shape, handler expects flat `readingXxx`
+
+**Severity:** MEDIUM (1 pre-existing test failure on every PR touching alert-engine)
+**Discovered:** 2026-04-21, ORPHAN-013 fix validation run.
+**Files:**
+- `apps/alert-engine/src/alert/event-handlers/__tests__/sensor-reading.handler.spec.ts:215-223` (test)
+- `apps/alert-engine/src/alert/event-handlers/sensor-reading.handler.ts:45-53` (handler `extractReadingsFromEvent` + ARC-C01 flat-field assumption)
+
+**Evidence:** Test passes the event with `readings: { temperature: 25, ph: 7.2 }` (legacy v1 nested shape); the handler iterates over `readingXxx` flat fields per ARC-C01 / `libs/event-contracts/src/sensor-events.ts:SensorReadingEvent`. The `evaluateSensorReading` IS called once but with `readings: {}` because the handler found no flat `readingXxx` fields on the event.
+
+```
+Expected: ObjectContaining {"readings": {"ph": 7.2, "temperature": 25}, ...}
+Received: {"readings": {}, ...}
+```
+
+Verified pre-existing on `main` (HEAD `23b1362a`). Not introduced by ORPHAN-013 work — the same 1 failure shows on a fresh main checkout running the same test.
+
+**Architectural fix (TBD, not in this PR):** rewrite the test to construct the event with flat `readingTemperature: 25, readingPh: 7.2` fields (the post-ARC-C01 shape) and assert the same flat shape in the `evaluateSensorReading` call args. Optionally add a SECOND test that exercises the upcaster path (legacy nested → flat) since the upcaster lives in `libs/event-contracts/src/upcasters/sensor-reading.upcaster.ts`.
+
+**Follow-on tracking:**
+- Owner: alert-engine maintainers.
+- Deadline: 2026-05-15.
+- Closure path: a `test(alert-engine):` commit that updates the test fixture + adds the upcaster-path companion test.

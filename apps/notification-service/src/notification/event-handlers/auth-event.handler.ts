@@ -68,9 +68,14 @@ export class AuthEventHandler
   }
 
   async onModuleInit(): Promise<void> {
-    await this.eventBus.subscribe('PasswordResetRequested', this);
-    await this.eventBus.subscribe('UserInvited', this);
-    this.logger.log('Subscribed to PasswordResetRequested and UserInvited events');
+    // WHAT — `subscribeWildcard` builds `events.*.{eventType}`, capturing
+    // every tenant's auth-lifecycle events.
+    // WHY explicit wildcard — auth notifications fan out cross-tenant from
+    // a single notification-service instance. The explicit helper pins the
+    // publisher↔subscriber subject contract (3 segments).
+    await this.eventBus.subscribeWildcard('PasswordResetRequested', this);
+    await this.eventBus.subscribeWildcard('UserInvited', this);
+    this.logger.log('Subscribed to PasswordResetRequested and UserInvited events (cross-tenant wildcard)');
   }
 
   getEventType(): string {

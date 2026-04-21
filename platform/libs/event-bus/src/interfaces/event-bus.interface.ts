@@ -81,10 +81,61 @@ export interface IEventPublisher {
  */
 export interface IEventSubscriber {
   /**
-   * Subscribe to an event type
+   * Subscribe to an event type.
+   *
+   * NOTE: existing helper kept on the interface so callers compiled against
+   * older versions of @platform/event-bus do not break. New consumers should
+   * pick `subscribeWildcard` (cross-tenant) or `subscribeForTenant`
+   * (per-tenant) — those names express intent at the call site, removing the
+   * ambiguity that lets a consumer accidentally write a 2-segment subject
+   * that never matches the publisher's 3-segment `events.{tenantId}.{type}`.
    */
   subscribe<TEvent extends IEvent>(
     eventType: string,
+    handler: IEventHandler<TEvent>,
+  ): Promise<void>;
+
+  /**
+   * Subscribe to an event type ACROSS EVERY TENANT.
+   *
+   * WHAT — Builds the NATS subject `events.*.{eventType}` so a single
+   * subscription captures every tenant-scoped publish from the
+   * publisher's `deriveSubject` (which emits `events.{tenantId}.{eventType}`).
+   *
+   * WHY — Publisher and subscriber must agree on segment count exactly:
+   * NATS subject matching is segment-by-segment, so a 2-segment subscribe
+   * (`events.{eventType}`) silently misses every 3-segment publish. This
+   * helper makes the wildcard explicit at the call site so the agreement
+   * is impossible to break by accident (Tier-1 "make it impossible").
+   *
+   * Use for system-wide consumers: alert-engine, AI, audit,
+   * cross-tenant analytics.
+   *
+   * @see subscribeForTenant for per-tenant subscription.
+   */
+  subscribeWildcard<TEvent extends IEvent>(
+    eventType: string,
+    handler: IEventHandler<TEvent>,
+  ): Promise<void>;
+
+  /**
+   * Subscribe to an event type FOR A SPECIFIC TENANT only.
+   *
+   * WHAT — Builds the NATS subject `events.{tenantId}.{eventType}` so the
+   * subscriber receives only that tenant's events.
+   *
+   * WHY — Per-tenant subscription is load-bearing for: per-tenant durable
+   * JetStream consumers, GDPR delete-per-tenant, noisy-neighbour isolation,
+   * and per-tenant dashboards. Building the subject string by hand at the
+   * call site is the drift surface ORPHAN-013 documented; this helper is the
+   * one well-typed primitive that produces the exact subject the publisher
+   * emits for the same tenant.
+   *
+   * @see subscribeWildcard for system-wide subscription.
+   */
+  subscribeForTenant<TEvent extends IEvent>(
+    eventType: string,
+    tenantId: string,
     handler: IEventHandler<TEvent>,
   ): Promise<void>;
 

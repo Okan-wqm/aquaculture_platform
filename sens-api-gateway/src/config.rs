@@ -281,6 +281,15 @@ pub struct AgentConfig {
     #[serde(default)]
     pub clock: ClockConfig,
 
+    /// Envelope dedup cache configuration (Batch 58, plan
+    /// §4.10 / Sprint 6.4). Controls the MokaJtiDedupTable
+    /// capacity + TTL — the hot-window tier (60s default)
+    /// that catches QoS-1 MQTT redelivery replays in-memory.
+    /// Sprint 6.4 full wire layers a SQLCipher persistent tier
+    /// underneath for the 72-hour plan window.
+    #[serde(default)]
+    pub envelope_dedup: EnvelopeDedupConfig,
+
     /// Cache configuration (v1.2.0)
     #[serde(default)]
     pub cache: CacheConfig,
@@ -1393,6 +1402,56 @@ impl ModbusTlsConfig {
 }
 
 // ============================================================================
+// EnvelopeDedupConfig — Batch 58 plan §4.10 / Sprint 6.4
+// ============================================================================
+//
+// WHY: Plan §4.10 mandates a 72-hour jti dedup window as replay defense.
+// The MokaJtiDedupTable (Batch 57) is the hot-window (seconds-to-minutes)
+// tier; Sprint 6.4 full wire adds a SQLCipher persistent tier covering
+// the 72-hour window. Batch 58 exposes the Moka tier's operator-tunable
+// parameters so:
+// - Resource-constrained devices (256 MB RAM per ADR-024 §5) can tighten
+//   capacity to 10_000 for ~2 MB footprint.
+// - Deployments with high command rate can loosen TTL to 120s to match
+//   broker-redelivery timing.
+
+/// Envelope dedup cache configuration (Batch 58).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnvelopeDedupConfig {
+    /// Moka cache capacity (max live entries). Default 100_000
+    /// per crate::command_envelope::DEFAULT_MOKA_CAPACITY.
+    /// Tighten on low-RAM deployments; loosen on high-rate
+    /// deployments.
+    #[serde(default = "default_envelope_dedup_capacity")]
+    pub moka_capacity: u64,
+
+    /// Moka cache TTL in seconds. Default 60 per crate::
+    /// command_envelope::DEFAULT_MOKA_TTL_SECS. Must fit within
+    /// the plan §4.10 72-hour full window; values outside
+    /// [30, 3600] are almost certainly operator typos (Batch 58
+    /// coherence rule caught at config load).
+    #[serde(default = "default_envelope_dedup_ttl_secs")]
+    pub moka_ttl_secs: u64,
+}
+
+fn default_envelope_dedup_capacity() -> u64 {
+    100_000
+}
+
+fn default_envelope_dedup_ttl_secs() -> u64 {
+    60
+}
+
+impl Default for EnvelopeDedupConfig {
+    fn default() -> Self {
+        Self {
+            moka_capacity: default_envelope_dedup_capacity(),
+            moka_ttl_secs: default_envelope_dedup_ttl_secs(),
+        }
+    }
+}
+
+// ============================================================================
 // ClockConfig — Batch 56 plan D-7 / Sprint 6.7
 // ============================================================================
 //
@@ -2494,6 +2553,34 @@ impl AgentConfig {
         if self.clock.nts_sync_max_skew_secs == 0 {
             anyhow::bail!(
                 "Config coherence: clock.nts_sync_max_skew_secs must be > 0 (0 would reject every wall-clock read under Sprint 6.7 Chrony wire)"
+            );
+        }
+
+        // Rule 10 (Batch 58): envelope_dedup.moka_capacity
+        // must be positive. Zero capacity would disable dedup
+        // entirely (no entries retained) — replay defense
+        // silently off. Operators wanting dedup disabled
+        // should leave signature_mode = Disabled rather than
+        // 0-capacity (clearer intent).
+        if self.envelope_dedup.moka_capacity == 0 {
+            anyhow::bail!(
+                "Config coherence: envelope_dedup.moka_capacity must be > 0 (0 silently disables replay defense)"
+            );
+        }
+
+        // Rule 11 (Batch 58): envelope_dedup.moka_ttl_secs
+        // must be in the sane range [30, 3600]. Below 30s:
+        // TTL shorter than MQTT broker redelivery window,
+        // replays sneak through. Above 3600s: Moka grows into
+        // the SQLCipher tier's territory (Sprint 6.4 covers
+        // 72-hour window) — operator likely confused about
+        // which tier is which.
+        if self.envelope_dedup.moka_ttl_secs < 30
+            || self.envelope_dedup.moka_ttl_secs > 3600
+        {
+            anyhow::bail!(
+                "Config coherence: envelope_dedup.moka_ttl_secs ({}) must be in [30, 3600] seconds — hot-window tier bounds",
+                self.envelope_dedup.moka_ttl_secs
             );
         }
 

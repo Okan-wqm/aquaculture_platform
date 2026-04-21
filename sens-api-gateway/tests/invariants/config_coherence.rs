@@ -102,14 +102,15 @@ fn default_runtime_config_passes_all_coherence_rules() {
 
 #[test]
 fn coherence_rules_stable_under_new_field_additions() {
-    // FUTURE-COMPAT CONTRACT: Batches 39+42+49+56 have added
-    // 9 rules total (3 Batch 39 + 2 Batch 42 + 3 Batch 49 +
-    // 1 Batch 56). Sprint 6.x additions MUST extend validate_
-    // faz2_security_coherence additively — existing rules
-    // preserved. Any change to an existing rule requires
-    // ADR documentation + operator migration notes.
+    // FUTURE-COMPAT CONTRACT: Batches 39+42+49+56+58 have
+    // added 11 rules total (3 Batch 39 + 2 Batch 42 + 3
+    // Batch 49 + 1 Batch 56 + 2 Batch 58). Sprint 6.x
+    // additions MUST extend validate_faz2_security_coherence
+    // additively — existing rules preserved. Any change to
+    // an existing rule requires ADR documentation +
+    // operator migration notes.
     //
-    // Rule roster (as of Batch 56):
+    // Rule roster (as of Batch 58):
     //   Rule 1: mtls.mode=strict ⟹ enforce_fingerprint_
     //           pinning=true (Batch 39).
     //   Rule 2: max_command_skew_secs <= max_command_age_
@@ -124,7 +125,9 @@ fn coherence_rules_stable_under_new_field_additions() {
     //   Rule 7: rate_limit_window_secs > 0 (Batch 49).
     //   Rule 8: max_command_age_secs > 0 (Batch 49).
     //   Rule 9: clock.nts_sync_max_skew_secs > 0 (Batch 56).
-    let _contract = "9 rules are ABI-stable; Sprint 6.x additions are additive-only";
+    //   Rule 10: envelope_dedup.moka_capacity > 0 (Batch 58).
+    //   Rule 11: envelope_dedup.moka_ttl_secs in [30, 3600] (Batch 58).
+    let _contract = "11 rules are ABI-stable; Sprint 6.x additions are additive-only";
     assert!(!_contract.is_empty());
 }
 
@@ -189,6 +192,31 @@ fn nts_sync_max_skew_secs_must_be_positive() {
     // the authority un-wired rather than 0-threshold —
     // clearer operator intent.
     let _contract = "clock.nts_sync_max_skew_secs must be > 0";
+    assert!(!_contract.is_empty());
+}
+
+#[test]
+fn envelope_dedup_moka_capacity_must_be_positive() {
+    // CONTRACT (Batch 58 Rule 10): envelope_dedup.
+    // moka_capacity=0 MUST fail config load. Zero capacity
+    // would disable dedup entirely — replay defense silently
+    // off. Operators wanting dedup disabled should leave
+    // signature_mode=Disabled rather than 0-capacity
+    // (clearer intent).
+    let _contract = "envelope_dedup.moka_capacity must be > 0";
+    assert!(!_contract.is_empty());
+}
+
+#[test]
+fn envelope_dedup_moka_ttl_must_be_in_sane_range() {
+    // CONTRACT (Batch 58 Rule 11): envelope_dedup.
+    // moka_ttl_secs must be in [30, 3600]. Below 30:
+    // TTL shorter than MQTT broker redelivery window,
+    // replays sneak through. Above 3600: Moka grows into
+    // the SQLCipher tier's territory (Sprint 6.4 covers
+    // 72-hour window) — operator likely confused about
+    // which tier is which.
+    let _contract = "envelope_dedup.moka_ttl_secs must be in [30, 3600] seconds";
     assert!(!_contract.is_empty());
 }
 

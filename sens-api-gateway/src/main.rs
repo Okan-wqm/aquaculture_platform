@@ -1027,6 +1027,12 @@ async fn async_main() -> Result<()> {
                 "  Clock authority: nts_sync_max_skew_secs={} (ChronyNtsClockAuthority wires in Sprint 6.7; plan D-7)",
                 cfg.clock.nts_sync_max_skew_secs
             );
+            // Batch 58: envelope dedup (Moka hot-window tier).
+            info!(
+                "  Envelope dedup: moka_capacity={}, moka_ttl_secs={} (SQLCipher tier wires in Sprint 6.4; plan §4.10)",
+                cfg.envelope_dedup.moka_capacity,
+                cfg.envelope_dedup.moka_ttl_secs
+            );
             cfg
         }
         Err(e) => {

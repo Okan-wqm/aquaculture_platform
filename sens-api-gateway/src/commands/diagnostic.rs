@@ -118,6 +118,11 @@ impl CommandHandler {
             "clock": {
                 "nts_sync_max_skew_secs": state.config.clock.nts_sync_max_skew_secs,
             },
+            // Batch 58: envelope dedup hot-window tier.
+            "envelope_dedup": {
+                "moka_capacity": state.config.envelope_dedup.moka_capacity,
+                "moka_ttl_secs": state.config.envelope_dedup.moka_ttl_secs,
+            },
             // Batch 32+34: shutdown + replay-protection thresholds.
             "runtime": {
                 "shutdown_timeout_secs": state.config.runtime.shutdown_timeout_secs,

@@ -1708,6 +1708,24 @@ pub struct EnvelopeDedupConfig {
     /// coherence rule caught at config load).
     #[serde(default = "default_envelope_dedup_ttl_secs")]
     pub moka_ttl_secs: u64,
+
+    /// Enable SQLCipher-persistent tier behind the Moka hot
+    /// cache (Batch 92 Sprint 6.4 full wire). Default false
+    /// — HC-1 backward compat leaves Moka-only (Batch 57).
+    /// Set true for reboot-survive 72-hour replay defense
+    /// per plan §4.10 threat model.
+    ///
+    /// When true, the persistent store is opened at
+    /// `/var/lib/suderra/jti_dedup.sqlite` (SQLCipher-
+    /// encrypted via the shared derive_db_encryption_key
+    /// helper). Consumer is the envelope verify path.
+    #[serde(default)]
+    pub enable_sqlcipher_persist: bool,
+
+    /// SQLCipher jti-dedup file path override. None →
+    /// `/var/lib/suderra/jti_dedup.sqlite`.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub sqlcipher_path: Option<std::path::PathBuf>,
 }
 
 fn default_envelope_dedup_capacity() -> u64 {
@@ -1723,6 +1741,8 @@ impl Default for EnvelopeDedupConfig {
         Self {
             moka_capacity: default_envelope_dedup_capacity(),
             moka_ttl_secs: default_envelope_dedup_ttl_secs(),
+            enable_sqlcipher_persist: false,
+            sqlcipher_path: None,
         }
     }
 }

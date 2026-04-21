@@ -953,7 +953,10 @@ impl AppState {
     /// or syscalls; can't fail. Returns `()` not `Result`.
     pub fn init_jti_dedup_table(&mut self) {
         use crate::command_envelope::envelope::SignatureMode;
-        use crate::command_envelope::MokaJtiDedupTable;
+        use crate::command_envelope::{
+            JtiDedupTable, LayeredJtiDedupTable, MokaJtiDedupTable,
+            SqlCipherJtiDedupTable,
+        };
 
         if matches!(self.config.signature_mode, SignatureMode::Disabled) {
             info!(
@@ -966,13 +969,63 @@ impl AppState {
         let ttl_secs = self.config.envelope_dedup.moka_ttl_secs;
         let ttl = std::time::Duration::from_secs(ttl_secs);
 
-        let table = MokaJtiDedupTable::with_capacity_and_ttl(capacity, ttl);
-        self.jti_dedup_table = Some(std::sync::Arc::new(table));
+        // Batch 92 Sprint 6.4 full wire: compose Moka hot-
+        // tier + SQLCipher persistent tier when operator
+        // opts in. HC-1 default keeps Moka-only to preserve
+        // existing deployment behavior.
+        let table: std::sync::Arc<dyn JtiDedupTable> = if self
+            .config
+            .envelope_dedup
+            .enable_sqlcipher_persist
+        {
+            let sqlcipher_path = self
+                .config
+                .envelope_dedup
+                .sqlcipher_path
+                .clone()
+                .unwrap_or_else(|| {
+                    std::path::PathBuf::from("/var/lib/suderra/jti_dedup.sqlite")
+                });
+            match SqlCipherJtiDedupTable::open(&sqlcipher_path) {
+                Ok(sql) => {
+                    info!(
+                        "JTI dedup table: Layered(Moka+SQLCipher) path={} moka_cap={} moka_ttl={}s",
+                        sqlcipher_path.display(),
+                        capacity,
+                        ttl_secs
+                    );
+                    let moka: std::sync::Arc<dyn JtiDedupTable> = std::sync::Arc::new(
+                        MokaJtiDedupTable::with_capacity_and_ttl(capacity, ttl),
+                    );
+                    let sql_arc: std::sync::Arc<dyn JtiDedupTable> =
+                        std::sync::Arc::new(sql);
+                    std::sync::Arc::new(LayeredJtiDedupTable::new(moka, sql_arc))
+                }
+                Err(e) => {
+                    // Fail-loud + fall back to Moka-only.
+                    // Reboot-survive protection lost until
+                    // operator fixes; live replay defense
+                    // preserved via Moka.
+                    warn!(
+                        "JTI dedup: SQLCipher persist tier open FAILED: {}. Falling back to Moka-only (reboot-survive replay protection DEGRADED; fix sqlcipher_path permissions or reset sqlcipher_path config to defaults)",
+                        e
+                    );
+                    std::sync::Arc::new(
+                        MokaJtiDedupTable::with_capacity_and_ttl(capacity, ttl),
+                    )
+                }
+            }
+        } else {
+            info!(
+                "JTI dedup table: Moka-only signature_mode={:?} moka_capacity={} moka_ttl_secs={} (set envelope_dedup.enable_sqlcipher_persist=true for reboot-survive 72h replay defense)",
+                self.config.signature_mode, capacity, ttl_secs
+            );
+            std::sync::Arc::new(MokaJtiDedupTable::with_capacity_and_ttl(
+                capacity, ttl,
+            ))
+        };
 
-        info!(
-            "JTI dedup table initialized: signature_mode={:?} moka_capacity={} moka_ttl_secs={}",
-            self.config.signature_mode, capacity, ttl_secs
-        );
+        self.jti_dedup_table = Some(table);
     }
 
     /// Construct + load the RBAC manifest store (Batch 68

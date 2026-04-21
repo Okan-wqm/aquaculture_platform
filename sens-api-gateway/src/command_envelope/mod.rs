@@ -63,6 +63,11 @@ pub mod mutating;
 // 72h dedup store. Closes the reboot-survives-envelope-
 // lifetime replay gap left by Moka-only (in-memory) tier.
 pub mod sqlcipher_dedup;
+// Batch 92 Sprint 6.4 full wire composite: Moka hot-tier +
+// SQLCipher persistent tier layered dedup. Fast-path hits
+// Moka (microseconds); Moka-miss falls through to SQLCipher
+// (catches cross-restart replays).
+pub mod layered_dedup;
 
 pub use canonical::{canonical_params, CanonicalParamsError, CmdHash};
 pub use envelope::{
@@ -73,3 +78,4 @@ pub use jti::{DedupResult, DedupTableError, InvalidJti, Jti, JtiDedupTable, MAX_
 pub use moka_dedup::{MokaJtiDedupTable, DEFAULT_MOKA_CAPACITY, DEFAULT_MOKA_TTL_SECS};
 pub use mutating::{is_mutating, MUTATING_COMMANDS};
 pub use sqlcipher_dedup::SqlCipherJtiDedupTable;
+pub use layered_dedup::LayeredJtiDedupTable;

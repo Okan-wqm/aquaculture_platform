@@ -78,7 +78,7 @@ pub use manifest::{
 pub use partition::{AbPartition, PartitionRoll, SlotState};
 pub use partition_store::{PartitionState, PartitionStore, PartitionStoreError};
 pub use watchdog::{
-    run_cold_boot_watchdog, watchdog_tick, WatchdogTickOutcome,
+    run_cold_boot_watchdog, watchdog_tick, WatchdogAuditCtx, WatchdogTickOutcome,
     DEFAULT_WATCHDOG_POLL_INTERVAL_SECS,
 };
 pub use bootloader::{BootloaderError, BootloaderHandle, NoopBootloaderHandle};

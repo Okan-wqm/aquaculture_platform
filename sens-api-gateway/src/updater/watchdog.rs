@@ -64,13 +64,24 @@
 //! (deadline already consumed); operator intervention via
 //! --confirm-active or manual reboot restores sync.
 //!
-//! ## Audit emit on rollback
+//! ## Audit emit on rollback (Batch 113 Sprint 6.5)
 //!
-//! Batch 113 lands audit-emit wiring that consumes the
-//! Batch 79 `audit_sink` pre+post pattern across updater
-//! transitions. Today the watchdog ERROR-logs the
-//! transition — already captured by the observability
-//! pipeline (Prometheus counter + structured log).
+//! The watchdog runs out-of-dispatch-path (background
+//! tokio task, not an MQTT command handler), so the
+//! Batch 79 `execute_command` pre+post audit-emit does NOT
+//! cover Rollback transitions. Batch 113 wires an
+//! audit-sink dependency directly into `watchdog_tick` +
+//! `run_cold_boot_watchdog` and emits
+//! `AuditAction::FirmwareDeployRollback` entries on every
+//! actionable outcome (RolledBack, RolledBackBootloaderFailed,
+//! RollbackFailed, InconsistentState).
+//!
+//! The `audit_sink` parameter is `Option<Arc<AuditSink>>` so
+//! non-Enabled audit modes stay zero-cost (matches the
+//! Batch 79 emit contract). Append failures are WARN-logged
+//! but do not revert software state or re-enter the
+//! rollback loop (same discipline as Batch 79 command-path
+//! emits).
 
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -80,6 +91,77 @@ use tracing::{error, info, warn};
 use super::bootloader::BootloaderHandle;
 use super::partition::{PartitionRoll, SlotState};
 use super::partition_store::PartitionStore;
+use crate::audit::{
+    AuditAction, AuditActor, AuditEntry, AuditOutcome, AuditPhase, AuditResource,
+    AuditSink,
+};
+use crate::authz::permission::TenantId;
+
+/// Context for watchdog-originated audit entries. Holds the
+/// identity fields the Batch 79 command-path pulls from
+/// AppState + CommandMessage; watchdog runs out-of-dispatch
+/// and needs them injected explicitly.
+#[derive(Clone)]
+pub struct WatchdogAuditCtx {
+    /// Optional audit sink. None when `audit.mode != Enabled`.
+    pub sink: Option<Arc<AuditSink>>,
+    /// Device identifier (same string used by command path).
+    pub device_id: String,
+    /// Tenant binding; zero-tenant when not activated.
+    pub tenant: TenantId,
+}
+
+impl WatchdogAuditCtx {
+    /// Construct with no sink — the zero-cost default for
+    /// non-Enabled audit modes + for test fixtures that do
+    /// not exercise the audit path.
+    pub fn disabled(device_id: String) -> Self {
+        Self {
+            sink: None,
+            device_id,
+            tenant: TenantId::new_from_verified([0u8; 16]),
+        }
+    }
+
+    fn emit(
+        &self,
+        phase: AuditPhase,
+        outcome: AuditOutcome,
+        detail: String,
+    ) {
+        let Some(sink) = self.sink.as_ref() else {
+            return;
+        };
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or(Duration::ZERO);
+        let entry = AuditEntry {
+            timestamp_unix_secs: now.as_secs() as i64,
+            timestamp_nanos: now.subsec_nanos(),
+            correlation_id: format!("watchdog-{}", now.as_nanos()),
+            phase,
+            actor: AuditActor::new(format!(
+                "system:cold_boot_watchdog:{}",
+                self.device_id
+            )),
+            tenant: self.tenant,
+            policy_version: 0,
+            two_person_integrity_verified: false,
+            action: AuditAction::FirmwareDeployRollback,
+            resource: AuditResource::Other {
+                label: "ab_partition".to_string(),
+            },
+            outcome,
+            detail,
+        };
+        if let Err(e) = sink.append(entry) {
+            warn!(
+                "watchdog audit emit failed (phase={:?} outcome={:?}): {}",
+                phase, outcome, e
+            );
+        }
+    }
+}
 
 /// Default watchdog poll interval. 10s gives ~10s
 /// rollback-latency bound on top of the cold-boot budget.
@@ -133,6 +215,7 @@ pub fn watchdog_tick(
     store: &PartitionStore,
     cold_boot_budget_secs: u64,
     bootloader: &dyn BootloaderHandle,
+    audit_ctx: &WatchdogAuditCtx,
 ) -> WatchdogTickOutcome {
     let snap = match store.snapshot() {
         Ok(s) => s,
@@ -189,8 +272,30 @@ pub fn watchdog_tick(
              snapshot={:?} — NOT rolling back, operator intervention required",
             snap
         );
+        audit_ctx.emit(
+            AuditPhase::Post,
+            AuditOutcome::Failure,
+            format!(
+                "outcome=inconsistent_state failed={:?} no_standby=true",
+                failed
+            ),
+        );
         return WatchdogTickOutcome::InconsistentState;
     };
+
+    // Batch 113 Sprint 6.5: emit PRE-exec audit event
+    // before the apply_roll + bootloader coord runs. Mirrors
+    // the Batch 79 command-path pre+post pattern.
+    audit_ctx.emit(
+        AuditPhase::Pre,
+        AuditOutcome::Success,
+        format!(
+            "action=firmware_rollback failed={:?} restored_active={:?} bootloader_backend={}",
+            failed,
+            restored_active,
+            bootloader.backend_name()
+        ),
+    );
 
     match store.apply_roll(
         PartitionRoll::Rollback {
@@ -216,6 +321,16 @@ pub fn watchdog_tick(
                         restored_active,
                         bootloader.backend_name()
                     );
+                    audit_ctx.emit(
+                        AuditPhase::Post,
+                        AuditOutcome::Success,
+                        format!(
+                            "outcome=rolled_back failed={:?} restored_active={:?} bootloader_ok=true backend={}",
+                            failed,
+                            restored_active,
+                            bootloader.backend_name()
+                        ),
+                    );
                     WatchdogTickOutcome::RolledBack
                 }
                 Err(e) => {
@@ -231,12 +346,31 @@ pub fn watchdog_tick(
                         e,
                         bootloader.backend_name()
                     );
+                    audit_ctx.emit(
+                        AuditPhase::Post,
+                        AuditOutcome::Failure,
+                        format!(
+                            "outcome=rolled_back_bootloader_failed failed={:?} restored_active={:?} bootloader_err={} backend={}",
+                            failed,
+                            restored_active,
+                            e,
+                            bootloader.backend_name()
+                        ),
+                    );
                     WatchdogTickOutcome::RolledBackBootloaderFailed
                 }
             }
         }
         Err(e) => {
             error!("cold-boot watchdog: rollback apply_roll failed: {}", e);
+            audit_ctx.emit(
+                AuditPhase::Post,
+                AuditOutcome::Failure,
+                format!(
+                    "outcome=rollback_apply_failed failed={:?} restored_active={:?} err={}",
+                    failed, restored_active, e
+                ),
+            );
             WatchdogTickOutcome::RollbackFailed
         }
     }
@@ -255,13 +389,15 @@ pub async fn run_cold_boot_watchdog(
     poll_interval: Duration,
     cold_boot_budget_secs: u64,
     bootloader: Arc<dyn BootloaderHandle>,
+    audit_ctx: WatchdogAuditCtx,
     mut shutdown: tokio::sync::broadcast::Receiver<()>,
 ) {
     info!(
-        "cold-boot watchdog task started (poll={}s budget={}s bootloader_backend={})",
+        "cold-boot watchdog task started (poll={}s budget={}s bootloader_backend={} audit_emit={})",
         poll_interval.as_secs(),
         cold_boot_budget_secs,
-        bootloader.backend_name()
+        bootloader.backend_name(),
+        audit_ctx.sink.is_some()
     );
 
     let mut interval = tokio::time::interval(poll_interval);
@@ -276,6 +412,7 @@ pub async fn run_cold_boot_watchdog(
                     &store,
                     cold_boot_budget_secs,
                     bootloader.as_ref(),
+                    &audit_ctx,
                 );
                 // Outcome logged inside watchdog_tick when
                 // actionable (InconsistentState / RolledBack
@@ -375,7 +512,12 @@ mod tests {
     #[test]
     fn no_pending_returns_no_pending() {
         let store = tmp_store();
-        let outcome = watchdog_tick(&store, 90, &NoopBootloaderHandle);
+        let outcome = watchdog_tick(
+            &store,
+            90,
+            &NoopBootloaderHandle,
+            &WatchdogAuditCtx::disabled("test-dev".into()),
+        );
         assert_eq!(outcome, WatchdogTickOutcome::NoPending);
     }
 
@@ -388,7 +530,12 @@ mod tests {
                 3600, // 1 hour — well in the future
             )
             .expect("install");
-        let outcome = watchdog_tick(&store, 3600, &NoopBootloaderHandle);
+        let outcome = watchdog_tick(
+            &store,
+            3600,
+            &NoopBootloaderHandle,
+            &WatchdogAuditCtx::disabled("test-dev".into()),
+        );
         assert_eq!(outcome, WatchdogTickOutcome::DeadlineFresh);
     }
 
@@ -406,7 +553,12 @@ mod tests {
             .expect("install");
         // Sleep 1s to ensure now > 0-deadline.
         std::thread::sleep(std::time::Duration::from_millis(1100));
-        let outcome = watchdog_tick(&store, 90, &NoopBootloaderHandle);
+        let outcome = watchdog_tick(
+            &store,
+            90,
+            &NoopBootloaderHandle,
+            &WatchdogAuditCtx::disabled("test-dev".into()),
+        );
         assert_eq!(outcome, WatchdogTickOutcome::InconsistentState);
     }
 
@@ -438,7 +590,12 @@ mod tests {
             .expect("swap");
         std::thread::sleep(std::time::Duration::from_millis(1100));
 
-        let outcome = watchdog_tick(&store, 90, &bootloader);
+        let outcome = watchdog_tick(
+            &store,
+            90,
+            &bootloader,
+            &WatchdogAuditCtx::disabled("test-dev".into()),
+        );
         assert_eq!(outcome, WatchdogTickOutcome::RolledBack);
 
         // Post-rollback: slot A Active + slot B Empty.
@@ -455,6 +612,126 @@ mod tests {
             *bootloader.last_rollback_slot.lock().unwrap(),
             Some(AbPartition::A)
         );
+    }
+
+    #[test]
+    fn audit_ctx_emits_pre_and_post_on_successful_rollback() {
+        // Batch 113: watchdog audit emit. Wire a real
+        // AuditSink (tempfile-backed, test HMAC key) + assert
+        // the rollback path emits exactly 2 entries (pre +
+        // post) with FirmwareDeployRollback action.
+        use crate::audit::AuditHmacKey;
+
+        let store = tmp_store();
+        let bootloader = RecordingBootloader::new();
+        store
+            .apply_roll(
+                PartitionRoll::InitialInstall { target: AbPartition::A },
+                3600,
+            )
+            .expect("install");
+        store
+            .apply_roll(PartitionRoll::Confirm { slot: AbPartition::A }, 3600)
+            .expect("confirm");
+        store
+            .apply_roll(
+                PartitionRoll::SwapToPending {
+                    old_active: AbPartition::A,
+                    new_pending: AbPartition::B,
+                },
+                0,
+            )
+            .expect("swap");
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+
+        let audit_path = std::env::temp_dir().join(format!(
+            "suderra-watchdog-audit-{}-{}.ndjson",
+            std::process::id(),
+            rand::random::<u32>()
+        ));
+        let _ = std::fs::remove_file(&audit_path);
+        let sink = std::sync::Arc::new(
+            AuditSink::open(&audit_path, AuditHmacKey::from_bytes([0x42u8; 32]))
+                .expect("open audit sink"),
+        );
+
+        let audit_ctx = WatchdogAuditCtx {
+            sink: Some(sink.clone()),
+            device_id: "test-dev".into(),
+            tenant: TenantId::new_from_verified([0xAAu8; 16]),
+        };
+
+        let outcome = watchdog_tick(&store, 90, &bootloader, &audit_ctx);
+        assert_eq!(outcome, WatchdogTickOutcome::RolledBack);
+
+        // Drop sink so the BufWriter flushes before we read.
+        drop(sink);
+
+        let log_content =
+            std::fs::read_to_string(&audit_path).expect("read audit log");
+        let lines: Vec<&str> = log_content
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .collect();
+        assert_eq!(lines.len(), 2, "expected pre+post emit, got: {:?}", lines);
+
+        let pre_line = lines[0];
+        let post_line = lines[1];
+        assert!(
+            pre_line.contains("\"action\":\"firmware_deploy_rollback\"") ||
+            pre_line.contains("FirmwareDeployRollback"),
+            "pre line should carry firmware_deploy_rollback action; got: {}",
+            pre_line
+        );
+        assert!(
+            pre_line.contains("\"phase\":\"pre\"") || pre_line.contains("Pre"),
+            "pre line should carry Pre phase; got: {}",
+            pre_line
+        );
+        assert!(
+            post_line.contains("\"phase\":\"post\"") || post_line.contains("Post"),
+            "post line should carry Post phase; got: {}",
+            post_line
+        );
+        assert!(
+            post_line.contains("outcome=rolled_back"),
+            "post line should detail the rolled_back outcome; got: {}",
+            post_line
+        );
+
+        let _ = std::fs::remove_file(&audit_path);
+    }
+
+    #[test]
+    fn audit_ctx_disabled_is_zero_cost_noop() {
+        // The disabled ctx is zero-cost when audit mode is
+        // off. Prove no panic + no side effect beyond the
+        // usual rollback.
+        let store = tmp_store();
+        let bootloader = RecordingBootloader::new();
+        store
+            .apply_roll(
+                PartitionRoll::InitialInstall { target: AbPartition::A },
+                3600,
+            )
+            .expect("install");
+        store
+            .apply_roll(PartitionRoll::Confirm { slot: AbPartition::A }, 3600)
+            .expect("confirm");
+        store
+            .apply_roll(
+                PartitionRoll::SwapToPending {
+                    old_active: AbPartition::A,
+                    new_pending: AbPartition::B,
+                },
+                0,
+            )
+            .expect("swap");
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+
+        let audit_ctx = WatchdogAuditCtx::disabled("test-dev".into());
+        let outcome = watchdog_tick(&store, 90, &bootloader, &audit_ctx);
+        assert_eq!(outcome, WatchdogTickOutcome::RolledBack);
     }
 
     #[test]
@@ -487,7 +764,12 @@ mod tests {
             .expect("swap");
         std::thread::sleep(std::time::Duration::from_millis(1100));
 
-        let outcome = watchdog_tick(&store, 90, &bootloader);
+        let outcome = watchdog_tick(
+            &store,
+            90,
+            &bootloader,
+            &WatchdogAuditCtx::disabled("test-dev".into()),
+        );
         assert_eq!(
             outcome,
             WatchdogTickOutcome::RolledBackBootloaderFailed

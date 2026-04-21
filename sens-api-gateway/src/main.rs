@@ -3060,9 +3060,29 @@ async fn run_agent(
             // rollback_next_boot after software Rollback
             // succeeds. Noop default is zero-cost; Tryboot
             // real-RPi impl lands in a follow-up batch.
-            let bootloader = {
+            //
+            // Batch 113 Sprint 6.5: build WatchdogAuditCtx
+            // from AppState audit_sink + device_id + tenant
+            // so watchdog-fired rollbacks emit
+            // FirmwareDeployRollback pre+post entries to the
+            // HMAC-chained sink. No sink → zero-cost noop
+            // (matches Batch 79 command-path contract).
+            let (bootloader, audit_ctx) = {
                 let s = state.read().await;
-                s.bootloader.clone()
+                let tenant_bytes = s
+                    .tenant_id
+                    .as_deref()
+                    .and_then(|t| uuid::Uuid::parse_str(t).ok())
+                    .map(|u| *u.as_bytes())
+                    .unwrap_or([0u8; 16]);
+                let ctx = crate::updater::WatchdogAuditCtx {
+                    sink: s.audit_sink.clone(),
+                    device_id: s.config.device_id.clone(),
+                    tenant: crate::authz::permission::TenantId::new_from_verified(
+                        tenant_bytes,
+                    ),
+                };
+                (s.bootloader.clone(), ctx)
             };
             let watchdog_handle = tokio::spawn(async move {
                 crate::updater::run_cold_boot_watchdog(
@@ -3072,6 +3092,7 @@ async fn run_agent(
                     ),
                     cold_boot_budget_secs,
                     bootloader,
+                    audit_ctx,
                     watchdog_shutdown,
                 )
                 .await;

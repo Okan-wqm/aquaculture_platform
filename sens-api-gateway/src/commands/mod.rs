@@ -438,16 +438,91 @@ impl CommandHandler {
                     return Ok(());
                 }
             }
-            if self.executed_command_ids.contains(&command.command_id) {
-                warn!("Rejecting duplicate command: {} (id: {})",
-                    command.command, command.command_id);
+            // Batch 60 Sprint 6.4 foundation: command_id dedup
+            // UPGRADED to use MokaJtiDedupTable when available
+            // (signature_mode != Disabled). Legacy path (the
+            // in-memory VecDeque) continues to work when Moka
+            // is not allocated (Disabled mode + HC-1 backward
+            // compat).
+            //
+            // ARCHITECTURAL UPGRADE (not patch):
+            // - Pre-Batch-60 the VecDeque<String> was the SOLE
+            //   dedup mechanism, O(n) contains + FIFO eviction
+            //   at 1000 entries, no TTL.
+            // - Post-Batch-60 when Moka is active: O(1) lookup,
+            //   config-tunable capacity (default 100k), TTL-
+            //   bounded (default 60s), metric-visible via
+            //   live_entry_count(). VecDeque is bypassed.
+            // - When Moka is not active (Disabled mode): falls
+            //   through to the VecDeque — no behavior change.
+            //
+            // The command_id value IS semantically a jti — a
+            // per-command unique identifier used for replay
+            // detection. Reusing the existing field avoids a
+            // wire-format change (pre-Batch-60 senders already
+            // mint unique command_ids).
+            let is_duplicate = if let Some(ref dedup) = {
+                let state = self.state.read().await;
+                state.jti_dedup_table.clone()
+            } {
+                // Moka path — config-driven capacity + TTL.
+                // Construct a Jti from command_id; expires_at
+                // is "now + moka_ttl" derived from the dedup
+                // table's own bounds, approximated via a
+                // generous 3600s ceiling (Moka's internal TTL
+                // evicts earlier).
+                match crate::command_envelope::Jti::try_new(
+                    command.command_id.clone(),
+                ) {
+                    Ok(jti) => {
+                        let expires_at = std::time::SystemTime::now()
+                            + std::time::Duration::from_secs(3600);
+                        match dedup.check_and_mark(&jti, expires_at).await {
+                            Ok(crate::command_envelope::DedupResult::Fresh) => false,
+                            Ok(crate::command_envelope::DedupResult::Duplicate) => true,
+                            Err(e) => {
+                                warn!(
+                                    "JTI dedup check failed (treating as duplicate fail-closed): {:?}",
+                                    e
+                                );
+                                true
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        // command_id doesn't meet jti bounds
+                        // (empty / too long / non-ASCII). Fall
+                        // back to VecDeque path — Moka rejects
+                        // ill-formed jti, legacy path still
+                        // accepts anything.
+                        warn!(
+                            "command_id rejected as jti ({:?}); falling back to VecDeque dedup",
+                            e
+                        );
+                        self.executed_command_ids.contains(&command.command_id)
+                    }
+                }
+            } else {
+                // Legacy path — VecDeque FIFO dedup.
+                self.executed_command_ids.contains(&command.command_id)
+            };
+
+            if is_duplicate {
+                warn!(
+                    "Rejecting duplicate command: {} (id: {})",
+                    command.command, command.command_id
+                );
                 return Ok(());
             }
 
             // Execute command
             let response = self.execute_command(&command).await;
 
-            // Track executed command ID for dedup (bounded set, evicts oldest)
+            // Track executed command ID for dedup (VecDeque
+            // bounded set, evicts oldest). Still maintained
+            // even when Moka is active so the legacy-fallback
+            // path (for ill-formed command_ids that Moka
+            // rejects) has recent history.
             if self.executed_command_ids.len() >= 1000 {
                 self.executed_command_ids.pop_front();
             }

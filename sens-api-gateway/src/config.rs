@@ -1465,6 +1465,19 @@ pub struct RbacManifestConfig {
     /// `/etc/suderra/rbac_manifest.json`.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub manifest_path: Option<std::path::PathBuf>,
+
+    /// Persistent `highest_seen_policy_version` store path
+    /// override (Batch 71). None →
+    /// `/var/lib/suderra/rbac_version.sqlite`.
+    ///
+    /// WHY separate from `offline_queue.sqlite` +
+    /// `scada_db.sqlite`: single-responsibility — a
+    /// `DROP TABLE` or corruption in one domain's database
+    /// cannot cascade into the RBAC rollback-protection
+    /// invariant. SQLCipher-encrypted via the shared
+    /// `offline_queue::derive_db_encryption_key()` helper.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub version_store_path: Option<std::path::PathBuf>,
 }
 
 impl Default for RbacManifestConfig {
@@ -1473,6 +1486,7 @@ impl Default for RbacManifestConfig {
             mode: RbacManifestMode::default(),
             manifest_signing_pubkey_hex: None,
             manifest_path: None,
+            version_store_path: None,
         }
     }
 }
@@ -2690,6 +2704,32 @@ impl AgentConfig {
             if !hex.chars().all(|c| c.is_ascii_hexdigit()) {
                 anyhow::bail!(
                     "Config coherence: rbac_manifest.manifest_signing_pubkey_hex contains non-hex characters"
+                );
+            }
+        }
+
+        // Rule 14 (Batch 71): rbac_manifest.version_store_path
+        // if set MUST point to a writable location (same
+        // filesystem permission class as offline_queue.sqlite
+        // + scada_db.sqlite). We cannot check writability at
+        // config-load time (the path may not yet exist) — we
+        // DO check that it has a parent component so
+        // `std::fs::create_dir_all` in ManifestVersionStore::
+        // open can succeed. An empty or root-only path is a
+        // likely misconfiguration.
+        if let Some(ref path) = self.rbac_manifest.version_store_path {
+            if path.as_os_str().is_empty() {
+                anyhow::bail!(
+                    "Config coherence: rbac_manifest.version_store_path is set to an empty path. \
+                     Either omit the field (defaults to /var/lib/suderra/rbac_version.sqlite) or \
+                     provide a valid filesystem path."
+                );
+            }
+            if path.parent().map(|p| p.as_os_str().is_empty()).unwrap_or(true) {
+                anyhow::bail!(
+                    "Config coherence: rbac_manifest.version_store_path={} has no parent directory. \
+                     Provide an absolute path with a parent dir (e.g. /var/lib/suderra/rbac_version.sqlite).",
+                    path.display()
                 );
             }
         }

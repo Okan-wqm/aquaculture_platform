@@ -901,18 +901,35 @@ impl AppState {
     }
 
     /// Construct + load the RBAC manifest store (Batch 68
-    /// Sprint 6.1 full wire).
+    /// Sprint 6.1 full wire; Batch 71 adds persistent version
+    /// floor).
     ///
     /// WHY: Plan §3 R-5 + ADR-018 mandate a cloud-signed RBAC
     /// manifest. Batch 67 shipped the store skeleton; Batch 68
-    /// wires the boot-time load + fail-closed handling.
+    /// wires the boot-time load + fail-closed handling; Batch
+    /// 71 closes the manifest-rollback window by attaching a
+    /// SQLCipher-backed `ManifestVersionStore` that persists
+    /// `highest_seen_policy_version` across reboots.
     ///
     /// MODE GATE:
-    /// - Disabled: early-return Ok. Store remains empty.
+    /// - Disabled: early-return Ok. Store remains empty; no
+    ///   version_store opened (SQLCipher dep avoided when
+    ///   not used).
     /// - Permissive: load attempted; failure warn-logged +
     ///   store remains empty (envelope Gate 7 falls to NO-OP).
     /// - Enforcing: load required; failure returns Err →
     ///   caller exits(1).
+    ///
+    /// ROLLBACK PROTECTION (Batch 71):
+    /// - Opens `/var/lib/suderra/rbac_version.sqlite` (or the
+    ///   `rbac_manifest.version_store_path` override when set)
+    ///   in Permissive + Enforcing modes.
+    /// - Version-store-open failure is FAIL-CLOSED in
+    ///   Enforcing (security invariant — without persistence,
+    ///   attacker can replay captured old manifest across
+    ///   reboots), warn-logged-and-continue in Permissive
+    ///   (rollback-window open but boot proceeds on the
+    ///   matching Permissive signature-verify semantic).
     ///
     /// TENANT BINDING: plan §3 R-5 specifies the manifest is
     /// tenant-bound. Requires `self.tenant_id` from the
@@ -922,6 +939,8 @@ impl AppState {
     /// run without a known tenant. Sprint 6.1 follow-up adds
     /// post-provisioning re-load via MQTT `update_policy`.
     pub fn init_rbac_manifest_store(&mut self) -> Result<(), String> {
+        use crate::authz::manifest_runtime::RbacManifestStore;
+        use crate::authz::manifest_version_store::ManifestVersionStore;
         use crate::authz::permission::TenantId;
         use crate::config::RbacManifestMode;
 
@@ -954,6 +973,56 @@ impl AppState {
         let mode = self.config.rbac_manifest.mode;
         let pubkey_hex = self.config.rbac_manifest.manifest_signing_pubkey_hex.as_deref();
         let path_override = self.config.rbac_manifest.manifest_path.as_deref();
+
+        // Batch 71: open persistent version-floor store BEFORE
+        // the manifest load, then rebuild the RbacManifestStore
+        // Arc with the store attached. Atomic AppState mutation
+        // — no partial-window where the Arc exists without the
+        // version store.
+        let version_store_path = self
+            .config
+            .rbac_manifest
+            .version_store_path
+            .clone()
+            .unwrap_or_else(|| {
+                std::path::PathBuf::from("/var/lib/suderra/rbac_version.sqlite")
+            });
+
+        match ManifestVersionStore::open(&version_store_path) {
+            Ok(vs) => {
+                info!(
+                    "RBAC manifest version store opened: path={}",
+                    version_store_path.display()
+                );
+                self.rbac_manifest_store = std::sync::Arc::new(
+                    RbacManifestStore::new().with_version_store(std::sync::Arc::new(vs)),
+                );
+            }
+            Err(e) => match mode {
+                RbacManifestMode::Disabled => {
+                    // Unreachable — early-return above. Keep
+                    // the branch for exhaustiveness.
+                    return Ok(());
+                }
+                RbacManifestMode::Permissive => {
+                    warn!(
+                        "RBAC manifest version store open FAILED in Permissive mode: {}. \
+                         Rollback protection DEGRADED — load proceeds with in-memory floor=0 only.",
+                        e
+                    );
+                    // Leave self.rbac_manifest_store as the
+                    // Batch 68 Arc (no version_store attached);
+                    // load_from_file below falls back to
+                    // floor=0 semantic.
+                }
+                RbacManifestMode::Enforcing => {
+                    return Err(format!(
+                        "RBAC manifest version store open failed in Enforcing mode (fail-closed): {}",
+                        e
+                    ));
+                }
+            },
+        }
 
         self.rbac_manifest_store
             .load_from_file(mode, pubkey_hex, path_override, &expected_tenant)

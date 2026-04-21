@@ -66,6 +66,13 @@ pub mod verify;
 // pubkey lookup for Batch 68+ envelope Gate 7 swap.
 pub mod manifest_runtime;
 
+// Batch 71 — ManifestVersionStore: SQLCipher-backed persistence for
+// `highest_seen_policy_version` across reboots. Closes the rollback
+// window where Batch 67/68 started from floor=0 every boot, letting
+// an attacker replay a captured older signed manifest. Batch 72
+// wires this into RbacManifestStore::load_from_file_inner.
+pub mod manifest_version_store;
+
 // Re-export the commonly-used types for ergonomic downstream use.
 // Keep this list in sync with public API surface; every addition here is a
 // commitment to forward-compat for downstream consumers (ST VM, commands,

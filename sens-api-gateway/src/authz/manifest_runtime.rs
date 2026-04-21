@@ -38,11 +38,12 @@
 //!   lookup_operator_pubkey + ed25519_dalek::verify_strict.
 
 use std::path::Path;
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 
 use tracing::{info, warn};
 
 use super::manifest::{OperatorBinding, RbacManifest, SignedRbacManifest};
+use super::manifest_version_store::ManifestVersionStore;
 use super::permission::{OperatorId, TenantId};
 use super::verify::verify_manifest;
 use crate::config::RbacManifestMode;
@@ -55,16 +56,36 @@ const DEFAULT_MANIFEST_PATH: &str = "/etc/suderra/rbac_manifest.json";
 /// `current` is RwLock-protected so Sprint 6.1 full wire's
 /// MQTT hot-reload can swap the manifest atomically without
 /// blocking lookup readers.
+///
+/// `version_store` (Batch 71) — optional SQLCipher-backed
+/// persistence for the `highest_seen_policy_version` floor.
+/// When present, `load_from_file_inner` reads the floor on
+/// entry + writes the accepted version after successful verify;
+/// this closes the cross-reboot manifest-rollback window.
+/// Tests that don't exercise persistence omit it via `new()`.
 pub struct RbacManifestStore {
     current: RwLock<Option<RbacManifest>>,
+    version_store: Option<Arc<ManifestVersionStore>>,
 }
 
 impl RbacManifestStore {
-    /// Construct an empty store (no manifest loaded yet).
+    /// Construct an empty store (no manifest loaded, no
+    /// version persistence). Tests + pre-Batch-71 code paths.
     pub fn new() -> Self {
         Self {
             current: RwLock::new(None),
+            version_store: None,
         }
+    }
+
+    /// Attach a persistent version store (Batch 71). Builder-
+    /// style so existing `RbacManifestStore::new()` call sites
+    /// keep working; AppState wires the version store via
+    /// `init_rbac_manifest_store` when `rbac_manifest.mode !=
+    /// Disabled`.
+    pub fn with_version_store(mut self, store: Arc<ManifestVersionStore>) -> Self {
+        self.version_store = Some(store);
+        self
     }
 
     /// Load + verify the manifest from disk.
@@ -176,25 +197,46 @@ impl RbacManifestStore {
             )
         })?;
 
-        // Highest-seen-version: Sprint 6.1 full wire persists
-        // to SQLCipher; pre-Sprint-6.1 we start from 0 (first-
-        // boot floor) at every boot. Rollback protection
-        // across restarts pending.
-        let highest_seen_policy_version = 0u64;
+        // Batch 71 Sprint 6.1 full wire: read the persisted
+        // floor when a version store is attached; fall back to
+        // 0 otherwise (matches pre-Batch-71 behavior for
+        // tests + AppState paths that don't wire persistence).
+        // Failure to read the floor is FAIL-CLOSED: we return
+        // the read error rather than silently using 0 — a
+        // corrupted/unreadable store is a security signal.
+        let highest_seen_policy_version = match &self.version_store {
+            Some(vs) => vs.get_highest_seen()?,
+            None => 0u64,
+        };
 
         let verify_fn = |canonical: &[u8], sig_bytes: &[u8; 64]| -> bool {
             let sig = ed25519_dalek::Signature::from_bytes(sig_bytes);
             pubkey.verify_strict(canonical, &sig).is_ok()
         };
 
-        verify_manifest(
+        let verified = verify_manifest(
             &signed,
             expected_tenant,
             highest_seen_policy_version,
             std::time::SystemTime::now(),
             verify_fn,
         )
-        .map_err(|e| format!("{:?}", e))
+        .map_err(|e| format!("{:?}", e))?;
+
+        // Batch 71 rollback-protection write: only after a
+        // successful verify do we advance the persisted floor.
+        // UPSERT keeps MAX(existing, verified.policy_version)
+        // — idempotent on re-load of the same manifest across
+        // a process restart.
+        if let Some(vs) = &self.version_store {
+            let new_floor = vs.record_accepted(verified.policy_version)?;
+            info!(
+                "RBAC manifest floor advanced: policy_version={} persisted_floor={}",
+                verified.policy_version, new_floor
+            );
+        }
+
+        Ok(verified)
     }
 
     /// Look up an operator's ed25519 pubkey bytes from the

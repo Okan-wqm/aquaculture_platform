@@ -555,6 +555,29 @@ pub struct AppState {
     /// in the partition.json file → exit(1)); first-boot
     /// creates file with initial state.
     pub partition_store: Option<std::sync::Arc<crate::updater::PartitionStore>>,
+
+    /// Bootloader-coordination handle (Batch 112 Sprint 6.5
+    /// wire). Layer-2 partner of `partition_store` (layer 1
+    /// software state): every PartitionRoll transition that
+    /// affects the next-boot flag pairs the software
+    /// `apply_roll` with a call on this handle so the
+    /// bootloader + PartitionStore stay in sync.
+    ///
+    /// WHY: ADR-019 §2 — a PartitionRoll that mutates
+    /// software state without also updating the bootloader
+    /// flag leaves the device in a split-brain state where
+    /// the next boot follows the OLD flag. Batch 108's commit
+    /// body flagged this gap; Batch 111 opened the trait
+    /// abstraction; Batch 112 wires the abstraction into the
+    /// 3 consumer sites (watchdog, cmd_confirm_slot,
+    /// --confirm-active CLI).
+    ///
+    /// WHAT: `Arc<dyn BootloaderHandle>` — always Some
+    /// (Noop default is a zero-cost fallback on non-RPi
+    /// deployments). TrybootBootloaderHandle real-RPi impl
+    /// lands in a follow-up batch that requires hardware for
+    /// signed autoboot.txt verification.
+    pub bootloader: std::sync::Arc<dyn crate::updater::BootloaderHandle>,
 }
 
 impl AppState {
@@ -650,6 +673,16 @@ impl AppState {
             // (default /var/lib/suderra/partition.json);
             // fail-closed on corrupt JSON.
             partition_store: None,
+            // Batch 112 Sprint 6.5 wire: Noop default.
+            // Non-RPi deployments use this as the zero-cost
+            // fallback (info/warn-log only). RPi deployments
+            // swap to TrybootBootloaderHandle via a future
+            // init_bootloader() call after the real-RPi impl
+            // lands (needs hardware for signed autoboot.txt
+            // verification).
+            bootloader: std::sync::Arc::new(
+                crate::updater::NoopBootloaderHandle,
+            ),
         }
     }
 
@@ -2230,6 +2263,37 @@ fn run_confirm_active() -> i32 {
                 "  new_active:     {:?} (was PendingConfirm)",
                 new_state.active
             );
+
+            // Batch 112 Sprint 6.5: pair software Confirm
+            // with bootloader clear_pending_boot. The CLI
+            // runs out-of-process so we instantiate
+            // NoopBootloaderHandle directly (zero-cost on
+            // non-RPi). A future batch that lands
+            // TrybootBootloaderHandle will swap this to a
+            // config-driven factory so the systemd timer
+            // path uses the same backend as the agent.
+            use crate::updater::BootloaderHandle;
+            let bootloader = crate::updater::NoopBootloaderHandle;
+            match bootloader.clear_pending_boot(active) {
+                Ok(()) => {
+                    println!(
+                        "  bootloader:     cleared pending flag (backend={})",
+                        bootloader.backend_name()
+                    );
+                }
+                Err(e) => {
+                    // Software side is already committed.
+                    // Exit 0 (idempotent from systemd's
+                    // perspective) but print the warning
+                    // so operator log-scraping flags it.
+                    eprintln!(
+                        "  bootloader:     clear_pending_boot failed: {} (backend={}) — SPLIT-BRAIN: operator must resync",
+                        e,
+                        bootloader.backend_name()
+                    );
+                }
+            }
+
             0
         }
         Err(e) => {
@@ -2991,6 +3055,15 @@ async fn run_agent(
             let watchdog_shutdown = shutdown_coordinator.subscribe();
             let cold_boot_budget_secs =
                 crate::updater::partition::DEFAULT_COLD_BOOT_BUDGET_SECS;
+            // Batch 112 Sprint 6.5: clone the bootloader
+            // handle from AppState so the watchdog can call
+            // rollback_next_boot after software Rollback
+            // succeeds. Noop default is zero-cost; Tryboot
+            // real-RPi impl lands in a follow-up batch.
+            let bootloader = {
+                let s = state.read().await;
+                s.bootloader.clone()
+            };
             let watchdog_handle = tokio::spawn(async move {
                 crate::updater::run_cold_boot_watchdog(
                     partition_store,
@@ -2998,6 +3071,7 @@ async fn run_agent(
                         crate::updater::DEFAULT_WATCHDOG_POLL_INTERVAL_SECS,
                     ),
                     cold_boot_budget_secs,
+                    bootloader,
                     watchdog_shutdown,
                 )
                 .await;

@@ -66,9 +66,9 @@ impl CommandHandler {
     ) -> (bool, Value, Option<String>) {
         info!("Executing confirm_slot command (Sprint 6.5 Phase 2)");
 
-        let partition_store = {
+        let (partition_store, bootloader) = {
             let state = self.state.read().await;
-            state.partition_store.clone()
+            (state.partition_store.clone(), state.bootloader.clone())
         };
 
         let partition_store = match partition_store {
@@ -135,6 +135,43 @@ impl CommandHandler {
                     "confirm_slot SUCCESS: slot={:?} new_state={:?}",
                     slot, new_state
                 );
+
+                // Batch 112 Sprint 6.5: pair software Confirm
+                // with bootloader clear_pending_boot so the
+                // next-boot flag is no longer treated as a
+                // trial boot. Noop backend is a no-op
+                // (non-RPi); Tryboot backend writes
+                // /boot/tryboot.cfg.
+                //
+                // If the bootloader call fails, the software
+                // state IS already committed + the slot is
+                // Active. We surface a
+                // bootloader_coordination field in the
+                // response so operator-facing UIs can flag
+                // the split-brain for manual resync, but we
+                // do NOT fail the command — the partition
+                // state is already good.
+                let bootloader_ok =
+                    match bootloader.clear_pending_boot(slot) {
+                        Ok(()) => {
+                            info!(
+                                "confirm_slot: bootloader clear_pending_boot({:?}) OK (backend={})",
+                                slot,
+                                bootloader.backend_name()
+                            );
+                            true
+                        }
+                        Err(e) => {
+                            warn!(
+                                "confirm_slot: software Confirm OK, bootloader clear_pending_boot({:?}) FAILED: {} (backend={}) — SPLIT-BRAIN: operator must resync",
+                                slot,
+                                sanitize_for_log(&e.to_string()),
+                                bootloader.backend_name()
+                            );
+                            false
+                        }
+                    };
+
                 let slot_str = match slot {
                     AbPartition::A => "a",
                     AbPartition::B => "b",
@@ -144,6 +181,10 @@ impl CommandHandler {
                     json!({
                         "confirmed_slot": slot_str,
                         "new_state": new_state,
+                        "bootloader_coordination": {
+                            "backend": bootloader.backend_name(),
+                            "cleared_pending_boot": bootloader_ok,
+                        },
                     }),
                     None,
                 )

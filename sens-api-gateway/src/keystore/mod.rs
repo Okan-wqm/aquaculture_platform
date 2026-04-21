@@ -56,6 +56,10 @@ pub use error::{KeyDerivationError, KeystoreError, KeystoreErrorKind};
 pub use file_backed::{Argon2idParams, FileBackedKeystore};
 pub use purpose::{DerivedKeyId, KeyPurpose};
 pub use secret::{KeyMaterial, MasterKeyMaterial};
+// RotationSource is defined in this module above + already
+// pub, so consumers can `use crate::keystore::RotationSource`
+// directly without re-export. The reference here documents
+// the public API surface alongside the other types.
 
 use async_trait::async_trait;
 
@@ -83,6 +87,49 @@ pub enum KeyBackend {
     /// An unsigned `FileBackedAcceptance` is a compile-time construction
     /// error; operator MUST produce a signed acceptance token that expires.
     FileBacked,
+}
+
+/// Rotation source — unified discriminator for the different
+/// backends' rotation inputs (Batch 101 architectural
+/// refinement closing the Batch 100 trait shape-gap note).
+///
+/// File-backed rotation needs external paths (new
+/// passphrase + new salt); TPM rotation triggers an NV re-
+/// seal with current PCR policy + new-material internal to
+/// the TPM; systemd-creds rotation re-issues the encrypted
+/// credential via the systemd IPC.
+///
+/// Wrapping these in a single enum lets the orchestrator
+/// (command handler) call ONE method regardless of backend;
+/// each impl dispatches on the variant + rejects the ones
+/// it doesn't support via `NotImplemented`.
+///
+/// **Add a variant when a new backend is added**. Removing
+/// or reshaping a variant is a breaking contract change.
+pub enum RotationSource<'a> {
+    /// File-backed: read new passphrase + salt files; re-run
+    /// Argon2id with the given params; replace master in
+    /// the RwLock.
+    FileBacked {
+        /// Path to the new passphrase file (operator-provided,
+        /// 0400 perms).
+        passphrase_path: &'a std::path::Path,
+        /// Path to the new salt file (≥16 bytes, 0400 perms).
+        salt_path: &'a std::path::Path,
+        /// Argon2id params (OWASP 2024 floor enforced by
+        /// impl).
+        params: crate::keystore::Argon2idParams,
+    },
+    /// TPM re-seal: the TPM backend re-generates a seeded
+    /// master internally, re-seals to the current PCR
+    /// policy. Not yet implemented — Phase 2 / TPM backend
+    /// batch.
+    TpmReseal,
+    /// systemd-creds re-issue: delegate to systemd's
+    /// credential API to re-encrypt the master with a new
+    /// DEK. Not yet implemented — Phase 2 / systemd-creds
+    /// backend batch.
+    SystemdCredsReissue,
 }
 
 /// Keystore abstraction — backends implement this, consumers depend on it.
@@ -126,6 +173,38 @@ pub trait Keystore: Send + Sync + 'static {
     /// **Default grace:** 180 days (ADR-018 §6). Compromise response shortens
     /// to 0 seconds with mandatory offline sync.
     async fn rotate_master(&self) -> Result<(), KeystoreError>;
+
+    /// Rotate the master key with backend-specific source
+    /// inputs (Batch 101 — unified orchestrator entry point).
+    ///
+    /// Backends match on the variant:
+    /// - FileBacked impl accepts `RotationSource::FileBacked`;
+    ///   returns NotImplemented for the others.
+    /// - TPM impl accepts `RotationSource::TpmReseal`; returns
+    ///   NotImplemented for the others.
+    /// - systemd-creds impl accepts
+    ///   `RotationSource::SystemdCredsReissue`; returns
+    ///   NotImplemented for the others.
+    ///
+    /// The orchestrator (cmd_rotate_master) calls
+    /// `self.backend()` to pick the right variant, then
+    /// invokes this ONE method — no backend-specific
+    /// downcast gymnastics.
+    ///
+    /// Default impl returns NotImplemented so new backend
+    /// authors know to implement explicitly (and existing
+    /// impls compile without touching them — additive trait
+    /// extension per Rust trait-object evolution rules).
+    async fn rotate_master_with_source(
+        &self,
+        _source: RotationSource<'_>,
+    ) -> Result<(), KeystoreError> {
+        Err(KeystoreError::new(
+            KeystoreErrorKind::NotImplemented,
+            "backend does not implement rotate_master_with_source — override in the impl"
+                .to_string(),
+        ))
+    }
 }
 
 #[cfg(test)]

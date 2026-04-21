@@ -522,31 +522,50 @@ impl Keystore for FileBackedKeystore {
     }
 
     async fn rotate_master(&self) -> Result<(), KeystoreError> {
-        // The trait signature takes no arguments; the
-        // FILE-BACKED rotation requires new-passphrase +
-        // new-salt paths that aren't part of the generic
-        // Keystore trait surface. Callers rotating a
-        // file-backed keystore MUST use
-        // `rotate_master_from_files` directly. This trait
-        // method is a convenience for the TPM + systemd-
-        // creds backends (Phase 2 / Batches 83a+83b) where
-        // rotation doesn't need external paths.
-        //
-        // Phase 2 / Batches 99+: orchestration batch wires
-        // MQTT `rotate_master` command handler that reads
-        // config.keystore paths + calls
-        // rotate_master_from_files here + fans out
-        // SQLCipher PRAGMA rekey + emits audit event.
+        // The trait signature takes no arguments; file-backed
+        // rotation requires new-passphrase + new-salt paths
+        // that aren't part of the generic no-arg surface.
+        // Batch 101 unified trait adds rotate_master_with_
+        // source(RotationSource::FileBacked{...}) which is
+        // the correct entry point for this backend.
         use super::error::KeystoreErrorKind;
         warn!(
             "FileBackedKeystore::rotate_master called without paths — \
-             use rotate_master_from_files(passphrase, salt, params) directly, \
-             or wait for the Phase 2 rotate_master command orchestrator."
+             use rotate_master_with_source(RotationSource::FileBacked{{...}}) (Batch 101) \
+             or rotate_master_from_files (Batch 98) directly."
         );
         Err(KeystoreError::new(
             KeystoreErrorKind::NotImplemented,
-            "file-backed rotation requires new passphrase + salt paths via rotate_master_from_files".to_string(),
+            "file-backed rotation requires RotationSource::FileBacked".to_string(),
         ))
+    }
+
+    /// Batch 101 trait-unified rotation entry point.
+    /// Accepts `RotationSource::FileBacked`; rejects the
+    /// other variants with NotImplemented.
+    async fn rotate_master_with_source(
+        &self,
+        source: crate::keystore::RotationSource<'_>,
+    ) -> Result<(), KeystoreError> {
+        use super::error::KeystoreErrorKind;
+        match source {
+            crate::keystore::RotationSource::FileBacked {
+                passphrase_path,
+                salt_path,
+                params,
+            } => self.rotate_master_from_files(passphrase_path, salt_path, params),
+            crate::keystore::RotationSource::TpmReseal => Err(KeystoreError::new(
+                KeystoreErrorKind::NotImplemented,
+                "FileBackedKeystore does not accept TpmReseal rotation source".to_string(),
+            )),
+            crate::keystore::RotationSource::SystemdCredsReissue => {
+                Err(KeystoreError::new(
+                    KeystoreErrorKind::NotImplemented,
+                    "FileBackedKeystore does not accept SystemdCredsReissue rotation source"
+                        .to_string(),
+                ))
+            }
+        }
     }
 }
 

@@ -23,6 +23,13 @@ export * from './tenant-schema.utils';
 // Migration Logger (structured logging for TypeORM migrations outside DI)
 export { MigrationLogger } from './migration-logger';
 
+// SQL fragments — compile-time SQL injection prevention. Branded SqlIdent
+// + SqlFragment types make raw-string interpolation a TypeScript compile
+// error. Prereq for Phase 3 primitives rewrite (plan v3 R2 CRITICAL).
+// See sql-fragments.ts docblock.
+export { sql, sqlGuards, executeSqlFragment } from './sql-fragments';
+export type { SqlIdent, SqlValue, SqlFragment } from './sql-fragments';
+
 // Migration helpers (pinSearchPath, dropPartialTables,
 // parseAlterColumnTypeTargets, dropDependentPartialIndexes) — shared by
 // migration authors so search_path boilerplate, partial-state cleanup,

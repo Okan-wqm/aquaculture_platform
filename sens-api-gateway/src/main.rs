@@ -96,7 +96,12 @@ mod updater;
 // verify_config_integrity pure function with closure-injected ed25519
 // verify. Runtime startup wiring (fail-closed boot if verify fails) lands
 // in Faz 2 Sprint 6.6.
-#[allow(dead_code)] // Faz 2 Sprint 6.6 wires consumers; types pre-staged.
+// Batch 54 Sprint 6.6 FULL WIRE: verify_at_boot consumes the
+// Batch 9 pure types + Batch 42 config knob. The module no
+// longer has dead-code status; verify_at_boot is invoked from
+// main.rs boot sequence below. Sub-types (ConfigMeta,
+// SignedConfigMeta) have real consumers via the sidecar parse
+// path.
 mod config_integrity;
 // Batch 10 — plan D-7/D-14/D-15 runtime safety primitives: ClockAuthority
 // trait (NTS-authenticated wall clock + monotonic anchor), retained-msg
@@ -1025,6 +1030,53 @@ async fn async_main() -> Result<()> {
             std::process::exit(1);
         }
     };
+
+    // Batch 54 Sprint 6.6 FULL WIRE: verify config-integrity
+    // sidecar at boot. Called AFTER config load (so we have the
+    // mode + factory_pubkey_hex + device_id) and BEFORE any
+    // network listener binds / tokio runtime spawns — fail-
+    // closed boot in Enforcing mode means exit(1) before any
+    // attacker-observable activity.
+    //
+    // Mode semantics:
+    //   Disabled   — no check (default, HC-1 backward compat).
+    //   Permissive — check attempted; failure WARN-logged but
+    //                boot continues (early-detection posture).
+    //   Enforcing  — check required; failure exits(1). Fail-
+    //                closed is the tier-1 contract.
+    //
+    // Path: /etc/suderra/config.yaml + /etc/suderra/config.yaml.sig
+    // sidecar (or config_integrity.sidecar_path override).
+    {
+        use std::path::PathBuf;
+        let config_yaml_path = PathBuf::from("/etc/suderra/config.yaml");
+        let sidecar_override = config.config_integrity.sidecar_path.as_deref();
+        let factory_pubkey_hex = config.config_integrity.factory_pubkey_hex.as_deref();
+        let data_dir = data_dir::data_dir();
+        match crate::config_integrity::verify_at_boot(
+            config.config_integrity.mode,
+            factory_pubkey_hex,
+            sidecar_override,
+            &config_yaml_path,
+            &config.device_id,
+            &data_dir,
+        ) {
+            Ok(()) => {}
+            Err(reason) => {
+                // Enforcing-mode failure bubbled up from
+                // verify_at_boot. Permissive failures are
+                // consumed internally (warn-logged; returns Ok).
+                // The only path reaching Err here is Enforcing
+                // mode + verify failed. Fail-closed: exit(1)
+                // with operator-visible error.
+                error!(
+                    "Config-integrity verification FAILED in Enforcing mode: {}. Agent cannot boot.",
+                    reason
+                );
+                std::process::exit(1);
+            }
+        }
+    }
 
     // Initialize OpenTelemetry OTLP export (if configured and feature enabled)
     // This adds distributed tracing support for production observability

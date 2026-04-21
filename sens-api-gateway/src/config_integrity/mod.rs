@@ -57,7 +57,13 @@
 pub mod error;
 pub mod manifest;
 pub mod verify;
+// Batch 54 Sprint 6.6 full wire — runtime orchestrator that
+// reads config.yaml + sidecar JSON + computes SHA-256 +
+// performs ed25519 verify via closure injection. Calls the
+// Batch 9 pure `verify_config_integrity` function.
+pub mod verify_runtime;
 
 pub use error::{ConfigIntegrityError, ConfigMetaCanonicalBytesError};
 pub use manifest::{ConfigMeta, SignedConfigMeta};
 pub use verify::verify_config_integrity;
+pub use verify_runtime::verify_at_boot;

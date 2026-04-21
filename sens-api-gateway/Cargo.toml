@@ -565,3 +565,8 @@ path = "tests/invariants/signature_mode.rs"
 [[test]]
 name = "rate_limiter_semantics"
 path = "tests/invariants/rate_limiter_semantics.rs"
+
+# Batch 54 Sprint 6.6 FULL WIRE — config-integrity verify_at_boot.
+[[test]]
+name = "config_integrity_verify_runtime"
+path = "tests/invariants/config_integrity_verify_runtime.rs"

@@ -7,8 +7,25 @@
 # Each gate fails the commit independently. Gates in staged-only mode
 # are no-ops on non-matching commits.
 #
-# Future Phase 2 additions: lint-staged.
+# WHY ./node_modules/.bin/ts-node (not `npx ts-node`):
+#   ORPHAN-012 root cause was npx resolving whatever the local npm
+#   cache exposed — TS 5.x or TS 6.x or TS 7.x at random — producing
+#   a TS5103 / TS5107 trip in the gates depending on which compiler
+#   landed first. The local binary path forces resolution through
+#   the workspace's `node_modules`, which `npm ci` populates from the
+#   committed `package-lock.json`. Combined with the exact pin in
+#   `package.json` and the assertion in `tools/gates/check-pin.ts`,
+#   the gate suite cannot run against a drifted compiler — Tier-1
+#   "make it impossible" per CLAUDE.md.
 
-npx ts-node --project tools/gates/tsconfig.json tools/gates/banned-phrase.ts --mode=staged || exit 1
-npx ts-node --project tools/gates/tsconfig.json tools/gates/migration-sql-lint.ts --mode=staged || exit 1
-npx ts-node --project tools/gates/tsconfig.json tools/gates/tier-claim-lint.ts --mode=staged || exit 1
+GATE_TS_NODE="./node_modules/.bin/ts-node"
+GATE_TSCONFIG="--project tools/gates/tsconfig.json"
+
+# Step 0 — verify pinned dep versions BEFORE running any other gate.
+# A version drift here means subsequent gate output is suspect; fail
+# fast so the developer sees the root cause, not a confusing TS5103.
+"$GATE_TS_NODE" --transpile-only tools/gates/check-pin.ts || exit 1
+
+"$GATE_TS_NODE" $GATE_TSCONFIG tools/gates/banned-phrase.ts --mode=staged || exit 1
+"$GATE_TS_NODE" $GATE_TSCONFIG tools/gates/migration-sql-lint.ts --mode=staged || exit 1
+"$GATE_TS_NODE" $GATE_TSCONFIG tools/gates/tier-claim-lint.ts --mode=staged || exit 1

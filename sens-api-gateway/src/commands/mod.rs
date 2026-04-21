@@ -33,6 +33,13 @@ mod helpers;
 // preview) all route through this function in execute_command.
 pub(crate) mod required_permission;
 
+// Batch 63 Sprint 6.4 partial: CommandEnvelope parse-and-
+// verify adapter. Centralizes the envelope-parse + Batch 7
+// verify_envelope invocation + SignatureMode-aware routing.
+// Falls back to legacy CommandMessage parse on non-envelope
+// payloads.
+mod envelope_adapter;
+
 // Batch 20c ARC-008 god-file split: diagnostic handlers
 // (cmd_ping, cmd_get_info, cmd_get_config, cmd_set_log_level)
 // extracted to `commands/diagnostic.rs` as a separate `impl
@@ -395,44 +402,77 @@ impl CommandHandler {
                 return Ok(());
             }
 
-            // Batch 62 Sprint 6.4 observability: detect
-            // CommandEnvelope format vs legacy CommandMessage
-            // BEFORE parse to emit operator telemetry on
-            // rollout progress. Pre-Sprint-6.4 the envelope
-            // is NOT yet consumed — detection is
-            // INFORMATIONAL ONLY. Sprint 6.4 full wire
-            // replaces this detect-and-log with parse-and-
-            // verify.
+            // Batch 63 Sprint 6.4 partial: envelope-first
+            // parse. The adapter tries CommandEnvelope format;
+            // falls back to legacy CommandMessage on non-
+            // envelope payloads. Envelope payloads run
+            // through verify_envelope's 7 gates (cmd bounds,
+            // jti format, nonce bounds, freshness window,
+            // tenant binding, cmd_hash match, signature-mode
+            // rule) BEFORE reaching the legacy dispatch path.
             //
-            // Detection heuristic: CommandEnvelope has an
-            // `actor` field (16-byte UUID); CommandMessage
-            // does not. A quick payload scan for the
-            // `"actor":` substring indicates envelope
-            // format. serde-double-parse would be
-            // authoritative but slower; the string-scan is
-            // cheap + accepts false positives (a legacy
-            // command with a free-form "actor" field in
-            // params would also match, but that's a
-            // non-conflicting edge case — the metric just
-            // over-reports envelope-format by a small
-            // fraction until Sprint 6.4 full wire swaps to
-            // authoritative parse).
-            if message.payload.windows(8).any(|w| w == b"\"actor\":") {
-                info!(
-                    "CommandEnvelope-format payload detected on {} ({} bytes). \
-                     Sprint 6.4 full wire will route envelope through verify_envelope \
-                     path; pre-Sprint-6.4 legacy CommandMessage parse still applies.",
-                    message.topic,
-                    message.payload.len()
+            // Architectural upgrade (not patch): both formats
+            // continue to work; signed envelopes get stronger
+            // gates while legacy CommandMessage retains HC-1
+            // backward compat.
+            let (signature_mode, tenant_bytes) = {
+                let state = self.state.read().await;
+                let tenant_bytes = envelope_adapter::tenant_id_bytes_or_none(
+                    state.tenant_id.as_deref(),
                 );
-            }
+                (state.config.signature_mode, tenant_bytes)
+            };
 
-            // Parse command
-            let command: CommandMessage = match serde_json::from_slice(&message.payload) {
-                Ok(cmd) => cmd,
-                Err(e) => {
-                    warn!("Failed to parse command: {}", e);
-                    return Ok(());
+            let command: CommandMessage = if let Some(tenant_bytes) = tenant_bytes {
+                match envelope_adapter::try_parse_and_verify(
+                    &message.payload,
+                    tenant_bytes,
+                    signature_mode,
+                ) {
+                    envelope_adapter::AdapterOutcome::NotEnvelopeFormat => {
+                        // Legacy path — CommandMessage parse.
+                        match serde_json::from_slice(&message.payload) {
+                            Ok(cmd) => cmd,
+                            Err(e) => {
+                                warn!("Failed to parse command (neither envelope nor legacy): {}", e);
+                                return Ok(());
+                            }
+                        }
+                    }
+                    envelope_adapter::AdapterOutcome::Verified(adapted) => {
+                        // Envelope parsed + all 7 gates
+                        // passed. Project into CommandMessage
+                        // shape so the existing execute_command
+                        // dispatch path stays unchanged.
+                        CommandMessage {
+                            command_id: adapted.command_id,
+                            command: adapted.command,
+                            params: adapted.params,
+                            timestamp: adapted.timestamp,
+                        }
+                    }
+                    envelope_adapter::AdapterOutcome::VerifyFailed(err) => {
+                        warn!(
+                            "Rejecting CommandEnvelope: verify_envelope Err={:?}",
+                            err
+                        );
+                        return Ok(());
+                    }
+                }
+            } else {
+                // tenant_id unavailable (provisioning
+                // incomplete) — envelope verify can't run
+                // (Gate 5 tenant binding requires it). Fall
+                // back to legacy parse unconditionally until
+                // provisioning completes. This matches pre-
+                // Batch-63 behavior for pre-provisioning
+                // bootstrap commands.
+                match serde_json::from_slice(&message.payload) {
+                    Ok(cmd) => cmd,
+                    Err(e) => {
+                        warn!("Failed to parse command: {}", e);
+                        return Ok(());
+                    }
                 }
             };
 

@@ -847,7 +847,21 @@ impl AppState {
             }
         };
 
-        let async_queue = crate::offline_queue::AsyncOfflineQueue::new(queue);
+        // Batch 105: attach HealthState so enqueue/ack
+        // paths emit observability counters + queue-size
+        // gauge. HealthState is already initialized by
+        // init_health_server earlier in boot (init_offline_
+        // queue runs after init_health_server).
+        let mut async_queue = crate::offline_queue::AsyncOfflineQueue::new(queue);
+        if let Some(ref hs) = self.health_state {
+            async_queue = async_queue.with_health_state(hs.clone());
+            // Also report the queue capacity as a static
+            // gauge so Grafana alerts like
+            // `offline_queue_size / offline_queue_capacity
+            // > 0.9` (queue-is-filling alarm) work out of
+            // the box.
+            hs.set_offline_queue_capacity(self.config.offline_queue.max_size as u64);
+        }
         self.offline_queue = Some(std::sync::Arc::new(async_queue));
 
         info!(

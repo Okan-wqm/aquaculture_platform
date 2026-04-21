@@ -1165,6 +1165,12 @@ pub struct IntegrityCheckResult {
 /// ```
 pub struct AsyncOfflineQueue {
     inner: std::sync::Arc<OfflineQueue>,
+    /// Optional HealthState for Batch 105 observability
+    /// instrumentation. Set via `with_health_state` post-
+    /// construction. When Some, enqueue/ack operations
+    /// increment the offline-queue counter family +
+    /// update the queue-size gauge. None = no-op.
+    health_state: Option<crate::health::HealthState>,
 }
 
 impl AsyncOfflineQueue {
@@ -1172,12 +1178,25 @@ impl AsyncOfflineQueue {
     pub fn new(queue: OfflineQueue) -> Self {
         Self {
             inner: std::sync::Arc::new(queue),
+            health_state: None,
         }
     }
 
     /// Create from an existing Arc<OfflineQueue>
     pub fn from_arc(queue: std::sync::Arc<OfflineQueue>) -> Self {
-        Self { inner: queue }
+        Self {
+            inner: queue,
+            health_state: None,
+        }
+    }
+
+    /// Batch 105 observability wire. Attach a HealthState so
+    /// enqueue/ack paths update counters + the queue-size
+    /// gauge. Builder-style so existing call sites keep
+    /// working; only main.rs init_offline_queue wires this.
+    pub fn with_health_state(mut self, health_state: crate::health::HealthState) -> Self {
+        self.health_state = Some(health_state);
+        self
     }
 
     /// Get a clone of the inner Arc for sharing
@@ -1198,9 +1217,23 @@ impl AsyncOfflineQueue {
         let topic = topic.to_string();
         let payload = payload.to_string();
 
-        tokio::task::spawn_blocking(move || queue.enqueue(&topic, &payload, priority, qos, retain))
-            .await
-            .map_err(|e| anyhow::anyhow!("spawn_blocking join error: {}", e))?
+        let result = tokio::task::spawn_blocking(move || {
+            queue.enqueue(&topic, &payload, priority, qos, retain)
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("spawn_blocking join error: {}", e))?;
+
+        // Batch 105: on successful enqueue, bump the
+        // "queued_total" lifetime counter + refresh the
+        // queue-size gauge. Errors don't change either.
+        if result.is_ok() {
+            if let Some(hs) = self.health_state.as_ref() {
+                hs.inc_offline_queued();
+                hs.set_offline_queue_size(self.inner.len() as u64);
+            }
+        }
+
+        result
     }
 
     /// Async peek - get next message without removing
@@ -1216,9 +1249,22 @@ impl AsyncOfflineQueue {
     pub async fn ack_async(&self, message_id: i64) -> Result<bool> {
         let queue = self.inner.clone();
 
-        tokio::task::spawn_blocking(move || queue.ack(message_id))
+        let result = tokio::task::spawn_blocking(move || queue.ack(message_id))
             .await
-            .map_err(|e| anyhow::anyhow!("spawn_blocking join error: {}", e))?
+            .map_err(|e| anyhow::anyhow!("spawn_blocking join error: {}", e))?;
+
+        // Batch 105: on successful ack, bump the "sent_total"
+        // lifetime counter (ack = message delivered +
+        // removed from queue) + refresh the queue-size
+        // gauge.
+        if matches!(result, Ok(true)) {
+            if let Some(hs) = self.health_state.as_ref() {
+                hs.inc_offline_sent();
+                hs.set_offline_queue_size(self.inner.len() as u64);
+            }
+        }
+
+        result
     }
 
     /// Async nack - mark message for retry
@@ -1339,6 +1385,7 @@ impl Clone for AsyncOfflineQueue {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
+            health_state: self.health_state.clone(),
         }
     }
 }

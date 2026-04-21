@@ -190,7 +190,7 @@ pub async fn run_cold_boot_watchdog(
     store: Arc<PartitionStore>,
     poll_interval: Duration,
     cold_boot_budget_secs: u64,
-    mut shutdown: tokio::sync::broadcast::Receiver<bool>,
+    mut shutdown: tokio::sync::broadcast::Receiver<()>,
 ) {
     info!(
         "cold-boot watchdog task started (poll={}s budget={}s)",

@@ -540,6 +540,21 @@ pub struct AppState {
     /// Some(FileBackedKeystore) in FileBacked / Auto modes
     /// pre-Batch-83a TPM landing.
     pub keystore: Option<std::sync::Arc<dyn crate::keystore::Keystore>>,
+
+    /// Firmware A/B partition state store (Batch 108 Sprint
+    /// 6.5 wire).
+    ///
+    /// WHY: Plan §5 Faz 2 item 6 + ADR-019 §2 mandate A/B
+    /// partition persistent state. Batch 106 shipped the
+    /// PartitionStore runtime; Batch 108 wires it at boot
+    /// + spawns the Batch 107 cold-boot-budget watchdog.
+    ///
+    /// WHAT: `Option<Arc<PartitionStore>>` — None until
+    /// `init_partition_store()` succeeds, then Some.
+    /// Initialization is fail-closed in boot (corrupt JSON
+    /// in the partition.json file → exit(1)); first-boot
+    /// creates file with initial state.
+    pub partition_store: Option<std::sync::Arc<crate::updater::PartitionStore>>,
 }
 
 impl AppState {
@@ -630,6 +645,11 @@ impl AppState {
             clock_authority: std::sync::Arc::new(
                 crate::runtime_safety::SystemClockAuthority::new(),
             ),
+            // Batch 108 Sprint 6.5 wire: None-init.
+            // init_partition_store() opens the state file
+            // (default /var/lib/suderra/partition.json);
+            // fail-closed on corrupt JSON.
+            partition_store: None,
         }
     }
 
@@ -1465,6 +1485,42 @@ impl AppState {
         }
     }
 
+    /// Open the A/B partition state store (Batch 108 Sprint
+    /// 6.5 wire). Uses default path `/var/lib/suderra/
+    /// partition.json` (first-boot creates file with initial
+    /// state).
+    ///
+    /// FAIL-CLOSED: corrupt JSON, unreadable parent dir, or
+    /// any other load failure returns Err → caller exits(1).
+    /// Without reliable partition state the updater subsystem
+    /// cannot operate safely — running without a store would
+    /// let an update apply without recording the state
+    /// transition, breaking rollback semantics.
+    pub fn init_partition_store(&mut self) -> Result<(), String> {
+        let store = crate::updater::PartitionStore::open(None).map_err(|e| {
+            format!(
+                "PartitionStore init failed (fail-closed boot): {}. \
+                 Inspect /var/lib/suderra/partition.json for corruption; manual recovery via removing the file will reinitialize to first-boot state but may lose active slot tracking.",
+                e
+            )
+        })?;
+
+        let snap = store.snapshot().map_err(|e| {
+            format!("PartitionStore snapshot failed post-open: {}", e)
+        })?;
+
+        info!(
+            "PartitionStore opened: active={:?} slot_a={:?} slot_b={:?} pending_deadline={:?}",
+            snap.active,
+            snap.slot_a_state,
+            snap.slot_b_state,
+            snap.pending_confirm_deadline_unix_secs
+        );
+
+        self.partition_store = Some(std::sync::Arc::new(store));
+        Ok(())
+    }
+
     /// Initialize hardware handles (must be called within LocalSet context)
     pub fn init_hardware_handles(&mut self) {
         // Initialize Modbus actor
@@ -1946,6 +2002,28 @@ async fn async_main() -> Result<()> {
                 "RBAC manifest store init failed (fail-closed boot, mode=Enforcing): {}",
                 msg
             );
+            std::process::exit(1);
+        }
+    }
+
+    // Initialize A/B partition state store (Batch 108 Sprint
+    // 6.5 wire).
+    //
+    // WHY: Plan §5 Faz 2 item 6 + ADR-019 §2 mandate
+    // persistent A/B partition state. The store MUST be
+    // opened BEFORE the update orchestrator command handler
+    // runs so cmd_update_firmware has a live state to
+    // mutate. Runs EARLY in boot so downstream subsystems
+    // (audit sink for rotation events, watchdog task for
+    // rollback) can rely on it.
+    //
+    // FAIL-CLOSED: corrupt partition.json → exit(1).
+    // Operator recovery runbook to be added in a follow-up
+    // documentation batch.
+    {
+        let mut state_guard = state.write().await;
+        if let Err(msg) = state_guard.init_partition_store() {
+            error!("{}", msg);
             std::process::exit(1);
         }
     }
@@ -2806,6 +2884,43 @@ async fn run_agent(
 
     // Step 6b: Start I/O poll loop
     tokio::spawn(io_poll::io_poll_loop(state.clone()));
+
+    // Batch 108 Sprint 6.5: spawn cold-boot-budget watchdog
+    // task. Polls PartitionStore for expired PendingConfirm
+    // deadlines + applies Rollback when a firmware update's
+    // cold-boot window lapses without Confirm.
+    //
+    // SKIPPED when partition_store is None (init failure would
+    // have exit(1)'d already; guard is defense-in-depth).
+    {
+        let partition_store = {
+            let s = state.read().await;
+            s.partition_store.clone()
+        };
+        if let Some(partition_store) = partition_store {
+            let watchdog_shutdown = shutdown_coordinator.subscribe();
+            let cold_boot_budget_secs =
+                crate::updater::partition::DEFAULT_COLD_BOOT_BUDGET_SECS;
+            let watchdog_handle = tokio::spawn(async move {
+                crate::updater::run_cold_boot_watchdog(
+                    partition_store,
+                    std::time::Duration::from_secs(
+                        crate::updater::DEFAULT_WATCHDOG_POLL_INTERVAL_SECS,
+                    ),
+                    cold_boot_budget_secs,
+                    watchdog_shutdown,
+                )
+                .await;
+            });
+            shutdown_coordinator
+                .register_task("cold_boot_watchdog", watchdog_handle);
+            info!(
+                "cold-boot watchdog task registered (poll={}s budget={}s)",
+                crate::updater::DEFAULT_WATCHDOG_POLL_INTERVAL_SECS,
+                cold_boot_budget_secs
+            );
+        }
+    }
 
     // Batch 93 Sprint 6.4 final: start background sweep_expired
     // task for the jti dedup table. Runs every 5 minutes,

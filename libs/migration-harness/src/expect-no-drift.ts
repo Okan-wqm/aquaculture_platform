@@ -7,16 +7,17 @@
  * as a standalone callable for the migration harness — no NestJS runtime
  * dependency, no container lifecycle assumptions.
  *
- * Checks the same 4 drift classes the production validator does:
+ * Checks the drift classes the production validator covers (Phase 2):
  *   A. Schema location — entity declares `schema: 'hr'`, DB table lives in 'hr'
  *   B. UUID type — entity `@Column('uuid')`, DB column is uuid (not text/varchar)
  *   C. Nullability — entity `nullable: false`, DB is_nullable === 'NO'
  *   D. Missing column — entity declares column the DB lacks
+ *   E. Orphan column — DB has a column the entity does not declare
+ *   F. Enum labels — entity enum[] differs from pg_enum labels
  *
- * Plan v3 R11 expands the validator to 10 classes. Those land here as
- * Phase 2 ships; Step 5 only implements the 4 production classes so the
- * HR-drift regression (Phase 1 Step 6) reproduces the boot-signal timeout
- * exactly as production observes it.
+ * Plan v3 R11 expands the validator to 10 classes. G (check_constraint),
+ * H (data_cast_incompatible), I (per_tenant_shape_divergence), and J
+ * (encrypted_column_protection) land in subsequent Phase 2 steps.
  *
  * # Usage
  *
@@ -53,7 +54,8 @@ export type DriftClass =
   | 'uuid_type'
   | 'nullability'
   | 'missing_column'
-  | 'orphan_column';
+  | 'orphan_column'
+  | 'enum_labels';
 
 /**
  * Scan DB against entity metadata declarations; return a DriftReport
@@ -110,6 +112,7 @@ async function scanDrift(
     nullability: 0,
     missing_column: 0,
     orphan_column: 0,
+    enum_labels: 0,
   };
 
   for (const entity of entities) {
@@ -152,6 +155,15 @@ async function scanDrift(
     );
     const columns = new Map(columnRows.map((r) => [r.column_name, r]));
 
+    // Enum columns — collected during the per-column loop, diffed
+    // against pg_enum after (Class F). Keeps pg_enum to 1 round-trip
+    // per entity instead of N+1.
+    const entityEnumColumns: Array<{
+      dbName: string;
+      typeName: string;
+      declaredLabels: readonly string[];
+    }> = [];
+
     for (const column of entity.columns) {
       const dbName = column.databaseName;
       const dbColumn = columns.get(dbName);
@@ -183,6 +195,74 @@ async function scanDrift(
           `[${ctx.schema}.${tableName}.${dbName}] entity declares NOT NULL but DB column is nullable`,
         );
         byClass.nullability++;
+      }
+
+      // Class F — enum column collection for batched lookup below.
+      if (entityType === 'enum' && Array.isArray(column.enum)) {
+        const declaredLabels = (column.enum as readonly unknown[])
+          .filter((x): x is string => typeof x === 'string');
+        if (declaredLabels.length > 0) {
+          entityEnumColumns.push({
+            dbName,
+            typeName:
+              typeof column.enumName === 'string'
+                ? column.enumName
+                : `${tableName}_${dbName}_enum`,
+            declaredLabels,
+          });
+        }
+      }
+    }
+
+    // Class F — enum_labels: diff entity-declared labels vs pg_enum.
+    // Mirrors production validator's Class F detection. WARN severity
+    // per drift-classes.ts rollout window (Phase 8 Stage 2 elevates),
+    // but the harness reports via byClass.enum_labels so tests can
+    // assert drift surface regardless of production severity.
+    if (entityEnumColumns.length > 0) {
+      const typeNames = entityEnumColumns.map((c) => c.typeName);
+      const rows: Array<{ type_name: string; label: string }> =
+        await ctx.qr.query(
+          `SELECT t.typname AS type_name, e.enumlabel AS label
+             FROM pg_type t
+             JOIN pg_namespace n ON n.oid = t.typnamespace
+             JOIN pg_enum e ON e.enumtypid = t.oid
+            WHERE n.nspname = $1
+              AND t.typname = ANY($2::text[])
+            ORDER BY t.typname, e.enumsortorder`,
+          [ctx.schema, typeNames],
+        );
+      const dbLabelsByType = new Map<string, string[]>();
+      for (const row of rows) {
+        const list = dbLabelsByType.get(row.type_name) ?? [];
+        list.push(row.label);
+        dbLabelsByType.set(row.type_name, list);
+      }
+      for (const col of entityEnumColumns) {
+        const dbLabels = dbLabelsByType.get(col.typeName);
+        if (!dbLabels) {
+          violations.push(
+            `[${ctx.schema}.${tableName}.${col.dbName}] entity declares enum type '${col.typeName}' but no such pg_enum exists in schema '${ctx.schema}' (enum_labels)`,
+          );
+          byClass.enum_labels++;
+          continue;
+        }
+        const dbSet = new Set(dbLabels);
+        const declaredSet = new Set(col.declaredLabels);
+        const missingInDb = col.declaredLabels.filter((l) => !dbSet.has(l));
+        const missingInEntity = dbLabels.filter((l) => !declaredSet.has(l));
+        if (missingInDb.length === 0 && missingInEntity.length === 0) continue;
+        const parts: string[] = [];
+        if (missingInDb.length > 0) {
+          parts.push(`entity-only: [${missingInDb.join(', ')}]`);
+        }
+        if (missingInEntity.length > 0) {
+          parts.push(`db-only: [${missingInEntity.join(', ')}]`);
+        }
+        violations.push(
+          `[${ctx.schema}.${tableName}.${col.dbName}] enum '${col.typeName}' label drift — ${parts.join(' | ')} (enum_labels)`,
+        );
+        byClass.enum_labels++;
       }
     }
 

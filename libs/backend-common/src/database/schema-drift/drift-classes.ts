@@ -139,10 +139,16 @@ export const DRIFT_CLASSES: Readonly<Record<DriftClassId, DriftClassSpec>> =
     enum_labels: {
       id: 'enum_labels',
       label: 'F',
-      severity: 'error',
+      // WARN during rollout window — Phase 8 Stage 2 elevates to 'error'
+      // once every existing F violation is either resolved via
+      // alignEnumLabels primitive or explicitly allowlisted. Rationale:
+      // deploy-asserter would time out on day-1 if we flipped error
+      // without first seeing which services carry legitimate divergence
+      // (e.g. migration-in-progress enum renames).
+      severity: 'warn',
       primitive: 'alignEnumLabels',
       description:
-        'Entity enum values differ from DB pg_enum labels (additive drift is auto-fix; removal requires explicit remap).',
+        'Entity enum values differ from DB pg_enum labels (additive drift is auto-fix; removal requires explicit remap). Rollout severity=warn until Phase 8 Stage 2 elevates.',
       planRef: 'v3-R11',
     },
     check_constraint: {

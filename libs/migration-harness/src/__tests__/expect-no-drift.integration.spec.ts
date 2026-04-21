@@ -28,6 +28,26 @@ class FixtureEntity {
   score!: number | null;
 }
 
+enum WidgetStatus {
+  DRAFT = 'draft',
+  ACTIVE = 'active',
+  ARCHIVED = 'archived',
+}
+
+@Entity({ name: 'widget_with_enum', schema: 'drifttest' })
+class WidgetWithEnumEntity {
+  @PrimaryColumn({ type: 'uuid' })
+  id!: string;
+
+  @Column({
+    type: 'enum',
+    enum: WidgetStatus,
+    enumName: 'widget_status_enum',
+    nullable: false,
+  })
+  status!: WidgetStatus;
+}
+
 describe('expectNoDriftAgainst — 4-class drift detection', () => {
   let ctx: HarnessContext | undefined;
 
@@ -164,6 +184,124 @@ describe('expectNoDriftAgainst — 4-class drift detection', () => {
         expect(report.byClass.missing_column).toBe(0);
         expect(report.byClass.uuid_type).toBe(0);
         expect(report.byClass.nullability).toBe(0);
+      } finally {
+        await qr.query(`DROP SCHEMA IF EXISTS drifttest CASCADE`);
+      }
+    });
+  });
+
+  it('detects Class F (enum label drift — entity has label DB lacks)', async () => {
+    await withEphemeralSchema(ctx!, async (_e, qr) => {
+      await qr.query(`CREATE SCHEMA IF NOT EXISTS drifttest`);
+      try {
+        // DB enum is MISSING 'archived' — entity has 3 labels, DB has 2.
+        await qr.query(
+          `CREATE TYPE drifttest.widget_status_enum AS ENUM ('draft', 'active')`,
+        );
+        await qr.query(
+          `CREATE TABLE drifttest.widget_with_enum (
+             id uuid PRIMARY KEY,
+             status drifttest.widget_status_enum NOT NULL
+           )`,
+        );
+        const report = await expectNoDriftAgainst(
+          { qr, schema: 'drifttest' },
+          [WidgetWithEnumEntity],
+        );
+        expect(report.byClass.enum_labels).toBe(1);
+        expect(
+          report.violations.some(
+            (v) =>
+              v.includes('widget_status_enum') &&
+              v.includes('entity-only: [archived]'),
+          ),
+        ).toBe(true);
+      } finally {
+        await qr.query(`DROP SCHEMA IF EXISTS drifttest CASCADE`);
+      }
+    });
+  });
+
+  it('detects Class F (enum label drift — DB has label entity lacks)', async () => {
+    await withEphemeralSchema(ctx!, async (_e, qr) => {
+      await qr.query(`CREATE SCHEMA IF NOT EXISTS drifttest`);
+      try {
+        // DB has EXTRA 'deprecated' label not declared on the entity.
+        await qr.query(
+          `CREATE TYPE drifttest.widget_status_enum AS ENUM ('draft', 'active', 'archived', 'deprecated')`,
+        );
+        await qr.query(
+          `CREATE TABLE drifttest.widget_with_enum (
+             id uuid PRIMARY KEY,
+             status drifttest.widget_status_enum NOT NULL
+           )`,
+        );
+        const report = await expectNoDriftAgainst(
+          { qr, schema: 'drifttest' },
+          [WidgetWithEnumEntity],
+        );
+        expect(report.byClass.enum_labels).toBe(1);
+        expect(
+          report.violations.some(
+            (v) =>
+              v.includes('widget_status_enum') &&
+              v.includes('db-only: [deprecated]'),
+          ),
+        ).toBe(true);
+      } finally {
+        await qr.query(`DROP SCHEMA IF EXISTS drifttest CASCADE`);
+      }
+    });
+  });
+
+  it('detects Class F (enum type missing entirely)', async () => {
+    await withEphemeralSchema(ctx!, async (_e, qr) => {
+      await qr.query(`CREATE SCHEMA IF NOT EXISTS drifttest`);
+      try {
+        // Table created with a plain text column instead of the declared enum.
+        await qr.query(
+          `CREATE TABLE drifttest.widget_with_enum (
+             id uuid PRIMARY KEY,
+             status text NOT NULL
+           )`,
+        );
+        const report = await expectNoDriftAgainst(
+          { qr, schema: 'drifttest' },
+          [WidgetWithEnumEntity],
+        );
+        expect(report.byClass.enum_labels).toBe(1);
+        expect(
+          report.violations.some(
+            (v) =>
+              v.includes('widget_status_enum') &&
+              v.includes('no such pg_enum exists'),
+          ),
+        ).toBe(true);
+      } finally {
+        await qr.query(`DROP SCHEMA IF EXISTS drifttest CASCADE`);
+      }
+    });
+  });
+
+  it('Class F is clean when labels match exactly (order-insensitive set diff)', async () => {
+    await withEphemeralSchema(ctx!, async (_e, qr) => {
+      await qr.query(`CREATE SCHEMA IF NOT EXISTS drifttest`);
+      try {
+        // Same labels, different order — set diff should show no drift.
+        await qr.query(
+          `CREATE TYPE drifttest.widget_status_enum AS ENUM ('active', 'archived', 'draft')`,
+        );
+        await qr.query(
+          `CREATE TABLE drifttest.widget_with_enum (
+             id uuid PRIMARY KEY,
+             status drifttest.widget_status_enum NOT NULL
+           )`,
+        );
+        const report = await expectNoDriftAgainst(
+          { qr, schema: 'drifttest' },
+          [WidgetWithEnumEntity],
+        );
+        expect(report.byClass.enum_labels).toBe(0);
       } finally {
         await qr.query(`DROP SCHEMA IF EXISTS drifttest CASCADE`);
       }

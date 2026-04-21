@@ -2,6 +2,8 @@ import { Injectable, Logger, OnApplicationBootstrap, Type } from '@nestjs/common
 import { ConfigService } from '@nestjs/config';
 import { DataSource, EntityMetadata } from 'typeorm';
 
+import { DRIFT_CLASSES, type DriftClassId } from './schema-drift/drift-classes';
+
 /**
  * createSchemaDriftValidator
  * ============================================================================
@@ -221,8 +223,11 @@ export function createSchemaDriftValidator(
         return;
       }
       if (firstRow.schemaname !== schema) {
-        errorViolations.push(
+        this.route(
+          'schema_location',
           `[${tableName}] entity declares schema='${schema}' but table lives in '${firstRow.schemaname}'`,
+          errorViolations,
+          warningViolations,
         );
         return;
       }
@@ -238,6 +243,15 @@ export function createSchemaDriftValidator(
       );
       const columns = new Map(columnRows.map((r) => [r.column_name, r]));
 
+      // Enum-column index for Class F batched lookup. Populated during
+      // the per-column loop below and consumed after, so we issue one
+      // pg_enum query per entity instead of N+1.
+      const entityEnumColumns: Array<{
+        dbName: string;
+        typeName: string;
+        declaredLabels: readonly string[];
+      }> = [];
+
       for (const column of entity.columns) {
         const dbName = column.databaseName;
         const dbColumn = columns.get(dbName);
@@ -251,8 +265,11 @@ export function createSchemaDriftValidator(
           // every INSERT/SELECT against that column crashes today, NOT
           // "after migration". Operators in a genuine mid-migration
           // window can suppress via SCHEMA_DRIFT_FATAL=false (default).
-          errorViolations.push(
+          this.route(
+            'missing_column',
             `[${schema}.${tableName}.${dbName}] entity declares column but DB has no such column`,
+            errorViolations,
+            warningViolations,
           );
           continue;
         }
@@ -263,8 +280,11 @@ export function createSchemaDriftValidator(
         const entityType = typeof column.type === 'string' ? column.type : '';
         if (entityType === 'uuid') {
           if (dbColumn.data_type !== 'uuid') {
-            errorViolations.push(
+            this.route(
+              'uuid_type',
               `[${schema}.${tableName}.${dbName}] entity declares uuid but DB is ${dbColumn.data_type}`,
+              errorViolations,
+              warningViolations,
             );
           }
         }
@@ -273,20 +293,60 @@ export function createSchemaDriftValidator(
         // null risk. The reverse (DB says NOT NULL, entity says nullable)
         // is safe (no runtime error possible), so skip that direction.
         if (!column.isNullable && dbColumn.is_nullable === 'YES') {
-          errorViolations.push(
+          this.route(
+            'nullability',
             `[${schema}.${tableName}.${dbName}] entity declares NOT NULL but DB column is nullable`,
+            errorViolations,
+            warningViolations,
           );
         }
+
+        // Class F — enum_labels: collect enum-typed entity columns for
+        // batched pg_enum lookup below. TypeORM exposes `column.enum`
+        // (array of declared labels) and `column.enumName` (explicit
+        // type name). When `enumName` is absent TypeORM auto-derives
+        // `{table}_{column}_enum` (see resolveEnumTypeName()).
+        if (entityType === 'enum' && Array.isArray(column.enum)) {
+          const declaredLabels = (column.enum as readonly unknown[])
+            .filter((x): x is string => typeof x === 'string');
+          if (declaredLabels.length > 0) {
+            entityEnumColumns.push({
+              dbName,
+              typeName: this.resolveEnumTypeName(
+                column.enumName,
+                tableName,
+                dbName,
+              ),
+              declaredLabels,
+            });
+          }
+        }
+      }
+
+      // Class F — enum_labels: diff entity-declared labels against
+      // pg_enum labels. Two drift directions surface here:
+      //   1. Entity has a label DB lacks → INSERTs with the new value
+      //      crash (operator-visible failure).
+      //   2. DB has a label entity lacks → legacy values still queryable
+      //      but a removal in the entity is not a silent rename; needs
+      //      explicit remap via alignEnumLabels primitive.
+      // Severity sourced from registry (see drift-classes.ts Class F).
+      if (entityEnumColumns.length > 0) {
+        await this.scanEnumLabelDrift(
+          schema,
+          tableName,
+          entityEnumColumns,
+          errorViolations,
+          warningViolations,
+        );
       }
 
       // Class E — orphan_column: DB has a column the entity does not
       // declare. Severity WARN (not error) per drift-classes.ts — dropping
       // the column is a data-loss operation gated by an allowlist
-      // (Phase 3 dropOrphanedColumns primitive). Routes to
-      // `warningViolations` so operators see the drift surface WITHOUT
-      // blocking the "Schema drift scan clean" boot signal — avoids
-      // the deploy-asserter timeout regression that a 4-class → 5-class
-      // elevation would otherwise cause.
+      // (Phase 3 dropOrphanedColumns primitive). Routes via registry
+      // severity, so operators see the drift surface WITHOUT blocking
+      // the "Schema drift scan clean" boot signal.
       //
       // Phase 8 Stage 2+ may elevate specific orphan columns to error
       // severity once every existing E violation is either allowlisted
@@ -296,10 +356,131 @@ export function createSchemaDriftValidator(
       );
       for (const dbCol of columnRows) {
         if (!entityColumnNames.has(dbCol.column_name)) {
-          warningViolations.push(
+          this.route(
+            'orphan_column',
             `[${schema}.${tableName}.${dbCol.column_name}] DB has column but entity does not declare it (orphan_column — see drift-classes.ts Class E)`,
+            errorViolations,
+            warningViolations,
           );
         }
+      }
+    }
+
+    /**
+     * Push a violation to the error or warning bucket based on
+     * DRIFT_CLASSES[classId].severity. The registry is the SSoT —
+     * no hard-coded class→bucket mapping lives in this file. Flipping
+     * a class severity is a single-line edit in drift-classes.ts; both
+     * the validator AND the harness pick up the change without code
+     * edits elsewhere.
+     */
+    private route(
+      classId: DriftClassId,
+      message: string,
+      errorViolations: string[],
+      warningViolations: string[],
+    ): void {
+      const severity = DRIFT_CLASSES[classId].severity;
+      if (severity === 'error') {
+        errorViolations.push(message);
+      } else {
+        warningViolations.push(message);
+      }
+    }
+
+    /**
+     * Canonical pg_enum type name for an entity column. When the entity
+     * explicitly sets `@Column({ enumName: 'foo' })` we use that;
+     * otherwise TypeORM auto-generates `{table}_{column}_enum`
+     * (lowercase, underscore-joined). Mirrors TypeORM's
+     * `PostgresQueryRunner.buildEnumName()` naming convention so the
+     * validator reads the same type identifier the schema-builder writes.
+     */
+    private resolveEnumTypeName(
+      enumName: string | undefined,
+      tableName: string,
+      columnDbName: string,
+    ): string {
+      if (enumName && typeof enumName === 'string') return enumName;
+      return `${tableName}_${columnDbName}_enum`;
+    }
+
+    /**
+     * Batch-query pg_enum for every enum-typed column in one round-trip
+     * per entity, then diff declared vs actual labels. Schema-qualified
+     * via n.nspname so two schemas with the same enum type name don't
+     * cross-contaminate (e.g. source hr schema + tenant_<uuid>
+     * replicas; the validator only considers the entity's declared
+     * schema).
+     */
+    private async scanEnumLabelDrift(
+      schema: string,
+      tableName: string,
+      entityEnumColumns: ReadonlyArray<{
+        dbName: string;
+        typeName: string;
+        declaredLabels: readonly string[];
+      }>,
+      errorViolations: string[],
+      warningViolations: string[],
+    ): Promise<void> {
+      const typeNames = entityEnumColumns.map((c) => c.typeName);
+      const rows: Array<{
+        type_name: string;
+        label: string;
+        sort_order: number;
+      }> = await this.dataSource.query(
+        `SELECT t.typname AS type_name, e.enumlabel AS label, e.enumsortorder AS sort_order
+           FROM pg_type t
+           JOIN pg_namespace n ON n.oid = t.typnamespace
+           JOIN pg_enum e ON e.enumtypid = t.oid
+          WHERE n.nspname = $1
+            AND t.typname = ANY($2::text[])
+          ORDER BY t.typname, e.enumsortorder`,
+        [schema, typeNames],
+      );
+
+      const dbLabelsByType = new Map<string, string[]>();
+      for (const row of rows) {
+        const list = dbLabelsByType.get(row.type_name) ?? [];
+        list.push(row.label);
+        dbLabelsByType.set(row.type_name, list);
+      }
+
+      for (const col of entityEnumColumns) {
+        const dbLabels = dbLabelsByType.get(col.typeName);
+        if (!dbLabels) {
+          // Entity declares an enum column but the pg_enum TYPE itself
+          // does not exist in the entity's declared schema. Usually a
+          // missed migration — the @Column({enum:[...]}) decorator
+          // alone does not create the DB type; TypeORM CREATE TYPE is
+          // emitted by the schema-builder, which the runner owns.
+          this.route(
+            'enum_labels',
+            `[${schema}.${tableName}.${col.dbName}] entity declares enum type '${col.typeName}' but no such pg_enum exists in schema '${schema}'`,
+            errorViolations,
+            warningViolations,
+          );
+          continue;
+        }
+        const dbSet = new Set(dbLabels);
+        const declaredSet = new Set(col.declaredLabels);
+        const missingInDb = col.declaredLabels.filter((l) => !dbSet.has(l));
+        const missingInEntity = dbLabels.filter((l) => !declaredSet.has(l));
+        if (missingInDb.length === 0 && missingInEntity.length === 0) continue;
+        const parts: string[] = [];
+        if (missingInDb.length > 0) {
+          parts.push(`entity-only: [${missingInDb.join(', ')}]`);
+        }
+        if (missingInEntity.length > 0) {
+          parts.push(`db-only: [${missingInEntity.join(', ')}]`);
+        }
+        this.route(
+          'enum_labels',
+          `[${schema}.${tableName}.${col.dbName}] enum '${col.typeName}' label drift — ${parts.join(' | ')}`,
+          errorViolations,
+          warningViolations,
+        );
       }
     }
   }

@@ -580,3 +580,8 @@ path = "tests/invariants/system_clock.rs"
 [[test]]
 name = "moka_jti_dedup"
 path = "tests/invariants/moka_jti_dedup.rs"
+
+# Batch 61 Sprint 6.4 partial — two-layer dedup (Moka + VecDeque fallback).
+[[test]]
+name = "dedup_two_layer"
+path = "tests/invariants/dedup_two_layer.rs"

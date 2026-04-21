@@ -3,6 +3,74 @@
 Plan-independent real problems uncovered while reading code. See memory
 `feedback_orphan_findings_doc.md` for the policy.
 
+## DEPLOY-CRITICAL-005 — MigrationAuditModule missing EventBusModule.forRoot() import (2026-04-21)
+
+**Status:** RESOLVED — fixed by the commit that introduces this entry.
+
+**Scope:** `apps/observability-service/src/migration-audit/migration-audit.module.ts`
+
+**Symptom (deploy, 2026-04-21 14:03 UTC):**
+
+```
+observability-service — container=aqua-observability health=starting state=restarting
+...
+--- Round 30/30: 1 signal(s) pending ---
+Error: Missing boot signals:
+  [observability-service] "Schema drift scan clean" — SchemaDriftValidator found zero violations (ADR-012)
+```
+
+aqua-db-migrate completed successfully, other services booted green,
+but observability-service entered an infinite restart loop. The deploy
+asserter timed out after 30 × 10s rounds waiting for the "Schema drift
+scan clean" boot signal that the container never reached.
+
+**Root cause:**
+
+Phase 6 Step 6 added `SchemaMigrationEventsConsumer` as a provider
+in `MigrationAuditModule` with `NatsEventBus` constructor injection.
+`NatsEventBus` is registered by `EventBusModule.forRoot()` — NOT a
+global provider. Modules that consume `NatsEventBus` MUST import
+`EventBusModule.forRoot()` in their own `imports` list. The pattern
+is already used by `SecurityEventsModule` in the same service.
+`MigrationAuditModule` registered the consumer without the import.
+Nest's DI container threw before any module lifecycle ran:
+
+```
+Nest can't resolve dependencies of the SchemaMigrationEventsConsumer
+(?, CommandBus). Please make sure that the argument NatsEventBus at
+index [0] is available in the MigrationAuditModule context.
+```
+
+Container crash → Docker restart → Nest DI fails again → infinite
+restart → `SchemaDriftValidator` never runs → required boot signal
+never emitted → deploy asserter times out → rollback.
+
+**Fix:**
+
+Added `EventBusModule.forRoot()` to `MigrationAuditModule.imports`.
+Mirrors the pattern established by `SecurityEventsModule`. Architectural
+invariant documented in the module docblock: every module registering a
+`NatsEventBus`-consuming provider MUST import `EventBusModule.forRoot()`.
+
+**Why this is the correct final fix, not a patch:**
+
+The gap was a missing module boundary contract. The fix restores the
+contract (module owns its DI graph fully) without introducing a
+workaround (e.g. making NatsEventBus global, which would pollute
+unrelated modules' DI scope). Future authors who add NATS consumers
+to a module now have both a precedent (SecurityEventsModule) and a
+docblock reminder.
+
+**Verification:**
+
+- All 55 observability-service tests still pass (DI fix is additive).
+- SchemaMigrationEventsConsumer.subscribeTo NATS failure path was
+  already swallowing errors in onModuleInit — container won't
+  crash-loop even if NATS is down at boot.
+- Next deploy should show observability reaching
+  SchemaDriftValidator.onApplicationBootstrap within round 1-5
+  and emitting "Schema drift scan clean".
+
 ## TEST-PREEXISTING-002 — pre-existing TS errors in leader-election + watchdog specs (2026-04-21)
 
 **Status**: OPEN. Unrelated to the db-migrate enterprise refactor;

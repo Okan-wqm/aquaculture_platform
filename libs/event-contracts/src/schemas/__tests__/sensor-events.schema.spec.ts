@@ -1,15 +1,6 @@
 /**
  * SensorMetricIngestedEvent JSON Schema validator tests.
  *
- * NOTE on test location: the validator lives in
- * `libs/event-contracts/src/schemas/`, but that library has no own
- * jest runner (no jest.config.ts, no project.json). The spec sits in
- * sensor-service's `__tests__` surface — sensor-service is the
- * load-bearing consumer of `validateSensorEvent` and a regression in
- * the validator IS a regression in sensor-service's NATS consumer.
- * Adding a dedicated runner to libs/event-contracts is tracked
- * separately.
- *
  * Pins the contract:
  *   - Happy path with the minimal required fields.
  *   - Happy path with the optional farm/pond fields.
@@ -25,7 +16,7 @@
 import {
   validateSensorEvent,
   type SensorEventValidationResult,
-} from '@platform/event-contracts';
+} from '../validator';
 
 const TENANT_ID = '11111111-1111-1111-1111-111111111111';
 const SENSOR_ID = '22222222-2222-2222-2222-222222222222';

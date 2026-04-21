@@ -101,7 +101,19 @@ function readSnapshot(path: string): SchemaSnapshot {
       `[${path}] does not look like a SchemaSnapshot (missing one of: schema, tables, enums, checkConstraints)`,
     );
   }
-  return parsed as SchemaSnapshot;
+  // Default the Phase 2 Step 3+ collections when missing — older
+  // snapshots captured on pre-R11 introspector don't have these
+  // arrays. Treat missing = empty for diff compatibility.
+  const s = parsed as Partial<SchemaSnapshot> & SchemaSnapshot;
+  return {
+    ...s,
+    partialIndexes: s.partialIndexes ?? [],
+    excludeConstraints: s.excludeConstraints ?? [],
+    foreignKeyActions: s.foreignKeyActions ?? [],
+    generatedColumns: s.generatedColumns ?? [],
+    hypertables: s.hypertables ?? [],
+    rlsPolicies: s.rlsPolicies ?? [],
+  };
 }
 
 function renderHuman(

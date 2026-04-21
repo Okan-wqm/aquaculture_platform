@@ -13,11 +13,31 @@ import { introspectSchema } from '../pg-catalog-introspector';
 function makeQr(
   routes: Array<{ match: RegExp; rows: unknown[] }>,
 ): { qr: QueryRunner; calls: string[] } {
+  // Default routes for the 10-shape introspector — tests only need to
+  // override the shapes they assert on; the rest return empty arrays.
+  // This keeps specs focused on behaviour-under-test without leaking
+  // full catalog mocks into every spec.
+  const defaultRoutes: Array<{ match: RegExp; rows: unknown[] }> = [
+    { match: /FROM information_schema\.tables/, rows: [] },
+    { match: /FROM information_schema\.columns/, rows: [] },
+    { match: /FROM pg_enum/, rows: [] },
+    { match: /AND c\.contype = 'c'/, rows: [] },
+    { match: /AND i\.indpred IS NOT NULL/, rows: [] },
+    { match: /AND c\.contype = 'x'/, rows: [] },
+    { match: /AND c\.contype = 'f'/, rows: [] },
+    {
+      match: /\(a\.attgenerated <> '' OR a\.attidentity <> ''\)/,
+      rows: [],
+    },
+    { match: /_timescaledb_internal/, rows: [] },
+    { match: /FROM pg_policy/, rows: [] },
+  ];
+  const allRoutes = [...routes, ...defaultRoutes];
   const calls: string[] = [];
   const qr = {
     query: jest.fn(async (sql: string, _params?: unknown[]) => {
       calls.push(sql);
-      for (const r of routes) {
+      for (const r of allRoutes) {
         if (r.match.test(sql)) return r.rows;
       }
       throw new Error(`Unexpected query in mock: ${sql}`);

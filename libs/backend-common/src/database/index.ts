@@ -136,6 +136,12 @@ export type {
   IntrospectedColumn,
   IntrospectedEnum,
   IntrospectedTable,
+  IntrospectedPartialIndex,
+  IntrospectedExcludeConstraint,
+  IntrospectedForeignKeyAction,
+  IntrospectedGeneratedColumn,
+  IntrospectedHypertable,
+  IntrospectedRlsPolicy,
   SchemaSnapshot,
 } from './schema-drift/pg-catalog-introspector';
 

@@ -34,6 +34,12 @@ import type {
   IntrospectedCheckConstraint,
   IntrospectedColumn,
   IntrospectedEnum,
+  IntrospectedExcludeConstraint,
+  IntrospectedForeignKeyAction,
+  IntrospectedGeneratedColumn,
+  IntrospectedHypertable,
+  IntrospectedPartialIndex,
+  IntrospectedRlsPolicy,
   IntrospectedTable,
   SchemaSnapshot,
 } from './pg-catalog-introspector';
@@ -52,7 +58,24 @@ export type SnapshotChangeKind =
   | 'enum_labels_removed'
   | 'check_added'
   | 'check_removed'
-  | 'check_definition_changed';
+  | 'check_definition_changed'
+  // Phase 2 Step 3+ shapes (R11).
+  | 'partial_index_added'
+  | 'partial_index_removed'
+  | 'partial_index_predicate_changed'
+  | 'exclude_constraint_added'
+  | 'exclude_constraint_removed'
+  | 'foreign_key_action_changed'
+  | 'foreign_key_added'
+  | 'foreign_key_removed'
+  | 'generated_column_added'
+  | 'generated_column_removed'
+  | 'generated_column_expression_changed'
+  | 'hypertable_added'
+  | 'hypertable_removed'
+  | 'rls_policy_added'
+  | 'rls_policy_removed'
+  | 'rls_policy_expression_changed';
 
 export type SnapshotChangeSeverity = 'breaking' | 'expand' | 'neutral';
 
@@ -82,6 +105,36 @@ export function diffSnapshots(
   diffTables(before.tables, after.tables, changes);
   diffEnums(before.enums, after.enums, changes);
   diffChecks(before.checkConstraints, after.checkConstraints, changes);
+  diffPartialIndexes(
+    before.partialIndexes ?? [],
+    after.partialIndexes ?? [],
+    changes,
+  );
+  diffExcludeConstraints(
+    before.excludeConstraints ?? [],
+    after.excludeConstraints ?? [],
+    changes,
+  );
+  diffForeignKeyActions(
+    before.foreignKeyActions ?? [],
+    after.foreignKeyActions ?? [],
+    changes,
+  );
+  diffGeneratedColumns(
+    before.generatedColumns ?? [],
+    after.generatedColumns ?? [],
+    changes,
+  );
+  diffHypertables(
+    before.hypertables ?? [],
+    after.hypertables ?? [],
+    changes,
+  );
+  diffRlsPolicies(
+    before.rlsPolicies ?? [],
+    after.rlsPolicies ?? [],
+    changes,
+  );
   return changes;
 }
 
@@ -296,6 +349,306 @@ function diffChecks(
         severity: 'neutral',
         subject: `${c.schema}.${c.tableName}.${c.name}`,
         details: { before: c.definition, after: other.definition },
+      });
+    }
+  }
+}
+
+/**
+ * Partial indexes — key by (table, indexName). Predicate change is
+ * breaking because it can invalidate write paths (a stricter WHERE
+ * excludes rows that used to match).
+ */
+function diffPartialIndexes(
+  before: readonly IntrospectedPartialIndex[],
+  after: readonly IntrospectedPartialIndex[],
+  out: SnapshotChange[],
+): void {
+  const key = (p: IntrospectedPartialIndex): string =>
+    `${p.tableName}::${p.indexName}`;
+  const beforeByKey = new Map(before.map((p) => [key(p), p]));
+  const afterByKey = new Map(after.map((p) => [key(p), p]));
+  for (const p of before) {
+    if (!afterByKey.has(key(p))) {
+      out.push({
+        kind: 'partial_index_removed',
+        severity: 'expand',
+        subject: `${p.schema}.${p.tableName}.${p.indexName}`,
+      });
+    }
+  }
+  for (const p of after) {
+    if (!beforeByKey.has(key(p))) {
+      out.push({
+        kind: 'partial_index_added',
+        severity: 'expand',
+        subject: `${p.schema}.${p.tableName}.${p.indexName}`,
+        details: { predicate: p.predicate },
+      });
+    }
+  }
+  for (const p of before) {
+    const other = afterByKey.get(key(p));
+    if (!other) continue;
+    if (p.predicate !== other.predicate) {
+      out.push({
+        kind: 'partial_index_predicate_changed',
+        severity: 'breaking',
+        subject: `${p.schema}.${p.tableName}.${p.indexName}`,
+        details: { before: p.predicate, after: other.predicate },
+      });
+    }
+  }
+}
+
+/**
+ * EXCLUDE constraints — key by (table, name). Add = breaking
+ * (rows may violate), remove = expand.
+ */
+function diffExcludeConstraints(
+  before: readonly IntrospectedExcludeConstraint[],
+  after: readonly IntrospectedExcludeConstraint[],
+  out: SnapshotChange[],
+): void {
+  const key = (e: IntrospectedExcludeConstraint): string =>
+    `${e.tableName}::${e.name}`;
+  const beforeByKey = new Map(before.map((e) => [key(e), e]));
+  const afterByKey = new Map(after.map((e) => [key(e), e]));
+  for (const e of before) {
+    if (!afterByKey.has(key(e))) {
+      out.push({
+        kind: 'exclude_constraint_removed',
+        severity: 'expand',
+        subject: `${e.schema}.${e.tableName}.${e.name}`,
+      });
+    }
+  }
+  for (const e of after) {
+    if (!beforeByKey.has(key(e))) {
+      out.push({
+        kind: 'exclude_constraint_added',
+        severity: 'breaking',
+        subject: `${e.schema}.${e.tableName}.${e.name}`,
+        details: { definition: e.definition },
+      });
+    }
+  }
+}
+
+/**
+ * Foreign-key actions — key by (table, constraintName). Action
+ * change (ON DELETE CASCADE → NO ACTION) is breaking for cascade
+ * logic; add/remove are direct relations.
+ */
+function diffForeignKeyActions(
+  before: readonly IntrospectedForeignKeyAction[],
+  after: readonly IntrospectedForeignKeyAction[],
+  out: SnapshotChange[],
+): void {
+  const key = (f: IntrospectedForeignKeyAction): string =>
+    `${f.tableName}::${f.constraintName}`;
+  const beforeByKey = new Map(before.map((f) => [key(f), f]));
+  const afterByKey = new Map(after.map((f) => [key(f), f]));
+  for (const f of before) {
+    if (!afterByKey.has(key(f))) {
+      out.push({
+        kind: 'foreign_key_removed',
+        severity: 'breaking',
+        subject: `${f.schema}.${f.tableName}.${f.constraintName}`,
+      });
+    }
+  }
+  for (const f of after) {
+    if (!beforeByKey.has(key(f))) {
+      out.push({
+        kind: 'foreign_key_added',
+        severity: 'expand',
+        subject: `${f.schema}.${f.tableName}.${f.constraintName}`,
+        details: {
+          referencedTable: f.referencedTable,
+          onDelete: f.onDelete,
+          onUpdate: f.onUpdate,
+        },
+      });
+    }
+  }
+  for (const f of before) {
+    const other = afterByKey.get(key(f));
+    if (!other) continue;
+    if (
+      f.onDelete !== other.onDelete ||
+      f.onUpdate !== other.onUpdate ||
+      f.deferrable !== other.deferrable
+    ) {
+      out.push({
+        kind: 'foreign_key_action_changed',
+        severity: 'breaking',
+        subject: `${f.schema}.${f.tableName}.${f.constraintName}`,
+        details: {
+          before: {
+            onDelete: f.onDelete,
+            onUpdate: f.onUpdate,
+            deferrable: f.deferrable,
+          },
+          after: {
+            onDelete: other.onDelete,
+            onUpdate: other.onUpdate,
+            deferrable: other.deferrable,
+          },
+        },
+      });
+    }
+  }
+}
+
+/**
+ * Generated / identity columns — key by (table, column). Expression
+ * change on a stored-generated column is breaking (row-rewrite risk).
+ */
+function diffGeneratedColumns(
+  before: readonly IntrospectedGeneratedColumn[],
+  after: readonly IntrospectedGeneratedColumn[],
+  out: SnapshotChange[],
+): void {
+  const key = (g: IntrospectedGeneratedColumn): string =>
+    `${g.tableName}::${g.columnName}`;
+  const beforeByKey = new Map(before.map((g) => [key(g), g]));
+  const afterByKey = new Map(after.map((g) => [key(g), g]));
+  for (const g of before) {
+    if (!afterByKey.has(key(g))) {
+      out.push({
+        kind: 'generated_column_removed',
+        severity: 'expand',
+        subject: `${g.schema}.${g.tableName}.${g.columnName}`,
+      });
+    }
+  }
+  for (const g of after) {
+    if (!beforeByKey.has(key(g))) {
+      out.push({
+        kind: 'generated_column_added',
+        severity: 'expand',
+        subject: `${g.schema}.${g.tableName}.${g.columnName}`,
+        details: { kind: g.kind, expression: g.expression },
+      });
+    }
+  }
+  for (const g of before) {
+    const other = afterByKey.get(key(g));
+    if (!other) continue;
+    if (g.expression !== other.expression || g.kind !== other.kind) {
+      out.push({
+        kind: 'generated_column_expression_changed',
+        severity: 'breaking',
+        subject: `${g.schema}.${g.tableName}.${g.columnName}`,
+        details: {
+          before: { kind: g.kind, expression: g.expression },
+          after: { kind: other.kind, expression: other.expression },
+        },
+      });
+    }
+  }
+}
+
+/**
+ * TimescaleDB hypertables — key by table name. Adding / removing
+ * a hypertable is expand/breaking; chunk count jumps are surfaced
+ * as neutral (data growth, not schema drift).
+ */
+function diffHypertables(
+  before: readonly IntrospectedHypertable[],
+  after: readonly IntrospectedHypertable[],
+  out: SnapshotChange[],
+): void {
+  const beforeByName = new Map(before.map((h) => [h.tableName, h]));
+  const afterByName = new Map(after.map((h) => [h.tableName, h]));
+  for (const h of before) {
+    if (!afterByName.has(h.tableName)) {
+      out.push({
+        kind: 'hypertable_removed',
+        severity: 'breaking',
+        subject: `${h.schema}.${h.tableName}`,
+      });
+    }
+  }
+  for (const h of after) {
+    if (!beforeByName.has(h.tableName)) {
+      out.push({
+        kind: 'hypertable_added',
+        severity: 'expand',
+        subject: `${h.schema}.${h.tableName}`,
+        details: { chunkCount: h.chunkCount },
+      });
+    }
+  }
+  // Chunk-count change is NOT a schema drift — do not emit.
+}
+
+/**
+ * RLS policies — key by (table, policyName). Expression change
+ * on USING or WITH CHECK is breaking (silently alters tenant
+ * visibility). Add is expand; remove is breaking (rows become
+ * visible that were previously filtered).
+ */
+function diffRlsPolicies(
+  before: readonly IntrospectedRlsPolicy[],
+  after: readonly IntrospectedRlsPolicy[],
+  out: SnapshotChange[],
+): void {
+  const key = (p: IntrospectedRlsPolicy): string =>
+    `${p.tableName}::${p.policyName}`;
+  const beforeByKey = new Map(before.map((p) => [key(p), p]));
+  const afterByKey = new Map(after.map((p) => [key(p), p]));
+  for (const p of before) {
+    if (!afterByKey.has(key(p))) {
+      out.push({
+        kind: 'rls_policy_removed',
+        severity: 'breaking',
+        subject: `${p.schema}.${p.tableName}.${p.policyName}`,
+      });
+    }
+  }
+  for (const p of after) {
+    if (!beforeByKey.has(key(p))) {
+      out.push({
+        kind: 'rls_policy_added',
+        severity: 'expand',
+        subject: `${p.schema}.${p.tableName}.${p.policyName}`,
+        details: {
+          command: p.command,
+          usingExpr: p.usingExpr,
+          withCheckExpr: p.withCheckExpr,
+        },
+      });
+    }
+  }
+  for (const p of before) {
+    const other = afterByKey.get(key(p));
+    if (!other) continue;
+    if (
+      p.usingExpr !== other.usingExpr ||
+      p.withCheckExpr !== other.withCheckExpr ||
+      p.command !== other.command ||
+      p.permissive !== other.permissive
+    ) {
+      out.push({
+        kind: 'rls_policy_expression_changed',
+        severity: 'breaking',
+        subject: `${p.schema}.${p.tableName}.${p.policyName}`,
+        details: {
+          before: {
+            command: p.command,
+            usingExpr: p.usingExpr,
+            withCheckExpr: p.withCheckExpr,
+            permissive: p.permissive,
+          },
+          after: {
+            command: other.command,
+            usingExpr: other.usingExpr,
+            withCheckExpr: other.withCheckExpr,
+            permissive: other.permissive,
+          },
+        },
       });
     }
   }

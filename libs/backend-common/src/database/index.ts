@@ -156,6 +156,12 @@ export type {
   AlignColumnNullabilityOptions,
   AlignColumnNullabilityResult,
 } from './schema-primitives/align-column-nullability';
+export { alignEnumLabels } from './schema-primitives/align-enum-labels';
+export type {
+  AlignEnumLabelsTarget,
+  AlignEnumLabelsOptions,
+  AlignEnumLabelsResult,
+} from './schema-primitives/align-enum-labels';
 
 // @EncryptedAtRest — declarative marker for cryptographically-encrypted
 // columns. Drift validator Class J enforces bytea storage; Phase 3

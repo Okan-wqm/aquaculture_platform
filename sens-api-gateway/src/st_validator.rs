@@ -1048,8 +1048,11 @@ impl Lexer {
                 }
                 '&' => { self.advance(); TokenKind::And }
                 '#' => {
-                    // Could be a type-prefixed literal like INT#5
-                    // For now, skip to next whitespace/delimiter
+                    // Could be a type-prefixed literal like INT#5.
+                    // Skip to next whitespace/delimiter; future
+                    // Phase 3 parser expansion splits the type
+                    // prefix from the literal for type-checked
+                    // constants.
                     self.advance();
                     let mut s = String::from("#");
                     while let Some(c) = self.current() {
@@ -1544,12 +1547,51 @@ impl Parser {
             }
             self.expect(&TokenKind::Colon).ok();
 
-            let body = self.parse_statement_list(&[
-                TokenKind::IntLiteral(0), // any int starts a new case
-                TokenKind::Identifier(String::new()),
-                TokenKind::Else,
-                TokenKind::EndCase,
-            ]);
+            // Batch 85 fix of ORPHAN-HIGH-013 #6: the prior
+            // termination list included `Identifier(String::new())`
+            // + `IntLiteral(0)` as stop-on-any-ident/int via
+            // discriminant match. That wrongly treated the FIRST
+            // identifier of a body statement (e.g. `output` in
+            // `output := 0`) as the start of the NEXT case label,
+            // making parse_statement_list return empty + leaving
+            // the outer loop to re-parse `output` as a label and
+            // expect `:` where `:=` actually sat. The error cascade
+            // produced "Expected Colon, found Assign".
+            //
+            // Post-fix: use a peek-based custom body loop. Body
+            // statements consume until we see Else / EndCase / Eof
+            // OR the PEEK pattern `<expr-start> :` where the colon
+            // is a BARE Colon (not Assign `:=`). This correctly
+            // distinguishes `output :=` (statement) from `1:` or
+            // `my_enum_value:` (case label).
+            let mut body = Vec::new();
+            let body_max_iter = self.tokens.len() + 1;
+            let mut body_safety = 0;
+            while !self.at_eof() && body_safety < body_max_iter {
+                body_safety += 1;
+                if matches!(
+                    self.current_kind(),
+                    TokenKind::Else | TokenKind::EndCase | TokenKind::Eof
+                ) {
+                    break;
+                }
+                // Peek for case-label pattern: <int-literal | ident>
+                // followed by Colon (NOT Assign). If matched, the
+                // outer loop will re-parse this as the next label.
+                if self.is_case_label_lookahead() {
+                    break;
+                }
+                if self.eat(&TokenKind::Semicolon) {
+                    continue;
+                }
+                let before = self.pos;
+                if let Some(stmt) = self.parse_statement() {
+                    body.push(stmt);
+                }
+                if self.pos == before {
+                    self.advance();
+                }
+            }
             branches.push((labels, body));
         }
 
@@ -1563,6 +1605,34 @@ impl Parser {
         self.eat(&TokenKind::Semicolon);
 
         Some(Statement::Case { expr, branches, else_body, span: Some(span) })
+    }
+
+    /// Batch 85 helper for CASE body parsing. Returns true iff
+    /// the current token is an integer literal or identifier
+    /// AND the NEXT token is a bare `Colon` (not `Assign`).
+    /// This is the "next case label" signature — body should
+    /// terminate so the outer loop can parse the label.
+    ///
+    /// WHY lookahead (not just stop-on-ident): an identifier
+    /// inside a case BODY is typically a variable on the LHS of
+    /// an assignment (`output := 0;`). The next token after
+    /// `output` is `Assign` (`:=`), NOT bare `Colon`. By
+    /// distinguishing these we allow ident-starting body
+    /// statements to parse correctly while still detecting
+    /// enum-identifier case labels (e.g. `MyEnum.Red:`).
+    fn is_case_label_lookahead(&self) -> bool {
+        let current_is_label_start = matches!(
+            self.current_kind(),
+            TokenKind::IntLiteral(_) | TokenKind::Identifier(_)
+        );
+        if !current_is_label_start {
+            return false;
+        }
+        let next_idx = self.pos + 1;
+        let Some(next) = self.tokens.get(next_idx) else {
+            return false;
+        };
+        matches!(next.kind, TokenKind::Colon)
     }
 
     fn parse_for_statement(&mut self) -> Option<Statement> {

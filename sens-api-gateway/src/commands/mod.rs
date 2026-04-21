@@ -1066,6 +1066,12 @@ mod tests {
 
     #[test]
     fn test_command_response_serialization() {
+        // Batch 85 fix of ORPHAN-HIGH-013 #3: CommandResponse
+        // uses `#[serde(rename_all = "camelCase")]` per ADR-006
+        // wire-format convention (edge->cloud MQTT payloads
+        // use camelCase to match platform-side GraphQL + REST
+        // idiom). Pre-fix test asserted snake_case field
+        // names which never matched the serialized output.
         let response = CommandResponse {
             command_id: "cmd-123".to_string(),
             device_id: "device-456".to_string(),
@@ -1076,8 +1082,17 @@ mod tests {
         };
 
         let json = serde_json::to_string(&response).unwrap();
-        assert!(json.contains("command_id"));
+        // Assert camelCase field serialization (matches
+        // actual wire format).
+        assert!(json.contains("commandId"), "expected camelCase commandId: {}", json);
+        assert!(json.contains("deviceId"), "expected camelCase deviceId: {}", json);
         assert!(json.contains("pong"));
-        assert!(!json.contains("error")); // None fields skipped
+        // None fields skip via `skip_serializing_if`.
+        assert!(!json.contains("error"), "error=None should be omitted: {}", json);
+        // Pin the canonical field presence so a future
+        // rename_all change is caught.
+        assert!(json.contains("success"));
+        assert!(json.contains("result"));
+        assert!(json.contains("timestamp"));
     }
 }

@@ -86,15 +86,25 @@ impl Default for SystemClockAuthority {
 #[async_trait]
 impl ClockAuthority for SystemClockAuthority {
     fn monotonic_now(&self) -> Result<MonotonicAnchor, ClockError> {
-        // Instant::now() is POSIX CLOCK_MONOTONIC-backed on
-        // Linux; it's strictly non-decreasing by platform
-        // contract. The subtraction `now - epoch` cannot
-        // underflow because `epoch` is captured at first call
-        // (which is at-or-before `now`). checked_duration_since
-        // returns None only on a pathological Instant
-        // regression — we map that to MonotonicBackward.
-        let now = Instant::now();
+        // Batch 85 fix of ORPHAN-HIGH-013 #5: capture epoch
+        // FIRST, then now. On the FIRST EVER call,
+        // process_epoch() initializes its OnceLock by calling
+        // Instant::now() internally. The pre-fix order
+        // captured `now = Instant::now()` BEFORE calling
+        // `process_epoch()` which on first call ALSO calls
+        // Instant::now(); the OnceLock's Instant::now() ran
+        // AFTER our `now`, so epoch > now -> checked_duration_
+        // since returned None -> MonotonicBackward on the very
+        // first call, making the first-anchor test flaky on
+        // fast machines.
+        //
+        // Post-fix order: epoch is latched first (either read
+        // from the OnceLock or freshly initialized). Any
+        // subsequent Instant::now() call is guaranteed >=
+        // epoch by POSIX CLOCK_MONOTONIC contract. Subtraction
+        // cannot underflow.
         let epoch = process_epoch();
+        let now = Instant::now();
         let elapsed = now
             .checked_duration_since(epoch)
             .ok_or(ClockError::MonotonicBackward)?;

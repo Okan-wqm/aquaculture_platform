@@ -223,13 +223,31 @@ mod tests {
 
     fn mock_hmac(tag: u8) -> impl FnOnce(&[u8]) -> Option<[u8; 32]> {
         move |input: &[u8]| {
-            // Deterministic mock: first byte = tag, remaining = first 31
-            // bytes of input XOR 0xff. Exists to test the closure plumbing
-            // without pulling hmac/sha2 into the Batch 6 dep graph.
+            // Deterministic mock (Batch 85 fix of pre-existing
+            // ORPHAN-HIGH-013 #1): distributes ALL input bytes
+            // across bytes 1..32 via position-aware rolling add.
+            //
+            // Pre-fix: used `input.iter().take(31)` which with a
+            // 32-byte ZERO prev_hmac made the first 31 input
+            // bytes always zero regardless of canonical entry
+            // content -> tamper test couldn't distinguish.
+            //
+            // Post-fix: mixes position (`i as u8`) + byte value
+            // into the output so length + content both
+            // contribute. Different entries (different
+            // canonical_bytes) produce different mock HMACs
+            // under identical prev_hmac — the tamper-detection
+            // invariant test now passes.
+            //
+            // NOT cryptographically secure — this is a Batch 6
+            // test-only mock that avoids pulling hmac/sha2 into
+            // the pure-types crate-graph. Production uses
+            // `hmac::Hmac<Sha256>` via the sink closure (Batch 74).
             let mut out = [0u8; 32];
             out[0] = tag;
-            for (i, b) in input.iter().take(31).enumerate() {
-                out[i + 1] = b ^ 0xff;
+            for (i, b) in input.iter().enumerate() {
+                let slot = (i % 31) + 1;
+                out[slot] = out[slot].wrapping_add(b.wrapping_add(i as u8));
             }
             Some(out)
         }

@@ -226,6 +226,15 @@ export type {
   MigrationSinkEvent,
   MigrationSinkEventType,
 } from './migration-event-sink';
+// NATS bridge publisher — Phase 6 Step 5. Translates lifecycle events
+// into SchemaMigrationEvent wire shape + publishes under
+// SCHEMA_MIGRATION_SUBJECT_PREFIX. Observability-service consumer
+// subscribes in Step 6.
+export { NatsMigrationEventSink } from './nats-migration-event-sink';
+export type {
+  MigrationEventPublisher,
+  NatsMigrationEventSinkOptions,
+} from './nats-migration-event-sink';
 
 // @ExpandContract — declarative marker for blue-green migration phases.
 // Phase 4 PR-gate reads this metadata to authorize breaking diffs on

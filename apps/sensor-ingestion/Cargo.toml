@@ -14,12 +14,16 @@ name = "sensor-ingestion"
 path = "src/main.rs"
 
 [dependencies]
-# Workspace crates the binary wires together.
-protocol-codec = { path = "../../crates/protocol-codec" }
-tenant-context = { path = "../../crates/tenant-context" }
-nats-client = { path = "../../crates/nats-client" }
-observability = { path = "../../crates/observability" }
-event-contracts-rs = { path = "../../crates/event-contracts-rs" }
+# Workspace crates the binary wires together. Dual-spec (path + version) so:
+#   - local builds resolve via path (fast edit-compile loop)
+#   - cargo-deny's `wildcards = "deny"` gate passes (version constraint present)
+#   - `publish = false` keeps these workspace-internal (version is a cargo-deny
+#     satisfaction requirement, never a registry pin).
+protocol-codec = { path = "../../crates/protocol-codec", version = "0.1.0" }
+tenant-context = { path = "../../crates/tenant-context", version = "0.1.0" }
+nats-client = { path = "../../crates/nats-client", version = "0.1.0" }
+observability = { path = "../../crates/observability", version = "0.1.0" }
+event-contracts-rs = { path = "../../crates/event-contracts-rs", version = "0.1.0" }
 
 # Async runtime + IO.
 tokio = { workspace = true, features = ["full"] }

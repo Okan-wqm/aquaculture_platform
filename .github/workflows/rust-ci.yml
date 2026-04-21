@@ -119,8 +119,18 @@ jobs:
         uses: taiki-e/install-action@055f5df8c3f65ea01cd41e9dc855becd88953486 # v2.75.18
         with:
           tool: cargo-audit
+      # Advisory ignores live in .cargo/audit.toml (mirrors deny.toml [advisories]).
+      # Passing --ignore here guarantees cargo-audit picks them up regardless of
+      # its config-file discovery behaviour in the taiki-e prebuilt binary.
+      # Each ignore MUST appear in BOTH deny.toml and .cargo/audit.toml —
+      # keep them in lock-step; full rationale lives in deny.toml.
       - name: cargo audit
-        run: cargo audit --deny warnings
+        run: |
+          cargo audit --deny warnings \
+            --ignore RUSTSEC-2026-0098 \
+            --ignore RUSTSEC-2026-0099 \
+            --ignore RUSTSEC-2026-0049 \
+            --ignore RUSTSEC-2025-0134
 
   drift:
     name: codec-drift

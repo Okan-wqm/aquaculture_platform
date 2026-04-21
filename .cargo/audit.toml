@@ -1,0 +1,31 @@
+# cargo-audit configuration — mirrors the [advisories] section of deny.toml.
+#
+# Why two configs? cargo-audit and cargo-deny run as separate jobs in CI
+# (rust-ci.yml: `audit` and `deny`). cargo-deny honours the ignore list
+# in deny.toml; cargo-audit honours its own audit.toml. Both jobs scan
+# the same advisory DB and would otherwise double-report every known
+# ignored advisory. Keeping the two ignore lists in lock-step is a
+# hand-maintained invariant — the per-entry comments below cross-
+# reference deny.toml so drift between the two files is visible at review.
+#
+# Every ignored advisory MUST satisfy the same four conditions the
+# deny.toml rubric enforces: (a) a tracking finding id, (b) an explicit
+# owner, (c) a deadline, (d) the threat-model justification. Canonical
+# rationale lives in deny.toml; this file only carries the pointer.
+
+[advisories]
+ignore = [
+    # RUSTSEC-2026-0098 / RUSTSEC-2026-0099 — rustls-webpki 0.102.8
+    #   wildcard cert name-constraint validation bugs.
+    #   Reachable via: rumqttc 0.25.1 -> rustls-webpki 0.102.8.
+    #   Full rationale: deny.toml [advisories]. Finding RUST-CVE-001 (HIGH).
+    #   Owner: Okan-Wqm. Deadline: 2026-06-30.
+    "RUSTSEC-2026-0098",
+    "RUSTSEC-2026-0099",
+    # RUSTSEC-2026-0049 — rustls-webpki CRL Distribution Point matching
+    #   bug. Same upstream chain + threat model as 0098/0099.
+    "RUSTSEC-2026-0049",
+    # RUSTSEC-2025-0134 — rustls-pemfile unmaintained advisory.
+    #   Same rumqttc 0.25.1 upstream blocker. Not a vulnerability.
+    "RUSTSEC-2025-0134",
+]

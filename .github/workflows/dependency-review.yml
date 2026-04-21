@@ -20,5 +20,12 @@ jobs:
         uses: actions/dependency-review-action@3b139cfc5fae8b618d3eae3675e383bb1769c019 # v4.5.0
         with:
           fail-on-severity: moderate
+          # Allowlisted advisories — every entry MUST have a matching tracked
+          # finding in docs/reviews/_registry/findings.jsonl and mirror the
+          # ignore entries in deny.toml [advisories] + .cargo/audit.toml. Drift
+          # between these three lists is a review-blocker. Full rationale +
+          # threat-model justification lives in deny.toml.
           allow-ghsas: |
-            GHSA-xxxx-xxxx-xxxx  # Example: Allow specific CVEs with justified exceptions
+            GHSA-xgp8-3hg3-c2mh
+            GHSA-965h-392x-2mh5
+            GHSA-pwjx-qhcg-rvj4

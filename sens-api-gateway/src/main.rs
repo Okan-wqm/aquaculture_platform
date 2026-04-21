@@ -1116,6 +1116,16 @@ async fn async_main() -> Result<()> {
                 cfg.envelope_dedup.moka_capacity,
                 cfg.envelope_dedup.moka_ttl_secs
             );
+            // Batch 65: CommandEnvelope parse-and-verify path
+            // active status. After Batches 57-63 Sprint 6.4
+            // is substantially wired; operators watching boot
+            // see which envelope features are live today vs
+            // pending Sprint 6.1 RBAC manifest runtime.
+            info!(
+                "  CommandEnvelope path: parse-and-verify ACTIVE (Batch 63); \
+                 signature-verify NO-OP pending Sprint 6.1 actor-pubkey lookup; \
+                 Moka dedup tier ACTIVE (Batch 57); SQLCipher tier pending Sprint 6.4"
+            );
             cfg
         }
         Err(e) => {

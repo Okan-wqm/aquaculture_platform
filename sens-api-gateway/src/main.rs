@@ -1115,6 +1115,42 @@ fn main() {
                 println!("Suderra Edge Agent v{}", env!("CARGO_PKG_VERSION"));
                 return;
             }
+            "--audit-verify" => {
+                // Batch 77 Sprint 6.2 Phase 2: offline audit
+                // log verification CLI path.
+                //
+                // Usage:
+                //   suderra-agent --audit-verify <log-path>
+                //
+                // Reads the 32-byte HMAC key from env
+                // `SUDERRA_AUDIT_KEY_HEX` (64-char lowercase
+                // hex). Exits 0 on clean chain, 1 on any
+                // failure. Prints verify outcome to stdout.
+                //
+                // This is a SELF-CONTAINED offline path: no
+                // config load, no network, no daemon spinup.
+                // Auditors can run this on a read-only copy
+                // of the log file on ANY machine with the
+                // agent binary + the key.
+                let log_path = match args.get(2) {
+                    Some(p) => p,
+                    None => {
+                        // Pre-tracing bootstrap
+                        #[allow(clippy::print_stderr)]
+                        {
+                            eprintln!(
+                                "Error: --audit-verify requires a log file path"
+                            );
+                            eprintln!(
+                                "Usage: suderra-agent --audit-verify <log-path>"
+                            );
+                        }
+                        std::process::exit(1);
+                    }
+                };
+                let code = run_audit_verify(log_path);
+                std::process::exit(code);
+            }
             "--help" | "-h" => {
                 println!("Suderra Edge Agent v{}", env!("CARGO_PKG_VERSION"));
                 println!();
@@ -1122,15 +1158,21 @@ fn main() {
                 println!("    suderra-agent [OPTIONS]");
                 println!();
                 println!("OPTIONS:");
-                println!("    --init       Generate default configuration file");
-                println!("    --version    Print version information");
-                println!("    --help       Print this help message");
+                println!("    --init                    Generate default configuration file");
+                println!("    --audit-verify <path>     Verify NDJSON audit log chain (Batch 77)");
+                println!("    --version                 Print version information");
+                println!("    --help                    Print this help message");
                 println!();
                 println!("ENVIRONMENT:");
                 println!(
-                    "    SUDERRA_CONFIG    Path to config file (default: /etc/suderra/config.yaml)"
+                    "    SUDERRA_CONFIG              Path to config file (default: /etc/suderra/config.yaml)"
                 );
-                println!("    RUST_LOG          Log level filter (e.g., debug, info, warn)");
+                println!(
+                    "    SUDERRA_AUDIT_KEY_HEX       64-char hex HMAC key for --audit-verify"
+                );
+                println!(
+                    "    RUST_LOG                    Log level filter (e.g., debug, info, warn)"
+                );
                 return;
             }
             _ => {
@@ -1500,6 +1542,105 @@ async fn async_main() -> Result<()> {
 
     info!("Agent shutdown complete");
     Ok(())
+}
+
+/// Offline audit-log verification entry point (Batch 77
+/// Sprint 6.2 Phase 2).
+///
+/// Invoked by `suderra-agent --audit-verify <path>`. Reads
+/// the HMAC key from env `SUDERRA_AUDIT_KEY_HEX` (64-char
+/// lowercase hex), calls `audit::verify_audit_log`, prints
+/// outcome to stdout + returns the process exit code.
+///
+/// Exit codes:
+/// - 0: chain verified.
+/// - 1: chain verification failed OR key/path/env error.
+///
+/// Pre-tracing bootstrap: this path runs BEFORE init_logging
+/// so uses plain println!/eprintln! per the established
+/// pattern in the --init and --help branches.
+#[allow(clippy::print_stdout)]
+#[allow(clippy::print_stderr)]
+fn run_audit_verify(log_path: &str) -> i32 {
+    let key_hex = match std::env::var("SUDERRA_AUDIT_KEY_HEX") {
+        Ok(v) => v,
+        Err(_) => {
+            eprintln!(
+                "Error: --audit-verify requires SUDERRA_AUDIT_KEY_HEX env (64-char hex HMAC key)"
+            );
+            return 1;
+        }
+    };
+
+    if key_hex.len() != 64 {
+        eprintln!(
+            "Error: SUDERRA_AUDIT_KEY_HEX must be 64 hex chars (32-byte HMAC key), got {} chars",
+            key_hex.len()
+        );
+        return 1;
+    }
+
+    let mut key_bytes = [0u8; 32];
+    for (i, b) in key_bytes.iter_mut().enumerate() {
+        let pair = match key_hex.get(i * 2..i * 2 + 2) {
+            Some(p) => p,
+            None => {
+                eprintln!("Error: SUDERRA_AUDIT_KEY_HEX hex slice error at byte {}", i);
+                return 1;
+            }
+        };
+        *b = match u8::from_str_radix(pair, 16) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("Error: SUDERRA_AUDIT_KEY_HEX parse at byte {}: {}", i, e);
+                return 1;
+            }
+        };
+    }
+
+    let path = std::path::Path::new(log_path);
+    let outcome = match crate::audit::verify_audit_log(crate::audit::VerifyInput {
+        path,
+        hmac_key: &key_bytes,
+        // Genesis start — cross-file stitching requires a
+        // future CLI arg (--start-prev-hmac / --start-sequence);
+        // single-file is the baseline case.
+        start_prev_hmac: [0u8; 32],
+        start_sequence: 0,
+    }) {
+        Ok(o) => o,
+        Err(e) => {
+            eprintln!("audit-verify error: {}", e);
+            return 1;
+        }
+    };
+
+    match outcome {
+        crate::audit::VerifyOutcome::Verified {
+            verified_count,
+            last_sequence,
+            last_hmac,
+        } => {
+            let hmac_hex: String =
+                last_hmac.iter().map(|b| format!("{:02x}", b)).collect();
+            println!("audit-verify: OK");
+            println!("  path:           {}", path.display());
+            println!("  verified_count: {}", verified_count);
+            println!("  last_sequence:  {}", last_sequence);
+            println!("  last_hmac:      {}", hmac_hex);
+            0
+        }
+        crate::audit::VerifyOutcome::Failed {
+            entry_number,
+            reason,
+        } => {
+            eprintln!("audit-verify: FAILED");
+            eprintln!("  path:         {}", path.display());
+            eprintln!("  entry_number: {}", entry_number);
+            eprintln!("  reason:       {}", reason);
+            1
+        }
+    }
 }
 
 /// Initialize logging with tracing

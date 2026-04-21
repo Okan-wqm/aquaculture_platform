@@ -48,9 +48,14 @@ pub mod chain;
 pub mod entry;
 // Batch 74 Sprint 6.2 Phase 2: runtime sink — file append +
 // HMAC chain state + NDJSON serialization. Chain recovery on
-// restart + SIGHUP rotation + cloud relay land in follow-up
-// batches; this module is the foundation layer.
+// restart (Batch 75) + SIGHUP rotation (Batch 76) land in the
+// same module. Cloud relay is follow-up.
 pub mod sink;
+// Batch 77 Sprint 6.2 Phase 2: offline chain verification —
+// pure read + recompute HMAC + linkage assertion. Consumed by
+// the `--audit-verify` CLI flag in main.rs + external
+// auditors.
+pub mod verify;
 
 pub use chain::{
     append_entry,
@@ -62,6 +67,8 @@ pub use chain::{
 };
 
 pub use sink::{AuditHmacKey, AuditSink, AuditSinkError};
+
+pub use verify::{verify_audit_log, VerifyInput, VerifyOutcome};
 
 pub use entry::{
     AuditAction,

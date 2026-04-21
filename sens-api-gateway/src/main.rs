@@ -578,6 +578,27 @@ pub struct AppState {
     /// lands in a follow-up batch that requires hardware for
     /// signed autoboot.txt verification.
     pub bootloader: std::sync::Arc<dyn crate::updater::BootloaderHandle>,
+
+    /// Parsed ed25519 verifying key for SignedFirmwareManifest
+    /// verify (Batch 114 Sprint 6.5 wire).
+    ///
+    /// WHY: Plan §3 R-4 + ADR-019 §3 mandate ed25519 signed
+    /// firmware manifests verified against an on-device
+    /// trusted pubkey. Config Rule 20+21 guarantee the hex
+    /// string is valid when `firmware_update.mode !=
+    /// Disabled`; `init_firmware_signing_pubkey()` parses the
+    /// hex into a `VerifyingKey` at boot + caches the parsed
+    /// form so the verify hot-path doesn't re-parse per
+    /// command.
+    ///
+    /// WHAT: `Option<Arc<VerifyingKey>>` — None when mode is
+    /// Disabled (HC-1 backward compat: legacy tarball OTA
+    /// still works with no pubkey configured). Some when
+    /// Permissive/Enforcing + the boot-time parse succeeds.
+    /// Parse failure at boot is fail-closed via
+    /// init_firmware_signing_pubkey (exit 1).
+    pub firmware_signing_pubkey:
+        Option<std::sync::Arc<ed25519_dalek::VerifyingKey>>,
 }
 
 impl AppState {
@@ -683,6 +704,12 @@ impl AppState {
             bootloader: std::sync::Arc::new(
                 crate::updater::NoopBootloaderHandle,
             ),
+            // Batch 114 Sprint 6.5 wire: None-init.
+            // `init_firmware_signing_pubkey()` parses the
+            // config hex + populates this field. Disabled
+            // mode leaves it None (HC-1 backward compat;
+            // legacy tarball OTA still works).
+            firmware_signing_pubkey: None,
         }
     }
 
@@ -1554,6 +1581,70 @@ impl AppState {
         Ok(())
     }
 
+    /// Parse the `firmware_update.signing_pubkey_hex` config
+    /// field into a cached `VerifyingKey` on AppState (Batch
+    /// 114 Sprint 6.5 wire).
+    ///
+    /// WHY: The SignedFirmwareManifest verify path runs on
+    /// every incoming firmware deploy command; re-parsing the
+    /// hex string per command burns CPU + widens the attack
+    /// surface for malformed-hex probes. Parsing once at boot
+    /// + caching the VerifyingKey Arc matches the
+    /// rbac_manifest_store pubkey pattern (Batch 68).
+    ///
+    /// NO-OP when `firmware_update.mode == Disabled` — keeps
+    /// `firmware_signing_pubkey = None`, and the legacy
+    /// tarball OTA path continues to work (HC-1 backward
+    /// compat). Config coherence Rule 20 + 21 guarantee that
+    /// when mode != Disabled the hex field is present +
+    /// well-formed; parse errors here are fail-closed by the
+    /// caller (main exits 1).
+    pub fn init_firmware_signing_pubkey(&mut self) -> Result<(), String> {
+        use crate::config::FirmwareUpdateMode;
+
+        if matches!(self.config.firmware_update.mode, FirmwareUpdateMode::Disabled) {
+            info!(
+                "FirmwareUpdateConfig: mode=Disabled — SignedFirmwareManifest verify not wired (legacy tarball OTA remains available)"
+            );
+            return Ok(());
+        }
+
+        let hex = match self.config.firmware_update.signing_pubkey_hex.as_deref() {
+            Some(h) => h,
+            None => {
+                return Err(
+                    "firmware_update.signing_pubkey_hex is None despite mode != Disabled — \
+                     config Rule 20 should have caught this at load"
+                        .to_string(),
+                );
+            }
+        };
+
+        let mut bytes = [0u8; 32];
+        for (i, b) in bytes.iter_mut().enumerate() {
+            let byte_idx = i * 2;
+            let hex_byte = hex.get(byte_idx..byte_idx + 2).ok_or_else(|| {
+                format!("firmware signing pubkey hex slice error at index {}", byte_idx)
+            })?;
+            *b = u8::from_str_radix(hex_byte, 16).map_err(|e| {
+                format!("firmware signing pubkey invalid hex at byte {}: {}", i, e)
+            })?;
+        }
+
+        let key = ed25519_dalek::VerifyingKey::from_bytes(&bytes).map_err(|e| {
+            format!("firmware signing pubkey ed25519 construction failed: {}", e)
+        })?;
+
+        info!(
+            "FirmwareUpdateConfig: mode={:?} firmware_signing_pubkey parsed (key fingerprint sha256 first 8 bytes={:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x})",
+            self.config.firmware_update.mode,
+            bytes[0], bytes[1], bytes[2], bytes[3],
+            bytes[4], bytes[5], bytes[6], bytes[7],
+        );
+        self.firmware_signing_pubkey = Some(std::sync::Arc::new(key));
+        Ok(())
+    }
+
     /// Initialize hardware handles (must be called within LocalSet context)
     pub fn init_hardware_handles(&mut self) {
         // Initialize Modbus actor
@@ -2073,6 +2164,23 @@ async fn async_main() -> Result<()> {
         let mut state_guard = state.write().await;
         if let Err(msg) = state_guard.init_partition_store() {
             error!("{}", msg);
+            std::process::exit(1);
+        }
+    }
+
+    // Batch 114 Sprint 6.5: parse firmware_update.
+    // signing_pubkey_hex into a cached VerifyingKey. NO-OP
+    // when mode=Disabled; parse-failure is fail-closed
+    // (exit 1) because config Rule 20+21 already validated
+    // the hex shape at load time — a parse failure here
+    // would be a genuine cryptographic construction error
+    // on an otherwise well-formed hex string, which points
+    // to an unusable / compromised key and deserves
+    // operator attention before accepting commands.
+    {
+        let mut state_guard = state.write().await;
+        if let Err(msg) = state_guard.init_firmware_signing_pubkey() {
+            error!("init_firmware_signing_pubkey: {}", msg);
             std::process::exit(1);
         }
     }

@@ -300,6 +300,18 @@ pub struct AgentConfig {
     #[serde(default)]
     pub rbac_manifest: RbacManifestConfig,
 
+    /// Firmware update verification configuration (Batch 114
+    /// Sprint 6.5 / ADR-019 §3). Controls whether incoming
+    /// firmware payloads are verified as SignedFirmwareManifest
+    /// (ed25519 + 8-gate verify) or fall through to the
+    /// legacy Batch 20k tarball OTA path. Operator-facing
+    /// knobs: rollout mode (Disabled/Permissive/Enforcing) +
+    /// ed25519 signing pubkey hex. Coherence Rule 20 enforces
+    /// that non-Disabled mode requires a parseable 64-char
+    /// hex pubkey.
+    #[serde(default)]
+    pub firmware_update: FirmwareUpdateConfig,
+
     /// Audit sink configuration (Batch 78 Sprint 6.2 Phase 2).
     /// Controls whether pre+post audit events are written to
     /// `/var/log/suderra/audit.log` with HMAC chain integrity.
@@ -1673,6 +1685,78 @@ impl Default for KeystoreConfig {
             argon2_memory_kib: default_argon2_memory_kib(),
             argon2_iterations: default_argon2_iterations(),
             argon2_parallelism: default_argon2_parallelism(),
+        }
+    }
+}
+
+// ============================================================================
+// FirmwareUpdateConfig — Batch 114 Sprint 6.5 / ADR-019 §3
+// ============================================================================
+//
+// WHY: Plan §3 R-4 mandates that firmware update payloads carry an ed25519
+// signed SignedFirmwareManifest. The `verify_firmware_manifest` function
+// (Batch 8) is the fail-closed gate; it takes the verifying pubkey as a
+// closure-injected parameter. This config surface wires the operator-facing
+// knobs: mode selector + trusted pubkey source.
+//
+// Rollout mode follows the 3-stage pattern shared with mtls/config_integrity/
+// signature_mode/rbac_manifest:
+// - Disabled: legacy tarball path only (Batch 20k cmd_update_firmware).
+//   HC-1 backward compat default.
+// - Permissive: signed manifests accepted + preferred; unsigned tarball
+//   fallback warn-logged but still works.
+// - Enforcing: unsigned tarball rejected; only SignedFirmwareManifest flow.
+//
+// ## Signing pubkey source
+//
+// Plan §3 R-4 specifies 3 distinct keypairs — firmware + rbac_manifest +
+// command. The firmware pubkey is distinct from the rbac_manifest pubkey
+// (different trust domain: firmware can overwrite the entire stack; RBAC
+// cannot). Pre-Sprint-6.5 operators supply via config hex. Post-6.5 a
+// firmware-embedded default pubkey covers the factory key + config hex
+// overrides for field-rotated keys.
+
+/// Firmware update verification mode. 3-stage rollout pattern
+/// identical to RbacManifestMode / ConfigIntegrityMode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FirmwareUpdateMode {
+    /// No signed-manifest verification. Legacy tarball OTA
+    /// (Batch 20k `cmd_update_firmware`) remains the sole
+    /// update path. HC-1 backward compat default.
+    #[default]
+    Disabled,
+    /// Signed-manifest path accepted + preferred. Legacy
+    /// tarball OTA still works but warn-logs on invocation.
+    /// Operator migration posture.
+    Permissive,
+    /// Signed-manifest path required. Legacy tarball OTA
+    /// rejected at command dispatch.
+    Enforcing,
+}
+
+/// Firmware update verification knobs (Batch 114 Sprint 6.5).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FirmwareUpdateConfig {
+    /// Rollout mode: disabled / permissive / enforcing.
+    #[serde(default)]
+    pub mode: FirmwareUpdateMode,
+
+    /// Hex-encoded 32-byte ed25519 pubkey for
+    /// SignedFirmwareManifest signature verify. Distinct
+    /// from `rbac_manifest.manifest_signing_pubkey_hex` +
+    /// `config_integrity.factory_pubkey_hex` — plan §3 R-4
+    /// 3-key segregation. Required when mode != Disabled;
+    /// config coherence Rule 20 enforces this.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub signing_pubkey_hex: Option<String>,
+}
+
+impl Default for FirmwareUpdateConfig {
+    fn default() -> Self {
+        Self {
+            mode: FirmwareUpdateMode::default(),
+            signing_pubkey_hex: None,
         }
     }
 }
@@ -3061,6 +3145,41 @@ impl AgentConfig {
             }
         }
 
+        // Rule 20 (Batch 114): firmware_update mode != Disabled
+        // requires a parseable 64-char hex ed25519 pubkey.
+        // Same fail-fast discipline as Rule 12 (rbac_manifest)
+        // + Rule 4 (config_integrity): catches operator typos
+        // + unconfigured production deployments at boot time
+        // rather than at first firmware-deploy attempt.
+        if !matches!(self.firmware_update.mode, FirmwareUpdateMode::Disabled)
+            && self.firmware_update.signing_pubkey_hex.is_none()
+        {
+            anyhow::bail!(
+                "Config coherence: firmware_update.mode={:?} requires firmware_update.signing_pubkey_hex \
+                 (64-char hex ed25519 pubkey). Set signing_pubkey_hex OR set mode=disabled.",
+                self.firmware_update.mode
+            );
+        }
+
+        // Rule 21 (Batch 114): firmware_update.signing_pubkey_hex
+        // if set MUST be a parseable 64-char hex string.
+        // Same validation as Rule 13 (rbac_manifest) + Rule 5
+        // (config_integrity) — catches typos at config load
+        // rather than at first verify.
+        if let Some(ref hex) = self.firmware_update.signing_pubkey_hex {
+            if hex.len() != 64 {
+                anyhow::bail!(
+                    "Config coherence: firmware_update.signing_pubkey_hex must be 64 hex chars (32 bytes ed25519 pubkey), got {} chars",
+                    hex.len()
+                );
+            }
+            if !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+                anyhow::bail!(
+                    "Config coherence: firmware_update.signing_pubkey_hex contains non-hex characters"
+                );
+            }
+        }
+
         Ok(())
     }
 
@@ -3341,5 +3460,54 @@ gpio: []
         assert_eq!(config.telemetry.interval_seconds, 30);
         assert!(config.modbus.is_empty());
         assert!(config.gpio.is_empty());
+    }
+
+    // ========================================================================
+    // Firmware Update Config Tests (Batch 114 Sprint 6.5)
+    // ========================================================================
+
+    #[test]
+    fn test_firmware_update_config_default_is_disabled() {
+        let config = FirmwareUpdateConfig::default();
+        assert!(matches!(config.mode, FirmwareUpdateMode::Disabled));
+        assert!(config.signing_pubkey_hex.is_none());
+    }
+
+    #[test]
+    fn test_firmware_update_config_yaml_roundtrip() {
+        let config = FirmwareUpdateConfig {
+            mode: FirmwareUpdateMode::Enforcing,
+            signing_pubkey_hex: Some("a".repeat(64)),
+        };
+        let yaml = serde_yaml::to_string(&config).unwrap();
+        assert!(yaml.contains("mode: enforcing"));
+        assert!(yaml.contains(&"a".repeat(64)));
+        let parsed: FirmwareUpdateConfig = serde_yaml::from_str(&yaml).unwrap();
+        assert!(matches!(parsed.mode, FirmwareUpdateMode::Enforcing));
+        assert_eq!(parsed.signing_pubkey_hex, Some("a".repeat(64)));
+    }
+
+    #[test]
+    fn test_firmware_update_mode_disabled_accepts_none_pubkey() {
+        let yaml = r#"
+mode: disabled
+"#;
+        let config: FirmwareUpdateConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(matches!(config.mode, FirmwareUpdateMode::Disabled));
+        assert!(config.signing_pubkey_hex.is_none());
+    }
+
+    #[test]
+    fn test_firmware_update_permissive_mode_parses() {
+        let yaml = r#"
+mode: permissive
+signing_pubkey_hex: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+"#;
+        let config: FirmwareUpdateConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(matches!(config.mode, FirmwareUpdateMode::Permissive));
+        assert_eq!(
+            config.signing_pubkey_hex.as_deref(),
+            Some("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+        );
     }
 }

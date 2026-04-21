@@ -8,6 +8,7 @@ import { PrometheusModule } from './prometheus/prometheus.module';
 import { MetricsAggregatorModule } from './metrics/metrics-aggregator.module';
 import { HealthModule } from './health/health.module';
 import { TracingModule } from './tracing/tracing.module';
+import { MigrationAuditModule } from './migration-audit/migration-audit.module';
 import { InternalApiGuard } from './guards/internal-api.guard';
 
 @Module({
@@ -45,6 +46,10 @@ import { InternalApiGuard } from './guards/internal-api.guard';
     MetricsAggregatorModule,
     HealthModule,
     TracingModule,
+    // Plan v3 Phase 0 — durable audit trail for db-migrate lifecycle
+    // events + drift validator emissions. Exposes RecordMigrationEventCommand
+    // via the CQRS bus; the orchestrator (Phase 6) dispatches against it.
+    MigrationAuditModule,
     /**
      * SECURITY (HIGH-004, V6): RlsConnectionBootstrap for pool-level GUC
      * propagation. observability-service reads aggregated metrics across

@@ -12,7 +12,6 @@
  */
 
 import { ConfigService } from '@nestjs/config';
-import { ObjectLiteral, Repository } from 'typeorm';
 
 import {
   IEventBus,
@@ -71,12 +70,6 @@ function fakeEvent(overrides: Partial<SensorMetricIngestedEvent> = {}): SensorMe
   } as unknown as SensorMetricIngestedEvent;
 }
 
-function makeRepo<T extends ObjectLiteral>(
-  impl: Partial<Repository<T>>,
-): jest.Mocked<Repository<T>> {
-  return impl as unknown as jest.Mocked<Repository<T>>;
-}
-
 function makeBatch(): jest.Mocked<BatchProcessorService> {
   return {
     enqueue: jest.fn(),
@@ -105,23 +98,29 @@ function makeService(opts?: {
   channels?: SensorDataChannel[];
   batch?: jest.Mocked<BatchProcessorService>;
 }) {
-  const sensorRepo = makeRepo<Sensor>({
-    findOne: jest.fn().mockResolvedValue(opts?.sensor === undefined ? fakeSensor() : opts.sensor),
-  });
-  const channelRepo = makeRepo<SensorDataChannel>({
-    find: jest.fn().mockResolvedValue(opts?.channels ?? [fakeChannel('temperature')]),
-  });
+  // Faz 3 follow-on: cache extracted to SensorMetaCacheService. The
+  // test uses a thin stub that returns whatever the test scenario
+  // dictates, mirroring the real service's contract (null for missing
+  // sensor, array for channels). No DB roundtrip in tests.
+  const sensorMaybe =
+    opts?.sensor === undefined ? fakeSensor() : opts.sensor;
+  const channelArr = opts?.channels ?? [fakeChannel('temperature')];
+  const metaCache = {
+    getSensor: jest.fn().mockResolvedValue(sensorMaybe),
+    getChannels: jest.fn().mockResolvedValue(channelArr),
+    invalidateSensor: jest.fn(),
+    invalidateTenant: jest.fn(),
+  } as const;
   const batch = opts?.batch ?? makeBatch();
   const bus = opts?.bus === undefined ? makeBus() : opts.bus;
   const config = { get: jest.fn() } as unknown as ConfigService;
   const svc = new NatsIngestionConsumerService(
     batch,
     config,
-    sensorRepo,
-    channelRepo,
+    metaCache as unknown as import('../sensor-meta-cache.service').SensorMetaCacheService,
     bus,
   );
-  return { svc, sensorRepo, channelRepo, batch, bus };
+  return { svc, metaCache, batch, bus };
 }
 
 describe('NatsIngestionConsumerService', () => {
@@ -332,24 +331,17 @@ describe('NatsIngestionConsumerService', () => {
     });
   });
 
-  describe('caching (60s TTL)', () => {
-    it('does not re-query the sensor repository within the TTL window', async () => {
-      const sensorRepoFindOne = jest.fn().mockResolvedValue(fakeSensor());
-      const channelRepoFind = jest.fn().mockResolvedValue([fakeChannel('temperature')]);
-      const sensorRepo = makeRepo<Sensor>({ findOne: sensorRepoFindOne });
-      const channelRepo = makeRepo<SensorDataChannel>({ find: channelRepoFind });
-      const svc = new NatsIngestionConsumerService(
-        makeBatch(),
-        { get: jest.fn() } as unknown as ConfigService,
-        sensorRepo,
-        channelRepo,
-        makeBus(),
-      );
+  describe('cache delegation', () => {
+    it('asks SensorMetaCacheService once per handle for sensor + channels', async () => {
+      const { svc, metaCache } = makeService();
       await svc.handle(fakeEvent());
       await svc.handle(fakeEvent());
       await svc.handle(fakeEvent());
-      expect(sensorRepoFindOne).toHaveBeenCalledTimes(1);
-      expect(channelRepoFind).toHaveBeenCalledTimes(1);
+      // The TTL behaviour is owned by SensorMetaCacheService — this
+      // test pins that the consumer asks the cache (not the DB)
+      // exactly once per event for each of sensor + channels.
+      expect(metaCache.getSensor).toHaveBeenCalledTimes(3);
+      expect(metaCache.getChannels).toHaveBeenCalledTimes(3);
     });
   });
 });

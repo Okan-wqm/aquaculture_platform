@@ -7,8 +7,6 @@ import {
   Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
 
 import {
   IEventBus,
@@ -25,6 +23,7 @@ import { SensorMetricInput } from '../database/entities/sensor-metric.entity';
 import { Sensor } from '../database/entities/sensor.entity';
 
 import { BatchProcessorService } from './batch-processor.service';
+import { SensorMetaCacheService } from './sensor-meta-cache.service';
 
 /**
  * NATS consumer that bridges the Rust ingestion sidecar
@@ -45,12 +44,14 @@ import { BatchProcessorService } from './batch-processor.service';
  *   downstream contract (alert rules, AI prompts, audit log shape) is
  *   preserved byte-for-byte.
  *
- * WHY a 60-second in-process channel cache:
- *   The same cache pattern `DataIngestionService` uses
- *   (`apps/sensor-service/src/ingestion/data-ingestion.service.ts`
- *   `getChannelsCached`). Channels rarely change shape; the cache
- *   collapses one DB hit per metric to one DB hit per sensor per
- *   minute. Sensor-update events invalidate the entry (Faz 3 follow-on).
+ * WHY delegated to SensorMetaCacheService:
+ *   The cache used to live as private Maps inside this service. Faz 3
+ *   follow-on extracted it into [`SensorMetaCacheService`] so the
+ *   lifecycle-event handler ([`SensorCacheInvalidationHandler`]) can
+ *   share the same cache instance and eagerly drop entries on
+ *   SensorConfigurationUpdated / SensorSuspended / SensorReactivated.
+ *   The 60-second TTL is now the upper bound on staleness when no
+ *   invalidation event arrived (e.g. raw SQL UPDATE).
  *
  * WHY publish typed event AFTER enqueue (not before):
  *   `BatchProcessorService.enqueue` is fire-and-forget into an
@@ -68,20 +69,6 @@ export class NatsIngestionConsumerService
     IEventHandler<SensorMetricIngestedEvent>
 {
   private readonly logger = new Logger(NatsIngestionConsumerService.name);
-
-  /** 60-second per-sensor channel cache. Same TTL as `DataIngestionService`. */
-  private readonly channelCache = new Map<
-    string,
-    { channels: SensorDataChannel[]; expiresAt: number }
-  >();
-  private static readonly CHANNEL_CACHE_TTL_MS = 60_000;
-
-  /** 60-second per-sensor metadata cache (farmId / pondId / tenantId). */
-  private readonly sensorMetaCache = new Map<
-    string,
-    { sensor: Sensor; expiresAt: number }
-  >();
-  private static readonly SENSOR_META_TTL_MS = 60_000;
 
   /**
    * Subject pattern the sidecar publishes on. Mirrors
@@ -102,10 +89,7 @@ export class NatsIngestionConsumerService
   constructor(
     private readonly batchProcessor: BatchProcessorService,
     private readonly configService: ConfigService,
-    @InjectRepository(Sensor)
-    private readonly sensorRepository: Repository<Sensor>,
-    @InjectRepository(SensorDataChannel)
-    private readonly channelRepository: Repository<SensorDataChannel>,
+    private readonly metaCache: SensorMetaCacheService,
     @Optional()
     @Inject('EVENT_BUS')
     private readonly eventBus: IEventBus | null,
@@ -193,7 +177,7 @@ export class NatsIngestionConsumerService
 
     // 1. Sensor metadata lookup (cached) — needed for tenantId
     //    cross-check + farmId / pondId enrichment.
-    const sensor = await this.getSensorCached(event.sensorId);
+    const sensor = await this.metaCache.getSensor(event.sensorId);
     if (!sensor) {
       this.skippedNoSensorCount++;
       this.logger.debug(
@@ -216,7 +200,7 @@ export class NatsIngestionConsumerService
     // 3. Channel lookup (cached). The sidecar identifies the channel
     //    by uuid; we resolve to the channel definition for channelKey
     //    + dataType.
-    const channels = await this.getChannelsCached(event.sensorId);
+    const channels = await this.metaCache.getChannels(event.sensorId);
     const channel = channels.find((c) => c.id === event.channelId);
     if (!channel) {
       this.skippedNoChannelCount++;
@@ -331,45 +315,6 @@ export class NatsIngestionConsumerService
         break;
     }
     return reading;
-  }
-
-  // -------------------------------------------------------------------
-  // Caches — same shape + TTL as DataIngestionService.getChannelsCached
-  // -------------------------------------------------------------------
-
-  private async getSensorCached(sensorId: string): Promise<Sensor | null> {
-    const cached = this.sensorMetaCache.get(sensorId);
-    if (cached && cached.expiresAt > Date.now()) {
-      return cached.sensor;
-    }
-    const sensor = await this.sensorRepository.findOne({
-      where: { id: sensorId },
-    });
-    if (!sensor) {
-      return null;
-    }
-    this.sensorMetaCache.set(sensorId, {
-      sensor,
-      expiresAt: Date.now() + NatsIngestionConsumerService.SENSOR_META_TTL_MS,
-    });
-    return sensor;
-  }
-
-  private async getChannelsCached(
-    sensorId: string,
-  ): Promise<SensorDataChannel[]> {
-    const cached = this.channelCache.get(sensorId);
-    if (cached && cached.expiresAt > Date.now()) {
-      return cached.channels;
-    }
-    const channels = await this.channelRepository.find({
-      where: { sensorId, isEnabled: true },
-    });
-    this.channelCache.set(sensorId, {
-      channels,
-      expiresAt: Date.now() + NatsIngestionConsumerService.CHANNEL_CACHE_TTL_MS,
-    });
-    return channels;
   }
 
   /**

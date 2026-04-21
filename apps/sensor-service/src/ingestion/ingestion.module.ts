@@ -16,6 +16,8 @@ import { DataIngestionService } from './data-ingestion.service';
 import { DataProcessorService } from './data-processor.service';
 import { MqttListenerService } from './mqtt-listener.service';
 import { NatsIngestionConsumerService } from './nats-ingestion-consumer.service';
+import { SensorCacheInvalidationHandler } from './sensor-cache-invalidation.handler';
+import { SensorMetaCacheService } from './sensor-meta-cache.service';
 import { SensorTopicCacheService } from './sensor-topic-cache.service';
 
 @Module({
@@ -33,12 +35,21 @@ import { SensorTopicCacheService } from './sensor-topic-cache.service';
     MqttListenerService,
     DataProcessorService,
     SensorTopicCacheService,
+    // Faz 3 follow-on — extracted sensor + channel cache so the
+    // NatsIngestionConsumer (read path) and the SensorCacheInvalidation
+    // handler (write path) share one Map per process.
+    SensorMetaCacheService,
     // Faz 3 stage 2 — bridges the Rust ingestion sidecar (ADR-025)
     // events into the existing BatchProcessor + typed-event publish
     // path. Co-exists with MqttListenerService until Faz 3 stage 3
     // wires the SENSOR_SERVICE_PROFILE env-gate that disables MQTT
     // entirely on the control-plane profile.
     NatsIngestionConsumerService,
+    // Faz 3 follow-on — drops SensorMetaCacheService entries on
+    // SensorConfigurationUpdated / Suspended / Reactivated so ops
+    // scenarios (channel renames, sensor suspends) do not wait the
+    // 60s TTL.
+    SensorCacheInvalidationHandler,
   ],
   exports: [
     BatchProcessorService,
@@ -46,7 +57,9 @@ import { SensorTopicCacheService } from './sensor-topic-cache.service';
     MqttListenerService,
     DataProcessorService,
     SensorTopicCacheService,
+    SensorMetaCacheService,
     NatsIngestionConsumerService,
+    SensorCacheInvalidationHandler,
   ],
 })
 // eslint-disable-next-line @typescript-eslint/no-extraneous-class

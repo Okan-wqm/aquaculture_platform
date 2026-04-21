@@ -11,31 +11,8 @@ import {
 import { GraphQLError } from 'graphql';
 import depthLimit from 'graphql-depth-limit';
 import { fieldExtensionsEstimator, getComplexity, simpleEstimator } from 'graphql-query-complexity';
-import {
-  TenantContextMiddleware,
-  CorrelationIdMiddleware,
-  RequestContextMiddleware,
-  UserContextMiddleware,
-  RolesGuard,
-  TenantGuard,
-  ThrottlerModule,
-  ThrottlerGuard,
-  SlidingWindowStrategy,
-  RedisModule,
-  SourceSchemaBootstrapService,
-  createTenantSchemaMiddleware,
-  createTenantConnectionBootstrap,
-  TenantSchemaSyncService,
-  SourceSchemaWriteGuardService,
-  AuditLogModule,
-  AuditLogInterceptor,
-  AuditColumnsModule,
-  RlsModule,
-  createMigrationRunnerService,
-  SchemaDriftModule,
-  PlatformJwtModule,
-  createServiceTypeOrmConfig,
-} from '@aquaculture/backend-common';
+import { TenantContextMiddleware, CorrelationIdMiddleware, RequestContextMiddleware, UserContextMiddleware, RolesGuard, TenantGuard, ThrottlerModule, ThrottlerGuard, SlidingWindowStrategy, RedisModule, SourceSchemaBootstrapService, createTenantSchemaMiddleware, createTenantConnectionBootstrap, TenantSchemaSyncService, SourceSchemaWriteGuardService, AuditColumnsModule, RlsModule, createMigrationRunnerService, SchemaDriftModule, PlatformJwtModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common';
+import { AuditLogModule, AuditLogInterceptor } from '@aquaculture/backend-common/audit';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('ai');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('ai');
 
@@ -91,6 +68,19 @@ const complexityCache = new Map<string, number>();
           schema: 'ai',
           entities: [AgentConversation, TenantAgentConfig, ToolExecutionAudit],
           migrations: [__dirname + '/database/migrations/*.{js,ts}'],
+          // INFRA-CRITICAL-020 contract: env-aware migration timing.
+          // - Production: DATABASE_MIGRATIONS_RUN=false (default). The
+          //   aqua-db-migrate container runs migrations BEFORE service
+          //   containers start, so this service's TypeORM does NOT touch
+          //   the migration table at boot — MigrationRunnerService below
+          //   verifies the schema is healthy and proceeds.
+          // - E2E tests: harness sets DATABASE_MIGRATIONS_RUN=true so
+          //   TypeORM runs migrations at DataSource init — BEFORE the
+          //   SourceSchemaBootstrapService onApplicationBootstrap hook
+          //   fires, which would otherwise hard-fail on an empty source
+          //   schema (INFRA-CRITICAL-009, INFRA-CRITICAL-020).
+          migrationsRunFromEnv: (cs) =>
+            cs.get<string>('DATABASE_MIGRATIONS_RUN', 'false') === 'true',
         }),
     }),
     GraphQLModule.forRootAsync<ApolloFederationDriverConfig>({

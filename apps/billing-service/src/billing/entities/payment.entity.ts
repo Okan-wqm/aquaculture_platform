@@ -79,7 +79,7 @@ export class RefundInfo {
 }
 
 @ObjectType()
-@Entity('payments')
+@Entity('payments', { schema: 'billing' })
 @Index(['tenantId', 'transactionId'], { unique: true })
 @Index(['tenantId', 'status'])
 @Index(['tenantId', 'paymentDate'])

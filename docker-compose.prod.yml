@@ -36,14 +36,20 @@ services:
 
   # PostgreSQL with TimescaleDB
   postgres:
-    # Pinned 2026-04-05. To update: verify changelog at https://github.com/timescale/timescaledb/releases, test in staging first.
-    image: timescale/timescaledb:2.17.2-pg16
+    # INFRA-CRITICAL-010: HA edition with pgvector (uniform across CI + dev + droplet + prod).
+    # Pinned 2026-04-19. To update: verify changelog at https://github.com/timescale/timescaledb/releases AND
+    # https://hub.docker.com/r/timescale/timescaledb-ha for the new digest, test in staging first.
+    image: timescale/timescaledb-ha:pg16@sha256:b3d038d0a0757df8a5ec0a94ba68d9ad57b0e16100a024cf4b370c77ad5645f7
     container_name: aqua-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-aquaculture}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
       POSTGRES_DB: ${POSTGRES_DB:-aquaculture}
+      # INFRA-CRITICAL-018: pin PGDATA to legacy path so the HA image
+      # (which defaults to /home/postgres/pgdata/data) reads existing
+      # volume data at /var/lib/postgresql/data uniformly across env.
+      PGDATA: /var/lib/postgresql/data
       POSTGRES_SSL: "on"
     command: >
       postgres

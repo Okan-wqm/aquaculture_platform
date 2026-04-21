@@ -12,7 +12,7 @@ import {
 } from 'typeorm';
 import { SpecificationSchema } from './equipment-type.entity';
 
-@Entity('sub_equipment_types')
+@Entity('sub_equipment_types', { schema: 'farm' })
 @Index(['code'], { unique: true })
 @Index(['isActive'])
 export class SubEquipmentType {

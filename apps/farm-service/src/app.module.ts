@@ -151,6 +151,7 @@ import { AddFarmOutboxLeaseColumns1782000000000 } from './database/migrations/17
 // row. Drops median enqueue-to-publish latency from ~500ms (cron
 // cadence) to ~5ms.
 import { AddFarmOutboxNotifyTrigger1782100000000 } from './database/migrations/1782100000000-AddFarmOutboxNotifyTrigger';
+import { AddFarmOutboxModernColumns1786200000000 } from './database/migrations/1786200000000-AddFarmOutboxModernColumns';
 
 @Module({
   imports: [
@@ -200,7 +201,21 @@ import { AddFarmOutboxNotifyTrigger1782100000000 } from './database/migrations/1
             ConvertAuditColumnsToTimestamptz1781900000000,
             AddFarmOutboxLeaseColumns1782000000000,
             AddFarmOutboxNotifyTrigger1782100000000,
+            AddFarmOutboxModernColumns1786200000000,
           ],
+          // INFRA-CRITICAL-020 contract: env-aware migration timing.
+          // - Production: DATABASE_MIGRATIONS_RUN=false (default). The
+          //   aqua-db-migrate container runs migrations BEFORE service
+          //   containers start, so this service's TypeORM does NOT touch
+          //   the migration table at boot — MigrationRunnerService below
+          //   verifies the schema is healthy and proceeds.
+          // - E2E tests: harness sets DATABASE_MIGRATIONS_RUN=true so
+          //   TypeORM runs migrations at DataSource init — BEFORE the
+          //   SourceSchemaBootstrapService onApplicationBootstrap hook
+          //   fires, which would otherwise hard-fail on an empty source
+          //   schema (INFRA-CRITICAL-009, INFRA-CRITICAL-020).
+          migrationsRunFromEnv: (cs) =>
+            cs.get<string>('DATABASE_MIGRATIONS_RUN', 'false') === 'true',
         }),
     }),
 

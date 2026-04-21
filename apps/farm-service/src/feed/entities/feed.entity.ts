@@ -148,7 +148,7 @@ export interface FeedingMatrix2D {
   notes?: string;
 }
 
-@Entity('feeds')
+@Entity('feeds', { schema: 'farm' })
 @Index(['tenantId', 'code'], { unique: true })
 @Index(['tenantId', 'name'], { unique: true })
 @Index(['tenantId', 'type'])

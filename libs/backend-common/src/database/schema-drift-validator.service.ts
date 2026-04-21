@@ -86,14 +86,49 @@ export function createSchemaDriftValidator(
 
       this.logger.log('Scanning entity metadata for schema drift...');
       const violations: string[] = [];
+      let skippedNotOwned = 0;
 
       for (const entity of this.dataSource.entityMetadatas) {
+        // ── Skip entities that explicitly declare they do not own the table ──
+        //
+        // TypeORM's `synchronize: false` on @Entity is the canonical
+        // "this entity is a read-view of another service's table; do
+        // NOT generate DDL for it" marker. RdbmsSchemaBuilder itself
+        // honours it (no CREATE/ALTER emitted for synchronize-false
+        // entities). The drift validator must mirror that semantics:
+        //
+        //   1. The OWNER service has its own SchemaDriftValidator that
+        //      catches drift on the OWNER's side. A consumer's read-only
+        //      view of `billing.invoices` should not double-report drift
+        //      that billing-service already reports correctly.
+        //   2. Cross-schema consumers run as their OWN per-service DB
+        //      role (e.g. admin-api as admin_service). PostgreSQL's
+        //      information_schema.columns view filters by privilege —
+        //      the consumer role typically has no SELECT on the foreign
+        //      table, sees ZERO columns, and emits a false-positive
+        //      drift block for every column in the entity. Granting
+        //      cross-schema SELECT to mute that would violate the
+        //      ADR-011 ownership boundary; skipping the entity is the
+        //      architecturally correct alternative.
+        //   3. Pre-2026-04-20 behaviour (validate every entity regardless
+        //      of synchronize flag) was the root cause of admin-api's
+        //      67 false positives on billing.invoices/subscriptions/
+        //      usage_aggregations/tenant_usage_metrics — INFRA-CRITICAL-032.
+        //
+        // We log the count so operators can SEE what got skipped and
+        // verify the inventory of cross-schema read views matches their
+        // expectations.
+        if (entity.synchronize === false) {
+          skippedNotOwned++;
+          continue;
+        }
         await this.validateEntity(entity, violations);
       }
 
       if (violations.length === 0) {
         this.logger.log(
-          `Schema drift scan clean: checked ${this.dataSource.entityMetadatas.length} entities`,
+          `Schema drift scan clean: checked ${this.dataSource.entityMetadatas.length - skippedNotOwned} owned entities, ` +
+            `skipped ${skippedNotOwned} cross-schema read views (synchronize=false)`,
         );
         return;
       }
@@ -212,6 +247,29 @@ export function createSchemaDriftValidator(
         if (!column.isNullable && dbColumn.is_nullable === 'YES') {
           violations.push(
             `[${schema}.${tableName}.${dbName}] entity declares NOT NULL but DB column is nullable`,
+          );
+        }
+      }
+
+      // Class E — orphan_column: DB has a column the entity does not
+      // declare. Severity WARN (not error) because dropping the column
+      // is a data-loss operation gated by an allowlist (Phase 3
+      // dropOrphanedColumns primitive). Logged to the same violations
+      // channel so operators see the drift surface; does NOT prevent
+      // "Schema drift scan clean" emission in the default SCHEMA_DRIFT_
+      // FATAL=false mode, but Phase 8 Stage 2+ elevates to error once
+      // every existing E violation is either allowlisted or dropped.
+      //
+      // Implementation note: we iterate DB columns and check absence
+      // in the entity's declared column set. The entity.columns set is
+      // keyed by databaseName (TypeORM's naming-strategy-normalised form).
+      const entityColumnNames = new Set(
+        entity.columns.map((c) => c.databaseName),
+      );
+      for (const dbCol of columnRows) {
+        if (!entityColumnNames.has(dbCol.column_name)) {
+          violations.push(
+            `[${schema}.${tableName}.${dbCol.column_name}] DB has column but entity does not declare it (orphan_column — see drift-classes.ts Class E)`,
           );
         }
       }

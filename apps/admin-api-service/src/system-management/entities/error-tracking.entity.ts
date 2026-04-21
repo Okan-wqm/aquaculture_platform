@@ -62,7 +62,7 @@ export interface ErrorContext {
   }>;
 }
 
-@Entity('error_occurrences')
+@Entity('error_occurrences', { schema: 'admin' })
 @Index(['fingerprint', 'timestamp'])
 @Index(['groupId'])
 @Index(['severity', 'timestamp'])
@@ -126,7 +126,7 @@ export class ErrorOccurrence {
   createdAt!: Date;
 }
 
-@Entity('error_groups')
+@Entity('error_groups', { schema: 'admin' })
 @Index(['fingerprint'], { unique: true })
 @Index(['status', 'lastSeenAt'])
 @Index(['severity', 'occurrenceCount'])
@@ -208,7 +208,7 @@ export class ErrorGroup {
   updatedAt!: Date;
 }
 
-@Entity('error_alert_rules')
+@Entity('error_alert_rules', { schema: 'admin' })
 @Index(['isActive'])
 export class ErrorAlertRule {
   @PrimaryGeneratedColumn('uuid')

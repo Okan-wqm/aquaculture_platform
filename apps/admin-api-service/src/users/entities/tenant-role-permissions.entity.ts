@@ -98,7 +98,7 @@ export interface PanelPermissions {
  * Tenant Role Permissions Entity
  * Stores both panel-level and resource:action permissions
  */
-@Entity({ name: 'tenant_role_permissions', synchronize: false })
+@Entity({ schema: 'admin', name: 'tenant_role_permissions', synchronize: false })
 export class TenantRolePermissions {
   @PrimaryGeneratedColumn('uuid')
   id!: string;

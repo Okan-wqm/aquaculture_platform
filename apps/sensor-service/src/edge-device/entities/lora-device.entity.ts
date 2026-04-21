@@ -82,7 +82,7 @@ registerEnumType(LoRaDeviceClass, {
  * - Codec: Payload decode formatı (CayenneLPP, custom binary, vb.)
  */
 @ObjectType()
-@Entity('lora_devices')
+@Entity('lora_devices', { schema: 'sensor' })
 @Index(['tenantId', 'edgeDeviceId'])
 @Index(['devEui'], { unique: true })
 export class LoRaDevice {

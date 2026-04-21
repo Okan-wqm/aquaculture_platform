@@ -115,7 +115,7 @@ export interface SensorConnectionStatus {
  */
 @Auditable()
 @ObjectType()
-@Entity('sensors')
+@Entity('sensors', { schema: 'sensor' })
 @Index(['tenantId', 'status'])
 @Index('IDX_sensors_serial_number', ['serialNumber'], { unique: true })
 @Index(['tenantId', 'siteId'])

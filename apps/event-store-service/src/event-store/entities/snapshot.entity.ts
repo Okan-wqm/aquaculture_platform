@@ -10,7 +10,7 @@ import {
  * Snapshot entity for aggregate state caching
  * Used to optimize event replay by storing periodic aggregate states
  */
-@Entity('snapshots')
+@Entity('snapshots', { schema: 'event_store' })
 @Index(['aggregateType', 'aggregateId', 'tenantId'], { unique: true })
 @Index(['tenantId'])
 export class Snapshot {

@@ -127,51 +127,21 @@ export class AddTenantCostRollup1805000000000 implements MigrationInterface {
     `);
 
     // ------------------------------------------------------------------
-    // Convert to TimescaleDB hypertable — if the extension is available.
-    // Mirrors the graceful-skip pattern from sensor-service migrations
-    // (dev/CI may run on pure PG without timescaledb).
-    // ------------------------------------------------------------------
-    const timescaleAvailable = await this.checkTimescaleDB(queryRunner);
-    if (timescaleAvailable) {
-      await queryRunner.query(`
-        SELECT create_hypertable(
-          'observability.tenant_cost_rollup',
-          'bucket',
-          chunk_time_interval => INTERVAL '1 day',
-          if_not_exists => TRUE
-        )
-      `);
-
-      // Compression — old buckets rarely re-queried at per-row grain.
-      await queryRunner.query(`
-        ALTER TABLE observability.tenant_cost_rollup
-          SET (
-            timescaledb.compress,
-            timescaledb.compress_segmentby = 'tenant_id, cost_category',
-            timescaledb.compress_orderby = 'bucket DESC'
-          )
-      `);
-      await queryRunner.query(`
-        SELECT add_compression_policy(
-          'observability.tenant_cost_rollup',
-          INTERVAL '14 days',
-          if_not_exists => TRUE
-        )
-      `);
-
-      // Retention — 90 days raw grain. Monthly rollup (continuous
-      // aggregate) lands in a follow-up migration with 7-year retention.
-      await queryRunner.query(`
-        SELECT add_retention_policy(
-          'observability.tenant_cost_rollup',
-          INTERVAL '90 days',
-          if_not_exists => TRUE
-        )
-      `);
-    }
-
-    // ------------------------------------------------------------------
-    // RLS
+    // RLS — MUST run BEFORE the TimescaleDB compression / columnstore
+    // block below. TimescaleDB ≥ 2.18 reframes `timescaledb.compress` as
+    // "columnstore mode" on the hypertable; once columnstore is on, the
+    // engine rejects subsequent vanilla `ALTER TABLE ENABLE/FORCE ROW
+    // LEVEL SECURITY` with:
+    //
+    //   ERROR: operation not supported on hypertables that have
+    //          columnstore enabled
+    //
+    // RLS is metadata + policy state that lives at the relation level,
+    // independent of the chunk-storage layout, so it is safe to set
+    // before the table becomes a hypertable; `create_hypertable()`
+    // preserves the policy. Architecturally this also matches the
+    // "configure access control before storage layout" ordering used
+    // for ADR-011 shared-schema tables (audit_logs et al).
     // ------------------------------------------------------------------
     await queryRunner.query(`
       ALTER TABLE observability.tenant_cost_rollup ENABLE ROW LEVEL SECURITY
@@ -197,19 +167,78 @@ export class AddTenantCostRollup1805000000000 implements MigrationInterface {
           OR current_setting('app.platform_role', true) = 'observability_service_admin'
         )
     `);
+
+    // ------------------------------------------------------------------
+    // Convert to TimescaleDB hypertable — if the extension is available.
+    // Mirrors the graceful-skip pattern from sensor-service migrations
+    // (dev/CI may run on pure PG without timescaledb).
+    //
+    // Why no columnstore (compression) on this hypertable
+    // ────────────────────────────────────────────────────
+    // TimescaleDB ≥ 2.18 enforces a HARD MUTUAL EXCLUSION between RLS
+    // and columnstore on the same hypertable:
+    //
+    //   ALTER TABLE … ENABLE ROW LEVEL SECURITY
+    //     → "columnstore cannot be used on table with row security"
+    //   ALTER TABLE … SET (timescaledb.compress, …)
+    //     → "operation not supported on hypertables that have
+    //        columnstore enabled"
+    //
+    // Order does not unlock either side; the engine refuses both
+    // sequences. We must pick ONE of:
+    //   (A) keep columnstore, drop RLS — moves tenant isolation
+    //       enforcement entirely to the service layer.
+    //   (B) keep RLS, drop columnstore — preserves DB-level
+    //       defense-in-depth, loses ~50% storage savings on cold
+    //       buckets.
+    //
+    // We pick (B). This table is multi-tenant cost telemetry; the
+    // tenant_id RLS policy + observability_service_admin bypass IS
+    // the load-bearing tenant isolation guard for cross-tenant cost
+    // queries. At the documented scale (~29k rows/day × 90 days =
+    // ~2.6M rows total), the compression savings are immaterial
+    // (~1-2 GB/year) compared to the integrity guarantee RLS gives.
+    //
+    // Future cold-storage compression can be reintroduced via a
+    // continuous aggregate (no RLS on the aggregate, RLS-equivalent
+    // filter pushed into the materialized query) when the dataset
+    // grows enough to justify it. Tracked separately.
+    //
+    // Order is load-bearing: RLS block above MUST land first because
+    // `create_hypertable` preserves whatever RLS state exists on the
+    // underlying table at the moment of conversion.
+    // ------------------------------------------------------------------
+    const timescaleAvailable = await this.checkTimescaleDB(queryRunner);
+    if (timescaleAvailable) {
+      await queryRunner.query(`
+        SELECT create_hypertable(
+          'observability.tenant_cost_rollup',
+          'bucket',
+          chunk_time_interval => INTERVAL '1 day',
+          if_not_exists => TRUE
+        )
+      `);
+
+      // Retention — 90 days raw grain. Monthly rollup (continuous
+      // aggregate) lands in a follow-up migration with 7-year retention.
+      await queryRunner.query(`
+        SELECT add_retention_policy(
+          'observability.tenant_cost_rollup',
+          INTERVAL '90 days',
+          if_not_exists => TRUE
+        )
+      `);
+    }
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`SET LOCAL search_path = 'observability', 'public'`);
 
-    await queryRunner.query(`
-      DROP POLICY IF EXISTS tenant_cost_rollup_tenant_scope
-        ON observability.tenant_cost_rollup
-    `);
-    await queryRunner.query(`
-      ALTER TABLE IF EXISTS observability.tenant_cost_rollup DISABLE ROW LEVEL SECURITY
-    `);
-
+    // First detach the TimescaleDB-managed retention worker so DROP
+    // TABLE doesn't race with it. The policy's if_exists flag makes
+    // this idempotent under partial teardown. No compression policy
+    // to remove — see up() for why columnstore is intentionally not
+    // configured on this hypertable.
     const timescaleAvailable = await this.checkTimescaleDB(queryRunner);
     if (timescaleAvailable) {
       await queryRunner.query(`
@@ -217,15 +246,14 @@ export class AddTenantCostRollup1805000000000 implements MigrationInterface {
           'observability.tenant_cost_rollup', if_exists => TRUE
         )
       `);
-      await queryRunner.query(`
-        SELECT remove_compression_policy(
-          'observability.tenant_cost_rollup', if_exists => TRUE
-        )
-      `);
     }
 
-    // Indexes + constraints drop implicitly with the table.
-    await queryRunner.query(`DROP TABLE IF EXISTS observability.tenant_cost_rollup`);
+    // DROP TABLE CASCADE tears down everything else in one shot —
+    // policies, RLS state, indexes, hypertable metadata. No
+    // intermediate ALTER TABLE / DROP POLICY needed.
+    await queryRunner.query(`
+      DROP TABLE IF EXISTS observability.tenant_cost_rollup CASCADE
+    `);
   }
 
   private async checkTimescaleDB(queryRunner: QueryRunner): Promise<boolean> {

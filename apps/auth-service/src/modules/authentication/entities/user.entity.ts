@@ -47,7 +47,7 @@ registerEnumType(AccessType, {
  * - MODULE_USER: Single tenant + assigned modules, limited access
  */
 @ObjectType()
-@Entity('users')
+@Entity('users', { schema: 'auth' })
 // NOTE: email uniqueness is enforced via a `LOWER(email)` expression index
 // created by migration EnforceCaseInsensitiveEmailUniqueness1781300000000.
 // TypeORM decorators don't support expression indexes, so the index lives

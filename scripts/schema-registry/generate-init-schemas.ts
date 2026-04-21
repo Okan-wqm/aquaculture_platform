@@ -56,6 +56,35 @@ const END = '# END GENERATED — schema-registry';
 /** Safe SQL identifier regex — must match the regex used by both runners. */
 const SAFE_IDENT_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 
+/**
+ * Cross-service shared tables (ADR-011 §"shared schema").
+ *
+ * The `shared` schema is the ONE designated cross-service write surface.
+ * Every service that imports `AuditLogModule` from
+ * `@aquaculture/backend-common` writes to `shared.audit_logs`; auth-service
+ * writes/reads `shared.gdpr_data_requests` + `shared.user_consents`;
+ * admin-api-service writes/reads `shared.user_permissions`.
+ *
+ * SchemaDriftValidator runs per-service-role queries against
+ * `information_schema.columns`. PostgreSQL filters that view by privilege
+ * — a role with no grant on `shared.audit_logs` sees ZERO columns, and
+ * the validator (correctly given its inputs, incorrectly given the
+ * actual DB shape) reports "DB has no such column" for every entity-
+ * declared field. Without grants, every service that registers a shared
+ * entity emits a false-positive drift block for `shared.*`.
+ *
+ * Mirrors `SHARED_SCHEMA_TABLES` in
+ * `e2e/tests/integration/schema-invariants.spec.ts:51-56`. Adding a 5th
+ * shared table requires updating BOTH constants in the same PR; the
+ * invariant test catches drift between them.
+ */
+const SHARED_SCHEMA_TABLES = [
+  'audit_logs',
+  'gdpr_data_requests',
+  'user_consents',
+  'user_permissions',
+] as const;
+
 function assertSafeIdent(name: string, context: string): void {
   if (!SAFE_IDENT_RE.test(name)) {
     throw new Error(
@@ -125,6 +154,58 @@ function buildGeneratedBlock(): string {
   for (const e of entries) {
     lines.push(
       `  ALTER DEFAULT PRIVILEGES IN SCHEMA ${e.schema} GRANT ALL ON SEQUENCES TO \${POSTGRES_USER};`,
+    );
+  }
+  lines.push('');
+
+  // ── Shared schema grants — service-role visibility on cross-service tables ──
+  //
+  // Why this block exists: SchemaDriftValidator runs as the per-service
+  // DB role; PostgreSQL's information_schema.columns filters by privilege,
+  // so a role with no grant on shared.audit_logs sees ZERO columns and
+  // emits a false-positive drift block. Granting USAGE + table-level
+  // SELECT/INSERT/UPDATE/DELETE to every service role makes the column
+  // metadata visible AND matches what services actually need at runtime
+  // (every service that imports AuditLogModule writes to shared.audit_logs).
+  //
+  // user_permissions is included with the same grant level — admin-api +
+  // auth both write to it; other services SELECT it for permission checks
+  // via the shared TenantGuard infrastructure. Granting uniformly is
+  // simpler than per-service slicing AND matches the "shared schema is by
+  // design cross-service" architectural premise.
+  //
+  // Sequences: shared tables use uuid PKs (no sequences) but the GRANT
+  // ALL ON SEQUENCES line is included for forward compat — adding a
+  // sequence-bearing column to a shared table later does not require
+  // regenerating grants per service.
+  lines.push('  -- Shared schema grants (cross-service write surface, ADR-011)');
+  lines.push('  -- Source-of-truth: SHARED_SCHEMA_TABLES in this codegen + spec');
+  lines.push(
+    `  CREATE SCHEMA IF NOT EXISTS shared AUTHORIZATION \${POSTGRES_USER};`,
+  );
+  lines.push('');
+  for (const e of entries) {
+    lines.push(`  GRANT USAGE ON SCHEMA shared TO ${e.role};`);
+  }
+  lines.push('');
+  for (const tbl of SHARED_SCHEMA_TABLES) {
+    assertSafeIdent(tbl, `shared schema table`);
+    for (const e of entries) {
+      lines.push(
+        `  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.${tbl} TO ${e.role};`,
+      );
+    }
+    lines.push('');
+  }
+  for (const e of entries) {
+    lines.push(
+      `  ALTER DEFAULT PRIVILEGES IN SCHEMA shared GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${e.role};`,
+    );
+  }
+  lines.push('');
+  for (const e of entries) {
+    lines.push(
+      `  ALTER DEFAULT PRIVILEGES IN SCHEMA shared GRANT USAGE, SELECT ON SEQUENCES TO ${e.role};`,
     );
   }
   return lines.join('\n');

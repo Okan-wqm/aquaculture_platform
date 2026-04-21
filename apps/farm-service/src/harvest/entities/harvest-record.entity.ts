@@ -231,7 +231,7 @@ export interface YieldCalculation {
 // ============================================================================
 
 @ObjectType()
-@Entity('harvest_records')
+@Entity('harvest_records', { schema: 'farm' })
 @Index(['tenantId', 'batchId', 'harvestDate'])
 @Index(['tenantId', 'recordCode'], { unique: true })
 @Index(['tenantId', 'lotNumber'], { unique: true })

@@ -43,7 +43,7 @@ export interface ImpersonationAction {
   details?: Record<string, unknown>;
 }
 
-@Entity('impersonation_sessions')
+@Entity('impersonation_sessions', { schema: 'admin' })
 @Index(['superAdminId', 'status'])
 @Index(['targetTenantId', 'status'])
 @Index(['status', 'expiresAt'])
@@ -145,7 +145,7 @@ export class ImpersonationSession {
   updatedAt!: Date;
 }
 
-@Entity('impersonation_permissions')
+@Entity('impersonation_permissions', { schema: 'admin' })
 @Index(['superAdminId', 'isActive'])
 export class ImpersonationPermission {
   @PrimaryGeneratedColumn('uuid')

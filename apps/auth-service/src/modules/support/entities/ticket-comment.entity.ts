@@ -49,7 +49,7 @@ export class TicketAttachment {
  * Comments/replies on support tickets.
  * Supports internal notes visible only to admins.
  */
-@Entity('ticket_comments')
+@Entity('ticket_comments', { schema: 'auth' })
 @ObjectType()
 @Index(['ticketId', 'createdAt'])
 export class TicketComment {

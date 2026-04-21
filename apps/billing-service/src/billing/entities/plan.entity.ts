@@ -23,7 +23,7 @@ import { BillingCycle, PlanTier, PlanLimits, PlanPricing } from './subscription.
  * current plan pricing.
  */
 @ObjectType()
-@Entity('plans')
+@Entity('plans', { schema: 'billing' })
 @Index(['tier'])
 @Index(['isActive'])
 @Index(['isPublic'])

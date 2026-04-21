@@ -23,10 +23,31 @@ export * from './tenant-schema.utils';
 // Migration Logger (structured logging for TypeORM migrations outside DI)
 export { MigrationLogger } from './migration-logger';
 
-// Migration helpers (pinSearchPath, dropPartialTables) — shared by
-// migration authors so search_path boilerplate + partial-state cleanup
-// live in one place. See base-migration.ts for rationale.
-export { pinSearchPath, dropPartialTables } from './base-migration';
+// SQL fragments — compile-time SQL injection prevention. Branded SqlIdent
+// + SqlFragment types make raw-string interpolation a TypeScript compile
+// error. Prereq for Phase 3 primitives rewrite (plan v3 R2 CRITICAL).
+// See sql-fragments.ts docblock.
+export { sql, sqlGuards, executeSqlFragment } from './sql-fragments';
+export type { SqlIdent, SqlValue, SqlFragment } from './sql-fragments';
+
+// Migration helpers (pinSearchPath, dropPartialTables,
+// parseAlterColumnTypeTargets, dropDependentPartialIndexes) — shared by
+// migration authors so search_path boilerplate, partial-state cleanup,
+// and ALTER-COLUMN-TYPE dependency resolution live in one place.
+// See base-migration.ts for rationale.
+export {
+  pinSearchPath,
+  dropPartialTables,
+  parseAlterColumnTypeTargets,
+  dropDependentPartialIndexes,
+} from './base-migration';
+export type {
+  AlterColumnTypeTarget,
+  BlockingDependency,
+  BlockingDependencyKind,
+  /** @deprecated alias for {@link BlockingDependency} */
+  BlockingPartialIndex,
+} from './base-migration';
 
 // TENANT_AWARE_SCHEMAS — SSoT for schema-per-tenant services. Imported
 // by migration-runner.service.ts (boot-time fan-out), aqua-db-migrate
@@ -88,6 +109,33 @@ export * from './migration-runner';
 export { createSchemaDriftValidator } from './schema-drift-validator.service';
 export { SchemaDriftModule } from './schema-drift/schema-drift.module';
 export type { SchemaDriftModuleOptions } from './schema-drift/schema-drift.module';
+
+// Drift-class registry — single source of truth for validator ↔ primitive
+// parity. See docs/plans/2026-04-21-db-migrate-enterprise-refactor.md §R11
+// + libs/backend-common/src/database/schema-drift/drift-classes.ts docblock.
+export {
+  DRIFT_CLASSES,
+  DRIFT_CLASS_LIST,
+  isDriftClassId,
+} from './schema-drift/drift-classes';
+export type {
+  DriftClassId,
+  DriftClassSpec,
+  DriftSeverity,
+} from './schema-drift/drift-classes';
+
+// pg_catalog introspector — normalized ORM-agnostic snapshot of a PG
+// schema. Consumed by SchemaDriftValidator + Phase 4 PR gate. Replaces
+// TypeORM's createSchemaBuilder().log() which is known to miss
+// partial-index predicates, EXCLUDE operator classes, GIN opclass.
+export { introspectSchema } from './schema-drift/pg-catalog-introspector';
+export type {
+  IntrospectedCheckConstraint,
+  IntrospectedColumn,
+  IntrospectedEnum,
+  IntrospectedTable,
+  SchemaSnapshot,
+} from './schema-drift/pg-catalog-introspector';
 
 // Audit-column TIMESTAMP → TIMESTAMPTZ conversion (NEW-H1).
 // `convertAuditColumnsToTimestamptz` and `revertAuditColumnsToTimestamp`

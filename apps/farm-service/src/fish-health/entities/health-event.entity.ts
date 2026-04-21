@@ -235,7 +235,7 @@ export interface WaterQualitySnapshot {
 // ============================================================================
 
 @ObjectType()
-@Entity('health_events')
+@Entity('health_events', { schema: 'farm' })
 @Index(['tenantId', 'batchId', 'eventDate'])
 @Index(['tenantId', 'eventType', 'status'])
 @Index(['tenantId', 'eventDate'])

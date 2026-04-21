@@ -13,8 +13,16 @@ import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 import { SKIP_TENANT_GUARD_KEY, IS_PUBLIC_KEY, Role } from '../decorators/roles.decorator';
 import { TenantRequest } from '../types/tenant-request.interface';
-import { AuditLogService } from '../audit/audit-log.service';
-import { AuditSeverity } from '../audit/audit-log.entity';
+// IMPORTANT: import from tokens, NOT from `audit-log.service` / `audit-log.entity`.
+// Importing the service would chain through `audit-log.entity` and fire the
+// `@Entity()` decorator on every backend-common consumer, polluting TypeORM's
+// global metadata storage and surfacing as cross-service drift on services
+// that never opted into audit logging (DEFECT-1, INFRA-CRITICAL-021).
+import {
+  AUDIT_LOG_SERVICE,
+  AuditSeverity,
+  type IAuditLogService,
+} from '../audit/audit-log.tokens';
 
 /** UUID v4 format validator. */
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -61,9 +69,14 @@ export class TenantGuard implements CanActivate {
 
   // WHY: Explicit @Inject() — design:paramtypes may not survive all build/runtime environments
   // (Alpine musl, prod-only deps). Belt-and-suspenders for NestJS DI resolution.
+  // The audit dependency uses the AUDIT_LOG_SERVICE token + IAuditLogService
+  // interface (NOT the concrete class) so this guard never imports the
+  // `AuditLogEntity` decorator, even transitively. Services that wire
+  // `AuditLogModule.forRoot()` provide the token; services that don't get
+  // `undefined` and fall back to ephemeral `logger.warn()`.
   constructor(
     @Inject(Reflector) private reflector: Reflector,
-    @Optional() private readonly auditLogService?: AuditLogService,
+    @Optional() @Inject(AUDIT_LOG_SERVICE) private readonly auditLogService?: IAuditLogService,
     @Optional() @Inject(ConfigService) private readonly configService?: ConfigService,
   ) {
     this.mfaRequiredForCrossTenant =

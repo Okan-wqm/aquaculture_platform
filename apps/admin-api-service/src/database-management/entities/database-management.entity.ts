@@ -27,7 +27,7 @@ export type RestoreStatus = 'pending' | 'in_progress' | 'completed' | 'failed';
 // Schema Management Entity
 // ============================================================================
 
-@Entity('tenant_schemas')
+@Entity('tenant_schemas', { schema: 'admin' })
 @Index(['tenantId'], { unique: true })
 @Index(['status'])
 export class TenantSchema {
@@ -78,7 +78,7 @@ export class TenantSchema {
 // Migration Entity
 // ============================================================================
 
-@Entity('schema_migrations')
+@Entity('schema_migrations', { schema: 'admin' })
 @Index(['tenantId'])
 @Index(['status'])
 @Index(['version'])
@@ -136,7 +136,7 @@ export class SchemaMigration {
 // Backup Entity
 // ============================================================================
 
-@Entity('schema_backups')
+@Entity('schema_backups', { schema: 'admin' })
 @Index(['tenantId'])
 @Index(['status'])
 @Index(['backupType'])
@@ -205,7 +205,7 @@ export class SchemaBackup {
 // Restore Entity
 // ============================================================================
 
-@Entity('schema_restores')
+@Entity('schema_restores', { schema: 'admin' })
 @Index(['tenantId'])
 @Index(['backupId'])
 @Index(['status'])
@@ -257,7 +257,7 @@ export class SchemaRestore {
 // Database Monitoring Entity
 // ============================================================================
 
-@Entity('database_metrics')
+@Entity('database_metrics', { schema: 'admin' })
 @Index(['tenantId'])
 @Index(['recordedAt'])
 @Index(['metricType'])
@@ -288,7 +288,7 @@ export class DatabaseMetric {
 // Slow Query Log Entity
 // ============================================================================
 
-@Entity('slow_query_logs')
+@Entity('slow_query_logs', { schema: 'admin' })
 @Index(['tenantId'])
 @Index(['executionTimeMs'])
 @Index(['recordedAt'])

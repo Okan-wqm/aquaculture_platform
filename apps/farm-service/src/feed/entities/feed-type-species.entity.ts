@@ -113,7 +113,7 @@ export interface ExpectedPerformance {
 // ============================================================================
 
 @ObjectType()
-@Entity('feed_type_species')
+@Entity('feed_type_species', { schema: 'farm' })
 @Unique(['tenantId', 'feedId', 'speciesId', 'growthStage'])
 @Index(['tenantId', 'feedId'])
 @Index(['tenantId', 'speciesId'])

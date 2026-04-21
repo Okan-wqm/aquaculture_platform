@@ -3,24 +3,14 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import { AuditLogEntity, AuditSeverity } from './audit-log.entity';
+import type { CreateAuditEntryDto, IAuditLogService } from './audit-log.tokens';
 
-/**
- * DTO for creating an audit log entry
- */
-export interface CreateAuditEntryDto {
-  action: string;
-  resource: string;
-  resourceId?: string | null;
-  userId?: string | null;
-  userEmail?: string | null;
-  tenantId?: string | null;
-  schemaName?: string | null;
-  metadata?: Record<string, unknown> | null;
-  ip?: string | null;
-  userAgent?: string | null;
-  severity?: AuditSeverity;
-  correlationId?: string | null;
-}
+// Re-export the canonical DTO type from audit-log.tokens so existing
+// consumers (`import { CreateAuditEntryDto } from './audit-log.service'`)
+// continue to compile. The single source of truth lives in the tokens
+// file because cross-cutting DI consumers (TenantGuard) need the DTO type
+// without loading the @Entity decorator.
+export type { CreateAuditEntryDto } from './audit-log.tokens';
 
 /**
  * AuditLogService
@@ -39,7 +29,7 @@ export interface CreateAuditEntryDto {
  * failure so monitoring systems can alert on `AUDIT_FAILURE` log lines.
  */
 @Injectable()
-export class AuditLogService {
+export class AuditLogService implements IAuditLogService {
   private readonly logger = new Logger(AuditLogService.name);
 
   /**

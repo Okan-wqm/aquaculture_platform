@@ -94,7 +94,7 @@ export class ModuleUsageMetrics {
  * - API Calls: total=125000
  */
 @ObjectType()
-@Entity('tenant_usage_metrics')
+@Entity('tenant_usage_metrics', { schema: 'billing' })
 @Index(['tenantId'])
 @Index(['moduleId'])
 @Index(['periodStart'])

@@ -175,7 +175,7 @@ export interface ExecutionResult {
 // ============================================================================
 
 @ObjectType({ description: 'Daily feeding execution record for a tank' })
-@Entity('daily_feeding_executions')
+@Entity('daily_feeding_executions', { schema: 'farm' })
 @Index(['tenantId', 'executionDate'])
 @Index(['tenantId', 'feedingProgramId', 'executionDate'])
 @Index(['feedingProgramTankId', 'executionDate'], { unique: true })

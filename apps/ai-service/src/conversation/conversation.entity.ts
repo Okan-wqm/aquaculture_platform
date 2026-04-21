@@ -7,7 +7,7 @@ import {
   Index,
 } from 'typeorm';
 
-@Entity('agent_conversations')
+@Entity('agent_conversations', { schema: 'ai' })
 @Index(['tenantId', 'userId', 'createdAt'])
 export class AgentConversation {
   @PrimaryGeneratedColumn('uuid')

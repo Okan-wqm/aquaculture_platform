@@ -62,7 +62,9 @@ jobs:
 
     services:
       postgres:
-        image: timescale/timescaledb:2.17.2-pg16
+        # INFRA-CRITICAL-010: HA edition includes pgvector (HNSW + vector_cosine_ops)
+        # Single source of truth: same image used in CI + dev + droplet + prod compose files
+        image: timescale/timescaledb-ha:pg16@sha256:b3d038d0a0757df8a5ec0a94ba68d9ad57b0e16100a024cf4b370c77ad5645f7
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -133,6 +135,11 @@ jobs:
             -- Enable extensions required by messaging-service
             CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
             CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+            -- INFRA-CRITICAL-010: pre-enable pgvector explicitly so the migration
+            -- 1711800000001-CreateAITables can find vector_cosine_ops at HNSW
+            -- index creation time. The HA edition ships pgvector preinstalled,
+            -- but CREATE EXTENSION must run once to register it in the database.
+            CREATE EXTENSION IF NOT EXISTS "vector";
           SQL
         env:
           PGPASSWORD: postgres

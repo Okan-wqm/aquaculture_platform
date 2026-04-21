@@ -45,6 +45,32 @@ export type { VerifyPasswordResult } from './auth/password.util';
 // Utils - PII masking for GDPR-compliant logging
 export { maskEmail, logSafeUserId, maskPhone, maskPii, maskPiiDeep } from './utils/pii-mask.util';
 
+// Utils - HMAC tenant hash for GDPR Art 17 cascade-safe pseudonymisation.
+// Every table/event that persists a tenant identifier beyond tenant lifetime
+// must hash via this helper (not raw sha256, which is rainbow-table reversible).
+// Prereq for db-migrate enterprise-refactor plan Phase 0 observability schema.
+// See docs/adr/022-pseudonymisation-key-management.md.
+export {
+  TENANT_HASH_PEPPER_ENV,
+  hmacTenantHash,
+  tenantHashesEqual,
+  assertTenantHashPepperSet,
+} from './utils/hmac-tenant-hash.util';
+
+// Utils - PG error sanitizer. Strips row data from PostgreSQL errors before
+// they hit NATS events or structured logs. Unique-constraint violations and
+// CHECK-constraint failures include offending row values by default
+// (`Key (ssn)=(123-45-6789)`); sanitizePgError extracts the safe parts
+// (SQLSTATE, constraint name, relation, column list) and redacts values.
+// Prereq for db-migrate enterprise-refactor plan Phase 0 MigrationTenantFailed
+// event emission. See plan v3 R25.
+export {
+  sanitizePgError,
+  assertNoPgRowLeak,
+  PG_ERROR_ROW_LEAK_PATTERN,
+} from './utils/sanitize-pg-error.util';
+export type { SanitizedPgError } from './utils/sanitize-pg-error.util';
+
 // Filters
 export * from './filters/http-exception.filter';
 
@@ -85,7 +111,19 @@ export * from './telemetry';
 export * from './metrics';
 
 // Finding registry - NestJS wrapper over event_store.findings (Phase 12.1b)
-export * from './finding-registry';
+//
+// IMPORTANT (DEFECT-1, INFRA-CRITICAL-021): the FindingRegistry entity +
+// service + module are NOT re-exported from the main backend-common barrel
+// because their import chain reaches `finding.entity.ts`, whose `@Entity()`
+// decorator side-effect would otherwise register `event_store.findings` in
+// TypeORM's global metadata storage on every backend-common consumer —
+// surfacing as cross-service drift in the SchemaDriftValidator output of
+// every farm/sensor/auth/etc. service that has nothing to do with findings.
+//
+// Consumers that DO need finding registry access import via the deep path:
+//   import { FindingRegistryModule } from '@aquaculture/backend-common/finding-registry';
+//
+// (Path alias defined in tsconfig.base.json.)
 
 // Orchestrator leader election - Redis Redlock-lite (Phase 12.2)
 export * from './orchestrator-leader-election';
@@ -102,8 +140,36 @@ export * from './pagination';
 // Health - Standard K8s health check controller and module
 export * from './health';
 
-// Audit - Shared audit trail infrastructure (interceptor, service, entity, module)
-export * from './audit';
+// Audit - Shared audit trail infrastructure
+//
+// Only NON-entity-touching surface is re-exported here so that importing
+// from `@aquaculture/backend-common` does not transitively load
+// `audit-log.entity.ts` (whose @Entity decorator pollutes TypeORM's global
+// metadata storage and surfaces as cross-service drift — DEFECT-1,
+// INFRA-CRITICAL-021).
+//
+// Token-based DI contract — TenantGuard et al inject via this token.
+export {
+  AUDIT_LOG_SERVICE,
+  AuditSeverity,
+} from './audit/audit-log.tokens';
+export type {
+  IAuditLogService,
+  CreateAuditEntryDto,
+} from './audit/audit-log.tokens';
+// @AuditedOperation() decorator + metadata key + options type (no entity).
+export {
+  AuditedOperation,
+  AUDITED_OPERATION_KEY,
+  AuditedOperationStatus,
+} from './audit/audited-operation.decorator';
+export type { AuditedOperationOptions } from './audit/audited-operation.decorator';
+//
+// Concrete classes (AuditLogEntity, AuditLogService, AuditLogModule,
+// AuditLogInterceptor, AuditedOperationInterceptor, AuditedOperationModule)
+// are deep-import only:
+//   import { AuditLogModule } from '@aquaculture/backend-common/audit';
+// (Path alias defined in tsconfig.base.json.)
 
 // NATS - Shared connection factory with SEC-H01 authentication support
 export { buildNatsConnectionOptions, buildNatsTransportOptions } from './nats/nats-connection.factory';

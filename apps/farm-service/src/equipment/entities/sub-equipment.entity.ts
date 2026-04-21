@@ -16,7 +16,7 @@ import {
 import { Equipment, EquipmentStatus } from './equipment.entity';
 import { SubEquipmentType } from './sub-equipment-type.entity';
 
-@Entity('sub_equipment')
+@Entity('sub_equipment', { schema: 'farm' })
 @Index(['tenantId', 'parentEquipmentId', 'code'], { unique: true })
 @Index(['tenantId', 'status'])
 export class SubEquipment {

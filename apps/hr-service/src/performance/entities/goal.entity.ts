@@ -72,7 +72,7 @@ export class GoalMilestone {
 }
 
 @ObjectType()
-@Entity('goals')
+@Entity('goals', { schema: 'hr' })
 @Index('idx_goal_tenant_employee', ['tenantId', 'employeeId'])
 @Index('idx_goal_tenant_status', ['tenantId', 'status'])
 @Index('idx_goal_tenant_priority', ['tenantId', 'priority'])

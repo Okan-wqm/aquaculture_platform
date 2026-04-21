@@ -11,7 +11,8 @@ import {
 import { ScheduleModule } from '@nestjs/schedule';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import depthLimit from 'graphql-depth-limit';
-import { RedisModule, TenantGuard, RolesGuard, LoggingModule, ServiceIdentityGuard, UserContextMiddleware, TenantContextMiddleware, AuditLogModule, AuditLogInterceptor, RlsModule, AuditColumnsModule, createMigrationRunnerService, SchemaDriftModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common';
+import { RedisModule, TenantGuard, RolesGuard, LoggingModule, ServiceIdentityGuard, UserContextMiddleware, TenantContextMiddleware, RlsModule, AuditColumnsModule, createMigrationRunnerService, SchemaDriftModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common';
+import { AuditLogModule, AuditLogInterceptor } from '@aquaculture/backend-common/audit';
 
 /**
  * BillingMigrationRunnerService — runs pending TypeORM migrations in the
@@ -65,6 +66,19 @@ import { ModuleQuantities, ModuleLineItem } from './billing/entities/subscriptio
           // + per-migration transaction isolation. Factory default
           // (migrationsRun: false) keeps TypeORM out of that codepath.
           migrations: [__dirname + '/database/migrations/*.{js,ts}'],
+          // INFRA-CRITICAL-020 contract: env-aware migration timing.
+          // - Production: DATABASE_MIGRATIONS_RUN=false (default). The
+          //   aqua-db-migrate container runs migrations BEFORE service
+          //   containers start, so this service's TypeORM does NOT touch
+          //   the migration table at boot — MigrationRunnerService below
+          //   verifies the schema is healthy and proceeds.
+          // - E2E tests: harness sets DATABASE_MIGRATIONS_RUN=true so
+          //   TypeORM runs migrations at DataSource init — BEFORE the
+          //   SourceSchemaBootstrapService onApplicationBootstrap hook
+          //   fires, which would otherwise hard-fail on an empty source
+          //   schema (INFRA-CRITICAL-009, INFRA-CRITICAL-020).
+          migrationsRunFromEnv: (cs) =>
+            cs.get<string>('DATABASE_MIGRATIONS_RUN', 'false') === 'true',
         }),
     }),
     GraphQLModule.forRoot<ApolloFederationDriverConfig>({

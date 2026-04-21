@@ -49,7 +49,7 @@ registerEnumType(ConfigEnvironment, {
  * Encryption for secrets is delegated to EncryptionService
  */
 @ObjectType()
-@Entity('configurations')
+@Entity('configurations', { schema: 'config' })
 @Unique(['tenantId', 'service', 'key', 'environment'])
 @Index(['tenantId', 'service'])
 @Index(['service', 'key'])
@@ -174,7 +174,7 @@ export class Configuration {
  * Configuration History Entity
  * Tracks all changes for audit purposes
  */
-@Entity('configuration_history')
+@Entity('configuration_history', { schema: 'config' })
 @Index(['configurationId', 'changedAt'])
 @Index(['tenantId', 'changedAt'])
 @ObjectType()

@@ -17,7 +17,7 @@ import { DecimalTransformer } from '@aquaculture/backend-common';
 import { AggregationPeriod, AggregationDimension } from '../usage-aggregator.service';
 import { MeterType } from '../usage-metering.service';
 
-@Entity('usage_aggregations')
+@Entity('usage_aggregations', { schema: 'billing' })
 @Index(['tenantId', 'period', 'periodStart'])
 @Index(['tenantId', 'meterType'])
 export class UsageAggregation {
@@ -82,7 +82,7 @@ export class UsageAggregation {
 /**
  * Hourly Data Entity for trend analysis
  */
-@Entity('usage_hourly_data')
+@Entity('usage_hourly_data', { schema: 'billing' })
 @Index(['tenantId', 'meterType'])
 export class UsageHourlyData {
   @PrimaryColumn('varchar', { length: 100 })

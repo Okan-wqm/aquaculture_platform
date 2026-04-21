@@ -79,7 +79,7 @@ export interface SupplierAddress {
 // ============================================================================
 
 @ObjectType()
-@Entity('suppliers')
+@Entity('suppliers', { schema: 'farm' })
 @Index(['tenantId', 'code'], { unique: true })
 @Index(['tenantId', 'type'])
 @Index(['tenantId', 'status'])

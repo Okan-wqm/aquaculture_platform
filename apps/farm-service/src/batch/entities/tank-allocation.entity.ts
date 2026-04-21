@@ -59,7 +59,7 @@ registerEnumType(AllocationType, {
 // ============================================================================
 
 @ObjectType()
-@Entity('tank_allocations')
+@Entity('tank_allocations', { schema: 'farm' })
 @Index(['tenantId', 'batchId', 'allocationDate'])
 @Index(['tenantId', 'tankId', 'allocationDate'])
 @Index(['batchId', 'tankId'])

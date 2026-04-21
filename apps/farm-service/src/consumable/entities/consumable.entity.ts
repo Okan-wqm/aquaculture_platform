@@ -48,7 +48,7 @@ registerEnumType(ConsumableStatus, {
   description: 'Status of the consumable',
 });
 
-@Entity('consumables')
+@Entity('consumables', { schema: 'farm' })
 @Index(['tenantId', 'code'], { unique: true })
 @Index(['tenantId', 'category'])
 @Index(['tenantId', 'status'])

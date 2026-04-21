@@ -4,8 +4,8 @@ import type { QueryRunner } from 'typeorm';
  * Shared utilities for TypeORM migration authors (MA5).
  * ============================================================================
  *
- * Two helpers, both addressing classes of patches that have shipped to
- * main in the last 48 hours:
+ * Three helpers, each addressing a class of patches that has shipped to
+ * main in the recent deploy history:
  *
  *   - `pinSearchPath` replaces the inline `SET search_path TO "<schema>"`
  *     boilerplate that was added to 7 migrations by commit 552f289d.
@@ -22,6 +22,26 @@ import type { QueryRunner } from 'typeorm';
  *     (the skeleton-exists-without-signature-column case that bit HR),
  *     this helper provides the standard "drop if empty, raise if
  *     non-empty" semantics from one place.
+ *
+ *   - `dropDependentPartialIndexes` replaces the SAVEPOINT-per-statement
+ *     band-aid added to SyncHrEntitiesToDb1786800000000 in commit
+ *     5df00179. That band-aid shifted an `ALTER COLUMN TYPE` failure
+ *     from db-migrate to the boot validator (new enum never applied,
+ *     SchemaDriftValidator saw drift, "Schema drift scan clean" boot
+ *     signal never emitted, deploy rolled back). Root cause: partial
+ *     indexes whose WHERE predicate casts a literal to the column's
+ *     OLD enum type — PG re-validates the predicate during ALTER COLUMN
+ *     TYPE, the new-enum = old-enum equality operator does not exist,
+ *     ALTER fails. `RdbmsSchemaBuilder.log()` cannot emit a DROP INDEX
+ *     because the index is a legacy artefact not declared by the entity
+ *     model. This helper closes the gap deterministically: enumerate
+ *     every `ALTER COLUMN TYPE` statement the migration is about to run,
+ *     query pg_indexes for dependent partial indexes, DROP them
+ *     explicitly, then let the ALTER proceed. After the migration the
+ *     entity-declared indexes are re-created by TypeORM's own
+ *     CREATE INDEX emissions. Legacy partial indexes that the entity
+ *     does not declare remain dropped — which is the correct end-state
+ *     under an entity-first schema contract.
  *
  * # Why not a `BaseMigration` class?
  *
@@ -207,4 +227,331 @@ export async function dropPartialTables(
       END $$;
     `);
   }
+}
+
+/**
+ * `ALTER TABLE "<schema>"."<table>" ALTER COLUMN "<column>" TYPE …` target.
+ *
+ * Emitted by `RdbmsSchemaBuilder.log()` whenever the entity-declared column
+ * type diverges from the live DB column type. For enum-to-enum changes this
+ * statement hits PG's partial-index re-validation rule and fails if any
+ * partial index on the table has a WHERE predicate that references the
+ * column being re-typed (see `dropDependentPartialIndexes` docblock for the
+ * detailed failure mode).
+ */
+export interface AlterColumnTypeTarget {
+  schema: string;
+  table: string;
+  column: string;
+}
+
+/**
+ * Parse `ALTER TABLE "schema"."table" ALTER COLUMN "col" TYPE …` statements
+ * out of the upQueries list that `RdbmsSchemaBuilder.log()` emits.
+ *
+ * The regex anchors on the quoted identifier form TypeORM always uses when
+ * entities declare `schema:`. Ignores any ALTER-COLUMN statement that is
+ * NOT a TYPE change (SET NOT NULL, DROP DEFAULT, …) — those do not trigger
+ * partial-index re-validation.
+ *
+ * The SQL parser is intentionally narrow: this helper does not attempt to
+ * handle unquoted identifiers, cross-database dialects, or mixed-case
+ * keywords beyond what TypeORM's PostgreSQL driver produces. Migrations
+ * that construct DDL by hand must list their targets explicitly.
+ */
+export function parseAlterColumnTypeTargets(
+  sqlStatements: readonly string[],
+): AlterColumnTypeTarget[] {
+  const pattern =
+    /^ALTER\s+TABLE\s+"([^"]+)"\."([^"]+)"\s+ALTER\s+COLUMN\s+"([^"]+)"\s+(?:SET\s+DATA\s+)?TYPE\b/i;
+  const seen = new Set<string>();
+  const targets: AlterColumnTypeTarget[] = [];
+  for (const sql of sqlStatements) {
+    const trimmed = sql.trim();
+    const m = pattern.exec(trimmed);
+    if (!m) continue;
+    const schema = m[1];
+    const table = m[2];
+    const column = m[3];
+    if (!schema || !table || !column) continue;
+    const key = `${schema}.${table}.${column}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    targets.push({ schema, table, column });
+  }
+  return targets;
+}
+
+/**
+ * Kind of schema object that blocks `ALTER COLUMN TYPE` and must be
+ * dropped before the ALTER proceeds. Each kind has a different DROP
+ * statement, tracked separately so operators can audit what happened.
+ *
+ * - `partial_index` — standalone partial index (not backing any
+ *   constraint). Dropped via `DROP INDEX`.
+ * - `excl_or_unique_constraint` — partial EXCLUDE / UNIQUE / PRIMARY KEY
+ *   constraint. PostgreSQL rejects plain `DROP INDEX` on constraint-backed
+ *   indexes with `cannot drop index <name> because constraint <name> …
+ *   requires it`; dropped via `ALTER TABLE … DROP CONSTRAINT`.
+ * - `check_constraint` — `CHECK` constraint whose predicate casts a
+ *   literal to the column's old type. PG re-validates the predicate on
+ *   ALTER, same failure mode as partial-index predicates. Dropped via
+ *   `ALTER TABLE … DROP CONSTRAINT`.
+ */
+export type BlockingDependencyKind =
+  | 'partial_index'
+  | 'excl_or_unique_constraint'
+  | 'check_constraint';
+
+/**
+ * Schema object that will block an `ALTER COLUMN TYPE` if left in place.
+ *
+ * Returned rows always include the original `pg_get_indexdef` /
+ * `pg_get_constraintdef` text so operators can grep logs to understand
+ * what was dropped. Objects are NOT re-created by this helper — the
+ * entity-first schema contract means objects the entity model does not
+ * declare SHOULD NOT exist in the DB anyway. TypeORM's
+ * `RdbmsSchemaBuilder.log()` will emit the recreation DDL for any object
+ * the entity declares after the ALTER succeeds.
+ */
+export interface BlockingDependency {
+  schema: string;
+  table: string;
+  column: string;
+  kind: BlockingDependencyKind;
+  /** Index name for `partial_index`; constraint name otherwise. */
+  name: string;
+  /** `pg_get_indexdef` for indexes; `pg_get_constraintdef` for constraints. */
+  definition: string;
+}
+
+/**
+ * Backwards-compatible alias. The original single-purpose helper only
+ * handled partial indexes and returned a `BlockingPartialIndex` shape
+ * with `indexName` + `indexDef` fields; that shape is no longer
+ * sufficient now that constraint-backed indexes and CHECK constraints
+ * are also handled. Prefer `BlockingDependency` in new code.
+ *
+ * @deprecated Use `BlockingDependency` — includes `kind` so callers can
+ *             distinguish `partial_index` from `excl_or_unique_constraint`
+ *             and `check_constraint`.
+ */
+export type BlockingPartialIndex = BlockingDependency;
+
+/**
+ * Enumerate every schema object that would block an `ALTER COLUMN TYPE`
+ * on any of the given `(schema, table, column)` targets, then DROP each
+ * of them in the correct way (DROP INDEX vs DROP CONSTRAINT).
+ *
+ * # Why this is the correct architectural fix, not a patch
+ *
+ * PostgreSQL re-validates three classes of dependency against the NEW
+ * column type when an `ALTER COLUMN … TYPE …` runs:
+ *
+ *   1. **Partial-index WHERE predicates.** A predicate that casts a
+ *      literal to the OLD enum type — e.g.
+ *        `CREATE INDEX … WHERE (status = 'active'::hr.certification_status)`
+ *      cannot be re-validated against `hr.employee_certifications_status_enum`:
+ *      PG has no implicit equality operator between distinct enum types,
+ *      ALTER fails with `operator does not exist: <new_enum> = <old_enum>`.
+ *
+ *   2. **Constraint-backed partial indexes (EXCLUDE / UNIQUE / PK).** Same
+ *      predicate re-validation, but `DROP INDEX` alone is rejected by PG
+ *      with `cannot drop index <name> because constraint <name> … requires
+ *      it`. The correct drop is `ALTER TABLE … DROP CONSTRAINT <conname>`,
+ *      which drops the constraint and its backing index atomically.
+ *
+ *   3. **CHECK constraints whose predicate references the column.** Same
+ *      re-validation rule as partial-index predicates. Dropped via
+ *      `ALTER TABLE … DROP CONSTRAINT`.
+ *
+ * `RdbmsSchemaBuilder.log()` does not emit the DROP DDL for any of these
+ * because they are legacy artefacts outside the current entity model —
+ * `log()` only knows about entity-declared objects. Left in place, the
+ * ALTER fails.
+ *
+ * The Tier-1 architectural fix ("make it impossible"): introspect
+ * pg_indexes + pg_constraint directly, drop every object whose predicate
+ * (or check definition) references the column being re-typed, then let
+ * `ALTER COLUMN TYPE` run deterministically. After the ALTER, any object
+ * the entity model currently declares is recreated by TypeORM's own DDL
+ * emissions later in the migration. Legacy objects the entity does not
+ * declare remain dropped — the correct end-state under an entity-first
+ * schema contract (ADR-012 + SchemaDriftValidator). Operators see the
+ * dropped object names in the returned list for audit.
+ *
+ * # Why partial-index / partial-constraint coverage only (not every index)
+ *
+ * Non-partial indexes on an enum column rebuild automatically during
+ * `ALTER COLUMN TYPE … USING …` because PG rewrites the tuple and
+ * re-indexes. The failure surface is SPECIFIC to objects whose predicate
+ * contains a literal cast to the old type. Dropping non-partial objects
+ * would be unnecessary churn and would delete constraints the entity
+ * model actually declares.
+ *
+ * # Why not pg_depend
+ *
+ * pg_depend surfaces every dependency, including automatically-rebuilt
+ * non-partial indexes that do NOT block ALTER COLUMN TYPE. Filtering
+ * pg_depend rows back down to "partial object whose predicate references
+ * the column" requires re-querying pg_index + pg_constraint + definition
+ * text anyway, and the direct joins used here keep the match criterion
+ * explicit — predicate / check-def text references the column by name.
+ *
+ * @returns The list of objects that were dropped. Each entry's `kind`
+ *          records how it was dropped (index vs constraint).
+ */
+export async function dropDependentPartialIndexes(
+  queryRunner: QueryRunner,
+  targets: readonly AlterColumnTypeTarget[],
+): Promise<BlockingDependency[]> {
+  for (const t of targets) {
+    if (!SAFE_IDENT_RE.test(t.schema)) {
+      throw new Error(
+        `[dropDependentPartialIndexes] Unsafe schema identifier: "${t.schema}".`,
+      );
+    }
+    if (!SAFE_IDENT_RE.test(t.table)) {
+      throw new Error(
+        `[dropDependentPartialIndexes] Unsafe table identifier: "${t.table}".`,
+      );
+    }
+    if (!SAFE_IDENT_RE.test(t.column)) {
+      throw new Error(
+        `[dropDependentPartialIndexes] Unsafe column identifier: "${t.column}".`,
+      );
+    }
+  }
+
+  const dropped: BlockingDependency[] = [];
+
+  // Group targets by (schema, table) so we issue one lookup pair per table.
+  const byTable = new Map<string, AlterColumnTypeTarget[]>();
+  for (const t of targets) {
+    const key = `${t.schema}.${t.table}`;
+    const arr = byTable.get(key) ?? [];
+    arr.push(t);
+    byTable.set(key, arr);
+  }
+
+  const matchesColumn = (text: string, column: string): boolean => {
+    // Column name must appear as a whole word. Escape regex metacharacters
+    // that could slip through even though SAFE_IDENT_RE already rejects
+    // them — defense in depth.
+    const escaped = column.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const colRe = new RegExp(`\\b${escaped}\\b`);
+    return colRe.test(text);
+  };
+
+  for (const [, tableTargets] of byTable) {
+    const first = tableTargets[0];
+    if (!first) continue;
+    const { schema, table } = first;
+
+    // ----- Pass 1: partial indexes (standalone) + partial constraint-backed indexes -----
+    // LEFT JOIN pg_constraint on conindid so we know whether each index is
+    // backing a constraint. When it is, DROP CONSTRAINT is the correct
+    // drop path (DROP INDEX is rejected by PG).
+    const indexRows: Array<{
+      indexname: string;
+      indexdef: string;
+      conname: string | null;
+      contype: string | null;
+    }> = await queryRunner.query(
+      `SELECT
+         i.indexname,
+         i.indexdef,
+         c.conname,
+         c.contype
+       FROM pg_indexes i
+       JOIN pg_class idx_cls ON idx_cls.relname = i.indexname
+       JOIN pg_namespace idx_ns
+         ON idx_ns.oid = idx_cls.relnamespace
+        AND idx_ns.nspname = i.schemaname
+       LEFT JOIN pg_constraint c ON c.conindid = idx_cls.oid
+       WHERE i.schemaname = $1 AND i.tablename = $2`,
+      [schema, table],
+    );
+
+    const droppedConstraintNames = new Set<string>();
+
+    for (const row of indexRows) {
+      const wherePos = row.indexdef.search(/\bWHERE\b/i);
+      if (wherePos < 0) continue; // non-partial; PG rebuilds automatically on ALTER
+      const predicate = row.indexdef.slice(wherePos);
+
+      for (const t of tableTargets) {
+        if (!matchesColumn(predicate, t.column)) continue;
+
+        if (row.conname) {
+          // Constraint-backed partial index — drop the constraint, which
+          // drops its backing index atomically.
+          await queryRunner.query(
+            `ALTER TABLE "${schema}"."${table}" DROP CONSTRAINT "${row.conname}"`,
+          );
+          droppedConstraintNames.add(row.conname);
+          dropped.push({
+            schema,
+            table,
+            column: t.column,
+            kind: 'excl_or_unique_constraint',
+            name: row.conname,
+            definition: row.indexdef,
+          });
+        } else {
+          await queryRunner.query(
+            `DROP INDEX IF EXISTS "${schema}"."${row.indexname}"`,
+          );
+          dropped.push({
+            schema,
+            table,
+            column: t.column,
+            kind: 'partial_index',
+            name: row.indexname,
+            definition: row.indexdef,
+          });
+        }
+        break; // one object is blocking for at most one column-per-target set
+      }
+    }
+
+    // ----- Pass 2: CHECK constraints whose predicate references a target column -----
+    // CHECK constraints are independent of indexes — they do not appear in
+    // pg_indexes at all. They must be enumerated via pg_constraint and
+    // dropped with ALTER TABLE … DROP CONSTRAINT.
+    const checkRows: Array<{ conname: string; condef: string }> =
+      await queryRunner.query(
+        `SELECT c.conname, pg_get_constraintdef(c.oid) AS condef
+         FROM pg_constraint c
+         JOIN pg_class t ON t.oid = c.conrelid
+         JOIN pg_namespace ns ON ns.oid = t.relnamespace
+         WHERE ns.nspname = $1
+           AND t.relname = $2
+           AND c.contype = 'c'`,
+        [schema, table],
+      );
+
+    for (const row of checkRows) {
+      if (droppedConstraintNames.has(row.conname)) continue; // already dropped as backed index
+      for (const t of tableTargets) {
+        if (!matchesColumn(row.condef, t.column)) continue;
+
+        await queryRunner.query(
+          `ALTER TABLE "${schema}"."${table}" DROP CONSTRAINT "${row.conname}"`,
+        );
+        droppedConstraintNames.add(row.conname);
+        dropped.push({
+          schema,
+          table,
+          column: t.column,
+          kind: 'check_constraint',
+          name: row.conname,
+          definition: row.condef,
+        });
+        break;
+      }
+    }
+  }
+
+  return dropped;
 }

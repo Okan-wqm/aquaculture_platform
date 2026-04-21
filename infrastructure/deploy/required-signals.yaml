@@ -26,6 +26,33 @@
 #   Each signal has a `window_seconds` — how long after container
 #   start-up the signal must appear. Defaults to 60s. A service
 #   with a heavy cold-boot (migrations + drift scan) may need more.
+#
+# ─── Migration-runner signal ownership (INFRA-CRITICAL-015) ───
+#
+# Per ADR-016 Phase E the centralized `aqua-db-migrate` container
+# is the single source of truth for migration application: every
+# service's migrations run there BEFORE service containers start
+# (compose dependency: `db-migrate { condition: service_completed_successfully }`).
+#
+# The previous version of this manifest expected per-service
+# `migration_runner_applied` from each service container. That
+# expectation was a Phase 1 transitional artifact: services that
+# don't register `createMigrationRunnerService` (auth, sensor,
+# admin-api, hydroponics — they delegate to TypeORM's native
+# migrationsRun:true OR have no migrations at all) cannot emit
+# the canonical "Migration runner complete" line, so the gate
+# blocked indefinitely.
+#
+# This manifest now requires the `db_migrate_complete` signal from
+# `aqua-db-migrate` ONCE — that single signal proves all schemas'
+# migrations landed (the central runner enumerates and applies
+# every schema_slot, then logs `aqua-db-migrate complete` with
+# per-schema applied counts).
+#
+# Per-service `MigrationRunnerService` instances continue to emit
+# their own `Migration runner complete` line as defense-in-depth
+# (the libs/backend-common runner code is unchanged), but the
+# deploy gate no longer ASSERTS it.
 
 schema_version: 1
 
@@ -50,10 +77,18 @@ signal_library:
     description: "SchemaDriftValidator found zero violations (ADR-012)"
     signalSource: "libs/backend-common/src/database/schema-drift-validator.service.ts"
 
-  migration_runner_applied:
-    pattern: "migration(s)"   # matches "Applied N migration(s): ..."
-    description: "Migration runner finished (could be zero applied — ok on warm start)"
-    signalSource: "libs/backend-common/src/database/migration-runner/migration-runner.service.ts"
+  db_migrate_complete:
+    # INFRA-CRITICAL-015: canonical end-of-run signal emitted by the
+    # centralized aqua-db-migrate container at the end of its main()
+    # entry point. Single signal covers every schema (auth, farm,
+    # sensor, hr, messaging, hydroponics, alert, billing, notification,
+    # ai, admin, public, observability, event_store) AND tenant fan-out
+    # for tenant-aware schemas. Replaces the per-service
+    # migration_runner_applied expectation that was incompatible with
+    # the centralized SSoT (ADR-016 Phase E intent).
+    pattern: "aqua-db-migrate complete"
+    description: "Centralized db-migrate runner reached success exit (covers ALL service schemas)"
+    signalSource: "apps/db-migrate/src/main.ts"
 
 # ---------------------------------------------------------------------------
 # Per-service signal requirements. A service listed here MUST emit
@@ -61,30 +96,35 @@ signal_library:
 # deploy fails. Services not listed are not asserted.
 #
 # Scope choices:
+#   - aqua-db-migrate emits db_migrate_complete ONCE for all schemas.
 #   - All NATS-using services assert nats_auth_mode_mtls — cert auth
 #     is the ADR-015 invariant and a silent fallback to user-pass
 #     (which the server ignores) would look healthy but be broken.
 #   - All services with SchemaDriftModule.forRoot assert schema_drift_clean.
-#   - Services with a migration runner assert migration_runner_applied.
 # ---------------------------------------------------------------------------
 services:
+  # ── Centralized migration runner (ADR-016 Phase E SSoT) ──
+  - name: db-migrate
+    signals:
+      - db_migrate_complete
+    window_seconds: 300   # cold migrations across 14 schemas + tenant
+                          # fan-out can be heavy; allow generous window.
+
+  # ── Per-service runtime signals ──
   - name: auth-service
     signals:
       - nats_auth_mode_mtls
       - schema_drift_clean
-      - migration_runner_applied
 
   - name: farm-service
     signals:
       - nats_auth_mode_mtls
       - schema_drift_clean
-      - migration_runner_applied
 
   - name: sensor-service
     signals:
       - nats_auth_mode_mtls
       - schema_drift_clean
-      - migration_runner_applied
     window_seconds: 180   # sensor cold-boot installs TimescaleDB
                           # continuous aggregates — heavier than most
 
@@ -92,25 +132,21 @@ services:
     signals:
       - nats_auth_mode_mtls
       - schema_drift_clean
-      - migration_runner_applied
 
   - name: messaging-service
     signals:
       - nats_auth_mode_mtls
       - schema_drift_clean
-      - migration_runner_applied
     window_seconds: 180   # messaging sync + RLS per-tenant sweep
 
   - name: hydroponics-service
     signals:
       - schema_drift_clean
-      - migration_runner_applied
 
   - name: alert-engine
     signals:
       - nats_auth_mode_mtls
       - schema_drift_clean
-      - migration_runner_applied
 
   # ai-service omitted: not yet in docker-compose.droplet.yml. The
   # NestJS module exists but no compose entry has landed, so there is
@@ -121,24 +157,20 @@ services:
     signals:
       - nats_auth_mode_mtls
       - schema_drift_clean
-      - migration_runner_applied
 
   - name: notification-service
     signals:
       - nats_auth_mode_mtls
       - schema_drift_clean
-      - migration_runner_applied
 
   - name: admin-api-service
     signals:
       - nats_auth_mode_mtls
       - schema_drift_clean
-      - migration_runner_applied
 
   - name: config-service
     signals:
       - schema_drift_clean
-      - migration_runner_applied
 
   - name: observability-service
     signals:

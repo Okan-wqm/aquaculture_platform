@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuditLogEntity } from './audit-log.entity';
 import { AuditLogService } from './audit-log.service';
 import { AuditLogInterceptor } from './audit-log.interceptor';
+import { AUDIT_LOG_SERVICE } from './audit-log.tokens';
 
 /**
  * AuditLogModule
@@ -29,8 +30,17 @@ import { AuditLogInterceptor } from './audit-log.interceptor';
 @Global()
 @Module({
   imports: [TypeOrmModule.forFeature([AuditLogEntity])],
-  providers: [AuditLogService, AuditLogInterceptor],
-  exports: [AuditLogService, AuditLogInterceptor],
+  providers: [
+    AuditLogService,
+    AuditLogInterceptor,
+    // SSoT for the cross-cutting audit dependency (TenantGuard et al inject
+    // via AUDIT_LOG_SERVICE token + IAuditLogService interface). Provided
+    // alongside the concrete class so existing concrete-class consumers
+    // continue to work AND the token-based consumers resolve to the same
+    // singleton.
+    { provide: AUDIT_LOG_SERVICE, useExisting: AuditLogService },
+  ],
+  exports: [AuditLogService, AuditLogInterceptor, AUDIT_LOG_SERVICE],
 })
 export class AuditLogModule {
   /**
@@ -43,8 +53,12 @@ export class AuditLogModule {
       module: AuditLogModule,
       global: true,
       imports: [TypeOrmModule.forFeature([AuditLogEntity])],
-      providers: [AuditLogService, AuditLogInterceptor],
-      exports: [AuditLogService, AuditLogInterceptor],
+      providers: [
+        AuditLogService,
+        AuditLogInterceptor,
+        { provide: AUDIT_LOG_SERVICE, useExisting: AuditLogService },
+      ],
+      exports: [AuditLogService, AuditLogInterceptor, AUDIT_LOG_SERVICE],
     };
   }
 }

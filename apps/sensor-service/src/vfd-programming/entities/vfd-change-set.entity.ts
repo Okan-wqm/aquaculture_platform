@@ -19,7 +19,7 @@ import { VfdChangeSetItem } from './vfd-change-set-item.entity';
  * Implements IEC 62443 SL-2 compliant approval workflow.
  */
 @ObjectType({ description: 'VFD parameter change set (Maker-Checker)' })
-@Entity('vfd_change_sets')
+@Entity('vfd_change_sets', { schema: 'sensor' })
 @Index(['tenantId', 'vfdDeviceId'])
 @Index(['tenantId', 'status'])
 export class VfdChangeSet {

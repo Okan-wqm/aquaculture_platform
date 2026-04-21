@@ -50,7 +50,7 @@ registerEnumType(RecurrenceFrequency, {
 // ============================================================================
 
 @ObjectType()
-@Entity('recurring_templates')
+@Entity('recurring_templates', { schema: 'farm' })
 @Index(['tenantId', 'isActive'])
 @Index(['isActive', 'nextGeneration'])
 export class RecurringTemplate {

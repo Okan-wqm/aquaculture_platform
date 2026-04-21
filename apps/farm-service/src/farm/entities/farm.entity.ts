@@ -32,7 +32,7 @@ export class Location {
  */
 @ObjectType()
 @Directive('@key(fields: "id")')
-@Entity('farms')
+@Entity('farms', { schema: 'farm' })
 @Index(['tenantId', 'name'], { unique: true })
 @Index(['tenantId', 'isActive'])
 export class Farm {

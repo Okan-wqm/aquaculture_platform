@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { UserConsent } from '@aquaculture/backend-common';
+import { UserConsent } from '@aquaculture/backend-common/gdpr';
 
 import { User } from '../authentication/entities/user.entity';
 import { RefreshToken } from '../authentication/entities/refresh-token.entity';

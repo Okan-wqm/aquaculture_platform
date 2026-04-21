@@ -35,7 +35,7 @@ export interface RolloutSchedule {
   incrementPerDay?: number;
 }
 
-@Entity('feature_toggles')
+@Entity('feature_toggles', { schema: 'admin' })
 @Index(['key'], { unique: true })
 @Index(['scope', 'status'])
 @Index(['category'])

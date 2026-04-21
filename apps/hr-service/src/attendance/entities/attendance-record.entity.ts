@@ -123,7 +123,7 @@ export class GeoLocation {
 }
 
 @ObjectType()
-@Entity('attendance_records')
+@Entity('attendance_records', { schema: 'hr' })
 // Unique index
 @Index('idx_attendance_record_number', ['tenantId', 'recordNumber'], { unique: true })
 // Composite indexes for common query patterns

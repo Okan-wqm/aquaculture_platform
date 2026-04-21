@@ -24,7 +24,7 @@ export enum QueryLogType {
   SCHEMA = 'schema',
 }
 
-@Entity('debug_sessions')
+@Entity('debug_sessions', { schema: 'admin' })
 @Index(['adminId', 'tenantId'])
 @Index(['sessionType', 'createdAt'])
 @Index(['isActive'])
@@ -72,7 +72,7 @@ export class DebugSession {
   createdAt!: Date;
 }
 
-@Entity('captured_queries')
+@Entity('captured_queries', { schema: 'admin' })
 @Index(['debugSessionId', 'timestamp'])
 @Index(['tenantId', 'timestamp'])
 @Index(['queryType', 'durationMs'])
@@ -138,7 +138,7 @@ export class CapturedQuery {
   createdAt!: Date;
 }
 
-@Entity('captured_api_calls')
+@Entity('captured_api_calls', { schema: 'admin' })
 @Index(['debugSessionId', 'timestamp'])
 @Index(['tenantId', 'timestamp'])
 @Index(['endpoint', 'method'])
@@ -207,7 +207,7 @@ export class CapturedApiCall {
   createdAt!: Date;
 }
 
-@Entity('cache_entries_snapshot')
+@Entity('cache_entries_snapshot', { schema: 'admin' })
 @Index(['debugSessionId', 'capturedAt'])
 @Index(['tenantId', 'key'])
 export class CacheEntrySnapshot {
@@ -254,7 +254,7 @@ export class CacheEntrySnapshot {
   createdAt!: Date;
 }
 
-@Entity('feature_flag_overrides')
+@Entity('feature_flag_overrides', { schema: 'admin' })
 @Index(['tenantId', 'featureKey'])
 @Index(['adminId', 'isActive'])
 export class FeatureFlagOverride {

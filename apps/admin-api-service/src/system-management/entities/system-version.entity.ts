@@ -42,7 +42,7 @@ export interface MigrationInfo {
   error?: string;
 }
 
-@Entity('system_versions')
+@Entity('system_versions', { schema: 'admin' })
 @Index(['version'], { unique: true })
 @Index(['releaseType', 'status'])
 @Index(['deployedAt'])

@@ -152,7 +152,14 @@ services:
     # NEVER change this to a lower version — PostgreSQL will refuse to start
     # if the data was created with a newer TimescaleDB version.
     # To upgrade: pg_dump → destroy volume → start with new image → restore.
-    image: timescale/timescaledb:2.25.1-pg16
+    #
+    # INFRA-CRITICAL-010: switched 2026-04-19 from timescale/timescaledb:2.25.1-pg16
+    # (no pgvector) to timescale/timescaledb-ha:pg16 (TimescaleDB + pgvector + Toolkit).
+    # Required for messaging-service AI tables migration that creates HNSW index using
+    # vector_cosine_ops (apps/messaging-service/src/migrations/1711800000001-CreateAITables.ts:178).
+    # Single source of truth — same digest across CI workflows + every compose file.
+    # Operator action: docker compose pull && docker compose up -d after this lands.
+    image: timescale/timescaledb-ha:pg16@sha256:b3d038d0a0757df8a5ec0a94ba68d9ad57b0e16100a024cf4b370c77ad5645f7
     container_name: aqua-postgres
     restart: unless-stopped
     environment:
@@ -179,6 +186,16 @@ services:
       # IP-1: PostgreSQL SSL — entrypoint wrapper copies certs to $PGDATA
       # with correct postgres:postgres ownership + chmod 600 on key.
       POSTGRES_SSL: "on"
+      # INFRA-CRITICAL-018: image-family default-PGDATA divergence.
+      # Old image (timescale/timescaledb:Alpine): PGDATA=/var/lib/postgresql/data
+      # HA image (timescale/timescaledb-ha:Ubuntu): PGDATA=/home/postgres/pgdata/data
+      # Existing data volume `postgres_data` was created at the legacy path —
+      # we must explicitly pin PGDATA to /var/lib/postgresql/data so the HA
+      # image reads the existing cluster instead of trying to initdb a
+      # different (mostly-empty image-baked) directory and failing.
+      # Single source of truth: this is the canonical PGDATA across every
+      # compose file regardless of which image variant is in use.
+      PGDATA: /var/lib/postgresql/data
     entrypoint: ["/usr/local/bin/postgres-ssl-entrypoint.sh"]
     command: >
       postgres
@@ -212,7 +229,8 @@ services:
   # restart: no — intentional, this is a one-shot init container.
   # ---------------------------------------------------------------------------
   db-init:
-    image: timescale/timescaledb:2.25.1-pg16
+    # INFRA-CRITICAL-010: same image as postgres above (single source of truth)
+    image: timescale/timescaledb-ha:pg16@sha256:b3d038d0a0757df8a5ec0a94ba68d9ad57b0e16100a024cf4b370c77ad5645f7
     container_name: aqua-db-init
     restart: "no"
     depends_on:

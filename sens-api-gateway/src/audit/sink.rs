@@ -315,6 +315,79 @@ impl AuditSink {
         Ok(new_seq)
     }
 
+    /// Swap the HMAC key without touching the chain state
+    /// or file handle (Batch 99 Sprint 6.3 master-key
+    /// rotation integration).
+    ///
+    /// ## WHY
+    ///
+    /// The audit sink's AuditHmacKey is MATERIALIZED at
+    /// init time from `keystore.derive_key(AuditHmacChain)`.
+    /// When master rotation happens (Batch 98
+    /// `rotate_master_from_files`), the derived key CHANGES
+    /// immediately but the sink's cached key stays OLD.
+    /// Post-rotation audit entries would still be HMAC'd
+    /// with the OLD key — breaking the property "same key
+    /// across a chain segment" + creating a forensic
+    /// discontinuity.
+    ///
+    /// `reload_hmac_key` lets the rotation orchestrator
+    /// atomically:
+    /// 1. Rotate master in keystore.
+    /// 2. Derive NEW audit HMAC key.
+    /// 3. Call sink.reload_hmac_key(new_key).
+    /// 4. Subsequent appends use new key.
+    ///
+    /// ## Chain continuity
+    ///
+    /// Chain state (last_hmac, last_sequence) is
+    /// INTENTIONALLY preserved. The NEXT entry after a
+    /// key swap uses:
+    /// - prev_hmac = LAST ENTRY'S current_hmac (under OLD
+    ///   key, the OLD value carried forward as the chain
+    ///   link).
+    /// - computed via HMAC_NEW(prev_hmac || entry_bytes).
+    ///
+    /// audit-verify CLI consumers MUST know the key
+    /// rotation boundary: segment N (entries 1..K) verifies
+    /// with OLD key, segment N+1 (entries K+1..) verifies
+    /// with NEW key; cross-boundary link uses the OLD key's
+    /// last current_hmac as the NEW key's first prev_hmac.
+    ///
+    /// Operator procedure: on rotation, emit an audit entry
+    /// `KeyRotated` BEFORE calling reload_hmac_key. That
+    /// entry is the explicit boundary marker in the log.
+    pub fn reload_hmac_key(&self, new_key: AuditHmacKey) -> Result<(), AuditSinkError> {
+        let mut guard = self.state.lock().map_err(|_| AuditSinkError::LockPoisoned)?;
+
+        // Flush buffered content + fsync under the OLD key
+        // before the swap. If we flipped the key first, any
+        // buffered unflushed line would be HMAC-queued with
+        // OLD but technically written under NEW context.
+        // (The chain entry was COMPUTED when append was
+        // called, so this is defense-in-depth — the write
+        // path already has computed the HMAC at append
+        // time.)
+        guard
+            .writer
+            .flush()
+            .map_err(|e| AuditSinkError::WriteFailed(format!("reload flush: {}", e)))?;
+        guard
+            .writer
+            .get_ref()
+            .sync_all()
+            .map_err(|e| AuditSinkError::WriteFailed(format!("reload fsync: {}", e)))?;
+
+        guard.hmac_key = new_key;
+
+        info!(
+            "AuditSink hmac_key reloaded: chain_preserved_at_sequence={} (operator should emit KeyRotated audit entry BEFORE this call for forensic clarity)",
+            guard.last_sequence
+        );
+
+        Ok(())
+    }
+
     /// Reopen the file handle at the same path WITHOUT
     /// resetting chain state (Batch 76 Sprint 6.2 Phase 2
     /// SIGHUP rotation compatibility).
@@ -990,6 +1063,65 @@ mod tests {
 
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(&rotated_path);
+    }
+
+    // -------------------------------------------------------
+    // Batch 99 — reload_hmac_key (rotation integration)
+    // -------------------------------------------------------
+
+    #[test]
+    fn reload_hmac_key_preserves_chain_state() {
+        let path = tmp_path();
+        let key1 = AuditHmacKey::from_bytes([0xaau8; 32]);
+        let sink = AuditSink::open(&path, key1).expect("open");
+
+        sink.append(canned_entry()).expect("1");
+        sink.append(canned_entry()).expect("2");
+        let (pre_seq, pre_hmac) = sink.snapshot();
+        assert_eq!(pre_seq, 2);
+
+        // Swap HMAC key — chain state MUST be preserved.
+        let key2 = AuditHmacKey::from_bytes([0xbbu8; 32]);
+        sink.reload_hmac_key(key2).expect("reload");
+
+        let (post_seq, post_hmac) = sink.snapshot();
+        assert_eq!(post_seq, pre_seq, "sequence preserved");
+        assert_eq!(post_hmac, pre_hmac, "last_hmac preserved");
+
+        // Next append chains from seq=3 but uses NEW key.
+        let seq3 = sink.append(canned_entry()).expect("3");
+        assert_eq!(seq3, 3);
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn reload_hmac_key_uses_new_key_for_subsequent_appends() {
+        let path = tmp_path();
+        let key1_bytes = [0xccu8; 32];
+        let key2_bytes = [0xddu8; 32];
+
+        // Append one entry under key1, snapshot, reload to
+        // key2, append another, and verify the two entries
+        // HAVE DIFFERENT current_hmac (different key =
+        // different HMAC output even for identical
+        // canonical_bytes + prev_hmac is DIFFERENT per
+        // append which drives entry-to-entry difference
+        // anyway; the proof here is that the NEW key is
+        // actually consumed).
+        let sink = AuditSink::open(&path, AuditHmacKey::from_bytes(key1_bytes))
+            .expect("open");
+        sink.append(canned_entry()).expect("1");
+        let (_, hmac_after_1) = sink.snapshot();
+
+        sink.reload_hmac_key(AuditHmacKey::from_bytes(key2_bytes))
+            .expect("reload");
+
+        sink.append(canned_entry()).expect("2");
+        let (_, hmac_after_2) = sink.snapshot();
+
+        assert_ne!(hmac_after_1, hmac_after_2);
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]

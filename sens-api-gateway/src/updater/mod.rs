@@ -61,6 +61,13 @@ pub mod partition_store;
 // "broken firmware bricks device" risk class by giving
 // rollback a deterministic time bound.
 pub mod watchdog;
+// Batch 111 Sprint 6.5: bootloader-coordination trait +
+// NoopBootloaderHandle (non-RPi). Closes the "software
+// state updated but bootloader flag stays on old slot"
+// gap flagged in Batch 108's commit body. TrybootBootloaderHandle
+// real-RPi impl lands in a follow-up batch that requires
+// hardware for signed autoboot.txt verification.
+pub mod bootloader;
 pub mod verify;
 
 pub use error::{FirmwareManifestCanonicalBytesError, ManifestVerifyError};
@@ -74,4 +81,5 @@ pub use watchdog::{
     run_cold_boot_watchdog, watchdog_tick, WatchdogTickOutcome,
     DEFAULT_WATCHDOG_POLL_INTERVAL_SECS,
 };
+pub use bootloader::{BootloaderError, BootloaderHandle, NoopBootloaderHandle};
 pub use verify::verify_firmware_manifest;

@@ -9,6 +9,12 @@ module.exports = {
     '<rootDir>/src/**/__tests__/**/*.spec.ts',
   ],
   transform: {
+    // isolatedModules lives in tsconfig.spec.json (compilerOptions) —
+    // ts-jest v29+ deprecates passing it here. Skips full cross-module
+    // type-checking; when the harness imports from @aquaculture/backend-
+    // common it would otherwise pull the entire source tree through the
+    // type-checker + surface pre-existing TS4111/TS2532 noise. Type
+    // safety still covered by nx run backend-common:build.
     '^.+\\.[tj]s$': ['ts-jest', { tsconfig: '<rootDir>/tsconfig.spec.json' }],
   },
   moduleFileExtensions: ['ts', 'js', 'html'],

@@ -61,12 +61,25 @@ pub(crate) fn derive_db_encryption_key() -> Result<String> {
 
 /// Load or create the device-local secret key for database encryption.
 ///
-/// The secret is stored at /etc/suderra/db.key with 0400 permissions.
+/// The secret is stored at `/etc/suderra/db.key` with 0400
+/// permissions by default. If `SUDERRA_DB_KEY_PATH` env var is
+/// set (Batch 88 CI-sandbox support), that path is used instead
+/// — enables non-root CI runners to exercise tests that need
+/// the SQLCipher derivation path without needing `/etc`
+/// write access.
+///
 /// If the file does not exist, a 32-byte random key is generated.
 fn load_or_create_db_secret() -> Result<Vec<u8>> {
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
-    let secret_path = Path::new("/etc/suderra/db.key");
+    // Batch 88: env-override for CI + test environments that
+    // cannot write to /etc. Production deployments leave the
+    // env unset + use the canonical path.
+    let path_buf: PathBuf = match std::env::var_os("SUDERRA_DB_KEY_PATH") {
+        Some(v) => PathBuf::from(v),
+        None => PathBuf::from("/etc/suderra/db.key"),
+    };
+    let secret_path: &Path = path_buf.as_path();
 
     if secret_path.exists() {
         let key = std::fs::read(secret_path)
@@ -85,7 +98,12 @@ fn load_or_create_db_secret() -> Result<Vec<u8>> {
     // Ensure parent directory exists
     if let Some(parent) = secret_path.parent() {
         std::fs::create_dir_all(parent)
-            .context("Failed to create /etc/suderra directory")?;
+            .with_context(|| {
+                format!(
+                    "Failed to create secret-key parent directory {}",
+                    parent.display()
+                )
+            })?;
     }
 
     // Write with restrictive permissions from the start (no TOCTOU race)
@@ -97,7 +115,12 @@ fn load_or_create_db_secret() -> Result<Vec<u8>> {
             .create_new(true)
             .mode(0o400)
             .open(secret_path)
-            .context("Failed to create database secret key file at /etc/suderra/db.key")?;
+            .with_context(|| {
+                format!(
+                    "Failed to create database secret key file at {}",
+                    secret_path.display()
+                )
+            })?;
         std::io::Write::write_all(&mut file, &key)
             .context("Failed to write database secret key")?;
     }
@@ -108,7 +131,7 @@ fn load_or_create_db_secret() -> Result<Vec<u8>> {
             .context("Failed to write database secret key")?;
     }
 
-    tracing::info!("Generated new database secret key at /etc/suderra/db.key");
+    tracing::info!("Generated new database secret key at {}", secret_path.display());
     Ok(key)
 }
 
@@ -1280,6 +1303,35 @@ impl Clone for AsyncOfflineQueue {
 mod tests {
     use super::*;
 
+    /// Test-wide shared key-path sandbox (Batch 88). Set once
+    /// on first backup-test invocation; subsequent tests reuse
+    /// the same path so parallel `cargo test` execution
+    /// doesn't race on env-var mutation. The path lives in a
+    /// module-scope LazyLock-managed tempdir that survives the
+    /// test process.
+    static TEST_KEY_PATH_INIT: std::sync::LazyLock<std::path::PathBuf> =
+        std::sync::LazyLock::new(|| {
+            let dir = std::env::temp_dir().join(format!(
+                "suderra-offline-queue-test-{}",
+                std::process::id()
+            ));
+            std::fs::create_dir_all(&dir).expect("mkdir test key dir");
+            let path = dir.join("db.key");
+            // SAFETY: set_var is process-global; we set it
+            // ONCE inside LazyLock::new so concurrent readers
+            // see a stable value. No subsequent remove_var
+            // call from this module; tempdir auto-cleanup at
+            // process exit.
+            unsafe {
+                std::env::set_var("SUDERRA_DB_KEY_PATH", &path);
+            }
+            path
+        });
+
+    fn ensure_key_sandbox() {
+        let _ = &*TEST_KEY_PATH_INIT;
+    }
+
     #[test]
     fn test_enqueue_dequeue() {
         let queue = OfflineQueue::in_memory(100).unwrap();
@@ -1485,6 +1537,10 @@ mod tests {
 
     #[test]
     fn test_backup_to() {
+        // Batch 88: share SUDERRA_DB_KEY_PATH sandbox across
+        // tests (set-once via LazyLock) so parallel cargo
+        // test doesn't race on env-var mutation.
+        ensure_key_sandbox();
         let temp_dir = tempfile::tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
         let backup_path = temp_dir.path().join("backup.db");
@@ -1507,6 +1563,7 @@ mod tests {
 
     #[test]
     fn test_backup_rolling() {
+        ensure_key_sandbox();
         let temp_dir = tempfile::tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
         let backup_dir = temp_dir.path().join("backups");

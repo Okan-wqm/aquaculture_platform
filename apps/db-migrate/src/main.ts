@@ -53,6 +53,26 @@
  *   2 — invocation error (missing env var, unreadable configuration,
  *       postgres unreachable).
  */
+// MUST be the FIRST import in the runtime entrypoint. Activates Node's
+// `Reflect.getMetadata()` / `Reflect.defineMetadata()` API used by every
+// class-level decorator (`@TenantFanOut`, `@ExpandContract`, `@MigrationMeta`,
+// `@CompatibleWithAppVersion`) the enterprise-refactor plan ships in Phase 6
+// and later. Without this import, decorator metadata is silently a no-op at
+// runtime — the orchestrator's class-map dispatch (plan v3 R7) would observe
+// empty metadata on every migration class and fall through to a legacy
+// code path, giving the illusion that decorators work while they don't.
+//
+// Plan v3 lists this as CRITICAL kick-off prereq (R29). Every other
+// aqua-* service already imports reflect-metadata from its own main.ts
+// (grep "reflect-metadata" across apps/). aqua-db-migrate was the lone
+// exception because it was born before the plan existed.
+//
+// Safe to land BEFORE any decorator is authored: the import is inert
+// without `Reflect.decorate()` call sites. Prereq-first-deploy pattern
+// — we deploy this now, the decorators that rely on it ship later
+// phases, the contract is already in place when they do.
+import 'reflect-metadata';
+
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 

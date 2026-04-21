@@ -395,6 +395,38 @@ impl CommandHandler {
                 return Ok(());
             }
 
+            // Batch 62 Sprint 6.4 observability: detect
+            // CommandEnvelope format vs legacy CommandMessage
+            // BEFORE parse to emit operator telemetry on
+            // rollout progress. Pre-Sprint-6.4 the envelope
+            // is NOT yet consumed — detection is
+            // INFORMATIONAL ONLY. Sprint 6.4 full wire
+            // replaces this detect-and-log with parse-and-
+            // verify.
+            //
+            // Detection heuristic: CommandEnvelope has an
+            // `actor` field (16-byte UUID); CommandMessage
+            // does not. A quick payload scan for the
+            // `"actor":` substring indicates envelope
+            // format. serde-double-parse would be
+            // authoritative but slower; the string-scan is
+            // cheap + accepts false positives (a legacy
+            // command with a free-form "actor" field in
+            // params would also match, but that's a
+            // non-conflicting edge case — the metric just
+            // over-reports envelope-format by a small
+            // fraction until Sprint 6.4 full wire swaps to
+            // authoritative parse).
+            if message.payload.windows(8).any(|w| w == b"\"actor\":") {
+                info!(
+                    "CommandEnvelope-format payload detected on {} ({} bytes). \
+                     Sprint 6.4 full wire will route envelope through verify_envelope \
+                     path; pre-Sprint-6.4 legacy CommandMessage parse still applies.",
+                    message.topic,
+                    message.payload.len()
+                );
+            }
+
             // Parse command
             let command: CommandMessage = match serde_json::from_slice(&message.payload) {
                 Ok(cmd) => cmd,

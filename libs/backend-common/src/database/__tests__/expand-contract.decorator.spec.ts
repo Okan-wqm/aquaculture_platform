@@ -4,6 +4,7 @@ import {
   EXPAND_CONTRACT_META_KEY,
   ExpandContract,
   authorizesBreaking,
+  classifyMigrationsForBreaking,
   getExpandContractMetadata,
 } from '../expand-contract.decorator';
 
@@ -83,5 +84,90 @@ describe('@ExpandContract decorator', () => {
     @ExpandContract({ phase: 'contract', dependsOn: 'AddFooExpand' })
     class M {}
     expect(authorizesBreaking(M)).toBe('yes');
+  });
+});
+
+describe('classifyMigrationsForBreaking', () => {
+  it('all-authorized when every class is expand or contract with dependsOn', () => {
+    @ExpandContract({ phase: 'expand' })
+    class AddFoo {}
+    @ExpandContract({ phase: 'contract', dependsOn: 'AddFoo' })
+    class DropLegacyFoo {}
+
+    const result = classifyMigrationsForBreaking([
+      { name: 'AddFoo', ctor: AddFoo },
+      { name: 'DropLegacyFoo', ctor: DropLegacyFoo },
+    ]);
+    expect(result.allAuthorized).toBe(true);
+    expect(result.undecorated).toEqual([]);
+    expect(result.classifications).toHaveLength(2);
+    expect(result.classifications[0]).toMatchObject({
+      name: 'AddFoo',
+      authorization: 'expand',
+      phase: 'expand',
+    });
+    expect(result.classifications[1]).toMatchObject({
+      name: 'DropLegacyFoo',
+      authorization: 'yes',
+      phase: 'contract',
+      dependsOn: 'AddFoo',
+    });
+  });
+
+  it('flags an undecorated class as unauthorized', () => {
+    @ExpandContract({ phase: 'expand' })
+    class OkMigration {}
+    class BareMigration {}
+
+    const result = classifyMigrationsForBreaking([
+      { name: 'OkMigration', ctor: OkMigration },
+      { name: 'BareMigration', ctor: BareMigration },
+    ]);
+    expect(result.allAuthorized).toBe(false);
+    expect(result.undecorated).toEqual(['BareMigration']);
+    expect(result.classifications[1]?.authorization).toBe('no');
+    expect(result.classifications[1]?.phase).toBeUndefined();
+  });
+
+  it('empty input is trivially allAuthorized=true', () => {
+    const result = classifyMigrationsForBreaking([]);
+    expect(result.allAuthorized).toBe(true);
+    expect(result.classifications).toEqual([]);
+    expect(result.undecorated).toEqual([]);
+  });
+
+  it('preserves migration name + distinguishes phase', () => {
+    @ExpandContract({ phase: 'expand' })
+    class ExpandOne {}
+    @ExpandContract({ phase: 'contract', dependsOn: 'ExpandOne' })
+    class ContractOne {}
+
+    const result = classifyMigrationsForBreaking([
+      { name: 'ExpandOne', ctor: ExpandOne },
+      { name: 'ContractOne', ctor: ContractOne },
+    ]);
+    const expand = result.classifications.find((c) => c.name === 'ExpandOne');
+    const contract = result.classifications.find(
+      (c) => c.name === 'ContractOne',
+    );
+    expect(expand?.phase).toBe('expand');
+    expect(contract?.phase).toBe('contract');
+    expect(contract?.dependsOn).toBe('ExpandOne');
+  });
+
+  it('a single undecorated migration in a list of decorated ones flips allAuthorized=false', () => {
+    @ExpandContract({ phase: 'expand' })
+    class A {}
+    @ExpandContract({ phase: 'expand' })
+    class B {}
+    class C {} // unauthorized
+
+    const result = classifyMigrationsForBreaking([
+      { name: 'A', ctor: A },
+      { name: 'B', ctor: B },
+      { name: 'C', ctor: C },
+    ]);
+    expect(result.allAuthorized).toBe(false);
+    expect(result.undecorated).toEqual(['C']);
   });
 });

@@ -140,3 +140,56 @@ export function authorizesBreaking(
   if (meta === undefined) return 'no';
   return meta.phase === 'contract' ? 'yes' : 'expand';
 }
+
+export interface MigrationClassification {
+  readonly name: string;
+  readonly authorization: 'yes' | 'expand' | 'no';
+  readonly phase?: ExpandContractPhase;
+  readonly dependsOn?: string;
+}
+
+export interface BatchClassificationResult {
+  /**
+   * True iff every class in the input set carries EITHER an expand
+   * decorator (non-breaking) OR a contract decorator with valid
+   * dependsOn. A single 'no' classification in the set flips this
+   * to false.
+   */
+  readonly allAuthorized: boolean;
+  readonly classifications: readonly MigrationClassification[];
+  readonly undecorated: readonly string[];
+}
+
+/**
+ * Batch classification for PR-gate orchestration. The GHA workflow
+ * collects the migration classes added in the PR, imports each, and
+ * passes them here to decide whether the breaking-diff allowance
+ * should fire.
+ *
+ * Returns structured data (never boolean-only) so the gate's log
+ * output can name exactly which migration lacks authorization — the
+ * reviewer sees the concrete fix required.
+ */
+export function classifyMigrationsForBreaking(
+  migrations: ReadonlyArray<{ name: string; ctor: Function }>,
+): BatchClassificationResult {
+  const classifications: MigrationClassification[] = [];
+  const undecorated: string[] = [];
+  for (const m of migrations) {
+    const meta = getExpandContractMetadata(m.ctor);
+    const authorization = authorizesBreaking(m.ctor);
+    const base: MigrationClassification = {
+      name: m.name,
+      authorization,
+      ...(meta?.phase !== undefined ? { phase: meta.phase } : {}),
+      ...(meta?.dependsOn !== undefined ? { dependsOn: meta.dependsOn } : {}),
+    };
+    classifications.push(base);
+    if (authorization === 'no') undecorated.push(m.name);
+  }
+  return {
+    allAuthorized: undecorated.length === 0,
+    classifications,
+    undecorated,
+  };
+}

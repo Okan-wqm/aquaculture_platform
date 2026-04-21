@@ -235,11 +235,14 @@ export {
   EXPAND_CONTRACT_META_KEY,
   getExpandContractMetadata,
   authorizesBreaking,
+  classifyMigrationsForBreaking,
 } from './expand-contract.decorator';
 export type {
   ExpandContractPhase,
   ExpandContractOptions,
   ExpandContractMetadata,
+  MigrationClassification,
+  BatchClassificationResult,
 } from './expand-contract.decorator';
 
 // @EncryptedAtRest — declarative marker for cryptographically-encrypted

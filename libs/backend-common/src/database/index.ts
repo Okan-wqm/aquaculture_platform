@@ -173,6 +173,12 @@ export type {
   AlignCheckConstraintsOptions,
   AlignCheckConstraintsResult,
 } from './schema-primitives/align-check-constraints';
+export { alignColumnType } from './schema-primitives/align-column-type';
+export type {
+  AlignColumnTypeSpec,
+  AlignColumnTypeOptions,
+  AlignColumnTypeResult,
+} from './schema-primitives/align-column-type';
 
 // @EncryptedAtRest — declarative marker for cryptographically-encrypted
 // columns. Drift validator Class J enforces bytea storage; Phase 3

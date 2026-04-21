@@ -415,12 +415,20 @@ impl CommandHandler {
             // continue to work; signed envelopes get stronger
             // gates while legacy CommandMessage retains HC-1
             // backward compat.
-            let (signature_mode, tenant_bytes) = {
+            let (signature_mode, tenant_bytes, rbac_store) = {
                 let state = self.state.read().await;
                 let tenant_bytes = envelope_adapter::tenant_id_bytes_or_none(
                     state.tenant_id.as_deref(),
                 );
-                (state.config.signature_mode, tenant_bytes)
+                // Batch 68 Sprint 6.1 full wire: clone Arc so
+                // the adapter can run verify_signature via
+                // RbacManifestStore::lookup_operator_pubkey
+                // without holding the AppState read-guard.
+                (
+                    state.config.signature_mode,
+                    tenant_bytes,
+                    state.rbac_manifest_store.clone(),
+                )
             };
 
             let command: CommandMessage = if let Some(tenant_bytes) = tenant_bytes {
@@ -428,6 +436,7 @@ impl CommandHandler {
                     &message.payload,
                     tenant_bytes,
                     signature_mode,
+                    &rbac_store,
                 ) {
                     envelope_adapter::AdapterOutcome::NotEnvelopeFormat => {
                         // Legacy path — CommandMessage parse.

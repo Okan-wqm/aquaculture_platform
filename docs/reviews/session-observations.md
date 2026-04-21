@@ -601,33 +601,67 @@ ledger stays current.
 - **Batch 51** — RateLimiter semantic invariants (4
   contract-anchor tests: FIFO eviction, monotonic clock,
   bounded memory, integration point).
+- **Batch 52-66** — Faz 2 deep-wire batches: ProcessHardening
+  (24), SUDERRA_DATA_DIR SSoT (30), Permission mapping
+  (28/47), config_integrity Sprint 6.6 FULL WIRE (54),
+  SystemClockAuthority (55), MokaJtiDedupTable (57),
+  EnvelopeDedupConfig (58), JtiDedupTable runtime (59),
+  two-layer dedup architecture (60), envelope parse-and-
+  verify adapter with NO-OP verify (63), envelope adapter
+  invariants (64), boot banner reflects Batch 63 (65),
+  RbacManifestConfig + coherence Rules 12+13 (66).
+- **Batch 67** — RbacManifestStore runtime skeleton —
+  `authz::manifest_runtime` module with load_from_file +
+  lookup_operator_pubkey + RwLock<Option<RbacManifest>>
+  for Sprint 6.1 hot-reload, closure-injected ed25519
+  verify via ed25519_dalek::verify_strict.
+- **Batch 68** — Sprint 6.1 FULL WIRE: AppState
+  `rbac_manifest_store: Arc<RbacManifestStore>`
+  always-Arc field + `init_rbac_manifest_store()` method
+  with fail-closed Enforcing-mode boot + boot-sequence
+  call analogous to `init_jti_dedup_table`. Swapped
+  envelope_adapter Gate-7 NO-OP closure for real
+  `VerifyingKey::verify_strict` via
+  `RbacManifestStore::lookup_operator_pubkey(&OperatorId)`.
+  Permissive mode signature-present path now runs REAL
+  verify (mode gating lives in verify_envelope Gate 7 for
+  signature=None path only). Tenant-binding skip when
+  `tenant_id=None` documented for pre-provisioning
+  window; Sprint 6.1 follow-up adds post-provisioning
+  MQTT `update_policy` re-load.
 
 ### Session-level totals
 
-- Commits: 39 batches across Faz 1 + Faz 2 foundation.
-- Invariant harness: 10 test files, 42+ tests passing.
-- CI: 8 consecutive green 3-arch runs through the series.
+- Commits: 56+ batches across Faz 1 + Faz 2 + Sprint 6.1
+  full wire (Batches 13-68).
+- Invariant harness: 16+ test files, 91+ tests passing.
+- CI: consecutive green 3-arch runs through the series.
 - Baseline: 153-warning `cargo check --features health`
   unchanged across every batch.
 - rodbus exact-pinned (no SemVer drift).
-- 3 rollout-stage knobs uniformly pre-staged (mtls +
-  config_integrity + signature_mode).
+- 5 rollout-stage knobs uniformly pre-staged (mtls +
+  config_integrity + signature_mode + rbac_manifest +
+  envelope_dedup).
+- Sprint 6.1 (RBAC manifest runtime) + Sprint 6.4
+  (envelope parse-and-verify) + Sprint 6.6 (config
+  integrity) now FULL WIRE.
 
 ### Residual scope (Sprint 6.x deep wire)
 
 Each Sprint 6.x target has foundation + pre-staging but
 the actual wire requires multi-day infrastructure work:
 
+- Sprint 6.1 RBAC follow-up: post-provisioning re-load
+  via MQTT `update_policy` + `highest_seen_policy_
+  version` SQLCipher persistence across reboots.
 - Sprint 6.2 audit sink: file-append + HMAC chain +
   cloud relay + audit-verify CLI.
 - Sprint 6.3 keystore: TPM FFI + mlock + memfd_secret
   + Argon2id master-key derivation.
-- Sprint 6.4 envelope verify: Moka dedup + SQLCipher
-  persist + actor extraction from signed envelope.
+- Sprint 6.4 envelope verify SQLCipher tier: persist
+  layer survives reboots (Moka tier shipped in Batch 57).
 - Sprint 6.5 updater: A/B partition + tryboot overlay
   + TOCTOU re-verify + downgrade prevention.
-- Sprint 6.6 config integrity verify: file read + SHA-
-  256 compute + ed25519 verify + fail-closed boot.
 - Sprint 6.7 supervisor refactor: ClockAuthority chrony
   wire + DrainState coordinator integration +
   lib-split for invariant runtime tests.

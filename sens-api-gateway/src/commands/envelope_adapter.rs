@@ -1,15 +1,15 @@
-//! CommandEnvelope → CommandMessage adapter (Batch 63,
-//! Sprint 6.4 full wire partial).
+//! CommandEnvelope → CommandMessage adapter (Batch 68
+//! Sprint 6.1 FULL WIRE).
 //!
 //! Runtime shim that PARSES envelope-format payloads + calls
 //! the Batch 7 pure `verify_envelope` function with closure-
 //! injected primitives (SHA-256 via sha2 crate, clock via
-//! SystemClockAuthority, signature verify NO-OP'd in Disabled
-//! mode). On success, surfaces a CommandMessage-equivalent
-//! view for the existing `execute_command` dispatch — the
-//! envelope's `cmd`/`params` are semantically identical to
-//! CommandMessage's `command`/`params`; jti becomes
-//! command_id.
+//! SystemClockAuthority, signature verify via ed25519_dalek
+//! + RbacManifestStore::lookup_operator_pubkey). On success,
+//! surfaces a CommandMessage-equivalent view for the existing
+//! `execute_command` dispatch — the envelope's `cmd`/`params`
+//! are semantically identical to CommandMessage's
+//! `command`/`params`; jti becomes command_id.
 //!
 //! ## What this shim does
 //!
@@ -17,35 +17,34 @@
 //! - Runs verify_envelope's 7 gates (cmd bounds + jti format
 //!   + nonce bounds + freshness window + tenant binding +
 //!   cmd_hash match + signature-mode rule).
-//! - In SignatureMode::Disabled, signature verify is a no-op
-//!   (envelope.signature=None path always accepts).
+//! - In SignatureMode::Disabled, signature verify closure is
+//!   never invoked (verify_envelope's signature-mode gate
+//!   short-circuits on signature=None).
 //! - In SignatureMode::Permissive/Enforcing WITH signature
-//!   present, signature verify CANNOT YET run (RBAC manifest
-//!   actor→pubkey lookup is Sprint 6.1 full wire pending);
-//!   the adapter falls back to ACCEPT + emits a "signature-
-//!   verification-pending" warn so operators know they're in
-//!   Permissive mode with Moka dedup + freshness window gate
-//!   but without real signature verify.
+//!   present, the verify closure looks up the operator's
+//!   ed25519 pubkey in the RBAC manifest store (Batch 67) +
+//!   invokes `ed25519_dalek::VerifyingKey::verify_strict`.
+//!   On lookup miss OR signature-verify fail, verify returns
+//!   false → verify_envelope fails Gate 7 → envelope
+//!   rejected.
 //!
-//! ## What this shim does NOT do (Sprint 6.1 full wire)
+//! ## Permissive vs Enforcing behavioral parity
 //!
-//! - Actor-pubkey lookup from the signed RBAC manifest.
-//! - ed25519_dalek::verify_strict invocation with the
-//!   looked-up pubkey.
-//! - Reject unsigned mutating commands in Enforcing mode
-//!   when signature is None (the verify_envelope function
-//!   DOES reject, but without the pubkey-source path the
-//!   adapter falls back rather than rejects — pending
-//!   Sprint 6.1).
-//!
-//! This staged delivery unblocks the envelope's dedup +
-//! freshness + tenant-binding gates TODAY, letting
-//! operators exercise the wire format before Sprint 6.1
-//! lands the actor-pubkey lookup.
+//! The signature closure ALWAYS returns the truthful verify
+//! result (not a hardcoded accept). Mode gating lives in
+//! `verify_envelope`'s Gate 7: Permissive mode with
+//! signature=None is accepted; Enforcing mode with
+//! signature=None is rejected. With signature=Some, BOTH
+//! modes run the real verify; a forged sig fails identically
+//! in both — which matches the IEC 62443 SL-2 discipline
+//! (Permissive ≠ "accept forged", Permissive = "unsigned OK
+//! during rollout").
 
 use serde_json::Value;
 use tracing::{info, warn};
 
+use crate::authz::manifest_runtime::RbacManifestStore;
+use crate::authz::permission::OperatorId;
 use crate::command_envelope::envelope::SignatureMode;
 use crate::command_envelope::{CommandEnvelope, EnvelopeVerifyError};
 
@@ -78,6 +77,10 @@ pub(super) enum AdapterOutcome {
 ///   AppState.tenant_id. None = provisioning incomplete →
 ///   adapter falls back to legacy parse.
 /// - `mode` — SignatureMode from config.
+/// - `rbac_store` — AppState.rbac_manifest_store (Batch 68).
+///   Empty-store (Disabled mode OR Permissive load-failure)
+///   returns None from lookup_operator_pubkey → signature
+///   verify closure returns false → Gate 7 rejects.
 ///
 /// OUTPUT:
 /// - AdapterOutcome::NotEnvelopeFormat if JSON doesn't parse
@@ -89,6 +92,7 @@ pub(super) fn try_parse_and_verify(
     payload: &[u8],
     expected_tenant: [u8; 16],
     mode: SignatureMode,
+    rbac_store: &RbacManifestStore,
 ) -> AdapterOutcome {
     let env: CommandEnvelope = match serde_json::from_slice(payload) {
         Ok(e) => e,
@@ -105,19 +109,49 @@ pub(super) fn try_parse_and_verify(
         Sha256::digest(canonical).into()
     };
 
-    // verify_signature closure — Sprint 6.1 full wire swaps to
-    // real ed25519_dalek::verify_strict via actor-pubkey
-    // lookup. Pre-Sprint-6.1, NO-OP accept in Disabled mode
-    // (never called there anyway — signature=None path);
-    // pre-Sprint-6.1 accept in Permissive/Enforcing with a
-    // warn so operators know the signature gate is pending.
-    let verify_signature = |_canonical: &[u8], _sig: &[u8; 64]| -> bool {
-        warn!(
-            "Batch 63: envelope signature present but Sprint 6.1 actor-pubkey lookup NOT YET WIRED — \
-             accepting unconditionally until RBAC manifest runtime lands. \
-             Enforcing mode DOES still reject unsigned mutating commands via verify_envelope Gate 7."
-        );
-        true
+    // verify_signature closure — Batch 68 Sprint 6.1 full
+    // wire. Looks up the operator's ed25519 pubkey in the
+    // RBAC manifest store (Batch 67) + runs
+    // `VerifyingKey::verify_strict` on canonical_params.
+    //
+    // FAIL-CLOSED DISCIPLINE:
+    // - Empty store (Disabled mode never invokes this
+    //   closure; Permissive load-failure → empty store →
+    //   lookup miss → false → Gate 7 rejects).
+    // - Operator not in manifest.operator_bindings → false.
+    // - Invalid pubkey bytes → false.
+    // - Invalid signature bytes → verify_strict returns Err
+    //   → false.
+    // - Signature verification fails (forged sig) → false.
+    //
+    // The closure has NO silent-accept path; every failure
+    // mode returns false → verify_envelope Gate 7 rejects →
+    // AdapterOutcome::VerifyFailed.
+    let actor_bytes = env.actor;
+    let verify_signature = |canonical: &[u8], sig_bytes: &[u8; 64]| -> bool {
+        let operator_id = OperatorId::new_from_verified(actor_bytes);
+        let pk_bytes = match rbac_store.lookup_operator_pubkey(&operator_id) {
+            Some(pk) => pk,
+            None => {
+                warn!(
+                    "Envelope signature verify: operator pubkey not in RBAC manifest (actor={:?}) — rejecting",
+                    actor_bytes
+                );
+                return false;
+            }
+        };
+        let pk = match ed25519_dalek::VerifyingKey::from_bytes(&pk_bytes) {
+            Ok(k) => k,
+            Err(e) => {
+                warn!(
+                    "Envelope signature verify: manifest pubkey bytes invalid: {} — rejecting",
+                    e
+                );
+                return false;
+            }
+        };
+        let sig = ed25519_dalek::Signature::from_bytes(sig_bytes);
+        pk.verify_strict(canonical, &sig).is_ok()
     };
 
     let now_unix_secs = std::time::SystemTime::now()
@@ -175,14 +209,18 @@ mod tests {
     #[test]
     fn not_envelope_format_on_legacy_payload() {
         let legacy = br#"{"command_id":"c1","command":"ping","timestamp":"2026-04-21T00:00:00Z","params":{}}"#;
-        let outcome = try_parse_and_verify(legacy, [0u8; 16], SignatureMode::Disabled);
+        let store = RbacManifestStore::new();
+        let outcome =
+            try_parse_and_verify(legacy, [0u8; 16], SignatureMode::Disabled, &store);
         assert!(matches!(outcome, AdapterOutcome::NotEnvelopeFormat));
     }
 
     #[test]
     fn malformed_json_returns_not_envelope_format() {
         let junk = b"not json at all";
-        let outcome = try_parse_and_verify(junk, [0u8; 16], SignatureMode::Disabled);
+        let store = RbacManifestStore::new();
+        let outcome =
+            try_parse_and_verify(junk, [0u8; 16], SignatureMode::Disabled, &store);
         assert!(matches!(outcome, AdapterOutcome::NotEnvelopeFormat));
     }
 

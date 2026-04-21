@@ -469,6 +469,24 @@ pub struct AppState {
     /// when-unused pattern.
     pub jti_dedup_table:
         Option<std::sync::Arc<dyn crate::command_envelope::JtiDedupTable>>,
+
+    /// RBAC manifest store for operator→pubkey lookup
+    /// (Batch 68, Sprint 6.1 full wire).
+    ///
+    /// WHY: Plan §3 R-5 + ADR-018 mandate a cloud-signed
+    /// manifest carrying operator→role + role→permission
+    /// bindings. The envelope adapter (Batch 63) Gate 7
+    /// signature verify needs the operator's ed25519 pubkey;
+    /// this store is the SSoT.
+    ///
+    /// WHAT: `Arc<RbacManifestStore>` held AlWAYS (not
+    /// Option) — the store is constructed empty at boot +
+    /// populated by init_rbac_manifest_store IFF
+    /// rbac_manifest.mode != Disabled. The always-present
+    /// Arc simplifies consumer wiring (always clonable,
+    /// always queryable); lookup_operator_pubkey returns
+    /// None on empty-store which is the Disabled semantic.
+    pub rbac_manifest_store: std::sync::Arc<crate::authz::manifest_runtime::RbacManifestStore>,
 }
 
 impl AppState {
@@ -528,6 +546,15 @@ impl AppState {
             // defense (legacy-compat); Some → Sprint 6.4
             // execute_command check_and_mark.
             jti_dedup_table: None,
+            // Batch 68 Sprint 6.1 full wire: empty-store init.
+            // `init_rbac_manifest_store()` below populates IFF
+            // rbac_manifest.mode != Disabled via load_from_file
+            // + ed25519_dalek verify_strict. Always-Arc so
+            // consumers (envelope_adapter Gate 7) can
+            // unconditionally clone without Option unwrapping.
+            rbac_manifest_store: std::sync::Arc::new(
+                crate::authz::manifest_runtime::RbacManifestStore::new(),
+            ),
         }
     }
 
@@ -871,6 +898,65 @@ impl AppState {
             "JTI dedup table initialized: signature_mode={:?} moka_capacity={} moka_ttl_secs={}",
             self.config.signature_mode, capacity, ttl_secs
         );
+    }
+
+    /// Construct + load the RBAC manifest store (Batch 68
+    /// Sprint 6.1 full wire).
+    ///
+    /// WHY: Plan §3 R-5 + ADR-018 mandate a cloud-signed RBAC
+    /// manifest. Batch 67 shipped the store skeleton; Batch 68
+    /// wires the boot-time load + fail-closed handling.
+    ///
+    /// MODE GATE:
+    /// - Disabled: early-return Ok. Store remains empty.
+    /// - Permissive: load attempted; failure warn-logged +
+    ///   store remains empty (envelope Gate 7 falls to NO-OP).
+    /// - Enforcing: load required; failure returns Err →
+    ///   caller exits(1).
+    ///
+    /// TENANT BINDING: plan §3 R-5 specifies the manifest is
+    /// tenant-bound. Requires `self.tenant_id` from the
+    /// provisioning path; when tenant_id is None (pre-
+    /// provisioning boot window), the load is SKIPPED
+    /// regardless of mode — verify_manifest's Gate 3 cannot
+    /// run without a known tenant. Sprint 6.1 follow-up adds
+    /// post-provisioning re-load via MQTT `update_policy`.
+    pub fn init_rbac_manifest_store(&mut self) -> Result<(), String> {
+        use crate::authz::permission::TenantId;
+        use crate::config::RbacManifestMode;
+
+        if matches!(self.config.rbac_manifest.mode, RbacManifestMode::Disabled) {
+            info!("RBAC manifest store: mode=Disabled — skipping load");
+            return Ok(());
+        }
+
+        let tenant_str = match self.tenant_id.as_deref() {
+            Some(t) => t,
+            None => {
+                info!(
+                    "RBAC manifest store: tenant_id=None (pre-provisioning) — skipping load, Sprint 6.1 follow-up adds post-provisioning re-load via MQTT update_policy"
+                );
+                return Ok(());
+            }
+        };
+
+        let uuid = match uuid::Uuid::parse_str(tenant_str) {
+            Ok(u) => u,
+            Err(e) => {
+                return Err(format!(
+                    "RBAC manifest store: tenant_id UUID parse failed: {}",
+                    e
+                ));
+            }
+        };
+        let expected_tenant = TenantId::new_from_verified(*uuid.as_bytes());
+
+        let mode = self.config.rbac_manifest.mode;
+        let pubkey_hex = self.config.rbac_manifest.manifest_signing_pubkey_hex.as_deref();
+        let path_override = self.config.rbac_manifest.manifest_path.as_deref();
+
+        self.rbac_manifest_store
+            .load_from_file(mode, pubkey_hex, path_override, &expected_tenant)
     }
 
     /// Initialize hardware handles (must be called within LocalSet context)
@@ -1286,6 +1372,34 @@ async fn async_main() -> Result<()> {
     {
         let mut state_guard = state.write().await;
         state_guard.init_jti_dedup_table();
+    }
+
+    // Initialize RBAC manifest store (Batch 68 Sprint 6.1 full wire).
+    //
+    // WHY: Plan §3 R-5 + ADR-018 mandate a cloud-signed RBAC
+    // manifest that binds operators to ed25519 pubkeys. Batch 67
+    // shipped the store skeleton; Batch 68 wires the boot-time
+    // load + fail-closed Enforcing-mode handling so the
+    // envelope_adapter Gate 7 signature verify (Batch 63) has a
+    // real lookup source (swapping the NO-OP closure).
+    //
+    // FAIL-CLOSED DISCIPLINE:
+    // - Disabled:  skip load (empty store OK).
+    // - Permissive: load failure is warn-logged + boot continues
+    //   (envelope Gate 7 falls to NO-OP — matches Batch 63
+    //   Permissive semantic).
+    // - Enforcing: load failure → exit(1). Operator must fix
+    //   manifest or downgrade mode. Matches init_backup_manager +
+    //   Faz 2 coherence discipline.
+    {
+        let mut state_guard = state.write().await;
+        if let Err(msg) = state_guard.init_rbac_manifest_store() {
+            error!(
+                "RBAC manifest store init failed (fail-closed boot, mode=Enforcing): {}",
+                msg
+            );
+            std::process::exit(1);
+        }
     }
 
     // Setup graceful shutdown

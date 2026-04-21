@@ -91,6 +91,11 @@ import {
   TENANT_AWARE_SCHEMAS,
   TENANT_SCHEMA_NAME_RE as TENANT_SCHEMA_RE,
 } from '../tenant-aware-schemas';
+import {
+  NoopMigrationEventSink,
+  type MigrationEventSink,
+  type MigrationSinkEventType,
+} from '../migration-event-sink';
 
 export interface MigrationRunnerOptions {
   /**
@@ -100,6 +105,17 @@ export interface MigrationRunnerOptions {
   tenantAware?: boolean;
   /** Advisory-lock acquisition timeout per schema. Default 300 s. */
   lockTimeoutSeconds?: number;
+  /**
+   * Optional lifecycle-event sink (Phase 6). When supplied, the
+   * runner emits start/applied/failed events per migration to enable
+   * observability-service's durable audit trail.
+   *
+   * Defaults to `NoopMigrationEventSink` when omitted — every
+   * existing caller's behaviour is preserved. Callers MUST NOT pass
+   * a sink that throws; see MigrationEventSink docblock for the
+   * fire-and-forget contract.
+   */
+  eventSink?: MigrationEventSink;
 }
 
 export function createMigrationRunnerService(
@@ -119,6 +135,8 @@ export function createMigrationRunnerService(
   const tenantAware =
     options?.tenantAware ?? TENANT_AWARE_SCHEMAS.has(sourceSchema);
   const lockTimeoutSeconds = options?.lockTimeoutSeconds ?? 300;
+  const eventSink: MigrationEventSink =
+    options?.eventSink ?? new NoopMigrationEventSink();
 
   @Injectable()
   class MigrationRunnerService implements OnApplicationBootstrap {
@@ -196,6 +214,42 @@ export function createMigrationRunnerService(
       this.logger.log(
         `Migration runner complete for schema "${sourceSchema}": tenants=${tenantCount}`,
       );
+    }
+
+    /**
+     * Thin wrapper around eventSink.emit — swallows sink errors so a
+     * broken sink never propagates to the runner. Tenant fan-out sets
+     * tenantSchema only when schema !== sourceSchema (the per-tenant
+     * clone case); source-schema lifecycle events carry no tenantSchema.
+     */
+    private emit(
+      schema: string,
+      migrationName: string,
+      eventType: MigrationSinkEventType,
+      durationMs?: number,
+      error?: unknown,
+    ): void {
+      try {
+        const ev = {
+          serviceName: sourceSchema,
+          migrationName,
+          eventType,
+          occurredAt: new Date(),
+          ...(schema !== sourceSchema ? { tenantSchema: schema } : {}),
+          ...(durationMs !== undefined ? { durationMs } : {}),
+          ...(error !== undefined ? { error } : {}),
+        };
+        const maybePromise = eventSink.emit(ev);
+        if (maybePromise !== undefined && typeof maybePromise.then === 'function') {
+          // Sink returns a Promise — fire-and-forget; swallow rejections
+          // so they don't surface as unhandled-promise-rejection crashes.
+          void maybePromise.catch(() => {
+            // Swallow — sink failure MUST NOT impact the runner.
+          });
+        }
+      } catch {
+        // Synchronous sink throw — swallow, never propagate.
+      }
     }
 
     /**
@@ -297,6 +351,9 @@ export function createMigrationRunnerService(
               `SET search_path TO "${schema}", public`,
             );
 
+            const migrationStartedAt = Date.now();
+            this.emit(schema, migration.name, 'start');
+
             // Per-migration transaction so a partial failure in migration
             // N does not leak uncommitted DDL into migration N+1.
             await queryRunner.startTransaction();
@@ -306,6 +363,12 @@ export function createMigrationRunnerService(
               appliedNames.push(migration.name);
               this.logger.log(
                 `Migration "${migration.name}" applied on "${schema}"`,
+              );
+              this.emit(
+                schema,
+                migration.name,
+                'applied',
+                Date.now() - migrationStartedAt,
               );
             } catch (migrationErr) {
               await queryRunner.rollbackTransaction();
@@ -318,6 +381,13 @@ export function createMigrationRunnerService(
                 migrationErr instanceof Error
                   ? migrationErr.stack
                   : undefined,
+              );
+              this.emit(
+                schema,
+                migration.name,
+                'failed',
+                Date.now() - migrationStartedAt,
+                migrationErr,
               );
               throw migrationErr;
             }

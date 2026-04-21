@@ -6,7 +6,7 @@
  */
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const {
-  main,
+  main: attestationMain,
   runCoverageCheck,
 } = require('../../../../../../tools/gates/compliance-attestation-coverage') as {
   main: (argv: readonly string[]) => number;
@@ -70,7 +70,7 @@ describe('compliance-attestation-coverage gate', () => {
   });
 
   it('main() with --json emits machine-readable report', () => {
-    const code = main(['--cutoff', '9999-12-31T23:59:59Z', '--json']);
+    const code = attestationMain(['--cutoff', '9999-12-31T23:59:59Z', '--json']);
     expect(code).toBe(0);
     const parsed = JSON.parse(stdoutChunks.join('')) as {
       cutoffIso: string;
@@ -85,13 +85,13 @@ describe('compliance-attestation-coverage gate', () => {
   });
 
   it('main() exits 0 when grandfathered (no in-scope findings)', () => {
-    const code = main(['--cutoff', '9999-12-31T23:59:59Z']);
+    const code = attestationMain(['--cutoff', '9999-12-31T23:59:59Z']);
     expect(code).toBe(0);
     expect(stdoutChunks.join('')).toContain('grandfathered');
   });
 
   it('main() exits 1 when in-scope findings lack evidence', () => {
-    const code = main(['--cutoff', '2026-04-15T00:00:00Z']);
+    const code = attestationMain(['--cutoff', '2026-04-15T00:00:00Z']);
     expect(code).toBe(1);
     expect(stdoutChunks.join('')).toContain('MISSING ATTESTATIONS');
   });
@@ -105,7 +105,7 @@ describe('compliance-attestation-coverage gate', () => {
         return true;
       }) as never);
     try {
-      const code = main(['--cutoff', 'not-a-date']);
+      const code = attestationMain(['--cutoff', 'not-a-date']);
       expect(code).toBe(2);
       expect(stderr.join('')).toContain('invalid cutoff');
     } finally {

@@ -9,7 +9,7 @@
  */
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
-const { main } = require('../../../../../../tools/gates/migration-codeowners-coverage') as {
+const { main: codeownersMain } = require('../../../../../../tools/gates/migration-codeowners-coverage') as {
   main: (argv: readonly string[]) => number;
 };
 
@@ -32,13 +32,13 @@ describe('migration-codeowners-coverage gate', () => {
   });
 
   it('exits 0 — current CODEOWNERS covers every migration path', () => {
-    const code = main([]);
+    const code = codeownersMain([]);
     expect(code).toBe(0);
     expect(stdoutChunks.join('')).toContain('All migration paths are CODEOWNERS-covered');
   });
 
   it('--json emits the uncovered list + counts', () => {
-    const code = main(['--json']);
+    const code = codeownersMain(['--json']);
     expect(code).toBe(0);
     const parsed = JSON.parse(stdoutChunks.join('')) as {
       totalPaths: number;

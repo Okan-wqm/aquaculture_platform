@@ -12,7 +12,7 @@ import { join } from 'node:path';
 // inline (isolatedModules) so the stricter tsconfig there does not
 // gate this spec.
 // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
-const { main } = require('../../../../../../tools/gates/schema-snapshot-diff') as {
+const { main: snapshotDiffMain } = require('../../../../../../tools/gates/schema-snapshot-diff') as {
   main: (argv: readonly string[]) => Promise<number>;
 };
 
@@ -67,7 +67,7 @@ describe('schema-snapshot-diff CLI', () => {
   it('exits 0 for empty diff', async () => {
     writeFileSync(beforePath, JSON.stringify(makeSnapshot()));
     writeFileSync(afterPath, JSON.stringify(makeSnapshot()));
-    const code = await main([
+    const code = await snapshotDiffMain([
       '--before',
       beforePath,
       '--after',
@@ -85,7 +85,7 @@ describe('schema-snapshot-diff CLI', () => {
     });
     writeFileSync(beforePath, JSON.stringify(before));
     writeFileSync(afterPath, JSON.stringify(makeSnapshot()));
-    const code = await main([
+    const code = await snapshotDiffMain([
       '--before',
       beforePath,
       '--after',
@@ -104,7 +104,7 @@ describe('schema-snapshot-diff CLI', () => {
     });
     writeFileSync(beforePath, JSON.stringify(before));
     writeFileSync(afterPath, JSON.stringify(makeSnapshot()));
-    const code = await main([
+    const code = await snapshotDiffMain([
       '--before',
       beforePath,
       '--after',
@@ -123,7 +123,7 @@ describe('schema-snapshot-diff CLI', () => {
       tables: [{ schema: 'hr', name: 'new_table', columns: [] }],
     });
     writeFileSync(afterPath, JSON.stringify(after));
-    const code = await main([
+    const code = await snapshotDiffMain([
       '--before',
       beforePath,
       '--after',
@@ -141,7 +141,7 @@ describe('schema-snapshot-diff CLI', () => {
     });
     writeFileSync(beforePath, JSON.stringify(before));
     writeFileSync(afterPath, JSON.stringify(makeSnapshot()));
-    const code = await main([
+    const code = await snapshotDiffMain([
       '--before',
       beforePath,
       '--after',
@@ -162,7 +162,7 @@ describe('schema-snapshot-diff CLI', () => {
   });
 
   it('exits 2 on missing --schema arg', async () => {
-    const code = await main(['--before', beforePath, '--after', afterPath]);
+    const code = await snapshotDiffMain(['--before', beforePath, '--after', afterPath]);
     expect(code).toBe(2);
     expect(stderrChunks.join('')).toContain('argument error');
   });
@@ -172,7 +172,7 @@ describe('schema-snapshot-diff CLI', () => {
     const after = makeSnapshot({ schema: 'farm' });
     writeFileSync(beforePath, JSON.stringify(before));
     writeFileSync(afterPath, JSON.stringify(after));
-    const code = await main([
+    const code = await snapshotDiffMain([
       '--before',
       beforePath,
       '--after',
@@ -187,7 +187,7 @@ describe('schema-snapshot-diff CLI', () => {
   it('exits 2 on malformed JSON', async () => {
     writeFileSync(beforePath, 'not-json');
     writeFileSync(afterPath, JSON.stringify(makeSnapshot()));
-    const code = await main([
+    const code = await snapshotDiffMain([
       '--before',
       beforePath,
       '--after',

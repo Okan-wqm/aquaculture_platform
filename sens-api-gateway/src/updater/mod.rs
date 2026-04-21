@@ -55,6 +55,12 @@ pub mod partition;
 // update orchestrator + Batch 108 cold-boot-budget
 // watchdog.
 pub mod partition_store;
+// Batch 107 Sprint 6.5: cold-boot-budget watchdog task.
+// Polls PartitionStore for expired PendingConfirm
+// deadlines + applies Rollback transition. Closes the
+// "broken firmware bricks device" risk class by giving
+// rollback a deterministic time bound.
+pub mod watchdog;
 pub mod verify;
 
 pub use error::{FirmwareManifestCanonicalBytesError, ManifestVerifyError};
@@ -64,4 +70,8 @@ pub use manifest::{
 };
 pub use partition::{AbPartition, PartitionRoll, SlotState};
 pub use partition_store::{PartitionState, PartitionStore, PartitionStoreError};
+pub use watchdog::{
+    run_cold_boot_watchdog, watchdog_tick, WatchdogTickOutcome,
+    DEFAULT_WATCHDOG_POLL_INTERVAL_SECS,
+};
 pub use verify::verify_firmware_manifest;

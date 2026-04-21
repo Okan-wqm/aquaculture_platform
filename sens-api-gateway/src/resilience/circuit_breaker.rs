@@ -421,23 +421,40 @@ mod tests {
 
     #[test]
     fn test_concurrent_state_transitions() {
+        // Batch 96 ORPHAN-MEDIUM-016 closure: replace
+        // timing-dependent orchestration (thread::sleep
+        // micros) with deterministic counter-based
+        // assertions. The original test was flaky under 4-
+        // core parallel cargo test because the recovery
+        // window (10ms) could elapse between failures,
+        // letting the circuit transition to HalfOpen
+        // mid-test + miss the Open assertion.
+        //
+        // Fix: use a LARGE recovery window (1 hour — much
+        // longer than the test possibly runs) so the
+        // circuit can ONLY be in Open state after the
+        // threshold is crossed. Total failures (10 threads
+        // × 5 each = 50) is >> threshold (3) so Open state
+        // is guaranteed regardless of thread interleaving.
+        // Removed thread::sleep entirely — not needed for
+        // the invariant under test (just proves concurrent
+        // record_failure calls correctly increment the
+        // shared counter).
         use std::sync::Arc;
         use std::thread;
 
         let cb = Arc::new(CircuitBreaker::new(
             "concurrent-test",
             3,
-            Duration::from_millis(10),
+            Duration::from_secs(3600), // 1 hour — no recovery mid-test
         ));
 
-        // Spawn multiple threads to cause failures concurrently
         let mut handles = vec![];
         for _ in 0..10 {
             let cb_clone = cb.clone();
             handles.push(thread::spawn(move || {
                 for _ in 0..5 {
                     cb_clone.record_failure();
-                    thread::sleep(Duration::from_micros(100));
                 }
             }));
         }
@@ -446,8 +463,9 @@ mod tests {
             handle.join().unwrap();
         }
 
-        // Circuit should be open after many failures
-        assert!(cb.is_open());
+        // With 50 failures >> threshold(3) + no recovery
+        // window, circuit MUST be open. Deterministic.
+        assert!(cb.is_open(), "50 failures >> threshold 3, circuit must be open");
     }
 
     #[test]

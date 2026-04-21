@@ -45,9 +45,15 @@ pub mod acceptance;
 pub mod error;
 pub mod purpose;
 pub mod secret;
+// Batch 82 Sprint 6.3 partial: file-backed Argon2id keystore
+// backend. First of the three ADR-018 §4 backends to land
+// (TPM + systemd-creds follow in Batches 83 + 84). Unblocks
+// Sprint 6.2 Batch 80 master-key-derived audit HMAC.
+pub mod file_backed;
 
 pub use acceptance::{AcceptanceToken, FileBackedAcceptance, FileBackedAcceptanceError};
 pub use error::{KeyDerivationError, KeystoreError, KeystoreErrorKind};
+pub use file_backed::{Argon2idParams, FileBackedKeystore};
 pub use purpose::{DerivedKeyId, KeyPurpose};
 pub use secret::{KeyMaterial, MasterKeyMaterial};
 

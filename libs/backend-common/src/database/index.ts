@@ -211,6 +211,22 @@ export type {
   BackfillProgress,
 } from './schema-primitives/backfill-column';
 
+// MigrationEventSink — decoupled hook for lifecycle-event emission from
+// the per-service MigrationRunnerService. Phase 6 integration layer.
+// See migration-event-sink.ts for the three provided implementations
+// (NoopMigrationEventSink, InMemoryMigrationEventSink for tests,
+// LoggerMigrationEventSink for dev/staging).
+export {
+  NoopMigrationEventSink,
+  InMemoryMigrationEventSink,
+  LoggerMigrationEventSink,
+} from './migration-event-sink';
+export type {
+  MigrationEventSink,
+  MigrationSinkEvent,
+  MigrationSinkEventType,
+} from './migration-event-sink';
+
 // @ExpandContract — declarative marker for blue-green migration phases.
 // Phase 4 PR-gate reads this metadata to authorize breaking diffs on
 // contract-phase migrations. See expand-contract.decorator.ts.

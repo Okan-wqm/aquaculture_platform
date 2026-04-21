@@ -46,6 +46,11 @@
 
 pub mod chain;
 pub mod entry;
+// Batch 74 Sprint 6.2 Phase 2: runtime sink — file append +
+// HMAC chain state + NDJSON serialization. Chain recovery on
+// restart + SIGHUP rotation + cloud relay land in follow-up
+// batches; this module is the foundation layer.
+pub mod sink;
 
 pub use chain::{
     append_entry,
@@ -55,6 +60,8 @@ pub use chain::{
     HmacChainEntry,
     PrevHmac,
 };
+
+pub use sink::{AuditHmacKey, AuditSink, AuditSinkError};
 
 pub use entry::{
     AuditAction,

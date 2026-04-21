@@ -49,6 +49,12 @@
 pub mod error;
 pub mod manifest;
 pub mod partition;
+// Batch 106 Sprint 6.5 foundation: persistent partition-
+// state store + PartitionRoll transition validator. The
+// runtime state machine consumed by the Batch 109
+// update orchestrator + Batch 108 cold-boot-budget
+// watchdog.
+pub mod partition_store;
 pub mod verify;
 
 pub use error::{FirmwareManifestCanonicalBytesError, ManifestVerifyError};
@@ -57,4 +63,5 @@ pub use manifest::{
     TargetArch,
 };
 pub use partition::{AbPartition, PartitionRoll, SlotState};
+pub use partition_store::{PartitionState, PartitionStore, PartitionStoreError};
 pub use verify::verify_firmware_manifest;

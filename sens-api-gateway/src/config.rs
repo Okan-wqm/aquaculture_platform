@@ -300,6 +300,16 @@ pub struct AgentConfig {
     #[serde(default)]
     pub rbac_manifest: RbacManifestConfig,
 
+    /// Audit sink configuration (Batch 78 Sprint 6.2 Phase 2).
+    /// Controls whether pre+post audit events are written to
+    /// `/var/log/suderra/audit.log` with HMAC chain integrity.
+    /// Phase 2 / Batch 80 swaps the HMAC key source from
+    /// config-supplied hex to Sprint 6.3 keystore-derived
+    /// (KeyPurpose::AuditHmacChain) — the config knob is the
+    /// rollout-stage path.
+    #[serde(default)]
+    pub audit: AuditConfig,
+
     /// Cache configuration (v1.2.0)
     #[serde(default)]
     pub cache: CacheConfig,
@@ -1487,6 +1497,74 @@ impl Default for RbacManifestConfig {
             manifest_signing_pubkey_hex: None,
             manifest_path: None,
             version_store_path: None,
+        }
+    }
+}
+
+// ============================================================================
+// AuditConfig — Batch 78 Sprint 6.2 Phase 2 / ADR-020 / plan §5 Faz 2 item 8
+// ============================================================================
+//
+// WHY: Plan §5 Faz 2 item 8 + ADR-020 mandate an append-only audit log with
+// HMAC chain integrity for every regulated action. Batches 74-77 built the
+// sink / recovery / SIGHUP / verify primitives; this config surface wires
+// them at boot.
+//
+// Pre-Sprint-6.3 the HMAC key comes from config hex (operator-supplied
+// during rollout). Phase 2 / Batch 80 swaps to KeyPurpose::AuditHmacChain
+// derivation from the master key once the keystore lands.
+
+/// Audit sink mode. 2-stage rollout (not 3-stage like mtls/
+/// config_integrity/rbac_manifest). Audit sink admits no
+/// "permissive" fallback: either it's writing the log or it
+/// isn't. Plan §5 Faz 2 item 8 + IEC 62443 SL-2 FR6 mandate
+/// audit-on-every-regulated-action for compliant deployments;
+/// Disabled targets dev-only + pre-rollout environments.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AuditMode {
+    /// No audit sink opened (pre-Batch-78 behavior). HC-1
+    /// backward compat default. Command handlers that Phase
+    /// 2 / Batch 79 wires audit emit into will log-only.
+    #[default]
+    Disabled,
+    /// Sink opened; pre+post events written on every
+    /// regulated action. Boot fails-closed if sink cannot
+    /// open (permissions / path). The forensic-trail
+    /// invariant per IEC 62443 SL-2 FR6 is non-negotiable —
+    /// no "permissive" fallback to log-only.
+    Enabled,
+}
+
+/// Audit sink configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditConfig {
+    /// Rollout mode: disabled / enabled.
+    #[serde(default)]
+    pub mode: AuditMode,
+
+    /// Audit log file path override. None →
+    /// `/var/log/suderra/audit.log`.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub log_path: Option<std::path::PathBuf>,
+
+    /// Hex-encoded 32-byte HMAC key for chain integrity.
+    /// REQUIRED when mode=Enabled until Phase 2 / Batch 80
+    /// wires master-key derivation (Sprint 6.3 keystore
+    /// dependency). Operators supply a 64-char lowercase hex
+    /// value generated via `openssl rand -hex 32` during
+    /// provisioning; rotated on compromise via the standard
+    /// operator ceremony.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub hmac_key_hex: Option<String>,
+}
+
+impl Default for AuditConfig {
+    fn default() -> Self {
+        Self {
+            mode: AuditMode::default(),
+            log_path: None,
+            hmac_key_hex: None,
         }
     }
 }
@@ -2729,6 +2807,58 @@ impl AgentConfig {
                 anyhow::bail!(
                     "Config coherence: rbac_manifest.version_store_path={} has no parent directory. \
                      Provide an absolute path with a parent dir (e.g. /var/lib/suderra/rbac_version.sqlite).",
+                    path.display()
+                );
+            }
+        }
+
+        // Rule 15 (Batch 78): audit.mode=Enabled requires
+        // audit.hmac_key_hex. Phase 2 / Batch 80 removes this
+        // rule by sourcing the key from Sprint 6.3 keystore
+        // derivation; pre-Sprint-6.3 the operator MUST supply
+        // the key via config. Matches Rule 12 discipline for
+        // rbac_manifest.
+        if matches!(self.audit.mode, AuditMode::Enabled)
+            && self.audit.hmac_key_hex.is_none()
+        {
+            anyhow::bail!(
+                "Config coherence: audit.mode=Enabled requires audit.hmac_key_hex (64-char lowercase hex HMAC key). \
+                 Generate via `openssl rand -hex 32`. Phase 2 / Batch 80 sources this from keystore derivation."
+            );
+        }
+
+        // Rule 16 (Batch 78): audit.hmac_key_hex if present
+        // MUST be 64-char lowercase hex. Matches Rule 13
+        // discipline for manifest_signing_pubkey_hex.
+        if let Some(ref hex) = self.audit.hmac_key_hex {
+            if hex.len() != 64 {
+                anyhow::bail!(
+                    "Config coherence: audit.hmac_key_hex must be 64 hex chars (32-byte HMAC key), got {} chars",
+                    hex.len()
+                );
+            }
+            if !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+                anyhow::bail!(
+                    "Config coherence: audit.hmac_key_hex contains non-hex characters"
+                );
+            }
+        }
+
+        // Rule 17 (Batch 78): audit.log_path if set must
+        // have a parent component. Same sanity check as Rule
+        // 14 for rbac_manifest.version_store_path.
+        if let Some(ref path) = self.audit.log_path {
+            if path.as_os_str().is_empty() {
+                anyhow::bail!(
+                    "Config coherence: audit.log_path is set to an empty path. \
+                     Either omit the field (defaults to /var/log/suderra/audit.log) or \
+                     provide a valid filesystem path."
+                );
+            }
+            if path.parent().map(|p| p.as_os_str().is_empty()).unwrap_or(true) {
+                anyhow::bail!(
+                    "Config coherence: audit.log_path={} has no parent directory. \
+                     Provide an absolute path with a parent dir.",
                     path.display()
                 );
             }

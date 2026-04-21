@@ -487,6 +487,22 @@ pub struct AppState {
     /// always queryable); lookup_operator_pubkey returns
     /// None on empty-store which is the Disabled semantic.
     pub rbac_manifest_store: std::sync::Arc<crate::authz::manifest_runtime::RbacManifestStore>,
+
+    /// Audit sink for HMAC-chained event log (Batch 78
+    /// Sprint 6.2 Phase 2).
+    ///
+    /// WHY: Plan §5 Faz 2 item 8 + ADR-020 mandate a
+    /// tamper-evident audit trail for every regulated
+    /// action. Batches 74-77 built the sink / recovery /
+    /// SIGHUP / verify primitives; this AppState field wires
+    /// the sink at boot.
+    ///
+    /// WHAT: `Option<Arc<AuditSink>>` — None when
+    /// audit.mode=Disabled (pre-rollout deployments), Some
+    /// when audit.mode=Enabled. Consumers (Phase 2 / Batch
+    /// 79 wires CommandHandler pre+post emit) skip audit
+    /// when None, matching the log-only fallback semantic.
+    pub audit_sink: Option<std::sync::Arc<crate::audit::AuditSink>>,
 }
 
 impl AppState {
@@ -555,6 +571,12 @@ impl AppState {
             rbac_manifest_store: std::sync::Arc::new(
                 crate::authz::manifest_runtime::RbacManifestStore::new(),
             ),
+            // Batch 78 Sprint 6.2 Phase 2: None-init;
+            // `init_audit_sink()` below constructs AuditSink
+            // iff audit.mode=Enabled. None → Batch 79
+            // CommandHandler pre+post emit falls to log-only;
+            // Some → append-to-file with HMAC chain.
+            audit_sink: None,
         }
     }
 
@@ -1026,6 +1048,84 @@ impl AppState {
 
         self.rbac_manifest_store
             .load_from_file(mode, pubkey_hex, path_override, &expected_tenant)
+    }
+
+    /// Initialize the audit sink (Batch 78 Sprint 6.2 Phase
+    /// 2). When `audit.mode=Enabled`, opens the append-only
+    /// audit log at the configured path with chain recovery
+    /// (Batch 75) so post-restart appends continue from the
+    /// last complete entry.
+    ///
+    /// MODE GATE:
+    /// - Disabled: early-return Ok. `audit_sink` stays None;
+    ///   Phase 2 / Batch 79 CommandHandler emit paths fall
+    ///   to log-only.
+    /// - Enabled: open the sink; failure is FAIL-CLOSED
+    ///   (forensic-trail invariant per IEC 62443 SL-2 FR6 is
+    ///   non-negotiable — no permissive fallback).
+    ///
+    /// KEY SOURCE: reads 64-char hex from `audit.hmac_key_hex`
+    /// config. Coherence Rule 15 enforces presence when
+    /// mode=Enabled; Coherence Rule 16 enforces 64-char hex
+    /// format. Phase 2 / Batch 80 swaps this to
+    /// KeyPurpose::AuditHmacChain derivation from the master
+    /// key (Sprint 6.3 keystore dependency).
+    pub fn init_audit_sink(&mut self) -> Result<(), String> {
+        use crate::audit::{AuditHmacKey, AuditSink};
+        use crate::config::AuditMode;
+
+        if matches!(self.config.audit.mode, AuditMode::Disabled) {
+            info!("Audit sink init skipped: audit.mode=Disabled (HC-1 backward compat)");
+            return Ok(());
+        }
+
+        let key_hex = self.config.audit.hmac_key_hex.as_deref().ok_or_else(|| {
+            "audit.hmac_key_hex is None — Batch 78 Rule 15 should have caught this".to_string()
+        })?;
+
+        // Parse 64-char hex → [u8; 32]. Rule 16 pre-validates
+        // format at config-load; this is defense-in-depth.
+        let mut key_bytes = [0u8; 32];
+        for (i, b) in key_bytes.iter_mut().enumerate() {
+            let pair = key_hex.get(i * 2..i * 2 + 2).ok_or_else(|| {
+                format!("audit.hmac_key_hex: hex slice error at byte {}", i)
+            })?;
+            *b = u8::from_str_radix(pair, 16).map_err(|e| {
+                format!("audit.hmac_key_hex: hex parse at byte {}: {}", i, e)
+            })?;
+        }
+
+        let log_path = self
+            .config
+            .audit
+            .log_path
+            .clone()
+            .unwrap_or_else(|| std::path::PathBuf::from("/var/log/suderra/audit.log"));
+
+        let hmac_key = AuditHmacKey::from_bytes(key_bytes);
+        // key_bytes is still on stack; zero it to match the
+        // zeroize-on-drop discipline of AuditHmacKey. The
+        // struct's Drop handles the moved-in copy; this
+        // handles the local copy.
+        {
+            use zeroize::Zeroize;
+            key_bytes.zeroize();
+        }
+
+        let sink = AuditSink::open(&log_path, hmac_key).map_err(|e| {
+            format!(
+                "Audit sink open failed (fail-closed boot, mode=Enabled): {}",
+                e
+            )
+        })?;
+
+        info!(
+            "Audit sink opened: path={} mode=Enabled",
+            log_path.display()
+        );
+
+        self.audit_sink = Some(std::sync::Arc::new(sink));
+        Ok(())
     }
 
     /// Initialize hardware handles (must be called within LocalSet context)
@@ -1507,6 +1607,31 @@ async fn async_main() -> Result<()> {
         if let Err(msg) = state_guard.init_rbac_manifest_store() {
             error!(
                 "RBAC manifest store init failed (fail-closed boot, mode=Enforcing): {}",
+                msg
+            );
+            std::process::exit(1);
+        }
+    }
+
+    // Initialize audit sink (Batch 78 Sprint 6.2 Phase 2).
+    //
+    // WHY: Plan §5 Faz 2 item 8 + ADR-020 mandate a tamper-
+    // evident audit trail. Batches 74-77 built the primitives
+    // (file sink, chain recovery, SIGHUP reopen, offline verify
+    // CLI); this step wires the sink into AppState at boot so
+    // Phase 2 / Batch 79 CommandHandler pre+post emit has a
+    // live sink to write into.
+    //
+    // FAIL-CLOSED DISCIPLINE:
+    // - Disabled: skip open (audit_sink stays None).
+    // - Enabled: open sink; failure → exit(1). IEC 62443 SL-2
+    //   FR6 forensic-trail is non-negotiable; there is no
+    //   "permissive" fallback.
+    {
+        let mut state_guard = state.write().await;
+        if let Err(msg) = state_guard.init_audit_sink() {
+            error!(
+                "Audit sink init failed (fail-closed boot, mode=Enabled): {}",
                 msg
             );
             std::process::exit(1);

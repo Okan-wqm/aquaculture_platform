@@ -437,6 +437,17 @@ TS 6.0.3 in npx. The orphan finding stays open until a real fix lands.
   context-manager agent with a stable single-writer context AND a
   working pre-commit hook chain.
 
+**Status update 2026-04-21 (Faz 3):** Partially RESOLVED. The
+`ignoreDeprecations: "6.0"` line is removed from
+`tools/gates/tsconfig.json`, matching the `main` branch's posture and
+unblocking pre-commit on every TS-5.x environment (the canonical
+workspace pin in `package.json` is `typescript ^5.3.3`). Future
+hardening (the "Real architectural fix" bullets above — pin ts-node +
+typescript explicitly + add a tools/gates integration test) remains
+TBD, owner Okan-Wqm. The drift surface still exists for environments
+that resolve a TS 6.x compiler via npx cache, but those will get a
+warning rather than a `TS5103` block.
+
 ---
 
 ## 2026-04-20 ORPHAN-013 — NATS subject drift: publishers emit `events.{tenantId}.{eventType}`, subscribers listen on `events.{eventType}`

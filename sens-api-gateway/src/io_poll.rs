@@ -93,7 +93,28 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
     // --- Modbus reads (parallel per device) ---
     if let Some(ref modbus) = s.modbus_handle {
         let results = modbus.read_all_parallel().await;
+        // Batch 103 observability: count successful + failed
+        // device reads for fleet dashboards. Each
+        // ModbusReadResult represents ONE DEVICE round-trip;
+        // values[] is the register-level output (which could
+        // itself be partial). The device-level success/error
+        // gauge is the actionable operator signal ("device N
+        // is flaky"); register-level counting would explode
+        // the cardinality.
         for device_result in &results {
+            if let Some(hs) = s.health_state.as_ref() {
+                // ModbusReadResult shape: success = no errors
+                // in the errors vector. Partial reads (some
+                // registers OK, some failed) count as error
+                // for the DEVICE-level signal. Register-level
+                // partial counting lands in a follow-up batch
+                // if fleet dashboards need it.
+                if device_result.errors.is_empty() {
+                    hs.inc_modbus_reads();
+                } else {
+                    hs.inc_modbus_errors();
+                }
+            }
             for reg_value in &device_result.values {
                 // Match register to tag config by tag name
                 for cfg in &configs {
@@ -120,6 +141,22 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
                     }
                     I2cDriverType::GenericRegister { read_register, read_length } => {
                         let result = i2c.read_register(&cfg.tag_name, *read_register, *read_length as usize).await;
+                        // Batch 103 observability: I2C reads
+                        // map to the same modbus_reads/errors
+                        // counter family since they're both
+                        // field-bus ingress (operators care
+                        // about "are my sensors talking?",
+                        // not "how many via modbus vs i2c").
+                        // Future batch could split into
+                        // i2c_reads_total for dashboards that
+                        // need per-protocol slicing.
+                        if let Some(hs) = s.health_state.as_ref() {
+                            if result.success {
+                                hs.inc_modbus_reads();
+                            } else {
+                                hs.inc_modbus_errors();
+                            }
+                        }
                         if result.success {
                             let value = bytes_to_f64(&result.data);
                             // ARC-006: sim reads surface as
@@ -134,6 +171,13 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
                     }
                     I2cDriverType::GenericDirect { read_length } => {
                         let result = i2c.read_direct(&cfg.tag_name, *read_length as usize).await;
+                        if let Some(hs) = s.health_state.as_ref() {
+                            if result.success {
+                                hs.inc_modbus_reads();
+                            } else {
+                                hs.inc_modbus_errors();
+                            }
+                        }
                         if result.success {
                             let value = bytes_to_f64(&result.data);
                             // ARC-006: sim read quality routing.

@@ -161,6 +161,29 @@ cargo-deny check advisories                                   ✅ ok
 Total: 180 unit + 15 fixture + 4 trybuild compile_fail + 1 doc = 200 tests.
 
 ## Faz 3 — sensor-service küçültme
+
+In flight on branch `agentic-rust-faz3-control-plane` (PR #17, stacked on Faz 2 PR #16). Will rebase clean once PR #16 merges to main.
+
+| Stage | Commit | Status | Notes |
+|---|---|---|---|
+| 0. Worktree + branch + PR | `71b4c1ce` (init) | ✅ done | New worktree `/tmp/aqua-rust-faz3` branched from Faz 2 HEAD; `agentic-rust-faz3-control-plane` pushed; PR #17 opened with the 4-stage progression. |
+| 1. `SensorMetricIngestedEvent` + Rust sidecar publisher rework + drain wiring | `71b4c1ce` | ✅ done | NEW event type in TS (`libs/event-contracts/src/sensor-events.ts`) + Rust (`crates/event-contracts-rs/src/lib.rs`). Rust sidecar `events.rs` refactored: `EventPublisher::publish_sensor_metric` (was `publish_sensor_reading`), subject `events.{tenantId}.SensorMetricIngested`. Drain → `events_in_tx` wired (closes Faz 2 stage 12 NOT-DONE). 26 event-contracts-rs tests + 131 sensor-ingestion tests. ADR-022 draft created. |
+| 2. NATS consumer service in sensor-service | `24459449` | ✅ done | `apps/sensor-service/src/ingestion/nats-ingestion-consumer.service.ts` — implements `IEventHandler<SensorMetricIngestedEvent>`. Subscribes to `events.*.SensorMetricIngested`. Per event: enrich via 60s-TTL sensor + channel cache, ADR-025 Threat 2 tenant-bind re-check, call `BatchProcessorService.enqueue` (preserves invariant 4), re-emit typed `SensorReadingEvent`. ChannelKey → readingXxx mapping covers temperature/ph/do/salinity/ammonia/nitrite/nitrate/turbidity/water_level. Drop-don't-throw on enrichment failures (avoids JetStream poison-pill loop). 29 unit tests. |
+| 3. `SENSOR_SERVICE_PROFILE` env-gated module loader | `24459449` | ✅ done | `apps/sensor-service/src/config/sensor-service-profile.service.ts` — `SensorServiceProfile.{Legacy,ControlPlane}` enum + `SensorServiceProfileService` (default = Legacy, safe rollout). `MqttListenerService.onModuleInit` and `DataIngestionService.onModuleInit` skip boot on control-plane profile. `NatsIngestionConsumerService` runs on BOTH profiles (strangler-fig — sidecar may publish for some tenants while legacy MQTT runs for others). 8 unit tests for the profile service. |
+| 4. ADR-022 promote + e2e dual-write equivalence + compose budget | TBD | 🚧 in progress | This stage. ADR-022 stays in `_draft/` until the 24h soak completes; PROGRESS.md (this file) bumped to reflect stages 0-3 done; ORPHAN-014 logged for the 6 pre-existing mqtt-listener test failures (independent of Faz 3 work, verified on Faz 2 baseline). |
+
+#### Gate Check (Faz 3 done = all of)
+- [x] Wire-distinct `SensorMetricIngested` event in TS + Rust event-contracts (stage 1)
+- [x] Rust sidecar drain → events publisher wired end-to-end (stage 1, closes Faz 2 stage 12 NOT-DONE)
+- [x] NATS consumer in NestJS sensor-service translates raw → typed + persists via existing BatchProcessor (stage 2)
+- [x] `SENSOR_SERVICE_PROFILE=control-plane` env disables legacy MQTT data plane (stage 3)
+- [x] `SensorServiceProfileService` is the SSoT for the env-var read (no other code path touches `process.env.SENSOR_SERVICE_PROFILE`) (stage 3)
+- [ ] e2e dual-write equivalence (`e2e/tests/sensor-ingest-equivalence.e2e.ts`) — Faz 3 stage 4 TBD
+- [ ] Compose budget update: sensor-service drops to 192 MB / 0.2 vCPU on control-plane profile — Faz 3 stage 4 TBD
+- [ ] ADR-022 promoted out of `_draft/` to canonical `docs/adr/` after 24h soak — Faz 3 stage 4 TBD
+- [ ] ORPHAN-014 reconciled: 6 pre-existing mqtt-listener test failures resolved or documented as known-flaky — separate plan-phase scope
+
+## Faz 4 — Konsolidasyon
 Not started.
 
 ## Faz 4 — Konsolidasyon

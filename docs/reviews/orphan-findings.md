@@ -495,6 +495,44 @@ The Faz 2 sidecar's job was to replicate the existing publisher contract byte-fo
 
 ---
 
+## 2026-04-21 ORPHAN-014 — Six `mqtt-listener.service.spec.ts` tests fail on `agentic-rust-faz2-sensor-ingestion` HEAD (independent of Faz 3 work)
+
+**Severity:** MEDIUM (false-negative regression signal for any Faz 3+ PR touching the ingestion module)
+**Discovered:** 2026-04-21, Faz 3 stage 2 validation run (before commit `24459449`)
+**Files:** `apps/sensor-service/src/ingestion/__tests__/mqtt-listener.service.spec.ts`
+
+**Evidence:**
+```
+# Faz 2 HEAD baseline (pre-Faz-3, /tmp/aqua-rust-faz2 worktree):
+$ jest --testPathPatterns=mqtt-listener
+Test Suites: 1 failed, 1 total
+Tests:       6 failed, 58 passed, 64 total
+"Jest did not exit one second after the test run has completed."
+
+# Faz 3 stages 2+3 head (/tmp/aqua-rust-faz3 worktree):
+$ jest --testPathPatterns="ingestion|sensor-service-profile"
+Tests:       6 failed, 127 passed, 133 total
+```
+
+Same 6 failures, same suite (`MqttListenerService › Edge device handlers › Legacy edge/ handlers`), same root error pattern (`expect(jest.fn()).toHaveBeenCalledWith(...)` with `Number of calls: 0`). The Faz 3 stage 2 + 3 commit was VERIFIED not to introduce any new failure — 127 passing on top of the pre-existing 6.
+
+**Problem:**
+- The 6 pre-existing failures pollute the test signal: every Faz-3+ PR that touches `apps/sensor-service/src/ingestion/**` will see a red CI for these tests and reviewers will have to do the "is this regression mine or pre-existing?" disambiguation by hand.
+- The `Jest did not exit one second after the test run has completed` warning hints at an open handle (timer / unawaited promise) — likely the same root cause that flakes the 6 expectations.
+- Fixing 6 unrelated failures is out of scope for the Faz 3 plan, but living with them is a Tier-1 violation ("make it impossible" for false-negative signals).
+
+**Architectural fix (TBD, not in this commit):**
+- Run the failing 6 tests in isolation under `--detectOpenHandles` to pin the leak source.
+- Add a `beforeEach`/`afterEach` cleanup so the legacy-edge handler subscription is torn down between tests (suspected leak point: the `mqttClient.onMessage(handler)` registration that survives the test scope).
+- Once green, mark the suite as required in CI.
+
+**Follow-on tracking:**
+- Owner: Okan-Wqm + sensor-service maintainers.
+- Deadline: 2026-05-15 — must be reconciled before Faz 3 stage 4 (e2e dual-write equivalence) lands or the soak signal is inherently noisy.
+- Closure path: a dedicated `fix(sensor-service): mqtt-listener test isolation` commit that makes the 6 failures green AND adds the `beforeEach` teardown so future regression of the same class is impossible.
+
+---
+
 ## Notes on methodology
 
 - Findings discovered during normal code review; NOT dedicated orphan-bug sweep.

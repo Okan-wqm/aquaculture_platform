@@ -1,17 +1,20 @@
-//! NATS event publisher behind an [`EventPublisher`] trait — Faz 2 stage 12.
+//! NATS event publisher behind an [`EventPublisher`] trait — Faz 2
+//! stage 12; refactored in Faz 3 stage 1 to publish the raw-shape
+//! [`SensorMetricIngestedEvent`] (ADR-022 control / data plane split).
 //!
 //! WHY this module exists:
-//!   ADR-025 Faz 2 names the Rust ingestion sidecar as a co-equal
-//!   producer of `SensorReading` events alongside the existing NestJS
-//!   `sensor-service`. Downstream consumers (alert-engine, AI service,
-//!   audit) MUST not be able to tell the producer apart. The wire
-//!   format is `event-contracts-rs::SensorReadingEvent` — same
-//!   camelCase keys, same flat shape (ADR-006), same branded
-//!   `eventId` — and the subject convention mirrors
+//!   ADR-025 names the Rust ingestion sidecar as the producer of
+//!   `events.{tenantId}.SensorMetricIngested`. The downstream consumer
+//!   (sensor-service NATS consumer, ADR-022) enriches with sensor-meta
+//!   and re-emits the typed `SensorReadingEvent` to the in-process
+//!   EventBus for alert-engine / AI / audit. Splitting the wire event
+//!   from the typed event keeps the sidecar honest about what it
+//!   actually has (raw per-channel tuples — no calibration, no typed
+//!   reading_*) and keeps the mapping concern with the service that
+//!   owns the metadata.
+//!   The subject convention mirrors
 //!   `platform/libs/event-bus/src/nats/nats-event-bus.ts:310-312`
 //!   `deriveSubject` byte-for-byte: `events.{tenantId}.{eventType}`.
-//!   The single JetStream stream `events.>` therefore captures both
-//!   producers transparently.
 //!
 //! WHY the [`EventPublisher`] trait:
 //!   Mirrors [`crate::persistence::BatchSink`]. The drain pipeline
@@ -53,7 +56,7 @@ use thiserror::Error;
 use tokio::sync::{Mutex, mpsc};
 use tracing::instrument;
 
-use event_contracts_rs::{SENSOR_READING_EVENT_TYPE, SensorReadingEvent};
+use event_contracts_rs::{SENSOR_METRIC_INGESTED_EVENT_TYPE, SensorMetricIngestedEvent};
 
 /// Errors raised by [`EventPublisher`] implementations.
 #[derive(Debug, Error)]
@@ -71,7 +74,7 @@ pub enum EventPublisherError {
     Publish(#[source] nats_client::NatsClientError),
 
     /// `serde_json::to_vec(&event)` failed. In practice the only way
-    /// this fires is OOM (the `SensorReadingEvent` shape itself cannot
+    /// this fires is OOM (the `SensorMetricIngestedEvent` shape itself cannot
     /// produce an `Error` from serde at runtime), but typing it
     /// distinctly keeps the loop's error log faithful.
     #[error("event serialise failed")]
@@ -87,9 +90,9 @@ pub trait EventPublisher: Send + Sync {
     /// to JSON, derive the `events.{tenantId}.{eventType}` subject,
     /// and send the bytes downstream. Whole-event atomicity — partial
     /// publication is not a thing the upstream broker exposes.
-    async fn publish_sensor_reading(
+    async fn publish_sensor_metric(
         &self,
-        ev: SensorReadingEvent,
+        ev: SensorMetricIngestedEvent,
     ) -> Result<(), EventPublisherError>;
 }
 
@@ -103,12 +106,13 @@ pub trait EventPublisher: Send + Sync {
 /// reformatting the subject (e.g. swapping `.` for `_`, dropping a
 /// segment, using uppercase hex) is detected at build time.
 #[must_use]
-pub fn subject_for(ev: &SensorReadingEvent) -> String {
+pub fn subject_for(ev: &SensorMetricIngestedEvent) -> String {
     // `Uuid::Display` writes lower-case hyphenated, matching the TS
-    // side's `tenantId` UUID `String` representation. `eventType` is the
-    // `SENSOR_READING_EVENT_TYPE` const so the literal "SensorReading"
-    // is the only possible second segment for this event family.
-    format!("events.{}.{}", ev.tenant_id, SENSOR_READING_EVENT_TYPE)
+    // side's `tenantId` UUID `String` representation. `eventType` is
+    // the `SENSOR_METRIC_INGESTED_EVENT_TYPE` const, so the literal
+    // "SensorMetricIngested" is the only possible third segment for
+    // this event family.
+    format!("events.{}.{}", ev.tenant_id, SENSOR_METRIC_INGESTED_EVENT_TYPE)
 }
 
 // -----------------------------------------------------------------
@@ -147,9 +151,9 @@ impl NatsEventPublisher {
 #[async_trait]
 impl EventPublisher for NatsEventPublisher {
     #[instrument(skip(self, ev), fields(tenant_id = %ev.tenant_id, sensor_id = %ev.sensor_id))]
-    async fn publish_sensor_reading(
+    async fn publish_sensor_metric(
         &self,
-        ev: SensorReadingEvent,
+        ev: SensorMetricIngestedEvent,
     ) -> Result<(), EventPublisherError> {
         let subject = subject_for(&ev);
         let json = ev.to_json_bytes().map_err(EventPublisherError::Encode)?;
@@ -177,7 +181,7 @@ impl EventPublisher for NatsEventPublisher {
 #[derive(Debug, Default, Clone)]
 pub struct LoggingEventPublisher {
     count: Arc<std::sync::atomic::AtomicU64>,
-    last_event: Arc<Mutex<Option<SensorReadingEvent>>>,
+    last_event: Arc<Mutex<Option<SensorMetricIngestedEvent>>>,
 }
 
 impl LoggingEventPublisher {
@@ -187,7 +191,7 @@ impl LoggingEventPublisher {
         Self::default()
     }
 
-    /// Number of `publish_sensor_reading` calls observed.
+    /// Number of `publish_sensor_metric` calls observed.
     ///
     /// Used by:
     ///   * the boot-time [`self_smoke_check`] to verify that the
@@ -205,7 +209,7 @@ impl LoggingEventPublisher {
     /// Last event received, if any. Test-only accessor — production
     /// code never inspects in-flight events outside the tracing span.
     #[cfg(test)]
-    pub async fn last_event(&self) -> Option<SensorReadingEvent> {
+    pub async fn last_event(&self) -> Option<SensorMetricIngestedEvent> {
         self.last_event.lock().await.clone()
     }
 
@@ -221,9 +225,9 @@ impl LoggingEventPublisher {
 #[async_trait]
 impl EventPublisher for LoggingEventPublisher {
     #[instrument(skip(self, ev), fields(tenant_id = %ev.tenant_id, sensor_id = %ev.sensor_id))]
-    async fn publish_sensor_reading(
+    async fn publish_sensor_metric(
         &self,
-        ev: SensorReadingEvent,
+        ev: SensorMetricIngestedEvent,
     ) -> Result<(), EventPublisherError> {
         self.count
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -255,10 +259,10 @@ impl EventPublisher for LoggingEventPublisher {
 /// behaviour.
 pub async fn run_publisher_loop(
     publisher: Arc<dyn EventPublisher>,
-    mut rx: mpsc::Receiver<SensorReadingEvent>,
+    mut rx: mpsc::Receiver<SensorMetricIngestedEvent>,
 ) {
     while let Some(ev) = rx.recv().await {
-        if let Err(e) = publisher.publish_sensor_reading(ev).await {
+        if let Err(e) = publisher.publish_sensor_metric(ev).await {
             tracing::error!(error = %e, "event publisher publish failed");
         }
     }
@@ -275,7 +279,9 @@ pub async fn run_publisher_loop(
 ///     the type system (the call shape is the same regardless of
 ///     concrete publisher),
 ///   * keep the binary's dead-code lint honest about the publish path
-///     before stage 13 wires the per-message channel→reading_* mapping.
+///     even though Faz 3 stage 1 wires the per-message drain → publisher
+///     channel — boot-time exercise stays useful for misconfiguration
+///     detection regardless of whether the message loop is alive yet.
 ///
 /// Behaviour by publisher type:
 ///   * [`LoggingEventPublisher`]: publishes one synthesised event,
@@ -298,8 +304,18 @@ pub async fn self_smoke_check(
     logging_handle: Option<&LoggingEventPublisher>,
 ) -> Result<(), EventPublisherError> {
     if let Some(handle) = logging_handle {
-        let ev = SensorReadingEvent::new(uuid::Uuid::nil(), uuid::Uuid::nil());
-        publisher.publish_sensor_reading(ev).await?;
+        // Use Uuid::nil() everywhere: not a real tenant/sensor/channel,
+        // so a stray smoke event in any audit log is trivially
+        // recognisable as the boot-time check (tier-3 detectability).
+        let ev = SensorMetricIngestedEvent::new(
+            uuid::Uuid::nil(),
+            uuid::Uuid::nil(),
+            uuid::Uuid::nil(),
+            0.0,
+            0,
+            crate::payload::PRODUCER_TS_MIN_MS,
+        );
+        publisher.publish_sensor_metric(ev).await?;
         debug_assert!(
             handle.count() >= 1,
             "logging publisher must observe the smoke event"
@@ -328,7 +344,7 @@ mod tests {
         EventPublisher, EventPublisherError, LoggingEventPublisher, run_publisher_loop,
         self_smoke_check, subject_for,
     };
-    use event_contracts_rs::SensorReadingEvent;
+    use event_contracts_rs::SensorMetricIngestedEvent;
 
     fn fixed_uuid(seed: u8) -> Uuid {
         let mut bytes = [0_u8; 16];
@@ -336,10 +352,15 @@ mod tests {
         Uuid::from_bytes(bytes)
     }
 
-    fn synthesise_event() -> SensorReadingEvent {
-        let mut ev = SensorReadingEvent::new(fixed_uuid(0xAA), fixed_uuid(0xBB));
-        ev.reading_temperature = Some(24.5);
-        ev
+    fn synthesise_event() -> SensorMetricIngestedEvent {
+        SensorMetricIngestedEvent::new(
+            fixed_uuid(0xAA),
+            fixed_uuid(0xBB),
+            fixed_uuid(0xCC),
+            24.5,
+            1,
+            1_730_000_000_000,
+        )
     }
 
     // -----------------------------------------------------------
@@ -370,7 +391,7 @@ mod tests {
         let pub_ = LoggingEventPublisher::new();
         let ev = synthesise_event();
         let expected = ev.clone();
-        pub_.publish_sensor_reading(ev).await.unwrap();
+        pub_.publish_sensor_metric(ev).await.unwrap();
         assert_eq!(pub_.count(), 1);
         assert_eq!(pub_.last_event().await, Some(expected));
     }
@@ -386,7 +407,7 @@ mod tests {
             let p = Arc::clone(&pub_);
             let ev = synthesise_event();
             handles.push(tokio::spawn(async move {
-                p.publish_sensor_reading(ev).await.unwrap();
+                p.publish_sensor_metric(ev).await.unwrap();
             }));
         }
         for h in handles {
@@ -401,7 +422,7 @@ mod tests {
     #[tokio::test]
     async fn logging_publisher_reset_clears_state() {
         let pub_ = LoggingEventPublisher::new();
-        pub_.publish_sensor_reading(synthesise_event())
+        pub_.publish_sensor_metric(synthesise_event())
             .await
             .unwrap();
         assert_eq!(pub_.count(), 1);
@@ -423,18 +444,18 @@ mod tests {
         // (hyphens internal to the UUID are NOT dot separators), and
         // the eventType. The TS deriveSubject SSoT produces the same
         // three segments — the JetStream `events.>` stream and the
-        // wildcard subscriber `events.*.SensorReading` both depend on
-        // this segment count being exactly 3.
+        // wildcard subscriber `events.*.SensorMetricIngested` both
+        // depend on this segment count being exactly 3.
         let parts: Vec<&str> = s.split('.').collect();
         assert_eq!(
             parts.len(),
             3,
-            "expected 3 dot-segments (events.<tenant-uuid>.SensorReading), got: {s}"
+            "expected 3 dot-segments (events.<tenant-uuid>.SensorMetricIngested), got: {s}"
         );
         // First segment is the `events.>` JetStream prefix.
         assert_eq!(parts.first(), Some(&"events"));
         // Last segment is the eventType discriminator.
-        assert_eq!(parts.last(), Some(&"SensorReading"));
+        assert_eq!(parts.last(), Some(&"SensorMetricIngested"));
         // Middle segment must round-trip through Uuid::parse_str —
         // pins that we did not accidentally strip the hyphens.
         let middle = parts.get(1).expect("3-segment split yields a middle");
@@ -447,10 +468,11 @@ mod tests {
         // Construct an event with a fixed UUID we can pin against.
         let tenant = Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap();
         let sensor = Uuid::parse_str("22222222-2222-2222-2222-222222222222").unwrap();
-        let ev = SensorReadingEvent::new(tenant, sensor);
+        let channel = Uuid::parse_str("33333333-3333-3333-3333-333333333333").unwrap();
+        let ev = SensorMetricIngestedEvent::new(tenant, sensor, channel, 1.0, 1, 1_730_000_000_000);
         let s = subject_for(&ev);
         assert_eq!(
-            s, "events.11111111-1111-1111-1111-111111111111.SensorReading",
+            s, "events.11111111-1111-1111-1111-111111111111.SensorMetricIngested",
             "subject does not match TS deriveSubject contract; the JetStream events.> stream and downstream consumers depend on this exact format"
         );
     }
@@ -464,7 +486,7 @@ mod tests {
         let pub_ = Arc::new(LoggingEventPublisher::new());
         let counter = Arc::clone(&pub_);
         let pub_dyn: Arc<dyn EventPublisher> = pub_;
-        let (tx, rx) = mpsc::channel::<SensorReadingEvent>(8);
+        let (tx, rx) = mpsc::channel::<SensorMetricIngestedEvent>(8);
         let handle = tokio::spawn(run_publisher_loop(pub_dyn, rx));
 
         tx.send(synthesise_event()).await.unwrap();
@@ -487,9 +509,9 @@ mod tests {
 
     #[async_trait]
     impl EventPublisher for FailingPublisher {
-        async fn publish_sensor_reading(
+        async fn publish_sensor_metric(
             &self,
-            _ev: SensorReadingEvent,
+            _ev: SensorMetricIngestedEvent,
         ) -> Result<(), EventPublisherError> {
             // fetch_add returns the PRE-increment value, so the first
             // call observes 0. We compare to fail_on (1-indexed in the
@@ -515,7 +537,7 @@ mod tests {
             seen: Arc::clone(&seen),
             fail_on: 2,
         });
-        let (tx, rx) = mpsc::channel::<SensorReadingEvent>(8);
+        let (tx, rx) = mpsc::channel::<SensorMetricIngestedEvent>(8);
         let handle = tokio::spawn(run_publisher_loop(publisher, rx));
 
         tx.send(synthesise_event()).await.unwrap();
@@ -571,25 +593,29 @@ mod tests {
     fn event_serialised_then_published_is_byte_equivalent_to_event_contracts_rs() {
         // The subject_for helper + ev.to_json_bytes() are the two
         // outputs of the publish path; assert the bytes round-trip
-        // through SensorReadingEvent::from_json_bytes losslessly so a
-        // downstream Rust subscriber sees the same event the publisher
-        // shipped.
-        let mut ev = SensorReadingEvent::new(fixed_uuid(0xAA), fixed_uuid(0xBB));
-        ev.reading_temperature = Some(24.5);
-        ev.reading_ph = Some(7.2);
-        ev.reading_dissolved_oxygen = Some(8.1);
-        ev.farm_id = Some(fixed_uuid(0xCC));
+        // through SensorMetricIngestedEvent::from_json_bytes losslessly
+        // so a downstream Rust subscriber sees the same event the
+        // publisher shipped.
+        let mut ev = SensorMetricIngestedEvent::new(
+            fixed_uuid(0xAA),
+            fixed_uuid(0xBB),
+            fixed_uuid(0xCC),
+            24.5,
+            1,
+            1_730_000_000_000,
+        );
+        ev.correlation_id = Some("trace-faz3-stage1".to_owned());
 
         let bytes = ev.to_json_bytes().unwrap();
-        let back = SensorReadingEvent::from_json_bytes(&bytes).unwrap();
+        let back = SensorMetricIngestedEvent::from_json_bytes(&bytes).unwrap();
         assert_eq!(back, ev, "publish-side encode must round-trip");
 
         // The subject is derived from the same event; assert it carries
         // the lower-case hyphenated tenant uuid for downstream wildcard
-        // routing (`events.<tenant>.SensorReading`).
+        // routing (`events.<tenant>.SensorMetricIngested`).
         let subject = subject_for(&ev);
         assert!(subject.contains(&ev.tenant_id.to_string()));
-        assert!(subject.ends_with(".SensorReading"));
+        assert!(subject.ends_with(".SensorMetricIngested"));
     }
 
     /// Live-NATS integration test. Skipped by default; set

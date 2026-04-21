@@ -24,6 +24,44 @@ export interface SensorReadingEvent extends BaseEvent {
 }
 
 /**
+ * Sensor Metric Ingested Event (Faz 3 — Rust sidecar → sensor-service edge)
+ *
+ * WHY this event exists separately from `SensorReadingEvent`:
+ *   The Rust ingestion sidecar (`apps/sensor-ingestion`, ADR-025) sees
+ *   raw per-channel metric tuples — it does NOT have the sensor-meta
+ *   cache that maps channel UUID → typed water-quality field
+ *   (`readingTemperature`, `readingPh`, ...). Forcing the sidecar to
+ *   publish typed `SensorReadingEvent`s would couple the ingestion hot
+ *   path to a control-plane lookup that lives in sensor-service.
+ *
+ *   Architectural cut (ADR-022 control / data plane separation):
+ *     - Rust sidecar publishes the raw shape it OWNS.
+ *     - sensor-service NATS consumer enriches with sensor-meta from its
+ *       in-process cache, calls `BatchProcessorService.enqueue()`, then
+ *       emits the existing typed `SensorReadingEvent` to the in-process
+ *       EventBus for downstream consumers (alert-engine).
+ *
+ *   Result: no breakage of the typed `SensorReadingEvent` contract,
+ *   sidecar does what it can with what it has, mapping concern lives
+ *   exactly once in the service that owns the metadata.
+ *
+ * Wire shape:
+ *   `tenantId` is the BaseEvent.tenantId (subject routing).
+ *   `producerTs` is ms-epoch UTC (matches the Rust sidecar's
+ *   `validate()` post-condition; same numeric type + range as the
+ *   `[2024-01-01, 2100-01-01)` window the validator enforces).
+ */
+export interface SensorMetricIngestedEvent extends BaseEvent {
+  eventType: 'SensorMetricIngested';
+  sensorId: string;
+  channelId: string;
+  rawValue: number;
+  value: number;
+  qualityCode: number;
+  producerTs: number;
+}
+
+/**
  * Sensor Registered Event
  */
 export interface SensorRegisteredEvent extends BaseEvent {
@@ -231,6 +269,7 @@ export interface ScadaDeployFailedEvent extends BaseEvent {
  */
 export type SensorEvent =
   | SensorReadingEvent
+  | SensorMetricIngestedEvent
   | SensorRegisteredEvent
   | SensorCalibratedEvent
   | SensorOfflineEvent

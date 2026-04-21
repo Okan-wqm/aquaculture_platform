@@ -218,7 +218,13 @@ async fn async_main(cfg: Config) -> anyhow::Result<()> {
                 s.shutdown().await;
             }
         }
-        () = drain_mqtt_stream(drain_slot, drain_cache, batch_in_tx.clone(), policy) => {
+        () = drain_mqtt_stream(
+            drain_slot,
+            drain_cache,
+            batch_in_tx.clone(),
+            events_in_tx.clone(),
+            policy,
+        ) => {
             tracing::info!("mqtt stream closed");
         }
     }
@@ -229,10 +235,11 @@ async fn async_main(cfg: Config) -> anyhow::Result<()> {
     let _ = aggregator_handle.await;
     let _ = sink_handle.await;
     // Drop the event-channel sender so run_publisher_loop sees the
-    // channel close and exits. There is exactly one sender held by
-    // async_main (the bundle returned from start_event_publisher); when
-    // stage 13 wires the drain → events_in_tx path, the drain holds a
-    // clone and this drop is still the last close.
+    // channel close and exits. The drain holds a clone of `events_in_tx`
+    // (Faz 3 stage 1 wiring); the clone the drain holds is dropped when
+    // the drain future returns from `select!`, leaving this `drop` as
+    // the LAST sender — guaranteeing the publisher loop terminates
+    // before `publisher_handle.await` below.
     drop(events_in_tx);
     let _ = publisher_handle.await;
     // Surface the post-shutdown cache footprint in the log so an
@@ -315,7 +322,7 @@ async fn start_persistence_pipeline(
 /// sequence as a single unit (architectural cut: keep `async_main`
 /// inside the workspace cognitive-complexity / line budget).
 struct EventPublisherBundle {
-    events_in_tx: tokio::sync::mpsc::Sender<event_contracts_rs::SensorReadingEvent>,
+    events_in_tx: tokio::sync::mpsc::Sender<event_contracts_rs::SensorMetricIngestedEvent>,
     publisher_handle: tokio::task::JoinHandle<()>,
 }
 
@@ -337,7 +344,7 @@ async fn start_event_publisher(
     // so a single batch worth of pending events fits without blocking
     // the producer side.
     let (events_in_tx, events_in_rx) =
-        tokio::sync::mpsc::channel::<event_contracts_rs::SensorReadingEvent>(10_000);
+        tokio::sync::mpsc::channel::<event_contracts_rs::SensorMetricIngestedEvent>(10_000);
 
     // Hold the logging handle separately so self_smoke_check can
     // observe + reset it without downcasting from `dyn EventPublisher`.
@@ -391,6 +398,7 @@ async fn drain_mqtt_stream(
     stream: std::sync::Arc<tokio::sync::Mutex<Option<mqtt::MqttMessageStream>>>,
     cache: Arc<TopicCache>,
     batch_in: tokio::sync::mpsc::Sender<crate::payload::SensorReading>,
+    events_in: tokio::sync::mpsc::Sender<event_contracts_rs::SensorMetricIngestedEvent>,
     policy: Arc<dyn ingest_backend::IngestBackendPolicy>,
 ) {
     let mut guard = stream.lock().await;
@@ -461,6 +469,32 @@ async fn drain_mqtt_stream(
                             cache_hit,
                             "mqtt msg validated"
                         );
+                        // Faz 3 stage 1: synthesise a SensorMetricIngested
+                        // event from the validated reading. Done BEFORE
+                        // batch_in.send so the event-publish channel
+                        // observes every reading the persistence channel
+                        // does — even if the batch aggregator goes away
+                        // first, sensor-service still gets the event and
+                        // can fall back on its own NestJS persistence
+                        // path (Faz 3 NATS consumer, ADR-022).
+                        // The event uses the SAME tenant/sensor/channel
+                        // ids the payload validator pinned, so any
+                        // downstream tenant-binding assertion can rely on
+                        // the validator's TenantMismatch check.
+                        let ev = event_contracts_rs::SensorMetricIngestedEvent::new(
+                            *reading.tenant_id.as_uuid(),
+                            reading.sensor_id,
+                            reading.channel_id,
+                            reading.value,
+                            reading.quality,
+                            reading.producer_ts,
+                        );
+                        if events_in.send(ev).await.is_err() {
+                            // Publisher loop gone — log and continue;
+                            // persistence still works, control-plane
+                            // alarms catch the publisher failure mode.
+                            tracing::warn!("event publisher gone; continuing without publish");
+                        }
                         // Stage 9: hand the validated reading to the
                         // batch aggregator. send().await blocks if
                         // the batch buffer is full, which propagates

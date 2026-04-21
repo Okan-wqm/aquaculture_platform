@@ -278,6 +278,167 @@ impl SensorReadingEvent {
     }
 }
 
+// ---------- SensorMetricIngestedEvent -----------------------------------
+
+/// Static `eventType` discriminator for [`SensorMetricIngestedEvent`].
+pub const SENSOR_METRIC_INGESTED_EVENT_TYPE: &str = "SensorMetricIngested";
+
+/// Zero-sized witness whose `Serialize` always emits
+/// `"SensorMetricIngested"` and whose `Deserialize` rejects anything
+/// else. Pinning the discriminator at the type level means a typo
+/// cannot wire-corrupt a downstream subscriber.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SensorMetricIngestedEventType;
+
+impl Serialize for SensorMetricIngestedEventType {
+    fn serialize<S: Serializer>(&self, ser: S) -> Result<S::Ok, S::Error> {
+        ser.serialize_str(SENSOR_METRIC_INGESTED_EVENT_TYPE)
+    }
+}
+
+impl<'de> Deserialize<'de> for SensorMetricIngestedEventType {
+    fn deserialize<D: Deserializer<'de>>(de: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(de)?;
+        if s == SENSOR_METRIC_INGESTED_EVENT_TYPE {
+            Ok(Self)
+        } else {
+            Err(serde::de::Error::invalid_value(
+                serde::de::Unexpected::Str(&s),
+                &SENSOR_METRIC_INGESTED_EVENT_TYPE,
+            ))
+        }
+    }
+}
+
+/// Sensor-metric ingestion event published by the Rust ingestion
+/// sidecar (`apps/sensor-ingestion`, ADR-025) onto NATS subject
+/// `events.{tenantId}.SensorMetricIngested`.
+///
+/// Wire-equivalent to the TS interface
+/// `SensorMetricIngestedEvent` in
+/// `libs/event-contracts/src/sensor-events.ts`. Flat layout per
+/// ADR-006; nested `payload` shapes rejected by `deny_unknown_fields`.
+///
+/// WHY this event is distinct from [`SensorReadingEvent`] (ADR-022):
+///   The sidecar sees raw per-channel metric tuples; it does NOT have
+///   the sensor-meta cache that maps channel UUID → typed
+///   water-quality field. sensor-service consumes this raw event,
+///   enriches it via the in-process sensor-meta cache, calls
+///   `BatchProcessorService.enqueue()`, then re-emits the typed
+///   `SensorReadingEvent` to the in-process EventBus for downstream
+///   consumers (alert-engine). One mapping concern, one owner —
+///   the service that already owns the metadata.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SensorMetricIngestedEvent {
+    /// Branded event id; never `Default`.
+    pub event_id: EventId,
+    /// Discriminator — always `"SensorMetricIngested"` on the wire.
+    pub event_type: SensorMetricIngestedEventType,
+    /// ISO 8601 UTC timestamp the sidecar minted the event at
+    /// (distinct from `producer_ts`, which is when the device
+    /// produced the reading).
+    pub timestamp: DateTime<Utc>,
+    /// Tenant id at the top level for NATS subject routing.
+    pub tenant_id: Uuid,
+    /// Schema version. Bump on shape change.
+    pub version: u32,
+
+    /// Aggregate root id — equals `sensor_id` for metric events.
+    /// Optional per the BaseEvent contract.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub aggregate_id: Option<Uuid>,
+    /// Aggregate-type discriminator (always `"Sensor"` for metrics).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub aggregate_type: Option<String>,
+    /// Distributed-tracing correlation id.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub correlation_id: Option<String>,
+    /// Causation id (parent event that produced this one).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub causation_id: Option<String>,
+    /// User who triggered the event. Always `None` from the sidecar
+    /// (ingestion has no user context); kept for BaseEvent shape.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub user_id: Option<String>,
+    /// Retry count incremented by the redelivery infrastructure.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub retry_count: Option<u32>,
+
+    // ----- Metric-specific fields (raw shape from the sidecar) ----
+    /// Sensor that produced the reading.
+    pub sensor_id: Uuid,
+    /// Channel within the sensor (e.g. one Modbus register, one
+    /// LoRaWAN FPort key).
+    pub channel_id: Uuid,
+    /// Pre-calibration raw value.
+    pub raw_value: f64,
+    /// Calibrated value (the sidecar currently equals `raw_value`;
+    /// calibration applies upstream of the sidecar or in
+    /// sensor-service's enrichment step).
+    pub value: f64,
+    /// IEC 61131-3 quality code in the `0..=3` subset
+    /// (good / uncertain / bad / not-connected).
+    pub quality_code: u8,
+    /// Producer timestamp in ms since UNIX epoch — the time the device
+    /// produced the reading. Validated by the sidecar to lie in
+    /// `[2024-01-01, 2100-01-01)` (`apps/sensor-ingestion/src/payload.rs`).
+    pub producer_ts: i64,
+}
+
+impl SensorMetricIngestedEvent {
+    /// Construct a fresh event from the raw sidecar tuple.
+    /// `event_id` is generated, `timestamp` set to now-UTC,
+    /// `version = 1`, `aggregate_*` populated from `sensor_id`.
+    #[must_use]
+    pub fn new(
+        tenant_id: Uuid,
+        sensor_id: Uuid,
+        channel_id: Uuid,
+        value: f64,
+        quality_code: u8,
+        producer_ts: i64,
+    ) -> Self {
+        Self {
+            event_id: EventId::generate(),
+            event_type: SensorMetricIngestedEventType,
+            timestamp: Utc::now(),
+            tenant_id,
+            version: 1,
+            aggregate_id: Some(sensor_id),
+            aggregate_type: Some("Sensor".to_owned()),
+            correlation_id: None,
+            causation_id: None,
+            user_id: None,
+            retry_count: None,
+            sensor_id,
+            channel_id,
+            raw_value: value,
+            value,
+            quality_code,
+            producer_ts,
+        }
+    }
+
+    /// Serialize to a JSON byte buffer ready for NATS publish.
+    ///
+    /// # Errors
+    /// Propagates `serde_json::Error` (only fires on a write-side I/O
+    /// failure for `Vec<u8>`; in practice the only failure mode is
+    /// OOM).
+    pub fn to_json_bytes(&self) -> Result<Vec<u8>, serde_json::Error> {
+        serde_json::to_vec(self)
+    }
+
+    /// Deserialize from a JSON byte buffer (NATS subscriber side).
+    ///
+    /// # Errors
+    /// Propagates `serde_json::Error` for any malformed wire value.
+    pub fn from_json_bytes(bytes: &[u8]) -> Result<Self, serde_json::Error> {
+        serde_json::from_slice(bytes)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::Value;
@@ -510,5 +671,199 @@ mod tests {
         });
         let bytes = serde_json::to_vec(&json).unwrap();
         assert!(SensorReadingEvent::from_json_bytes(&bytes).is_err());
+    }
+
+    // -----------------------------------------------------------------
+    // SensorMetricIngestedEvent — Faz 3 stage 1
+    // -----------------------------------------------------------------
+
+    use super::{SENSOR_METRIC_INGESTED_EVENT_TYPE, SensorMetricIngestedEvent};
+
+    #[test]
+    fn metric_event_new_sets_invariants() {
+        let tenant = fixed_uuid(0x10);
+        let sensor = fixed_uuid(0x20);
+        let channel = fixed_uuid(0x30);
+        let ev =
+            SensorMetricIngestedEvent::new(tenant, sensor, channel, 24.5, 1, 1_704_067_200_000);
+        assert_eq!(ev.tenant_id, tenant);
+        assert_eq!(ev.sensor_id, sensor);
+        assert_eq!(ev.channel_id, channel);
+        assert!((ev.value - 24.5).abs() < f64::EPSILON);
+        assert!((ev.raw_value - 24.5).abs() < f64::EPSILON);
+        assert_eq!(ev.quality_code, 1);
+        assert_eq!(ev.producer_ts, 1_704_067_200_000);
+        assert_eq!(ev.version, 1);
+        assert_eq!(ev.aggregate_id, Some(sensor));
+        assert_eq!(ev.aggregate_type.as_deref(), Some("Sensor"));
+    }
+
+    #[test]
+    fn metric_event_serde_camel_case() {
+        let ev = SensorMetricIngestedEvent::new(
+            fixed_uuid(0xAA),
+            fixed_uuid(0xBB),
+            fixed_uuid(0xCC),
+            7.2,
+            1,
+            1_730_000_000_000,
+        );
+        let json = serde_json::to_string(&ev).unwrap();
+        let v: Value = serde_json::from_str(&json).unwrap();
+        assert!(v.get("eventId").is_some());
+        assert_eq!(
+            v.get("eventType"),
+            Some(&Value::String("SensorMetricIngested".to_owned()))
+        );
+        assert!(v.get("tenantId").is_some());
+        assert!(v.get("sensorId").is_some());
+        assert!(v.get("channelId").is_some());
+        assert!(v.get("rawValue").is_some());
+        assert!(v.get("qualityCode").is_some());
+        assert!(v.get("producerTs").is_some());
+        // snake_case fields MUST NOT appear on the wire.
+        assert!(v.get("event_id").is_none());
+        assert!(v.get("tenant_id").is_none());
+        assert!(v.get("channel_id").is_none());
+        assert!(v.get("raw_value").is_none());
+        assert!(v.get("quality_code").is_none());
+        assert!(v.get("producer_ts").is_none());
+    }
+
+    #[test]
+    fn metric_event_round_trip_preserves_all_fields() {
+        let mut ev = SensorMetricIngestedEvent::new(
+            fixed_uuid(0xAA),
+            fixed_uuid(0xBB),
+            fixed_uuid(0xCC),
+            5.0,
+            2,
+            1_730_000_000_000,
+        );
+        ev.correlation_id = Some("trace-faz3".to_owned());
+        ev.causation_id = Some("ingest-task-1".to_owned());
+        let bytes = ev.to_json_bytes().unwrap();
+        let back = SensorMetricIngestedEvent::from_json_bytes(&bytes).unwrap();
+        assert_eq!(back, ev);
+    }
+
+    #[test]
+    fn metric_event_rejects_wrong_event_type() {
+        let ev = SensorMetricIngestedEvent::new(
+            fixed_uuid(0xAA),
+            fixed_uuid(0xBB),
+            fixed_uuid(0xCC),
+            1.0,
+            1,
+            1_730_000_000_000,
+        );
+        let s = String::from_utf8(ev.to_json_bytes().unwrap()).unwrap();
+        let mut v: Value = serde_json::from_str(&s).unwrap();
+        v["eventType"] = Value::String("WrongType".to_owned());
+        let bytes = serde_json::to_vec(&v).unwrap();
+        assert!(SensorMetricIngestedEvent::from_json_bytes(&bytes).is_err());
+    }
+
+    #[test]
+    fn metric_event_rejects_extra_unknown_field() {
+        let json = serde_json::json!({
+            "eventId": Uuid::new_v4().to_string(),
+            "eventType": "SensorMetricIngested",
+            "timestamp": "2026-04-21T12:00:00Z",
+            "tenantId": fixed_uuid(0xAA).to_string(),
+            "version": 1,
+            "sensorId": fixed_uuid(0xBB).to_string(),
+            "channelId": fixed_uuid(0xCC).to_string(),
+            "rawValue": 1.0,
+            "value": 1.0,
+            "qualityCode": 1,
+            "producerTs": 1_730_000_000_000_i64,
+            "payload": { "foo": "bar" },
+        });
+        let bytes = serde_json::to_vec(&json).unwrap();
+        let err = SensorMetricIngestedEvent::from_json_bytes(&bytes).unwrap_err();
+        assert!(
+            err.to_string().contains("payload") || err.to_string().contains("unknown field"),
+            "expected unknown-field error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn metric_event_rejects_missing_required_channel_id() {
+        let json = serde_json::json!({
+            "eventId": Uuid::new_v4().to_string(),
+            "eventType": "SensorMetricIngested",
+            "timestamp": "2026-04-21T12:00:00Z",
+            "tenantId": fixed_uuid(0xAA).to_string(),
+            "version": 1,
+            "sensorId": fixed_uuid(0xBB).to_string(),
+            "rawValue": 1.0,
+            "value": 1.0,
+            "qualityCode": 1,
+            "producerTs": 1_730_000_000_000_i64,
+        });
+        let bytes = serde_json::to_vec(&json).unwrap();
+        assert!(SensorMetricIngestedEvent::from_json_bytes(&bytes).is_err());
+    }
+
+    #[test]
+    fn metric_event_const_string_matches_witness() {
+        assert_eq!(SENSOR_METRIC_INGESTED_EVENT_TYPE, "SensorMetricIngested");
+    }
+
+    #[test]
+    fn metric_event_distinct_instances_have_distinct_event_ids() {
+        let a = SensorMetricIngestedEvent::new(
+            fixed_uuid(0xAA),
+            fixed_uuid(0xBB),
+            fixed_uuid(0xCC),
+            1.0,
+            1,
+            1_730_000_000_000,
+        );
+        let b = SensorMetricIngestedEvent::new(
+            fixed_uuid(0xAA),
+            fixed_uuid(0xBB),
+            fixed_uuid(0xCC),
+            1.0,
+            1,
+            1_730_000_000_000,
+        );
+        assert_ne!(a.event_id, b.event_id);
+    }
+
+    #[test]
+    fn metric_event_ts_compatible_wire_blob_deserialises() {
+        // Hand-crafted blob mimicking what the TS NestJS path would
+        // emit IF it ever produced this event (it won't — only the
+        // Rust sidecar produces it — but the round-trip pins the wire
+        // format invariant either way).
+        let blob = r#"{
+            "eventId": "550e8400-e29b-41d4-a716-446655440000",
+            "eventType": "SensorMetricIngested",
+            "timestamp": "2026-04-21T12:00:00.000Z",
+            "tenantId": "11111111-1111-1111-1111-111111111111",
+            "version": 1,
+            "aggregateId": "22222222-2222-2222-2222-222222222222",
+            "aggregateType": "Sensor",
+            "sensorId": "22222222-2222-2222-2222-222222222222",
+            "channelId": "33333333-3333-3333-3333-333333333333",
+            "rawValue": 24.5,
+            "value": 24.5,
+            "qualityCode": 1,
+            "producerTs": 1730000000000
+        }"#;
+        let ev = SensorMetricIngestedEvent::from_json_bytes(blob.as_bytes()).unwrap();
+        assert_eq!(
+            ev.tenant_id.to_string(),
+            "11111111-1111-1111-1111-111111111111"
+        );
+        assert_eq!(
+            ev.channel_id.to_string(),
+            "33333333-3333-3333-3333-333333333333"
+        );
+        assert!((ev.value - 24.5).abs() < f64::EPSILON);
+        assert_eq!(ev.quality_code, 1);
+        assert_eq!(ev.producer_ts, 1_730_000_000_000);
     }
 }

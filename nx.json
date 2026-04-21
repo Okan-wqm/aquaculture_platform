@@ -40,6 +40,11 @@
     },
     "serve": {
       "cache": false
+    },
+    "@nx/js:tsc": {
+      "cache": true,
+      "dependsOn": ["^build"],
+      "inputs": ["production", "^production"]
     }
   },
   "tasksRunnerOptions": {

@@ -107,6 +107,12 @@ export * from './migration-runner';
 export { MigrationRunnerModule } from './migration-runner/migration-runner.module';
 export type { MigrationRunnerModuleOptions } from './migration-runner/migration-runner.module';
 
+// Retention — single-enforcer-many-policies pattern (plan v3 R17).
+// Tables with SOC2 / KVKK retention windows register a policy at
+// module-init; RetentionEnforcementService iterates all on a daily
+// cron. See retention/retention-policy.ts docblock.
+export * from './retention';
+
 // Schema drift validator — OnApplicationBootstrap provider factory that
 // compares entity metadata against information_schema on every boot and
 // fails fast on divergence (uuid→text drift, wrong schema, nullability

@@ -10,6 +10,7 @@ import { HealthModule } from './health/health.module';
 import { TracingModule } from './tracing/tracing.module';
 import { MigrationAuditModule } from './migration-audit/migration-audit.module';
 import { GdprModule } from './gdpr/gdpr.module';
+import { RetentionBootstrapModule } from './retention/retention-bootstrap.module';
 import { InternalApiGuard } from './guards/internal-api.guard';
 
 @Module({
@@ -55,6 +56,11 @@ import { InternalApiGuard } from './guards/internal-api.guard';
     // for observability's tenant-scoped audit rows. 11th service in the
     // platform erasure cascade roster.
     GdprModule,
+    // Plan v3 R17 — single-enforcer-many-policies retention. Registers
+    // migration_events (13mo) + schema_object_history (7y) +
+    // emergency_overrides (7y, with legal-hold predicate) at module-init.
+    // Replaces the retired per-table MigrationEventsRetentionService.
+    RetentionBootstrapModule,
     /**
      * SECURITY (HIGH-004, V6): RlsConnectionBootstrap for pool-level GUC
      * propagation. observability-service reads aggregated metrics across

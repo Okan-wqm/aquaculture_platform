@@ -3,6 +3,10 @@ import { ConfigService } from '@nestjs/config';
 import { DataSource, EntityMetadata } from 'typeorm';
 
 import { DRIFT_CLASSES, type DriftClassId } from './schema-drift/drift-classes';
+import {
+  getEncryptedAtRestMetadata,
+  type EncryptedAtRestMetadata,
+} from './encrypted-at-rest.decorator';
 
 /**
  * createSchemaDriftValidator
@@ -252,6 +256,15 @@ export function createSchemaDriftValidator(
         declaredLabels: readonly string[];
       }> = [];
 
+      // @EncryptedAtRest metadata for this entity (Class J contract).
+      // Keyed by property name, not DB column name — columns[].propertyName
+      // maps to EntityMetadata.columns[].propertyName so we resolve by
+      // the TypeScript property.
+      const encryptedProperties: ReadonlyMap<string, EncryptedAtRestMetadata> =
+        entity.target && typeof entity.target === 'function'
+          ? getEncryptedAtRestMetadata(entity.target as Function)
+          : new Map();
+
       for (const column of entity.columns) {
         const dbName = column.databaseName;
         const dbColumn = columns.get(dbName);
@@ -278,7 +291,32 @@ export function createSchemaDriftValidator(
         // type field can be many things (string identifier, ctor, object)
         // so we pattern-match on the identifier form only.
         const entityType = typeof column.type === 'string' ? column.type : '';
-        if (entityType === 'uuid') {
+
+        // Class J — encrypted_column_protection. If the property is
+        // decorated with @EncryptedAtRest, the DB column MUST be bytea;
+        // and Class B (uuid type) is SUPPRESSED because the entity's
+        // declared type is the cipher's logical output, not the storage
+        // shape (see ADR-023). The contract is refusal — Phase 3
+        // primitives throw rather than attempt to align a decorated
+        // column; remediation is the key-rotation runbook.
+        const encMeta = encryptedProperties.get(column.propertyName);
+        const isEncrypted = encMeta !== undefined;
+        if (isEncrypted) {
+          if (dbColumn.data_type !== 'bytea') {
+            this.route(
+              'encrypted_column_protection',
+              `[${schema}.${tableName}.${dbName}] column is @EncryptedAtRest(keyId='${encMeta.keyId}', algorithm='${encMeta.algorithm}') but DB type is '${dbColumn.data_type}' — required: bytea. REFUSAL CLASS: do NOT write a migration to alter this column; see docs/runbooks/encrypted-column-key-rotation.md`,
+              errorViolations,
+              warningViolations,
+            );
+          }
+          // Suppress Class B / F / etc. for the decorated column — the
+          // entity's declared shape is a logical marker, not the storage
+          // contract. Continuing past here skips Class B (uuid_type) +
+          // enum collection. Class C (nullability) still applies — a
+          // nullable vs NOT NULL change IS a schema-semantic change that
+          // survives encryption.
+        } else if (entityType === 'uuid') {
           if (dbColumn.data_type !== 'uuid') {
             this.route(
               'uuid_type',
@@ -306,7 +344,8 @@ export function createSchemaDriftValidator(
         // (array of declared labels) and `column.enumName` (explicit
         // type name). When `enumName` is absent TypeORM auto-derives
         // `{table}_{column}_enum` (see resolveEnumTypeName()).
-        if (entityType === 'enum' && Array.isArray(column.enum)) {
+        // Decorated columns are skipped here too (see Class J above).
+        if (!isEncrypted && entityType === 'enum' && Array.isArray(column.enum)) {
           const declaredLabels = (column.enum as readonly unknown[])
             .filter((x): x is string => typeof x === 'string');
           if (declaredLabels.length > 0) {

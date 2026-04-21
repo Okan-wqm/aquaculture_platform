@@ -3,6 +3,7 @@
  * Uses fixture entities to verify each of the 4 drift classes (A-D) is
  * detected correctly, and that a clean shape produces zero violations.
  */
+import { EncryptedAtRest } from '@aquaculture/backend-common';
 import { Check, Column, Entity, PrimaryColumn } from 'typeorm';
 
 import {
@@ -60,6 +61,16 @@ class WidgetWithCheckEntity {
 
   @Column({ type: 'numeric', nullable: false })
   amount!: string;
+}
+
+@Entity({ name: 'employee_sensitive', schema: 'drifttest' })
+class EmployeeSensitiveEntity {
+  @PrimaryColumn({ type: 'uuid' })
+  id!: string;
+
+  @Column({ type: 'bytea', name: 'national_id', nullable: false })
+  @EncryptedAtRest({ keyId: 'tenant-pii-v1', algorithm: 'pgp_sym' })
+  nationalId!: Buffer;
 }
 
 describe('expectNoDriftAgainst — 4-class drift detection', () => {
@@ -400,6 +411,63 @@ describe('expectNoDriftAgainst — 4-class drift detection', () => {
             (v) => v.includes('1 orphaned') && v.includes('check_constraint'),
           ),
         ).toBe(true);
+      } finally {
+        await qr.query(`DROP SCHEMA IF EXISTS drifttest CASCADE`);
+      }
+    });
+  });
+
+  it('Class J clean when @EncryptedAtRest column is bytea', async () => {
+    await withEphemeralSchema(ctx!, async (_e, qr) => {
+      await qr.query(`CREATE SCHEMA IF NOT EXISTS drifttest`);
+      try {
+        await qr.query(
+          `CREATE TABLE drifttest.employee_sensitive (
+             id uuid PRIMARY KEY,
+             national_id bytea NOT NULL
+           )`,
+        );
+        const report = await expectNoDriftAgainst(
+          { qr, schema: 'drifttest' },
+          [EmployeeSensitiveEntity],
+        );
+        expect(report.byClass.encrypted_column_protection).toBe(0);
+        expect(report.byClass.uuid_type).toBe(0);
+      } finally {
+        await qr.query(`DROP SCHEMA IF EXISTS drifttest CASCADE`);
+      }
+    });
+  });
+
+  it('detects Class J when @EncryptedAtRest column is NOT bytea', async () => {
+    await withEphemeralSchema(ctx!, async (_e, qr) => {
+      await qr.query(`CREATE SCHEMA IF NOT EXISTS drifttest`);
+      try {
+        // national_id is text — should be bytea per @EncryptedAtRest
+        await qr.query(
+          `CREATE TABLE drifttest.employee_sensitive (
+             id uuid PRIMARY KEY,
+             national_id text NOT NULL
+           )`,
+        );
+        const report = await expectNoDriftAgainst(
+          { qr, schema: 'drifttest' },
+          [EmployeeSensitiveEntity],
+        );
+        expect(report.byClass.encrypted_column_protection).toBe(1);
+        expect(
+          report.violations.some(
+            (v) =>
+              v.includes('encrypted_column_protection') &&
+              v.includes("keyId='tenant-pii-v1'") &&
+              v.includes("algorithm='pgp_sym'") &&
+              v.includes("DB type is 'text'"),
+          ),
+        ).toBe(true);
+        // Class B (uuid_type) must be SUPPRESSED for decorated columns
+        // — the entity declares Buffer / bytea, and the protection
+        // class takes precedence.
+        expect(report.byClass.uuid_type).toBe(0);
       } finally {
         await qr.query(`DROP SCHEMA IF EXISTS drifttest CASCADE`);
       }

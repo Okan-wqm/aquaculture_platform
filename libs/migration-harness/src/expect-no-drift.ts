@@ -15,10 +15,10 @@
  *   E. Orphan column — DB has a column the entity does not declare
  *   F. Enum labels — entity enum[] differs from pg_enum labels
  *   G. Check constraint — entity @Check() count diverges from pg_constraint
+ *   J. Encrypted column protection — @EncryptedAtRest requires bytea storage
  *
- * Plan v3 R11 expands the validator to 10 classes. H (data_cast_incompatible),
- * I (per_tenant_shape_divergence), and J (encrypted_column_protection) land
- * in subsequent Phase 2 steps.
+ * Plan v3 R11 expands the validator to 10 classes. H (data_cast_incompatible)
+ * and I (per_tenant_shape_divergence) land in subsequent Phase 2 steps.
  *
  * # Usage
  *
@@ -39,6 +39,7 @@
  */
 import { randomBytes } from 'node:crypto';
 
+import { getEncryptedAtRestMetadata } from '@aquaculture/backend-common';
 import type { DataSourceOptions, EntityMetadata, QueryRunner } from 'typeorm';
 
 export interface DriftReport {
@@ -57,7 +58,8 @@ export type DriftClass =
   | 'missing_column'
   | 'orphan_column'
   | 'enum_labels'
-  | 'check_constraint';
+  | 'check_constraint'
+  | 'encrypted_column_protection';
 
 /**
  * Scan DB against entity metadata declarations; return a DriftReport
@@ -116,6 +118,7 @@ async function scanDrift(
     orphan_column: 0,
     enum_labels: 0,
     check_constraint: 0,
+    encrypted_column_protection: 0,
   };
 
   for (const entity of entities) {
@@ -167,6 +170,13 @@ async function scanDrift(
       declaredLabels: readonly string[];
     }> = [];
 
+    // @EncryptedAtRest metadata for this entity (mirrors production
+    // Class J semantics).
+    const encryptedProperties =
+      entity.target && typeof entity.target === 'function'
+        ? getEncryptedAtRestMetadata(entity.target as Function)
+        : new Map();
+
     for (const column of entity.columns) {
       const dbName = column.databaseName;
       const dbColumn = columns.get(dbName);
@@ -184,7 +194,20 @@ async function scanDrift(
       // checks; broader type-coercion detection ships with R11 Phase 2)
       const entityType =
         typeof column.type === 'string' ? column.type : '';
-      if (entityType === 'uuid' && dbColumn.data_type !== 'uuid') {
+
+      // Class J — encrypted_column_protection: DB column must be bytea
+      // when property is @EncryptedAtRest. Suppresses Class B + F for
+      // decorated columns (ADR-023).
+      const encMeta = encryptedProperties.get(column.propertyName);
+      const isEncrypted = encMeta !== undefined;
+      if (isEncrypted) {
+        if (dbColumn.data_type !== 'bytea') {
+          violations.push(
+            `[${ctx.schema}.${tableName}.${dbName}] column is @EncryptedAtRest(keyId='${encMeta.keyId}', algorithm='${encMeta.algorithm}') but DB type is '${dbColumn.data_type}' — required: bytea (encrypted_column_protection)`,
+          );
+          byClass.encrypted_column_protection++;
+        }
+      } else if (entityType === 'uuid' && dbColumn.data_type !== 'uuid') {
         violations.push(
           `[${ctx.schema}.${tableName}.${dbName}] entity declares uuid but DB is ${dbColumn.data_type}`,
         );
@@ -192,7 +215,7 @@ async function scanDrift(
       }
 
       // Class C — nullability (only catches entity-NOT-NULL / DB-nullable
-      // direction; the reverse is safe)
+      // direction; the reverse is safe). Applies regardless of encryption.
       if (!column.isNullable && dbColumn.is_nullable === 'YES') {
         violations.push(
           `[${ctx.schema}.${tableName}.${dbName}] entity declares NOT NULL but DB column is nullable`,
@@ -201,7 +224,8 @@ async function scanDrift(
       }
 
       // Class F — enum column collection for batched lookup below.
-      if (entityType === 'enum' && Array.isArray(column.enum)) {
+      // Skipped for encrypted columns (Class J contract).
+      if (!isEncrypted && entityType === 'enum' && Array.isArray(column.enum)) {
         const declaredLabels = (column.enum as readonly unknown[])
           .filter((x): x is string => typeof x === 'string');
         if (declaredLabels.length > 0) {

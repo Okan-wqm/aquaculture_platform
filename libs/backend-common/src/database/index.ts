@@ -137,6 +137,21 @@ export type {
   SchemaSnapshot,
 } from './schema-drift/pg-catalog-introspector';
 
+// @EncryptedAtRest — declarative marker for cryptographically-encrypted
+// columns. Drift validator Class J enforces bytea storage; Phase 3
+// primitives refuse DDL against decorated columns. See ADR-023.
+export {
+  EncryptedAtRest,
+  ENCRYPTED_AT_REST_META_KEY,
+  getEncryptedAtRestMetadata,
+  getEncryptedAtRestForProperty,
+} from './encrypted-at-rest.decorator';
+export type {
+  EncryptionAlgorithm,
+  EncryptedAtRestOptions,
+  EncryptedAtRestMetadata,
+} from './encrypted-at-rest.decorator';
+
 // Audit-column TIMESTAMP → TIMESTAMPTZ conversion (NEW-H1).
 // `convertAuditColumnsToTimestamptz` and `revertAuditColumnsToTimestamp`
 // are imported by per-service migrations in `auth`, `admin-api`, `farm`,

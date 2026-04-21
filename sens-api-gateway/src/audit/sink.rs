@@ -315,6 +315,120 @@ impl AuditSink {
         Ok(new_seq)
     }
 
+    /// Reopen the file handle at the same path WITHOUT
+    /// resetting chain state (Batch 76 Sprint 6.2 Phase 2
+    /// SIGHUP rotation compatibility).
+    ///
+    /// ## WHY
+    ///
+    /// Standard logrotate pattern is `create + rename +
+    /// signal`:
+    /// 1. logrotate renames `/var/log/suderra/audit.log` →
+    ///    `audit.log.1` (the agent's fd still points at the
+    ///    renamed file — still writable but to a rotated
+    ///    name the operator expects to be frozen).
+    /// 2. logrotate creates a new empty `audit.log`.
+    /// 3. logrotate sends SIGHUP to the agent.
+    /// 4. Agent's SIGHUP handler calls this method →
+    ///    `reopen()` flushes + closes the old fd (now
+    ///    pointing at `audit.log.1`) and opens a new fd at
+    ///    `audit.log` (the fresh empty file).
+    /// 5. Next append writes to the fresh file at sequence
+    ///    N+1 — chain state (last_hmac, last_sequence)
+    ///    preserved in memory, so the new file's first line
+    ///    has prev_hmac = <current_hmac from last line of
+    ///    rotated file>. The audit-verify CLI stitches
+    ///    across files via that prev_hmac linkage.
+    ///
+    /// ## CHAIN STATE PRESERVATION
+    ///
+    /// Unlike `open()` which runs chain recovery from the
+    /// file, `reopen()` DOES NOT touch `last_hmac` /
+    /// `last_sequence`. This is a deliberate design choice:
+    /// the in-memory state is the source of truth across
+    /// rotation. A new file starts EMPTY; trying to recover
+    /// chain state from an empty file would regress to
+    /// genesis zeros and BREAK cross-file chain continuity.
+    ///
+    /// ## FAILURE SEMANTICS
+    ///
+    /// - Flush failure → return WriteFailed (the previous
+    ///   fd had buffered data; losing it on reopen is an
+    ///   integrity loss).
+    /// - Open failure on the new path → return OpenFailed;
+    ///   caller (SIGHUP handler) logs the error. The sink
+    ///   is left in a degraded state — old fd is closed,
+    ///   new fd is NOT replaced. Next append will fail-fast
+    ///   at the same OpenFailed. Fail-loudly is better than
+    ///   silent write-to-dangling-fd.
+    pub fn reopen(&self) -> Result<(), AuditSinkError> {
+        let mut guard = self.state.lock().map_err(|_| AuditSinkError::LockPoisoned)?;
+
+        // Flush any buffered content to the old fd BEFORE
+        // closing it. The old fd is still valid even after
+        // logrotate's rename (POSIX: rename doesn't
+        // invalidate open fds).
+        guard
+            .writer
+            .flush()
+            .map_err(|e| AuditSinkError::WriteFailed(format!("reopen flush: {}", e)))?;
+        guard
+            .writer
+            .get_ref()
+            .sync_all()
+            .map_err(|e| AuditSinkError::WriteFailed(format!("reopen fsync: {}", e)))?;
+
+        // Open the new file at the same path. Same 0640
+        // perms + same O_APPEND | O_CREATE as `open()`.
+        if let Some(parent) = self.path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| {
+                AuditSinkError::OpenFailed(format!(
+                    "reopen mkdir {}: {}",
+                    parent.display(),
+                    e
+                ))
+            })?;
+        }
+
+        #[cfg(unix)]
+        let new_file = {
+            use std::os::unix::fs::OpenOptionsExt;
+            OpenOptions::new()
+                .append(true)
+                .create(true)
+                .mode(0o640)
+                .open(&self.path)
+        };
+        #[cfg(not(unix))]
+        let new_file = OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(&self.path);
+
+        let new_file = new_file.map_err(|e| {
+            AuditSinkError::OpenFailed(format!(
+                "reopen {}: {}",
+                self.path.display(),
+                e
+            ))
+        })?;
+
+        // Replace the writer. Dropping the old BufWriter
+        // closes the old fd. Chain state (last_hmac,
+        // last_sequence) is INTENTIONALLY preserved — the
+        // new file starts at sequence=last_sequence+1 with
+        // prev_hmac=last_hmac linking it to the rotated file.
+        guard.writer = BufWriter::new(new_file);
+
+        info!(
+            "AuditSink reopened: path={} chain_preserved_at_sequence={}",
+            self.path.display(),
+            guard.last_sequence
+        );
+
+        Ok(())
+    }
+
     /// Observer-helper: returns the path this sink writes to.
     pub fn path(&self) -> &Path {
         &self.path
@@ -785,6 +899,124 @@ mod tests {
 
         let outcome = recover_chain_state(&path);
         assert!(outcome.is_err(), "must fail-closed on wrong-length hmac hex");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    // -------------------------------------------------------
+    // Batch 76 — SIGHUP rotation compatibility
+    // -------------------------------------------------------
+
+    #[test]
+    fn reopen_preserves_chain_state() {
+        // Simulates logrotate's rename+signal pattern:
+        // 1. Open sink + append 3 entries.
+        // 2. Rename the file (as logrotate would).
+        // 3. Call reopen() — agent's SIGHUP handler path.
+        // 4. Append 1 more entry — it should chain from
+        //    sequence=4 with prev_hmac matching the
+        //    rotated file's last current_hmac.
+        let path = tmp_path();
+        let rotated_path = path.with_extension("log.1");
+        let _ = std::fs::remove_file(&rotated_path);
+        let key = AuditHmacKey::from_bytes([0x88u8; 32]);
+        let sink = AuditSink::open(&path, key).expect("open");
+
+        assert_eq!(sink.append(canned_entry()).expect("1"), 1);
+        assert_eq!(sink.append(canned_entry()).expect("2"), 2);
+        assert_eq!(sink.append(canned_entry()).expect("3"), 3);
+
+        let (pre_rotate_seq, pre_rotate_hmac) = sink.snapshot();
+        assert_eq!(pre_rotate_seq, 3);
+
+        // Simulate logrotate: rename file.
+        std::fs::rename(&path, &rotated_path).expect("rename");
+
+        // SIGHUP handler path.
+        sink.reopen().expect("reopen OK");
+
+        // Chain state MUST be preserved.
+        let (post_reopen_seq, post_reopen_hmac) = sink.snapshot();
+        assert_eq!(
+            post_reopen_seq, pre_rotate_seq,
+            "reopen must preserve last_sequence across rotation"
+        );
+        assert_eq!(
+            post_reopen_hmac, pre_rotate_hmac,
+            "reopen must preserve last_hmac across rotation"
+        );
+
+        // Next append goes to the NEW file at sequence 4.
+        let seq4 = sink.append(canned_entry()).expect("append 4");
+        assert_eq!(seq4, 4);
+
+        // New file should have exactly one entry (seq=4).
+        let new_contents = std::fs::read_to_string(&path).expect("read new");
+        assert_eq!(
+            new_contents.lines().count(),
+            1,
+            "rotated file should have 1 entry"
+        );
+        assert!(
+            new_contents.contains("\"sequence\":4"),
+            "new file first entry = seq 4: {}",
+            new_contents
+        );
+
+        // Rotated file should have 3 entries (seq=1,2,3).
+        let rotated_contents =
+            std::fs::read_to_string(&rotated_path).expect("read rotated");
+        assert_eq!(
+            rotated_contents.lines().count(),
+            3,
+            "rotated file should have 3 entries"
+        );
+
+        // Cross-file linkage: new file's first line's
+        // prev_hmac_hex == rotated file's last line's
+        // current_hmac_hex.
+        let rotated_last_line = rotated_contents.lines().last().expect("last line");
+        let new_first_line = new_contents.lines().next().expect("first line");
+        #[derive(serde::Deserialize)]
+        struct Extract {
+            prev_hmac_hex: Option<String>,
+            current_hmac_hex: Option<String>,
+        }
+        let r: Extract = serde_json::from_str(rotated_last_line).expect("parse r");
+        let n: Extract = serde_json::from_str(new_first_line).expect("parse n");
+        assert_eq!(
+            r.current_hmac_hex, n.prev_hmac_hex,
+            "cross-file chain linkage MUST hold"
+        );
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&rotated_path);
+    }
+
+    #[test]
+    fn reopen_after_external_file_delete_creates_new_file() {
+        // Edge case: operator manually deletes the file
+        // (rare but operationally possible). reopen() should
+        // recreate it + continue appending with preserved
+        // chain state.
+        let path = tmp_path();
+        let key = AuditHmacKey::from_bytes([0x99u8; 32]);
+        let sink = AuditSink::open(&path, key).expect("open");
+        sink.append(canned_entry()).expect("append 1");
+
+        // Externally delete.
+        std::fs::remove_file(&path).expect("manual delete");
+
+        // reopen() recreates.
+        sink.reopen().expect("reopen OK after delete");
+
+        // Append chains from seq=2 into the fresh file.
+        let seq2 = sink.append(canned_entry()).expect("append 2");
+        assert_eq!(seq2, 2);
+
+        let contents = std::fs::read_to_string(&path).expect("read");
+        assert_eq!(contents.lines().count(), 1);
+        assert!(contents.contains("\"sequence\":2"));
+
         let _ = std::fs::remove_file(&path);
     }
 }

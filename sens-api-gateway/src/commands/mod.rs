@@ -147,6 +147,11 @@ mod rbac;
 // between the commands dispatch + audit sink subsystem.
 mod audit_emit;
 
+// Batch 100 Sprint 6.3 final: master-key rotation
+// orchestrator. Composes keystore.rotate_master_from_files
+// + audit_sink.reload_hmac_key into one MQTT command.
+mod rotate_master;
+
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -833,6 +838,8 @@ impl CommandHandler {
             "lora_downlink" => self.cmd_lora_downlink(&command.params).await,
             // RBAC manifest hot-reload (Batch 72 Sprint 6.1)
             "update_policy" => self.cmd_update_policy(&command.params).await,
+            // Master-key rotation orchestrator (Batch 100 Sprint 6.3)
+            "rotate_master" => self.cmd_rotate_master(&command.params).await,
             _ => {
                 // v1.2.2: Sanitize user-provided command name to prevent log injection
                 warn!("Unknown command: {}", sanitize_for_log(&command.command));

@@ -186,6 +186,18 @@ pub(crate) fn permission_for_command(cmd: &str, params: &Value) -> Option<Permis
         "update_policy" => Some(Permission::ManagePolicy),
 
         // -----------------------------------------------------------------
+        // Master-key rotation (Batch 100 Sprint 6.3).
+        // -----------------------------------------------------------------
+        // WHY ManagePolicy: master key is the CRYPTOGRAPHIC
+        // root-of-trust for all HKDF-derived per-purpose keys
+        // (audit HMAC, SQLCipher key, replay cache key). An
+        // attacker who could rotate the master to a key they
+        // control could trivially forge audit entries, decrypt
+        // jti dedup, etc. Same trust-anchor-rotation gate as
+        // update_policy. ADR-018 §6 + plan §5 Faz 2 item 1.
+        "rotate_master" => Some(Permission::ManagePolicy),
+
+        // -----------------------------------------------------------------
         // Unknown command — fail-closed. Safer than implicit None
         // (anonymous) because an unknown command COULD be a future
         // safety-critical operation that the gate must reject.
@@ -276,6 +288,18 @@ mod tests {
         // ManagePolicy, not a weaker permission.
         assert!(matches!(
             permission_for_command("update_policy", &json!({})),
+            Some(Permission::ManagePolicy)
+        ));
+    }
+
+    #[test]
+    fn rotate_master_requires_manage_policy_permission() {
+        // Batch 100 Sprint 6.3 rotation: master-key rotation
+        // changes the cryptographic root-of-trust for every
+        // HKDF-derived per-purpose key. Same trust-anchor-
+        // rotation gate as update_policy — ManagePolicy.
+        assert!(matches!(
+            permission_for_command("rotate_master", &json!({})),
             Some(Permission::ManagePolicy)
         ));
     }

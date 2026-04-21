@@ -177,15 +177,34 @@ impl AuditSink {
     /// append (durability discipline); the buffer exists to
     /// avoid repeat syscalls within the same flush window.
     ///
-    /// Chain state initializes to:
-    /// - `last_hmac = PrevHmac::from_bytes([0u8; 32])` (the
-    ///   "genesis" sentinel — a verifier at sequence 1 sees
-    ///   prev_hmac=zeros which is the documented chain-start
-    ///   marker).
-    /// - `last_sequence = 0` (first append gets sequence 1).
+    /// ## Chain recovery (Batch 75 Sprint 6.2 Phase 2)
     ///
-    /// Phase 2 / Batch 75 replaces the genesis init with
-    /// last-line-scan recovery for continuity across restart.
+    /// Before opening in append-mode, this function SCANS
+    /// the file (if it already exists + non-empty) for the
+    /// LAST complete NDJSON line. On success, initializes:
+    /// - `last_hmac = <current_hmac_hex from last line>`
+    /// - `last_sequence = <sequence from last line>`
+    ///
+    /// so the next append chains from where the previous
+    /// process left off. This closes the cross-restart
+    /// forensic-continuity gap: without recovery, every
+    /// boot starts a new chain segment at genesis zeros,
+    /// forcing the audit-verify CLI to stitch independent
+    /// segments across restart boundaries.
+    ///
+    /// RECOVERY FAILURE MODES:
+    /// - File does not exist yet → genesis zeros (first boot).
+    /// - File exists but empty → genesis zeros (touched but
+    ///   never written; idempotent on logrotate truncate).
+    /// - File exists but LAST line is malformed (partial
+    ///   write on crash) → the recovery scanner drops the
+    ///   trailing partial line + recovers from the LAST
+    ///   COMPLETE line. The partial line is left in place
+    ///   for the audit-verify CLI to flag as "torn tail".
+    /// - File exists + last line is valid but not parseable
+    ///   as NDJSON (log corruption / wrong file) → open
+    ///   returns Err. Fail-closed: an unrecoverable audit
+    ///   log is a forensic-integrity signal.
     pub fn open(path: &Path, hmac_key: AuditHmacKey) -> Result<Self, AuditSinkError> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| {
@@ -196,6 +215,10 @@ impl AuditSink {
                 ))
             })?;
         }
+
+        // Batch 75: scan existing file for chain recovery.
+        let (recovered_hmac, recovered_seq, recovery_note) =
+            recover_chain_state(path)?;
 
         #[cfg(unix)]
         let file = {
@@ -222,13 +245,14 @@ impl AuditSink {
         let state = SinkState {
             writer,
             hmac_key,
-            last_hmac: PrevHmac::from_bytes([0u8; 32]),
-            last_sequence: 0,
+            last_hmac: recovered_hmac,
+            last_sequence: recovered_seq,
         };
 
         info!(
-            "AuditSink opened: path={} chain=genesis (Batch 75 follow-up wires last-line-scan recovery)",
-            path.display()
+            "AuditSink opened: path={} chain={}",
+            path.display(),
+            recovery_note
         );
 
         Ok(Self {
@@ -312,6 +336,194 @@ impl AuditSink {
             .collect();
         (guard.last_sequence, hex)
     }
+}
+
+/// Chain-state recovery on open (Batch 75 Sprint 6.2 Phase 2).
+///
+/// Reads the existing log file (if any) and extracts the
+/// LAST COMPLETE NDJSON line's `(current_hmac_hex, sequence)`.
+/// A "complete" line is one that ends with `\n` in the stored
+/// content — a partial line (crash mid-write) is dropped.
+///
+/// Returns `(last_hmac, last_sequence, recovery_note)` where
+/// recovery_note is a human-readable string for boot-banner
+/// logging ("genesis (no prior log)", "recovered from
+/// sequence=N", "recovered after dropping torn tail at
+/// offset=K").
+///
+/// FAIL-CLOSED behavior:
+/// - If the last complete line is non-empty but unparseable
+///   (bad JSON / missing fields / wrong-length hmac hex),
+///   returns Err — an audit log that CANNOT be recovered is
+///   a forensic-integrity signal that warrants operator
+///   attention. Silently starting a new chain at genesis
+///   after a mystery corruption would erase the discontinuity.
+///
+/// Performance note:
+/// - For the expected log sizes (rotated daily at ~10-100 MB),
+///   reading the file to locate the last newline is
+///   acceptable. If log sizes grow beyond ~1 GB, a
+///   reverse-chunk reader (memchr::memrchr on 64 KB
+///   windows) is the Phase 2 metrics-gated upgrade path per
+///   plan §5 Faz 2 item 8 — Phase 9 test matrix surfaces
+///   the signal before the upgrade fires.
+fn recover_chain_state(
+    path: &Path,
+) -> Result<(PrevHmac, u64, String), AuditSinkError> {
+    use std::io::Read;
+
+    if !path.exists() {
+        return Ok((
+            PrevHmac::from_bytes([0u8; 32]),
+            0,
+            "genesis (file not yet created)".to_string(),
+        ));
+    }
+
+    let mut file = match std::fs::File::open(path) {
+        Ok(f) => f,
+        Err(e) => {
+            return Err(AuditSinkError::OpenFailed(format!(
+                "recovery-scan open {}: {}",
+                path.display(),
+                e
+            )));
+        }
+    };
+
+    let mut buf = Vec::new();
+    file.read_to_end(&mut buf).map_err(|e| {
+        AuditSinkError::OpenFailed(format!(
+            "recovery-scan read {}: {}",
+            path.display(),
+            e
+        ))
+    })?;
+
+    if buf.is_empty() {
+        return Ok((
+            PrevHmac::from_bytes([0u8; 32]),
+            0,
+            "genesis (file exists but empty — logrotate truncate or never-written)".to_string(),
+        ));
+    }
+
+    // Find the last complete NDJSON line. A complete line ends
+    // with '\n' in the file body. Partial-write tail (crash
+    // mid-fsync) is dropped.
+    //
+    // Strategy: walk backward from the end, locate the
+    // rightmost '\n'. The content AFTER that '\n' (if any) is
+    // the torn tail; the content BEFORE it contains the last
+    // complete line as its tail.
+    let last_newline_idx = buf.iter().rposition(|&b| b == b'\n');
+    let (complete_bytes, torn_tail_len) = match last_newline_idx {
+        Some(idx) => {
+            // buf[..=idx] ends with \n; buf[idx+1..] is the torn tail.
+            let torn_len = buf.len() - (idx + 1);
+            // Trim the trailing newline to avoid an empty "line" split.
+            let complete = &buf[..idx];
+            (complete, torn_len)
+        }
+        None => {
+            // No newline at all → entire file is a torn tail
+            // (never flushed a complete line). Fail-closed:
+            // the file exists but has no complete entry —
+            // treat as genesis + log the anomaly.
+            warn!(
+                "AuditSink recovery: file {} has no newline (torn-tail-only, {} bytes). Starting at genesis; audit-verify CLI will flag the torn tail.",
+                path.display(),
+                buf.len()
+            );
+            return Ok((
+                PrevHmac::from_bytes([0u8; 32]),
+                0,
+                format!(
+                    "genesis (torn-tail-only: {} bytes before first newline)",
+                    buf.len()
+                ),
+            ));
+        }
+    };
+
+    // Locate the last LINE within complete_bytes — split on
+    // the second-to-last newline (if any).
+    let last_line_start = complete_bytes
+        .iter()
+        .rposition(|&b| b == b'\n')
+        .map(|i| i + 1)
+        .unwrap_or(0);
+    let last_line = &complete_bytes[last_line_start..];
+
+    if last_line.is_empty() {
+        // File is "\n\n\n..." — unusual but not malformed.
+        // Treat as genesis.
+        return Ok((
+            PrevHmac::from_bytes([0u8; 32]),
+            0,
+            "genesis (empty-line file)".to_string(),
+        ));
+    }
+
+    // Parse the last line as our NDJSON shape.
+    #[derive(serde::Deserialize)]
+    struct RecoveredLine {
+        sequence: u64,
+        current_hmac_hex: String,
+    }
+
+    let parsed: RecoveredLine = serde_json::from_slice(last_line).map_err(|e| {
+        AuditSinkError::OpenFailed(format!(
+            "recovery-scan parse last line (corruption detected): {} \
+             — refusing to silently start new chain at genesis. \
+             File: {}",
+            e,
+            path.display()
+        ))
+    })?;
+
+    if parsed.current_hmac_hex.len() != 64
+        || !parsed.current_hmac_hex.chars().all(|c| c.is_ascii_hexdigit())
+    {
+        return Err(AuditSinkError::OpenFailed(format!(
+            "recovery-scan: current_hmac_hex must be 64 lowercase hex chars, got {:?} in file {}",
+            parsed.current_hmac_hex,
+            path.display()
+        )));
+    }
+
+    let mut hmac_bytes = [0u8; 32];
+    for (i, b) in hmac_bytes.iter_mut().enumerate() {
+        let pair = parsed
+            .current_hmac_hex
+            .get(i * 2..i * 2 + 2)
+            .ok_or_else(|| {
+                AuditSinkError::OpenFailed(format!(
+                    "recovery-scan: hmac hex slice error at byte {} in file {}",
+                    i,
+                    path.display()
+                ))
+            })?;
+        *b = u8::from_str_radix(pair, 16).map_err(|e| {
+            AuditSinkError::OpenFailed(format!(
+                "recovery-scan: hmac hex parse at byte {}: {} in file {}",
+                i,
+                e,
+                path.display()
+            ))
+        })?;
+    }
+
+    let note = if torn_tail_len == 0 {
+        format!("recovered from sequence={}", parsed.sequence)
+    } else {
+        format!(
+            "recovered from sequence={} (dropped {} torn-tail bytes; audit-verify will flag)",
+            parsed.sequence, torn_tail_len
+        )
+    };
+
+    Ok((PrevHmac::from_bytes(hmac_bytes), parsed.sequence, note))
 }
 
 /// NDJSON serialization: one line per chain entry.
@@ -469,5 +681,110 @@ mod tests {
         // test suite.
         let key = AuditHmacKey::from_bytes([0x66u8; 32]);
         drop(key);
+    }
+
+    // -------------------------------------------------------
+    // Batch 75 — chain recovery on restart
+    // -------------------------------------------------------
+
+    #[test]
+    fn recovery_genesis_on_missing_file() {
+        let path = tmp_path();
+        let _ = std::fs::remove_file(&path);
+        let (hmac, seq, note) =
+            recover_chain_state(&path).expect("recovery OK on missing file");
+        assert_eq!(hmac.as_bytes(), &[0u8; 32]);
+        assert_eq!(seq, 0);
+        assert!(note.starts_with("genesis"), "unexpected note: {}", note);
+    }
+
+    #[test]
+    fn recovery_genesis_on_empty_file() {
+        let path = tmp_path();
+        std::fs::write(&path, b"").expect("create empty");
+        let (hmac, seq, note) = recover_chain_state(&path).expect("recovery OK empty");
+        assert_eq!(hmac.as_bytes(), &[0u8; 32]);
+        assert_eq!(seq, 0);
+        assert!(note.contains("empty"), "unexpected note: {}", note);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn recovery_reads_last_complete_line() {
+        let path = tmp_path();
+        let key = AuditHmacKey::from_bytes([0x77u8; 32]);
+        {
+            let sink = AuditSink::open(&path, key).expect("open 1");
+            sink.append(canned_entry()).expect("append 1");
+            sink.append(canned_entry()).expect("append 2");
+            sink.append(canned_entry()).expect("append 3");
+        } // drop closes file
+
+        let key2 = AuditHmacKey::from_bytes([0x77u8; 32]);
+        let sink2 = AuditSink::open(&path, key2).expect("open 2 (recovery)");
+        let (seq, _hmac_hex) = sink2.snapshot();
+        assert_eq!(seq, 3, "recovered sequence should be 3 after 3 appends");
+
+        // Next append chains from sequence=3 → 4.
+        let seq4 = sink2.append(canned_entry()).expect("append 4 post-recovery");
+        assert_eq!(seq4, 4);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn recovery_drops_torn_tail() {
+        let path = tmp_path();
+        // Compose a valid first line + a torn partial tail.
+        let valid_line = serde_json::json!({
+            "sequence": 7,
+            "prev_hmac_hex": "0".repeat(64),
+            "current_hmac_hex": "a".repeat(64),
+            "entry": { "placeholder": true }
+        });
+        let mut buf = serde_json::to_string(&valid_line).unwrap();
+        buf.push('\n');
+        buf.push_str("{\"sequence\":8,\"prev_hmac_hex\":\"aaa"); // torn tail
+        std::fs::write(&path, buf.as_bytes()).expect("write");
+
+        let (hmac, seq, note) = recover_chain_state(&path).expect("recovery OK");
+        assert_eq!(seq, 7, "should recover from last complete line");
+        assert_eq!(hmac.as_bytes(), &[0xaau8; 32]);
+        assert!(
+            note.contains("torn-tail"),
+            "note should flag torn tail: {}",
+            note
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn recovery_fails_closed_on_corrupt_last_line() {
+        let path = tmp_path();
+        // Well-formed complete line but the json shape is
+        // wrong (missing current_hmac_hex) — fail-closed.
+        let bad_line = b"{\"sequence\":1}\n";
+        std::fs::write(&path, bad_line).expect("write");
+
+        let outcome = recover_chain_state(&path);
+        assert!(outcome.is_err(), "must fail-closed on corrupt last line");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn recovery_fails_closed_on_bad_hmac_hex_length() {
+        let path = tmp_path();
+        let bad = serde_json::json!({
+            "sequence": 1,
+            "prev_hmac_hex": "0".repeat(64),
+            "current_hmac_hex": "abc",  // too short
+            "entry": {}
+        });
+        let mut buf = serde_json::to_string(&bad).unwrap();
+        buf.push('\n');
+        std::fs::write(&path, buf.as_bytes()).expect("write");
+
+        let outcome = recover_chain_state(&path);
+        assert!(outcome.is_err(), "must fail-closed on wrong-length hmac hex");
+        let _ = std::fs::remove_file(&path);
     }
 }

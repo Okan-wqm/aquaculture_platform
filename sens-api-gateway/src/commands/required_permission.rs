@@ -209,6 +209,20 @@ pub(crate) fn permission_for_command(cmd: &str, params: &Value) -> Option<Permis
         "confirm_slot" => Some(Permission::UpdateFirmware),
 
         // -----------------------------------------------------------------
+        // Signed firmware manifest verification preview (Batch 115 Sprint 6.5).
+        // -----------------------------------------------------------------
+        // WHY UpdateFirmware: verify_signed_manifest is a
+        // dry-run primitive for the future cmd_apply_signed_manifest
+        // orchestrator (Batch 116). Semantically it is the
+        // firmware-deploy privilege class — only an actor who
+        // could DEPLOY firmware should be able to PROBE whether
+        // a given manifest would verify. Gating lower would
+        // leak verification-side-channel info (e.g. which
+        // tenant/version/pubkey the device trusts) to any
+        // lower-privilege operator. ADR-019 §3.
+        "verify_signed_manifest" => Some(Permission::UpdateFirmware),
+
+        // -----------------------------------------------------------------
         // Unknown command — fail-closed. Safer than implicit None
         // (anonymous) because an unknown command COULD be a future
         // safety-critical operation that the gate must reject.

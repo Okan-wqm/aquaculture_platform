@@ -158,6 +158,14 @@ mod rotate_master;
 // the happy-path of the A/B firmware lifecycle.
 mod confirm_slot;
 
+// Batch 115 Sprint 6.5 Phase 2: verify_signed_manifest
+// command — verification-only preview MQTT command that
+// runs the Batch 8 `verify_firmware_manifest` gate against
+// the AppState-cached VerifyingKey (Batch 114). Dry-run
+// primitive the future Batch 116 cmd_apply_signed_manifest
+// orchestrator builds on top of.
+mod verify_signed_manifest;
+
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -848,6 +856,8 @@ impl CommandHandler {
             "rotate_master" => self.cmd_rotate_master(&command.params).await,
             // Firmware A/B slot confirmation (Batch 109 Sprint 6.5)
             "confirm_slot" => self.cmd_confirm_slot(&command.params).await,
+            // Signed firmware manifest verification preview (Batch 115 Sprint 6.5)
+            "verify_signed_manifest" => self.cmd_verify_signed_manifest(&command.params).await,
             _ => {
                 // v1.2.2: Sanitize user-provided command name to prevent log injection
                 warn!("Unknown command: {}", sanitize_for_log(&command.command));

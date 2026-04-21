@@ -141,6 +141,12 @@ mod ide_deploy;
 // the full verify + floor + atomic swap chain.
 mod rbac;
 
+// Batch 79 Sprint 6.2 Phase 2: audit emission helpers —
+// action_for_command mapping + build_entry constructor +
+// emit_pre/post_event wrappers around AuditSink. Thin glue
+// between the commands dispatch + audit sink subsystem.
+mod audit_emit;
+
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -664,10 +670,35 @@ impl CommandHandler {
             !command.params.is_null()
         );
 
-        let device_id = {
+        // Batch 79 Sprint 6.2 Phase 2: snapshot the
+        // device_id, audit sink Arc, and tenant bytes under
+        // the read-guard so pre+post audit emit can run
+        // without re-acquiring the state lock.
+        let (device_id, audit_sink, tenant_bytes) = {
             let state = self.state.read().await;
-            state.config.device_id.clone()
+            let tid = state
+                .tenant_id
+                .as_deref()
+                .and_then(|s| uuid::Uuid::parse_str(s).ok())
+                .map(|u| *u.as_bytes())
+                .unwrap_or([0u8; 16]);
+            (
+                state.config.device_id.clone(),
+                state.audit_sink.clone(),
+                tid,
+            )
         };
+        let tenant = crate::authz::permission::TenantId::new_from_verified(tenant_bytes);
+
+        // Batch 79: emit PRE-exec audit event. No-op when
+        // audit_sink is None (audit.mode=Disabled).
+        audit_emit::emit_pre_event(
+            audit_sink.as_ref(),
+            &command.command,
+            &command.command_id,
+            &device_id,
+            tenant,
+        );
 
         // Batch 33+35 Sprint 6.1 partial: compute required-
         // permission ONCE and reuse for:
@@ -847,6 +878,28 @@ impl CommandHandler {
                 Utc::now().to_rfc3339()
             );
         }
+
+        // Batch 79 Sprint 6.2 Phase 2: emit POST-exec audit
+        // event to the HMAC-chained sink (when
+        // audit.mode=Enabled). No-op when sink is None.
+        let post_outcome = if success {
+            crate::audit::AuditOutcome::Success
+        } else {
+            crate::audit::AuditOutcome::Failure
+        };
+        let post_detail = match &error {
+            Some(e) => format!("elapsed_ms={} err={}", elapsed.as_millis(), e),
+            None => format!("elapsed_ms={}", elapsed.as_millis()),
+        };
+        audit_emit::emit_post_event(
+            audit_sink.as_ref(),
+            &command.command,
+            &command.command_id,
+            &device_id,
+            tenant,
+            post_outcome,
+            &post_detail,
+        );
 
         CommandResponse {
             command_id: command.command_id.clone(),

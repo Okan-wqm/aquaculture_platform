@@ -570,3 +570,8 @@ path = "tests/invariants/rate_limiter_semantics.rs"
 [[test]]
 name = "config_integrity_verify_runtime"
 path = "tests/invariants/config_integrity_verify_runtime.rs"
+
+# Batch 55 Sprint 6.7 partial — SystemClockAuthority baseline impl.
+[[test]]
+name = "system_clock"
+path = "tests/invariants/system_clock.rs"

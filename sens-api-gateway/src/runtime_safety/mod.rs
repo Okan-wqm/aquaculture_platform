@@ -34,9 +34,15 @@
 pub mod clock;
 pub mod retained_msg;
 pub mod shutdown_phase;
+// Batch 55 Sprint 6.7 partial — concrete SystemClockAuthority
+// impl. Baseline production impl using Instant + SystemTime;
+// Sprint 6.7 replaces with ChronyNtsClockAuthority (queries
+// chronyd + fails-closed on stale NTS).
+pub mod system_clock;
 
 pub use clock::{ClockAuthority, ClockError, MonotonicAnchor, WallClockReading};
 pub use retained_msg::{is_retained_command_rejected, RetainedMsgRejectionReason};
 pub use shutdown_phase::{
     DrainState, ShutdownPhase, ShutdownTransition, ShutdownTransitionError,
 };
+pub use system_clock::{SystemClockAuthority, DEFAULT_NTS_SYNC_MAX_SKEW_SECS};

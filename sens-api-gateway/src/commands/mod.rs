@@ -152,6 +152,12 @@ mod audit_emit;
 // + audit_sink.reload_hmac_key into one MQTT command.
 mod rotate_master;
 
+// Batch 109 Sprint 6.5 Phase 2: confirm_slot command —
+// operator-driven PartitionRoll::Confirm transition.
+// Counterpart to the Batch 107 watchdog Rollback; closes
+// the happy-path of the A/B firmware lifecycle.
+mod confirm_slot;
+
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -840,6 +846,8 @@ impl CommandHandler {
             "update_policy" => self.cmd_update_policy(&command.params).await,
             // Master-key rotation orchestrator (Batch 100 Sprint 6.3)
             "rotate_master" => self.cmd_rotate_master(&command.params).await,
+            // Firmware A/B slot confirmation (Batch 109 Sprint 6.5)
+            "confirm_slot" => self.cmd_confirm_slot(&command.params).await,
             _ => {
                 // v1.2.2: Sanitize user-provided command name to prevent log injection
                 warn!("Unknown command: {}", sanitize_for_log(&command.command));

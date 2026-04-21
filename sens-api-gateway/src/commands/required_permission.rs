@@ -198,6 +198,17 @@ pub(crate) fn permission_for_command(cmd: &str, params: &Value) -> Option<Permis
         "rotate_master" => Some(Permission::ManagePolicy),
 
         // -----------------------------------------------------------------
+        // Firmware A/B slot confirmation (Batch 109 Sprint 6.5).
+        // -----------------------------------------------------------------
+        // WHY UpdateFirmware: confirm_slot advances the A/B
+        // lifecycle state machine — mechanically same privilege
+        // class as update_firmware + rollback_firmware. ADR-
+        // 019 §6. Under ManagePolicy would over-privilege
+        // (confirm doesn't touch keys), under Reboot would
+        // under-privilege (confirm doesn't restart).
+        "confirm_slot" => Some(Permission::UpdateFirmware),
+
+        // -----------------------------------------------------------------
         // Unknown command — fail-closed. Safer than implicit None
         // (anonymous) because an unknown command COULD be a future
         // safety-critical operation that the gate must reject.
@@ -301,6 +312,21 @@ mod tests {
         assert!(matches!(
             permission_for_command("rotate_master", &json!({})),
             Some(Permission::ManagePolicy)
+        ));
+    }
+
+    #[test]
+    fn confirm_slot_requires_update_firmware_permission() {
+        // Batch 109 Sprint 6.5: confirm_slot advances the
+        // A/B partition lifecycle state machine — same
+        // firmware-lifecycle privilege class as
+        // update_firmware + rollback_firmware. NOT
+        // ManagePolicy (over-privilege: confirm doesn't
+        // touch keys) NOT Reboot (under-privilege: confirm
+        // doesn't restart, only marks slot Active).
+        assert!(matches!(
+            permission_for_command("confirm_slot", &json!({})),
+            Some(Permission::UpdateFirmware)
         ));
     }
 }

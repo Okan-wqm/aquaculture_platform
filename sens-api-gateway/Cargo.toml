@@ -602,3 +602,10 @@ path = "tests/invariants/manifest_rollback_protection.rs"
 [[test]]
 name = "rbac_hot_reload"
 path = "tests/invariants/rbac_hot_reload.rs"
+
+# Batches 74-80 Sprint 6.2 Phase 2 — audit sink pipeline
+# contract anchors (sink + recovery + reopen + verify +
+# AppState wiring + CommandHandler emit + SIGHUP handler).
+[[test]]
+name = "audit_pipeline"
+path = "tests/invariants/audit_pipeline.rs"

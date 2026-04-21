@@ -54,3 +54,14 @@ docs/adr/                        @Okan-wqm
 # ── CLAUDE.md ─────────────────────────────────────────────────────────
 # Session-start context for every review — must not drift unnoticed.
 CLAUDE.md                        @Okan-wqm
+
+# ── Database migrations + schema primitives (plan v3 Phase 4.5) ─────
+# Migrations + drift-class primitives are load-bearing for deploy
+# safety. SOC2 CC6.1 separation-of-duties: author != reviewer.
+# tools/gates/migration-codeowners-coverage.ts asserts every migration
+# path is covered by a CODEOWNERS entry below.
+apps/*/src/database/migrations/                                       @Okan-wqm
+libs/backend-common/src/database/schema-primitives/                   @Okan-wqm
+libs/backend-common/src/database/schema-drift/                        @Okan-wqm
+libs/backend-common/src/database/base-migration.ts                    @Okan-wqm
+libs/backend-common/src/database/schema-drift-validator.service.ts    @Okan-wqm

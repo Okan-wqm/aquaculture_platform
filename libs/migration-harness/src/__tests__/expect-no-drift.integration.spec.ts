@@ -3,7 +3,7 @@
  * Uses fixture entities to verify each of the 4 drift classes (A-D) is
  * detected correctly, and that a clean shape produces zero violations.
  */
-import { Column, Entity, PrimaryColumn } from 'typeorm';
+import { Check, Column, Entity, PrimaryColumn } from 'typeorm';
 
 import {
   type HarnessContext,
@@ -46,6 +46,20 @@ class WidgetWithEnumEntity {
     nullable: false,
   })
   status!: WidgetStatus;
+}
+
+@Entity({ name: 'widget_with_check', schema: 'drifttest' })
+@Check(`"amount" > 0`)
+@Check(`"name" <> ''`)
+class WidgetWithCheckEntity {
+  @PrimaryColumn({ type: 'uuid' })
+  id!: string;
+
+  @Column({ type: 'text', nullable: false })
+  name!: string;
+
+  @Column({ type: 'numeric', nullable: false })
+  amount!: string;
 }
 
 describe('expectNoDriftAgainst — 4-class drift detection', () => {
@@ -302,6 +316,90 @@ describe('expectNoDriftAgainst — 4-class drift detection', () => {
           [WidgetWithEnumEntity],
         );
         expect(report.byClass.enum_labels).toBe(0);
+      } finally {
+        await qr.query(`DROP SCHEMA IF EXISTS drifttest CASCADE`);
+      }
+    });
+  });
+
+  it('Class G clean when both entity @Check count matches DB constraint count', async () => {
+    await withEphemeralSchema(ctx!, async (_e, qr) => {
+      await qr.query(`CREATE SCHEMA IF NOT EXISTS drifttest`);
+      try {
+        await qr.query(
+          `CREATE TABLE drifttest.widget_with_check (
+             id uuid PRIMARY KEY,
+             name text NOT NULL,
+             amount numeric NOT NULL,
+             CHECK ("amount" > 0),
+             CHECK ("name" <> '')
+           )`,
+        );
+        const report = await expectNoDriftAgainst(
+          { qr, schema: 'drifttest' },
+          [WidgetWithCheckEntity],
+        );
+        expect(report.byClass.check_constraint).toBe(0);
+      } finally {
+        await qr.query(`DROP SCHEMA IF EXISTS drifttest CASCADE`);
+      }
+    });
+  });
+
+  it('detects Class G (entity declares CHECK the DB lacks)', async () => {
+    await withEphemeralSchema(ctx!, async (_e, qr) => {
+      await qr.query(`CREATE SCHEMA IF NOT EXISTS drifttest`);
+      try {
+        // Only one CHECK present instead of the entity-declared two.
+        await qr.query(
+          `CREATE TABLE drifttest.widget_with_check (
+             id uuid PRIMARY KEY,
+             name text NOT NULL,
+             amount numeric NOT NULL,
+             CHECK ("amount" > 0)
+           )`,
+        );
+        const report = await expectNoDriftAgainst(
+          { qr, schema: 'drifttest' },
+          [WidgetWithCheckEntity],
+        );
+        expect(report.byClass.check_constraint).toBe(1);
+        expect(
+          report.violations.some(
+            (v) => v.includes('1 missing in DB') && v.includes('check_constraint'),
+          ),
+        ).toBe(true);
+      } finally {
+        await qr.query(`DROP SCHEMA IF EXISTS drifttest CASCADE`);
+      }
+    });
+  });
+
+  it('detects Class G (DB has CHECK the entity does not)', async () => {
+    await withEphemeralSchema(ctx!, async (_e, qr) => {
+      await qr.query(`CREATE SCHEMA IF NOT EXISTS drifttest`);
+      try {
+        // Three CHECKs in DB, entity declares two.
+        await qr.query(
+          `CREATE TABLE drifttest.widget_with_check (
+             id uuid PRIMARY KEY,
+             name text NOT NULL,
+             amount numeric NOT NULL,
+             CHECK ("amount" > 0),
+             CHECK ("name" <> ''),
+             CHECK (char_length("name") <= 100)
+           )`,
+        );
+        const report = await expectNoDriftAgainst(
+          { qr, schema: 'drifttest' },
+          [WidgetWithCheckEntity],
+        );
+        expect(report.byClass.check_constraint).toBe(1);
+        expect(
+          report.violations.some(
+            (v) => v.includes('1 orphaned') && v.includes('check_constraint'),
+          ),
+        ).toBe(true);
       } finally {
         await qr.query(`DROP SCHEMA IF EXISTS drifttest CASCADE`);
       }

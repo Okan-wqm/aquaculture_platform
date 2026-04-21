@@ -14,10 +14,11 @@
  *   D. Missing column — entity declares column the DB lacks
  *   E. Orphan column — DB has a column the entity does not declare
  *   F. Enum labels — entity enum[] differs from pg_enum labels
+ *   G. Check constraint — entity @Check() count diverges from pg_constraint
  *
- * Plan v3 R11 expands the validator to 10 classes. G (check_constraint),
- * H (data_cast_incompatible), I (per_tenant_shape_divergence), and J
- * (encrypted_column_protection) land in subsequent Phase 2 steps.
+ * Plan v3 R11 expands the validator to 10 classes. H (data_cast_incompatible),
+ * I (per_tenant_shape_divergence), and J (encrypted_column_protection) land
+ * in subsequent Phase 2 steps.
  *
  * # Usage
  *
@@ -55,7 +56,8 @@ export type DriftClass =
   | 'nullability'
   | 'missing_column'
   | 'orphan_column'
-  | 'enum_labels';
+  | 'enum_labels'
+  | 'check_constraint';
 
 /**
  * Scan DB against entity metadata declarations; return a DriftReport
@@ -113,6 +115,7 @@ async function scanDrift(
     missing_column: 0,
     orphan_column: 0,
     enum_labels: 0,
+    check_constraint: 0,
   };
 
   for (const entity of entities) {
@@ -264,6 +267,42 @@ async function scanDrift(
         );
         byClass.enum_labels++;
       }
+    }
+
+    // Class G — check_constraint: count-based drift signal. Mirrors
+    // production validator semantics — flags net add/remove between
+    // entity @Check() decorators and pg_constraint contype='c' without
+    // predicate-text equality (PG canonicalizes ARRAY order + type
+    // casts in ways the entity source does not).
+    const entityChecks = (entity as unknown as {
+      checks?: ReadonlyArray<{ expression: string }>;
+    }).checks ?? [];
+    const checkRows: Array<{ conname: string; definition: string }> =
+      await ctx.qr.query(
+        `SELECT c.conname, pg_get_constraintdef(c.oid) AS definition
+           FROM pg_constraint c
+           JOIN pg_class t ON t.oid = c.conrelid
+           JOIN pg_namespace n ON n.oid = t.relnamespace
+          WHERE n.nspname = $1
+            AND t.relname = $2
+            AND c.contype = 'c'`,
+        [ctx.schema, tableName],
+      );
+    if (checkRows.length !== entityChecks.length) {
+      const entityExprs = entityChecks.map((c) => c.expression.trim()).join(' ; ');
+      const dbDefs = checkRows
+        .map((r) => `${r.conname}: ${r.definition}`)
+        .join(' ; ');
+      if (entityChecks.length > checkRows.length) {
+        violations.push(
+          `[${ctx.schema}.${tableName}] entity declares ${entityChecks.length} @Check() but DB has ${checkRows.length} — ${entityChecks.length - checkRows.length} missing in DB (entity-side: ${entityExprs}) (check_constraint)`,
+        );
+      } else {
+        violations.push(
+          `[${ctx.schema}.${tableName}] DB has ${checkRows.length} CHECK but entity declares ${entityChecks.length} — ${checkRows.length - entityChecks.length} orphaned (db-side: ${dbDefs}) (check_constraint)`,
+        );
+      }
+      byClass.check_constraint++;
     }
 
     // Class E — orphan_column: DB has a column the entity does not

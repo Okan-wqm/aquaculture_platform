@@ -341,6 +341,22 @@ export function createSchemaDriftValidator(
         );
       }
 
+      // Class G — check_constraint: diff entity-declared @Check() decorators
+      // against pg_constraint contype='c'. Coarse count-based signal during
+      // rollout: PG canonicalizes the predicate text (ARRAY ordering, type
+      // casts, OR-branch reorder), so exact-string match produces false
+      // positives until Phase 3 alignCheckConstraints ships a normalizer.
+      // Counts-only drift is enough for the common failure modes:
+      //   - entity adds a @Check but migration was skipped → count mismatch
+      //   - DB has legacy CHECK the entity dropped → count mismatch
+      await this.scanCheckConstraintDrift(
+        schema,
+        tableName,
+        entity.checks ?? [],
+        errorViolations,
+        warningViolations,
+      );
+
       // Class E — orphan_column: DB has a column the entity does not
       // declare. Severity WARN (not error) per drift-classes.ts — dropping
       // the column is a data-loss operation gated by an allowlist
@@ -478,6 +494,68 @@ export function createSchemaDriftValidator(
         this.route(
           'enum_labels',
           `[${schema}.${tableName}.${col.dbName}] enum '${col.typeName}' label drift — ${parts.join(' | ')}`,
+          errorViolations,
+          warningViolations,
+        );
+      }
+    }
+
+    /**
+     * Count-based Class G detection. Queries pg_constraint for CHECK
+     * (contype='c') constraints on the table, compares cardinality
+     * against `entity.checks.length`. Coarse signal — flags net add/
+     * remove drift without relying on predicate-text equality (PG
+     * rewrites ARRAY literals, type casts, operator-class qualifiers
+     * that the entity source code does not contain).
+     *
+     * Phase 3 alignCheckConstraints upgrades this to per-predicate
+     * diffing with a normalizer that canonicalizes whitespace, ARRAY
+     * order, and the `'x'::text::hr.my_enum` cast form.
+     *
+     * Excludes not-null constraints (PG treats them as contype='n').
+     * Excludes constraints generated automatically by SERIAL / identity
+     * (contype='c' but conname starts with '{table}_{col}_check' and
+     * conbin matches the standard IS NOT NULL predicate); filtered by
+     * conbin IS NOT NULL + explicit contype='c' only.
+     */
+    private async scanCheckConstraintDrift(
+      schema: string,
+      tableName: string,
+      entityChecks: ReadonlyArray<{ name?: string; expression: string }>,
+      errorViolations: string[],
+      warningViolations: string[],
+    ): Promise<void> {
+      const rows: Array<{ conname: string; definition: string }> =
+        await this.dataSource.query(
+          `SELECT c.conname, pg_get_constraintdef(c.oid) AS definition
+             FROM pg_constraint c
+             JOIN pg_class t ON t.oid = c.conrelid
+             JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = $1
+              AND t.relname = $2
+              AND c.contype = 'c'`,
+          [schema, tableName],
+        );
+      const dbCount = rows.length;
+      const entityCount = entityChecks.length;
+      if (dbCount === entityCount) return;
+      const entityExprs = entityChecks
+        .map((c) => c.expression.trim())
+        .filter((e) => e.length > 0);
+      const dbDefs = rows.map((r) => `${r.conname}: ${r.definition}`);
+      if (entityCount > dbCount) {
+        const delta = entityCount - dbCount;
+        this.route(
+          'check_constraint',
+          `[${schema}.${tableName}] entity declares ${entityCount} @Check() but DB has ${dbCount} CHECK constraint(s) — ${delta} missing in DB (entity-side: ${entityExprs.join(' ; ')})`,
+          errorViolations,
+          warningViolations,
+        );
+      } else {
+        const delta = dbCount - entityCount;
+        this.route(
+          'check_constraint',
+          `[${schema}.${tableName}] DB has ${dbCount} CHECK constraint(s) but entity declares ${entityCount} @Check() — ${delta} orphaned in DB (db-side: ${dbDefs.join(' ; ')})`,
           errorViolations,
           warningViolations,
         );

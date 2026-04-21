@@ -154,10 +154,17 @@ export const DRIFT_CLASSES: Readonly<Record<DriftClassId, DriftClassSpec>> =
     check_constraint: {
       id: 'check_constraint',
       label: 'G',
-      severity: 'error',
+      // WARN during rollout window — Phase 8 Stage 2 elevates to 'error'
+      // once every existing G violation is resolved via
+      // alignCheckConstraints primitive. Entity @Check() predicate text
+      // diverges from pg_get_constraintdef() in harmless ways (PG canonical-
+      // izes ARRAY literals, adds type casts, reorders OR branches), so
+      // the initial detection is deliberately a coarse count-based signal
+      // to avoid false positives while the normalizer stabilizes.
+      severity: 'warn',
       primitive: 'alignCheckConstraints',
       description:
-        'Entity @Check() decorator declares a constraint the DB lacks (or vice versa).',
+        'Entity @Check() decorator declares a constraint the DB lacks (or vice versa). Rollout severity=warn until Phase 8 Stage 2 elevates.',
       planRef: 'v3-R11',
     },
     data_cast_incompatible: {

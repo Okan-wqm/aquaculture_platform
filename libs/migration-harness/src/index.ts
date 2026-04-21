@@ -30,3 +30,11 @@ export {
   withEphemeralSchema,
 } from './setup';
 export type { BootOptions, HarnessContext } from './setup';
+
+export { defineMigrationTest } from './define-migration-test';
+export type {
+  AssertionsCallback,
+  DefineMigrationTestOpts,
+  MigrationClass,
+  PriorStateCallback,
+} from './define-migration-test';

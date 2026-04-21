@@ -181,7 +181,7 @@ In flight on branch `agentic-rust-faz3-control-plane` (PR #17, stacked on Faz 2 
 - [ ] e2e dual-write equivalence (`e2e/tests/sensor-ingest-equivalence.e2e.ts`) — Faz 3 stage 4 TBD
 - [ ] Compose budget update: sensor-service drops to 192 MB / 0.2 vCPU on control-plane profile — Faz 3 stage 4 TBD
 - [ ] ADR-022 promoted out of `_draft/` to canonical `docs/adr/` after 24h soak — Faz 3 stage 4 TBD
-- [ ] ORPHAN-014 reconciled: 6 pre-existing mqtt-listener test failures resolved or documented as known-flaky — separate plan-phase scope
+- [x] ORPHAN-014 reconciled: 64/64 mqtt-listener tests green after `findByCodeOnly` mock added (commit follow-on)
 
 ## Faz 4 — Konsolidasyon
 Not started.

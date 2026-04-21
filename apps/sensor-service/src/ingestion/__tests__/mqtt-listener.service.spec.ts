@@ -114,6 +114,13 @@ function createMockEdgeDeviceService(): jest.Mocked<EdgeDeviceService> {
   return {
     updateHeartbeat: jest.fn().mockResolvedValue({ id: 'dev-1', tenantId: TENANT_ID, deviceCode: DEVICE_CODE, isOnline: true }),
     findByCode: jest.fn().mockResolvedValue({ id: 'dev-1', tenantId: TENANT_ID, deviceCode: DEVICE_CODE }),
+    // SEC-M01 added findByCodeOnly to handleEdgeDeviceMessage as a
+    // legacy-tenant-enforcement gate (mqtt-listener.service.ts:453).
+    // The legacy edge/ handlers return early when this lookup misses,
+    // so every edge/+/{heartbeat,birth,death,response} test must see
+    // a device here. Without this mock the entire "Edge device handlers"
+    // suite silently swallows its events (ORPHAN-014).
+    findByCodeOnly: jest.fn().mockResolvedValue({ id: 'dev-1', tenantId: TENANT_ID, deviceCode: DEVICE_CODE }),
     updateDevice: jest.fn().mockResolvedValue(undefined),
     handlePingResponse: jest.fn(),
     handleScanHardwareResponse: jest.fn(),

@@ -531,6 +531,29 @@ Same 6 failures, same suite (`MqttListenerService › Edge device handlers › L
 - Deadline: 2026-05-15 — must be reconciled before Faz 3 stage 4 (e2e dual-write equivalence) lands or the soak signal is inherently noisy.
 - Closure path: a dedicated `fix(sensor-service): mqtt-listener test isolation` commit that makes the 6 failures green AND adds the `beforeEach` teardown so future regression of the same class is impossible.
 
+**Status update 2026-04-21 (Faz 3 follow-on):** RESOLVED.
+
+Root cause was simpler than the open-handle hypothesis above: the
+test mock factory `createMockEdgeDeviceService` was missing the
+`findByCodeOnly` method that
+`mqtt-listener.service.ts:453` calls as the SEC-M01 legacy-tenant-
+enforcement gate. With the mock returning `undefined`, every
+`edge/+/{heartbeat,birth,death,response}` test returned early at
+line 459 and the assertions on `updateHeartbeat` / `handlePingResponse`
+saw zero calls.
+
+Fix: one-line addition to the mock —
+`findByCodeOnly: jest.fn().mockResolvedValue({ id: 'dev-1', tenantId: TENANT_ID, deviceCode: DEVICE_CODE })`.
+
+Validation: `jest --testPathPatterns=mqtt-listener` →
+`Tests: 64 passed, 64 total` (was 6 failed, 58 passed).
+
+The `Jest did not exit one second after the test run has completed`
+warning still fires — that is a separate open-handle leak unrelated
+to the assertion failures. Tracking it standalone if it impacts CI
+reliability; for now it is a cosmetic warning, the suite reports
+green.
+
 ---
 
 ## Notes on methodology

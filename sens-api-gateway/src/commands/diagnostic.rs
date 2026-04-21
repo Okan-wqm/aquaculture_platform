@@ -123,6 +123,11 @@ impl CommandHandler {
                 "moka_capacity": state.config.envelope_dedup.moka_capacity,
                 "moka_ttl_secs": state.config.envelope_dedup.moka_ttl_secs,
             },
+            // Batch 66: RBAC manifest mode.
+            "rbac_manifest": {
+                "mode": format!("{:?}", state.config.rbac_manifest.mode).to_lowercase(),
+                "manifest_signing_pubkey_configured": state.config.rbac_manifest.manifest_signing_pubkey_hex.is_some(),
+            },
             // Batch 32+34: shutdown + replay-protection thresholds.
             "runtime": {
                 "shutdown_timeout_secs": state.config.runtime.shutdown_timeout_secs,

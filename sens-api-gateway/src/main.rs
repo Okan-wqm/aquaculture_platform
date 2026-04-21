@@ -1126,6 +1126,11 @@ async fn async_main() -> Result<()> {
                  signature-verify NO-OP pending Sprint 6.1 actor-pubkey lookup; \
                  Moka dedup tier ACTIVE (Batch 57); SQLCipher tier pending Sprint 6.4"
             );
+            // Batch 66: RBAC manifest mode.
+            info!(
+                "  RBAC manifest: mode={:?} (loader runtime wires in Sprint 6.1; plan §3 R-5 / ADR-018)",
+                cfg.rbac_manifest.mode
+            );
             cfg
         }
         Err(e) => {

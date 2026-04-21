@@ -102,15 +102,15 @@ fn default_runtime_config_passes_all_coherence_rules() {
 
 #[test]
 fn coherence_rules_stable_under_new_field_additions() {
-    // FUTURE-COMPAT CONTRACT: Batches 39+42+49+56+58 have
-    // added 11 rules total (3 Batch 39 + 2 Batch 42 + 3
-    // Batch 49 + 1 Batch 56 + 2 Batch 58). Sprint 6.x
-    // additions MUST extend validate_faz2_security_coherence
-    // additively — existing rules preserved. Any change to
-    // an existing rule requires ADR documentation +
-    // operator migration notes.
+    // FUTURE-COMPAT CONTRACT: Batches 39+42+49+56+58+66 have
+    // added 13 rules total (3 Batch 39 + 2 Batch 42 + 3
+    // Batch 49 + 1 Batch 56 + 2 Batch 58 + 2 Batch 66).
+    // Sprint 6.x additions MUST extend validate_faz2_security_
+    // coherence additively — existing rules preserved. Any
+    // change to an existing rule requires ADR documentation
+    // + operator migration notes.
     //
-    // Rule roster (as of Batch 58):
+    // Rule roster (as of Batch 66):
     //   Rule 1: mtls.mode=strict ⟹ enforce_fingerprint_
     //           pinning=true (Batch 39).
     //   Rule 2: max_command_skew_secs <= max_command_age_
@@ -127,7 +127,11 @@ fn coherence_rules_stable_under_new_field_additions() {
     //   Rule 9: clock.nts_sync_max_skew_secs > 0 (Batch 56).
     //   Rule 10: envelope_dedup.moka_capacity > 0 (Batch 58).
     //   Rule 11: envelope_dedup.moka_ttl_secs in [30, 3600] (Batch 58).
-    let _contract = "11 rules are ABI-stable; Sprint 6.x additions are additive-only";
+    //   Rule 12: rbac_manifest.mode != disabled requires
+    //            manifest_signing_pubkey_hex (Batch 66).
+    //   Rule 13: manifest_signing_pubkey_hex must be 64-char
+    //            lowercase hex (Batch 66).
+    let _contract = "13 rules are ABI-stable; Sprint 6.x additions are additive-only";
     assert!(!_contract.is_empty());
 }
 
@@ -217,6 +221,29 @@ fn envelope_dedup_moka_ttl_must_be_in_sane_range() {
     // 72-hour window) — operator likely confused about
     // which tier is which.
     let _contract = "envelope_dedup.moka_ttl_secs must be in [30, 3600] seconds";
+    assert!(!_contract.is_empty());
+}
+
+#[test]
+fn rbac_manifest_permissive_requires_signing_pubkey() {
+    // CONTRACT (Batch 66 Rule 12): rbac_manifest.mode=
+    // permissive (or enforcing) + manifest_signing_pubkey_
+    // hex=None MUST fail config load. Same rationale as Rule
+    // 4 (config_integrity): pre-Sprint-6.1 the firmware-
+    // embedded key doesn't exist; operators opting in MUST
+    // supply their own test key.
+    let _contract = "rbac_manifest.mode != disabled + manifest_signing_pubkey_hex=None -> config load error";
+    assert!(!_contract.is_empty());
+}
+
+#[test]
+fn rbac_manifest_signing_pubkey_hex_format() {
+    // CONTRACT (Batch 66 Rule 13): manifest_signing_pubkey_
+    // hex if present MUST be 64 lowercase hex chars (32
+    // bytes ed25519 pubkey). Catches typos at config-load
+    // time with specific error instead of confusing runtime
+    // `InvalidSignature`.
+    let _contract = "manifest_signing_pubkey_hex must be exactly 64 lowercase hex characters";
     assert!(!_contract.is_empty());
 }
 

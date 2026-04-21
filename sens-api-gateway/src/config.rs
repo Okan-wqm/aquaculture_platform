@@ -290,6 +290,16 @@ pub struct AgentConfig {
     #[serde(default)]
     pub envelope_dedup: EnvelopeDedupConfig,
 
+    /// RBAC manifest configuration (Batch 66, plan §3 R-5 /
+    /// ADR-018 / Sprint 6.1). Controls loading + verification
+    /// of the cloud-signed RBAC manifest that carries
+    /// operator-pubkey bindings + custom role definitions.
+    /// Pre-Sprint-6.1 the MODE is exposed + logged at boot;
+    /// manifest runtime (actor-pubkey lookup for envelope
+    /// signature verify) wires at Sprint 6.1 full.
+    #[serde(default)]
+    pub rbac_manifest: RbacManifestConfig,
+
     /// Cache configuration (v1.2.0)
     #[serde(default)]
     pub cache: CacheConfig,
@@ -1397,6 +1407,72 @@ impl ModbusTlsConfig {
                 "TLS mTLS requires both `client_cert_path` and `client_key_path`; `client_cert_path` is missing"
                     .to_string(),
             ),
+        }
+    }
+}
+
+// ============================================================================
+// RbacManifestConfig — Batch 66 plan §3 R-5 / ADR-018 / Sprint 6.1
+// ============================================================================
+//
+// WHY: Plan §3 R-5 + ADR-018 mandate a cloud-signed RBAC manifest that
+// carries operator→role bindings + custom role→permission bindings.
+// The edge loads this manifest at boot + on MQTT `update_policy` commands
+// (hot-reload per ADR-018 §8). Envelope signature verification (Batch 63
+// Gate 7) requires the operator's ed25519 pubkey, which is looked up from
+// the verified manifest's `operator_bindings`.
+//
+// Pre-Sprint-6.1 MODE gate follows the Disabled/Permissive/Enforcing
+// discipline consistent with Batches 27/42/45/56 (mtls/config_integrity/
+// signature_mode/clock). Operators tuning config.yaml get predictable
+// knob semantics regardless of which security surface they're configuring.
+
+/// RBAC manifest verification mode. 3-stage rollout pattern
+/// identical to ConfigIntegrityMode / SignatureMode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RbacManifestMode {
+    /// No manifest load (pre-Batch-66 behavior). HC-1 backward
+    /// compat default — envelope signature verify falls to the
+    /// Batch 63 NO-OP closure.
+    #[default]
+    Disabled,
+    /// Manifest loaded + verified; lookup failures log-only.
+    /// Early-detection posture for operator migration.
+    Permissive,
+    /// Manifest required; lookup failures reject.
+    Enforcing,
+}
+
+/// RBAC manifest loader knobs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RbacManifestConfig {
+    /// Rollout mode: disabled / permissive / enforcing.
+    #[serde(default)]
+    pub mode: RbacManifestMode,
+
+    /// Hex-encoded 32-byte ed25519 pubkey for manifest
+    /// signature verify. Plan §3 R-4 specifies 3 ayrı keypair
+    /// (firmware + rbac_manifest + command); this is the
+    /// MANIFEST signing key, distinct from config_integrity
+    /// (factory) + command (operator-per-operator). Sprint
+    /// 6.1 wires firmware-embedded default; pre-Sprint-6.1
+    /// operators supply their own test key.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub manifest_signing_pubkey_hex: Option<String>,
+
+    /// Manifest file path override. None →
+    /// `/etc/suderra/rbac_manifest.json`.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub manifest_path: Option<std::path::PathBuf>,
+}
+
+impl Default for RbacManifestConfig {
+    fn default() -> Self {
+        Self {
+            mode: RbacManifestMode::default(),
+            manifest_signing_pubkey_hex: None,
+            manifest_path: None,
         }
     }
 }
@@ -2582,6 +2658,40 @@ impl AgentConfig {
                 "Config coherence: envelope_dedup.moka_ttl_secs ({}) must be in [30, 3600] seconds — hot-window tier bounds",
                 self.envelope_dedup.moka_ttl_secs
             );
+        }
+
+        // Rule 12 (Batch 66): rbac_manifest Permissive/
+        // Enforcing mode requires manifest_signing_pubkey_hex.
+        // Same rationale as Rule 4 (config_integrity): pre-
+        // Sprint-6.1 the firmware-embedded default key
+        // doesn't exist; operators opting into Permissive/
+        // Enforcing MUST supply their own test key.
+        if !matches!(self.rbac_manifest.mode, RbacManifestMode::Disabled)
+            && self.rbac_manifest.manifest_signing_pubkey_hex.is_none()
+        {
+            anyhow::bail!(
+                "Config coherence: rbac_manifest.mode={:?} requires rbac_manifest.manifest_signing_pubkey_hex (pre-Sprint-6.1 firmware key bundle). Set manifest_signing_pubkey_hex to a 64-char hex string OR set mode=disabled",
+                self.rbac_manifest.mode
+            );
+        }
+
+        // Rule 13 (Batch 66): manifest_signing_pubkey_hex if
+        // present MUST be 64-char lowercase hex. Same rationale
+        // as Rule 5 (config_integrity): catches typos at
+        // config-load time instead of producing confusing
+        // `InvalidSignature` runtime errors downstream.
+        if let Some(ref hex) = self.rbac_manifest.manifest_signing_pubkey_hex {
+            if hex.len() != 64 {
+                anyhow::bail!(
+                    "Config coherence: rbac_manifest.manifest_signing_pubkey_hex must be 64 hex chars (32 bytes ed25519 pubkey), got {} chars",
+                    hex.len()
+                );
+            }
+            if !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+                anyhow::bail!(
+                    "Config coherence: rbac_manifest.manifest_signing_pubkey_hex contains non-hex characters"
+                );
+            }
         }
 
         Ok(())

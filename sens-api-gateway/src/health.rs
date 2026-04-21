@@ -509,6 +509,156 @@ impl HealthState {
         }
     }
 
+    /// Get metrics in Prometheus text exposition format
+    /// (Batch 94 enterprise observability foundation).
+    ///
+    /// Returns a String in the standard Prometheus
+    /// exposition format consumable by
+    /// `prometheus_scrape`, Grafana Agent, VictoriaMetrics,
+    /// etc. Metric names follow Prometheus naming
+    /// conventions:
+    /// - `snake_case` identifiers.
+    /// - Counters end with `_total`.
+    /// - Gauges have plain names.
+    /// - Durations in seconds (not milliseconds).
+    ///
+    /// All metrics carry `agent=suderra-edge` label so
+    /// multi-service Prometheus scrapers can distinguish.
+    pub fn metrics_prometheus(&self) -> String {
+        let mut out = String::with_capacity(2048);
+
+        // Helper macros via simple string concat — avoiding
+        // prometheus crate dep + matching the existing
+        // vanilla approach in this module.
+        let counter = |out: &mut String, name: &str, help: &str, value: u64| {
+            out.push_str(&format!("# HELP {} {}\n", name, help));
+            out.push_str(&format!("# TYPE {} counter\n", name));
+            out.push_str(&format!(
+                "{}{{agent=\"suderra-edge\"}} {}\n",
+                name, value
+            ));
+        };
+        let gauge = |out: &mut String, name: &str, help: &str, value: u64| {
+            out.push_str(&format!("# HELP {} {}\n", name, help));
+            out.push_str(&format!("# TYPE {} gauge\n", name));
+            out.push_str(&format!(
+                "{}{{agent=\"suderra-edge\"}} {}\n",
+                name, value
+            ));
+        };
+
+        counter(
+            &mut out,
+            "suderra_uptime_seconds_total",
+            "Total uptime since agent start",
+            self.uptime_secs(),
+        );
+        counter(
+            &mut out,
+            "suderra_mqtt_messages_sent_total",
+            "Total MQTT messages published",
+            self.inner.mqtt_sent.load(Ordering::Acquire),
+        );
+        counter(
+            &mut out,
+            "suderra_mqtt_messages_received_total",
+            "Total MQTT messages received",
+            self.inner.mqtt_received.load(Ordering::Acquire),
+        );
+        gauge(
+            &mut out,
+            "suderra_mqtt_connected",
+            "MQTT broker connection state (1=connected, 0=disconnected)",
+            u64::from(self.inner.mqtt_connected.load(Ordering::Acquire)),
+        );
+        counter(
+            &mut out,
+            "suderra_modbus_reads_total",
+            "Total Modbus register reads completed",
+            self.inner.modbus_reads.load(Ordering::Acquire),
+        );
+        counter(
+            &mut out,
+            "suderra_modbus_errors_total",
+            "Total Modbus read errors",
+            self.inner.modbus_errors.load(Ordering::Acquire),
+        );
+        counter(
+            &mut out,
+            "suderra_script_executions_total",
+            "Total ST script executions",
+            self.inner.script_executions.load(Ordering::Acquire),
+        );
+        counter(
+            &mut out,
+            "suderra_script_errors_total",
+            "Total ST script execution errors",
+            self.inner.script_errors.load(Ordering::Acquire),
+        );
+        gauge(
+            &mut out,
+            "suderra_offline_queue_size",
+            "Current number of messages queued offline",
+            self.inner.offline_queue_size.load(Ordering::Acquire),
+        );
+        gauge(
+            &mut out,
+            "suderra_offline_queue_capacity",
+            "Offline queue capacity ceiling",
+            self.inner.offline_queue_capacity.load(Ordering::Acquire),
+        );
+        counter(
+            &mut out,
+            "suderra_offline_queue_queued_total",
+            "Total messages ever queued offline (lifetime)",
+            self.inner.offline_total_queued.load(Ordering::Acquire),
+        );
+        counter(
+            &mut out,
+            "suderra_offline_queue_sent_total",
+            "Total messages ever sent from offline queue (lifetime)",
+            self.inner.offline_total_sent.load(Ordering::Acquire),
+        );
+        gauge(
+            &mut out,
+            "suderra_modbus_clients",
+            "Number of currently-registered Modbus clients",
+            self.inner.modbus_client_count.load(Ordering::Acquire),
+        );
+        gauge(
+            &mut out,
+            "suderra_scripts_loaded",
+            "Number of ST scripts loaded",
+            self.inner.script_loaded_count.load(Ordering::Acquire),
+        );
+        gauge(
+            &mut out,
+            "suderra_scripts_active",
+            "Number of ST scripts actively executing",
+            self.inner.script_active_count.load(Ordering::Acquire),
+        );
+        gauge(
+            &mut out,
+            "suderra_function_blocks",
+            "Number of function block instances",
+            self.inner.fb_instance_count.load(Ordering::Acquire),
+        );
+        gauge(
+            &mut out,
+            "suderra_device_activated",
+            "Device activation state (1=activated, 0=pending-provisioning)",
+            u64::from(self.inner.device_activated.load(Ordering::Acquire)),
+        );
+        gauge(
+            &mut out,
+            "suderra_config_loaded",
+            "Config load state (1=loaded, 0=not-yet)",
+            u64::from(self.inner.config_loaded.load(Ordering::Acquire)),
+        );
+
+        out
+    }
+
     /// Get comprehensive diagnostics response (v1.2.4)
     pub fn diagnostics(&self) -> DiagnosticsResponse {
         use sysinfo::{Disks, System};
@@ -696,6 +846,7 @@ pub async fn start_health_server(
         .route("/health", get(health_handler))
         .route("/ready", get(ready_handler))
         .route("/metrics", get(metrics_handler))
+        .route("/metrics/prometheus", get(metrics_prometheus_handler))
         .route("/diagnostics", get(diagnostics_handler))
         .with_state(state);
 
@@ -748,6 +899,29 @@ async fn metrics_handler(
     State(state): axum::extract::State<HealthState>,
 ) -> impl axum::response::IntoResponse {
     (axum::http::StatusCode::OK, axum::Json(state.metrics()))
+}
+
+/// Prometheus text-format metrics endpoint (Batch 94
+/// enterprise observability).
+///
+/// Returns the Prometheus exposition format with
+/// `Content-Type: text/plain; version=0.0.4; charset=utf-8`
+/// per Prometheus scrape protocol. Grafana Agent /
+/// VictoriaMetrics / plain Prometheus all consume this
+/// shape natively.
+#[cfg(feature = "health")]
+async fn metrics_prometheus_handler(
+    State(state): axum::extract::State<HealthState>,
+) -> impl axum::response::IntoResponse {
+    let body = state.metrics_prometheus();
+    (
+        axum::http::StatusCode::OK,
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/plain; version=0.0.4; charset=utf-8",
+        )],
+        body,
+    )
 }
 
 #[cfg(feature = "health")]
@@ -877,5 +1051,105 @@ mod tests {
 
         // Still very small
         assert!(state.uptime_secs() < 2);
+    }
+
+    #[test]
+    fn prometheus_output_contains_expected_metric_families() {
+        let state = HealthState::new();
+        let out = state.metrics_prometheus();
+
+        // Spot-check a representative set across counter +
+        // gauge types. The contract is that every field in
+        // HealthStateInner becomes a prometheus metric.
+        let expected = [
+            "suderra_uptime_seconds_total",
+            "suderra_mqtt_messages_sent_total",
+            "suderra_mqtt_messages_received_total",
+            "suderra_mqtt_connected",
+            "suderra_modbus_reads_total",
+            "suderra_modbus_errors_total",
+            "suderra_script_executions_total",
+            "suderra_script_errors_total",
+            "suderra_offline_queue_size",
+            "suderra_offline_queue_capacity",
+            "suderra_offline_queue_queued_total",
+            "suderra_offline_queue_sent_total",
+            "suderra_modbus_clients",
+            "suderra_scripts_loaded",
+            "suderra_scripts_active",
+            "suderra_function_blocks",
+            "suderra_device_activated",
+            "suderra_config_loaded",
+        ];
+        for metric in expected {
+            assert!(out.contains(metric), "missing metric: {}\n{}", metric, out);
+            // Each metric MUST carry the agent label.
+            assert!(
+                out.contains(&format!(
+                    "{}{{agent=\"suderra-edge\"}} ",
+                    metric
+                )),
+                "metric {} missing agent label (raw:\n{})",
+                metric,
+                out
+            );
+        }
+    }
+
+    #[test]
+    fn prometheus_output_uses_correct_type_declarations() {
+        let state = HealthState::new();
+        let out = state.metrics_prometheus();
+        // Counters MUST declare TYPE counter.
+        assert!(out.contains("# TYPE suderra_mqtt_messages_sent_total counter"));
+        assert!(out.contains("# TYPE suderra_uptime_seconds_total counter"));
+        // Gauges MUST declare TYPE gauge.
+        assert!(out.contains("# TYPE suderra_mqtt_connected gauge"));
+        assert!(out.contains("# TYPE suderra_offline_queue_size gauge"));
+    }
+
+    #[test]
+    fn prometheus_output_reflects_counter_increments() {
+        let state = HealthState::new();
+        state.inc_mqtt_sent();
+        state.inc_mqtt_sent();
+        state.inc_mqtt_received();
+        let out = state.metrics_prometheus();
+        assert!(
+            out.contains("suderra_mqtt_messages_sent_total{agent=\"suderra-edge\"} 2"),
+            "sent counter not incremented: {}",
+            out
+        );
+        assert!(
+            out.contains("suderra_mqtt_messages_received_total{agent=\"suderra-edge\"} 1"),
+            "received counter not incremented: {}",
+            out
+        );
+    }
+
+    #[test]
+    fn prometheus_output_reflects_gauge_state() {
+        let state = HealthState::new();
+        assert!(state
+            .metrics_prometheus()
+            .contains("suderra_mqtt_connected{agent=\"suderra-edge\"} 0"));
+        state.set_mqtt_connected(true);
+        assert!(state
+            .metrics_prometheus()
+            .contains("suderra_mqtt_connected{agent=\"suderra-edge\"} 1"));
+    }
+
+    #[test]
+    fn prometheus_output_ends_with_newline_for_each_metric() {
+        let state = HealthState::new();
+        let out = state.metrics_prometheus();
+        // Final line MUST be newline-terminated per
+        // Prometheus exposition format (each sample ends
+        // with LF). Our last metric is suderra_config_loaded.
+        assert!(
+            out.ends_with('\n'),
+            "prometheus output must end with newline (scrape protocol): last 40 chars={:?}",
+            &out[out.len().saturating_sub(40)..]
+        );
     }
 }

@@ -750,6 +750,19 @@ impl AppState {
         let health_state = crate::health::HealthState::new();
         health_state.set_config_loaded(true);
 
+        // Batch 95: inject device_id + tenant labels into
+        // the Prometheus output so fleet dashboards can
+        // slice by device + tenant. device_id always
+        // present at this point (config loaded); tenant is
+        // set post-provisioning when AppState.tenant_id
+        // becomes Some (Batch 96 follow-up adds the
+        // tenant-set callback; current batch uses config
+        // device_id only).
+        health_state.set_device_id(&self.config.device_id);
+        if let Some(ref tenant) = self.tenant_id {
+            health_state.set_tenant_id(tenant);
+        }
+
         // Clone for the server task; keep the original on AppState so
         // downstream subsystems can push counter updates to the SAME
         // Arc<HealthStateInner> (HealthState::Clone is Arc-cheap).

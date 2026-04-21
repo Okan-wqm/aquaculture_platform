@@ -232,6 +232,26 @@ pub struct ConfigDiagnostics {
     pub telemetry_interval_secs: u64,
 }
 
+/// Sanitize a string for safe inclusion as a Prometheus
+/// label value (Batch 95). Per Prometheus exposition format
+/// (OpenMetrics section 3.3) label values can contain any
+/// unicode EXCEPT backslash, double-quote, and LF. We
+/// replace each forbidden char with `_`.
+///
+/// Also enforces a length cap at 128 chars — device_id +
+/// tenant UUIDs fit well under this; the cap prevents a
+/// misconfigured field from bloating every scrape.
+fn sanitize_prom_label(s: &str) -> String {
+    let truncated = if s.len() > 128 { &s[..128] } else { s };
+    truncated
+        .chars()
+        .map(|c| match c {
+            '\n' | '\r' | '\\' | '"' => '_',
+            c => c,
+        })
+        .collect()
+}
+
 /// Health check state shared with the main application
 #[derive(Clone)]
 pub struct HealthState {
@@ -241,6 +261,16 @@ pub struct HealthState {
 struct HealthStateInner {
     /// When the service started
     start_time: Instant,
+    /// Prometheus metric label for `device_id` (Batch 95).
+    /// Set via `set_device_id()` after config load. Empty
+    /// string when unset = "unknown" (valid Prometheus
+    /// label value, differentiates from devices with a
+    /// real ID so Grafana queries can filter).
+    device_id_label: std::sync::RwLock<String>,
+    /// Prometheus metric label for `tenant` (Batch 95).
+    /// Set via `set_tenant_id()` after provisioning
+    /// completes. Empty string = pre-provisioning.
+    tenant_id_label: std::sync::RwLock<String>,
     /// Whether config is loaded
     config_loaded: AtomicBool,
     /// Whether MQTT is connected
@@ -294,6 +324,8 @@ impl HealthState {
         Self {
             inner: Arc::new(HealthStateInner {
                 start_time: Instant::now(),
+                device_id_label: std::sync::RwLock::new(String::new()),
+                tenant_id_label: std::sync::RwLock::new(String::new()),
                 config_loaded: AtomicBool::new(false),
                 mqtt_connected: AtomicBool::new(false),
                 device_activated: AtomicBool::new(false),
@@ -323,6 +355,33 @@ impl HealthState {
     /// Get uptime in seconds
     pub fn uptime_secs(&self) -> u64 {
         self.inner.start_time.elapsed().as_secs()
+    }
+
+    /// Set the device_id label for Prometheus output
+    /// (Batch 95 enterprise fleet observability). Called
+    /// once from main.rs after config load — the label
+    /// stays stable for the agent's lifetime.
+    ///
+    /// Validates against Prometheus label-value character
+    /// set: rejects newline, double-quote, backslash
+    /// (avoids exposition-format injection). Invalid chars
+    /// are replaced with `_`.
+    pub fn set_device_id(&self, device_id: &str) {
+        let sanitized = sanitize_prom_label(device_id);
+        if let Ok(mut w) = self.inner.device_id_label.write() {
+            *w = sanitized;
+        }
+    }
+
+    /// Set the tenant_id label for Prometheus output.
+    /// Called once from main.rs after provisioning
+    /// completes; before provisioning, the tenant label is
+    /// the empty string.
+    pub fn set_tenant_id(&self, tenant_id: &str) {
+        let sanitized = sanitize_prom_label(tenant_id);
+        if let Ok(mut w) = self.inner.tenant_id_label.write() {
+            *w = sanitized;
+        }
     }
 
     /// Set config loaded status
@@ -522,139 +581,116 @@ impl HealthState {
     /// - Gauges have plain names.
     /// - Durations in seconds (not milliseconds).
     ///
-    /// All metrics carry `agent=suderra-edge` label so
-    /// multi-service Prometheus scrapers can distinguish.
+    /// All metrics carry `agent="suderra-edge"` + `device_id`
+    /// + `tenant` labels so multi-tenant fleet dashboards can
+    /// slice by device + tenant. `device_id` / `tenant`
+    /// default to empty string pre-config-load +
+    /// pre-provisioning respectively.
     pub fn metrics_prometheus(&self) -> String {
         let mut out = String::with_capacity(2048);
+
+        // Batch 95: assemble label set once per scrape.
+        // Empty values are still valid Prometheus label
+        // values — distinguish from missing metrics via
+        // the empty string sentinel (Grafana queries
+        // filter `device_id!=""`).
+        let device_id = self
+            .inner
+            .device_id_label
+            .read()
+            .map(|g| g.clone())
+            .unwrap_or_default();
+        let tenant_id = self
+            .inner
+            .tenant_id_label
+            .read()
+            .map(|g| g.clone())
+            .unwrap_or_default();
+        let labels = format!(
+            "agent=\"suderra-edge\",device_id=\"{}\",tenant=\"{}\"",
+            device_id, tenant_id
+        );
 
         // Helper macros via simple string concat — avoiding
         // prometheus crate dep + matching the existing
         // vanilla approach in this module.
-        let counter = |out: &mut String, name: &str, help: &str, value: u64| {
+        let counter = |out: &mut String, name: &str, help: &str, value: u64, labels: &str| {
             out.push_str(&format!("# HELP {} {}\n", name, help));
             out.push_str(&format!("# TYPE {} counter\n", name));
-            out.push_str(&format!(
-                "{}{{agent=\"suderra-edge\"}} {}\n",
-                name, value
-            ));
+            out.push_str(&format!("{}{{{}}} {}\n", name, labels, value));
         };
-        let gauge = |out: &mut String, name: &str, help: &str, value: u64| {
+        let gauge = |out: &mut String, name: &str, help: &str, value: u64, labels: &str| {
             out.push_str(&format!("# HELP {} {}\n", name, help));
             out.push_str(&format!("# TYPE {} gauge\n", name));
-            out.push_str(&format!(
-                "{}{{agent=\"suderra-edge\"}} {}\n",
-                name, value
-            ));
+            out.push_str(&format!("{}{{{}}} {}\n", name, labels, value));
         };
 
-        counter(
-            &mut out,
-            "suderra_uptime_seconds_total",
+        counter(&mut out, "suderra_uptime_seconds_total",
             "Total uptime since agent start",
-            self.uptime_secs(),
-        );
-        counter(
-            &mut out,
-            "suderra_mqtt_messages_sent_total",
+            self.uptime_secs(), &labels);
+        counter(&mut out, "suderra_mqtt_messages_sent_total",
             "Total MQTT messages published",
-            self.inner.mqtt_sent.load(Ordering::Acquire),
-        );
-        counter(
-            &mut out,
-            "suderra_mqtt_messages_received_total",
+            self.inner.mqtt_sent.load(Ordering::Acquire), &labels);
+        counter(&mut out, "suderra_mqtt_messages_received_total",
             "Total MQTT messages received",
-            self.inner.mqtt_received.load(Ordering::Acquire),
-        );
-        gauge(
-            &mut out,
-            "suderra_mqtt_connected",
+            self.inner.mqtt_received.load(Ordering::Acquire), &labels);
+        gauge(&mut out, "suderra_mqtt_connected",
             "MQTT broker connection state (1=connected, 0=disconnected)",
             u64::from(self.inner.mqtt_connected.load(Ordering::Acquire)),
-        );
-        counter(
-            &mut out,
-            "suderra_modbus_reads_total",
+            &labels);
+        counter(&mut out, "suderra_modbus_reads_total",
             "Total Modbus register reads completed",
-            self.inner.modbus_reads.load(Ordering::Acquire),
-        );
-        counter(
-            &mut out,
-            "suderra_modbus_errors_total",
+            self.inner.modbus_reads.load(Ordering::Acquire), &labels);
+        counter(&mut out, "suderra_modbus_errors_total",
             "Total Modbus read errors",
-            self.inner.modbus_errors.load(Ordering::Acquire),
-        );
-        counter(
-            &mut out,
-            "suderra_script_executions_total",
+            self.inner.modbus_errors.load(Ordering::Acquire), &labels);
+        counter(&mut out, "suderra_script_executions_total",
             "Total ST script executions",
             self.inner.script_executions.load(Ordering::Acquire),
-        );
-        counter(
-            &mut out,
-            "suderra_script_errors_total",
+            &labels);
+        counter(&mut out, "suderra_script_errors_total",
             "Total ST script execution errors",
-            self.inner.script_errors.load(Ordering::Acquire),
-        );
-        gauge(
-            &mut out,
-            "suderra_offline_queue_size",
+            self.inner.script_errors.load(Ordering::Acquire), &labels);
+        gauge(&mut out, "suderra_offline_queue_size",
             "Current number of messages queued offline",
             self.inner.offline_queue_size.load(Ordering::Acquire),
-        );
-        gauge(
-            &mut out,
-            "suderra_offline_queue_capacity",
+            &labels);
+        gauge(&mut out, "suderra_offline_queue_capacity",
             "Offline queue capacity ceiling",
             self.inner.offline_queue_capacity.load(Ordering::Acquire),
-        );
-        counter(
-            &mut out,
-            "suderra_offline_queue_queued_total",
+            &labels);
+        counter(&mut out, "suderra_offline_queue_queued_total",
             "Total messages ever queued offline (lifetime)",
             self.inner.offline_total_queued.load(Ordering::Acquire),
-        );
-        counter(
-            &mut out,
-            "suderra_offline_queue_sent_total",
+            &labels);
+        counter(&mut out, "suderra_offline_queue_sent_total",
             "Total messages ever sent from offline queue (lifetime)",
             self.inner.offline_total_sent.load(Ordering::Acquire),
-        );
-        gauge(
-            &mut out,
-            "suderra_modbus_clients",
+            &labels);
+        gauge(&mut out, "suderra_modbus_clients",
             "Number of currently-registered Modbus clients",
             self.inner.modbus_client_count.load(Ordering::Acquire),
-        );
-        gauge(
-            &mut out,
-            "suderra_scripts_loaded",
+            &labels);
+        gauge(&mut out, "suderra_scripts_loaded",
             "Number of ST scripts loaded",
             self.inner.script_loaded_count.load(Ordering::Acquire),
-        );
-        gauge(
-            &mut out,
-            "suderra_scripts_active",
+            &labels);
+        gauge(&mut out, "suderra_scripts_active",
             "Number of ST scripts actively executing",
             self.inner.script_active_count.load(Ordering::Acquire),
-        );
-        gauge(
-            &mut out,
-            "suderra_function_blocks",
+            &labels);
+        gauge(&mut out, "suderra_function_blocks",
             "Number of function block instances",
             self.inner.fb_instance_count.load(Ordering::Acquire),
-        );
-        gauge(
-            &mut out,
-            "suderra_device_activated",
+            &labels);
+        gauge(&mut out, "suderra_device_activated",
             "Device activation state (1=activated, 0=pending-provisioning)",
             u64::from(self.inner.device_activated.load(Ordering::Acquire)),
-        );
-        gauge(
-            &mut out,
-            "suderra_config_loaded",
+            &labels);
+        gauge(&mut out, "suderra_config_loaded",
             "Config load state (1=loaded, 0=not-yet)",
             u64::from(self.inner.config_loaded.load(Ordering::Acquire)),
-        );
+            &labels);
 
         out
     }
@@ -1086,10 +1122,10 @@ mod tests {
             // Each metric MUST carry the agent label.
             assert!(
                 out.contains(&format!(
-                    "{}{{agent=\"suderra-edge\"}} ",
+                    "{}{{agent=\"suderra-edge\",device_id=\"\",tenant=\"\"}} ",
                     metric
                 )),
-                "metric {} missing agent label (raw:\n{})",
+                "metric {} missing expected labels (raw:\n{})",
                 metric,
                 out
             );
@@ -1116,12 +1152,16 @@ mod tests {
         state.inc_mqtt_received();
         let out = state.metrics_prometheus();
         assert!(
-            out.contains("suderra_mqtt_messages_sent_total{agent=\"suderra-edge\"} 2"),
+            out.contains(
+                "suderra_mqtt_messages_sent_total{agent=\"suderra-edge\",device_id=\"\",tenant=\"\"} 2"
+            ),
             "sent counter not incremented: {}",
             out
         );
         assert!(
-            out.contains("suderra_mqtt_messages_received_total{agent=\"suderra-edge\"} 1"),
+            out.contains(
+                "suderra_mqtt_messages_received_total{agent=\"suderra-edge\",device_id=\"\",tenant=\"\"} 1"
+            ),
             "received counter not incremented: {}",
             out
         );
@@ -1130,13 +1170,49 @@ mod tests {
     #[test]
     fn prometheus_output_reflects_gauge_state() {
         let state = HealthState::new();
-        assert!(state
-            .metrics_prometheus()
-            .contains("suderra_mqtt_connected{agent=\"suderra-edge\"} 0"));
+        assert!(state.metrics_prometheus().contains(
+            "suderra_mqtt_connected{agent=\"suderra-edge\",device_id=\"\",tenant=\"\"} 0"
+        ));
         state.set_mqtt_connected(true);
-        assert!(state
-            .metrics_prometheus()
-            .contains("suderra_mqtt_connected{agent=\"suderra-edge\"} 1"));
+        assert!(state.metrics_prometheus().contains(
+            "suderra_mqtt_connected{agent=\"suderra-edge\",device_id=\"\",tenant=\"\"} 1"
+        ));
+    }
+
+    #[test]
+    fn prometheus_labels_reflect_device_id_and_tenant() {
+        let state = HealthState::new();
+        state.set_device_id("dev-alpha-123");
+        state.set_tenant_id("fd23af6b-167f-4afd-a62a-ceace2a4046b");
+        let out = state.metrics_prometheus();
+        assert!(
+            out.contains(
+                "suderra_mqtt_connected{agent=\"suderra-edge\",device_id=\"dev-alpha-123\",tenant=\"fd23af6b-167f-4afd-a62a-ceace2a4046b\"}"
+            ),
+            "labels not injected: {}",
+            out
+        );
+    }
+
+    #[test]
+    fn prometheus_label_sanitization_replaces_forbidden_chars() {
+        let state = HealthState::new();
+        // Malicious / misconfigured values with injection
+        // attempts — MUST be neutralized to `_`.
+        state.set_device_id("evil\"injected\nmulti\\line");
+        let out = state.metrics_prometheus();
+        // No raw double-quote or newline in the value.
+        assert!(
+            !out.contains("evil\"injected"),
+            "raw double-quote leaked: {}",
+            out
+        );
+        // Sanitized form present.
+        assert!(
+            out.contains("device_id=\"evil_injected_multi_line\""),
+            "sanitized form missing: {}",
+            out
+        );
     }
 
     #[test]

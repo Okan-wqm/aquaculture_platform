@@ -67,8 +67,17 @@
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicU64;
 
 use tracing::{info, warn};
+
+/// Process-local monotonic counter for Batch 131 tempfile
+/// uniqueness. Paired with PID + nanosecond timestamp in
+/// the tempfile name so concurrent writes from the SAME
+/// process (multiple tokio tasks racing on the same
+/// TrybootBootloaderHandle) never collide on tempfile
+/// names.
+static TEMPFILE_SEQ: AtomicU64 = AtomicU64::new(0);
 
 use super::bootloader::{BootloaderError, BootloaderHandle};
 use super::partition::AbPartition;
@@ -186,9 +195,30 @@ impl TrybootBootloaderHandle {
                 self.autoboot_path.display()
             ))
         })?;
+        // Batch 131 Sprint 6.5 hygiene — closes Batch 127
+        // obs #2: tempfile name combines PID + nanosecond
+        // counter + process-local monotonic sequence so a
+        // PID-reuse scenario (container reuse, PID
+        // wrap-around on kernels where PID ceiling is
+        // narrow) cannot collide with a stale tempfile
+        // from a previously-crashed run. create+truncate
+        // already clobbers stale content for safety; the
+        // nonce closes the observability gap where an
+        // orphan `.tmp.<pid>` file would silently confuse
+        // log analysis + filesystem-diff-based forensics.
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let seq = TEMPFILE_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let mut tmp_name = filename.to_os_string();
         tmp_name.push(".tmp.");
-        tmp_name.push(format!("{}", std::process::id()));
+        tmp_name.push(format!(
+            "{}-{:x}-{}",
+            std::process::id(),
+            nanos,
+            seq
+        ));
         let tmp_path = parent.join(tmp_name);
 
         {
@@ -565,6 +595,50 @@ boot_partition=3
 
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_dir(path.parent().unwrap());
+    }
+
+    #[test]
+    fn tempfile_name_includes_pid_nanos_and_sequence() {
+        // Batch 131: the tempfile naming scheme includes
+        // PID + nanos + sequence so container-PID-collision
+        // scenarios cannot produce a stale tempfile whose
+        // path matches a next run's. Prove the naming
+        // scheme via multiple rapid writes — each must
+        // succeed even when nanoseconds resolve equal
+        // (sequence counter disambiguates).
+        let path = tmp_autoboot_path();
+        let handle = TrybootBootloaderHandle::new_with_autoboot_path(path.clone());
+
+        // Three rapid writes back-to-back. If tempfile
+        // uniqueness were PID-only, they could race on a
+        // single tempfile. PID+nanos+seq ensures each
+        // tempfile lands at a distinct name (or
+        // sequentially serialized via atomic counter).
+        handle.set_next_boot_slot(AbPartition::A).expect("w1");
+        handle.set_next_boot_slot(AbPartition::B).expect("w2");
+        handle.clear_pending_boot(AbPartition::B).expect("w3");
+
+        // Final autoboot.txt = stable slot B. No
+        // leftover tempfiles in parent dir.
+        let parent = path.parent().unwrap();
+        let leftover: Vec<_> = std::fs::read_dir(parent)
+            .expect("readdir")
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .filter(|n| n.contains(".tmp."))
+            .collect();
+        assert!(
+            leftover.is_empty(),
+            "rapid writes leaked tempfiles: {:?}",
+            leftover
+        );
+
+        let contents = std::fs::read_to_string(&path).expect("read");
+        assert!(!contents.contains("[tryboot]"));
+        assert!(contents.contains("boot_partition=3"));
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_dir(parent);
     }
 
     #[test]

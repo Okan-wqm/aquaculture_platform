@@ -216,6 +216,67 @@ pub fn stvalue_to_f64_for_process_image(v: &StValue) -> f64 {
     }
 }
 
+/// Capture a synchronous snapshot of the authoritative
+/// ProcessImage tag values. Only quality-Good tags are
+/// included — tags in Bad / CommFailure / Uncertain
+/// state are EXCLUDED so the VM sees only trustworthy
+/// inputs. The scan cycle that runs on this snapshot
+/// treats an excluded tag as NotFound (fail-closed).
+///
+/// Runs in the async boundary — callers await the
+/// RwLock read_lock. Returns a plain map so the sync
+/// VM scan cycle can run without any tokio dependency.
+pub async fn snapshot_process_image(
+    pi: &crate::process_image::ProcessImage,
+) -> HashMap<String, f64> {
+    let all = pi.get_all_tags().await;
+    all.into_iter()
+        .filter_map(|(name, tv)| {
+            // Life-safety: exclude non-Good tags.
+            // ProcessImage::update_tag already holds
+            // last-known-good on Bad quality, but for the
+            // scan cycle we fail-closed — if the value is
+            // not trustworthy, the VM doesn't see it.
+            if matches!(
+                tv.quality,
+                crate::process_image::TagQuality::Good
+                    | crate::process_image::TagQuality::Simulated
+            ) {
+                Some((name, tv.value))
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+/// Apply the drained pending-writes list to the
+/// authoritative ProcessImage. Each write becomes an
+/// `update_tag_raw` call with `TagSource::Script` so
+/// downstream consumers (audit, alarm engine, HMI)
+/// see the origin of the value change.
+///
+/// Writes ALWAYS apply quality=Good — the VM has
+/// already gated the value through compile-time
+/// + Batch 156 runtime checks, so the engine
+/// considers the script output authoritative.
+///
+/// Awaits once per write (ProcessImage::update_tag_raw
+/// takes the inner lock). For a typical scan cycle with
+/// O(10) writes this is negligible; future batches can
+/// batch-commit if the write count grows.
+pub async fn commit_pending_writes(
+    pi: &crate::process_image::ProcessImage,
+    writes: Vec<(String, StValue)>,
+) {
+    use crate::process_image::{TagQuality, TagSource};
+    for (name, value) in writes {
+        let as_f64 = stvalue_to_f64_for_process_image(&value);
+        pi.update_tag_raw(&name, as_f64, TagQuality::Good, TagSource::Script)
+            .await;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -370,6 +431,109 @@ mod tests {
             stvalue_to_f64_for_process_image(&StValue::Real(3.14)),
             3.14
         );
+    }
+
+    // ====================================================================
+    // Batch 161 — ProcessImage bridge (async snapshot + commit)
+    // ====================================================================
+
+    use crate::process_image::{ProcessImage, TagQuality, TagSource};
+
+    #[tokio::test]
+    async fn snapshot_process_image_captures_good_quality_tags() {
+        let pi = ProcessImage::new();
+        pi.update_tag_raw("water_temp", 22.5, TagQuality::Good, TagSource::Modbus)
+            .await;
+        pi.update_tag_raw("dissolved_oxygen", 7.1, TagQuality::Good, TagSource::I2c)
+            .await;
+
+        let snap = snapshot_process_image(&pi).await;
+        assert_eq!(snap.get("water_temp"), Some(&22.5));
+        assert_eq!(snap.get("dissolved_oxygen"), Some(&7.1));
+        assert_eq!(snap.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn snapshot_process_image_excludes_bad_quality_tags() {
+        let pi = ProcessImage::new();
+        pi.update_tag_raw(
+            "flaky_sensor",
+            0.0,
+            TagQuality::CommFailure,
+            TagSource::Modbus,
+        )
+        .await;
+        pi.update_tag_raw("good_sensor", 42.0, TagQuality::Good, TagSource::Modbus)
+            .await;
+
+        let snap = snapshot_process_image(&pi).await;
+        assert!(!snap.contains_key("flaky_sensor"));
+        assert_eq!(snap.get("good_sensor"), Some(&42.0));
+    }
+
+    #[tokio::test]
+    async fn commit_pending_writes_updates_process_image_with_script_source() {
+        let pi = ProcessImage::new();
+        // Seed with initial value so update_tag_raw keeps
+        // raw_value + timestamp semantics clean.
+        pi.update_tag_raw("feeder_rate", 0.0, TagQuality::Good, TagSource::Modbus)
+            .await;
+
+        let writes = vec![
+            ("feeder_rate".to_string(), StValue::Real(2.5)),
+            ("aerator_on".to_string(), StValue::Bool(true)),
+        ];
+        commit_pending_writes(&pi, writes).await;
+
+        let feeder = pi.get_tag("feeder_rate").await.expect("exists");
+        assert_eq!(feeder.value, 2.5);
+        assert_eq!(feeder.source, TagSource::Script);
+        assert_eq!(feeder.quality, TagQuality::Good);
+
+        let aerator = pi.get_tag("aerator_on").await.expect("exists");
+        assert_eq!(aerator.value, 1.0); // Bool true → 1.0
+        assert_eq!(aerator.source, TagSource::Script);
+    }
+
+    #[tokio::test]
+    async fn full_scan_cycle_snapshot_run_commit_roundtrip() {
+        // Seed process image with water_temp = 20.0.
+        let pi = ProcessImage::new();
+        pi.update_tag_raw("water_temp", 20.0, TagQuality::Good, TagSource::Modbus)
+            .await;
+        pi.update_tag_raw("setpoint", 0.0, TagQuality::Good, TagSource::Modbus)
+            .await;
+
+        // Scan cycle:
+        // Step 1: snapshot.
+        let snap = snapshot_process_image(&pi).await;
+        let io = SnapshotTagIo::new_reals_only(snap);
+
+        // Step 2: compile-free bytecode simulating
+        // `setpoint := water_temp + 5.0`.
+        let b = mk_bc(
+            vec![
+                Opcode::LoadTag {
+                    name: "water_temp".into(),
+                },
+                Opcode::PushConst { value: StValue::Real(5.0) },
+                Opcode::AddReal,
+                Opcode::WriteTag { name: "setpoint".into() },
+                Opcode::Return,
+            ],
+            vec!["setpoint".into()],
+        );
+        let mut vm = ScriptVm::new(&b);
+        assert_eq!(vm.run_with_io(&b, &io), VmOutcome::Returned);
+
+        // Step 3: commit.
+        commit_pending_writes(&pi, io.drain_pending_writes()).await;
+
+        // Verify: process image now has setpoint = 25.0
+        // with Script source.
+        let sp = pi.get_tag("setpoint").await.expect("exists");
+        assert_eq!(sp.value, 25.0);
+        assert_eq!(sp.source, TagSource::Script);
     }
 
     #[test]

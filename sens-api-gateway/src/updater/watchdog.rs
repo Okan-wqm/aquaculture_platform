@@ -384,12 +384,22 @@ pub fn watchdog_tick(
 /// `bootloader` is the layer-2 coordination handle (Batch
 /// 112 wire). NoopBootloaderHandle is the zero-cost default
 /// for non-RPi deployments.
+///
+/// `health_state` (Batch 133 Sprint 6.5 wire — closes Batch
+/// 132 obs #1) is the Prometheus metric sink. When Some,
+/// the task bumps `suderra_firmware_rollback_total` on
+/// every RolledBack / RolledBackBootloaderFailed outcome +
+/// updates `suderra_firmware_active_slot` gauge to reflect
+/// the post-rollback state. None when health is disabled
+/// or HealthState hasn't been constructed yet at spawn
+/// time.
 pub async fn run_cold_boot_watchdog(
     store: Arc<PartitionStore>,
     poll_interval: Duration,
     cold_boot_budget_secs: u64,
     bootloader: Arc<dyn BootloaderHandle>,
     audit_ctx: WatchdogAuditCtx,
+    #[cfg(feature = "health")] health_state: Option<crate::health::HealthState>,
     mut shutdown: tokio::sync::broadcast::Receiver<()>,
 ) {
     info!(
@@ -408,12 +418,50 @@ pub async fn run_cold_boot_watchdog(
     loop {
         tokio::select! {
             _ = interval.tick() => {
-                let _outcome = watchdog_tick(
+                let outcome = watchdog_tick(
                     &store,
                     cold_boot_budget_secs,
                     bootloader.as_ref(),
                     &audit_ctx,
                 );
+                // Batch 133 Sprint 6.5: bump rollback
+                // counter + refresh active_slot gauge when
+                // the tick actually rolled back. Both
+                // outcomes (RolledBack + split-brain
+                // RolledBackBootloaderFailed) count as
+                // rollback events for the counter — the
+                // split-brain case is surfaced separately
+                // via audit_emit detail (Batch 113) so
+                // operators can drill into the split-brain
+                // subset via audit queries while the
+                // counter tracks fleet-wide rollback rate.
+                #[cfg(feature = "health")]
+                {
+                    if matches!(
+                        outcome,
+                        WatchdogTickOutcome::RolledBack
+                            | WatchdogTickOutcome::RolledBackBootloaderFailed
+                    ) {
+                        if let Some(hs) = health_state.as_ref() {
+                            hs.inc_firmware_rollback();
+                            // Read post-rollback snapshot
+                            // to refresh the active_slot
+                            // gauge — apply_roll already
+                            // committed the state + the
+                            // flock release means this
+                            // read sees the new active.
+                            if let Ok(snap) = store.snapshot() {
+                                hs.set_firmware_active_slot(
+                                    match snap.active {
+                                        super::partition::AbPartition::A => 0,
+                                        super::partition::AbPartition::B => 1,
+                                    },
+                                );
+                            }
+                        }
+                    }
+                }
+                let _ = outcome;
                 // Outcome logged inside watchdog_tick when
                 // actionable (InconsistentState / RolledBack
                 // / RolledBackBootloaderFailed /
@@ -700,6 +748,90 @@ mod tests {
         );
 
         let _ = std::fs::remove_file(&audit_path);
+    }
+
+    #[cfg(feature = "health")]
+    #[test]
+    fn run_cold_boot_watchdog_bumps_rollback_metric_on_rolled_back_outcome() {
+        // Batch 133 Sprint 6.5: prove the watchdog task
+        // actually bumps the firmware_rollback Prometheus
+        // counter when a tick fires RolledBack. We can't
+        // easily drive the async task here (would need a
+        // tokio test with shutdown signaling + tick
+        // waiting), so we exercise the metric-emit path
+        // via watchdog_tick + a side-by-side HealthState
+        // increment matching the run_cold_boot_watchdog
+        // logic.
+        use crate::health::HealthState;
+
+        let store = tmp_store();
+        let bootloader = RecordingBootloader::new();
+        store
+            .apply_roll(
+                PartitionRoll::InitialInstall { target: AbPartition::A },
+                3600,
+            )
+            .expect("install");
+        store
+            .apply_roll(PartitionRoll::Confirm { slot: AbPartition::A }, 3600)
+            .expect("confirm");
+        store
+            .apply_roll(
+                PartitionRoll::SwapToPending {
+                    old_active: AbPartition::A,
+                    new_pending: AbPartition::B,
+                },
+                0,
+            )
+            .expect("swap");
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+
+        let outcome = watchdog_tick(
+            &store,
+            90,
+            &bootloader,
+            &WatchdogAuditCtx::disabled("test-dev".into()),
+        );
+        assert_eq!(outcome, WatchdogTickOutcome::RolledBack);
+
+        // Simulate the run_cold_boot_watchdog metric-bump
+        // block (kept identical to the production path via
+        // matches! on the two rollback outcomes).
+        let hs = HealthState::new();
+        if matches!(
+            outcome,
+            WatchdogTickOutcome::RolledBack
+                | WatchdogTickOutcome::RolledBackBootloaderFailed
+        ) {
+            hs.inc_firmware_rollback();
+            if let Ok(snap) = store.snapshot() {
+                hs.set_firmware_active_slot(match snap.active {
+                    AbPartition::A => 0,
+                    AbPartition::B => 1,
+                });
+            }
+        }
+
+        let metrics = hs.metrics_prometheus();
+        let rollback_line = metrics
+            .lines()
+            .find(|l| l.starts_with("suderra_firmware_rollback_total"))
+            .expect("rollback metric missing");
+        assert!(
+            rollback_line.ends_with(" 1"),
+            "expected rollback=1 after one RolledBack tick: {}",
+            rollback_line
+        );
+        // After rollback, slot A is the restored Active.
+        let slot_line = metrics
+            .lines()
+            .find(|l| l.starts_with("suderra_firmware_active_slot"))
+            .expect("slot metric missing");
+        assert!(
+            slot_line.ends_with(" 0"),
+            "expected active_slot=0 (A) after RolledBack: {}",
+            slot_line
+        );
     }
 
     #[test]

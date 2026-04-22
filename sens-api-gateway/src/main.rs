@@ -3436,7 +3436,11 @@ async fn run_agent(
             // FirmwareDeployRollback pre+post entries to the
             // HMAC-chained sink. No sink → zero-cost noop
             // (matches Batch 79 command-path contract).
-            let (bootloader, audit_ctx) = {
+            // Batch 133 Sprint 6.5: clone HealthState into
+            // the watchdog task so RolledBack /
+            // RolledBackBootloaderFailed outcomes bump the
+            // Batch 132 Prometheus rollback counter.
+            let (bootloader, audit_ctx, health_state_for_watchdog) = {
                 let s = state.read().await;
                 let tenant_bytes = s
                     .tenant_id
@@ -3451,7 +3455,14 @@ async fn run_agent(
                         tenant_bytes,
                     ),
                 };
-                (s.bootloader.clone(), ctx)
+                (
+                    s.bootloader.clone(),
+                    ctx,
+                    #[cfg(feature = "health")]
+                    s.health_state.clone(),
+                    #[cfg(not(feature = "health"))]
+                    (),
+                )
             };
             let watchdog_handle = tokio::spawn(async move {
                 crate::updater::run_cold_boot_watchdog(
@@ -3462,6 +3473,8 @@ async fn run_agent(
                     cold_boot_budget_secs,
                     bootloader,
                     audit_ctx,
+                    #[cfg(feature = "health")]
+                    health_state_for_watchdog,
                     watchdog_shutdown,
                 )
                 .await;

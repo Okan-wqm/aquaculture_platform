@@ -77,8 +77,16 @@ export class Farm {
   @Column('decimal', { precision: 10, scale: 2, nullable: true })
   totalArea?: number; // in hectares
 
-  // Note: ponds relation available via TypeORM but not exposed in GraphQL
-  // Use farm.ponds query in resolver instead to avoid circular type issues
+  // READ-ONLY LEGACY — the OneToMany relation stays for the GraphQL
+  // `pond` query that read legacy data. Writes on this surface are
+  // disabled: `createPond` / `createFarm` mutations are @deprecated and
+  // throw BadRequestException (see farm.resolver.ts), and the
+  // corresponding command handlers were removed in phase 1.2 of the
+  // "kalan kör noktalar" plan.
+  //
+  // Intentionally not exposed as a GraphQL field to avoid the circular
+  // type issue between Farm and Pond; clients use the top-level `pond`
+  // query to resolve individual ponds.
   @OneToMany('Pond', 'farm', { cascade: true })
   ponds?: Pond[];
 

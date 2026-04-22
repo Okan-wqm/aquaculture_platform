@@ -57,6 +57,11 @@ import { BatchQueryHandlers } from './query-handlers';
 // Resolvers
 import { BatchResolvers } from './resolvers';
 
+// Cross-module: tank density/capacity invariant is owned by TankModule
+// and shared here so every handler that places fish in a tank
+// (create, allocate, transfer, cleaner-fish deploy) runs the same check.
+import { TankModule } from '../tank/tank.module';
+
 @Module({
   imports: [
     TypeOrmModule.forFeature([
@@ -75,6 +80,7 @@ import { BatchResolvers } from './resolvers';
       Feed,
       GrowthMeasurement,
     ]),
+    TankModule,
   ],
   controllers: [
     BatchController,

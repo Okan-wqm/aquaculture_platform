@@ -13,6 +13,7 @@
  * @module Scheduler
  */
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression, SchedulerRegistry } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, DataSource } from 'typeorm';
@@ -79,6 +80,7 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
     private readonly schedulerRegistry: SchedulerRegistry,
     private readonly eventEmitter: EventEmitter2,
     private readonly dataSource: DataSource,
+    private readonly configService: ConfigService,
   ) {}
 
   async onModuleInit() {
@@ -681,16 +683,83 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Her gece saat 02:00'da çalışır - Eski verilerin temizliği
+   * Nightly data cleanup — runs 02:00 Europe/Istanbul.
+   *
+   * Currently invokes the `cleanup_old_audit_logs(p_retention_days int)`
+   * PL/pgSQL function (defined in
+   * apps/farm-service/src/database/migrations/003_create_audit_logs_table.sql)
+   * for every tenant schema. The function was already shipped with the
+   * audit_logs migration but was never scheduled — the farm_audit_logs
+   * table was growing unbounded in practice. Tracked as Girdi 14b /
+   * 15-B18 in docs/illustrator/farm-modulu-kor-noktalar-dogrulama.md.
+   *
+   * Retention window is read from the AUDIT_RETENTION_DAYS env var so
+   * operators can raise it to satisfy stricter audit-trail requirements
+   * (e.g. 365 days for some compliance regimes). Default 90 matches the
+   * original SQL default and the existing audit-log.entity.ts docstring.
+   *
+   * Per-tenant iteration mirrors the pattern used by other cron jobs in
+   * this file: each schema gets its own QueryRunner so a failure in one
+   * tenant cannot block the rest.
    */
   @Cron(CronExpression.EVERY_DAY_AT_2AM, {
     name: 'cleanupOldData',
     timeZone: 'Europe/Istanbul',
   })
   async cleanupOldData(): Promise<void> {
-    this.logger.log('Starting data cleanup job');
-    // Cleanup logic would go here
-    this.logger.log('Data cleanup completed');
+    const retentionDays = Number(
+      this.configService.get<number | string>('AUDIT_RETENTION_DAYS', 90),
+    );
+
+    this.logger.log(
+      `Starting audit-log cleanup (retention=${retentionDays} days)`,
+    );
+
+    let tenantSchemas: string[];
+    try {
+      tenantSchemas = await listTenantSchemas(this.dataSource);
+    } catch (err) {
+      this.logger.error(
+        `Failed to list tenant schemas for audit cleanup: ${(err as Error).message}`,
+      );
+      return;
+    }
+
+    let totalDeleted = 0;
+    for (const schema of tenantSchemas) {
+      const queryRunner = this.dataSource.createQueryRunner();
+      await queryRunner.connect();
+      try {
+        await queryRunner.query(
+          `SET search_path TO "${schema}", farm, public`,
+        );
+        const rows = (await queryRunner.query(
+          `SELECT cleanup_old_audit_logs($1) AS deleted_count`,
+          [retentionDays],
+        )) as Array<{ deleted_count: number | string | null }>;
+
+        const deleted = Number(rows?.[0]?.deleted_count ?? 0);
+        totalDeleted += deleted;
+        if (deleted > 0) {
+          this.logger.log(
+            `Tenant ${schema}: deleted ${deleted} audit log rows older than ${retentionDays} days`,
+          );
+        }
+      } catch (err) {
+        // cleanup_old_audit_logs() may be missing on tenants that have
+        // not yet run the audit_logs migration. Log and continue rather
+        // than aborting the whole cycle.
+        this.logger.warn(
+          `Audit cleanup skipped for tenant ${schema}: ${(err as Error).message}`,
+        );
+      } finally {
+        await queryRunner.release();
+      }
+    }
+
+    this.logger.log(
+      `Audit-log cleanup completed — ${totalDeleted} row(s) deleted across ${tenantSchemas.length} tenant schema(s)`,
+    );
   }
 
   // -------------------------------------------------------------------------

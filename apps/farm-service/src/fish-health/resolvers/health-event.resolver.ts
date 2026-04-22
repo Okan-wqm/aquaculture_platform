@@ -6,13 +6,14 @@
  *
  * @module FishHealth
  */
-import { Resolver, Query, Mutation, Args, ID, Int, ObjectType, Field } from '@nestjs/graphql';
+import { Resolver, Query, Mutation, Args, ID, Int, ObjectType, Field, GraphQLISODateTime } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
 import { TenantGuard, CurrentTenant, CurrentUser, StandardPaginatedResponse, IStandardPaginatedResult } from '@aquaculture/backend-common';
 import GraphQLJSON from 'graphql-type-json';
 
-import { HealthEvent, TreatmentDetails } from '../entities/health-event.entity';
+import { HealthEvent, HealthEventStatus, TreatmentDetails } from '../entities/health-event.entity';
 import { HealthEventService, HealthEventStats } from '../services/health-event.service';
+import { BatchHarvestEligibilityService } from '../services/batch-harvest-eligibility.service';
 import { CreateHealthEventInput } from '../dto/create-health-event.input';
 import { UpdateHealthEventInput } from '../dto/update-health-event.input';
 import { HealthEventFilterInput } from '../dto/health-event-filter.input';
@@ -24,6 +25,53 @@ import { TreatmentDetailsInput } from '../dto/create-health-event.input';
 
 @ObjectType()
 export class PaginatedHealthEventsResponse extends StandardPaginatedResponse(HealthEvent) {}
+
+@ObjectType({
+  description:
+    'A single health event that currently blocks a batch from being harvested.',
+})
+export class BlockingHealthEventOutput {
+  @Field(() => ID)
+  id: string;
+
+  @Field()
+  title: string;
+
+  @Field({ nullable: true })
+  diseaseName?: string;
+
+  @Field(() => GraphQLISODateTime)
+  earliestHarvestDate: Date;
+
+  @Field(() => Int, { nullable: true })
+  withdrawalPeriodDays?: number;
+
+  @Field(() => HealthEventStatus)
+  status: HealthEventStatus;
+}
+
+@ObjectType({
+  description:
+    "Result of the 'can this batch be harvested on this date?' check. " +
+    'When eligible is false, blockingEvents contains the active health ' +
+    'events whose withdrawal period has not yet elapsed.',
+})
+export class HarvestEligibilityOutput {
+  @Field()
+  eligible: boolean;
+
+  @Field(() => GraphQLISODateTime, {
+    nullable: true,
+    description: 'Latest earliestHarvestDate among blocking events.',
+  })
+  blockedUntil?: Date;
+
+  @Field({ nullable: true })
+  reason?: string;
+
+  @Field(() => [BlockingHealthEventOutput])
+  blockingEvents: BlockingHealthEventOutput[];
+}
 
 @ObjectType()
 export class HealthEventStatsResponse {
@@ -61,7 +109,10 @@ export class HealthEventStatsResponse {
 export class HealthEventResolver {
   private readonly logger = new Logger(HealthEventResolver.name);
 
-  constructor(private readonly healthEventService: HealthEventService) {}
+  constructor(
+    private readonly healthEventService: HealthEventService,
+    private readonly harvestEligibilityService: BatchHarvestEligibilityService,
+  ) {}
 
   // =========================================================================
   // QUERIES
@@ -253,5 +304,50 @@ export class HealthEventResolver {
   ): Promise<HealthEvent> {
     this.logger.log(`Resolving health event ${id}`);
     return this.healthEventService.resolve(tenantId, id, notes, user.sub);
+  }
+
+  // =========================================================================
+  // HARVEST ELIGIBILITY (compliance / withdrawal period)
+  // =========================================================================
+
+  /**
+   * Pre-submit check for the harvest form: returns eligible=false when
+   * any active health event on the batch has an earliestHarvestDate
+   * beyond the requested harvest date. The UI should disable the
+   * harvest submit button and display the blockingEvents list so the
+   * operator can see exactly why the harvest is blocked.
+   *
+   * The same rule is also enforced server-side inside the
+   * createHarvestRecord command handler — this query just surfaces the
+   * decision to the UI early.
+   */
+  @Query(() => HarvestEligibilityOutput, {
+    description:
+      "Check whether a batch can be harvested on the given date " +
+      'without violating an active medicine withdrawal period.',
+  })
+  async batchHarvestEligibility(
+    @CurrentTenant() tenantId: string,
+    @Args('batchId', { type: () => ID }) batchId: string,
+    @Args('harvestDate', { type: () => GraphQLISODateTime }) harvestDate: Date,
+  ): Promise<HarvestEligibilityOutput> {
+    const result = await this.harvestEligibilityService.checkEligibility(
+      tenantId,
+      batchId,
+      harvestDate,
+    );
+    return {
+      eligible: result.eligible,
+      blockedUntil: result.blockedUntil,
+      reason: result.reason,
+      blockingEvents: result.blockingEvents.map((e) => ({
+        id: e.id,
+        title: e.title,
+        diseaseName: e.diseaseName ?? undefined,
+        earliestHarvestDate: e.earliestHarvestDate,
+        withdrawalPeriodDays: e.withdrawalPeriodDays ?? undefined,
+        status: e.status,
+      })),
+    };
   }
 }

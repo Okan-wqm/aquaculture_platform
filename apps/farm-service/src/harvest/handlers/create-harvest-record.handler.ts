@@ -34,6 +34,7 @@ import { Batch, BatchStatus } from '../../batch/entities/batch.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { TankOperation, OperationType } from '../../batch/entities/tank-operation.entity';
 import { Tank } from '../../tank/entities/tank.entity';
+import { BatchHarvestEligibilityService } from '../../fish-health/services/batch-harvest-eligibility.service';
 
 @Injectable()
 @CommandHandler(CreateHarvestRecordCommand)
@@ -42,6 +43,7 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
   constructor(
     private readonly dataSource: DataSource,
     private readonly outboxPublisher: OutboxPublisher,
+    private readonly harvestEligibility: BatchHarvestEligibilityService,
     @InjectRepository(HarvestRecord)
     private readonly harvestRepository: Repository<HarvestRecord>,
     @InjectRepository(Batch)
@@ -79,6 +81,31 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
 
       if (!batch) {
         throw new NotFoundException(`Batch ${input.batchId} bulunamadı`);
+      }
+
+      // ── COMPLIANCE GATE: medicine withdrawal period ─────────────────────
+      //
+      // Food-safety rule (Norwegian Mattilsynet, EU Reg 37/2010):
+      // harvesting a batch before the medicine withdrawal period has
+      // elapsed puts unsafe fish on the market. The check runs outside
+      // the batch row's pessimistic_write lock (separate table) so it
+      // cannot deadlock; it runs INSIDE the transaction so a concurrent
+      // resolveHealthEvent cannot clear the block between the check and
+      // the harvest write.
+      //
+      // Blocking logic lives in BatchHarvestEligibilityService so the
+      // GraphQL query `batchHarvestEligibility` can reuse it for UI
+      // pre-submit warnings. See docs/illustrator/ (Girdi 14h).
+      const eligibility = await this.harvestEligibility.checkEligibility(
+        tenantId,
+        input.batchId,
+        harvestDate,
+      );
+      if (!eligibility.eligible) {
+        throw new BadRequestException(
+          eligibility.reason ??
+            'Harvest blocked by active medicine withdrawal period.',
+        );
       }
 
       // Tank bul with pessimistic lock

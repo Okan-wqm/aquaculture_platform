@@ -878,3 +878,29 @@ The TS cloud listener still emits `SensorReading` events in the V1 nested-`readi
 - Owner: db-migrate / backend-common maintainers.
 - Deadline: 2026-05-30 (before PR-A-safety of Rust delta plan merges).
 - Closure path: `feat(db-migrate): bidirectional migration CLI + rollback CI workflow` + `Closes: docs/reviews/orphan-findings.md#ORPHAN-020`.
+
+---
+
+## 2026-04-22 ORPHAN-021 — `deploy-digitalocean.yml` pulls images with no `cosign verify` gate
+
+**Severity:** HIGH (supply-chain trust chain open on every deploy)
+**Discovered:** 2026-04-22, Rust migration delta Faz 0 PR-A infra audit.
+**File:** `.github/workflows/deploy-digitalocean.yml` + `docker-compose.droplet.yml` pull step.
+
+**Evidence:** The new `sensor-ingestion-release.yml` signs its image with cosign keyless OIDC + BuildKit SBOM attestation (ADR-032 Part A). Deploy-time verification is **documented in `docs/runbooks/sensor-ingestion-deployment.md` §6** and the operator runs it manually before `docker compose pull`. There is no automated pre-pull gate in `deploy-digitalocean.yml` or the droplet-side scripts — a compromised image that bypasses the sign step could still be pulled if the operator forgets the manual verify. The trust chain is only as strong as its weakest link; manual-only is a gap.
+
+Additionally, every other service pushed by `deploy-digitalocean.yml` (backend NestJS images, frontend microfrontend images) has no cosign signing step at all — the signing discipline is currently sensor-ingestion-only.
+
+**Why orphan:** Fixing this is a platform-wide deploy pipeline change: all 16 backend images + all 7 frontend modules need signing integration + the deploy workflow needs a verify gate for every image it pulls. That is a different scope from the Rust sensor-ingestion migration plan (which only covers the new sidecar). The Rust plan's ADR-032 explicitly scopes to sensor-ingestion; closing this orphan extends the same primitives to the whole platform.
+
+**Architectural fix:**
+
+1. For every `docker/build-push-action` in `deploy-digitalocean.yml` + `deploy-staging.yml`: add `sbom: true`, `provenance: mode=max`, then a post-build `cosign sign --yes` + optional `cosign attest --predicate` step. Same pinned action SHA as sensor-ingestion-release.yml to keep supply-chain tooling uniform.
+2. Add a `verify-images` job that runs between `build-*-images` and `deploy`, running `cosign verify` against every just-built digest. Failure = deploy abort.
+3. Update the DigitalOcean droplet deploy script (invoked at the end of the workflow) to add `cosign verify` before `docker compose pull`.
+4. Extend `docs/runbooks/sensor-ingestion-deployment.md` §6 to a platform-wide section (or split into `docs/runbooks/platform-supply-chain.md`) once every service is covered.
+
+**Follow-on tracking:**
+- Owner: SRE + platform-infra team.
+- Deadline: 2026-06-30 (supply-chain hardening cross-platform rollout).
+- Closure path: `security(ci,deploy): cosign sign + verify every platform image` PR touching both deploy workflows + every Dockerfile with `sbom: true`, carrying `Closes: docs/reviews/orphan-findings.md#ORPHAN-021` when every image is under the same discipline.

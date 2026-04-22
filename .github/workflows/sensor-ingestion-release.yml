@@ -1,0 +1,175 @@
+name: Sensor-Ingestion Release
+
+# Build + sign + attest the sensor-ingestion Rust sidecar Docker image
+# for GHCR. Triggers:
+#   - push to main when sensor-ingestion source or the Dockerfile changes
+#   - manual dispatch with explicit tag
+#
+# ADR-032 supply-chain hardening: every image pushed to GHCR carries
+#   (a) a cosign keyless signature (GitHub OIDC identity, Rekor-logged)
+#   (b) a BuildKit-generated SBOM attestation (SLSA provenance mode=max)
+# Deploy-time verification (docs/runbooks/sensor-ingestion-deployment.md §6)
+# gates the droplet pull behind `cosign verify` — a compromised GHCR
+# push cannot silently deploy: verification fails, operator aborts.
+#
+# This workflow is SEPARATE from deploy-digitalocean.yml on purpose —
+# the Rust sidecar build path uses cross-rs/cross for musl + sbom-
+# generating buildx, neither of which belongs in the NestJS + frontend
+# matrix of deploy-digitalocean.yml. Keeping them split keeps each
+# workflow's CODEOWNERS review scoped to the surface it owns.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/sensor-ingestion/**"
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".github/workflows/sensor-ingestion-release.yml"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Explicit image tag (defaults to short SHA)"
+        required: false
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/sensor-ingestion
+  # Pinned to the same toolchain rust-ci.yml uses — no MSRV drift
+  # between the CI validation surface and the release artifact.
+  RUST_TOOLCHAIN: "1.88.0"
+
+jobs:
+  build-and-sign:
+    name: Build, push, sign sensor-ingestion image
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      packages: write
+      # ADR-032: id-token required for keyless cosign signing via the
+      # sigstore OIDC issuer (https://token.actions.githubusercontent.com).
+      # The ephemeral per-build identity is recorded in Rekor and matched
+      # at verify time — no long-lived signing key anywhere.
+      id-token: write
+      # attestations: write lets us publish OCI attestations (SBOM,
+      # provenance) alongside the signed image in GHCR.
+      attestations: write
+    steps:
+      - name: Checkout code
+        # SEC-CI-002: pinned to SHA
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Resolve image tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] \
+             && [ -n "${{ github.event.inputs.tag }}" ]; then
+            echo "value=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          fi
+
+      # SEC-CI-002: pinned to SHA — same pins as edge-agent-release.yml
+      # and rust-ci.yml for uniform supply-chain provenance.
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@49b3bc8e6bdd4a60e6116a5414239cba5943d3cf # v3.2.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
+
+      - name: Login to GHCR
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install cosign
+        # ADR-032: keyless signing via sigstore, no local private key.
+        # The action pins the cosign binary by SHA the same way the edge
+        # agent release workflow does — uniform supply-chain pinning.
+        uses: sigstore/cosign-installer@dc72c7d5c4d10cd6bcb8cf6e3fd625a9e5e537da # v3.7.0
+
+      - name: Build and push with SBOM + provenance
+        id: build
+        uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6.15.0
+        with:
+          context: .
+          file: apps/sensor-ingestion/Dockerfile
+          push: true
+          # `sbom: true` instructs BuildKit to produce an SPDX-JSON SBOM
+          # attestation and attach it to the image index as per the OCI
+          # image spec v1.1 referrers model. `provenance: mode=max`
+          # records the full build graph (source, base image, build
+          # command, env) in the SLSA provenance attestation.
+          sbom: true
+          provenance: mode=max
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.value }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          # Cache layers live in GHCR alongside the images so cross-runner
+          # builds reuse the dep-build layer from cargo-chef (Dockerfile §).
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
+
+      - name: Sign image with cosign (keyless)
+        env:
+          # Cosign >= 2.0 defaults to keyless mode when COSIGN_EXPERIMENTAL
+          # is unset; the explicit --yes flag bypasses the interactive
+          # confirmation that only fires on a TTY.
+          IMAGE_REF: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+        run: |
+          cosign sign --yes "${IMAGE_REF}"
+          echo "Signed: ${IMAGE_REF}"
+
+      - name: Verify the signature we just produced
+        # Read-back verification catches supply-chain tooling regressions
+        # (e.g. a broken cosign install) in-pipeline rather than at the
+        # droplet pull. Uses the exact same verify invocation that
+        # docs/runbooks/sensor-ingestion-deployment.md §6 documents for
+        # operators, so the pipeline asserts the operator workflow works.
+        env:
+          IMAGE_REF: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+        run: |
+          cosign verify \
+            --certificate-identity-regexp \
+              "https://github\.com/${{ github.repository }}/\.github/workflows/sensor-ingestion-release\.yml@.+" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            "${IMAGE_REF}"
+
+      - name: Summarize release (echo + workflow summary)
+        env:
+          IMAGE_REF: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.value }}
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          {
+            echo "## sensor-ingestion release"
+            echo ""
+            echo "- **Tag:** \`${{ steps.tag.outputs.value }}\`"
+            echo "- **Image:** \`${IMAGE_REF}\`"
+            echo "- **Digest:** \`${IMAGE_DIGEST}\`"
+            echo ""
+            echo "### Operator verification (matches runbook §6)"
+            echo ""
+            echo '```'
+            echo "cosign verify \\"
+            echo "  --certificate-identity-regexp \\"
+            echo "    'https://github\\.com/${{ github.repository }}/\\.github/workflows/sensor-ingestion-release\\.yml@.+' \\"
+            echo "  --certificate-oidc-issuer https://token.actions.githubusercontent.com \\"
+            echo "  ${IMAGE_REF}"
+            echo '```'
+            echo ""
+            echo "### Attestation tree (SBOM + provenance)"
+            echo ""
+            echo '```'
+            echo "cosign tree ${IMAGE_REF}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

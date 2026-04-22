@@ -52,8 +52,42 @@ pub(super) fn action_for_command(cmd: &str, outcome: AuditOutcome) -> AuditActio
             }
         },
 
-        // Firmware lifecycle
+        // Firmware lifecycle — legacy tarball OTA path.
+        // Batch 119 gates this at mode=Enforcing; failure
+        // outcomes under that mode still flow here + map to
+        // FirmwareDeployRequested so the audit chain carries
+        // the classification regardless of gate decision.
         "update_firmware" => match outcome {
+            AuditOutcome::Success => AuditAction::FirmwareDeployApplied,
+            _ => AuditAction::FirmwareDeployRequested,
+        },
+
+        // Batch 120 Sprint 6.5: SignedFirmwareManifest
+        // verify-preview + apply + confirm_slot commands
+        // MUST share the firmware-lifecycle audit taxonomy
+        // with the legacy tarball path. Pre-Batch-120 they
+        // fell to `CommandExecuted` catch-all, which
+        // collapsed firmware-deploy events with every other
+        // command in audit queries + analytics pipelines.
+        //
+        // Mapping discipline:
+        // - verify_signed_manifest → FirmwareDeployRequested
+        //   (probe/request semantic; does not mutate state).
+        // - apply_signed_manifest → FirmwareDeployApplied on
+        //   success; FirmwareDeployRequested on any failure
+        //   (mirrors update_firmware pattern).
+        // - confirm_slot → FirmwareDeployApplied on success
+        //   (lifecycle-completing event; the agent has
+        //   accepted the new firmware as final). Failure
+        //   maps to FirmwareDeployRequested because the
+        //   attempt to close the deploy lifecycle WAS made
+        //   even if the transition was rejected.
+        "verify_signed_manifest" => AuditAction::FirmwareDeployRequested,
+        "apply_signed_manifest" => match outcome {
+            AuditOutcome::Success => AuditAction::FirmwareDeployApplied,
+            _ => AuditAction::FirmwareDeployRequested,
+        },
+        "confirm_slot" => match outcome {
             AuditOutcome::Success => AuditAction::FirmwareDeployApplied,
             _ => AuditAction::FirmwareDeployRequested,
         },
@@ -562,6 +596,93 @@ mod tests {
         });
         let summary = summarize_result("some_unknown_cmd", &result);
         assert_eq!(summary, "");
+    }
+
+    // ========================================================================
+    // action_for_command taxonomy tests for Sprint 6.5 commands (Batch 120)
+    // ========================================================================
+
+    #[test]
+    fn action_for_verify_signed_manifest_is_firmware_deploy_requested_both_outcomes() {
+        // Verify-preview is a probe — never an applied
+        // change — so BOTH success + failure map to
+        // FirmwareDeployRequested.
+        assert!(matches!(
+            action_for_command("verify_signed_manifest", AuditOutcome::Success),
+            AuditAction::FirmwareDeployRequested
+        ));
+        assert!(matches!(
+            action_for_command("verify_signed_manifest", AuditOutcome::Failure),
+            AuditAction::FirmwareDeployRequested
+        ));
+        assert!(matches!(
+            action_for_command(
+                "verify_signed_manifest",
+                AuditOutcome::AuthorizationDenied
+            ),
+            AuditAction::FirmwareDeployRequested
+        ));
+    }
+
+    #[test]
+    fn action_for_apply_signed_manifest_maps_success_to_applied() {
+        assert!(matches!(
+            action_for_command("apply_signed_manifest", AuditOutcome::Success),
+            AuditAction::FirmwareDeployApplied
+        ));
+        assert!(matches!(
+            action_for_command("apply_signed_manifest", AuditOutcome::Failure),
+            AuditAction::FirmwareDeployRequested
+        ));
+        assert!(matches!(
+            action_for_command(
+                "apply_signed_manifest",
+                AuditOutcome::AuthorizationDenied
+            ),
+            AuditAction::FirmwareDeployRequested
+        ));
+    }
+
+    #[test]
+    fn action_for_confirm_slot_maps_success_to_applied() {
+        // confirm_slot COMPLETES the deploy lifecycle on
+        // success; classification matches update_firmware +
+        // apply_signed_manifest so audit queries filtering
+        // by FirmwareDeployApplied see the full happy path.
+        assert!(matches!(
+            action_for_command("confirm_slot", AuditOutcome::Success),
+            AuditAction::FirmwareDeployApplied
+        ));
+        assert!(matches!(
+            action_for_command("confirm_slot", AuditOutcome::Failure),
+            AuditAction::FirmwareDeployRequested
+        ));
+    }
+
+    #[test]
+    fn action_for_sprint_6_5_commands_do_not_fall_to_catch_all() {
+        // Regression pin: if any Sprint 6.5 firmware command
+        // is accidentally removed from the taxonomy the
+        // catch-all (CommandExecuted / CommandRejected) would
+        // match instead. This test asserts that NONE of the
+        // three fall into the catch-all.
+        for cmd in [
+            "verify_signed_manifest",
+            "apply_signed_manifest",
+            "confirm_slot",
+        ] {
+            let action = action_for_command(cmd, AuditOutcome::Success);
+            assert!(
+                matches!(
+                    action,
+                    AuditAction::FirmwareDeployApplied
+                        | AuditAction::FirmwareDeployRequested
+                ),
+                "command '{}' fell outside FirmwareDeploy* taxonomy: {:?}",
+                cmd,
+                action
+            );
+        }
     }
 
     #[test]

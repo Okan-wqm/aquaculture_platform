@@ -156,11 +156,20 @@ services:
       # to the AQUACULTURE_EVENTS namespace. Remove once every consumer
       # has migrated to the `events.>` stream.
       - "AQUACULTURE_EVENTS.SensorReading.>"
+      # Cache-miss lookup — request-reply from sidecar to sensor-service.
+      # sensor-service subscribes `request.sensor.>`, the sidecar sends
+      # `request.sensor.lookup.by-topic` with a reply-to inbox. Lands
+      # alongside the singleflight cache work (ADR-029 ingestion plan).
+      - "request.sensor.>"
       - "$JS.API.>"
       - "_INBOX.>"
     subscribe:
-      # Cache-miss lookup reply path (sensor.lookup.by-topic request-
-      # reply lands with the cache-fetcher work in Faz 3).
+      # Dynamic IngestBackend policy — admin-api publishes policy change
+      # events on this subject hierarchy; the sidecar hot-swaps the
+      # ArcSwap<IngestBackendPolicy> on every message (ADR-027 + ADR-031).
+      # Boot-time authoritative snapshot is fetched via request-reply on
+      # `policy.ingest_backend.snapshot` (replies arrive on `_INBOX.>`).
+      - "policy.ingest_backend.>"
       - "_INBOX.>"
       - "$JS.API.>"
 
@@ -180,12 +189,23 @@ services:
       - "st.language.>"
       # Request-reply for cross-service queries
       - "request.>"
+      # Dynamic IngestBackend policy change events — admin-api is the
+      # authoritative publisher; sensor-ingestion + sensor-service
+      # subscribe. ADR-027 (per-tenant toggle) + ADR-031 (request-reply
+      # bootstrap snapshot via `policy.ingest_backend.snapshot`).
+      - "policy.ingest_backend.>"
       - "$JS.API.>"
       - "_INBOX.>"
     subscribe:
       - "AQUACULTURE_EVENTS.>"
       # WebSocket real-time bridges
       - "events.>"
+      # IngestBackend snapshot responder — admin-api answers the Rust
+      # sidecar's cold-start request on `policy.ingest_backend.snapshot`
+      # (request-reply per ADR-031). Responses land on requester's
+      # `_INBOX.>` automatically; the subscribe here lets admin-api
+      # receive the request side of the pair.
+      - "policy.ingest_backend.snapshot"
       # ST Language responses
       - "st.language.>"
       # Request-reply inbox

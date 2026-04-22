@@ -174,6 +174,12 @@ mod verify_signed_manifest;
 // Tryboot hardware-layer batch.
 mod apply_signed_manifest;
 
+// Batch 143 Faz 7: refresh_license — cloud-pushed signed
+// license manifest verify + hot-swap into AppState.license.
+// Consumes Batch 141 verify_license_manifest primitive;
+// Batch 144 (cache) adds cross-boot persistence.
+mod refresh_license;
+
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -868,6 +874,8 @@ impl CommandHandler {
             "verify_signed_manifest" => self.cmd_verify_signed_manifest(&command.params).await,
             // Signed firmware manifest apply orchestrator (Batch 116 Sprint 6.5)
             "apply_signed_manifest" => self.cmd_apply_signed_manifest(&command.params).await,
+            // License tier refresh (Batch 143 Faz 7)
+            "refresh_license" => self.cmd_refresh_license(&command.params).await,
             _ => {
                 // v1.2.2: Sanitize user-provided command name to prevent log injection
                 warn!("Unknown command: {}", sanitize_for_log(&command.command));

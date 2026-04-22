@@ -331,7 +331,6 @@ use crate::authz::policy::Ed25519SignatureBytes;
 /// `canonical_bytes()` of this with the firmware signing
 /// key (plan R-10 key-reuse refinement) + ships as JSON
 /// `SignedLicenseManifest` payload.
-#[allow(dead_code)] // Batch 143 wires the fetch path consumer.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LicenseManifest {
     /// Tenant binding. MUST equal the edge's
@@ -366,18 +365,24 @@ pub struct LicenseManifest {
 /// through `verify_license_manifest`. Same discipline as
 /// `updater::SignedFirmwareManifest` (Batch 8) +
 /// `authz::SignedRbacManifest`.
-#[allow(dead_code)] // Batch 143 wires the fetch path consumer.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SignedLicenseManifest {
     pub(crate) manifest: LicenseManifest,
     pub signature: Ed25519SignatureBytes,
 }
 
-#[allow(dead_code)] // Batch 143 wires the fetch path consumer.
 impl SignedLicenseManifest {
     /// Construct from body + signature bytes. Validates
     /// signature length at parse boundary (same pattern
     /// as Batch 8 SignedFirmwareManifest).
+    ///
+    /// Runtime refresh_license path uses
+    /// `serde_json::from_value` (consumes the JSON +
+    /// validates signature via Serde) — this explicit
+    /// constructor is the test-keypair path +
+    /// future-consumer bridge (Batch 144 cache reload
+    /// will use it).
+    #[allow(dead_code)] // Batch 144 cache-reload consumer
     pub fn from_body_and_signature_bytes(
         manifest: LicenseManifest,
         signature_bytes: &[u8],
@@ -428,7 +433,6 @@ impl LicenseManifest {
 
 /// Verify-time failure taxonomy. Mirrors the Batch 8
 /// ManifestVerifyError shape.
-#[allow(dead_code)] // Batch 143 wires the fetch path consumer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LicenseVerifyError {
     /// Tenant binding mismatch.
@@ -481,7 +485,6 @@ impl std::error::Error for LicenseVerifyError {}
 /// closure-injection discipline as the Batch 8
 /// firmware verify: the ed25519 primitive is injected
 /// so the pure function stays crypto-backend-agnostic.
-#[allow(dead_code)] // Batch 143 wires the fetch path consumer.
 ///
 /// Gate ordering (cheapest-first):
 /// 1. Clock sanity (now < 0).

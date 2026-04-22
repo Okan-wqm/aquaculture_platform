@@ -234,6 +234,19 @@ pub(crate) fn permission_for_command(cmd: &str, params: &Value) -> Option<Permis
         "apply_signed_manifest" => Some(Permission::UpdateFirmware),
 
         // -----------------------------------------------------------------
+        // License tier refresh (Batch 143 Faz 7).
+        // -----------------------------------------------------------------
+        // WHY ManagePolicy: license governs EVERY per-tier
+        // gate (deploy_program FB cap, io_poll channel cap,
+        // OPC UA enablement, signature_mode floor). An
+        // attacker who could rotate the license to a
+        // permissive tier could trivially widen the trust
+        // surface. Same trust-anchor-rotation gate as
+        // update_policy + rotate_master. Plan §3 R-10 +
+        // ADR-020 §5.
+        "refresh_license" => Some(Permission::ManagePolicy),
+
+        // -----------------------------------------------------------------
         // Unknown command — fail-closed. Safer than implicit None
         // (anonymous) because an unknown command COULD be a future
         // safety-critical operation that the gate must reject.

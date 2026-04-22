@@ -37,6 +37,15 @@
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
+use std::net::SocketAddr;
+
+use metrics_exporter_prometheus::PrometheusBuilder;
+/// Re-export of `metrics_exporter_prometheus::PrometheusHandle` so
+/// callers can hold the handle through a function signature without
+/// adding a direct `metrics-exporter-prometheus` dep to their own
+/// `Cargo.toml`. sensor-ingestion's `start_metrics_recorder` helper
+/// returns `Option<PrometheusHandle>` via this path.
+pub use metrics_exporter_prometheus::PrometheusHandle;
 use thiserror::Error;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::layer::SubscriberExt;
@@ -57,6 +66,13 @@ pub enum ObservabilityError {
     /// double-init). Only one tracing subscriber may exist per process.
     #[error("tracing subscriber already initialised")]
     AlreadyInitialised,
+
+    /// Prometheus exporter could not install the global recorder or
+    /// bind the HTTP listener. The inner message is the
+    /// `PrometheusBuilder` error description — no attacker input
+    /// reaches this surface so echoing it is safe.
+    #[error("prometheus metrics init failed: {0}")]
+    MetricsInitFailed(String),
 }
 
 /// Tracing init knobs. Defaults aim for production sane:
@@ -185,6 +201,72 @@ pub fn init_tracing(opts: &TracingOpts) -> Result<(), ObservabilityError> {
     );
     std::mem::forget(span.entered());
     Ok(())
+}
+
+// ---------- Metrics (Prometheus exporter) -------------------------------
+
+/// Metrics exporter knobs. Off by default so the crate stays silent
+/// in stub-mode boots (unit tests, ad-hoc smoke runs) — only
+/// deploy-environment configs opt in. Two wire-shapes supported:
+///
+/// * `enabled: true` + `bind_addr: Some(...)` — install the global
+///   recorder AND serve `/metrics` on the given HTTP listener.
+///   Production posture.
+/// * `enabled: true` + `bind_addr: None` — install the global
+///   recorder only. Useful for container orchestrators that scrape
+///   the process via a sidecar exporter injected over stdin. Also
+///   the shape some integration tests prefer because it does not
+///   bind a port.
+/// * `enabled: false` — no-op. The metrics crate's default no-op
+///   recorder keeps the emission call sites free + the scrape
+///   surface silent.
+#[derive(Debug, Clone, Default, serde::Deserialize, serde::Serialize)]
+pub struct MetricsOpts {
+    /// Gate. `false` → `init_metrics` returns `Ok(None)` without
+    /// touching the global recorder. The `Default` derive picks `false`
+    /// (the all-zero / all-`None` posture), which matches the
+    /// contract: stub-mode boots stay silent.
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Optional HTTP listener for the Prometheus scrape endpoint.
+    /// `None` = no HTTP server (recorder-only install).
+    ///
+    /// Serialised as a bare socket-addr string (`"0.0.0.0:9091"`);
+    /// serde's default `SocketAddr` FromStr is used.
+    #[serde(default)]
+    pub bind_addr: Option<SocketAddr>,
+}
+
+/// Install the global Prometheus-compatible metrics recorder and
+/// (optionally) start the `/metrics` HTTP listener.
+///
+/// Returns `Ok(Some(handle))` when metrics are enabled; the handle
+/// exposes `render()` for programmatic scrape (useful in tests + the
+/// `/metrics` HTTP path when a caller wires its own server). Returns
+/// `Ok(None)` when `opts.enabled = false` so call sites can treat the
+/// feature as a boot-flag without duplicated branching.
+///
+/// MUST run inside a tokio runtime when `bind_addr` is set — the
+/// exporter spawns the HTTP listener via `tokio::spawn`.
+///
+/// # Errors
+/// * [`ObservabilityError::MetricsInitFailed`] — the builder failed
+///   to install (typical causes: port already bound, a previous
+///   recorder already global). Only one recorder may exist per
+///   process; call this exactly once at boot.
+pub fn init_metrics(opts: &MetricsOpts) -> Result<Option<PrometheusHandle>, ObservabilityError> {
+    if !opts.enabled {
+        return Ok(None);
+    }
+    let mut builder = PrometheusBuilder::new();
+    if let Some(addr) = opts.bind_addr {
+        builder = builder.with_http_listener(addr);
+    }
+    let handle = builder
+        .install_recorder()
+        .map_err(|e| ObservabilityError::MetricsInitFailed(e.to_string()))?;
+    Ok(Some(handle))
 }
 
 // ---------- Masked PII wrapper ------------------------------------------
@@ -343,5 +425,53 @@ mod tests {
             Ok(()) | Err(ObservabilityError::AlreadyInitialised) => {}
             Err(other) => panic!("unexpected error on double init: {other:?}"),
         }
+    }
+
+    #[test]
+    fn metrics_opts_default_is_disabled_with_no_bind() {
+        // Default posture — silent + no HTTP listener. A deploy that
+        // forgets to set `[metrics]` in its config sees the stub
+        // recorder behaviour (emissions are no-ops), not a process
+        // that panics trying to bind a port the operator never
+        // configured.
+        let opts = super::MetricsOpts::default();
+        assert!(!opts.enabled);
+        assert!(opts.bind_addr.is_none());
+    }
+
+    #[test]
+    fn init_metrics_returns_none_when_disabled() {
+        // `enabled: false` → the install never runs and the global
+        // recorder is untouched. This is the single most important
+        // property: disabled = silent, never touches process state.
+        let opts = super::MetricsOpts::default();
+        let handle = super::init_metrics(&opts).expect("disabled init is infallible");
+        assert!(
+            handle.is_none(),
+            "init_metrics must return None when disabled so the caller can skip wiring"
+        );
+    }
+
+    #[test]
+    fn metrics_opts_serde_round_trip_preserves_bind_addr() {
+        // Config layers deserialise from TOML/JSON; the round-trip
+        // test pins the wire shape a drift (e.g. renaming `bind_addr`
+        // in a refactor) would otherwise break only at deploy time.
+        // We use serde_json here because the crate's dev-dep stack
+        // already carries it; the wire field names + types are
+        // format-independent.
+        let json_input = r#"{"enabled": true, "bind_addr": "127.0.0.1:9091"}"#;
+        let opts: super::MetricsOpts = serde_json::from_str(json_input).expect("json parses");
+        assert!(opts.enabled);
+        assert_eq!(
+            opts.bind_addr.map(|a| a.to_string()),
+            Some("127.0.0.1:9091".to_owned())
+        );
+
+        // Round-trip back to json + reparse — no semantic loss.
+        let serialised = serde_json::to_string(&opts).expect("serialise opts");
+        let reparsed: super::MetricsOpts = serde_json::from_str(&serialised).expect("reparse");
+        assert_eq!(opts.enabled, reparsed.enabled);
+        assert_eq!(opts.bind_addr, reparsed.bind_addr);
     }
 }

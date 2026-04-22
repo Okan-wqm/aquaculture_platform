@@ -19,6 +19,17 @@ secrecy = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 
+# Metrics façade + Prometheus exporter. `metrics` is the recorder-
+# side API every emitter crate imports (outbox-rs, sensor-ingestion,
+# ...); `metrics-exporter-prometheus` binds the global recorder to
+# a Prometheus-scrape-shaped handle + optional HTTP listener on
+# `/metrics`. The exporter is always compiled in — production
+# services need it + the test harness uses DebuggingRecorder
+# independently so there is no lint-level concern about a
+# production dep leaking into test surfaces.
+metrics = { workspace = true }
+metrics-exporter-prometheus = { workspace = true, features = ["http-listener"] }
+
 # OTLP exporter is feature-gated to keep the default surface small.
 # sensor-ingestion enables it at deployment time; library callers can
 # opt in via `features = ["otlp"]`.

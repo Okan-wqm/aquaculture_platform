@@ -115,6 +115,10 @@ fn main() -> ExitCode {
 }
 
 async fn async_main(cfg: Config) -> anyhow::Result<()> {
+    // Install the Prometheus recorder BEFORE any emitter fires — see
+    // `start_metrics_recorder` docstring for the ordering rationale.
+    let _metrics_handle = start_metrics_recorder(&cfg.metrics)?;
+
     // The tenant/sensor topic-cache is process-wide singleton state.
     // Build it before any stream runs so a future cache-miss handler
     // can hand the same `Arc<TopicCache>` to every parser worker.
@@ -278,6 +282,39 @@ struct PersistencePipelineBundle {
 
 /// Construct the batch aggregator, choose the persistence sink
 /// (`PostgresSink` when `[postgres]` is configured; `LoggingSink`
+/// Install the Prometheus recorder at boot. Separate helper so
+/// `async_main` stays within the workspace's cognitive-complexity
+/// ceiling — every subsystem owns its own boot helper and the orchestrator
+/// only wires them together.
+///
+/// WHY this runs BEFORE the cache + MQTT subscriber:
+///   Every downstream stage (sink, cache, outbox) emits metric counts
+///   on the very first batch it processes. Installing the recorder
+///   after the first emission would drop those early data points
+///   into the no-op recorder; operators would see the gauge climb
+///   from zero at T+tick-interval rather than T+0, hiding a cold-
+///   start spike.
+///
+/// `init_metrics` is a no-op when `cfg.enabled = false`, so stub-
+/// mode boots (no `[metrics]` block in config.toml) stay silent
+/// without branching at the call site. The returned handle exposes
+/// `render()` for programmatic scrape and is the surface a future
+/// custom HTTP endpoint would reach for; when `bind_addr` is Some,
+/// `init_metrics` spawns the `/metrics` listener on that socket.
+fn start_metrics_recorder(
+    cfg: &observability::MetricsOpts,
+) -> anyhow::Result<Option<observability::PrometheusHandle>> {
+    let handle =
+        observability::init_metrics(cfg).context("initialising prometheus metrics exporter")?;
+    if cfg.enabled {
+        tracing::info!(
+            bind_addr = ?cfg.bind_addr,
+            "prometheus metrics recorder installed"
+        );
+    }
+    Ok(handle)
+}
+
 /// otherwise), and spawn both loops.
 ///
 /// WHY a helper:

@@ -33,6 +33,16 @@ pub struct Config {
     /// [`observability::TracingOpts`].
     pub observability: observability::TracingOpts,
 
+    /// Prometheus metrics exporter knobs. Off by default — every
+    /// stub-mode / smoke-run boot stays silent. A production deploy
+    /// enables via the `[metrics]` block in config.toml; the global
+    /// recorder installs at boot and (when `bind_addr` is set) the
+    /// `/metrics` HTTP endpoint starts on that socket.
+    ///
+    /// See [`observability::MetricsOpts`] for the field shape.
+    #[serde(default)]
+    pub metrics: observability::MetricsOpts,
+
     /// Tokio runtime tuning (worker threads, blocking pool, etc.).
     /// Defaults match the plan's
     /// `docs/plans/sensor-rust-migration/PLAN.md` § Faz 2 Tokio

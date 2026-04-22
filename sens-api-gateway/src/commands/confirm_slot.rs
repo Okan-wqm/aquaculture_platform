@@ -66,10 +66,43 @@ impl CommandHandler {
         &self,
         params: &Value,
     ) -> (bool, Value, Option<String>) {
-        let (partition_store, bootloader) = {
+        // Batch 132 Sprint 6.5: metric-emit wrapper
+        // — same post-flight pattern as cmd_apply_signed_manifest.
+        let (partition_store, bootloader, health_state) = {
             let state = self.state.read().await;
-            (state.partition_store.clone(), state.bootloader.clone())
+            (
+                state.partition_store.clone(),
+                state.bootloader.clone(),
+                state.health_state.clone(),
+            )
         };
+
+        let out = self
+            .cmd_confirm_slot_impl(params, partition_store, bootloader)
+            .await;
+        if let Some(hs) = health_state.as_ref() {
+            if out.0 {
+                hs.inc_firmware_confirm();
+                if let Some(slot) =
+                    out.1.get("confirmed_slot").and_then(|v| v.as_str())
+                {
+                    match slot {
+                        "a" => hs.set_firmware_active_slot(0),
+                        "b" => hs.set_firmware_active_slot(1),
+                        _ => {}
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    async fn cmd_confirm_slot_impl(
+        &self,
+        params: &Value,
+        partition_store: Option<std::sync::Arc<crate::updater::PartitionStore>>,
+        bootloader: std::sync::Arc<dyn crate::updater::BootloaderHandle>,
+    ) -> (bool, Value, Option<String>) {
 
         let partition_store = match partition_store {
             Some(s) => s,

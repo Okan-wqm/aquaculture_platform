@@ -316,6 +316,23 @@ struct HealthStateInner {
     modbus_circuit_states: std::sync::RwLock<Vec<(String, String)>>,
     /// Function block type counts (v1.2.5)
     fb_type_counts: std::sync::RwLock<std::collections::HashMap<String, usize>>,
+    /// Batch 132 Sprint 6.5: firmware lifecycle counters.
+    /// Plan §4.2 IEC 62443 SL-2 observability evidence.
+    /// `firmware_apply_applied` — successful apply.
+    /// `firmware_apply_rejected` — verify / apply / streaming reject.
+    /// `firmware_confirm` — successful PendingConfirm→Active.
+    /// `firmware_rollback` — watchdog-fired rollback.
+    /// `firmware_active_slot` gauge — 0=A, 1=B.
+    /// `firmware_active_version` gauge — current active
+    /// firmware version (monotonic). Populated after
+    /// apply_signed_manifest or confirm_slot advances the
+    /// PartitionStore active_firmware_version field.
+    firmware_apply_applied: AtomicU64,
+    firmware_apply_rejected: AtomicU64,
+    firmware_confirm: AtomicU64,
+    firmware_rollback: AtomicU64,
+    firmware_active_slot: AtomicU64,
+    firmware_active_version: AtomicU64,
 }
 
 impl HealthState {
@@ -348,8 +365,57 @@ impl HealthState {
                 mqtt_last_connected: AtomicI64::new(0),
                 modbus_circuit_states: std::sync::RwLock::new(Vec::new()),
                 fb_type_counts: std::sync::RwLock::new(std::collections::HashMap::new()),
+                firmware_apply_applied: AtomicU64::new(0),
+                firmware_apply_rejected: AtomicU64::new(0),
+                firmware_confirm: AtomicU64::new(0),
+                firmware_rollback: AtomicU64::new(0),
+                // firmware_active_slot gauge — 0=A by
+                // convention matches PartitionState::initial.
+                firmware_active_slot: AtomicU64::new(0),
+                firmware_active_version: AtomicU64::new(0),
             }),
         }
+    }
+
+    // ========================================================================
+    // Batch 132 Sprint 6.5 — firmware lifecycle metrics accessors
+    // ========================================================================
+
+    pub fn inc_firmware_apply_applied(&self) {
+        self.inner
+            .firmware_apply_applied
+            .fetch_add(1, Ordering::AcqRel);
+    }
+
+    pub fn inc_firmware_apply_rejected(&self) {
+        self.inner
+            .firmware_apply_rejected
+            .fetch_add(1, Ordering::AcqRel);
+    }
+
+    pub fn inc_firmware_confirm(&self) {
+        self.inner.firmware_confirm.fetch_add(1, Ordering::AcqRel);
+    }
+
+    pub fn inc_firmware_rollback(&self) {
+        self.inner.firmware_rollback.fetch_add(1, Ordering::AcqRel);
+    }
+
+    /// Set firmware_active_slot gauge. 0 = slot A, 1 = slot B.
+    /// Other values are clamped to the enum range (defense
+    /// against accidental non-enum writes; no harm if
+    /// clamped since dashboards filter by 0/1).
+    pub fn set_firmware_active_slot(&self, slot_index: u64) {
+        let clamped = if slot_index > 1 { 1 } else { slot_index };
+        self.inner
+            .firmware_active_slot
+            .store(clamped, Ordering::Release);
+    }
+
+    pub fn set_firmware_active_version(&self, version: u64) {
+        self.inner
+            .firmware_active_version
+            .store(version, Ordering::Release);
     }
 
     /// Get uptime in seconds
@@ -682,6 +748,33 @@ impl HealthState {
         gauge(&mut out, "suderra_function_blocks",
             "Number of function block instances",
             self.inner.fb_instance_count.load(Ordering::Acquire),
+            &labels);
+
+        // Batch 132 Sprint 6.5: firmware lifecycle metrics.
+        // Plan §4.2 IEC 62443 SL-2 observability evidence.
+        counter(&mut out, "suderra_firmware_apply_applied_total",
+            "Total signed-manifest firmware applies that succeeded end-to-end (verify + stream + apply_roll + bootloader coord)",
+            self.inner.firmware_apply_applied.load(Ordering::Acquire),
+            &labels);
+        counter(&mut out, "suderra_firmware_apply_rejected_total",
+            "Total signed-manifest firmware applies that were rejected at any gate (verify / streaming / apply_roll)",
+            self.inner.firmware_apply_rejected.load(Ordering::Acquire),
+            &labels);
+        counter(&mut out, "suderra_firmware_confirm_total",
+            "Total A/B slot confirms that succeeded (PendingConfirm -> Active transition)",
+            self.inner.firmware_confirm.load(Ordering::Acquire),
+            &labels);
+        counter(&mut out, "suderra_firmware_rollback_total",
+            "Total watchdog-fired firmware rollbacks (cold-boot-budget expired on PendingConfirm slot)",
+            self.inner.firmware_rollback.load(Ordering::Acquire),
+            &labels);
+        gauge(&mut out, "suderra_firmware_active_slot",
+            "Currently-active A/B partition slot (0=slot_a, 1=slot_b)",
+            self.inner.firmware_active_slot.load(Ordering::Acquire),
+            &labels);
+        gauge(&mut out, "suderra_firmware_active_version",
+            "Monotonic firmware version currently active on the device",
+            self.inner.firmware_active_version.load(Ordering::Acquire),
             &labels);
         gauge(&mut out, "suderra_device_activated",
             "Device activation state (1=activated, 0=pending-provisioning)",
@@ -1251,5 +1344,127 @@ mod tests {
             "prometheus output must end with newline (scrape protocol): last 40 chars={:?}",
             &out[out.len().saturating_sub(40)..]
         );
+    }
+
+    // ========================================================================
+    // Batch 132 Sprint 6.5 — firmware lifecycle metrics tests
+    // ========================================================================
+
+    #[test]
+    fn firmware_metrics_present_in_prometheus_output() {
+        let state = HealthState::new();
+        let out = state.metrics_prometheus();
+        for name in [
+            "suderra_firmware_apply_applied_total",
+            "suderra_firmware_apply_rejected_total",
+            "suderra_firmware_confirm_total",
+            "suderra_firmware_rollback_total",
+            "suderra_firmware_active_slot",
+            "suderra_firmware_active_version",
+        ] {
+            assert!(
+                out.contains(name),
+                "firmware metric '{}' missing from scrape output",
+                name
+            );
+        }
+    }
+
+    #[test]
+    fn firmware_counters_initialize_at_zero() {
+        let state = HealthState::new();
+        let out = state.metrics_prometheus();
+        // Match the exact " 0" suffix to rule out partial
+        // string coincidence (e.g. a timestamp ending in 0).
+        for name in [
+            "suderra_firmware_apply_applied_total",
+            "suderra_firmware_apply_rejected_total",
+            "suderra_firmware_confirm_total",
+            "suderra_firmware_rollback_total",
+        ] {
+            let line = out
+                .lines()
+                .find(|l| l.starts_with(name))
+                .expect(&format!("missing metric line for {}", name));
+            assert!(
+                line.ends_with(" 0"),
+                "{} should start at 0, got line: {}",
+                name,
+                line
+            );
+        }
+    }
+
+    #[test]
+    fn firmware_apply_applied_increment_reflected_in_output() {
+        let state = HealthState::new();
+        state.inc_firmware_apply_applied();
+        state.inc_firmware_apply_applied();
+        state.inc_firmware_apply_applied();
+        let out = state.metrics_prometheus();
+        let line = out
+            .lines()
+            .find(|l| l.starts_with("suderra_firmware_apply_applied_total"))
+            .expect("missing metric line");
+        assert!(line.ends_with(" 3"), "expected 3 applies, got: {}", line);
+    }
+
+    #[test]
+    fn firmware_rollback_increment_reflected_in_output() {
+        let state = HealthState::new();
+        state.inc_firmware_rollback();
+        let out = state.metrics_prometheus();
+        let line = out
+            .lines()
+            .find(|l| l.starts_with("suderra_firmware_rollback_total"))
+            .expect("missing metric line");
+        assert!(line.ends_with(" 1"), "expected 1 rollback, got: {}", line);
+    }
+
+    #[test]
+    fn firmware_active_slot_gauge_reflects_value() {
+        let state = HealthState::new();
+        state.set_firmware_active_slot(1);
+        let out = state.metrics_prometheus();
+        let line = out
+            .lines()
+            .find(|l| l.starts_with("suderra_firmware_active_slot"))
+            .expect("missing gauge line");
+        assert!(
+            line.ends_with(" 1"),
+            "expected slot=1 (B), got: {}",
+            line
+        );
+    }
+
+    #[test]
+    fn firmware_active_slot_gauge_clamps_invalid_values() {
+        // Defense: if a caller accidentally writes 42,
+        // the gauge clamps to 1 (max-valid) rather than
+        // expose nonsense to dashboards.
+        let state = HealthState::new();
+        state.set_firmware_active_slot(42);
+        let out = state.metrics_prometheus();
+        let line = out
+            .lines()
+            .find(|l| l.starts_with("suderra_firmware_active_slot"))
+            .expect("missing gauge line");
+        assert!(
+            line.ends_with(" 1"),
+            "expected clamped=1, got: {}",
+            line
+        );
+    }
+
+    #[test]
+    fn firmware_active_version_gauge_reflects_value() {
+        let state = HealthState::new();
+        state.set_firmware_active_version(42);
+        let out = state.metrics_prometheus();
+        let line = out
+            .lines()
+            .find(|l| l.starts_with("suderra_firmware_active_version"))
+            .expect("missing gauge line");
+        assert!(line.ends_with(" 42"), "expected version=42, got: {}", line);
     }
 }

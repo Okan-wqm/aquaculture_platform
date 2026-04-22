@@ -103,6 +103,50 @@ impl CommandHandler {
         &self,
         params: &Value,
     ) -> (bool, Value, Option<String>) {
+        // Batch 132 Sprint 6.5: metric-emit wrapper around
+        // the impl. Post-flight emit based on the
+        // (success, result_json) return so we have ONE
+        // metric-bump point instead of scattering across
+        // the 12 reject paths + 1 success path. Reading
+        // new_state from result JSON is cheap + decouples
+        // metrics from the impl's internal structure.
+        let health_state = {
+            let state = self.state.read().await;
+            state.health_state.clone()
+        };
+        let (success, result, error) =
+            self.cmd_apply_signed_manifest_impl(params).await;
+        if let Some(hs) = health_state.as_ref() {
+            if success {
+                hs.inc_firmware_apply_applied();
+                if let Some(slot_str) =
+                    result.get("target_slot").and_then(|v| v.as_str())
+                {
+                    match slot_str {
+                        "a" => hs.set_firmware_active_slot(0),
+                        "b" => hs.set_firmware_active_slot(1),
+                        _ => {}
+                    }
+                }
+                if let Some(v) =
+                    result.get("firmware_version").and_then(|v| v.as_u64())
+                {
+                    hs.set_firmware_active_version(v);
+                }
+            } else {
+                hs.inc_firmware_apply_rejected();
+            }
+        }
+        (success, result, error)
+    }
+
+    /// Impl body split out by Batch 132 so the
+    /// `cmd_apply_signed_manifest` wrapper can emit
+    /// Prometheus metrics post-flight.
+    async fn cmd_apply_signed_manifest_impl(
+        &self,
+        params: &Value,
+    ) -> (bool, Value, Option<String>) {
         info!("Executing apply_signed_manifest command (Sprint 6.5 Phase 2)");
 
         // 1. Snapshot AppState slices under single read-guard.

@@ -297,6 +297,65 @@ impl CommandHandler {
             }
         };
 
+        // 4b. Batch 128 Sprint 6.5: software↔hardware
+        // active-slot cross-check (closes Batch 116 obs #2).
+        //
+        // Ask the bootloader which slot the current boot
+        // ACTUALLY came from. If it disagrees with the
+        // PartitionStore's snapshot.active, we have a
+        // split-brain: PartitionStore says "A is active"
+        // but the running binary was loaded from slot B.
+        // Reasons this could happen:
+        // - Prior RolledBackBootloaderFailed (Batch 112)
+        //   left software state saying Active=A while
+        //   hardware stayed pointing at B.
+        // - Manual operator intervention wrote autoboot.txt
+        //   without updating partition.json.
+        // - PartitionStore corruption (Batch 121 flock +
+        //   re-read normally prevents this).
+        //
+        // Proceeding with an apply in this state would
+        // write firmware to the WRONG slot (we pick
+        // target = active.other() = A, but we're running
+        // on A right now — overwriting our own running
+        // binary). Fail-closed + surface the split-brain
+        // for operator resync.
+        //
+        // Noop backend returns None → check is skipped
+        // (no hardware side to cross-check against). Only
+        // Tryboot + future backends that can report
+        // active_slot_at_boot fire this gate.
+        if let Some(hw_active) = bootloader.active_slot_at_boot() {
+            if hw_active != snapshot.active {
+                warn!(
+                    "apply_signed_manifest: software/hardware split-brain detected. PartitionStore.active={:?} but bootloader.active_slot_at_boot={:?} (backend={})",
+                    snapshot.active,
+                    hw_active,
+                    bootloader.backend_name()
+                );
+                return (
+                    false,
+                    json!({
+                        "verified": true,
+                        "applied": false,
+                        "gate": "software_hardware_split_brain",
+                        "reason": format!(
+                            "PartitionStore.active={:?} but bootloader.active_slot_at_boot={:?}",
+                            snapshot.active, hw_active
+                        ),
+                        "software_active": format!("{:?}", snapshot.active),
+                        "hardware_active": format!("{:?}", hw_active),
+                        "bootloader_backend": bootloader.backend_name(),
+                        "remediation": "operator must resync via --confirm-active CLI or manual autoboot.txt edit before re-attempting apply",
+                    }),
+                    Some(format!(
+                        "apply_signed_manifest: split-brain rejected — software_active={:?} hardware_active={:?}",
+                        snapshot.active, hw_active
+                    )),
+                );
+            }
+        }
+
         // 5a. Batch 126 Sprint 6.5: file-streaming step.
         //
         // Behavior matrix:

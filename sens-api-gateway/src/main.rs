@@ -1739,6 +1739,57 @@ impl AppState {
         Ok(())
     }
 
+    /// Select + instantiate the bootloader backend per
+    /// `firmware_update.bootloader_backend` (Batch 128
+    /// Sprint 6.5 wire).
+    ///
+    /// Called AFTER config load + before init_lifecycle_cell
+    /// so the downstream HTTP endpoint + watchdog see the
+    /// correct backend. Noop default preserves HC-1
+    /// backward compat; Tryboot is an operator opt-in.
+    ///
+    /// NO-OP when backend is already Noop (the AppState::
+    /// new default). Tryboot construction wraps
+    /// `TrybootBootloaderHandle::new_with_autoboot_path`
+    /// if `tryboot_autoboot_path` is set, else default
+    /// `/boot/firmware/autoboot.txt`.
+    pub fn init_bootloader_backend(&mut self) {
+        use crate::config::BootloaderBackend;
+        match self.config.firmware_update.bootloader_backend {
+            BootloaderBackend::Noop => {
+                // Already set at AppState::new(). Log for
+                // operator visibility.
+                info!(
+                    "Bootloader backend: Noop (HC-1 default). PartitionStore state machine still functional for forensic audit."
+                );
+            }
+            BootloaderBackend::Tryboot => {
+                let handle = match self
+                    .config
+                    .firmware_update
+                    .tryboot_autoboot_path
+                    .clone()
+                {
+                    Some(p) => {
+                        info!(
+                            "Bootloader backend: Tryboot (autoboot.txt override path={})",
+                            p.display()
+                        );
+                        crate::updater::TrybootBootloaderHandle::new_with_autoboot_path(p)
+                    }
+                    None => {
+                        info!(
+                            "Bootloader backend: Tryboot (default autoboot.txt path={})",
+                            crate::updater::DEFAULT_AUTOBOOT_TXT_PATH
+                        );
+                        crate::updater::TrybootBootloaderHandle::new_default()
+                    }
+                };
+                self.bootloader = std::sync::Arc::new(handle);
+            }
+        }
+    }
+
     /// Initialize hardware handles (must be called within LocalSet context)
     pub fn init_hardware_handles(&mut self) {
         // Initialize Modbus actor
@@ -2277,6 +2328,16 @@ async fn async_main() -> Result<()> {
             error!("init_firmware_signing_pubkey: {}", msg);
             std::process::exit(1);
         }
+    }
+
+    // Batch 128 Sprint 6.5: select bootloader backend per
+    // config (Noop default / Tryboot for RPi). Runs AFTER
+    // firmware_signing_pubkey but BEFORE init_lifecycle_cell
+    // so the HTTP endpoint + watchdog see the correct
+    // backend.
+    {
+        let mut state_guard = state.write().await;
+        state_guard.init_bootloader_backend();
     }
 
     // Initialize clock authority (Batch 90 Sprint 6.7 wire).

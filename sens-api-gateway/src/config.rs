@@ -1735,6 +1735,27 @@ pub enum FirmwareUpdateMode {
     Enforcing,
 }
 
+/// Bootloader backend selector (Batch 128 Sprint 6.5).
+///
+/// Controls which `BootloaderHandle` implementation the
+/// agent constructs at boot time.
+///
+/// - `Noop` (default): non-RPi deployments. Log-only
+///   bootloader coord; PartitionStore state machine
+///   still functional for forensic-audit purposes.
+/// - `Tryboot`: RPi CM4/5 with tryboot support. Reads +
+///   writes `/boot/firmware/autoboot.txt` to flip
+///   next-boot slot. Real hardware boot behavior.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BootloaderBackend {
+    /// HC-1 backward compat default.
+    #[default]
+    Noop,
+    /// RPi tryboot overlay (autoboot.txt manipulator).
+    Tryboot,
+}
+
 /// Firmware update verification knobs (Batch 114 Sprint 6.5).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FirmwareUpdateConfig {
@@ -1750,6 +1771,20 @@ pub struct FirmwareUpdateConfig {
     /// config coherence Rule 20 enforces this.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub signing_pubkey_hex: Option<String>,
+
+    /// Bootloader backend selector (Batch 128 Sprint 6.5).
+    /// Defaults to Noop (HC-1 backward compat). Operators
+    /// on RPi CM4/5 set this to `tryboot` + configure
+    /// `tryboot_autoboot_path` below if non-default.
+    #[serde(default)]
+    pub bootloader_backend: BootloaderBackend,
+
+    /// Path override for `TrybootBootloaderHandle`
+    /// autoboot.txt. None → uses
+    /// `DEFAULT_AUTOBOOT_TXT_PATH` (/boot/firmware/autoboot.txt).
+    /// Ignored when bootloader_backend != Tryboot.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tryboot_autoboot_path: Option<std::path::PathBuf>,
 
     /// A/B partition mount paths (Batch 123 Sprint 6.5).
     /// Where the cmd_apply_signed_manifest orchestrator
@@ -1780,6 +1815,8 @@ impl Default for FirmwareUpdateConfig {
         Self {
             mode: FirmwareUpdateMode::default(),
             signing_pubkey_hex: None,
+            bootloader_backend: BootloaderBackend::default(),
+            tryboot_autoboot_path: None,
             ab_partitions: AbPartitionMountConfig::default(),
         }
     }
@@ -3570,6 +3607,8 @@ gpio: []
         let config = FirmwareUpdateConfig {
             mode: FirmwareUpdateMode::Enforcing,
             signing_pubkey_hex: Some("a".repeat(64)),
+            bootloader_backend: BootloaderBackend::default(),
+            tryboot_autoboot_path: None,
             ab_partitions: AbPartitionMountConfig::default(),
         };
         let yaml = serde_yaml::to_string(&config).unwrap();
@@ -3669,5 +3708,41 @@ mode: disabled
         assert!(!c.ab_partitions.is_fully_configured());
         assert!(c.ab_partitions.slot_a_mount.is_none());
         assert!(c.ab_partitions.slot_b_mount.is_none());
+    }
+
+    // ========================================================================
+    // BootloaderBackend tests (Batch 128 Sprint 6.5)
+    // ========================================================================
+
+    #[test]
+    fn test_bootloader_backend_default_is_noop() {
+        let b = BootloaderBackend::default();
+        assert!(matches!(b, BootloaderBackend::Noop));
+    }
+
+    #[test]
+    fn test_bootloader_backend_yaml_parses_tryboot() {
+        let yaml = r#"
+mode: permissive
+signing_pubkey_hex: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+bootloader_backend: tryboot
+tryboot_autoboot_path: /boot/firmware/autoboot.txt
+"#;
+        let c: FirmwareUpdateConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(matches!(c.bootloader_backend, BootloaderBackend::Tryboot));
+        assert_eq!(
+            c.tryboot_autoboot_path,
+            Some(std::path::PathBuf::from("/boot/firmware/autoboot.txt"))
+        );
+    }
+
+    #[test]
+    fn test_bootloader_backend_yaml_defaults_to_noop_when_omitted() {
+        let yaml = r#"
+mode: disabled
+"#;
+        let c: FirmwareUpdateConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(matches!(c.bootloader_backend, BootloaderBackend::Noop));
+        assert!(c.tryboot_autoboot_path.is_none());
     }
 }

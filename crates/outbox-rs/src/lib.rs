@@ -66,12 +66,21 @@
     )
 )]
 
+pub mod dispatcher;
 pub mod error;
+pub mod maintenance;
 pub mod pg;
+pub mod publisher;
 pub mod record;
 pub mod repository;
 
+#[cfg(test)]
+pub(crate) mod mock;
+
+pub use dispatcher::{DispatcherConfig, OutboxDispatcher};
 pub use error::OutboxError;
+pub use maintenance::{MaintenanceConfig, OutboxMaintenance};
 pub use pg::PgOutboxRepository;
+pub use publisher::{OutboxPublisher, PublishError};
 pub use record::{DLQ_THRESHOLD, OutboxRecord, OutboxStatus};
 pub use repository::{ClaimBatch, OutboxRepository, encode_payload};

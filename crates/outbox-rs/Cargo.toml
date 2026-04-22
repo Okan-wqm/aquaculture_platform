@@ -20,6 +20,9 @@ tenant-context = { path = "../tenant-context", version = "0.1.0" }
 # crate actually needs — the binary's Cargo.toml keeps `tokio = "full"`.
 tokio = { workspace = true, features = ["sync", "time", "macros", "rt"] }
 async-trait = { workspace = true }
+# `futures::stream::iter(...).buffer_unordered(...)` is the claim-batch
+# publish primitive — N-way parallel publish with back-pressure.
+futures = { workspace = true }
 
 # Serde for payload envelope + error log surfaces.
 serde = { workspace = true }

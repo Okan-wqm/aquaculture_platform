@@ -341,6 +341,242 @@ pub fn verify_cert_at_handshake(
     Ok(fingerprint)
 }
 
+/// Build-path failure taxonomy for
+/// `build_suderra_verifier`. Distinct from
+/// `MtlsVerifyError` (runtime cert-verify failure) +
+/// `rustls::Error` (TLS-stack failure) — this error
+/// category fires at BOOT before any TLS handshake
+/// happens.
+#[derive(Debug)]
+pub enum SuderraVerifierBuildError {
+    /// Operator-supplied hex was not 64 chars.
+    InvalidFingerprintLength { index: usize, got: usize },
+    /// Operator-supplied hex contained non-hex chars.
+    InvalidFingerprintHex { index: usize },
+    /// Failed to construct the rustls WebPkiServerVerifier
+    /// from the given root store (rustls error propagates
+    /// as Display).
+    WebPkiBuildFailed(String),
+    /// Strict mode was selected but no pins supplied —
+    /// same as the config coherence Rule 24 but
+    /// defense-in-depth at construction.
+    StrictModeRequiresPins,
+}
+
+impl std::fmt::Display for SuderraVerifierBuildError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidFingerprintLength { index, got } => write!(
+                f,
+                "pinned_leaf_fingerprints_hex[{}] must be 64 chars (SHA-256 hex), got {}",
+                index, got
+            ),
+            Self::InvalidFingerprintHex { index } => write!(
+                f,
+                "pinned_leaf_fingerprints_hex[{}] contains non-hex characters",
+                index
+            ),
+            Self::WebPkiBuildFailed(e) => {
+                write!(f, "WebPkiServerVerifier build failed: {}", e)
+            }
+            Self::StrictModeRequiresPins => f.write_str(
+                "mtls.mode=Strict requires at least one pinned_leaf_fingerprints_hex entry",
+            ),
+        }
+    }
+}
+
+impl std::error::Error for SuderraVerifierBuildError {}
+
+/// Parse a single 64-char hex string into a
+/// `LeafCertFingerprint`. Mirrors the
+/// `config_integrity::verify_runtime::parse_factory_pubkey_hex`
+/// discipline.
+fn parse_fingerprint_hex(
+    index: usize,
+    hex: &str,
+) -> Result<LeafCertFingerprint, SuderraVerifierBuildError> {
+    if hex.len() != 64 {
+        return Err(SuderraVerifierBuildError::InvalidFingerprintLength {
+            index,
+            got: hex.len(),
+        });
+    }
+    let mut bytes = [0u8; 32];
+    for (i, b) in bytes.iter_mut().enumerate() {
+        let hi = hex
+            .as_bytes()
+            .get(i * 2)
+            .copied()
+            .and_then(nibble)
+            .ok_or(SuderraVerifierBuildError::InvalidFingerprintHex { index })?;
+        let lo = hex
+            .as_bytes()
+            .get(i * 2 + 1)
+            .copied()
+            .and_then(nibble)
+            .ok_or(SuderraVerifierBuildError::InvalidFingerprintHex { index })?;
+        *b = (hi << 4) | lo;
+    }
+    Ok(LeafCertFingerprint::from_bytes(bytes))
+}
+
+fn nibble(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
+/// Parse operator hex pins into a `CertRotationStage`
+/// (Batch 138 Sprint 6.6/6.8). Policy:
+/// - 0 pins → returns None (caller should construct
+///   a no-op stage OR skip wiring SuderraServerCertVerifier
+///   for the Legacy-no-pins path).
+/// - 1 pin → `Settled { current: <fp> }`.
+/// - 2 pins → `BridgeRotation { outgoing: <1st>,
+///   incoming: <2nd>, bridge_until_unix_secs: i64::MAX }`.
+///   Second pin is treated as "incoming" (the new cert
+///   operators are migrating TO).
+/// - 3+ pins → rejected at higher layers; this function
+///   collapses to `BridgeRotation` over the first 2 +
+///   logs a warn via caller.
+pub fn build_rotation_stage_from_pins_hex(
+    pins_hex: &[String],
+) -> Result<Option<CertRotationStage>, SuderraVerifierBuildError> {
+    if pins_hex.is_empty() {
+        return Ok(None);
+    }
+
+    use crate::mtls::pinning::PinnedLeafCert;
+    let fingerprints: Result<Vec<LeafCertFingerprint>, _> = pins_hex
+        .iter()
+        .enumerate()
+        .map(|(i, h)| parse_fingerprint_hex(i, h))
+        .collect();
+    let fingerprints = fingerprints?;
+
+    // Validity window is operator-controlled in real
+    // deployments via the cloud-signed rotation manifest
+    // (future batch). For static config, use a
+    // maximally-permissive window so the cert-age gate in
+    // `verify_cert_at_handshake` drives the age policy
+    // via MtlsMode, not the pinned-set validity-window
+    // fields.
+    let ts_far_past: i64 = 0;
+    let ts_far_future: i64 = i64::MAX / 2;
+
+    let stage = match fingerprints.len() {
+        1 => CertRotationStage::Settled {
+            current: PinnedLeafCert {
+                fingerprint: fingerprints[0],
+                not_before_unix_secs: ts_far_past,
+                not_after_unix_secs: ts_far_future,
+                cert_label: "config:pin:0".to_string(),
+            },
+        },
+        _ => CertRotationStage::BridgeRotation {
+            // First entry = incoming (new cert).
+            incoming: PinnedLeafCert {
+                fingerprint: fingerprints[0],
+                not_before_unix_secs: ts_far_past,
+                not_after_unix_secs: ts_far_future,
+                cert_label: "config:pin:0:incoming".to_string(),
+            },
+            // Second entry = outgoing (old cert during
+            // rotation window).
+            outgoing: PinnedLeafCert {
+                fingerprint: fingerprints[1],
+                not_before_unix_secs: ts_far_past,
+                not_after_unix_secs: ts_far_future,
+                cert_label: "config:pin:1:outgoing".to_string(),
+            },
+            bridge_until_unix_secs: ts_far_future,
+        },
+    };
+    Ok(Some(stage))
+}
+
+/// Boot-time construction of SuderraServerCertVerifier
+/// from MtlsConfig + rustls root-cert-store (Batch 138
+/// Sprint 6.6/6.8).
+///
+/// Returns:
+/// - `Ok(None)` — no wire needed (Legacy mode + empty
+///   pin list). Caller proceeds with default webpki
+///   verifier. HC-1 backward compat.
+/// - `Ok(Some(verifier))` — wire this into
+///   `ClientConfig::builder().dangerous().with_custom_certificate_verifier`.
+/// - `Err(_)` — config rejected; fail-closed boot.
+///
+/// Wiring decision matrix:
+/// | mode | pins | result |
+/// |------|------|--------|
+/// | Legacy | 0 | Ok(None) — no wire |
+/// | Legacy | 1+ | Ok(Some) — log-only pinning |
+/// | Warn | any | Ok(Some) — audit-emit on mismatch |
+/// | Strict | 0 | Err(StrictModeRequiresPins) |
+/// | Strict | 1+ | Ok(Some) — reject on mismatch |
+pub fn build_suderra_verifier(
+    mode: MtlsMode,
+    signature_algorithms: WebPkiSupportedAlgorithms,
+    pins_hex: &[String],
+    root_store: Arc<rustls::RootCertStore>,
+) -> Result<Option<Arc<SuderraServerCertVerifier>>, SuderraVerifierBuildError> {
+    if matches!(mode, MtlsMode::Legacy) && pins_hex.is_empty() {
+        return Ok(None);
+    }
+    if matches!(mode, MtlsMode::Strict) && pins_hex.is_empty() {
+        return Err(SuderraVerifierBuildError::StrictModeRequiresPins);
+    }
+
+    let rotation_stage = build_rotation_stage_from_pins_hex(pins_hex)?
+        .unwrap_or_else(|| {
+            // Non-Legacy mode with empty pins + non-
+            // Strict (so Warn-empty-pins path): construct
+            // an "accept-nothing" stage so the pinning
+            // gate ALWAYS fires the mismatch path. Warn
+            // mode then routes to log-only; operators
+            // observe "handshake without pin" every
+            // time.
+            CertRotationStage::Settled {
+                current: crate::mtls::pinning::PinnedLeafCert {
+                    fingerprint: LeafCertFingerprint::from_bytes([0u8; 32]),
+                    not_before_unix_secs: 0,
+                    not_after_unix_secs: 0,
+                    cert_label: "sentinel:warn-no-pins".to_string(),
+                },
+            }
+        });
+
+    // Resolve CryptoProvider. `get_default` returns
+    // Some only after a provider is installed at the
+    // ClientConfig builder site; at boot / unit-test
+    // time we fall through to an explicit ring provider
+    // (matches the default rumqttc tokio-rustls uses).
+    let provider: Arc<rustls::crypto::CryptoProvider> =
+        rustls::crypto::CryptoProvider::get_default()
+            .cloned()
+            .unwrap_or_else(|| {
+                Arc::new(rustls::crypto::ring::default_provider())
+            });
+
+    let inner = WebPkiServerVerifier::builder_with_provider(root_store, provider)
+        .build()
+        .map_err(|e| {
+            SuderraVerifierBuildError::WebPkiBuildFailed(format!("{:?}", e))
+        })?;
+
+    Ok(Some(Arc::new(SuderraServerCertVerifier::new(
+        inner,
+        signature_algorithms,
+        mode,
+        rotation_stage,
+    ))))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -452,5 +688,142 @@ mod tests {
         let _ = MtlsMode::Legacy;
         let _ = MtlsMode::Warn;
         let _ = MtlsMode::Strict;
+    }
+
+    // ====================================================================
+    // Batch 138 Sprint 6.6/6.8 — build_suderra_verifier tests
+    // ====================================================================
+
+    #[test]
+    fn parse_fingerprint_hex_accepts_valid_hex() {
+        let hex = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
+        let fp = parse_fingerprint_hex(0, hex).expect("valid hex");
+        assert_eq!(fp.as_bytes()[0], 0xAB);
+        assert_eq!(fp.as_bytes()[31], 0x89);
+    }
+
+    #[test]
+    fn parse_fingerprint_hex_rejects_short() {
+        let err = parse_fingerprint_hex(0, "abcd").expect_err("short");
+        assert!(matches!(
+            err,
+            SuderraVerifierBuildError::InvalidFingerprintLength {
+                index: 0,
+                got: 4
+            }
+        ));
+    }
+
+    #[test]
+    fn parse_fingerprint_hex_rejects_non_hex_chars() {
+        let bad = "zz".to_string() + &"0".repeat(62);
+        let err = parse_fingerprint_hex(2, &bad).expect_err("non-hex");
+        assert!(matches!(
+            err,
+            SuderraVerifierBuildError::InvalidFingerprintHex { index: 2 }
+        ));
+    }
+
+    #[test]
+    fn build_rotation_stage_empty_returns_none() {
+        let out = build_rotation_stage_from_pins_hex(&[]).expect("ok");
+        assert!(out.is_none());
+    }
+
+    #[test]
+    fn build_rotation_stage_single_pin_returns_settled() {
+        let pins = vec![
+            "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                .to_string(),
+        ];
+        let stage = build_rotation_stage_from_pins_hex(&pins)
+            .expect("ok")
+            .expect("Some");
+        match stage {
+            CertRotationStage::Settled { current } => {
+                assert_eq!(current.fingerprint.as_bytes()[0], 0xAB);
+                assert_eq!(current.cert_label, "config:pin:0");
+            }
+            other => panic!("expected Settled, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn build_rotation_stage_two_pins_returns_bridge_rotation() {
+        let pins = vec![
+            "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                .to_string(),
+            "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+                .to_string(),
+        ];
+        let stage = build_rotation_stage_from_pins_hex(&pins)
+            .expect("ok")
+            .expect("Some");
+        match stage {
+            CertRotationStage::BridgeRotation {
+                incoming,
+                outgoing,
+                bridge_until_unix_secs,
+            } => {
+                assert_eq!(incoming.fingerprint.as_bytes()[0], 0xAB);
+                assert_eq!(outgoing.fingerprint.as_bytes()[0], 0xFE);
+                assert!(bridge_until_unix_secs > 0);
+            }
+            other => panic!("expected BridgeRotation, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn build_rotation_stage_malformed_hex_bubbles_up() {
+        let pins = vec!["not-enough".to_string()];
+        let err = build_rotation_stage_from_pins_hex(&pins).expect_err("short");
+        assert!(matches!(
+            err,
+            SuderraVerifierBuildError::InvalidFingerprintLength { .. }
+        ));
+    }
+
+    #[test]
+    fn build_suderra_verifier_legacy_empty_pins_returns_none() {
+        let algs = rustls::crypto::ring::default_provider()
+            .signature_verification_algorithms;
+        let root_store = Arc::new(rustls::RootCertStore::empty());
+        let out =
+            build_suderra_verifier(MtlsMode::Legacy, algs, &[], root_store)
+                .expect("ok");
+        assert!(out.is_none(), "Legacy + no pins should skip wire");
+    }
+
+    #[test]
+    fn build_suderra_verifier_strict_empty_pins_errors() {
+        let algs = rustls::crypto::ring::default_provider()
+            .signature_verification_algorithms;
+        let root_store = Arc::new(rustls::RootCertStore::empty());
+        let err = build_suderra_verifier(MtlsMode::Strict, algs, &[], root_store)
+            .expect_err("strict without pins");
+        assert!(matches!(
+            err,
+            SuderraVerifierBuildError::StrictModeRequiresPins
+        ));
+    }
+
+    #[test]
+    fn build_suderra_verifier_empty_root_store_surfaces_webpki_error() {
+        // rustls's WebPkiServerVerifier::build() rejects an
+        // empty root store with NoRootAnchors. Prove the
+        // error propagates through our builder — operator
+        // misconfig (no CA certs available) is caught at
+        // boot rather than at first handshake.
+        let algs = rustls::crypto::ring::default_provider()
+            .signature_verification_algorithms;
+        let root_store = Arc::new(rustls::RootCertStore::empty());
+        let pins = vec![
+            "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                .to_string(),
+        ];
+        let err =
+            build_suderra_verifier(MtlsMode::Legacy, algs, &pins, root_store)
+                .expect_err("empty root store must fail");
+        assert!(matches!(err, SuderraVerifierBuildError::WebPkiBuildFailed(_)));
     }
 }

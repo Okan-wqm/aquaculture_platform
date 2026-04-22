@@ -66,5 +66,9 @@ pub use mode::{
 pub use pinning::{
     CertRotationStage, LeafCertFingerprint, PinnedLeafCert, PinnedLeafCertSet,
 };
-pub use rustls_verifier::{verify_cert_at_handshake, SuderraServerCertVerifier};
+pub use rustls_verifier::{
+    build_rotation_stage_from_pins_hex, build_suderra_verifier,
+    verify_cert_at_handshake, SuderraServerCertVerifier,
+    SuderraVerifierBuildError,
+};
 pub use verify::verify_leaf_cert;

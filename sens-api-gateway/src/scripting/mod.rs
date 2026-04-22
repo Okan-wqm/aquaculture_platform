@@ -19,6 +19,11 @@ mod actions;
 // inside the module until Batch 149 compiler consumes
 // the types.
 pub mod bytecode;
+// Batch 149 Faz 3 (plan R-1): ST expression compiler
+// (AST `Expression` → `Vec<Opcode>`). Statement-level
+// compilation + control flow + retain binding land in
+// Batches 150+.
+pub mod bytecode_compiler;
 mod conflict;
 mod context;
 mod engine;

@@ -36,6 +36,13 @@ pub mod bytecode_vm;
 // deploy-command batch consumes this to gate bytecode
 // ingestion on signature match.
 pub mod bytecode_sig;
+// Batch 160 Faz 3 (plan R-1): ProcessImage ↔ TagIo
+// adapter. `SnapshotTagIo` buffers reads from a scan-
+// cycle-start snapshot + collects writes into a pending
+// list drained after `ScriptVm::run_with_io`. The
+// ScriptEngine Phase 5b batch wires this into the
+// actual async ProcessImage boundary.
+pub mod process_image_tagio;
 mod conflict;
 mod context;
 mod engine;

@@ -2,39 +2,57 @@
  * Tank Capacity Service
  *
  * Centralises the "will this tank still be within its configured
- * biomass/density limits after this allocation?" invariant. The rule is
- * density-based (kg/m³), matching the legacy ad-hoc logic previously
- * embedded in create-batch.handler.ts and transfer-batch.handler.ts
- * (`density > maxDensity` sets `isOverCapacity`). This service extracts
- * that logic into a single, testable surface so every handler that
- * grows the biomass on a tank uses the same decision rule.
+ * biomass, density, and status limits after this allocation?" invariant.
+ * This is the single source of truth used by every handler that places
+ * fish into a tank. Three axes are checked in one place:
  *
- * Why now: deployCleanerFish, allocateBatchToTank, and transferBatch
- * did not all apply the check consistently. deployCleanerFish in
- * particular created a fresh TankBatch with `isOverCapacity: false`
- * unconditionally — welfare invariant broken (see docs/illustrator/
- * Girdi 15-B15). Two modes are supported:
+ *   1. **Status** — equipment must `canHoldFish()` (is_tank, or has
+ *      tank-like specs). OPERATIONAL/ACTIVE/PREPARING/FALLOW/STANDBY
+ *      statuses are acceptable; OUT_OF_SERVICE/DECOMMISSIONED reject.
+ *   2. **Biomass** — projected total biomass must not exceed
+ *      `specifications.maxBiomass` (kg cap).
+ *   3. **Density** — projected density must not exceed
+ *      `specifications.maxDensity` (kg/m³ cap). Default 30 when
+ *      unconfigured (industry default for salmonids).
  *
- *   - 'hard' — throw BadRequestException when projected density exceeds
- *              the tank's configured maxDensity. Used for operations
- *              that place fish into an already-stocked tank
- *              (deploy, transfer-in, allocate).
+ * The service replaces three competing implementations:
  *
- *   - 'soft' — never throw, but return `isOverCapacity: true` so the
- *              caller can still record the flag on TankBatch. Used for
- *              initial stocking where the operator may intentionally
- *              accept short-term over-density (fish distributed across
- *              tanks as they grow).
+ *   a. `Equipment.hasCapacityFor(biomassToAdd)` entity method — still
+ *      present but marked @deprecated and delegates here for the
+ *      duration of the migration. Eventually it will be removed and
+ *      all callers will consume the service directly.
+ *   b. Inline ad-hoc checks in create-batch.handler.ts and
+ *      transfer-batch.handler.ts that only computed the density flag
+ *      without enforcement.
+ *   c. The previous density-only version of this service (pre-Phase-1
+ *      of the kalan-kör-noktalar plan; shipped in commit 80b16c1b and
+ *      consumed by deployCleanerFish).
  *
- * Density model:
- *   projected_biomass = current_salmon_biomass + current_cleaner_biomass + incoming
- *   density           = projected_biomass / tank_volume_m3
- *   is_over_capacity  = density > equipment.specifications.maxDensity
+ * Three enforcement modes:
  *
- * tank_volume_m3 is read from equipment.specifications using the same
- * priority chain as the legacy handlers: waterVolume → effectiveVolume
- * → volume. maxDensity defaults to 30 kg/m³ when unconfigured (industry
- * default for salmonids; matches the legacy handler fallback).
+ *   - **'hard'** — throw BadRequestException when any axis would be
+ *     violated. Used for operations placing fish into an already
+ *     stocked tank: allocateBatchToTank, transferBatch (destination),
+ *     deployCleanerFish.
+ *
+ *   - **'admin-override'** — like 'hard', but when the caller carries a
+ *     SUPER_ADMIN or TENANT_ADMIN role the violation is logged and
+ *     allowed. Used when the operator intentionally accepts
+ *     over-stocking (e.g. triage during disease outbreak). The logged
+ *     warning forms an audit trail; the caller is still expected to
+ *     record an audit_log entry.
+ *
+ *   - **'soft'** — never throw. Return the flags so the caller can
+ *     persist `isOverCapacity` / `capacityUsedPercent` on the TankBatch
+ *     row. Used only for initial stocking (create-batch) where the
+ *     operator may distribute fish across tanks as they grow.
+ *
+ * Volume priority follows the legacy create-batch handler so values
+ * remain consistent across the system:
+ *   specifications.waterVolume
+ *   → specifications.effectiveVolume
+ *   → specifications.volume
+ *   → equipment.volume (top-level denormalised field)
  */
 import {
   BadRequestException,
@@ -42,9 +60,10 @@ import {
   Logger,
 } from '@nestjs/common';
 
+import { EquipmentStatus } from '../../equipment/entities/equipment.entity';
 import type { Equipment } from '../../equipment/entities/equipment.entity';
 
-/** Shape of the biomass already present on the tank (from TankBatch). */
+/** Shape of the biomass already present on the tank (from TankBatch / equipment.currentBiomass). */
 export interface ExistingTankBiomass {
   /** Total salmon biomass currently on the tank in kg. 0 when no production batch is stocked. */
   salmonBiomassKg: number;
@@ -52,9 +71,17 @@ export interface ExistingTankBiomass {
   cleanerBiomassKg: number;
 }
 
+/** Reasons a capacity check can fail. At most one axis is reported as the primary blocker per call. */
+export type CapacityBlockReason =
+  | 'status'
+  | 'biomass'
+  | 'density';
+
 export interface CapacityCalculation {
   /** Effective tank volume in m³ — 0 when equipment specs do not configure it. */
   tankVolumeM3: number;
+  /** Configured maxBiomass in kg, or 0 when unconfigured (means no biomass cap enforced). */
+  maxBiomassKg: number;
   /** Configured maxDensity in kg/m³, or the industry fallback (30) when unconfigured. */
   maxDensityKgM3: number;
   /** Biomass already present before the new allocation. */
@@ -66,44 +93,94 @@ export interface CapacityCalculation {
   /** Utilisation as a percentage of the density cap (0–>100 if overflow). */
   utilizationPercent: number;
   /** True when the projected density would exceed the configured maxDensity. */
+  isOverDensity: boolean;
+  /** True when the projected biomass would exceed the configured maxBiomass. */
+  isOverBiomass: boolean;
+  /** True when the equipment cannot hold fish (wrong type or wrong status). */
+  isStatusBlocked: boolean;
+  /** True if any of the above axes fails. */
   isOverCapacity: boolean;
+  /** Primary blocking axis (null when capacity is OK). */
+  primaryBlockReason: CapacityBlockReason | null;
 }
 
 export interface CapacityEnforceParams {
-  /** Tank equipment row (specifications.waterVolume, specifications.maxDensity). */
-  equipment: Pick<Equipment, 'id' | 'code' | 'name' | 'specifications'>;
+  /** Tank equipment row. specifications, status, volume, isTank all consulted. */
+  equipment: Pick<
+    Equipment,
+    | 'id'
+    | 'code'
+    | 'name'
+    | 'specifications'
+    | 'status'
+    | 'volume'
+    | 'isTank'
+  >;
   /** Biomass already on the tank before this allocation. */
   existing: ExistingTankBiomass;
   /** Biomass about to be added by the caller, in kg. */
   incomingBiomassKg: number;
 }
 
+export interface EnforceOptions {
+  /** Enforcement mode — see class docstring. */
+  mode: 'hard' | 'soft' | 'admin-override';
+  /** Roles of the caller — consulted only when mode is 'admin-override'. */
+  callerRoles?: ReadonlyArray<string>;
+  /** User ID — included in the admin-override audit log message. */
+  callerUserId?: string;
+}
+
 /** Industry default used when the tank does not declare its own maxDensity. */
 const DEFAULT_MAX_DENSITY_KG_M3 = 30;
+
+/** Statuses acceptable for holding fish — matches allocate-to-tank.handler.ts pre-migration behaviour. */
+const STATUSES_ALLOWED_FOR_STOCKING: ReadonlySet<string> = new Set([
+  EquipmentStatus.OPERATIONAL,
+  EquipmentStatus.ACTIVE,
+  EquipmentStatus.PREPARING,
+  EquipmentStatus.FALLOW,
+  EquipmentStatus.STANDBY,
+]);
+
+/** Roles authorised to override a hard capacity/biomass/density block. */
+const ADMIN_OVERRIDE_ROLES: ReadonlySet<string> = new Set([
+  'SUPER_ADMIN',
+  'TENANT_ADMIN',
+]);
 
 @Injectable()
 export class TankCapacityService {
   private readonly logger = new Logger(TankCapacityService.name);
 
   /**
-   * Compute the projected density and capacity flags for the tank after
-   * an allocation. Pure function — no I/O, no side effects.
+   * Compute every capacity flag for the tank after an allocation.
+   * Pure function — no I/O, no side effects, deterministic.
+   *
+   * Callers that just want to flag TankBatch rows (soft mode) can use
+   * this directly and skip enforce().
    */
   calculate(params: CapacityEnforceParams): CapacityCalculation {
     const { equipment, existing, incomingBiomassKg } = params;
     const specs = (equipment.specifications ?? {}) as Record<string, unknown>;
 
-    // Volume priority matches the legacy create-batch handler so
-    // values remain consistent across the system.
     const tankVolumeM3 = Number(
-      specs.waterVolume || specs.effectiveVolume || specs.volume || 0,
+      specs.waterVolume ||
+        specs.effectiveVolume ||
+        specs.volume ||
+        equipment.volume ||
+        0,
     );
-    const maxDensityKgM3 = Number(specs.maxDensity || DEFAULT_MAX_DENSITY_KG_M3);
+    const maxBiomassKg = Number(specs.maxBiomass || 0);
+    const maxDensityKgM3 = Number(
+      specs.maxDensity || DEFAULT_MAX_DENSITY_KG_M3,
+    );
 
     const currentBiomassKg =
       Number(existing.salmonBiomassKg || 0) +
       Number(existing.cleanerBiomassKg || 0);
-    const projectedBiomassKg = currentBiomassKg + Number(incomingBiomassKg || 0);
+    const projectedBiomassKg =
+      currentBiomassKg + Number(incomingBiomassKg || 0);
 
     const projectedDensityKgM3 =
       tankVolumeM3 > 0 ? projectedBiomassKg / tankVolumeM3 : 0;
@@ -112,54 +189,124 @@ export class TankCapacityService {
         ? (projectedDensityKgM3 / maxDensityKgM3) * 100
         : 0;
 
-    // tankVolumeM3 === 0 means the tank is not configured; we cannot
-    // decide capacity and must not block. The caller sees isOverCapacity
-    // === false and can log a warning if desired.
-    const isOverCapacity =
+    // Status axis — mirrors Equipment.canHoldFish() logic:
+    // - must be a tank (isTank=true) OR carry tank-like specs
+    // - status must be in the stocking-allowed set
+    const hasTankShape =
+      equipment.isTank ||
+      Boolean(specs.maxBiomass || specs.maxDensity || specs.volume);
+    const statusOk = STATUSES_ALLOWED_FOR_STOCKING.has(equipment.status);
+    const isStatusBlocked = !hasTankShape || !statusOk;
+
+    // Biomass axis — only enforced when maxBiomass is configured.
+    const isOverBiomass =
+      maxBiomassKg > 0 && projectedBiomassKg > maxBiomassKg;
+
+    // Density axis — only enforced when volume is known.
+    const isOverDensity =
       tankVolumeM3 > 0 && projectedDensityKgM3 > maxDensityKgM3;
+
+    const isOverCapacity = isStatusBlocked || isOverBiomass || isOverDensity;
+
+    // Primary reason is the "strongest" axis — status outranks biomass
+    // outranks density, because status is a hard gate and biomass is a
+    // harder physical cap than density (which can be eased temporarily).
+    let primaryBlockReason: CapacityBlockReason | null = null;
+    if (isStatusBlocked) primaryBlockReason = 'status';
+    else if (isOverBiomass) primaryBlockReason = 'biomass';
+    else if (isOverDensity) primaryBlockReason = 'density';
 
     return {
       tankVolumeM3,
+      maxBiomassKg,
       maxDensityKgM3,
       currentBiomassKg,
       projectedBiomassKg,
       projectedDensityKgM3,
       utilizationPercent,
+      isStatusBlocked,
+      isOverBiomass,
+      isOverDensity,
       isOverCapacity,
+      primaryBlockReason,
     };
   }
 
   /**
    * Run the capacity calculation and apply the requested enforcement
-   * policy. In 'hard' mode, throws BadRequestException when
-   * isOverCapacity is true. Returns the calculation in both modes so
-   * the caller can persist `isOverCapacity` / `capacityUsedPercent` on
-   * the TankBatch row.
+   * policy. Returns the calculation in every mode so the caller can
+   * persist `isOverCapacity` / `capacityUsedPercent` on the TankBatch.
+   *
+   * Throws BadRequestException when mode='hard' and any axis fails,
+   * or when mode='admin-override' and the caller lacks an override
+   * role.
+   *
+   * When mode='admin-override' and the caller is an admin, the
+   * override is logged at warn level; the caller is still expected to
+   * record an audit_log entry at the domain layer.
    */
   enforce(
-    params: CapacityEnforceParams & { mode: 'hard' | 'soft' },
+    params: CapacityEnforceParams & EnforceOptions,
   ): CapacityCalculation {
     const calc = this.calculate(params);
 
-    if (params.mode === 'hard' && calc.isOverCapacity) {
-      const details =
-        `tank=${params.equipment.code} ` +
-        `projected=${calc.projectedBiomassKg.toFixed(1)}kg ` +
-        `volume=${calc.tankVolumeM3}m³ ` +
-        `density=${calc.projectedDensityKgM3.toFixed(2)}kg/m³ ` +
-        `max=${calc.maxDensityKgM3}kg/m³ ` +
-        `utilization=${calc.utilizationPercent.toFixed(0)}%`;
-
-      this.logger.warn(`Tank capacity exceeded: ${details}`);
-      throw new BadRequestException(
-        `Tank ${params.equipment.code} cannot accept the requested biomass ` +
-          `without exceeding its density cap. ` +
-          `Projected density ${calc.projectedDensityKgM3.toFixed(2)} kg/m³ ` +
-          `exceeds configured maximum ${calc.maxDensityKgM3} kg/m³ ` +
-          `(${calc.utilizationPercent.toFixed(0)}% utilisation).`,
-      );
+    if (!calc.isOverCapacity) {
+      return calc;
     }
 
-    return calc;
+    // Soft mode — never throw.
+    if (params.mode === 'soft') {
+      return calc;
+    }
+
+    const message = this.buildBlockMessage(params.equipment.code, calc);
+
+    // Admin override allowed? Check caller role.
+    if (params.mode === 'admin-override') {
+      const hasOverrideRole = (params.callerRoles ?? []).some((r) =>
+        ADMIN_OVERRIDE_ROLES.has(r),
+      );
+      if (hasOverrideRole) {
+        this.logger.warn(
+          `ADMIN OVERRIDE accepted for tank ${params.equipment.code} by user ` +
+            `${params.callerUserId ?? 'unknown'}: ${message}`,
+        );
+        return calc;
+      }
+    }
+
+    // Hard mode (or admin-override without the role) — reject.
+    this.logger.warn(`Tank capacity check failed: ${message}`);
+    throw new BadRequestException(message);
+  }
+
+  /**
+   * Human-readable block message with full context. Exposed so the
+   * audit logger can reuse it.
+   */
+  private buildBlockMessage(
+    tankCode: string,
+    calc: CapacityCalculation,
+  ): string {
+    const axis = calc.primaryBlockReason ?? 'unknown';
+    const base = `Tank ${tankCode} cannot accept the requested biomass (${axis} limit).`;
+
+    const parts: string[] = [base];
+    parts.push(
+      `projected=${calc.projectedBiomassKg.toFixed(1)}kg ` +
+        `current=${calc.currentBiomassKg.toFixed(1)}kg ` +
+        `volume=${calc.tankVolumeM3}m³`,
+    );
+    if (calc.maxBiomassKg > 0) {
+      parts.push(`maxBiomass=${calc.maxBiomassKg}kg`);
+    }
+    parts.push(
+      `density=${calc.projectedDensityKgM3.toFixed(2)}/${calc.maxDensityKgM3}kg/m³ ` +
+        `(${calc.utilizationPercent.toFixed(0)}%)`,
+    );
+    if (calc.isStatusBlocked) {
+      parts.push(`status=blocked`);
+    }
+    return parts.join(' ');
   }
 }

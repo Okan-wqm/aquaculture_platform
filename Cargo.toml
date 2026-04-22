@@ -6,6 +6,7 @@ members = [
     "crates/event-contracts-rs",
     "crates/nats-client",
     "crates/observability",
+    "crates/outbox-rs",
     "apps/sensor-ingestion",
 ]
 exclude = [

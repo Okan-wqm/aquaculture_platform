@@ -282,6 +282,25 @@ export class NatsEventBus
     return this.connectionState === 'connected' && this.connection !== null;
   }
 
+  /**
+   * Internal accessor used by {@link NatsRequestReply} to reach the
+   * raw core-NATS connection for request-reply (which is NOT a
+   * JetStream concern — it uses the core pub/sub path).
+   *
+   * WHY this accessor exists rather than the request-reply class
+   * holding its own connection: ADR-015 mandates ONE mTLS handshake
+   * per service process. Sharing through a narrow accessor keeps
+   * the connection lifecycle owned by a single class (NatsEventBus)
+   * while letting request-reply be a peer concern in a separate
+   * file. Marked `@internal` so library consumers do not reach past
+   * the abstraction.
+   *
+   * @internal
+   */
+  getRawConnection(): NatsConnection | null {
+    return this.connection;
+  }
+
   async getHealth(): Promise<EventBusHealth> {
     return {
       isHealthy: this.isConnected(),

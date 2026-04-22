@@ -159,6 +159,101 @@ export interface IEventSubscriber {
 }
 
 /**
+ * Request-reply primitive exposed by the NATS transport (ADR-031).
+ *
+ * WHY separate from IEventPublisher / IEventSubscriber — event-bus
+ * semantics are fire-and-forget; request-reply is a synchronous
+ * round trip with distinct failure modes (timeout, decode, encode
+ * as distinct error shelves). Isolating the interface lets a
+ * consumer declare "I need request-reply" without pulling in the
+ * full event bus surface, and makes it impossible to accidentally
+ * call `requestTyped` on a transport that does not support it.
+ */
+export interface IRequestReply {
+  /**
+   * Issue a typed request and await the typed reply.
+   *
+   * `Req` is JSON-encoded to the wire; `Res` is JSON-decoded from
+   * the reply bytes. The caller supplies `timeoutMs` so a hung
+   * responder never leaks the caller's Promise indefinitely.
+   *
+   * Throws a `NatsRequestReplyError` subclass (Timeout / Transport
+   * / Encode / Decode) so operator alarms can route by shelf
+   * without parsing log strings.
+   */
+  requestTyped<Req, Res>(
+    subject: string,
+    request: Req,
+    options: RequestReplyOptions,
+  ): Promise<Res>;
+
+  /**
+   * Register a responder for `subject`. Each incoming message is
+   * JSON-decoded into `Req`, passed to the handler, and the returned
+   * `Res` is JSON-encoded and sent back on the message's reply
+   * inbox. Decode errors NAK'd (do not starve the subject); handler
+   * errors are surfaced to the caller via the reply channel as a
+   * structured error payload so the typed client raises a
+   * `RequestError` rather than hanging.
+   *
+   * Returns a handle the caller can `.drain()` during shutdown.
+   */
+  respond<Req, Res>(
+    subject: string,
+    handler: RequestReplyHandler<Req, Res>,
+  ): Promise<RequestReplyResponderHandle>;
+}
+
+/**
+ * Per-request tuning knobs for {@link IRequestReply.requestTyped}.
+ */
+export interface RequestReplyOptions {
+  /**
+   * Hard wall-clock budget for the round trip. Caller-owned so the
+   * client never inherits a library default that drifts from the
+   * operator's observability SLO.
+   */
+  timeoutMs: number;
+}
+
+/**
+ * Responder callback shape. Must be async — JSON encode / decode
+ * boundaries are sync but the handler's own work (DB read,
+ * authorisation probe, cert CN check) often is not.
+ */
+export type RequestReplyHandler<Req, Res> = (
+  request: Req,
+  context: RequestReplyContext,
+) => Promise<Res>;
+
+/**
+ * Metadata a responder can access about the incoming request: the
+ * subject it hit (for fan-out responders) and the cert CN that
+ * NATS mapped to the connection when available. The CN is the
+ * ADR-015 identity anchor — responders that guard by service can
+ * reject unauthorised callers before reading the body.
+ */
+export interface RequestReplyContext {
+  /** Subject the responder was invoked on. */
+  subject: string;
+  /** Client cert CN NATS mapped at connect time, when present. */
+  authenticatedIdentity?: string;
+}
+
+/**
+ * Handle returned by {@link IRequestReply.respond}. Keeping the
+ * drain surface explicit lets services tear responders down in
+ * deterministic order during shutdown (responders before the
+ * connection close so a mid-flight reply is always sent).
+ */
+export interface RequestReplyResponderHandle {
+  /** Stop accepting new requests + wait for in-flight ones to complete. */
+  drain(): Promise<void>;
+  /** Observational: the subject this responder is bound to. */
+  readonly subject: string;
+}
+
+/**
  * Full event bus interface combining publisher and subscriber
  */
 export interface IEventBus extends IEventPublisher, IEventSubscriber {

@@ -168,7 +168,7 @@ use crate::mqtt::MqttClient;
 use crate::process_image::ProcessImage;
 use crate::provisioning::ProvisioningClient;
 use crate::safe_state::SafeStateManager;
-use crate::scripting::{ScriptEngine, ScriptStorage, SqlitePersistence};
+use crate::scripting::{ScriptEngine, ScriptStorage};
 use crate::shutdown::ShutdownCoordinator;
 use crate::telemetry::TelemetryCollector;
 
@@ -696,6 +696,17 @@ pub struct AppState {
             crate::scripting::bytecode_registry_store::BytecodeRegistryStore,
         >,
     >,
+
+    /// RETAIN variable SQLCipher store — Batch 177 Faz 3
+    /// wire. Shared between the legacy ScriptEngine
+    /// (JSON-script variable RETAIN) + the new bytecode
+    /// scan-cycle orchestrator (bytecode RETAIN). None
+    /// when `init_retain_persistence` fails (e.g.
+    /// SQLCipher permission issue); agent continues
+    /// with RETAIN disabled + operator gets a loud
+    /// boot warning.
+    pub retain_persistence:
+        Option<std::sync::Arc<crate::scripting::SqlitePersistence>>,
 }
 
 impl AppState {
@@ -855,6 +866,14 @@ impl AppState {
             // None when the config field is empty — the
             // registry stays in-memory-only (dev default).
             bytecode_registry_store: None,
+            // Batch 177 Faz 3 wire: None-init.
+            // init_retain_persistence() opens
+            // {data_dir}/retain.db + applies SQLCipher key.
+            // Shared between legacy ScriptEngine +
+            // bytecode scan-cycle orchestrator so both
+            // RETAIN paths use the same key ceremony +
+            // write-through to one file.
+            retain_persistence: None,
         }
     }
 
@@ -2163,6 +2182,44 @@ impl AppState {
         );
     }
 
+    /// Initialize the shared RETAIN SqlitePersistence
+    /// store at `{data_dir}/retain.db`. Batch 177 Faz 3.
+    ///
+    /// Reused by:
+    /// - Legacy `ScriptEngine` for JSON-script RETAIN
+    ///   variable storage.
+    /// - Bytecode `run_scan_tick` for VAR_RETAIN
+    ///   persistence across scan cycles + reboots
+    ///   (Batch 176 wire).
+    ///
+    /// Failure (SQLCipher permissions, disk full, key
+    /// derivation error) logs at warn + leaves
+    /// `retain_persistence` at None; RETAIN becomes a
+    /// no-op for the current boot. Agent boots
+    /// successfully — RETAIN programs run without
+    /// persistence, matching the pre-Batch-176
+    /// behavior.
+    pub fn init_retain_persistence(&mut self) {
+        let db_path = crate::data_dir::data_dir().join("retain.db");
+        let db_path_str = db_path.to_string_lossy().to_string();
+
+        match crate::scripting::SqlitePersistence::new(&db_path) {
+            Ok(p) => {
+                info!(
+                    "Shared RETAIN persistence initialized: {}",
+                    db_path_str
+                );
+                self.retain_persistence = Some(std::sync::Arc::new(p));
+            }
+            Err(e) => {
+                warn!(
+                    "Failed to initialize RETAIN persistence at {} ({}). RETAIN variables + bytecode RETAIN will not survive reboot until SQLCipher recovers.",
+                    db_path_str, e
+                );
+            }
+        }
+    }
+
     pub fn init_bootloader_backend(&mut self) {
         use crate::config::BootloaderBackend;
         match self.config.firmware_update.bootloader_backend {
@@ -2772,6 +2829,17 @@ async fn async_main() -> Result<()> {
     {
         let mut state_guard = state.write().await;
         state_guard.init_bytecode_registry_store().await;
+    }
+
+    // Batch 177 Faz 3 wire: shared RETAIN SqlitePersistence
+    // (retain.db). Used by both the legacy ScriptEngine +
+    // the bytecode scan-cycle RETAIN round-trip. Init
+    // order matters: the bytecode scan-cycle task
+    // spawned below reads retain_persistence from AppState,
+    // so this call MUST precede the spawn.
+    {
+        let mut state_guard = state.write().await;
+        state_guard.init_retain_persistence();
     }
 
     // Batch 146 Faz 7 wire: signature_mode consistency
@@ -3821,13 +3889,14 @@ async fn run_agent(
     // tokio::select! path without changing its
     // signature (keeps the Batch 170 unit tests intact).
     {
-        let (registry, pi, scan_cycle_ms, scripting_enabled) = {
+        let (registry, pi, scan_cycle_ms, scripting_enabled, retain_persistence) = {
             let s = state.read().await;
             (
                 s.bytecode_registry.clone(),
                 s.process_image.clone(),
                 s.config.scripting.default_scan_cycle_ms,
                 s.config.scripting.enabled,
+                s.retain_persistence.clone(),
             )
         };
 
@@ -3858,17 +3927,14 @@ async fn run_agent(
                 let _ = watch_tx.send(true);
             });
 
-            // Spawn the cadence loop.
-            // persistence=None at this wire point —
-            // Batch 177 adds the SqlitePersistence boot
-            // hook + passes it in so RETAIN programs
-            // survive reboot end-to-end. Until 177
-            // lands, RETAIN declarations compile cleanly
-            // but the scan tick doesn't load/save them
-            // (matches pre-Batch-176 behavior).
-            let persistence_opt: Option<
-                std::sync::Arc<crate::scripting::SqlitePersistence>,
-            > = None;
+            // Batch 177 wire: pass the shared RETAIN
+            // persistence Arc into the scan-cycle loop.
+            // None when `init_retain_persistence` failed
+            // (SQLCipher unavailable) — bytecode RETAIN
+            // becomes a no-op for the current boot + the
+            // agent logs the failure, matching the
+            // policy applied to the legacy ScriptEngine.
+            let persistence_opt = retain_persistence;
             let scan_cycle_handle = tokio::spawn(async move {
                 let summary = crate::scripting::bytecode_scan_cycle_task::run_scan_cycle_loop(
                     registry,
@@ -4190,35 +4256,29 @@ async fn run_agent(
     });
     shutdown_coordinator.register_task("command", command_handle);
 
-    // Step 8: Initialize SQLite persistence for RETAIN variables (IEC 61131-3)
-    // Batch 30: route through data_dir:: SSoT helper. Log whether
-    // the path came from env override or FHS default so operators
-    // can diagnose misconfigured SUDERRA_DATA_DIR at a glance.
+    // Step 8: Read shared RETAIN persistence from
+    // AppState. Batch 177 moved the init to
+    // AppState::init_retain_persistence (called above,
+    // before the bytecode scan-cycle spawn) so both
+    // the legacy ScriptEngine + the bytecode scan-cycle
+    // orchestrator share ONE SqlitePersistence handle +
+    // key ceremony. Data dir logging is still useful
+    // here for operator diagnosis.
+    match std::env::var(data_dir::DATA_DIR_ENV_VAR) {
+        Ok(dir) => info!(
+            "Using data directory from {}: {}",
+            data_dir::DATA_DIR_ENV_VAR,
+            dir
+        ),
+        Err(_) => debug!(
+            "{} not set, using default: {}",
+            data_dir::DATA_DIR_ENV_VAR,
+            data_dir::DEFAULT_DATA_DIR
+        ),
+    }
     let persistence = {
-        match std::env::var(data_dir::DATA_DIR_ENV_VAR) {
-            Ok(dir) => info!("Using data directory from {}: {}", data_dir::DATA_DIR_ENV_VAR, dir),
-            Err(_) => debug!(
-                "{} not set, using default: {}",
-                data_dir::DATA_DIR_ENV_VAR,
-                data_dir::DEFAULT_DATA_DIR
-            ),
-        }
-        let db_path = data_dir::data_dir().join("retain.db");
-        let db_path = db_path.to_string_lossy().to_string();
-
-        match SqlitePersistence::new(&db_path) {
-            Ok(p) => {
-                info!("SQLite persistence initialized: {}", db_path);
-                Some(Arc::new(p))
-            }
-            Err(e) => {
-                warn!(
-                    "Failed to initialize persistence (RETAIN variables disabled): {}",
-                    e
-                );
-                None
-            }
-        }
+        let s = state.read().await;
+        s.retain_persistence.clone()
     };
 
     // Step 9: Start script engine (with persistence if available)

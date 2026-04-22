@@ -179,6 +179,7 @@ pub async fn confirm_active_handler(
                 "lifecycle confirm_active: HMAC auth REJECTED: {}",
                 auth_err
             );
+            let is_invalid_hmac = matches!(auth_err, AuthError::InvalidHmac);
             let gate_label = match auth_err {
                 AuthError::MissingHmacHeader => "missing_hmac_header",
                 AuthError::MissingTimestampHeader => "missing_timestamp_header",
@@ -187,6 +188,15 @@ pub async fn confirm_active_handler(
                 AuthError::TimestampOutOfWindow { .. } => "timestamp_out_of_window",
                 AuthError::InvalidHmac => "invalid_hmac",
             };
+            // Batch 135 Sprint 6.5 — closes Batch 132 obs
+            // #3: bump auth rejection counters. invalid_hmac
+            // bucket is the operator-security signal
+            // (client+server key mismatch); total bucket
+            // captures all reject paths for dashboard
+            // "is auth misbehaving?" visibility.
+            if let Some(hs) = handles.health_state.as_ref() {
+                hs.inc_lifecycle_auth_rejected(is_invalid_hmac);
+            }
             return (
                 StatusCode::UNAUTHORIZED,
                 Json(json!({
@@ -627,6 +637,133 @@ mod tests {
             .await
             .into_response();
         assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&lock_path);
+    }
+
+    #[tokio::test]
+    async fn confirm_active_invalid_hmac_bumps_auth_invalid_hmac_metric() {
+        // Batch 135 Sprint 6.5 — closes Batch 132 obs #3:
+        // When the HTTP handler rejects a request with
+        // InvalidHmac, BOTH lifecycle_auth_rejected_total
+        // AND lifecycle_auth_invalid_hmac_total must
+        // increment. invalid_hmac = correct format but
+        // wrong key → operator-actionable key-mismatch
+        // signal.
+        let path = tmp_partition_path();
+        let _ = std::fs::remove_file(&path);
+        let lock_path = {
+            let mut s = path.clone().into_os_string();
+            s.push(".lock");
+            std::path::PathBuf::from(s)
+        };
+        let _ = std::fs::remove_file(&lock_path);
+        let store = Arc::new(PartitionStore::open(Some(&path)).expect("open"));
+
+        let health = crate::health::HealthState::new();
+        let key = LifecycleAuthKey::from_bytes(vec![0xAAu8; 32]).unwrap();
+        let cell: LifecycleHandlesCell = new_cell();
+        cell.set(LifecycleHandles {
+            partition_store: store.clone(),
+            bootloader: Arc::new(NoopBootloaderHandle),
+            audit_sink: None,
+            device_id: "test-dev".into(),
+            tenant: TenantId::new_from_verified([0u8; 16]),
+            auth_key: Some(Arc::new(key)),
+            health_state: Some(health.clone()),
+        })
+        .ok();
+
+        // Send request with VALID shape but WRONG HMAC.
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            .to_string();
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(
+            HEADER_TIMESTAMP,
+            axum::http::HeaderValue::from_str(&ts).unwrap(),
+        );
+        headers.insert(
+            HEADER_HMAC,
+            axum::http::HeaderValue::from_str(&"11".repeat(32)).unwrap(),
+        );
+
+        let resp = confirm_active_handler(Extension(cell), headers)
+            .await
+            .into_response();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+
+        let metrics = health.metrics_prometheus();
+        let total = metrics
+            .lines()
+            .find(|l| l.starts_with("suderra_lifecycle_auth_rejected_total"))
+            .expect("total missing");
+        let invalid = metrics
+            .lines()
+            .find(|l| l.starts_with("suderra_lifecycle_auth_invalid_hmac_total"))
+            .expect("invalid missing");
+        assert!(total.ends_with(" 1"), "total=1, got: {}", total);
+        assert!(invalid.ends_with(" 1"), "invalid_hmac=1, got: {}", invalid);
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&lock_path);
+    }
+
+    #[tokio::test]
+    async fn confirm_active_missing_headers_bumps_only_total_counter() {
+        // Batch 135: MissingHmacHeader is NOT an
+        // invalid_hmac scenario. Only the total counter
+        // should increment; the invalid_hmac security
+        // signal stays at 0.
+        let path = tmp_partition_path();
+        let _ = std::fs::remove_file(&path);
+        let lock_path = {
+            let mut s = path.clone().into_os_string();
+            s.push(".lock");
+            std::path::PathBuf::from(s)
+        };
+        let _ = std::fs::remove_file(&lock_path);
+        let store = Arc::new(PartitionStore::open(Some(&path)).expect("open"));
+
+        let health = crate::health::HealthState::new();
+        let key = LifecycleAuthKey::from_bytes(vec![0xAAu8; 32]).unwrap();
+        let cell: LifecycleHandlesCell = new_cell();
+        cell.set(LifecycleHandles {
+            partition_store: store.clone(),
+            bootloader: Arc::new(NoopBootloaderHandle),
+            audit_sink: None,
+            device_id: "test-dev".into(),
+            tenant: TenantId::new_from_verified([0u8; 16]),
+            auth_key: Some(Arc::new(key)),
+            health_state: Some(health.clone()),
+        })
+        .ok();
+
+        // Empty headers — auth enabled → MissingHmacHeader.
+        let resp =
+            confirm_active_handler(Extension(cell), axum::http::HeaderMap::new())
+                .await
+                .into_response();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+
+        let metrics = health.metrics_prometheus();
+        let total = metrics
+            .lines()
+            .find(|l| l.starts_with("suderra_lifecycle_auth_rejected_total"))
+            .expect("total missing");
+        let invalid = metrics
+            .lines()
+            .find(|l| l.starts_with("suderra_lifecycle_auth_invalid_hmac_total"))
+            .expect("invalid missing");
+        assert!(total.ends_with(" 1"), "total=1, got: {}", total);
+        assert!(
+            invalid.ends_with(" 0"),
+            "invalid_hmac stays 0 for missing-header, got: {}",
+            invalid
+        );
 
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(&lock_path);

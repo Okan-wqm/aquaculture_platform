@@ -333,6 +333,23 @@ struct HealthStateInner {
     firmware_rollback: AtomicU64,
     firmware_active_slot: AtomicU64,
     firmware_active_version: AtomicU64,
+    /// Batch 135 Sprint 6.5 — closes Batch 132 obs #3:
+    /// lifecycle HTTP endpoint HMAC auth rejection
+    /// counters. TOTAL bucket tracks ALL rejection
+    /// reasons (missing header, malformed, timestamp
+    /// skew, wrong HMAC). INVALID_HMAC bucket tracks
+    /// the specific "correct shape but wrong key" path
+    /// — operator-actionable security signal because it
+    /// indicates a client computing HMACs with a
+    /// different key than the agent expects (potentially
+    /// a compromise or a key-rotation-mismatch).
+    ///
+    /// Two counters instead of 6-per-variant: simpler
+    /// dashboard story ("how often is auth failing?" +
+    /// "is there a key mismatch signal?") without
+    /// exploding metric cardinality.
+    lifecycle_auth_rejected: AtomicU64,
+    lifecycle_auth_invalid_hmac: AtomicU64,
 }
 
 impl HealthState {
@@ -373,6 +390,8 @@ impl HealthState {
                 // convention matches PartitionState::initial.
                 firmware_active_slot: AtomicU64::new(0),
                 firmware_active_version: AtomicU64::new(0),
+                lifecycle_auth_rejected: AtomicU64::new(0),
+                lifecycle_auth_invalid_hmac: AtomicU64::new(0),
             }),
         }
     }
@@ -416,6 +435,23 @@ impl HealthState {
         self.inner
             .firmware_active_version
             .store(version, Ordering::Release);
+    }
+
+    /// Bump both the total-rejection counter AND, when
+    /// `is_invalid_hmac` is true, the invalid-hmac
+    /// counter. The is_invalid_hmac bucket is the
+    /// operator-security signal (client + server disagree
+    /// on the key); the total bucket tracks all rejection
+    /// causes including operator misconfig.
+    pub fn inc_lifecycle_auth_rejected(&self, is_invalid_hmac: bool) {
+        self.inner
+            .lifecycle_auth_rejected
+            .fetch_add(1, Ordering::AcqRel);
+        if is_invalid_hmac {
+            self.inner
+                .lifecycle_auth_invalid_hmac
+                .fetch_add(1, Ordering::AcqRel);
+        }
     }
 
     /// Get uptime in seconds
@@ -775,6 +811,17 @@ impl HealthState {
         gauge(&mut out, "suderra_firmware_active_version",
             "Monotonic firmware version currently active on the device",
             self.inner.firmware_active_version.load(Ordering::Acquire),
+            &labels);
+        // Batch 135 Sprint 6.5: lifecycle HTTP HMAC auth
+        // rejection counters. Total = any reject reason;
+        // invalid_hmac = specifically wrong-key path.
+        counter(&mut out, "suderra_lifecycle_auth_rejected_total",
+            "Total POST /lifecycle/* HMAC auth rejections across all gates (missing header, malformed, timestamp skew, wrong hmac)",
+            self.inner.lifecycle_auth_rejected.load(Ordering::Acquire),
+            &labels);
+        counter(&mut out, "suderra_lifecycle_auth_invalid_hmac_total",
+            "POST /lifecycle/* HMAC auth rejections where HMAC bytes parsed correctly but did not match (client+server key mismatch signal)",
+            self.inner.lifecycle_auth_invalid_hmac.load(Ordering::Acquire),
             &labels);
         gauge(&mut out, "suderra_device_activated",
             "Device activation state (1=activated, 0=pending-provisioning)",
@@ -1466,5 +1513,84 @@ mod tests {
             .find(|l| l.starts_with("suderra_firmware_active_version"))
             .expect("missing gauge line");
         assert!(line.ends_with(" 42"), "expected version=42, got: {}", line);
+    }
+
+    // ========================================================================
+    // Batch 135 Sprint 6.5 — lifecycle auth rejection metric tests
+    // ========================================================================
+
+    #[test]
+    fn lifecycle_auth_rejection_metrics_present_in_output() {
+        let state = HealthState::new();
+        let out = state.metrics_prometheus();
+        assert!(out.contains("suderra_lifecycle_auth_rejected_total"));
+        assert!(out.contains("suderra_lifecycle_auth_invalid_hmac_total"));
+    }
+
+    #[test]
+    fn lifecycle_auth_non_invalid_hmac_bumps_only_total() {
+        let state = HealthState::new();
+        // Simulate a MissingHmacHeader reject (not invalid_hmac).
+        state.inc_lifecycle_auth_rejected(false);
+        let out = state.metrics_prometheus();
+        let total = out
+            .lines()
+            .find(|l| l.starts_with("suderra_lifecycle_auth_rejected_total"))
+            .expect("total missing");
+        let invalid = out
+            .lines()
+            .find(|l| l.starts_with("suderra_lifecycle_auth_invalid_hmac_total"))
+            .expect("invalid missing");
+        assert!(total.ends_with(" 1"), "total should be 1, got: {}", total);
+        assert!(
+            invalid.ends_with(" 0"),
+            "invalid_hmac should stay 0 for non-invalid-hmac rejection, got: {}",
+            invalid
+        );
+    }
+
+    #[test]
+    fn lifecycle_auth_invalid_hmac_bumps_both_counters() {
+        let state = HealthState::new();
+        state.inc_lifecycle_auth_rejected(true);
+        let out = state.metrics_prometheus();
+        let total = out
+            .lines()
+            .find(|l| l.starts_with("suderra_lifecycle_auth_rejected_total"))
+            .expect("total missing");
+        let invalid = out
+            .lines()
+            .find(|l| l.starts_with("suderra_lifecycle_auth_invalid_hmac_total"))
+            .expect("invalid missing");
+        assert!(total.ends_with(" 1"), "total should be 1, got: {}", total);
+        assert!(
+            invalid.ends_with(" 1"),
+            "invalid_hmac should be 1 for invalid-hmac rejection, got: {}",
+            invalid
+        );
+    }
+
+    #[test]
+    fn lifecycle_auth_multiple_rejections_accumulate_independently() {
+        let state = HealthState::new();
+        // 3 non-invalid (missing headers / timestamp skew / etc)
+        state.inc_lifecycle_auth_rejected(false);
+        state.inc_lifecycle_auth_rejected(false);
+        state.inc_lifecycle_auth_rejected(false);
+        // 2 invalid_hmac (operator-security signal)
+        state.inc_lifecycle_auth_rejected(true);
+        state.inc_lifecycle_auth_rejected(true);
+
+        let out = state.metrics_prometheus();
+        let total = out
+            .lines()
+            .find(|l| l.starts_with("suderra_lifecycle_auth_rejected_total"))
+            .expect("total");
+        let invalid = out
+            .lines()
+            .find(|l| l.starts_with("suderra_lifecycle_auth_invalid_hmac_total"))
+            .expect("invalid");
+        assert!(total.ends_with(" 5"), "total = 5, got: {}", total);
+        assert!(invalid.ends_with(" 2"), "invalid = 2, got: {}", invalid);
     }
 }

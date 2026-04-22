@@ -917,14 +917,36 @@ impl CommandHandler {
         // Batch 79 Sprint 6.2 Phase 2: emit POST-exec audit
         // event to the HMAC-chained sink (when
         // audit.mode=Enabled). No-op when sink is None.
+        //
+        // Batch 118 Sprint 6.5: enrich detail with per-command
+        // result summary via `summarize_result`. Closes the
+        // audit-detail gap flagged in Batch 113/115/116
+        // observations — command-specific fields (which gate
+        // rejected, which slot confirmed, which bootloader
+        // backend fired) now flow into the audit chain
+        // alongside the base elapsed_ms + err.
         let post_outcome = if success {
             crate::audit::AuditOutcome::Success
         } else {
             crate::audit::AuditOutcome::Failure
         };
-        let post_detail = match &error {
-            Some(e) => format!("elapsed_ms={} err={}", elapsed.as_millis(), e),
-            None => format!("elapsed_ms={}", elapsed.as_millis()),
+        let result_summary = audit_emit::summarize_result(&command.command, &result);
+        let post_detail = match (&error, result_summary.is_empty()) {
+            (Some(e), true) => {
+                format!("elapsed_ms={} err={}", elapsed.as_millis(), e)
+            }
+            (Some(e), false) => format!(
+                "elapsed_ms={} err={} {}",
+                elapsed.as_millis(),
+                e,
+                result_summary
+            ),
+            (None, true) => format!("elapsed_ms={}", elapsed.as_millis()),
+            (None, false) => format!(
+                "elapsed_ms={} {}",
+                elapsed.as_millis(),
+                result_summary
+            ),
         };
         audit_emit::emit_post_event(
             audit_sink.as_ref(),

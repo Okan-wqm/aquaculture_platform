@@ -210,6 +210,151 @@ pub(super) fn emit_post_event(
     }
 }
 
+/// Extract a compact `key=value` summary string from the
+/// command result JSON (Batch 118 Sprint 6.5 emit contract
+/// extension).
+///
+/// ## WHY
+///
+/// Pre-Batch-118 the dispatch-layer `emit_post_event` detail
+/// string carried ONLY `elapsed_ms` + `err`. Per-command
+/// structured-result fields (which gate rejected a firmware
+/// manifest, which slot cmd_confirm_slot operated on, which
+/// force-value was applied) flowed ONLY to the MQTT response
+/// payload — never to the audit log. Forensic reconstruction
+/// required cross-referencing tracing logs + command-response
+/// archives outside the audit chain.
+///
+/// Batch 113 observation #2 + Batch 115 observation #2 +
+/// Batch 116 observation #1 all flagged the same root cause:
+/// the `emit_post_event` contract had no per-command
+/// result-detail ingest point. This function closes it by
+/// converting the command-specific result JSON (that the
+/// handler ALREADY constructs) into a flat key=value string
+/// suitable for the audit detail field.
+///
+/// ## Pattern
+///
+/// Command name → known-field extraction. New command-specific
+/// detail needs ONE new arm here; the default catch-all keeps
+/// the no-detail behaviour for commands whose result JSON is
+/// either empty or whose fields are not audit-relevant.
+///
+/// Keep the output UNDER `crate::audit::entry::MAX_DETAIL_BYTES`
+/// after prefix — the post-emit truncates but truncation loses
+/// the trailing fields, which are usually the most specific.
+/// Target 100-200 bytes per summary.
+pub(super) fn summarize_result(cmd: &str, result: &serde_json::Value) -> String {
+    match cmd {
+        "confirm_slot" => {
+            let slot = result
+                .get("confirmed_slot")
+                .and_then(|v| v.as_str())
+                .unwrap_or("?");
+            let bl_ok = result
+                .get("bootloader_coordination")
+                .and_then(|v| v.get("cleared_pending_boot"))
+                .and_then(|v| v.as_bool())
+                .map(|b| if b { "ok" } else { "failed" })
+                .unwrap_or("unknown");
+            let backend = result
+                .get("bootloader_coordination")
+                .and_then(|v| v.get("backend"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("?");
+            format!(
+                "confirmed_slot={} bootloader_clear={} backend={}",
+                slot, bl_ok, backend
+            )
+        }
+        "verify_signed_manifest" => {
+            // Both success + failure carry a `verified` flag;
+            // failures carry `gate` + optional `reason`.
+            let verified = result
+                .get("verified")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            if verified {
+                let fw_version = result
+                    .get("firmware_version")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                let tag = result
+                    .get("release_tag")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("?");
+                let files = result
+                    .get("file_count")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                format!(
+                    "verified=true firmware_version={} release_tag={} file_count={}",
+                    fw_version, tag, files
+                )
+            } else {
+                let gate = result
+                    .get("gate")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+                format!("verified=false gate={}", gate)
+            }
+        }
+        "apply_signed_manifest" => {
+            let verified = result
+                .get("verified")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            if !verified {
+                let gate = result
+                    .get("gate")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+                return format!("verified=false gate={}", gate);
+            }
+            let applied = result
+                .get("applied")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            if !applied {
+                let gate = result
+                    .get("gate")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("apply_failed");
+                return format!("verified=true applied=false gate={}", gate);
+            }
+            let transition = result
+                .get("applied_transition")
+                .and_then(|v| v.as_str())
+                .unwrap_or("?");
+            let target = result
+                .get("target_slot")
+                .and_then(|v| v.as_str())
+                .unwrap_or("?");
+            let from_v = result
+                .get("previous_firmware_version")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+            let to_v = result
+                .get("firmware_version")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+            let bl_ok = result
+                .get("bootloader_coordination")
+                .and_then(|v| v.get("set_next_boot_slot_ok"))
+                .and_then(|v| v.as_bool())
+                .map(|b| if b { "ok" } else { "failed" })
+                .unwrap_or("unknown");
+            format!(
+                "applied=true transition={} target={} version={}->{} bootloader={}",
+                transition, target, from_v, to_v, bl_ok
+            )
+        }
+        // Catch-all — no per-command detail known; caller
+        // emits the default elapsed_ms + err detail.
+        _ => String::new(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -298,5 +443,142 @@ mod tests {
             AuditOutcome::Success,
             "ok",
         );
+    }
+
+    // ========================================================================
+    // summarize_result tests (Batch 118 Sprint 6.5)
+    // ========================================================================
+
+    #[test]
+    fn summarize_confirm_slot_success() {
+        let result = serde_json::json!({
+            "confirmed_slot": "a",
+            "new_state": {},
+            "bootloader_coordination": {
+                "backend": "noop",
+                "cleared_pending_boot": true
+            }
+        });
+        let summary = summarize_result("confirm_slot", &result);
+        assert_eq!(
+            summary,
+            "confirmed_slot=a bootloader_clear=ok backend=noop"
+        );
+    }
+
+    #[test]
+    fn summarize_confirm_slot_bootloader_failed() {
+        let result = serde_json::json!({
+            "confirmed_slot": "b",
+            "bootloader_coordination": {
+                "backend": "tryboot",
+                "cleared_pending_boot": false
+            }
+        });
+        let summary = summarize_result("confirm_slot", &result);
+        assert_eq!(
+            summary,
+            "confirmed_slot=b bootloader_clear=failed backend=tryboot"
+        );
+    }
+
+    #[test]
+    fn summarize_verify_signed_manifest_success() {
+        let result = serde_json::json!({
+            "verified": true,
+            "firmware_version": 42,
+            "release_tag": "v2.0.0",
+            "file_count": 17
+        });
+        let summary = summarize_result("verify_signed_manifest", &result);
+        assert_eq!(
+            summary,
+            "verified=true firmware_version=42 release_tag=v2.0.0 file_count=17"
+        );
+    }
+
+    #[test]
+    fn summarize_verify_signed_manifest_failure_surfaces_gate() {
+        let result = serde_json::json!({
+            "verified": false,
+            "gate": "invalid_signature",
+            "reason": "ed25519 rejected"
+        });
+        let summary = summarize_result("verify_signed_manifest", &result);
+        assert_eq!(summary, "verified=false gate=invalid_signature");
+    }
+
+    #[test]
+    fn summarize_apply_signed_manifest_applied() {
+        let result = serde_json::json!({
+            "verified": true,
+            "applied": true,
+            "applied_transition": "SwapToPending",
+            "target_slot": "b",
+            "previous_firmware_version": 1,
+            "firmware_version": 2,
+            "bootloader_coordination": {
+                "backend": "noop",
+                "set_next_boot_slot_ok": true
+            }
+        });
+        let summary = summarize_result("apply_signed_manifest", &result);
+        assert_eq!(
+            summary,
+            "applied=true transition=SwapToPending target=b version=1->2 bootloader=ok"
+        );
+    }
+
+    #[test]
+    fn summarize_apply_signed_manifest_verified_but_apply_rejected() {
+        let result = serde_json::json!({
+            "verified": true,
+            "applied": false,
+            "gate": "invalid_initial_state",
+            "reason": "pending confirm open"
+        });
+        let summary = summarize_result("apply_signed_manifest", &result);
+        assert_eq!(
+            summary,
+            "verified=true applied=false gate=invalid_initial_state"
+        );
+    }
+
+    #[test]
+    fn summarize_apply_signed_manifest_verify_rejected() {
+        let result = serde_json::json!({
+            "verified": false,
+            "gate": "tenant_mismatch"
+        });
+        let summary = summarize_result("apply_signed_manifest", &result);
+        assert_eq!(summary, "verified=false gate=tenant_mismatch");
+    }
+
+    #[test]
+    fn summarize_unknown_command_returns_empty_string() {
+        let result = serde_json::json!({
+            "accepted": true,
+            "note": "some unknown-cmd response"
+        });
+        let summary = summarize_result("some_unknown_cmd", &result);
+        assert_eq!(summary, "");
+    }
+
+    #[test]
+    fn summarize_missing_fields_falls_back_to_placeholders() {
+        // Pathological result shape (handler didn't return
+        // expected fields). The summarizer must NOT panic +
+        // MUST return a safe placeholder string so the audit
+        // detail field remains parseable.
+        let result = serde_json::json!({});
+        let s = summarize_result("confirm_slot", &result);
+        assert_eq!(
+            s,
+            "confirmed_slot=? bootloader_clear=unknown backend=?"
+        );
+        let s = summarize_result("verify_signed_manifest", &result);
+        assert_eq!(s, "verified=false gate=unknown");
+        let s = summarize_result("apply_signed_manifest", &result);
+        assert_eq!(s, "verified=false gate=unknown");
     }
 }

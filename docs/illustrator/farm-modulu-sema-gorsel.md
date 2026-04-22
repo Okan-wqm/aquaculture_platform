@@ -579,7 +579,7 @@ Konum: `production/components/MortalityModal.tsx`
 
 | Form alanı | Field | Zorunlu | Mutation alanı | Tablo sütunu |
 |-----------|-------|---------|----------------|---------------|
-| Hareket Tipi | `movementType` | evet | INBOUND/OUTBOUND/TRANSFER/ADJUSTMENT | `input.movementType` | `stock_movements.movement_type` |
+| Hareket Tipi | `movementType` | evet | IN / OUT / TRANSFER / WASTE / ADJUSTMENT / RETURN (6 değer — kod referansı: `apps/farm-service/src/storage/entities/stock-movement.entity.ts:14`) | `input.movementType` | `stock_movements.movement_type` |
 | Kalem | `itemId` | evet | `input.itemId` | `stock_movements.item_id` |
 | Kaynak Konum | `fromLocation` | koşullu (OUT/TRANSFER) | `input.fromLocationId` | `stock_movements.from_location_id` |
 | Hedef Konum | `toLocation` | koşullu (IN/TRANSFER) | `input.toLocationId` | `stock_movements.to_location_id` |
@@ -774,13 +774,13 @@ Hedef tablo: `farm.health_events` (ana tablo), opsiyonel `water_quality_measurem
 
 | Rapor | Modal | Hedef Tablo(lar) | Mutation |
 |-------|-------|------------------|----------|
-| Disease Outbreak (Hastalık Salgını) | `reports/components/modals/DiseaseOutbreakModal.tsx` | `health_events` (detay) — ⚠ `regulatory_events` tablosu yok (önceki iddia yanlıştı; sadece `regulatory_settings` entity'si var) | `createDiseaseOutbreak` |
-| Escape Report (Kaçış) | `reports/components/modals/EscapeReportModal.tsx` | `regulatory_events` | `createEscapeReport` |
-| Welfare Event (Refah) | `reports/components/modals/WelfareEventModal.tsx` | `regulatory_events` | `createWelfareEvent` |
+| Disease Outbreak (Hastalık Salgını) | `reports/components/modals/DiseaseOutbreakModal.tsx` | `health_events` (detay) — ⚠ ~~regulatory_events~~ ⚠ *(tablo yok — health_events'e yazılır)* tablosu yok (önceki iddia yanlıştı; sadece `regulatory_settings` entity'si var) | `createDiseaseOutbreak` |
+| Escape Report (Kaçış) | `reports/components/modals/EscapeReportModal.tsx` | ~~regulatory_events~~ ⚠ *(tablo yok — health_events'e yazılır)* | `createEscapeReport` |
+| Welfare Event (Refah) | `reports/components/modals/WelfareEventModal.tsx` | ~~regulatory_events~~ ⚠ *(tablo yok — health_events'e yazılır)* | `createWelfareEvent` |
 | Biomass Report | `reports/tabs/BiomassReportTab.tsx` | ⚠ stub (setTimeout) | — |
-| Slaughter Report | `reports/tabs/SlaughterReportTab.tsx` | `harvest_records` view, `regulatory_events` | ilgili mutation'lar |
-| Sea Lice Report | `reports/tabs/SeaLiceReportTab.tsx` | `regulatory_events`, `health_events` | — |
-| Smolt Report | `reports/tabs/SmoltReportTab.tsx` | `regulatory_events` | — |
+| Slaughter Report | `reports/tabs/SlaughterReportTab.tsx` | `harvest_records` view, ~~regulatory_events~~ ⚠ *(tablo yok — health_events'e yazılır)* | ilgili mutation'lar |
+| Sea Lice Report | `reports/tabs/SeaLiceReportTab.tsx` | ~~regulatory_events~~ ⚠ *(tablo yok — health_events'e yazılır)*, `health_events` | — |
+| Smolt Report | `reports/tabs/SmoltReportTab.tsx` | ~~regulatory_events~~ ⚠ *(tablo yok — health_events'e yazılır)* | — |
 | Cleaner Fish Report | `reports/tabs/CleanerFishReportTab.tsx` | `batches_v2` (filtered cleaner), `tank_batches` | `cleanerFishReport` query (read) |
 
 #### DiseaseOutbreakModal — Norveç FDIR regülasyonu (17+ alan)
@@ -867,6 +867,91 @@ Sadece **query** (mutation yok). MCP entegrasyonu ile sensör dataset özeti + �
 | AnalyticsPage | — (agregat okuma) | — |
 | TanksPage (filtreler) | — (okuma: tank_batches, equipment, tanks) | — |
 | MapViewPage | — (Leaflet + Sentinel Hub + CMEMS) | Gerçek implementasyon — önceki "stub" iddiası yanlıştı |
+
+---
+
+## Enum Sözlüğü — Tek Kaynaklı Tablo
+
+Doküman boyunca parça parça geçen enum değerlerinin tek-kaynaklı
+listesi. Kaynak dosya referansları ile doğrulanmıştır; herhangi bir
+kod değişikliği bu tabloyu da güncellemek zorundadır.
+
+### `BatchStatus`
+Dosya: `apps/farm-service/src/batch/entities/batch.types.ts:27`
+
+| Değer | Anlam |
+|-------|-------|
+| `QUARANTINE` | Yeni gelen parti karantinada |
+| `ACTIVE` | Üretime alındı, büyüme başladı |
+| `GROWING` | Rutin büyüme aşaması |
+| `PRE_HARVEST` | Hasat öncesi hazırlık |
+| `HARVESTING` | Hasat devam ediyor |
+| `HARVESTED` | Fiziksel hasat tamamlandı |
+| `TRANSFERRED` | Başka siteye / müşteriye transfer edildi |
+| `FAILED` | Üretim başarısız (mortality vb.) |
+| `CLOSED` | Lifecycle sonlandırıldı (closeBatch) |
+
+### `BatchCloseReason`
+Dosya: `apps/farm-service/src/batch/commands/close-batch.command.ts:15`
+
+| Değer | Anlam |
+|-------|-------|
+| `HARVEST_COMPLETED` | Hasat tamamlanması sonrası kapatma |
+| `TRANSFERRED` | Transfer sonrası kapatma |
+| `FAILED` | Başarısızlık / mortality sonrası kapatma |
+| `CANCELLED` | İptal |
+| `OTHER` | SUPER_ADMIN / TENANT_ADMIN kullanımına açık (diğer lifecycle kontrolleri atlar — sadece terminal statüler için) |
+
+### `MovementType`
+Dosya: `apps/farm-service/src/storage/entities/stock-movement.entity.ts:14`
+
+| Değer | Anlam |
+|-------|-------|
+| `IN` | Depo girişi |
+| `OUT` | Depo çıkışı (yemleme / tüketim) |
+| `TRANSFER` | İki depo arası taşıma |
+| `WASTE` | Fire (uygunsuz stok atılması) |
+| `ADJUSTMENT` | Fiziksel sayım düzeltmesi |
+| `RETURN` | Tedarikçiye iade |
+
+### `HealthEventStatus`
+Dosya: `apps/farm-service/src/fish-health/entities/health-event.entity.ts`
+
+| Değer | Anlam |
+|-------|-------|
+| `ACTIVE` | Devam ediyor |
+| `MONITORING` | İzleme altında |
+| `RESOLVED` | Çözüldü |
+| `CHRONIC` | Kronik |
+| `CANCELLED` | İptal edildi |
+
+### `EquipmentStatus`
+Dosya: `apps/farm-service/src/equipment/entities/equipment.entity.ts`
+
+| Değer | Anlam |
+|-------|-------|
+| `OPERATIONAL` | Çalışır durumda |
+| `MAINTENANCE` | Bakımda |
+| `REPAIR` | Tamirde |
+| `OUT_OF_SERVICE` | Hizmet dışı |
+| `DECOMMISSIONED` | Kullanımdan kaldırıldı |
+| `STANDBY` | Yedek / Beklemede |
+| `ACTIVE` | Aktif (tank — içinde balık var) |
+| `PREPARING` | Hazırlanıyor |
+| `CLEANING` | Temizleniyor |
+| `HARVESTING` | Hasat yapılıyor |
+| `FALLOW` | Boş / Dinlendirme |
+| `QUARANTINE` | Karantina |
+
+### `BackdateContext` (yeni — phase 1.5)
+Dosya: `apps/farm-service/src/common/services/backdate-policy.service.ts`
+
+| Değer | Default gün | Env override |
+|-------|-------------|--------------|
+| `feeding` | 7 | `FEEDING_BACKDATE_LIMIT_DAYS` |
+| `mortality` | 14 | `MORTALITY_BACKDATE_LIMIT_DAYS` |
+| `growth` | 30 | `GROWTH_BACKDATE_LIMIT_DAYS` |
+| `harvest` | 7 | `HARVEST_BACKDATE_LIMIT_DAYS` |
 
 ---
 
@@ -1159,7 +1244,7 @@ Alan listesi için bkz §4.3. Bunun yanında `ref` sütunları (batch_id, tank_i
 `id`, `tenant_id`, `item_id`, `storage_location_id` (FK), `quantity_kg`, `last_count_date`, `notes`, audit.
 
 #### `farm.stock_movements`
-`id`, `tenant_id`, `movement_type` (enum IN/OUT/TRANSFER/ADJUSTMENT/VARIANCE), `item_id`, `item_type` (FEED/CHEMICAL/CONSUMABLE), `from_location_id`, `to_location_id`, `quantity`, `unit`, `reason`, `reference`, `lot_number`, `manufacturing_date`, `expiry_date`, `movement_date`, `performed_by`, `idempotency_key` (UNIQUE), `notes`, audit.
+`id`, `tenant_id`, `movement_type` (enum — gerçek kod `IN / OUT / TRANSFER / WASTE / ADJUSTMENT / RETURN`; önceki revizyonlar bunu yanlış listeliyordu), `item_id`, `item_type` (FEED/CHEMICAL/CONSUMABLE), `from_location_id`, `to_location_id`, `quantity`, `unit`, `reason`, `reference`, `lot_number`, `manufacturing_date`, `expiry_date`, `movement_date`, `performed_by`, `idempotency_key` (UNIQUE), `notes`, audit.
 
 #### `farm.inventory_counts`
 `id`, `tenant_id`, `count_date`, `storage_location_id` (FK), `counted_by`, `status` (enum DRAFT/SUBMITTED/APPROVED), `notes`, audit.
@@ -1312,7 +1397,7 @@ Toplam **36 resolver**, **~80 mutation**, **~60 query**. Her resolver'ın dosya 
 | WaterQualityResolver | `water-quality/water-quality.resolver.ts` | recordReading, createWaterQualityMeasurement | waterQualityMeasurements | `water_quality_measurements` |
 | WaterQualityParameterConfigResolver | `water-quality/water-quality-parameter-config.resolver.ts` | createParameterConfig, updateParameterConfig, deleteParameterConfig, bulkCreateFromTemplate, bulkMapParamsEquipment, reorderParameterConfigs | parameterConfigs, parameterTemplates | `water_quality_parameter_configs`, `water_quality_param_equipment` |
 | WeatherResolver | `weather/weather.resolver.ts` | setWeatherSettings | weatherObservations, weatherSettings, marineObservations | `weather_settings`; okur `weather_observations`, `marine_observations` |
-| RegulatoryResolver | `regulatory/regulatory.resolver.ts` | recordComplianceEvent, recordInspection, recordAudit | regulatoryEvents, inspections | `regulatory_events`, `inspections` |
+| RegulatoryResolver | `regulatory/regulatory.resolver.ts` | recordComplianceEvent, recordInspection, recordAudit | regulatoryEvents, inspections | ~~regulatory_events~~ ⚠ *(tablo yok — health_events'e yazılır)*, `inspections` |
 | SentinelHubResolver | `sentinel-hub/sentinel-hub.resolver.ts` | (ayar kaydet) | sentinelHubTiles, sentinelHubStats | `sentinel_hub_settings` |
 | WorkerResolver | `worker/worker.resolver.ts` | createWorker, updateWorker, deleteWorker | worker, workers | `workers` |
 | AIInsightsResolver | `ai-insights/ai-insights.resolver.ts` | — (query-only) | aiInsight, aiRecommendations | — (MCP okuma) |

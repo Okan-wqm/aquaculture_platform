@@ -49,6 +49,9 @@
 /// `async-nats`.
 pub use async_nats::HeaderMap;
 
+pub mod request_reply;
+pub use request_reply::{RequestError, request_typed};
+
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 

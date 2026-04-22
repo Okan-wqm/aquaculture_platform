@@ -16,6 +16,10 @@ path = "src/lib.rs"
 async-nats = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt", "time", "fs"] }
 serde = { workspace = true }
+# Typed request-reply (ADR-031 foundation) encodes/decodes payloads
+# via serde_json. Direct dep — dev-dep only would not cover the
+# prod call path.
+serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 bytes = { workspace = true }

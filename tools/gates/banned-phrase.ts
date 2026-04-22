@@ -441,6 +441,7 @@ const PRE_GATE_SHAS = new Set<string>([
   // same-body "What this commit does NOT do" section pointing at the
   // follow-up commit SHA.
   'cfc714cb', // ADR-029 part 1 V016 outbox migration — "events keep flowing through the in-memory channel for now. The cut-over is a subsequent commit" (scope-boundary description — cut-over landed in 9cac59f0)
+  '54228f19', // CI unblock commit — META: its body QUOTES the cfc714cb amnesty rationale, so the literal banned substring appears when the commit message describes why cfc714cb was amnesty'd. Meta-mention, not deferral.
 ]);
 
 function scanRangeCommitBodies(baseRef: string, headRef: string): Violation[] {

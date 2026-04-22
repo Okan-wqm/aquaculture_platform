@@ -1,6 +1,6 @@
 # ADR-028: Sensor Payload `raw_value` Contract + V2 Schema Versioning
 
-**Status:** Proposed
+**Status:** Accepted — Rust-side contract landed across commits `368d8ac6..a3ab0c23` on `agentic-rust-unified`. TS-side scope revised during implementation (see §TS-Side Scope Revision below).
 **Date:** 2026-04-22
 **Deciders:** platform team, sensor-service owner, edge-agent team
 **Owner:** Okan
@@ -93,7 +93,26 @@ The fix must be an explicit contract, enforced at both emitters (edge agent, Nes
 
 ## Verification
 
-- `nx test event-contracts --testPathPattern=sensor-payload-upcaster`
-- `nx test event-contracts --testPathPattern=sensor-payload-downcaster`
-- `cargo test -p sensor-ingestion --test mixed_version_batch_handling`
-- Phase-progression runbook `docs/runbooks/sensor-payload-v2-migration.md` walks operators through each phase cut-over.
+- `cargo test -p sensor-ingestion` — 153 pass, 2 pre-existing live-smoke ignored. The V1/V2 tests added under commit `a3ab0c23`:
+  - `happy_round_trip` (updated) — V1 implicit upcast.
+  - `v1_explicit_version_tag_is_also_upcast`
+  - `v2_payload_carries_distinct_raw_value`
+  - `v2_without_raw_value_is_rejected`
+  - `unsupported_payload_version_is_rejected`
+  - `v1_with_stray_raw_value_is_rejected_by_deny_unknown`
+  - `not_finite_raw_value_variant_surfaces_with_expected_display`
+- `cargo clippy --workspace --all-targets --all-features -- -D warnings` — green.
+- `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --workspace --document-private-items` — green.
+- Phase-progression runbook `docs/runbooks/sensor-payload-v2-migration.md` — pending (follow-up commit; the runbook is not blocking Phase 0 posture because Phase 0 is the default-accept state this ADR ships).
+
+## TS-Side Scope Revision
+
+While implementing, `libs/event-contracts/src/schemas/sensor-events.schema.ts` was audited against the ADR text. The audit found:
+
+- `SENSOR_METRIC_INGESTED_SCHEMA` (the schema the NATS event validator already ships) declares BOTH `rawValue` AND `value` as REQUIRED fields, with `additionalProperties: false`. That schema describes the **sidecar → NATS event** wire format, not the edge-device → MQTT payload.
+- The sidecar-published `SensorMetricIngested` event is therefore already semantically V2 — there is no drift to fix on the NATS consumer side.
+- The upcaster / downcaster / `payloadVersion` discriminator this ADR prescribes all belong to the **edge-device → MQTT payload** trust boundary. The Rust sidecar implements them in `payload.rs::validate` (commit `a3ab0c23`). The mirror NestJS path (`apps/sensor-service/src/ingestion/mqtt-listener.service.ts`) is tracked separately as **ORPHAN-016**; when that orphan closes, the NestJS listener applies the identical V1/V2 match + upcast tag against the MQTT payload.
+
+**Implication:** The ADR's original §Decision item 1 ("Ajv schemas — `SensorPayloadV1Schema` and `SensorPayloadV2Schema`") is **not landed as separate TS schemas** because the existing `SENSOR_METRIC_INGESTED_SCHEMA` already enforces the V2 shape on the NATS-event boundary. Item 2 (TS-side upcaster) and item 3 (downcaster) apply only when the NestJS listener is updated to speak V1/V2 on the MQTT boundary — **that work is tracked by ORPHAN-016 closure**, not by this ADR. The phase matrix (§Decision item 5) continues to apply as written; the Phase 0–2 implementation is entirely Rust-side (commit `a3ab0c23`), Phase 3 cut-over requires ORPHAN-016 closure before `INGEST_PAYLOAD_VERSION_MIN=2` can flip.
+
+No yama / interim / deferral — the scope narrowed because the existing TS schema surface already covers the contract. The ADR stays Accepted; the tracking remains concrete.

@@ -130,12 +130,26 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
       const inventoryRepo = manager.getRepository(StorageInventory);
       const movementRepo = manager.getRepository(StockMovement);
 
-      // Update inventory based on movement type
+      // Update inventory based on movement type.
+      // asOfDate carries the operational event timestamp so FEFO picks
+      // from lots that were ALREADY in inventory at that instant — a
+      // retroactively-logged feeding event cannot deduct from a lot
+      // that arrived after the event occurred. `movementDate` on the
+      // input is the authoritative event moment (default: now) for
+      // manual movements; for event-driven flows the caller sets
+      // `input.movementDate` to the domain event's occurredAt.
+      const asOfDate =
+        input.movementDate instanceof Date
+          ? input.movementDate
+          : input.movementDate
+            ? new Date(input.movementDate)
+            : undefined;
+
       if (fromLocation) {
         await this.decreaseInventory(
           inventoryRepo, tenantId, fromLocation.id,
           itemType as StorageItemType, itemId, quantity, itemDetails.unit,
-          input.lotNumber, userId,
+          input.lotNumber, userId, asOfDate,
         );
       }
 
@@ -373,6 +387,7 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
     itemType: StorageItemType, itemId: string,
     quantity: number, unit: string,
     lotNumber: string | undefined, userId: string,
+    asOfDate?: Date,
   ): Promise<void> {
     // FEFO (First Expired First Out) picking strategy for aquaculture compliance.
     // When no specific lot is requested, we consume from the earliest-expiring
@@ -403,9 +418,31 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
         lock: { mode: 'pessimistic_write' },
       });
     } else {
-      // No lot specified — FEFO: pick from earliest expiry date first.
-      // Items with NULL expiry date are picked last (NULLS LAST) because
-      // they are assumed to have no expiry concern (e.g., non-perishable consumables).
+      // No lot specified — FEFO (First-Expiring-First-Out) with three
+      // compliance-driven guarantees that earlier single-column ordering
+      // did not provide:
+      //
+      //   1. Deterministic tiebreak. Two lots with the exact same
+      //      expiryDate (common when a bulk receipt gets split into
+      //      parallel bin positions) used to produce implementation-
+      //      defined ordering. Now the chain is
+      //        expiryDate ASC NULLS LAST, receivedDate ASC, lotNumber ASC
+      //      so the oldest received lot wins, and if receivedDate also
+      //      matches, lot_number lexicographic wins. Two runs against
+      //      the same table see identical picks.
+      //
+      //   2. Expired-lot exclusion. A lot whose expiryDate is in
+      //      the past MUST NOT be picked. Consuming expired feed is a
+      //      fish-health risk; consuming expired medicine is a legal
+      //      violation. NULL expiryDate is acceptable (non-perishable
+      //      consumables).
+      //
+      //   3. As-of scoping (backdating safety). `asOfDate` scopes the
+      //      query to lots received ON OR BEFORE the operational event
+      //      date. Feeding events logged retroactively therefore cannot
+      //      deduct from a lot that arrived after the event occurred.
+      //      Defaults to "now" for real-time movements.
+      const effectiveAsOf = asOfDate ?? new Date();
       inventory = await repo
         .createQueryBuilder('inv')
         .where('inv.tenantId = :tenantId', { tenantId })
@@ -413,7 +450,15 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
         .andWhere('inv.itemType = :itemType', { itemType })
         .andWhere('inv.itemId = :itemId', { itemId })
         .andWhere('inv.quantity > 0')
+        .andWhere('(inv.expiryDate IS NULL OR inv.expiryDate > :today)', {
+          today: new Date(),
+        })
+        .andWhere('(inv.receivedDate IS NULL OR inv.receivedDate <= :asOf)', {
+          asOf: effectiveAsOf,
+        })
         .orderBy('inv.expiryDate', 'ASC', 'NULLS LAST')
+        .addOrderBy('inv.receivedDate', 'ASC', 'NULLS LAST')
+        .addOrderBy('inv.lotNumber', 'ASC')
         .setLock('pessimistic_write')
         .getOne();
     }

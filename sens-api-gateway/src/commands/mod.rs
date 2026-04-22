@@ -190,6 +190,13 @@ mod refresh_license;
 // scripting::bytecode_deploy::verify_and_deploy (Batch 166).
 mod deploy_bytecode_program;
 
+// Batch 173 Faz 3: bytecode program operator commands —
+// list_bytecode_programs, enable/disable_bytecode_program,
+// delete_bytecode_program. All tenant-gated; enable/disable
+// flows through registry.set_enabled + store save-back;
+// delete removes from both in-memory + SQLCipher.
+mod bytecode_ops;
+
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -888,6 +895,11 @@ impl CommandHandler {
             "refresh_license" => self.cmd_refresh_license(&command.params).await,
             // ST bytecode program deploy (Batch 167 Faz 3)
             "deploy_bytecode_program" => self.cmd_deploy_bytecode_program(&command.params).await,
+            // ST bytecode program operator commands (Batch 173 Faz 3)
+            "list_bytecode_programs" => self.cmd_list_bytecode_programs(&command.params).await,
+            "enable_bytecode_program" => self.cmd_enable_bytecode_program(&command.params).await,
+            "disable_bytecode_program" => self.cmd_disable_bytecode_program(&command.params).await,
+            "delete_bytecode_program" => self.cmd_delete_bytecode_program(&command.params).await,
             _ => {
                 // v1.2.2: Sanitize user-provided command name to prevent log injection
                 warn!("Unknown command: {}", sanitize_for_log(&command.command));

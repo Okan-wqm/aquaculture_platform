@@ -26,6 +26,7 @@ import { Species } from '../../species/entities/species.entity';
 import { Equipment } from '../../equipment/entities/equipment.entity';
 import { Tank } from '../../tank/entities/tank.entity';
 import { CodeGeneratorService } from '../../database/services/code-generator.service';
+import { TankCapacityService } from '../../tank/services/tank-capacity.service';
 import { adaptTankToEquipment } from '../utils/tank-lookup.util';
 
 @Injectable()
@@ -47,6 +48,7 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
     private readonly equipmentRepository: Repository<Equipment>,
     private readonly codeGenerator: CodeGeneratorService,
     private readonly outboxPublisher: OutboxPublisher,
+    private readonly tankCapacityService: TankCapacityService,
   ) {}
 
   async execute(command: CreateBatchCommand): Promise<Batch> {
@@ -384,26 +386,28 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
             // Check if TankBatch already exists for this equipment
             let tankBatch = tankBatchMap.get(tankId);
 
-            // Calculate density if equipment has volume
-            const specs = equipment.specifications as
-              | Record<string, unknown>
-              | undefined;
-            const tankVolume = Number(
-              specs?.waterVolume || specs?.effectiveVolume || specs?.volume || 0,
-            );
-            const density = tankVolume > 0 ? location.biomass / tankVolume : 0;
-
-            // Calculate capacity usage
-            const maxBiomass = Number(specs?.maxBiomass || 0);
-            const capacityUsedPercent =
-              maxBiomass > 0 ? (location.biomass / maxBiomass) * 100 : 0;
-            const isOverCapacity = capacityUsedPercent > 100;
-
-            // ── FARM-MEDIUM-002: Derive maxDensity from tank config ──
-            // Without maxDensity, downstream density calculations produce
-            // NaN/Infinity when dividing by zero. Default from tank specs,
-            // fall back to safe industry default of 30 kg/m3.
-            const maxDensity = Number(specs?.maxDensity || 30);
+            // Delegate density / biomass / status calculation to the
+            // single source of truth. `soft` mode: initial stocking may
+            // intentionally place fish above the density cap — the
+            // operator will distribute them across tanks as they grow.
+            // The flag is still persisted so the UI can warn and the
+            // ops team can follow up. See phase 1.1 of the plan and
+            // TankCapacityService for the full invariant contract.
+            const existingSalmon = tankBatch
+              ? Number(tankBatch.totalBiomassKg || 0)
+              : 0;
+            const existingCleaner = tankBatch
+              ? Number(tankBatch.cleanerFishBiomassKg || 0)
+              : 0;
+            const capacity = this.tankCapacityService.enforce({
+              mode: 'soft',
+              equipment,
+              existing: {
+                salmonBiomassKg: existingSalmon,
+                cleanerBiomassKg: existingCleaner,
+              },
+              incomingBiomassKg: location.biomass,
+            });
 
             if (tankBatch) {
               // Update existing TankBatch (mixed batch scenario)
@@ -416,9 +420,9 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
                   ? (Number(tankBatch.totalBiomassKg) * 1000) /
                     tankBatch.totalQuantity
                   : avgWeightG;
-              tankBatch.densityKgM3 = density;
-              tankBatch.capacityUsedPercent = maxDensity > 0 ? (density / maxDensity) * 100 : 0;
-              tankBatch.isOverCapacity = density > maxDensity;
+              tankBatch.densityKgM3 = capacity.projectedDensityKgM3;
+              tankBatch.capacityUsedPercent = capacity.utilizationPercent;
+              tankBatch.isOverCapacity = capacity.isOverCapacity;
 
               // Add to batch details
               const batchDetails = tankBatch.batchDetails || [];
@@ -437,10 +441,9 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
                 `Updated existing TankBatch for equipment ${equipment.code} (mixed batch)`,
               );
             } else {
-              // Create new TankBatch
-              // FARM-MEDIUM-002: capacityUsedPercent and isOverCapacity
-              // are derived from maxDensity (tank config) — never from
-              // maxBiomass alone, which can be zero for unconfigured tanks.
+              // Create new TankBatch — capacity flags come from the
+              // service so they match the allocate / transfer / deploy
+              // outputs exactly.
               tankBatch = queryRunner.manager.create(TankBatch, {
                 tenantId,
                 tankId,
@@ -453,9 +456,9 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
                 avgWeightG: avgWeightG,
                 totalBiomassKg: location.biomass,
                 currentBiomassKg: location.biomass,
-                densityKgM3: density,
-                capacityUsedPercent: maxDensity > 0 ? (density / maxDensity) * 100 : 0,
-                isOverCapacity: density > maxDensity,
+                densityKgM3: capacity.projectedDensityKgM3,
+                capacityUsedPercent: capacity.utilizationPercent,
+                isOverCapacity: capacity.isOverCapacity,
                 isMixedBatch: false,
                 /** Cleaner fish fields default to zero for production batches.
                  *  TypeORM create() sends explicit null for omitted fields,

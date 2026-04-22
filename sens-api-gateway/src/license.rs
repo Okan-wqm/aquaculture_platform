@@ -232,6 +232,53 @@ pub enum SignatureModeConsistency {
     CriticalMismatchDisabledSignatureMode,
 }
 
+/// Count configured IO channels across all protocols
+/// (Batch 147 Faz 7). Operator-visible granularity:
+/// each configured modbus device counts as 1, each GPIO
+/// pin counts as 1, each I2C device counts as 1. Matches
+/// the "number of things wired to the edge" operator
+/// mental model + the license-tier `max_io_channels`
+/// field's semantic.
+///
+/// PWM + SPI channels are counted when their config
+/// surfaces land in future batches (Faz 4/5 polling
+/// integrations).
+pub fn count_configured_io_channels(config: &crate::config::AgentConfig) -> usize {
+    config.modbus.len() + config.gpio.len() + config.i2c.len()
+}
+
+/// IO channel budget check result (Batch 147 Faz 7).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IoChannelBudget {
+    /// Configured count within license cap.
+    WithinBudget { configured: usize, cap: usize },
+    /// Configured count exceeds license cap. Plan Faz 7
+    /// discipline: io_poll task does NOT start +
+    /// CRITICAL log + operator sees via dashboard.
+    Exceeded { configured: usize, cap: usize },
+}
+
+/// Check whether configured IO channels fit within the
+/// license's `max_io_channels` cap.
+///
+/// Pure function — testable without AppState fixtures.
+/// Returns a structured enum so the caller can route:
+/// - io_poll boot decision (start / refuse)
+/// - CRITICAL boot log emission
+/// - operator-dashboard metric
+pub fn check_io_channel_budget(
+    config: &crate::config::AgentConfig,
+    license: &EdgeLicenseLimits,
+) -> IoChannelBudget {
+    let configured = count_configured_io_channels(config);
+    let cap = license.max_io_channels as usize;
+    if configured > cap {
+        IoChannelBudget::Exceeded { configured, cap }
+    } else {
+        IoChannelBudget::WithinBudget { configured, cap }
+    }
+}
+
 /// Check whether the license's `signed_deploy_required`
 /// contract is consistent with the agent's
 /// `signature_mode` runtime setting.
@@ -422,6 +469,129 @@ mod tests {
             check_signature_mode_consistency(&l, SignatureMode::Enforcing),
             SignatureModeConsistency::Consistent
         ));
+    }
+
+    // ====================================================================
+    // Batch 147 Faz 7 — IO channel budget tests
+    // ====================================================================
+
+    fn empty_config() -> crate::config::AgentConfig {
+        // Use Default for the base + override required
+        // fields the constructor validator rejects (handled
+        // by serde_yaml parse of a minimal config in
+        // real paths; for tests we bypass validation).
+        let yaml = r#"
+device_id: "00000000-0000-0000-0000-000000000000"
+device_code: "test"
+api_url: "https://example"
+mqtt:
+  broker: "localhost"
+  port: 1883
+  keepalive_secs: 60
+  clean_session: false
+telemetry:
+  interval_seconds: 30
+modbus: []
+gpio: []
+i2c: []
+"#;
+        serde_yaml::from_str(yaml).expect("minimal config parses")
+    }
+
+    #[test]
+    fn count_empty_config_zero_channels() {
+        let c = empty_config();
+        assert_eq!(count_configured_io_channels(&c), 0);
+    }
+
+    #[test]
+    fn budget_within_cap_when_conservative_under_limit() {
+        // conservative() cap = 16, empty config = 0.
+        let c = empty_config();
+        let lic = EdgeLicenseLimits::conservative();
+        match check_io_channel_budget(&c, &lic) {
+            IoChannelBudget::WithinBudget { configured, cap } => {
+                assert_eq!(configured, 0);
+                assert_eq!(cap, 16);
+            }
+            other => panic!("expected WithinBudget, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn budget_exceeded_when_tight_cap() {
+        // Fake a low-cap license vs empty config. Since
+        // empty=0 < anything, exceed can't happen via
+        // config alone. Test by dropping the cap below
+        // zero-count (cap=0 vs configured=0 → still
+        // within). Use cap=0 + synthetic channels.
+        //
+        // Simpler: set license cap=0 + test helper
+        // directly. We can't mutate config without
+        // rebuilding; instead synthesize a limits that
+        // caps at 0 + any config with at least 1 channel.
+        //
+        // Most robust: count via the helper on a known
+        // non-empty yaml, then pair with a low-cap
+        // license.
+        let yaml = r#"
+device_id: "00000000-0000-0000-0000-000000000000"
+device_code: "test"
+api_url: "https://example"
+mqtt:
+  broker: "localhost"
+  port: 1883
+  keepalive_secs: 60
+  clean_session: false
+telemetry:
+  interval_seconds: 30
+modbus:
+  - name: "plc1"
+    connection_type: "tcp"
+    address: "1.2.3.4:502"
+    slave_id: 1
+    polling_interval_ms: 1000
+gpio:
+  - pin: 17
+    direction: "input"
+    pull: "none"
+    name: "door-sensor"
+i2c:
+  - name: "atlas1"
+    bus: 1
+    address: 99
+    kind: "EzoPh"
+    polling_interval_ms: 5000
+"#;
+        let c: crate::config::AgentConfig =
+            serde_yaml::from_str(yaml).expect("3-channel config parses");
+        assert_eq!(count_configured_io_channels(&c), 3);
+
+        // License cap=2 → exceed.
+        let lic = EdgeLicenseLimits {
+            max_io_channels: 2,
+            ..EdgeLicenseLimits::conservative()
+        };
+        match check_io_channel_budget(&c, &lic) {
+            IoChannelBudget::Exceeded { configured, cap } => {
+                assert_eq!(configured, 3);
+                assert_eq!(cap, 2);
+            }
+            other => panic!("expected Exceeded, got {:?}", other),
+        }
+
+        // License cap=3 → exactly at boundary; within.
+        let lic_at_boundary = EdgeLicenseLimits {
+            max_io_channels: 3,
+            ..EdgeLicenseLimits::conservative()
+        };
+        match check_io_channel_budget(&c, &lic_at_boundary) {
+            IoChannelBudget::WithinBudget { configured, cap } => {
+                assert_eq!(configured, 3);
+                assert_eq!(cap, 3);
+            }
+            other => panic!("expected WithinBudget at boundary, got {:?}", other),
+        }
     }
 }
 

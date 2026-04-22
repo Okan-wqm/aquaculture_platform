@@ -7,7 +7,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::{self, MissedTickBehavior};
 use serde::Serialize;
-use tracing::{debug, warn, info};
+use tracing::{debug, error, info, warn};
 
 use crate::AppState;
 use crate::atlas_ezo::AtlasEzoDriver;
@@ -39,8 +39,42 @@ pub struct IoTagData {
 
 /// Main I/O polling loop
 pub async fn io_poll_loop(state: Arc<RwLock<AppState>>) {
+    // Batch 147 Faz 7: license IO channel budget gate.
+    // Plan R-10 + Faz 7 discipline: if configured
+    // channels exceed license.max_io_channels, the task
+    // does NOT start + CRITICAL log fires. Agent
+    // degrades observably (zero telemetry from this
+    // path) so operator sees the license-contract
+    // violation immediately on device bring-up.
+    //
+    // No fail-closed process exit: the CRITICAL log is
+    // the operator signal; the AGENT stays alive so
+    // refresh_license + signature_mode + other
+    // non-IO-polling paths remain operable while the
+    // operator resolves the budget.
     let interval_ms = {
         let s = state.read().await;
+        let budget = crate::license::check_io_channel_budget(&s.config, &s.license);
+        match budget {
+            crate::license::IoChannelBudget::Exceeded { configured, cap } => {
+                error!(
+                    "CRITICAL LICENSE BUDGET EXCEEDED: configured {} IO channels > license cap {} (tier={}). I/O polling task REFUSES TO START. Operator must either (a) reduce modbus/gpio/i2c channel count in config.yaml to <= {} OR (b) refresh_license to a higher tier. Agent remains operable for license refresh + other paths.",
+                    configured,
+                    cap,
+                    s.license.tier.as_str(),
+                    cap
+                );
+                return;
+            }
+            crate::license::IoChannelBudget::WithinBudget { configured, cap } => {
+                info!(
+                    "License IO budget: {} configured / {} cap (tier={})",
+                    configured,
+                    cap,
+                    s.license.tier.as_str()
+                );
+            }
+        }
         s.config.telemetry.io_data_interval_ms
     };
 

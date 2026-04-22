@@ -839,7 +839,7 @@ Hepsi kabul edilmeli:
 | 15-B14 | Auto rule parser riski | ❌ Yanlış | Enum-bazlı, eval yok |
 | 15-B15 | Cleaner fish capacity | 🔴 **KRİTİK** | max_biomass_kg kontrolü yok |
 | 15-B16 | Lot mixing teorik vs fiziksel | ✅ RESOLVED (Faz 2.4) | Gıda güvenliği izlenebilirlik — `StorageLotMix` + `LotMixService` |
-| 15-B17 | Audit log PII + şişme | ✅ | GDPR + storage bloat |
+| 15-B17 | Audit log PII + şişme | ✅ RESOLVED (Faz 2.5) | `AuditRedactionService` — partial-mask PII + secret full-redact + oversize collapse |
 | 15-B18 | Audit retention çalışmıyor | ✅ | Fonksiyon var, cron yok |
 | 15-C1…C15 | Hiç girilmemiş başlıklar | ✅ çoğu geçerli | Dokümana yeni bölümler eklenmeli |
 | 15-D1…D12 | Mevcut bölüm iyileştirmeleri | ✅ format önerileri | Kabul edilmeli |

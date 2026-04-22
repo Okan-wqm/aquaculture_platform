@@ -55,6 +55,12 @@ pub mod bytecode_registry;
 // entry so the ScriptEngine Phase 5b batch can drive
 // it at a configured cadence.
 pub mod bytecode_runner;
+// Batch 166 Faz 3 (plan R-1): deploy pipeline —
+// composes Batch 158 signature verify + Batch 163
+// registry insert into a single gate-ordered
+// `verify_and_deploy`. The MQTT deploy-command handler
+// uses this as its core logic in a future batch.
+pub mod bytecode_deploy;
 mod conflict;
 mod context;
 mod engine;

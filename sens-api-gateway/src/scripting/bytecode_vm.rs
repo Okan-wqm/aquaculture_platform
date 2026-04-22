@@ -422,13 +422,14 @@ impl ScriptVm {
                 direction: "write",
             }),
 
-            // Stdlib — Batch 151 stub. Batch 153 wires
-            // the 10 numeric functions (ABS / SQRT /
-            // LIMIT / MIN / MAX / SEL / LN / EXP / POW
-            // + Real variants).
-            Opcode::StdlibCall { fn_id } => Err(VmError::StdlibNotWired {
-                fn_id_wire_tag: fn_id.wire_tag(),
-            }),
+            // Stdlib — Batch 154 wires the 10 Batch 148
+            // numeric functions. Each variant pops its
+            // declared arg count in reverse (stack top
+            // is the rightmost arg) + pushes the single
+            // result. Runtime faults (SQRT of negative,
+            // LN of non-positive) trip SafeState per
+            // IEC 61131-3 fault semantic.
+            Opcode::StdlibCall { fn_id } => self.dispatch_stdlib(*fn_id),
 
             // Safety
             Opcode::GasTick => {
@@ -516,6 +517,112 @@ impl ScriptVm {
         let b = self.pop_real(op_label)?;
         let a = self.pop_real(op_label)?;
         self.stack.push(StValue::Real(f(a, b)));
+        Ok(DispatchStep::Advance)
+    }
+
+    /// Dispatch a single stdlib function call (Batch
+    /// 154). Assumes args are already on the stack (left
+    /// to right). Pops the declared arg count + pushes
+    /// exactly one result.
+    ///
+    /// Runtime fault policy:
+    /// - SQRT(negative) → `VmError::SafeStateTripped`.
+    /// - LN(x ≤ 0)      → `VmError::SafeStateTripped`.
+    /// - Integer ABS on i64::MIN wraps per Batch 151
+    ///   arithmetic discipline (wrapping_abs). PLC
+    ///   operators see a deterministic value on overflow
+    ///   rather than SafeState — matches Batch 151
+    ///   AddInt/SubInt/MulInt wrapping behavior.
+    fn dispatch_stdlib(
+        &mut self,
+        fn_id: super::bytecode::StdlibFunctionId,
+    ) -> Result<DispatchStep, VmError> {
+        use super::bytecode::StdlibFunctionId as F;
+
+        match fn_id {
+            F::AbsInt => {
+                let x = self.pop_int("Stdlib::AbsInt")?;
+                self.stack.push(StValue::Int(x.wrapping_abs()));
+            }
+            F::AbsReal => {
+                let x = self.pop_real("Stdlib::AbsReal")?;
+                self.stack.push(StValue::Real(x.abs()));
+            }
+            F::SqrtReal => {
+                let x = self.pop_real("Stdlib::SqrtReal")?;
+                if x < 0.0 {
+                    // IEC 61131-3 fault on SQRT(negative)
+                    // → trip safe state. Operator sees a
+                    // deterministic fault rather than NaN
+                    // contamination of downstream tags.
+                    return Err(VmError::SafeStateTripped);
+                }
+                self.stack.push(StValue::Real(x.sqrt()));
+            }
+            F::LimitReal => {
+                // LIMIT(mn, in, mx) → args pushed in
+                // that order, so stack top = mx.
+                let mx = self.pop_real("Stdlib::LimitReal")?;
+                let in_val = self.pop_real("Stdlib::LimitReal")?;
+                let mn = self.pop_real("Stdlib::LimitReal")?;
+                // Explicit clamp — NaN-safe: if mn > mx
+                // (operator-supplied nonsense) result is
+                // mn per Rust f64::clamp panic avoidance.
+                let clamped = if mn > mx {
+                    mn
+                } else {
+                    in_val.clamp(mn, mx)
+                };
+                self.stack.push(StValue::Real(clamped));
+            }
+            F::MinReal => {
+                let b = self.pop_real("Stdlib::MinReal")?;
+                let a = self.pop_real("Stdlib::MinReal")?;
+                // f64::min carries NaN-min semantic per
+                // IEEE 754 — NaN vs x → x. Acceptable for
+                // numeric IEC types.
+                self.stack.push(StValue::Real(a.min(b)));
+            }
+            F::MaxReal => {
+                let b = self.pop_real("Stdlib::MaxReal")?;
+                let a = self.pop_real("Stdlib::MaxReal")?;
+                self.stack.push(StValue::Real(a.max(b)));
+            }
+            F::SelReal => {
+                // SEL(cond: Bool, if_false: Real, if_true: Real)
+                // Args pushed left-to-right → stack top =
+                // if_true. Pop order: if_true, if_false,
+                // cond. IEC 61131-3: cond=TRUE selects
+                // if_true (argument 2), cond=FALSE selects
+                // if_false (argument 1).
+                let if_true = self.pop_real("Stdlib::SelReal")?;
+                let if_false = self.pop_real("Stdlib::SelReal")?;
+                let cond = self.pop_bool("Stdlib::SelReal")?;
+                self.stack.push(StValue::Real(if cond {
+                    if_true
+                } else {
+                    if_false
+                }));
+            }
+            F::LnReal => {
+                let x = self.pop_real("Stdlib::LnReal")?;
+                if x <= 0.0 {
+                    // LN domain is (0, ∞). x≤0 is a PLC
+                    // runtime fault → safe state.
+                    return Err(VmError::SafeStateTripped);
+                }
+                self.stack.push(StValue::Real(x.ln()));
+            }
+            F::ExpReal => {
+                let x = self.pop_real("Stdlib::ExpReal")?;
+                self.stack.push(StValue::Real(x.exp()));
+            }
+            F::PowReal => {
+                let exp_arg = self.pop_real("Stdlib::PowReal")?;
+                let base = self.pop_real("Stdlib::PowReal")?;
+                self.stack.push(StValue::Real(base.powf(exp_arg)));
+            }
+        }
         Ok(DispatchStep::Advance)
     }
 
@@ -893,21 +1000,286 @@ mod tests {
         ));
     }
 
+    // ====================================================================
+    // Stdlib dispatch (Batch 154)
+    // ====================================================================
+
     #[test]
-    fn run_stdlib_call_stub_returns_not_wired() {
+    fn run_stdlib_abs_int_negates_negative() {
         use super::super::bytecode::StdlibFunctionId;
         let b = bc(
             vec![
+                Opcode::PushConst { value: StValue::Int(-7) },
                 Opcode::StdlibCall { fn_id: StdlibFunctionId::AbsInt },
                 Opcode::Return,
             ],
             0,
         );
         let mut vm = ScriptVm::new(&b);
-        assert!(matches!(
+        assert_eq!(vm.run(&b), VmOutcome::Returned);
+        assert_eq!(vm.stack(), &[StValue::Int(7)]);
+    }
+
+    #[test]
+    fn run_stdlib_abs_real_returns_magnitude() {
+        use super::super::bytecode::StdlibFunctionId;
+        let b = bc(
+            vec![
+                Opcode::PushConst { value: StValue::Real(-3.25) },
+                Opcode::StdlibCall { fn_id: StdlibFunctionId::AbsReal },
+                Opcode::Return,
+            ],
+            0,
+        );
+        let mut vm = ScriptVm::new(&b);
+        assert_eq!(vm.run(&b), VmOutcome::Returned);
+        assert_eq!(vm.stack(), &[StValue::Real(3.25)]);
+    }
+
+    #[test]
+    fn run_stdlib_sqrt_real_returns_root() {
+        use super::super::bytecode::StdlibFunctionId;
+        let b = bc(
+            vec![
+                Opcode::PushConst { value: StValue::Real(9.0) },
+                Opcode::StdlibCall { fn_id: StdlibFunctionId::SqrtReal },
+                Opcode::Return,
+            ],
+            0,
+        );
+        let mut vm = ScriptVm::new(&b);
+        assert_eq!(vm.run(&b), VmOutcome::Returned);
+        assert_eq!(vm.stack(), &[StValue::Real(3.0)]);
+    }
+
+    #[test]
+    fn run_stdlib_sqrt_real_negative_trips_safe_state() {
+        use super::super::bytecode::StdlibFunctionId;
+        let b = bc(
+            vec![
+                Opcode::PushConst { value: StValue::Real(-1.0) },
+                Opcode::StdlibCall { fn_id: StdlibFunctionId::SqrtReal },
+                Opcode::Return,
+            ],
+            0,
+        );
+        let mut vm = ScriptVm::new(&b);
+        assert_eq!(
             vm.run(&b),
-            VmOutcome::Error(VmError::StdlibNotWired { .. })
-        ));
+            VmOutcome::Error(VmError::SafeStateTripped)
+        );
+    }
+
+    #[test]
+    fn run_stdlib_limit_real_clamps_above_max() {
+        use super::super::bytecode::StdlibFunctionId;
+        // LIMIT(0, 10, 5) → 5 (clamped to max).
+        let b = bc(
+            vec![
+                Opcode::PushConst { value: StValue::Real(0.0) },
+                Opcode::PushConst { value: StValue::Real(10.0) },
+                Opcode::PushConst { value: StValue::Real(5.0) },
+                Opcode::StdlibCall { fn_id: StdlibFunctionId::LimitReal },
+                Opcode::Return,
+            ],
+            0,
+        );
+        let mut vm = ScriptVm::new(&b);
+        assert_eq!(vm.run(&b), VmOutcome::Returned);
+        assert_eq!(vm.stack(), &[StValue::Real(5.0)]);
+    }
+
+    #[test]
+    fn run_stdlib_limit_real_clamps_below_min() {
+        use super::super::bytecode::StdlibFunctionId;
+        // LIMIT(2, -1, 5) → 2 (clamped to min).
+        let b = bc(
+            vec![
+                Opcode::PushConst { value: StValue::Real(2.0) },
+                Opcode::PushConst { value: StValue::Real(-1.0) },
+                Opcode::PushConst { value: StValue::Real(5.0) },
+                Opcode::StdlibCall { fn_id: StdlibFunctionId::LimitReal },
+                Opcode::Return,
+            ],
+            0,
+        );
+        let mut vm = ScriptVm::new(&b);
+        assert_eq!(vm.run(&b), VmOutcome::Returned);
+        assert_eq!(vm.stack(), &[StValue::Real(2.0)]);
+    }
+
+    #[test]
+    fn run_stdlib_limit_real_passthrough_within_range() {
+        use super::super::bytecode::StdlibFunctionId;
+        let b = bc(
+            vec![
+                Opcode::PushConst { value: StValue::Real(0.0) },
+                Opcode::PushConst { value: StValue::Real(3.5) },
+                Opcode::PushConst { value: StValue::Real(10.0) },
+                Opcode::StdlibCall { fn_id: StdlibFunctionId::LimitReal },
+                Opcode::Return,
+            ],
+            0,
+        );
+        let mut vm = ScriptVm::new(&b);
+        assert_eq!(vm.run(&b), VmOutcome::Returned);
+        assert_eq!(vm.stack(), &[StValue::Real(3.5)]);
+    }
+
+    #[test]
+    fn run_stdlib_min_max_real_picks_extrema() {
+        use super::super::bytecode::StdlibFunctionId;
+        let b_min = bc(
+            vec![
+                Opcode::PushConst { value: StValue::Real(5.0) },
+                Opcode::PushConst { value: StValue::Real(3.0) },
+                Opcode::StdlibCall { fn_id: StdlibFunctionId::MinReal },
+                Opcode::Return,
+            ],
+            0,
+        );
+        let mut vm = ScriptVm::new(&b_min);
+        assert_eq!(vm.run(&b_min), VmOutcome::Returned);
+        assert_eq!(vm.stack(), &[StValue::Real(3.0)]);
+
+        let b_max = bc(
+            vec![
+                Opcode::PushConst { value: StValue::Real(5.0) },
+                Opcode::PushConst { value: StValue::Real(3.0) },
+                Opcode::StdlibCall { fn_id: StdlibFunctionId::MaxReal },
+                Opcode::Return,
+            ],
+            0,
+        );
+        let mut vm = ScriptVm::new(&b_max);
+        assert_eq!(vm.run(&b_max), VmOutcome::Returned);
+        assert_eq!(vm.stack(), &[StValue::Real(5.0)]);
+    }
+
+    #[test]
+    fn run_stdlib_sel_real_picks_by_cond() {
+        use super::super::bytecode::StdlibFunctionId;
+        // SEL(cond=TRUE, if_false=1.0, if_true=9.0) → 9.0.
+        let b_true = bc(
+            vec![
+                Opcode::PushConst { value: StValue::Bool(true) },
+                Opcode::PushConst { value: StValue::Real(1.0) },
+                Opcode::PushConst { value: StValue::Real(9.0) },
+                Opcode::StdlibCall { fn_id: StdlibFunctionId::SelReal },
+                Opcode::Return,
+            ],
+            0,
+        );
+        let mut vm = ScriptVm::new(&b_true);
+        assert_eq!(vm.run(&b_true), VmOutcome::Returned);
+        assert_eq!(vm.stack(), &[StValue::Real(9.0)]);
+
+        // SEL(cond=FALSE, if_false=1.0, if_true=9.0) → 1.0.
+        let b_false = bc(
+            vec![
+                Opcode::PushConst { value: StValue::Bool(false) },
+                Opcode::PushConst { value: StValue::Real(1.0) },
+                Opcode::PushConst { value: StValue::Real(9.0) },
+                Opcode::StdlibCall { fn_id: StdlibFunctionId::SelReal },
+                Opcode::Return,
+            ],
+            0,
+        );
+        let mut vm = ScriptVm::new(&b_false);
+        assert_eq!(vm.run(&b_false), VmOutcome::Returned);
+        assert_eq!(vm.stack(), &[StValue::Real(1.0)]);
+    }
+
+    #[test]
+    fn run_stdlib_ln_real_returns_log() {
+        use super::super::bytecode::StdlibFunctionId;
+        // LN(e) = 1.0
+        let b = bc(
+            vec![
+                Opcode::PushConst { value: StValue::Real(std::f64::consts::E) },
+                Opcode::StdlibCall { fn_id: StdlibFunctionId::LnReal },
+                Opcode::Return,
+            ],
+            0,
+        );
+        let mut vm = ScriptVm::new(&b);
+        assert_eq!(vm.run(&b), VmOutcome::Returned);
+        let top = vm.stack()[0];
+        if let StValue::Real(v) = top {
+            assert!((v - 1.0).abs() < 1e-12);
+        } else {
+            panic!("expected Real, got {:?}", top);
+        }
+    }
+
+    #[test]
+    fn run_stdlib_ln_real_non_positive_trips_safe_state() {
+        use super::super::bytecode::StdlibFunctionId;
+        let b_zero = bc(
+            vec![
+                Opcode::PushConst { value: StValue::Real(0.0) },
+                Opcode::StdlibCall { fn_id: StdlibFunctionId::LnReal },
+                Opcode::Return,
+            ],
+            0,
+        );
+        let mut vm = ScriptVm::new(&b_zero);
+        assert_eq!(
+            vm.run(&b_zero),
+            VmOutcome::Error(VmError::SafeStateTripped)
+        );
+
+        let b_neg = bc(
+            vec![
+                Opcode::PushConst { value: StValue::Real(-0.5) },
+                Opcode::StdlibCall { fn_id: StdlibFunctionId::LnReal },
+                Opcode::Return,
+            ],
+            0,
+        );
+        let mut vm = ScriptVm::new(&b_neg);
+        assert_eq!(
+            vm.run(&b_neg),
+            VmOutcome::Error(VmError::SafeStateTripped)
+        );
+    }
+
+    #[test]
+    fn run_stdlib_exp_real_returns_e_to_the_x() {
+        use super::super::bytecode::StdlibFunctionId;
+        let b = bc(
+            vec![
+                Opcode::PushConst { value: StValue::Real(1.0) },
+                Opcode::StdlibCall { fn_id: StdlibFunctionId::ExpReal },
+                Opcode::Return,
+            ],
+            0,
+        );
+        let mut vm = ScriptVm::new(&b);
+        assert_eq!(vm.run(&b), VmOutcome::Returned);
+        if let StValue::Real(v) = vm.stack()[0] {
+            assert!((v - std::f64::consts::E).abs() < 1e-12);
+        } else {
+            panic!("expected Real");
+        }
+    }
+
+    #[test]
+    fn run_stdlib_pow_real_returns_base_to_exp() {
+        use super::super::bytecode::StdlibFunctionId;
+        // 2 ^ 10 = 1024
+        let b = bc(
+            vec![
+                Opcode::PushConst { value: StValue::Real(2.0) },
+                Opcode::PushConst { value: StValue::Real(10.0) },
+                Opcode::StdlibCall { fn_id: StdlibFunctionId::PowReal },
+                Opcode::Return,
+            ],
+            0,
+        );
+        let mut vm = ScriptVm::new(&b);
+        assert_eq!(vm.run(&b), VmOutcome::Returned);
+        assert_eq!(vm.stack(), &[StValue::Real(1024.0)]);
     }
 
     // ====================================================================

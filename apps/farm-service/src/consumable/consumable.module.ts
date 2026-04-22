@@ -9,6 +9,8 @@ import { Supplier } from '../supplier/entities/supplier.entity';
 
 import { ConsumableResolver } from './consumable.resolver';
 
+import { RestoreModule } from '../common/services/restore.module';
+
 import { CreateConsumableHandler } from './handlers/create-consumable.handler';
 import { UpdateConsumableHandler } from './handlers/update-consumable.handler';
 import { DeleteConsumableHandler } from './handlers/delete-consumable.handler';
@@ -30,6 +32,7 @@ const QueryHandlers = [
 @Module({
   imports: [
     TypeOrmModule.forFeature([Consumable, Supplier]),
+    RestoreModule,
   ],
   providers: [
     ConsumableResolver,

@@ -4,6 +4,8 @@
 import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { TenantGuard, CurrentTenant, CurrentUser, Roles, Role, fromCqrsPaginated } from '@aquaculture/backend-common';
 import { ConsumableResponse, PaginatedConsumablesResponse } from './dto/consumable.response';
 import { CreateConsumableInput } from './dto/create-consumable.input';
@@ -15,6 +17,8 @@ import { UpdateConsumableCommand } from './commands/update-consumable.command';
 import { DeleteConsumableCommand } from './commands/delete-consumable.command';
 import { GetConsumableQuery } from './queries/get-consumable.query';
 import { ListConsumablesQuery } from './queries/list-consumables.query';
+import { Consumable } from './entities/consumable.entity';
+import { RestoreService } from '../common/services/restore.service';
 
 @Resolver(() => ConsumableResponse)
 @UseGuards(TenantGuard)
@@ -24,6 +28,9 @@ export class ConsumableResolver {
   constructor(
     private readonly commandBus: CommandBus,
     private readonly queryBus: QueryBus,
+    @InjectRepository(Consumable)
+    private readonly consumableRepository: Repository<Consumable>,
+    private readonly restoreService: RestoreService,
   ) {}
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
@@ -60,6 +67,28 @@ export class ConsumableResolver {
     this.logger.log(`Deleting consumable ${id} for tenant ${tenantId}`);
     const command = new DeleteConsumableCommand(id, tenantId, user.sub);
     return this.commandBus.execute(command);
+  }
+
+  /**
+   * Restore a soft-deleted consumable. TENANT_ADMIN only. Phase 4.2
+   * of the "Farm modülü kalan kör noktalar" plan. Closes Girdi 6
+   * on the consumable surface.
+   */
+  @Roles(Role.TENANT_ADMIN)
+  @Mutation(() => ConsumableResponse)
+  async restoreConsumable(
+    @Args('id', { type: () => ID }) id: string,
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: { sub: string; name?: string },
+  ): Promise<Consumable> {
+    this.logger.log(`Restoring consumable ${id} for tenant ${tenantId}`);
+    return this.restoreService.restore(
+      this.consumableRepository,
+      Consumable,
+      id,
+      { tenantId, userId: user.sub, userName: user.name },
+      { uniqueKeys: [['code']] },
+    );
   }
 
   @Query(() => ConsumableResponse, { nullable: true })

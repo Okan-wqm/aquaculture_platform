@@ -178,4 +178,16 @@ export class Consumable {
     this.deletedBy = deletedBy;
     this.isActive = false;
   }
+
+  /**
+   * Undo a soft delete. Counterpart to `softDelete` so the
+   * generic RestoreService can operate on Consumable like every
+   * other restorable entity in the service. Phase 4.2.
+   */
+  restore(): void {
+    this.isDeleted = false;
+    this.deletedAt = undefined;
+    this.deletedBy = undefined;
+    this.isActive = true;
+  }
 }

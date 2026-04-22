@@ -1111,3 +1111,4 @@ Bu orphan'ı Faz 1.3 hot-fix olarak **ayrı PR** ile kapatmak gerekir — Faz 2.
 | 20 | Faz 3 Tier 1 — allocateBatchToTank UI | ✅ RESOLVED (Faz 3 partial) | Phase 3 Tier 1 |
 | 21 | Faz 3 Tier 1 — createSubEquipment UI + update/delete (Tier 3) | ✅ RESOLVED (Faz 3 partial) | Phase 3 Tier 1 part 2 |
 | 22 | Faz 3 Tier 1 — assignFeedsToBatch UI + update/delete (Tier 2) | ✅ RESOLVED (Faz 3 partial) | Phase 3 Tier 1 part 2 |
+| 23 | Faz 4.2 — Generic RestoreService + restore mutations | ✅ RESOLVED (Faz 4.2) | Girdi 6 — Feed/Species/Supplier/Chemical/Consumable surfaces |

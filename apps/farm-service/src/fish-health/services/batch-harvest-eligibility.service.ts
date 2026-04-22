@@ -109,13 +109,16 @@ export class BatchHarvestEligibilityService {
       status: e.status,
     }));
 
-    if (blockingEvents.length === 0) {
+    // DESC order: the first row has the latest earliestHarvestDate and
+    // therefore defines the effective block window for the batch.
+    // Use an explicit const (instead of blockingEvents[0].x) so
+    // noUncheckedIndexedAccess can refine length>0 into a definite value.
+    const firstBlocker = blockingEvents[0];
+    if (!firstBlocker) {
       return { eligible: true, blockingEvents: [] };
     }
 
-    // DESC order: the first row has the latest earliestHarvestDate and
-    // therefore defines the effective block window for the batch.
-    const blockedUntil = blockingEvents[0].earliestHarvestDate;
+    const blockedUntil = firstBlocker.earliestHarvestDate;
     const reason =
       `Batch has ${blockingEvents.length} active health event(s) with ` +
       `open withdrawal period. Earliest permissible harvest date: ` +

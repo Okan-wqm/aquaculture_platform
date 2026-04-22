@@ -14,6 +14,7 @@ import { CreateBatchCommand } from '../../commands/create-batch.command';
 import { Batch, BatchStatus } from '../../entities/batch.entity';
 import { Species } from '../../../species/entities/species.entity';
 import { CodeGeneratorService } from '../../../database/services/code-generator.service';
+import { TankCapacityService } from '../../../tank/services/tank-capacity.service';
 
 describe('CreateBatchHandler', () => {
   let handler: CreateBatchHandler;
@@ -59,6 +60,26 @@ describe('CreateBatchHandler', () => {
         {
           provide: EventBus,
           useValue: mockEventBus,
+        },
+        {
+          provide: TankCapacityService,
+          useValue: {
+            enforce: jest.fn().mockReturnValue({
+              tankVolumeM3: 100,
+              maxBiomassKg: 0,
+              maxDensityKgM3: 30,
+              currentBiomassKg: 0,
+              projectedBiomassKg: 50,
+              projectedDensityKgM3: 0.5,
+              utilizationPercent: 1.67,
+              isStatusBlocked: false,
+              isOverBiomass: false,
+              isOverDensity: false,
+              isOverCapacity: false,
+              primaryBlockReason: null,
+            }),
+            calculate: jest.fn(),
+          },
         },
       ],
     }).compile();

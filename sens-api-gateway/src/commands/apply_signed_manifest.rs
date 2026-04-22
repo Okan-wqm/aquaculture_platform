@@ -634,6 +634,351 @@ mod tests {
             "stale_firmware_version"
         );
     }
+
+    // ========================================================================
+    // End-to-end happy-path integration test (Batch 117 Sprint 6.5)
+    // ========================================================================
+    //
+    // Signs a real SignedFirmwareManifest with a test keypair, runs it
+    // through the full verify → plan_transition → apply_roll_with_version_bump
+    // → BootloaderHandle.set_next_boot_slot chain, and asserts that the
+    // PartitionStore + bootloader end up in the expected post-apply state.
+    //
+    // Does NOT go through CommandHandler / MQTT dispatch — that layer is
+    // thin glue around the orchestration primitives exercised below.
+    // Running in-process keeps the test fast + isolated from AppState
+    // construction complexity.
+
+    use crate::authz::permission::TenantId as TenantIdFull;
+    use crate::updater::{
+        FileDigest, FileEntry, FirmwareManifest, Sha256Digest,
+        SignedFirmwareManifest, TargetArch,
+    };
+    use ed25519_dalek::{Signer, SigningKey};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    /// Bootloader test fixture that records every
+    /// set_next_boot_slot call for the integration test to
+    /// assert the hardware-coordination side fired.
+    struct RecordingBootloader {
+        set_next_calls: AtomicUsize,
+        last_target: std::sync::Mutex<Option<AbPartition>>,
+    }
+
+    impl RecordingBootloader {
+        fn new() -> Self {
+            Self {
+                set_next_calls: AtomicUsize::new(0),
+                last_target: std::sync::Mutex::new(None),
+            }
+        }
+    }
+
+    impl BootloaderHandle for RecordingBootloader {
+        fn set_next_boot_slot(
+            &self,
+            slot: AbPartition,
+        ) -> Result<(), crate::updater::BootloaderError> {
+            self.set_next_calls.fetch_add(1, Ordering::SeqCst);
+            *self.last_target.lock().unwrap() = Some(slot);
+            Ok(())
+        }
+
+        fn clear_pending_boot(
+            &self,
+            _slot: AbPartition,
+        ) -> Result<(), crate::updater::BootloaderError> {
+            Ok(())
+        }
+
+        fn rollback_next_boot(
+            &self,
+            _to_slot: AbPartition,
+        ) -> Result<(), crate::updater::BootloaderError> {
+            Ok(())
+        }
+
+        fn active_slot_at_boot(&self) -> Option<AbPartition> {
+            None
+        }
+
+        fn backend_name(&self) -> &'static str {
+            "integration-recording"
+        }
+    }
+
+    fn tmp_partition_store_path() -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "suderra-apply-e2e-{}-{}.json",
+            std::process::id(),
+            rand::random::<u32>()
+        ))
+    }
+
+    fn build_signed_manifest(
+        signing_key: &SigningKey,
+        tenant: &TenantIdFull,
+        firmware_version: u64,
+    ) -> SignedFirmwareManifest {
+        let now_secs = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time before unix epoch")
+            .as_secs() as i64;
+        let manifest = FirmwareManifest {
+            firmware_version,
+            tenant_id: *tenant,
+            target_arch: TargetArch::compiled_target(),
+            // 1-hour-wide window centered near now so the
+            // validity-window + clock gates pass without
+            // relying on specific clock value.
+            valid_from_unix_secs: now_secs - 1800,
+            valid_until_unix_secs: now_secs + 1800,
+            release_tag: format!("v{}-integration-test", firmware_version),
+            files: vec![FileEntry {
+                path: "bin/suderra-agent".to_string(),
+                digest: FileDigest {
+                    sha256: Sha256Digest::from_bytes([0x11u8; 32]),
+                    size_bytes: 1024,
+                    mode: 0o755,
+                },
+            }],
+        };
+        let canonical = manifest.canonical_bytes().expect("canonical ok");
+        let sig = signing_key.sign(&canonical);
+        SignedFirmwareManifest::from_body_and_signature_bytes(
+            manifest,
+            &sig.to_bytes(),
+        )
+        .expect("signature bytes ok")
+    }
+
+    #[test]
+    fn e2e_happy_path_initial_install_then_swap_with_real_ed25519_keypair() {
+        // 1. Fresh keypair. Deterministic seed for test
+        //    reproducibility (NOT a production key use).
+        let seed = [0x5au8; 32];
+        let signing_key = SigningKey::from_bytes(&seed);
+        let verifying_key = signing_key.verifying_key();
+        let pubkey_arc = Arc::new(verifying_key);
+
+        let tenant_bytes = [0xABu8; 16];
+        let tenant = TenantIdFull::new_from_verified(tenant_bytes);
+
+        // 2. Open a fresh PartitionStore — both slots Empty.
+        let path = tmp_partition_store_path();
+        let _ = std::fs::remove_file(&path);
+        let partition_store = Arc::new(
+            PartitionStore::open(Some(&path)).expect("store open"),
+        );
+
+        // Keep a concrete Arc for atomic-counter asserts +
+        // use the SAME Arc for bootloader method calls
+        // (Arc<RecordingBootloader> derefs to &T which
+        // already implements the trait methods).
+        let bootloader = Arc::new(RecordingBootloader::new());
+
+        // 3. Build + sign manifest v1 (InitialInstall path).
+        let signed_v1 = build_signed_manifest(&signing_key, &tenant, 1);
+
+        // 4. Run the same primitives the command body runs.
+        let snap_before = partition_store.snapshot().expect("snap");
+        assert_eq!(snap_before.active_firmware_version, 0);
+        assert_eq!(snap_before.slot_a_state, SlotState::Empty);
+        assert_eq!(snap_before.slot_b_state, SlotState::Empty);
+
+        let now = SystemTime::now();
+        let manifest_v1 = crate::updater::verify_firmware_manifest(
+            &signed_v1,
+            &tenant,
+            snap_before.active_firmware_version,
+            now,
+            |canonical, sig_bytes| {
+                let sig = ed25519_dalek::Signature::from_bytes(sig_bytes);
+                pubkey_arc.verify_strict(canonical, &sig).is_ok()
+            },
+        )
+        .expect("v1 verify ok");
+        assert_eq!(manifest_v1.firmware_version, 1);
+
+        let (roll, target, label) =
+            plan_transition(&snap_before).expect("plan v1");
+        assert_eq!(label, "InitialInstall");
+
+        let new_state = partition_store
+            .apply_roll_with_version_bump(roll, 90, manifest_v1.firmware_version)
+            .expect("apply v1");
+        assert_eq!(new_state.active_firmware_version, 1);
+        assert_eq!(new_state.state_of(target), SlotState::PendingConfirm);
+
+        bootloader
+            .set_next_boot_slot(target)
+            .expect("bootloader v1 set_next_boot_slot");
+
+        // 5. Confirm v1 (simulates post-boot health check).
+        partition_store
+            .apply_roll(PartitionRoll::Confirm { slot: target }, 90)
+            .expect("confirm v1");
+        let snap_v1_confirmed = partition_store.snapshot().expect("snap v1");
+        assert_eq!(snap_v1_confirmed.state_of(target), SlotState::Active);
+        assert!(snap_v1_confirmed.pending_confirm_deadline_unix_secs.is_none());
+
+        // 6. Deploy v2 — exercises SwapToPending + version
+        //    bump 1 → 2.
+        let signed_v2 = build_signed_manifest(&signing_key, &tenant, 2);
+
+        let manifest_v2 = crate::updater::verify_firmware_manifest(
+            &signed_v2,
+            &tenant,
+            snap_v1_confirmed.active_firmware_version,
+            now,
+            |canonical, sig_bytes| {
+                let sig = ed25519_dalek::Signature::from_bytes(sig_bytes);
+                pubkey_arc.verify_strict(canonical, &sig).is_ok()
+            },
+        )
+        .expect("v2 verify ok");
+        assert_eq!(manifest_v2.firmware_version, 2);
+
+        let (roll_v2, target_v2, label_v2) =
+            plan_transition(&snap_v1_confirmed).expect("plan v2");
+        assert_eq!(label_v2, "SwapToPending");
+        // v1 landed on slot A (default); v2 targets slot B.
+        assert_eq!(target, AbPartition::A);
+        assert_eq!(target_v2, AbPartition::B);
+
+        let new_state_v2 = partition_store
+            .apply_roll_with_version_bump(roll_v2, 90, manifest_v2.firmware_version)
+            .expect("apply v2");
+        assert_eq!(new_state_v2.active_firmware_version, 2);
+        assert_eq!(new_state_v2.active, AbPartition::B);
+        assert_eq!(new_state_v2.slot_a_state, SlotState::Standby);
+        assert_eq!(new_state_v2.slot_b_state, SlotState::PendingConfirm);
+
+        bootloader
+            .set_next_boot_slot(target_v2)
+            .expect("bootloader v2 set_next_boot_slot");
+
+        // 7. Assert the recording bootloader fired twice +
+        //    the last target was slot B.
+        assert_eq!(bootloader.set_next_calls.load(Ordering::SeqCst), 2);
+        assert_eq!(
+            *bootloader.last_target.lock().unwrap(),
+            Some(AbPartition::B)
+        );
+
+        // 8. Re-open store to prove version + state
+        //    persistence across agent restart. The
+        //    monotonic floor is permanent until Rollback.
+        drop(partition_store);
+        let reopened = PartitionStore::open(Some(&path)).expect("reopen");
+        let snap_reopened = reopened.snapshot().expect("snap reopened");
+        assert_eq!(snap_reopened.active_firmware_version, 2);
+        assert_eq!(snap_reopened.active, AbPartition::B);
+        assert_eq!(snap_reopened.slot_a_state, SlotState::Standby);
+        assert_eq!(snap_reopened.slot_b_state, SlotState::PendingConfirm);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn e2e_verify_rejects_foreign_tenant_manifest() {
+        // Prove the tenant-binding Gate 4 fires at the real
+        // verify callsite with a real keypair — an attacker
+        // with the signing key for tenant X cannot pivot a
+        // manifest onto tenant Y.
+        let seed = [0x99u8; 32];
+        let signing_key = SigningKey::from_bytes(&seed);
+        let pubkey_arc = Arc::new(signing_key.verifying_key());
+
+        let device_tenant = TenantIdFull::new_from_verified([0xAAu8; 16]);
+        let attacker_tenant = TenantIdFull::new_from_verified([0xBBu8; 16]);
+
+        // Attacker signs manifest for THEIR tenant + sends
+        // it at this device which is bound to device_tenant.
+        let signed = build_signed_manifest(&signing_key, &attacker_tenant, 1);
+
+        let err = crate::updater::verify_firmware_manifest(
+            &signed,
+            &device_tenant,
+            0,
+            SystemTime::now(),
+            |canonical, sig_bytes| {
+                let sig = ed25519_dalek::Signature::from_bytes(sig_bytes);
+                pubkey_arc.verify_strict(canonical, &sig).is_ok()
+            },
+        )
+        .expect_err("tenant mismatch must reject");
+        assert!(matches!(
+            err,
+            crate::updater::ManifestVerifyError::TenantMismatch
+        ));
+    }
+
+    #[test]
+    fn e2e_verify_rejects_tampered_manifest_signature() {
+        // Prove Gate 8 (ed25519 strict verify) rejects any
+        // in-flight body tamper. Sign a v1 manifest, then
+        // tamper the release_tag field, then run verify —
+        // must reject with InvalidSignature.
+        let seed = [0x7bu8; 32];
+        let signing_key = SigningKey::from_bytes(&seed);
+        let pubkey_arc = Arc::new(signing_key.verifying_key());
+        let tenant = TenantIdFull::new_from_verified([0xCCu8; 16]);
+
+        // Build manifest1 + sign.
+        let manifest1 = {
+            let now_secs = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as i64;
+            FirmwareManifest {
+                firmware_version: 1,
+                tenant_id: tenant,
+                target_arch: TargetArch::compiled_target(),
+                valid_from_unix_secs: now_secs - 1800,
+                valid_until_unix_secs: now_secs + 1800,
+                release_tag: "v1-genuine".to_string(),
+                files: vec![FileEntry {
+                    path: "bin/suderra-agent".to_string(),
+                    digest: FileDigest {
+                        sha256: Sha256Digest::from_bytes([0x22u8; 32]),
+                        size_bytes: 1024,
+                        mode: 0o755,
+                    },
+                }],
+            }
+        };
+        let sig1 = signing_key.sign(&manifest1.canonical_bytes().unwrap());
+
+        // Build manifest2 with TAMPERED release_tag, paired
+        // with the sig1 (which was over the genuine bytes).
+        let manifest2 = FirmwareManifest {
+            release_tag: "v1-TAMPERED".to_string(),
+            ..manifest1
+        };
+        let signed_tampered = SignedFirmwareManifest::from_body_and_signature_bytes(
+            manifest2,
+            &sig1.to_bytes(),
+        )
+        .expect("signature bytes ok");
+
+        let err = crate::updater::verify_firmware_manifest(
+            &signed_tampered,
+            &tenant,
+            0,
+            SystemTime::now(),
+            |canonical, sig_bytes| {
+                let sig = ed25519_dalek::Signature::from_bytes(sig_bytes);
+                pubkey_arc.verify_strict(canonical, &sig).is_ok()
+            },
+        )
+        .expect_err("tampered body must reject");
+        assert!(matches!(
+            err,
+            crate::updater::ManifestVerifyError::InvalidSignature
+        ));
+    }
 }
 
 // Suppress unused warning for the imports the test module

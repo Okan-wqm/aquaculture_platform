@@ -54,6 +54,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use nix::fcntl::{Flock, FlockArg};
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
@@ -61,6 +62,97 @@ use super::partition::{AbPartition, PartitionRoll, SlotState};
 
 /// Canonical on-disk state-store path.
 const DEFAULT_STORE_PATH: &str = "/var/lib/suderra/partition.json";
+
+/// Cross-process advisory file lock guard (Batch 121
+/// Sprint 6.5). Acquired at start of every apply_roll +
+/// apply_roll_with_version_bump; released on drop.
+///
+/// ## WHY
+///
+/// Pre-Batch-121 PartitionStore used only an in-process
+/// `Mutex<PartitionState>` which is worthless for cross-
+/// process safety. The `--confirm-active` CLI (Batch 110)
+/// and the running agent both open the same partition.json
+/// file via separate PartitionStore instances. Without
+/// file-level locking:
+///
+/// 1. Agent: `apply_roll(SwapToPending)` starts — reads in-
+///    memory guard at state X.
+/// 2. CLI (mid-agent-op): `apply_roll(Confirm)` starts —
+///    reads FRESH disk state X via its own `open()`.
+/// 3. Both processes validate against state X + compute
+///    their own new_states.
+/// 4. Both persist via atomic tempfile+rename. The later
+///    rename wins; the earlier persist's state is silently
+///    lost.
+/// 5. The losing process thinks its transition succeeded;
+///    its in-memory guard reflects a state the disk no
+///    longer has.
+///
+/// This is a classic lost-update race with DATA-LOSS
+/// consequences on a partition state machine — a lost
+/// SwapToPending could leave a PendingConfirm with no
+/// Standby to roll back to.
+///
+/// Batch 121 introduces LOCK_EX serialization via a
+/// companion `.lock` file + refreshes the in-memory guard
+/// from disk INSIDE the lock so cross-process state
+/// changes ARE observed before validation.
+///
+/// ## Lock file vs state file
+///
+/// The lock is on a COMPANION `.lock` file (not the state
+/// JSON itself) because the tempfile+rename persist path
+/// destroys the locked inode each write. A stable
+/// companion file keeps the lock semantics consistent
+/// across persist cycles.
+///
+/// ## Why advisory (flock) not mandatory (fcntl-lock)
+///
+/// flock locks are advisory — any process that doesn't
+/// call flock can bypass them. This is acceptable because
+/// EVERY PartitionStore user in this codebase goes through
+/// the same type, and flock is cheaper + simpler than
+/// fcntl POSIX locks. External processes that directly
+/// write partition.json are outside our threat model
+/// (they'd be operator error, not attacker vector).
+struct PartitionLockGuard {
+    // nix::fcntl::Flock is the new typestate-safe API that
+    // owns the File + releases the flock on drop. Wraps
+    // the fd so the kernel-level flock is tied to the
+    // guard's lifetime.
+    _flock: Flock<std::fs::File>,
+}
+
+impl PartitionLockGuard {
+    fn acquire(lock_path: &Path) -> Result<Self, PartitionStoreError> {
+        // create(true) ensures the lock file exists on first
+        // acquire; append(true) keeps it zero-size + avoids
+        // accidentally truncating if someone wrote content.
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .read(true)
+            .append(true)
+            .open(lock_path)
+            .map_err(|e| {
+                PartitionStoreError::IoError(format!(
+                    "lock file open {}: {}",
+                    lock_path.display(),
+                    e
+                ))
+            })?;
+
+        let flock_guard = Flock::lock(file, FlockArg::LockExclusive).map_err(|(_, e)| {
+            PartitionStoreError::IoError(format!(
+                "flock LOCK_EX on {}: {}",
+                lock_path.display(),
+                e
+            ))
+        })?;
+
+        Ok(Self { _flock: flock_guard })
+    }
+}
 
 /// Persistent A/B partition state — the single source of
 /// truth for `cmd_update_firmware` handler + the post-boot
@@ -177,6 +269,47 @@ pub struct PartitionStore {
 }
 
 impl PartitionStore {
+    /// Companion lock-file path for the Batch 121 cross-
+    /// process flock. Derived from the state file path:
+    /// `<path>.lock`. Kept separate from the state file so
+    /// the tempfile+rename persist path doesn't destroy the
+    /// lock inode on each write.
+    fn lock_path(&self) -> PathBuf {
+        let mut p = self.path.clone().into_os_string();
+        p.push(".lock");
+        PathBuf::from(p)
+    }
+
+    /// Re-read the state file from disk while holding the
+    /// cross-process lock (Batch 121 Sprint 6.5). Called
+    /// at the start of every apply_roll to ensure
+    /// validation runs against FRESH disk state + not a
+    /// stale in-memory cache.
+    ///
+    /// On file-not-found (first-boot race — another process
+    /// hasn't persisted yet): returns the initial state.
+    fn reread_disk_state(&self) -> Result<PartitionState, PartitionStoreError> {
+        if !self.path.exists() {
+            // First-boot path; either our own open() wrote
+            // the initial state already or we're about to.
+            return Ok(PartitionState::initial());
+        }
+        let bytes = std::fs::read(&self.path).map_err(|e| {
+            PartitionStoreError::IoError(format!(
+                "reread {}: {}",
+                self.path.display(),
+                e
+            ))
+        })?;
+        serde_json::from_slice(&bytes).map_err(|e| {
+            PartitionStoreError::ParseError(format!(
+                "reread parse {}: {}",
+                self.path.display(),
+                e
+            ))
+        })
+    }
+
     /// Open the store at `path` (default
     /// `/var/lib/suderra/partition.json`). Creates with
     /// `PartitionState::initial()` on first boot.
@@ -243,13 +376,25 @@ impl PartitionStore {
 
     /// Apply a PartitionRoll transition.
     ///
+    /// Batch 121 Sprint 6.5: cross-process serialization
+    /// via flock(2) advisory lock on the companion
+    /// `<path>.lock` file. The in-memory state is refreshed
+    /// from disk under the lock BEFORE validation so
+    /// cross-process state changes observed by the other
+    /// writer are reflected here (closes the lost-update
+    /// race documented on PartitionLockGuard).
+    ///
     /// Steps:
-    /// 1. Acquire write guard.
-    /// 2. Validate preconditions for the roll variant.
-    /// 3. Mutate in-memory state.
-    /// 4. Persist to disk (tempfile + rename).
-    /// 5. On persist failure: rollback in-memory mutation +
+    /// 1. Acquire flock LOCK_EX on the companion lock file.
+    /// 2. Acquire in-process write guard.
+    /// 3. Re-read state from disk under the lock; replace
+    ///    guard contents with fresh disk state.
+    /// 4. Validate preconditions for the roll variant.
+    /// 5. Mutate in-memory state.
+    /// 6. Persist to disk (tempfile + rename).
+    /// 7. On persist failure: rollback in-memory mutation +
     ///    return Err.
+    /// 8. Release flock (Drop).
     ///
     /// Returns the new state on success.
     pub fn apply_roll(
@@ -257,14 +402,20 @@ impl PartitionStore {
         roll: PartitionRoll,
         cold_boot_budget_secs: u64,
     ) -> Result<PartitionState, PartitionStoreError> {
+        let _file_lock = PartitionLockGuard::acquire(&self.lock_path())?;
+
         let mut guard = self.state.lock().map_err(|_| PartitionStoreError::LockPoisoned)?;
+
+        // Refresh in-memory state from disk while holding
+        // the flock. Picks up any changes made by other
+        // processes (e.g. CLI --confirm-active) since this
+        // process's last apply.
+        let fresh = self.reread_disk_state()?;
+        *guard = fresh;
         let prev_state = guard.clone();
 
         self.apply_roll_to_state(&mut guard, roll, cold_boot_budget_secs)?;
 
-        // Persist under the lock — consumers observing via
-        // snapshot() will see either OLD or NEW; never
-        // partial.
         match self.persist(&guard) {
             Ok(()) => {
                 info!(
@@ -275,8 +426,6 @@ impl PartitionStore {
                 Ok(guard.clone())
             }
             Err(e) => {
-                // Rollback in-memory so consumer snapshots
-                // stay consistent with disk.
                 warn!(
                     "PartitionStore persist failed: {}. Rolling back in-memory state.",
                     e
@@ -326,7 +475,16 @@ impl PartitionStore {
         cold_boot_budget_secs: u64,
         new_version: u64,
     ) -> Result<PartitionState, PartitionStoreError> {
+        let _file_lock = PartitionLockGuard::acquire(&self.lock_path())?;
+
         let mut guard = self.state.lock().map_err(|_| PartitionStoreError::LockPoisoned)?;
+
+        // Batch 121: refresh from disk under the flock so
+        // the monotonic-version gate validates against the
+        // FRESHEST floor — cross-process deploys that
+        // already advanced the floor will be caught here.
+        let fresh = self.reread_disk_state()?;
+        *guard = fresh;
 
         if new_version <= guard.active_firmware_version {
             return Err(PartitionStoreError::StaleVersion {
@@ -898,5 +1056,171 @@ mod tests {
         let snap = store.snapshot().expect("snap");
         assert_eq!(snap.active_firmware_version, 0);
         let _ = std::fs::remove_file(&path);
+    }
+
+    // ========================================================================
+    // Batch 121 Sprint 6.5 — cross-process flock + disk re-read tests
+    // ========================================================================
+
+    #[test]
+    fn lock_path_is_derived_from_state_path() {
+        let path = tmp_store_path();
+        let _ = std::fs::remove_file(&path);
+        let store = PartitionStore::open(Some(&path)).expect("open");
+        let lock_p = store.lock_path();
+        let state_p_str = path.to_string_lossy().to_string();
+        let lock_p_str = lock_p.to_string_lossy().to_string();
+        assert_eq!(lock_p_str, format!("{}.lock", state_p_str));
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&lock_p);
+    }
+
+    #[test]
+    fn apply_roll_creates_lock_file_on_first_acquire() {
+        let path = tmp_store_path();
+        let _ = std::fs::remove_file(&path);
+        let store = PartitionStore::open(Some(&path)).expect("open");
+        let lock_p = store.lock_path();
+        // Pre-apply the lock file should NOT exist.
+        assert!(!lock_p.exists());
+        store
+            .apply_roll(
+                PartitionRoll::InitialInstall { target: AbPartition::A },
+                90,
+            )
+            .expect("install");
+        // Post-apply the lock file exists (zero-byte marker).
+        assert!(lock_p.exists());
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&lock_p);
+    }
+
+    #[test]
+    fn apply_roll_picks_up_disk_changes_made_by_other_process() {
+        // Simulate the cross-process scenario:
+        // 1. Process A opens the store + applies an install.
+        // 2. A SECOND process opens the same path + applies
+        //    a Confirm (mutating disk state).
+        // 3. Process A re-uses its ORIGINAL handle + applies
+        //    another transition — MUST observe the Confirm
+        //    that the second process persisted, not the stale
+        //    in-memory cache.
+        let path = tmp_store_path();
+        let _ = std::fs::remove_file(&path);
+        let lock_p = {
+            let p = path.clone().into_os_string();
+            let mut s = p;
+            s.push(".lock");
+            std::path::PathBuf::from(s)
+        };
+        let _ = std::fs::remove_file(&lock_p);
+
+        let store_a = PartitionStore::open(Some(&path)).expect("A open");
+        store_a
+            .apply_roll(
+                PartitionRoll::InitialInstall { target: AbPartition::A },
+                3600,
+            )
+            .expect("A install");
+
+        // Second "process" uses a fresh PartitionStore
+        // instance on the same file path — simulates
+        // --confirm-active CLI opening the same file.
+        let store_b = PartitionStore::open(Some(&path)).expect("B open");
+        store_b
+            .apply_roll(PartitionRoll::Confirm { slot: AbPartition::A }, 3600)
+            .expect("B confirm");
+
+        // Drop B so the flock is released.
+        drop(store_b);
+
+        // A's next apply_roll MUST observe B's Confirm. If
+        // A were using its stale in-memory cache, it would
+        // see slot_a=PendingConfirm + fail a subsequent
+        // SwapToPending (which requires slot_a=Active).
+        // With the Batch 121 disk-reread, A sees
+        // slot_a=Active + the swap succeeds.
+        let swap_result = store_a.apply_roll(
+            PartitionRoll::SwapToPending {
+                old_active: AbPartition::A,
+                new_pending: AbPartition::B,
+            },
+            3600,
+        );
+        assert!(
+            swap_result.is_ok(),
+            "expected SwapToPending to succeed after cross-process Confirm disk sync: {:?}",
+            swap_result
+        );
+        let snap = store_a.snapshot().expect("snap");
+        assert_eq!(snap.active, AbPartition::B);
+        assert_eq!(snap.slot_a_state, SlotState::Standby);
+        assert_eq!(snap.slot_b_state, SlotState::PendingConfirm);
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&lock_p);
+    }
+
+    #[test]
+    fn version_bump_sees_cross_process_version_floor() {
+        // Simulate: process A installs v10, process B bumps
+        // the floor to v20 out-of-band, process A tries to
+        // apply v15 — MUST reject because B's v20 is the
+        // FRESH floor after disk re-read.
+        let path = tmp_store_path();
+        let _ = std::fs::remove_file(&path);
+        let lock_p = {
+            let p = path.clone().into_os_string();
+            let mut s = p;
+            s.push(".lock");
+            std::path::PathBuf::from(s)
+        };
+        let _ = std::fs::remove_file(&lock_p);
+
+        let store_a = PartitionStore::open(Some(&path)).expect("A open");
+        store_a
+            .apply_roll_with_version_bump(
+                PartitionRoll::InitialInstall { target: AbPartition::A },
+                3600,
+                10,
+            )
+            .expect("A install v10");
+        store_a
+            .apply_roll(PartitionRoll::Confirm { slot: AbPartition::A }, 3600)
+            .expect("A confirm v10");
+
+        let store_b = PartitionStore::open(Some(&path)).expect("B open");
+        store_b
+            .apply_roll_with_version_bump(
+                PartitionRoll::SwapToPending {
+                    old_active: AbPartition::A,
+                    new_pending: AbPartition::B,
+                },
+                3600,
+                20,
+            )
+            .expect("B swap v20");
+        drop(store_b);
+
+        // A's in-memory cache still thinks version=10. If
+        // Batch 121 didn't re-read, A would accept v15 >
+        // 10. With re-read, A observes v20 > 15 → reject.
+        let err = store_a
+            .apply_roll_with_version_bump(
+                PartitionRoll::Confirm { slot: AbPartition::B },
+                3600,
+                15,
+            )
+            .expect_err("must reject — 15 not > 20");
+        assert!(matches!(
+            err,
+            PartitionStoreError::StaleVersion {
+                claimed: 15,
+                highest_seen: 20
+            }
+        ));
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&lock_p);
     }
 }

@@ -6,6 +6,10 @@ import Ajv, {
 import addFormats from 'ajv-formats';
 import { FARM_EVENT_SCHEMAS, type FarmEventType } from './farm-events.schema';
 import {
+  INGEST_BACKEND_POLICY_EVENT_SCHEMAS,
+  type IngestBackendPolicyEventType,
+} from './ingest-backend-policy.schema';
+import {
   SENSOR_EVENT_SCHEMAS,
   type SensorEventType,
 } from './sensor-events.schema';
@@ -89,6 +93,27 @@ const sensorValidators = new Map<SensorEventType, ValidateFunction>();
 for (const [eventType, schema] of Object.entries(SENSOR_EVENT_SCHEMAS)) {
   const validator = ajv.compile(schema as AnySchema);
   sensorValidators.set(eventType as SensorEventType, validator);
+}
+
+/**
+ * Ingest-backend-policy event validator cache. Populated at module
+ * load. Drives the ADR-031 NATS wire validation on the admin-api
+ * publisher side (defense-in-depth) + on any future TS consumer
+ * that subscribes to `policy.ingest_backend.>`.
+ */
+const ingestBackendPolicyValidators = new Map<
+  IngestBackendPolicyEventType,
+  ValidateFunction
+>();
+
+for (const [eventType, schema] of Object.entries(
+  INGEST_BACKEND_POLICY_EVENT_SCHEMAS,
+)) {
+  const validator = ajv.compile(schema as AnySchema);
+  ingestBackendPolicyValidators.set(
+    eventType as IngestBackendPolicyEventType,
+    validator,
+  );
 }
 
 /**
@@ -207,6 +232,57 @@ export function validateSensorEvent(
     return {
       valid: false,
       errors: `Unknown sensor event type: ${eventType}`,
+    };
+  }
+  if (typeof payload !== 'object' || payload === null) {
+    return {
+      valid: false,
+      errors: `Payload must be a JSON object (got ${typeof payload})`,
+    };
+  }
+  const isValid = validator(payload);
+  if (!isValid) {
+    return {
+      valid: false,
+      errors: formatFirstError(validator.errors),
+    };
+  }
+  return { valid: true };
+}
+
+/**
+ * Result of an ingest-backend-policy event validation call. Same
+ * discriminated shape as [`FarmEventValidationResult`] so callers
+ * can branch uniformly across domain validators.
+ */
+export type IngestBackendPolicyEventValidationResult =
+  | { valid: true }
+  | { valid: false; errors: string };
+
+/**
+ * Validate a decoded NATS payload against the ADR-031 policy event
+ * schema for the given event type. Mirrors [`validateFarmEvent`] +
+ * [`validateSensorEvent`]; the admin-api-service publisher MAY call
+ * this before publishCore(), and any future TS subscriber on
+ * `policy.ingest_backend.>` MUST call it before acting on the
+ * decoded body.
+ *
+ * The Rust sidecar's subscriber performs a structurally equivalent
+ * validation via `serde_json::from_slice::<IngestBackendChange>()`
+ * which rejects missing / extra fields and wrong types. This TS
+ * validator is the mirror guarantee for the TS side of the wire.
+ */
+export function validateIngestBackendPolicyEvent(
+  eventType: string,
+  payload: unknown,
+): IngestBackendPolicyEventValidationResult {
+  const validator = ingestBackendPolicyValidators.get(
+    eventType as IngestBackendPolicyEventType,
+  );
+  if (!validator) {
+    return {
+      valid: false,
+      errors: `Unknown ingest-backend-policy event type: ${eventType}`,
     };
   }
   if (typeof payload !== 'object' || payload === null) {

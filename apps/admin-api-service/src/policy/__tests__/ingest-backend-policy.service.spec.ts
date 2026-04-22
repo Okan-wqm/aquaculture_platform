@@ -169,21 +169,27 @@ describe('IngestBackendPolicyService — applyChange', () => {
     } as unknown as NatsEventBus;
     const svc = new IngestBackendPolicyService(repo, eventBus);
 
+    // Tenant UUID — the publisher's JSON-Schema validator enforces
+    // UUID_PATTERN on change.tenantId. Using a proper UUID here
+    // mirrors what the production HTTP surface forwards from the
+    // caller's JWT / request body.
+    const tenantUuid = '66666666-6666-6666-6666-666666666666';
+    const actorUuid = '77777777-7777-7777-7777-777777777777';
     const change: IngestBackendPolicyChange = {
       action: 'set_tenant',
-      tenantId: 'tenant-a',
+      tenantId: tenantUuid,
       backend: 'rust',
     };
-    const result = await svc.applyChange(change, 'actor-7', 'pilot enrol');
+    const result = await svc.applyChange(change, actorUuid, 'pilot enrol');
     expect(result).toEqual({
       defaultBackend: 'node',
-      overrides: { 'tenant-a': 'rust' },
+      overrides: { [tenantUuid]: 'rust' },
     });
 
     // Persisted row carries the new override + preserved
     // version so TypeORM's optimistic-lock still engages.
     const persisted = (repo.save as jest.Mock).mock.calls[0][0];
-    expect(persisted.overrides).toEqual({ 'tenant-a': 'rust' });
+    expect(persisted.overrides).toEqual({ [tenantUuid]: 'rust' });
     expect(persisted.version).toBe(1);
 
     // Published event lands on the canonical subject with the
@@ -198,7 +204,7 @@ describe('IngestBackendPolicyService — applyChange', () => {
     );
     expect(decoded.eventType).toBe('IngestBackendPolicyChanged');
     expect(decoded.change).toEqual(change);
-    expect(decoded.actorId).toBe('actor-7');
+    expect(decoded.actorId).toBe(actorUuid);
     expect(decoded.reason).toBe('pilot enrol');
   });
 
@@ -224,6 +230,40 @@ describe('IngestBackendPolicyService — applyChange', () => {
     ).rejects.toBeInstanceOf(ConflictException);
     // AND no event was published — the lost-race path must NOT
     // fire a spurious changed event.
+    expect(eventBus.publishCore).not.toHaveBeenCalled();
+  });
+
+  it('rejects a malformed change at the JSON-Schema validator boundary before publishing', async () => {
+    // Defense-in-depth: the publisher validates the constructed
+    // event against the ADR-031 schema before calling
+    // eventBus.publishCore. A caller that bypasses the typed
+    // contract (e.g. by passing a mis-typed `change` through an
+    // `as any`) still hits the runtime guard. The malformed
+    // payload NEVER reaches NATS.
+    const current = seedRow();
+    const repo = {
+      findOne: jest.fn().mockResolvedValue(current),
+      save: jest.fn().mockImplementation(async (entity) => entity),
+    } as unknown as Repository<IngestBackendPolicyStateEntity>;
+    const eventBus = {
+      publishCore: jest.fn(),
+    } as unknown as NatsEventBus;
+    const svc = new IngestBackendPolicyService(repo, eventBus);
+
+    // set_tenant with a non-UUID tenantId — schema REJECTS.
+    const bad: IngestBackendPolicyChange = {
+      action: 'set_tenant',
+      tenantId: 'not-a-uuid',
+      backend: 'rust',
+    };
+
+    await expect(svc.applyChange(bad)).rejects.toThrow(
+      /IngestBackendPolicyChanged payload failed schema validation/,
+    );
+    // Validator ran BEFORE persistence (ADR-031 invariant — if we
+    // cannot publish a valid event, we MUST NOT persist the row).
+    // So NEITHER the DB save NOR the NATS publish happened.
+    expect(repo.save).not.toHaveBeenCalled();
     expect(eventBus.publishCore).not.toHaveBeenCalled();
   });
 

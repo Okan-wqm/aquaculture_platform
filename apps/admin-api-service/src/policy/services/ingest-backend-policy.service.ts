@@ -17,6 +17,7 @@ import {
   IngestBackendPolicyChange,
   IngestBackendPolicyChangedEvent,
   IngestBackendSnapshot,
+  validateIngestBackendPolicyEvent,
 } from '@platform/event-contracts';
 
 import {
@@ -86,6 +87,15 @@ export class IngestBackendPolicyService {
     actorId?: string,
     reason?: string,
   ): Promise<IngestBackendSnapshot> {
+    // Validate the would-be event payload BEFORE any side effect.
+    // TS compile-time narrowing handles the happy path at the
+    // callsite; this runtime guard catches untrusted inputs that
+    // reached this service through a future HTTP surface or an
+    // `as any` bypass. Failing here keeps the DB state from
+    // drifting away from the NATS event stream — if we cannot
+    // publish a valid event, we MUST NOT persist the row either.
+    this.assertChangePayloadValid(change, actorId, reason);
+
     const current = await this.findCurrent();
     const next = applyChangeToRow(current, change);
 
@@ -109,6 +119,44 @@ export class IngestBackendPolicyService {
     await this.publishChangedEvent(change, actorId, reason);
 
     return toSnapshot(next);
+  }
+
+  /**
+   * Defense-in-depth pre-flight: construct the event shape the
+   * publisher would emit + validate it against the ADR-031 JSON
+   * Schema. Throws `InternalServerErrorException` on schema
+   * failure so the caller receives a structured 500 (never a
+   * masked 200 that persisted silently).
+   *
+   * WHY extracted into its own helper: keeps `applyChange` scoped
+   * to the orchestration steps; exposes the validation concern
+   * so test coverage against `validateIngestBackendPolicyEvent`
+   * lives on this method without drilling through the orchestrator.
+   */
+  private assertChangePayloadValid(
+    change: IngestBackendPolicyChange,
+    actorId: string | undefined,
+    reason: string | undefined,
+  ): void {
+    const probe: IngestBackendPolicyChangedEvent = {
+      ...createBaseEvent<IngestBackendPolicyChangedEvent>(
+        'IngestBackendPolicyChanged',
+        'admin',
+      ),
+      eventType: 'IngestBackendPolicyChanged',
+      change,
+      reason,
+      actorId,
+    };
+    const validation = validateIngestBackendPolicyEvent(
+      'IngestBackendPolicyChanged',
+      probe,
+    );
+    if (!validation.valid) {
+      throw new InternalServerErrorException(
+        `IngestBackendPolicyChanged payload failed schema validation: ${validation.errors}`,
+      );
+    }
   }
 
   private async findCurrent(): Promise<IngestBackendPolicyStateEntity> {
@@ -139,6 +187,9 @@ export class IngestBackendPolicyService {
     // factory's own literal. We build the event in one literal
     // so the full shape is structurally verified against the
     // interface at compile time.
+    // Validation already ran in `assertChangePayloadValid` before
+    // the DB save — by the time publishChangedEvent runs we know
+    // the event shape conforms to the ADR-031 schema.
     const event: IngestBackendPolicyChangedEvent = {
       ...createBaseEvent<IngestBackendPolicyChangedEvent>(
         'IngestBackendPolicyChanged',

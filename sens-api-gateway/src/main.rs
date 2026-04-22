@@ -1011,6 +1011,11 @@ impl AppState {
             device_id: self.config.device_id.clone(),
             tenant,
             auth_key: self.lifecycle_auth_key.clone(),
+            // Batch 134 Sprint 6.5 — closes Batch 132 obs
+            // #2: forward HealthState so the HTTP handler
+            // can bump firmware_confirm + update slot/
+            // version gauges on success.
+            health_state: self.health_state.clone(),
         };
 
         if cell.set(handles).is_err() {

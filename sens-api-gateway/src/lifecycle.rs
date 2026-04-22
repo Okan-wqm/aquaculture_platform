@@ -102,6 +102,12 @@ pub struct LifecycleHandles {
     /// default); Some when operator enables HmacToken +
     /// systemd-creds load succeeds at boot.
     pub auth_key: Option<Arc<LifecycleAuthKey>>,
+    /// Batch 134 Sprint 6.5 wire — closes Batch 132 obs
+    /// #2: HealthState reference for Prometheus metric
+    /// emission. None when health feature is off or
+    /// HealthState wasn't constructed at lifecycle cell
+    /// population time.
+    pub health_state: Option<crate::health::HealthState>,
 }
 
 /// Axum-shareable container for `LifecycleHandles`.
@@ -239,6 +245,21 @@ pub async fn confirm_active_handler(
                 active
             ),
         );
+        // Batch 134: idempotent no-op is NOT counted as
+        // a confirm event (the state machine didn't
+        // transition). BUT refresh the active_slot gauge
+        // so dashboards stay consistent when e.g. the
+        // operator cold-boots a device that was already
+        // Active; without the refresh, the gauge could
+        // stay at the boot-default value despite the
+        // endpoint being called.
+        if let Some(hs) = handles.health_state.as_ref() {
+            hs.set_firmware_active_slot(match active {
+                AbPartition::A => 0,
+                AbPartition::B => 1,
+            });
+            hs.set_firmware_active_version(snap.active_firmware_version);
+        }
         let slot_str = slot_to_str(active);
         return (
             StatusCode::OK,
@@ -277,6 +298,19 @@ pub async fn confirm_active_handler(
                     confirmed_slot, bootloader_ok, bootloader_backend
                 ),
             );
+            // Batch 134 Sprint 6.5 — closes Batch 132 obs
+            // #2: bump firmware_confirm counter + refresh
+            // active_slot gauge. Same contract as the
+            // cmd_confirm_slot metric-wrapper (Batch 132),
+            // just reached from the HTTP path.
+            if let Some(hs) = handles.health_state.as_ref() {
+                hs.inc_firmware_confirm();
+                hs.set_firmware_active_slot(match confirmed_slot {
+                    AbPartition::A => 0,
+                    AbPartition::B => 1,
+                });
+                hs.set_firmware_active_version(new_state.active_firmware_version);
+            }
             let slot_str = slot_to_str(confirmed_slot);
             (
                 StatusCode::OK,
@@ -419,6 +453,7 @@ mod tests {
             device_id: "test-dev".to_string(),
             tenant: TenantId::new_from_verified([0u8; 16]),
             auth_key: None,
+            health_state: None,
         }
     }
 
@@ -435,6 +470,22 @@ mod tests {
             device_id: "test-dev".to_string(),
             tenant: TenantId::new_from_verified([0u8; 16]),
             auth_key: Some(Arc::new(key)),
+            health_state: None,
+        }
+    }
+
+    fn build_handles_with_health(
+        store: Arc<PartitionStore>,
+        health: crate::health::HealthState,
+    ) -> LifecycleHandles {
+        LifecycleHandles {
+            partition_store: store,
+            bootloader: Arc::new(NoopBootloaderHandle),
+            audit_sink: None,
+            device_id: "test-dev".to_string(),
+            tenant: TenantId::new_from_verified([0u8; 16]),
+            auth_key: None,
+            health_state: Some(health),
         }
     }
 
@@ -576,6 +627,78 @@ mod tests {
             .await
             .into_response();
         assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&lock_path);
+    }
+
+    #[tokio::test]
+    async fn confirm_active_http_path_bumps_firmware_confirm_metric() {
+        // Batch 134 Sprint 6.5 — closes Batch 132 obs #2:
+        // when the HTTP lifecycle endpoint transitions a
+        // PendingConfirm slot to Active, it must bump the
+        // Prometheus firmware_confirm counter + update
+        // active_slot + active_version gauges.
+        let path = tmp_partition_path();
+        let _ = std::fs::remove_file(&path);
+        let lock_path = {
+            let mut s = path.clone().into_os_string();
+            s.push(".lock");
+            std::path::PathBuf::from(s)
+        };
+        let _ = std::fs::remove_file(&lock_path);
+
+        let store = Arc::new(PartitionStore::open(Some(&path)).expect("open"));
+        // Install v7 + leave slot A PendingConfirm.
+        store
+            .apply_roll_with_version_bump(
+                crate::updater::PartitionRoll::InitialInstall { target: AbPartition::A },
+                3600,
+                7,
+            )
+            .expect("install v7");
+
+        let health = crate::health::HealthState::new();
+        let cell: LifecycleHandlesCell = new_cell();
+        cell.set(build_handles_with_health(store.clone(), health.clone()))
+            .ok();
+
+        let resp = confirm_active_handler(
+            Extension(cell),
+            axum::http::HeaderMap::new(),
+        )
+        .await
+        .into_response();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let metrics = health.metrics_prometheus();
+        let confirm_line = metrics
+            .lines()
+            .find(|l| l.starts_with("suderra_firmware_confirm_total"))
+            .expect("confirm metric missing");
+        assert!(
+            confirm_line.ends_with(" 1"),
+            "expected 1 confirm after HTTP post, got: {}",
+            confirm_line
+        );
+        let slot_line = metrics
+            .lines()
+            .find(|l| l.starts_with("suderra_firmware_active_slot"))
+            .expect("slot gauge missing");
+        assert!(
+            slot_line.ends_with(" 0"),
+            "expected slot=0 (A), got: {}",
+            slot_line
+        );
+        let version_line = metrics
+            .lines()
+            .find(|l| l.starts_with("suderra_firmware_active_version"))
+            .expect("version gauge missing");
+        assert!(
+            version_line.ends_with(" 7"),
+            "expected version=7, got: {}",
+            version_line
+        );
 
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(&lock_path);

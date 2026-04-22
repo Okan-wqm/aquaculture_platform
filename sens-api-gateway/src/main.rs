@@ -47,6 +47,7 @@ mod lifecycle; // Batch 122 Sprint 6.5: HTTP lifecycle endpoint (confirm-active)
 #[cfg(feature = "health")]
 mod lifecycle_auth; // Batch 129 Sprint 6.6: HMAC auth for lifecycle endpoint
 mod license; // Batch 140 Faz 7: edge license tier enforcement (plan R-10)
+mod license_cache; // Batch 144 Faz 7: SQLCipher persistence + monotonic floor
 mod i2c; // v1.2.4: I2C support for sensor communication
 mod interning;
 mod modbus;

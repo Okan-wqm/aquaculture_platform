@@ -397,6 +397,17 @@ impl PostgresSink {
             "BinaryCopyInWriter row count mismatch",
         );
 
+        // Record the attempt-side counter before batch_execute fires.
+        // "Attempted" (not "committed") is the contract: a batch that
+        // reaches this point has passed COPY IN, and the counter
+        // increments whether the upsert succeeds or the transaction
+        // rolls back. Separate commit-side counter + failure ratio
+        // derivation land in PR-C alongside the Prometheus exporter
+        // wiring; emitting attempts in PR-A pins the metric-name
+        // contract so downstream dashboards can be authored against
+        // a stable surface.
+        record_upsert_attempt(row_count);
+
         // Upsert from stage to hypertable, then truncate the stage.
         // batch_execute runs both in one round-trip.
         let upsert_sql = build_upsert_sql(&schema);
@@ -408,6 +419,29 @@ impl PostgresSink {
         tx.commit().await.map_err(SinkError::Postgres)?;
         Ok(())
     }
+}
+
+/// Metric name for the upsert-attempt counter.
+///
+/// Exposed `pub const` so unit tests can assert the name without
+/// string-literal drift between the emitter and the test surface.
+/// PR-C wires the Prometheus exporter; until that lands, the
+/// `metrics` crate's global recorder is a no-op recorder and the
+/// emission is free — the contract exists, the wire does not.
+pub const UPSERT_ROWS_ATTEMPTED_METRIC: &str = "sensor_ingestion_upsert_rows_attempted_total";
+
+/// Increment the upsert-attempt counter by `row_count`. Extracted as a
+/// named helper so the emission site is covered by a unit test that
+/// installs a `metrics_util::debugging::DebuggingRecorder` (dev-dep only,
+/// hence the non-linked reference) — the test proves the emitter
+/// actually fires, not merely that the code compiles.
+fn record_upsert_attempt(row_count: usize) {
+    // Clamp the usize → u64 conversion so a 32-bit target cannot
+    // wrap. In practice row_count is bounded by the batch aggregator
+    // (<= a few tens of thousands), but the clamp keeps the hot path
+    // infallible under every target width.
+    let row_count_u64 = u64::try_from(row_count).unwrap_or(u64::MAX);
+    metrics::counter!(UPSERT_ROWS_ATTEMPTED_METRIC).increment(row_count_u64);
 }
 
 /// Tiny helper trait so `&Uuid` can be passed to `tokio_postgres`
@@ -561,6 +595,42 @@ mod tests {
         assert!(sql.contains(schema.as_str()));
         assert!(sql.contains("sensor_metrics_stage"));
         assert!(!sql.contains("sensor_metrics ")); // not the hypertable
+    }
+
+    #[test]
+    fn upsert_attempt_counter_emits_configured_metric_name() {
+        // Prove the emitter actually fires + carries the contract
+        // name. Without this, a typo in the metric name or a lost
+        // call site slips into production and silently hides an
+        // observability black hole — Prometheus dashboards built on
+        // the name would read empty but the code "compiled".
+        //
+        // Strategy: install a thread-local DebuggingRecorder, invoke
+        // the helper, snapshot the recorder, inspect the counter.
+        use metrics::with_local_recorder;
+        use metrics_util::debugging::{DebugValue, DebuggingRecorder};
+
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+
+        with_local_recorder(&recorder, || {
+            super::record_upsert_attempt(5);
+            super::record_upsert_attempt(3);
+        });
+
+        let snapshot = snapshotter.snapshot();
+        let entries = snapshot.into_vec();
+        let hit = entries
+            .iter()
+            .find(|(k, _, _, _)| k.key().name() == super::UPSERT_ROWS_ATTEMPTED_METRIC)
+            .expect("metric must be emitted under the contract name");
+        match &hit.3 {
+            DebugValue::Counter(v) => assert_eq!(
+                *v, 8,
+                "counter accumulates — 5 + 3 should surface as 8, not the last write",
+            ),
+            other => panic!("expected Counter, got {other:?}"),
+        }
     }
 
     #[test]

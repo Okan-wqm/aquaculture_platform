@@ -88,9 +88,21 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 async-trait = { workspace = true }
 
+# Metrics facade (emitter side only — PR-A finding #5). The exporter
+# wiring (metrics-exporter-prometheus, HTTP endpoint, cardinality guard
+# per ADR-028 Kör Nokta 4) lands in PR-C; counter emissions are no-ops
+# until the recorder is installed, by design. Emitting early decouples
+# the observability rollout from the hot-path code — the metric-name
+# contract is stable from this commit forward.
+metrics = { workspace = true }
+
 [dev-dependencies]
 tempfile = "3.10"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "test-util"] }
+# DebuggingRecorder installs a programmable metrics recorder so unit
+# tests can assert counter increments without a Prometheus exporter —
+# proves the emitter actually fires on every flush, not just compiles.
+metrics-util = { version = "0.19", features = ["debugging"] }
 
 [lints]
 workspace = true

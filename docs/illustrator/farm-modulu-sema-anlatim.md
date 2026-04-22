@@ -892,7 +892,7 @@ Aquaculture endüstrisi sıkı regüle edilir. Norveç örneğinde **FDIR** (Fis
 
 ### 14.3 Disease Outbreak — Detaylı Örnek
 
-`createDiseaseOutbreak` mutation'ı. İki tabloya yazar: `farm.health_events` (detay kayıt) ve `farm.regulatory_events` (yasal bildirim).
+`createDiseaseOutbreak` mutation'ı. İki tabloya yazar: `farm.health_events` (detay kayıt) ve ~~`farm.regulatory_events`~~ *(⚠ 2026-04-22 düzeltmesi: bu tablo yok. Regulatory rapor modal'ları aslında `health_events`'e yazar ve — Mattilsynet API entegrasyonu olan 5 rapor tipi için — otomatik olarak Mattilsynet'e submit eder)* (yasal bildirim).
 
 Alanlar:
 - Hastalık kategorisi: A (egzotik), C (yerli), F (diğer)
@@ -911,7 +911,7 @@ Regülatör iletişim: `varsling.akva@mattilsynet.no`. Sistem otomatik e-posta g
 
 ### 14.4 Regulatory Events
 
-`farm.regulatory_events` — genel yasal bildirim kayıtları (`recordComplianceEvent` mutation). Alanlar: tip, otorite, bildirilen tarih, durum, doküman referansı.
+~~`farm.regulatory_events`~~ *(⚠ 2026-04-22 düzeltmesi: bu tablo yok. Regulatory rapor modal'ları aslında `health_events`'e yazar ve — Mattilsynet API entegrasyonu olan 5 rapor tipi için — otomatik olarak Mattilsynet'e submit eder)* — genel yasal bildirim kayıtları (`recordComplianceEvent` mutation). Alanlar: tip, otorite, bildirilen tarih, durum, doküman referansı.
 
 `farm.inspections` — otorite denetim kayıtları (`recordInspection`).
 

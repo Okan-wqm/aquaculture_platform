@@ -306,6 +306,17 @@ impl ScriptVm {
                 Ok(DispatchStep::Advance)
             }
 
+            // Type cast — Batch 153
+            Opcode::CastIntToReal => {
+                let v = self.pop_int("CastIntToReal")?;
+                // i64 → f64 — lossy for magnitudes beyond
+                // 2^53, but matches IEC 61131-3 implicit
+                // promotion semantic where loss of low-bit
+                // precision is accepted for mixed arithmetic.
+                self.stack.push(StValue::Real(v as f64));
+                Ok(DispatchStep::Advance)
+            }
+
             // Comparison
             Opcode::Eq => {
                 let b = self.pop("Eq")?;
@@ -784,6 +795,82 @@ mod tests {
             vm.run(&b),
             VmOutcome::Error(VmError::TypeMismatch { .. })
         ));
+    }
+
+    // ====================================================================
+    // Type cast (Batch 153)
+    // ====================================================================
+
+    #[test]
+    fn run_cast_int_to_real_promotes_to_f64() {
+        let b = bc(
+            vec![
+                Opcode::PushConst { value: StValue::Int(7) },
+                Opcode::CastIntToReal,
+                Opcode::Return,
+            ],
+            0,
+        );
+        let mut vm = ScriptVm::new(&b);
+        assert_eq!(vm.run(&b), VmOutcome::Returned);
+        assert_eq!(vm.stack(), &[StValue::Real(7.0)]);
+    }
+
+    #[test]
+    fn run_cast_int_to_real_on_non_int_is_type_mismatch() {
+        let b = bc(
+            vec![
+                Opcode::PushConst { value: StValue::Real(1.5) },
+                Opcode::CastIntToReal,
+                Opcode::Return,
+            ],
+            0,
+        );
+        let mut vm = ScriptVm::new(&b);
+        assert!(matches!(
+            vm.run(&b),
+            VmOutcome::Error(VmError::TypeMismatch { .. })
+        ));
+    }
+
+    #[test]
+    fn run_compiled_int_plus_real_roundtrip() {
+        // PROGRAM p  VAR r: REAL; END_VAR  r := 2 + 3.5;
+        use super::super::bytecode_compiler::compile_program;
+        use crate::st_validator::{
+            BinaryOp, DataType, Expression, Program, Statement, VarBlock, VarDeclaration, VarScope,
+        };
+
+        let prog = Program {
+            name: "p".into(),
+            var_blocks: vec![VarBlock {
+                scope: VarScope::Local,
+                retain: false,
+                constant: false,
+                declarations: vec![VarDeclaration {
+                    name: "r".into(),
+                    data_type: DataType::Real,
+                    initial_value: None,
+                    span: None,
+                }],
+                span: None,
+            }],
+            body: vec![Statement::Assignment {
+                target: Expression::Variable("r".into(), None),
+                value: Expression::BinaryOp {
+                    left: Box::new(Expression::IntLiteral(2)),
+                    op: BinaryOp::Add,
+                    right: Box::new(Expression::RealLiteral(3.5)),
+                },
+                span: None,
+            }],
+            span: None,
+        };
+        let bc_compiled =
+            compile_program(&prog, "p".into(), 1_000).expect("compile");
+        let mut vm = ScriptVm::new(&bc_compiled);
+        assert_eq!(vm.run(&bc_compiled), VmOutcome::Returned);
+        assert_eq!(vm.locals()[0], StValue::Real(5.5));
     }
 
     // ====================================================================

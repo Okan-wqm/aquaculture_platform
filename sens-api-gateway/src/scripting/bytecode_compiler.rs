@@ -236,27 +236,42 @@ fn compile_binary_op(
     right: &Expression,
     symbols: &SymbolTable,
 ) -> Result<(Vec<Opcode>, InferredType), CompileError> {
-    let (mut left_ops, left_type) = compile_expression(left, symbols)?;
-    let (right_ops, right_type) = compile_expression(right, symbols)?;
+    let (mut left_ops, left_type_raw) = compile_expression(left, symbols)?;
+    let (mut right_ops, right_type_raw) = compile_expression(right, symbols)?;
 
-    // IEC 61131-3 Int → Real promotion for mixed
-    // arithmetic. If one side is Real, the other gets
-    // promoted via a runtime cast opcode. Batch 151
-    // adds the CastIntToReal opcode + relaxes this
-    // rule; Batch 149 keeps the compiler conservative
-    // so the known-limit surfaces as an explicit
-    // TypeMismatch error rather than silent behavior.
-    if left_type != right_type {
-        return Err(CompileError::TypeMismatch {
-            op: format!("{:?}", op),
-            left: left_type,
-            right: right_type,
-        });
-    }
+    // IEC 61131-3 Int → Real implicit promotion for
+    // mixed-arithmetic + mixed-comparison expressions
+    // (Batch 153 Faz 3). Emit `CastIntToReal` on whichever
+    // operand is Int when the other is Real so the VM
+    // sees matching Real types on both sides.
+    //
+    // Bool mixed with Int or Real is a TypeMismatch
+    // (Bool does not participate in numeric promotion);
+    // only Int ↔ Real promote.
+    let unified_type = match (left_type_raw, right_type_raw) {
+        (a, b) if a == b => a,
+        (StValueType::Int, StValueType::Real) => {
+            // Left is Int, right is Real — promote left.
+            left_ops.push(Opcode::CastIntToReal);
+            StValueType::Real
+        }
+        (StValueType::Real, StValueType::Int) => {
+            // Left is Real, right is Int — promote right.
+            right_ops.push(Opcode::CastIntToReal);
+            StValueType::Real
+        }
+        (left, right) => {
+            return Err(CompileError::TypeMismatch {
+                op: format!("{:?}", op),
+                left,
+                right,
+            });
+        }
+    };
 
     left_ops.extend(right_ops);
 
-    let (final_op, result_type) = match (op, left_type) {
+    let (final_op, result_type) = match (op, unified_type) {
         // Arithmetic (matched types).
         (BinaryOp::Add, StValueType::Int) => (Opcode::AddInt, StValueType::Int),
         (BinaryOp::Add, StValueType::Real) => (Opcode::AddReal, StValueType::Real),
@@ -1053,10 +1068,13 @@ mod tests {
     }
 
     #[test]
-    fn compile_mixed_int_real_rejects_for_now() {
-        // Batch 149 rejects mixed types; Batch 150/151
-        // adds promotion opcode.
-        let err = compile_expression(
+    fn compile_int_plus_real_promotes_int_side() {
+        // Batch 153 Faz 3: Int + Real emits
+        // CastIntToReal on the Int operand.
+        // 2 (Int) + 3.5 (Real) compiles to:
+        //   PushConst{Int(2)}, CastIntToReal,
+        //   PushConst{Real(3.5)}, AddReal
+        let (ops, t) = compile_expression(
             &Expression::BinaryOp {
                 left: Box::new(Expression::IntLiteral(2)),
                 op: BinaryOp::Add,
@@ -1064,7 +1082,77 @@ mod tests {
             },
             &SymbolTable::new(),
         )
-        .expect_err("mixed types rejected");
+        .expect("ok");
+        assert_eq!(t, StValueType::Real);
+        assert_eq!(
+            ops,
+            vec![
+                Opcode::PushConst { value: StValue::Int(2) },
+                Opcode::CastIntToReal,
+                Opcode::PushConst { value: StValue::Real(3.5) },
+                Opcode::AddReal,
+            ]
+        );
+    }
+
+    #[test]
+    fn compile_real_plus_int_promotes_int_side() {
+        // 3.5 (Real) + 2 (Int) compiles to:
+        //   PushConst{Real(3.5)}, PushConst{Int(2)},
+        //   CastIntToReal, AddReal
+        let (ops, t) = compile_expression(
+            &Expression::BinaryOp {
+                left: Box::new(Expression::RealLiteral(3.5)),
+                op: BinaryOp::Add,
+                right: Box::new(Expression::IntLiteral(2)),
+            },
+            &SymbolTable::new(),
+        )
+        .expect("ok");
+        assert_eq!(t, StValueType::Real);
+        assert_eq!(
+            ops,
+            vec![
+                Opcode::PushConst { value: StValue::Real(3.5) },
+                Opcode::PushConst { value: StValue::Int(2) },
+                Opcode::CastIntToReal,
+                Opcode::AddReal,
+            ]
+        );
+    }
+
+    #[test]
+    fn compile_int_lt_real_promotes_int_side() {
+        // 2 (Int) < 3.5 (Real) compiles to:
+        //   PushConst{Int(2)}, CastIntToReal,
+        //   PushConst{Real(3.5)}, LtReal → Bool.
+        let (ops, t) = compile_expression(
+            &Expression::BinaryOp {
+                left: Box::new(Expression::IntLiteral(2)),
+                op: BinaryOp::Lt,
+                right: Box::new(Expression::RealLiteral(3.5)),
+            },
+            &SymbolTable::new(),
+        )
+        .expect("ok");
+        assert_eq!(t, StValueType::Bool);
+        assert_eq!(ops.last(), Some(&Opcode::LtReal));
+        assert!(ops.contains(&Opcode::CastIntToReal));
+    }
+
+    #[test]
+    fn compile_bool_plus_int_still_rejects() {
+        // Bool ↔ Int is NOT a valid promotion per
+        // Batch 153 — only Int ↔ Real promotes.
+        let err = compile_expression(
+            &Expression::BinaryOp {
+                left: Box::new(Expression::BoolLiteral(true)),
+                op: BinaryOp::Add,
+                right: Box::new(Expression::IntLiteral(2)),
+            },
+            &SymbolTable::new(),
+        )
+        .expect_err("mismatch");
         assert!(matches!(err, CompileError::TypeMismatch { .. }));
     }
 

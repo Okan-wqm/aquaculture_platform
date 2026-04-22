@@ -193,6 +193,15 @@ pub enum Opcode {
     DivReal,
     NegReal,
 
+    // ============================ Type cast ============
+    /// Pop one Int, push its Real equivalent (f64). Batch
+    /// 153 Faz 3 (plan R-1): emitted by the compiler on
+    /// mixed Int/Real binary ops so the VM sees the
+    /// promoted Real on both sides of the operator —
+    /// matches IEC 61131-3 mixed-arithmetic semantic
+    /// without runtime type-polymorphic operators.
+    CastIntToReal,
+
     // ============================ Comparison ==========
     /// Pop two values of same type, push Bool (equal).
     Eq,
@@ -287,6 +296,9 @@ impl Opcode {
             Self::StdlibCall { .. } => 26,
             Self::GasTick => 27,
             Self::SafeStateTrip => 28,
+            // Batch 153 — new tag slots appended only
+            // (never renumber existing ones).
+            Self::CastIntToReal => 29,
         }
     }
 
@@ -309,6 +321,9 @@ impl Opcode {
 
             // Comparison + logic: 1 gas.
             Self::Eq | Self::LtInt | Self::LtReal | Self::And | Self::Or | Self::Not => 1,
+
+            // Cast: 1 gas — a single i64→f64 conversion.
+            Self::CastIntToReal => 1,
 
             // Control: 1 gas (branch prediction free in
             // interpreted dispatch).
@@ -488,6 +503,10 @@ mod tests {
         );
         assert_eq!(Opcode::GasTick.wire_tag(), 27);
         assert_eq!(Opcode::SafeStateTrip.wire_tag(), 28);
+        // Batch 153: CastIntToReal appended as tag 29.
+        // Stable-tag invariant: new opcodes may only
+        // extend this enum at the tail.
+        assert_eq!(Opcode::CastIntToReal.wire_tag(), 29);
     }
 
     #[test]

@@ -19,6 +19,14 @@ export interface CreateHarvestRecordInput {
   pricePerKg?: number;
   buyerName?: string;
   notes?: string;
+  /**
+   * Optional for small harvests — made mandatory by
+   * HarvestPolicyService when biomass > 10t or quantity > 50k
+   * (thresholds env-overridable). When provided, the plan is
+   * validated to be in an active status (APPROVED / SCHEDULED /
+   * IN_PROGRESS) and bound to the same batch.
+   */
+  harvestPlanId?: string;
 }
 
 export class CreateHarvestRecordCommand {

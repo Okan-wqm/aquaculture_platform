@@ -67,9 +67,11 @@
 )]
 
 pub mod error;
+pub mod pg;
 pub mod record;
 pub mod repository;
 
 pub use error::OutboxError;
+pub use pg::PgOutboxRepository;
 pub use record::{DLQ_THRESHOLD, OutboxRecord, OutboxStatus};
 pub use repository::{ClaimBatch, OutboxRepository, encode_payload};

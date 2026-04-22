@@ -36,6 +36,15 @@ tracing = { workspace = true }
 # Metrics facade — emitter-side only (exporter lives in the binary).
 metrics = { workspace = true }
 
+# PostgreSQL-backed repository impl (PgOutboxRepository). tokio-postgres
+# drives the raw SQL; deadpool-postgres hands out connections from the
+# shared pool the sensor-ingestion binary already maintains. The `pg`
+# module is always compiled — outbox-rs is specifically for Rust
+# services that persist to PG, and carrying a feature gate just to
+# drop the PG types would be dead complexity.
+tokio-postgres = { version = "0.7", features = ["with-uuid-1", "with-chrono-0_4", "with-serde_json-1"] }
+deadpool-postgres = { version = "0.14", features = ["rt_tokio_1"] }
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "test-util"] }
 # DebuggingRecorder for asserting metric emission in repository + dispatcher tests.

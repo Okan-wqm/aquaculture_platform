@@ -1537,10 +1537,66 @@ impl Parser {
                 break;
             }
 
-            // Parse case labels: expr, expr, ... :
+            // Parse case labels: expr [ .. expr ] , ... :
+            //
+            // Batch 178 Faz 3: recognizes the IEC 61131-3
+            // range syntax `lo..hi` at the label level.
+            // Ranges expand at parse time into the
+            // enumerated IntLiteral list so downstream
+            // compile_case logic (Batch 174) stays
+            // unchanged. Parse-time expansion is capped
+            // at CASE_RANGE_MAX_EXPANSION to protect
+            // against operator-specified ranges that
+            // would blow up opcode count.
+            const CASE_RANGE_MAX_EXPANSION: i64 = 256;
             let mut labels = Vec::new();
             loop {
-                labels.push(self.parse_expression());
+                let first = self.parse_expression();
+                if self.eat(&TokenKind::DotDot) {
+                    let upper = self.parse_expression();
+                    match (&first, &upper) {
+                        (Expression::IntLiteral(lo), Expression::IntLiteral(hi)) => {
+                            let (lo, hi) = (*lo, *hi);
+                            if hi < lo {
+                                self.errors.push(StError {
+                                    message: format!(
+                                        "CASE range `{}..{}` has inverted bounds",
+                                        lo, hi
+                                    ),
+                                    span: Some(self.current_span()),
+                                    code: "E203".to_string(),
+                                });
+                            } else if hi - lo + 1 > CASE_RANGE_MAX_EXPANSION {
+                                self.errors.push(StError {
+                                    message: format!(
+                                        "CASE range `{}..{}` expansion exceeds the {}-label cap",
+                                        lo, hi, CASE_RANGE_MAX_EXPANSION
+                                    ),
+                                    span: Some(self.current_span()),
+                                    code: "E204".to_string(),
+                                });
+                            } else {
+                                for v in lo..=hi {
+                                    labels.push(Expression::IntLiteral(v));
+                                }
+                            }
+                        }
+                        _ => {
+                            self.errors.push(StError {
+                                message:
+                                    "CASE range `..` requires integer literals on both sides"
+                                        .to_string(),
+                                span: Some(self.current_span()),
+                                code: "E205".to_string(),
+                            });
+                            // Fall back to the single-expr
+                            // form so parsing continues.
+                            labels.push(first);
+                        }
+                    }
+                } else {
+                    labels.push(first);
+                }
                 if !self.eat(&TokenKind::Comma) {
                     break;
                 }
@@ -1621,18 +1677,50 @@ impl Parser {
     /// statements to parse correctly while still detecting
     /// enum-identifier case labels (e.g. `MyEnum.Red:`).
     fn is_case_label_lookahead(&self) -> bool {
-        let current_is_label_start = matches!(
-            self.current_kind(),
-            TokenKind::IntLiteral(_) | TokenKind::Identifier(_)
-        );
-        if !current_is_label_start {
-            return false;
+        // Batch 178 Faz 3: extended to recognize multi-
+        // value + range CASE labels in the form
+        // `<int|ident> [ .. <int|ident> ] (, <int|ident>
+        // [ .. <int|ident> ])* :`.
+        //
+        // Walks forward through the token stream,
+        // consuming a label sequence + stopping at a
+        // terminating `:` (label) or returning false on
+        // `:=` (statement) or anything unexpected.
+        let mut idx = self.pos;
+        // Must start with a label atom.
+        loop {
+            // Expect atom: IntLiteral or Identifier.
+            match self.tokens.get(idx).map(|t| &t.kind) {
+                Some(TokenKind::IntLiteral(_)) | Some(TokenKind::Identifier(_)) => {
+                    idx += 1;
+                }
+                _ => return false,
+            }
+            // Optional `.. <atom>` range tail.
+            if matches!(
+                self.tokens.get(idx).map(|t| &t.kind),
+                Some(TokenKind::DotDot)
+            ) {
+                idx += 1;
+                match self.tokens.get(idx).map(|t| &t.kind) {
+                    Some(TokenKind::IntLiteral(_))
+                    | Some(TokenKind::Identifier(_)) => {
+                        idx += 1;
+                    }
+                    _ => return false,
+                }
+            }
+            // Terminator: `:` → label; `,` → next atom;
+            // `:=` or anything else → not a label.
+            match self.tokens.get(idx).map(|t| &t.kind) {
+                Some(TokenKind::Colon) => return true,
+                Some(TokenKind::Comma) => {
+                    idx += 1;
+                    continue;
+                }
+                _ => return false,
+            }
         }
-        let next_idx = self.pos + 1;
-        let Some(next) = self.tokens.get(next_idx) else {
-            return false;
-        };
-        matches!(next.kind, TokenKind::Colon)
     }
 
     fn parse_for_statement(&mut self) -> Option<Statement> {
@@ -2891,6 +2979,76 @@ mod tests {
         } else {
             panic!("Expected CASE statement");
         }
+    }
+
+    #[test]
+    fn test_parse_case_range_expands_at_parse_time() {
+        // Batch 178: `1..5:` at a CASE label should
+        // expand to 5 IntLiteral labels.
+        let source = r#"
+            PROGRAM Test
+            VAR
+                state : INT;
+                output : INT;
+            END_VAR
+
+            CASE state OF
+                1..5: output := 100;
+                10, 20..22: output := 200;
+            END_CASE;
+            END_PROGRAM
+        "#;
+
+        let program = parse_st(source).unwrap();
+        if let Statement::Case { branches, .. } = &program.body[0] {
+            assert_eq!(branches.len(), 2);
+            // Branch 1: `1..5:` → 5 labels.
+            assert_eq!(branches[0].0.len(), 5);
+            for (i, label) in branches[0].0.iter().enumerate() {
+                assert!(matches!(
+                    label,
+                    Expression::IntLiteral(v) if *v == (i as i64) + 1
+                ));
+            }
+            // Branch 2: `10, 20..22:` → 1 + 3 = 4 labels.
+            assert_eq!(branches[1].0.len(), 4);
+            assert!(matches!(branches[1].0[0], Expression::IntLiteral(10)));
+            assert!(matches!(branches[1].0[1], Expression::IntLiteral(20)));
+            assert!(matches!(branches[1].0[2], Expression::IntLiteral(21)));
+            assert!(matches!(branches[1].0[3], Expression::IntLiteral(22)));
+        } else {
+            panic!("Expected CASE statement");
+        }
+    }
+
+    #[test]
+    fn test_parse_case_range_inverted_bounds_errors() {
+        // `5..1:` → E203 inverted bounds.
+        let source = r#"
+            PROGRAM Test
+            VAR state : INT; output : INT; END_VAR
+            CASE state OF
+                5..1: output := 0;
+            END_CASE;
+            END_PROGRAM
+        "#;
+        let errors = parse_st(source).err().unwrap_or_default();
+        assert!(errors.iter().any(|e| e.code == "E203"));
+    }
+
+    #[test]
+    fn test_parse_case_range_exceeds_cap_errors() {
+        // `1..500:` exceeds CASE_RANGE_MAX_EXPANSION=256.
+        let source = r#"
+            PROGRAM Test
+            VAR state : INT; output : INT; END_VAR
+            CASE state OF
+                1..500: output := 0;
+            END_CASE;
+            END_PROGRAM
+        "#;
+        let errors = parse_st(source).err().unwrap_or_default();
+        assert!(errors.iter().any(|e| e.code == "E204"));
     }
 
     #[test]

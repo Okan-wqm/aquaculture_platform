@@ -1979,6 +1979,52 @@ mod tests {
     // ====================================================================
 
     #[test]
+    fn run_compiled_case_range_label_matches_any_value_in_range() {
+        // Batch 178 end-to-end: parse ST source with
+        // a CASE range label, compile, execute, verify
+        // the runtime matches ANY value inside the
+        // declared range.
+        //
+        // PROGRAM p
+        //   VAR n: INT; out: INT; END_VAR
+        //   n := 7;
+        //   CASE n OF
+        //     0:    out := 100;
+        //     5..10: out := 200;
+        //     20:   out := 300;
+        //   END_CASE
+        // END_PROGRAM
+        //
+        // n=7 falls into the `5..10` range → out=200.
+        use super::super::bytecode_compiler::compile_program;
+        use crate::st_validator::parse_st;
+
+        let source = r#"
+            PROGRAM p
+            VAR
+                n : INT;
+                out : INT;
+            END_VAR
+
+            n := 7;
+            CASE n OF
+                0: out := 100;
+                5..10: out := 200;
+                20: out := 300;
+            END_CASE;
+            END_PROGRAM
+        "#;
+        let prog = parse_st(source).expect("parse");
+        let bc = compile_program(&prog, &[], "p".into(), 100_000).expect("compile");
+        let mut vm = ScriptVm::new(&bc);
+        assert_eq!(vm.run(&bc), VmOutcome::Returned);
+        // Locate locals by name via the VAR order:
+        // slot 0 = n, slot 1 = out. n=7, out=200.
+        assert_eq!(vm.locals()[0], StValue::Int(7));
+        assert_eq!(vm.locals()[1], StValue::Int(200));
+    }
+
+    #[test]
     fn run_compiled_case_statement_dispatches_to_matched_branch() {
         // PROGRAM p
         //   VAR state: INT; out: INT; END_VAR

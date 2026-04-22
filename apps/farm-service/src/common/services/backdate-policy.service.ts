@@ -86,11 +86,18 @@ const ENV_VAR_NAMES: Record<BackdateContext, string> = {
   harvest: 'HARVEST_BACKDATE_LIMIT_DAYS',
 };
 
+import { Optional } from '@nestjs/common';
+import { FarmDomainMetricsService } from '../metrics/farm-domain-metrics.service';
+
 @Injectable()
 export class BackdatePolicyService {
   private readonly logger = new Logger(BackdatePolicyService.name);
 
-  constructor(private readonly configService: ConfigService) {}
+  constructor(
+    private readonly configService: ConfigService,
+    @Optional()
+    private readonly metricsService?: FarmDomainMetricsService,
+  ) {}
 
   /**
    * Resolve the effective limit for a context. Env var takes priority,
@@ -133,6 +140,7 @@ export class BackdatePolicyService {
     const { context, proposedDate, limitDays, subjectLabel } = options;
 
     if (!(proposedDate instanceof Date) || Number.isNaN(proposedDate.getTime())) {
+      this.metricsService?.incBackdateRejection({ context });
       throw new BadRequestException(
         `Invalid ${context} date: proposed value is not a valid Date.`,
       );
@@ -142,6 +150,7 @@ export class BackdatePolicyService {
     const futureMs = proposedDate.getTime() - now.getTime();
 
     if (futureMs > FUTURE_CLOCK_SKEW_MS) {
+      this.metricsService?.incBackdateRejection({ context });
       throw new BadRequestException(
         `Invalid ${context} date: ${proposedDate.toISOString()} is in the future. ` +
           `Future-dated operational records are never accepted.`,
@@ -152,6 +161,7 @@ export class BackdatePolicyService {
     const backdatedDays = Math.max(0, Math.floor(-futureMs / 86_400_000));
 
     if (backdatedDays > effectiveLimit) {
+      this.metricsService?.incBackdateRejection({ context });
       const subject = subjectLabel ? ` for ${subjectLabel}` : '';
       throw new BadRequestException(
         `Proposed ${context} date${subject} is ${backdatedDays} day(s) in the past, ` +

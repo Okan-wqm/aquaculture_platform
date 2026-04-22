@@ -1115,3 +1115,4 @@ Bu orphan'ı Faz 1.3 hot-fix olarak **ayrı PR** ile kapatmak gerekir — Faz 2.
 | 24 | Faz 4.1 — Domain retention functions + cron wiring | ✅ RESOLVED (Faz 4.1) | Girdi 14b — feeding/growth/wq/tank_op/harvest retention |
 | 25 | Faz 5.4 — GraphQL query complexity limit | ✅ RESOLVED (Faz 5.4) | Girdi 15-C9 + Orphan 7 — default 1000 with env override |
 | 26 | Faz 5.2 — JSONB GIN index (narrowed to real workload) | ✅ RESOLVED (Faz 5.2 narrowed) | `storage_lot_mixes.contributingLots` — traceLot path; WQ + batch-weight indexes skipped as speculative |
+| 27 | Faz 5.3 — Prometheus domain metrics | ✅ RESOLVED (Faz 5.3) | Girdi 14d — FarmDomainMetricsService + APP_INTERCEPTOR + backdate wiring |

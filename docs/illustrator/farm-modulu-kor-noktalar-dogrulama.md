@@ -931,3 +931,160 @@ Bu oturumda uygulanmayıp takip listesine alınanlar:
 5. **§14.3 (Regulatory)** — "Sistem otomatik gönderir (5 rapor tipi)" + "Disease/Escape/Welfare manuel kalıyor" + "SLA takibi yok" şeklinde düzeltilmeli.
 6. **§22 (Güvenlik)** — Soft delete + FK etkileşimi, backdating politikası, JSONB hybrid önerisi yeni alt başlıklar.
 7. **§1 (Kapsam)** — 70 tablo: "X'i legacy + Y'si aktif" ayrımı. REST: 1 domain + 2 read/proxy.
+
+---
+
+## Plan Fazında Tespit Edilen Orphan Bulgular
+
+Kalan kör noktaları planlarken (bkz `/root/.claude/plans/` 7-faz planı) kod okunurken ortaya çıkan ve mevcut herhangi bir fazla *doğrudan* ilişkili olmayan bulgular. Her biri bağımsız takip edilir — implementasyon sırasında ilgili fazla birleştirilir veya ayrı PR olur.
+
+### Orphan 1 — PR #21 Regresyonu: `vite.config.ts` Silinmiş Dosyaları Expose Ediyor 🔴 **DÜZELTİLDİ**
+
+**Bulgu:** Önceki oturumda `FarmListPage` ve `FarmDetailPage` silindi (commit `67c9c472`), ama `web/modules/farm-module/vite.config.ts:21-22` module federation `exposes` block'unda hala `'./FarmList'` ve `'./FarmDetail'` kayıtlıydı. Aynı şekilde `web/shell/src/types/remote-modules.d.ts:33-43` bu iki export için TypeScript `declare module` tanımları tutuyordu.
+
+**Etki:** Farm-module vite build kırılırdı (kaynak dosya yok, expose path resolution fail). Shell type-check'te dangling declaration uyarısı.
+
+**Düzeltildi:** Bu PR'da (`docs/farm-orphans` branch'inde):
+- `vite.config.ts` `exposes` block'undan iki satır silindi
+- `remote-modules.d.ts` karşılığı declaration'lar silindi
+- İki dosyada yorum bırakıldı ("removed together with FarmListPage/FarmDetailPage in 67c9c472")
+
+**Ders:** Frontend microfrontend federation değişikliklerinde her zaman:
+1. `exposes` block kontrolü
+2. Shell tarafındaki `remote-modules.d.ts` declaration kontrolü
+3. Consumer import'ları (şimdiki durumda yok ama olabilirdi)
+
+### Orphan 2 — `allocate-to-tank` Zaten Hard-Enforce Yapıyor — Plan Faz 1.1 Güncellendi
+
+**Bulgu:** `apps/farm-service/src/batch/handlers/allocate-to-tank.handler.ts:131-165` "LIFE-SAFETY: Hard capacity enforcement" başlığıyla zaten capacity check yapıyor — ama `TankCapacityService` değil `equipment.hasCapacityFor()` entity metodu üzerinden.
+
+**Etki:** Aynı invariant iki yerde (entity method + service). Plan Faz 1.1 "migration" yerine "central consolidation" olarak güncellendi.
+
+**Aksiyon (Faz 1.1 sırasında):** `Equipment.hasCapacityFor()` deprecate edilir, `TankCapacityService.enforce()` çağrısına delegate edilir.
+
+### Orphan 3 — `Equipment.hasCapacityFor()` Competing API
+
+**Bulgu:** Equipment entity'si (allocate-to-tank'ten referans) muhtemelen inline `hasCapacityFor()` method'una sahip. `TankCapacityService` ile rakip pattern.
+
+**Aksiyon (Faz 1.1):** Entity metod silinmez (backward compat için), ama `@deprecated` JSDoc + gövdesi `TankCapacityService.enforce()` çağrısına yönlendirilir.
+
+### Orphan 4 — Legacy `farm.farms` Cross-Service Sorgulanıyor 🔴
+
+**Bulgu:** `apps/observability-service/src/metrics/metrics-aggregator.service.ts:186`:
+```ts
+`SELECT count(*)::text as count FROM farm.farms WHERE "tenantId" = $1`
+```
+
+**Etki:** Farm modülü `farms` tablosunu deprecate ettik (backend mutation'lar throw ediyor) ama observability-service hâlâ bu tablodan tenant istatistiği okuyor. Legacy migration (Plan Faz 4.3) sırasında observability-service güncellenmedikçe bu sorgu 0 döndürmeye başlar.
+
+**Aksiyon (Faz 4.3 pre-migration):** Observability-service sorgusu `farm.sites` veya yeni tenant-count kaynağına yönlendirilmeli. Ayrı bir commit/PR içinde.
+
+### Orphan 5 — `admin-api-service` SQL Security Test `farm.ponds` Referansı
+
+**Bulgu:** `apps/admin-api-service/src/database-management/controllers/__tests__/explorer-sql-security.spec.ts:264`:
+```ts
+const res = await postQuery('SELECT * FROM farm.ponds');
+```
+
+**Etki:** Ponds tablosu kaldırılırsa (Plan Faz 4.3) test failing olur.
+
+**Aksiyon (Faz 4.3 pre-migration):** Test hedefi başka legacy tabloya (`farm.farms` veya `farm.batches`) veya generic negative-security target'a güncellenmeli.
+
+### Orphan 6 — `farm.entity.ts:81` Pond Sirkülarity Yorumu
+
+**Bulgu:** Farm entity'sinde Pond ilişkisi relation decorator yerine resolver-tarafında query ile yönetiliyor:
+```ts
+// Use farm.ponds query in resolver instead to avoid circular type issues
+```
+
+**Etki:** Farm/Pond legacy kaldırılırken bu yorum güncellensin. Okuma akışı kalıyorsa dokümante edilsin.
+
+**Aksiyon (Faz 1.2):** Yorum "READ-ONLY LEGACY" olarak güncellenir.
+
+### Orphan 7 — 6+ Entity'de `restore()` Var Ama Hiçbiri GraphQL Mutation Değil
+
+**Bulgu:** `feed-type-species.entity.ts`, `feed.entity.ts`, `batch-feed-assignment.entity.ts`, `supplier.entity.ts`, `sub-system.entity.ts`, `species.entity.ts` — hepsinde `restore(): void { this.isDeleted = false; ... }` method'u tanımlı ama hiçbiri GraphQL mutation olarak expose edilmemiş.
+
+**Aksiyon (Plan Faz 4.2):** Generic `RestorableResolver<T>` mixin yazılır, 6+ resolver bunu extend eder. UI kullanıcıya restore butonu sunar.
+
+### Orphan 8 — `libs/storage` MinIO Client Zaten Mevcut (Plan Güncellendi)
+
+**Bulgu:** `libs/storage/src/minio-client.service.ts` — tam MinIO S3-compatible client zaten var. Plan Faz 6.2 "yeni yaz" iddiası yanlıştı.
+
+**Düzeltildi:** Plan Faz 6.2 "wrap, don't recreate" olarak güncellendi. `FileUploadSecurityService` `MinioClientService`'i sarar — pre-upload mime/size/EXIF, post-upload ClamAV async scan.
+
+### Orphan 9 — `graphql-query-complexity` Paketi package.json'da Yok
+
+**Bulgu:** `grep "graphql-query-complexity" package.json` → 0 hit. Plan Faz 5.4 `npm install` adımı gerektirir.
+
+**Aksiyon (Faz 5.4 başlangıçta):** `npm add graphql-query-complexity@^5.0.0` root monorepo'da.
+
+### Orphan 10 — `TenantProvisionedEvent` Contract Mevcut Değil
+
+**Bulgu:** `grep "TenantProvisioned|TenantCreated" libs/shared-contracts/` → 0 hit.
+
+**Aksiyon (Faz 7.5):** Yeni event contract `libs/shared-contracts/src/events/tenant-provisioned.event.ts` oluşturulur. Publisher tarafı (admin-api-service veya tenant-service) ayrı PR'da sarmalanır.
+
+### Orphan 11 — Sensor Modülünde TimescaleDB Continuous Aggregate Pattern Mevcut
+
+**Bulgu:** `database/migrations/modules/sensor/V003__create_continuous_aggregates.sql` — `sensor.metrics_1min`, `sensor.metrics_1hour`, `sensor.metrics_1day` continuous aggregates kullanıyor.
+
+**Plan güncellemesi:** Faz 7.2 analytics pipeline için aynı pattern — `CREATE MATERIALIZED VIEW` yerine `create_continuous_aggregate()` + `add_continuous_aggregate_policy()`. Automatic refresh, manuel cron gerekmez.
+
+### Orphan 12 — `AllExceptionsFilter` Farm-Service'te Yok
+
+**Bulgu:** `find . -name "*exceptions.filter.ts"` farm-service'te hit yok. Gateway-api veya backend-common'da shared filter var mı kontrol edilmedi.
+
+**Aksiyon (Faz 6.4 hazırlık):** İlk adım `gateway-api/` ve `libs/backend-common/` taraması. Var ise reuse; yoksa `libs/backend-common/src/errors/` içinde yeni.
+
+### Orphan 13 — `FarmRepository` Hâlâ Aktif ve Registered
+
+**Bulgu:** FarmModule `app.module.ts:45, 336` registered; `FarmRepository` query handler'lar tarafından kullanılıyor. Handler'ları silmek FarmRepository'yi kaldırmaz — read-only legacy olarak kalmalı.
+
+**Aksiyon (Faz 1.2):** Sadece `CreateFarmHandler`/`CreatePondHandler` silinir. Query handler'lar + FarmRepository kalır. `farm.entity.ts:81` yorumu "READ-ONLY LEGACY" olarak güncellenir.
+
+### Orphan 14 — `batch_feed_assignments` UNIQUE Kısıt + Restore Çakışması
+
+**Bulgu:** `batch_feed_assignments` tablosu `(tenant_id, batch_id)` UNIQUE kısıtı var (resolver:37 batch başına tek assignment varsayımı). Restore edilmiş (is_deleted=true) bir satır restore edilirken aktif aynı batch'te zaten başka satır varsa UNIQUE çakışması.
+
+**Aksiyon (Faz 4.2):** `RestoreService.restore()` pre-check: UNIQUE kısıtı kırılacak senaryoda 409 döner, kullanıcıya "existing active record must be soft-deleted first" mesajı.
+
+### Orphan 15 — Deploy Cleaner Fish Frontend Pre-Check Query Yapmıyor
+
+**Bulgu:** `web/modules/farm-module/src/pages/cleaner-fish/components/DeployModal.tsx:42,85` `deployCleanerFish` mutation doğrudan çağırıyor. Capacity check pre-submit query yok — kullanıcı sadece 400 hatasıyla bloke olur.
+
+**Aksiyon (Faz 3 içinde genişletilmiş):** Frontend form submit butonu disabled önce `TankCapacityService.check` query'si çağrılır (yeni query: Faz 1.1 ile birlikte expose edilebilir). Hata önizlemesi gösterilir.
+
+### Orphan 16 — Method İsim Duplikasyonu: `cleanupOldData`
+
+**Bulgu:** Farklı modüllerde aynı method adı:
+- `apps/farm-service/src/scheduler/cron-jobs.service.ts:709` — farm cleanup
+- `apps/farm-service/src/weather/services/weather-cron.service.ts:111` — weather cleanup
+- `apps/admin-api-service/src/impersonation/services/*.ts` — 3 farklı
+
+**Etki:** `@Cron` registration isimlerı farklı (`cleanupOldData` vs `weatherCleanup`) — gerçek çakışma yok. Sadece okuyucu karışıklığı.
+
+**Aksiyon:** Düşük öncelik. Gelecek refactor'da her method adı modül-prefix alabilir (`auditCleanup`, `weatherCleanup`). Koda dokunulmasın.
+
+---
+
+## Orphan Takip Tablosu
+
+| # | Başlık | Durum | İlgili Faz |
+|---|--------|-------|-----------|
+| 1 | vite.config.ts FarmList/FarmDetail exposes regresyonu | ✅ Düzeltildi (bu PR) | — |
+| 2 | allocate-to-tank zaten hard-enforce | 📋 Faz 1.1 plan güncel | Faz 1.1 |
+| 3 | Equipment.hasCapacityFor() duplicate | 📋 Faz 1.1 plan güncel | Faz 1.1 |
+| 4 | observability-service farm.farms | ⚠ Cross-service fix gerek | Faz 4.3 pre |
+| 5 | admin-api test farm.ponds | ⚠ Test update gerek | Faz 4.3 pre |
+| 6 | farm.entity.ts pond comment | 📋 Faz 1.2 | Faz 1.2 |
+| 7 | restore() 6+ entity'de expose edilmemiş | 📋 Faz 4.2 mixin | Faz 4.2 |
+| 8 | libs/storage MinIO mevcut | 📋 Faz 6.2 güncel | Faz 6.2 |
+| 9 | graphql-query-complexity paketi yok | 📋 npm install | Faz 5.4 |
+| 10 | TenantProvisionedEvent contract yok | 📋 Greenfield | Faz 7.5 |
+| 11 | TimescaleDB continuous aggregate pattern | 📋 Pattern reuse | Faz 7.2 |
+| 12 | AllExceptionsFilter yok | 📋 Greenfield | Faz 6.4 |
+| 13 | FarmRepository read-only legacy | 📋 Comment update | Faz 1.2 |
+| 14 | batch_feed_assignments UNIQUE + restore | 📋 Pre-check | Faz 4.2 |
+| 15 | Cleaner fish deploy pre-check query yok | 📋 UI genişlet | Faz 3 + 1.1 |
+| 16 | cleanupOldData method isim duplikasyonu | ⚠ Düşük öncelik | cosmetic |

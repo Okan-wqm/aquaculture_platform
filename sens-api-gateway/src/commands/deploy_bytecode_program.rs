@@ -61,12 +61,13 @@ impl CommandHandler {
         info!("Executing deploy_bytecode_program command (Faz 3 Batch 167)");
 
         // Pull AppState slices under a single read-guard.
-        let (pubkey, tenant_str, registry) = {
+        let (pubkey, tenant_str, registry, store) = {
             let state = self.state.read().await;
             (
                 state.firmware_signing_pubkey.clone(),
                 state.tenant_id.clone(),
                 state.bytecode_registry.clone(),
+                state.bytecode_registry_store.clone(),
             )
         };
 
@@ -140,6 +141,50 @@ impl CommandHandler {
                     report.policy_version,
                     report.replaced_existing
                 );
+
+                // Batch 169: persist to SQLCipher store so
+                // the deploy survives reboot. Pulled-back
+                // entry read from the in-memory registry
+                // to capture the canonical ProgramEntry
+                // shape (deployed_at timestamp + enabled
+                // state) that `verify_and_deploy` built.
+                //
+                // Best-effort: a store-write failure
+                // logs at warn + returns success because
+                // the in-memory deploy IS live (the
+                // scan-cycle orchestrator will pick it up
+                // next tick). Operators investigate the
+                // persistence failure separately.
+                let persisted = if let Some(store_ref) = store.as_ref() {
+                    match registry.get(&report.program_id).await {
+                        Some(entry) => match store_ref.save(&entry) {
+                            Ok(()) => true,
+                            Err(e) => {
+                                warn!(
+                                    "deploy_bytecode_program: registry insert OK but store save failed for {}: {}. Deploy is live in-memory; operator must investigate SQLCipher.",
+                                    sanitize_for_log(&report.program_id),
+                                    e
+                                );
+                                false
+                            }
+                        },
+                        None => {
+                            // Rare: registry insert
+                            // succeeded but the entry
+                            // vanished before the save-
+                            // back read. Log + treat as
+                            // not-persisted.
+                            warn!(
+                                "deploy_bytecode_program: registry insert OK but entry missing at save-back read for {}",
+                                sanitize_for_log(&report.program_id)
+                            );
+                            false
+                        }
+                    }
+                } else {
+                    false
+                };
+
                 (
                     true,
                     json!({
@@ -148,6 +193,7 @@ impl CommandHandler {
                         "tenant_id": report.tenant_id,
                         "policy_version": report.policy_version,
                         "replaced_existing": report.replaced_existing,
+                        "persisted": persisted,
                     }),
                     None,
                 )

@@ -682,6 +682,20 @@ pub struct AppState {
     /// `list_enabled()` every tick.
     pub bytecode_registry:
         std::sync::Arc<crate::scripting::bytecode_registry::BytecodeProgramRegistry>,
+
+    /// Bytecode registry SQLCipher store — Batch 169 Faz 3
+    /// wire. None when `scripting.bytecode_store_path` is
+    /// empty (default — in-memory registry only). Some
+    /// when `init_bytecode_registry_store` opens the
+    /// configured path + rehydrates existing entries.
+    /// `cmd_deploy_bytecode_program` persists to this
+    /// store AFTER the registry insert succeeds so a
+    /// successful deploy survives reboot.
+    pub bytecode_registry_store: Option<
+        std::sync::Arc<
+            crate::scripting::bytecode_registry_store::BytecodeRegistryStore,
+        >,
+    >,
 }
 
 impl AppState {
@@ -834,6 +848,13 @@ impl AppState {
             bytecode_registry: std::sync::Arc::new(
                 crate::scripting::bytecode_registry::BytecodeProgramRegistry::new(),
             ),
+            // Batch 169 Faz 3 wire: None-init.
+            // init_bytecode_registry_store() opens the
+            // SQLCipher file at the configured path +
+            // rehydrates entries into bytecode_registry.
+            // None when the config field is empty — the
+            // registry stays in-memory-only (dev default).
+            bytecode_registry_store: None,
         }
     }
 
@@ -2062,6 +2083,86 @@ impl AppState {
     /// `TrybootBootloaderHandle::new_with_autoboot_path`
     /// if `tryboot_autoboot_path` is set, else default
     /// `/boot/firmware/autoboot.txt`.
+    /// Initialize the SQLCipher-backed bytecode registry
+    /// store + rehydrate persisted programs into the in-
+    /// memory registry.
+    ///
+    /// Called AFTER config load + before the scan-cycle
+    /// orchestrator starts. No-op when
+    /// `config.scripting.bytecode_store_path` is empty
+    /// (dev default; in-memory-only registry).
+    ///
+    /// Failure modes (each logs at error + leaves the
+    /// registry empty for this boot):
+    /// - SQLCipher open fails (path, permissions, key
+    ///   derivation) → store stays None; `cmd_deploy_
+    ///   bytecode_program` will still deploy to the
+    ///   in-memory registry but programs won't survive
+    ///   reboot until the store recovers.
+    /// - load_all returns error → store is stored but
+    ///   the rehydrate is skipped.
+    /// - One or more entries fail registry.insert
+    ///   (monotonic / tenant gate, unexpected schema) →
+    ///   reported per-entry; other entries still
+    ///   rehydrate.
+    pub async fn init_bytecode_registry_store(&mut self) {
+        let path = self.config.scripting.bytecode_store_path.trim().to_string();
+        if path.is_empty() {
+            info!(
+                "Bytecode registry store disabled (scripting.bytecode_store_path is empty). Deployed programs will not survive reboot."
+            );
+            return;
+        }
+
+        let store = match crate::scripting::bytecode_registry_store::BytecodeRegistryStore::new(&path) {
+            Ok(s) => std::sync::Arc::new(s),
+            Err(e) => {
+                error!(
+                    "Bytecode registry store open failed at {}: {}. Agent boots with in-memory registry only — deploys will NOT persist until SQLCipher recovers.",
+                    path,
+                    e
+                );
+                return;
+            }
+        };
+
+        self.bytecode_registry_store = Some(store.clone());
+
+        // Rehydrate existing entries into the in-memory
+        // registry. Per-entry failures are logged but
+        // do not abort the rehydrate.
+        let results = crate::scripting::bytecode_registry_store::load_into_registry(
+            &store,
+            &self.bytecode_registry,
+        )
+        .await;
+
+        let mut loaded = 0usize;
+        let mut failed = 0usize;
+        for r in &results {
+            match r {
+                Ok(program_id) => {
+                    loaded += 1;
+                    info!(
+                        "Bytecode registry rehydrated: program_id={}",
+                        program_id
+                    );
+                }
+                Err((program_id, e)) => {
+                    failed += 1;
+                    error!(
+                        "Bytecode registry rehydrate failed for {}: {}",
+                        program_id, e
+                    );
+                }
+            }
+        }
+        info!(
+            "Bytecode registry store ready at {}: rehydrated {} + failed {}",
+            path, loaded, failed
+        );
+    }
+
     pub fn init_bootloader_backend(&mut self) {
         use crate::config::BootloaderBackend;
         match self.config.firmware_update.bootloader_backend {
@@ -2659,6 +2760,18 @@ async fn async_main() -> Result<()> {
     {
         let mut state_guard = state.write().await;
         state_guard.init_license_cache();
+    }
+
+    // Batch 169 Faz 3 wire: bytecode registry SQLCipher
+    // store. No-op when scripting.bytecode_store_path is
+    // empty (dev default); otherwise opens the file +
+    // rehydrates persisted ST programs into the in-memory
+    // registry. Called AFTER init_license_cache (which
+    // opens its own SQLCipher store) so we reuse the
+    // master-key derivation that pass settled.
+    {
+        let mut state_guard = state.write().await;
+        state_guard.init_bytecode_registry_store().await;
     }
 
     // Batch 146 Faz 7 wire: signature_mode consistency

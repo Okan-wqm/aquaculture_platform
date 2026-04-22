@@ -1060,6 +1060,15 @@ pub struct ScriptingConfig {
     /// Maximum execution time per script (seconds)
     #[serde(default = "default_max_execution_time_secs")]
     pub max_execution_time_secs: u64,
+
+    /// Batch 169 Faz 3 (plan R-1): path to the SQLCipher
+    /// file that persists deployed ST bytecode programs
+    /// across reboots. Empty string (default) disables
+    /// persistence — in-memory registry only. Set to
+    /// e.g. `/var/lib/suderra/bytecode_registry.db` for
+    /// production deployments.
+    #[serde(default)]
+    pub bytecode_store_path: String,
 }
 
 impl Default for ScriptingConfig {
@@ -1073,6 +1082,7 @@ impl Default for ScriptingConfig {
             max_execution_depth: default_max_execution_depth(),
             max_actions: default_max_actions(),
             max_execution_time_secs: default_max_execution_time_secs(),
+            bytecode_store_path: String::new(),
         }
     }
 }

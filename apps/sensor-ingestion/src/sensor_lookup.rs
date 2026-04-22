@@ -174,9 +174,10 @@ pub struct SensorLookupClient {
 }
 
 impl SensorLookupClient {
-    /// Wrap an existing NATS client. Construction is on the connect
-    /// path so a misconfigured cert / unreachable broker surfaces in
-    /// `start_sensor_lookup_client` (caller side), not at first use.
+    /// Wrap the sidecar's shared [`nats_client::NatsClient`].
+    /// Construction is on the connect path in `async_main` so a
+    /// misconfigured cert / unreachable broker surfaces at sidecar
+    /// boot, not at first use.
     #[must_use]
     pub fn new(nats: Arc<nats_client::NatsClient>) -> Self {
         Self {
@@ -396,28 +397,20 @@ pub fn spawn_lookup_and_populate_cache(
     LookupSpawnOutcome::Spawned
 }
 
-/// Build a [`SensorLookupClient`] when `[nats]` is configured. Returns
-/// `Ok(None)` in stub mode (no NATS) so the binary boots without a
-/// broker for local smoke runs — exactly the same shape as
-/// `start_event_publisher` for the publisher path.
+/// Build a [`SensorLookupClient`] from the sidecar's shared
+/// [`nats_client::NatsClient`]. Ownership handoff `Arc<NatsClient>`
+/// → `Arc<SensorLookupClient>` so the drain holds exactly one extra
+/// Arc for the cache-fill responder path and no extra allocation at
+/// the hot-path spawn site.
 ///
-/// # Errors
-/// Propagates [`nats_client::NatsClientError`] from the connect probe.
-pub async fn start_sensor_lookup_client(
-    nats_cfg: Option<nats_client::MtlsConfig>,
-) -> Result<Option<Arc<SensorLookupClient>>, nats_client::NatsClientError> {
-    let Some(cfg) = nats_cfg else {
-        tracing::info!(
-            "nats config absent; skipping sensor lookup client (stub mode — cache stays cold)"
-        );
-        return Ok(None);
-    };
-    tracing::info!(
-        server_url = %cfg.server_url,
-        "connecting SensorLookupClient (mTLS)"
-    );
-    let nats = nats_client::NatsClient::connect(&cfg).await?;
-    Ok(Some(Arc::new(SensorLookupClient::new(Arc::new(nats)))))
+/// Architectural position: the orchestrator establishes ONE mTLS
+/// connection in `async_main`; every NATS consumer (outbox
+/// publisher, policy subscriber per ADR-031, lookup responder)
+/// wraps the same handle so a single TLS handshake covers every
+/// publish/subscribe/request consumer on the same cert CN.
+#[must_use]
+pub fn build_sensor_lookup_client(nats: Arc<nats_client::NatsClient>) -> Arc<SensorLookupClient> {
+    Arc::new(SensorLookupClient::new(nats))
 }
 
 #[cfg(test)]

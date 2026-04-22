@@ -22,10 +22,10 @@
 //!
 //! # mTLS-only construction
 //!
-//! The constructor [`NatsOutboxPublisher::connect`] takes a
-//! [`nats_client::MtlsConfig`] and forwards to
-//! [`nats_client::NatsClient::connect`]. There is structurally NO
-//! construction path that omits the client cert — the upstream
+//! The only constructor is [`NatsOutboxPublisher::from_client`], which
+//! wraps a pre-connected [`nats_client::NatsClient`] the orchestrator
+//! built via [`nats_client::NatsClient::connect`]. There is structurally
+//! NO construction path that omits the client cert — the upstream
 //! factory does not expose `with_user_pass` / `with_token`, and this
 //! module neither shadows nor bypasses it. ADR-014/015
 //! cert-is-identity is enforced one architectural layer down.
@@ -41,22 +41,10 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use thiserror::Error;
 use tokio::sync::Mutex;
 use tracing::instrument;
 
 use outbox_rs::{OutboxPublisher, OutboxRecord, PublishError};
-
-/// Errors that can occur inside the publisher construction path.
-/// Runtime publish errors surface as [`PublishError`] via the trait;
-/// this enum is only for constructor-time (connect) problems.
-#[derive(Debug, Error)]
-pub enum NatsOutboxPublisherError {
-    /// Could not establish the mTLS NATS connection — TLS material
-    /// missing, handshake failed, broker unreachable.
-    #[error("NATS mTLS connect failed")]
-    Connect(#[source] nats_client::NatsClientError),
-}
 
 /// Derive the NATS subject for an outbox record. Pure helper so the
 /// subject shape can be unit-tested without a broker. Byte-for-byte
@@ -100,22 +88,20 @@ pub struct NatsOutboxPublisher {
 }
 
 impl NatsOutboxPublisher {
-    /// Establish an mTLS connection to the broker and return a wrapper
-    /// ready to publish. The constructor probes the connection eagerly
-    /// so a misconfiguration surfaces at sidecar boot rather than at
-    /// the first claim-and-publish.
+    /// Wrap an already-connected [`nats_client::NatsClient`]. The
+    /// sidecar builds ONE mTLS connection in `async_main` and every
+    /// NATS consumer (outbox publisher, policy subscriber per ADR-031,
+    /// sensor-lookup responder) wraps the shared handle through
+    /// equivalent constructors so a single TLS handshake covers every
+    /// publish/subscribe/request consumer on the same cert CN.
     ///
-    /// # Errors
-    /// - [`NatsOutboxPublisherError::Connect`] when TLS material is
-    ///   unreadable, the broker is unreachable, or the URL scheme is
-    ///   not `nats://` / `tls://`.
-    pub async fn connect(cfg: &nats_client::MtlsConfig) -> Result<Self, NatsOutboxPublisherError> {
-        let client = nats_client::NatsClient::connect(cfg)
-            .await
-            .map_err(NatsOutboxPublisherError::Connect)?;
-        Ok(Self {
-            client: Arc::new(client),
-        })
+    /// `const fn` because construction is trivially infallible — all
+    /// the connect-time failure modes live upstream in
+    /// [`nats_client::NatsClient::connect`] and are already surfaced
+    /// there to the orchestrator.
+    #[must_use]
+    pub const fn from_client(client: Arc<nats_client::NatsClient>) -> Self {
+        Self { client }
     }
 }
 

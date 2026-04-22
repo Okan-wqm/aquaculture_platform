@@ -64,6 +64,13 @@ rustls-native-certs = "0.8"
 proptest = "1.5"
 criterion = { version = "0.5", features = ["html_reports"] }
 
+# ArcSwap — lock-free atomic swap of `Arc<T>`. The hot-path read
+# returns a `Guard` that deref's to `&T` with a ~5ns fast-path; the
+# write (`.store(Arc::new(new))`) swaps under a seqlock. Used by
+# sensor-ingestion's DynamicBackendPolicy so the drain's per-message
+# `backend_for(tenant)` call never blocks on the policy update path.
+arc-swap = "1.7"
+
 [profile.release]
 opt-level = 3
 lto = "fat"

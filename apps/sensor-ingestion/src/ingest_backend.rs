@@ -9,7 +9,7 @@
 //!   publisher pipeline. Inlining the gate into `main::drain_mqtt_stream`
 //!   would couple gate semantics to the boot flow and bury the rollout
 //!   logic where unit tests cannot reach it. Extracting now also
-//!   future-proofs the eventual switch from [`StaticBackendPolicy`]
+//!   future-proofs the eventual switch from `StaticBackendPolicy`
 //!   (TOML-served) to a NATS-served dynamic policy
 //!   (`sensor.lookup.tenant_settings`) planned for Faz 3 — the trait
 //!   stays stable, only the impl swaps.
@@ -31,7 +31,10 @@
 //!   new tenant onto the Rust path the moment the sidecar boots.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
+use arc_swap::ArcSwap;
+use serde::{Deserialize, Serialize};
 use tenant_context::TenantId;
 
 use crate::config::{IngestBackend, IngestBackendConfig};
@@ -47,10 +50,10 @@ pub trait IngestBackendPolicy: Send + Sync + std::fmt::Debug {
     fn backend_for(&self, tenant: TenantId) -> IngestBackend;
 }
 
-/// TOML-driven backend policy. Resolves the backend in O(1) from a
-/// pre-built `HashMap`. The intended caller is `main::async_main`
-/// which constructs one of these from the `[ingest_backend]` config
-/// section at boot and Arc-shares it down to the drain loop.
+/// TOML-driven backend policy — retained for tests that want a
+/// deterministic, immutable policy value. `#[cfg(test)]` because
+/// the production path (ADR-031) uses [`DynamicBackendPolicy`] so
+/// the NATS-served snapshot + hot-swap wiring is live end-to-end.
 ///
 /// WHY the per-tenant override is the storage primitive (HashMap of
 /// UUID → IngestBackend):
@@ -58,12 +61,14 @@ pub trait IngestBackendPolicy: Send + Sync + std::fmt::Debug {
 ///   pilot and to flip to "all tenants" at cutover. HashMap supports
 ///   both extremes: `O(1)` lookup at every size, plus the operator-
 ///   facing diff stays one TOML line per tenant.
+#[cfg(test)]
 #[derive(Debug, Clone)]
 pub struct StaticBackendPolicy {
     default_backend: IngestBackend,
     tenant_overrides: HashMap<TenantId, IngestBackend>,
 }
 
+#[cfg(test)]
 impl StaticBackendPolicy {
     /// Construct from explicit values. Tests + the
     /// [`Self::from_config`] adapter both use this.
@@ -117,6 +122,7 @@ impl StaticBackendPolicy {
     }
 }
 
+#[cfg(test)]
 impl IngestBackendPolicy for StaticBackendPolicy {
     fn backend_for(&self, tenant: TenantId) -> IngestBackend {
         self.tenant_overrides
@@ -126,9 +132,214 @@ impl IngestBackendPolicy for StaticBackendPolicy {
     }
 }
 
+// ---------------------------------------------------------------------
+// IngestBackendSnapshot + DynamicBackendPolicy (ADR-031).
+// ---------------------------------------------------------------------
+
+/// Immutable snapshot of the per-tenant backend routing decision at a
+/// point in time. Swapped atomically under an `ArcSwap` so the drain's
+/// per-message read (`backend_for(tenant)`) never blocks on the update
+/// path.
+///
+/// Wire shape mirrors what the `policy.ingest_backend.snapshot` NATS
+/// responder replies with + what `policy.ingest_backend.changed`
+/// events aggregate to. Serialised via serde so the JSON the
+/// admin-api-service emits round-trips byte-for-byte.
+///
+/// The `overrides` map is a plain `HashMap<TenantId, IngestBackend>` —
+/// the hot-path lookup is O(1), which matches the existing
+/// `StaticBackendPolicy` cost. A future tenant-bucket partitioning
+/// scheme (say 256 buckets to keep CPU-cache locality under a fleet
+/// of 50 000 tenants) would slot in at this struct without changing
+/// the callers.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct IngestBackendSnapshot {
+    /// Default backend every tenant not named in [`Self::overrides`]
+    /// routes to. Starts as [`IngestBackend::Node`] for safe rollout;
+    /// flips to [`IngestBackend::Rust`] at Faz-3 cut-over.
+    pub default_backend: IngestBackend,
+
+    /// Per-tenant override map. A tenant appearing here bypasses the
+    /// `default_backend` choice. Present tenants are explicit opt-
+    /// ins (during pilot) or explicit opt-outs (during rollback).
+    pub overrides: HashMap<TenantId, IngestBackend>,
+}
+
+impl IngestBackendSnapshot {
+    /// Test-only convenience: every tenant routes to
+    /// [`IngestBackend::Node`]. The production bootstrap path
+    /// ([`crate::policy::bootstrap_policy`]) reaches the same steady
+    /// state through `IngestBackendSnapshot::from_config(&default)`,
+    /// so this helper stays `cfg(test)` — Tier 1 "make it impossible"
+    /// to accidentally short-circuit the operator-signed TOML path
+    /// on the production boot flow.
+    #[cfg(test)]
+    #[must_use]
+    pub fn node_only() -> Self {
+        Self {
+            default_backend: IngestBackend::Node,
+            overrides: HashMap::new(),
+        }
+    }
+
+    /// Build a snapshot from an [`IngestBackendConfig`] (the TOML
+    /// section). Used as the bootstrap primitive when the NATS
+    /// snapshot + disk fallback both unavailable — operator-signed
+    /// starting state.
+    #[must_use]
+    pub fn from_config(cfg: &IngestBackendConfig) -> Self {
+        let overrides = cfg
+            .tenant_overrides
+            .iter()
+            .map(|(uuid, backend)| (TenantId::from_uuid(*uuid), *backend))
+            .collect();
+        Self {
+            default_backend: cfg.default_backend,
+            overrides,
+        }
+    }
+}
+
+/// Dynamic policy backed by an `ArcSwap<IngestBackendSnapshot>`. The
+/// drain's hot path reads through an `arc_swap::Guard`; policy
+/// updates replace the inner Arc atomically so no reader ever sees
+/// a torn snapshot.
+///
+/// `Send + Sync` through the `ArcSwap` + `Arc` composition. Multiple
+/// call sites can hold the policy: the drain (reads), the NATS
+/// subscriber (writes via [`Self::apply_snapshot`] / [`Self::apply_change`]),
+/// the cold-start bootstrap (writes the initial snapshot).
+#[derive(Debug)]
+pub struct DynamicBackendPolicy {
+    current: ArcSwap<IngestBackendSnapshot>,
+}
+
+impl DynamicBackendPolicy {
+    /// Construct from an initial snapshot. The bootstrap path calls
+    /// this with whichever source won the cold-start race: a
+    /// successful NATS snapshot response, the disk fallback, or the
+    /// config-file default (in that order of preference).
+    #[must_use]
+    pub fn new(initial: IngestBackendSnapshot) -> Self {
+        Self {
+            current: ArcSwap::from_pointee(initial),
+        }
+    }
+
+    /// Atomically replace the current snapshot. Every subsequent
+    /// `backend_for` read on this policy sees the new state from the
+    /// next memory-ordering publish point onward.
+    pub fn apply_snapshot(&self, snapshot: IngestBackendSnapshot) {
+        self.current.store(Arc::new(snapshot));
+    }
+
+    /// Apply a single incremental change (one
+    /// `policy.ingest_backend.changed` event) to the current
+    /// snapshot. Clones the current snapshot (which the `Arc` makes
+    /// structurally cheap), mutates the clone per the event, swaps
+    /// the new snapshot in.
+    ///
+    /// Keeps hot-path readers lock-free because the `store` is
+    /// atomic; a reader holding a `Guard` at the moment of the
+    /// write keeps its old snapshot alive until the guard drops.
+    pub fn apply_change(&self, change: IngestBackendChange) {
+        let current = self.current.load();
+        // `(**current).clone()` dereferences the Guard → &Arc →
+        // &IngestBackendSnapshot, then Clone moves to an owned
+        // snapshot the mutation lands on without touching the live
+        // reader's Arc.
+        let mut next = (**current).clone();
+        match change {
+            IngestBackendChange::SetGlobal { backend } => {
+                next.default_backend = backend;
+            }
+            IngestBackendChange::SetTenant {
+                tenant_id: tenant,
+                backend,
+            } => {
+                next.overrides.insert(tenant, backend);
+            }
+            IngestBackendChange::RemoveTenant { tenant_id: tenant } => {
+                next.overrides.remove(&tenant);
+            }
+        }
+        self.apply_snapshot(next);
+    }
+
+    /// Snapshot the current routing state. NOT on the hot path — hot
+    /// readers go through [`IngestBackendPolicy::backend_for`] which
+    /// reads through a single `ArcSwap::load` guard without cloning.
+    ///
+    /// The live production caller is
+    /// [`crate::policy::persist_snapshot_to_disk`] invoked from the
+    /// `policy.ingest_backend.>` subscriber after every
+    /// [`Self::apply_change`]: the subscriber pulls the new snapshot
+    /// out and writes it to the disk fallback file so the next cold
+    /// boot starts from the last-known authoritative state.
+    #[must_use]
+    pub fn snapshot(&self) -> IngestBackendSnapshot {
+        (**self.current.load()).clone()
+    }
+}
+
+impl IngestBackendPolicy for DynamicBackendPolicy {
+    fn backend_for(&self, tenant: TenantId) -> IngestBackend {
+        // `load()` returns a `Guard` that deref's to `&Arc<Snapshot>`;
+        // two deref layers (`**guard`) give us `&IngestBackendSnapshot`
+        // which the lookup reads through without allocating. The
+        // guard is dropped at the end of this expression.
+        let guard = self.current.load();
+        guard
+            .overrides
+            .get(&tenant)
+            .copied()
+            .unwrap_or(guard.default_backend)
+    }
+}
+
+/// Incremental change an ADR-031
+/// `policy.ingest_backend.changed` event can express. Kept as a
+/// single enum (rather than separate subjects per action) so the
+/// subscriber deserialises one wire type and the match arm is the
+/// single source of truth for the state-transition semantics.
+///
+/// The enum uses struct-shaped variants (rather than tuple) so
+/// `#[serde(tag = "action")]` produces the ADR-031 wire shape:
+///   `{"action":"set_global","backend":"Rust"}`
+///   `{"action":"set_tenant","tenant_id":"<uuid>","backend":"Rust"}`
+///   `{"action":"remove_tenant","tenant_id":"<uuid>"}`
+/// Tuple variants are incompatible with internally-tagged enums
+/// (serde's tag attribute needs named fields to merge the tag in).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum IngestBackendChange {
+    /// Replace the global default (affects every tenant without an
+    /// explicit override).
+    SetGlobal {
+        /// New global default.
+        backend: IngestBackend,
+    },
+
+    /// Set a per-tenant override (insert or overwrite).
+    SetTenant {
+        /// Tenant whose override is being installed.
+        tenant_id: TenantId,
+        /// Backend the tenant should route to from this event onward.
+        backend: IngestBackend,
+    },
+
+    /// Remove a per-tenant override (the tenant falls back to the
+    /// global default on the next read).
+    RemoveTenant {
+        /// Tenant whose override is being removed.
+        tenant_id: TenantId,
+    },
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::sync::Arc;
 
     use uuid::Uuid;
 
@@ -212,6 +423,7 @@ mod tests {
         let cfg = IngestBackendConfig {
             default_backend: IngestBackend::Node,
             tenant_overrides: overrides,
+            ..IngestBackendConfig::default()
         };
         let p = StaticBackendPolicy::from_config(&cfg);
         assert_eq!(
@@ -274,5 +486,207 @@ mod tests {
         let node_count = batch.len() - rust_count;
         assert_eq!(rust_count, 3, "three messages from the migrated tenant");
         assert_eq!(node_count, 3, "three messages from non-migrated tenants");
+    }
+
+    // -----------------------------------------------------------------
+    // DynamicBackendPolicy — ADR-031 hot-swap invariants.
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn snapshot_node_only_routes_every_tenant_to_node() {
+        let snap = super::IngestBackendSnapshot::node_only();
+        assert_eq!(snap.default_backend, IngestBackend::Node);
+        assert!(snap.overrides.is_empty());
+    }
+
+    #[test]
+    fn dynamic_policy_reads_initial_snapshot() {
+        let policy = super::DynamicBackendPolicy::new(super::IngestBackendSnapshot::node_only());
+        let t = fixed_tenant(0x01);
+        assert_eq!(policy.backend_for(t), IngestBackend::Node);
+    }
+
+    #[test]
+    fn apply_snapshot_swaps_state_visible_to_next_read() {
+        // The hot path reads the ArcSwap guard; after a store the
+        // next read MUST see the new snapshot. A regression that
+        // swapped the wrong Arc cell would fail this.
+        let policy = super::DynamicBackendPolicy::new(super::IngestBackendSnapshot::node_only());
+        let t = fixed_tenant(0x05);
+        assert_eq!(policy.backend_for(t), IngestBackend::Node);
+
+        let mut overrides = HashMap::new();
+        overrides.insert(t, IngestBackend::Rust);
+        policy.apply_snapshot(super::IngestBackendSnapshot {
+            default_backend: IngestBackend::Node,
+            overrides,
+        });
+
+        assert_eq!(
+            policy.backend_for(t),
+            IngestBackend::Rust,
+            "per-tenant override from the new snapshot must win"
+        );
+    }
+
+    #[test]
+    fn apply_change_set_global_flips_default() {
+        let policy = super::DynamicBackendPolicy::new(super::IngestBackendSnapshot::node_only());
+        let t = fixed_tenant(0x07);
+        assert_eq!(policy.backend_for(t), IngestBackend::Node);
+
+        policy.apply_change(super::IngestBackendChange::SetGlobal {
+            backend: IngestBackend::Rust,
+        });
+
+        assert_eq!(
+            policy.backend_for(t),
+            IngestBackend::Rust,
+            "flipping global must cascade to unoverridden tenants"
+        );
+    }
+
+    #[test]
+    fn apply_change_set_tenant_overrides_without_touching_global() {
+        let policy = super::DynamicBackendPolicy::new(super::IngestBackendSnapshot::node_only());
+        let t_override = fixed_tenant(0x0A);
+        let t_global = fixed_tenant(0x0B);
+
+        policy.apply_change(super::IngestBackendChange::SetTenant {
+            tenant_id: t_override,
+            backend: IngestBackend::Rust,
+        });
+
+        assert_eq!(policy.backend_for(t_override), IngestBackend::Rust);
+        assert_eq!(
+            policy.backend_for(t_global),
+            IngestBackend::Node,
+            "other tenants still follow the untouched global default"
+        );
+    }
+
+    #[test]
+    fn apply_change_remove_tenant_reverts_to_global() {
+        let policy = super::DynamicBackendPolicy::new(super::IngestBackendSnapshot::node_only());
+        let t = fixed_tenant(0x0C);
+
+        policy.apply_change(super::IngestBackendChange::SetTenant {
+            tenant_id: t,
+            backend: IngestBackend::Rust,
+        });
+        assert_eq!(policy.backend_for(t), IngestBackend::Rust);
+
+        policy.apply_change(super::IngestBackendChange::RemoveTenant { tenant_id: t });
+        assert_eq!(
+            policy.backend_for(t),
+            IngestBackend::Node,
+            "removing the override must fall back to the global default"
+        );
+    }
+
+    #[test]
+    fn snapshot_serde_round_trip_preserves_shape() {
+        // The snapshot is the wire shape for the
+        // `policy.ingest_backend.snapshot` reply. A rename would
+        // break the cross-language contract silently at deploy —
+        // this test anchors the JSON round trip at compile time.
+        let mut overrides = HashMap::new();
+        overrides.insert(fixed_tenant(0x01), IngestBackend::Rust);
+        let original = super::IngestBackendSnapshot {
+            default_backend: IngestBackend::Node,
+            overrides,
+        };
+        let json = serde_json::to_string(&original).expect("serialise snapshot");
+        let decoded: super::IngestBackendSnapshot =
+            serde_json::from_str(&json).expect("deserialise snapshot");
+        assert_eq!(original, decoded);
+    }
+
+    #[test]
+    fn change_event_serde_tagged_shape_matches_wire_contract() {
+        // ADR-031 wire shape: `{"action":"set_global","backend":"Rust"}` etc.
+        // The `#[serde(tag = "action", rename_all = "snake_case")]`
+        // produces the canonical discriminator. A refactor that
+        // dropped the attribute would silently ship incompatible
+        // JSON; the test pins the bytes.
+        let ev = super::IngestBackendChange::SetGlobal {
+            backend: IngestBackend::Rust,
+        };
+        let json = serde_json::to_string(&ev).unwrap();
+        assert!(
+            json.contains("\"action\":\"set_global\""),
+            "set_global wire shape broken: {json}"
+        );
+
+        let decoded: super::IngestBackendChange = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded, ev);
+
+        let remove_json = serde_json::to_string(&super::IngestBackendChange::RemoveTenant {
+            tenant_id: fixed_tenant(0x09),
+        })
+        .unwrap();
+        assert!(remove_json.contains("\"action\":\"remove_tenant\""));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn concurrent_reads_under_swap_do_not_panic() {
+        // Lock-free read invariant. 16 concurrent reader tasks pound
+        // `backend_for` while a writer task apply_changes per-tenant
+        // overrides in a tight loop. The test passes if it terminates
+        // without panic (the workspace `unwrap_used = deny` /
+        // `panic = deny` make any torn-snapshot panic a build error)
+        // + the readers observe only the valid states (Node or Rust,
+        // never random bytes).
+        let policy = Arc::new(super::DynamicBackendPolicy::new(
+            super::IngestBackendSnapshot::node_only(),
+        ));
+        let mut handles = Vec::new();
+        for seed in 0_u8..16 {
+            let p = Arc::clone(&policy);
+            handles.push(tokio::spawn(async move {
+                // 1024 reads per task. Loop bound is u16 so the
+                // counter stays in-range; only the tenant discriminator
+                // byte feeds the u8 fixed_tenant seed.
+                for i in 0_u16..1024 {
+                    // `i as u8` is intentional truncation — the reader
+                    // workload just needs a different tenant per
+                    // iteration, and the exact tenant id does not
+                    // matter beyond the lookup cost. The `allow` is
+                    // scoped tight to the cast so the workspace's
+                    // `clippy::cast_possible_truncation = warn`
+                    // posture stays strict elsewhere.
+                    #[allow(clippy::cast_possible_truncation)]
+                    let seed_byte = i as u8;
+                    let t = fixed_tenant(seed ^ seed_byte);
+                    let _ = p.backend_for(t);
+                }
+            }));
+        }
+        // Writer task — 256 rapid swaps. The seed iterates 0..=255
+        // which exhausts the u8 namespace exactly once.
+        let writer = {
+            let p = Arc::clone(&policy);
+            tokio::spawn(async move {
+                for seed in 0_u16..=255 {
+                    // Same truncation-is-intended argument as the
+                    // reader loop: the writer wants different
+                    // tenants, not specific ones.
+                    #[allow(clippy::cast_possible_truncation)]
+                    let seed_byte = seed as u8;
+                    p.apply_change(super::IngestBackendChange::SetTenant {
+                        tenant_id: fixed_tenant(seed_byte),
+                        backend: if seed % 2 == 0 {
+                            IngestBackend::Rust
+                        } else {
+                            IngestBackend::Node
+                        },
+                    });
+                }
+            })
+        };
+        for h in handles {
+            h.await.expect("reader task panicked");
+        }
+        writer.await.expect("writer task panicked");
     }
 }

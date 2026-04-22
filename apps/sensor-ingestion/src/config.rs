@@ -210,7 +210,11 @@ impl Default for IngestBackend {
 
 /// Per-tenant `IngestBackend` selection. Constructed from the
 /// `[ingest_backend]` TOML section; consumed by
-/// [`crate::ingest_backend::StaticBackendPolicy::from_config`].
+/// [`crate::ingest_backend::IngestBackendSnapshot::from_config`] to
+/// seed the production [`crate::ingest_backend::DynamicBackendPolicy`]
+/// (ADR-031). The test-only `StaticBackendPolicy` also accepts this
+/// same config shape so test harnesses + production paths remain
+/// wire-compatible.
 ///
 /// WHY a HashMap of UUIDs and not a bitmap or interval set:
 ///   Tenants opt in one at a time as the rollout proceeds. The override
@@ -226,6 +230,16 @@ impl Default for IngestBackend {
 ///   every tenant, which is observable via the `node_routed_count`
 ///   counter — operators see the gate is on but the override list is
 ///   empty, instead of the sidecar silently double-processing.
+///
+/// WHY the disk + bootstrap knobs live HERE rather than a separate
+/// `[policy_bootstrap]` block:
+///   ADR-031 treats the policy as one architectural concern. The
+///   cold-start fallback chain (NATS → disk → TOML) is a property of
+///   the same gate the `default_backend` / `tenant_overrides` configure.
+///   Splitting the config into two blocks would let operators drift the
+///   two — e.g. a disk path on one side with no overrides on the
+///   other — where keeping them together makes a misconfigured rollout
+///   impossible to construct (the invalid state has no representation).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IngestBackendConfig {
     /// Backend used for any tenant that is not in `tenant_overrides`.
@@ -237,6 +251,47 @@ pub struct IngestBackendConfig {
     /// by the named backend regardless of `default_backend`.
     #[serde(default)]
     pub tenant_overrides: HashMap<Uuid, IngestBackend>,
+
+    /// On-disk path the sidecar writes the latest authoritative
+    /// policy snapshot to after every
+    /// `policy.ingest_backend.changed` event.
+    /// On a cold boot where NATS is unreachable, this file is the
+    /// second preference in the fallback chain (after a live NATS
+    /// snapshot, before the TOML `default_backend` /
+    /// `tenant_overrides` pair). Defaults to
+    /// `/var/lib/sensor-ingestion/last-known-policy.json`.
+    #[serde(default = "default_policy_disk_fallback_path")]
+    pub disk_fallback_path: PathBuf,
+
+    /// Wall-clock timeout for ONE `policy.ingest_backend.snapshot`
+    /// request-reply attempt at cold-start. Units: seconds.
+    /// See [`crate::policy::bootstrap_policy`] for the retry +
+    /// fallback sequence. Default: 5 seconds (matches the plan's
+    /// NATS round-trip budget + 3σ jitter headroom).
+    #[serde(default = "default_policy_snapshot_timeout_secs")]
+    pub snapshot_request_timeout_secs: u64,
+
+    /// Maximum number of NATS request-reply attempts before the
+    /// bootstrap path falls back to disk / TOML.
+    /// Default: 3. With the 5s timeout, the worst-case bootstrap
+    /// wall-clock is 15 seconds before the fallback engages — long
+    /// enough to absorb a broker failover, short enough that operators
+    /// are not left wondering why the sidecar has not started draining
+    /// yet.
+    #[serde(default = "default_policy_snapshot_retries")]
+    pub snapshot_request_retries: u8,
+}
+
+fn default_policy_disk_fallback_path() -> PathBuf {
+    PathBuf::from("/var/lib/sensor-ingestion/last-known-policy.json")
+}
+
+const fn default_policy_snapshot_timeout_secs() -> u64 {
+    5
+}
+
+const fn default_policy_snapshot_retries() -> u8 {
+    3
 }
 
 impl Default for IngestBackendConfig {
@@ -244,6 +299,9 @@ impl Default for IngestBackendConfig {
         Self {
             default_backend: IngestBackend::Node,
             tenant_overrides: HashMap::new(),
+            disk_fallback_path: default_policy_disk_fallback_path(),
+            snapshot_request_timeout_secs: default_policy_snapshot_timeout_secs(),
+            snapshot_request_retries: default_policy_snapshot_retries(),
         }
     }
 }

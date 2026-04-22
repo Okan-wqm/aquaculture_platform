@@ -13,6 +13,12 @@
 //! - Sandboxed execution context
 
 mod actions;
+// Batch 148 Faz 3 (plan R-1): ST bytecode IR primitives.
+// Compiler (AST → bytecode) + stack VM + gas metering
+// land in subsequent batches. `#![allow(dead_code)]`
+// inside the module until Batch 149 compiler consumes
+// the types.
+pub mod bytecode;
 mod conflict;
 mod context;
 mod engine;

@@ -49,6 +49,12 @@ pub mod process_image_tagio;
 // deploy-command batch + the ScriptEngine scan-cycle
 // dispatcher.
 pub mod bytecode_registry;
+// Batch 164 Faz 3 (plan R-1): scan-cycle orchestrator.
+// Composes registry + ProcessImage snapshot + VM
+// execution + commit pattern into a single `run_scan_tick`
+// entry so the ScriptEngine Phase 5b batch can drive
+// it at a configured cadence.
+pub mod bytecode_runner;
 mod conflict;
 mod context;
 mod engine;

@@ -81,13 +81,29 @@ pub enum VmError {
     BadLocalIndex { index: u32, local_count: u32 },
     /// SafeStateTrip opcode executed.
     SafeStateTripped,
-    /// LoadTag / WriteTag not wired (Batch 151
-    /// limitation). Consumer integration lands in a
-    /// future batch.
+    /// LoadTag / WriteTag not wired to ProcessImage.
+    /// Consumer integration (ProcessImage +
+    /// RbacGatedWriter trait) lands in a future batch.
     TagIoNotWired { tag: String, direction: &'static str },
-    /// StdlibCall not wired. Consumer integration in
-    /// Batch 153.
+    /// StdlibCall not wired (historic — every Batch 148
+    /// StdlibFunctionId now has dispatch per Batch 154).
+    /// Variant retained so future StdlibFunctionId
+    /// additions can return this error before their VM
+    /// dispatch lands.
     StdlibNotWired { fn_id_wire_tag: u8 },
+    /// Batch 156: `WriteTag` opcode targeted a tag NOT
+    /// in `Bytecode.allowed_write_tags`. Compile-time
+    /// whitelist enforcement per plan R-1 — the VM
+    /// rejects dispatch rather than silently permitting
+    /// the write.
+    TagNotAllowed { tag: String },
+    /// Batch 156: `WriteTag` opcode targeted a tag listed
+    /// in `Bytecode.safe_state_pinned_tags`. Pinned tags
+    /// hold operator-configured safe-state values and
+    /// MUST NOT be overwritten by script logic — defense-
+    /// in-depth even when the tag is also in the
+    /// allowlist.
+    SafeStatePinned { tag: String },
 }
 
 impl std::fmt::Display for VmError {
@@ -131,6 +147,12 @@ impl std::fmt::Display for VmError {
             }
             Self::StdlibNotWired { fn_id_wire_tag } => {
                 write!(f, "vm: stdlib fn not wired (wire_tag={})", fn_id_wire_tag)
+            }
+            Self::TagNotAllowed { tag } => {
+                write!(f, "vm: write to tag `{}` blocked — not in allowed_write_tags", tag)
+            }
+            Self::SafeStatePinned { tag } => {
+                write!(f, "vm: write to safe-state-pinned tag `{}` blocked", tag)
             }
         }
     }
@@ -411,16 +433,54 @@ impl ScriptVm {
                 Ok(DispatchStep::Advance)
             }
 
-            // Tag IO — Batch 151 stub. Future batch
-            // plumbs ProcessImage + RbacGatedWriter.
+            // Tag IO — Batch 156 layers the tier-1
+            // security gates (safe-state-pinned +
+            // allowlist) in FRONT of the ProcessImage
+            // stub. A future batch replaces the
+            // TagIoNotWired leaf with the actual read /
+            // RbacGatedWriter.write call.
             Opcode::LoadTag { name } => Err(VmError::TagIoNotWired {
                 tag: name.clone(),
                 direction: "load",
             }),
-            Opcode::WriteTag { name } => Err(VmError::TagIoNotWired {
-                tag: name.clone(),
-                direction: "write",
-            }),
+            Opcode::WriteTag { name } => {
+                // Defense-in-depth ordering: safe-state-
+                // pinned is checked BEFORE the allowlist
+                // so an operator-error that simultaneously
+                // allows + pins a tag still rejects at
+                // the pinned layer (matches plan R-1
+                // wording: "refuses WriteTag even when
+                // name IS in allowed_write_tags").
+                if bc
+                    .safe_state_pinned_tags
+                    .iter()
+                    .any(|t| t == name)
+                {
+                    return Err(VmError::SafeStatePinned {
+                        tag: name.clone(),
+                    });
+                }
+                if !bc.allowed_write_tags.iter().any(|t| t == name) {
+                    return Err(VmError::TagNotAllowed {
+                        tag: name.clone(),
+                    });
+                }
+                // Allowlist + pinned gates cleared.
+                // ProcessImage write lands in a future
+                // batch; this dispatch surfaces the
+                // not-wired error with the value still on
+                // the stack so the engine consumer can
+                // observe the attempt for audit. The
+                // future ProcessImage wiring pops the
+                // value before writing — leaving it on
+                // the stack during the not-wired phase
+                // means the engine layer can inspect the
+                // attempted write value via `vm.stack()`.
+                Err(VmError::TagIoNotWired {
+                    tag: name.clone(),
+                    direction: "write",
+                })
+            }
 
             // Stdlib — Batch 154 wires the 10 Batch 148
             // numeric functions. Each variant pops its
@@ -1084,6 +1144,132 @@ mod tests {
         assert!(matches!(
             vm.run(&b),
             VmOutcome::Error(VmError::TagIoNotWired { .. })
+        ));
+    }
+
+    // ====================================================================
+    // Batch 156 — WriteTag tier-1 security gates
+    // ====================================================================
+
+    fn bc_with_tag_rules(
+        opcodes: Vec<Opcode>,
+        locals: u32,
+        allowed: Vec<String>,
+        pinned: Vec<String>,
+    ) -> Bytecode {
+        Bytecode {
+            program_id: "t".into(),
+            program_name: "t".into(),
+            max_gas_per_tick: 1_000_000,
+            local_count: locals,
+            retain_vars: vec![],
+            allowed_write_tags: allowed,
+            safe_state_pinned_tags: pinned,
+            opcodes,
+        }
+    }
+
+    #[test]
+    fn run_write_tag_blocked_when_not_in_allowlist() {
+        let b = bc_with_tag_rules(
+            vec![
+                Opcode::PushConst { value: StValue::Real(1.0) },
+                Opcode::WriteTag { name: "rogue_tag".into() },
+                Opcode::Return,
+            ],
+            0,
+            vec!["safe_tag".into()],
+            vec![],
+        );
+        let mut vm = ScriptVm::new(&b);
+        let outcome = vm.run(&b);
+        match outcome {
+            VmOutcome::Error(VmError::TagNotAllowed { tag }) => {
+                assert_eq!(tag, "rogue_tag");
+            }
+            other => panic!("expected TagNotAllowed, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn run_write_tag_blocked_when_safe_state_pinned() {
+        // Even with the tag in the allowlist, pinned
+        // status must win.
+        let b = bc_with_tag_rules(
+            vec![
+                Opcode::PushConst { value: StValue::Real(1.0) },
+                Opcode::WriteTag { name: "aerator_on".into() },
+                Opcode::Return,
+            ],
+            0,
+            vec!["aerator_on".into()],
+            vec!["aerator_on".into()],
+        );
+        let mut vm = ScriptVm::new(&b);
+        let outcome = vm.run(&b);
+        match outcome {
+            VmOutcome::Error(VmError::SafeStatePinned { tag }) => {
+                assert_eq!(tag, "aerator_on");
+            }
+            other => panic!("expected SafeStatePinned, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn run_write_tag_allowed_passes_gates_then_hits_io_stub() {
+        // Tag in allowlist + not pinned → both gates
+        // cleared; the opcode surfaces TagIoNotWired
+        // (future ProcessImage wiring replaces this).
+        let b = bc_with_tag_rules(
+            vec![
+                Opcode::PushConst { value: StValue::Real(2.5) },
+                Opcode::WriteTag { name: "feeder_rate".into() },
+                Opcode::Return,
+            ],
+            0,
+            vec!["feeder_rate".into()],
+            vec![],
+        );
+        let mut vm = ScriptVm::new(&b);
+        let outcome = vm.run(&b);
+        match outcome {
+            VmOutcome::Error(VmError::TagIoNotWired {
+                tag, direction,
+            }) => {
+                assert_eq!(tag, "feeder_rate");
+                assert_eq!(direction, "write");
+            }
+            other => panic!(
+                "expected TagIoNotWired after gates cleared, got {:?}",
+                other
+            ),
+        }
+        // Value must remain on the stack so the engine
+        // consumer can observe the attempt during the
+        // not-yet-wired phase.
+        assert_eq!(vm.stack(), &[StValue::Real(2.5)]);
+    }
+
+    #[test]
+    fn run_write_tag_pinned_check_runs_before_allowlist_check() {
+        // Tag NOT in allowlist AND also pinned. Pinned
+        // check runs first (order-independent from the
+        // allowlist outcome) so the operator-visible
+        // error points at the pinned rule.
+        let b = bc_with_tag_rules(
+            vec![
+                Opcode::PushConst { value: StValue::Real(1.0) },
+                Opcode::WriteTag { name: "e_stop".into() },
+                Opcode::Return,
+            ],
+            0,
+            vec![], // not in allowlist
+            vec!["e_stop".into()],
+        );
+        let mut vm = ScriptVm::new(&b);
+        assert!(matches!(
+            vm.run(&b),
+            VmOutcome::Error(VmError::SafeStatePinned { .. })
         ));
     }
 

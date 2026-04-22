@@ -16,10 +16,19 @@ import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { listTenantSchemas } from '@aquaculture/backend-common';
+import { DateTime } from 'luxon';
 import { NatsEventBus } from '@platform/event-bus';
 import { createBaseEvent } from '@platform/event-contracts';
 import { RecurringTemplate, RecurrenceFrequency } from '../entities/recurring-template.entity';
 import { Task, TaskStatus } from '../entities/task.entity';
+
+/**
+ * Default timezone when a template was created before phase 5.5 or
+ * without an explicit timezone. UTC is neutral — tasks generate at
+ * midnight UTC rather than drifting with the host server. Operators
+ * can re-save a template to stamp the current site's timezone.
+ */
+const DEFAULT_TIMEZONE = 'UTC';
 
 @Injectable()
 export class RecurringTaskService {
@@ -80,6 +89,7 @@ export class RecurringTaskService {
       nextGeneration: this.calculateNextGeneration(
         input.frequency!,
         input.frequencyDetail,
+        input.timezone,
       ),
     });
 
@@ -98,11 +108,14 @@ export class RecurringTaskService {
 
     Object.assign(template, input);
 
-    // Recalculate next generation if frequency changed
-    if (input.frequency) {
+    // Recalculate next generation if frequency OR timezone changed —
+    // a tenant that relocates a site from Istanbul to Oslo expects
+    // existing templates to re-align on save.
+    if (input.frequency || input.timezone) {
       template.nextGeneration = this.calculateNextGeneration(
-        input.frequency,
-        input.frequencyDetail || template.frequencyDetail,
+        input.frequency ?? template.frequency,
+        input.frequencyDetail ?? template.frequencyDetail,
+        input.timezone ?? template.timezone,
       );
     }
 
@@ -120,6 +133,7 @@ export class RecurringTaskService {
       template.nextGeneration = this.calculateNextGeneration(
         template.frequency,
         template.frequencyDetail,
+        template.timezone,
       );
     }
 
@@ -186,7 +200,7 @@ export class RecurringTaskService {
 
         for (const template of dueTemplates) {
           try {
-            const dueDate = this.calculateDueDate();
+            const dueDate = this.calculateDueDate(template.timezone);
 
             const task = queryRunner.manager.create(Task, {
               tenantId: template.tenantId,
@@ -238,7 +252,11 @@ export class RecurringTaskService {
                WHERE id = $3`,
               [
                 now,
-                this.calculateNextGeneration(template.frequency, template.frequencyDetail),
+                this.calculateNextGeneration(
+                  template.frequency,
+                  template.frequencyDetail,
+                  template.timezone,
+                ),
                 template.id,
               ],
             );
@@ -273,51 +291,83 @@ export class RecurringTaskService {
   // -------------------------------------------------------------------------
 
   /**
-   * Calculates the due date for a generated task.
-   * Uses end of today to prevent tasks from being born overdue.
+   * Resolve and validate an IANA timezone identifier. Invalid zone
+   * identifiers (typos, legacy abbreviations like "EST") fall back
+   * to UTC with a warn — the cron still runs, it just generates at
+   * UTC midnight instead of crashing the whole generation pass.
    */
-  private calculateDueDate(): Date {
-    const now = new Date();
-    return new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+  private resolveTimezone(timezone?: string | null): string {
+    if (!timezone) {
+      return DEFAULT_TIMEZONE;
+    }
+    const probe = DateTime.now().setZone(timezone);
+    if (!probe.isValid) {
+      this.logger.warn(
+        `Invalid timezone "${timezone}" on recurring template — falling back to ${DEFAULT_TIMEZONE}. ` +
+          `Reason: ${probe.invalidReason ?? 'unknown'}.`,
+      );
+      return DEFAULT_TIMEZONE;
+    }
+    return timezone;
   }
 
   /**
-   * Sonraki üretim zamanını hesaplar
+   * Calculates the due date for a generated task in the template's
+   * local timezone. Uses end-of-day LOCAL so a task for an Istanbul
+   * tenant due "today" resolves to 23:59 Europe/Istanbul regardless
+   * of where the server runs. Returns a UTC Date — luxon converts
+   * the local end-of-day to the correct UTC instant internally.
+   *
+   * Before phase 5.5 this used JS Date's host-local components which
+   * meant a task for a Norwegian tenant generated on a Turkish server
+   * picked up 23:59 Europe/Istanbul (22:59 Oslo in summer DST) — a
+   * subtle one-hour drift that accumulated missed deadlines.
+   */
+  private calculateDueDate(timezone?: string | null): Date {
+    const zone = this.resolveTimezone(timezone);
+    return DateTime.now().setZone(zone).endOf('day').toJSDate();
+  }
+
+  /**
+   * Compute the next generation tick for the given frequency in the
+   * template's local timezone. Luxon handles DST transitions
+   * automatically: "+1 day" across a DST shift lands on the same
+   * local wall-clock hour even though the UTC delta was 23h or 25h.
    */
   private calculateNextGeneration(
     frequency: RecurrenceFrequency,
     frequencyDetail?: string | null,
+    timezone?: string | null,
   ): Date {
-    const now = new Date();
+    const zone = this.resolveTimezone(timezone);
+    const now = DateTime.now().setZone(zone);
 
     switch (frequency) {
       case RecurrenceFrequency.HOURLY:
-        return new Date(now.getTime() + 60 * 60 * 1000);
+        return now.plus({ hours: 1 }).toJSDate();
       case RecurrenceFrequency.DAILY:
-        return new Date(now.getTime() + 24 * 60 * 60 * 1000);
+        return now.plus({ days: 1 }).toJSDate();
       case RecurrenceFrequency.WEEKLY:
-        return new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+        return now.plus({ weeks: 1 }).toJSDate();
       case RecurrenceFrequency.BIWEEKLY:
-        return new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
-      case RecurrenceFrequency.MONTHLY: {
-        const nextMonth = new Date(now);
-        const targetMonth = now.getMonth() + 1;
-        nextMonth.setMonth(targetMonth);
-        if (nextMonth.getMonth() !== targetMonth % 12) {
-          nextMonth.setDate(0);
-        }
-        return nextMonth;
-      }
+        return now.plus({ weeks: 2 }).toJSDate();
+      case RecurrenceFrequency.MONTHLY:
+        // Luxon's `plus({ months: 1 })` clamps the day when the
+        // target month is shorter: Jan 31 → Feb 28/29. That matches
+        // what operators expect for monthly maintenance schedules.
+        return now.plus({ months: 1 }).toJSDate();
       case RecurrenceFrequency.CUSTOM: {
         const hours = parseInt(frequencyDetail || '24', 10);
         if (isNaN(hours) || hours <= 0) {
-          this.logger.warn(`Invalid frequencyDetail: "${frequencyDetail}", defaulting to 24h`);
-          return new Date(now.getTime() + 24 * 60 * 60 * 1000);
+          this.logger.warn(
+            `Invalid frequencyDetail: "${frequencyDetail}", defaulting to 24h`,
+          );
+          return now.plus({ hours: 24 }).toJSDate();
         }
-        return new Date(now.getTime() + hours * 60 * 60 * 1000);
+        return now.plus({ hours }).toJSDate();
       }
       default:
-        return new Date(now.getTime() + 24 * 60 * 60 * 1000);
+        return now.plus({ days: 1 }).toJSDate();
     }
   }
 }

@@ -835,7 +835,7 @@ Hepsi kabul edilmeli:
 | 15-B8 | cost_per_kg eksik kalemler | ✅ **VERİ KUSURU** | İş gücü/kimyasal/amortisman DAHİL DEĞİL |
 | 15-B10 | Harvest plan shortcut path | ✅ | Compliance riski |
 | 15-B12 | Growth populationSize | ❌ Yanlış | Default `batch.currentQuantity` |
-| 15-B13 | Recurring task timezone | ✅ | Sunucu saati, site tz yok |
+| 15-B13 | Recurring task timezone | ✅ RESOLVED (Faz 5.5) | luxon-based timezone-aware calculateDueDate + calculateNextGeneration, `timezone` column on RecurringTemplate, DST edge case covered |
 | 15-B14 | Auto rule parser riski | ❌ Yanlış | Enum-bazlı, eval yok |
 | 15-B15 | Cleaner fish capacity | 🔴 **KRİTİK** | max_biomass_kg kontrolü yok |
 | 15-B16 | Lot mixing teorik vs fiziksel | ✅ RESOLVED (Faz 2.4) | Gıda güvenliği izlenebilirlik — `StorageLotMix` + `LotMixService` |
@@ -1116,3 +1116,4 @@ Bu orphan'ı Faz 1.3 hot-fix olarak **ayrı PR** ile kapatmak gerekir — Faz 2.
 | 25 | Faz 5.4 — GraphQL query complexity limit | ✅ RESOLVED (Faz 5.4) | Girdi 15-C9 + Orphan 7 — default 1000 with env override |
 | 26 | Faz 5.2 — JSONB GIN index (narrowed to real workload) | ✅ RESOLVED (Faz 5.2 narrowed) | `storage_lot_mixes.contributingLots` — traceLot path; WQ + batch-weight indexes skipped as speculative |
 | 27 | Faz 5.3 — Prometheus domain metrics | ✅ RESOLVED (Faz 5.3) | Girdi 14d — FarmDomainMetricsService + APP_INTERCEPTOR + backdate wiring |
+| 28 | Faz 5.5 — Timezone-aware recurring tasks | ✅ RESOLVED (Faz 5.5) | Girdi 15-B13 — luxon + `timezone` column + DST-safe DAILY/MONTHLY |

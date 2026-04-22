@@ -103,6 +103,21 @@ export class RecurringTemplate {
   @Column({ type: 'varchar', nullable: true })
   frequencyDetail?: string;
 
+  /**
+   * IANA timezone identifier (e.g. "Europe/Istanbul", "Europe/Oslo")
+   * used to compute next-generation timestamps for this template.
+   * Stored per-template so a tenant with sites in multiple regions
+   * can schedule templates in each site's local time. Falls back to
+   * UTC when null — older rows that predate phase 5.5 keep the
+   * legacy server-time behaviour until the operator re-saves them.
+   *
+   * Phase 5.5 of the "Farm modülü kalan kör noktalar" plan — closes
+   * Girdi 15-B13.
+   */
+  @Field({ nullable: true })
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  timezone?: string;
+
   // -------------------------------------------------------------------------
   // ATAMA
   // -------------------------------------------------------------------------

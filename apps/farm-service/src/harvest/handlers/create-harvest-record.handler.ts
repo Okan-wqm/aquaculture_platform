@@ -35,6 +35,7 @@ import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { TankOperation, OperationType } from '../../batch/entities/tank-operation.entity';
 import { Tank } from '../../tank/entities/tank.entity';
 import { BatchHarvestEligibilityService } from '../../fish-health/services/batch-harvest-eligibility.service';
+import { BackdatePolicyService } from '../../common/services/backdate-policy.service';
 
 @Injectable()
 @CommandHandler(CreateHarvestRecordCommand)
@@ -44,6 +45,7 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
     private readonly dataSource: DataSource,
     private readonly outboxPublisher: OutboxPublisher,
     private readonly harvestEligibility: BatchHarvestEligibilityService,
+    private readonly backdatePolicy: BackdatePolicyService,
     @InjectRepository(HarvestRecord)
     private readonly harvestRepository: Repository<HarvestRecord>,
     @InjectRepository(Batch)
@@ -63,6 +65,16 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
     const harvestDate = typeof input.harvestDate === 'string'
       ? new Date(input.harvestDate)
       : input.harvestDate;
+
+    // Backdate policy: harvest may be logged up to HARVEST_BACKDATE_LIMIT_DAYS
+    // (default 7) after the physical event. Future dates are rejected
+    // unconditionally — a harvest record with a harvestDate in the future
+    // would falsely advance lot traceability timelines.
+    this.backdatePolicy.validate({
+      context: 'harvest',
+      proposedDate: harvestDate,
+      subjectLabel: `batch ${input.batchId}`,
+    });
 
     // Parse qualityGrade early (no DB needed)
     const qualityGrade = this.parseQualityGrade(input.qualityGrade);

@@ -37,6 +37,10 @@ import { FeedingProgram } from '../feeding/entities/feeding-program.entity';
 import { FeedingProgramTank } from '../feeding/entities/feeding-program-tank.entity';
 import { Species } from '../species/entities/species.entity';
 
+// Cross-cutting: growth-measurement backdating (GROWTH_BACKDATE_LIMIT_DAYS,
+// default 30) is enforced in RecordGrowthSampleHandler.
+import { BackdatePolicyModule } from '../common/services/backdate-policy.module';
+
 @Module({
   imports: [
     TypeOrmModule.forFeature([
@@ -48,6 +52,7 @@ import { Species } from '../species/entities/species.entity';
       FeedingProgramTank,
       Species,
     ]),
+    BackdatePolicyModule,
   ],
   providers: [
     FCRCalculationService,

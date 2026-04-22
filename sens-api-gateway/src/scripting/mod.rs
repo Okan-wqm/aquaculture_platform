@@ -78,6 +78,12 @@ pub mod bytecode_scan_cycle_task;
 // Orchestrator wiring (per-tick load/save around
 // ScriptVm::run) lands in a future batch.
 pub mod bytecode_retain;
+// Batch 179 Faz 3: end-to-end integration tests that
+// exercise the full deploy→execute→reboot-rehydrate
+// pipeline in one pass. Runs only under #[cfg(test)]
+// so the production binary is not affected.
+#[cfg(test)]
+mod bytecode_e2e_tests;
 mod conflict;
 mod context;
 mod engine;

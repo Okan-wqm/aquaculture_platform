@@ -732,3 +732,149 @@ Verified pre-existing on `main` (HEAD `23b1362a`). Not introduced by ORPHAN-013 
 - Owner: alert-engine maintainers.
 - Deadline: 2026-05-15.
 - Closure path: a `test(alert-engine):` commit that updates the test fixture + adds the upcaster-path companion test.
+
+---
+
+## 2026-04-22 ORPHAN-016 — TS `mqtt-listener.service.ts` still emits `SensorReading` V1 nested format
+
+**Severity:** HIGH (blocks ADR-028 Phase-3 cut-over; silent contract drift)
+**Discovered:** 2026-04-22, Rust migration delta audit (three parallel Explore agents).
+**File:** `apps/sensor-service/src/ingestion/mqtt-listener.service.ts:1413-1419`
+
+**Evidence:**
+
+```typescript
+await this.eventBus.publish({
+  ...createBaseEvent('SensorReading', sensor.tenantId, {...}),
+  timestamp: timestamp.toISOString(),
+  sensorId: sensor.id,
+  readings: data,    // nested V1 field
+  version: 1,
+});
+```
+
+The TS cloud listener still emits `SensorReading` events in the V1 nested-`readings` format while `libs/event-contracts/src/sensor-events.ts:10-24` has already flipped to the V2 flat-field interface (`readingTemperature`, `readingPh`, etc.). The upcaster `libs/event-contracts/src/upcasters/sensor-reading.upcaster.ts:25-46` papers over the drift at the consumer side, but the emitter is the point of truth and should speak V2 directly.
+
+**Why orphan:** Rust sensor-ingestion migration plan (`/root/.claude/plans/snappy-sniffing-pine.md` Kör Nokta 5) adds `raw_value` + V2 contract for the Rust sidecar only. Flipping the NestJS emitter is a sensor-service refactor, not part of sensor-ingestion PRs. The phased rollout matrix in ADR-028 keeps V1 emitters valid through Phases 0-2; this finding tracks the Phase-3 cut-over when TS must match.
+
+**Architectural fix (owner-scope):**
+
+1. Update `mqtt-listener.service.ts` to build the `SensorReadingEvent` with flat V2 fields + `raw_value` from the edge payload.
+2. Remove the call path into the V1→V2 upcaster (it becomes a read-only legacy translator).
+3. Regression: `mqtt_listener_publishes_sensor_reading_in_v2_flat_format.spec.ts`.
+4. Dependency: `raw_value` must exist in the sensor payload wire format — gated by ADR-028 acceptance.
+
+**Follow-on tracking:**
+- Owner: sensor-service maintainers.
+- Deadline: aligned with ADR-028 Phase-3 (runbook `docs/runbooks/sensor-payload-v2-migration.md`).
+- Closure path: `refactor(sensor-service): mqtt-listener emit V2 flat SensorReading + raw_value` commit carrying `Closes: docs/reviews/orphan-findings.md#ORPHAN-016`.
+
+---
+
+## 2026-04-22 ORPHAN-017 — Prometheus annotation-based scrape is an injection DoS risk (SEC-NM-018 flagged, fix deferred)
+
+**Severity:** HIGH (documented DoS risk, mitigation not implemented)
+**Discovered:** 2026-04-22, Rust migration observability audit.
+**File:** `infrastructure/monitoring/prometheus/prometheus-values.yaml:59-78`
+
+**Evidence:** The Helm values file declares `additionalScrapeConfigs` that relies on pod annotations (`prometheus.io/scrape: true`) to dynamically discover scrape targets. The same file carries an inline `SEC-NM-018` warning: "Annotation-based pod scraping is a security risk — any pod can inject itself." The risk is documented but the fix was deferred — which is banned by CLAUDE.md's architectural discipline without owner/deadline/finding-ID.
+
+**Why orphan:** Rust plan Kör Nokta 4 prescribes a **static** scrape-config for `sensor-ingestion` only (the new service). Removing annotation-based discovery for **all** services is a platform-observability refactor, not sensor-ingestion scope.
+
+**Architectural fix:**
+
+1. Enumerate every service currently relying on `prometheus.io/scrape` annotations (grep Helm charts + k8s manifests).
+2. Add a static job entry per service in `infrastructure/monitoring/prometheus/scrape-configs.yml` (new central file).
+3. Remove `additionalScrapeConfigs` annotation discovery from Helm values.
+4. CI invariant: `infrastructure-tests/prometheus-no-annotation-scrape.spec.ts` — fails if any pod spec carries `prometheus.io/scrape`.
+
+**Related:** `docs/observability/metrics-cardinality-policy.md` (created by Rust plan Kör Nokta 4) adds cardinality budgets; this finding closes the scrape-discovery gap.
+
+**Follow-on tracking:**
+- Owner: observability-service / SRE maintainers.
+- Deadline: 2026-06-15.
+- Closure path: `security(observability): remove annotation-based Prometheus scrape, move to static jobs` — commit with `Closes: docs/reviews/orphan-findings.md#ORPHAN-017`.
+
+---
+
+## 2026-04-22 ORPHAN-018 — `sens-api-gateway` OTA firmware update protocol + signing is undocumented
+
+**Severity:** HIGH (edge-scope; IEC 62443 SL2 compliance gap for update channel)
+**Discovered:** 2026-04-22, Rust migration supply-chain audit.
+**File:** `sens-api-gateway/` repository surface (no `.github/workflows/*release*.yml` or firmware-signing pipeline found).
+
+**Evidence:** The edge gateway is IEC 62443 SL2 hardened at the dependency level (`sens-api-gateway/deny.toml:1-111` enforces tight crate allowlist, TLS-only, OpenSSL banned). ADR-019 defines firmware signing + A/B partition. However, the **runtime update channel** is silent:
+
+- No cosign / sigstore release pipeline for the gateway binary.
+- No documented OTA delivery mechanism (MQTT topic, HTTPS pull, signed manifest format).
+- No anti-rollback implementation tying the signed manifest to the A/B partition logic from ADR-019.
+- No fleet staging strategy (canary %, cohort groups, rollback trigger).
+
+**Why orphan:** Rust plan Faz 4 mentions edge-adoption of shared crates but does not address the deployment/update channel. Plan Kör Nokta 9 (ADR-032) adds cosign/sigstore for the **cloud** sidecar; the edge gateway remains out of scope for that ADR despite inheriting the primitive.
+
+**Architectural fix (separate plan — not this migration):**
+
+1. ADR for OTA update protocol (signed manifest payload, delivery channel, A/B partition handoff with ADR-019).
+2. Release pipeline producing signed binaries + SBOM per target (armv7, aarch64); keyless cosign via GitHub OIDC per ADR-032.
+3. Gateway runtime verifies signatures against rotated offline CA before accepting update; anti-rollback via ADR-019 partition state.
+4. Fleet management channel (MQTT topic or HTTPS pull) for update delivery + staged rollout.
+
+**Coordination:** Parallel agent (`agentic-rust-faz0` worktree) owns `sens-api-gateway/` — cross-team coordination required before any change.
+
+**Follow-on tracking:**
+- Owner: edge-agent maintainers + security team.
+- Deadline: 2026-07-30 (aligned with SL3 upgrade path ADR-023-sl3).
+- Closure path: `feat(sens-api-gateway): OTA signed update channel` PR + new ADR referencing ADR-019 + ADR-032.
+
+---
+
+## 2026-04-22 ORPHAN-019 — `@platform/event-bus` lacks NATS request-reply API (Rust plan depends on it)
+
+**Severity:** HIGH (blocks Rust plan PR-B — cold-start policy snapshot)
+**Discovered:** 2026-04-22, Rust migration delta audit.
+**File:** `platform/libs/event-bus/src/nats/nats-event-bus.ts` (pure pub-sub; `request` / `respond` API absent).
+
+**Evidence:** The TS event-bus exposes `publish`, `subscribe`, `subscribeTo` but no request-reply primitive. Rust plan Kör Nokta 6 (ADR-031) requires `policy.ingest_backend.snapshot` request-reply for sidecar boot — the Rust side uses `async-nats::request()` directly, but the TS responder (hosted in `admin-api-service`) needs a symmetric abstraction. Without it, every new responder hand-rolls NATS handling and drifts away from the mTLS cert-CN identity guarantees (ADR-015).
+
+**Why orphan:** Adding request-reply to `@platform/event-bus` is a public-API extension that affects every backend service. It needs its own ADR (ADR-031 in the Rust delta plan), CODEOWNERS review from the platform team, and migration guidance for existing services. The Rust sensor-ingestion PR depends on this landing first, but the platform-lib change is not sensor-ingestion scope.
+
+**Architectural fix:**
+
+1. Merge ADR-031 to Accepted status.
+2. Extend `NatsEventBus` with `request<T,R>(subject, payload, timeoutMs): Promise<R>` and `respond(subject, handler: (req, meta) => Promise<R>)`.
+3. Backwards-compatible: existing pub-sub users unaffected; responders register via explicit `respond()` call.
+4. Wire `admin-api-service` as the first responder (for `policy.ingest_backend.snapshot`).
+5. Tests: timeout handling, error propagation, correlation-id pairing, mTLS cert-only identity preserved.
+
+**Blocks:** Rust migration plan PR-B (`/root/.claude/plans/snappy-sniffing-pine.md` PR-B).
+
+**Follow-on tracking:**
+- Owner: platform team.
+- Deadline: aligned with PR-B of Rust delta plan (2026-05).
+- Closure path: `feat(platform/event-bus): NATS request-reply primitive` PR + ADR-031 promotion to Accepted + `Closes: docs/reviews/orphan-findings.md#ORPHAN-019`.
+
+---
+
+## 2026-04-22 ORPHAN-020 — `apps/db-migrate` runner rollback workflow not verified
+
+**Severity:** MEDIUM (blue-green rollback promise is untested)
+**Discovered:** 2026-04-22, Rust migration rollback DDL audit (Kör Nokta 14).
+**File:** `apps/db-migrate/src/` (runner source not read during Rust plan audit).
+
+**Evidence:** CLAUDE.md (ADR-011) mandates blue-green safe migrations: "nullable → backfill → NOT NULL". TypeORM migrations support `up()` + `down()`. The Rust plan's Kör Nokta 14 requires rollback migrations for V015 (chunk retune), V016 (outbox per ADR-029), V017 (RLS per ADR-030). However, whether the `apps/db-migrate` runner actually invokes `down()` on failure — or offers a CLI `run --down` subcommand — is not verified; the audit did not open the runner source.
+
+**Why orphan:** Verifying + (if needed) implementing the rollback path is runner-infrastructure scope. The Rust plan will write `down()` migrations, but if the runner cannot execute them in production, the rollback promise is hollow. This finding gates the "rollback works" claim in PR-A-safety + PR-B of the Rust plan.
+
+**Architectural fix:**
+
+1. Audit `apps/db-migrate/src/` — does `MigrationRunnerService` support `revertMigration()` / `run --down N`?
+2. If missing: add the CLI subcommand + `apps/db-migrate` integration test that runs `up → down → up` round-trip against a real PG (testcontainers).
+3. CI rollback workflow: on deploy failure, trigger `apps/db-migrate run --down` against the failing migration.
+4. Runbook `docs/runbooks/migration-rollback.md` — operator procedure.
+
+**Related:** `docs/runbooks/sensor-ingestion-rollback.md` (to be created by Rust plan Kör Nokta 14) depends on this runner capability.
+
+**Follow-on tracking:**
+- Owner: db-migrate / backend-common maintainers.
+- Deadline: 2026-05-30 (before PR-A-safety of Rust delta plan merges).
+- Closure path: `feat(db-migrate): bidirectional migration CLI + rollback CI workflow` + `Closes: docs/reviews/orphan-findings.md#ORPHAN-020`.

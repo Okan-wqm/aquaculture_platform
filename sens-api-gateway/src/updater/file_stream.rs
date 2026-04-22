@@ -241,6 +241,45 @@ pub fn stream_files_to_standby(
         }
     }
 
+    // Batch 130 Sprint 6.5 hygiene — closes Batch 125 obs
+    // #2: always remove the `.staging/` tree at the end of
+    // stream_files_to_standby.
+    //
+    // - Success path: staging is ALREADY empty (every file
+    //   was renamed out). rm_dir is effectively a sanity-
+    //   no-op + removes the directory stub.
+    // - Failure path: partial staged files land here. An
+    //   abandoned attempt would otherwise leave orphan
+    //   bytes taking up space on the standby slot (real
+    //   concern on space-constrained RPi SD cards where
+    //   firmware-version-3 bytes plus abandoned
+    //   firmware-version-4 bytes double the storage
+    //   footprint).
+    //
+    // Cleanup failures are LOG-ONLY because the primary
+    // operation's outcome is already determined + folded
+    // into `StreamReport`. A failed cleanup doesn't change
+    // the apply_roll decision + doesn't regress
+    // correctness (a subsequent stream will overwrite the
+    // stale staging bytes path-by-path — see Batch 125
+    // commit body). Surfacing cleanup errors as a separate
+    // StreamReport entry would confuse the caller into
+    // thinking the apply failed when actually it may have
+    // succeeded or failed on a distinct cause.
+    if let Err(e) = std::fs::remove_dir_all(&staging_root) {
+        // ErrorKind::NotFound = directory already gone
+        // (e.g. all files renamed out + no subdirs
+        // materialized). Silent. Anything else is worth
+        // a warn for operator visibility.
+        if e.kind() != std::io::ErrorKind::NotFound {
+            tracing::warn!(
+                "stream_files_to_standby: .staging cleanup failed (non-fatal, primary outcome stands): path={} err={}",
+                staging_root.display(),
+                e
+            );
+        }
+    }
+
     StreamReport {
         verified_count: verified,
         failed,
@@ -533,6 +572,109 @@ mod tests {
         // (caller aborts SwapToPending), not at the per-
         // file stream layer.
         assert!(root.join("bin/good").exists());
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn staging_dir_cleaned_after_full_success() {
+        // Batch 130: staging dir MUST NOT remain after
+        // stream_files_to_standby returns, even on happy
+        // path. Proves the post-loop cleanup fires + is
+        // idempotent with the per-file rename (which also
+        // removes each staged file individually).
+        let root = tmp_root();
+        let bytes = b"agent-binary-happy".to_vec();
+        let entry = build_entry("bin/a", &bytes, 0o644);
+        let manifest = build_manifest(vec![entry]);
+        let mut source = InMemoryFileSource::new();
+        source.insert("bin/a", bytes);
+
+        let report = stream_files_to_standby(&source, &manifest, &root);
+        assert!(report.all_ok());
+        // .staging directory gone.
+        let staging = root.join(".staging");
+        assert!(
+            !staging.exists(),
+            "staging dir should be removed on success"
+        );
+        // Final file IS there.
+        assert!(root.join("bin/a").exists());
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn staging_dir_cleaned_after_partial_failure_closes_disk_footprint() {
+        // Batch 130: partial streaming failure leaves
+        // partial staged files (successfully-staged-but-
+        // not-renamed scenario + failed-during-stage
+        // scenario). After stream_files_to_standby
+        // returns, .staging must be gone so abandoned
+        // firmware bytes don't accumulate on space-
+        // constrained devices.
+        //
+        // We construct a scenario where ONE file succeeds
+        // (reaches final path, staging copy renamed out)
+        // + one file has its SOURCE bytes differ from
+        // manifest digest (fails at TOCTOU reverify, so
+        // bytes got staged + renamed + verify rejected —
+        // at which point the renamed final-path file is
+        // the leftover, not staging). To trigger real
+        // .staging leftovers we need a failure BEFORE
+        // rename. The source-missing path provides that:
+        // read_file errors before any staging write, so
+        // one entry leaves no file + the other entry
+        // successfully stages + renames. Post-loop
+        // cleanup must still remove any intermediate
+        // directory structure under .staging created by
+        // the successful file's parent-dir mkdir.
+        let root = tmp_root();
+        let good_bytes = b"good-bytes".to_vec();
+        let good_entry = build_entry("bin/good", &good_bytes, 0o644);
+        let missing_entry = build_entry("bin/missing", b"never-sourced", 0o644);
+        let manifest = build_manifest(vec![good_entry, missing_entry]);
+
+        let mut source = InMemoryFileSource::new();
+        source.insert("bin/good", good_bytes);
+
+        let report = stream_files_to_standby(&source, &manifest, &root);
+        assert!(!report.all_ok());
+        assert_eq!(report.verified_count, 1);
+
+        let staging = root.join(".staging");
+        assert!(
+            !staging.exists(),
+            "staging dir should be removed after partial failure"
+        );
+        // good file still materialized
+        assert!(root.join("bin/good").exists());
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn staging_dir_idempotent_on_already_absent_cleanup() {
+        // Edge case: simulate a pre-cleaned staging dir by
+        // calling stream_files_to_standby twice. Second
+        // call must not error on cleanup when the first
+        // cleanup already removed staging.
+        let root = tmp_root();
+        let bytes = b"alpha".to_vec();
+        let entry = build_entry("bin/x", &bytes, 0o644);
+        let manifest = build_manifest(vec![entry]);
+        let mut source = InMemoryFileSource::new();
+        source.insert("bin/x", bytes);
+
+        let r1 = stream_files_to_standby(&source, &manifest, &root);
+        assert!(r1.all_ok());
+
+        // Second pass: same manifest, same source. Must
+        // succeed (idempotent).
+        let r2 = stream_files_to_standby(&source, &manifest, &root);
+        assert!(r2.all_ok());
+
+        assert!(!root.join(".staging").exists());
 
         std::fs::remove_dir_all(&root).ok();
     }

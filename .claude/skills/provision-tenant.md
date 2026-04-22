@@ -3,8 +3,14 @@ name: provision-tenant
 description: Provision a new tenant via the 7-step saga with advisory locks, module-schema loop, reference-data copy, RLS apply, compensation handlers. BLOCKER-14 class.
 type: skill
 version: 1
+status: reference-only
 blocker: BLOCKER-14
 owners: multi-tenant-saas-expert, auth-security-expert, data-expert
+handoff:
+  on_complete_invoke: [multi-tenant-saas-expert, auth-security-expert, data-expert]
+  on_security_touch: security-reviewer
+  on_event_impact: dynamic
+  on_multi_tenant_touch: multi-tenant-saas-expert
 ---
 
 # Skill — Provision Tenant (BLOCKER-14)
@@ -182,10 +188,10 @@ Compensation failures MUST retry with exponential backoff; after retry exhaustio
 
 - ADR-011 — schema ownership (Step 2).
 - ADR-006 — event contract flat-pattern (Step 7 outbox event).
-- `.claude/agents-enterprise-v2/multi-tenant-saas-expert.md` — saga architecture primary owner.
-- `.claude/agents-enterprise-v2/admin-expert.md` — tenant-lifecycle UI surface + saga rules.
-- `.claude/agents-enterprise-v2/billing-expert.md` — Stripe PIVOT mechanics.
-- `.claude/agents-enterprise-v2/data-expert.md` — advisory-lock + `CREATE TABLE LIKE` discipline.
+- `.claude/agents/multi-tenant-saas-expert.md` — saga architecture primary owner.
+- `.claude/agents/admin-expert.md` — tenant-lifecycle UI surface + saga rules.
+- `.claude/agents/billing-expert.md` — Stripe PIVOT mechanics.
+- `.claude/agents/data-expert.md` — advisory-lock + `CREATE TABLE LIKE` discipline.
 
 ## Changelog
 

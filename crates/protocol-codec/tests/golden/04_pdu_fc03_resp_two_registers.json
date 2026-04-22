@@ -1,0 +1,9 @@
+{
+  "name": "pdu_fc03_resp_two_registers",
+  "description": "FC 0x03 Read Holding Registers response with 2 registers (250 and 100 — typical temperature + humidity reading scaled by 10).",
+  "decoder": "decode_read_holding_registers_response",
+  "wire_hex": "030400FA0064",
+  "expected_ok": {
+    "registers": [250, 100]
+  }
+}

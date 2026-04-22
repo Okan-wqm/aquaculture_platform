@@ -1,0 +1,5 @@
+error[E0599]: no function or associated item named `with_user_pass` found for struct `NatsClient` in the current scope
+ --> tests/auth_surface_compile_fail/no_user_pass.rs:8:25
+  |
+8 |     let _ = NatsClient::with_user_pass("user", "pass");
+  |                         ^^^^^^^^^^^^^^ function or associated item not found in `NatsClient`

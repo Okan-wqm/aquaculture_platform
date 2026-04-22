@@ -3,7 +3,13 @@ name: run-migration-prod
 description: Execute a migration against production — hard `DATABASE_MIGRATIONS_RUN=false` invariant + per-tenant runner + blue-green 3-step discipline + smoke test + rollback runbook path
 type: skill
 version: 1
+status: reference-only
 owners: infra-expert, data-expert, database-reviewer
+handoff:
+  on_complete_invoke: [infra-expert, data-expert, database-reviewer]
+  on_security_touch: security-reviewer
+  on_event_impact: null
+  on_multi_tenant_touch: multi-tenant-saas-expert
 ---
 
 # Skill — Run Migration in Production
@@ -195,8 +201,8 @@ Per data-expert: `DROP COLUMN` does NOT reclaim disk until `VACUUM FULL` / `CLUS
 - ADR-011 — schema ownership + migration-runner ownership.
 - ADR-012 — schema drift prevention (post-migration verification).
 - ADR-016 — deploy resilience (this skill is under that umbrella).
-- `.claude/agents-enterprise-v2/data-expert.md` — destructive-migration 4-requirement gate; migration envelope.
-- `.claude/agents-enterprise-v2/infra-expert.md` — DR / resilience invariants; IP/UG-7 lock-pile-up watch.
+- `.claude/agents/data-expert.md` — destructive-migration 4-requirement gate; migration envelope.
+- `.claude/agents/infra-expert.md` — DR / resilience invariants; IP/UG-7 lock-pile-up watch.
 - `tools/gates/migration-sql-lint.ts` — R1-R5 rules (pre-merge gate; this skill assumes already-passed).
 
 ## Changelog

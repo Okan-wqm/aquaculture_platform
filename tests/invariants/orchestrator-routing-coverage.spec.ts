@@ -4,7 +4,7 @@
  *
  * Closes the loop on Phase 0.2 of /root/.claude/plans/abstract-brewing-mochi.md:
  *
- *   .claude/agents-enterprise-v2/orchestrator.md contains a routing table
+ *   .claude/agents/orchestrator.md contains a routing table
  *   (File Pattern → Primary Agent) that maps every changed file to an agent.
  *   Orchestrator prompt self-enforces: "Every changed file MUST map to at
  *   least one primary agent. Any unmatched path is a PROCESS HIGH ownership
@@ -47,7 +47,7 @@
  *
  *   - /root/.claude/plans/abstract-brewing-mochi.md#Phase-0.2
  *   - /var/aqua-saas/docs/reviews/orchestrator/2026-04-16-v2-audit.md#P0-2
- *   - /var/aqua-saas/.claude/agents-enterprise-v2/orchestrator.md (routing table)
+ *   - /var/aqua-saas/.claude/agents/orchestrator.md (routing table)
  */
 
 import * as fs from 'fs';
@@ -57,14 +57,13 @@ const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const ORCHESTRATOR_MD = path.join(
   REPO_ROOT,
   '.claude',
-  'agents-enterprise-v2',
+  'agents',
   'orchestrator.md',
 );
 const ROUTING_TABLE_MD = path.join(
   REPO_ROOT,
   '.claude',
-  'agents-enterprise-v2',
-  '_shared',
+  'shared',
   'orchestrator-routing-table.md',
 );
 
@@ -258,7 +257,7 @@ describe('orchestrator routing coverage invariant', () => {
     (surface) => {
       const hasMatch = family.includes(surface);
       if (!hasMatch) {
-        const hint = `Add a routing row like:\n  | \`${surface}/**\` | <agent-name> | |\nto the routing table in .claude/agents-enterprise-v2/_shared/orchestrator-routing-table.md`;
+        const hint = `Add a routing row like:\n  | \`${surface}/**\` | <agent-name> | |\nto the routing table in .claude/shared/orchestrator-routing-table.md`;
         throw new Error(`Missing routing coverage for "${surface}".\n\n${hint}`);
       }
       expect(hasMatch).toBe(true);
@@ -290,13 +289,148 @@ describe('orchestrator routing coverage invariant', () => {
     expect(suspicious).toEqual([]);
   });
 
-  it('legacy .claude/agents/ directory is NOT active in routing (archived Phase 0.1)', () => {
-    // Must not have .claude/agents/ as an ACTIVE glob (only legacy or agents-enterprise-v2)
-    const activeLegacyGlob = /\|\s*`\.claude\/agents\/\*\.md`[^`]*\|/.test(family);
-    expect(activeLegacyGlob).toBe(false);
+  it('old directories (agents-enterprise-v2, test-agents) are NOT referenced as active in routing', () => {
+    // After the 2026-04-18 flat-layout restructure, agents live at .claude/agents/
+    // (Lane-A root) + .claude/agents/product-audit/ (Lane-B). Any routing glob
+    // pointing to .claude/agents-enterprise-v2/ or .claude/test-agents/ is drift
+    // from a pre-restructure era and must not reappear.
+    const oldEnterpriseGlob = /\|\s*`\.claude\/agents-enterprise-v2\/[^`]*`/.test(family);
+    const oldTestAgentsGlob = /\|\s*`\.claude\/test-agents\/[^`]*`/.test(family);
+    expect(oldEnterpriseGlob).toBe(false);
+    expect(oldTestAgentsGlob).toBe(false);
   });
 
   it('legacy directory IS marked as archived in routing', () => {
     expect(family).toMatch(/\.claude\/agents\.legacy/);
+  });
+
+  /**
+   * Phase 4.5 mechanical-trigger clause invariant (CLAUDE-MEDIUM-009).
+   *
+   * The orchestrator-phases.md § Phase 4.5 prose must contain an explicit
+   * "MUST dispatch root-cause-auditor when" clause. Silent prose removal
+   * is the CLAUDE-MEDIUM-009 failure mode — Phase 4.5 dispatch becomes
+   * discretionary again and tier-claim verification degrades.
+   */
+  it('Phase 4.5 prose contains the mechanical root-cause-auditor dispatch clause', () => {
+    const phasesPath = path.join(REPO_ROOT, '.claude', 'shared', 'orchestrator-phases.md');
+    const content = fs.existsSync(phasesPath) ? fs.readFileSync(phasesPath, 'utf8') : '';
+    const hasClause = /MUST dispatch\s+`?root-cause-auditor`?/i.test(content);
+    if (!hasClause) {
+      throw new Error(
+        'orchestrator-phases.md is missing the "MUST dispatch root-cause-auditor when ..." clause. ' +
+          'Restore the clause in § Phase 4.5; its removal turns mechanical trigger back into prose-only guidance.',
+      );
+    }
+    expect(hasClause).toBe(true);
+  });
+
+  /**
+   * Reverse coverage — every roster agent must be reachable from at least
+   * one glob cell (primary OR also-notify) across Lane-A routing table
+   * AND Lane-B product-audit/orchestrator.md Phase 1 table.
+   *
+   * Closes CLAUDE-HIGH-008 — routing-coverage reverse-check gap. Five
+   * Lane-B agents (accessibility-auditor, edge-industrial-auditor,
+   * billing-reconciliation-auditor, webhook-ingress-auditor,
+   * job-queue-auditor) had zero dispatch globs until 2026-04-18 without
+   * any CI failure.
+   *
+   * Exemptions:
+   *   - Agents with `dispatch: cross-cutting` / `dispatch: ad-hoc` /
+   *     `dispatch: maintenance` frontmatter are explicitly non-glob.
+   *   - Maintenance agents at `.claude/agents/_maintenance/**` (Phase 4
+   *     filesystem separation) never appear in the runtime roster, so
+   *     they are outside this coverage check by construction.
+   */
+  it('every roster agent is reachable from at least one glob (primary OR also-notify)', () => {
+    // Build combined roster (Lane-A + Lane-B specialists).
+    const laneARoster = extractRosterAgentNames(orchestratorOnly);
+    const productAuditOrchestratorPath = path.join(
+      REPO_ROOT,
+      '.claude',
+      'agents',
+      'product-audit',
+      'orchestrator.md',
+    );
+    const productAuditRoutingPath = path.join(
+      REPO_ROOT,
+      '.claude',
+      'shared',
+      'product-audit-orchestrator-routing.md',
+    );
+    const laneBOrchestratorContent = fs.existsSync(productAuditOrchestratorPath)
+      ? fs.readFileSync(productAuditOrchestratorPath, 'utf8')
+      : '';
+    // Post-Phase-3 split (plan mutable-frolicking-yao.md): the Phase 1
+    // routing table lives in the companion shared fragment. Concat it so
+    // this reverse-coverage check reads both halves.
+    const laneBRoutingContent = fs.existsSync(productAuditRoutingPath)
+      ? fs.readFileSync(productAuditRoutingPath, 'utf8')
+      : '';
+    // Lane-B roster = every agent file in .claude/agents/product-audit/*.md
+    // that carries a `name:` frontmatter line.
+    const laneBRoster = new Set<string>();
+    const laneBDir = path.join(REPO_ROOT, '.claude', 'agents', 'product-audit');
+    if (fs.existsSync(laneBDir)) {
+      for (const f of fs.readdirSync(laneBDir)) {
+        if (!f.endsWith('.md')) continue;
+        if (f === 'README.md' || f === 'INVOCATION-PACK.md') continue;
+        const fileContent = fs.readFileSync(path.join(laneBDir, f), 'utf8');
+        const nameMatch = fileContent.match(/^name:\s*([a-z][a-z-]+)/m);
+        if (nameMatch && nameMatch[1]) laneBRoster.add(nameMatch[1]);
+      }
+    }
+
+    // Combined reachability set = every agent name that appears in ANY cell
+    // of either routing table (primary OR also-notify).
+    const reachable = new Set<string>();
+    const combinedRouting =
+      family + '\n' + laneBOrchestratorContent + '\n' + laneBRoutingContent;
+    const agentNameRe = /[a-z][a-z0-9-]+-(expert|auditor|reviewer|executor|enforcer|planner|agent|writer|arbiter|manager|orchestrator|mapper|runner)\b/g;
+    for (const match of combinedRouting.matchAll(agentNameRe)) {
+      reachable.add(match[0]);
+    }
+
+    // Exemptions: agents with `dispatch: cross-cutting` / `ad-hoc` /
+    // `maintenance` frontmatter are explicitly non-glob and exempt.
+    const exempt = new Set<string>();
+    const collectExempt = (dir: string): void => {
+      if (!fs.existsSync(dir)) return;
+      for (const f of fs.readdirSync(dir)) {
+        if (!f.endsWith('.md')) continue;
+        const full = path.join(dir, f);
+        const stat = fs.statSync(full);
+        if (stat.isDirectory()) {
+          collectExempt(full);
+          continue;
+        }
+        const fileContent = fs.readFileSync(full, 'utf8');
+        const nameMatch = fileContent.match(/^name:\s*([a-z][a-z-]+)/m);
+        const dispatchMatch = fileContent.match(/^dispatch:\s*(cross-cutting|ad-hoc|maintenance)/m);
+        if (nameMatch && nameMatch[1] && dispatchMatch) {
+          exempt.add(nameMatch[1]);
+        }
+      }
+    };
+    collectExempt(path.join(REPO_ROOT, '.claude', 'agents'));
+
+    const combinedRoster = new Set<string>([...laneARoster, ...laneBRoster]);
+    const unreachable = [...combinedRoster].filter(
+      (agent) => !reachable.has(agent) && !exempt.has(agent),
+    );
+
+    if (unreachable.length > 0) {
+      const hint =
+        'Every roster agent must appear in at least one glob cell (primary OR also-notify) ' +
+        'across .claude/shared/orchestrator-routing-table.md and ' +
+        '.claude/agents/product-audit/orchestrator.md Phase 1 table. Agents that are ' +
+        'intentionally cross-cutting or ad-hoc must carry `dispatch: cross-cutting` or ' +
+        '`dispatch: ad-hoc` in their frontmatter.';
+      throw new Error(
+        `Orphan agents (in roster, no dispatch glob):\n  - ${unreachable.join('\n  - ')}\n\n${hint}`,
+      );
+    }
+    expect(unreachable).toEqual([]);
   });
 });

@@ -40,7 +40,7 @@
  * Refs:
  *  - docs/plans/2026-04-17-agentic-post-audit-consolidation-plan.md#Phase-2
  *  - docs/plans/2026-04-17-agentic-post-audit-consolidation-plan.md#Phase-8
- *  - .claude/agents-enterprise-v2/frontend-expert.md (GraphQL section)
+ *  - .claude/agents/frontend-expert.md (GraphQL section)
  *  - https://the-guild.dev/graphql/codegen/plugins/typescript/typed-document-node
  */
 Object.defineProperty(exports, "__esModule", { value: true });
@@ -77,7 +77,7 @@ exports.default = createRule({
         },
         schema: [],
         messages: {
-            bareGqlTag: 'Raw `gql`…`` tagged template produces an untyped DocumentNode — schema breaking changes surface only at runtime. Generate a TypedDocumentNode via graphql-codegen and import it from the generated/ directory. Reference: .claude/agents-enterprise-v2/frontend-expert.md (GraphQL section) + docs/plans/2026-04-17-agentic-post-audit-consolidation-plan.md#Phase-8 (the mass-migration sweep is in flight — new bare gql should NOT be added).',
+            bareGqlTag: 'Raw `gql`…`` tagged template produces an untyped DocumentNode — schema breaking changes surface only at runtime. Generate a TypedDocumentNode via graphql-codegen and import it from the generated/ directory. Reference: .claude/agents/frontend-expert.md (GraphQL section) + docs/plans/2026-04-17-agentic-post-audit-consolidation-plan.md#Phase-8 (the mass-migration sweep is in flight — new bare gql should NOT be added).',
         },
     },
     defaultOptions: [],

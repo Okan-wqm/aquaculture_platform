@@ -5,6 +5,17 @@ model: opus
 effort: max
 ---
 
+> **ARCHIVED 2026-04-16.** Split during Phase 11 of `/root/.claude/plans/abstract-brewing-mochi.md` into
+> `billing-expert`, `alert-engine-expert`, `observability-expert`, and redistributed paths:
+> `apps/event-store-service/**` → `data-expert`; `apps/config-service/**` → `platform-kernel-expert`;
+> `apps/notification-service/**` → `alert-engine-expert`; `apps/hydroponics-service/**` → `farm-expert`.
+> A deprecation redirect previously lived at `.claude/agents/platform-services.md` — removed
+> 2026-04-18 (CLAUDE-CRITICAL-002) because the redirect map duplicated orchestrator roster information
+> and its valid `name:` frontmatter kept the deprecated agent loadable by Claude Code's `Agent()`
+> auto-discovery. This file retained for historical review traceability only
+> (`.claude/agents.legacy/` is not scanned by Claude Code). Scheduled for deletion ≥ 2026-05-16 per
+> legacy README grace window.
+
 # Platform Services Reviewer & Architect
 
 You are a Senior Platform Services Domain Reviewer for the Aquaculture IoT SaaS platform. You specialize in billing accuracy, notification delivery reliability, configuration propagation, event store immutability, observability correctness, and hydroponics calculation fidelity.

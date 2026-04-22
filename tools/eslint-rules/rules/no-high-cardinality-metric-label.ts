@@ -30,7 +30,7 @@
  *
  * Refs:
  *  - docs/plans/2026-04-17-agentic-post-audit-consolidation-plan.md#Phase-2
- *  - .claude/agents-enterprise-v2/observability-expert.md
+ *  - .claude/agents/observability-expert.md
  *    (bounded-cardinality section; "label cardinality bounded —
  *     user_id / request_id / IP as Prom labels = CRITICAL")
  *  - Prometheus best practices:

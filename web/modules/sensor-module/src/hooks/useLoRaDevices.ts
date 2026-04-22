@@ -148,8 +148,6 @@ export function useRemoveLoRaDevice() {
  */
 export function useSendLoRaDownlink() {
   const { token } = useAuth();
-
-  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async ({
       edgeDeviceId,

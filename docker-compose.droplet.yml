@@ -838,6 +838,14 @@ services:
       EDGE_AGENT_GITHUB_REPO: Okan-wqm/aquaculture_platform
       PROVISIONING_API_BASE_URL: ${PROVISIONING_API_BASE_URL:-https://app.suderra.com}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
+      # ADR-022 control / data plane separation. Default `legacy`
+      # keeps the existing NestJS MQTT subscriber + per-sensor data
+      # collection running. Set to `control-plane` once the Rust
+      # ingestion sidecar (ADR-025) is live for every tenant — at
+      # which point this service becomes pure control plane and the
+      # operator can tighten the resource limits below to the budget
+      # in ADR-022 § Bütçe (192 MB / 0.2 vCPU).
+      SENSOR_SERVICE_PROFILE: ${SENSOR_SERVICE_PROFILE:-legacy}
     depends_on:
       postgres:
         condition: service_healthy
@@ -859,14 +867,59 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
-          cpus: '0.5'
+          # legacy profile envelope: 512 MB / 0.5 vCPU.
+          # control-plane profile (ADR-022): tighten to 192 MB /
+          # 0.2 vCPU once SENSOR_SERVICE_PROFILE=control-plane is live
+          # for every tenant. Override per deploy via the
+          # SENSOR_SERVICE_MEMORY / SENSOR_SERVICE_CPUS env so the
+          # numbers travel with the operator's runbook, not this file.
+          memory: ${SENSOR_SERVICE_MEMORY:-512M}
+          cpus: '${SENSOR_SERVICE_CPUS:-0.5}'
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:3000/health/live"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 90s
+
+  # Rust ingestion sidecar — ADR-025 / ADR-027 strangler-fig rollout.
+  # Co-equal producer of `events.{tenantId}.SensorReading` alongside the
+  # NestJS sensor-service. Per-tenant feature flag (`[ingest_backend]`
+  # in config.toml) gates which tenants the sidecar processes.
+  sensor-ingestion:
+    image: ghcr.io/okan-wqm/aquaculture_platform/sensor-ingestion:${TAG:-latest}
+    container_name: aqua-sensor-ingestion
+    restart: unless-stopped
+    user: "65532:65532"
+    environment:
+      # tracing-subscriber filter — overrides via env var without
+      # rebuilding the config file.
+      RUST_LOG: ${SENSOR_INGESTION_LOG:-info}
+      SENSOR_INGESTION_CONFIG: /etc/sensor-ingestion/config.toml
+    volumes:
+      # Operator-rotated config + cert bind-mounts. NEVER baked into
+      # the image (ADR-014/015): the secrets-rotation job updates files
+      # on disk, sidecar restart picks them up.
+      - ./infrastructure/sensor-ingestion/config.toml:/etc/sensor-ingestion/config.toml:ro
+      - ./certs/sensor-ingestion:/etc/sensor-ingestion/certs:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mosquitto:
+        condition: service_healthy
+    networks:
+      - aqua-internal
+    deploy:
+      resources:
+        limits:
+          # Plan § Faz 2 — Deployment + Strangler Fig. Sidecar cap is
+          # 256 MB / 0.35 vCPU; reservations match the steady-state
+          # baseline measured at the planning stage.
+          memory: 256M
+          cpus: '0.35'
+        reservations:
+          memory: 192M
+          cpus: '0.25'
 
   admin-api-service:
     image: ghcr.io/okan-wqm/aquaculture_platform/admin-api-service:${TAG:-latest}

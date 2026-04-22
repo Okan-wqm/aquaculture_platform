@@ -44,7 +44,7 @@
  *
  * Refs:
  *  - docs/plans/2026-04-17-agentic-post-audit-consolidation-plan.md#Phase-2
- *  - .claude/agents-enterprise-v2/ai-safety-auditor.md (Anthropic
+ *  - .claude/agents/ai-safety-auditor.md (Anthropic
  *    SDK wrapper requirement)
  *  - apps/ai-service/src/agent/agent-runner.service.ts (canonical wrapper)
  */
@@ -94,7 +94,7 @@ exports.default = createRule({
         },
         schema: [],
         messages: {
-            rawAnthropicImport: 'Direct `{{ specifier }}` import bypasses the AI safety pipeline (AgentRunnerService wraps rate-limit + token-budget + guardrails + audit + cost attribution). Inject AgentRunnerService and call `agentRunner.chat({...})` instead. Canonical wrapper: apps/ai-service/src/agent/agent-runner.service.ts. Reference: .claude/agents-enterprise-v2/ai-safety-auditor.md.',
+            rawAnthropicImport: 'Direct `{{ specifier }}` import bypasses the AI safety pipeline (AgentRunnerService wraps rate-limit + token-budget + guardrails + audit + cost attribution). Inject AgentRunnerService and call `agentRunner.chat({...})` instead. Canonical wrapper: apps/ai-service/src/agent/agent-runner.service.ts. Reference: .claude/agents/ai-safety-auditor.md.',
         },
     },
     defaultOptions: [],

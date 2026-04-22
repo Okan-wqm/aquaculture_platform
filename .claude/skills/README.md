@@ -1,6 +1,14 @@
 # Skills Catalog — Procedural How-To Cascades
 
-**Audience:** `implementation-planner` consults these files when generating package cascades for cross-cutting architectural tasks. Domain agents reference skill IDs in their Domain-specific invariants when recommending a multi-step fix. Orchestrator routes `.claude/skills/**` edits to `prompt-writer` + `implementation-planner` per `_shared/orchestrator-routing-table.md`.
+> **Status: REFERENCE-ONLY (2026-04-18).** These skills are architectural
+> playbooks — canonical recipes for cross-cutting tasks — not automatically-
+> invoked pipelines. A human reviewer (or a Claude Code `Agent()` dispatch)
+> consults a skill when executing the cascade; there is no
+> `implementation-planner` auto-dispatch. Every skill carries
+> `status: reference-only` in its frontmatter. When a mechanical pipeline
+> lands later, individual skills flip to `status: active`.
+
+**Audience:** `implementation-planner` consults these files when generating package cascades for cross-cutting architectural tasks. Domain agents reference skill IDs in their Domain-specific invariants when recommending a multi-step fix.
 
 **Phase 3 of** `docs/plans/2026-04-17-agentic-post-audit-consolidation-plan.md#Phase-3`. Landed end-of-day 2026-04-17.
 
@@ -62,7 +70,7 @@ owners: <comma-separated primary agents that consult this skill>
 
 ## Cross-references
 - ADRs: {list applicable docs/adr/*.md}
-- Agent invariants: {list .claude/agents-enterprise-v2/*.md sections}
+- Agent invariants: {list .claude/agents/*.md sections}
 - Research files: {docs/research/*/*.md}
 ```
 

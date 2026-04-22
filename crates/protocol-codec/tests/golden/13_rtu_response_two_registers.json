@@ -1,0 +1,10 @@
+{
+  "name": "rtu_response_two_registers",
+  "description": "Modbus RTU response: unit 1, FC 0x03, byte_count=4, registers=[0x0064, 0x012C]. CRC-16-Modbus over body [01 03 04 00 64 01 2C] = 0xA1BB, written little-endian on the wire as BB A1.",
+  "decoder": "parse_rtu_frame",
+  "wire_hex": "0103040064012CBBA1",
+  "expected_ok": {
+    "address": 1,
+    "pdu_hex": "03040064012C"
+  }
+}

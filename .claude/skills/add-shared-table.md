@@ -3,8 +3,14 @@ name: add-shared-table
 description: Add a 5th table to the `shared` schema — gated by ADR + architectural-arbiter approval. BLOCKER-15 class.
 type: skill
 version: 1
+status: reference-only
 blocker: BLOCKER-15
 owners: architectural-arbiter, data-expert, database-reviewer
+handoff:
+  on_complete_invoke: [architectural-arbiter, data-expert, database-reviewer]
+  on_security_touch: security-reviewer
+  on_event_impact: null
+  on_multi_tenant_touch: multi-tenant-saas-expert
 ---
 
 # Skill — Add Shared Table (BLOCKER-15)
@@ -128,9 +134,9 @@ No 5th table exists in the repo yet — this skill is the gate.
 ## Cross-references
 
 - ADR-011 — schema ownership model (the 4-table canonical list).
-- `.claude/agents-enterprise-v2/data-expert.md` — shared-table gate invariant.
-- `.claude/agents-enterprise-v2/multi-tenant-saas-expert.md` — tenant-isolation defense-in-depth.
-- `.claude/agents-enterprise-v2/compliance-expert.md` — GDPR Art 17 cascade.
+- `.claude/agents/data-expert.md` — shared-table gate invariant.
+- `.claude/agents/multi-tenant-saas-expert.md` — tenant-isolation defense-in-depth.
+- `.claude/agents/compliance-expert.md` — GDPR Art 17 cascade.
 - `tests/invariants/_constants.ts` — `SHARED_SCHEMA_TABLES` allowlist.
 - `tests/invariants/schema-invariants.spec.ts` — invariant enforcement.
 - CLAUDE.md D14 — Tenant row placement authoritative reference.

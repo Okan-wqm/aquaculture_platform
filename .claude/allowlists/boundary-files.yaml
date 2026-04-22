@@ -34,11 +34,11 @@ entries:
     notes: "This file ALSO appears in the priority-fix list (ANTI top-10). Allowlist applies to the protocol-decode surface ONLY, not to event construction. New event emissions MUST use createBaseEvent()."
 
   - path: "apps/sensor-service/src/protocol/adapters/industrial/**"
-    reason: "Boundary — industrial fieldbus adapters (Allen-Bradley DF1/EtherNet, BACnet IP/MSTP, CANopen, CC-Link, DeviceNet, EtherCAT, KNX/IP, OPC UA, Modbus). Each adapter negotiates a binary wire protocol whose TypeScript surface is inherently `any` at the frame-decode layer."
+    reason: "Boundary — industrial fieldbus adapters (Allen-Bradley DF1/EtherNet, BACnet IP/MSTP, CANopen, CC-Link, DeviceNet, EtherCAT, KNX/IP, OPC UA, Modbus). Each adapter negotiates a binary wire protocol whose TypeScript surface is inherently `any` at the frame-decode layer. Permanence justified by ADR-003 (sensor-service / edge separation): the cloud NestJS layer consumes protocol-decoded events whose wire-level framing is outside our type system by contract."
     rules: ["@typescript-eslint/no-explicit-any", "@typescript-eslint/no-unsafe-assignment", "@typescript-eslint/no-unsafe-call", "@typescript-eslint/no-unsafe-return"]
     owner: "@Okan-wqm"
     expires: never
-    notes: "Glob covers ~15 adapter files — none of these protocols will ever have a static TS surface we control. Prefer narrowing by wrapping each adapter's public API in a `Decoded<T>` Zod schema — but the internal decode path stays relaxed."
+    notes: "Glob covers ~15 adapter files — none of these protocols will ever have a static TS surface we control. Prefer narrowing by wrapping each adapter's public API in a `Decoded<T>` Zod schema — but the internal decode path stays relaxed. See ADR-003."
 
   # -------------------------------------------------------------------------
   # Stripe webhook — external event shape; signature-verified on receipt
@@ -60,11 +60,11 @@ entries:
   # Event store — polymorphic by contract
   # -------------------------------------------------------------------------
   - path: "apps/event-store-service/src/event-store/entities/stored-event.entity.ts"
-    reason: "Boundary — event-store `payload` jsonb column is polymorphic by contract. This is the only legitimate jsonb-dumping-ground in the platform; every other @Column({ type: 'jsonb' }) must be typed per DATA-MEDIUM-006."
+    reason: "Boundary — event-store `payload` jsonb column is polymorphic by contract. This is the only legitimate jsonb-dumping-ground in the platform; every other @Column({ type: 'jsonb' }) must be typed per DATA-MEDIUM-006. Permanence justified by ADR-006 (event-contracts flat pattern): stored_events is the append-only ledger whose polymorphic payload is the counter-case to the flat-event rule — every other consumer receives the typed, upcaster-narrowed shape."
     rules: ["no-restricted-syntax/jsonb-untyped"]
     owner: "@Okan-wqm"
     expires: never
-    notes: "This entity is ALSO flagged in PLAT-CRITICAL-001 for missing `schema:` — that is an orthogonal finding requiring its own fix. Allowlist applies to the jsonb relaxation only."
+    notes: "This entity is ALSO flagged in PLAT-CRITICAL-001 for missing `schema:` — that is an orthogonal finding requiring its own fix. Allowlist applies to the jsonb relaxation only. See ADR-006."
 
   # -------------------------------------------------------------------------
   # Zod + Ajv boundary validators — explicit interop with untyped inputs
@@ -123,11 +123,11 @@ entries:
   # Rust LoRa / SX1302 FFI shim — only place unsafe is allowed
   # -------------------------------------------------------------------------
   - path: "sens-api-gateway/src/lora/sx1302.rs"
-    reason: "Boundary — Semtech SX1302 concentrator C FFI. All 7 `unsafe` blocks are confined to this file with documented SAFETY invariants. No other Rust file may use `unsafe` blocks without a matching allowlist entry."
+    reason: "Boundary — Semtech SX1302 concentrator C FFI. All 7 `unsafe` blocks are confined to this file with documented SAFETY invariants. No other Rust file may use `unsafe` blocks without a matching allowlist entry. Permanence justified by ADR-003 (sensor-service / edge separation): the edge gateway owns the FFI boundary to hardware we do not control; the cloud layer never calls unsafe."
     rules: ["clippy::undocumented_unsafe_blocks", "unsafe_op_in_unsafe_fn"]
     owner: "@Okan-wqm"
     expires: never
-    notes: "Edge-expert audit Table 1 confirmed single-threaded invariant + documented SAFETY comments. Wrapping in a sealed Sx1302Handle actor is an architectural opportunity (EDGE modernization item 4) but does not change the allowlist scope."
+    notes: "Edge-expert audit Table 1 confirmed single-threaded invariant + documented SAFETY comments. Wrapping in a sealed Sx1302Handle actor is an architectural opportunity (EDGE modernization item 4) but does not change the allowlist scope. See ADR-003."
 
   # -------------------------------------------------------------------------
   # NATS connection factory — cert-is-identity boundary
@@ -157,11 +157,11 @@ entries:
   # SSRF validator — exists to handle arbitrary URL input
   # -------------------------------------------------------------------------
   - path: "apps/notification-service/src/notification/services/ssrf-validator.service.ts"
-    reason: "Boundary — webhook URL validator. Accepts arbitrary user-provided URLs; the validator's purpose is to handle every possible unsafe shape (RFC-1918, link-local, CGNAT, metadata hostnames)."
+    reason: "Boundary — webhook URL validator. Accepts arbitrary user-provided URLs; the validator's purpose is to handle every possible unsafe shape (RFC-1918, link-local, CGNAT, metadata hostnames). Permanence justified by ADR-008 (guard strategy defense-in-depth): the validator is a guard-layer boundary that must accept arbitrary untrusted input to validate it."
     rules: ["@typescript-eslint/no-explicit-any"]
     owner: "@Okan-wqm"
     expires: never
-    notes: "Permanent by design — the boundary exists precisely to handle untyped input."
+    notes: "Permanent by design — the boundary exists precisely to handle untyped input. See ADR-008."
 
   # -------------------------------------------------------------------------
   # Service identity util — HMAC canonical-input construction

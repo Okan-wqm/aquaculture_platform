@@ -16,6 +16,11 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing))]
 
 mod alarms; // v1.2.4: Alarm management (IEC 62682)
+// Batch 2 — ADR-018 §1 + ADR-024 §1 Permission enum + ActuatorClass taxonomy.
+// Pure types, zero runtime behavior in this batch; AuthorizedContext sealed type
+// + manifest verifier land in Faz 2 Sprint 6.1 (ADR-018 §11).
+#[allow(dead_code)] // Faz 2 wires consumers; enum + newtypes pre-staged for reference stability.
+mod authz;
 mod backup; // v1.2.4: Backup and restore functionality
 mod bounded;
 mod commands;
@@ -41,7 +46,57 @@ mod atlas_ezo;
 mod io_poll;
 mod security; // v1.2.2: Security hardening utilities
 mod st_validator; // v2.2: IEC 61131-3 Structured Text parser and validator
-mod safe_state; // LIFE-SAFETY: actuator safe-state on shutdown
+mod safe_state; // LIFE-SAFETY: actuator safe-state on shutdown (v1 schema)
+// Batch 3 — ADR-024 §3 §4 FailSafe enum + OutputTag v2 + DiversityClass +
+// HardwiredSafetyOverride + ProcessAware dependencies. Pure types, zero runtime
+// behavior in this batch; v1 SafeStateManager remains the runtime owner.
+// Faz 2 Sprint 7.2 migrates consumers to v2.
+#[allow(dead_code)] // Faz 2 wires consumers; v2 types pre-staged for reference stability.
+mod safe_state_v2;
+// Batch 4b — ADR-018 §4 §5 §7 Keystore trait + KeyPurpose typestate + KeyMaterial
+// sealed secret + FileBackedAcceptance gated newtype. Pure types, zero runtime
+// behavior (TPM FFI + mlock + Argon2id derivation land in Faz 2 Sprint 6.3).
+// Wired here so `cargo check` validates the module graph before runtime lands.
+#[allow(dead_code)] // Faz 2 Sprint 6.3 wires consumers; types pre-staged.
+mod keystore;
+// Batch 6 — ADR-020 audit log AuditEntry + HMAC chain. Pure types + closure-
+// injected HMAC append function; runtime sink + cloud relay + audit-verify CLI
+// land in Faz 2 Sprint 6.2.
+#[allow(dead_code)] // Faz 2 Sprint 6.2 wires consumers; types pre-staged.
+mod audit;
+// Batch 7 — Zero-Trust CommandEnvelope + jti dedup + canonical params +
+// mutating-command allowlist (plan §4.10). Types + verify_envelope pure
+// function with closure-injected SHA-256 and ed25519 verify. Runtime wiring
+// (Moka + SQLCipher persistence + command dispatcher integration) lands in
+// Faz 2 Sprint 6.4.
+#[allow(dead_code)] // Faz 2 Sprint 6.4 wires consumers; types pre-staged.
+mod command_envelope;
+// Batch 8 — ADR-019 firmware A/B partition + signed manifest verification.
+// Types + verify_firmware_manifest pure function with closure-injected
+// ed25519 verify. Runtime wiring (tryboot overlay write, bootloader flag
+// flip, per-file SHA-256 stream + TOCTOU re-verify, cold-boot confirmation)
+// lands in Faz 2 Sprint 6.5.
+#[allow(dead_code)] // Faz 2 Sprint 6.5 wires consumers; types pre-staged.
+mod updater;
+// Batch 9 — plan D-13 config.yaml.sig factory-signed integrity. Types +
+// verify_config_integrity pure function with closure-injected ed25519
+// verify. Runtime startup wiring (fail-closed boot if verify fails) lands
+// in Faz 2 Sprint 6.6.
+#[allow(dead_code)] // Faz 2 Sprint 6.6 wires consumers; types pre-staged.
+mod config_integrity;
+// Batch 10 — plan D-7/D-14/D-15 runtime safety primitives: ClockAuthority
+// trait (NTS-authenticated wall clock + monotonic anchor), retained-msg
+// guard predicate, ShutdownPhase state machine with tier-1 drain-before-
+// safe-state ordering. Types + pure functions; runtime supervisor wiring
+// lands in Faz 2 Sprint 6.7.
+#[allow(dead_code)] // Faz 2 Sprint 6.7 wires consumers; types pre-staged.
+mod runtime_safety;
+// Batch 11 — plan §5 Faz 2 item 7 + D-6 mTLS 3-stage rollout + leaf cert
+// pinning + 2-phase rotation + TLS 1.3 cipher-suite allowlist + 6-gate
+// verify_leaf_cert pure function. Types + pure function; runtime rustls
+// wiring lands in Faz 2 Sprint 6.8.
+#[allow(dead_code)] // Faz 2 Sprint 6.8 wires consumers; types pre-staged.
+mod mtls;
 mod shutdown;
 mod spi;
 mod telemetry; // v1.2.4: SPI support for high-speed peripherals

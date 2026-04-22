@@ -39,7 +39,7 @@
  * Refs:
  *  - docs/plans/2026-04-17-agentic-post-audit-consolidation-plan.md#Phase-2
  *  - docs/plans/2026-04-17-agentic-post-audit-consolidation-plan.md#Phase-8
- *  - .claude/agents-enterprise-v2/frontend-expert.md (GraphQL section)
+ *  - .claude/agents/frontend-expert.md (GraphQL section)
  *  - https://the-guild.dev/graphql/codegen/plugins/typescript/typed-document-node
  */
 import { ESLintUtils } from '@typescript-eslint/utils';

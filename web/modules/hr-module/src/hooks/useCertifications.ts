@@ -92,8 +92,6 @@ export function useCertificationTypes(filter?: {
   isActive?: boolean;
 }) {
   const client = useGraphQLClient();
-
-  const { tenantId } = useAuth();
   return useQuery({
     queryKey: certificationKeys.typeList(filter),
     queryFn: () =>
@@ -150,8 +148,6 @@ export function useExpiringCertifications(
 
 export function useExpiredCertifications(departmentId?: string) {
   const client = useGraphQLClient();
-
-  const { tenantId } = useAuth();
   return useQuery({
     queryKey: certificationKeys.expired(departmentId),
     queryFn: () =>
@@ -199,8 +195,6 @@ export function useAllCertifications(
 
 export function useCertificationComplianceReport(departmentId?: string) {
   const client = useGraphQLClient();
-
-  const { tenantId } = useAuth();
   return useQuery({
     queryKey: certificationKeys.compliance(departmentId),
     queryFn: () =>
@@ -256,8 +250,6 @@ export function useTrainingCourses(filter?: {
   isActive?: boolean;
 }) {
   const client = useGraphQLClient();
-
-  const { tenantId } = useAuth();
   return useQuery({
     queryKey: trainingKeys.courseList(filter),
     queryFn: () =>
@@ -295,8 +287,6 @@ export function useTrainingEnrollments(
 
 export function useMyTrainingEnrollments(filter?: TrainingFilterInput) {
   const client = useGraphQLClient();
-
-  const { tenantId } = useAuth();
   return useQuery({
     queryKey: trainingKeys.myEnrollments(filter),
     queryFn: () =>
@@ -336,8 +326,6 @@ export function useMandatoryTrainingStatus(employeeId: string) {
 export function useAddEmployeeCertification() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
-
-  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: (input: AddEmployeeCertificationInput) =>
       graphqlRequest<{ addEmployeeCertification: EmployeeCertification }, unknown>(
@@ -367,8 +355,6 @@ export function useAddEmployeeCertification() {
 export function useVerifyCertification() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
-
-  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: (input: VerifyCertificationInput) =>
       graphqlRequest<{ verifyCertification: EmployeeCertification }, unknown>(
@@ -450,8 +436,6 @@ export function useRenewCertification() {
 export function useEnrollInTraining() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
-
-  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: (input: EnrollInTrainingInput & {
       dueDate?: string;
@@ -481,8 +465,6 @@ export function useEnrollInTraining() {
 export function useStartTraining() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
-
-  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: (enrollmentId: string) =>
       graphqlRequest<{ startTraining: TrainingEnrollment }, unknown>(
@@ -530,8 +512,6 @@ export function useCompleteTraining() {
 export function useWithdrawFromTraining() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
-
-  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: ({ enrollmentId, reason }: { enrollmentId: string; reason?: string }) =>
       graphqlRequest<{ withdrawFromTraining: TrainingEnrollment }, unknown>(

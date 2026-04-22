@@ -1,7 +1,7 @@
 # Test Agents Evidence Catalog
 
 **Date:** 2026-04-12
-**Purpose:** shared repo-specific discovery starting points for `.claude/test-agents/`
+**Purpose:** shared repo-specific discovery starting points for `.claude/agents/product-audit/`
 
 This file is not a replacement for specialist reasoning. It is a shared starting map so specialist auditors do not rediscover the same repo structure from scratch on every cycle.
 
@@ -202,7 +202,7 @@ rg -n '@Controller\\(' apps -g '*.ts' | rg 'webhook|callback'
 
 ## 13. Current Roster Coverage Limits
 
-The current `.claude/test-agents/` roster is strongest on:
+The current `.claude/agents/product-audit/` roster is strongest on:
 
 - web and AquaMobil roundtrip truth
 - form/action/read-back/list visibility

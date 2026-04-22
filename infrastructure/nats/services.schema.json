@@ -53,10 +53,10 @@
     },
     "subject": {
       "type": "string",
-      "pattern": "^(AQUACULTURE_EVENTS\\.|events\\.|request\\.|st\\.language\\.|\\$JS\\.API\\.|_INBOX\\.)[A-Za-z0-9_.*>]+$",
+      "pattern": "^(AQUACULTURE_EVENTS\\.|events\\.|request\\.|st\\.language\\.|policy\\.|\\$JS\\.API\\.|_INBOX\\.)[A-Za-z0-9_.*>]+$",
       "minLength": 3,
       "maxLength": 120,
-      "description": "NATS subject pattern. Must begin with one of: AQUACULTURE_EVENTS., events., request., st.language., $JS.API., _INBOX. — platform subject-space conventions enforced by SSoT."
+      "description": "NATS subject pattern. Must begin with one of: AQUACULTURE_EVENTS., events., request., st.language., policy., $JS.API., _INBOX. — platform subject-space conventions enforced by SSoT. The `policy.` namespace carries dynamic-policy propagation (e.g. `policy.ingest_backend.>` — ADR-027 per-tenant toggle + ADR-031 request-reply snapshot)."
     }
   }
 }

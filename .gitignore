@@ -1,7 +1,16 @@
 # See http://help.github.com/ignore-files/ for more about ignoring files.
 
+# Cargo build artefacts (workspace + crate-level). Cargo.lock IS committed
+# (binaries land in apps/sensor-ingestion in Faz 2; reproducibility wins).
+target/
+**/target/
+
 # TLS certificates (infrastructure/docker/scripts/generate-internal-certs.sh)
 certs/
+
+# sensor-ingestion runtime config (real, not the .example committed alongside).
+# Carries deploy-specific cert paths + DB password; never check it in.
+infrastructure/sensor-ingestion/config.toml
 
 # Dependencies
 node_modules
@@ -127,6 +136,16 @@ vite.config.*.timestamp*NUL
 # Generated GraphQL schemas
 schema.graphql
 .claude/worktrees/
+
+# CLAUDE-MEDIUM-011: .full-review/ is orchestrator state-file accumulation
+# consumed by context-manager as read-only external memory. Each cycle
+# produces new phase documents; the directory is never committed to keep
+# prior-cycle state from poisoning future compaction runs.
+.full-review/
+
+# CLAUDE-MEDIUM-006: PreToolUse Agent dispatch gate audit log. Append-only
+# per-session log; never committed.
+.claude/agents/.dispatch-log.jsonl
 
 # SEC-M05: vite-plugin-pwa dev-dist is a development-only service worker artifact.
 # It must never be committed because it contains a GraphQL-caching SW that leaks

@@ -75,7 +75,7 @@ Daily cron at 07:00 UTC (`finding-state-sweep.yml`) runs the registry `sweep` su
 | Wave 3 | `9e3e73df` `dbf865b2` `19ee3eeb` `2ef206d5` | security-reviewer (317→166, −48%) · implementation-planner (279→192, −31%) · frontend-expert (246→197, −20%) · **orchestrator 3-file split** (360 → 130 main + 132 `_shared/orchestrator-routing-table.md` + 144 `_shared/orchestrator-phases.md`) |
 | Wave 4 | `0205219e` `eb190778` `ec8c3b9c` `dc21b0ef` `87ff9d1f` | hr-expert · database-reviewer · context-manager · admin-expert · prompt-writer |
 
-**Zero domain invariants lost.** Every rule preserved verbatim or dense-reformatted; generic SSoT (OWASP prose, ASVS chapter remap, framework rules, research-link prose) delegated to `@.claude/knowledge/layer-*` + `@.claude/agents-enterprise-v2/_shared/*`.
+**Zero domain invariants lost.** Every rule preserved verbatim or dense-reformatted; generic SSoT (OWASP prose, ASVS chapter remap, framework rules, research-link prose) delegated to `@.claude/knowledge/layer-*` + `@.claude/shared/*`.
 
 **Invariant-test co-update:** `tests/invariants/orchestrator-routing-coverage.spec.ts` updated to read BOTH `orchestrator.md` AND `_shared/orchestrator-routing-table.md` (surface coverage + primary-agent checks scan the family; roster check remains orchestrator.md-only). Accepts pre-split + post-split shapes for rollback safety.
 
@@ -179,7 +179,7 @@ Gate-config documentation: `docs/plans/2026-04-17-agentic-post-audit-consolidati
 - `docs/plans/2026-04-17-agentic-post-audit-consolidation-plan.md` — abstract-brewing-mochi Phase 0-14 post-audit consolidation.
 - `docs/reviews/orchestrator/2026-04-16-v2-audit.md` — original audit (P0-1..P0-7 + COMPLIANCE-CRITICAL-001).
 - `docs/reviews/_audit/2026-04-W16-*.md` — W1 audit slice per-reviewer.
-- `.claude/agents-enterprise-v2/_shared/` — canonical SSoT fragments (operating-modes, tier-claim-syntax, handoff-protocol, output-format, `_conversion-template`, orchestrator-routing-table, orchestrator-phases).
+- `.claude/shared/` — canonical SSoT fragments (operating-modes, tier-claim-syntax, handoff-protocol, output-format, `_conversion-template`, orchestrator-routing-table, orchestrator-phases).
 - `docs/reviews/_registry/README.md` — registry maintenance reference.
 
 ---

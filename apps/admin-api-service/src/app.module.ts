@@ -18,6 +18,7 @@ import { MoveUserPermissionsToShared1786900000000 } from './migrations/178690000
 import { GrantSharedSchemaPrivileges1787000000000 } from './migrations/1787000000000-GrantSharedSchemaPrivileges';
 import { CreateAdminAuditLogsTable1787100000000 } from './migrations/1787100000000-CreateAdminAuditLogsTable';
 import { RealignSharedAuditLogsSchema1787200000000 } from './migrations/1787200000000-RealignSharedAuditLogsSchema';
+import { CreateIngestBackendPolicyState1787300000000 } from './migrations/1787300000000-CreateIngestBackendPolicyState';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AuditLogModule } from './audit/audit.module';
 import { PasswordResetModule } from './auth/password-reset.module';
@@ -35,6 +36,7 @@ import { ResponseInterceptor } from './shared/response.interceptor';
 import { SystemMetricsModule } from './metrics/system-metrics.module';
 import { SystemModulesModule } from './modules/modules.module';
 import { SecurityModule } from './security/security.module';
+import { IngestBackendPolicyModule } from './policy/policy.module';
 import { SettingsModule } from './settings/settings.module';
 import { SupportModule } from './support/support.module';
 import { SystemManagementModule } from './system-management/system-management.module';
@@ -76,6 +78,7 @@ import { UsersModule } from './users/users.module';
             GrantSharedSchemaPrivileges1787000000000,
             CreateAdminAuditLogsTable1787100000000,
             RealignSharedAuditLogsSchema1787200000000,
+            CreateIngestBackendPolicyState1787300000000,
           ],
           // admin-api opts in to TypeORM's built-in migration runner via the
           // legacy DATABASE_MIGRATIONS_RUN env var (default true). All other
@@ -164,6 +167,10 @@ import { UsersModule } from './users/users.module';
     UsersModule,
     SystemModulesModule,
     SettingsModule,
+    // ADR-031 ingest-backend policy: admin-api owns the SoT +
+    // publishes `policy.ingest_backend.changed` + responds to
+    // `policy.ingest_backend.snapshot`.
+    IngestBackendPolicyModule,
     BillingModule,
     AnalyticsModule,
     DatabaseManagementModule,

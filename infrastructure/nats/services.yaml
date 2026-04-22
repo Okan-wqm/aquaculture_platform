@@ -140,6 +140,40 @@ services:
       - "_INBOX.>"
 
   # ---------------------------------------------------------------------------
+  # sensor-ingestion: Rust sidecar (ADR-025 / ADR-027) — co-equal producer of
+  # SensorReading events alongside sensor-service during the strangler-fig
+  # rollout. Distinct CN so the broker can attribute every published event
+  # to its actual producer (audit + per-tenant rollback granularity).
+  # ---------------------------------------------------------------------------
+  - name: sensor_ingestion
+    description: Rust ingestion sidecar — MQTT subscribe → COPY → SensorReading event publish
+    publish:
+      # Matches platform/libs/event-bus/src/nats/nats-event-bus.ts:310-312
+      # deriveSubject `events.{tenantId}.{eventType}` — same JetStream
+      # `events.>` stream the NestJS publisher targets, byte-equivalent.
+      - "events.>"
+      # Legacy pattern kept for downstream consumers that still subscribe
+      # to the AQUACULTURE_EVENTS namespace. Remove once every consumer
+      # has migrated to the `events.>` stream.
+      - "AQUACULTURE_EVENTS.SensorReading.>"
+      # Cache-miss lookup — request-reply from sidecar to sensor-service.
+      # sensor-service subscribes `request.sensor.>`, the sidecar sends
+      # `request.sensor.lookup.by-topic` with a reply-to inbox. Lands
+      # alongside the singleflight cache work (ADR-029 ingestion plan).
+      - "request.sensor.>"
+      - "$JS.API.>"
+      - "_INBOX.>"
+    subscribe:
+      # Dynamic IngestBackend policy — admin-api publishes policy change
+      # events on this subject hierarchy; the sidecar hot-swaps the
+      # ArcSwap<IngestBackendPolicy> on every message (ADR-027 + ADR-031).
+      # Boot-time authoritative snapshot is fetched via request-reply on
+      # `policy.ingest_backend.snapshot` (replies arrive on `_INBOX.>`).
+      - "policy.ingest_backend.>"
+      - "_INBOX.>"
+      - "$JS.API.>"
+
+  # ---------------------------------------------------------------------------
   # gateway-api + admin-api-service (shared account)
   # ---------------------------------------------------------------------------
   - name: gateway_service
@@ -155,12 +189,23 @@ services:
       - "st.language.>"
       # Request-reply for cross-service queries
       - "request.>"
+      # Dynamic IngestBackend policy change events — admin-api is the
+      # authoritative publisher; sensor-ingestion + sensor-service
+      # subscribe. ADR-027 (per-tenant toggle) + ADR-031 (request-reply
+      # bootstrap snapshot via `policy.ingest_backend.snapshot`).
+      - "policy.ingest_backend.>"
       - "$JS.API.>"
       - "_INBOX.>"
     subscribe:
       - "AQUACULTURE_EVENTS.>"
       # WebSocket real-time bridges
       - "events.>"
+      # IngestBackend snapshot responder — admin-api answers the Rust
+      # sidecar's cold-start request on `policy.ingest_backend.snapshot`
+      # (request-reply per ADR-031). Responses land on requester's
+      # `_INBOX.>` automatically; the subscribe here lets admin-api
+      # receive the request side of the pair.
+      - "policy.ingest_backend.snapshot"
       # ST Language responses
       - "st.language.>"
       # Request-reply inbox

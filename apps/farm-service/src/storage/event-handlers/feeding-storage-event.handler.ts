@@ -64,8 +64,15 @@ export class FeedingStorageEventHandler
       return;
     }
 
-    await this.eventBus.subscribe('FeedingRecorded', this);
-    this.logger.log('Subscribed to FeedingRecorded events for automatic storage deduction');
+    // WHAT — `subscribeWildcard` builds the 3-segment subject
+    // `events.*.FeedingRecorded`, matching the publisher's
+    // `events.{tenantId}.FeedingRecorded` for every tenant.
+    // WHY explicit wildcard — storage auto-deduction is a cross-tenant
+    // platform feature; making the wildcard explicit at the call site
+    // matches the ORPHAN-013 contract that publisher and subscriber agree
+    // on segment count by construction (Tier-1 "make it impossible").
+    await this.eventBus.subscribeWildcard('FeedingRecorded', this);
+    this.logger.log('Subscribed to FeedingRecorded events for automatic storage deduction (cross-tenant wildcard)');
   }
 
   getEventType(): string {

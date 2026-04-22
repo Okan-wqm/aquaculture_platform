@@ -101,6 +101,7 @@ import { AddSensorProtocolTopicIndex1781400000000 } from './database/migrations/
 // discovery — TimescaleDB hypertables and OLTP entities are both handled.
 import { ConvertAuditColumnsToTimestamptz1781900000000 } from './database/migrations/1781900000000-ConvertAuditColumnsToTimestamptz';
 import { MovePublicTablesToSensor1786000100000 } from './database/migrations/1786000100000-MovePublicTablesToSensor';
+import { CreateSensorEventOutbox1786000200000 } from './database/migrations/1786000200000-CreateSensorEventOutbox';
 import { CredentialVaultModule } from './infrastructure/vault/credential-vault.module';
 import { AuditModule } from './infrastructure/audit/audit.module';
 import { AuditLog } from './infrastructure/audit/audit-log.entity';
@@ -191,6 +192,7 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
             AddSensorProtocolTopicIndex1781400000000,
             ConvertAuditColumnsToTimestamptz1781900000000,
             MovePublicTablesToSensor1786000100000,
+            CreateSensorEventOutbox1786000200000,
           ],
           // When sync is on (initial deploy), skip migrations to avoid index conflicts.
           // When sync is off (production), run migrations for structural changes.

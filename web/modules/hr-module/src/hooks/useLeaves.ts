@@ -64,8 +64,6 @@ export const leaveKeys = {
 
 export function useLeaveTypes(filter?: { category?: string; isActive?: boolean }) {
   const client = useGraphQLClient();
-
-  const { tenantId } = useAuth();
   return useQuery({
     queryKey: leaveKeys.types(),
     queryFn: () =>
@@ -101,8 +99,6 @@ export function useLeaveBalances(employeeId: string, year: number) {
 
 export function useLeaveBalanceSummary(employeeId: string, year: number) {
   const client = useGraphQLClient();
-
-  const { tenantId } = useAuth();
   return useQuery({
     queryKey: leaveKeys.balanceSummary(employeeId, year),
     queryFn: () =>
@@ -192,8 +188,6 @@ export function useMyLeaveRequests(
 
 export function usePendingLeaveApprovals(approverId: string) {
   const client = useGraphQLClient();
-
-  const { tenantId } = useAuth();
   return useQuery({
     queryKey: leaveKeys.pendingApprovals(approverId),
     queryFn: () =>
@@ -296,8 +290,6 @@ export function useCalculateLeaveDays(
 export function useCreateLeaveRequest() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
-
-  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: (input: CreateLeaveRequestInput) =>
       graphqlRequest<{ createLeaveRequest: LeaveRequest }, unknown>(
@@ -340,8 +332,6 @@ export function useUpdateLeaveRequest() {
 export function useSubmitLeaveRequest() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
-
-  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: (id: string) =>
       graphqlRequest<{ submitLeaveRequest: LeaveRequest }, unknown>(
@@ -423,8 +413,6 @@ export function useRejectLeaveRequest() {
 export function useCancelLeaveRequest() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
-
-  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: ({ id, reason }: { id: string; reason?: string }) =>
       graphqlRequest<{ cancelLeaveRequest: LeaveRequest }, unknown>(
@@ -449,8 +437,6 @@ export function useCancelLeaveRequest() {
 export function useWithdrawLeaveRequest() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
-
-  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: (id: string) =>
       graphqlRequest<{ withdrawLeaveRequest: LeaveRequest }, unknown>(
@@ -476,8 +462,6 @@ export function useWithdrawLeaveRequest() {
 export function useAdjustLeaveBalance() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
-
-  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: ({
       employeeId,

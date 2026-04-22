@@ -1,0 +1,10 @@
+{
+  "name": "pdu_exception_fc03_illegal_data_address",
+  "description": "Modbus exception response: original FC was 0x03, exception code 0x02 (IllegalDataAddress). Wire FC byte = 0x83 = 0x03 | 0x80.",
+  "decoder": "decode_exception_response",
+  "wire_hex": "8302",
+  "expected_ok": {
+    "original_function_code": 3,
+    "exception": "IllegalDataAddress"
+  }
+}

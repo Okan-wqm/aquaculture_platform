@@ -3,7 +3,13 @@ name: pre-migration-restore-test
 description: Before any destructive migration to production, validate the most recent backup by restoring it + running schema + row-count + sentinel-query assertions. Never-restored-backup = CRITICAL per infra-expert.
 type: skill
 version: 1
+status: reference-only
 owners: infra-expert, data-expert, database-reviewer
+handoff:
+  on_complete_invoke: [infra-expert, data-expert]
+  on_security_touch: null
+  on_event_impact: null
+  on_multi_tenant_touch: null
 ---
 
 # Skill — Pre-Migration Restore Test
@@ -174,8 +180,8 @@ Capture the FULL migration output including every DDL statement + its duration +
 ## Cross-references
 
 - ADR-016 — Deploy resilience architecture (this skill is under that umbrella).
-- `.claude/agents-enterprise-v2/infra-expert.md` — DR / resilience invariants (never-restored-backup CRITICAL).
-- `.claude/agents-enterprise-v2/data-expert.md` — destructive-migration 4-requirement gate (rollback migration, documented backup, ops stage-gate, VACUUM FULL ack).
+- `.claude/agents/infra-expert.md` — DR / resilience invariants (never-restored-backup CRITICAL).
+- `.claude/agents/data-expert.md` — destructive-migration 4-requirement gate (rollback migration, documented backup, ops stage-gate, VACUUM FULL ack).
 - `.github/workflows/backup-production.yml` — backup workflow.
 - `.github/manifests/backup-script.sha256` — INFRA-1 hash-chain.
 

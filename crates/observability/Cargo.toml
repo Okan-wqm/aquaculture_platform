@@ -1,0 +1,68 @@
+[package]
+name = "observability"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+description = "Tracing + OTLP + Prometheus initialisation, common across every Rust service. Aligns log/trace shape with NestJS @platform/backend-common so a single OTel collector ingests both."
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+secrecy = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+# Metrics façade + Prometheus exporter. `metrics` is the recorder-
+# side API every emitter crate imports (outbox-rs, sensor-ingestion,
+# ...); `metrics-exporter-prometheus` binds the global recorder to
+# a Prometheus-scrape-shaped handle + optional HTTP listener on
+# `/metrics`. The exporter is always compiled in — production
+# services need it + the test harness uses DebuggingRecorder
+# independently so there is no lint-level concern about a
+# production dep leaking into test surfaces.
+metrics = { workspace = true }
+metrics-exporter-prometheus = { workspace = true, features = ["http-listener"] }
+
+# Tenant identity type — the cardinality module's `tenant_bucket`
+# helper accepts a `TenantId` so emitters across the workspace
+# share exactly one identity surface.
+tenant-context = { path = "../tenant-context", version = "0.1.0" }
+
+# UUID v4 entropy source for the W3C traceparent trace_id +
+# parent_id fields. No crypto requirement — the 128-bit trace_id is a
+# correlation key, not a secret.
+uuid = { workspace = true }
+
+# OTLP exporter is feature-gated to keep the default surface small.
+# sensor-ingestion enables it at deployment time; library callers can
+# opt in via `features = ["otlp"]`.
+opentelemetry = { workspace = true, optional = true }
+opentelemetry_sdk = { workspace = true, optional = true }
+opentelemetry-otlp = { workspace = true, optional = true }
+tracing-opentelemetry = { workspace = true, optional = true }
+
+[features]
+default = []
+otlp = [
+    "dep:opentelemetry",
+    "dep:opentelemetry_sdk",
+    "dep:opentelemetry-otlp",
+    "dep:tracing-opentelemetry",
+]
+
+[dev-dependencies]
+serde_json = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
+# Direct dep in tests — the cardinality module's tests fabricate
+# TenantId values from a seed to drive the uniformity assertions.
+uuid = { workspace = true }
+
+[lints]
+workspace = true

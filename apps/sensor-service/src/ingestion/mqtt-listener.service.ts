@@ -29,6 +29,7 @@ import { EdgeDevice } from '../edge-device/entities/edge-device.entity';
 import { EdgeDeviceService, DeviceHeartbeat } from '../edge-device/edge-device.service';
 import { getTenantSchemaName, withTenantContext } from '@aquaculture/backend-common';
 import { MqttClientService } from '../shared-mqtt/mqtt-client.service';
+import { SensorServiceProfileService } from '../config/sensor-service-profile.service';
 import { SensorTopicCacheService, CachedSensorInfo } from './sensor-topic-cache.service';
 
 
@@ -197,6 +198,14 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     @Optional()
     @Inject(ScadaDeployLogService)
     private readonly scadaDeployLogService: ScadaDeployLogService | null,
+    // ADR-022 — when set, the profile service decides whether the
+    // legacy MQTT data plane runs at boot. Optional to keep test
+    // harnesses (which build the service via `new` instead of the DI
+    // container) from breaking; when missing, the service falls back
+    // to the legacy behaviour.
+    @Optional()
+    @Inject(SensorServiceProfileService)
+    private readonly profile: SensorServiceProfileService | null = null,
   ) {
     // Legacy edge/ topic flag (default: true for backward compatibility)
     this.legacyEdgeTopicsEnabled = this.configService.get('LEGACY_EDGE_TOPICS_ENABLED', 'true') === 'true';
@@ -210,6 +219,19 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleInit(): Promise<void> {
+    // ADR-022 control / data plane split: on the control-plane profile
+    // the Rust ingestion sidecar (ADR-025) owns MQTT subscribe + parse +
+    // COPY. The NestJS MqttListener is then dead weight that would
+    // double-consume QoS-1 messages and double-publish events. Skip
+    // boot-time start; the legacy entry-points (registerSensorMqtt /
+    // unregisterSensorMqtt) stay callable for the GraphQL CRUD path
+    // that tests connectivity from the control plane.
+    if (this.profile && !this.profile.isLegacyDataPlaneEnabled()) {
+      this.logger.log(
+        'SENSOR_SERVICE_PROFILE=control-plane: MQTT listener boot skipped (Rust sidecar owns the data plane).',
+      );
+      return;
+    }
     const mqttEnabled = this.configService.get('MQTT_ENABLED', 'true') === 'true';
 
     if (!mqttEnabled) {
@@ -233,7 +255,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       this.mqttClient.onceConnected(() => {
         this.logger.log('MQTT client connected — subscribing to topics now');
         this.subscribeToTopics().catch((err) => {
-          this.logger.error(`Failed to subscribe after deferred connect: ${err}`);
+          this.logger.error(`Failed to subscribe after delayed connect: ${err}`);
         });
       });
     }

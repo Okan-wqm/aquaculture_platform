@@ -75,11 +75,16 @@ export class MessagingEventHandler
   ) {}
 
   async onModuleInit(): Promise<void> {
-    await this.eventBus.subscribe('MessageSent', this);
-    await this.eventBus.subscribe('AnnouncementPublished', this);
-    await this.eventBus.subscribe('BulkThreadsCreated', this);
+    // WHAT — `subscribeWildcard` builds `events.*.{eventType}`, capturing
+    // every tenant's messaging lifecycle.
+    // WHY explicit wildcard — messaging push fan-out is cross-tenant by
+    // design; explicit helper pins the publisher↔subscriber subject
+    // contract (3 segments).
+    await this.eventBus.subscribeWildcard('MessageSent', this);
+    await this.eventBus.subscribeWildcard('AnnouncementPublished', this);
+    await this.eventBus.subscribeWildcard('BulkThreadsCreated', this);
     this.logger.log(
-      'Subscribed to MessageSent, AnnouncementPublished, and BulkThreadsCreated events',
+      'Subscribed to MessageSent, AnnouncementPublished, and BulkThreadsCreated events (cross-tenant wildcard)',
     );
   }
 

@@ -11,6 +11,7 @@ import { SensorDataChannel } from '../database/entities/sensor-data-channel.enti
 import { QualityCodes, SensorMetricInput } from '../database/entities/sensor-metric.entity';
 import { SensorReading } from '../database/entities/sensor-reading.entity';
 import { Sensor, SensorStatus, SensorRegistrationStatus } from '../database/entities/sensor.entity';
+import { SensorServiceProfileService } from '../config/sensor-service-profile.service';
 import { ConnectionHandle, DataSubscription, SensorReadingData } from '../protocol/adapters/base-protocol.adapter';
 import { MqttAdapter, MqttConfiguration } from '../protocol/adapters/iot/mqtt.adapter';
 
@@ -59,11 +60,26 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
     @Optional()
     @Inject('EVENT_BUS')
     private readonly eventBus: IEventBus | null,
+    // ADR-022: profile is optional so existing test harnesses (which
+    // construct via `new`) keep working — falls back to legacy
+    // behaviour when missing.
+    @Optional()
+    @Inject(SensorServiceProfileService)
+    private readonly profile: SensorServiceProfileService | null = null,
   ) {
     this.mqttAdapter = new MqttAdapter(configService);
   }
 
   async onModuleInit(): Promise<void> {
+    // ADR-022: control-plane profile delegates the data path to the
+    // Rust ingestion sidecar (ADR-025); skip per-sensor connection
+    // boot here so we do not double-consume MQTT QoS-1 messages.
+    if (this.profile && !this.profile.isLegacyDataPlaneEnabled()) {
+      this.logger.log(
+        'SENSOR_SERVICE_PROFILE=control-plane: DataIngestionService skipping per-sensor connection boot.',
+      );
+      return;
+    }
     this.logger.log('Initializing Data Ingestion Service...');
 
     // Start connecting to active sensors

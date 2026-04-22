@@ -553,16 +553,62 @@ function cmdList(args: readonly string[]): number {
   return 0;
 }
 
+function cmdRechainFrom(startIdxRaw: string | undefined): number {
+  // Merge-commit helper: after a 3-way merge of `findings.jsonl`
+  // concatenates two branches' additions, the first entry of the
+  // latter branch carries a `prev_hash` pointing at an entry that
+  // is no longer its predecessor in the merged file. This
+  // subcommand re-hashes from the named index to EOF, restoring
+  // the integrity chain.
+  //
+  // Discovery path for the index: run `verify` first — on failure
+  // it prints `chain break at entry N (<id>)`. Pass N here.
+  if (!startIdxRaw) {
+    console.error(
+      'rechain-from requires a start index: finding-registry rechain-from <N>',
+    );
+    return 2;
+  }
+  const startIndex = Number.parseInt(startIdxRaw, 10);
+  if (!Number.isInteger(startIndex) || startIndex < 0) {
+    console.error(
+      `rechain-from: <N> must be a non-negative integer; got "${startIdxRaw}".`,
+    );
+    return 2;
+  }
+  const entries = loadRegistry();
+  if (startIndex >= entries.length) {
+    console.error(
+      `rechain-from: index ${startIndex} is out of range (entries=${entries.length}).`,
+    );
+    return 2;
+  }
+  rechain(entries, startIndex);
+  writeRegistry(entries);
+  const result = verify(entries);
+  if (!result.ok) {
+    console.error(
+      `rechain-from: registry is STILL invalid post-rechain: ${result.reason}`,
+    );
+    return 1;
+  }
+  console.log(
+    `rechain-from: registry integrity restored from entry ${startIndex} (total entries=${entries.length}).`,
+  );
+  return 0;
+}
+
 function main(): void {
   const [, , sub, ...args] = process.argv;
   if (!sub) {
-    console.error('Usage: finding-registry <verify|add|close|sweep|export|list> [args]');
+    console.error('Usage: finding-registry <verify|add|close|sweep|export|list|rechain-from> [args]');
     console.error('  verify');
     console.error('  add <stub.json>');
     console.error('  close <finding-id> <short-sha>');
     console.error('  sweep [--dry-run] [--stale-after=<days>]');
     console.error('  export <json-array|csv>');
     console.error('  list [--state <CSV>] [--severity <CSV>] [--owner <name>] [--format table|id-only|json]');
+    console.error('  rechain-from <N>   — post-merge integrity repair (see docblock)');
     process.exit(2);
   }
 
@@ -595,6 +641,8 @@ function main(): void {
     exitCode = cmdSweep(args);
   } else if (sub === 'list') {
     exitCode = cmdList(args);
+  } else if (sub === 'rechain-from') {
+    exitCode = cmdRechainFrom(args[0]);
   } else {
     console.error(`Unknown subcommand: ${sub}`);
     process.exit(2);

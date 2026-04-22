@@ -481,8 +481,6 @@ export function useDecommissionEdgeDevice() {
  */
 export function usePingEdgeDevice() {
   const { token } = useAuth();
-
-  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async (id: string) => {
       const data = await graphqlFetch<{ pingEdgeDevice: PingResult }>(
@@ -613,8 +611,6 @@ export interface SetDigitalOutputResult {
  */
 export function useSetDigitalOutput() {
   const { token } = useAuth();
-
-  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async (input: { deviceId: string; ioConfigId: string; value: boolean }) => {
       const data = await graphqlFetch<{ setDigitalOutput: SetDigitalOutputResult }>(
@@ -711,8 +707,6 @@ export interface BulkAddIoConfigResult {
  */
 export function useScanHardware() {
   const { token } = useAuth();
-
-  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: async (deviceId: string) => {
       const data = await graphqlFetch<{

@@ -1,50 +1,188 @@
-# Suderra Edge Agent Systemd Service
-# IEC 62443 SL2 Compliant Configuration
+# Suderra Edge Agent — systemd unit (IEC 62443 SL-2 adversarial baseline)
 #
-# Installation:
-#   sudo cp suderra-agent.service /etc/systemd/system/
+# Hardened per ADR-018 §7 (master-key in-process defense) + ADR-020 §6 (audit
+# log append-only durability) + Faz 0 item 5 of the consolidation plan
+# (/root/.claude/plans/unutma-mevcut-s-stem-le-lexical-puzzle.md §5 Faz 0).
+#
+# Every directive below is load-bearing for one or more of:
+#   FR1 (Identification & Authentication Control)
+#   FR2 (Use Control)
+#   FR3 (System Integrity)
+#   FR4 (Data Confidentiality) — master-key-in-coredump prevention
+#   FR6 (Timely Response to Events) — watchdog + audit retention
+#   FR7 (Resource Availability)
+#
+# Install:
+#   sudo useradd -r -s /usr/sbin/nologin suderra
+#   sudo install -d -o suderra -g suderra -m 0750 /var/lib/suderra
+#   sudo install -d -o suderra -g suderra -m 0750 /var/log/suderra
+#   sudo install -m 0644 suderra-agent.service /etc/systemd/system/
 #   sudo systemctl daemon-reload
-#   sudo systemctl enable suderra-agent
-#   sudo systemctl start suderra-agent
+#   sudo systemctl enable --now suderra-agent
+#
+# Verify hardening after install:
+#   systemd-analyze security suderra-agent        # expect "exposure level: SAFE"
+#   systemctl show suderra-agent -p LimitCORE     # expect LimitCORE=0
+#   systemctl show suderra-agent -p SystemCallFilter
 
 [Unit]
-Description=Suderra Edge Agent for Industrial IoT
+Description=Suderra Edge Agent (IEC 62443 SL-2 hardened)
 Documentation=https://github.com/suderra/edge-agent
-After=network-online.target
+After=network-online.target time-sync.target
 Wants=network-online.target
+Requires=time-sync.target
 
 [Service]
 Type=notify
 ExecStart=/usr/local/bin/suderra-agent
 Restart=on-failure
 RestartSec=5s
+TimeoutStopSec=90s
 
-# v1.2.4: Run as dedicated user for security (IEC 62443 SL2 FR1)
-# Create user: sudo useradd -r -s /usr/sbin/nologin suderra
+# -----------------------------------------------------------------------------
+# Identity — dedicated non-privileged user (FR1)
+# -----------------------------------------------------------------------------
 User=suderra
 Group=suderra
+UMask=0077
 
-# Watchdog: systemd will restart if no heartbeat in 30s
-WatchdogSec=30s
+# -----------------------------------------------------------------------------
+# Watchdog — systemd restarts the agent if no WATCHDOG=1 notify in 60s
+# WatchdogSec=60 balances detection latency vs false positives under
+# ARM CPU stalls during flash GC. Matches ADR-019 §6 cold-boot budget of 90s
+# (WatchdogSec < cold_boot_budget_secs so watchdog kills before bootloader
+# marks the partition good).
+# -----------------------------------------------------------------------------
+WatchdogSec=60s
 
-# Resource limits for embedded devices
-MemoryMax=128M
-CPUQuota=50%
+# -----------------------------------------------------------------------------
+# Resource limits — LimitCORE=0 blocks the master-key-in-coredump vector
+# (FR4 Data Confidentiality). ADR-018 §7 requires both this AND prctl
+# PR_SET_DUMPABLE=0 in-process; belt-and-braces because a compromised
+# child process may have cleared the prctl flag.
+# -----------------------------------------------------------------------------
+LimitCORE=0
+LimitNOFILE=4096
+MemoryMax=256M
+CPUQuota=75%
+TasksMax=64
 
-# Security hardening (IEC 62443 SL2 FR3)
+# -----------------------------------------------------------------------------
+# Capabilities — strip everything except CAP_NET_BIND_SERVICE (for optional
+# privileged port bind; edge agent does not bind below 1024 by default but
+# the hook is retained for future operator-facing listeners on 443/8883).
+# CapabilityBoundingSet is the UPPER bound; AmbientCapabilities is the
+# INITIAL set; the intersection of both plus file caps defines runtime caps.
+# -----------------------------------------------------------------------------
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_BIND_SERVICE
 NoNewPrivileges=true
+
+# -----------------------------------------------------------------------------
+# Filesystem — strict read-only root plus narrow writable paths
+# /var/lib/suderra — SQLCipher offline_queue + scada state + keystore file
+#                    backend + firmware update staging (ADR-019 A/B partition
+#                    writes go through this path during migration)
+# /var/log/suderra — append-only audit log (ADR-020 HMAC chain sink)
+# /etc/suderra    — READ-ONLY for the agent. Config is operator-owned and
+#                   factory-signed (D-13). Configuration changes go through
+#                   a separate operator flow, not through agent writes.
+# -----------------------------------------------------------------------------
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
-ReadWritePaths=/var/lib/suderra-agent /etc/suderra
+ReadWritePaths=/var/lib/suderra /var/log/suderra
+ReadOnlyPaths=/etc/suderra
 
-# Allow necessary capabilities
-AmbientCapabilities=CAP_NET_BIND_SERVICE
+# -----------------------------------------------------------------------------
+# Kernel surface reduction (FR3)
+# -----------------------------------------------------------------------------
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectHostname=true
+# ProtectClock=true denies clock_settime/adjtime; edge agent NEVER sets the
+# wall clock — chrony runs as a separate service. Prevents a compromised
+# agent from fabricating audit timestamps (FR6).
+ProtectClock=true
+# ProtectProc=invisible hides other processes from /proc; ProcSubset=pid
+# further limits /proc to the agent's own entries.
+ProtectProc=invisible
+ProcSubset=pid
 
-# Logging
+# -----------------------------------------------------------------------------
+# IPC + namespace + realtime restrictions (FR2, FR3)
+# -----------------------------------------------------------------------------
+RestrictNamespaces=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+LockPersonality=true
+RemoveIPC=true
+
+# -----------------------------------------------------------------------------
+# Executable memory protection — W^X. Rust does not JIT at runtime; any mmap
+# requesting PROT_EXEC beyond the loader is a strong compromise signal.
+# -----------------------------------------------------------------------------
+MemoryDenyWriteExecute=true
+
+# -----------------------------------------------------------------------------
+# Syscall filter — @system-service is the tokio-compatible superset that
+# excludes @clock, @debug, @module, @mount, @obsolete, @privileged, @raw-io,
+# @reboot, @swap, @cpu-emulation. Combined with CapabilityBoundingSet this
+# collapses the kernel attack surface to the minimum needed to serve
+# Modbus/MQTT/GPIO/I2C workloads.
+# -----------------------------------------------------------------------------
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@debug @mount @module @raw-io @reboot @swap @privileged
+SystemCallErrorNumber=EPERM
+
+# -----------------------------------------------------------------------------
+# Device access — default-deny + explicit allowlist. Each entry is justified:
+#   /dev/gpiomem   RPi GPIO memory-mapped page (per-line GPIO control)
+#   /dev/i2c-1     I2C bus 1 (Atlas EZO sensors, MAX31865 RTD config mux)
+#   /dev/spidev0.0 SPI chip select 0 (MAX31865 RTD amplifier, MFRC522 removed)
+#   /dev/spidev0.1 SPI chip select 1 (reserved for dual-sensor topology)
+#   /dev/ttyAMA0   PL011 UART for Modbus-RTU on RPi
+#   /dev/ttyUSB0   USB-serial adapter for Modbus-RTU (FTDI/Prolific)
+#   /dev/watchdog  Hardware watchdog character device (FR7 resilience)
+#   /dev/tpm0      TCG TPM 2.0 char dev (when ADR-018 §4 tpm feature on)
+#   /dev/tpmrm0    TCG TPM 2.0 resource manager (preferred over /dev/tpm0)
+#   char-rtc       RTC (CLOCK_BOOTTIME reference; no settime granted)
+# /dev/{null,zero,random,urandom} auto-allowed by systemd's default minimal set.
+# -----------------------------------------------------------------------------
+DevicePolicy=closed
+DeviceAllow=/dev/gpiomem rw
+DeviceAllow=/dev/i2c-1 rw
+DeviceAllow=/dev/spidev0.0 rw
+DeviceAllow=/dev/spidev0.1 rw
+DeviceAllow=/dev/ttyAMA0 rw
+DeviceAllow=/dev/ttyUSB0 rw
+DeviceAllow=/dev/watchdog rw
+DeviceAllow=/dev/tpm0 rw
+DeviceAllow=/dev/tpmrm0 rw
+DeviceAllow=char-rtc r
+
+# -----------------------------------------------------------------------------
+# Network egress — AF_INET/INET6/UNIX/NETLINK only (see RestrictAddressFamilies).
+# IPAddressDeny + IPAddressAllow CIDR allowlist is deliberately NOT enforced
+# here — the set depends on per-deployment MQTT broker + provisioning API
+# endpoints. Enforcement is via nftables in the deployment runbook
+# (docs/runbooks/edge-network-egress.md, Faz 10) rather than the unit file
+# because systemd unit files should not hardcode deployment CIDRs.
+# -----------------------------------------------------------------------------
+# (No IPAddressDeny here — see runbook.)
+
+# -----------------------------------------------------------------------------
+# Logging — structured JSON via journald; no stdin; no tty
+# -----------------------------------------------------------------------------
+StandardInput=null
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=suderra-agent
+SyslogLevelPrefix=true
 
 [Install]
 WantedBy=multi-user.target

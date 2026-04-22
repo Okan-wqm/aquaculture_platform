@@ -26,6 +26,11 @@ export * from './security';
 // observability-service consumer persists via RecordMigrationEventCommand.
 export * from './schema-migration-events';
 
+// Ingest-backend policy (ADR-031). Contracts for the admin-api ↔
+// sensor-ingestion rollout-decision surface: request-reply snapshot
+// + incremental `IngestBackendPolicyChanged` event.
+export * from './ingest-backend-policy';
+
 // Event upcasters (v1 → v2 schema migration at deserialization time)
 export * from './upcasters';
 

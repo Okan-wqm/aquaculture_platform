@@ -4,7 +4,7 @@ Single source of truth for the three-layer knowledge model that every enterprise
 
 ## Why separate
 
-22 agents need to know NestJS 11 patterns, TypeORM 0.3 DataSource usage, ADR constraints, etc. If every agent inlines these facts, a NestJS 11→12 upgrade becomes a 22-file fanout — the tier-4 "documentation duplicated everywhere" anti-pattern the agent+skill+gate initiative exists to prevent.
+<!-- cardinality:total-active -->56<!-- /cardinality --> agents (Lane-A runtime + Lane-B combined; excludes <!-- cardinality:lane-a-maintenance -->3<!-- /cardinality --> agents under `.claude/agents/_maintenance/`) need to know NestJS 11 patterns, TypeORM 0.3 DataSource usage, ADR constraints, etc. If every agent inlines these facts, a NestJS 11→12 upgrade becomes a ~56-file fanout — the tier-4 "documentation duplicated everywhere" anti-pattern the agent+skill+gate initiative exists to prevent.
 
 Agents reference this SSoT via include convention:
 
@@ -49,5 +49,5 @@ Split across per-domain shards so `edge-expert` does not load NestJS, `frontend-
 ## References
 
 - `/root/.claude/plans/declarative-riding-shamir.md` BLOCKER-1 (Round-3 consensus) + A5 per-domain split (Round-2 architectural-arbiter)
-- `.claude/agents-enterprise-v2/_shared/` — companion shared fragments for operating modes, tier claims, handoff, output format
+- `.claude/shared/` — companion shared fragments for operating modes, tier claims, handoff, output format
 - `docs/reviews/_audit/2026-04-W16-unified-audit.md` — tech-anchor corrections feeding layer-1 shard content

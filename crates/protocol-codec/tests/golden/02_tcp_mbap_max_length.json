@@ -1,0 +1,11 @@
+{
+  "name": "tcp_mbap_max_length",
+  "description": "MBAP header with maximum legal length field (0x00FE = 254 = unit + 253-byte PDU). Trailing PDU bytes are not part of the header, so the fixture only encodes the 7-byte header.",
+  "decoder": "parse_mbap_header",
+  "wire_hex": "ABCD000000FE2A",
+  "expected_ok": {
+    "transaction_id": 43981,
+    "unit_id": 42,
+    "pdu_length": 253
+  }
+}

@@ -1,5 +1,6 @@
 //! `cmd_confirm_slot` — operator-driven PartitionRoll::
-//! Confirm transition (Batch 109 Sprint 6.5 orchestration).
+//! Confirm transition (Batch 109 Sprint 6.5 orchestration;
+//! Batch 122 thin-wrapper refactor over confirm_orchestrator).
 //!
 //! ## WHY
 //!
@@ -12,39 +13,36 @@
 //! deadline expires — even if the new firmware is
 //! perfectly healthy.
 //!
-//! Three invocation paths land in the full Sprint 6.5:
-//! 1. **MQTT `confirm_slot` command** (this batch): operator
-//!    or cloud-side health-check service invokes via an
-//!    envelope-signed command. Immediate confirmation.
-//! 2. **systemd post-boot-confirm unit** (Batch 110): local
-//!    systemd timer runs `suderra-agent --confirm-active`
-//!    after N seconds of the new firmware running. Avoids
-//!    requiring MQTT connectivity for confirmation.
-//! 3. **Agent-self-health-check** — Phase 2 design batch
-//!    schedules this path. The agent itself calls the same
-//!    confirm path after its own internal health checks
-//!    pass. Requires careful design — running agent
-//!    confirming its own firmware has circular-trust
-//!    implications (a compromised firmware could self-
-//!    confirm). Phase 2 review decides whether to land
-//!    this path at all or keep operator/systemd as the
-//!    only confirm sources.
+//! ## Post-Batch-122 layering
+//!
+//! The command body is now a thin adapter that converts
+//! MQTT params → `ConfirmSlotSelector` + calls
+//! `updater::perform_confirm_slot` + maps the returned
+//! `ConfirmOutcome` into the `(success, result, error)`
+//! tuple the MQTT dispatch expects. The actual Confirm
+//! orchestration (apply_roll + bootloader coord + audit-
+//! relevant bookkeeping) lives in
+//! `updater::confirm_orchestrator` so the HTTP lifecycle
+//! endpoint (Batch 122) runs the SAME logic without
+//! duplicating validation or bootloader-split-brain
+//! handling.
 //!
 //! ## Authorization
 //!
 //! Gated by `Permission::UpdateFirmware` via
-//! required_permission. Master-key rotation
+//! `required_permission`. Master-key rotation
 //! (Permission::ManagePolicy) is STRICTER than firmware
-//! lifecycle — rotating master affects every key; confirm
-//! just advances a slot state machine. Firmware-update
-//! ops (deploy + rollback + confirm) share the gate.
+//! lifecycle; confirm just advances the A/B slot state
+//! machine. Firmware-update ops (deploy + rollback +
+//! confirm) share the gate.
 
 use serde_json::{Value, json};
-use tracing::{info, warn};
 
 use super::CommandHandler;
 use crate::security::sanitize_for_log;
-use crate::updater::{AbPartition, PartitionRoll};
+use crate::updater::{
+    parse_slot_param, perform_confirm_slot, AbPartition, ConfirmOutcome,
+};
 
 impl CommandHandler {
     /// `confirm_slot` — mark a PendingConfirm slot as Active.
@@ -58,14 +56,16 @@ impl CommandHandler {
     /// Returns on success:
     ///   {
     ///     "confirmed_slot": "a" | "b",
-    ///     "new_state": { ... PartitionState ... }
+    ///     "new_state": { ... PartitionState ... },
+    ///     "bootloader_coordination": {
+    ///       "backend": "...",
+    ///       "cleared_pending_boot": bool
+    ///     }
     ///   }
     pub(super) async fn cmd_confirm_slot(
         &self,
         params: &Value,
     ) -> (bool, Value, Option<String>) {
-        info!("Executing confirm_slot command (Sprint 6.5 Phase 2)");
-
         let (partition_store, bootloader) = {
             let state = self.state.read().await;
             (state.partition_store.clone(), state.bootloader.clone())
@@ -86,93 +86,34 @@ impl CommandHandler {
             }
         };
 
-        // Resolve target slot: explicit param → parse;
-        // absent → use current snapshot.active.
-        let slot = match params.get("slot").and_then(|v| v.as_str()) {
-            Some("a") | Some("A") => AbPartition::A,
-            Some("b") | Some("B") => AbPartition::B,
-            Some(other) => {
+        let raw_slot = params.get("slot").and_then(|v| v.as_str());
+        let selector = match parse_slot_param(raw_slot) {
+            Some(s) => s,
+            None => {
+                // raw_slot is Some(_) here because parse
+                // returned None → invalid-slot-input path.
+                // None input produces ActiveFromSnapshot, not
+                // None output.
                 return (
                     false,
                     json!(null),
                     Some(format!(
                         "confirm_slot: invalid 'slot' param {:?}; expected 'a' or 'b'",
-                        sanitize_for_log(other)
+                        sanitize_for_log(raw_slot.unwrap_or(""))
                     )),
                 );
             }
-            None => {
-                // Default to the active slot. This matches
-                // the common "post-boot self-confirm" flow:
-                // the active slot IS the PendingConfirm one
-                // right after a SwapToPending, and the
-                // newly-booted agent confirms itself.
-                match partition_store.snapshot() {
-                    Ok(s) => s.active,
-                    Err(e) => {
-                        return (
-                            false,
-                            json!(null),
-                            Some(format!(
-                                "confirm_slot: snapshot failed: {}",
-                                e
-                            )),
-                        );
-                    }
-                }
-            }
         };
 
-        let cold_boot_budget_secs =
-            crate::updater::partition::DEFAULT_COLD_BOOT_BUDGET_SECS;
-
-        match partition_store.apply_roll(
-            PartitionRoll::Confirm { slot },
-            cold_boot_budget_secs,
-        ) {
-            Ok(new_state) => {
-                info!(
-                    "confirm_slot SUCCESS: slot={:?} new_state={:?}",
-                    slot, new_state
-                );
-
-                // Batch 112 Sprint 6.5: pair software Confirm
-                // with bootloader clear_pending_boot so the
-                // next-boot flag is no longer treated as a
-                // trial boot. Noop backend is a no-op
-                // (non-RPi); Tryboot backend writes
-                // /boot/tryboot.cfg.
-                //
-                // If the bootloader call fails, the software
-                // state IS already committed + the slot is
-                // Active. We surface a
-                // bootloader_coordination field in the
-                // response so operator-facing UIs can flag
-                // the split-brain for manual resync, but we
-                // do NOT fail the command — the partition
-                // state is already good.
-                let bootloader_ok =
-                    match bootloader.clear_pending_boot(slot) {
-                        Ok(()) => {
-                            info!(
-                                "confirm_slot: bootloader clear_pending_boot({:?}) OK (backend={})",
-                                slot,
-                                bootloader.backend_name()
-                            );
-                            true
-                        }
-                        Err(e) => {
-                            warn!(
-                                "confirm_slot: software Confirm OK, bootloader clear_pending_boot({:?}) FAILED: {} (backend={}) — SPLIT-BRAIN: operator must resync",
-                                slot,
-                                sanitize_for_log(&e.to_string()),
-                                bootloader.backend_name()
-                            );
-                            false
-                        }
-                    };
-
-                let slot_str = match slot {
+        match perform_confirm_slot(&partition_store, &bootloader, selector) {
+            ConfirmOutcome::Ok {
+                confirmed_slot,
+                new_state,
+                bootloader_backend,
+                bootloader_ok,
+                bootloader_err: _,
+            } => {
+                let slot_str = match confirmed_slot {
                     AbPartition::A => "a",
                     AbPartition::B => "b",
                 };
@@ -182,27 +123,31 @@ impl CommandHandler {
                         "confirmed_slot": slot_str,
                         "new_state": new_state,
                         "bootloader_coordination": {
-                            "backend": bootloader.backend_name(),
+                            "backend": bootloader_backend,
                             "cleared_pending_boot": bootloader_ok,
                         },
                     }),
                     None,
                 )
             }
-            Err(e) => {
-                warn!(
-                    "confirm_slot REJECTED: slot={:?} err={}",
-                    slot,
-                    sanitize_for_log(&e.to_string())
-                );
-                (
-                    false,
-                    json!({
-                        "reason": e.to_string(),
-                    }),
-                    Some(format!("Partition confirm failed: {}", e)),
-                )
-            }
+            ConfirmOutcome::SnapshotFailed(e) => (
+                false,
+                json!(null),
+                Some(format!("confirm_slot: snapshot failed: {}", e)),
+            ),
+            ConfirmOutcome::ApplyRollRejected(e) => (
+                false,
+                json!({ "reason": e.clone() }),
+                Some(format!("Partition confirm failed: {}", e)),
+            ),
+            ConfirmOutcome::InvalidSlotParam(raw) => (
+                false,
+                json!(null),
+                Some(format!(
+                    "confirm_slot: invalid slot parameter {:?}; expected 'a' or 'b'",
+                    sanitize_for_log(&raw)
+                )),
+            ),
         }
     }
 }

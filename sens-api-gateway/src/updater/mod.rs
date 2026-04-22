@@ -68,6 +68,11 @@ pub mod watchdog;
 // real-RPi impl lands in a follow-up batch that requires
 // hardware for signed autoboot.txt verification.
 pub mod bootloader;
+// Batch 122 Sprint 6.5: reusable Confirm orchestrator.
+// Factored out of commands/confirm_slot.rs so the MQTT
+// command path + the new HTTP lifecycle endpoint share
+// the same validation + bootloader coordination.
+pub mod confirm_orchestrator;
 pub mod verify;
 
 pub use error::{FirmwareManifestCanonicalBytesError, ManifestVerifyError};
@@ -82,4 +87,7 @@ pub use watchdog::{
     DEFAULT_WATCHDOG_POLL_INTERVAL_SECS,
 };
 pub use bootloader::{BootloaderError, BootloaderHandle, NoopBootloaderHandle};
+pub use confirm_orchestrator::{
+    parse_slot_param, perform_confirm_slot, ConfirmOutcome, ConfirmSlotSelector,
+};
 pub use verify::verify_firmware_manifest;

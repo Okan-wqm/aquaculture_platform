@@ -874,17 +874,41 @@ use axum::extract::State;
 pub async fn start_health_server(
     addr: SocketAddr,
     state: HealthState,
+    lifecycle_cell: Option<crate::lifecycle::LifecycleHandlesCell>,
 ) -> tokio::task::JoinHandle<()> {
-    use axum::{Router, routing::get};
+    use axum::{routing::{get, post}, Extension, Router};
 
-    // Build the router
-    let app = Router::new()
+    // Build the router. The lifecycle cell is layered in
+    // as Extension so the confirm-active handler can read
+    // it independently of the HealthState state. Axum's
+    // with_state type takes exactly ONE state type; we
+    // keep HealthState there + layer the lifecycle cell
+    // on top so the routes that need it can extract it
+    // via Extension<LifecycleHandlesCell>.
+    let mut app = Router::new()
         .route("/health", get(health_handler))
         .route("/ready", get(ready_handler))
         .route("/metrics", get(metrics_handler))
         .route("/metrics/prometheus", get(metrics_prometheus_handler))
-        .route("/diagnostics", get(diagnostics_handler))
-        .with_state(state);
+        .route("/diagnostics", get(diagnostics_handler));
+
+    // Batch 122 Sprint 6.5: register the lifecycle
+    // endpoint(s) conditionally. When the caller supplied
+    // a cell (main path wires one iff partition_store
+    // init succeeds), the route is live; otherwise the
+    // route is NOT registered so there is no half-wired
+    // 503-always state.
+    if let Some(cell) = lifecycle_cell {
+        app = app
+            .route(
+                "/lifecycle/confirm-active",
+                post(crate::lifecycle::confirm_active_handler),
+            )
+            .layer(Extension(cell));
+        info!("Lifecycle HTTP endpoint registered: POST /lifecycle/confirm-active");
+    }
+
+    let app = app.with_state(state);
 
     info!("Starting health check server on {}", addr);
 

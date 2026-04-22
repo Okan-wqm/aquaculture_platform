@@ -42,6 +42,8 @@ mod config;
 mod error;
 mod gpio;
 mod health;
+#[cfg(feature = "health")]
+mod lifecycle; // Batch 122 Sprint 6.5: HTTP lifecycle endpoint (confirm-active)
 mod i2c; // v1.2.4: I2C support for sensor communication
 mod interning;
 mod modbus;
@@ -556,6 +558,24 @@ pub struct AppState {
     /// creates file with initial state.
     pub partition_store: Option<std::sync::Arc<crate::updater::PartitionStore>>,
 
+    /// Lifecycle HTTP endpoint cell (Batch 122 Sprint 6.5).
+    ///
+    /// WHY: `POST /lifecycle/confirm-active` needs the
+    /// PartitionStore + bootloader + audit_sink references
+    /// + device_id + tenant, but the health server starts
+    /// BEFORE those init. The OnceLock cell is created
+    /// pre-health-server + populated post-partition_store
+    /// init via `init_lifecycle_cell()`. Health server
+    /// closure reads `cell.get()` per request; pre-
+    /// population returns 503.
+    ///
+    /// WHAT: `Option<LifecycleHandlesCell>` — None when
+    /// `config.health.enabled = false`. Some(empty cell)
+    /// during boot window; Some(populated cell) once
+    /// prerequisites init.
+    #[cfg(feature = "health")]
+    pub lifecycle_cell: Option<crate::lifecycle::LifecycleHandlesCell>,
+
     /// Bootloader-coordination handle (Batch 112 Sprint 6.5
     /// wire). Layer-2 partner of `partition_store` (layer 1
     /// software state): every PartitionRoll transition that
@@ -710,6 +730,14 @@ impl AppState {
             // mode leaves it None (HC-1 backward compat;
             // legacy tarball OTA still works).
             firmware_signing_pubkey: None,
+            // Batch 122 Sprint 6.5 wire: None-init.
+            // init_health_server() constructs + installs
+            // the cell when health is enabled;
+            // init_lifecycle_cell() populates it after
+            // partition_store + bootloader + audit_sink
+            // init land.
+            #[cfg(feature = "health")]
+            lifecycle_cell: None,
         }
     }
 
@@ -843,15 +871,81 @@ impl AppState {
             health_state.set_tenant_id(tenant);
         }
 
+        // Batch 122 Sprint 6.5: allocate the lifecycle
+        // cell pre-server-start. The cell is empty here;
+        // init_lifecycle_cell() populates it AFTER
+        // partition_store + audit_sink init. Pre-
+        // population the confirm-active handler returns
+        // 503 Service Unavailable.
+        let lifecycle_cell = crate::lifecycle::new_cell();
+        self.lifecycle_cell = Some(lifecycle_cell.clone());
+
         // Clone for the server task; keep the original on AppState so
         // downstream subsystems can push counter updates to the SAME
         // Arc<HealthStateInner> (HealthState::Clone is Arc-cheap).
-        let server_handle =
-            crate::health::start_health_server(addr, health_state.clone()).await;
+        let server_handle = crate::health::start_health_server(
+            addr,
+            health_state.clone(),
+            Some(lifecycle_cell),
+        )
+        .await;
         self.health_state = Some(health_state);
 
         info!("HealthServer wired: bind={}", addr);
         Ok(Some(server_handle))
+    }
+
+    /// Populate the lifecycle cell with PartitionStore +
+    /// bootloader + audit_sink references (Batch 122 Sprint
+    /// 6.5 wire).
+    ///
+    /// Called AFTER `init_partition_store` + `init_keystore`
+    /// + `init_audit_sink` in boot sequence. Sets the
+    /// OnceLock exactly once; subsequent calls are a no-op
+    /// (OnceLock::set returns Err on second call which we
+    /// log-and-ignore for idempotency).
+    ///
+    /// NO-OP when `lifecycle_cell` is None (health disabled)
+    /// or when `partition_store` is None (fail-closed boot
+    /// would have already exited; guard is defense-in-
+    /// depth).
+    #[cfg(feature = "health")]
+    pub fn init_lifecycle_cell(&self) {
+        let Some(cell) = self.lifecycle_cell.as_ref() else {
+            info!("init_lifecycle_cell: cell is None (health disabled) — skipping");
+            return;
+        };
+        let Some(partition_store) = self.partition_store.as_ref() else {
+            warn!("init_lifecycle_cell: partition_store is None — confirm-active HTTP endpoint will return 503");
+            return;
+        };
+
+        let tenant_bytes = self
+            .tenant_id
+            .as_deref()
+            .and_then(|t| uuid::Uuid::parse_str(t).ok())
+            .map(|u| *u.as_bytes())
+            .unwrap_or([0u8; 16]);
+        let tenant = crate::authz::permission::TenantId::new_from_verified(tenant_bytes);
+
+        let handles = crate::lifecycle::LifecycleHandles {
+            partition_store: partition_store.clone(),
+            bootloader: self.bootloader.clone(),
+            audit_sink: self.audit_sink.clone(),
+            device_id: self.config.device_id.clone(),
+            tenant,
+        };
+
+        if cell.set(handles).is_err() {
+            warn!(
+                "init_lifecycle_cell: cell already populated (re-init attempted) — ignoring"
+            );
+        } else {
+            info!(
+                "Lifecycle cell populated: POST /lifecycle/confirm-active now live (audit_enabled={})",
+                self.audit_sink.is_some()
+            );
+        }
     }
 
     /// Construct AsyncOfflineQueue (Batch 15 Faz 1 Step 1.3 / ARC-002).
@@ -2256,6 +2350,19 @@ async fn async_main() -> Result<()> {
             );
             std::process::exit(1);
         }
+    }
+
+    // Batch 122 Sprint 6.5: populate the lifecycle cell
+    // AFTER partition_store + bootloader + audit_sink are
+    // all initialized. The POST /lifecycle/confirm-active
+    // endpoint goes live here; before this call it
+    // returns 503. NO-OP when health is disabled or
+    // partition_store is None (fail-closed boot earlier
+    // caught that already).
+    #[cfg(feature = "health")]
+    {
+        let state_guard = state.read().await;
+        state_guard.init_lifecycle_cell();
     }
 
     // Setup graceful shutdown

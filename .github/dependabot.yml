@@ -35,3 +35,38 @@ updates:
         update-types:
           - minor
           - patch
+
+  # ── Rust / Cargo (workspace) ──────────────────────────────────────
+  # Weekly PRs for the Rust workspace Cargo.toml + every crate/**
+  # Cargo.toml in the monorepo. sensor-ingestion + the shared crates
+  # under crates/** inherit this automation; the sens-api-gateway
+  # edge tree keeps its own deny.toml allowlist and manages its own
+  # cadence, so directory: / (monorepo root Cargo.toml virtual
+  # workspace) is the single entry here. Rust advisories (RUSTSEC)
+  # are handled by cargo-audit in rust-ci.yml + .cargo/audit.toml;
+  # dependabot handles non-advisory version bumps to keep Cargo.lock
+  # from drifting into unsupported releases.
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Istanbul
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+      include: scope
+    labels:
+      - dependencies
+      - rust
+    reviewers:
+      - Okan-wqm
+    # Same grouping discipline as actions: minor+patch together,
+    # major isolated. Cargo semver carries the same breaking-change
+    # risk, so review can triage per-major.
+    groups:
+      cargo-minor-patch:
+        update-types:
+          - minor
+          - patch

@@ -24,6 +24,12 @@ pub mod bytecode;
 // compilation + control flow + retain binding land in
 // Batches 150+.
 pub mod bytecode_compiler;
+// Batch 151 Faz 3 (plan R-1): stack-based bytecode VM
+// with gas metering. Executes `Bytecode` artifacts
+// produced by `bytecode_compiler`. LoadTag / WriteTag
+// wiring to `ProcessImage` + `RbacGatedWriter` and
+// `StdlibCall` dispatch land in Batches 152+.
+pub mod bytecode_vm;
 mod conflict;
 mod context;
 mod engine;

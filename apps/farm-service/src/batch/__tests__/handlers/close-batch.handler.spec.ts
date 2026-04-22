@@ -13,13 +13,26 @@ describe('CloseBatchHandler', () => {
   let handler: CloseBatchHandler;
   const mockBatchRepo = createMockRepository<Batch>();
   const mockEventPublisher = { publish: jest.fn().mockResolvedValue(undefined) };
+  // By default the harvest-eligibility service reports no blocking
+  // events — the main positive paths cover the happy case. Tests that
+  // exercise the compliance gate override this.
+  const mockHarvestEligibility = {
+    checkEligibility: jest
+      .fn()
+      .mockResolvedValue({ eligible: true, blockingEvents: [] }),
+  };
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockHarvestEligibility.checkEligibility.mockResolvedValue({
+      eligible: true,
+      blockingEvents: [],
+    });
     handler = new CloseBatchHandler(
       {} as any, // dataSource
       mockBatchRepo as any,
       mockEventPublisher as any,
+      mockHarvestEligibility as any,
     );
   });
 

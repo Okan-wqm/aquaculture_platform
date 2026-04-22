@@ -23,6 +23,7 @@ import { IStandardPaginatedResult, createStandardPaginatedResult } from '@aquacu
 import { CreateHarvestPlanInput } from '../dto/create-harvest-plan.input';
 import { UpdateHarvestPlanInput } from '../dto/update-harvest-plan.input';
 import { HarvestPlanFilterInput } from '../dto/harvest-plan-filter.input';
+import { BatchHarvestEligibilityService } from '../../fish-health/services/batch-harvest-eligibility.service';
 
 // ============================================================================
 // INTERFACES
@@ -55,6 +56,7 @@ export class HarvestPlanService {
   constructor(
     @InjectRepository(HarvestPlan)
     private readonly harvestPlanRepository: Repository<HarvestPlan>,
+    private readonly harvestEligibility: BatchHarvestEligibilityService,
   ) {}
 
   // =========================================================================
@@ -69,6 +71,38 @@ export class HarvestPlanService {
     input: CreateHarvestPlanInput,
     userId: string,
   ): Promise<HarvestPlan> {
+    // ── COMPLIANCE ADVISORY: withdrawal-period check on planned date ──
+    //
+    // The plan is NOT blocked if the proposed plannedDate falls inside
+    // an active medicine withdrawal window — plans are planning
+    // artefacts, not physical harvest events, and the operator may
+    // deliberately schedule the harvest for AFTER the withdrawal
+    // clears. But a plan that ignores an open treatment altogether is
+    // a compliance risk, so we log a warning with the full list of
+    // blocking events. The hard block lives in
+    // `create-harvest-record.handler.ts` — no physical harvest can
+    // happen until the withdrawal is clear.
+    //
+    // The `batchHarvestEligibility` GraphQL query surfaces the same
+    // information to the UI at submit time; this log acts as a
+    // server-side audit trail.
+    const plannedDate = input.plannedDate ?? new Date();
+    const eligibility = await this.harvestEligibility.checkEligibility(
+      tenantId,
+      input.batchId,
+      plannedDate instanceof Date ? plannedDate : new Date(plannedDate),
+    );
+    if (!eligibility.eligible) {
+      this.logger.warn(
+        `Harvest plan for batch ${input.batchId} scheduled inside an ` +
+          `active withdrawal window. plannedDate=${plannedDate.toString()}, ` +
+          `earliestHarvestDate=${eligibility.blockedUntil?.toISOString().slice(0, 10)}, ` +
+          `blocking events=${eligibility.blockingEvents.map((e) => e.id).join(', ')}. ` +
+          `Plan will be created but createHarvestRecord will reject until the ` +
+          `withdrawal period clears.`,
+      );
+    }
+
     // Generate plan code
     const planCode = await this.generatePlanCode(tenantId);
 

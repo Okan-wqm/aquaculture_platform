@@ -345,6 +345,16 @@ export class BatchResolver {
     @Tenant() tenantId: string,
     @CurrentUser() user: UserContext,
     @Args('notes', { nullable: true }) notes?: string,
+    @Args('acknowledgeActiveTreatments', {
+      nullable: true,
+      defaultValue: false,
+      description:
+        'Explicit override for closing a batch that still has an open ' +
+        'medicine withdrawal period. Defaults to false — the close will ' +
+        'be rejected with the list of blocking events if the flag is not ' +
+        'set. When true, the override is written to the audit log.',
+    })
+    acknowledgeActiveTreatments?: boolean,
   ): Promise<Batch> {
     this.logger.log(`Closing batch: ${id} with reason: ${reason}`);
     // WHY: Using typed options object prevents argument transposition.
@@ -357,6 +367,7 @@ export class BatchResolver {
         closedBy: user.sub,
         userRoles: user.roles,
         notes,
+        acknowledgeActiveTreatments: acknowledgeActiveTreatments ?? false,
       }),
     );
   }

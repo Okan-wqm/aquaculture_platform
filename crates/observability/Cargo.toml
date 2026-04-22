@@ -30,6 +30,11 @@ thiserror = { workspace = true }
 metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true, features = ["http-listener"] }
 
+# Tenant identity type — the cardinality module's `tenant_bucket`
+# helper accepts a `TenantId` so emitters across the workspace
+# share exactly one identity surface.
+tenant-context = { path = "../tenant-context", version = "0.1.0" }
+
 # OTLP exporter is feature-gated to keep the default surface small.
 # sensor-ingestion enables it at deployment time; library callers can
 # opt in via `features = ["otlp"]`.
@@ -50,6 +55,9 @@ otlp = [
 [dev-dependencies]
 serde_json = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
+# Direct dep in tests — the cardinality module's tests fabricate
+# TenantId values from a seed to drive the uniformity assertions.
+uuid = { workspace = true }
 
 [lints]
 workspace = true

@@ -35,9 +35,12 @@
 )]
 
 use std::fmt;
+use std::net::SocketAddr;
 
 use serde::{Deserialize, Serialize};
-use std::net::SocketAddr;
+
+pub mod cardinality;
+pub use cardinality::{TENANT_BUCKET_COUNT, tenant_bucket, tenant_bucket_salted};
 
 use metrics_exporter_prometheus::PrometheusBuilder;
 /// Re-export of `metrics_exporter_prometheus::PrometheusHandle` so

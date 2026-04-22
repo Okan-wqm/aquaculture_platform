@@ -68,6 +68,26 @@ pub enum SinkError {
     #[error("rustls TLS configuration error: {0}")]
     Tls(String),
 
+    /// A single row inside an otherwise-valid batch failed a defense-
+    /// in-depth check at sink time (e.g. `producer_ts` outside
+    /// `chrono`'s representable range, or a future consistency probe).
+    ///
+    /// The payload validator already rejects these before the batch
+    /// reaches the sink; this variant exists so a future code path
+    /// that bypasses the validator surfaces the failure with a
+    /// sink-level label instead of being mis-tagged as a TLS error
+    /// in operator logs (the previous placement used `Tls` which
+    /// made alarms fire on the wrong shelf).
+    ///
+    /// `reason` is human-readable and safe to log — the validator
+    /// guarantees no attacker-controlled bytes reach this variant.
+    #[error("invalid row rejected at sink: {reason}")]
+    InvalidRow {
+        /// Short, log-safe description of which invariant the row
+        /// violated (e.g. `"producer_ts 9999999999999 out of chrono range"`).
+        reason: String,
+    },
+
     /// deadpool failed to construct the pool.
     #[error("postgres pool construction failed")]
     PoolBuild(#[source] deadpool_postgres::BuildError),
@@ -346,10 +366,13 @@ impl PostgresSink {
                 // already rejects these; this branch is defence in
                 // depth so a future code path that bypasses the
                 // validator does not silently corrupt the COPY.
-                return Err(SinkError::Tls(format!(
-                    "producer_ts {} out of chrono range",
-                    r.producer_ts
-                )));
+                // `SinkError::InvalidRow` tags this as a row-level
+                // rejection so operator logs read "invalid row at
+                // sink", not the misleading "TLS configuration error"
+                // the earlier implementation emitted.
+                return Err(SinkError::InvalidRow {
+                    reason: format!("producer_ts {} out of chrono range", r.producer_ts),
+                });
             };
             let value = r.value;
             let raw_value = r.value;
@@ -538,6 +561,56 @@ mod tests {
         assert!(sql.contains(schema.as_str()));
         assert!(sql.contains("sensor_metrics_stage"));
         assert!(!sql.contains("sensor_metrics ")); // not the hypertable
+    }
+
+    #[test]
+    fn invalid_row_variant_is_distinct_from_tls_variant() {
+        // ADR-028 + plan Kör Nokta 2: a row-level invariant failure
+        // (e.g. producer_ts out of chrono range) MUST surface as
+        // `SinkError::InvalidRow`, NOT `SinkError::Tls`. Operator
+        // alarms route on the variant shape — mis-tagging row
+        // failures as TLS errors fires the wrong on-call. Two guards:
+        //   1. Both variants exist and compile.
+        //   2. A matcher that accepts `Tls` rejects a properly-
+        //      constructed `InvalidRow` (and vice versa). If a future
+        //      refactor conflates them into one variant, this test
+        //      stops compiling — the error surfaces at build, not in
+        //      production logs.
+        let row_error = SinkError::InvalidRow {
+            reason: "producer_ts 9999999999999 out of chrono range".to_owned(),
+        };
+        let tls_error = SinkError::Tls("CA bundle not PEM".to_owned());
+
+        assert!(
+            matches!(row_error, SinkError::InvalidRow { .. }),
+            "InvalidRow must match its own variant"
+        );
+        assert!(
+            !matches!(row_error, SinkError::Tls(_)),
+            "InvalidRow must NOT match Tls — distinct variants"
+        );
+        assert!(
+            matches!(tls_error, SinkError::Tls(_)),
+            "Tls must still match its own variant"
+        );
+
+        // The Display surface is what operators read in logs. Make
+        // sure the row-level error carries "invalid row" (the operator
+        // signal) and the out-of-range detail (the ops debug signal).
+        let rendered = format!(
+            "{}",
+            SinkError::InvalidRow {
+                reason: "producer_ts 9999999999999 out of chrono range".to_owned(),
+            }
+        );
+        assert!(
+            rendered.contains("invalid row rejected at sink"),
+            "InvalidRow Display should lead with the operator-visible label, got: {rendered}"
+        );
+        assert!(
+            rendered.contains("producer_ts 9999999999999 out of chrono range"),
+            "InvalidRow Display should carry the reason detail, got: {rendered}"
+        );
     }
 
     #[test]

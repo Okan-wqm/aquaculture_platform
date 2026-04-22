@@ -15,6 +15,7 @@
  * @module Harvest
  */
 import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 // Entities
@@ -29,6 +30,7 @@ import { TankOperation } from '../batch/entities/tank-operation.entity';
 
 // Services
 import { HarvestPlanService } from './services/harvest-plan.service';
+import { HarvestPolicyService } from './services/harvest-policy.service';
 
 // Command Handlers
 import { CreateHarvestRecordHandler } from './handlers/create-harvest-record.handler';
@@ -65,10 +67,12 @@ import { BackdatePolicyModule } from '../common/services/backdate-policy.module'
     ]),
     FishHealthModule,
     BackdatePolicyModule,
+    ConfigModule,
   ],
   providers: [
     // Services
     HarvestPlanService,
+    HarvestPolicyService,
     // Command Handlers
     CreateHarvestRecordHandler,
     UpdateHarvestRecordHandler,
@@ -84,6 +88,7 @@ import { BackdatePolicyModule } from '../common/services/backdate-policy.module'
   exports: [
     TypeOrmModule,
     HarvestPlanService,
+    HarvestPolicyService,
   ],
 })
 export class HarvestModule {}

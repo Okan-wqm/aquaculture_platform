@@ -43,7 +43,7 @@ use tokio_postgres::types::Type as PgType;
 use tracing::instrument;
 
 use crate::payload::SensorReading;
-use tenant_context::SchemaName;
+use tenant_context::{SchemaName, TenantId};
 
 /// Errors raised by [`BatchSink`] implementations.
 #[derive(Debug, Error)]
@@ -276,10 +276,14 @@ impl BatchSink for PostgresSink {
         }
         // Group readings by tenant — one transaction + one COPY per
         // tenant. Tenants in the same batch are independent so a
-        // failure on tenant A does not abort tenant B's commit.
+        // failure on tenant A does not abort tenant B's commit. The
+        // grouping key carries the TenantId alongside the SchemaName
+        // so write_tenant_batch can bind `app.current_tenant` on the
+        // transaction — defense-in-depth alongside the schema-per-
+        // tenant structural isolation (see ADR-030 / ORPHAN-022).
         let by_tenant = group_by_tenant(batch);
-        for (tenant, readings) in by_tenant {
-            self.write_tenant_batch(tenant, readings).await?;
+        for ((tenant_id, schema), readings) in by_tenant {
+            self.write_tenant_batch(tenant_id, schema, readings).await?;
         }
         Ok(())
     }
@@ -288,6 +292,7 @@ impl BatchSink for PostgresSink {
 impl PostgresSink {
     async fn write_tenant_batch(
         &self,
+        tenant_id: TenantId,
         schema: SchemaName,
         readings: Vec<SensorReading>,
     ) -> Result<(), SinkError> {
@@ -296,6 +301,26 @@ impl PostgresSink {
         }
         let mut conn = self.pool.get().await.map_err(SinkError::PoolGet)?;
         let tx = conn.transaction().await.map_err(SinkError::Postgres)?;
+
+        // Pin the tenant id on this transaction via a GUC. The setting
+        // is LOCAL (third arg = true) so it lives only for the length
+        // of the transaction and cannot leak into a subsequent pool
+        // lease. Two orthogonal benefits:
+        //   1. Audit / trace observability — any future log hook that
+        //      reads `current_setting('app.current_tenant')` sees the
+        //      authoritative tenant id for every row written by this
+        //      COPY, even though the schema name already encodes it.
+        //   2. Future defense-in-depth — if a shared table (e.g. a
+        //      cross-tenant aggregate / outbox) gets added later, the
+        //      same GUC drives the RLS policy without an application-
+        //      layer code change.
+        // The value is bound as a prepared-statement parameter, so a
+        // hostile tenant_id (it is a strictly-validated UUID here, but
+        // the guard is still free) cannot inject SQL into the SET.
+        let tenant_uuid_text = tenant_id.as_uuid().to_string();
+        tx.execute(build_set_current_tenant_sql(), &[&tenant_uuid_text])
+            .await
+            .map_err(SinkError::Postgres)?;
 
         let copy_sql = build_copy_in_sql(&schema);
         let copy_sink = tx.copy_in(&copy_sql).await.map_err(SinkError::Postgres)?;
@@ -374,13 +399,30 @@ impl UuidExt for uuid::Uuid {
     }
 }
 
-fn group_by_tenant(batch: Vec<SensorReading>) -> HashMap<SchemaName, Vec<SensorReading>> {
-    let mut groups: HashMap<SchemaName, Vec<SensorReading>> = HashMap::new();
+fn group_by_tenant(
+    batch: Vec<SensorReading>,
+) -> HashMap<(TenantId, SchemaName), Vec<SensorReading>> {
+    let mut groups: HashMap<(TenantId, SchemaName), Vec<SensorReading>> = HashMap::new();
     for r in batch {
         let schema = SchemaName::from_tenant_id(r.tenant_id);
-        groups.entry(schema).or_default().push(r);
+        groups.entry((r.tenant_id, schema)).or_default().push(r);
     }
     groups
+}
+
+/// Static SQL for binding the tenant id as a transaction-local GUC.
+///
+/// `set_config(name, value, is_local=true)` — the setting is reset at
+/// transaction end (`COMMIT` or `ROLLBACK`), so a subsequent connection
+/// pool lease starts clean. The value is a single `$1` parameter so
+/// the caller binds a typed UUID string without touching SQL syntax.
+///
+/// Exposed `pub` so the unit-test layer can assert the shape without
+/// holding a live postgres connection, mirroring the pattern used by
+/// [`build_copy_in_sql`] + [`build_upsert_sql`] + [`build_truncate_stage_sql`].
+#[must_use]
+pub const fn build_set_current_tenant_sql() -> &'static str {
+    "SELECT set_config('app.current_tenant', $1, true)"
 }
 
 /// Per-tenant `COPY ... FROM STDIN BINARY` SQL. Pure function so the
@@ -499,6 +541,82 @@ mod tests {
     }
 
     #[test]
+    fn set_current_tenant_sql_is_parameterised_local_guc() {
+        // The SQL we emit at the start of every write_tenant_batch
+        // transaction MUST:
+        //   1. Use `set_config(..., ..., true)` — the `true` is the
+        //      `is_local` flag, which scopes the setting to THIS
+        //      transaction. Anything else would leak the GUC into the
+        //      next pool lease (connection pool hazard).
+        //   2. Bind `app.current_tenant` — the exact key that audit /
+        //      trace hooks + any future cross-tenant RLS policy will
+        //      read from.
+        //   3. Use `$1` as a placeholder — hostile input cannot inject
+        //      SQL because the value is a typed prepared-statement
+        //      parameter, NOT string-interpolated.
+        let sql = super::build_set_current_tenant_sql();
+        assert!(
+            sql.contains("set_config("),
+            "must use set_config(), got: {sql}"
+        );
+        assert!(
+            sql.contains("'app.current_tenant'"),
+            "must target app.current_tenant, got: {sql}"
+        );
+        assert!(
+            sql.contains("$1"),
+            "must use parameterised placeholder, got: {sql}"
+        );
+        assert!(
+            sql.contains(", true)"),
+            "must pass is_local=true, got: {sql}"
+        );
+        // Guard against accidental string interpolation slipping in
+        // later — there must be NO other placeholders and NO embedded
+        // tenant ids in the template.
+        assert!(
+            !sql.contains("$2"),
+            "single-parameter SQL; $2 would mean the template drifted: {sql}"
+        );
+    }
+
+    #[test]
+    fn group_by_tenant_preserves_tenant_id_with_schema() {
+        let tenant_a = TenantId::from_uuid(fixed_uuid(0xAA));
+        let tenant_b = TenantId::from_uuid(fixed_uuid(0xBB));
+        let mk = |tid: TenantId| SensorReading {
+            tenant_id: tid,
+            sensor_id: fixed_uuid(0x01),
+            channel_id: fixed_uuid(0x02),
+            value: 1.0,
+            quality: 1,
+            producer_ts: Utc::now().timestamp_millis(),
+        };
+        let batch = vec![mk(tenant_a), mk(tenant_b), mk(tenant_a)];
+        let grouped = super::group_by_tenant(batch);
+        assert_eq!(grouped.len(), 2, "two distinct tenants expected");
+        let schema_a = SchemaName::from_tenant_id(tenant_a);
+        let schema_b = SchemaName::from_tenant_id(tenant_b);
+        let group_a = grouped
+            .get(&(tenant_a, schema_a))
+            .expect("tenant_a group present");
+        let group_b = grouped
+            .get(&(tenant_b, schema_b))
+            .expect("tenant_b group present");
+        assert_eq!(group_a.len(), 2);
+        assert_eq!(group_b.len(), 2 - 1);
+        // Every reading under a tenant key carries that same tenant_id
+        // — the key is authoritative. A future regression that mixed
+        // two tenants under one key would flip this assertion.
+        for r in group_a {
+            assert_eq!(r.tenant_id, tenant_a);
+        }
+        for r in group_b {
+            assert_eq!(r.tenant_id, tenant_b);
+        }
+    }
+
+    #[test]
     fn schema_name_in_sql_cannot_be_attacker_supplied() {
         // SchemaName::try_parse rejects anything outside
         // ^tenant_[0-9a-f]{32}$, so the SQL builders cannot embed an
@@ -533,8 +651,12 @@ mod tests {
         let groups = super::group_by_tenant(batch);
         let schema_a = SchemaName::from_tenant_id(tenant_a);
         let schema_b = SchemaName::from_tenant_id(tenant_b);
-        assert_eq!(groups.get(&schema_a).map(Vec::len), Some(3));
-        assert_eq!(groups.get(&schema_b).map(Vec::len), Some(1));
+        // The grouping key is now (TenantId, SchemaName) — the TenantId
+        // rides along with the schema so write_tenant_batch can bind
+        // `app.current_tenant` (GUC) at transaction start without
+        // re-deriving the UUID from the first reading in the group.
+        assert_eq!(groups.get(&(tenant_a, schema_a)).map(Vec::len), Some(3));
+        assert_eq!(groups.get(&(tenant_b, schema_b)).map(Vec::len), Some(1));
     }
 
     #[tokio::test]

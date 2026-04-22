@@ -301,6 +301,53 @@ export class NatsEventBus
     return this.connection;
   }
 
+  /**
+   * Publish via core NATS (NOT JetStream) to a subject OUTSIDE the
+   * stream filter list. Used for control-plane signals that live
+   * deliberately outside the event namespace:
+   *
+   *   - ADR-031 `policy.ingest_backend.changed` — admin-api
+   *     publishes each rollout decision change; the Rust sidecar's
+   *     `policy.ingest_backend.>` subscriber consumes via core
+   *     subscribe. Not a JetStream concern because the downstream
+   *     durability guarantee is ALREADY satisfied by the sidecar's
+   *     disk-fallback file + cold-start snapshot request-reply
+   *     against admin-api.
+   *
+   * WHY a dedicated method rather than `publishTo` + a
+   * `normalizeSubject` change — `publishTo` is JetStream-backed
+   * and adds msgID dedup + the stream's duplicate_window. A
+   * non-event subject would either fail ("no stream matches
+   * subject") or quietly escape into a sibling stream if one is
+   * added later. Segregating core-NATS publishes on their own
+   * method makes the "this is NOT a durable event" invariant
+   * load-bearing — impossible to downgrade by a refactor that
+   * renamed the subject.
+   *
+   * Core-NATS publish semantics: at-most-once delivery with no
+   * ack, no dedup, no replay. The caller is responsible for
+   * idempotency at the consumer (the sidecar's apply_change is
+   * structurally idempotent under duplicate delivery).
+   *
+   * @throws {Error} when the connection is not established — a
+   *   misconfigured boot surfaces the problem at publish rather
+   *   than silently dropping the payload.
+   */
+  async publishCore(subject: string, payload: Uint8Array): Promise<void> {
+    if (this.connection === null) {
+      throw new Error(
+        `NATS core publish to "${subject}" failed: connection not established`,
+      );
+    }
+    this.connection.publish(subject, payload);
+    // `publish` on a core NATS connection returns void synchronously
+    // — the write lands in the connection's send buffer and flushes
+    // on the next tick. Await `flush()` so the returned Promise
+    // resolves only after the broker has acknowledged receipt of
+    // the bytes (equivalent to the publish guarantee tests rely on).
+    await this.connection.flush();
+  }
+
   async getHealth(): Promise<EventBusHealth> {
     return {
       isHealthy: this.isConnected(),

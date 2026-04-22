@@ -54,11 +54,56 @@ use serde_json::{Value, json};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::mqtt::{CommandMessage, CommandResponse};
 
 use super::CommandHandler;
+
+/// Decision returned by the Batch 119 legacy-tarball mode
+/// gate (pure function for testability). The command body
+/// uses this to either proceed, warn-and-proceed, or reject.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum LegacyTarballGateDecision {
+    /// `firmware_update.mode=Disabled` — HC-1 backward
+    /// compat; no gate action.
+    Allow,
+    /// `firmware_update.mode=Permissive` — operator
+    /// migration signal. Proceed but warn-log on invocation
+    /// so the operator sees the path is being deprecated.
+    AllowWithWarn,
+    /// `firmware_update.mode=Enforcing` — reject invocation.
+    /// The caller returns a structured error pointing the
+    /// operator at `apply_signed_manifest`.
+    Reject,
+}
+
+/// Pure mode-gate decision for the legacy tarball OTA path
+/// (Batch 119 Sprint 6.5). Extracted from the command body
+/// so the mode→decision mapping is unit-testable without
+/// requiring a full CommandHandler fixture.
+///
+/// ## Contract (plan §3 HC-6 rollout discipline)
+///
+/// - Disabled (HC-1 default): Allow. Legacy tarball OTA
+///   runs unchanged.
+/// - Permissive: AllowWithWarn. Operator migration signal;
+///   the path still works but the agent warn-logs on each
+///   invocation so the operator can plan the cutover.
+/// - Enforcing: Reject. The legacy tarball path does NOT
+///   run the 8-gate SignedFirmwareManifest verify pipeline;
+///   operators committed to mode=Enforcing have committed
+///   to signed-only firmware + must use apply_signed_manifest.
+pub(super) fn legacy_tarball_mode_gate(
+    mode: crate::config::FirmwareUpdateMode,
+) -> LegacyTarballGateDecision {
+    use crate::config::FirmwareUpdateMode;
+    match mode {
+        FirmwareUpdateMode::Disabled => LegacyTarballGateDecision::Allow,
+        FirmwareUpdateMode::Permissive => LegacyTarballGateDecision::AllowWithWarn,
+        FirmwareUpdateMode::Enforcing => LegacyTarballGateDecision::Reject,
+    }
+}
 
 impl CommandHandler {
     /// Update agent firmware (OTA).
@@ -79,6 +124,51 @@ impl CommandHandler {
         command: &CommandMessage,
     ) -> (bool, Value, Option<String>) {
         info!("Executing update_firmware command");
+
+        // Batch 119 Sprint 6.5: firmware_update.mode gate.
+        // Plan §3 HC-6 rollout discipline enforced via the
+        // pure `legacy_tarball_mode_gate` decision helper
+        // (testable without CommandHandler fixtures).
+        {
+            let mode = {
+                let s = self.state.read().await;
+                s.config.firmware_update.mode
+            };
+            match legacy_tarball_mode_gate(mode) {
+                LegacyTarballGateDecision::Allow => {
+                    // HC-1 default; proceed unchanged.
+                }
+                LegacyTarballGateDecision::AllowWithWarn => {
+                    warn!(
+                        "update_firmware: legacy tarball OTA invoked while firmware_update.mode=Permissive. \
+                         Migrate to 'apply_signed_manifest' for 8-gate verify + tenant-bound monotonic version. \
+                         This command will be REJECTED when mode is raised to Enforcing."
+                    );
+                }
+                LegacyTarballGateDecision::Reject => {
+                    warn!(
+                        "update_firmware: REJECTED under firmware_update.mode=Enforcing. \
+                         Legacy tarball OTA does NOT run the 8-gate SignedFirmwareManifest \
+                         verify pipeline; operators in Enforcing mode MUST use \
+                         'apply_signed_manifest'."
+                    );
+                    return (
+                        false,
+                        json!({
+                            "rejected": true,
+                            "gate": "legacy_tarball_disabled_in_enforcing_mode",
+                            "mode": "enforcing",
+                            "migration": "use_apply_signed_manifest",
+                        }),
+                        Some(
+                            "update_firmware rejected: firmware_update.mode=Enforcing disables the legacy tarball path. \
+                             Use 'apply_signed_manifest' with a SignedFirmwareManifest payload instead."
+                                .to_string(),
+                        ),
+                    );
+                }
+            }
+        }
 
         let params = &command.params;
 
@@ -578,4 +668,65 @@ pub(super) fn read_checksum_file(path: &Path) -> anyhow::Result<String> {
     }
 
     Ok(hash)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::FirmwareUpdateMode;
+
+    // ========================================================================
+    // legacy_tarball_mode_gate tests (Batch 119 Sprint 6.5)
+    // ========================================================================
+
+    #[test]
+    fn mode_gate_disabled_returns_allow() {
+        assert_eq!(
+            legacy_tarball_mode_gate(FirmwareUpdateMode::Disabled),
+            LegacyTarballGateDecision::Allow
+        );
+    }
+
+    #[test]
+    fn mode_gate_permissive_returns_allow_with_warn() {
+        assert_eq!(
+            legacy_tarball_mode_gate(FirmwareUpdateMode::Permissive),
+            LegacyTarballGateDecision::AllowWithWarn
+        );
+    }
+
+    #[test]
+    fn mode_gate_enforcing_returns_reject() {
+        assert_eq!(
+            legacy_tarball_mode_gate(FirmwareUpdateMode::Enforcing),
+            LegacyTarballGateDecision::Reject
+        );
+    }
+
+    #[test]
+    fn mode_gate_decision_is_total_over_mode_variants() {
+        // Every FirmwareUpdateMode variant must produce a
+        // decision. If a new variant is added + not handled,
+        // this test (together with Rust's exhaustive match
+        // in legacy_tarball_mode_gate) fails at compile
+        // time. Runtime assertion here is belt-and-
+        // suspenders for reviewers inspecting the
+        // contract.
+        let all = [
+            FirmwareUpdateMode::Disabled,
+            FirmwareUpdateMode::Permissive,
+            FirmwareUpdateMode::Enforcing,
+        ];
+        for m in all {
+            let decision = legacy_tarball_mode_gate(m);
+            // The decision must be one of the 3 known
+            // variants; the match on the result itself is
+            // also exhaustive.
+            match decision {
+                LegacyTarballGateDecision::Allow
+                | LegacyTarballGateDecision::AllowWithWarn
+                | LegacyTarballGateDecision::Reject => {}
+            }
+        }
+    }
 }

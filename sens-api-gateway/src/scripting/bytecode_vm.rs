@@ -81,10 +81,21 @@ pub enum VmError {
     BadLocalIndex { index: u32, local_count: u32 },
     /// SafeStateTrip opcode executed.
     SafeStateTripped,
-    /// LoadTag / WriteTag not wired to ProcessImage.
-    /// Consumer integration (ProcessImage +
-    /// RbacGatedWriter trait) lands in a future batch.
+    /// LoadTag / WriteTag dispatched without a `TagIo`
+    /// backend — the VM was constructed without an IO
+    /// injection (e.g. in-proc unit tests that don't
+    /// exercise tag reads/writes). Production code paths
+    /// always plumb a backend via `run_with_io`.
     TagIoNotWired { tag: String, direction: &'static str },
+    /// Batch 159: the injected `TagIo` backend returned a
+    /// structured error. The VM trips safe state on the
+    /// calling consumer's behalf — a tag-read or tag-write
+    /// failure at scan-cycle time is a PLC runtime fault.
+    TagIoFailed {
+        tag: String,
+        direction: &'static str,
+        reason: String,
+    },
     /// StdlibCall not wired (historic — every Batch 148
     /// StdlibFunctionId now has dispatch per Batch 154).
     /// Variant retained so future StdlibFunctionId
@@ -145,6 +156,13 @@ impl std::fmt::Display for VmError {
             Self::TagIoNotWired { tag, direction } => {
                 write!(f, "vm: tag IO not wired ({} on {})", direction, tag)
             }
+            Self::TagIoFailed { tag, direction, reason } => {
+                write!(
+                    f,
+                    "vm: tag IO failed ({} on `{}`): {}",
+                    direction, tag, reason
+                )
+            }
             Self::StdlibNotWired { fn_id_wire_tag } => {
                 write!(f, "vm: stdlib fn not wired (wire_tag={})", fn_id_wire_tag)
             }
@@ -170,6 +188,109 @@ pub enum VmOutcome {
     /// + disable the program.
     Error(VmError),
 }
+
+/// Tag read/write backend — Batch 159 Faz 3 (plan R-1).
+///
+/// The VM pauses on `LoadTag` / `WriteTag` opcodes and
+/// calls into the injected backend. Separating this trait
+/// from the VM decouples the runtime from ProcessImage,
+/// MockTagStore (tests), RbacGatedWriter (future batch
+/// wires RBAC enforcement at the write boundary), or an
+/// OPC-UA bridge.
+///
+/// Implementors must return a structured `TagIoError`
+/// rather than panicking — the VM converts errors to
+/// `VmError::TagIoFailed` + halts the program so the
+/// engine consumer can trip safe state.
+pub trait TagIo {
+    /// Read the current value of `tag_name`. Returns the
+    /// stored `StValue` on success. Callers propagate a
+    /// `NotFound` error when the tag is not present in
+    /// the backend's catalog.
+    fn read_tag(&self, tag_name: &str) -> Result<StValue, TagIoError>;
+
+    /// Write `value` to `tag_name`. The VM has already
+    /// cleared the Batch 156 allowlist + safe-state-
+    /// pinned gates before calling this — the backend
+    /// handles type validation against the tag's
+    /// declared data type + any RBAC gating.
+    fn write_tag(&self, tag_name: &str, value: StValue) -> Result<(), TagIoError>;
+}
+
+/// Structured tag-IO failure returned by `TagIo` impls.
+/// The VM converts each variant to `VmError::TagIoFailed`
+/// + halts the program so the engine consumer can trip
+/// safe state without hiding the operator-visible cause.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TagIoError {
+    /// Tag name not in the backend's catalog.
+    NotFound { tag: String },
+    /// Write-side type mismatch (backend's declared type
+    /// differs from the value the VM is pushing).
+    TypeMismatch {
+        tag: String,
+        expected: StValueType,
+        got: StValueType,
+    },
+    /// RBAC / safety-policy layer rejected the write
+    /// (e.g. caller lacks WriteTag permission for this
+    /// tag, or the actuator class is locked).
+    WriteDenied { tag: String, reason: String },
+    /// Backend internal failure (e.g. ProcessImage lock
+    /// poisoned, SQLCipher unavailable, OPC UA server
+    /// disconnected). Free-form so backends can embed
+    /// useful diagnostics without a fixed taxonomy.
+    Internal { tag: String, reason: String },
+}
+
+impl TagIoError {
+    fn tag(&self) -> &str {
+        match self {
+            Self::NotFound { tag }
+            | Self::TypeMismatch { tag, .. }
+            | Self::WriteDenied { tag, .. }
+            | Self::Internal { tag, .. } => tag,
+        }
+    }
+
+    fn into_vm_error(self, direction: &'static str) -> VmError {
+        let tag = self.tag().to_string();
+        let reason = match self {
+            Self::NotFound { .. } => "tag not found in backend".to_string(),
+            Self::TypeMismatch { expected, got, .. } => {
+                format!("type mismatch: expected {:?}, got {:?}", expected, got)
+            }
+            Self::WriteDenied { reason, .. } => format!("write denied: {}", reason),
+            Self::Internal { reason, .. } => format!("backend internal: {}", reason),
+        };
+        VmError::TagIoFailed {
+            tag,
+            direction,
+            reason,
+        }
+    }
+}
+
+impl std::fmt::Display for TagIoError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotFound { tag } => write!(f, "tag `{}` not found", tag),
+            Self::TypeMismatch { tag, expected, got } => write!(
+                f,
+                "tag `{}`: type mismatch (expected {:?}, got {:?})",
+                tag, expected, got
+            ),
+            Self::WriteDenied { tag, reason } => {
+                write!(f, "tag `{}`: write denied — {}", tag, reason)
+            }
+            Self::Internal { tag, reason } => {
+                write!(f, "tag `{}`: backend internal — {}", tag, reason)
+            }
+        }
+    }
+}
+
+impl std::error::Error for TagIoError {}
 
 /// Stack-based VM runtime state.
 #[derive(Debug)]
@@ -219,10 +340,24 @@ impl ScriptVm {
         self.gas_remaining
     }
 
-    /// Execute the full bytecode program. Returns
-    /// `Returned` on `Opcode::Return` OR first
-    /// `VmError` on runtime failure.
+    /// Execute the full bytecode program WITHOUT a tag IO
+    /// backend. LoadTag / WriteTag opcodes trip
+    /// `VmError::TagIoNotWired`. Retained for in-proc
+    /// tests + programs that genuinely do no tag IO.
     pub fn run(&mut self, bc: &Bytecode) -> VmOutcome {
+        self.run_internal(bc, None)
+    }
+
+    /// Execute the full bytecode program with an injected
+    /// tag IO backend. Production engine consumer uses
+    /// this path — LoadTag reads through `io.read_tag`,
+    /// WriteTag (after Batch 156 allowlist + pinned gates)
+    /// writes through `io.write_tag`.
+    pub fn run_with_io(&mut self, bc: &Bytecode, io: &dyn TagIo) -> VmOutcome {
+        self.run_internal(bc, Some(io))
+    }
+
+    fn run_internal(&mut self, bc: &Bytecode, io: Option<&dyn TagIo>) -> VmOutcome {
         self.ip = 0;
         loop {
             // Safety: ip bounds check on every
@@ -248,7 +383,7 @@ impl ScriptVm {
             }
             self.gas_remaining -= cost;
 
-            match self.dispatch_one(opcode, bc) {
+            match self.dispatch_one(opcode, bc, io) {
                 Ok(DispatchStep::Advance) => {
                     self.ip += 1;
                 }
@@ -273,6 +408,7 @@ impl ScriptVm {
         &mut self,
         opcode: &Opcode,
         bc: &Bytecode,
+        io: Option<&dyn TagIo>,
     ) -> Result<DispatchStep, VmError> {
         match opcode {
             // Stack ops
@@ -435,14 +571,26 @@ impl ScriptVm {
 
             // Tag IO — Batch 156 layers the tier-1
             // security gates (safe-state-pinned +
-            // allowlist) in FRONT of the ProcessImage
-            // stub. A future batch replaces the
-            // TagIoNotWired leaf with the actual read /
-            // RbacGatedWriter.write call.
-            Opcode::LoadTag { name } => Err(VmError::TagIoNotWired {
-                tag: name.clone(),
-                direction: "load",
-            }),
+            // allowlist) in FRONT of the backend call.
+            // Batch 159 injects an optional `TagIo`
+            // backend so production code reads + writes
+            // through ProcessImage / RbacGatedWriter
+            // while in-proc tests can run without IO
+            // (legacy `run` entry returns TagIoNotWired
+            // on tag opcodes).
+            Opcode::LoadTag { name } => match io {
+                None => Err(VmError::TagIoNotWired {
+                    tag: name.clone(),
+                    direction: "load",
+                }),
+                Some(io) => match io.read_tag(name) {
+                    Ok(value) => {
+                        self.stack.push(value);
+                        Ok(DispatchStep::Advance)
+                    }
+                    Err(e) => Err(e.into_vm_error("load")),
+                },
+            },
             Opcode::WriteTag { name } => {
                 // Defense-in-depth ordering: safe-state-
                 // pinned is checked BEFORE the allowlist
@@ -466,20 +614,25 @@ impl ScriptVm {
                     });
                 }
                 // Allowlist + pinned gates cleared.
-                // ProcessImage write lands in a future
-                // batch; this dispatch surfaces the
-                // not-wired error with the value still on
-                // the stack so the engine consumer can
-                // observe the attempt for audit. The
-                // future ProcessImage wiring pops the
-                // value before writing — leaving it on
-                // the stack during the not-wired phase
-                // means the engine layer can inspect the
-                // attempted write value via `vm.stack()`.
-                Err(VmError::TagIoNotWired {
-                    tag: name.clone(),
-                    direction: "write",
-                })
+                // Without an IO backend, the VM retains
+                // the Batch 156 behavior — value stays on
+                // the stack + a not-wired error surfaces
+                // so the engine consumer can observe the
+                // attempt. With an IO backend, pop the
+                // value + write through.
+                match io {
+                    None => Err(VmError::TagIoNotWired {
+                        tag: name.clone(),
+                        direction: "write",
+                    }),
+                    Some(io) => {
+                        let value = self.pop("WriteTag")?;
+                        match io.write_tag(name, value) {
+                            Ok(()) => Ok(DispatchStep::Advance),
+                            Err(e) => Err(e.into_vm_error("write")),
+                        }
+                    }
+                }
             }
 
             // Stdlib — Batch 154 wires the 10 Batch 148
@@ -1248,6 +1401,237 @@ mod tests {
         // consumer can observe the attempt during the
         // not-yet-wired phase.
         assert_eq!(vm.stack(), &[StValue::Real(2.5)]);
+    }
+
+    // ====================================================================
+    // Batch 159 — TagIo trait + LoadTag/WriteTag wiring
+    // ====================================================================
+
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+
+    /// Minimal HashMap-backed TagIo impl for tests.
+    /// Production code uses ProcessImage + RbacGatedWriter.
+    #[derive(Debug, Default)]
+    struct MockTagStore {
+        values: RefCell<HashMap<String, StValue>>,
+    }
+
+    impl MockTagStore {
+        fn with(pairs: &[(&str, StValue)]) -> Self {
+            let mut m = HashMap::new();
+            for (k, v) in pairs {
+                m.insert((*k).to_string(), *v);
+            }
+            Self {
+                values: RefCell::new(m),
+            }
+        }
+    }
+
+    impl TagIo for MockTagStore {
+        fn read_tag(&self, tag_name: &str) -> Result<StValue, TagIoError> {
+            self.values
+                .borrow()
+                .get(tag_name)
+                .copied()
+                .ok_or_else(|| TagIoError::NotFound {
+                    tag: tag_name.to_string(),
+                })
+        }
+
+        fn write_tag(&self, tag_name: &str, value: StValue) -> Result<(), TagIoError> {
+            self.values
+                .borrow_mut()
+                .insert(tag_name.to_string(), value);
+            Ok(())
+        }
+    }
+
+    /// Mock that always fails writes with a supplied error.
+    struct FailingWriter {
+        reason: String,
+    }
+
+    impl TagIo for FailingWriter {
+        fn read_tag(&self, tag_name: &str) -> Result<StValue, TagIoError> {
+            Err(TagIoError::NotFound {
+                tag: tag_name.to_string(),
+            })
+        }
+
+        fn write_tag(&self, tag_name: &str, _value: StValue) -> Result<(), TagIoError> {
+            Err(TagIoError::WriteDenied {
+                tag: tag_name.to_string(),
+                reason: self.reason.clone(),
+            })
+        }
+    }
+
+    #[test]
+    fn run_with_io_load_tag_reads_value_from_backend() {
+        let store = MockTagStore::with(&[("water_temp", StValue::Real(22.5))]);
+        let b = bc(
+            vec![
+                Opcode::LoadTag { name: "water_temp".into() },
+                Opcode::Return,
+            ],
+            0,
+        );
+        let mut vm = ScriptVm::new(&b);
+        assert_eq!(vm.run_with_io(&b, &store), VmOutcome::Returned);
+        assert_eq!(vm.stack(), &[StValue::Real(22.5)]);
+    }
+
+    #[test]
+    fn run_with_io_load_tag_not_found_trips_tag_io_failed() {
+        let store = MockTagStore::default();
+        let b = bc(
+            vec![
+                Opcode::LoadTag { name: "missing".into() },
+                Opcode::Return,
+            ],
+            0,
+        );
+        let mut vm = ScriptVm::new(&b);
+        match vm.run_with_io(&b, &store) {
+            VmOutcome::Error(VmError::TagIoFailed {
+                tag,
+                direction,
+                reason,
+            }) => {
+                assert_eq!(tag, "missing");
+                assert_eq!(direction, "load");
+                assert!(reason.contains("not found"));
+            }
+            other => panic!("expected TagIoFailed, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn run_with_io_write_tag_persists_value_to_backend() {
+        let store = MockTagStore::with(&[("feeder_rate", StValue::Real(0.0))]);
+        let b = bc_with_tag_rules(
+            vec![
+                Opcode::PushConst { value: StValue::Real(2.5) },
+                Opcode::WriteTag { name: "feeder_rate".into() },
+                Opcode::Return,
+            ],
+            0,
+            vec!["feeder_rate".into()],
+            vec![],
+        );
+        let mut vm = ScriptVm::new(&b);
+        assert_eq!(vm.run_with_io(&b, &store), VmOutcome::Returned);
+        assert_eq!(
+            store.values.borrow().get("feeder_rate"),
+            Some(&StValue::Real(2.5))
+        );
+        // Value was popped by successful write path.
+        assert!(vm.stack().is_empty());
+    }
+
+    #[test]
+    fn run_with_io_write_tag_backend_denial_trips_tag_io_failed() {
+        let store = FailingWriter {
+            reason: "RBAC: missing WriteTag permission".into(),
+        };
+        let b = bc_with_tag_rules(
+            vec![
+                Opcode::PushConst { value: StValue::Real(1.0) },
+                Opcode::WriteTag { name: "feeder_rate".into() },
+                Opcode::Return,
+            ],
+            0,
+            vec!["feeder_rate".into()],
+            vec![],
+        );
+        let mut vm = ScriptVm::new(&b);
+        match vm.run_with_io(&b, &store) {
+            VmOutcome::Error(VmError::TagIoFailed {
+                tag,
+                direction,
+                reason,
+            }) => {
+                assert_eq!(tag, "feeder_rate");
+                assert_eq!(direction, "write");
+                assert!(reason.contains("RBAC: missing WriteTag permission"));
+            }
+            other => panic!("expected TagIoFailed, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn run_with_io_write_tag_pinned_still_blocks_before_backend_call() {
+        // Batch 156 pinned gate still wins even with IO
+        // backend present — the backend is never called.
+        let store = MockTagStore::default();
+        let b = bc_with_tag_rules(
+            vec![
+                Opcode::PushConst { value: StValue::Real(1.0) },
+                Opcode::WriteTag { name: "e_stop".into() },
+                Opcode::Return,
+            ],
+            0,
+            vec!["e_stop".into()],
+            vec!["e_stop".into()],
+        );
+        let mut vm = ScriptVm::new(&b);
+        assert!(matches!(
+            vm.run_with_io(&b, &store),
+            VmOutcome::Error(VmError::SafeStatePinned { .. })
+        ));
+        // Backend must NOT have been called.
+        assert!(store.values.borrow().is_empty());
+    }
+
+    #[test]
+    fn run_with_io_read_modify_write_roundtrip() {
+        // LoadTag(water_temp) → push 20.0
+        // PushConst 5.0
+        // AddReal → 25.0
+        // WriteTag(setpoint) → backend gets 25.0
+        let store = MockTagStore::with(&[
+            ("water_temp", StValue::Real(20.0)),
+            ("setpoint", StValue::Real(0.0)),
+        ]);
+        let b = bc_with_tag_rules(
+            vec![
+                Opcode::LoadTag { name: "water_temp".into() },
+                Opcode::PushConst { value: StValue::Real(5.0) },
+                Opcode::AddReal,
+                Opcode::WriteTag { name: "setpoint".into() },
+                Opcode::Return,
+            ],
+            0,
+            vec!["setpoint".into()],
+            vec![],
+        );
+        let mut vm = ScriptVm::new(&b);
+        assert_eq!(vm.run_with_io(&b, &store), VmOutcome::Returned);
+        assert_eq!(
+            store.values.borrow().get("setpoint"),
+            Some(&StValue::Real(25.0))
+        );
+    }
+
+    #[test]
+    fn run_without_io_still_returns_not_wired_on_load_tag() {
+        // Legacy `run` path (no IO) keeps the Batch 151
+        // TagIoNotWired behavior for in-proc unit tests
+        // that never exercise tag IO.
+        let b = bc(
+            vec![
+                Opcode::LoadTag { name: "x".into() },
+                Opcode::Return,
+            ],
+            0,
+        );
+        let mut vm = ScriptVm::new(&b);
+        assert!(matches!(
+            vm.run(&b),
+            VmOutcome::Error(VmError::TagIoNotWired { direction: "load", .. })
+        ));
     }
 
     #[test]

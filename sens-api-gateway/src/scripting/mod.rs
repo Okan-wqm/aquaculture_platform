@@ -43,6 +43,12 @@ pub mod bytecode_sig;
 // ScriptEngine Phase 5b batch wires this into the
 // actual async ProcessImage boundary.
 pub mod process_image_tagio;
+// Batch 163 Faz 3 (plan R-1): in-memory registry of
+// deployed bytecode programs. Enforces monotonic policy
+// version + tenant isolation on insert. Consumed by the
+// deploy-command batch + the ScriptEngine scan-cycle
+// dispatcher.
+pub mod bytecode_registry;
 mod conflict;
 mod context;
 mod engine;

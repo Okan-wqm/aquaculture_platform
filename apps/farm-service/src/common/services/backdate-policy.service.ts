@@ -88,6 +88,7 @@ const ENV_VAR_NAMES: Record<BackdateContext, string> = {
 
 import { Optional } from '@nestjs/common';
 import { FarmDomainMetricsService } from '../metrics/farm-domain-metrics.service';
+import { BackdateBlockedError } from '../errors/farm-errors';
 
 @Injectable()
 export class BackdatePolicyService {
@@ -141,9 +142,10 @@ export class BackdatePolicyService {
 
     if (!(proposedDate instanceof Date) || Number.isNaN(proposedDate.getTime())) {
       this.metricsService?.incBackdateRejection({ context });
-      throw new BadRequestException(
-        `Invalid ${context} date: proposed value is not a valid Date.`,
-      );
+      throw new BackdateBlockedError({
+        userMessage: `Invalid ${context} date: proposed value is not a valid Date.`,
+        backdateContext: context,
+      });
     }
 
     const now = new Date();
@@ -151,10 +153,13 @@ export class BackdatePolicyService {
 
     if (futureMs > FUTURE_CLOCK_SKEW_MS) {
       this.metricsService?.incBackdateRejection({ context });
-      throw new BadRequestException(
-        `Invalid ${context} date: ${proposedDate.toISOString()} is in the future. ` +
+      throw new BackdateBlockedError({
+        userMessage:
+          `Invalid ${context} date: ${proposedDate.toISOString()} is in the future. ` +
           `Future-dated operational records are never accepted.`,
-      );
+        backdateContext: context,
+        proposedDate: proposedDate.toISOString(),
+      });
     }
 
     const effectiveLimit = this.getLimitForContext(context, limitDays);
@@ -163,12 +168,17 @@ export class BackdatePolicyService {
     if (backdatedDays > effectiveLimit) {
       this.metricsService?.incBackdateRejection({ context });
       const subject = subjectLabel ? ` for ${subjectLabel}` : '';
-      throw new BadRequestException(
-        `Proposed ${context} date${subject} is ${backdatedDays} day(s) in the past, ` +
+      throw new BackdateBlockedError({
+        userMessage:
+          `Proposed ${context} date${subject} is ${backdatedDays} day(s) in the past, ` +
           `beyond the configured limit of ${effectiveLimit} day(s). ` +
           `Adjust the ${ENV_VAR_NAMES[context]} environment variable if the bulk-import ` +
           `use case requires a larger window, or pass a per-call override.`,
-      );
+        backdateContext: context,
+        proposedDate: proposedDate.toISOString(),
+        limitDays: effectiveLimit,
+        backdatedDays,
+      });
     }
 
     return {

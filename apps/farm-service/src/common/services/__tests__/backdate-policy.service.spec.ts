@@ -9,9 +9,9 @@
  * the real NestJS ConfigService infra — the service only reads values,
  * so a plain object with a `get()` signature suffices.
  */
-import { BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { BackdatePolicyService } from '../backdate-policy.service';
+import { BackdateBlockedError } from '../../errors/farm-errors';
 
 /**
  * Minimal ConfigService test double. The service only consumes .get(key)
@@ -106,7 +106,7 @@ describe('BackdatePolicyService', () => {
           context: 'feeding',
           proposedDate: daysAgo(8),
         }),
-      ).toThrow(BadRequestException);
+      ).toThrow(BackdateBlockedError);
     });
 
     it('respects env-driven extended limit', () => {
@@ -126,7 +126,7 @@ describe('BackdatePolicyService', () => {
           context: 'feeding',
           proposedDate: daysAhead(1),
         }),
-      ).toThrow(BadRequestException);
+      ).toThrow(BackdateBlockedError);
     });
 
     it('accepts proposedDate within the 60-second clock skew tolerance', () => {
@@ -146,7 +146,7 @@ describe('BackdatePolicyService', () => {
           context: 'feeding',
           proposedDate: new Date('not-a-real-date'),
         }),
-      ).toThrow(BadRequestException);
+      ).toThrow(BackdateBlockedError);
     });
 
     it('includes the subject label in the error message for operator clarity', () => {

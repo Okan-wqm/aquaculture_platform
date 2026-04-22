@@ -14,7 +14,7 @@
  * 15-B15 (welfare compliance) + orphan 2 / 3 (competing APIs
  * consolidated into this service).
  */
-import { BadRequestException } from '@nestjs/common';
+import { TankCapacityExceededError } from '../../common/errors/farm-errors';
 import { TankCapacityService } from '../services/tank-capacity.service';
 import {
   EquipmentStatus,
@@ -267,10 +267,10 @@ describe('TankCapacityService', () => {
       incomingBiomassKg: 1000,
     };
 
-    it('throws BadRequestException in hard mode when over capacity', () => {
+    it('throws TankCapacityExceededError in hard mode when over capacity', () => {
       expect(() =>
         service.enforce({ ...blockedParams, mode: 'hard' }),
-      ).toThrow(BadRequestException);
+      ).toThrow(TankCapacityExceededError);
     });
 
     it('returns calculation without throwing in hard mode when within capacity', () => {
@@ -312,7 +312,7 @@ describe('TankCapacityService', () => {
             callerRoles: ['MODULE_USER'],
             callerUserId: 'user-3',
           }),
-        ).toThrow(BadRequestException);
+        ).toThrow(TankCapacityExceededError);
       });
 
       it('rejects when callerRoles is empty', () => {
@@ -322,7 +322,7 @@ describe('TankCapacityService', () => {
             mode: 'admin-override',
             callerRoles: [],
           }),
-        ).toThrow(BadRequestException);
+        ).toThrow(TankCapacityExceededError);
       });
 
       it('does not throw when capacity is OK even without admin role', () => {

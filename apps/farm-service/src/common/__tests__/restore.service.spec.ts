@@ -15,14 +15,11 @@
  * Uses hand-rolled Repository + AuditLogService doubles — no `as any`
  * on production call sites.
  */
-import {
-  BadRequestException,
-  ConflictException,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 
 import { RestorableEntity, RestoreService } from '../services/restore.service';
 import { AuditLogService } from '../../database/services/audit-log.service';
+import { RestoreUniquenessConflictError } from '../errors/farm-errors';
 
 interface RepoDouble {
   find: jest.Mock;
@@ -118,7 +115,7 @@ describe('RestoreService.restore', () => {
         { tenantId: TENANT, userId: USER },
         { uniqueKeys: [['code']] },
       ),
-    ).rejects.toThrow(ConflictException);
+    ).rejects.toThrow(RestoreUniquenessConflictError);
     expect(repo.save).not.toHaveBeenCalled();
   });
 

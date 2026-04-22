@@ -15,6 +15,7 @@ import { Feed, FeedStatus } from '../../feed/entities/feed.entity';
 import { Chemical } from '../../chemical/entities/chemical.entity';
 import { Consumable } from '../../consumable/entities/consumable.entity';
 import { ConditionWarning } from '../dto/stock-movement.response';
+import { LotMixService } from '../services/lot-mix.service';
 
 @CommandHandler(RecordStockMovementCommand)
 export class RecordStockMovementHandler implements ICommandHandler<RecordStockMovementCommand, StockMovement> {
@@ -34,6 +35,7 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
     @InjectRepository(Consumable)
     private readonly consumableRepository: Repository<Consumable>,
     private readonly dataSource: DataSource,
+    private readonly lotMixService: LotMixService,
     // EVENT_BUS is provided globally by EventBusModule (@Global).
     // @Optional() ensures the handler still works in test environments
     // or when NATS is unavailable — event emission is best-effort, not mandatory.
@@ -153,6 +155,30 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
         );
       }
 
+      // Lot-mix detection — must run BEFORE increaseInventory so the
+      // service sees the resident lots as "other" and not yet summed
+      // with the incoming quantity. The detector no-ops when the
+      // incoming lot is the first lot in the location. When it does
+      // fire, the returned `effectiveLotNumber` is stamped on the
+      // movement record below so downstream trace queries surface the
+      // composite identifier from the moment the mix occurred.
+      let effectiveLotNumber: string | null = null;
+      if (toLocation && input.lotNumber) {
+        const mixOutcome = await this.lotMixService.detect({
+          tenantId,
+          storageLocationId: toLocation.id,
+          itemType: itemType as StorageItemType,
+          itemId,
+          incomingLotNumber: input.lotNumber,
+          incomingQuantityKg: quantity,
+          manufacturer: itemDetails.manufacturer ?? null,
+          incomingExpiryDate: input.expiryDate ?? null,
+          userId,
+          manager,
+        });
+        effectiveLotNumber = mixOutcome.effectiveLotNumber;
+      }
+
       if (toLocation) {
         await this.increaseInventory(
           inventoryRepo, tenantId, toLocation.id,
@@ -180,7 +206,10 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
         // Capture lot and expiry on the movement record for full audit trail.
         // This enables lot traceability queries: "Which lots were consumed from
         // location X between dates Y and Z?" — required for EU 178/2002.
-        lotNumber: input.lotNumber,
+        // When a lot mix was detected the effectiveLotNumber (composite
+        // "MIX-<lot1>-<lot2>-..." identifier) is recorded on the movement
+        // so the ledger reflects the physical reality of the mixed container.
+        lotNumber: effectiveLotNumber ?? input.lotNumber,
         expiryDate: input.expiryDate,
         // Idempotency key for at-most-once delivery guarantee on retries.
         idempotencyKey: input.idempotencyKey,
@@ -284,11 +313,11 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
 
   private async getItemDetails(
     itemType: StorageItemType, itemId: string, tenantId: string,
-  ): Promise<{ name: string; unit: string; storageTempMin?: number; storageTempMax?: number; storageHumidityMin?: number; storageHumidityMax?: number } | null> {
+  ): Promise<{ name: string; unit: string; manufacturer?: string; storageTempMin?: number; storageTempMax?: number; storageHumidityMin?: number; storageHumidityMax?: number } | null> {
     switch (itemType) {
       case StorageItemType.FEED: {
         const feed = await this.feedRepository.findOne({ where: { id: itemId, tenantId } });
-        return feed ? { name: feed.name, unit: feed.unit, storageTempMin: feed.storageTempMin, storageTempMax: feed.storageTempMax, storageHumidityMin: feed.storageHumidityMin, storageHumidityMax: feed.storageHumidityMax } : null;
+        return feed ? { name: feed.name, unit: feed.unit, manufacturer: feed.manufacturer, storageTempMin: feed.storageTempMin, storageTempMax: feed.storageTempMax, storageHumidityMin: feed.storageHumidityMin, storageHumidityMax: feed.storageHumidityMax } : null;
       }
       case StorageItemType.CHEMICAL: {
         const chem = await this.chemicalRepository.findOne({ where: { id: itemId, tenantId } });

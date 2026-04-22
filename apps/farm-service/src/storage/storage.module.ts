@@ -11,6 +11,8 @@ import { PurchaseOrder } from './entities/purchase-order.entity';
 import { PurchaseOrderItem } from './entities/purchase-order-item.entity';
 import { InventoryCount } from './entities/inventory-count.entity';
 import { InventoryCountItem } from './entities/inventory-count-item.entity';
+import { StorageLotMix } from './entities/storage-lot-mix.entity';
+import { LotMixService } from './services/lot-mix.service';
 import { Site } from '../site/entities/site.entity';
 import { Feed } from '../feed/entities/feed.entity';
 import { Chemical } from '../chemical/entities/chemical.entity';
@@ -87,6 +89,7 @@ const EventHandlers = [
       PurchaseOrderItem,
       InventoryCount,
       InventoryCountItem,
+      StorageLotMix,
       Site,
       Feed,
       Chemical,
@@ -95,6 +98,7 @@ const EventHandlers = [
   ],
   providers: [
     StorageResolver,
+    LotMixService,
     ...CommandHandlers,
     ...QueryHandlers,
     ...EventHandlers,

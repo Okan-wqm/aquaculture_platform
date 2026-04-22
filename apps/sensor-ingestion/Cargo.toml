@@ -119,7 +119,7 @@ metrics-util = { version = "0.19", features = ["debugging"] }
 # plaintext NATS broker per test; nats-client's `test-utils`
 # feature enables the non-TLS connect path that the integration
 # tests consume (production path stays mTLS-only).
-testcontainers = "0.22"
+testcontainers = "0.27"
 # The sensor-ingestion crate's own source does NOT enable test-utils
 # — only the dev-dep pulls it in so the plaintext connect path is
 # NEVER reachable from `cargo build --release`.

@@ -66,6 +66,12 @@ pub mod bytecode_deploy;
 // survive reboot. Same master-key derivation as
 // offline_queue + scripting::persistence.
 pub mod bytecode_registry_store;
+// Batch 170 Faz 3 (plan R-1): cadence driver that
+// spawns the scan-cycle loop. Reads registry + pi
+// + declared_types + scan_cycle_ms + shutdown_rx,
+// drives `run_scan_tick` at the configured interval
+// with overrun detection + structured summary return.
+pub mod bytecode_scan_cycle_task;
 mod conflict;
 mod context;
 mod engine;

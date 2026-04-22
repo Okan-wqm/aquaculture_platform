@@ -57,6 +57,20 @@ import { BatchQueryHandlers } from './query-handlers';
 // Resolvers
 import { BatchResolvers } from './resolvers';
 
+// Cross-module: tank density/capacity invariant is owned by TankModule
+// and shared here so every handler that places fish in a tank
+// (create, allocate, transfer, cleaner-fish deploy) runs the same check.
+import { TankModule } from '../tank/tank.module';
+
+// Cross-module: medicine-withdrawal enforcement lives in the fish-health
+// module. close-batch and (eventually) other batch lifecycle handlers
+// need to reject closures that would mask an active treatment window.
+import { FishHealthModule } from '../fish-health/fish-health.module';
+
+// Cross-cutting: backdate policy for mortality observations
+// (MORTALITY_BACKDATE_LIMIT_DAYS, default 14).
+import { BackdatePolicyModule } from '../common/services/backdate-policy.module';
+
 @Module({
   imports: [
     TypeOrmModule.forFeature([
@@ -75,6 +89,9 @@ import { BatchResolvers } from './resolvers';
       Feed,
       GrowthMeasurement,
     ]),
+    TankModule,
+    FishHealthModule,
+    BackdatePolicyModule,
   ],
   controllers: [
     BatchController,

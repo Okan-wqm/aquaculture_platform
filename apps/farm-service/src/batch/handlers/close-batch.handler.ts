@@ -29,6 +29,7 @@ import { createBaseEvent } from '@platform/event-contracts';
 import { CloseBatchCommand, BatchCloseReason } from '../commands/close-batch.command';
 import { Batch, BatchStatus } from '../entities/batch.entity';
 import { Role, hasAnyRole } from '@aquaculture/backend-common';
+import { BatchHarvestEligibilityService } from '../../fish-health/services/batch-harvest-eligibility.service';
 
 @Injectable()
 @CommandHandler(CloseBatchCommand)
@@ -41,10 +42,11 @@ export class CloseBatchHandler implements ICommandHandler<CloseBatchCommand, Bat
     @InjectRepository(Batch)
     private readonly batchRepository: Repository<Batch>,
     private readonly outboxPublisher: OutboxPublisher,
+    private readonly harvestEligibility: BatchHarvestEligibilityService,
   ) {}
 
   async execute(command: CloseBatchCommand): Promise<Batch> {
-    const { tenantId, batchId, reason, notes, closedBy, userRoles } = command;
+    const { tenantId, batchId, reason, notes, closedBy, userRoles, acknowledgeActiveTreatments } = command;
 
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -66,6 +68,49 @@ export class CloseBatchHandler implements ICommandHandler<CloseBatchCommand, Bat
       // Zaten kapalı mı kontrol et
       if (batch.status === BatchStatus.CLOSED) {
         throw new BadRequestException(`Batch ${batchId} zaten kapatılmış`);
+      }
+
+      // ── COMPLIANCE GATE: medicine withdrawal period on close ────────
+      //
+      // If the batch has active HealthEvent rows whose
+      // earliestHarvestDate lies in the future, closing the batch
+      // would hide the open treatment from downstream reporting
+      // (dashboards filter out closed batches). The operator must
+      // acknowledge the open treatments explicitly — the boolean flag
+      // on CloseBatchCommand is persisted in the audit log so the
+      // acknowledgement is traceable.
+      //
+      // Unlike the admin-override on BatchCloseReason.OTHER, this
+      // gate cannot be bypassed by role. Food-safety compliance
+      // (Mattilsynet / EU Reg 37/2010) applies regardless of who is
+      // closing the batch.
+      const eligibility = await this.harvestEligibility.checkEligibility(
+        tenantId,
+        batchId,
+        new Date(),
+      );
+      if (!eligibility.eligible && !acknowledgeActiveTreatments) {
+        const titles = eligibility.blockingEvents
+          .map((e) => `"${e.title}"`)
+          .join(', ');
+        throw new BadRequestException(
+          `Batch ${batchId} has ${eligibility.blockingEvents.length} active ` +
+            `health event(s) with open withdrawal periods (${titles}). ` +
+            `Earliest permissible harvest date: ` +
+            `${eligibility.blockedUntil?.toISOString().slice(0, 10)}. ` +
+            `Set acknowledgeActiveTreatments=true on the close request to ` +
+            `accept the override (will be audit-logged).`,
+        );
+      }
+      if (!eligibility.eligible && acknowledgeActiveTreatments) {
+        this.logger.warn(
+          `Batch ${batchId} closed with ${eligibility.blockingEvents.length} ` +
+            `active treatment(s) acknowledged by ${closedBy} ` +
+            `(tenant ${tenantId.slice(0, 8)}...). ` +
+            `Blocking events: ${eligibility.blockingEvents
+              .map((e) => e.id)
+              .join(', ')}`,
+        );
       }
 
       // SECURITY: BatchCloseReason.OTHER bypasses the lifecycle invariant.

@@ -26,6 +26,7 @@ import { Tank } from '../tank/entities/tank.entity';
 
 // Services
 import { HealthEventService } from './services/health-event.service';
+import { BatchHarvestEligibilityService } from './services/batch-harvest-eligibility.service';
 
 // Resolvers
 import { HealthEventResolver } from './resolvers/health-event.resolver';
@@ -41,12 +42,16 @@ import { HealthEventResolver } from './resolvers/health-event.resolver';
   providers: [
     // Services
     HealthEventService,
+    BatchHarvestEligibilityService,
     // Resolvers
     HealthEventResolver,
   ],
   exports: [
     TypeOrmModule,
     HealthEventService,
+    // Exported so the harvest module can inject the eligibility check
+    // into its command handler without re-declaring the HealthEvent repo.
+    BatchHarvestEligibilityService,
   ],
 })
 export class FishHealthModule {}

@@ -7,14 +7,12 @@ import {
   ID,
   ResolveReference,
 } from '@nestjs/graphql';
-import { UseGuards, Logger } from '@nestjs/common';
+import { BadRequestException, UseGuards, Logger } from '@nestjs/common';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
 import { Tenant, CurrentUser, Roles, Role, fromCqrsPaginated } from '@aquaculture/backend-common';
 import { Farm } from '../entities/farm.entity';
 import { Pond } from '../entities/pond.entity';
-import { CreateFarmCommand } from '../commands/create-farm.command';
-import { CreatePondCommand } from '../commands/create-pond.command';
 import { GetFarmQuery } from '../queries/get-farm.query';
 import { ListFarmsQuery } from '../queries/list-farms.query';
 import { GetPondQuery } from '../queries/get-pond.query';
@@ -130,55 +128,63 @@ export class FarmResolver {
   }
 
   /**
-   * Create a new farm
+   * @deprecated Farm is a legacy concept. The real hierarchy is
+   * Site → Department → System → Tank. Use {@link SiteResolver.createSite}
+   * via the `createSite` mutation instead.
+   *
+   * This mutation is intentionally disabled; invoking it throws a
+   * BadRequestException. The `farm` / `farms` / `pond` queries remain
+   * available for read access to legacy rows that may still exist in
+   * `farm.farms` / `farm.ponds`.
    */
-  @Mutation(() => Farm, { name: 'createFarm' })
+  @Mutation(() => Farm, {
+    name: 'createFarm',
+    deprecationReason:
+      'Legacy farm concept. Use createSite (SiteResolver) — Site → Department → System → Tank.',
+  })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async createFarm(
-    @Args('input') input: CreateFarmInput,
-    @Tenant() tenantId: string,
-    @CurrentUser() user: UserContext,
+    @Args('input') _input: CreateFarmInput,
+    @Tenant() _tenantId: string,
+    @CurrentUser() _user: UserContext,
   ): Promise<Farm> {
-    this.logger.log(`Mutation: createFarm(${input.name})`);
-    return await this.commandBus.execute(
-      new CreateFarmCommand(
-        input.name,
-        input.location,
-        tenantId,
-        user.sub,
-        input.address,
-        input.contactPerson,
-        input.contactPhone,
-        input.contactEmail,
-        input.description,
-        input.totalArea,
-      ),
+    this.logger.warn(
+      'Rejected call to deprecated createFarm mutation — clients should use createSite.',
+    );
+    throw new BadRequestException(
+      'createFarm is disabled. The system does not register farm entities; ' +
+        'use createSite (Site → Department → System → Tank hierarchy). ' +
+        'See docs/illustrator/ for the active architecture.',
     );
   }
 
   /**
-   * Create a new pond
+   * @deprecated Pond is a legacy concept. Tanks are modelled as
+   * {@link Equipment} rows with `is_tank = true`. Use
+   * {@link TankResolver.createTank} via the `createTank` mutation.
+   *
+   * This mutation is intentionally disabled; invoking it throws a
+   * BadRequestException. The `pond` query remains available for
+   * read access to legacy rows in `farm.ponds`.
    */
-  @Mutation(() => Pond, { name: 'createPond' })
+  @Mutation(() => Pond, {
+    name: 'createPond',
+    deprecationReason:
+      'Legacy pond concept. Use createTank (TankResolver) — equipment with is_tank=true.',
+  })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async createPond(
-    @Args('input') input: CreatePondInput,
-    @Tenant() tenantId: string,
-    @CurrentUser() user: UserContext,
+    @Args('input') _input: CreatePondInput,
+    @Tenant() _tenantId: string,
+    @CurrentUser() _user: UserContext,
   ): Promise<Pond> {
-    this.logger.log(`Mutation: createPond(${input.name})`);
-    return await this.commandBus.execute(
-      new CreatePondCommand(
-        input.name,
-        input.farmId,
-        input.capacity,
-        tenantId,
-        user.sub,
-        input.waterType,
-        input.depth,
-        input.surfaceArea,
-        input.status,
-      ),
+    this.logger.warn(
+      'Rejected call to deprecated createPond mutation — clients should use createTank.',
+    );
+    throw new BadRequestException(
+      'createPond is disabled. Tanks/ponds are modelled as Equipment rows ' +
+        '(is_tank=true). Use createTank (TankResolver). ' +
+        'See docs/illustrator/ for the active architecture.',
     );
   }
 

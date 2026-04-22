@@ -44,6 +44,15 @@ import { GetHarvestStatisticsHandler } from './handlers/get-harvest-statistics.h
 import { HarvestResolver } from './resolvers/harvest.resolver';
 import { HarvestPlanResolver } from './resolvers/harvest-plan.resolver';
 
+// Cross-module: withdrawal-period / harvest-eligibility enforcement lives
+// in the fish-health module and is shared here so createHarvestRecord can
+// block harvests that would violate an active medicine withdrawal window.
+import { FishHealthModule } from '../fish-health/fish-health.module';
+
+// Cross-cutting: backdate policy for harvest records
+// (HARVEST_BACKDATE_LIMIT_DAYS, default 7).
+import { BackdatePolicyModule } from '../common/services/backdate-policy.module';
+
 @Module({
   imports: [
     TypeOrmModule.forFeature([
@@ -54,6 +63,8 @@ import { HarvestPlanResolver } from './resolvers/harvest-plan.resolver';
       TankBatch,
       TankOperation,
     ]),
+    FishHealthModule,
+    BackdatePolicyModule,
   ],
   providers: [
     // Services

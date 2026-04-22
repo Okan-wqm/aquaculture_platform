@@ -15,6 +15,7 @@ import { GrowthMeasurement, MeasurementType, MeasurementMethod, StatisticalSumma
 import { Batch } from '../../batch/entities/batch.entity';
 import { FeedingRecord } from '../../feeding/entities/feeding-record.entity';
 import { FCRCalculationService } from '../services/fcr-calculation.service';
+import { BackdatePolicyService } from '../../common/services/backdate-policy.service';
 
 @Injectable()
 @CommandHandler(RecordGrowthSampleCommand)
@@ -27,12 +28,27 @@ export class RecordGrowthSampleHandler implements ICommandHandler<RecordGrowthSa
     @InjectRepository(FeedingRecord)
     private readonly feedingRepository: Repository<FeedingRecord>,
     private readonly fcrService: FCRCalculationService,
-    // TODO: EventBus integration
-    // private readonly eventBus: EventBus,
+    private readonly backdatePolicy: BackdatePolicyService,
   ) {}
 
   async execute(command: RecordGrowthSampleCommand): Promise<GrowthMeasurement> {
     const { tenantId, payload, userId } = command;
+
+    // Backdate policy: growth measurements support a longer historical
+    // window than feeding (GROWTH_BACKDATE_LIMIT_DAYS, default 30) to
+    // accommodate monthly sampling cycles, but still rejects future
+    // dates and out-of-window past values. Out-of-order measurements
+    // corrupt SGR and condition-factor derivations, so the limit bounds
+    // the damage.
+    const proposedDate: Date =
+      payload.measurementDate instanceof Date
+        ? payload.measurementDate
+        : new Date(payload.measurementDate);
+    this.backdatePolicy.validate({
+      context: 'growth',
+      proposedDate,
+      subjectLabel: `batch ${payload.batchId}`,
+    });
 
     // Batch'i doğrula
     const batch = await this.batchRepository.findOne({

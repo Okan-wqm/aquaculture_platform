@@ -46,7 +46,7 @@ secrecy = { version = "0.8", features = ["serde"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 tracing-opentelemetry = "0.28"
-opentelemetry = { version = "0.27", features = ["trace"] }
+opentelemetry = { version = "0.31", features = ["trace"] }
 opentelemetry_sdk = { version = "0.27", features = ["rt-tokio", "trace"] }
 opentelemetry-otlp = { version = "0.27", features = ["grpc-tonic"] }
 

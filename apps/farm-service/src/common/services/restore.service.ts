@@ -37,7 +37,6 @@
  */
 import {
   BadRequestException,
-  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
@@ -45,6 +44,7 @@ import {
 import { EntityTarget, FindOptionsWhere, Repository } from 'typeorm';
 
 import { AuditLogService } from '../../database/services/audit-log.service';
+import { RestoreUniquenessConflictError } from '../errors/farm-errors';
 
 /** Minimum contract a restorable entity must satisfy. */
 export interface RestorableEntity {
@@ -203,9 +203,15 @@ export class RestoreService {
         where: filter as unknown as FindOptionsWhere<T>,
       });
       if (conflict) {
-        throw new ConflictException(
-          `Cannot restore ${entityTypeLabel} ${existing.id}: an active row already occupies the unique key (${keyset.join(', ')}). Deactivate or rename the conflicting row first.`,
-        );
+        throw new RestoreUniquenessConflictError({
+          userMessage:
+            `Cannot restore ${entityTypeLabel} ${existing.id}: an active row already ` +
+            `occupies the unique key (${keyset.join(', ')}). Deactivate or rename the ` +
+            `conflicting row first.`,
+          entityType: entityTypeLabel,
+          entityId: existing.id,
+          conflictingKeys: keyset,
+        });
       }
     }
   }

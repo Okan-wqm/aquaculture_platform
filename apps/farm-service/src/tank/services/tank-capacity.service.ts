@@ -55,13 +55,13 @@
  *   → equipment.volume (top-level denormalised field)
  */
 import {
-  BadRequestException,
   Injectable,
   Logger,
 } from '@nestjs/common';
 
 import { EquipmentStatus } from '../../equipment/entities/equipment.entity';
 import type { Equipment } from '../../equipment/entities/equipment.entity';
+import { TankCapacityExceededError } from '../../common/errors/farm-errors';
 
 /** Shape of the biomass already present on the tank (from TankBatch / equipment.currentBiomass). */
 export interface ExistingTankBiomass {
@@ -277,7 +277,28 @@ export class TankCapacityService {
 
     // Hard mode (or admin-override without the role) — reject.
     this.logger.warn(`Tank capacity check failed: ${message}`);
-    throw new BadRequestException(message);
+    throw new TankCapacityExceededError({
+      userMessage: message,
+      axis: this.mapAxis(calc.primaryBlockReason),
+      mode: this.mapMode(params.mode),
+      projectedBiomassKg: calc.projectedBiomassKg,
+      maxBiomassKg: calc.maxBiomassKg > 0 ? calc.maxBiomassKg : undefined,
+      projectedDensityKgM3: calc.projectedDensityKgM3,
+      maxDensityKgM3: calc.maxDensityKgM3,
+    });
+  }
+
+  private mapAxis(
+    reason: CapacityCalculation['primaryBlockReason'],
+  ): 'biomass' | 'density' | 'status' {
+    if (reason === 'biomass') return 'biomass';
+    if (reason === 'density') return 'density';
+    return 'status';
+  }
+
+  private mapMode(mode: EnforceOptions['mode']): 'hard' | 'admin_override' | 'soft' {
+    if (mode === 'admin-override') return 'admin_override';
+    return mode;
   }
 
   /**

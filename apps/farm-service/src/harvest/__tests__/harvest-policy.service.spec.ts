@@ -10,6 +10,7 @@
  * no `as any` anywhere.
  */
 import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { HarvestPlanRequiredError } from '../../common/errors/farm-errors';
 import { ConfigService } from '@nestjs/config';
 import { Repository } from 'typeorm';
 
@@ -112,7 +113,7 @@ describe('HarvestPolicyService', () => {
           projectedBiomassKg: 15_000,
           projectedQuantity: 1_000,
         }),
-      ).rejects.toThrow(BadRequestException);
+      ).rejects.toThrow(HarvestPlanRequiredError);
     });
 
     it('accepts when an APPROVED plan for the batch is cited', async () => {
@@ -180,7 +181,7 @@ describe('HarvestPolicyService', () => {
           projectedBiomassKg: 100,
           projectedQuantity: 60_000,
         }),
-      ).rejects.toThrow(BadRequestException);
+      ).rejects.toThrow(HarvestPlanRequiredError);
     });
   });
 
@@ -197,7 +198,7 @@ describe('HarvestPolicyService', () => {
           projectedBiomassKg: 6_000,
           projectedQuantity: 1_000,
         }),
-      ).rejects.toThrow(BadRequestException);
+      ).rejects.toThrow(HarvestPlanRequiredError);
     });
 
     it('falls back to default when env value is invalid', async () => {

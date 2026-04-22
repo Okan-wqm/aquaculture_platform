@@ -771,9 +771,16 @@ pub fn compile_statement(
         // Future-batch scope — explicit batch trace so
         // the operator-visible error cites where the
         // construct will land.
-        Statement::For { .. } => Err(CompileError::Unsupported {
-            what: "FOR loop (Batch 153 adds FOR alongside Int→Real promotion)".to_string(),
-        }),
+        Statement::For {
+            variable,
+            from,
+            to,
+            by,
+            body,
+            ..
+        } => compile_for(
+            variable, from, to, by.as_ref(), body, symbols, ops, loop_stack,
+        ),
         Statement::Case { .. } => Err(CompileError::Unsupported {
             what: "CASE statement (Batch 154)".to_string(),
         }),
@@ -928,6 +935,158 @@ fn compile_repeat(
     }
     for slot in ctx.continue_slots {
         patch_jump(ops, slot, cond_check);
+    }
+
+    Ok(())
+}
+
+/// Compile `FOR i := from TO to DO body END_FOR`
+/// (Batch 162 Faz 3 / plan R-1).
+///
+/// Emitted shape:
+/// ```text
+///   <from expr>; StoreLocal(i)          // i := from
+/// LOOP_START:
+///   <to expr>; LoadLocal(i); LtInt; Not  // i <= to  (= !(to < i))
+///   JumpIfFalse END
+///   <body>                               // Exit→END, Continue→INCR
+/// INCR:
+///   LoadLocal(i); PushConst(1); AddInt; StoreLocal(i)  // i += 1
+///   Jump LOOP_START
+/// END:
+/// ```
+///
+/// The `to` expression is re-evaluated each iteration —
+/// the compiler doesn't allocate a hidden local for it
+/// in Batch 162. For IntLiteral + Variable expressions
+/// (the overwhelming common case) this is semantically
+/// identical to the strict IEC 61131-3 evaluate-once
+/// rule because both are idempotent. Non-idempotent
+/// `to` expressions (any stdlib call, once those can
+/// have side effects) will run once per iteration; a
+/// future batch introduces hidden-local allocation for
+/// strict spec compliance.
+///
+/// Step (BY) clause: Batch 162 only accepts `by=None`
+/// (implicit step=1). Non-trivial step values require
+/// negative-step detection + altered comparison
+/// direction + a hidden local for the step value —
+/// all batch-163 territory.
+///
+/// The loop variable MUST resolve to a declared Int
+/// local. FOR against a tag or a Real local is
+/// rejected as `CompileError::TypeMismatch`.
+fn compile_for(
+    variable: &str,
+    from: &Expression,
+    to: &Expression,
+    by: Option<&Expression>,
+    body: &[Statement],
+    symbols: &SymbolTable,
+    ops: &mut Vec<Opcode>,
+    loop_stack: &mut Vec<LoopContext>,
+) -> Result<(), CompileError> {
+    // BY clause gate.
+    if by.is_some() {
+        return Err(CompileError::Unsupported {
+            what: "FOR … BY clause (batch 163 adds step semantics)"
+                .to_string(),
+        });
+    }
+
+    // Loop variable MUST be a declared Int local.
+    let loop_var_entry = symbols.get(variable).ok_or_else(|| {
+        CompileError::UnknownVariable {
+            name: variable.to_string(),
+        }
+    })?;
+    if loop_var_entry.declared_type != StValueType::Int {
+        return Err(CompileError::TypeMismatch {
+            op: "for-loop-variable".to_string(),
+            left: StValueType::Int,
+            right: loop_var_entry.declared_type,
+        });
+    }
+    let loop_var_local_index = match loop_var_entry.kind {
+        SymbolKind::Local { local_index } => local_index,
+        SymbolKind::Tag => {
+            return Err(CompileError::Unsupported {
+                what: format!(
+                    "FOR loop variable `{}` must be a local — tag targets are not supported",
+                    variable
+                ),
+            });
+        }
+    };
+
+    // Step 1: i := from.
+    let (from_ops, from_type) = compile_expression(from, symbols)?;
+    if from_type != StValueType::Int {
+        return Err(CompileError::TypeMismatch {
+            op: "for-from-expression".to_string(),
+            left: StValueType::Int,
+            right: from_type,
+        });
+    }
+    ops.extend(from_ops);
+    ops.push(Opcode::StoreLocal {
+        index: loop_var_local_index,
+    });
+
+    let loop_start = ops.len() as u32;
+
+    // Condition: i <= to  (compiled as `!(to < i)` so
+    // the existing LtInt opcode suffices without adding
+    // a LeInt primitive).
+    let (to_ops, to_type) = compile_expression(to, symbols)?;
+    if to_type != StValueType::Int {
+        return Err(CompileError::TypeMismatch {
+            op: "for-to-expression".to_string(),
+            left: StValueType::Int,
+            right: to_type,
+        });
+    }
+    ops.extend(to_ops);
+    ops.push(Opcode::LoadLocal {
+        index: loop_var_local_index,
+    });
+    ops.push(Opcode::LtInt); // (to < i)
+    ops.push(Opcode::Not); // !(to < i)  ==  i <= to
+    let exit_cond_slot = emit_placeholder_jump_if_false(ops);
+
+    // Push loop context BEFORE body compilation so
+    // nested EXIT / CONTINUE resolve against this loop.
+    loop_stack.push(LoopContext::default());
+
+    for s in body {
+        compile_statement(s, symbols, ops, loop_stack)?;
+    }
+
+    // INCR — where CONTINUE lands (next-iteration step).
+    let incr_start = ops.len() as u32;
+    ops.push(Opcode::LoadLocal {
+        index: loop_var_local_index,
+    });
+    ops.push(Opcode::PushConst {
+        value: StValue::Int(1),
+    });
+    ops.push(Opcode::AddInt);
+    ops.push(Opcode::StoreLocal {
+        index: loop_var_local_index,
+    });
+    ops.push(Opcode::Jump { target: loop_start });
+
+    let ctx = loop_stack
+        .pop()
+        .expect("compile_for: loop_stack push/pop mismatch");
+    let loop_end = ops.len() as u32;
+
+    patch_jump_if_false(ops, exit_cond_slot, loop_end);
+    for slot in ctx.exit_slots {
+        patch_jump(ops, slot, loop_end);
+    }
+    for slot in ctx.continue_slots {
+        patch_jump(ops, slot, incr_start);
     }
 
     Ok(())
@@ -2610,6 +2769,166 @@ mod tests {
                 },
             ]
         );
+    }
+
+    // ====================================================================
+    // Batch 162 Faz 3 — FOR loop compilation
+    // ====================================================================
+
+    #[test]
+    fn compile_for_loop_emits_init_condition_body_increment_shape() {
+        // FOR i := 1 TO 3 DO EXIT END_FOR
+        // Loop variable `i` is a declared Int local at index 0.
+        let syms = build_symbols(vec![sym("i", 0, StValueType::Int)]);
+        let mut ops = vec![];
+        compile_stmt_program_scope(
+            &Statement::For {
+                variable: "i".into(),
+                from: Expression::IntLiteral(1),
+                to: Expression::IntLiteral(3),
+                by: None,
+                body: vec![Statement::Exit { span: None }],
+                span: None,
+            },
+            &syms,
+            &mut ops,
+        )
+        .expect("ok");
+        // Expected emission:
+        //  0: PushConst{Int(1)}       (from)
+        //  1: StoreLocal{0}            (i := from)
+        //  2: PushConst{Int(3)}        (to)
+        //  3: LoadLocal{0}
+        //  4: LtInt
+        //  5: Not
+        //  6: JumpIfFalse{target=EXIT}  (patched = end)
+        //  7: Jump{target=EXIT}          (EXIT placeholder, patched)
+        //  8: LoadLocal{0}             (INCR)
+        //  9: PushConst{Int(1)}
+        // 10: AddInt
+        // 11: StoreLocal{0}
+        // 12: Jump{target=2}           (back to LOOP_START = ops[2])
+        // [end = 13]
+        assert_eq!(ops.len(), 13);
+        assert_eq!(ops[0], Opcode::PushConst { value: StValue::Int(1) });
+        assert_eq!(ops[1], Opcode::StoreLocal { index: 0 });
+        assert_eq!(ops[4], Opcode::LtInt);
+        assert_eq!(ops[5], Opcode::Not);
+        assert!(matches!(ops[6], Opcode::JumpIfFalse { target: 13 }));
+        // EXIT inside the body jumps to END.
+        assert!(matches!(ops[7], Opcode::Jump { target: 13 }));
+        // Back-jump targets LOOP_START (index = 2, the
+        // first opcode of the `to` expression).
+        assert!(matches!(ops[12], Opcode::Jump { target: 2 }));
+    }
+
+    #[test]
+    fn compile_for_loop_continue_targets_incr() {
+        // FOR i := 1 TO 10 DO CONTINUE END_FOR
+        // CONTINUE should jump to the INCR block, not the
+        // loop start, so the iteration counter advances.
+        let syms = build_symbols(vec![sym("i", 0, StValueType::Int)]);
+        let mut ops = vec![];
+        compile_stmt_program_scope(
+            &Statement::For {
+                variable: "i".into(),
+                from: Expression::IntLiteral(1),
+                to: Expression::IntLiteral(10),
+                by: None,
+                body: vec![Statement::Continue { span: None }],
+                span: None,
+            },
+            &syms,
+            &mut ops,
+        )
+        .expect("ok");
+        // CONTINUE at body pos 7 → INCR start = 8.
+        assert!(matches!(ops[7], Opcode::Jump { target: 8 }));
+    }
+
+    #[test]
+    fn compile_for_rejects_non_int_loop_variable() {
+        // FOR x := 1 TO 10 DO ... where x is Real → reject.
+        let syms = build_symbols(vec![sym("x", 0, StValueType::Real)]);
+        let mut ops = vec![];
+        let err = compile_stmt_program_scope(
+            &Statement::For {
+                variable: "x".into(),
+                from: Expression::IntLiteral(1),
+                to: Expression::IntLiteral(10),
+                by: None,
+                body: vec![],
+                span: None,
+            },
+            &syms,
+            &mut ops,
+        )
+        .expect_err("type mismatch");
+        assert!(matches!(err, CompileError::TypeMismatch { .. }));
+    }
+
+    #[test]
+    fn compile_for_rejects_tag_loop_variable() {
+        let syms = build_symbols(vec![sym_tag(
+            "counter_tag",
+            StValueType::Int,
+            true,
+        )]);
+        let mut ops = vec![];
+        let err = compile_stmt_program_scope(
+            &Statement::For {
+                variable: "counter_tag".into(),
+                from: Expression::IntLiteral(1),
+                to: Expression::IntLiteral(10),
+                by: None,
+                body: vec![],
+                span: None,
+            },
+            &syms,
+            &mut ops,
+        )
+        .expect_err("tag cannot be loop variable");
+        assert!(matches!(err, CompileError::Unsupported { .. }));
+    }
+
+    #[test]
+    fn compile_for_rejects_by_clause() {
+        let syms = build_symbols(vec![sym("i", 0, StValueType::Int)]);
+        let mut ops = vec![];
+        let err = compile_stmt_program_scope(
+            &Statement::For {
+                variable: "i".into(),
+                from: Expression::IntLiteral(1),
+                to: Expression::IntLiteral(10),
+                by: Some(Expression::IntLiteral(2)),
+                body: vec![],
+                span: None,
+            },
+            &syms,
+            &mut ops,
+        )
+        .expect_err("BY clause unsupported in Batch 162");
+        assert!(matches!(err, CompileError::Unsupported { .. }));
+    }
+
+    #[test]
+    fn compile_for_rejects_unknown_loop_variable() {
+        let syms = build_symbols(vec![]);
+        let mut ops = vec![];
+        let err = compile_stmt_program_scope(
+            &Statement::For {
+                variable: "ghost".into(),
+                from: Expression::IntLiteral(1),
+                to: Expression::IntLiteral(10),
+                by: None,
+                body: vec![],
+                span: None,
+            },
+            &syms,
+            &mut ops,
+        )
+        .expect_err("unknown");
+        assert!(matches!(err, CompileError::UnknownVariable { .. }));
     }
 
     #[test]

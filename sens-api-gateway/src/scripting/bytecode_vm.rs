@@ -1944,6 +1944,173 @@ mod tests {
     // ====================================================================
 
     #[test]
+    fn run_compiled_for_loop_sums_one_through_five() {
+        // Batch 162 end-to-end:
+        // PROGRAM p
+        //   VAR i: INT; sum: INT; END_VAR
+        //   sum := 0;
+        //   FOR i := 1 TO 5 DO sum := sum + i; END_FOR
+        // END_PROGRAM
+        //
+        // Expected: sum = 1+2+3+4+5 = 15, i = 6 after loop.
+        use super::super::bytecode_compiler::compile_program;
+        use crate::st_validator::{
+            BinaryOp, DataType, Expression, Program, Statement, VarBlock, VarDeclaration, VarScope,
+        };
+
+        let prog = Program {
+            name: "for_sum".into(),
+            var_blocks: vec![VarBlock {
+                scope: VarScope::Local,
+                retain: false,
+                constant: false,
+                declarations: vec![
+                    VarDeclaration {
+                        name: "i".into(),
+                        data_type: DataType::Int,
+                        initial_value: None,
+                        span: None,
+                    },
+                    VarDeclaration {
+                        name: "sum".into(),
+                        data_type: DataType::Int,
+                        initial_value: None,
+                        span: None,
+                    },
+                ],
+                span: None,
+            }],
+            body: vec![
+                // sum := 0;
+                Statement::Assignment {
+                    target: Expression::Variable("sum".into(), None),
+                    value: Expression::IntLiteral(0),
+                    span: None,
+                },
+                // FOR i := 1 TO 5 DO sum := sum + i END_FOR
+                Statement::For {
+                    variable: "i".into(),
+                    from: Expression::IntLiteral(1),
+                    to: Expression::IntLiteral(5),
+                    by: None,
+                    body: vec![Statement::Assignment {
+                        target: Expression::Variable("sum".into(), None),
+                        value: Expression::BinaryOp {
+                            left: Box::new(Expression::Variable(
+                                "sum".into(),
+                                None,
+                            )),
+                            op: BinaryOp::Add,
+                            right: Box::new(Expression::Variable(
+                                "i".into(),
+                                None,
+                            )),
+                        },
+                        span: None,
+                    }],
+                    span: None,
+                },
+            ],
+            span: None,
+        };
+        let bc_compiled =
+            compile_program(&prog, &[], "p".into(), 1_000_000).expect("compile");
+        let mut vm = ScriptVm::new(&bc_compiled);
+        assert_eq!(vm.run(&bc_compiled), VmOutcome::Returned);
+        // i = 0 (slot 0), sum = 1 (slot 1) per declaration order.
+        // After the loop: i exited at 6 (first value >5), sum = 15.
+        assert_eq!(vm.locals()[0], StValue::Int(6));
+        assert_eq!(vm.locals()[1], StValue::Int(15));
+    }
+
+    #[test]
+    fn run_compiled_for_loop_exit_halts_early() {
+        // FOR i := 1 TO 10 DO
+        //   IF i = 4 THEN EXIT END_IF;
+        //   sum := sum + 1;
+        // END_FOR
+        // Expected: sum = 3 (i = 1, 2, 3 before EXIT at i=4).
+        use super::super::bytecode_compiler::compile_program;
+        use crate::st_validator::{
+            BinaryOp, DataType, Expression, Program, Statement, VarBlock, VarDeclaration, VarScope,
+        };
+
+        let prog = Program {
+            name: "for_exit".into(),
+            var_blocks: vec![VarBlock {
+                scope: VarScope::Local,
+                retain: false,
+                constant: false,
+                declarations: vec![
+                    VarDeclaration {
+                        name: "i".into(),
+                        data_type: DataType::Int,
+                        initial_value: None,
+                        span: None,
+                    },
+                    VarDeclaration {
+                        name: "sum".into(),
+                        data_type: DataType::Int,
+                        initial_value: None,
+                        span: None,
+                    },
+                ],
+                span: None,
+            }],
+            body: vec![
+                Statement::Assignment {
+                    target: Expression::Variable("sum".into(), None),
+                    value: Expression::IntLiteral(0),
+                    span: None,
+                },
+                Statement::For {
+                    variable: "i".into(),
+                    from: Expression::IntLiteral(1),
+                    to: Expression::IntLiteral(10),
+                    by: None,
+                    body: vec![
+                        Statement::If {
+                            condition: Expression::BinaryOp {
+                                left: Box::new(Expression::Variable(
+                                    "i".into(),
+                                    None,
+                                )),
+                                op: BinaryOp::Eq,
+                                right: Box::new(Expression::IntLiteral(4)),
+                            },
+                            then_body: vec![Statement::Exit { span: None }],
+                            elsif_branches: vec![],
+                            else_body: None,
+                            span: None,
+                        },
+                        Statement::Assignment {
+                            target: Expression::Variable("sum".into(), None),
+                            value: Expression::BinaryOp {
+                                left: Box::new(Expression::Variable(
+                                    "sum".into(),
+                                    None,
+                                )),
+                                op: BinaryOp::Add,
+                                right: Box::new(Expression::IntLiteral(1)),
+                            },
+                            span: None,
+                        },
+                    ],
+                    span: None,
+                },
+            ],
+            span: None,
+        };
+        let bc_compiled =
+            compile_program(&prog, &[], "p".into(), 1_000_000).expect("compile");
+        let mut vm = ScriptVm::new(&bc_compiled);
+        assert_eq!(vm.run(&bc_compiled), VmOutcome::Returned);
+        // i reached 4 (when EXIT fired), sum = 3.
+        assert_eq!(vm.locals()[0], StValue::Int(4));
+        assert_eq!(vm.locals()[1], StValue::Int(3));
+    }
+
+    #[test]
     fn run_compiled_while_loop_counts_to_three() {
         // Batch 152 Faz 3 end-to-end test — compile +
         // run a WHILE loop through the Batch 151 VM.

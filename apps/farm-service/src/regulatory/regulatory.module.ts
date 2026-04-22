@@ -17,22 +17,28 @@ import { MattilsynetApiService } from './mattilsynet-api.service';
 import { RegulatoryResolver } from './regulatory.resolver';
 import { RegulatorySettings } from './entities/regulatory-settings.entity';
 import { RegulatorySettingsService } from './regulatory-settings.service';
+import { BiomassReport } from './entities/biomass-report.entity';
+import { BiomassReportService } from './services/biomass-report.service';
+import { BiomassReportResolver } from './biomass-report.resolver';
 
 @Module({
   imports: [
     ConfigModule,
-    TypeOrmModule.forFeature([RegulatorySettings]),
+    TypeOrmModule.forFeature([RegulatorySettings, BiomassReport]),
   ],
   providers: [
     MaskinportenService,
     MattilsynetApiService,
     RegulatoryResolver,
     RegulatorySettingsService,
+    BiomassReportService,
+    BiomassReportResolver,
   ],
   exports: [
     MaskinportenService,
     MattilsynetApiService,
     RegulatorySettingsService,
+    BiomassReportService,
   ],
 })
 export class RegulatoryModule {}

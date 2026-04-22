@@ -25,9 +25,12 @@ import { SpeciesHandlers } from './handlers';
 // Resolvers
 import { SpeciesResolver } from './resolvers/species.resolver';
 
+import { RestoreModule } from '../common/services/restore.module';
+
 @Module({
   imports: [
     TypeOrmModule.forFeature([Species, Batch]),
+    RestoreModule,
   ],
   providers: [
     ...SpeciesHandlers,

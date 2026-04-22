@@ -19,9 +19,10 @@ import { AddDocumentCommand } from './commands/add-document.command';
 import { RemoveDocumentCommand } from './commands/remove-document.command';
 import { GetChemicalQuery } from './queries/get-chemical.query';
 import { ListChemicalsQuery } from './queries/list-chemicals.query';
-import { ChemicalType } from './entities/chemical.entity';
+import { Chemical, ChemicalType } from './entities/chemical.entity';
 import { ChemicalType as ChemicalTypeEntity } from './entities/chemical-type.entity';
 import { AddChemicalDocumentInput } from './dto/add-document.input';
+import { RestoreService } from '../common/services/restore.service';
 
 @Resolver(() => ChemicalResponse)
 @UseGuards(TenantGuard)
@@ -33,6 +34,9 @@ export class ChemicalResolver {
     private readonly queryBus: QueryBus,
     @InjectRepository(ChemicalTypeEntity)
     private readonly chemicalTypeRepository: Repository<ChemicalTypeEntity>,
+    @InjectRepository(Chemical)
+    private readonly chemicalRepository: Repository<Chemical>,
+    private readonly restoreService: RestoreService,
   ) {}
 
   /**
@@ -79,6 +83,28 @@ export class ChemicalResolver {
     this.logger.log(`Deleting chemical ${id} for tenant ${tenantId}`);
     const command = new DeleteChemicalCommand(id, tenantId, user.sub);
     return this.commandBus.execute(command);
+  }
+
+  /**
+   * Restore a soft-deleted chemical. TENANT_ADMIN only. Phase 4.2
+   * of the "Farm modülü kalan kör noktalar" plan. Closes Girdi 6
+   * on the chemical surface.
+   */
+  @Roles(Role.TENANT_ADMIN)
+  @Mutation(() => ChemicalResponse)
+  async restoreChemical(
+    @Args('id', { type: () => ID }) id: string,
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: { sub: string; name?: string },
+  ): Promise<Chemical> {
+    this.logger.log(`Restoring chemical ${id} for tenant ${tenantId}`);
+    return this.restoreService.restore(
+      this.chemicalRepository,
+      Chemical,
+      id,
+      { tenantId, userId: user.sub, userName: user.name },
+      { uniqueKeys: [['code']] },
+    );
   }
 
   /**

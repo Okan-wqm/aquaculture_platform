@@ -24,6 +24,11 @@ tenant-context = { path = "../../crates/tenant-context", version = "0.1.0" }
 nats-client = { path = "../../crates/nats-client", version = "0.1.0" }
 observability = { path = "../../crates/observability", version = "0.1.0" }
 event-contracts-rs = { path = "../../crates/event-contracts-rs", version = "0.1.0" }
+# ADR-029 Transactional Outbox — integrates at the write_tenant_batch
+# transaction boundary so every SensorReading COPY writes its
+# corresponding SensorMetricIngested event atomically. A separate
+# OutboxDispatcher task claims pending rows + publishes to NATS.
+outbox-rs = { path = "../../crates/outbox-rs", version = "0.1.0" }
 
 # Async runtime + IO.
 tokio = { workspace = true, features = ["full"] }

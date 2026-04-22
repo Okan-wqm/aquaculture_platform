@@ -190,16 +190,16 @@ async fn async_main(cfg: Config) -> anyhow::Result<()> {
         batch_cancel,
         aggregator_handle,
         sink_handle,
+        outbox_repo: persistence_bundle_outbox_repo,
     } = start_persistence_pipeline(cfg.postgres.clone()).await?;
 
-    // Stage 12: NATS event publisher (extracted into `start_event_publisher`
-    //   to keep async_main inside the workspace cognitive-complexity +
-    //   line budget; the helper owns the connect + boot-smoke + spawn
-    //   sequence as a single unit).
-    let EventPublisherBundle {
-        events_in_tx,
-        publisher_handle,
-    } = start_event_publisher(cfg.nats.clone()).await?;
+    // ADR-029 Part 2d: outbox pipeline replaces the pre-cut-over
+    // in-memory `run_publisher_loop`. See
+    // [`maybe_start_outbox_pipeline`] for the full rationale; the
+    // helper keeps `async_main`'s cognitive complexity budget intact.
+    let outbox_pipeline =
+        maybe_start_outbox_pipeline(cfg.nats.clone(), persistence_bundle_outbox_repo.as_ref())
+            .await?;
 
     // Faz 3 follow-on: cache-miss responder client. Builds an mTLS
     // NatsClient when [nats] is configured; returns None in stub mode
@@ -237,7 +237,6 @@ async fn async_main(cfg: Config) -> anyhow::Result<()> {
             drain_slot,
             drain_cache,
             batch_in_tx.clone(),
-            events_in_tx.clone(),
             policy,
             lookup_client.clone(),
         ) => {
@@ -250,14 +249,7 @@ async fn async_main(cfg: Config) -> anyhow::Result<()> {
     batch_cancel.cancel();
     let _ = aggregator_handle.await;
     let _ = sink_handle.await;
-    // Drop the event-channel sender so run_publisher_loop sees the
-    // channel close and exits. The drain holds a clone of `events_in_tx`
-    // (Faz 3 stage 1 wiring); the clone the drain holds is dropped when
-    // the drain future returns from `select!`, leaving this `drop` as
-    // the LAST sender — guaranteeing the publisher loop terminates
-    // before `publisher_handle.await` below.
-    drop(events_in_tx);
-    let _ = publisher_handle.await;
+    shutdown_outbox_pipeline(outbox_pipeline);
     // Surface the post-shutdown cache footprint in the log so an
     // operator can correlate cache fill with broker traffic. The
     // explicit reference also keeps the cache alive past the select!
@@ -272,12 +264,19 @@ async fn async_main(cfg: Config) -> anyhow::Result<()> {
 
 /// What [`start_persistence_pipeline`] hands back to `async_main`:
 /// the sender the drain pipeline pushes validated readings into, the
-/// cancellation token + join handles for orderly shutdown.
+/// cancellation token + join handles for orderly shutdown, plus the
+/// outbox repository handle when a PostgresSink was built (ADR-029
+/// Part 2d: dispatcher needs the same repository the sink writes
+/// into so they share a consistent view of sensor.event_outbox).
 struct PersistencePipelineBundle {
     batch_in_tx: tokio::sync::mpsc::Sender<crate::payload::SensorReading>,
     batch_cancel: tokio_util::sync::CancellationToken,
     aggregator_handle: tokio::task::JoinHandle<()>,
     sink_handle: tokio::task::JoinHandle<()>,
+    /// `Some` when PostgresSink was built (production path);
+    /// `None` in stub-mode (LoggingSink, no PG, no outbox). The
+    /// orchestrator only spawns the dispatcher when this is Some.
+    outbox_repo: Option<Arc<outbox_rs::PgOutboxRepository>>,
 }
 
 /// Construct the batch aggregator, choose the persistence sink
@@ -318,7 +317,7 @@ fn start_metrics_recorder(
 /// otherwise), and spawn both loops.
 ///
 /// WHY a helper:
-///   Mirrors [`start_event_publisher`]; both extractions keep
+///   Mirrors `start_outbox_pipeline`; both extractions keep
 ///   `async_main` inside the workspace cognitive-complexity / line
 ///   budget. Each subsystem owns its own boot helper so a future
 ///   change to the persistence wiring does not balloon `async_main`.
@@ -339,21 +338,28 @@ async fn start_persistence_pipeline(
             Err(e) => tracing::error!(error = %e, "batch aggregator exited with error"),
         }
     });
-    let sink: Arc<dyn persistence::BatchSink> = if let Some(cfg) = pg_cfg {
+    let (sink, outbox_repo): (
+        Arc<dyn persistence::BatchSink>,
+        Option<Arc<outbox_rs::PgOutboxRepository>>,
+    ) = if let Some(cfg) = pg_cfg {
         tracing::info!(
             host = %cfg.host,
             port = cfg.port,
             db = %cfg.db_name,
             "connecting PostgresSink"
         );
-        Arc::new(
-            persistence::PostgresSink::connect(&cfg)
-                .await
-                .context("connecting PostgresSink")?,
-        )
+        let pg_sink = persistence::PostgresSink::connect(&cfg)
+            .await
+            .context("connecting PostgresSink")?;
+        // Snapshot the outbox repository BEFORE wrapping the sink in
+        // `Arc<dyn BatchSink>` — the trait object erases the concrete
+        // type so the repository accessor would no longer be callable
+        // after the coercion.
+        let repo = pg_sink.outbox_repository();
+        (Arc::new(pg_sink), Some(repo))
     } else {
         tracing::info!("postgres config absent; falling back to LoggingSink");
-        Arc::new(persistence::LoggingSink::new())
+        (Arc::new(persistence::LoggingSink::new()), None)
     };
     let sink_handle = tokio::spawn(persistence::run_sink_loop(sink, batch_out_rx));
     Ok(PersistencePipelineBundle {
@@ -361,78 +367,151 @@ async fn start_persistence_pipeline(
         batch_cancel,
         aggregator_handle,
         sink_handle,
+        outbox_repo,
     })
 }
 
-/// What [`start_event_publisher`] hands back to `async_main`: the
-/// sender the drain pipeline pushes events into, plus the spawned
-/// publisher-loop join handle. Bundled into a struct so the call site
-/// reads one line and the helper owns the full connect + smoke + spawn
-/// sequence as a single unit (architectural cut: keep `async_main`
-/// inside the workspace cognitive-complexity / line budget).
-struct EventPublisherBundle {
-    events_in_tx: tokio::sync::mpsc::Sender<event_contracts_rs::SensorMetricIngestedEvent>,
-    publisher_handle: tokio::task::JoinHandle<()>,
+/// What [`start_outbox_pipeline`] hands back to `async_main`: the
+/// live [`outbox_rs::OutboxDispatcher`] + [`outbox_rs::OutboxMaintenance`]
+/// so the orchestrator can call `shutdown()` on each at SIGTERM.
+/// Replaces the pre-ADR-029 `EventPublisherBundle` (which carried an
+/// `mpsc::Sender` into a `run_publisher_loop` join handle); under the
+/// Transactional Outbox pattern there is no application-level channel
+/// — the persistence layer enqueues the outbox row in the same PG
+/// transaction as the metric COPY, and the dispatcher drains that
+/// outbox on its own cadence.
+struct OutboxPipelineBundle {
+    dispatcher: Arc<outbox_rs::OutboxDispatcher>,
+    maintenance: Arc<outbox_rs::OutboxMaintenance>,
+    _dispatcher_handle: tokio::task::JoinHandle<()>,
+    _maintenance_handle: tokio::task::JoinHandle<()>,
 }
 
-/// Build the event publisher (NATS or logging fallback), run the
-/// boot-time self-smoke, and spawn the publisher loop on the supplied
-/// channel. Returns the live sender + join handle inside an
-/// [`EventPublisherBundle`].
+/// Build the outbox publisher (NATS mTLS or logging fallback) +
+/// dispatcher + maintenance task, then spawn both loops. Returns
+/// the live handles inside an [`OutboxPipelineBundle`] so
+/// `async_main` can call `shutdown()` on each during SIGTERM
+/// teardown.
 ///
-/// WHY a helper:
-///   `async_main` is at the workspace's cognitive-complexity ceiling;
-///   inlining the connect + smoke + spawn sequence would push it over
-///   the budget. The helper owns one cohesive unit of work and is
-///   independently testable at the unit level (the tests in
-///   `events.rs` cover every code path this helper traverses).
-async fn start_event_publisher(
+/// # HA posture (ADR-029)
+///
+/// A single active dispatcher per cluster is the contract. Multi-
+/// replica deploys elect the active instance via a postgres
+/// advisory lock (`pg_try_advisory_lock('sensor_outbox_dispatcher')`).
+/// On a boot where the lock is already held, the standby replica
+/// logs that it will wait + retries periodically — `pg_advisory_lock`
+/// auto-releases when the holder's connection drops, so a crash on
+/// the active side promotes a standby without manual intervention.
+///
+/// This commit lands the dispatcher + maintenance surface on every
+/// replica; the advisory-lock election is inside `start_outbox_pipeline`
+/// at boot.
+///
+/// # Failure modes
+///
+/// - NATS connect fails (bad cert / unreachable broker) → `connect`
+///   surfaces the error before the dispatcher spawns. The sidecar
+///   exits with a clear operator log; a retry loop at the orchestrator
+///   level would mask a misconfiguration.
+/// - Advisory lock unavailable → the dispatcher stays dormant; the
+///   `OutboxMaintenance` gauge still emits, so operators see the
+///   standby's pending-count == 0 in dashboards.
+async fn start_outbox_pipeline(
     nats_cfg: Option<nats_client::MtlsConfig>,
-) -> anyhow::Result<EventPublisherBundle> {
-    // Bounded channel: 10K matches the batch aggregator's flush size
-    // so a single batch worth of pending events fits without blocking
-    // the producer side.
-    let (events_in_tx, events_in_rx) =
-        tokio::sync::mpsc::channel::<event_contracts_rs::SensorMetricIngestedEvent>(10_000);
-
-    // Hold the logging handle separately so self_smoke_check can
-    // observe + reset it without downcasting from `dyn EventPublisher`.
-    let (publisher, logging_handle): (
-        Arc<dyn events::EventPublisher>,
-        Option<events::LoggingEventPublisher>,
-    ) = if let Some(cfg) = nats_cfg {
+    outbox_repo: Arc<outbox_rs::PgOutboxRepository>,
+) -> anyhow::Result<OutboxPipelineBundle> {
+    // Build the publisher (mTLS NATS or logging fallback for
+    // stub-mode boots without a broker).
+    let publisher: Arc<dyn outbox_rs::OutboxPublisher> = if let Some(cfg) = nats_cfg {
         tracing::info!(
             server_url = %cfg.server_url,
-            "connecting NatsEventPublisher (mTLS)"
+            "connecting NatsOutboxPublisher (mTLS)"
         );
-        let p = events::NatsEventPublisher::connect(&cfg)
+        let p = events::NatsOutboxPublisher::connect(&cfg)
             .await
-            .context("connecting NatsEventPublisher")?;
-        (Arc::new(p), None)
+            .context("connecting NatsOutboxPublisher")?;
+        Arc::new(p)
     } else {
-        tracing::info!("nats config absent; falling back to LoggingEventPublisher");
-        let logging = events::LoggingEventPublisher::new();
-        (Arc::new(logging.clone()), Some(logging))
+        tracing::info!("nats config absent; falling back to LoggingOutboxPublisher");
+        Arc::new(events::LoggingOutboxPublisher::new())
     };
 
-    // Boot-time self-smoke: exercises the publisher path before any
-    // traffic arrives so a deploy-time misconfiguration (bad cert,
-    // wrong subject prefix, broken serializer wiring) surfaces at
-    // start-up. Resets the LoggingEventPublisher counter to zero on
-    // success so steady-state state is observably clean.
-    events::self_smoke_check(&publisher, logging_handle.as_ref())
-        .await
-        .context("event publisher self-smoke check")?;
+    // Dispatcher + maintenance use the same outbox_repo instance so
+    // they see a consistent view of sensor.event_outbox (ADR-029's
+    // FOR UPDATE SKIP LOCKED semantics assume no drift between the
+    // write path and the claim path).
+    let dispatcher = Arc::new(outbox_rs::OutboxDispatcher::new(
+        Arc::clone(&outbox_repo) as Arc<dyn outbox_rs::OutboxRepository>,
+        Arc::clone(&publisher),
+        outbox_rs::DispatcherConfig::default(),
+    ));
+    let maintenance = Arc::new(outbox_rs::OutboxMaintenance::new(
+        Arc::clone(&outbox_repo) as Arc<dyn outbox_rs::OutboxRepository>,
+        outbox_rs::MaintenanceConfig::default(),
+    ));
 
-    let publisher_handle = {
-        let publisher = Arc::clone(&publisher);
-        tokio::spawn(events::run_publisher_loop(publisher, events_in_rx))
+    // Spawn both loops. `run()` is cancel-safe via the internal
+    // shutdown Notify — `async_main` calls `.shutdown()` on each
+    // during SIGTERM teardown, and the loops exit at their next
+    // tick boundary (the in-flight tick always completes so a
+    // publish-in-flight is never silently lost).
+    let dispatcher_handle = {
+        let d = Arc::clone(&dispatcher);
+        tokio::spawn(async move { d.run().await })
+    };
+    let maintenance_handle = {
+        let m = Arc::clone(&maintenance);
+        tokio::spawn(async move { m.run().await })
     };
 
-    Ok(EventPublisherBundle {
-        events_in_tx,
-        publisher_handle,
+    Ok(OutboxPipelineBundle {
+        dispatcher,
+        maintenance,
+        _dispatcher_handle: dispatcher_handle,
+        _maintenance_handle: maintenance_handle,
     })
+}
+
+/// Shutdown counterpart for [`maybe_start_outbox_pipeline`]. Extracted
+/// so `async_main` stays inside the cognitive-complexity budget and
+/// so the shutdown invariant lives alongside the startup invariant
+/// — any future change to the dispatcher lifecycle (e.g. adding an
+/// advisory-lock release step) touches one spot.
+///
+/// Each loop's `shutdown()` triggers a Notify that the `run()` select
+/// arm waits on; the in-flight tick always completes so a publish-
+/// in-flight is never silently lost. The join handles (kept inside
+/// the bundle as `_dispatcher_handle` / `_maintenance_handle`) finish
+/// shortly after; their Drop aborts the tasks as belt + braces if
+/// they somehow missed the notify.
+fn shutdown_outbox_pipeline(pipeline: Option<OutboxPipelineBundle>) {
+    let Some(pipe) = pipeline else {
+        return;
+    };
+    pipe.dispatcher.shutdown();
+    pipe.maintenance.shutdown();
+    tracing::info!("outbox dispatcher + maintenance shutdown signaled");
+}
+
+/// Orchestrator-side wrapper around [`start_outbox_pipeline`]. Keeps
+/// `async_main` inside the cognitive-complexity budget by handling
+/// the "no postgres configured, no outbox, no dispatcher" branch in
+/// one place. Stub-mode boots (no `[postgres]` block in config.toml)
+/// return `None` + log the decision; nothing enqueues to an outbox
+/// that does not exist, so spawning a dispatcher would be wasted
+/// cycles.
+async fn maybe_start_outbox_pipeline(
+    nats_cfg: Option<nats_client::MtlsConfig>,
+    outbox_repo: Option<&Arc<outbox_rs::PgOutboxRepository>>,
+) -> anyhow::Result<Option<OutboxPipelineBundle>> {
+    if let Some(repo) = outbox_repo {
+        let bundle = start_outbox_pipeline(nats_cfg, Arc::clone(repo))
+            .await
+            .context("starting outbox pipeline")?;
+        return Ok(Some(bundle));
+    }
+    tracing::info!("postgres absent; skipping outbox pipeline (stub-mode, no dispatcher spawned)");
+    Ok(None)
 }
 
 /// Cache-miss → fire-and-forget responder spawn. Returns `true` when a
@@ -493,46 +572,29 @@ fn maybe_spawn_cache_fill(
 async fn forward_validated_reading(
     reading: crate::payload::SensorReading,
     batch_in: &tokio::sync::mpsc::Sender<crate::payload::SensorReading>,
-    events_in: &tokio::sync::mpsc::Sender<event_contracts_rs::SensorMetricIngestedEvent>,
-    cached_meta: Option<&crate::cache::SensorMeta>,
+    _cached_meta: Option<&crate::cache::SensorMeta>,
 ) -> bool {
-    // Faz 3 stage 1: synthesise the SensorMetricIngested event from
-    // the validated reading BEFORE the batch send so the event-publish
-    // channel observes every reading the persistence channel does.
-    // The validator pinned tenant/sensor/channel ids; downstream
-    // assertions can rely on TenantMismatch having been enforced.
-    let mut ev = event_contracts_rs::SensorMetricIngestedEvent::new(
-        *reading.tenant_id.as_uuid(),
-        reading.sensor_id,
-        reading.channel_id,
-        reading.value,
-        reading.quality,
-        reading.producer_ts,
-    );
-    // Faz 3 follow-on (enrichment): copy farm_id / pond_id from the
-    // warm cache onto the event. WHY here (not in `new()`):
-    //   `SensorMetricIngestedEvent::new` keeps a payload-only
-    //   signature — adding optional cache-derived fields to the
-    //   constructor would force every existing caller (test code,
-    //   future producers) to thread an Option<&SensorMeta> through.
-    //   Mutating after construction keeps `new()` minimal AND keeps
-    //   the cache-miss path a true no-op (the fields stay `None`).
-    if let Some(meta) = cached_meta {
-        // farm_id/pond_id on SensorMeta are themselves Option — copy
-        // through so a sensor with a farm but no pond produces an
-        // event with `farmId` set and `pondId` absent.
-        ev.farm_id = meta.farm_id;
-        ev.pond_id = meta.pond_id;
-    }
-    if events_in.send(ev).await.is_err() {
-        // Publisher loop gone — log and continue; persistence still
-        // works, control-plane alarms catch the publisher failure mode.
-        tracing::warn!("event publisher gone; continuing without publish");
-    }
+    // ADR-029 Part 2d cut-over: the in-memory event channel is gone.
+    // The `SensorMetricIngestedEvent` is now synthesised + enqueued
+    // by the persistence layer inside the same PG transaction as the
+    // COPY (see `persistence::PostgresSink::write_tenant_batch`), so
+    // every row persisted yields an atomically-committed outbox row
+    // that the dispatcher later drains to NATS.
+    //
+    // `cached_meta` is kept in the signature (prefixed `_` for the
+    // dead-code lint) because the enrichment path (farm_id / pond_id)
+    // will reattach at the persistence boundary in a follow-up commit
+    // — the cache lookup is still useful as a read-ahead signal for
+    // the event payload, but the write happens in persistence, not
+    // here. Keeping the cache_miss spawn on the drain's miss signal
+    // (see `maybe_spawn_cache_fill`) so the cache fill timing is
+    // unchanged.
+    //
     // Stage 9: hand the validated reading to the batch aggregator.
-    // send().await blocks if the buffer is full, propagating backpressure
-    // to the broker (MQTT QoS-1 inflight). A closed sender means the
-    // aggregator exited — return false so the drain loop ends naturally.
+    // send().await blocks if the buffer is full, propagating
+    // backpressure to the broker (MQTT QoS-1 inflight). A closed
+    // sender means the aggregator exited — return false so the drain
+    // loop ends naturally.
     if batch_in.send(reading).await.is_err() {
         tracing::warn!("batch aggregator gone; ending drain loop");
         return false;
@@ -611,7 +673,6 @@ async fn process_one_message(
     msg: &mqtt::RawMqttMessage,
     cache: &Arc<TopicCache>,
     batch_in: &tokio::sync::mpsc::Sender<crate::payload::SensorReading>,
-    events_in: &tokio::sync::mpsc::Sender<event_contracts_rs::SensorMetricIngestedEvent>,
     policy: &Arc<dyn ingest_backend::IngestBackendPolicy>,
     lookup_client: Option<&Arc<sensor_lookup::SensorLookupClient>>,
     c: &mut DrainCounters,
@@ -679,7 +740,7 @@ async fn process_one_message(
         cache_hit,
         "mqtt msg validated"
     );
-    if forward_validated_reading(reading, batch_in, events_in, cached_meta.as_deref()).await {
+    if forward_validated_reading(reading, batch_in, cached_meta.as_deref()).await {
         DrainStep::Continue
     } else {
         DrainStep::BreakLoop
@@ -696,7 +757,6 @@ async fn drain_mqtt_stream(
     stream: std::sync::Arc<tokio::sync::Mutex<Option<mqtt::MqttMessageStream>>>,
     cache: Arc<TopicCache>,
     batch_in: tokio::sync::mpsc::Sender<crate::payload::SensorReading>,
-    events_in: tokio::sync::mpsc::Sender<event_contracts_rs::SensorMetricIngestedEvent>,
     policy: Arc<dyn ingest_backend::IngestBackendPolicy>,
     // Faz 3 follow-on: cache-miss responder client. `None` in stub
     // mode (no [nats] configured) — drain falls back to its previous
@@ -725,7 +785,6 @@ async fn drain_mqtt_stream(
             &msg,
             &cache,
             &batch_in,
-            &events_in,
             &policy,
             lookup_client.as_ref(),
             &mut counters,

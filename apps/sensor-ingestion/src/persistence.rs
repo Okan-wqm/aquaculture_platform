@@ -210,10 +210,28 @@ pub struct PostgresConfig {
 
 /// Production [`BatchSink`] backed by a deadpool-postgres pool +
 /// rustls-mTLS connections + binary COPY into per-tenant UNLOGGED
-/// staging tables.
+/// staging tables, with an ADR-029 Transactional Outbox enqueue
+/// happening in the SAME transaction as the metric write.
+///
+/// # Atomicity contract (ADR-029)
+///
+/// `write_tenant_batch` opens one PG transaction per tenant and
+/// performs, in order:
+///   1. COPY the rows into the per-tenant `sensor_metrics_stage`.
+///   2. Upsert stage → hypertable.
+///   3. **Enqueue one `SensorMetricIngested` outbox row per input
+///      reading** — this is the new Part 2d integration.
+///   4. Truncate the stage.
+///   5. Commit.
+///
+/// If any step fails, the whole transaction rolls back — the metric
+/// row NEVER ends up in the hypertable without a matching outbox
+/// row, and vice versa. A separate `OutboxDispatcher` task claims
+/// the outbox rows + publishes to NATS on its own cadence.
 #[derive(Debug, Clone)]
 pub struct PostgresSink {
     pool: Pool,
+    outbox: Arc<outbox_rs::PgOutboxRepository>,
 }
 
 impl PostgresSink {
@@ -283,7 +301,26 @@ impl PostgresSink {
             .await
             .map_err(SinkError::Postgres)?;
 
-        Ok(Self { pool })
+        // 5. Outbox repository — shares the sink's connection pool
+        //    (every enqueue happens inside the sink's own write_tenant_batch
+        //    transaction, so the pool is the single source of
+        //    connection-lifecycle truth for both COPY + outbox INSERT).
+        let outbox = Arc::new(outbox_rs::PgOutboxRepository::new(pool.clone()));
+
+        Ok(Self { pool, outbox })
+    }
+
+    /// Expose the outbox repository so `main.rs` can hand the same
+    /// instance to the [`outbox_rs::OutboxDispatcher`]. Sharing a
+    /// single repository between the write path (sink) and the claim
+    /// path (dispatcher) guarantees they see a consistent view of
+    /// the `sensor.event_outbox` table — critical because the claim
+    /// path's `FOR UPDATE SKIP LOCKED` assumes no in-flight INSERTs
+    /// from a different repository instance could drift the row
+    /// counts.
+    #[must_use]
+    pub fn outbox_repository(&self) -> Arc<outbox_rs::PgOutboxRepository> {
+        Arc::clone(&self.outbox)
     }
 }
 
@@ -414,12 +451,72 @@ impl PostgresSink {
         // a stable surface.
         record_upsert_attempt(row_count);
 
-        // Upsert from stage to hypertable, then truncate the stage.
-        // batch_execute runs both in one round-trip.
+        // Upsert from stage to hypertable. Separated from the TRUNCATE
+        // because the outbox enqueue has to land between upsert and
+        // truncate: a row that fails the enqueue must roll back the
+        // full transaction including the upsert, preserving the ADR-029
+        // atomicity invariant (no hypertable row without a matching
+        // outbox row, and vice versa).
         let upsert_sql = build_upsert_sql(&schema);
+        tx.batch_execute(&upsert_sql)
+            .await
+            .map_err(SinkError::Postgres)?;
+
+        // ADR-029 Transactional Outbox: enqueue one
+        // SensorMetricIngested event per persisted reading INSIDE the
+        // same transaction. Either the full batch (COPY + upsert +
+        // every outbox row) commits, or nothing does; a process crash
+        // between the upsert and the truncate simply rolls back the
+        // whole tx and the NATS side never observes half-written data.
+        //
+        // The event_type is a workspace const so a rename in
+        // `event_contracts_rs` fails this call site loudly rather
+        // than drifting the subject used by the dispatcher.
+        for r in &readings {
+            let ev = event_contracts_rs::SensorMetricIngestedEvent::new(
+                *r.tenant_id.as_uuid(),
+                r.sensor_id,
+                r.channel_id,
+                r.value,
+                r.quality,
+                r.producer_ts,
+            );
+            let payload = outbox_rs::encode_payload(&ev).map_err(|e| match e {
+                outbox_rs::OutboxError::Encode(source) => {
+                    // Encode failure is fatal for the batch — the
+                    // event shape is a validated struct so this
+                    // fires only under OOM. Route through
+                    // SinkError::Postgres so the operator log
+                    // surfaces it alongside the rest of the batch's
+                    // context; OOM is not a new alarm shelf.
+                    tracing::error!(error = %source, "outbox payload encode failed (OOM?)");
+                    SinkError::InvalidRow {
+                        reason: format!("outbox payload encode failed: {source}"),
+                    }
+                }
+                other => SinkError::InvalidRow {
+                    reason: format!("outbox enqueue rejected: {other}"),
+                },
+            })?;
+            self.outbox
+                .enqueue_in_tx(
+                    &tx,
+                    r.tenant_id,
+                    event_contracts_rs::SENSOR_METRIC_INGESTED_EVENT_TYPE,
+                    payload,
+                )
+                .await
+                .map_err(|e| SinkError::InvalidRow {
+                    reason: format!("outbox enqueue failed: {e}"),
+                })?;
+        }
+
+        // Truncate the stage last — safe because stage rows have
+        // already been upserted to the hypertable + mirrored in the
+        // outbox. A truncate failure rolls back the whole tx,
+        // preserving atomicity.
         let truncate_sql = build_truncate_stage_sql(&schema);
-        let combined = format!("{upsert_sql};\n{truncate_sql};");
-        tx.batch_execute(&combined)
+        tx.batch_execute(&truncate_sql)
             .await
             .map_err(SinkError::Postgres)?;
         tx.commit().await.map_err(SinkError::Postgres)?;

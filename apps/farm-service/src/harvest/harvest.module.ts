@@ -44,6 +44,11 @@ import { GetHarvestStatisticsHandler } from './handlers/get-harvest-statistics.h
 import { HarvestResolver } from './resolvers/harvest.resolver';
 import { HarvestPlanResolver } from './resolvers/harvest-plan.resolver';
 
+// Cross-module: withdrawal-period / harvest-eligibility enforcement lives
+// in the fish-health module and is shared here so createHarvestRecord can
+// block harvests that would violate an active medicine withdrawal window.
+import { FishHealthModule } from '../fish-health/fish-health.module';
+
 @Module({
   imports: [
     TypeOrmModule.forFeature([
@@ -54,6 +59,7 @@ import { HarvestPlanResolver } from './resolvers/harvest-plan.resolver';
       TankBatch,
       TankOperation,
     ]),
+    FishHealthModule,
   ],
   providers: [
     // Services

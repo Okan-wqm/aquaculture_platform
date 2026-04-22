@@ -76,9 +76,12 @@ import 'reflect-metadata';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+import { parseArgs, type ParsedArgs } from './cli-args';
 import { SCHEMA_REGISTRY } from './schema-registry';
 import {
+  rollbackSchemaMigrations,
   runSchemaMigrations,
+  type RollbackSchemaResult,
   type RunSchemaOptions,
   type RunSchemaResult,
 } from './migration-orchestrator';
@@ -163,10 +166,27 @@ function buildSsl(): NonNullable<RunSchemaOptions['database']['ssl']> {
 }
 
 async function main(): Promise<number> {
+  // Parse CLI flags FIRST — a malformed invocation should fail
+  // before any side effect (env probing, log banner, DB connect).
+  let argv: ParsedArgs;
+  try {
+    argv = parseArgs(process.argv.slice(2));
+  } catch (err: unknown) {
+    log({
+      level: 'error',
+      message: err instanceof Error ? err.message : String(err),
+    });
+    return 2;
+  }
+
+  const rollbackMode = argv.down !== undefined;
   log({
     level: 'info',
-    message: 'aqua-db-migrate starting',
+    message: rollbackMode
+      ? `aqua-db-migrate starting (rollback: --down ${argv.down} --schema ${argv.schema})`
+      : 'aqua-db-migrate starting',
     schemaCount: SCHEMA_REGISTRY.length,
+    rollbackMode,
   });
 
   // Production hard-fail boundary — mirrors
@@ -230,6 +250,61 @@ async function main(): Promise<number> {
     message: 'Bundle root resolved',
     root,
   });
+
+  // ── Rollback path (ORPHAN-020) — --down N --schema <name> ──
+  //
+  // Targets ONE schema registry entry. Tenant fan-out is NOT
+  // invoked on rollback (see rollbackSchemaMigrations docblock).
+  // Operators roll back per-tenant by invoking this CLI against
+  // each tenant schema by name.
+  if (rollbackMode) {
+    const entry = SCHEMA_REGISTRY.find((e) => e.schema === argv.schema);
+    if (entry === undefined) {
+      log({
+        level: 'error',
+        message:
+          `[db-migrate] --schema "${argv.schema}" is not in SCHEMA_REGISTRY. ` +
+          `Valid values: ${SCHEMA_REGISTRY.map((e) => e.schema).join(', ')}`,
+      });
+      return 2;
+    }
+    try {
+      const migrations = entry.migrationsGlob.map((g) => resolve(root, g));
+      const entities = entry.entitiesGlob?.map((g) => resolve(root, g));
+      // Non-null assertion is safe here — rollbackMode is true iff
+      // argv.down !== undefined (parseArgs invariant).
+      const rollbackResult: RollbackSchemaResult =
+        await rollbackSchemaMigrations(
+          {
+            schema: entry.schema,
+            role: entry.role,
+            migrations,
+            ...(entities ? { entities } : {}),
+            database,
+            log,
+          },
+          { count: argv.down as number },
+        );
+      log({
+        level: 'info',
+        message: 'aqua-db-migrate rollback complete',
+        schema: rollbackResult.schema,
+        reverted: rollbackResult.reverted,
+        durationMs: rollbackResult.durationMs,
+      });
+      return 0;
+    } catch (err: unknown) {
+      log({
+        level: 'error',
+        message: 'Schema rollback failed — aborting',
+        schema: entry.schema,
+        service: entry.service,
+        error: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+      });
+      return 1;
+    }
+  }
 
   const results: RunSchemaResult[] = [];
   for (const entry of SCHEMA_REGISTRY) {

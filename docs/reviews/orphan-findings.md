@@ -859,6 +859,8 @@ The TS cloud listener still emits `SensorReading` events in the V1 nested-`readi
 
 ## 2026-04-22 ORPHAN-020 — `apps/db-migrate` runner rollback workflow not verified
 
+**Status:** PARTIALLY RESOLVED — `apps/db-migrate --down N --schema <name>` CLI + `rollbackSchemaMigrations` orchestrator function landed with live PG round-trip test (up → down → up) via `@platform/migration-harness`. 19/19 jest tests green (16 CLI parser + 3 integration). Remaining scope: CI rollback workflow (on-deploy-failure trigger) + tenant fan-out for rollback (currently source-schema only by design; per-tenant rollback requires operator-reviewed scripting per the orchestrator docblock).
+
 **Severity:** MEDIUM (blue-green rollback promise is untested)
 **Discovered:** 2026-04-22, Rust migration rollback DDL audit (Kör Nokta 14).
 **File:** `apps/db-migrate/src/` (runner source not read during Rust plan audit).

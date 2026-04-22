@@ -216,16 +216,41 @@ psql -c "
 
 ---
 
-## db-migrate runner rollback workflow (future — ORPHAN-020)
+## db-migrate runner rollback workflow — automated path
 
-The `apps/db-migrate` runner currently does NOT expose a CLI `--down` subcommand. Every procedure in this runbook uses manual SQL OR psql-connected TypeORM CLI against the service's DataSource — not a platform-owned rollback automation.
+The `apps/db-migrate` runner now exposes a CLI rollback flag (ORPHAN-020 partially RESOLVED). Operators SHOULD prefer the automated path over the manual SQL procedures above; the manual path stays documented as the defense-in-depth fallback.
 
-ORPHAN-020 tracks adding:
-- `apps/db-migrate run --down N` CLI subcommand driven by TypeORM DataSource.revertMigration().
-- An integration test that runs `up → down → up` round-trip against a testcontainers Postgres.
-- A CI workflow that invokes `db-migrate run --down` on deploy failure.
+### Automated path — `aqua-db-migrate --down N --schema <name>`
 
-This runbook will be updated with the automated path once ORPHAN-020 lands. Until then, the procedures here are the authoritative rollback path.
+Single-schema rollback targeting exactly one SCHEMA_REGISTRY entry:
+
+```bash
+# Revert the most recent migration on the `admin` schema.
+docker run --rm --env-file .env.production \
+  ghcr.io/okan-wqm/aquaculture_platform/db-migrate:latest \
+  --down 1 --schema admin
+
+# Revert the last 2 migrations on `sensor`.
+docker run --rm --env-file .env.production \
+  ghcr.io/okan-wqm/aquaculture_platform/db-migrate:latest \
+  --down 2 --schema sensor
+```
+
+### What the automated path does NOT do
+
+1. **Tenant fan-out.** `rollbackSchemaMigrations` reverts ONLY the named schema's `typeorm_migrations` HEAD. For tenant-scoped migrations (e.g. a rollback across all `tenant_*` schemas), operators MUST script per-tenant invocations and review each tenant's business-data state before reverting. This is an ADR-011 invariant: blind fan-out reversal on tenant data is destructive without explicit per-tenant intent.
+
+2. **Pre-flight state capture.** The manual-path "Pre-rollback capture" step (JSON snapshot of admin.ingest_backend_policy_state, sidecar disk-fallback verification, etc.) is still MANDATORY before automated rollback — the CLI reverts the migration but cannot recover state that existed above the revert point.
+
+3. **CI integration.** The "on-deploy-failure, auto-invoke db-migrate --down" GitHub Actions workflow is tracked scope (ORPHAN-020 remaining). Operators invoke the CLI manually during the change window until that workflow lands.
+
+### When to prefer manual SQL over the CLI
+
+- RLS-enabled migrations (the V_move rollback above): manual path gives operator visibility into the exact `DISABLE ROW LEVEL SECURITY` + `DROP POLICY` sequence executing.
+- Cross-schema migrations that the `--schema <name>` flag cannot target atomically.
+- Production "the CLI container itself is broken" escape hatch.
+
+The CLI and manual paths are kept in lockstep — every migration in SCHEMA_REGISTRY has a TypeORM `down()` the CLI invokes, and the manual path SQL is extractable from the same `down()` body.
 
 ---
 

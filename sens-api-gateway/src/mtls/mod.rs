@@ -49,6 +49,12 @@ pub mod cipher;
 pub mod error;
 pub mod mode;
 pub mod pinning;
+// Batch 136 Sprint 6.6/6.8: rustls ServerCertVerifier impl
+// that plumbs the mTLS 3-stage mode logic into the real
+// TLS handshake. Runs cert-age + fingerprint pinning at
+// the verify callback; delegates X.509 chain trust +
+// hostname match to the rustls WebPkiServerVerifier.
+pub mod rustls_verifier;
 pub mod verify;
 
 pub use cipher::{CipherSuite, CIPHER_SUITE_ALLOWLIST};
@@ -60,4 +66,5 @@ pub use mode::{
 pub use pinning::{
     CertRotationStage, LeafCertFingerprint, PinnedLeafCert, PinnedLeafCertSet,
 };
+pub use rustls_verifier::{verify_cert_at_handshake, SuderraServerCertVerifier};
 pub use verify::verify_leaf_cert;

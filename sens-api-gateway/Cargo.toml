@@ -36,6 +36,14 @@ reqwest = { version = "0.12", features = ["json", "rustls-tls-manual-roots"], de
 # MQTT client — uses rustls by default (no OpenSSL dependency)
 rumqttc = "0.25"
 
+# Direct rustls dep (Batch 136 Sprint 6.6/6.8 wire). Version
+# MUST match what rumqttc pulls in (0.23 series) so the
+# SuderraServerCertVerifier interoperates with the same
+# ServerCertVerifier trait that rumqttc's tokio-rustls
+# expects. Consumed via `rustls::client::danger::ServerCertVerifier`
+# + related types in `src/mtls/rustls_verifier.rs`.
+rustls = { version = "0.23", default-features = false, features = ["std", "tls12"] }
+
 # System CA store for TLS (Let's Encrypt certs are pre-installed on most Linux systems)
 rustls-native-certs = "0.8"
 

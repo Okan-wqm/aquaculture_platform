@@ -49,6 +49,14 @@ pub enum MtlsVerifyError {
 
     /// Clock skew — `now_unix_secs` is negative (pre-epoch).
     InvalidNow,
+
+    /// Cert DER failed to parse via x509-parser (Batch 136
+    /// Sprint 6.8 wire — cert-verify-callback subset fn
+    /// uses this when rustls hands us malformed DER bytes).
+    /// Normally webpki chain-verify catches this first, but
+    /// defense-in-depth surfaces the error shape so our
+    /// audit pipeline records structured reason.
+    CertParseFailed(String),
 }
 
 impl std::fmt::Display for MtlsVerifyError {
@@ -62,6 +70,7 @@ impl std::fmt::Display for MtlsVerifyError {
             Self::FingerprintNotPinned { .. } => f.write_str("fingerprint_not_pinned"),
             Self::ChainTooLong { .. } => f.write_str("chain_too_long"),
             Self::InvalidNow => f.write_str("invalid_now"),
+            Self::CertParseFailed(_) => f.write_str("cert_parse_failed"),
         }
     }
 }

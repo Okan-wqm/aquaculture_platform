@@ -707,12 +707,52 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
     timeZone: 'Europe/Istanbul',
   })
   async cleanupOldData(): Promise<void> {
-    const retentionDays = Number(
-      this.configService.get<number | string>('AUDIT_RETENTION_DAYS', 90),
-    );
+    const retentionPlan: Array<{
+      label: string;
+      fn: string;
+      envVar: string;
+      defaultDays: number;
+    }> = [
+      {
+        label: 'farm_audit_logs',
+        fn: 'cleanup_old_audit_logs',
+        envVar: 'AUDIT_RETENTION_DAYS',
+        defaultDays: 90,
+      },
+      {
+        label: 'feeding_records',
+        fn: 'cleanup_old_feeding_records',
+        envVar: 'FEEDING_RECORD_RETENTION_DAYS',
+        defaultDays: 800,
+      },
+      {
+        label: 'growth_measurements',
+        fn: 'cleanup_old_growth_measurements',
+        envVar: 'GROWTH_MEASUREMENT_RETENTION_DAYS',
+        defaultDays: 1825,
+      },
+      {
+        label: 'water_quality_measurements',
+        fn: 'cleanup_old_water_quality_measurements',
+        envVar: 'WATER_QUALITY_RETENTION_DAYS',
+        defaultDays: 1095,
+      },
+      {
+        label: 'tank_operations',
+        fn: 'cleanup_old_tank_operations',
+        envVar: 'TANK_OPERATION_RETENTION_DAYS',
+        defaultDays: 2555,
+      },
+      {
+        label: 'harvest_records',
+        fn: 'cleanup_old_harvest_records',
+        envVar: 'HARVEST_RECORD_RETENTION_DAYS',
+        defaultDays: 3650,
+      },
+    ];
 
     this.logger.log(
-      `Starting audit-log cleanup (retention=${retentionDays} days)`,
+      `Starting nightly retention cleanup across ${retentionPlan.length} table(s)`,
     );
 
     let tenantSchemas: string[];
@@ -720,12 +760,12 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
       tenantSchemas = await listTenantSchemas(this.dataSource);
     } catch (err) {
       this.logger.error(
-        `Failed to list tenant schemas for audit cleanup: ${(err as Error).message}`,
+        `Failed to list tenant schemas for retention cleanup: ${(err as Error).message}`,
       );
       return;
     }
 
-    let totalDeleted = 0;
+    const summary: Record<string, number> = {};
     for (const schema of tenantSchemas) {
       const queryRunner = this.dataSource.createQueryRunner();
       await queryRunner.connect();
@@ -733,32 +773,53 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
         await queryRunner.query(
           `SET search_path TO "${schema}", farm, public`,
         );
-        const rows = (await queryRunner.query(
-          `SELECT cleanup_old_audit_logs($1) AS deleted_count`,
-          [retentionDays],
-        )) as Array<{ deleted_count: number | string | null }>;
 
-        const deleted = Number(rows?.[0]?.deleted_count ?? 0);
-        totalDeleted += deleted;
-        if (deleted > 0) {
-          this.logger.log(
-            `Tenant ${schema}: deleted ${deleted} audit log rows older than ${retentionDays} days`,
+        for (const plan of retentionPlan) {
+          const retentionDays = Number(
+            this.configService.get<number | string>(
+              plan.envVar,
+              plan.defaultDays,
+            ),
           );
+          const effective = Number.isFinite(retentionDays) && retentionDays > 0
+            ? retentionDays
+            : plan.defaultDays;
+
+          try {
+            const rows = (await queryRunner.query(
+              `SELECT ${plan.fn}($1) AS deleted_count`,
+              [effective],
+            )) as Array<{ deleted_count: number | string | null }>;
+
+            const deleted = Number(rows?.[0]?.deleted_count ?? 0);
+            summary[plan.label] = (summary[plan.label] ?? 0) + deleted;
+            if (deleted > 0) {
+              this.logger.log(
+                `Tenant ${schema}: deleted ${deleted} ${plan.label} row(s) older than ${effective} days`,
+              );
+            }
+          } catch (err) {
+            // Retention functions may be missing on tenants whose
+            // schema has not yet received the 1787000000000
+            // migration. Log and continue so one missing function
+            // does not abort the rest of the plan for this tenant.
+            this.logger.warn(
+              `Retention cleanup skipped for ${plan.label} on tenant ${schema}: ${(err as Error).message}`,
+            );
+          }
         }
-      } catch (err) {
-        // cleanup_old_audit_logs() may be missing on tenants that have
-        // not yet run the audit_logs migration. Log and continue rather
-        // than aborting the whole cycle.
-        this.logger.warn(
-          `Audit cleanup skipped for tenant ${schema}: ${(err as Error).message}`,
-        );
       } finally {
         await queryRunner.release();
       }
     }
 
+    const totalDeleted = Object.values(summary).reduce((a, b) => a + b, 0);
+    const breakdown = Object.entries(summary)
+      .filter(([, n]) => n > 0)
+      .map(([label, n]) => `${label}=${n}`)
+      .join(', ');
     this.logger.log(
-      `Audit-log cleanup completed — ${totalDeleted} row(s) deleted across ${tenantSchemas.length} tenant schema(s)`,
+      `Retention cleanup completed — ${totalDeleted} row(s) deleted across ${tenantSchemas.length} tenant schema(s)${breakdown ? `; ${breakdown}` : ''}`,
     );
   }
 

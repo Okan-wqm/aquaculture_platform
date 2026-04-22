@@ -828,6 +828,147 @@ mod tests {
     // ====================================================================
 
     #[test]
+    fn run_compiled_while_loop_counts_to_three() {
+        // Batch 152 Faz 3 end-to-end test — compile +
+        // run a WHILE loop through the Batch 151 VM.
+        //
+        // PROGRAM p
+        //   VAR i: INT; flag: BOOL; END_VAR
+        //   i := 0;
+        //   flag := TRUE;
+        //   WHILE flag DO
+        //     i := i + 1;
+        //     IF i = 3 THEN flag := FALSE; END_IF;
+        //   END_WHILE
+        // END_PROGRAM
+        use super::super::bytecode_compiler::compile_program;
+        use crate::st_validator::{
+            BinaryOp, DataType, Expression, Program, Statement, VarBlock, VarDeclaration, VarScope,
+        };
+
+        let prog = Program {
+            name: "p".into(),
+            var_blocks: vec![VarBlock {
+                scope: VarScope::Local,
+                retain: false,
+                constant: false,
+                declarations: vec![
+                    VarDeclaration {
+                        name: "i".into(),
+                        data_type: DataType::Int,
+                        initial_value: None,
+                        span: None,
+                    },
+                    VarDeclaration {
+                        name: "flag".into(),
+                        data_type: DataType::Bool,
+                        initial_value: None,
+                        span: None,
+                    },
+                ],
+                span: None,
+            }],
+            body: vec![
+                // i := 0;
+                Statement::Assignment {
+                    target: Expression::Variable("i".into(), None),
+                    value: Expression::IntLiteral(0),
+                    span: None,
+                },
+                // flag := TRUE;
+                Statement::Assignment {
+                    target: Expression::Variable("flag".into(), None),
+                    value: Expression::BoolLiteral(true),
+                    span: None,
+                },
+                // WHILE flag DO ... END_WHILE
+                Statement::While {
+                    condition: Expression::Variable("flag".into(), None),
+                    body: vec![
+                        // i := i + 1;
+                        Statement::Assignment {
+                            target: Expression::Variable("i".into(), None),
+                            value: Expression::BinaryOp {
+                                left: Box::new(Expression::Variable("i".into(), None)),
+                                op: BinaryOp::Add,
+                                right: Box::new(Expression::IntLiteral(1)),
+                            },
+                            span: None,
+                        },
+                        // IF i = 3 THEN flag := FALSE; END_IF
+                        Statement::If {
+                            condition: Expression::BinaryOp {
+                                left: Box::new(Expression::Variable("i".into(), None)),
+                                op: BinaryOp::Eq,
+                                right: Box::new(Expression::IntLiteral(3)),
+                            },
+                            then_body: vec![Statement::Assignment {
+                                target: Expression::Variable("flag".into(), None),
+                                value: Expression::BoolLiteral(false),
+                                span: None,
+                            }],
+                            elsif_branches: vec![],
+                            else_body: None,
+                            span: None,
+                        },
+                    ],
+                    span: None,
+                },
+            ],
+            span: None,
+        };
+        let bc_compiled =
+            compile_program(&prog, "p".into(), 1_000_000).expect("compile");
+        let mut vm = ScriptVm::new(&bc_compiled);
+        assert_eq!(vm.run(&bc_compiled), VmOutcome::Returned);
+        // After loop: i = 3, flag = false.
+        assert_eq!(vm.locals()[0], StValue::Int(3));
+        assert_eq!(vm.locals()[1], StValue::Bool(false));
+    }
+
+    #[test]
+    fn run_compiled_repeat_loop_runs_at_least_once() {
+        // REPEAT i := 42; UNTIL TRUE END_REPEAT
+        // Even though UNTIL is true on first check,
+        // REPEAT executes body at least once.
+        use super::super::bytecode_compiler::compile_program;
+        use crate::st_validator::{
+            DataType, Expression, Program, Statement, VarBlock, VarDeclaration, VarScope,
+        };
+
+        let prog = Program {
+            name: "p".into(),
+            var_blocks: vec![VarBlock {
+                scope: VarScope::Local,
+                retain: false,
+                constant: false,
+                declarations: vec![VarDeclaration {
+                    name: "i".into(),
+                    data_type: DataType::Int,
+                    initial_value: None,
+                    span: None,
+                }],
+                span: None,
+            }],
+            body: vec![Statement::Repeat {
+                body: vec![Statement::Assignment {
+                    target: Expression::Variable("i".into(), None),
+                    value: Expression::IntLiteral(42),
+                    span: None,
+                }],
+                condition: Expression::BoolLiteral(true),
+                span: None,
+            }],
+            span: None,
+        };
+        let bc_compiled =
+            compile_program(&prog, "p".into(), 1_000).expect("compile");
+        let mut vm = ScriptVm::new(&bc_compiled);
+        assert_eq!(vm.run(&bc_compiled), VmOutcome::Returned);
+        assert_eq!(vm.locals()[0], StValue::Int(42));
+    }
+
+    #[test]
     fn run_compiled_program_assignment_roundtrip() {
         use super::super::bytecode_compiler::compile_program;
         use crate::st_validator::{

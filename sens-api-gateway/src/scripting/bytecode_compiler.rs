@@ -309,21 +309,51 @@ fn compile_binary_op(
 // patch the target AFTER the branch body compiles +
 // the true jump-to-address is known.
 
+/// A single active loop's patch-slot context. While the
+/// loop body is being compiled, `Exit` and `Continue`
+/// statements emit placeholder jumps + record their slot
+/// indexes here; the loop compiler patches the slots
+/// once the END + CONTINUE addresses are known.
+///
+/// Batch 152 Faz 3 (plan R-1): introduced alongside
+/// WHILE / REPEAT compilation so EXIT / CONTINUE can
+/// target the enclosing loop structurally (vs relying
+/// on AST-level unfolding).
+#[derive(Debug, Default)]
+pub struct LoopContext {
+    /// `Jump { target: 0 }` placeholder slot indexes for
+    /// EXIT statements — patched with loop END address
+    /// when the loop compiler finishes emitting.
+    pub exit_slots: Vec<usize>,
+    /// `Jump { target: 0 }` placeholder slot indexes for
+    /// CONTINUE statements — patched with the loop's
+    /// "next iteration" address (WHILE: cond re-check
+    /// start; REPEAT: UNTIL-cond start).
+    pub continue_slots: Vec<usize>,
+}
+
 /// Compile a single statement — append opcodes to
 /// `ops` in-place.
 ///
-/// Batch 150 covers:
-/// - Assignment (to local variable) → expr + StoreLocal
-/// - If-Then-Else(-ElsIf-Else) → branch + patch
-/// - Return → Return opcode
-/// - Empty → no-op (zero opcodes)
+/// Batch 150 covers: Assignment (to local variable),
+/// If-Then-Else(-ElsIf-Else), Return, Empty.
 ///
-/// Batch 151+ adds While / For / Case / Repeat /
-/// FunctionBlockCall.
+/// Batch 152 Faz 3 (plan R-1) adds: While, Repeat,
+/// Exit, Continue. The `loop_stack` parameter carries
+/// the enclosing-loop context so EXIT / CONTINUE
+/// statements can emit placeholder jumps patched by
+/// the innermost loop. An empty stack means the
+/// statement is at program scope; EXIT / CONTINUE at
+/// that scope are rejected as `CompileError::
+/// Unsupported` with an operator-visible message.
+///
+/// Batch 153+ adds: For, Case, FunctionBlockCall,
+/// FunctionCall (stdlib dispatch).
 pub fn compile_statement(
     stmt: &Statement,
     symbols: &SymbolTable,
     ops: &mut Vec<Opcode>,
+    loop_stack: &mut Vec<LoopContext>,
 ) -> Result<(), CompileError> {
     match stmt {
         Statement::Empty => Ok(()),
@@ -335,7 +365,7 @@ pub fn compile_statement(
 
         Statement::Assignment { target, value, .. } => {
             // LHS MUST be a bare Variable — array /
-            // member assignment defer to future batches.
+            // member assignment land in a later batch.
             let target_name = match target {
                 Expression::Variable(name, _) => name,
                 other => {
@@ -384,34 +414,190 @@ pub fn compile_statement(
             else_body.as_deref(),
             symbols,
             ops,
+            loop_stack,
         ),
 
-        // Everything else is future-batch scope.
-        Statement::While { .. } => Err(CompileError::Unsupported {
-            what: "WHILE loop (Batch 151 adds loop compilation)".to_string(),
-        }),
+        Statement::While {
+            condition, body, ..
+        } => compile_while(condition, body, symbols, ops, loop_stack),
+
+        Statement::Repeat {
+            body, condition, ..
+        } => compile_repeat(body, condition, symbols, ops, loop_stack),
+
+        Statement::Exit { .. } => match loop_stack.last_mut() {
+            Some(ctx) => {
+                let slot = emit_placeholder_jump(ops);
+                ctx.exit_slots.push(slot);
+                Ok(())
+            }
+            None => Err(CompileError::Unsupported {
+                what: "EXIT outside of a loop".to_string(),
+            }),
+        },
+
+        Statement::Continue { .. } => match loop_stack.last_mut() {
+            Some(ctx) => {
+                let slot = emit_placeholder_jump(ops);
+                ctx.continue_slots.push(slot);
+                Ok(())
+            }
+            None => Err(CompileError::Unsupported {
+                what: "CONTINUE outside of a loop".to_string(),
+            }),
+        },
+
+        // Future-batch scope — explicit batch trace so
+        // the operator-visible error cites where the
+        // construct will land.
         Statement::For { .. } => Err(CompileError::Unsupported {
-            what: "FOR loop (Batch 151 adds loop compilation)".to_string(),
-        }),
-        Statement::Repeat { .. } => Err(CompileError::Unsupported {
-            what: "REPEAT loop (Batch 151 adds loop compilation)".to_string(),
+            what: "FOR loop (Batch 153 adds FOR alongside Int→Real promotion)".to_string(),
         }),
         Statement::Case { .. } => Err(CompileError::Unsupported {
-            what: "CASE statement (Batch 151+)".to_string(),
+            what: "CASE statement (Batch 154)".to_string(),
         }),
         Statement::FunctionBlockCall { .. } => Err(CompileError::Unsupported {
-            what: "function block call (Batch 154 FB-integration)".to_string(),
+            what: "function block call (Batch 155 FB-integration)".to_string(),
         }),
         Statement::FunctionCall { .. } => Err(CompileError::Unsupported {
             what: "function call (Batch 154 stdlib-invoke)".to_string(),
         }),
-        Statement::Exit { .. } => Err(CompileError::Unsupported {
-            what: "EXIT (Batch 151 adds alongside loop support)".to_string(),
-        }),
-        Statement::Continue { .. } => Err(CompileError::Unsupported {
-            what: "CONTINUE (Batch 151 adds alongside loop support)".to_string(),
-        }),
     }
+}
+
+/// Compile `WHILE cond DO body END_WHILE`.
+///
+/// Emitted shape:
+/// ```text
+/// LOOP_START:
+///   <compile cond>
+///   JumpIfFalse END
+///   <compile body>     (Exit → Jump END; Continue → Jump LOOP_START)
+///   Jump LOOP_START
+/// END:
+/// ```
+///
+/// CONTINUE targets LOOP_START (the cond re-check) per
+/// IEC 61131-3 — "proceed to next iteration" = re-evaluate
+/// the loop condition.
+fn compile_while(
+    condition: &Expression,
+    body: &[Statement],
+    symbols: &SymbolTable,
+    ops: &mut Vec<Opcode>,
+    loop_stack: &mut Vec<LoopContext>,
+) -> Result<(), CompileError> {
+    let loop_start = ops.len() as u32;
+
+    // Condition → expect Bool.
+    let (cond_ops, cond_type) = compile_expression(condition, symbols)?;
+    if cond_type != StValueType::Bool {
+        return Err(CompileError::TypeMismatch {
+            op: "while-condition".to_string(),
+            left: StValueType::Bool,
+            right: cond_type,
+        });
+    }
+    ops.extend(cond_ops);
+
+    // On false, branch to loop END (patched after body).
+    let exit_cond_slot = emit_placeholder_jump_if_false(ops);
+
+    // Push loop context BEFORE compiling body so nested
+    // EXIT / CONTINUE target this loop.
+    loop_stack.push(LoopContext::default());
+
+    for s in body {
+        compile_statement(s, symbols, ops, loop_stack)?;
+    }
+
+    // Unconditional jump back to LOOP_START (re-check
+    // cond).
+    ops.push(Opcode::Jump { target: loop_start });
+
+    // Loop ended — pop the context + patch EXIT/CONTINUE
+    // + patch the cond-false JumpIfFalse.
+    let ctx = loop_stack
+        .pop()
+        .expect("compile_while: loop_stack push/pop mismatch");
+    let loop_end = ops.len() as u32;
+
+    patch_jump_if_false(ops, exit_cond_slot, loop_end);
+    for slot in ctx.exit_slots {
+        patch_jump(ops, slot, loop_end);
+    }
+    // CONTINUE in WHILE targets LOOP_START so the
+    // condition is re-evaluated next iteration.
+    for slot in ctx.continue_slots {
+        patch_jump(ops, slot, loop_start);
+    }
+
+    Ok(())
+}
+
+/// Compile `REPEAT body UNTIL cond END_REPEAT`.
+///
+/// Emitted shape:
+/// ```text
+/// LOOP_START:
+///   <compile body>       (Exit → Jump END; Continue → Jump COND_CHECK)
+/// COND_CHECK:
+///   <compile cond>
+///   JumpIfFalse LOOP_START    (loop while UNTIL-cond is false)
+/// END:
+/// ```
+///
+/// IEC 61131-3 semantic: REPEAT body executes at least
+/// once; UNTIL-cond false means "keep looping"; true
+/// means "exit loop". CONTINUE targets COND_CHECK so the
+/// UNTIL-cond is evaluated before deciding to re-enter
+/// the body.
+fn compile_repeat(
+    body: &[Statement],
+    condition: &Expression,
+    symbols: &SymbolTable,
+    ops: &mut Vec<Opcode>,
+    loop_stack: &mut Vec<LoopContext>,
+) -> Result<(), CompileError> {
+    let loop_start = ops.len() as u32;
+
+    // Push loop context BEFORE compiling body so nested
+    // EXIT / CONTINUE target this loop.
+    loop_stack.push(LoopContext::default());
+
+    for s in body {
+        compile_statement(s, symbols, ops, loop_stack)?;
+    }
+
+    // COND_CHECK — where CONTINUE lands.
+    let cond_check = ops.len() as u32;
+
+    let (cond_ops, cond_type) = compile_expression(condition, symbols)?;
+    if cond_type != StValueType::Bool {
+        return Err(CompileError::TypeMismatch {
+            op: "repeat-until-condition".to_string(),
+            left: StValueType::Bool,
+            right: cond_type,
+        });
+    }
+    ops.extend(cond_ops);
+    // UNTIL-cond false → back to LOOP_START (keep
+    // looping). UNTIL-cond true → fall through to END.
+    ops.push(Opcode::JumpIfFalse { target: loop_start });
+
+    let ctx = loop_stack
+        .pop()
+        .expect("compile_repeat: loop_stack push/pop mismatch");
+    let loop_end = ops.len() as u32;
+
+    for slot in ctx.exit_slots {
+        patch_jump(ops, slot, loop_end);
+    }
+    for slot in ctx.continue_slots {
+        patch_jump(ops, slot, cond_check);
+    }
+
+    Ok(())
 }
 
 /// Descriptive label for an unsupported assignment
@@ -463,6 +649,7 @@ fn compile_if_chain(
     else_body: Option<&[Statement]>,
     symbols: &SymbolTable,
     ops: &mut Vec<Opcode>,
+    loop_stack: &mut Vec<LoopContext>,
 ) -> Result<(), CompileError> {
     // Compile the primary condition + branch around
     // the then body.
@@ -479,7 +666,7 @@ fn compile_if_chain(
 
     // Then body.
     for s in then_body {
-        compile_statement(s, symbols, ops)?;
+        compile_statement(s, symbols, ops, loop_stack)?;
     }
     // After then-body, jump to END (unless there's no
     // else / elsif — in which case the JumpIfFalse
@@ -511,7 +698,7 @@ fn compile_if_chain(
         let elsif_jump_slot = emit_placeholder_jump_if_false(ops);
 
         for s in elsif_body {
-            compile_statement(s, symbols, ops)?;
+            compile_statement(s, symbols, ops, loop_stack)?;
         }
         end_jump_slots.push(emit_placeholder_jump(ops));
 
@@ -522,7 +709,7 @@ fn compile_if_chain(
     // ELSE branch (optional).
     if let Some(else_body) = else_body {
         for s in else_body {
-            compile_statement(s, symbols, ops)?;
+            compile_statement(s, symbols, ops, loop_stack)?;
         }
     }
 
@@ -619,9 +806,17 @@ pub fn compile_program(
     }
 
     let mut opcodes: Vec<Opcode> = Vec::new();
+    let mut loop_stack: Vec<LoopContext> = Vec::new();
     for stmt in &program.body {
-        compile_statement(stmt, &symbols, &mut opcodes)?;
+        compile_statement(stmt, &symbols, &mut opcodes, &mut loop_stack)?;
     }
+    // Defense-in-depth: loop push/pop balanced at exit.
+    // Non-empty here signals an internal compiler bug.
+    debug_assert!(
+        loop_stack.is_empty(),
+        "compile_program: loop_stack left non-empty ({} contexts)",
+        loop_stack.len()
+    );
     // Every program ends with a Return so the VM exits
     // cleanly even if the AST body doesn't terminate
     // with an explicit RETURN.
@@ -999,10 +1194,26 @@ mod tests {
     // Batch 150 Faz 3 — statement compiler tests
     // ====================================================================
 
+    /// Test helper: compile a statement at program scope
+    /// with a fresh (empty) loop stack. All existing test
+    /// cases operate at program scope; Batch 152 loop
+    /// tests drive loop compilation from this helper so
+    /// nested EXIT / CONTINUE are handled through the
+    /// `compile_while` / `compile_repeat` entry points
+    /// rather than via the loop stack directly.
+    fn compile_stmt_program_scope(
+        stmt: &Statement,
+        symbols: &SymbolTable,
+        ops: &mut Vec<Opcode>,
+    ) -> Result<(), CompileError> {
+        let mut loop_stack: Vec<LoopContext> = Vec::new();
+        compile_statement(stmt, symbols, ops, &mut loop_stack)
+    }
+
     #[test]
     fn compile_empty_statement_emits_nothing() {
         let mut ops = vec![];
-        compile_statement(&Statement::Empty, &SymbolTable::new(), &mut ops)
+        compile_stmt_program_scope(&Statement::Empty, &SymbolTable::new(), &mut ops)
             .expect("ok");
         assert!(ops.is_empty());
     }
@@ -1010,7 +1221,7 @@ mod tests {
     #[test]
     fn compile_return_statement_emits_return() {
         let mut ops = vec![];
-        compile_statement(
+        compile_stmt_program_scope(
             &Statement::Return {
                 value: None,
                 span: None,
@@ -1027,7 +1238,7 @@ mod tests {
         // x := 42  where x:Int local=0
         let syms = build_symbols(vec![sym("x", 0, StValueType::Int)]);
         let mut ops = vec![];
-        compile_statement(
+        compile_stmt_program_scope(
             &Statement::Assignment {
                 target: Expression::Variable("x".into(), None),
                 value: Expression::IntLiteral(42),
@@ -1051,7 +1262,7 @@ mod tests {
         // x (Int) := 3.14 (Real) → TypeMismatch
         let syms = build_symbols(vec![sym("x", 0, StValueType::Int)]);
         let mut ops = vec![];
-        let err = compile_statement(
+        let err = compile_stmt_program_scope(
             &Statement::Assignment {
                 target: Expression::Variable("x".into(), None),
                 value: Expression::RealLiteral(3.14),
@@ -1068,7 +1279,7 @@ mod tests {
     fn compile_assignment_to_non_variable_target_rejects() {
         // Array[0] := 1 → Unsupported
         let mut ops = vec![];
-        let err = compile_statement(
+        let err = compile_stmt_program_scope(
             &Statement::Assignment {
                 target: Expression::ArrayAccess {
                     array: Box::new(Expression::Variable("a".into(), None)),
@@ -1092,7 +1303,7 @@ mod tests {
             sym("x", 1, StValueType::Int),
         ]);
         let mut ops = vec![];
-        compile_statement(
+        compile_stmt_program_scope(
             &Statement::If {
                 condition: Expression::Variable("flag".into(), None),
                 then_body: vec![Statement::Assignment {
@@ -1129,7 +1340,7 @@ mod tests {
             sym("x", 1, StValueType::Int),
         ]);
         let mut ops = vec![];
-        compile_statement(
+        compile_stmt_program_scope(
             &Statement::If {
                 condition: Expression::Variable("flag".into(), None),
                 then_body: vec![Statement::Assignment {
@@ -1167,7 +1378,7 @@ mod tests {
     fn compile_if_non_bool_condition_rejects() {
         let syms = build_symbols(vec![sym("n", 0, StValueType::Int)]);
         let mut ops = vec![];
-        let err = compile_statement(
+        let err = compile_stmt_program_scope(
             &Statement::If {
                 condition: Expression::Variable("n".into(), None),
                 then_body: vec![],
@@ -1182,20 +1393,252 @@ mod tests {
         assert!(matches!(err, CompileError::TypeMismatch { .. }));
     }
 
+    // ====================================================================
+    // Batch 152 Faz 3 — loop compilation tests
+    // ====================================================================
+
     #[test]
-    fn compile_while_rejects_as_unsupported() {
+    fn compile_while_emits_cond_branch_body_jump_back() {
+        // WHILE flag DO x := 1; END_WHILE
+        let syms = build_symbols(vec![
+            sym("flag", 0, StValueType::Bool),
+            sym("x", 1, StValueType::Int),
+        ]);
         let mut ops = vec![];
-        let err = compile_statement(
+        compile_stmt_program_scope(
+            &Statement::While {
+                condition: Expression::Variable("flag".into(), None),
+                body: vec![Statement::Assignment {
+                    target: Expression::Variable("x".into(), None),
+                    value: Expression::IntLiteral(1),
+                    span: None,
+                }],
+                span: None,
+            },
+            &syms,
+            &mut ops,
+        )
+        .expect("ok");
+        // Expected shape:
+        //  0: LoadLocal{0}             (flag)
+        //  1: JumpIfFalse{target=5}    (exit loop)
+        //  2: PushConst{Int(1)}
+        //  3: StoreLocal{1}
+        //  4: Jump{target=0}           (back to LOOP_START)
+        // [end = 5]
+        assert_eq!(ops.len(), 5);
+        assert_eq!(ops[0], Opcode::LoadLocal { index: 0 });
+        assert!(matches!(ops[1], Opcode::JumpIfFalse { target: 5 }));
+        assert_eq!(ops[2], Opcode::PushConst { value: StValue::Int(1) });
+        assert_eq!(ops[3], Opcode::StoreLocal { index: 1 });
+        assert!(matches!(ops[4], Opcode::Jump { target: 0 }));
+    }
+
+    #[test]
+    fn compile_while_non_bool_condition_rejects() {
+        let syms = build_symbols(vec![sym("n", 0, StValueType::Int)]);
+        let mut ops = vec![];
+        let err = compile_stmt_program_scope(
+            &Statement::While {
+                condition: Expression::Variable("n".into(), None),
+                body: vec![],
+                span: None,
+            },
+            &syms,
+            &mut ops,
+        )
+        .expect_err("mismatch");
+        assert!(matches!(err, CompileError::TypeMismatch { .. }));
+    }
+
+    #[test]
+    fn compile_while_with_exit_patches_to_loop_end() {
+        // WHILE TRUE DO EXIT; END_WHILE
+        let mut ops = vec![];
+        compile_stmt_program_scope(
             &Statement::While {
                 condition: Expression::BoolLiteral(true),
-                body: vec![],
+                body: vec![Statement::Exit { span: None }],
                 span: None,
             },
             &SymbolTable::new(),
             &mut ops,
         )
+        .expect("ok");
+        // Expected:
+        //  0: PushConst{Bool(true)}
+        //  1: JumpIfFalse{target=4}
+        //  2: Jump{target=4}          (EXIT → END)
+        //  3: Jump{target=0}          (loop back)
+        // [end = 4]
+        assert_eq!(ops.len(), 4);
+        assert!(matches!(ops[1], Opcode::JumpIfFalse { target: 4 }));
+        assert!(matches!(ops[2], Opcode::Jump { target: 4 }));
+        assert!(matches!(ops[3], Opcode::Jump { target: 0 }));
+    }
+
+    #[test]
+    fn compile_while_with_continue_patches_to_loop_start() {
+        // WHILE TRUE DO CONTINUE; END_WHILE
+        let mut ops = vec![];
+        compile_stmt_program_scope(
+            &Statement::While {
+                condition: Expression::BoolLiteral(true),
+                body: vec![Statement::Continue { span: None }],
+                span: None,
+            },
+            &SymbolTable::new(),
+            &mut ops,
+        )
+        .expect("ok");
+        // Expected:
+        //  0: PushConst{Bool(true)}
+        //  1: JumpIfFalse{target=4}
+        //  2: Jump{target=0}          (CONTINUE → cond re-check)
+        //  3: Jump{target=0}          (loop back)
+        // [end = 4]
+        assert_eq!(ops.len(), 4);
+        assert!(matches!(ops[1], Opcode::JumpIfFalse { target: 4 }));
+        assert!(matches!(ops[2], Opcode::Jump { target: 0 }));
+        assert!(matches!(ops[3], Opcode::Jump { target: 0 }));
+    }
+
+    #[test]
+    fn compile_repeat_emits_body_then_until_branch_back() {
+        // REPEAT x := 1; UNTIL flag END_REPEAT
+        let syms = build_symbols(vec![
+            sym("flag", 0, StValueType::Bool),
+            sym("x", 1, StValueType::Int),
+        ]);
+        let mut ops = vec![];
+        compile_stmt_program_scope(
+            &Statement::Repeat {
+                body: vec![Statement::Assignment {
+                    target: Expression::Variable("x".into(), None),
+                    value: Expression::IntLiteral(1),
+                    span: None,
+                }],
+                condition: Expression::Variable("flag".into(), None),
+                span: None,
+            },
+            &syms,
+            &mut ops,
+        )
+        .expect("ok");
+        // Expected:
+        //  0: PushConst{Int(1)}
+        //  1: StoreLocal{1}
+        //  2: LoadLocal{0}             (flag = UNTIL-cond)
+        //  3: JumpIfFalse{target=0}    (false → keep looping)
+        // [end = 4]
+        assert_eq!(ops.len(), 4);
+        assert_eq!(ops[0], Opcode::PushConst { value: StValue::Int(1) });
+        assert_eq!(ops[1], Opcode::StoreLocal { index: 1 });
+        assert_eq!(ops[2], Opcode::LoadLocal { index: 0 });
+        assert!(matches!(ops[3], Opcode::JumpIfFalse { target: 0 }));
+    }
+
+    #[test]
+    fn compile_repeat_with_exit_and_continue_patches_correctly() {
+        // REPEAT EXIT; CONTINUE; UNTIL FALSE END_REPEAT
+        let mut ops = vec![];
+        compile_stmt_program_scope(
+            &Statement::Repeat {
+                body: vec![
+                    Statement::Exit { span: None },
+                    Statement::Continue { span: None },
+                ],
+                condition: Expression::BoolLiteral(false),
+                span: None,
+            },
+            &SymbolTable::new(),
+            &mut ops,
+        )
+        .expect("ok");
+        // Expected:
+        //  0: Jump{target=4}   (EXIT → END)
+        //  1: Jump{target=2}   (CONTINUE → UNTIL-check)
+        //  2: PushConst{Bool(false)}  (UNTIL check start)
+        //  3: JumpIfFalse{target=0}
+        // [end = 4]
+        assert_eq!(ops.len(), 4);
+        assert!(matches!(ops[0], Opcode::Jump { target: 4 }));
+        assert!(matches!(ops[1], Opcode::Jump { target: 2 }));
+        assert_eq!(ops[2], Opcode::PushConst { value: StValue::Bool(false) });
+        assert!(matches!(ops[3], Opcode::JumpIfFalse { target: 0 }));
+    }
+
+    #[test]
+    fn compile_exit_outside_loop_rejects() {
+        let mut ops = vec![];
+        let err = compile_stmt_program_scope(
+            &Statement::Exit { span: None },
+            &SymbolTable::new(),
+            &mut ops,
+        )
         .expect_err("unsupported");
         assert!(matches!(err, CompileError::Unsupported { .. }));
+    }
+
+    #[test]
+    fn compile_continue_outside_loop_rejects() {
+        let mut ops = vec![];
+        let err = compile_stmt_program_scope(
+            &Statement::Continue { span: None },
+            &SymbolTable::new(),
+            &mut ops,
+        )
+        .expect_err("unsupported");
+        assert!(matches!(err, CompileError::Unsupported { .. }));
+    }
+
+    #[test]
+    fn compile_nested_while_exit_targets_innermost() {
+        // WHILE TRUE DO WHILE TRUE DO EXIT; END_WHILE; END_WHILE
+        let mut ops = vec![];
+        compile_stmt_program_scope(
+            &Statement::While {
+                condition: Expression::BoolLiteral(true),
+                body: vec![Statement::While {
+                    condition: Expression::BoolLiteral(true),
+                    body: vec![Statement::Exit { span: None }],
+                    span: None,
+                }],
+                span: None,
+            },
+            &SymbolTable::new(),
+            &mut ops,
+        )
+        .expect("ok");
+        // Expected (outer loop wraps inner):
+        //   0: PushConst{true}         (outer cond)
+        //   1: JumpIfFalse{8}          (outer exit)
+        //   2: PushConst{true}         (inner cond, LOOP_START_INNER=2)
+        //   3: JumpIfFalse{6}          (inner exit → after inner)
+        //   4: Jump{6}                 (EXIT → inner END)
+        //   5: Jump{2}                 (inner back-jump)
+        //   6: Jump{0}                 (outer back-jump)
+        // [end=7? Let me recount — outer end = 7]
+        // Actually:
+        //  0: PushConst{true} outer
+        //  1: JumpIfFalse{?} outer-exit placeholder, patched last
+        //  2: PushConst{true} inner
+        //  3: JumpIfFalse{?} inner-exit placeholder
+        //  4: Jump{?} EXIT slot
+        //  5: Jump{2} inner back
+        //  6: Jump{0} outer back
+        // Inner loop ends at 6, outer ends at 7.
+        assert_eq!(ops.len(), 7);
+        // EXIT at index 4 must target inner END (6).
+        assert!(matches!(ops[4], Opcode::Jump { target: 6 }));
+        // Inner back-jump at index 5 targets inner LOOP_START (2).
+        assert!(matches!(ops[5], Opcode::Jump { target: 2 }));
+        // Outer back-jump at index 6 targets outer LOOP_START (0).
+        assert!(matches!(ops[6], Opcode::Jump { target: 0 }));
+        // Inner cond-exit at index 3 targets inner END (6).
+        assert!(matches!(ops[3], Opcode::JumpIfFalse { target: 6 }));
+        // Outer cond-exit at index 1 targets outer END (7).
+        assert!(matches!(ops[1], Opcode::JumpIfFalse { target: 7 }));
     }
 
     // ====================================================================

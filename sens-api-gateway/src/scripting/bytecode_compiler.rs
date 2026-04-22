@@ -224,10 +224,212 @@ pub fn compile_expression(
         Expression::MemberAccess { .. } => Err(CompileError::Unsupported {
             what: "member access (future FB-integration batch)".to_string(),
         }),
-        Expression::FunctionCall { .. } => Err(CompileError::Unsupported {
-            what: "function call (future stdlib-invoke batch)".to_string(),
-        }),
+        Expression::FunctionCall { name, args } => {
+            compile_stdlib_function_call(name, args, symbols)
+        }
     }
+}
+
+/// IEC 61131-3 stdlib function signature descriptor.
+///
+/// Batch 155 Faz 3 (plan R-1): maps the operator-facing
+/// ST name (ABS, SQRT, LIMIT, …) to a runtime
+/// `StdlibFunctionId` + validates arg count + promotes
+/// Int arguments to Real per Batch 153 mixed-type rule.
+///
+/// Batch 148 pinned 10 stdlib wire-tags. Batch 155
+/// exposes all 10 through the compiler; additional
+/// names (LOG, SIN, COS, TAN, ATAN, ATAN2 — plan A
+/// corpus) land when Batch 148 extends
+/// `StdlibFunctionId` + the VM dispatch gains the
+/// matching opcodes.
+#[derive(Debug, Clone, Copy)]
+struct StdlibSignature {
+    /// Runtime function id (Batch 148 wire_tag source).
+    fn_id: super::bytecode::StdlibFunctionId,
+    /// Expected ST argument count.
+    arity: usize,
+    /// Declared argument types (None means "any numeric
+    /// — use promotion"). Length must match `arity`.
+    arg_types: &'static [StdlibArgType],
+    /// Runtime return type after VM dispatch.
+    return_type: StValueType,
+}
+
+/// Per-argument type expectation for a stdlib signature.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StdlibArgType {
+    /// Strict Bool argument — Int / Real are rejected.
+    Bool,
+    /// Strict Int argument — Real is rejected.
+    Int,
+    /// Strict Real argument — Int is promoted via
+    /// `CastIntToReal` per Batch 153 rule.
+    Real,
+}
+
+/// Resolve an uppercase IEC 61131-3 stdlib name to its
+/// signature. Name lookup is case-insensitive per the
+/// spec (operators write `ABS`, `abs`, `Abs`
+/// interchangeably).
+fn resolve_stdlib_signature(name: &str) -> Option<StdlibSignature> {
+    use super::bytecode::StdlibFunctionId as F;
+    use StdlibArgType::{Int, Real};
+
+    match name.to_ascii_uppercase().as_str() {
+        // ABS is polymorphic — Int→AbsInt, Real→AbsReal.
+        // The caller resolves variant based on the one
+        // argument's inferred type (see compile_stdlib_
+        // function_call's ABS branch).
+        "ABS" => Some(StdlibSignature {
+            fn_id: F::AbsInt, // placeholder; real variant resolved per-call
+            arity: 1,
+            arg_types: &[Int], // placeholder; real type resolved per-call
+            return_type: StValueType::Int, // placeholder
+        }),
+        "SQRT" => Some(StdlibSignature {
+            fn_id: F::SqrtReal,
+            arity: 1,
+            arg_types: &[Real],
+            return_type: StValueType::Real,
+        }),
+        "LIMIT" => Some(StdlibSignature {
+            fn_id: F::LimitReal,
+            arity: 3,
+            arg_types: &[Real, Real, Real],
+            return_type: StValueType::Real,
+        }),
+        "MIN" => Some(StdlibSignature {
+            fn_id: F::MinReal,
+            arity: 2,
+            arg_types: &[Real, Real],
+            return_type: StValueType::Real,
+        }),
+        "MAX" => Some(StdlibSignature {
+            fn_id: F::MaxReal,
+            arity: 2,
+            arg_types: &[Real, Real],
+            return_type: StValueType::Real,
+        }),
+        "SEL" => Some(StdlibSignature {
+            fn_id: F::SelReal,
+            arity: 3,
+            arg_types: &[StdlibArgType::Bool, Real, Real],
+            return_type: StValueType::Real,
+        }),
+        "LN" => Some(StdlibSignature {
+            fn_id: F::LnReal,
+            arity: 1,
+            arg_types: &[Real],
+            return_type: StValueType::Real,
+        }),
+        "EXP" => Some(StdlibSignature {
+            fn_id: F::ExpReal,
+            arity: 1,
+            arg_types: &[Real],
+            return_type: StValueType::Real,
+        }),
+        "POW" => Some(StdlibSignature {
+            fn_id: F::PowReal,
+            arity: 2,
+            arg_types: &[Real, Real],
+            return_type: StValueType::Real,
+        }),
+        _ => None,
+    }
+}
+
+/// Compile a stdlib function call expression:
+/// `NAME(arg1, arg2, ...)` → argument opcodes followed
+/// by a single `Opcode::StdlibCall { fn_id }`.
+///
+/// - Unknown names return `CompileError::Unsupported`.
+/// - Wrong arg count returns `CompileError::Unsupported`
+///   (pre-compile st_validator normally catches this;
+///   defense-in-depth here catches bypassed validation).
+/// - Type mismatches surface via the per-arg type check:
+///   Int→Real promotion for Real-declared args, strict
+///   match otherwise.
+fn compile_stdlib_function_call(
+    name: &str,
+    args: &[Expression],
+    symbols: &SymbolTable,
+) -> Result<(Vec<Opcode>, InferredType), CompileError> {
+    use super::bytecode::StdlibFunctionId as F;
+
+    let sig = resolve_stdlib_signature(name).ok_or_else(|| CompileError::Unsupported {
+        what: format!("unknown stdlib function `{}`", name),
+    })?;
+
+    if args.len() != sig.arity {
+        return Err(CompileError::Unsupported {
+            what: format!(
+                "stdlib `{}` expects {} arg(s), got {}",
+                name.to_ascii_uppercase(),
+                sig.arity,
+                args.len()
+            ),
+        });
+    }
+
+    // ABS polymorphism — resolve the variant from the
+    // argument's inferred type BEFORE emitting any
+    // opcodes. Other signatures use their declared arg
+    // types directly.
+    if name.eq_ignore_ascii_case("ABS") {
+        let (arg_ops, arg_type) = compile_expression(&args[0], symbols)?;
+        let (variant, ret_type) = match arg_type {
+            StValueType::Int => (F::AbsInt, StValueType::Int),
+            StValueType::Real => (F::AbsReal, StValueType::Real),
+            StValueType::Bool => {
+                return Err(CompileError::UnaryTypeMismatch {
+                    op: "ABS".to_string(),
+                    operand: StValueType::Bool,
+                });
+            }
+        };
+        let mut ops = arg_ops;
+        ops.push(Opcode::StdlibCall { fn_id: variant });
+        return Ok((ops, ret_type));
+    }
+
+    // Non-polymorphic signature: emit each arg with
+    // per-arg type validation + Int→Real promotion.
+    let mut ops: Vec<Opcode> = Vec::new();
+    for (i, (arg, expected)) in args.iter().zip(sig.arg_types.iter()).enumerate() {
+        let (arg_ops, arg_type) = compile_expression(arg, symbols)?;
+        let promoted_ops = match (expected, arg_type) {
+            (StdlibArgType::Bool, StValueType::Bool) => arg_ops,
+            (StdlibArgType::Int, StValueType::Int) => arg_ops,
+            (StdlibArgType::Real, StValueType::Real) => arg_ops,
+            (StdlibArgType::Real, StValueType::Int) => {
+                let mut promoted = arg_ops;
+                promoted.push(Opcode::CastIntToReal);
+                promoted
+            }
+            (expected_t, got_t) => {
+                return Err(CompileError::TypeMismatch {
+                    op: format!(
+                        "{}(arg {})",
+                        name.to_ascii_uppercase(),
+                        i + 1
+                    ),
+                    // Map StdlibArgType → StValueType for the
+                    // error shape consumers already handle.
+                    left: match expected_t {
+                        StdlibArgType::Bool => StValueType::Bool,
+                        StdlibArgType::Int => StValueType::Int,
+                        StdlibArgType::Real => StValueType::Real,
+                    },
+                    right: got_t,
+                });
+            }
+        };
+        ops.extend(promoted_ops);
+    }
+
+    ops.push(Opcode::StdlibCall { fn_id: sig.fn_id });
+    Ok((ops, sig.return_type))
 }
 
 fn compile_binary_op(
@@ -474,9 +676,21 @@ pub fn compile_statement(
         Statement::FunctionBlockCall { .. } => Err(CompileError::Unsupported {
             what: "function block call (Batch 155 FB-integration)".to_string(),
         }),
-        Statement::FunctionCall { .. } => Err(CompileError::Unsupported {
-            what: "function call (Batch 154 stdlib-invoke)".to_string(),
-        }),
+        Statement::FunctionCall { name, args, .. } => {
+            // Statement-level call: compile as expression
+            // then discard the result. IEC 61131-3
+            // permits calling a stdlib function for its
+            // side-effect-free numeric computation then
+            // throwing the result away (CODESYS / TwinCAT
+            // tolerate this shape). Batch 155 Faz 3 wires
+            // the expression compiler + appends a Pop so
+            // the stack stays balanced.
+            let (call_ops, _ret_type) =
+                compile_stdlib_function_call(name, args, symbols)?;
+            ops.extend(call_ops);
+            ops.push(Opcode::Pop);
+            Ok(())
+        }
     }
 }
 
@@ -1265,17 +1479,214 @@ mod tests {
         assert!(matches!(err, CompileError::Unsupported { .. }));
     }
 
+    // ====================================================================
+    // Batch 155 Faz 3 — stdlib function call compilation
+    // ====================================================================
+
     #[test]
-    fn compile_function_call_is_unsupported() {
-        let err = compile_expression(
+    fn compile_abs_int_resolves_abs_int_variant() {
+        let (ops, t) = compile_expression(
             &Expression::FunctionCall {
                 name: "ABS".into(),
-                args: vec![Expression::IntLiteral(1)],
+                args: vec![Expression::IntLiteral(-7)],
             },
             &SymbolTable::new(),
         )
-        .expect_err("unsupported");
+        .expect("ok");
+        assert_eq!(t, StValueType::Int);
+        assert_eq!(
+            ops,
+            vec![
+                Opcode::PushConst { value: StValue::Int(-7) },
+                Opcode::StdlibCall {
+                    fn_id: super::super::bytecode::StdlibFunctionId::AbsInt,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn compile_abs_real_resolves_abs_real_variant() {
+        let (ops, t) = compile_expression(
+            &Expression::FunctionCall {
+                name: "abs".into(), // case-insensitive
+                args: vec![Expression::RealLiteral(-3.25)],
+            },
+            &SymbolTable::new(),
+        )
+        .expect("ok");
+        assert_eq!(t, StValueType::Real);
+        assert_eq!(
+            ops.last(),
+            Some(&Opcode::StdlibCall {
+                fn_id: super::super::bytecode::StdlibFunctionId::AbsReal,
+            })
+        );
+    }
+
+    #[test]
+    fn compile_abs_bool_rejects() {
+        let err = compile_expression(
+            &Expression::FunctionCall {
+                name: "ABS".into(),
+                args: vec![Expression::BoolLiteral(true)],
+            },
+            &SymbolTable::new(),
+        )
+        .expect_err("mismatch");
+        assert!(matches!(err, CompileError::UnaryTypeMismatch { .. }));
+    }
+
+    #[test]
+    fn compile_sqrt_real_emits_sqrt_opcode() {
+        let (ops, t) = compile_expression(
+            &Expression::FunctionCall {
+                name: "SQRT".into(),
+                args: vec![Expression::RealLiteral(9.0)],
+            },
+            &SymbolTable::new(),
+        )
+        .expect("ok");
+        assert_eq!(t, StValueType::Real);
+        assert_eq!(
+            ops.last(),
+            Some(&Opcode::StdlibCall {
+                fn_id: super::super::bytecode::StdlibFunctionId::SqrtReal,
+            })
+        );
+    }
+
+    #[test]
+    fn compile_sqrt_int_arg_promotes_via_cast() {
+        // SQRT(9) with Int arg → promoted via CastIntToReal.
+        let (ops, t) = compile_expression(
+            &Expression::FunctionCall {
+                name: "SQRT".into(),
+                args: vec![Expression::IntLiteral(9)],
+            },
+            &SymbolTable::new(),
+        )
+        .expect("ok");
+        assert_eq!(t, StValueType::Real);
+        assert!(ops.contains(&Opcode::CastIntToReal));
+        assert_eq!(
+            ops.last(),
+            Some(&Opcode::StdlibCall {
+                fn_id: super::super::bytecode::StdlibFunctionId::SqrtReal,
+            })
+        );
+    }
+
+    #[test]
+    fn compile_limit_three_args_emits_limit_opcode() {
+        let (ops, t) = compile_expression(
+            &Expression::FunctionCall {
+                name: "LIMIT".into(),
+                args: vec![
+                    Expression::RealLiteral(0.0),
+                    Expression::RealLiteral(5.0),
+                    Expression::RealLiteral(10.0),
+                ],
+            },
+            &SymbolTable::new(),
+        )
+        .expect("ok");
+        assert_eq!(t, StValueType::Real);
+        assert_eq!(
+            ops.last(),
+            Some(&Opcode::StdlibCall {
+                fn_id: super::super::bytecode::StdlibFunctionId::LimitReal,
+            })
+        );
+    }
+
+    #[test]
+    fn compile_sel_bool_real_real_emits_sel_opcode() {
+        let (ops, t) = compile_expression(
+            &Expression::FunctionCall {
+                name: "SEL".into(),
+                args: vec![
+                    Expression::BoolLiteral(true),
+                    Expression::RealLiteral(1.0),
+                    Expression::RealLiteral(9.0),
+                ],
+            },
+            &SymbolTable::new(),
+        )
+        .expect("ok");
+        assert_eq!(t, StValueType::Real);
+        assert_eq!(
+            ops.last(),
+            Some(&Opcode::StdlibCall {
+                fn_id: super::super::bytecode::StdlibFunctionId::SelReal,
+            })
+        );
+    }
+
+    #[test]
+    fn compile_sel_non_bool_cond_rejects() {
+        let err = compile_expression(
+            &Expression::FunctionCall {
+                name: "SEL".into(),
+                args: vec![
+                    Expression::IntLiteral(1), // cond must be Bool
+                    Expression::RealLiteral(1.0),
+                    Expression::RealLiteral(9.0),
+                ],
+            },
+            &SymbolTable::new(),
+        )
+        .expect_err("mismatch");
+        assert!(matches!(err, CompileError::TypeMismatch { .. }));
+    }
+
+    #[test]
+    fn compile_unknown_function_rejects() {
+        let err = compile_expression(
+            &Expression::FunctionCall {
+                name: "FOOBAR".into(),
+                args: vec![],
+            },
+            &SymbolTable::new(),
+        )
+        .expect_err("unknown");
         assert!(matches!(err, CompileError::Unsupported { .. }));
+    }
+
+    #[test]
+    fn compile_wrong_arg_count_rejects() {
+        let err = compile_expression(
+            &Expression::FunctionCall {
+                name: "SQRT".into(),
+                args: vec![
+                    Expression::RealLiteral(1.0),
+                    Expression::RealLiteral(2.0),
+                ], // SQRT is unary
+            },
+            &SymbolTable::new(),
+        )
+        .expect_err("arity");
+        assert!(matches!(err, CompileError::Unsupported { .. }));
+    }
+
+    #[test]
+    fn compile_function_call_as_statement_emits_pop() {
+        // SQRT(9.0);  — discard the result.
+        let mut ops = vec![];
+        compile_stmt_program_scope(
+            &Statement::FunctionCall {
+                name: "SQRT".into(),
+                args: vec![Expression::RealLiteral(9.0)],
+                span: None,
+            },
+            &SymbolTable::new(),
+            &mut ops,
+        )
+        .expect("ok");
+        // Shape: PushConst(9.0), StdlibCall(SqrtReal), Pop
+        assert_eq!(ops.len(), 3);
+        assert!(matches!(ops[1], Opcode::StdlibCall { .. }));
+        assert_eq!(ops[2], Opcode::Pop);
     }
 
     // ====================================================================

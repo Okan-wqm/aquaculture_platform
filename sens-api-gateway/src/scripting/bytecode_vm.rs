@@ -941,6 +941,93 @@ mod tests {
     }
 
     #[test]
+    fn run_compiled_sqrt_roundtrip() {
+        // Batch 155 Faz 3 end-to-end: compile + execute
+        // a program that calls SQRT(9.0) + stores into a
+        // Real local.
+        //
+        // PROGRAM p  VAR r: REAL; END_VAR  r := SQRT(9.0);
+        use super::super::bytecode_compiler::compile_program;
+        use crate::st_validator::{
+            DataType, Expression, Program, Statement, VarBlock, VarDeclaration, VarScope,
+        };
+
+        let prog = Program {
+            name: "p".into(),
+            var_blocks: vec![VarBlock {
+                scope: VarScope::Local,
+                retain: false,
+                constant: false,
+                declarations: vec![VarDeclaration {
+                    name: "r".into(),
+                    data_type: DataType::Real,
+                    initial_value: None,
+                    span: None,
+                }],
+                span: None,
+            }],
+            body: vec![Statement::Assignment {
+                target: Expression::Variable("r".into(), None),
+                value: Expression::FunctionCall {
+                    name: "SQRT".into(),
+                    args: vec![Expression::RealLiteral(9.0)],
+                },
+                span: None,
+            }],
+            span: None,
+        };
+        let bc_compiled =
+            compile_program(&prog, "p".into(), 1_000).expect("compile");
+        let mut vm = ScriptVm::new(&bc_compiled);
+        assert_eq!(vm.run(&bc_compiled), VmOutcome::Returned);
+        assert_eq!(vm.locals()[0], StValue::Real(3.0));
+    }
+
+    #[test]
+    fn run_compiled_limit_with_int_literal_promotion() {
+        // r := LIMIT(0, 5, 10);  — all Int literals
+        // promoted to Real per stdlib signature.
+        use super::super::bytecode_compiler::compile_program;
+        use crate::st_validator::{
+            DataType, Expression, Program, Statement, VarBlock, VarDeclaration, VarScope,
+        };
+
+        let prog = Program {
+            name: "p".into(),
+            var_blocks: vec![VarBlock {
+                scope: VarScope::Local,
+                retain: false,
+                constant: false,
+                declarations: vec![VarDeclaration {
+                    name: "r".into(),
+                    data_type: DataType::Real,
+                    initial_value: None,
+                    span: None,
+                }],
+                span: None,
+            }],
+            body: vec![Statement::Assignment {
+                target: Expression::Variable("r".into(), None),
+                value: Expression::FunctionCall {
+                    name: "LIMIT".into(),
+                    args: vec![
+                        Expression::IntLiteral(0),
+                        Expression::IntLiteral(5),
+                        Expression::IntLiteral(10),
+                    ],
+                },
+                span: None,
+            }],
+            span: None,
+        };
+        let bc_compiled =
+            compile_program(&prog, "p".into(), 1_000).expect("compile");
+        let mut vm = ScriptVm::new(&bc_compiled);
+        assert_eq!(vm.run(&bc_compiled), VmOutcome::Returned);
+        assert_eq!(vm.locals()[0], StValue::Real(5.0));
+    }
+
+    #[test]
     fn run_compiled_int_plus_real_roundtrip() {
         // PROGRAM p  VAR r: REAL; END_VAR  r := 2 + 3.5;
         use super::super::bytecode_compiler::compile_program;

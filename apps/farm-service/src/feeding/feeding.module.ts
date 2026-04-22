@@ -48,6 +48,12 @@ import { FeedingQueryHandlers } from './query-handlers';
 // Resolvers
 import { FeedingResolvers } from './resolvers';
 
+// Cross-cutting: backdate policy (phase 1.5) enforces the
+// FEEDING_BACKDATE_LIMIT_DAYS + future-date rejection rules inside
+// CreateFeedingRecordHandler. Imported here so the DI container
+// resolves the service for every feeding command handler.
+import { BackdatePolicyModule } from '../common/services/backdate-policy.module';
+
 @Module({
   imports: [
     TypeOrmModule.forFeature([
@@ -65,6 +71,7 @@ import { FeedingResolvers } from './resolvers';
       Site,
       Equipment,
     ]),
+    BackdatePolicyModule,
   ],
   providers: [
     FeedSelectorService,

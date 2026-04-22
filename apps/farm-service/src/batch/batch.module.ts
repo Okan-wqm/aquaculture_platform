@@ -67,6 +67,10 @@ import { TankModule } from '../tank/tank.module';
 // need to reject closures that would mask an active treatment window.
 import { FishHealthModule } from '../fish-health/fish-health.module';
 
+// Cross-cutting: backdate policy for mortality observations
+// (MORTALITY_BACKDATE_LIMIT_DAYS, default 14).
+import { BackdatePolicyModule } from '../common/services/backdate-policy.module';
+
 @Module({
   imports: [
     TypeOrmModule.forFeature([
@@ -87,6 +91,7 @@ import { FishHealthModule } from '../fish-health/fish-health.module';
     ]),
     TankModule,
     FishHealthModule,
+    BackdatePolicyModule,
   ],
   controllers: [
     BatchController,

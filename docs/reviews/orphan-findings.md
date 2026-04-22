@@ -830,6 +830,8 @@ The TS cloud listener still emits `SensorReading` events in the V1 nested-`readi
 
 ## 2026-04-22 ORPHAN-019 — `@platform/event-bus` lacks NATS request-reply API (Rust plan depends on it)
 
+**Status:** RESOLVED — landed across commits `f555cec2` (Rust typed `request_typed` primitive) → `189bcaf5` (TS `NatsRequestReply` + error taxonomy) → `4254a6b1` (event-contracts wire types) → `3c987bdc` (admin-api responder + publisher) → `41c3af2b` (ADR-031 promoted to Accepted). End-to-end `policy.ingest_backend.snapshot` round-trip + `policy.ingest_backend.changed` hot-swap chain live + tested.
+
 **Severity:** HIGH (blocks Rust plan PR-B — cold-start policy snapshot)
 **Discovered:** 2026-04-22, Rust migration delta audit.
 **File:** `platform/libs/event-bus/src/nats/nats-event-bus.ts` (pure pub-sub; `request` / `respond` API absent).

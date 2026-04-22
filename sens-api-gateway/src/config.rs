@@ -2523,6 +2523,29 @@ pub struct MtlsConfig {
     /// the fleet support it.
     #[serde(default = "default_min_tls_version")]
     pub min_tls_version: String,
+
+    /// Pinned leaf cert SHA-256 fingerprints (Batch 137 Sprint
+    /// 6.6/6.8). 64-char hex strings corresponding to the
+    /// DER-over-SHA-256 of every leaf cert the agent will
+    /// accept during TLS handshakes.
+    ///
+    /// Consumed by `SuderraServerCertVerifier` (Batch 136) to
+    /// populate `CertRotationStage` at boot.
+    ///
+    /// - `Legacy` mode: optional. Empty list = no pinning;
+    ///   pins present = early-detection logging.
+    /// - `Warn` mode: optional. Empty = warn on every
+    ///   handshake (degraded posture); pins = audit-emit on
+    ///   mismatch.
+    /// - `Strict` mode: REQUIRED non-empty. Coherence Rule 24
+    ///   enforces ≥1 pin.
+    ///
+    /// Cloud-signed rotation manifest (future batch) will
+    /// replace this static config with a hot-reloadable
+    /// source; the static config path persists for test
+    /// keyring + pre-manifest-rollout operator use.
+    #[serde(default)]
+    pub pinned_leaf_fingerprints_hex: Vec<String>,
 }
 
 fn default_min_tls_version() -> String {
@@ -2535,6 +2558,7 @@ impl Default for MtlsConfig {
             mode: crate::mtls::MtlsMode::default(),
             enforce_fingerprint_pinning: false,
             min_tls_version: default_min_tls_version(),
+            pinned_leaf_fingerprints_hex: Vec::new(),
         }
     }
 }
@@ -3356,6 +3380,43 @@ impl AgentConfig {
             }
         }
 
+        // Rule 24 (Batch 137): mtls.mode=Strict REQUIRES at
+        // least one pinned leaf fingerprint. Plan §3 R-6 +
+        // ADR-021 §10: Strict mode is "reject handshake on
+        // any mismatch" — with an empty pin set, EVERY
+        // handshake would mismatch + reject, bricking the
+        // device's TLS connectivity. Fail-fast at config
+        // load so operators don't discover this at first
+        // MQTT connect.
+        if matches!(self.mtls.mode, crate::mtls::MtlsMode::Strict)
+            && self.mtls.pinned_leaf_fingerprints_hex.is_empty()
+        {
+            anyhow::bail!(
+                "Config coherence: mtls.mode=Strict requires at least one entry in \
+                 mtls.pinned_leaf_fingerprints_hex. Supply the expected leaf cert \
+                 SHA-256 hex digest(s) or downgrade mode to Warn during rollout."
+            );
+        }
+
+        // Rule 25 (Batch 137): each pinned fingerprint hex
+        // MUST be 64 chars of ASCII hex. Same validation
+        // discipline as Rule 21 (firmware signing pubkey).
+        for (idx, hex) in self.mtls.pinned_leaf_fingerprints_hex.iter().enumerate() {
+            if hex.len() != 64 {
+                anyhow::bail!(
+                    "Config coherence: mtls.pinned_leaf_fingerprints_hex[{}] must be 64 hex chars (32-byte SHA-256), got {} chars",
+                    idx,
+                    hex.len()
+                );
+            }
+            if !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+                anyhow::bail!(
+                    "Config coherence: mtls.pinned_leaf_fingerprints_hex[{}] contains non-hex characters",
+                    idx
+                );
+            }
+        }
+
         Ok(())
     }
 
@@ -3781,6 +3842,38 @@ tryboot_autoboot_path: /boot/firmware/autoboot.txt
             c.tryboot_autoboot_path,
             Some(std::path::PathBuf::from("/boot/firmware/autoboot.txt"))
         );
+    }
+
+    // ========================================================================
+    // Batch 137 Sprint 6.6/6.8 — mtls.pinned_leaf_fingerprints_hex tests
+    // ========================================================================
+
+    #[test]
+    fn test_mtls_config_default_pinned_list_is_empty() {
+        let c = MtlsConfig::default();
+        assert!(c.pinned_leaf_fingerprints_hex.is_empty());
+    }
+
+    #[test]
+    fn test_mtls_config_yaml_accepts_pinned_list() {
+        let yaml = r#"
+mode: warn
+pinned_leaf_fingerprints_hex:
+  - "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+  - "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+"#;
+        let c: MtlsConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(c.pinned_leaf_fingerprints_hex.len(), 2);
+        assert!(matches!(c.mode, crate::mtls::MtlsMode::Warn));
+    }
+
+    #[test]
+    fn test_mtls_config_yaml_omitted_pins_yields_empty_vec() {
+        let yaml = r#"
+mode: legacy
+"#;
+        let c: MtlsConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(c.pinned_leaf_fingerprints_hex.is_empty());
     }
 
     #[test]

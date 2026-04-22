@@ -46,8 +46,8 @@
 
 use std::collections::HashMap;
 
-use super::bytecode::{Opcode, StValue, StValueType};
-use crate::st_validator::{BinaryOp, Expression, UnaryOp};
+use super::bytecode::{Bytecode, Opcode, StValue, StValueType};
+use crate::st_validator::{BinaryOp, DataType, Expression, Statement, UnaryOp};
 
 /// Symbol table mapping variable names → (local slot
 /// index, declared type). Built once per program
@@ -296,6 +296,373 @@ fn compile_binary_op(
 
     left_ops.push(final_op);
     Ok((left_ops, result_type))
+}
+
+// ========================================================================
+// Batch 150 Faz 3 — statement compiler + program compiler
+// ========================================================================
+//
+// Statement compilation appends opcodes to a caller-
+// supplied &mut Vec<Opcode>. Forward branches (If-
+// Then-Else) emit a placeholder Opcode::JumpIfFalse /
+// Jump with target=0, remember the opcode index, then
+// patch the target AFTER the branch body compiles +
+// the true jump-to-address is known.
+
+/// Compile a single statement — append opcodes to
+/// `ops` in-place.
+///
+/// Batch 150 covers:
+/// - Assignment (to local variable) → expr + StoreLocal
+/// - If-Then-Else(-ElsIf-Else) → branch + patch
+/// - Return → Return opcode
+/// - Empty → no-op (zero opcodes)
+///
+/// Batch 151+ adds While / For / Case / Repeat /
+/// FunctionBlockCall.
+pub fn compile_statement(
+    stmt: &Statement,
+    symbols: &SymbolTable,
+    ops: &mut Vec<Opcode>,
+) -> Result<(), CompileError> {
+    match stmt {
+        Statement::Empty => Ok(()),
+
+        Statement::Return { .. } => {
+            ops.push(Opcode::Return);
+            Ok(())
+        }
+
+        Statement::Assignment { target, value, .. } => {
+            // LHS MUST be a bare Variable — array /
+            // member assignment defer to future batches.
+            let target_name = match target {
+                Expression::Variable(name, _) => name,
+                other => {
+                    return Err(CompileError::Unsupported {
+                        what: format!(
+                            "assignment target must be a bare variable (got {:?})",
+                            target_kind(other)
+                        ),
+                    });
+                }
+            };
+            let target_entry =
+                symbols.get(target_name).ok_or_else(|| {
+                    CompileError::UnknownVariable {
+                        name: target_name.clone(),
+                    }
+                })?;
+
+            // Compile RHS value expr + type-check.
+            let (value_ops, value_type) = compile_expression(value, symbols)?;
+            if value_type != target_entry.declared_type {
+                return Err(CompileError::TypeMismatch {
+                    op: "assignment".to_string(),
+                    left: target_entry.declared_type,
+                    right: value_type,
+                });
+            }
+
+            ops.extend(value_ops);
+            ops.push(Opcode::StoreLocal {
+                index: target_entry.local_index,
+            });
+            Ok(())
+        }
+
+        Statement::If {
+            condition,
+            then_body,
+            elsif_branches,
+            else_body,
+            ..
+        } => compile_if_chain(
+            condition,
+            then_body,
+            elsif_branches,
+            else_body.as_deref(),
+            symbols,
+            ops,
+        ),
+
+        // Everything else is future-batch scope.
+        Statement::While { .. } => Err(CompileError::Unsupported {
+            what: "WHILE loop (Batch 151 adds loop compilation)".to_string(),
+        }),
+        Statement::For { .. } => Err(CompileError::Unsupported {
+            what: "FOR loop (Batch 151 adds loop compilation)".to_string(),
+        }),
+        Statement::Repeat { .. } => Err(CompileError::Unsupported {
+            what: "REPEAT loop (Batch 151 adds loop compilation)".to_string(),
+        }),
+        Statement::Case { .. } => Err(CompileError::Unsupported {
+            what: "CASE statement (Batch 151+)".to_string(),
+        }),
+        Statement::FunctionBlockCall { .. } => Err(CompileError::Unsupported {
+            what: "function block call (Batch 154 FB-integration)".to_string(),
+        }),
+        Statement::FunctionCall { .. } => Err(CompileError::Unsupported {
+            what: "function call (Batch 154 stdlib-invoke)".to_string(),
+        }),
+        Statement::Exit { .. } => Err(CompileError::Unsupported {
+            what: "EXIT (Batch 151 adds alongside loop support)".to_string(),
+        }),
+        Statement::Continue { .. } => Err(CompileError::Unsupported {
+            what: "CONTINUE (Batch 151 adds alongside loop support)".to_string(),
+        }),
+    }
+}
+
+/// Descriptive label for an unsupported assignment
+/// target. Kept out of CompileError to avoid bloating
+/// the error enum with one-off string variants.
+fn target_kind(expr: &Expression) -> &'static str {
+    match expr {
+        Expression::Variable(..) => "variable",
+        Expression::ArrayAccess { .. } => "array-access",
+        Expression::MemberAccess { .. } => "member-access",
+        Expression::IntLiteral(_) => "int-literal",
+        Expression::RealLiteral(_) => "real-literal",
+        Expression::BoolLiteral(_) => "bool-literal",
+        Expression::StringLiteral(_) => "string-literal",
+        Expression::TimeLiteral(_) => "time-literal",
+        Expression::UnaryOp { .. } => "unary-op",
+        Expression::BinaryOp { .. } => "binary-op",
+        Expression::FunctionCall { .. } => "function-call",
+        Expression::Parenthesized(_) => "parenthesized",
+    }
+}
+
+/// Compile an IF (+ ELSIF* + ELSE?) chain.
+///
+/// Emitted shape for `IF cond THEN then_body ELSIF
+/// elsif_cond THEN elsif_body ELSE else_body END_IF`:
+/// ```text
+///   <compile cond>
+///   JumpIfFalse to ELSIF_START
+///   <compile then_body>
+///   Jump to END
+/// ELSIF_START:
+///   <compile elsif_cond>
+///   JumpIfFalse to ELSE_START
+///   <compile elsif_body>
+///   Jump to END
+/// ELSE_START:
+///   <compile else_body>
+/// END:
+/// ```
+///
+/// Each `Jump` / `JumpIfFalse` target is patched in
+/// after the body compiles + the absolute address is
+/// known.
+fn compile_if_chain(
+    condition: &Expression,
+    then_body: &[Statement],
+    elsif_branches: &[(Expression, Vec<Statement>)],
+    else_body: Option<&[Statement]>,
+    symbols: &SymbolTable,
+    ops: &mut Vec<Opcode>,
+) -> Result<(), CompileError> {
+    // Compile the primary condition + branch around
+    // the then body.
+    let (cond_ops, cond_type) = compile_expression(condition, symbols)?;
+    if cond_type != StValueType::Bool {
+        return Err(CompileError::TypeMismatch {
+            op: "if-condition".to_string(),
+            left: StValueType::Bool,
+            right: cond_type,
+        });
+    }
+    ops.extend(cond_ops);
+    let then_jump_slot = emit_placeholder_jump_if_false(ops);
+
+    // Then body.
+    for s in then_body {
+        compile_statement(s, symbols, ops)?;
+    }
+    // After then-body, jump to END (unless there's no
+    // else / elsif — in which case the JumpIfFalse
+    // target is END + we skip this unconditional
+    // jump). We always emit the Jump for uniform
+    // branch structure + patch later.
+    let mut end_jump_slots: Vec<usize> = Vec::new();
+    let has_elsif_or_else = !elsif_branches.is_empty() || else_body.is_some();
+    if has_elsif_or_else {
+        end_jump_slots.push(emit_placeholder_jump(ops));
+    }
+
+    // Patch the then-jump: on false, branch here (start
+    // of elsif / else / end).
+    let after_then_idx = ops.len() as u32;
+    patch_jump_if_false(ops, then_jump_slot, after_then_idx);
+
+    // Each ELSIF branch.
+    for (elsif_cond, elsif_body) in elsif_branches {
+        let (cond_ops, cond_type) = compile_expression(elsif_cond, symbols)?;
+        if cond_type != StValueType::Bool {
+            return Err(CompileError::TypeMismatch {
+                op: "elsif-condition".to_string(),
+                left: StValueType::Bool,
+                right: cond_type,
+            });
+        }
+        ops.extend(cond_ops);
+        let elsif_jump_slot = emit_placeholder_jump_if_false(ops);
+
+        for s in elsif_body {
+            compile_statement(s, symbols, ops)?;
+        }
+        end_jump_slots.push(emit_placeholder_jump(ops));
+
+        let after_elsif_idx = ops.len() as u32;
+        patch_jump_if_false(ops, elsif_jump_slot, after_elsif_idx);
+    }
+
+    // ELSE branch (optional).
+    if let Some(else_body) = else_body {
+        for s in else_body {
+            compile_statement(s, symbols, ops)?;
+        }
+    }
+
+    // Patch all end-jumps to point at here.
+    let end_idx = ops.len() as u32;
+    for slot in end_jump_slots {
+        patch_jump(ops, slot, end_idx);
+    }
+    Ok(())
+}
+
+fn emit_placeholder_jump(ops: &mut Vec<Opcode>) -> usize {
+    let idx = ops.len();
+    ops.push(Opcode::Jump { target: 0 });
+    idx
+}
+
+fn emit_placeholder_jump_if_false(ops: &mut Vec<Opcode>) -> usize {
+    let idx = ops.len();
+    ops.push(Opcode::JumpIfFalse { target: 0 });
+    idx
+}
+
+fn patch_jump(ops: &mut [Opcode], at: usize, target: u32) {
+    if let Some(Opcode::Jump { target: t }) = ops.get_mut(at) {
+        *t = target;
+    } else {
+        // Internal invariant violation — only the compiler
+        // edits these slots. Panic rather than silently
+        // skipping; tests catch any future refactor bug.
+        panic!(
+            "patch_jump: slot {} is not a Jump placeholder (got {:?})",
+            at,
+            ops.get(at)
+        );
+    }
+}
+
+fn patch_jump_if_false(ops: &mut [Opcode], at: usize, target: u32) {
+    if let Some(Opcode::JumpIfFalse { target: t }) = ops.get_mut(at) {
+        *t = target;
+    } else {
+        panic!(
+            "patch_jump_if_false: slot {} is not a JumpIfFalse placeholder (got {:?})",
+            at,
+            ops.get(at)
+        );
+    }
+}
+
+/// Build a symbol table + compile a Program body +
+/// wrap the result in a Bytecode struct.
+///
+/// Batch 150 handles local variables only; RETAIN
+/// variable persistence lands in Batch 151. GLOBAL /
+/// INPUT / OUTPUT scopes land in the Batch 154 FB-
+/// integration batch when FB declarations carry their
+/// own scoped variables.
+///
+/// `program_id` + `max_gas_per_tick` are caller-
+/// supplied — these are operator-facing identifiers
+/// not encoded in the AST itself.
+pub fn compile_program(
+    program: &crate::st_validator::Program,
+    program_id: String,
+    max_gas_per_tick: u32,
+) -> Result<Bytecode, CompileError> {
+    let mut symbols = SymbolTable::new();
+    let mut local_count: u32 = 0;
+    let mut retain_vars: Vec<(String, StValueType)> = Vec::new();
+
+    for block in &program.var_blocks {
+        for decl in &block.declarations {
+            let st_type = data_type_to_st_type(&decl.data_type).ok_or_else(|| {
+                CompileError::Unsupported {
+                    what: format!(
+                        "variable `{}` of type {:?} — only BOOL/INT/REAL supported at Batch 150",
+                        decl.name, decl.data_type
+                    ),
+                }
+            })?;
+            symbols.insert(
+                decl.name.clone(),
+                SymbolEntry {
+                    local_index: local_count,
+                    declared_type: st_type,
+                },
+            );
+            local_count += 1;
+            if block.retain {
+                retain_vars.push((decl.name.clone(), st_type));
+            }
+        }
+    }
+
+    let mut opcodes: Vec<Opcode> = Vec::new();
+    for stmt in &program.body {
+        compile_statement(stmt, &symbols, &mut opcodes)?;
+    }
+    // Every program ends with a Return so the VM exits
+    // cleanly even if the AST body doesn't terminate
+    // with an explicit RETURN.
+    opcodes.push(Opcode::Return);
+
+    Ok(Bytecode {
+        program_id,
+        program_name: program.name.clone(),
+        max_gas_per_tick,
+        local_count,
+        retain_vars,
+        allowed_write_tags: Vec::new(),
+        safe_state_pinned_tags: Vec::new(),
+        opcodes,
+    })
+}
+
+/// Map IEC 61131-3 DataType → narrow runtime StValueType.
+///
+/// Batch 150 supports only the scalar 3-type subset
+/// that matches Batch 148 StValue variants. Array +
+/// String + Time + user-defined types → None (caller
+/// surfaces as Unsupported).
+fn data_type_to_st_type(dt: &DataType) -> Option<StValueType> {
+    match dt {
+        DataType::Bool => Some(StValueType::Bool),
+        DataType::Sint
+        | DataType::Int
+        | DataType::Dint
+        | DataType::Lint
+        | DataType::Usint
+        | DataType::Uint
+        | DataType::Udint
+        | DataType::Ulint
+        | DataType::Byte
+        | DataType::Word
+        | DataType::Dword
+        | DataType::Lword => Some(StValueType::Int),
+        DataType::Real | DataType::Lreal => Some(StValueType::Real),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -626,5 +993,327 @@ mod tests {
         )
         .expect_err("unsupported");
         assert!(matches!(err, CompileError::Unsupported { .. }));
+    }
+
+    // ====================================================================
+    // Batch 150 Faz 3 — statement compiler tests
+    // ====================================================================
+
+    #[test]
+    fn compile_empty_statement_emits_nothing() {
+        let mut ops = vec![];
+        compile_statement(&Statement::Empty, &SymbolTable::new(), &mut ops)
+            .expect("ok");
+        assert!(ops.is_empty());
+    }
+
+    #[test]
+    fn compile_return_statement_emits_return() {
+        let mut ops = vec![];
+        compile_statement(
+            &Statement::Return {
+                value: None,
+                span: None,
+            },
+            &SymbolTable::new(),
+            &mut ops,
+        )
+        .expect("ok");
+        assert_eq!(ops, vec![Opcode::Return]);
+    }
+
+    #[test]
+    fn compile_assignment_emits_value_then_store() {
+        // x := 42  where x:Int local=0
+        let syms = build_symbols(vec![sym("x", 0, StValueType::Int)]);
+        let mut ops = vec![];
+        compile_statement(
+            &Statement::Assignment {
+                target: Expression::Variable("x".into(), None),
+                value: Expression::IntLiteral(42),
+                span: None,
+            },
+            &syms,
+            &mut ops,
+        )
+        .expect("ok");
+        assert_eq!(
+            ops,
+            vec![
+                Opcode::PushConst { value: StValue::Int(42) },
+                Opcode::StoreLocal { index: 0 },
+            ]
+        );
+    }
+
+    #[test]
+    fn compile_assignment_type_mismatch_rejects() {
+        // x (Int) := 3.14 (Real) → TypeMismatch
+        let syms = build_symbols(vec![sym("x", 0, StValueType::Int)]);
+        let mut ops = vec![];
+        let err = compile_statement(
+            &Statement::Assignment {
+                target: Expression::Variable("x".into(), None),
+                value: Expression::RealLiteral(3.14),
+                span: None,
+            },
+            &syms,
+            &mut ops,
+        )
+        .expect_err("mismatch");
+        assert!(matches!(err, CompileError::TypeMismatch { .. }));
+    }
+
+    #[test]
+    fn compile_assignment_to_non_variable_target_rejects() {
+        // Array[0] := 1 → Unsupported
+        let mut ops = vec![];
+        let err = compile_statement(
+            &Statement::Assignment {
+                target: Expression::ArrayAccess {
+                    array: Box::new(Expression::Variable("a".into(), None)),
+                    index: Box::new(Expression::IntLiteral(0)),
+                },
+                value: Expression::IntLiteral(1),
+                span: None,
+            },
+            &SymbolTable::new(),
+            &mut ops,
+        )
+        .expect_err("unsupported target");
+        assert!(matches!(err, CompileError::Unsupported { .. }));
+    }
+
+    #[test]
+    fn compile_if_without_else_patches_jump_to_end() {
+        // IF flag THEN x := 1; END_IF
+        let syms = build_symbols(vec![
+            sym("flag", 0, StValueType::Bool),
+            sym("x", 1, StValueType::Int),
+        ]);
+        let mut ops = vec![];
+        compile_statement(
+            &Statement::If {
+                condition: Expression::Variable("flag".into(), None),
+                then_body: vec![Statement::Assignment {
+                    target: Expression::Variable("x".into(), None),
+                    value: Expression::IntLiteral(1),
+                    span: None,
+                }],
+                elsif_branches: vec![],
+                else_body: None,
+                span: None,
+            },
+            &syms,
+            &mut ops,
+        )
+        .expect("ok");
+        // Expected opcode shape:
+        //  0: LoadLocal{index=0}      (flag)
+        //  1: JumpIfFalse{target=4}   (skip then body)
+        //  2: PushConst{Int(1)}
+        //  3: StoreLocal{index=1}
+        // [end = 4]
+        assert_eq!(ops.len(), 4);
+        assert_eq!(ops[0], Opcode::LoadLocal { index: 0 });
+        assert!(matches!(ops[1], Opcode::JumpIfFalse { target: 4 }));
+        assert_eq!(ops[2], Opcode::PushConst { value: StValue::Int(1) });
+        assert_eq!(ops[3], Opcode::StoreLocal { index: 1 });
+    }
+
+    #[test]
+    fn compile_if_with_else_patches_both_branches() {
+        // IF flag THEN x := 1; ELSE x := 2; END_IF
+        let syms = build_symbols(vec![
+            sym("flag", 0, StValueType::Bool),
+            sym("x", 1, StValueType::Int),
+        ]);
+        let mut ops = vec![];
+        compile_statement(
+            &Statement::If {
+                condition: Expression::Variable("flag".into(), None),
+                then_body: vec![Statement::Assignment {
+                    target: Expression::Variable("x".into(), None),
+                    value: Expression::IntLiteral(1),
+                    span: None,
+                }],
+                elsif_branches: vec![],
+                else_body: Some(vec![Statement::Assignment {
+                    target: Expression::Variable("x".into(), None),
+                    value: Expression::IntLiteral(2),
+                    span: None,
+                }]),
+                span: None,
+            },
+            &syms,
+            &mut ops,
+        )
+        .expect("ok");
+        // Expected:
+        //  0: LoadLocal{0}
+        //  1: JumpIfFalse{target=5}
+        //  2: PushConst{1}
+        //  3: StoreLocal{1}
+        //  4: Jump{target=7}          (skip else)
+        //  5: PushConst{2}
+        //  6: StoreLocal{1}
+        // [end = 7]
+        assert_eq!(ops.len(), 7);
+        assert!(matches!(ops[1], Opcode::JumpIfFalse { target: 5 }));
+        assert!(matches!(ops[4], Opcode::Jump { target: 7 }));
+    }
+
+    #[test]
+    fn compile_if_non_bool_condition_rejects() {
+        let syms = build_symbols(vec![sym("n", 0, StValueType::Int)]);
+        let mut ops = vec![];
+        let err = compile_statement(
+            &Statement::If {
+                condition: Expression::Variable("n".into(), None),
+                then_body: vec![],
+                elsif_branches: vec![],
+                else_body: None,
+                span: None,
+            },
+            &syms,
+            &mut ops,
+        )
+        .expect_err("mismatch");
+        assert!(matches!(err, CompileError::TypeMismatch { .. }));
+    }
+
+    #[test]
+    fn compile_while_rejects_as_unsupported() {
+        let mut ops = vec![];
+        let err = compile_statement(
+            &Statement::While {
+                condition: Expression::BoolLiteral(true),
+                body: vec![],
+                span: None,
+            },
+            &SymbolTable::new(),
+            &mut ops,
+        )
+        .expect_err("unsupported");
+        assert!(matches!(err, CompileError::Unsupported { .. }));
+    }
+
+    // ====================================================================
+    // Program compilation
+    // ====================================================================
+
+    #[test]
+    fn compile_program_builds_symbol_table_from_var_blocks() {
+        use crate::st_validator::{Program, VarBlock, VarDeclaration, VarScope};
+
+        let prog = Program {
+            name: "test_prog".into(),
+            var_blocks: vec![VarBlock {
+                scope: VarScope::Local,
+                retain: false,
+                constant: false,
+                declarations: vec![
+                    VarDeclaration {
+                        name: "counter".into(),
+                        data_type: DataType::Int,
+                        initial_value: None,
+                        span: None,
+                    },
+                    VarDeclaration {
+                        name: "active".into(),
+                        data_type: DataType::Bool,
+                        initial_value: None,
+                        span: None,
+                    },
+                ],
+                span: None,
+            }],
+            body: vec![Statement::Assignment {
+                target: Expression::Variable("counter".into(), None),
+                value: Expression::IntLiteral(10),
+                span: None,
+            }],
+            span: None,
+        };
+
+        let bc = compile_program(&prog, "prog-1".into(), 1000).expect("ok");
+        assert_eq!(bc.program_id, "prog-1");
+        assert_eq!(bc.program_name, "test_prog");
+        assert_eq!(bc.local_count, 2);
+        assert_eq!(bc.retain_vars.len(), 0);
+        // body = PushConst(10), StoreLocal{index=0}, Return
+        assert_eq!(bc.opcodes.len(), 3);
+        assert_eq!(
+            bc.opcodes.last().unwrap(),
+            &Opcode::Return
+        );
+    }
+
+    #[test]
+    fn compile_program_tracks_retain_vars() {
+        use crate::st_validator::{Program, VarBlock, VarDeclaration, VarScope};
+
+        let prog = Program {
+            name: "retain_test".into(),
+            var_blocks: vec![VarBlock {
+                scope: VarScope::Local,
+                retain: true,
+                constant: false,
+                declarations: vec![VarDeclaration {
+                    name: "persistent_counter".into(),
+                    data_type: DataType::Int,
+                    initial_value: None,
+                    span: None,
+                }],
+                span: None,
+            }],
+            body: vec![],
+            span: None,
+        };
+
+        let bc = compile_program(&prog, "p".into(), 100).expect("ok");
+        assert_eq!(bc.retain_vars.len(), 1);
+        assert_eq!(bc.retain_vars[0].0, "persistent_counter");
+        assert_eq!(bc.retain_vars[0].1, StValueType::Int);
+    }
+
+    #[test]
+    fn compile_program_rejects_unsupported_type() {
+        use crate::st_validator::{Program, VarBlock, VarDeclaration, VarScope};
+
+        let prog = Program {
+            name: "string_test".into(),
+            var_blocks: vec![VarBlock {
+                scope: VarScope::Local,
+                retain: false,
+                constant: false,
+                declarations: vec![VarDeclaration {
+                    name: "msg".into(),
+                    data_type: DataType::String(None),
+                    initial_value: None,
+                    span: None,
+                }],
+                span: None,
+            }],
+            body: vec![],
+            span: None,
+        };
+
+        let err = compile_program(&prog, "p".into(), 100).expect_err("unsupported");
+        assert!(matches!(err, CompileError::Unsupported { .. }));
+    }
+
+    #[test]
+    fn compile_program_always_ends_with_return() {
+        // Empty program — single Return opcode.
+        use crate::st_validator::Program;
+        let prog = Program {
+            name: "empty".into(),
+            var_blocks: vec![],
+            body: vec![],
+            span: None,
+        };
+        let bc = compile_program(&prog, "p".into(), 100).expect("ok");
+        assert_eq!(bc.opcodes, vec![Opcode::Return]);
     }
 }

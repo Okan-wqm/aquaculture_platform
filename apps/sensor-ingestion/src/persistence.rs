@@ -375,7 +375,13 @@ impl PostgresSink {
                 });
             };
             let value = r.value;
-            let raw_value = r.value;
+            // ADR-028: `raw_value` is now a first-class field on
+            // SensorReading, populated either from the V2 wire
+            // payload's `rawValue` or by the V1→V2 upcaster that
+            // sets `raw_value = value` + tags source = UpcastedFromV1.
+            // The old fallback (`raw_value = r.value`) silently
+            // collapsed the semantic distinction — removed.
+            let raw_value = r.raw_value;
             let quality = i16::from(r.quality);
             writer
                 .as_mut()
@@ -539,8 +545,14 @@ mod tests {
             sensor_id: fixed_uuid(0xBB),
             channel_id: fixed_uuid(0xCC),
             value: 24.5,
+            // Persistence-layer fixture: the batch tests don't
+            // exercise the V1/V2 distinction (payload.rs owns that).
+            // Default to upcast-from-V1 semantics so the fixture
+            // mirrors the common edge case.
+            raw_value: 24.5,
             quality: 1,
             producer_ts: Utc::now().timestamp_millis(),
+            source: crate::payload::PayloadSource::UpcastedFromV1,
         }
     }
 
@@ -732,8 +744,10 @@ mod tests {
             sensor_id: fixed_uuid(0x01),
             channel_id: fixed_uuid(0x02),
             value: 1.0,
+            raw_value: 1.0,
             quality: 1,
             producer_ts: Utc::now().timestamp_millis(),
+            source: crate::payload::PayloadSource::UpcastedFromV1,
         };
         let batch = vec![mk(tenant_a), mk(tenant_b), mk(tenant_a)];
         let grouped = super::group_by_tenant(batch);
@@ -787,8 +801,10 @@ mod tests {
             sensor_id: fixed_uuid(0x10),
             channel_id: fixed_uuid(0x20),
             value: 1.0,
+            raw_value: 1.0,
             quality: 1,
             producer_ts: Utc::now().timestamp_millis(),
+            source: crate::payload::PayloadSource::UpcastedFromV1,
         };
         let batch = vec![mk(tenant_a), mk(tenant_b), mk(tenant_a), mk(tenant_a)];
         let groups = super::group_by_tenant(batch);

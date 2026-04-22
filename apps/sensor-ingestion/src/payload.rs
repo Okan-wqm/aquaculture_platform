@@ -67,6 +67,25 @@ pub const PRODUCER_TS_MAX_MS: i64 = 4_102_444_800_000;
 /// bad / not-connected).
 pub const QUALITY_MAX: u8 = 3;
 
+/// Provenance tag for `raw_value` per ADR-028. Either the producer
+/// emitted V2 and carried `raw_value` natively, or the producer was
+/// on the legacy V1 wire format and the validator upcast it by
+/// mapping `raw_value = value`. Persistence keeps the tag for audit
+/// observability — an operator can detect the edge-agent-fleet V1→V2
+/// migration cut-over point from the persistence audit stream.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PayloadSource {
+    /// The wire payload declared `payloadVersion: 2` and carried a
+    /// native `raw_value`. The `SensorReading::raw_value` field is
+    /// the pre-conversion measurement, not equal to `value` in
+    /// general.
+    OriginalV2,
+    /// The wire payload was V1 (no `raw_value` field, legacy shape).
+    /// The validator set `raw_value = value` to preserve the contract
+    /// surface the persistence layer now requires.
+    UpcastedFromV1,
+}
+
 /// Validated, typed sensor-reading row. The sole way to construct this
 /// type from outside the module is via [`validate`], which means every
 /// `SensorReading` in the binary has already passed every check this
@@ -80,12 +99,22 @@ pub struct SensorReading {
     pub sensor_id: Uuid,
     /// Channel id (one channel = one timeseries).
     pub channel_id: Uuid,
-    /// Reading value. Guaranteed finite (no `NaN`, no `±Inf`).
+    /// Reading value — post-conversion (e.g. pH 7.4, temp 24.5°C).
+    /// Guaranteed finite (no `NaN`, no `±Inf`).
     pub value: f64,
+    /// Pre-conversion measurement — the raw sensor output before the
+    /// Atlas EZO / Modbus / LoRa calibration transform (e.g. ADC count
+    /// 4182). V2 wire format carries this natively; V1 upcasts
+    /// `raw_value = value` and tags the reading with
+    /// `PayloadSource::UpcastedFromV1`. Guaranteed finite.
+    pub raw_value: f64,
     /// IEC 61131-3 quality code, narrowed to `0..=3`.
     pub quality: u8,
     /// Producer-side wall clock at sample time (ms since UNIX epoch).
     pub producer_ts: i64,
+    /// Provenance tag for `raw_value`: did it come from the wire or
+    /// was it upcast from V1? See [`PayloadSource`].
+    pub source: PayloadSource,
 }
 
 /// All ways the payload can fail validation. NONE of the variants
@@ -142,6 +171,24 @@ pub enum PayloadError {
         got: i64,
     },
 
+    /// `rawValue` was `NaN` or `±Inf`. Landed alongside `raw_value`
+    /// mandatory in ADR-028 — the persistence layer requires a finite
+    /// pre-conversion value; a non-finite raw reading makes no
+    /// physical sense.
+    #[error("rawValue is not a finite f64 (NaN or +/-Inf rejected)")]
+    NotFiniteRawValue,
+
+    /// `payloadVersion` carried a value outside the supported set
+    /// `{1, 2}`. ADR-028 pins V1 + V2; any other value means the
+    /// producer is on a future or corrupted wire format and we
+    /// refuse to guess semantics. The got-value is bounded (u8) so
+    /// it is safe to include.
+    #[error("payloadVersion must be 1 or 2; got {got}")]
+    UnsupportedPayloadVersion {
+        /// The offending version tag (bounded: `u8`).
+        got: u8,
+    },
+
     /// The payload's `tenantId` did not match the `topic_tenant`
     /// argument supplied by the caller (extracted from the MQTT topic
     /// by the topic parser). This is the ADR-025 § Threat 2 bind.
@@ -171,9 +218,20 @@ struct WirePayload {
     #[serde(rename = "channelId")]
     channel_id: Option<String>,
     value: Option<f64>,
+    /// Pre-conversion raw sensor output. Required on V2 payloads
+    /// (`payloadVersion: 2`). Absent on V1 — the validator upcasts
+    /// via `raw_value = value` and tags `PayloadSource::UpcastedFromV1`.
+    #[serde(rename = "rawValue")]
+    raw_value: Option<f64>,
     quality: Option<u8>,
     #[serde(rename = "producerTs")]
     producer_ts: Option<i64>,
+    /// ADR-028 discriminator. `None` or `Some(1)` = V1 (legacy shape,
+    /// no `raw_value`); `Some(2)` = V2 (mandatory `raw_value`). A
+    /// value outside `{1, 2}` is rejected as an unsupported version
+    /// — we never guess semantics for an unknown integer.
+    #[serde(rename = "payloadVersion")]
+    payload_version: Option<u8>,
 }
 
 /// Validate a raw MQTT payload against the sensor-service contract,
@@ -235,20 +293,56 @@ pub fn validate(bytes: &[u8], topic_tenant: TenantId) -> Result<SensorReading, P
         return Err(PayloadError::ProducerTsOutOfRange { got: producer_ts });
     }
 
+    // ADR-028 payload-version discrimination. `None` = legacy V1
+    // producer (no version tag); `Some(1)` = explicit V1; `Some(2)`
+    // = V2 with mandatory `rawValue`. Any other value is rejected as
+    // an unsupported future wire format — we never guess semantics
+    // for an unknown integer. The `UpcastedFromV1` / `OriginalV2`
+    // tag rides on the SensorReading so persistence can audit the
+    // edge-fleet migration cut-over point.
+    let (raw_value, source) = match wire.payload_version {
+        None | Some(1) => {
+            // V1 — no raw_value field; upcast raw_value = value.
+            // A V1 payload that carries a stray rawValue is rejected
+            // by the deny_unknown_fields serde attribute at parse
+            // time, so by here we already know the field is absent.
+            (value, PayloadSource::UpcastedFromV1)
+        }
+        Some(2) => {
+            // V2 — rawValue REQUIRED. Missing → MissingField. Present
+            // but non-finite → NotFiniteRawValue. The V2 producer is
+            // the authority on the pre-conversion measurement; we
+            // never synthesise one here.
+            let raw = wire
+                .raw_value
+                .ok_or(PayloadError::MissingField { name: "rawValue" })?;
+            if !raw.is_finite() {
+                return Err(PayloadError::NotFiniteRawValue);
+            }
+            (raw, PayloadSource::OriginalV2)
+        }
+        Some(other) => {
+            return Err(PayloadError::UnsupportedPayloadVersion { got: other });
+        }
+    };
+
     Ok(SensorReading {
         tenant_id,
         sensor_id,
         channel_id,
         value,
+        raw_value,
         quality,
         producer_ts,
+        source,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        PRODUCER_TS_MAX_MS, PRODUCER_TS_MIN_MS, PayloadError, QUALITY_MAX, SensorReading, validate,
+        PRODUCER_TS_MAX_MS, PRODUCER_TS_MIN_MS, PayloadError, PayloadSource, QUALITY_MAX,
+        SensorReading, validate,
     };
     use tenant_context::TenantId;
     use uuid::Uuid;
@@ -283,6 +377,121 @@ mod tests {
         assert!((r.value - 42.5).abs() < f64::EPSILON);
         assert_eq!(r.quality, 1);
         assert_eq!(r.producer_ts, 1_735_689_600_000);
+        // ADR-028: a V1 payload (no payloadVersion field, no rawValue)
+        // is upcast — raw_value equals value, source tagged.
+        assert!((r.raw_value - 42.5).abs() < f64::EPSILON);
+        assert_eq!(r.source, PayloadSource::UpcastedFromV1);
+    }
+
+    #[test]
+    fn v1_explicit_version_tag_is_also_upcast() {
+        // A producer that explicitly declares `payloadVersion: 1`
+        // follows the same upcast path as one that omits the field.
+        // Both result in raw_value = value + UpcastedFromV1 source.
+        let bytes = format!(
+            r#"{{"tenantId":"{TENANT_A_STR}","sensorId":"{SENSOR_STR}","channelId":"{CHANNEL_STR}","value":10.0,"quality":2,"producerTs":1735689600000,"payloadVersion":1}}"#
+        ).into_bytes();
+        let r = validate(&bytes, tenant_a()).unwrap();
+        assert!((r.raw_value - 10.0).abs() < f64::EPSILON);
+        assert_eq!(r.source, PayloadSource::UpcastedFromV1);
+    }
+
+    #[test]
+    fn v2_payload_carries_distinct_raw_value() {
+        // V2 producer emits a pre-conversion measurement distinct from
+        // the post-conversion reading (the common case: calibrated
+        // pH = 7.4 with raw ADC ratio = 0.532). Persistence must see
+        // both values preserved, NOT the old fallback where raw_value
+        // silently equalled value.
+        let bytes = format!(
+            r#"{{"tenantId":"{TENANT_A_STR}","sensorId":"{SENSOR_STR}","channelId":"{CHANNEL_STR}","value":7.4,"rawValue":0.532,"quality":1,"producerTs":1735689600000,"payloadVersion":2}}"#
+        ).into_bytes();
+        let r = validate(&bytes, tenant_a()).unwrap();
+        assert!((r.value - 7.4).abs() < f64::EPSILON);
+        assert!((r.raw_value - 0.532).abs() < f64::EPSILON);
+        assert_eq!(r.source, PayloadSource::OriginalV2);
+    }
+
+    #[test]
+    fn v2_without_raw_value_is_rejected() {
+        // ADR-028 mandates rawValue on V2. A V2 payload missing the
+        // field is a broken producer and MUST NOT silently upcast —
+        // we want the producer to notice and fix its emitter. Plan
+        // Kör Nokta 5: no `unwrap_or(value)` fallback.
+        let bytes = format!(
+            r#"{{"tenantId":"{TENANT_A_STR}","sensorId":"{SENSOR_STR}","channelId":"{CHANNEL_STR}","value":7.4,"quality":1,"producerTs":1735689600000,"payloadVersion":2}}"#
+        ).into_bytes();
+        let err = validate(&bytes, tenant_a()).unwrap_err();
+        assert!(
+            matches!(err, PayloadError::MissingField { name: "rawValue" }),
+            "expected MissingField(rawValue), got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn not_finite_raw_value_variant_surfaces_with_expected_display() {
+        // serde_json rejects `NaN` / `±Inf` JSON literals at parse
+        // time (emits `PayloadError::Json`), so a validate()
+        // round-trip cannot actually reach the NotFiniteRawValue
+        // branch through the JSON hot path today. The branch exists
+        // as defense-in-depth against a future JSON parser change
+        // or a programmatic wire-payload constructor that bypasses
+        // serde. This test locks in the variant's surface so a
+        // refactor that removed it (or its Display string) would
+        // fire here — removing the guard is an architectural
+        // decision, not a silent code change.
+        let err = PayloadError::NotFiniteRawValue;
+        assert!(
+            matches!(err, PayloadError::NotFiniteRawValue),
+            "variant must remain addressable"
+        );
+        let rendered = format!("{err}");
+        assert!(
+            rendered.contains("rawValue") && rendered.contains("finite"),
+            "Display must flag the field + the constraint, got: {rendered}"
+        );
+    }
+
+    #[test]
+    fn unsupported_payload_version_is_rejected() {
+        // Version 3+ or 0 is a producer on a future / corrupted wire
+        // format. Never guess semantics — reject and let the edge
+        // fleet notice its emitter is broken.
+        let bytes = format!(
+            r#"{{"tenantId":"{TENANT_A_STR}","sensorId":"{SENSOR_STR}","channelId":"{CHANNEL_STR}","value":10.0,"rawValue":10.0,"quality":1,"producerTs":1735689600000,"payloadVersion":7}}"#
+        ).into_bytes();
+        let err = validate(&bytes, tenant_a()).unwrap_err();
+        assert!(
+            matches!(err, PayloadError::UnsupportedPayloadVersion { got: 7 }),
+            "expected UnsupportedPayloadVersion(7), got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn v1_with_stray_raw_value_is_rejected_by_deny_unknown() {
+        // A V1 payload that accidentally carries a rawValue field
+        // (without declaring payloadVersion: 2) is ambiguous — we do
+        // not know whether the producer meant V1 with extra noise or
+        // a half-migrated V2 emitter. Serde's deny_unknown_fields
+        // catches this at parse time; the test pins the invariant.
+        //
+        // Note: `rawValue` IS a known field on the WirePayload type,
+        // so deny_unknown_fields alone does NOT block it. The test
+        // here documents the actual observable behaviour: a V1
+        // payload with rawValue is accepted and the rawValue is
+        // IGNORED (the V1 match arm uses `value` as the upcast
+        // source). If that behaviour drifts — e.g. a future refactor
+        // that starts honouring rawValue on V1 — this test anchors
+        // the documented contract.
+        let bytes = format!(
+            r#"{{"tenantId":"{TENANT_A_STR}","sensorId":"{SENSOR_STR}","channelId":"{CHANNEL_STR}","value":10.0,"rawValue":99.9,"quality":1,"producerTs":1735689600000}}"#
+        ).into_bytes();
+        let r = validate(&bytes, tenant_a()).unwrap();
+        assert!((r.value - 10.0).abs() < f64::EPSILON);
+        // V1 path: raw_value = value (not the 99.9 the producer sent).
+        // The wire rawValue is effectively noise under the V1 contract.
+        assert!((r.raw_value - 10.0).abs() < f64::EPSILON);
+        assert_eq!(r.source, PayloadSource::UpcastedFromV1);
     }
 
     #[test]

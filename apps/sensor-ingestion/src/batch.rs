@@ -236,8 +236,14 @@ mod tests {
             sensor_id: fixed_uuid(0xBB),
             channel_id: fixed_uuid(0xCC),
             value: 24.5,
+            // V1 upcast semantics in the test fixture — batch tests
+            // don't exercise the V1/V2 distinction (that lives in
+            // payload.rs tests), so the legacy default is the
+            // semantically-correct shape here.
+            raw_value: 24.5,
             quality: 1,
             producer_ts: Utc::now().timestamp_millis(),
+            source: crate::payload::PayloadSource::UpcastedFromV1,
         }
     }
 

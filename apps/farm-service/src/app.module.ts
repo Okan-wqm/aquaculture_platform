@@ -9,7 +9,13 @@ import {
 import { APP_FILTER, APP_GUARD, Reflector } from '@nestjs/core';
 import { join } from 'path';
 import { Request } from 'express';
+import { GraphQLError } from 'graphql';
 import depthLimit from 'graphql-depth-limit';
+import {
+  fieldExtensionsEstimator,
+  getComplexity,
+  simpleEstimator,
+} from 'graphql-query-complexity';
 import {
   TenantContextMiddleware,
   CorrelationIdMiddleware,
@@ -236,6 +242,69 @@ import { AddFarmOutboxModernColumns1786200000000 } from './database/migrations/1
          * that causes exponential resource consumption on the server.
          */
         validationRules: [depthLimit(10)],
+        /**
+         * Phase 5.4 of the "Farm modülü kalan kör noktalar" plan.
+         * depthLimit rejects queries that NEST too deeply but does
+         * nothing against wide queries: a single-level selection with
+         * 200 fields or a paginated list with `first: 10000` slips
+         * through depth 1 and still exhausts the server.
+         *
+         * graphql-query-complexity adds a per-field cost model and
+         * rejects queries whose total cost exceeds the threshold.
+         *   - `simpleEstimator` assigns every field a cost of 1.
+         *   - `fieldExtensionsEstimator` lets individual resolvers
+         *     override their cost via `@ComplexityField({ value: N })`
+         *     or similar — paginated list resolvers should multiply
+         *     by the caller's `first` argument so a 1000-item page
+         *     costs roughly 1000 even when the row shape is flat.
+         *
+         * Threshold is env-configurable via
+         * `FARM_GRAPHQL_MAX_COMPLEXITY` (default 1000 — matches the
+         * pattern used in hr-service / messaging-service / sensor-
+         * service / hydroponics-service / ai-service). A rejected
+         * query returns a `QUERY_TOO_COMPLEX` error with the
+         * computed cost surfaced in `extensions.cost` so operators
+         * can tune their queries rather than guess.
+         */
+        plugins: [
+          {
+            requestDidStart: async () => ({
+              async didResolveOperation({ request, document, schema }) {
+                const rawLimit = configService.get<number | string>(
+                  'FARM_GRAPHQL_MAX_COMPLEXITY',
+                  1000,
+                );
+                const parsed = typeof rawLimit === 'string' ? Number(rawLimit) : rawLimit;
+                const maxComplexity =
+                  typeof parsed === 'number' && Number.isFinite(parsed) && parsed > 0
+                    ? parsed
+                    : 1000;
+                const complexity = getComplexity({
+                  schema,
+                  operationName: request.operationName,
+                  query: document,
+                  variables: request.variables,
+                  estimators: [
+                    fieldExtensionsEstimator(),
+                    simpleEstimator({ defaultComplexity: 1 }),
+                  ],
+                });
+                if (complexity > maxComplexity) {
+                  throw new GraphQLError(
+                    `Query too complex: ${complexity}. Maximum allowed: ${maxComplexity}`,
+                    {
+                      extensions: {
+                        code: 'QUERY_TOO_COMPLEX',
+                        cost: complexity,
+                        maxCost: maxComplexity,
+                      },
+                    },
+                  );
+                }
+              },
+            }),
+          },
+        ],
         playground: configService.get('NODE_ENV') !== 'production',
         // SECURITY: Disable introspection in production
         introspection: configService.get('NODE_ENV') !== 'production',

@@ -58,10 +58,74 @@ pub struct SymbolTable {
     entries: HashMap<String, SymbolEntry>,
 }
 
+/// Symbol classification — Batch 157 Faz 3 adds the
+/// `Tag` kind so the compiler can tell a VAR-declared
+/// local (emits LoadLocal / StoreLocal) apart from a
+/// ProcessImage tag (emits LoadTag / WriteTag).
+///
+/// Tag names are not duplicated inside the variant —
+/// the compiler already has the name from the
+/// `Expression::Variable(name, _)` callsite; keeping
+/// the variant unit-shaped preserves `Copy` semantics.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SymbolKind {
+    /// Local variable occupying slot `local_index` in
+    /// the VM's locals array.
+    Local { local_index: u32 },
+    /// Process-image tag. Read via LoadTag, write via
+    /// WriteTag when `writable` is true.
+    Tag,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SymbolEntry {
-    pub local_index: u32,
+    pub kind: SymbolKind,
     pub declared_type: StValueType,
+    /// False for read-only tags (e.g. sensor inputs).
+    /// True for locals (always writable) + writable
+    /// tags (actuators, setpoints).
+    pub writable: bool,
+}
+
+impl SymbolEntry {
+    /// Convenience constructor for a local-variable
+    /// entry. Locals are always writable.
+    pub fn local(local_index: u32, declared_type: StValueType) -> Self {
+        Self {
+            kind: SymbolKind::Local { local_index },
+            declared_type,
+            writable: true,
+        }
+    }
+
+    /// Convenience constructor for a tag entry. Caller
+    /// supplies `writable` from the ProcessImage catalog.
+    pub fn tag(declared_type: StValueType, writable: bool) -> Self {
+        Self {
+            kind: SymbolKind::Tag,
+            declared_type,
+            writable,
+        }
+    }
+}
+
+/// ProcessImage tag descriptor supplied to the compiler
+/// so tag references in ST source map to LoadTag /
+/// WriteTag opcodes with correct type-check + allowlist
+/// population.
+///
+/// Batch 157: compiler consumes a `&[TagDescriptor]`
+/// slice from `compile_program`. The agent wires this
+/// up from its `io_poll.tags[]` config in a future
+/// batch (Batch 158 or the cmd_deploy_program
+/// integration batch).
+#[derive(Debug, Clone)]
+pub struct TagDescriptor {
+    pub name: String,
+    pub data_type: StValueType,
+    /// Scripts may write to this tag (actuator / setpoint).
+    /// False for sensor inputs + read-only metadata.
+    pub writable: bool,
 }
 
 impl SymbolTable {
@@ -122,6 +186,11 @@ pub enum CompileError {
     /// supported by the Batch 149 compiler. Batches
     /// 150+ extend coverage.
     Unsupported { what: String },
+    /// Batch 157 Faz 3: assignment target is a
+    /// ProcessImage tag declared read-only in the tag
+    /// catalog. Sensor inputs + read-only metadata tags
+    /// cannot be written from scripts.
+    ReadOnlyTag { name: String },
 }
 
 impl std::fmt::Display for CompileError {
@@ -140,6 +209,9 @@ impl std::fmt::Display for CompileError {
             }
             Self::Unsupported { what } => {
                 write!(f, "unsupported expression: {}", what)
+            }
+            Self::ReadOnlyTag { name } => {
+                write!(f, "assignment to read-only tag: {}", name)
             }
         }
     }
@@ -183,12 +255,15 @@ pub fn compile_expression(
                     name: name.clone(),
                 }
             })?;
-            Ok((
-                vec![Opcode::LoadLocal {
-                    index: entry.local_index,
-                }],
-                entry.declared_type,
-            ))
+            let load_op = match entry.kind {
+                SymbolKind::Local { local_index } => {
+                    Opcode::LoadLocal { index: local_index }
+                }
+                SymbolKind::Tag => Opcode::LoadTag {
+                    name: name.clone(),
+                },
+            };
+            Ok((vec![load_op], entry.declared_type))
         }
         Expression::UnaryOp { op, operand } => {
             let (mut ops, operand_type) = compile_expression(operand, symbols)?;
@@ -594,27 +669,56 @@ pub fn compile_statement(
                     });
                 }
             };
-            let target_entry =
-                symbols.get(target_name).ok_or_else(|| {
-                    CompileError::UnknownVariable {
-                        name: target_name.clone(),
-                    }
-                })?;
+            let target_entry = symbols
+                .get(target_name)
+                .ok_or_else(|| CompileError::UnknownVariable {
+                    name: target_name.clone(),
+                })?
+                .clone();
+
+            // Read-only check (Batch 157): locals are
+            // always writable; tag entries carry
+            // `writable=false` when declared read-only
+            // in the ProcessImage catalog.
+            if !target_entry.writable {
+                return Err(CompileError::ReadOnlyTag {
+                    name: target_name.clone(),
+                });
+            }
 
             // Compile RHS value expr + type-check.
             let (value_ops, value_type) = compile_expression(value, symbols)?;
             if value_type != target_entry.declared_type {
-                return Err(CompileError::TypeMismatch {
-                    op: "assignment".to_string(),
-                    left: target_entry.declared_type,
-                    right: value_type,
-                });
+                // Int→Real promotion at assignment boundary
+                // matches Batch 153 mixed-arithmetic rule.
+                // Only the exact Int→Real direction is
+                // implicit; other mismatches stay errors.
+                if target_entry.declared_type == StValueType::Real
+                    && value_type == StValueType::Int
+                {
+                    ops.extend(value_ops);
+                    ops.push(Opcode::CastIntToReal);
+                } else {
+                    return Err(CompileError::TypeMismatch {
+                        op: "assignment".to_string(),
+                        left: target_entry.declared_type,
+                        right: value_type,
+                    });
+                }
+            } else {
+                ops.extend(value_ops);
             }
 
-            ops.extend(value_ops);
-            ops.push(Opcode::StoreLocal {
-                index: target_entry.local_index,
-            });
+            match target_entry.kind {
+                SymbolKind::Local { local_index } => {
+                    ops.push(Opcode::StoreLocal { index: local_index });
+                }
+                SymbolKind::Tag => {
+                    ops.push(Opcode::WriteTag {
+                        name: target_name.clone(),
+                    });
+                }
+            }
             Ok(())
         }
 
@@ -992,23 +1096,44 @@ fn patch_jump_if_false(ops: &mut [Opcode], at: usize, target: u32) {
 /// Build a symbol table + compile a Program body +
 /// wrap the result in a Bytecode struct.
 ///
-/// Batch 150 handles local variables only; RETAIN
-/// variable persistence lands in Batch 151. GLOBAL /
-/// INPUT / OUTPUT scopes land in the Batch 154 FB-
-/// integration batch when FB declarations carry their
-/// own scoped variables.
+/// Batch 157 Faz 3 adds tag support: the compiler now
+/// accepts a `tags: &[TagDescriptor]` slice from the
+/// ProcessImage catalog; tag references in ST source
+/// compile to LoadTag / WriteTag opcodes with type +
+/// writability validation. The output Bytecode's
+/// `allowed_write_tags` is populated from the set of
+/// tags the program actually writes — so the Batch 156
+/// runtime gate enforces exactly the declared write
+/// surface.
 ///
 /// `program_id` + `max_gas_per_tick` are caller-
 /// supplied — these are operator-facing identifiers
 /// not encoded in the AST itself.
+///
+/// Symbol shadowing: if a VAR-declared local shares a
+/// name with a tag, the local wins (matches IEC 61131-3
+/// scope rule). The compiler walks var_blocks last so
+/// the local insert overwrites the tag in the symbol
+/// table. Operators who want unambiguous references
+/// should avoid the clash.
 pub fn compile_program(
     program: &crate::st_validator::Program,
+    tags: &[TagDescriptor],
     program_id: String,
     max_gas_per_tick: u32,
 ) -> Result<Bytecode, CompileError> {
     let mut symbols = SymbolTable::new();
     let mut local_count: u32 = 0;
     let mut retain_vars: Vec<(String, StValueType)> = Vec::new();
+
+    // Insert tags FIRST so VAR-declared locals override
+    // any name clash (local wins per IEC scope rule).
+    for tag in tags {
+        symbols.insert(
+            tag.name.clone(),
+            SymbolEntry::tag(tag.data_type, tag.writable),
+        );
+    }
 
     for block in &program.var_blocks {
         for decl in &block.declarations {
@@ -1022,10 +1147,7 @@ pub fn compile_program(
             })?;
             symbols.insert(
                 decl.name.clone(),
-                SymbolEntry {
-                    local_index: local_count,
-                    declared_type: st_type,
-                },
+                SymbolEntry::local(local_count, st_type),
             );
             local_count += 1;
             if block.retain {
@@ -1051,13 +1173,28 @@ pub fn compile_program(
     // with an explicit RETURN.
     opcodes.push(Opcode::Return);
 
+    // Derive `allowed_write_tags` from the emitted
+    // opcodes: every WriteTag name is a declared write
+    // surface; the Batch 156 runtime gate rejects any
+    // name not in this list, so the derivation is the
+    // source-of-truth binding.
+    let mut allowed_write_tags: Vec<String> = opcodes
+        .iter()
+        .filter_map(|op| match op {
+            Opcode::WriteTag { name } => Some(name.clone()),
+            _ => None,
+        })
+        .collect();
+    allowed_write_tags.sort();
+    allowed_write_tags.dedup();
+
     Ok(Bytecode {
         program_id,
         program_name: program.name.clone(),
         max_gas_per_tick,
         local_count,
         retain_vars,
-        allowed_write_tags: Vec::new(),
+        allowed_write_tags,
         safe_state_pinned_tags: Vec::new(),
         opcodes,
     })
@@ -1094,13 +1231,17 @@ mod tests {
     use super::*;
 
     fn sym(name: &str, idx: u32, ty: StValueType) -> (String, SymbolEntry) {
-        (
-            name.into(),
-            SymbolEntry {
-                local_index: idx,
-                declared_type: ty,
-            },
-        )
+        (name.into(), SymbolEntry::local(idx, ty))
+    }
+
+    /// Batch 157 helper: construct a tag-kind symbol
+    /// entry for read/write compiler tests.
+    fn sym_tag(
+        name: &str,
+        ty: StValueType,
+        writable: bool,
+    ) -> (String, SymbolEntry) {
+        (name.into(), SymbolEntry::tag(ty, writable))
     }
 
     fn build_symbols(entries: Vec<(String, SymbolEntry)>) -> SymbolTable {
@@ -2178,7 +2319,7 @@ mod tests {
             span: None,
         };
 
-        let bc = compile_program(&prog, "prog-1".into(), 1000).expect("ok");
+        let bc = compile_program(&prog, &[], "prog-1".into(), 1000).expect("ok");
         assert_eq!(bc.program_id, "prog-1");
         assert_eq!(bc.program_name, "test_prog");
         assert_eq!(bc.local_count, 2);
@@ -2213,7 +2354,7 @@ mod tests {
             span: None,
         };
 
-        let bc = compile_program(&prog, "p".into(), 100).expect("ok");
+        let bc = compile_program(&prog, &[], "p".into(), 100).expect("ok");
         assert_eq!(bc.retain_vars.len(), 1);
         assert_eq!(bc.retain_vars[0].0, "persistent_counter");
         assert_eq!(bc.retain_vars[0].1, StValueType::Int);
@@ -2241,8 +2382,234 @@ mod tests {
             span: None,
         };
 
-        let err = compile_program(&prog, "p".into(), 100).expect_err("unsupported");
+        let err = compile_program(&prog, &[], "p".into(), 100).expect_err("unsupported");
         assert!(matches!(err, CompileError::Unsupported { .. }));
+    }
+
+    // ====================================================================
+    // Batch 157 Faz 3 — tag read/write compilation
+    // ====================================================================
+
+    #[test]
+    fn compile_variable_tag_emits_load_tag() {
+        let syms = build_symbols(vec![sym_tag(
+            "water_temp",
+            StValueType::Real,
+            false,
+        )]);
+        let (ops, t) = compile_expression(
+            &Expression::Variable("water_temp".into(), None),
+            &syms,
+        )
+        .expect("ok");
+        assert_eq!(t, StValueType::Real);
+        assert_eq!(
+            ops,
+            vec![Opcode::LoadTag {
+                name: "water_temp".into()
+            }]
+        );
+    }
+
+    #[test]
+    fn compile_assignment_to_writable_tag_emits_write_tag() {
+        let syms = build_symbols(vec![sym_tag(
+            "feeder_rate",
+            StValueType::Real,
+            true,
+        )]);
+        let mut ops = vec![];
+        compile_stmt_program_scope(
+            &Statement::Assignment {
+                target: Expression::Variable("feeder_rate".into(), None),
+                value: Expression::RealLiteral(2.5),
+                span: None,
+            },
+            &syms,
+            &mut ops,
+        )
+        .expect("ok");
+        assert_eq!(
+            ops,
+            vec![
+                Opcode::PushConst { value: StValue::Real(2.5) },
+                Opcode::WriteTag {
+                    name: "feeder_rate".into()
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn compile_assignment_to_read_only_tag_rejects() {
+        let syms = build_symbols(vec![sym_tag(
+            "ph_sensor",
+            StValueType::Real,
+            false,
+        )]);
+        let mut ops = vec![];
+        let err = compile_stmt_program_scope(
+            &Statement::Assignment {
+                target: Expression::Variable("ph_sensor".into(), None),
+                value: Expression::RealLiteral(7.0),
+                span: None,
+            },
+            &syms,
+            &mut ops,
+        )
+        .expect_err("read-only");
+        match err {
+            CompileError::ReadOnlyTag { name } => assert_eq!(name, "ph_sensor"),
+            other => panic!("expected ReadOnlyTag, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn compile_program_populates_allowed_write_tags_from_assignments() {
+        use crate::st_validator::{Program, VarBlock, VarDeclaration, VarScope};
+
+        let prog = Program {
+            name: "tag_writer".into(),
+            var_blocks: vec![VarBlock {
+                scope: VarScope::Local,
+                retain: false,
+                constant: false,
+                declarations: vec![VarDeclaration {
+                    name: "n".into(),
+                    data_type: DataType::Int,
+                    initial_value: None,
+                    span: None,
+                }],
+                span: None,
+            }],
+            body: vec![
+                // local assignment — does NOT appear in allowed_write_tags.
+                Statement::Assignment {
+                    target: Expression::Variable("n".into(), None),
+                    value: Expression::IntLiteral(1),
+                    span: None,
+                },
+                // tag assignment — DOES appear.
+                Statement::Assignment {
+                    target: Expression::Variable("feeder_rate".into(), None),
+                    value: Expression::RealLiteral(3.0),
+                    span: None,
+                },
+                // duplicate tag write — dedup expected.
+                Statement::Assignment {
+                    target: Expression::Variable("feeder_rate".into(), None),
+                    value: Expression::RealLiteral(4.0),
+                    span: None,
+                },
+                // second distinct tag.
+                Statement::Assignment {
+                    target: Expression::Variable("aerator_pwm".into(), None),
+                    value: Expression::RealLiteral(0.5),
+                    span: None,
+                },
+            ],
+            span: None,
+        };
+
+        let tags = vec![
+            TagDescriptor {
+                name: "feeder_rate".into(),
+                data_type: StValueType::Real,
+                writable: true,
+            },
+            TagDescriptor {
+                name: "aerator_pwm".into(),
+                data_type: StValueType::Real,
+                writable: true,
+            },
+        ];
+
+        let bc = compile_program(&prog, &tags, "p".into(), 10_000).expect("ok");
+        // Expect exactly these two tags, sorted + dedup'd.
+        assert_eq!(
+            bc.allowed_write_tags,
+            vec!["aerator_pwm".to_string(), "feeder_rate".to_string()]
+        );
+    }
+
+    #[test]
+    fn compile_program_local_shadows_tag_of_same_name() {
+        // If a local `temp` is declared in VAR + a tag
+        // `temp` exists in the catalog, the local wins.
+        use crate::st_validator::{Program, VarBlock, VarDeclaration, VarScope};
+
+        let prog = Program {
+            name: "shadow".into(),
+            var_blocks: vec![VarBlock {
+                scope: VarScope::Local,
+                retain: false,
+                constant: false,
+                declarations: vec![VarDeclaration {
+                    name: "temp".into(),
+                    data_type: DataType::Real,
+                    initial_value: None,
+                    span: None,
+                }],
+                span: None,
+            }],
+            body: vec![Statement::Assignment {
+                target: Expression::Variable("temp".into(), None),
+                value: Expression::RealLiteral(1.0),
+                span: None,
+            }],
+            span: None,
+        };
+
+        let tags = vec![TagDescriptor {
+            name: "temp".into(),
+            data_type: StValueType::Real,
+            writable: true,
+        }];
+
+        let bc = compile_program(&prog, &tags, "p".into(), 10_000).expect("ok");
+        // The assignment must emit StoreLocal, NOT WriteTag.
+        assert!(bc
+            .opcodes
+            .iter()
+            .any(|op| matches!(op, Opcode::StoreLocal { .. })));
+        assert!(!bc
+            .opcodes
+            .iter()
+            .any(|op| matches!(op, Opcode::WriteTag { .. })));
+        // And allowed_write_tags stays empty.
+        assert!(bc.allowed_write_tags.is_empty());
+    }
+
+    #[test]
+    fn compile_assignment_int_literal_to_real_tag_promotes() {
+        // feeder_rate: Real (tag writable) := 3  (Int literal)
+        // → compiler emits CastIntToReal before WriteTag.
+        let syms = build_symbols(vec![sym_tag(
+            "feeder_rate",
+            StValueType::Real,
+            true,
+        )]);
+        let mut ops = vec![];
+        compile_stmt_program_scope(
+            &Statement::Assignment {
+                target: Expression::Variable("feeder_rate".into(), None),
+                value: Expression::IntLiteral(3),
+                span: None,
+            },
+            &syms,
+            &mut ops,
+        )
+        .expect("ok");
+        assert_eq!(
+            ops,
+            vec![
+                Opcode::PushConst { value: StValue::Int(3) },
+                Opcode::CastIntToReal,
+                Opcode::WriteTag {
+                    name: "feeder_rate".into()
+                },
+            ]
+        );
     }
 
     #[test]
@@ -2255,7 +2622,7 @@ mod tests {
             body: vec![],
             span: None,
         };
-        let bc = compile_program(&prog, "p".into(), 100).expect("ok");
+        let bc = compile_program(&prog, &[], "p".into(), 100).expect("ok");
         assert_eq!(bc.opcodes, vec![Opcode::Return]);
     }
 }

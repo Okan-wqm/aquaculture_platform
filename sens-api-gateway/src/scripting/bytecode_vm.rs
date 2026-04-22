@@ -1037,7 +1037,7 @@ mod tests {
             span: None,
         };
         let bc_compiled =
-            compile_program(&prog, "p".into(), 1_000).expect("compile");
+            compile_program(&prog, &[], "p".into(), 1_000).expect("compile");
         let mut vm = ScriptVm::new(&bc_compiled);
         assert_eq!(vm.run(&bc_compiled), VmOutcome::Returned);
         assert_eq!(vm.locals()[0], StValue::Real(3.0));
@@ -1081,7 +1081,7 @@ mod tests {
             span: None,
         };
         let bc_compiled =
-            compile_program(&prog, "p".into(), 1_000).expect("compile");
+            compile_program(&prog, &[], "p".into(), 1_000).expect("compile");
         let mut vm = ScriptVm::new(&bc_compiled);
         assert_eq!(vm.run(&bc_compiled), VmOutcome::Returned);
         assert_eq!(vm.locals()[0], StValue::Real(5.0));
@@ -1121,7 +1121,7 @@ mod tests {
             span: None,
         };
         let bc_compiled =
-            compile_program(&prog, "p".into(), 1_000).expect("compile");
+            compile_program(&prog, &[], "p".into(), 1_000).expect("compile");
         let mut vm = ScriptVm::new(&bc_compiled);
         assert_eq!(vm.run(&bc_compiled), VmOutcome::Returned);
         assert_eq!(vm.locals()[0], StValue::Real(5.5));
@@ -1650,7 +1650,7 @@ mod tests {
             span: None,
         };
         let bc_compiled =
-            compile_program(&prog, "p".into(), 1_000_000).expect("compile");
+            compile_program(&prog, &[], "p".into(), 1_000_000).expect("compile");
         let mut vm = ScriptVm::new(&bc_compiled);
         assert_eq!(vm.run(&bc_compiled), VmOutcome::Returned);
         // After loop: i = 3, flag = false.
@@ -1694,7 +1694,7 @@ mod tests {
             span: None,
         };
         let bc_compiled =
-            compile_program(&prog, "p".into(), 1_000).expect("compile");
+            compile_program(&prog, &[], "p".into(), 1_000).expect("compile");
         let mut vm = ScriptVm::new(&bc_compiled);
         assert_eq!(vm.run(&bc_compiled), VmOutcome::Returned);
         assert_eq!(vm.locals()[0], StValue::Int(42));
@@ -1734,7 +1734,7 @@ mod tests {
             span: None,
         };
         let bc_compiled =
-            compile_program(&prog, "p".into(), 1_000).expect("compile");
+            compile_program(&prog, &[], "p".into(), 1_000).expect("compile");
         let mut vm = ScriptVm::new(&bc_compiled);
         assert_eq!(vm.run(&bc_compiled), VmOutcome::Returned);
         // local[0] = x = 8

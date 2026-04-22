@@ -378,9 +378,19 @@ pub(super) fn summarize_result(cmd: &str, result: &serde_json::Value) -> String 
                 .and_then(|v| v.as_bool())
                 .map(|b| if b { "ok" } else { "failed" })
                 .unwrap_or("unknown");
+            // Batch 126 Sprint 6.5: surface streaming step
+            // outcome in audit detail so forensic queries
+            // can distinguish state-only applies (HC-1
+            // backward compat) from file-streaming applies
+            // (hardware-ready deployments).
+            let streaming = result
+                .get("streaming")
+                .and_then(|v| v.get("status"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("?");
             format!(
-                "applied=true transition={} target={} version={}->{} bootloader={}",
-                transition, target, from_v, to_v, bl_ok
+                "applied=true transition={} target={} version={}->{} streaming={} bootloader={}",
+                transition, target, from_v, to_v, streaming, bl_ok
             )
         }
         // Catch-all — no per-command detail known; caller
@@ -551,6 +561,10 @@ mod tests {
             "target_slot": "b",
             "previous_firmware_version": 1,
             "firmware_version": 2,
+            "streaming": {
+                "status": "streamed",
+                "verified_count": 3
+            },
             "bootloader_coordination": {
                 "backend": "noop",
                 "set_next_boot_slot_ok": true
@@ -559,7 +573,37 @@ mod tests {
         let summary = summarize_result("apply_signed_manifest", &result);
         assert_eq!(
             summary,
-            "applied=true transition=SwapToPending target=b version=1->2 bootloader=ok"
+            "applied=true transition=SwapToPending target=b version=1->2 streaming=streamed bootloader=ok"
+        );
+    }
+
+    #[test]
+    fn summarize_apply_signed_manifest_streaming_skipped_surfaces_in_detail() {
+        // Batch 126 Sprint 6.5: when ab_partitions not
+        // configured, streaming.status = "skipped" + the
+        // detail field reflects that so audit queries can
+        // distinguish state-only applies from streaming
+        // applies.
+        let result = serde_json::json!({
+            "verified": true,
+            "applied": true,
+            "applied_transition": "InitialInstall",
+            "target_slot": "a",
+            "previous_firmware_version": 0,
+            "firmware_version": 1,
+            "streaming": {
+                "status": "skipped",
+                "reason": "ab_partitions mount paths not configured"
+            },
+            "bootloader_coordination": {
+                "backend": "noop",
+                "set_next_boot_slot_ok": true
+            }
+        });
+        let summary = summarize_result("apply_signed_manifest", &result);
+        assert_eq!(
+            summary,
+            "applied=true transition=InitialInstall target=a version=0->1 streaming=skipped bootloader=ok"
         );
     }
 

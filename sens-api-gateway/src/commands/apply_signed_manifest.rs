@@ -106,7 +106,7 @@ impl CommandHandler {
         info!("Executing apply_signed_manifest command (Sprint 6.5 Phase 2)");
 
         // 1. Snapshot AppState slices under single read-guard.
-        let (pubkey, tenant_str, mode, partition_store, bootloader) = {
+        let (pubkey, tenant_str, mode, partition_store, bootloader, ab_partitions) = {
             let state = self.state.read().await;
             (
                 state.firmware_signing_pubkey.clone(),
@@ -114,6 +114,7 @@ impl CommandHandler {
                 state.config.firmware_update.mode,
                 state.partition_store.clone(),
                 state.bootloader.clone(),
+                state.config.firmware_update.ab_partitions.clone(),
             )
         };
 
@@ -296,7 +297,75 @@ impl CommandHandler {
             }
         };
 
-        // 5. Apply transition atomically with version bump.
+        // 5a. Batch 126 Sprint 6.5: file-streaming step.
+        //
+        // Behavior matrix:
+        // - ab_partitions NOT configured (default HC-1):
+        //   streaming SKIPPED. Response carries
+        //   `streaming.status = "skipped_mounts_not_configured"`.
+        //   Partition state + bootloader still advance —
+        //   this path exercises the state machine without
+        //   hardware-ready A/B mounts (dev / pre-
+        //   hardware-provisioning scenarios).
+        // - ab_partitions configured + `files` param
+        //   supplied: stream bytes from params via
+        //   InMemoryFileSource. This is the dev / test
+        //   transport; production transports (HTTP / MQTT
+        //   file transfer) are added in a future batch.
+        // - ab_partitions configured + no `files` param:
+        //   REJECT with `gate=no_file_source_configured`.
+        //   A/B-ready deployments MUST supply bytes or the
+        //   apply would swap to an EMPTY standby partition.
+        let streaming_outcome =
+            apply_streaming_step(params, &ab_partitions, &manifest, target_slot);
+        let streaming_status_json = match &streaming_outcome {
+            StreamingStep::Skipped { reason } => {
+                info!(
+                    "apply_signed_manifest: streaming skipped ({})",
+                    reason
+                );
+                json!({
+                    "status": "skipped",
+                    "reason": reason,
+                })
+            }
+            StreamingStep::Streamed { verified_count } => {
+                info!(
+                    "apply_signed_manifest: streamed {} file(s) to slot {:?}",
+                    verified_count, target_slot
+                );
+                json!({
+                    "status": "streamed",
+                    "verified_count": verified_count,
+                })
+            }
+            StreamingStep::Rejected { gate, reason, verified_count, failed } => {
+                warn!(
+                    "apply_signed_manifest: streaming REJECTED ({}): {}",
+                    gate, reason
+                );
+                return (
+                    false,
+                    json!({
+                        "verified": true,
+                        "applied": false,
+                        "gate": gate,
+                        "reason": reason,
+                        "streaming": {
+                            "status": "rejected",
+                            "verified_count": verified_count,
+                            "failed_files": failed,
+                        },
+                    }),
+                    Some(format!(
+                        "apply_signed_manifest: streaming rejected ({}): {}",
+                        gate, reason
+                    )),
+                );
+            }
+        };
+
+        // 5b. Apply transition atomically with version bump.
         let cold_boot_budget_secs =
             crate::updater::partition::DEFAULT_COLD_BOOT_BUDGET_SECS;
 
@@ -358,6 +427,7 @@ impl CommandHandler {
                 "release_tag": manifest.release_tag,
                 "file_count": manifest.files.len(),
                 "new_state": new_state,
+                "streaming": streaming_status_json,
                 "bootloader_coordination": {
                     "backend": bootloader.backend_name(),
                     "set_next_boot_slot_ok": bootloader_ok,
@@ -469,6 +539,187 @@ fn call_set_next_boot_slot(
             );
             (false, Some(e.to_string()))
         }
+    }
+}
+
+/// Streaming-step outcome (Batch 126 Sprint 6.5).
+#[derive(Debug)]
+pub(super) enum StreamingStep {
+    /// ab_partitions not configured — streaming skipped;
+    /// apply continues against PartitionStore + bootloader
+    /// only.
+    Skipped { reason: String },
+    /// Bytes streamed + per-file verified; apply proceeds.
+    Streamed { verified_count: usize },
+    /// Streaming rejected; apply MUST abort. `gate` is a
+    /// stable identifier for the reject reason; `reason`
+    /// is a human-readable message; `failed` is a vec of
+    /// per-file error strings for forensic detail.
+    Rejected {
+        gate: &'static str,
+        reason: String,
+        verified_count: usize,
+        failed: Vec<serde_json::Value>,
+    },
+}
+
+/// Apply the file-streaming step for cmd_apply_signed_manifest.
+///
+/// Behavior matrix (documented in the command body +
+/// mirrored here as the implementation contract):
+///
+/// - ab_partitions.is_fully_configured() == false →
+///   Skipped. HC-1 backward-compat; the state-machine
+///   path still advances but no files land on the
+///   standby slot.
+/// - is_fully_configured() == true + params["files"]
+///   missing → Rejected(gate=no_file_source_configured).
+/// - is_fully_configured() == true + params["files"]
+///   present → streams via InMemoryFileSource, runs
+///   TOCTOU re-verify at final path.
+///
+/// The `files` param shape (dev/test transport):
+/// ```json
+/// {
+///   "files": {
+///     "bin/suderra-agent": "base64-bytes-here",
+///     "etc/suderra/config.yaml": "base64-bytes-here"
+///   }
+/// }
+/// ```
+///
+/// Production transports (HTTP / MQTT file transfer) add
+/// their own FileSource impls + go through the same
+/// stream_files_to_standby orchestrator.
+pub(super) fn apply_streaming_step(
+    params: &Value,
+    ab_partitions: &crate::config::AbPartitionMountConfig,
+    manifest: &crate::updater::FirmwareManifest,
+    target_slot: AbPartition,
+) -> StreamingStep {
+    if !ab_partitions.is_fully_configured() {
+        return StreamingStep::Skipped {
+            reason: "ab_partitions mount paths not configured (HC-1 backward compat — state-only apply)".to_string(),
+        };
+    }
+
+    let target_mount = match target_slot {
+        AbPartition::A => ab_partitions.slot_a_mount.as_ref(),
+        AbPartition::B => ab_partitions.slot_b_mount.as_ref(),
+    };
+    let target_mount = match target_mount {
+        Some(p) => p,
+        None => {
+            // Impossible given is_fully_configured() == true;
+            // defense-in-depth against future refactor that
+            // breaks the invariant.
+            return StreamingStep::Rejected {
+                gate: "target_mount_missing",
+                reason: format!(
+                    "target slot {:?} mount path is None despite is_fully_configured() == true",
+                    target_slot
+                ),
+                verified_count: 0,
+                failed: vec![],
+            };
+        }
+    };
+
+    let files_param = match params.get("files") {
+        Some(v) => v,
+        None => {
+            return StreamingStep::Rejected {
+                gate: "no_file_source_configured",
+                reason: "ab_partitions configured but no 'files' param supplied. \
+                         Production deployments integrate HTTP/MQTT file transport; \
+                         dev/test deployments supply files inline via base64-encoded 'files' map."
+                    .to_string(),
+                verified_count: 0,
+                failed: vec![],
+            };
+        }
+    };
+
+    let files_obj = match files_param.as_object() {
+        Some(m) => m,
+        None => {
+            return StreamingStep::Rejected {
+                gate: "files_param_not_object",
+                reason: "'files' param must be a JSON object { path: base64_bytes }".to_string(),
+                verified_count: 0,
+                failed: vec![],
+            };
+        }
+    };
+
+    // Build the InMemoryFileSource from base64-decoded
+    // param bytes. Base64 decode failures map to rejection
+    // so the command caller sees a clear error shape
+    // instead of an opaque IO "file not found" later.
+    use base64::Engine;
+    let mut source = crate::updater::InMemoryFileSource::new();
+    let mut decode_failures: Vec<serde_json::Value> = Vec::new();
+    for (path, bytes_value) in files_obj {
+        let b64 = match bytes_value.as_str() {
+            Some(s) => s,
+            None => {
+                decode_failures.push(json!({
+                    "path": path,
+                    "error": "files[path] value must be a base64 string",
+                }));
+                continue;
+            }
+        };
+        match base64::engine::general_purpose::STANDARD.decode(b64) {
+            Ok(bytes) => {
+                source.insert(path.clone(), bytes);
+            }
+            Err(e) => {
+                decode_failures.push(json!({
+                    "path": path,
+                    "error": format!("base64 decode failed: {}", e),
+                }));
+            }
+        }
+    }
+    if !decode_failures.is_empty() {
+        return StreamingStep::Rejected {
+            gate: "files_param_decode_failed",
+            reason: format!(
+                "{} file(s) in 'files' param failed base64 decoding",
+                decode_failures.len()
+            ),
+            verified_count: 0,
+            failed: decode_failures,
+        };
+    }
+
+    let report =
+        crate::updater::stream_files_to_standby(&source, manifest, target_mount);
+    if report.all_ok() {
+        return StreamingStep::Streamed {
+            verified_count: report.verified_count,
+        };
+    }
+    let failed_json: Vec<serde_json::Value> = report
+        .failed
+        .iter()
+        .map(|(path, err)| {
+            json!({
+                "path": path,
+                "error": err.to_string(),
+            })
+        })
+        .collect();
+    StreamingStep::Rejected {
+        gate: "stream_rejected",
+        reason: format!(
+            "{} file(s) failed streaming / re-verify out of {}",
+            report.failed.len(),
+            manifest.files.len()
+        ),
+        verified_count: report.verified_count,
+        failed: failed_json,
     }
 }
 
@@ -913,6 +1164,267 @@ mod tests {
             err,
             crate::updater::ManifestVerifyError::TenantMismatch
         ));
+    }
+
+    // ========================================================================
+    // Batch 126 Sprint 6.5 — apply_streaming_step integration tests
+    // ========================================================================
+
+    use crate::config::AbPartitionMountConfig;
+    use sha2::{Digest as Sha2Digest, Sha256};
+    use base64::Engine;
+
+    fn tmp_mount_pair() -> (std::path::PathBuf, std::path::PathBuf) {
+        let a = std::env::temp_dir().join(format!(
+            "suderra-apply-stream-a-{}-{}",
+            std::process::id(),
+            rand::random::<u32>()
+        ));
+        let b = std::env::temp_dir().join(format!(
+            "suderra-apply-stream-b-{}-{}",
+            std::process::id(),
+            rand::random::<u32>()
+        ));
+        (a, b)
+    }
+
+    fn build_entry_with_hash(path: &str, bytes: &[u8]) -> FileEntry {
+        let mut h = Sha256::new();
+        h.update(bytes);
+        let digest: [u8; 32] = h.finalize().into();
+        FileEntry {
+            path: path.to_string(),
+            digest: FileDigest {
+                sha256: Sha256Digest::from_bytes(digest),
+                size_bytes: bytes.len() as u64,
+                mode: 0o755,
+            },
+        }
+    }
+
+    fn build_manifest_for_streaming(files: Vec<(String, Vec<u8>)>) -> FirmwareManifest {
+        let now_secs = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        let entries: Vec<FileEntry> = files
+            .iter()
+            .map(|(p, b)| build_entry_with_hash(p, b))
+            .collect();
+        FirmwareManifest {
+            firmware_version: 1,
+            tenant_id: TenantIdFull::new_from_verified([0u8; 16]),
+            target_arch: TargetArch::compiled_target(),
+            valid_from_unix_secs: now_secs - 1800,
+            valid_until_unix_secs: now_secs + 1800,
+            release_tag: "stream-test".to_string(),
+            files: entries,
+        }
+    }
+
+    #[test]
+    fn apply_streaming_step_skipped_when_ab_partitions_not_configured() {
+        let manifest = build_manifest_for_streaming(vec![(
+            "bin/a".to_string(),
+            b"alpha".to_vec(),
+        )]);
+        let params = json!({});
+        let ab = AbPartitionMountConfig::default();
+
+        let out =
+            apply_streaming_step(&params, &ab, &manifest, AbPartition::A);
+        assert!(matches!(out, StreamingStep::Skipped { .. }));
+    }
+
+    #[test]
+    fn apply_streaming_step_rejects_when_mounts_set_but_no_files_param() {
+        let (a, b) = tmp_mount_pair();
+        let ab = AbPartitionMountConfig {
+            slot_a_mount: Some(a.clone()),
+            slot_b_mount: Some(b.clone()),
+        };
+        let manifest = build_manifest_for_streaming(vec![(
+            "bin/a".to_string(),
+            b"alpha".to_vec(),
+        )]);
+        let params = json!({}); // no "files"
+
+        let out =
+            apply_streaming_step(&params, &ab, &manifest, AbPartition::B);
+        match out {
+            StreamingStep::Rejected { gate, .. } => {
+                assert_eq!(gate, "no_file_source_configured");
+            }
+            other => panic!("expected Rejected, got {:?}", other),
+        }
+        let _ = std::fs::remove_dir_all(&a);
+        let _ = std::fs::remove_dir_all(&b);
+    }
+
+    #[test]
+    fn apply_streaming_step_rejects_non_object_files_param() {
+        let (a, b) = tmp_mount_pair();
+        let ab = AbPartitionMountConfig {
+            slot_a_mount: Some(a.clone()),
+            slot_b_mount: Some(b.clone()),
+        };
+        let manifest = build_manifest_for_streaming(vec![]);
+        let params = json!({ "files": "not-an-object" });
+
+        let out =
+            apply_streaming_step(&params, &ab, &manifest, AbPartition::B);
+        match out {
+            StreamingStep::Rejected { gate, .. } => {
+                assert_eq!(gate, "files_param_not_object");
+            }
+            other => panic!("expected Rejected, got {:?}", other),
+        }
+        let _ = std::fs::remove_dir_all(&a);
+        let _ = std::fs::remove_dir_all(&b);
+    }
+
+    #[test]
+    fn apply_streaming_step_rejects_bad_base64() {
+        let (a, b) = tmp_mount_pair();
+        let ab = AbPartitionMountConfig {
+            slot_a_mount: Some(a.clone()),
+            slot_b_mount: Some(b.clone()),
+        };
+        let manifest = build_manifest_for_streaming(vec![(
+            "bin/a".to_string(),
+            b"alpha".to_vec(),
+        )]);
+        let params = json!({
+            "files": {
+                "bin/a": "!!!-not-valid-base64-!!!"
+            }
+        });
+
+        let out =
+            apply_streaming_step(&params, &ab, &manifest, AbPartition::B);
+        match out {
+            StreamingStep::Rejected { gate, failed, .. } => {
+                assert_eq!(gate, "files_param_decode_failed");
+                assert_eq!(failed.len(), 1);
+            }
+            other => panic!("expected Rejected, got {:?}", other),
+        }
+        let _ = std::fs::remove_dir_all(&a);
+        let _ = std::fs::remove_dir_all(&b);
+    }
+
+    #[test]
+    fn apply_streaming_step_happy_path_streams_to_target_slot_b_mount() {
+        let (a, b) = tmp_mount_pair();
+        let _ = std::fs::remove_dir_all(&a);
+        let _ = std::fs::remove_dir_all(&b);
+        let ab = AbPartitionMountConfig {
+            slot_a_mount: Some(a.clone()),
+            slot_b_mount: Some(b.clone()),
+        };
+
+        let bytes_agent = b"fake-new-agent-binary".to_vec();
+        let bytes_config = b"new-config-file".to_vec();
+        let manifest = build_manifest_for_streaming(vec![
+            ("bin/agent".to_string(), bytes_agent.clone()),
+            ("etc/suderra/config.yaml".to_string(), bytes_config.clone()),
+        ]);
+
+        let files_map = json!({
+            "bin/agent": base64::engine::general_purpose::STANDARD.encode(&bytes_agent),
+            "etc/suderra/config.yaml": base64::engine::general_purpose::STANDARD.encode(&bytes_config),
+        });
+        let params = json!({ "files": files_map });
+
+        // Target slot B → files should land under `b` mount.
+        let out =
+            apply_streaming_step(&params, &ab, &manifest, AbPartition::B);
+        match out {
+            StreamingStep::Streamed { verified_count } => {
+                assert_eq!(verified_count, 2);
+            }
+            other => panic!("expected Streamed, got {:?}", other),
+        }
+
+        // Files materialized at slot B.
+        assert_eq!(
+            std::fs::read(b.join("bin/agent")).unwrap(),
+            bytes_agent
+        );
+        assert_eq!(
+            std::fs::read(b.join("etc/suderra/config.yaml")).unwrap(),
+            bytes_config
+        );
+        // Slot A is untouched (no file copied to A).
+        assert!(!a.join("bin/agent").exists());
+
+        let _ = std::fs::remove_dir_all(&a);
+        let _ = std::fs::remove_dir_all(&b);
+    }
+
+    #[test]
+    fn apply_streaming_step_target_slot_a_streams_to_slot_a_mount() {
+        let (a, b) = tmp_mount_pair();
+        let _ = std::fs::remove_dir_all(&a);
+        let _ = std::fs::remove_dir_all(&b);
+        let ab = AbPartitionMountConfig {
+            slot_a_mount: Some(a.clone()),
+            slot_b_mount: Some(b.clone()),
+        };
+
+        let bytes = b"binary-for-slot-a".to_vec();
+        let manifest = build_manifest_for_streaming(vec![(
+            "bin/one".to_string(),
+            bytes.clone(),
+        )]);
+        let params = json!({
+            "files": {
+                "bin/one": base64::engine::general_purpose::STANDARD.encode(&bytes),
+            }
+        });
+
+        let out =
+            apply_streaming_step(&params, &ab, &manifest, AbPartition::A);
+        assert!(matches!(out, StreamingStep::Streamed { verified_count: 1 }));
+        assert_eq!(std::fs::read(a.join("bin/one")).unwrap(), bytes);
+        assert!(!b.join("bin/one").exists());
+
+        let _ = std::fs::remove_dir_all(&a);
+        let _ = std::fs::remove_dir_all(&b);
+    }
+
+    #[test]
+    fn apply_streaming_step_rejects_when_manifest_declares_file_not_in_source() {
+        let (a, b) = tmp_mount_pair();
+        let _ = std::fs::remove_dir_all(&a);
+        let _ = std::fs::remove_dir_all(&b);
+        let ab = AbPartitionMountConfig {
+            slot_a_mount: Some(a.clone()),
+            slot_b_mount: Some(b.clone()),
+        };
+        let manifest = build_manifest_for_streaming(vec![
+            ("bin/present".to_string(), b"here".to_vec()),
+            ("bin/missing".to_string(), b"unused".to_vec()),
+        ]);
+        let params = json!({
+            "files": {
+                "bin/present": base64::engine::general_purpose::STANDARD.encode(b"here"),
+                // bin/missing NOT in files map.
+            }
+        });
+
+        let out =
+            apply_streaming_step(&params, &ab, &manifest, AbPartition::B);
+        match out {
+            StreamingStep::Rejected { gate, failed, verified_count, .. } => {
+                assert_eq!(gate, "stream_rejected");
+                assert_eq!(verified_count, 1);
+                assert_eq!(failed.len(), 1);
+            }
+            other => panic!("expected Rejected, got {:?}", other),
+        }
+        let _ = std::fs::remove_dir_all(&a);
+        let _ = std::fs::remove_dir_all(&b);
     }
 
     #[test]

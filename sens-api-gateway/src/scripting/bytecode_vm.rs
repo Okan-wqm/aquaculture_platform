@@ -315,9 +315,29 @@ impl ScriptVm {
     /// are WRITTEN before read, but the zero-
     /// initialization provides a sane default.
     pub fn new(bc: &Bytecode) -> Self {
+        // Default zero-init: Bool(false) for every local.
+        // Batch 176: retain_vars declarations override
+        // slots with type-correct zeros (Int(0) / Real(0.0))
+        // so programs without an injected persistence
+        // backend still see the right type on their RETAIN
+        // slots. Non-RETAIN locals stay Bool(false); the
+        // compiler-enforced write-before-read rule keeps
+        // them from being read without prior StoreLocal.
+        let mut locals =
+            vec![StValue::Bool(false); bc.local_count as usize];
+        for (_name, local_index, declared_type) in &bc.retain_vars {
+            let idx = *local_index as usize;
+            if idx < locals.len() {
+                locals[idx] = match declared_type {
+                    StValueType::Bool => StValue::Bool(false),
+                    StValueType::Int => StValue::Int(0),
+                    StValueType::Real => StValue::Real(0.0),
+                };
+            }
+        }
         Self {
             stack: Vec::with_capacity(32),
-            locals: vec![StValue::Bool(false); bc.local_count as usize],
+            locals,
             gas_remaining: bc.max_gas_per_tick,
             ip: 0,
         }
@@ -333,6 +353,17 @@ impl ScriptVm {
     #[allow(dead_code)]
     pub(crate) fn locals(&self) -> &[StValue] {
         &self.locals
+    }
+
+    /// Mutable access to the locals slice — Batch 176
+    /// Faz 3 wire. Used by `bytecode_retain::load_retain_
+    /// vars` to restore persisted RETAIN values into the
+    /// VM's slots BEFORE `run_with_io` dispatches the
+    /// program. Bounds-checking is the caller's
+    /// responsibility; retain-bridge catches bad indexes
+    /// + returns `RetainError::BadLocalIndex`.
+    pub fn locals_mut(&mut self) -> &mut [StValue] {
+        &mut self.locals
     }
 
     #[allow(dead_code)]

@@ -97,6 +97,22 @@ pub struct ScanTickOptions {
 /// Programs execute in ascending program_id order for
 /// reproducible behavior across cycles.
 ///
+/// Batch 176 Faz 3: accepts an optional
+/// `SqlitePersistence` handle. When present + the
+/// program declares RETAIN variables
+/// (`bytecode.retain_vars`), the tick:
+/// 1. Loads persisted RETAIN values into VM locals
+///    BEFORE `run_with_io` (via
+///    `bytecode_retain::load_retain_vars`).
+/// 2. Saves RETAIN values back AFTER a successful run
+///    so the program's scan-cycle state is durable
+///    across reboots.
+///
+/// A RETAIN load/save failure surfaces as the program's
+/// `BytecodeRunResult::Failed` (not a scan-tick abort)
+/// so one bad program doesn't disrupt the rest of the
+/// tick.
+///
 /// Returns a Vec of `(program_id, BytecodeRunResult)` so
 /// the engine can decide what to do per program (disable
 /// on failure, emit metrics, log, etc).
@@ -104,6 +120,7 @@ pub async fn run_scan_tick(
     registry: &BytecodeProgramRegistry,
     pi: &ProcessImage,
     declared_types: &HashMap<String, StValueType>,
+    persistence: Option<&super::persistence::SqlitePersistence>,
     options: &ScanTickOptions,
 ) -> Vec<(String, BytecodeRunResult)> {
     // Step 1 — one snapshot per tick, shared across all
@@ -125,6 +142,38 @@ pub async fn run_scan_tick(
         let io = SnapshotTagIo::new(snapshot.clone(), declared_types.clone());
 
         let mut vm = ScriptVm::new(&entry.bytecode);
+
+        // RETAIN load: if persistence is injected AND
+        // the program declares retains, restore values
+        // into VM locals BEFORE dispatch. On error,
+        // skip execution + report Failed — we refuse to
+        // run a RETAIN program with unknown state
+        // (fail-closed).
+        if let Some(p) = persistence {
+            if !entry.bytecode.retain_vars.is_empty() {
+                if let Err(e) = super::bytecode_retain::load_retain_vars(
+                    p,
+                    &entry.bytecode.program_id,
+                    &entry.bytecode.retain_vars,
+                    vm.locals_mut(),
+                )
+                .await
+                {
+                    results.push((
+                        entry.program_id.clone(),
+                        BytecodeRunResult::Failed {
+                            error: crate::scripting::bytecode_vm::VmError::TagIoFailed {
+                                tag: format!("retain-load::{}", entry.program_id),
+                                direction: "load",
+                                reason: e.to_string(),
+                            },
+                        },
+                    ));
+                    continue;
+                }
+            }
+        }
+
         let outcome = vm.run_with_io(&entry.bytecode, &io);
 
         let result = match outcome {
@@ -132,8 +181,47 @@ pub async fn run_scan_tick(
                 let writes = io.drain_pending_writes();
                 let count = writes.len();
                 commit_pending_writes(pi, writes).await;
-                BytecodeRunResult::Ok {
-                    writes_committed: count,
+
+                // RETAIN save: persist the final locals
+                // AFTER a successful run so the scan-
+                // cycle state survives reboots. Batch 176
+                // wires this; save errors surface as
+                // Failed (fail-closed vs silent state
+                // loss on next boot).
+                if let Some(p) = persistence {
+                    if !entry.bytecode.retain_vars.is_empty() {
+                        if let Err(e) = super::bytecode_retain::save_retain_vars(
+                            p,
+                            &entry.bytecode.program_id,
+                            &entry.bytecode.retain_vars,
+                            vm.locals(),
+                        )
+                        .await
+                        {
+                            BytecodeRunResult::Failed {
+                                error: crate::scripting::bytecode_vm::VmError::TagIoFailed {
+                                    tag: format!(
+                                        "retain-save::{}",
+                                        entry.bytecode.program_id
+                                    ),
+                                    direction: "write",
+                                    reason: e.to_string(),
+                                },
+                            }
+                        } else {
+                            BytecodeRunResult::Ok {
+                                writes_committed: count,
+                            }
+                        }
+                    } else {
+                        BytecodeRunResult::Ok {
+                            writes_committed: count,
+                        }
+                    }
+                } else {
+                    BytecodeRunResult::Ok {
+                        writes_committed: count,
+                    }
                 }
             }
             VmOutcome::Error(e) => {
@@ -230,6 +318,7 @@ mod tests {
             &reg,
             &pi,
             &HashMap::new(),
+            None,
             &ScanTickOptions::default(),
         )
         .await;
@@ -257,6 +346,7 @@ mod tests {
             &reg,
             &pi,
             &HashMap::new(),
+            None,
             &ScanTickOptions::default(),
         )
         .await;
@@ -296,6 +386,7 @@ mod tests {
             &reg,
             &pi,
             &HashMap::new(),
+            None,
             &ScanTickOptions::default(),
         )
         .await;
@@ -357,6 +448,7 @@ mod tests {
             &reg,
             &pi,
             &HashMap::new(),
+            None,
             &ScanTickOptions::default(),
         )
         .await;
@@ -421,6 +513,7 @@ mod tests {
             &reg,
             &pi,
             &HashMap::new(),
+            None,
             &ScanTickOptions::default(),
         )
         .await;
@@ -428,6 +521,173 @@ mod tests {
         assert_eq!(results[0].0, "a_first");
         assert_eq!(results[1].0, "b_last");
         assert_eq!(results[2].0, "m_middle");
+    }
+
+    // ====================================================================
+    // Batch 176 — RETAIN persistence hookup in run_scan_tick
+    // ====================================================================
+
+    #[tokio::test]
+    async fn run_scan_tick_loads_and_saves_retain_vars_across_ticks() {
+        // Program:
+        //   VAR_RETAIN counter: INT; END_VAR
+        //   counter := counter + 1;
+        // Each tick should increment `counter` by 1 and
+        // persist the new value.
+        use crate::scripting::bytecode_compiler::compile_program;
+        use crate::scripting::persistence::SqlitePersistence;
+        use crate::st_validator::{
+            BinaryOp, DataType, Expression, Program, Statement, VarBlock,
+            VarDeclaration, VarScope,
+        };
+
+        let reg = BytecodeProgramRegistry::new();
+        let pi = ProcessImage::new();
+        let persistence = SqlitePersistence::in_memory().expect("ok");
+
+        let prog = Program {
+            name: "retain_counter".into(),
+            var_blocks: vec![VarBlock {
+                scope: VarScope::Local,
+                retain: true,
+                constant: false,
+                declarations: vec![VarDeclaration {
+                    name: "counter".into(),
+                    data_type: DataType::Int,
+                    initial_value: None,
+                    span: None,
+                }],
+                span: None,
+            }],
+            body: vec![Statement::Assignment {
+                target: Expression::Variable("counter".into(), None),
+                value: Expression::BinaryOp {
+                    left: Box::new(Expression::Variable("counter".into(), None)),
+                    op: BinaryOp::Add,
+                    right: Box::new(Expression::IntLiteral(1)),
+                },
+                span: None,
+            }],
+            span: None,
+        };
+        let bc = compile_program(&prog, &[], "retain_counter".into(), 10_000)
+            .expect("compile");
+        assert_eq!(bc.retain_vars.len(), 1);
+
+        reg.insert(mk_entry("retain_counter", bc, true))
+            .await
+            .expect("ok");
+
+        // Tick 1: counter starts at 0 (zero-init), becomes 1.
+        let results = run_scan_tick(
+            &reg,
+            &pi,
+            &HashMap::new(),
+            Some(&persistence),
+            &ScanTickOptions::default(),
+        )
+        .await;
+        assert_eq!(results.len(), 1);
+        assert!(matches!(results[0].1, BytecodeRunResult::Ok { .. }));
+
+        // Verify persisted value is 1.
+        let persisted_1 = persistence
+            .load_async("retain_counter", "counter")
+            .await
+            .expect("ok")
+            .expect("row present");
+        assert_eq!(persisted_1, serde_json::json!({"kind": "int", "value": 1}));
+
+        // Tick 2: loads persisted 1, increments to 2.
+        let _ = run_scan_tick(
+            &reg,
+            &pi,
+            &HashMap::new(),
+            Some(&persistence),
+            &ScanTickOptions::default(),
+        )
+        .await;
+        let persisted_2 = persistence
+            .load_async("retain_counter", "counter")
+            .await
+            .expect("ok")
+            .expect("row present");
+        assert_eq!(persisted_2, serde_json::json!({"kind": "int", "value": 2}));
+
+        // Tick 3: increments to 3.
+        let _ = run_scan_tick(
+            &reg,
+            &pi,
+            &HashMap::new(),
+            Some(&persistence),
+            &ScanTickOptions::default(),
+        )
+        .await;
+        let persisted_3 = persistence
+            .load_async("retain_counter", "counter")
+            .await
+            .expect("ok")
+            .expect("row present");
+        assert_eq!(persisted_3, serde_json::json!({"kind": "int", "value": 3}));
+    }
+
+    #[tokio::test]
+    async fn run_scan_tick_without_persistence_skips_retain() {
+        // RETAIN declared but persistence=None → program
+        // still runs (counter stays at zero-init each
+        // tick) + no save happens.
+        use crate::scripting::bytecode_compiler::compile_program;
+        use crate::st_validator::{
+            BinaryOp, DataType, Expression, Program, Statement, VarBlock,
+            VarDeclaration, VarScope,
+        };
+
+        let reg = BytecodeProgramRegistry::new();
+        let pi = ProcessImage::new();
+
+        let prog = Program {
+            name: "no_persist".into(),
+            var_blocks: vec![VarBlock {
+                scope: VarScope::Local,
+                retain: true,
+                constant: false,
+                declarations: vec![VarDeclaration {
+                    name: "x".into(),
+                    data_type: DataType::Int,
+                    initial_value: None,
+                    span: None,
+                }],
+                span: None,
+            }],
+            body: vec![Statement::Assignment {
+                target: Expression::Variable("x".into(), None),
+                value: Expression::BinaryOp {
+                    left: Box::new(Expression::Variable("x".into(), None)),
+                    op: BinaryOp::Add,
+                    right: Box::new(Expression::IntLiteral(1)),
+                },
+                span: None,
+            }],
+            span: None,
+        };
+        let bc = compile_program(&prog, &[], "p".into(), 10_000)
+            .expect("compile");
+        reg.insert(mk_entry("p", bc, true)).await.expect("ok");
+
+        let results = run_scan_tick(
+            &reg,
+            &pi,
+            &HashMap::new(),
+            None,
+            &ScanTickOptions::default(),
+        )
+        .await;
+        assert_eq!(results.len(), 1);
+        assert!(matches!(results[0].1, BytecodeRunResult::Ok { .. }));
+        // No assertion on persistence — no persistence
+        // handle to check. Test just verifies the run
+        // doesn't crash when RETAIN is declared without
+        // a persistence backend.
     }
 
     #[tokio::test]
@@ -498,6 +758,7 @@ mod tests {
             &reg,
             &pi,
             &HashMap::new(),
+            None,
             &ScanTickOptions::default(),
         )
         .await;

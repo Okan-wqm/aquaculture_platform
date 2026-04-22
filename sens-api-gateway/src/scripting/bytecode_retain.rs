@@ -136,10 +136,31 @@ pub fn json_to_stvalue(
     Ok(parsed)
 }
 
+/// Type-correct zero for each `StValueType`. The VM's
+/// `ScriptVm::new` uniformly zero-inits locals to
+/// `StValue::Bool(false)`, which is wrong for Int /
+/// Real RETAIN vars on the first boot (before any
+/// persistence row exists). Batch 176 uses this to
+/// normalize the initial slot value per the declared
+/// type so downstream opcodes see the expected type.
+fn zero_of(ty: StValueType) -> StValue {
+    match ty {
+        StValueType::Bool => StValue::Bool(false),
+        StValueType::Int => StValue::Int(0),
+        StValueType::Real => StValue::Real(0.0),
+    }
+}
+
 /// Load every persisted RETAIN variable for `program_id`
-/// into the VM's locals slice. Missing rows (first-boot
-/// before any save) leave the corresponding locals slot
-/// at the caller's initial value (VM zero-init).
+/// into the VM's locals slice.
+///
+/// Behavior for first-boot (no persisted row yet):
+/// the corresponding locals slot is set to the TYPE-
+/// CORRECT zero (Int=0, Real=0.0, Bool=false) via
+/// `zero_of`. This overrides the VM's uniform
+/// `Bool(false)` init so Int / Real RETAIN programs
+/// see Int(0) / Real(0.0) on their first tick and
+/// don't TypeMismatch on the first arithmetic opcode.
 pub async fn load_retain_vars(
     persistence: &SqlitePersistence,
     program_id: &str,
@@ -161,8 +182,11 @@ pub async fn load_retain_vars(
                 locals[idx] = stv;
             }
             Ok(None) => {
-                // First boot — persistence row not present.
-                // VM's zero-init value stays.
+                // First boot — no persisted row yet.
+                // Initialize the slot to the declared
+                // type's zero rather than leaving the
+                // VM's uniform Bool(false) in place.
+                locals[idx] = zero_of(*declared_type);
             }
             Err(e) => return Err(e.into()),
         }
@@ -280,17 +304,30 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn load_retain_vars_missing_row_leaves_default() {
+    async fn load_retain_vars_missing_row_yields_type_correct_zero() {
+        // Batch 176: first boot (no persisted row) now
+        // initializes the slot to the declared type's
+        // zero value — VM zero-init uniformly sets
+        // Bool(false), but Int RETAIN needs Int(0).
         let persistence = SqlitePersistence::in_memory().expect("ok");
         let retain_vars = vec![
-            ("first_boot_counter".to_string(), 0u32, StValueType::Int),
+            ("int_counter".to_string(), 0u32, StValueType::Int),
+            ("real_meter".to_string(), 1u32, StValueType::Real),
+            ("bool_flag".to_string(), 2u32, StValueType::Bool),
         ];
-        let mut locals = vec![StValue::Int(7)]; // caller's default
+        // Caller's initial values are deliberately
+        // "wrong" to prove load_retain_vars overrides them.
+        let mut locals = vec![
+            StValue::Bool(true),
+            StValue::Int(999),
+            StValue::Real(99.9),
+        ];
         load_retain_vars(&persistence, "prog1", &retain_vars, &mut locals)
             .await
             .expect("load");
-        // No persisted row → caller's default stays.
-        assert_eq!(locals[0], StValue::Int(7));
+        assert_eq!(locals[0], StValue::Int(0));
+        assert_eq!(locals[1], StValue::Real(0.0));
+        assert_eq!(locals[2], StValue::Bool(false));
     }
 
     #[tokio::test]

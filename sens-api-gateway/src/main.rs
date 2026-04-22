@@ -3859,11 +3859,22 @@ async fn run_agent(
             });
 
             // Spawn the cadence loop.
+            // persistence=None at this wire point —
+            // Batch 177 adds the SqlitePersistence boot
+            // hook + passes it in so RETAIN programs
+            // survive reboot end-to-end. Until 177
+            // lands, RETAIN declarations compile cleanly
+            // but the scan tick doesn't load/save them
+            // (matches pre-Batch-176 behavior).
+            let persistence_opt: Option<
+                std::sync::Arc<crate::scripting::SqlitePersistence>,
+            > = None;
             let scan_cycle_handle = tokio::spawn(async move {
                 let summary = crate::scripting::bytecode_scan_cycle_task::run_scan_cycle_loop(
                     registry,
                     pi,
                     declared_types,
+                    persistence_opt,
                     scan_cycle_ms,
                     crate::scripting::bytecode_runner::ScanTickOptions::default(),
                     watch_rx,

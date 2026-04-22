@@ -95,6 +95,7 @@ pub async fn run_scan_cycle_loop(
     registry: Arc<BytecodeProgramRegistry>,
     pi: ProcessImage,
     declared_types: HashMap<String, StValueType>,
+    persistence: Option<Arc<super::persistence::SqlitePersistence>>,
     scan_cycle_ms: u64,
     tick_options: ScanTickOptions,
     mut shutdown_rx: tokio::sync::watch::Receiver<bool>,
@@ -111,7 +112,9 @@ pub async fn run_scan_cycle_loop(
         let tick_start = std::time::Instant::now();
 
         // Execute one scan tick.
-        let results = run_scan_tick(&registry, &pi, &declared_types, &tick_options).await;
+        let results =
+            run_scan_tick(&registry, &pi, &declared_types, persistence.as_deref(), &tick_options)
+                .await;
         summary.ticks_executed += 1;
 
         for (program_id, result) in &results {
@@ -255,6 +258,7 @@ mod tests {
                 registry_clone,
                 pi_clone,
                 HashMap::new(),
+                None,
                 10, // 10ms tick
                 ScanTickOptions::default(),
                 rx,
@@ -290,6 +294,7 @@ mod tests {
                 registry_clone,
                 pi_clone,
                 HashMap::new(),
+                None,
                 10,
                 ScanTickOptions::default(),
                 rx,
@@ -333,6 +338,7 @@ mod tests {
                 registry_clone,
                 pi_clone,
                 HashMap::new(),
+                None,
                 10,
                 ScanTickOptions::default(),
                 rx,
@@ -399,6 +405,7 @@ mod tests {
                 registry_clone,
                 pi_clone,
                 HashMap::new(),
+                None,
                 10,
                 ScanTickOptions::default(),
                 rx,
@@ -430,6 +437,7 @@ mod tests {
                 registry_clone,
                 pi_clone,
                 HashMap::new(),
+                None,
                 10,
                 ScanTickOptions::default(),
                 rx,

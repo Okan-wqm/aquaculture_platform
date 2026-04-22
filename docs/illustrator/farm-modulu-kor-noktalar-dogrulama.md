@@ -860,6 +860,58 @@ Hepsi kabul edilmeli:
 
 ---
 
+## Çalışma Sırasında Bulunanlar (İmplementasyon Log'u)
+
+Kod düzeltmeleri uygulanırken karşılaşılan yan problemler. "İlgili / ilgisiz" ayrımı yapılmadan burada tutulur.
+
+### 2026-04-22 — Kritik Düzeltme Oturumu
+
+#### Düzeltmeler uygulandı
+
+Aşağıdaki commit'ler `docs/farm-illustrator` branch'ine eklendi:
+
+1. **`refactor(farm): remove legacy farm concept from frontend`** — FarmFormPage, FarmListPage, FarmDetailPage silindi. Mocked FarmDetailPage (`mockFarm = {...}` hardcoded) + stub FarmFormPage (`console.log + setTimeout`) artık yok. Üç `/sites/...` rotası `<Navigate to="/sites/setup/sites" />` redirect'e çevrildi. Kullanıcı kaydı Site/Department/System hiyerarşisine yönlendirildi. (Girdi 12 + Ek-1 + Ek-2)
+2. **`refactor(farm): deprecate createFarm and createPond mutations`** — Backend mutation'ları `@deprecated` + `BadRequestException` throw. Query'ler legacy read için kaldı. (Mimari netleştirme — "farm kaydı yapmıyoruz, yapmamalıyız")
+3. **`feat(fish-health): enforce medicine withdrawal period on harvest`** — Yeni `BatchHarvestEligibilityService` + `batchHarvestEligibility` query + `createHarvestRecord` handler entegrasyonu + unit test. Gıda güvenliği compliance bug'ı (Girdi 14h / B11) kapatıldı.
+4. **`feat(tank): centralize density/capacity check and enforce on cleaner-fish deploy`** — Yeni `TankCapacityService` + `deployCleanerFish` hard enforce + unit test. Welfare bug'ı (Girdi 15-B15) kapatıldı.
+5. **`feat(scheduler): wire nightly audit-log cleanup via cleanup_old_audit_logs()`** — Boş `cleanupOldData` stub'ı dolduruldu. Per-tenant iterasyonu + `AUDIT_RETENTION_DAYS` env var. (Girdi 14b / 15-B18)
+
+#### Eklenen ek bulgular
+
+Fix'ler sırasında karşılaşılan yan problemler (docs'a eklenmesi gerektiği halde önceki turda atlanmış veya yeni ortaya çıkmış):
+
+- **Ek-1 (doğrulandı): FarmDetailPage mock data.** `web/modules/farm-module/src/pages/FarmDetailPage.tsx:33-48` içinde `const mockFarm = { id: '1', name: 'Çiftlik A - Tank Sistemi', ... }` hardcoded. `/sites/:siteId` rotası bu sayfayı kullanıyordu — kullanıcı her site tıkladığında aynı sahte veri görüyordu. **Düzeltildi** (dosya silindi).
+- **Ek-2 (doğrulandı): Module.tsx'te üç kırık rota.** `/sites/new`, `/sites/:siteId`, `/sites/:siteId/edit` — üçü de stub/mock sayfaya bağlıydı. **Düzeltildi** (redirect'e çevrildi).
+- **Düzeltme (önceki iddia yanlıştı): MapViewPage stub DEĞİL.** `MapViewPage.tsx` gerçek Leaflet + Sentinel Hub + CMEMS + AOI drawing implementasyonu içeriyor. Önceki frontend envanter agent'ı bunu yanlış "mock" olarak işaretlemiş. §21'deki stub listesinden kaldırılmalı (aşağıdaki güncellemeler listesinde).
+- **Düzeltme: FarmFormPage URL.** Önceki dokümanda "`/farms/new`" yazılmıştı; gerçek URL `/sites/new`. Ayrıca `/sites/:siteId/edit` de aynı sayfaya gidiyordu (site edit flow). Yani veri kaybı iki giriş noktası üzerinden mümkündü — tek değil.
+- **Ek bulgu: 16 backend mutation'ın frontend karşılığı yok.** Fix A sırasında yapılan cross-reference tarama sonucu (Explore agent raporu):
+  - Tier 1 (kritik iş akışı): `updateBatchStatus`, `closeBatch`, `allocateBatchToTank`, `createSubEquipment`, `assignFeedsToBatch`
+  - Tier 2 (destek ops): `updateBatch`, `deleteBatchFeedAssignment`, `updateBatchFeedAssignment`, `generateWorkOrderFromSchedule`, `completeMaintenance`
+  - Tier 3 (bulk/advanced): `createBatchWaterQualityMeasurements`, `processAutoGenerateWorkOrders`, `updateMeterReading`
+  - Sub-equipment CRUD (3): `createSubEquipment`, `updateSubEquipment`, `deleteSubEquipment`
+  - Admin-only (meşru): `updateSentinelHubInstanceId`
+  
+  **Scope dışı:** Bu oturumda UI eklenmedi. Yeni iş kalemleri olarak takip edilmeli.
+- **Ek bulgu: allocate-to-tank, transfer-batch, create-batch halen `TankCapacityService` kullanmıyor.** Mevcut inline density logic (create-batch.handler:395-425) servise migrate edilmedi — sadece en kritik handler (`deploy-cleaner-fish`) düzeltildi. Diğer handler'larda capacity check var ama ayrık implementasyonlar. Follow-up refactor commit'i gerek.
+- **Ek bulgu: `createFarm` / `createPond` handler dosyaları (`create-farm.handler.ts`, `create-pond.handler.ts`) mevcut.** Resolver'dan çağırma kaldırıldı ama handler sınıfları hala FarmModule'de kayıtlı. Dead code. Silinebilir ama CQRS registration temizliği şu an yapmadım (modül DI ağını değiştirmek riskli). Follow-up.
+- **Ek bulgu: `regulatory_events` entity dosyası aslında yok.** Önceki doküman iddiası yanlış — `apps/farm-service/src/regulatory/entities/` sadece `regulatory-settings.entity.ts` içeriyor. `createDiseaseOutbreak` (gorsel §14.3 iddiası) muhtemelen yalnız `health_events`'e yazıyor. Gorsel/anlatim güncellenmeli. (Girdi 15-A5 ile uyumlu ama daha kesin.)
+- **Ek bulgu: auto_rule trigger tipi enum-bazlı.** `AutoRuleTrigger` enum: `SCHEDULE`, `EXPIRY_NEAR`, `MAINTENANCE_DUE`, `LICENSE_EXPIRY`, `WATER_PARAM_ALERT`. Gorsel §4.10'daki "koşul örneği: `water.ph < 6.5`" yanlış — serbest expression parser yok. Docs düzeltilmeli (Girdi 15-B14 ile uyumlu).
+- **Ek bulgu: Backend `farm/` modülünde hala `CreateFarmHandler` ve `CreatePondHandler` registered.** Bu handler'lar artık çağrılamaz (resolver'dan throw) ama DI'da duruyor. Module.ts'te kayıt silinmeli — ama bu gereksiz risk (modül wiring'i değiştirmek). Handler dosyaları follow-up'ta silinmeli.
+
+#### Uygulanmayan (Follow-up olarak açık)
+
+Bu oturumda uygulanmayıp takip listesine alınanlar:
+
+- `allocate-to-tank.handler.ts`, `transfer-batch.handler.ts`, `create-batch.handler.ts` için `TankCapacityService` migration'u (mevcut inline logic serviste consolidate)
+- Backend farm modülü handler'ları (`create-farm.handler.ts`, `create-pond.handler.ts`) silme
+- 16 eksik frontend UI (yukarıdaki tier listesi)
+- BiomassReportTab partial stub (setTimeout save) tam düzeltme
+- Gorsel/anlatim dokümanlarında §21 (stub listesi) düzeltmesi — MapViewPage çıkarılsın, FarmDetailPage girsin
+- Gorsel §4.10 auto_rule örnekleri (`water.ph < 6.5`) düzeltilsin — enum-bazlı trigger olduğu yazılsın
+- Gorsel/anlatim §14.3 regulatory_events iddiası kaldırılsın
+
+---
+
 ## Dokümandaki Acil Eylem Listesi (Kod Değişikliği Gerektirenler)
 
 🔴 **Kritik compliance / veri kaybı bug'ları — PR ile düzeltilmeli:**

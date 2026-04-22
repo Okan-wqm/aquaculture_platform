@@ -712,7 +712,8 @@ Hedef tablo: `farm.health_events` (ana tablo), opsiyonel `water_quality_measurem
 | Form alanı | Field | Tablo sütunu |
 |-----------|-------|---------------|
 | Ad | `name` | `auto_task_rules.name` |
-| Koşul | `condition` | `auto_task_rules.condition` (örn `"water.ph < 6.5"`) |
+| Trigger Tipi | `trigger` | `auto_task_rules.trigger` (enum: SCHEDULE / EXPIRY_NEAR / MAINTENANCE_DUE / LICENSE_EXPIRY / WATER_PARAM_ALERT) |
+| Trigger Koşulu | `triggerCondition` | `auto_task_rules.trigger_condition` (SCHEDULE için interval hours string; WATER_PARAM_ALERT için threshold config). Serbest expression değil. |
 | Aksiyon | `action` | `auto_task_rules.action` (CREATE_TASK/SEND_ALERT/LOG_EVENT) |
 | Görev Kategorisi | `taskCategory` | `auto_task_rules.task_category` |
 | Öncelik | `priority` | `auto_task_rules.priority` |
@@ -773,7 +774,7 @@ Hedef tablo: `farm.health_events` (ana tablo), opsiyonel `water_quality_measurem
 
 | Rapor | Modal | Hedef Tablo(lar) | Mutation |
 |-------|-------|------------------|----------|
-| Disease Outbreak (Hastalık Salgını) | `reports/components/modals/DiseaseOutbreakModal.tsx` | `health_events` (detay), `regulatory_events` (bildirim) | `createDiseaseOutbreak` + `recordComplianceEvent` |
+| Disease Outbreak (Hastalık Salgını) | `reports/components/modals/DiseaseOutbreakModal.tsx` | `health_events` (detay) — ⚠ `regulatory_events` tablosu yok (önceki iddia yanlıştı; sadece `regulatory_settings` entity'si var) | `createDiseaseOutbreak` |
 | Escape Report (Kaçış) | `reports/components/modals/EscapeReportModal.tsx` | `regulatory_events` | `createEscapeReport` |
 | Welfare Event (Refah) | `reports/components/modals/WelfareEventModal.tsx` | `regulatory_events` | `createWelfareEvent` |
 | Biomass Report | `reports/tabs/BiomassReportTab.tsx` | ⚠ stub (setTimeout) | — |
@@ -865,7 +866,7 @@ Sadece **query** (mutation yok). MCP entegrasyonu ile sensör dataset özeti + �
 | SensorDashboardPage | — (sadece okuma: iot modülü sensor_readings) | Real-time WebSocket / polling |
 | AnalyticsPage | — (agregat okuma) | — |
 | TanksPage (filtreler) | — (okuma: tank_batches, equipment, tanks) | — |
-| MapViewPage | — (mock data) ⚠ stub | Gerçek implementasyon yok |
+| MapViewPage | — (Leaflet + Sentinel Hub + CMEMS) | Gerçek implementasyon — önceki "stub" iddiası yanlıştı |
 
 ---
 
@@ -1531,7 +1532,9 @@ Handler: `storage/handlers/receive-delivery.command.ts`
 |-------|-------|-------|-------|
 | **FarmFormPage** | `pages/FarmFormPage.tsx:100-110` | 🔴 Stub | `handleSubmit` yalnız `console.log` + `setTimeout(1000)` + `navigate('/sites')`. API çağrısı yok. 8 form alanı kaydedilmiyor. |
 | **FarmListPage delete** | `pages/FarmListPage.tsx:295` | 🔴 Stub | Silme işlemi `console.log('Çiftlik silindi...')` ile simülasyon. |
-| **MapViewPage** | `pages/MapViewPage.tsx` | 🔴 Stub | Mock data ile harita gösterimi. Gerçek geolocation yok. |
+| ~~MapViewPage~~ | `pages/MapViewPage.tsx` | ✅ **Gerçek** | Leaflet + Sentinel Hub + CMEMS + AOI drawing. Önceki "stub" iddiası yanlıştı — kor-noktalar-dogrulama.md çalışma log'una bakın. |
+| **FarmFormPage** (silindi) | eski: `pages/FarmFormPage.tsx` | 🔴 Stub — **düzeltildi** | `handleSubmit` sadece console.log + setTimeout; `/sites/new` + `/sites/:id/edit` data-loss bug'ı. Commit `refactor(farm): remove legacy farm concept from frontend` ile kaldırıldı. |
+| **FarmDetailPage** (silindi) | eski: `pages/FarmDetailPage.tsx` | 🔴 Mock — **düzeltildi** | `mockFarm = {...}` hardcoded; `/sites/:siteId` her site için aynı sahte veri gösteriyordu. Aynı commit'te kaldırıldı. |
 | BiomassReportTab | `pages/reports/tabs/BiomassReportTab.tsx` | 🟡 Kısmi stub | Save butonu `setTimeout` ile sahte başarı döner. |
 
 ### 10.2 Tablolar için Yazar Bulunmayanlar

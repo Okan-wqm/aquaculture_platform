@@ -1010,7 +1010,9 @@ Tankların filtrelenmiş listesi. Filtre alanları: sistem, tür, durum, arama, 
 
 ### 19.4 MapViewPage
 
-Tesis haritası — ⚠ **şu an stub**. Mock veri ile gösterim. Gerçek geolocation implementasyonu yok. `pages/MapViewPage.tsx`.
+Tesis haritası. Gerçek implementasyon: **Leaflet tabanı + Sentinel Hub uydu tile'ları + CMEMS deniz tile'ları + AOI (Area of Interest) çizim desteği + hava durumu paneli + point-data popup'ları**. `pages/MapViewPage.tsx`.
+
+> **Not (doküman düzeltmesi):** Önceki revizyon bu sayfayı "stub" olarak işaretliyordu — bu yanlıştı. Kod incelendiğinde hook'lar (`useSentinelTiles`, `useMapPointQuery`, `useAOIDrawing`) ve component'ler (`SentinelTileLayer`, `CMEMSTileLayer`, `SatelliteLayerControl`, `PointDataPopup`) gerçek entegrasyonu gösterdi. Düzeltme `kor-noktalar-dogrulama.md` implementasyon log'una kaydedildi.
 
 ---
 
@@ -1050,7 +1052,11 @@ Otomatik kod üretimi (`B-2024-00001` gibi batch number'lar). `farm.code_sequenc
 
 ## 21. Stub ve Ölü Ekranlar — Veri Kaybı Noktaları
 
-### 21.1 FarmFormPage — Kayıt Yapmıyor
+### 21.0 Bu Bölümün Güncel Durumu
+
+> **Düzeltme (2026-04-22):** Aşağıdaki 21.1, 21.2 ve 21.4 girdileri `docs/farm-illustrator` branch'indeki commit'ler ile **kod düzeyinde düzeltildi**. `FarmFormPage`, `FarmListPage` ve `FarmDetailPage` silindi; kırık rotalar redirect'e çevrildi. Metin tarihsel değer için bırakıldı. 21.3 (MapViewPage) **hatalı bir iddiaydı** — MapViewPage gerçek bir implementasyon (bkz §19.4).
+
+### 21.1 FarmFormPage — Kayıt Yapmıyor (düzeltildi)
 
 **Dosya:** `web/modules/farm-module/src/pages/FarmFormPage.tsx:100-110`
 
@@ -1083,9 +1089,11 @@ Bu bir **geçiş artığı**dır — sistemde `farms` (legacy) tablosundan `site
 
 Silme onay butonunda `console.log('Çiftlik silindi:', selectedFarm?.id);` — gerçek mutation yok. Liste mock veriyle dolar.
 
-### 21.3 MapViewPage — Mock
+### 21.3 MapViewPage — Mock iddiası YANLIŞ (kaldırıldı)
 
-Tesis haritası çizimi mock data ile simülasyon. Gerçek coğrafi veri entegrasyonu yapılmamış.
+~~Tesis haritası çizimi mock data ile simülasyon. Gerçek coğrafi veri entegrasyonu yapılmamış.~~
+
+**Düzeltme:** Bu iddia önceki bir envanter taraması tarafından yanlış üretilmişti. `pages/MapViewPage.tsx` gerçekte Leaflet + Sentinel Hub + CMEMS ile tam implementasyona sahip. Bkz §19.4.
 
 ### 21.4 BiomassReportTab — Kısmi Stub
 

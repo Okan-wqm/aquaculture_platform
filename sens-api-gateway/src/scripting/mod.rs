@@ -72,6 +72,12 @@ pub mod bytecode_registry_store;
 // drives `run_scan_tick` at the configured interval
 // with overrun detection + structured summary return.
 pub mod bytecode_scan_cycle_task;
+// Batch 175 Faz 3 (plan R-1): RETAIN variable load/save
+// bridge between Bytecode.retain_vars declarations +
+// the existing SqlitePersistence variable store.
+// Orchestrator wiring (per-tick load/save around
+// ScriptVm::run) lands in a future batch.
+pub mod bytecode_retain;
 mod conflict;
 mod context;
 mod engine;

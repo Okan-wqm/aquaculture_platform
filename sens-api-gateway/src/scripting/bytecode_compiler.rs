@@ -1455,7 +1455,7 @@ pub fn compile_program(
 ) -> Result<Bytecode, CompileError> {
     let mut symbols = SymbolTable::new();
     let mut local_count: u32 = 0;
-    let mut retain_vars: Vec<(String, StValueType)> = Vec::new();
+    let mut retain_vars: Vec<(String, u32, StValueType)> = Vec::new();
 
     // Insert tags FIRST so VAR-declared locals override
     // any name clash (local wins per IEC scope rule).
@@ -1480,10 +1480,14 @@ pub fn compile_program(
                 decl.name.clone(),
                 SymbolEntry::local(local_count, st_type),
             );
-            local_count += 1;
             if block.retain {
-                retain_vars.push((decl.name.clone(), st_type));
+                // Batch 175: record the local_index
+                // BEFORE incrementing so the VM can
+                // restore the RETAIN value into the
+                // exact slot the compiler assigned.
+                retain_vars.push((decl.name.clone(), local_count, st_type));
             }
+            local_count += 1;
         }
     }
 
@@ -2690,7 +2694,10 @@ mod tests {
         let bc = compile_program(&prog, &[], "p".into(), 100).expect("ok");
         assert_eq!(bc.retain_vars.len(), 1);
         assert_eq!(bc.retain_vars[0].0, "persistent_counter");
-        assert_eq!(bc.retain_vars[0].1, StValueType::Int);
+        // Batch 175: tuple shape is (name, local_index, type).
+        // Single declared var → local_index = 0.
+        assert_eq!(bc.retain_vars[0].1, 0u32);
+        assert_eq!(bc.retain_vars[0].2, StValueType::Int);
     }
 
     #[test]

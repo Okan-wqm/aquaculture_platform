@@ -388,9 +388,22 @@ pub struct Bytecode {
     /// slot array of this length at scan-start.
     pub local_count: u32,
     /// RETAIN variables carried across power-cycles.
-    /// Each (name, type) pair is bound to persistence
-    /// at compile time.
-    pub retain_vars: Vec<(String, StValueType)>,
+    /// Each entry = (name, local_index, declared_type):
+    /// - `name` keys the persistence row.
+    /// - `local_index` tells the VM which locals slot
+    ///   to restore / save so the bytecode can
+    ///   reference the variable via standard
+    ///   LoadLocal / StoreLocal opcodes.
+    /// - `declared_type` catches runtime type drift
+    ///   (persisted as Real but bytecode later
+    ///   declares Bool → reject rather than silently
+    ///   coerce).
+    ///
+    /// Batch 175 Faz 3 extended the tuple shape from
+    /// (name, type) to (name, local_index, type). The
+    /// canonical encoding bumps to v3 to bind the new
+    /// field into the signed hash.
+    pub retain_vars: Vec<(String, u32, StValueType)>,
     /// Tags this program is allowed to write via
     /// WriteTag opcode. VM rejects dispatch on any
     /// WriteTag with a name NOT in this list
@@ -605,8 +618,8 @@ mod tests {
             max_gas_per_tick: 10_000,
             local_count: 5,
             retain_vars: vec![
-                ("counter".into(), StValueType::Int),
-                ("active".into(), StValueType::Bool),
+                ("counter".into(), 0u32, StValueType::Int),
+                ("active".into(), 1u32, StValueType::Bool),
             ],
             allowed_write_tags: vec!["feeder_motor".into(), "status_led".into()],
             safe_state_pinned_tags: vec!["emergency_stop".into()],

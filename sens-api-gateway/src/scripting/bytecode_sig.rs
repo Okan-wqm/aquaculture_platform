@@ -23,7 +23,7 @@
 //!   manifest pattern: big-endian integers, length-prefixed
 //!   strings, opcodes serialized by stable wire_tag +
 //!   per-variant payload. Trailing domain tag
-//!   `b"st-bytecode-v2"` binds the signature to THIS schema
+//!   `b"st-bytecode-v3"` binds the signature to THIS schema
 //!   — a future schema revision bumps the tag + key ceremony.
 //! - `verify_signed_bytecode(signed, verify_closure) ->
 //!   Result<Bytecode, BytecodeVerifyError>` — returns the
@@ -108,38 +108,45 @@ impl std::error::Error for BytecodeVerifyError {}
 /// signature never verifies against a v2 canonical bytes
 /// because the trailing tag differs; ensures schema-
 /// migration safety.
-const DOMAIN_TAG_V2: &[u8] = b"st-bytecode-v2";
+const DOMAIN_TAG_V3: &[u8] = b"st-bytecode-v3";
 
 /// Wire-format version for the canonical encoding. Bumped
 /// in lockstep with DOMAIN_TAG_V* when the encoding changes.
-const WIRE_VERSION_V2: u16 = 2;
+///
+/// v3 (Batch 175) added `local_index: u32` per retain_vars
+/// entry so the VM can restore RETAIN values into the
+/// exact slot the compiler assigned. A v2 signature
+/// cannot verify against v3 canonical bytes (different
+/// schema tag).
+const WIRE_VERSION_V3: u16 = 3;
 
 /// Produce the canonical byte representation of a Bytecode
 /// for signing / verification.
 ///
-/// Encoding (wire_version v2 — Batch 165):
+/// Encoding (wire_version v3 — Batch 175):
 /// ```text
 ///   magic          "STBC" (4 bytes)
-///   wire_version   u16 big-endian  (= 2)
+///   wire_version   u16 big-endian  (= 3)
 ///   program_id     u32 len + bytes
 ///   program_name   u32 len + bytes
-///   tenant_id      u32 len + bytes  (len=0 for None)
-///                  + u8 presence byte (0 = None, 1 = Some)
+///   tenant_id      u8 presence byte (0 = None, 1 = Some)
+///                  + u32 len + bytes  (len=0 when None)
 ///   policy_version u64 big-endian
 ///   max_gas_per_tick  u32 big-endian
 ///   local_count       u32 big-endian
 ///   retain_vars    u32 count, each = u32 len + name bytes
+///                                  + u32 local_index big-endian
 ///                                  + u8 StValueType wire_tag
 ///   allowed_write_tags   u32 count, each = u32 len + bytes
 ///   safe_state_pinned_tags  u32 count, each = u32 len + bytes
 ///   opcodes        u32 count, each = u8 wire_tag + per-variant payload
-///   domain_tag     b"st-bytecode-v2"  (no length prefix; trailing binding)
+///   domain_tag     b"st-bytecode-v3"  (no length prefix; trailing binding)
 /// ```
 pub fn canonical_bytes(bc: &Bytecode) -> Result<Vec<u8>, BytecodeVerifyError> {
     let mut out = Vec::with_capacity(256 + bc.opcodes.len() * 8);
 
     out.extend_from_slice(b"STBC");
-    out.extend_from_slice(&WIRE_VERSION_V2.to_be_bytes());
+    out.extend_from_slice(&WIRE_VERSION_V3.to_be_bytes());
 
     write_str(&mut out, &bc.program_id, "program_id")?;
     write_str(&mut out, &bc.program_name, "program_name")?;
@@ -167,8 +174,12 @@ pub fn canonical_bytes(bc: &Bytecode) -> Result<Vec<u8>, BytecodeVerifyError> {
     out.extend_from_slice(&bc.local_count.to_be_bytes());
 
     write_u32_len(&mut out, bc.retain_vars.len(), "retain_vars count")?;
-    for (name, ty) in &bc.retain_vars {
+    for (name, local_index, ty) in &bc.retain_vars {
         write_str(&mut out, name, "retain_var name")?;
+        // Batch 175 (v3): local_index u32 big-endian,
+        // emitted BETWEEN the name + the type tag so
+        // parser layout stays rectangular.
+        out.extend_from_slice(&local_index.to_be_bytes());
         out.push(ty.wire_tag());
     }
 
@@ -195,7 +206,7 @@ pub fn canonical_bytes(bc: &Bytecode) -> Result<Vec<u8>, BytecodeVerifyError> {
         write_opcode(&mut out, op)?;
     }
 
-    out.extend_from_slice(DOMAIN_TAG_V2);
+    out.extend_from_slice(DOMAIN_TAG_V3);
     Ok(out)
 }
 
@@ -344,7 +355,7 @@ mod tests {
             policy_version: 1,
             max_gas_per_tick: 10_000,
             local_count: 2,
-            retain_vars: vec![("total_feed".into(), StValueType::Real)],
+            retain_vars: vec![("total_feed".into(), 0u32, StValueType::Real)],
             allowed_write_tags: vec!["feeder_rate".into()],
             safe_state_pinned_tags: vec!["emergency_stop".into()],
             opcodes: vec![
@@ -372,14 +383,14 @@ mod tests {
         let bc = canned_bytecode();
         let bytes = canonical_bytes(&bc).expect("ok");
         assert_eq!(&bytes[0..4], b"STBC");
-        assert_eq!(&bytes[4..6], &WIRE_VERSION_V2.to_be_bytes());
+        assert_eq!(&bytes[4..6], &WIRE_VERSION_V3.to_be_bytes());
     }
 
     #[test]
     fn canonical_bytes_ends_with_domain_tag() {
         let bc = canned_bytecode();
         let bytes = canonical_bytes(&bc).expect("ok");
-        assert!(bytes.ends_with(DOMAIN_TAG_V2));
+        assert!(bytes.ends_with(DOMAIN_TAG_V3));
     }
 
     #[test]
@@ -550,19 +561,23 @@ mod tests {
         // signature verifies; the domain tag binds them.
         let bc = canned_bytecode();
         let bytes = canonical_bytes(&bc).expect("ok");
-        let tail_len = DOMAIN_TAG_V2.len();
+        let tail_len = DOMAIN_TAG_V3.len();
         let (body, tail) = bytes.split_at(bytes.len() - tail_len);
-        assert_eq!(tail, DOMAIN_TAG_V2);
+        assert_eq!(tail, DOMAIN_TAG_V3);
         // Body with a DIFFERENT schema tag (simulating a
-        // future v3 or replaying an older v1 signature
-        // against the current v2 verifier) must yield
+        // future v4 or replaying an older v1/v2 signature
+        // against the current v3 verifier) must yield
         // distinct bytes.
         let mut fake = body.to_vec();
-        fake.extend_from_slice(b"st-bytecode-v3");
+        fake.extend_from_slice(b"st-bytecode-v4");
         assert_ne!(bytes, fake);
 
-        let mut older = body.to_vec();
-        older.extend_from_slice(b"st-bytecode-v1");
-        assert_ne!(bytes, older);
+        let mut older_v1 = body.to_vec();
+        older_v1.extend_from_slice(b"st-bytecode-v1");
+        assert_ne!(bytes, older_v1);
+
+        let mut older_v2 = body.to_vec();
+        older_v2.extend_from_slice(b"st-bytecode-v2");
+        assert_ne!(bytes, older_v2);
     }
 }

@@ -4,6 +4,8 @@
  * Due 7th of each month
  */
 import React, { useState, useMemo, useCallback } from 'react';
+import { useMutation } from '@tanstack/react-query';
+import { graphqlClient } from '@aquaculture/shared-ui';
 import { useRegulatorySettings } from '../../../hooks/useRegulatory';
 import { mockBiomassReports } from '../mock/biomassData';
 import {
@@ -18,6 +20,7 @@ import {
 import { ReportStatusBadge, DeadlineIndicator } from '../components/common';
 import { ReportWizard, ReportWizardStep } from '../components/wizard/ReportWizard';
 import { useTanksList, Tank } from '../../../hooks/useTanks';
+import { CREATE_BIOMASS_REPORT_MUTATION } from '../../../graphql/regulatory.operations';
 
 // ============================================================================
 // Types
@@ -1519,18 +1522,104 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
     setIsWizardOpen(true);
   }, [tanks]);
 
+  const createReportMutation = useMutation({
+    mutationFn: async (payload: { input: Record<string, unknown> }) => {
+      return graphqlClient.request(CREATE_BIOMASS_REPORT_MUTATION, payload);
+    },
+  });
+
   const handleSubmit = useCallback(async () => {
     setIsSubmitting(true);
     setError(null);
     try {
-      // TODO: Replace with real biomass submission mutation when backend endpoint is available
-      // The regulatory settings are already loaded for pre-populating contact info:
-      // regulatorySettings?.organisationNumber, regulatorySettings?.defaultContactName, etc.
-      console.log('Submitting biomass report:', formData, {
-        organisationNumber: regulatorySettings?.organisationNumber,
-        siteMapping: regulatorySettings?.siteLocalityMappings?.find(m => m.siteId === siteId),
-      });
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      if (!siteId) {
+        throw new Error('Site is required to submit a biomass report.');
+      }
+
+      // Map frontend BiomassFormData → backend CreateBiomassReportInput.
+      //
+      // Two conventions differ across the layers:
+      //   - Frontend `month` is 0-indexed (JS Date.getMonth semantics);
+      //     backend `reportMonth` is 1–12.
+      //   - Frontend `transfers[].direction` uses 'incoming' / 'outgoing'
+      //     strings; backend enum is 'IN' / 'OUT'.
+      //
+      // Stocking records store `quantity` + `avgWeightG`; the backend
+      // wants `biomassKg` explicitly, so we derive it here. All
+      // optional notes fields collapse to `undefined` when empty so the
+      // validator's `@IsOptional` branch is taken instead of failing
+      // on empty strings.
+      const input = {
+        siteId,
+        reportMonth: formData.month + 1,
+        reportYear: formData.year,
+        submit: true,
+        currentBiomass: {
+          totalKg: formData.currentBiomass.totalKg,
+          bySpecies: formData.currentBiomass.bySpecies.map((s) => ({
+            speciesId: s.speciesId,
+            speciesName: s.speciesName,
+            fishCount: s.fishCount,
+            biomassKg: s.biomassKg,
+            avgWeightG: s.avgWeightG,
+          })),
+        },
+        stockings: formData.stockings.map((r) => ({
+          date: r.date,
+          speciesCode: r.speciesName,
+          supplier: r.supplier || undefined,
+          fishCount: r.quantity,
+          avgWeightG: r.avgWeightG,
+          biomassKg: (r.quantity * r.avgWeightG) / 1000,
+          notes: r.batchNumber || undefined,
+        })),
+        mortality: {
+          totalCount: formData.mortality.totalCount,
+          byCause: formData.mortality.byCause.map((c) => ({
+            cause: c.cause,
+            count: c.count,
+          })),
+          details: formData.mortality.details.map((d) => ({
+            date: d.date,
+            cause: d.cause,
+            speciesCode: d.speciesName ?? '',
+            count: d.count,
+            biomassLossKg: d.biomassLossKg ?? undefined,
+            notes: d.notes || undefined,
+          })),
+        },
+        slaughter: {
+          totalQuantity: formData.slaughter.totalQuantity,
+          totalBiomassKg: formData.slaughter.totalBiomassKg,
+          records: formData.slaughter.records.map((r) => ({
+            date: r.date,
+            speciesCode: r.speciesName ?? '',
+            quantity: r.quantity,
+            biomassKg: r.biomassKg,
+            buyer: r.buyer || undefined,
+            notes: r.notes || undefined,
+          })),
+        },
+        transfers: formData.transfers.map((t) => ({
+          date: t.date,
+          direction: t.direction === 'incoming' ? 'IN' : 'OUT',
+          speciesCode: t.speciesName,
+          fishCount: t.quantity,
+          biomassKg: t.biomassKg,
+          counterparty: t.fromToSite || undefined,
+          notes: t.reason || undefined,
+        })),
+        feedConsumption: {
+          totalKg: formData.feedConsumption.totalKg,
+          byFeedType: formData.feedConsumption.byFeedType.map((f) => ({
+            feedName: f.feedName,
+            brandName: f.brandName || undefined,
+            quantityKg: f.quantityKg,
+          })),
+        },
+      };
+
+      await createReportMutation.mutateAsync({ input });
       setIsWizardOpen(false);
       setFormData(getInitialFormData());
     } catch (err) {
@@ -1538,7 +1627,7 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
     } finally {
       setIsSubmitting(false);
     }
-  }, [formData, regulatorySettings, siteId]);
+  }, [formData, siteId, createReportMutation]);
 
   // Wizard steps
   const steps: ReportWizardStep[] = useMemo(

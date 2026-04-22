@@ -18,6 +18,8 @@ import { Species } from '../species/entities/species.entity';
 import { FeedResolver } from './feed.resolver';
 import { FeedingProtocolResolver } from './feeding-protocol.resolver';
 
+import { RestoreModule } from '../common/services/restore.module';
+
 // Feed Command Handlers
 import { CreateFeedHandler } from './handlers/create-feed.handler';
 import { UpdateFeedHandler } from './handlers/update-feed.handler';
@@ -68,6 +70,7 @@ const QueryHandlers = [
       Site,
       Species,
     ]),
+    RestoreModule,
   ],
   providers: [
     FeedResolver,

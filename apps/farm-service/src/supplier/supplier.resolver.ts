@@ -17,8 +17,9 @@ import { UpdateSupplierCommand } from './commands/update-supplier.command';
 import { DeleteSupplierCommand } from './commands/delete-supplier.command';
 import { GetSupplierQuery } from './queries/get-supplier.query';
 import { ListSuppliersQuery } from './queries/list-suppliers.query';
-import { SupplierType } from './entities/supplier.entity';
+import { Supplier, SupplierType } from './entities/supplier.entity';
 import { SupplierType as SupplierTypeEntity } from './entities/supplier-type.entity';
+import { RestoreService } from '../common/services/restore.service';
 
 @Resolver(() => SupplierResponse)
 @UseGuards(TenantGuard)
@@ -30,6 +31,9 @@ export class SupplierResolver {
     private readonly queryBus: QueryBus,
     @InjectRepository(SupplierTypeEntity)
     private readonly supplierTypeRepository: Repository<SupplierTypeEntity>,
+    @InjectRepository(Supplier)
+    private readonly supplierRepository: Repository<Supplier>,
+    private readonly restoreService: RestoreService,
   ) {}
 
   /**
@@ -75,6 +79,28 @@ export class SupplierResolver {
     this.logger.log(`Deleting supplier ${id} for tenant ${tenantId}`);
     const command = new DeleteSupplierCommand(id, tenantId, user.sub);
     return this.commandBus.execute(command);
+  }
+
+  /**
+   * Restore a soft-deleted supplier. TENANT_ADMIN only. Phase 4.2
+   * of the "Farm modülü kalan kör noktalar" plan. Closes Girdi 6
+   * on the supplier surface.
+   */
+  @Roles(Role.TENANT_ADMIN)
+  @Mutation(() => SupplierResponse)
+  async restoreSupplier(
+    @Args('id', { type: () => ID }) id: string,
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: { sub: string; name?: string },
+  ): Promise<Supplier> {
+    this.logger.log(`Restoring supplier ${id} for tenant ${tenantId}`);
+    return this.restoreService.restore(
+      this.supplierRepository,
+      Supplier,
+      id,
+      { tenantId, userId: user.sub, userName: user.name },
+      { uniqueKeys: [['code']] },
+    );
   }
 
   /**

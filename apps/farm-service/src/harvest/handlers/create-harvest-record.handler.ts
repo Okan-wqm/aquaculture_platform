@@ -36,6 +36,7 @@ import { TankOperation, OperationType } from '../../batch/entities/tank-operatio
 import { Tank } from '../../tank/entities/tank.entity';
 import { BatchHarvestEligibilityService } from '../../fish-health/services/batch-harvest-eligibility.service';
 import { BackdatePolicyService } from '../../common/services/backdate-policy.service';
+import { HarvestPolicyService } from '../services/harvest-policy.service';
 
 @Injectable()
 @CommandHandler(CreateHarvestRecordCommand)
@@ -46,6 +47,7 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
     private readonly outboxPublisher: OutboxPublisher,
     private readonly harvestEligibility: BatchHarvestEligibilityService,
     private readonly backdatePolicy: BackdatePolicyService,
+    private readonly harvestPolicy: HarvestPolicyService,
     @InjectRepository(HarvestRecord)
     private readonly harvestRepository: Repository<HarvestRecord>,
     @InjectRepository(Batch)
@@ -120,6 +122,23 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
         );
       }
 
+      // ── POLICY GATE: harvest-plan mandatory for large harvests ──────
+      //
+      // Large harvests (over the biomass or quantity threshold — env
+      // overridable) MUST cite an APPROVED / SCHEDULED / IN_PROGRESS
+      // harvest plan for the same batch. Small harvests may continue
+      // without a plan but land a log entry so ops can track how often
+      // the shortcut is used. See HarvestPolicyService for the rule
+      // details and Girdi 15-B10 in
+      // docs/illustrator/farm-modulu-kor-noktalar-dogrulama.md.
+      await this.harvestPolicy.evaluate({
+        tenantId,
+        batchId: input.batchId,
+        projectedBiomassKg: Number(input.totalBiomass || 0),
+        projectedQuantity: Number(input.quantityHarvested || 0),
+        harvestPlanId: input.harvestPlanId ?? null,
+      });
+
       // Tank bul with pessimistic lock
       const tank = await queryRunner.manager.findOne(Tank, {
         where: { id: input.tankId, tenantId, isActive: true },
@@ -183,6 +202,7 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
         lotNumber,
         batchId: input.batchId,
         tankId: input.tankId,
+        harvestPlanId: input.harvestPlanId,
         status: HarvestRecordStatus.COMPLETED,
         harvestDate,
         operation,

@@ -28,6 +28,7 @@ import { DeleteSpeciesCommand } from '../commands/delete-species.command';
 import { GetSpeciesQuery } from '../queries/get-species.query';
 import { ListSpeciesQuery } from '../queries/list-species.query';
 import { GetSpeciesByCodeQuery } from '../queries/get-species-by-code.query';
+import { RestoreService } from '../../common/services/restore.service';
 
 // ============================================================================
 // RESPONSE TYPES
@@ -77,6 +78,7 @@ export class SpeciesResolver {
     private readonly queryBus: QueryBus,
     @InjectRepository(Species)
     private readonly speciesRepository: Repository<Species>,
+    private readonly restoreService: RestoreService,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -226,5 +228,27 @@ export class SpeciesResolver {
       id,
       message: success ? 'Species deleted successfully' : 'Failed to delete species',
     };
+  }
+
+  /**
+   * Restore a soft-deleted species. TENANT_ADMIN only. Closes
+   * Girdi 6 on the species surface. Phase 4.2 of the "Farm modülü
+   * kalan kör noktalar" plan.
+   */
+  @Roles(Role.TENANT_ADMIN)
+  @Mutation(() => Species)
+  async restoreSpecies(
+    @Args('id', { type: () => ID }) id: string,
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: { sub: string; name?: string },
+  ): Promise<Species> {
+    this.logger.log(`Restoring species: ${id}`);
+    return this.restoreService.restore(
+      this.speciesRepository,
+      Species,
+      id,
+      { tenantId, userId: user.sub, userName: user.name },
+      { uniqueKeys: [['code']] },
+    );
   }
 }

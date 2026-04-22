@@ -109,6 +109,34 @@ export interface TransferBatchInput {
   skipCapacityCheck?: boolean;
 }
 
+export type AllocationType = 'INITIAL_STOCKING' | 'TRANSFER_IN' | 'REDISTRIBUTION';
+
+export type BatchCloseReason =
+  | 'HARVEST_COMPLETED'
+  | 'TOTAL_MORTALITY'
+  | 'DISEASE_OUTBREAK'
+  | 'COMMERCIAL_DECISION'
+  | 'FAILED'
+  | 'MERGED'
+  | 'OTHER';
+
+export interface AllocateBatchToTankInput {
+  batchId: string;
+  tankId: string;
+  quantity: number;
+  avgWeightG: number;
+  allocationType?: AllocationType;
+  allocatedAt?: string;
+  notes?: string;
+}
+
+export interface ActiveTreatmentInfo {
+  eventCode: string;
+  productName: string;
+  earliestHarvestDate: string;
+  daysRemaining: number;
+}
+
 export interface CreateHarvestRecordInput {
   batchId: string;
   tankId: string;
@@ -827,6 +855,166 @@ export function useCreateHarvestRecord() {
       queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tankBatches') });
       queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tanks') });
       queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'harvestRecords') });
+    },
+  });
+}
+
+// ============================================================================
+// TIER 1 BATCH LIFECYCLE MUTATIONS (Faz 3)
+// ============================================================================
+
+const UPDATE_BATCH_STATUS_MUTATION = `
+  mutation UpdateBatchStatus($id: ID!, $status: BatchStatus!, $reason: String) {
+    updateBatchStatus(id: $id, status: $status, reason: $reason) {
+      id
+      batchNumber
+      status
+    }
+  }
+`;
+
+const CLOSE_BATCH_MUTATION = `
+  mutation CloseBatch(
+    $id: ID!,
+    $reason: BatchCloseReason!,
+    $notes: String,
+    $acknowledgeActiveTreatments: Boolean
+  ) {
+    closeBatch(
+      id: $id,
+      reason: $reason,
+      notes: $notes,
+      acknowledgeActiveTreatments: $acknowledgeActiveTreatments
+    ) {
+      id
+      batchNumber
+      status
+      closedAt
+    }
+  }
+`;
+
+const ALLOCATE_BATCH_TO_TANK_MUTATION = `
+  mutation AllocateBatchToTank($input: AllocateToTankInput!) {
+    allocateBatchToTank(input: $input) {
+      id
+      batchNumber
+      currentQuantity
+      currentBiomassKg
+    }
+  }
+`;
+
+export interface UpdateBatchStatusInput {
+  id: string;
+  status: BatchStatus;
+  reason?: string;
+}
+
+export interface CloseBatchInput {
+  id: string;
+  reason: BatchCloseReason;
+  notes?: string;
+  acknowledgeActiveTreatments?: boolean;
+}
+
+/**
+ * Hook to transition a batch to a new status (QUARANTINE → ACTIVE,
+ * GROWING → PRE_HARVEST, etc.). The backend `updateBatchStatus`
+ * resolver validates allowed transitions per BatchStatusStateMachine.
+ */
+export function useUpdateBatchStatus() {
+  const { token, tenantId } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (input: UpdateBatchStatusInput) => {
+      if (!token) {
+        throw new Error('Authentication required. Please login first.');
+      }
+      if (!tenantId) {
+        throw new Error('Tenant context required. Please re-login.');
+      }
+      const data = await graphqlClient.request<{ updateBatchStatus: Batch }>(
+        UPDATE_BATCH_STATUS_MUTATION,
+        { id: input.id, status: input.status, reason: input.reason },
+      );
+      return data.updateBatchStatus;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'batches') });
+    },
+  });
+}
+
+/**
+ * Hook to close a batch. The backend blocks closing while any
+ * active medicine-withdrawal treatment remains unless the caller
+ * passes `acknowledgeActiveTreatments: true` — in which case the
+ * override is written to the audit log.
+ *
+ * On rejection, the backend surfaces the blocking treatments in
+ * the error path; the caller should parse and show them so the
+ * operator can confirm.
+ */
+export function useCloseBatch() {
+  const { token, tenantId } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (input: CloseBatchInput) => {
+      if (!token) {
+        throw new Error('Authentication required. Please login first.');
+      }
+      if (!tenantId) {
+        throw new Error('Tenant context required. Please re-login.');
+      }
+      const data = await graphqlClient.request<{ closeBatch: Batch }>(
+        CLOSE_BATCH_MUTATION,
+        {
+          id: input.id,
+          reason: input.reason,
+          notes: input.notes,
+          acknowledgeActiveTreatments: input.acknowledgeActiveTreatments,
+        },
+      );
+      return data.closeBatch;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'batches') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tanks') });
+    },
+  });
+}
+
+/**
+ * Hook to allocate a batch to a tank. The backend enforces the
+ * three-axis capacity invariant (status/biomass/density) via
+ * TankCapacityService — `admin-override` mode for TENANT_ADMIN,
+ * `hard` for everyone else (a TS2532-safe allocation path).
+ */
+export function useAllocateBatchToTank() {
+  const { token, tenantId } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (input: AllocateBatchToTankInput) => {
+      if (!token) {
+        throw new Error('Authentication required. Please login first.');
+      }
+      if (!tenantId) {
+        throw new Error('Tenant context required. Please re-login.');
+      }
+      const data = await graphqlClient.request<{ allocateBatchToTank: Batch }>(
+        ALLOCATE_BATCH_TO_TANK_MUTATION,
+        { input },
+      );
+      return data.allocateBatchToTank;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'batches') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tankBatches') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'tanks') });
     },
   });
 }

@@ -838,7 +838,7 @@ Hepsi kabul edilmeli:
 | 15-B13 | Recurring task timezone | ✅ | Sunucu saati, site tz yok |
 | 15-B14 | Auto rule parser riski | ❌ Yanlış | Enum-bazlı, eval yok |
 | 15-B15 | Cleaner fish capacity | 🔴 **KRİTİK** | max_biomass_kg kontrolü yok |
-| 15-B16 | Lot mixing teorik vs fiziksel | ✅ | Gıda güvenliği izlenebilirlik |
+| 15-B16 | Lot mixing teorik vs fiziksel | ✅ RESOLVED (Faz 2.4) | Gıda güvenliği izlenebilirlik — `StorageLotMix` + `LotMixService` |
 | 15-B17 | Audit log PII + şişme | ✅ | GDPR + storage bloat |
 | 15-B18 | Audit retention çalışmıyor | ✅ | Fonksiyon var, cron yok |
 | 15-C1…C15 | Hiç girilmemiş başlıklar | ✅ çoğu geçerli | Dokümana yeni bölümler eklenmeli |
@@ -1066,6 +1066,23 @@ const res = await postQuery('SELECT * FROM farm.ponds');
 
 **Aksiyon:** Düşük öncelik. Gelecek refactor'da her method adı modül-prefix alabilir (`auditCleanup`, `weatherCleanup`). Koda dokunulmasın.
 
+### Orphan 17 — `StorageInventory.receivedDate` Sütunu Kodda Referans Var Ama Entity'de Yok
+
+**Bulgu:** Faz 1.3 FEFO hardening iki noktada `inv.receivedDate` sütununu sorguluyor:
+- `apps/farm-service/src/storage/handlers/record-stock-movement.handler.ts:456,460`
+- `apps/farm-service/src/storage/event-handlers/feeding-storage-event.handler.ts:146,148`
+
+`apps/farm-service/src/storage/entities/storage-inventory.entity.ts` dosyasında `receivedDate` / `received_date` sütunu tanımlı değil. TypeORM query builder `inv.receivedDate` ifadesini entity metadata'ya göre SQL'e çevirdiği için sütun bulunamadığında çalıştırma zamanında `ColumnMetadataNotFoundError` fırlatır. Hem query hem order-by ifadeleri aynı sütuna güveniyor.
+
+**Etki:** Deterministik FEFO tiebreak ve as-of scoping runtime'da çalışmaz — bir movement kaydı FEFO yolu tetiklendiğinde (yani `lotNumber` verilmemişse) 500 hatası döner. Aktif kullanımda henüz fark edilmemiş olabilir çünkü çoğu movement `lotNumber` explicit taşır (operator deliveries lot number girer) — o durumda `if (lotNumber)` dalı alınır, FEFO sorgusuna düşmez.
+
+**Aksiyon:** Faz 1.3 PR'ının eksik parçası olarak
+- `storage_inventory` tablosuna `received_date TIMESTAMPTZ` sütunu eklenir (migration: `alter table farm.storage_inventory add column received_date timestamptz default now()`)
+- `StorageInventory` entity'sine `@Column({ type: 'timestamptz', nullable: true, name: 'received_date' }) receivedDate?: Date;` property eklenir
+- `increaseInventory` yeni row oluştururken `receivedDate: new Date()` yazar, update path'inde dokunmaz (orijinal receipt tarihi korunur)
+
+Bu orphan'ı Faz 1.3 hot-fix olarak **ayrı PR** ile kapatmak gerekir — Faz 2.4 (lot-mixing) scope'una dahil değil. Kendi Girdi kimliği alır.
+
 ---
 
 ## Orphan Takip Tablosu
@@ -1088,3 +1105,4 @@ const res = await postQuery('SELECT * FROM farm.ponds');
 | 14 | batch_feed_assignments UNIQUE + restore | 📋 Pre-check | Faz 4.2 |
 | 15 | Cleaner fish deploy pre-check query yok | 📋 UI genişlet | Faz 3 + 1.1 |
 | 16 | cleanupOldData method isim duplikasyonu | ⚠ Düşük öncelik | cosmetic |
+| 17 | StorageInventory.receivedDate entity'de yok | ⚠ Faz 1.3 hot-fix | Faz 1.3 follow-up |

@@ -43,6 +43,18 @@ ignore = [
     #   do not consume third-party CRLs in the MQTT path. Covered by
     #   the same finding RUST-CVE-001.
     "RUSTSEC-2026-0049",
+    # RUSTSEC-2026-0104 — rustls-webpki reachable panic in CRL parsing.
+    #   Published 2026-04-22. The rustls-webpki 0.103.12 instance was
+    #   upgraded to 0.103.13 (patched) via `cargo update -p
+    #   rustls-webpki@0.103.12 --precise 0.103.13`. Only the 0.102.8
+    #   instance remains, locked by rumqttc 0.25.1's pin — same
+    #   upstream blocker as the other rumqttc-chain advisories.
+    #   Threat model: the CRL parser panic requires an attacker-
+    #   controlled CRL to reach rustls-webpki. The MQTT broker is the
+    #   only party in a position to send a CRL on the vulnerable path,
+    #   and it is operated by us — a malicious CRL would require
+    #   compromising our broker first. Covered by RUST-CVE-001.
+    "RUSTSEC-2026-0104",
     # RUSTSEC-2025-0134 — rustls-pemfile unmaintained advisory.
     #   Same upstream chain: rumqttc 0.25.1 pins
     #   rustls-pemfile = "2.2.0", reported unmaintained. Not a

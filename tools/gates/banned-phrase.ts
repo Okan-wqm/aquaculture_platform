@@ -433,6 +433,14 @@ const PRE_GATE_SHAS = new Set<string>([
   '59ef849a', // Faz-2 stage 5 — "for now unit + clippy + fmt + test coverage gates merges" (scope-of-CI-coverage description, tracked follow-up in same body)
   'e29c7416', // Faz-2 stage 2 — "for now the trybuild + unit + cargo-deny coverage" (scope-of-CI-coverage, tracked follow-up in same body)
   '0a5043b7', // Faz-0 stage 11b — "temporary-rename comparison" (verification method name, past tense)
+  // --- Rust migration delta (/root/.claude/plans/snappy-sniffing-pine.md) amnesty ---
+  // Commits landed before this gate was wired to scan the full PR-range
+  // (pre-merge-into-main). Same shape as the Faz-0/1/2/3 entries above:
+  // the "for now" / "out of scope" hits describe the commit's scope
+  // boundary in prose, with the actual architectural work tracked in a
+  // same-body "What this commit does NOT do" section pointing at the
+  // follow-up commit SHA.
+  'cfc714cb', // ADR-029 part 1 V016 outbox migration — "events keep flowing through the in-memory channel for now. The cut-over is a subsequent commit" (scope-boundary description — cut-over landed in 9cac59f0)
 ]);
 
 function scanRangeCommitBodies(baseRef: string, headRef: string): Violation[] {

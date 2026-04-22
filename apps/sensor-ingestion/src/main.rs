@@ -421,7 +421,12 @@ fn maybe_spawn_cache_fill(
     let (Some(sensor), Some(client)) = (sensor_id, lookup_client) else {
         return false;
     };
-    sensor_lookup::spawn_lookup_and_populate_cache(
+    // The outcome (Spawned vs. DedupSkipped) is a per-call
+    // observability signal — the drain does not branch on it. The
+    // singleflight metrics emitted by spawn_lookup_and_populate_cache
+    // itself are the authoritative rate surface; the caller simply
+    // returns `true` to mark that a lookup WAS driven for this miss.
+    let _ = sensor_lookup::spawn_lookup_and_populate_cache(
         Arc::clone(client),
         Arc::clone(cache),
         tenant,

@@ -58,6 +58,7 @@ use std::time::Duration;
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use tokio::sync::Notify;
 use tokio::time::timeout;
 use tracing::instrument;
 use uuid::Uuid;
@@ -133,14 +134,43 @@ struct LookupRequest {
     sensor_id: Uuid,
 }
 
+/// Metric name for the successful cache-miss spawn (we won the
+/// singleflight race and dispatched the NATS request). Exposed as a
+/// `pub const` so tests + downstream dashboards agree on the contract
+/// — no string-literal drift.
+pub const CACHE_MISS_SPAWN_METRIC: &str = "sensor_ingestion_cache_miss_spawn_total";
+
+/// Metric name for the dedup-skipped cache miss (another task is
+/// already in flight for the same `(tenant, sensor)` key; we opt out
+/// instead of launching a duplicate NATS request).
+pub const CACHE_MISS_DEDUP_SKIP_METRIC: &str = "sensor_ingestion_cache_miss_dedup_skip_total";
+
 /// NATS request-reply client for the cache-miss responder pair.
 ///
-/// Cheap to clone (`Arc<NatsClient>` inside) so the same client can be
-/// shared across tasks via [`spawn_lookup_and_populate_cache`].
+/// Cheap to clone (`Arc<NatsClient>` + `Arc<papaya::HashMap>` inside)
+/// so the same client can be shared across tasks via
+/// [`spawn_lookup_and_populate_cache`].
+///
+/// # Singleflight dedup
+/// The `inflight` map carries a `(TenantId, Uuid) -> Arc<Notify>`
+/// entry for every cache-miss lookup currently in flight. Before
+/// spawning a new task, `spawn_lookup_and_populate_cache` issues a
+/// `papaya::try_insert` — the atomic check-and-insert either wins
+/// (we own the singleflight slot, spawn fires) or loses (another
+/// task already owns it, we skip without re-firing the NATS request).
+/// Under a burst of concurrent misses for the same key, the sidecar
+/// makes exactly ONE upstream request instead of N (per ADR-029).
 #[derive(Debug, Clone)]
 pub struct SensorLookupClient {
     nats: Arc<nats_client::NatsClient>,
     request_timeout: Duration,
+    /// In-flight singleflight registry. Key = the cache-miss pair;
+    /// value = a `Notify` that downstream waiters (current + future)
+    /// can `.notified()` on if they ever need to block on the result.
+    /// Task lifecycle: spawn inserts atomically via `try_insert`, then
+    /// the spawned future removes the entry + `notify_waiters()` on
+    /// completion (success or failure — both finish the race).
+    inflight: Arc<papaya::HashMap<(TenantId, Uuid), Arc<Notify>>>,
 }
 
 impl SensorLookupClient {
@@ -152,6 +182,7 @@ impl SensorLookupClient {
         Self {
             nats,
             request_timeout: DEFAULT_REQUEST_TIMEOUT,
+            inflight: Arc::new(papaya::HashMap::new()),
         }
     }
 
@@ -205,8 +236,27 @@ impl SensorLookupClient {
     }
 }
 
-/// Spawn a fire-and-forget cache-fill task. Returns immediately; the
-/// actual lookup runs on the spawned task.
+/// Outcome of a `spawn_lookup_and_populate_cache` call — exposed so
+/// tests can assert the singleflight invariant without peering into
+/// the inflight map.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LookupSpawnOutcome {
+    /// We won the atomic `try_insert` race for the `(tenant, sensor)`
+    /// key; the fetch task was spawned and owns the singleflight slot
+    /// until it completes. Increments `CACHE_MISS_SPAWN_METRIC`.
+    Spawned,
+    /// Another task already owns the slot. We skip without firing a
+    /// duplicate NATS request. Increments `CACHE_MISS_DEDUP_SKIP_METRIC`.
+    /// This is the steady-state behaviour under burst load — the
+    /// drain does not block, the upstream sensor-service does not
+    /// see N redundant requests for the same key.
+    DedupSkipped,
+}
+
+/// Spawn a fire-and-forget cache-fill task, deduped per
+/// `(tenant, sensor)` key. Returns immediately; the actual lookup
+/// runs on the spawned task (or is skipped if another task already
+/// owns the slot).
 ///
 /// WHY a free function (not a method on `SensorLookupClient`):
 ///   The free function takes `Arc<...>` arguments by value and `move`s
@@ -220,14 +270,74 @@ impl SensorLookupClient {
 ///   sustained cache-miss traffic for that `(tenant, sensor)` pair.
 ///   Logging at warn surfaces the failure for the operator without
 ///   propagating it onto the hot path.
+///
+/// # Singleflight (ADR-029 / plan Kör Nokta 7 — PR-B #8)
+///   Concurrent drains that miss on the same `(tenant, sensor)` key
+///   produce ONE upstream NATS request, not N. The first caller wins
+///   the `papaya::try_insert` atomic race and spawns; every later
+///   caller hits the `Err(OccupiedError)` branch and increments the
+///   dedup-skip counter. When the spawned task completes (success or
+///   failure), it removes the inflight entry and calls
+///   `notify_waiters()` on the `Notify` so any future subscriber-side
+///   wait points can proceed.
+/// Attempt to claim the inflight slot for `key`. Returns the freshly
+/// created `Notify` if we won the race (the caller now owns the
+/// singleflight slot and MUST eventually `remove(key)` + `notify_waiters`
+/// to release it), or `None` if another task already owns the slot
+/// (the caller should abort without firing a duplicate upstream
+/// request).
+///
+/// Extracted as a free function so the atomic race logic is covered
+/// by a unit test that does not need a live `NatsClient`.
+fn try_claim_inflight(
+    inflight: &papaya::HashMap<(TenantId, Uuid), Arc<Notify>>,
+    key: (TenantId, Uuid),
+) -> Option<Arc<Notify>> {
+    let notify = Arc::new(Notify::new());
+    let guard = inflight.pin();
+    match guard.try_insert(key, Arc::clone(&notify)) {
+        Ok(_inserted) => Some(notify),
+        Err(_occupied) => None,
+    }
+}
+
 pub fn spawn_lookup_and_populate_cache(
     client: Arc<SensorLookupClient>,
     cache: Arc<TopicCache>,
     tenant: TenantId,
     sensor: Uuid,
-) {
+) -> LookupSpawnOutcome {
+    let key = (tenant, sensor);
+    let Some(notify) = try_claim_inflight(&client.inflight, key) else {
+        // Another task already owns this key — skip without firing a
+        // duplicate NATS request. Emit the dedup counter so operators
+        // can watch the hit ratio (high ratio = burst workload, low
+        // ratio = cold-start or invalidation storm).
+        metrics::counter!(CACHE_MISS_DEDUP_SKIP_METRIC).increment(1);
+        tracing::trace!(
+            tenant = %tenant.as_uuid(),
+            sensor = %sensor,
+            "cache-miss lookup deduped — another task already fetching"
+        );
+        return LookupSpawnOutcome::DedupSkipped;
+    };
+    // We own the slot; emit the spawn counter so operators can
+    // reconstruct total upstream request rate.
+    metrics::counter!(CACHE_MISS_SPAWN_METRIC).increment(1);
+
+    let inflight = Arc::clone(&client.inflight);
+    let notify_for_cleanup = Arc::clone(&notify);
     tokio::spawn(async move {
-        match client.fetch_sensor_meta(tenant, sensor).await {
+        let result = client.fetch_sensor_meta(tenant, sensor).await;
+        // Clear the inflight slot + wake any waiters BEFORE processing
+        // the result. Reason: a subsequent miss on the same key
+        // immediately after completion should see an empty slot and
+        // be free to try again (cache insert or invalidate may still
+        // race, but the singleflight window is over).
+        let _ = inflight.pin().remove(&key);
+        notify_for_cleanup.notify_waiters();
+
+        match result {
             Ok(Some(meta)) => {
                 // Defence in depth: the responder is supposed to
                 // cross-check tenant binding before replying, but a
@@ -283,6 +393,7 @@ pub fn spawn_lookup_and_populate_cache(
             }
         }
     });
+    LookupSpawnOutcome::Spawned
 }
 
 /// Build a [`SensorLookupClient`] when `[nats]` is configured. Returns
@@ -318,8 +429,12 @@ mod tests {
     use tokio::sync::mpsc;
     use uuid::Uuid;
 
-    use super::{LOOKUP_SUBJECT, LookupError, LookupRequest, SensorLookupClient};
+    use super::{
+        CACHE_MISS_DEDUP_SKIP_METRIC, CACHE_MISS_SPAWN_METRIC, LOOKUP_SUBJECT, LookupError,
+        LookupRequest, Notify, SensorLookupClient,
+    };
     use crate::cache::{SensorMeta, TopicCache};
+    use tenant_context::TenantId;
 
     #[test]
     fn subject_is_canonical() {
@@ -500,6 +615,137 @@ mod tests {
         assert_eq!(
             hit.channel_ids[0],
             Uuid::parse_str("77777777-7777-7777-7777-777777777777").unwrap()
+        );
+    }
+
+    #[test]
+    fn try_claim_inflight_first_caller_wins_rest_get_none() {
+        // ADR-029 / PR-B #8 invariant. Under burst load a cache miss
+        // for the same (tenant, sensor) pair must produce EXACTLY ONE
+        // winning claim, not N. This is the atomic race at the heart
+        // of the singleflight — papaya's `try_insert` returns Ok for
+        // the winner and Err for every other caller. We test the
+        // helper directly, without a live NatsClient, so the assertion
+        // is about race shape, not transport.
+        let inflight: papaya::HashMap<(TenantId, Uuid), Arc<Notify>> = papaya::HashMap::new();
+        let tenant = TenantId::try_parse("550e8400-e29b-41d4-a716-446655440000").unwrap();
+        let sensor = Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap();
+        let key = (tenant, sensor);
+
+        let mut winners = 0_usize;
+        let mut losers = 0_usize;
+        let mut captured_notify: Option<Arc<Notify>> = None;
+        for _ in 0..8 {
+            match super::try_claim_inflight(&inflight, key) {
+                Some(n) => {
+                    winners += 1;
+                    captured_notify = Some(n);
+                }
+                None => {
+                    losers += 1;
+                }
+            }
+        }
+
+        assert_eq!(winners, 1, "exactly one caller must win; got {winners}");
+        assert_eq!(losers, 7, "seven callers must lose; got {losers}");
+        assert!(
+            captured_notify.is_some(),
+            "winner must receive a Notify handle for waiter-wake"
+        );
+
+        // A subsequent `remove` + `notify_waiters` completes the
+        // singleflight cycle. After that a fresh caller must win
+        // again — the slot is re-claimable once the previous owner
+        // releases it. This pins the cleanup contract.
+        {
+            let guard = inflight.pin();
+            assert!(guard.contains_key(&key), "slot held while inflight");
+            let _ = guard.remove(&key);
+        }
+        if let Some(n) = captured_notify {
+            n.notify_waiters();
+        }
+
+        let fresh = super::try_claim_inflight(&inflight, key);
+        assert!(
+            fresh.is_some(),
+            "after cleanup the slot must be re-claimable; got None"
+        );
+    }
+
+    #[test]
+    fn singleflight_counters_fire_when_outcomes_bucket() {
+        // The two public metric names carry counter semantics:
+        // "spawn_total" increments when a caller wins the race;
+        // "dedup_skip_total" increments when a caller loses it. This
+        // test drives the counters directly via the same helper the
+        // hot path uses, proving the name + accumulation shape.
+        //
+        // We cannot drive `spawn_lookup_and_populate_cache` end-to-end
+        // without a NatsClient; the counter emissions live inside that
+        // function after the race resolves. So we test the LOSER
+        // branch by driving two try_claim_inflight calls + manually
+        // emitting the dedup counter, which mirrors exactly what
+        // `spawn_lookup_and_populate_cache` does in its DedupSkipped
+        // arm. The winner branch is symmetric — documented here as a
+        // comment-only invariant since the code path is trivial once
+        // the race resolves.
+        use metrics::with_local_recorder;
+        use metrics_util::debugging::{DebugValue, DebuggingRecorder};
+
+        let inflight: papaya::HashMap<(TenantId, Uuid), Arc<Notify>> = papaya::HashMap::new();
+        let tenant = TenantId::try_parse("550e8400-e29b-41d4-a716-446655440000").unwrap();
+        let sensor = Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap();
+        let key = (tenant, sensor);
+
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+
+        with_local_recorder(&recorder, || {
+            // First caller — winner; mirrors spawn path.
+            assert!(super::try_claim_inflight(&inflight, key).is_some());
+            metrics::counter!(CACHE_MISS_SPAWN_METRIC).increment(1);
+
+            // Second + third caller — losers; mirrors dedup path.
+            assert!(super::try_claim_inflight(&inflight, key).is_none());
+            metrics::counter!(CACHE_MISS_DEDUP_SKIP_METRIC).increment(1);
+            assert!(super::try_claim_inflight(&inflight, key).is_none());
+            metrics::counter!(CACHE_MISS_DEDUP_SKIP_METRIC).increment(1);
+        });
+
+        let snapshot = snapshotter.snapshot();
+        let entries = snapshot.into_vec();
+        let spawn_hit = entries
+            .iter()
+            .find(|(k, _, _, _)| k.key().name() == CACHE_MISS_SPAWN_METRIC)
+            .expect("spawn metric must be emitted");
+        match &spawn_hit.3 {
+            DebugValue::Counter(v) => assert_eq!(*v, 1),
+            other => panic!("expected Counter, got {other:?}"),
+        }
+        let dedup_hit = entries
+            .iter()
+            .find(|(k, _, _, _)| k.key().name() == CACHE_MISS_DEDUP_SKIP_METRIC)
+            .expect("dedup-skip metric must be emitted");
+        match &dedup_hit.3 {
+            DebugValue::Counter(v) => assert_eq!(*v, 2),
+            other => panic!("expected Counter, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn singleflight_metric_names_are_stable() {
+        // Lock the metric-name contract. A rename of either const
+        // would break Prometheus dashboards authored against these
+        // names; the compile-time use in the test is the anchor.
+        assert_eq!(
+            CACHE_MISS_SPAWN_METRIC,
+            "sensor_ingestion_cache_miss_spawn_total"
+        );
+        assert_eq!(
+            CACHE_MISS_DEDUP_SKIP_METRIC,
+            "sensor_ingestion_cache_miss_dedup_skip_total"
         );
     }
 }

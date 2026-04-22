@@ -781,9 +781,19 @@ pub fn compile_statement(
         } => compile_for(
             variable, from, to, by.as_ref(), body, symbols, ops, loop_stack,
         ),
-        Statement::Case { .. } => Err(CompileError::Unsupported {
-            what: "CASE statement (Batch 154)".to_string(),
-        }),
+        Statement::Case {
+            expr,
+            branches,
+            else_body,
+            ..
+        } => compile_case(
+            expr,
+            branches,
+            else_body.as_deref(),
+            symbols,
+            ops,
+            loop_stack,
+        ),
         Statement::FunctionBlockCall { .. } => Err(CompileError::Unsupported {
             what: "function block call (Batch 155 FB-integration)".to_string(),
         }),
@@ -1087,6 +1097,168 @@ fn compile_for(
     }
     for slot in ctx.continue_slots {
         patch_jump(ops, slot, incr_start);
+    }
+
+    Ok(())
+}
+
+/// Compile `CASE expr OF value1, value2: stmts; … ELSE
+/// default END_CASE` (Batch 174 Faz 3 / plan R-1).
+///
+/// Emitted shape (for N branches, each with M_i match
+/// values):
+/// ```text
+///   <compile expr>                // stack: [selector: Int]
+///   // Branch 1 match chain:
+///   Dup; PushConst v1; Eq; JumpIfFalse skip_v1
+///   Pop; Jump body_1
+/// skip_v1:
+///   Dup; PushConst v2; Eq; JumpIfFalse skip_v2
+///   Pop; Jump body_1
+///   ...
+/// skip_last_of_branch_1:
+///   // Branch 2 match chain:
+///   ...
+/// no_match:
+///   Pop                           // drop selector
+///   <else_body>                   // optional
+///   Jump end
+/// body_1:
+///   <branch_1 statements>
+///   Jump end
+/// body_2:
+///   ...
+/// end:
+/// ```
+///
+/// Batch 174 scope:
+/// - Selector expression MUST infer to Int (Bool/Real
+///   selectors land in a future batch when the Eq
+///   opcode gets per-type variants alongside the
+///   existing cross-type behavior).
+/// - Match values MUST be IntLiteral — range syntax
+///   (`1..10`) + non-literal match expressions defer
+///   to a future batch when hidden-local allocation
+///   lets us keep the selector cached without stack
+///   acrobatics.
+///
+/// CASE in the aquaculture control domain is
+/// predominantly small state-machine discrimination
+/// (e.g. `CASE pump_state OF 0: idle; 1: priming;
+/// 2: running; END_CASE`) which this int-literal
+/// subset covers.
+fn compile_case(
+    expr: &Expression,
+    branches: &[(Vec<Expression>, Vec<Statement>)],
+    else_body: Option<&[Statement]>,
+    symbols: &SymbolTable,
+    ops: &mut Vec<Opcode>,
+    loop_stack: &mut Vec<LoopContext>,
+) -> Result<(), CompileError> {
+    // Compile selector + type-gate Int-only.
+    let (selector_ops, selector_type) = compile_expression(expr, symbols)?;
+    if selector_type != StValueType::Int {
+        return Err(CompileError::TypeMismatch {
+            op: "case-selector".to_string(),
+            left: StValueType::Int,
+            right: selector_type,
+        });
+    }
+    ops.extend(selector_ops);
+
+    // For each branch, generate match-chain that
+    // collects the "goto body" slots. We emit the
+    // match-chains first, then the no-match branch
+    // (else or fall-through), then each body.
+    //
+    // Branch body emission follows the match-chain
+    // emission because body entry addresses aren't
+    // known until the chain closes.
+    //
+    // Strategy: emit match-chain-to-placeholder-body-jumps,
+    // record (branch_index, jump_slot) for each, then
+    // at the end patch each jump to the actual body
+    // entry point.
+    let mut body_jump_slots: Vec<(usize, usize)> = Vec::new(); // (branch_idx, slot)
+    for (branch_idx, (match_values, _body)) in branches.iter().enumerate() {
+        if match_values.is_empty() {
+            return Err(CompileError::Unsupported {
+                what: format!(
+                    "CASE branch {} has no match values",
+                    branch_idx
+                ),
+            });
+        }
+        for match_expr in match_values {
+            let match_value = match match_expr {
+                Expression::IntLiteral(n) => *n,
+                other => {
+                    return Err(CompileError::Unsupported {
+                        what: format!(
+                            "CASE match value must be IntLiteral (got {:?}) — batch 175 adds range + Variable matches",
+                            target_kind(other)
+                        ),
+                    });
+                }
+            };
+
+            // Dup + PushConst + Eq + JumpIfFalse skip.
+            ops.push(Opcode::Dup);
+            ops.push(Opcode::PushConst {
+                value: StValue::Int(match_value),
+            });
+            ops.push(Opcode::Eq);
+            let skip_slot = emit_placeholder_jump_if_false(ops);
+
+            // Matched → Pop selector + Jump to body.
+            ops.push(Opcode::Pop);
+            let body_jump_slot = emit_placeholder_jump(ops);
+            body_jump_slots.push((branch_idx, body_jump_slot));
+
+            // Patch the skip-on-no-match: continue to
+            // next match value OR next branch's chain.
+            let after_skip_idx = ops.len() as u32;
+            patch_jump_if_false(ops, skip_slot, after_skip_idx);
+        }
+    }
+
+    // No match chain fell through here — still have
+    // selector on stack. Pop it + run else_body (if
+    // any) + fall through to end.
+    ops.push(Opcode::Pop);
+    if let Some(else_body) = else_body {
+        for s in else_body {
+            compile_statement(s, symbols, ops, loop_stack)?;
+        }
+    }
+
+    // After else (or if no else), jump over all bodies
+    // to the end.
+    let mut end_jump_slots: Vec<usize> = Vec::new();
+    end_jump_slots.push(emit_placeholder_jump(ops));
+
+    // Body blocks.
+    let mut branch_starts: Vec<u32> = vec![0u32; branches.len()];
+    for (branch_idx, (_match_values, body)) in branches.iter().enumerate() {
+        branch_starts[branch_idx] = ops.len() as u32;
+        for s in body {
+            compile_statement(s, symbols, ops, loop_stack)?;
+        }
+        // Each body ends with Jump to end (patched below).
+        end_jump_slots.push(emit_placeholder_jump(ops));
+    }
+
+    // Patch all body-jump slots to point at their
+    // branch's start.
+    for (branch_idx, slot) in body_jump_slots {
+        let target = branch_starts[branch_idx];
+        patch_jump(ops, slot, target);
+    }
+
+    // Patch end jumps.
+    let end_idx = ops.len() as u32;
+    for slot in end_jump_slots {
+        patch_jump(ops, slot, end_idx);
     }
 
     Ok(())
@@ -2931,6 +3103,165 @@ mod tests {
         )
         .expect_err("unknown");
         assert!(matches!(err, CompileError::UnknownVariable { .. }));
+    }
+
+    // ====================================================================
+    // Batch 174 Faz 3 — CASE statement compilation
+    // ====================================================================
+
+    #[test]
+    fn compile_case_three_branches_with_else() {
+        // CASE state OF
+        //   0: x := 1;
+        //   1: x := 2;
+        //   2: x := 3;
+        //   ELSE x := 99;
+        // END_CASE
+        let syms = build_symbols(vec![
+            sym("state", 0, StValueType::Int),
+            sym("x", 1, StValueType::Int),
+        ]);
+        let mut ops = vec![];
+        compile_stmt_program_scope(
+            &Statement::Case {
+                expr: Expression::Variable("state".into(), None),
+                branches: vec![
+                    (
+                        vec![Expression::IntLiteral(0)],
+                        vec![Statement::Assignment {
+                            target: Expression::Variable("x".into(), None),
+                            value: Expression::IntLiteral(1),
+                            span: None,
+                        }],
+                    ),
+                    (
+                        vec![Expression::IntLiteral(1)],
+                        vec![Statement::Assignment {
+                            target: Expression::Variable("x".into(), None),
+                            value: Expression::IntLiteral(2),
+                            span: None,
+                        }],
+                    ),
+                    (
+                        vec![Expression::IntLiteral(2)],
+                        vec![Statement::Assignment {
+                            target: Expression::Variable("x".into(), None),
+                            value: Expression::IntLiteral(3),
+                            span: None,
+                        }],
+                    ),
+                ],
+                else_body: Some(vec![Statement::Assignment {
+                    target: Expression::Variable("x".into(), None),
+                    value: Expression::IntLiteral(99),
+                    span: None,
+                }]),
+                span: None,
+            },
+            &syms,
+            &mut ops,
+        )
+        .expect("ok");
+        // Smoke check: opcode count is reasonable + first
+        // op loads selector + emission contains the
+        // expected Dup / Eq / Pop pattern.
+        assert!(ops.len() > 10);
+        assert!(matches!(ops[0], Opcode::LoadLocal { index: 0 }));
+        // Some Dup opcodes should exist (one per match value).
+        assert!(ops.iter().filter(|o| matches!(o, Opcode::Dup)).count() >= 3);
+    }
+
+    #[test]
+    fn compile_case_multiple_values_per_branch() {
+        // CASE n OF 1, 3, 5: x := 100; END_CASE
+        // Should emit 3 Dup/Eq/JumpIfFalse match checks
+        // all leading to the same body.
+        let syms = build_symbols(vec![
+            sym("n", 0, StValueType::Int),
+            sym("x", 1, StValueType::Int),
+        ]);
+        let mut ops = vec![];
+        compile_stmt_program_scope(
+            &Statement::Case {
+                expr: Expression::Variable("n".into(), None),
+                branches: vec![(
+                    vec![
+                        Expression::IntLiteral(1),
+                        Expression::IntLiteral(3),
+                        Expression::IntLiteral(5),
+                    ],
+                    vec![Statement::Assignment {
+                        target: Expression::Variable("x".into(), None),
+                        value: Expression::IntLiteral(100),
+                        span: None,
+                    }],
+                )],
+                else_body: None,
+                span: None,
+            },
+            &syms,
+            &mut ops,
+        )
+        .expect("ok");
+        // 3 match values → 3 Dup opcodes.
+        assert_eq!(ops.iter().filter(|o| matches!(o, Opcode::Dup)).count(), 3);
+    }
+
+    #[test]
+    fn compile_case_rejects_non_int_selector() {
+        let syms = build_symbols(vec![sym("flag", 0, StValueType::Bool)]);
+        let mut ops = vec![];
+        let err = compile_stmt_program_scope(
+            &Statement::Case {
+                expr: Expression::Variable("flag".into(), None),
+                branches: vec![],
+                else_body: None,
+                span: None,
+            },
+            &syms,
+            &mut ops,
+        )
+        .expect_err("type mismatch");
+        assert!(matches!(err, CompileError::TypeMismatch { .. }));
+    }
+
+    #[test]
+    fn compile_case_rejects_non_literal_match_value() {
+        let syms = build_symbols(vec![sym("n", 0, StValueType::Int)]);
+        let mut ops = vec![];
+        let err = compile_stmt_program_scope(
+            &Statement::Case {
+                expr: Expression::Variable("n".into(), None),
+                branches: vec![(
+                    vec![Expression::Variable("n".into(), None)],
+                    vec![],
+                )],
+                else_body: None,
+                span: None,
+            },
+            &syms,
+            &mut ops,
+        )
+        .expect_err("non-literal match");
+        assert!(matches!(err, CompileError::Unsupported { .. }));
+    }
+
+    #[test]
+    fn compile_case_rejects_empty_match_values_branch() {
+        let syms = build_symbols(vec![sym("n", 0, StValueType::Int)]);
+        let mut ops = vec![];
+        let err = compile_stmt_program_scope(
+            &Statement::Case {
+                expr: Expression::Variable("n".into(), None),
+                branches: vec![(vec![], vec![])],
+                else_body: None,
+                span: None,
+            },
+            &syms,
+            &mut ops,
+        )
+        .expect_err("empty branch match values");
+        assert!(matches!(err, CompileError::Unsupported { .. }));
     }
 
     #[test]

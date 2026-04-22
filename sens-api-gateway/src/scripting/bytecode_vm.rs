@@ -1948,6 +1948,237 @@ mod tests {
     // ====================================================================
 
     #[test]
+    fn run_compiled_case_statement_dispatches_to_matched_branch() {
+        // PROGRAM p
+        //   VAR state: INT; out: INT; END_VAR
+        //   state := 2;
+        //   CASE state OF
+        //     0: out := 10;
+        //     1: out := 20;
+        //     2: out := 30;
+        //     ELSE out := 99;
+        //   END_CASE
+        // END_PROGRAM
+        // Expected: out = 30 (selector matched branch 2).
+        use super::super::bytecode_compiler::compile_program;
+        use crate::st_validator::{
+            DataType, Expression, Program, Statement, VarBlock, VarDeclaration, VarScope,
+        };
+
+        let prog = Program {
+            name: "case_test".into(),
+            var_blocks: vec![VarBlock {
+                scope: VarScope::Local,
+                retain: false,
+                constant: false,
+                declarations: vec![
+                    VarDeclaration {
+                        name: "state".into(),
+                        data_type: DataType::Int,
+                        initial_value: None,
+                        span: None,
+                    },
+                    VarDeclaration {
+                        name: "out".into(),
+                        data_type: DataType::Int,
+                        initial_value: None,
+                        span: None,
+                    },
+                ],
+                span: None,
+            }],
+            body: vec![
+                Statement::Assignment {
+                    target: Expression::Variable("state".into(), None),
+                    value: Expression::IntLiteral(2),
+                    span: None,
+                },
+                Statement::Case {
+                    expr: Expression::Variable("state".into(), None),
+                    branches: vec![
+                        (
+                            vec![Expression::IntLiteral(0)],
+                            vec![Statement::Assignment {
+                                target: Expression::Variable("out".into(), None),
+                                value: Expression::IntLiteral(10),
+                                span: None,
+                            }],
+                        ),
+                        (
+                            vec![Expression::IntLiteral(1)],
+                            vec![Statement::Assignment {
+                                target: Expression::Variable("out".into(), None),
+                                value: Expression::IntLiteral(20),
+                                span: None,
+                            }],
+                        ),
+                        (
+                            vec![Expression::IntLiteral(2)],
+                            vec![Statement::Assignment {
+                                target: Expression::Variable("out".into(), None),
+                                value: Expression::IntLiteral(30),
+                                span: None,
+                            }],
+                        ),
+                    ],
+                    else_body: Some(vec![Statement::Assignment {
+                        target: Expression::Variable("out".into(), None),
+                        value: Expression::IntLiteral(99),
+                        span: None,
+                    }]),
+                    span: None,
+                },
+            ],
+            span: None,
+        };
+        let bc_compiled =
+            compile_program(&prog, &[], "p".into(), 100_000).expect("compile");
+        let mut vm = ScriptVm::new(&bc_compiled);
+        assert_eq!(vm.run(&bc_compiled), VmOutcome::Returned);
+        // slot 0 = state, slot 1 = out.
+        assert_eq!(vm.locals()[0], StValue::Int(2));
+        assert_eq!(vm.locals()[1], StValue::Int(30));
+    }
+
+    #[test]
+    fn run_compiled_case_else_path_hit_when_no_match() {
+        // CASE state OF 0: out:=1; 1: out:=2; ELSE out:=99;
+        // state = 5 → else path → out = 99.
+        use super::super::bytecode_compiler::compile_program;
+        use crate::st_validator::{
+            DataType, Expression, Program, Statement, VarBlock, VarDeclaration, VarScope,
+        };
+
+        let prog = Program {
+            name: "case_else".into(),
+            var_blocks: vec![VarBlock {
+                scope: VarScope::Local,
+                retain: false,
+                constant: false,
+                declarations: vec![
+                    VarDeclaration {
+                        name: "state".into(),
+                        data_type: DataType::Int,
+                        initial_value: None,
+                        span: None,
+                    },
+                    VarDeclaration {
+                        name: "out".into(),
+                        data_type: DataType::Int,
+                        initial_value: None,
+                        span: None,
+                    },
+                ],
+                span: None,
+            }],
+            body: vec![
+                Statement::Assignment {
+                    target: Expression::Variable("state".into(), None),
+                    value: Expression::IntLiteral(5),
+                    span: None,
+                },
+                Statement::Case {
+                    expr: Expression::Variable("state".into(), None),
+                    branches: vec![
+                        (
+                            vec![Expression::IntLiteral(0)],
+                            vec![Statement::Assignment {
+                                target: Expression::Variable("out".into(), None),
+                                value: Expression::IntLiteral(1),
+                                span: None,
+                            }],
+                        ),
+                        (
+                            vec![Expression::IntLiteral(1)],
+                            vec![Statement::Assignment {
+                                target: Expression::Variable("out".into(), None),
+                                value: Expression::IntLiteral(2),
+                                span: None,
+                            }],
+                        ),
+                    ],
+                    else_body: Some(vec![Statement::Assignment {
+                        target: Expression::Variable("out".into(), None),
+                        value: Expression::IntLiteral(99),
+                        span: None,
+                    }]),
+                    span: None,
+                },
+            ],
+            span: None,
+        };
+        let bc_compiled =
+            compile_program(&prog, &[], "p".into(), 100_000).expect("compile");
+        let mut vm = ScriptVm::new(&bc_compiled);
+        assert_eq!(vm.run(&bc_compiled), VmOutcome::Returned);
+        assert_eq!(vm.locals()[1], StValue::Int(99));
+    }
+
+    #[test]
+    fn run_compiled_case_multi_value_branch_matches_any() {
+        // CASE n OF 1, 3, 5: out := 100; END_CASE
+        // n = 3 → matches → out = 100.
+        use super::super::bytecode_compiler::compile_program;
+        use crate::st_validator::{
+            DataType, Expression, Program, Statement, VarBlock, VarDeclaration, VarScope,
+        };
+
+        let prog = Program {
+            name: "case_multi".into(),
+            var_blocks: vec![VarBlock {
+                scope: VarScope::Local,
+                retain: false,
+                constant: false,
+                declarations: vec![
+                    VarDeclaration {
+                        name: "n".into(),
+                        data_type: DataType::Int,
+                        initial_value: None,
+                        span: None,
+                    },
+                    VarDeclaration {
+                        name: "out".into(),
+                        data_type: DataType::Int,
+                        initial_value: None,
+                        span: None,
+                    },
+                ],
+                span: None,
+            }],
+            body: vec![
+                Statement::Assignment {
+                    target: Expression::Variable("n".into(), None),
+                    value: Expression::IntLiteral(3),
+                    span: None,
+                },
+                Statement::Case {
+                    expr: Expression::Variable("n".into(), None),
+                    branches: vec![(
+                        vec![
+                            Expression::IntLiteral(1),
+                            Expression::IntLiteral(3),
+                            Expression::IntLiteral(5),
+                        ],
+                        vec![Statement::Assignment {
+                            target: Expression::Variable("out".into(), None),
+                            value: Expression::IntLiteral(100),
+                            span: None,
+                        }],
+                    )],
+                    else_body: None,
+                    span: None,
+                },
+            ],
+            span: None,
+        };
+        let bc_compiled =
+            compile_program(&prog, &[], "p".into(), 100_000).expect("compile");
+        let mut vm = ScriptVm::new(&bc_compiled);
+        assert_eq!(vm.run(&bc_compiled), VmOutcome::Returned);
+        assert_eq!(vm.locals()[1], StValue::Int(100));
+    }
+
+    #[test]
     fn run_compiled_for_loop_sums_one_through_five() {
         // Batch 162 end-to-end:
         // PROGRAM p

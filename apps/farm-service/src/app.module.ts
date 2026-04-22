@@ -47,6 +47,7 @@ import { EventEmitterModule } from '@nestjs/event-emitter';
 import { CqrsModule } from '@platform/cqrs';
 import { EventBusModule } from '@platform/event-bus';
 import { DatabaseModule } from './database/database.module';
+import { FarmMetricsModule } from './common/metrics/farm-metrics.module';
 import { FarmOutboxModule } from './outbox/farm-outbox.module';
 import { FarmModule } from './farm/farm.module';
 import { HealthModule } from './health/health.module';
@@ -396,6 +397,11 @@ import { AddFarmOutboxModernColumns1786200000000 } from './database/migrations/1
 
     // Database module (audit, code generation, migration runner)
     DatabaseModule,
+
+    // Domain Prometheus metrics — phase 5.3. Registers
+    // FarmDomainMetricsService (counters + histograms) and the
+    // APP_INTERCEPTOR that auto-records every GraphQL resolver call.
+    FarmMetricsModule,
 
     // Transactional outbox for reliable event publishing
     // (handlers enqueue → OutboxWorkerService polls → NATS publish)

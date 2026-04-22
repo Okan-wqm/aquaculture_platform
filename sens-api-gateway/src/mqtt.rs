@@ -263,7 +263,8 @@ impl MqttClient {
 
         // Configure TLS transport if enabled (IEC 62443 SL2 FR4)
         if config.mqtt.tls.enabled {
-            let tls_config = Self::configure_tls(&config.mqtt.tls)?;
+            let tls_config =
+                Self::configure_tls(&config.mqtt.tls, &config.mtls)?;
             options.set_transport(tls_config);
             info!("MQTT TLS enabled");
         }
@@ -765,7 +766,10 @@ impl MqttClient {
     /// Supports:
     /// - Server certificate verification via CA cert
     /// - Client certificate authentication (mTLS) for FR1 compliance
-    fn configure_tls(tls_config: &crate::config::MqttTlsConfig) -> Result<Transport> {
+    fn configure_tls(
+        tls_config: &crate::config::MqttTlsConfig,
+        mtls_config: &crate::config::MtlsConfig,
+    ) -> Result<Transport> {
         use rumqttc::TlsConfiguration;
 
         // LOW/H-01: validate verify_hostname config is not set to false.
@@ -840,13 +844,82 @@ impl MqttClient {
             }
             info!("Loaded {} system CA certificates for MQTT TLS", root_store.len());
 
-            let mut client_config = rumqttc::tokio_rustls::rustls::ClientConfig::builder()
-                .with_root_certificates(root_store)
-                .with_no_client_auth();
+            // Batch 139 Sprint 6.6/6.8: install
+            // SuderraServerCertVerifier when configured
+            // (mtls.mode != Legacy OR pins supplied).
+            // Legacy-no-pins path returns None from
+            // build_suderra_verifier + we fall through
+            // to the rustls default webpki verifier — HC-1
+            // backward compat.
+            //
+            // Root-store is shared between the default
+            // builder AND the SuderraServerCertVerifier's
+            // inner WebPkiServerVerifier so X.509 chain
+            // trust uses the SAME anchors either path.
+            let root_store_arc = Arc::new(root_store.clone());
+            let provider = rumqttc::tokio_rustls::rustls::crypto::ring::default_provider();
+            let sig_algs = provider.signature_verification_algorithms;
+            let suderra_verifier = crate::mtls::build_suderra_verifier(
+                mtls_config.mode,
+                sig_algs,
+                &mtls_config.pinned_leaf_fingerprints_hex,
+                root_store_arc,
+            )
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "SuderraServerCertVerifier build failed (check mtls.mode + pinned_leaf_fingerprints_hex): {}",
+                    e
+                )
+            })?;
+
+            let mut client_config = if let Some(verifier) = suderra_verifier {
+                info!(
+                    "mTLS: SuderraServerCertVerifier installed (mode={:?}, pins={})",
+                    mtls_config.mode,
+                    mtls_config.pinned_leaf_fingerprints_hex.len()
+                );
+                rumqttc::tokio_rustls::rustls::ClientConfig::builder()
+                    .dangerous()
+                    .with_custom_certificate_verifier(verifier)
+                    .with_no_client_auth()
+            } else {
+                info!(
+                    "mTLS: Suderra custom verifier NOT installed (mode={:?}, no pins — HC-1 default webpki only)",
+                    mtls_config.mode
+                );
+                rumqttc::tokio_rustls::rustls::ClientConfig::builder()
+                    .with_root_certificates(root_store)
+                    .with_no_client_auth()
+            };
             client_config.alpn_protocols = vec![b"mqtt".to_vec()];
 
             let tls = TlsConfiguration::Rustls(Arc::new(client_config));
             return Ok(Transport::Tls(tls));
+        }
+
+        // Batch 139: custom-CA branch keeps
+        // `TlsConfiguration::Simple` which rumqttc builds
+        // internally — it does NOT support custom
+        // verifiers. Surface this as a WARN log when
+        // operator has configured Suderra mTLS so they
+        // know the gates are INACTIVE on this path +
+        // migrate to system-CA mode for Suderra-policy
+        // enforcement. Strict mode + custom CA is an
+        // explicit fail-closed because Strict requires
+        // pinning which isn't reachable here.
+        if !matches!(
+            mtls_config.mode,
+            crate::mtls::MtlsMode::Legacy
+        ) {
+            warn!(
+                "mTLS: custom-CA TLS branch in use + mtls.mode={:?} — Suderra policy gates (fingerprint pinning, age caps) are NOT ACTIVE on this path (rumqttc::TlsConfiguration::Simple does not support custom verifiers). Migrate to system-CA TLS for Suderra mTLS enforcement.",
+                mtls_config.mode
+            );
+        }
+        if matches!(mtls_config.mode, crate::mtls::MtlsMode::Strict) {
+            return Err(anyhow::anyhow!(
+                "mTLS Strict mode is incompatible with custom-CA TLS branch (rumqttc::TlsConfiguration::Simple cannot install SuderraServerCertVerifier). Either migrate to system-CA TLS (omit mqtt.tls.ca_cert_path) or downgrade mtls.mode to Warn during rollout."
+            ));
         }
 
         let tls = TlsConfiguration::Simple {

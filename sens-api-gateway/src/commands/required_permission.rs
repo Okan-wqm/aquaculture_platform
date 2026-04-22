@@ -223,6 +223,17 @@ pub(crate) fn permission_for_command(cmd: &str, params: &Value) -> Option<Permis
         "verify_signed_manifest" => Some(Permission::UpdateFirmware),
 
         // -----------------------------------------------------------------
+        // Signed firmware manifest apply orchestrator (Batch 116 Sprint 6.5).
+        // -----------------------------------------------------------------
+        // WHY UpdateFirmware: apply_signed_manifest mutates
+        // partition state + bumps the monotonic version floor
+        // + sets the next-boot slot. Same privilege class as
+        // update_firmware (legacy tarball), confirm_slot
+        // (Batch 109), verify_signed_manifest (Batch 115).
+        // ADR-019 §3 / Plan §3 R-4.
+        "apply_signed_manifest" => Some(Permission::UpdateFirmware),
+
+        // -----------------------------------------------------------------
         // Unknown command — fail-closed. Safer than implicit None
         // (anonymous) because an unknown command COULD be a future
         // safety-critical operation that the gate must reject.

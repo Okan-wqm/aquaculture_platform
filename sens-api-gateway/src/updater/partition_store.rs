@@ -135,6 +135,17 @@ pub enum PartitionStoreError {
     /// Mutex poisoned (prior panic). Recoverable by agent
     /// restart.
     LockPoisoned,
+    /// Batch 116 Sprint 6.5: `apply_roll_with_version_bump`
+    /// received a `new_version` that is NOT strictly greater
+    /// than the current `active_firmware_version`. Mirrors the
+    /// Batch 8 verify Gate 5 `StaleFirmwareVersion` semantic
+    /// but independent of the caller — closes any cross-caller
+    /// race window where two concurrent apply calls could both
+    /// observe the same pre-bump floor.
+    StaleVersion {
+        claimed: u64,
+        highest_seen: u64,
+    },
 }
 
 impl std::fmt::Display for PartitionStoreError {
@@ -148,6 +159,11 @@ impl std::fmt::Display for PartitionStoreError {
                 roll, from_a, from_b
             ),
             Self::LockPoisoned => write!(f, "partition store mutex poisoned"),
+            Self::StaleVersion { claimed, highest_seen } => write!(
+                f,
+                "stale firmware version: claimed={} not > highest_seen={}",
+                claimed, highest_seen
+            ),
         }
     }
 }
@@ -263,6 +279,81 @@ impl PartitionStore {
                 // stay consistent with disk.
                 warn!(
                     "PartitionStore persist failed: {}. Rolling back in-memory state.",
+                    e
+                );
+                *guard = prev_state;
+                Err(e)
+            }
+        }
+    }
+
+    /// Apply a PartitionRoll transition + atomically bump
+    /// `active_firmware_version` to `new_version` (Batch 116
+    /// Sprint 6.5 Phase 2).
+    ///
+    /// ## WHY a separate method
+    ///
+    /// Not every PartitionRoll comes paired with a known new
+    /// firmware version: `Confirm` + `Rollback` restore or
+    /// advance state without a version input (the version
+    /// was bumped at SwapToPending time). Making the version
+    /// an Option on the shared `apply_roll` would invite
+    /// inconsistent call sites ("caller forgot to pass the
+    /// version, silently left floor at 0"). A distinct
+    /// method keeps the monotonic-floor bump EXPLICIT at the
+    /// site that owns the verified version (cmd_apply_signed_manifest).
+    ///
+    /// ## Atomicity
+    ///
+    /// State mutation + version bump + disk persist happen
+    /// under ONE mutex acquisition + ONE persist. Snapshot
+    /// consumers observe either the old OR new tuple, never
+    /// a split (state updated but version stale, or vice
+    /// versa).
+    ///
+    /// ## Monotonicity gate
+    ///
+    /// `new_version` MUST be strictly greater than
+    /// `active_firmware_version` at the time of the call.
+    /// Rejects otherwise with StaleVersion (same semantic as
+    /// the Batch 8 verify Gate 5). Defense-in-depth — the
+    /// orchestrator already checked via verify_firmware_manifest,
+    /// but the store's invariant is independent of the
+    /// caller + closes any cross-caller race window.
+    pub fn apply_roll_with_version_bump(
+        &self,
+        roll: PartitionRoll,
+        cold_boot_budget_secs: u64,
+        new_version: u64,
+    ) -> Result<PartitionState, PartitionStoreError> {
+        let mut guard = self.state.lock().map_err(|_| PartitionStoreError::LockPoisoned)?;
+
+        if new_version <= guard.active_firmware_version {
+            return Err(PartitionStoreError::StaleVersion {
+                claimed: new_version,
+                highest_seen: guard.active_firmware_version,
+            });
+        }
+
+        let prev_state = guard.clone();
+
+        self.apply_roll_to_state(&mut guard, roll, cold_boot_budget_secs)?;
+        guard.active_firmware_version = new_version;
+
+        match self.persist(&guard) {
+            Ok(()) => {
+                info!(
+                    "PartitionStore applied {:?} + version_bump {}->{}: new_state={:?}",
+                    roll_label(&roll),
+                    prev_state.active_firmware_version,
+                    new_version,
+                    *guard
+                );
+                Ok(guard.clone())
+            }
+            Err(e) => {
+                warn!(
+                    "PartitionStore persist failed (version_bump): {}. Rolling back in-memory state + version.",
                     e
                 );
                 *guard = prev_state;
@@ -647,6 +738,165 @@ mod tests {
         // Deadline is roughly now + 120s (allow 2s clock
         // drift between before/after).
         assert!(deadline >= before + 118 && deadline <= before + 122);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    // ========================================================================
+    // apply_roll_with_version_bump tests (Batch 116 Sprint 6.5)
+    // ========================================================================
+
+    #[test]
+    fn version_bump_initial_install_persists_version() {
+        let path = tmp_store_path();
+        let _ = std::fs::remove_file(&path);
+        let store = PartitionStore::open(Some(&path)).expect("open");
+        let new_state = store
+            .apply_roll_with_version_bump(
+                PartitionRoll::InitialInstall { target: AbPartition::A },
+                90,
+                42,
+            )
+            .expect("install + bump");
+        assert_eq!(new_state.active_firmware_version, 42);
+        assert_eq!(new_state.active, AbPartition::A);
+        assert_eq!(new_state.slot_a_state, SlotState::PendingConfirm);
+
+        // Re-open the store to prove on-disk persistence.
+        drop(store);
+        let reopen = PartitionStore::open(Some(&path)).expect("reopen");
+        let snap = reopen.snapshot().expect("snap");
+        assert_eq!(snap.active_firmware_version, 42);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn version_bump_rejects_stale_version() {
+        let path = tmp_store_path();
+        let _ = std::fs::remove_file(&path);
+        let store = PartitionStore::open(Some(&path)).expect("open");
+        store
+            .apply_roll_with_version_bump(
+                PartitionRoll::InitialInstall { target: AbPartition::A },
+                90,
+                10,
+            )
+            .expect("install + bump");
+        store
+            .apply_roll(PartitionRoll::Confirm { slot: AbPartition::A }, 90)
+            .expect("confirm");
+
+        // Re-attempt with an EQUAL version — must reject
+        // (strict > floor, not >=).
+        let err = store
+            .apply_roll_with_version_bump(
+                PartitionRoll::SwapToPending {
+                    old_active: AbPartition::A,
+                    new_pending: AbPartition::B,
+                },
+                90,
+                10,
+            )
+            .expect_err("must reject equal version");
+        assert!(matches!(
+            err,
+            PartitionStoreError::StaleVersion {
+                claimed: 10,
+                highest_seen: 10
+            }
+        ));
+
+        // Re-attempt with a LOWER version — must reject.
+        let err = store
+            .apply_roll_with_version_bump(
+                PartitionRoll::SwapToPending {
+                    old_active: AbPartition::A,
+                    new_pending: AbPartition::B,
+                },
+                90,
+                5,
+            )
+            .expect_err("must reject lower version");
+        assert!(matches!(
+            err,
+            PartitionStoreError::StaleVersion {
+                claimed: 5,
+                highest_seen: 10
+            }
+        ));
+
+        // State is UNCHANGED by the rejected bumps —
+        // snapshot still shows A Active, version 10, slot
+        // B Empty.
+        let snap = store.snapshot().expect("snap");
+        assert_eq!(snap.active_firmware_version, 10);
+        assert_eq!(snap.active, AbPartition::A);
+        assert_eq!(snap.slot_b_state, SlotState::Empty);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn version_bump_swap_to_pending_advances_version_and_pending_deadline() {
+        let path = tmp_store_path();
+        let _ = std::fs::remove_file(&path);
+        let store = PartitionStore::open(Some(&path)).expect("open");
+        store
+            .apply_roll_with_version_bump(
+                PartitionRoll::InitialInstall { target: AbPartition::A },
+                90,
+                100,
+            )
+            .expect("install v100");
+        store
+            .apply_roll(PartitionRoll::Confirm { slot: AbPartition::A }, 90)
+            .expect("confirm v100");
+
+        let before = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        let new_state = store
+            .apply_roll_with_version_bump(
+                PartitionRoll::SwapToPending {
+                    old_active: AbPartition::A,
+                    new_pending: AbPartition::B,
+                },
+                90,
+                101,
+            )
+            .expect("swap + bump");
+
+        assert_eq!(new_state.active_firmware_version, 101);
+        assert_eq!(new_state.active, AbPartition::B);
+        assert_eq!(new_state.slot_a_state, SlotState::Standby);
+        assert_eq!(new_state.slot_b_state, SlotState::PendingConfirm);
+        let deadline = new_state
+            .pending_confirm_deadline_unix_secs
+            .expect("deadline set on swap");
+        assert!(deadline >= before + 88 && deadline <= before + 92);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn version_bump_invalid_transition_does_not_advance_version() {
+        let path = tmp_store_path();
+        let _ = std::fs::remove_file(&path);
+        let store = PartitionStore::open(Some(&path)).expect("open");
+        // Attempt Confirm on Empty slot — invalid transition.
+        // Even though version 7 > 0, the version must NOT
+        // advance when the transition itself is rejected.
+        let err = store
+            .apply_roll_with_version_bump(
+                PartitionRoll::Confirm { slot: AbPartition::A },
+                90,
+                7,
+            )
+            .expect_err("must reject");
+        assert!(matches!(
+            err,
+            PartitionStoreError::InvalidTransition { .. }
+        ));
+        let snap = store.snapshot().expect("snap");
+        assert_eq!(snap.active_firmware_version, 0);
         let _ = std::fs::remove_file(&path);
     }
 }

@@ -166,6 +166,14 @@ mod confirm_slot;
 // orchestrator builds on top of.
 mod verify_signed_manifest;
 
+// Batch 116 Sprint 6.5 Phase 2: apply_signed_manifest
+// orchestrator — verify + apply_roll_with_version_bump +
+// bootloader.set_next_boot_slot. Software-layer truth for
+// the SignedFirmwareManifest deploy pipeline. File
+// streaming to standby + TOCTOU re-verify land with the
+// Tryboot hardware-layer batch.
+mod apply_signed_manifest;
+
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -858,6 +866,8 @@ impl CommandHandler {
             "confirm_slot" => self.cmd_confirm_slot(&command.params).await,
             // Signed firmware manifest verification preview (Batch 115 Sprint 6.5)
             "verify_signed_manifest" => self.cmd_verify_signed_manifest(&command.params).await,
+            // Signed firmware manifest apply orchestrator (Batch 116 Sprint 6.5)
+            "apply_signed_manifest" => self.cmd_apply_signed_manifest(&command.params).await,
             _ => {
                 // v1.2.2: Sanitize user-provided command name to prevent log injection
                 warn!("Unknown command: {}", sanitize_for_log(&command.command));

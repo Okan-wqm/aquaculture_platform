@@ -114,6 +114,18 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread", "test-util"
 # tests can assert counter increments without a Prometheus exporter —
 # proves the emitter actually fires on every flush, not just compiles.
 metrics-util = { version = "0.19", features = ["debugging"] }
+# ADR-031 PR-C #9 — live-wire integration tests for the policy
+# request-reply + subscriber path. Testcontainers spins up a
+# plaintext NATS broker per test; nats-client's `test-utils`
+# feature enables the non-TLS connect path that the integration
+# tests consume (production path stays mTLS-only).
+testcontainers = "0.22"
+# The sensor-ingestion crate's own source does NOT enable test-utils
+# — only the dev-dep pulls it in so the plaintext connect path is
+# NEVER reachable from `cargo build --release`.
+nats-client = { path = "../../crates/nats-client", version = "0.1.0", features = ["test-utils"] }
+async-nats = { workspace = true }
+serde_json = { workspace = true }
 
 [lints]
 workspace = true

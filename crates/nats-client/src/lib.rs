@@ -277,6 +277,41 @@ impl NatsClient {
     pub const fn inner(&self) -> &async_nats::Client {
         &self.inner
     }
+
+    /// Plaintext (no TLS) constructor available ONLY when the
+    /// `test-utils` feature is enabled. Used by integration tests
+    /// that spin up a short-lived NATS broker via testcontainers
+    /// and cannot reasonably mount a TLS certificate per test run.
+    ///
+    /// WHY this is feature-gated instead of always-present:
+    ///   ADR-014/015 establishes mTLS as the SOLE identity anchor
+    ///   for NATS. A plaintext constructor in the production build
+    ///   would open a path that bypasses the identity SSoT. Gating
+    ///   behind `test-utils` means the plaintext path simply does
+    ///   not exist in any `cargo build --release` artifact — the
+    ///   "make it impossible" tier-1 invariant holds at the
+    ///   compilation boundary, not at a runtime check.
+    ///
+    /// # Errors
+    /// - [`NatsClientError::InvalidServerUrl`] — scheme is neither
+    ///   `nats://` nor `tls://`. Even the plaintext constructor
+    ///   rejects malformed URLs so tests hit a clear error shape.
+    /// - [`NatsClientError::Transport`] — async-nats failed to
+    ///   connect.
+    #[cfg(feature = "test-utils")]
+    pub async fn connect_plaintext(url: &str) -> Result<Self, NatsClientError> {
+        validate_url_scheme(url)?;
+        // No `require_tls`, no cert/key material — the plaintext
+        // path is the OPPOSITE of production's identity posture.
+        // The feature-gate above is the only guard against this
+        // path shipping outside tests.
+        let opts = async_nats::ConnectOptions::new();
+        let inner = opts
+            .connect(url)
+            .await
+            .map_err(NatsClientError::Transport)?;
+        Ok(Self { inner })
+    }
 }
 
 fn validate_url_scheme(url: &str) -> Result<(), NatsClientError> {

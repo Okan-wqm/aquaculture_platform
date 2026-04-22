@@ -45,23 +45,13 @@ use std::sync::Arc;
 
 use anyhow::Context;
 
-use crate::cache::{DEFAULT_TOTAL_CAPACITY, TopicCache};
-use crate::config::Config;
-use crate::runtime::build_runtime;
-
-mod batch;
-mod cache;
-mod config;
-mod error;
-mod events;
-mod ingest_backend;
-mod mqtt;
-mod payload;
-mod persistence;
-mod policy;
-mod runtime;
-mod sensor_lookup;
-mod topic;
+use sensor_ingestion::cache::{DEFAULT_TOTAL_CAPACITY, TopicCache};
+use sensor_ingestion::config::Config;
+use sensor_ingestion::runtime::build_runtime;
+use sensor_ingestion::{
+    batch, cache, config, events, ingest_backend, mqtt, payload, persistence, policy,
+    sensor_lookup, topic,
+};
 
 // Bootstrap exists in a window where `tracing` is not yet installed
 // and there is no other reporting channel. Allow `eprintln!` for the

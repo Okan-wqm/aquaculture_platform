@@ -138,12 +138,14 @@ impl LoggingSink {
     /// production code observes batch flow through tracing spans
     /// instead of polling a counter.
     #[cfg(test)]
+    #[must_use]
     pub fn batches(&self) -> u64 {
         self.batches.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Size of the most recently received batch. Test-only accessor.
     #[cfg(test)]
+    #[must_use]
     pub fn last_batch_size(&self) -> usize {
         self.last_size.load(std::sync::atomic::Ordering::Relaxed)
     }

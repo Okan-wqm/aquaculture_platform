@@ -30,6 +30,12 @@ pub mod bytecode_compiler;
 // wiring to `ProcessImage` + `RbacGatedWriter` and
 // `StdlibCall` dispatch land in Batches 152+.
 pub mod bytecode_vm;
+// Batch 158 Faz 3 (plan R-1): signed bytecode artifact
+// — canonical binary encoding + ed25519 signature
+// wrapper + verify_signed_bytecode function. The
+// deploy-command batch consumes this to gate bytecode
+// ingestion on signature match.
+pub mod bytecode_sig;
 mod conflict;
 mod context;
 mod engine;

@@ -15,6 +15,7 @@ import { TankBatch, CleanerFishDetail } from '../entities/tank-batch.entity';
 import { TankOperation, OperationType } from '../entities/tank-operation.entity';
 import { Equipment } from '../../equipment/entities/equipment.entity';
 import { Species } from '../../species/entities/species.entity';
+import { TankCapacityService } from '../../tank/services/tank-capacity.service';
 
 @Injectable()
 @CommandHandler(DeployCleanerFishCommand)
@@ -30,6 +31,7 @@ export class DeployCleanerFishHandler implements ICommandHandler<DeployCleanerFi
     private readonly equipmentRepository: Repository<Equipment>,
     @InjectRepository(Species)
     private readonly speciesRepository: Repository<Species>,
+    private readonly tankCapacityService: TankCapacityService,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -83,8 +85,32 @@ export class DeployCleanerFishHandler implements ICommandHandler<DeployCleanerFi
       where: { tenantId, tankId: payload.targetTankId },
     });
 
+    // ── WELFARE GATE: tank density/capacity check ──────────────────────
+    //
+    // Welfare invariant (Mattilsynet fish welfare regulation): a tank
+    // cannot be stocked beyond its configured maxDensity without risking
+    // fish welfare violations. Before this check, deployCleanerFish
+    // silently wrote `isOverCapacity: false` into a fresh TankBatch and
+    // never consulted the tank's specs — docs/illustrator/ Girdi 15-B15.
+    //
+    // Hard mode: deploying into an already-stocked tank is an additive
+    // operation, so we block over-capacity deploys entirely.
+    const capacity = this.tankCapacityService.enforce({
+      mode: 'hard',
+      equipment: targetTank,
+      existing: {
+        salmonBiomassKg: Number(tankBatch?.totalBiomassKg ?? 0),
+        cleanerBiomassKg: Number(tankBatch?.cleanerFishBiomassKg ?? 0),
+      },
+      incomingBiomassKg: biomassKg,
+    });
+
     if (!tankBatch) {
-      // TankBatch yoksa oluştur (sadece cleaner fish ile)
+      // TankBatch yoksa oluştur (sadece cleaner fish ile).
+      // capacity.isOverCapacity will be false here because enforce()
+      // would have thrown before reaching this branch if the projected
+      // density exceeded maxDensity — keeping the flag consistent with
+      // the density-based invariant rather than hard-coded false.
       tankBatch = this.tankBatchRepository.create({
         tenantId,
         tankId: payload.targetTankId,
@@ -98,7 +124,7 @@ export class DeployCleanerFishHandler implements ICommandHandler<DeployCleanerFi
         cleanerFishBiomassKg: 0,
         cleanerFishDetails: [],
         isMixedBatch: false,
-        isOverCapacity: false,
+        isOverCapacity: capacity.isOverCapacity,
       });
     }
 

@@ -73,6 +73,14 @@ pub mod bootloader;
 // command path + the new HTTP lifecycle endpoint share
 // the same validation + bootloader coordination.
 pub mod confirm_orchestrator;
+// Batch 124 Sprint 6.5: per-file SHA-256 + size re-verify
+// against a verified SignedFirmwareManifest. Pure I/O
+// primitive the future file-streaming orchestrator
+// (Batch 125) calls AFTER files land on the standby
+// partition + BEFORE the SwapToPending + bootloader flip.
+// Tier-1 defense against post-download corruption +
+// post-manifest-verify file tampering.
+pub mod file_verify;
 pub mod verify;
 
 pub use error::{FirmwareManifestCanonicalBytesError, ManifestVerifyError};
@@ -89,5 +97,8 @@ pub use watchdog::{
 pub use bootloader::{BootloaderError, BootloaderHandle, NoopBootloaderHandle};
 pub use confirm_orchestrator::{
     parse_slot_param, perform_confirm_slot, ConfirmOutcome, ConfirmSlotSelector,
+};
+pub use file_verify::{
+    verify_all_files, verify_file_against_entry, BatchVerifyReport, FileVerifyError,
 };
 pub use verify::verify_firmware_manifest;

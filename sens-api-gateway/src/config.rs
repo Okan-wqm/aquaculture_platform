@@ -1750,6 +1750,29 @@ pub struct FirmwareUpdateConfig {
     /// config coherence Rule 20 enforces this.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub signing_pubkey_hex: Option<String>,
+
+    /// A/B partition mount paths (Batch 123 Sprint 6.5).
+    /// Where the cmd_apply_signed_manifest orchestrator
+    /// streams signed firmware files before triggering
+    /// the SwapToPending transition.
+    ///
+    /// WHY: The verify-apply-bootloader pipeline needs to
+    /// know WHICH filesystem directory corresponds to
+    /// `AbPartition::A` vs `AbPartition::B` so the
+    /// streaming step can write to the NON-active slot.
+    /// On real RPi hardware these are mount points for
+    /// separate partitions (e.g. /mnt/slot-a, /mnt/slot-b).
+    /// On x86 dev boxes they can be regular directories.
+    ///
+    /// None in either slot leaves file-streaming disabled;
+    /// the manifest verify-preview path still works but
+    /// `cmd_apply_signed_manifest` returns
+    /// `gate=slot_mounts_not_configured` until both are
+    /// set. Fail-open discipline matches the
+    /// `firmware_update.mode=Disabled` path: HC-1 backward
+    /// compat for deployments not yet A/B-enabled.
+    #[serde(default)]
+    pub ab_partitions: AbPartitionMountConfig,
 }
 
 impl Default for FirmwareUpdateConfig {
@@ -1757,7 +1780,39 @@ impl Default for FirmwareUpdateConfig {
         Self {
             mode: FirmwareUpdateMode::default(),
             signing_pubkey_hex: None,
+            ab_partitions: AbPartitionMountConfig::default(),
         }
+    }
+}
+
+/// Mount paths for A/B partitions (Batch 123 Sprint 6.5).
+///
+/// Canonical hardware shape (RPi CM4/5 + tryboot):
+/// ```yaml
+/// firmware_update:
+///   ab_partitions:
+///     slot_a_mount: /mnt/slot-a
+///     slot_b_mount: /mnt/slot-b
+/// ```
+///
+/// Both None (default) = file-streaming path disabled;
+/// operators running in Permissive mode without A/B
+/// hardware still get manifest verify-preview but not
+/// apply. Coherence Rule 22 catches half-configured
+/// scenarios (one set, other None) + fails fast.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AbPartitionMountConfig {
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub slot_a_mount: Option<std::path::PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub slot_b_mount: Option<std::path::PathBuf>,
+}
+
+impl AbPartitionMountConfig {
+    /// True when both mount paths are configured — the
+    /// file-streaming path is ready to run.
+    pub fn is_fully_configured(&self) -> bool {
+        self.slot_a_mount.is_some() && self.slot_b_mount.is_some()
     }
 }
 
@@ -3180,6 +3235,43 @@ impl AgentConfig {
             }
         }
 
+        // Rule 22 (Batch 123): firmware_update.ab_partitions
+        // must be BOTH-SET or BOTH-UNSET. Half-configured is
+        // an operator typo signal — either fully A/B enable
+        // the device or leave the file-streaming path
+        // disabled. Mirrors the Rule 19 FileBacked-keystore
+        // all-or-none discipline.
+        let a_set = self.firmware_update.ab_partitions.slot_a_mount.is_some();
+        let b_set = self.firmware_update.ab_partitions.slot_b_mount.is_some();
+        if a_set != b_set {
+            anyhow::bail!(
+                "Config coherence: firmware_update.ab_partitions must have BOTH slot_a_mount \
+                 AND slot_b_mount set, or BOTH unset. Half-configured A/B mounts \
+                 (slot_a_mount.is_some={}, slot_b_mount.is_some={}) would leave \
+                 cmd_apply_signed_manifest unable to determine the target standby slot.",
+                a_set, b_set
+            );
+        }
+
+        // Rule 23 (Batch 123): if ab_partitions paths are
+        // set, they MUST NOT be equal. Same-path for both
+        // slots would overwrite the active firmware on
+        // every deploy attempt. Tier-1 make-it-impossible.
+        if let (Some(a), Some(b)) = (
+            self.firmware_update.ab_partitions.slot_a_mount.as_ref(),
+            self.firmware_update.ab_partitions.slot_b_mount.as_ref(),
+        ) {
+            if a == b {
+                anyhow::bail!(
+                    "Config coherence: firmware_update.ab_partitions.slot_a_mount and \
+                     slot_b_mount are identical ({}). A/B requires two DISTINCT mount \
+                     points — pointing both at the same path would overwrite the \
+                     active firmware on every apply_signed_manifest invocation.",
+                    a.display()
+                );
+            }
+        }
+
         Ok(())
     }
 
@@ -3478,6 +3570,7 @@ gpio: []
         let config = FirmwareUpdateConfig {
             mode: FirmwareUpdateMode::Enforcing,
             signing_pubkey_hex: Some("a".repeat(64)),
+            ab_partitions: AbPartitionMountConfig::default(),
         };
         let yaml = serde_yaml::to_string(&config).unwrap();
         assert!(yaml.contains("mode: enforcing"));
@@ -3509,5 +3602,72 @@ signing_pubkey_hex: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789a
             config.signing_pubkey_hex.as_deref(),
             Some("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
         );
+    }
+
+    // ========================================================================
+    // AbPartitionMountConfig tests (Batch 123 Sprint 6.5)
+    // ========================================================================
+
+    #[test]
+    fn test_ab_partitions_default_is_both_none() {
+        let c = AbPartitionMountConfig::default();
+        assert!(c.slot_a_mount.is_none());
+        assert!(c.slot_b_mount.is_none());
+        assert!(!c.is_fully_configured());
+    }
+
+    #[test]
+    fn test_ab_partitions_is_fully_configured_requires_both() {
+        let mut c = AbPartitionMountConfig::default();
+        assert!(!c.is_fully_configured());
+
+        c.slot_a_mount = Some(std::path::PathBuf::from("/mnt/slot-a"));
+        assert!(!c.is_fully_configured());
+
+        c.slot_b_mount = Some(std::path::PathBuf::from("/mnt/slot-b"));
+        assert!(c.is_fully_configured());
+
+        c.slot_a_mount = None;
+        assert!(!c.is_fully_configured());
+    }
+
+    #[test]
+    fn test_ab_partitions_yaml_roundtrip() {
+        let yaml = r#"
+slot_a_mount: /mnt/slot-a
+slot_b_mount: /mnt/slot-b
+"#;
+        let c: AbPartitionMountConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(c.slot_a_mount, Some(std::path::PathBuf::from("/mnt/slot-a")));
+        assert_eq!(c.slot_b_mount, Some(std::path::PathBuf::from("/mnt/slot-b")));
+        assert!(c.is_fully_configured());
+    }
+
+    #[test]
+    fn test_firmware_update_config_embeds_ab_partitions() {
+        let yaml = r#"
+mode: permissive
+signing_pubkey_hex: "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+ab_partitions:
+  slot_a_mount: /mnt/slot-a
+  slot_b_mount: /mnt/slot-b
+"#;
+        let c: FirmwareUpdateConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(c.ab_partitions.is_fully_configured());
+        assert_eq!(
+            c.ab_partitions.slot_a_mount,
+            Some(std::path::PathBuf::from("/mnt/slot-a"))
+        );
+    }
+
+    #[test]
+    fn test_firmware_update_config_omitted_ab_partitions_defaults_to_none() {
+        let yaml = r#"
+mode: disabled
+"#;
+        let c: FirmwareUpdateConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(!c.ab_partitions.is_fully_configured());
+        assert!(c.ab_partitions.slot_a_mount.is_none());
+        assert!(c.ab_partitions.slot_b_mount.is_none());
     }
 }

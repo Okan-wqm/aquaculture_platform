@@ -30,17 +30,11 @@ declare module 'farmModule/Module' {
   export default FarmModule;
 }
 
-declare module 'farmModule/FarmList' {
-  import { FC } from 'react';
-  const FarmList: FC;
-  export default FarmList;
-}
-
-declare module 'farmModule/FarmDetail' {
-  import { FC } from 'react';
-  const FarmDetail: FC;
-  export default FarmDetail;
-}
+// `farmModule/FarmList` and `farmModule/FarmDetail` declarations removed
+// together with their source pages (FarmListPage, FarmDetailPage) in commit
+// 67c9c472 ("refactor(farm): remove legacy farm concept from frontend").
+// The remote no longer exposes these paths — see web/modules/farm-module/
+// vite.config.ts.
 
 declare module 'farmModule/SensorDashboard' {
   import { FC } from 'react';

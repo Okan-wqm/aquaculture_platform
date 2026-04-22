@@ -76,33 +76,32 @@ impl CommandHandler {
 
         // Pull AppState slices under single read-guard —
         // same pattern as cmd_apply_signed_manifest.
-        let (pubkey, tenant_str, current_policy_version) = {
+        // Batch 145 Faz 7: read highest_seen from the
+        // SQLCipher cache (when wired) instead of
+        // hardcoding 0. Cross-boot rollback defense +
+        // in-boot re-refresh monotonicity both land via
+        // the cache.
+        let (pubkey, tenant_str, license_cache, current_policy_version) = {
             let state = self.state.read().await;
+            let cache = state.license_cache.clone();
+            let floor = match cache.as_ref() {
+                Some(c) => match c.get_highest_seen() {
+                    Ok(v) => v,
+                    Err(e) => {
+                        warn!(
+                            "refresh_license: cache.get_highest_seen failed: {}. Treating as 0; other gates (tenant + freshness + signature) still enforce trust.",
+                            e
+                        );
+                        0
+                    }
+                },
+                None => 0,
+            };
             (
                 state.firmware_signing_pubkey.clone(),
                 state.tenant_id.clone(),
-                // Plan R-10: reuse policy_version rollback
-                // discipline. Pre-cache (Batch 144) the
-                // "highest_seen" lives on the currently-
-                // loaded license — if cache + fetch land
-                // out of order we'd read from the
-                // persisted highest_seen instead.
-                //
-                // Currently AppState.license is the
-                // conservative() fallback (policy_version
-                // = 0) or a previously-refreshed manifest.
-                // We approximate highest_seen with
-                // current.policy_version which comes from
-                // limits.valid_until — NO, that's wrong,
-                // policy_version isn't stored on
-                // EdgeLicenseLimits. We persist it via
-                // the Batch 144 cache. For Batch 143 we
-                // use 0 as highest_seen — first-refresh
-                // path. Re-refreshes within same boot
-                // track via the AppState.license swap
-                // but cross-boot monotonicity lands with
-                // the cache.
-                0u64,
+                cache,
+                floor,
             )
         };
 
@@ -219,6 +218,37 @@ impl CommandHandler {
         let tier_str = verified.limits.tier.as_str();
         let policy_version = verified.policy_version;
         let valid_until = verified.valid_until_unix_secs;
+
+        // Batch 145 Faz 7: persist to cache BEFORE hot-
+        // swap so a crash between persist + swap leaves
+        // the NEW limits on disk (operator sees the
+        // advance on next boot) rather than the swap-
+        // without-persist case where a crash would
+        // revert. Best-effort: cache failure warn-logs
+        // but does not block the refresh. The in-memory
+        // swap always happens because Batch 143's
+        // architectural decision: refresh semantics
+        // succeed on verify, persistence is
+        // observability.
+        if let Some(cache) = license_cache.as_ref() {
+            if let Err(e) = cache.save(&signed) {
+                warn!(
+                    "refresh_license: cache.save failed ({}). Hot-swap proceeds; cross-boot persistence DEGRADED until cache reopens successfully.",
+                    e
+                );
+            }
+            if let Err(e) = cache.record_accepted(policy_version) {
+                warn!(
+                    "refresh_license: cache.record_accepted({}) failed ({}). Monotonic floor NOT advanced; next refresh may re-accept this version.",
+                    policy_version, e
+                );
+            }
+        } else {
+            warn!(
+                "refresh_license: license_cache is None (SQLCipher open failed at boot). Hot-swap proceeds in-memory only; agent restart will revert to conservative()."
+            );
+        }
+
         {
             let mut state = self.state.write().await;
             state.license = Arc::new(verified.limits);

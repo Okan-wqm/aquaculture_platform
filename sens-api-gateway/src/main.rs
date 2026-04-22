@@ -618,6 +618,23 @@ pub struct AppState {
     /// signed autoboot.txt verification.
     pub bootloader: std::sync::Arc<dyn crate::updater::BootloaderHandle>,
 
+    /// SQLCipher-backed license cache + monotonic floor
+    /// (Batch 145 Faz 7 wire).
+    ///
+    /// WHY: cross-boot persistence of the signed license
+    /// manifest + highest_seen_policy_version rollback
+    /// floor. Batch 143 shipped in-memory hot-swap; Batch
+    /// 144 shipped the SQLCipher primitive; this field
+    /// wires the primitive into boot + refresh path.
+    ///
+    /// WHAT: `Option<Arc<LicenseCacheStore>>` — None when
+    /// boot-time open fails (fail-closed still loads
+    /// conservative() into AppState.license so the agent
+    /// runs under safe defaults while operators diagnose
+    /// the cache). Some when SQLCipher open + schema init
+    /// succeeded.
+    pub license_cache: Option<std::sync::Arc<crate::license_cache::LicenseCacheStore>>,
+
     /// Current per-device license limits (Batch 142 Faz 7
     /// wire).
     ///
@@ -760,13 +777,20 @@ impl AppState {
             bootloader: std::sync::Arc::new(
                 crate::updater::NoopBootloaderHandle,
             ),
+            // Batch 145 Faz 7 wire: None until
+            // init_license_cache() succeeds. Boot-time
+            // open failure leaves this None; the agent
+            // continues with conservative() fallback +
+            // operator gets a loud boot warning.
+            license_cache: None,
             // Batch 142 Faz 7 wire: conservative()
-            // STARTER fallback at boot. Batch 143 swaps
-            // to SQLCipher-loaded value once license_cache
-            // + fetch paths land. Conservative is
-            // always-expired by design so enforcement
-            // sites routing through is_expired() treat it
-            // as "re-verify required".
+            // STARTER fallback at AppState::new. Batch
+            // 145 boot sequence overrides with cache-
+            // loaded verified limits on successful
+            // verify. Conservative is always-expired so
+            // enforcement sites routing through
+            // is_expired() treat it as "re-verify
+            // required" until real license lands.
             license: std::sync::Arc::new(
                 crate::license::EdgeLicenseLimits::conservative(),
             ),
@@ -1850,6 +1874,160 @@ impl AppState {
         Ok(())
     }
 
+    /// Initialize the license cache + load + verify the
+    /// persisted signed manifest (Batch 145 Faz 7 wire).
+    ///
+    /// Boot-time flow:
+    /// 1. Open SQLCipher cache at default path.
+    /// 2. On open error: log + leave
+    ///    `license_cache = None` + `license =
+    ///    conservative()`. Agent boots under STARTER
+    ///    fallback; operator sees the error in boot
+    ///    log.
+    /// 3. On open success: load cached manifest; None
+    ///    → stay at conservative() (first-boot path).
+    /// 4. If cached manifest present: verify via Batch
+    ///    141 `verify_license_manifest` using the
+    ///    firmware_signing_pubkey + cached highest_seen
+    ///    floor + current wall-clock.
+    /// 5. On verify success: replace
+    ///    `self.license` with the verified limits +
+    ///    record_accepted(version).
+    /// 6. On verify failure: log + fall through to
+    ///    conservative() (tampered cache / expired
+    ///    license / attacker downgrade attempt all
+    ///    route here).
+    ///
+    /// Called AFTER `init_firmware_signing_pubkey`
+    /// (needs the cached pubkey) + AFTER
+    /// `init_partition_store` (tenant_id available via
+    /// config).
+    pub fn init_license_cache(&mut self) {
+        use std::path::PathBuf;
+        let path = PathBuf::from(crate::license_cache::DEFAULT_CACHE_PATH);
+
+        let store = match crate::license_cache::LicenseCacheStore::open(&path) {
+            Ok(s) => std::sync::Arc::new(s),
+            Err(e) => {
+                error!(
+                    "License cache open failed at {}: {}. Agent boots under conservative() STARTER fallback; operator must investigate SQLCipher permissions + /etc/suderra/db.key.",
+                    path.display(),
+                    e
+                );
+                return;
+            }
+        };
+
+        self.license_cache = Some(store.clone());
+
+        // Load + verify persisted manifest.
+        let signed = match store.load() {
+            Ok(Some(s)) => s,
+            Ok(None) => {
+                info!(
+                    "License cache at {} is empty — first boot; staying at conservative() STARTER fallback until cmd_refresh_license lands.",
+                    path.display()
+                );
+                return;
+            }
+            Err(e) => {
+                error!(
+                    "License cache load failed: {}. Staying at conservative() fallback.",
+                    e
+                );
+                return;
+            }
+        };
+
+        // Need the firmware signing pubkey + tenant to
+        // verify. If either is missing we can't trust the
+        // cached manifest — fall through to conservative.
+        let pubkey = match self.firmware_signing_pubkey.as_ref() {
+            Some(k) => k.clone(),
+            None => {
+                warn!(
+                    "License cache has cached manifest but firmware_signing_pubkey is None (firmware_update.mode=Disabled). Cannot verify cached license; staying at conservative()."
+                );
+                return;
+            }
+        };
+
+        let tenant = match self.tenant_id.as_deref() {
+            Some(t) => match uuid::Uuid::parse_str(t) {
+                Ok(u) => {
+                    crate::authz::permission::TenantId::new_from_verified(*u.as_bytes())
+                }
+                Err(e) => {
+                    warn!(
+                        "License cache: tenant_id is not a valid UUID: {}. Staying at conservative().",
+                        e
+                    );
+                    return;
+                }
+            },
+            None => {
+                info!(
+                    "License cache: device not activated (tenant_id=None); staying at conservative() until provisioning."
+                );
+                return;
+            }
+        };
+
+        let highest_seen = match store.get_highest_seen() {
+            Ok(v) => v,
+            Err(e) => {
+                warn!(
+                    "License cache: highest_seen read failed: {}. Treating as 0 (permissive verify); load still gated by signature + validity.",
+                    e
+                );
+                0
+            }
+        };
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+
+        match crate::license::verify_license_manifest(
+            &signed,
+            &tenant,
+            highest_seen,
+            now,
+            |canonical, sig_bytes| {
+                let sig = ed25519_dalek::Signature::from_bytes(sig_bytes);
+                pubkey.verify_strict(canonical, &sig).is_ok()
+            },
+        ) {
+            Ok(verified) => {
+                let tier_label = verified.limits.tier.as_str();
+                let pv = verified.policy_version;
+                info!(
+                    "License cache: verified manifest loaded (tier={} policy_version={} highest_seen={})",
+                    tier_label, pv, highest_seen
+                );
+                self.license = std::sync::Arc::new(verified.limits);
+
+                // Monotonic floor advance. Best-effort;
+                // failure logs but does not block boot
+                // because the in-memory limits are
+                // already active.
+                if let Err(e) = store.record_accepted(pv) {
+                    warn!(
+                        "License cache: record_accepted({}) failed: {}. In-memory limits applied anyway.",
+                        pv, e
+                    );
+                }
+            }
+            Err(e) => {
+                warn!(
+                    "License cache: cached manifest verify FAILED ({:?}). Staying at conservative() — cached manifest kept on disk for forensic inspection.",
+                    e
+                );
+            }
+        }
+    }
+
     /// Select + instantiate the bootloader backend per
     /// `firmware_update.bootloader_backend` (Batch 128
     /// Sprint 6.5 wire).
@@ -2449,6 +2627,18 @@ async fn async_main() -> Result<()> {
     {
         let mut state_guard = state.write().await;
         state_guard.init_bootloader_backend();
+    }
+
+    // Batch 145 Faz 7 wire: open license cache + load +
+    // verify + populate AppState.license. Never panics
+    // or exits — any failure path leaves license at the
+    // conservative() STARTER fallback already set by
+    // AppState::new. Operator sees the specific failure
+    // in the boot log + can investigate without the
+    // agent refusing to boot.
+    {
+        let mut state_guard = state.write().await;
+        state_guard.init_license_cache();
     }
 
     // Initialize clock authority (Batch 90 Sprint 6.7 wire).

@@ -59,12 +59,9 @@
 //!    could replace the agent binary directly — this
 //!    module is NOT the last line.
 //!
-//! Primitive-first batch (Batch 111 BootloaderHandle
-//! precedent). Batch 145 lands the boot-time loader
-//! that consumes these APIs + refresh_license write
-//! integration; `#![allow(dead_code)]` comes off at
-//! that point.
-#![allow(dead_code)]
+//! Batch 145 Faz 7 consumers: `AppState::init_license_cache`
+//! (boot-time load + verify) + `cmd_refresh_license`
+//! (save + record_accepted on successful verify).
 
 use rusqlite::{params, Connection};
 use std::path::Path;

@@ -73,7 +73,7 @@ jobs:
       #
       # SEC-CI-002: pinned to SHA (same version as deploy-digitalocean.yml)
       - name: Run backup-databases.sh on the droplet
-        uses: appleboy/ssh-action@7eaf76671a0d7eec5d98ee897acda4f968735a17 # v1.0.3
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.0.3
         env:
           DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
         with:

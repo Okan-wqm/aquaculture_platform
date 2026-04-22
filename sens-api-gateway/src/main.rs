@@ -3832,16 +3832,22 @@ async fn run_agent(
         };
 
         if scripting_enabled {
-            // declared_types is empty at this wire point —
-            // Batch 172 populates it from the ProcessImage
-            // tag catalog so Bool/Int tags round-trip
-            // correctly. Empty = every tag treated as
-            // Real, which matches the common aquaculture
-            // sensor case (pH, DO, temp).
-            let declared_types: std::collections::HashMap<
-                String,
-                crate::scripting::bytecode::StValueType,
-            > = std::collections::HashMap::new();
+            // Batch 172 wire: build declared-types catalog
+            // from the ProcessImage tag configs so Bool /
+            // Int tags round-trip through the VM with
+            // their declared type (vs being treated as
+            // Real by default). The catalog is computed
+            // once at boot; future batch adds reload on
+            // config change.
+            let declared_types =
+                crate::scripting::process_image_tagio::declared_types_from_process_image(
+                    &pi,
+                )
+                .await;
+            info!(
+                "Bytecode scan-cycle declared-types catalog: {} tag(s) mapped",
+                declared_types.len()
+            );
 
             let (watch_tx, watch_rx) = tokio::sync::watch::channel(false);
             let mut broadcast_rx = shutdown_coordinator.subscribe();

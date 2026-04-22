@@ -216,6 +216,65 @@ pub fn stvalue_to_f64_for_process_image(v: &StValue) -> f64 {
     }
 }
 
+/// Map a `TagConfig.data_type` string (+ fallback to
+/// `io_type`) to the VM's `StValueType`. Batch 172 Faz 3.
+///
+/// Accepted `data_type` strings (case-insensitive):
+/// - `bool`, `boolean`, `bit` → Bool
+/// - `int`, `int16`, `int32`, `integer`, `word`, `dword`,
+///   `uint`, `uint16`, `uint32`, `sint`, `dint` → Int
+/// - `real`, `float`, `float32`, `float64`, `double`,
+///   `lreal` → Real
+///
+/// When `data_type` is empty or unrecognized, fallback to
+/// `io_type`: DI / DO → Bool; AI / AO → Real.
+///
+/// Last-resort default is Real — matches the overwhelming
+/// common aquaculture sensor case (pH, DO, temp, flow,
+/// depth all Real).
+pub fn infer_st_value_type(
+    data_type: &str,
+    io_type: crate::process_image::IoType,
+) -> StValueType {
+    let lowered = data_type.trim().to_ascii_lowercase();
+    match lowered.as_str() {
+        "bool" | "boolean" | "bit" => return StValueType::Bool,
+        "int" | "int16" | "int32" | "integer" | "word" | "dword"
+        | "uint" | "uint16" | "uint32" | "sint" | "dint" => return StValueType::Int,
+        "real" | "float" | "float32" | "float64" | "double" | "lreal" => {
+            return StValueType::Real;
+        }
+        _ => {}
+    }
+
+    // Fallback to io_type.
+    use crate::process_image::IoType;
+    match io_type {
+        IoType::DI | IoType::DO => StValueType::Bool,
+        IoType::AI | IoType::AO => StValueType::Real,
+    }
+}
+
+/// Build the `declared_types` catalog consumed by
+/// `SnapshotTagIo::new` from the authoritative
+/// ProcessImage tag config set. Scan-cycle cadence
+/// driver calls this once per scan tick (or per
+/// boot + config-reload; Batch 172 scans on every
+/// tick for simplicity — the config HashMap is small
+/// and the clone is cheap vs the scan cycle cost).
+pub async fn declared_types_from_process_image(
+    pi: &crate::process_image::ProcessImage,
+) -> HashMap<String, StValueType> {
+    let configs = pi.get_configs().await;
+    configs
+        .into_iter()
+        .map(|cfg| {
+            let ty = infer_st_value_type(&cfg.data_type, cfg.io_type);
+            (cfg.tag_name, ty)
+        })
+        .collect()
+}
+
 /// Capture a synchronous snapshot of the authoritative
 /// ProcessImage tag values. Only quality-Good tags are
 /// included — tags in Bad / CommFailure / Uncertain
@@ -439,7 +498,174 @@ mod tests {
     // Batch 161 — ProcessImage bridge (async snapshot + commit)
     // ====================================================================
 
-    use crate::process_image::{ProcessImage, TagQuality, TagSource};
+    use crate::process_image::{
+        IoType, ProcessImage, ProtocolConfig, TagConfig, TagQuality, TagSource,
+    };
+
+    // ====================================================================
+    // Batch 172 — declared-types inference from TagConfig
+    // ====================================================================
+
+    #[test]
+    fn infer_bool_from_data_type_string() {
+        assert_eq!(
+            infer_st_value_type("bool", IoType::AI),
+            StValueType::Bool
+        );
+        assert_eq!(
+            infer_st_value_type("BOOLEAN", IoType::AI),
+            StValueType::Bool
+        );
+        assert_eq!(
+            infer_st_value_type("Bit", IoType::AI),
+            StValueType::Bool
+        );
+    }
+
+    #[test]
+    fn infer_int_from_data_type_string() {
+        for s in ["int", "Int16", "INT32", "word", "DWORD", "uint32"] {
+            assert_eq!(
+                infer_st_value_type(s, IoType::AI),
+                StValueType::Int,
+                "failed for `{}`",
+                s
+            );
+        }
+    }
+
+    #[test]
+    fn infer_real_from_data_type_string() {
+        for s in ["real", "float", "Float32", "DOUBLE", "lreal"] {
+            assert_eq!(
+                infer_st_value_type(s, IoType::DI),
+                StValueType::Real,
+                "failed for `{}`",
+                s
+            );
+        }
+    }
+
+    #[test]
+    fn infer_fallback_to_io_type_when_data_type_unrecognized() {
+        assert_eq!(
+            infer_st_value_type("", IoType::DI),
+            StValueType::Bool
+        );
+        assert_eq!(
+            infer_st_value_type("unknown", IoType::DO),
+            StValueType::Bool
+        );
+        assert_eq!(
+            infer_st_value_type("", IoType::AI),
+            StValueType::Real
+        );
+        assert_eq!(
+            infer_st_value_type("wibble", IoType::AO),
+            StValueType::Real
+        );
+    }
+
+    #[tokio::test]
+    async fn declared_types_builder_reads_process_image_configs() {
+        let pi = ProcessImage::new();
+        pi.set_configs(vec![
+            TagConfig {
+                tag_name: "water_temp".into(),
+                io_type: IoType::AI,
+                data_type: "real".into(),
+                source: TagSource::I2c,
+                poll_interval_ms: None,
+                raw_min: None,
+                raw_max: None,
+                eng_min: None,
+                eng_max: None,
+                eng_unit: None,
+                invert: false,
+                alarm_hh: None,
+                alarm_h: None,
+                alarm_l: None,
+                alarm_ll: None,
+                deadband: None,
+                protocol_config: ProtocolConfig::I2c {
+                    bus: 1,
+                    address: 0x66,
+                    driver_type: crate::process_image::I2cDriverType::AtlasEzo {
+                        sensor_type: crate::process_image::AtlasEzoType::Temp,
+                    },
+                },
+            },
+            TagConfig {
+                tag_name: "pump_on".into(),
+                io_type: IoType::DO,
+                data_type: "bool".into(),
+                source: TagSource::Gpio,
+                poll_interval_ms: None,
+                raw_min: None,
+                raw_max: None,
+                eng_min: None,
+                eng_max: None,
+                eng_unit: None,
+                invert: false,
+                alarm_hh: None,
+                alarm_h: None,
+                alarm_l: None,
+                alarm_ll: None,
+                deadband: None,
+                protocol_config: ProtocolConfig::Gpio {
+                    pin: 17,
+                    direction: "output".into(),
+                },
+            },
+            TagConfig {
+                tag_name: "feeder_count".into(),
+                io_type: IoType::AI,
+                data_type: "uint32".into(),
+                source: TagSource::Modbus,
+                poll_interval_ms: None,
+                raw_min: None,
+                raw_max: None,
+                eng_min: None,
+                eng_max: None,
+                eng_unit: None,
+                invert: false,
+                alarm_hh: None,
+                alarm_h: None,
+                alarm_l: None,
+                alarm_ll: None,
+                deadband: None,
+                protocol_config: ProtocolConfig::Modbus {
+                    slave_id: 1,
+                    register: 100,
+                    function: 3,
+                    register_type: "holding".into(),
+                },
+            },
+        ])
+        .await;
+
+        let catalog = declared_types_from_process_image(&pi).await;
+        assert_eq!(
+            catalog.get("water_temp"),
+            Some(&StValueType::Real)
+        );
+        assert_eq!(
+            catalog.get("pump_on"),
+            Some(&StValueType::Bool)
+        );
+        assert_eq!(
+            catalog.get("feeder_count"),
+            Some(&StValueType::Int)
+        );
+        assert_eq!(catalog.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn declared_types_builder_empty_configs_yields_empty_catalog() {
+        let pi = ProcessImage::new();
+        let catalog = declared_types_from_process_image(&pi).await;
+        assert!(catalog.is_empty());
+    }
 
     #[tokio::test]
     async fn snapshot_process_image_captures_good_quality_tags() {

@@ -3807,6 +3807,83 @@ async fn run_agent(
     // Step 6b: Start I/O poll loop
     tokio::spawn(io_poll::io_poll_loop(state.clone()));
 
+    // Batch 171 Faz 3 wire: spawn bytecode scan-cycle
+    // cadence driver. Only when scripting is enabled —
+    // disabled scripting (dev / edge-read-only mode)
+    // skips spawning the task so the process image
+    // stays operator-controlled without script writes.
+    //
+    // Shutdown bridging: ShutdownCoordinator emits a
+    // broadcast `()` signal; the scan-cycle loop takes
+    // a `watch::Receiver<bool>`. A small bridge task
+    // forwards the broadcast → watch so the loop gets
+    // responsive shutdown via its existing
+    // tokio::select! path without changing its
+    // signature (keeps the Batch 170 unit tests intact).
+    {
+        let (registry, pi, scan_cycle_ms, scripting_enabled) = {
+            let s = state.read().await;
+            (
+                s.bytecode_registry.clone(),
+                s.process_image.clone(),
+                s.config.scripting.default_scan_cycle_ms,
+                s.config.scripting.enabled,
+            )
+        };
+
+        if scripting_enabled {
+            // declared_types is empty at this wire point —
+            // Batch 172 populates it from the ProcessImage
+            // tag catalog so Bool/Int tags round-trip
+            // correctly. Empty = every tag treated as
+            // Real, which matches the common aquaculture
+            // sensor case (pH, DO, temp).
+            let declared_types: std::collections::HashMap<
+                String,
+                crate::scripting::bytecode::StValueType,
+            > = std::collections::HashMap::new();
+
+            let (watch_tx, watch_rx) = tokio::sync::watch::channel(false);
+            let mut broadcast_rx = shutdown_coordinator.subscribe();
+
+            // Bridge: forward broadcast shutdown → watch.
+            tokio::spawn(async move {
+                let _ = broadcast_rx.recv().await;
+                let _ = watch_tx.send(true);
+            });
+
+            // Spawn the cadence loop.
+            let scan_cycle_handle = tokio::spawn(async move {
+                let summary = crate::scripting::bytecode_scan_cycle_task::run_scan_cycle_loop(
+                    registry,
+                    pi,
+                    declared_types,
+                    scan_cycle_ms,
+                    crate::scripting::bytecode_runner::ScanTickOptions::default(),
+                    watch_rx,
+                )
+                .await;
+                info!(
+                    "bytecode_scan_cycle exit: ticks={} ok={} failed={} overruns={}",
+                    summary.ticks_executed,
+                    summary.programs_ok,
+                    summary.programs_failed,
+                    summary.overrun_count
+                );
+            });
+            shutdown_coordinator
+                .register_task("bytecode_scan_cycle", scan_cycle_handle);
+            info!(
+                "Bytecode scan-cycle driver spawned (scan_cycle_ms={})",
+                scan_cycle_ms
+            );
+        } else {
+            info!(
+                "Bytecode scan-cycle driver NOT spawned: config.scripting.enabled=false"
+            );
+        }
+    }
+
     // Batch 108 Sprint 6.5: spawn cold-boot-budget watchdog
     // task. Polls PartitionStore for expired PendingConfirm
     // deadlines + applies Rollback when a firmware update's

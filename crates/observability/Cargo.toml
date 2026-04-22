@@ -35,6 +35,11 @@ metrics-exporter-prometheus = { workspace = true, features = ["http-listener"] }
 # share exactly one identity surface.
 tenant-context = { path = "../tenant-context", version = "0.1.0" }
 
+# UUID v4 entropy source for the W3C traceparent trace_id +
+# parent_id fields. No crypto requirement — the 128-bit trace_id is a
+# correlation key, not a secret.
+uuid = { workspace = true }
+
 # OTLP exporter is feature-gated to keep the default surface small.
 # sensor-ingestion enables it at deployment time; library callers can
 # opt in via `features = ["otlp"]`.

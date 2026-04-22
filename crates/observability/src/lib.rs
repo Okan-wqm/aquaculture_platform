@@ -40,7 +40,9 @@ use std::net::SocketAddr;
 use serde::{Deserialize, Serialize};
 
 pub mod cardinality;
+pub mod trace_propagation;
 pub use cardinality::{TENANT_BUCKET_COUNT, tenant_bucket, tenant_bucket_salted};
+pub use trace_propagation::{TRACEPARENT_HEADER, generate_traceparent};
 
 use metrics_exporter_prometheus::PrometheusBuilder;
 /// Re-export of `metrics_exporter_prometheus::PrometheusHandle` so

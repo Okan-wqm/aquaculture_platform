@@ -26,6 +26,10 @@
 //!   - [`NatsClient`]     — thin wrapper over `async_nats::Client`.
 //!   - [`NatsClientError`] — typed errors at the connect / publish /
 //!     subscribe / request boundaries.
+//!   - [`HeaderMap`]      — re-export of `async_nats::HeaderMap` so
+//!     callers attach headers to `publish_with_headers` without
+//!     adding `async-nats` as a direct `Cargo.toml` dep. Keeps the
+//!     abstraction barrier around NATS intact.
 
 #![cfg_attr(not(test), forbid(unsafe_code))]
 #![cfg_attr(not(test), deny(missing_docs))]
@@ -38,6 +42,12 @@
         clippy::indexing_slicing,
     )
 )]
+
+/// Re-export of `async_nats::HeaderMap`. Callers attach headers
+/// (e.g. the ADR-032 W3C `traceparent`) to [`NatsClient::publish_with_headers`]
+/// via this type without breaking the abstraction barrier around
+/// `async-nats`.
+pub use async_nats::HeaderMap;
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -197,6 +207,36 @@ impl NatsClient {
     ) -> Result<(), NatsClientError> {
         self.inner
             .publish(subject.into(), payload)
+            .await
+            .map_err(NatsClientError::Publish)
+    }
+
+    //
+    // Re-export of `async_nats::HeaderMap` is immediately above
+    // [`NatsClient::publish_with_headers`] so callers can hold the
+    // header map type without adding `async-nats` as a direct dep to
+    // their own `Cargo.toml` — the abstraction barrier around NATS
+    // stays intact.
+    //
+    /// Publish raw bytes to a subject WITH a NATS header map attached.
+    /// Every downstream consumer (TS `@platform/event-bus`, the
+    /// alert-engine's NATS consumer, OTel collectors) reads these
+    /// headers on the delivery path. The sensor-ingestion sidecar
+    /// uses this surface to attach the W3C `traceparent` header
+    /// (ADR-032 Kör Nokta 3) so cross-language distributed traces
+    /// join across the NATS hop.
+    ///
+    /// Headers follow the async-nats `HeaderMap` shape — a
+    /// case-insensitive map of `HeaderName` → `Vec<HeaderValue>` —
+    /// which matches the TS side's header model byte-for-byte.
+    pub async fn publish_with_headers(
+        &self,
+        subject: impl Into<async_nats::Subject> + Send,
+        headers: async_nats::HeaderMap,
+        payload: Bytes,
+    ) -> Result<(), NatsClientError> {
+        self.inner
+            .publish_with_headers(subject.into(), headers, payload)
             .await
             .map_err(NatsClientError::Publish)
     }

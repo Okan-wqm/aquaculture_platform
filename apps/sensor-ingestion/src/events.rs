@@ -128,10 +128,26 @@ impl OutboxPublisher for NatsOutboxPublisher {
     async fn publish(&self, record: &OutboxRecord) -> Result<(), PublishError> {
         let subject = subject_for(record);
         let json = serde_json::to_vec(&record.payload).map_err(PublishError::Encode)?;
+
+        // ADR-032 Kör Nokta 3 — W3C Trace Context propagation.
+        // Attach a `traceparent` header so downstream consumers
+        // (TS alert-engine, AI service, any OTel collector) can
+        // join the span tree across the NATS hop. Every published
+        // record starts a fresh trace: MQTT v3 does not carry
+        // headers in the delivery path the sidecar uses, so there
+        // is no incoming context to propagate; a future MQTT v5
+        // user-property code path can thread the incoming id
+        // through instead.
+        let mut headers = nats_client::HeaderMap::new();
+        headers.insert(
+            observability::TRACEPARENT_HEADER,
+            observability::generate_traceparent().as_str(),
+        );
+
         // `Bytes::from` moves the Vec<u8> into an Arc-backed buffer
         // so async-nats can ship it without a second allocation.
         self.client
-            .publish(subject, Bytes::from(json))
+            .publish_with_headers(subject, headers, Bytes::from(json))
             .await
             .map_err(|e| PublishError::Transport(Box::new(e)))?;
         Ok(())

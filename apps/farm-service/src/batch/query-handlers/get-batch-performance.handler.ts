@@ -16,6 +16,7 @@ import { Batch } from '../entities/batch.entity';
 import { TankOperation, OperationType } from '../entities/tank-operation.entity';
 import { Species } from '../../species/entities/species.entity';
 import { RedisService } from '@aquaculture/backend-common';
+import { BatchCostCalculatorService } from '../services/batch-cost-calculator.service';
 
 @Injectable()
 @QueryHandler(GetBatchPerformanceQuery)
@@ -29,6 +30,7 @@ export class GetBatchPerformanceHandler implements IQueryHandler<GetBatchPerform
     private readonly operationRepository: Repository<TankOperation>,
     @InjectRepository(Species)
     private readonly speciesRepository: Repository<Species>,
+    private readonly costCalculator: BatchCostCalculatorService,
     @Optional()
     private readonly redisService?: RedisService,
   ) {}
@@ -107,11 +109,17 @@ export class GetBatchPerformanceHandler implements IQueryHandler<GetBatchPerform
     const totalFeedCost = Number(batch.totalFeedCost);
     const avgDailyFeedKg = daysInProduction > 0 ? totalFeedConsumedKg / daysInProduction : 0;
 
-    // Cost calculations
-    const purchaseCost = Number(batch.purchaseCost || 0);
-    const totalCost = purchaseCost + totalFeedCost;
-    const costPerKg = currentBiomassKg > 0 ? totalCost / currentBiomassKg : 0;
-    const costPerFish = batch.currentQuantity > 0 ? totalCost / batch.currentQuantity : 0;
+    // Cost calculations — full breakdown via BatchCostCalculatorService
+    // (phase 2.3). Previous implementation was
+    //   totalCost = purchaseCost + totalFeedCost
+    // which understated treatment, labour, and equipment amortization
+    // axes entirely. The service fan-outs to health_events + work_orders
+    // and exposes a `warnings` array so the UI can flag partial data.
+    const costBreakdown = await this.costCalculator.compute(batch);
+    const purchaseCost = costBreakdown.purchaseCost;
+    const totalCost = costBreakdown.totalCost;
+    const costPerKg = costBreakdown.costPerKg;
+    const costPerFish = costBreakdown.costPerFish;
 
     // Projections
     const projectedHarvestDate = batch.expectedHarvestDate;

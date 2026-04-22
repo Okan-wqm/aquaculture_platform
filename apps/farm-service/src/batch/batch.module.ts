@@ -14,6 +14,7 @@
  * @module Batch
  */
 import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 // Entities
@@ -38,12 +39,22 @@ import { BatchService } from './services/batch.service';
 import { BatchDomainService } from './services/batch-domain.service';
 import { SGRCalculatorService } from './services/sgr-calculator.service';
 import { BiomassCalculatorService } from './services/biomass-calculator.service';
+import { BatchCostCalculatorService } from './services/batch-cost-calculator.service';
 import { BatchDocumentDataLoader } from './dataloaders/batch-document.dataloader';
 import { BatchLocationDataLoader } from './dataloaders/batch-location.dataloader';
 import { BatchFeedAssignmentDataLoader } from './dataloaders/batch-feed-assignment.dataloader';
 
 // Growth entities for calculators
 import { GrowthMeasurement } from '../growth/entities/growth-measurement.entity';
+
+// Cross-module entities consumed by BatchCostCalculatorService.
+// TypeORM allows the same entity to be re-registered via forFeature in
+// multiple modules — the repository is a shared singleton so this
+// does NOT create two TypeORM connections. We prefer this over a
+// full MaintenanceModule import because the calculator only needs
+// read access to the relevant columns.
+import { HealthEvent } from '../fish-health/entities/health-event.entity';
+import { WorkOrder } from '../maintenance/entities/work-order.entity';
 
 // Controllers
 import { BatchController, TankOperationsController } from './controllers/batch.controller';
@@ -88,10 +99,13 @@ import { BackdatePolicyModule } from '../common/services/backdate-policy.module'
       EquipmentType,
       Feed,
       GrowthMeasurement,
+      HealthEvent,
+      WorkOrder,
     ]),
     TankModule,
     FishHealthModule,
     BackdatePolicyModule,
+    ConfigModule,
   ],
   controllers: [
     BatchController,
@@ -102,6 +116,7 @@ import { BackdatePolicyModule } from '../common/services/backdate-policy.module'
     BatchDomainService,
     SGRCalculatorService,
     BiomassCalculatorService,
+    BatchCostCalculatorService,
     BatchDocumentDataLoader,  // REQUEST-scoped: one instance per GraphQL request
     BatchLocationDataLoader,  // REQUEST-scoped: eliminates N+1 for batch.locations
     BatchFeedAssignmentDataLoader,  // REQUEST-scoped: eliminates N+1 for batch.feedAssignments
@@ -114,6 +129,7 @@ import { BackdatePolicyModule } from '../common/services/backdate-policy.module'
     BatchService,
     SGRCalculatorService,
     BiomassCalculatorService,
+    BatchCostCalculatorService,
   ],
 })
 export class BatchModule {}

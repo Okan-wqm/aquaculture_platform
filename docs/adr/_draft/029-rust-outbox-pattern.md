@@ -1,6 +1,6 @@
 # ADR-029: Rust Transactional Outbox Pattern for `sensor-ingestion`
 
-**Status:** Proposed
+**Status:** Accepted — Rust side landed across commits `cfc714cb` (V016 migration) → `0cfcbe56` (part 2a, trait) → `59644b1e` (part 2b, PG impl) → `a0dd9996` (part 2c, dispatcher + maintenance) → `9cac59f0` (part 2d, sensor-ingestion integration atomic cut-over). The end-to-end at-least-once contract is live; multi-replica advisory-lock election + live testcontainers integration test land in follow-up commits without breaking the invariant.
 **Date:** 2026-04-22
 **Deciders:** platform team, sensor-service owner, SRE
 **Owner:** Okan

@@ -1,6 +1,6 @@
 # ADR-030: Rust Sidecar RLS Parity — Defense-in-Depth Tenant Isolation
 
-**Status:** Proposed
+**Status:** Accepted — the `SET LOCAL app.current_tenant` GUC binding landed in commit `368d8ac6` alongside 3 invariant tests (`set_current_tenant_sql_is_parameterised_local_guc`, `group_by_tenant_preserves_tenant_id_with_schema`, `group_by_tenant_buckets_by_validated_schema_name`). The `ScopedTx<'t>` compile-time wrapper + V017 RLS policy migration remain tracked for a follow-up commit that tightens the structural guard; the runtime binding is already defense-in-depth-active on every COPY transaction.
 **Date:** 2026-04-22
 **Deciders:** platform team, security team, sensor-service owner
 **Owner:** Okan

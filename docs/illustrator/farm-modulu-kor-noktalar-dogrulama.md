@@ -1106,3 +1106,6 @@ Bu orphan'ı Faz 1.3 hot-fix olarak **ayrı PR** ile kapatmak gerekir — Faz 2.
 | 15 | Cleaner fish deploy pre-check query yok | 📋 UI genişlet | Faz 3 + 1.1 |
 | 16 | cleanupOldData method isim duplikasyonu | ⚠ Düşük öncelik | cosmetic |
 | 17 | StorageInventory.receivedDate entity'de yok | ⚠ Faz 1.3 hot-fix | Faz 1.3 follow-up |
+| 18 | Faz 3 Tier 1 — updateBatchStatus UI | ✅ RESOLVED (Faz 3 partial) | Phase 3 Tier 1 |
+| 19 | Faz 3 Tier 1 — closeBatch UI (acknowledgeActiveTreatments) | ✅ RESOLVED (Faz 3 partial) | Phase 3 Tier 1 |
+| 20 | Faz 3 Tier 1 — allocateBatchToTank UI | ✅ RESOLVED (Faz 3 partial) | Phase 3 Tier 1 |

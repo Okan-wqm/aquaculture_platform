@@ -61,6 +61,11 @@ pub mod bytecode_runner;
 // `verify_and_deploy`. The MQTT deploy-command handler
 // uses this as its core logic in a future batch.
 pub mod bytecode_deploy;
+// Batch 168 Faz 3 (plan R-1): SQLCipher persistence
+// for the bytecode registry so deployed programs
+// survive reboot. Same master-key derivation as
+// offline_queue + scripting::persistence.
+pub mod bytecode_registry_store;
 mod conflict;
 mod context;
 mod engine;

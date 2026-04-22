@@ -317,3 +317,483 @@ mod tests {
         assert_eq!(j, "\"custom\"");
     }
 }
+
+// ========================================================================
+// Batch 141 Faz 7 — SignedLicenseManifest + verify primitive
+// ========================================================================
+
+use crate::authz::permission::TenantId;
+use crate::authz::policy::Ed25519SignatureBytes;
+
+/// Plaintext license manifest body. Cloud signs
+/// `canonical_bytes()` of this with the firmware signing
+/// key (plan R-10 key-reuse refinement) + ships as JSON
+/// `SignedLicenseManifest` payload.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LicenseManifest {
+    /// Tenant binding. MUST equal the edge's
+    /// provisioning-bound tenant. Cross-tenant pivot
+    /// defense.
+    pub tenant_id: TenantId,
+
+    /// Monotonic policy version. Matches the
+    /// rbac_manifest_version rollback-defense pattern:
+    /// on-device persists `highest_seen_policy_version`;
+    /// inbound manifest with `<=` rejected.
+    pub policy_version: u64,
+
+    /// Validity window (UNIX secs). License verify
+    /// rejects manifests outside
+    /// `[valid_from_unix_secs, valid_until_unix_secs]`.
+    pub valid_from_unix_secs: i64,
+    pub valid_until_unix_secs: i64,
+
+    /// Issuance timestamp for audit + operator
+    /// troubleshooting.
+    pub issued_at_unix_secs: i64,
+
+    /// Per-device limits payload. Consumed by Batch 142+
+    /// enforcement hooks.
+    pub limits: EdgeLicenseLimits,
+}
+
+/// Wire-format signed license manifest.
+///
+/// `pub(crate)` seal on the body — consumers MUST go
+/// through `verify_license_manifest`. Same discipline as
+/// `updater::SignedFirmwareManifest` (Batch 8) +
+/// `authz::SignedRbacManifest`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SignedLicenseManifest {
+    pub(crate) manifest: LicenseManifest,
+    pub signature: Ed25519SignatureBytes,
+}
+
+impl SignedLicenseManifest {
+    /// Construct from body + signature bytes. Validates
+    /// signature length at parse boundary (same pattern
+    /// as Batch 8 SignedFirmwareManifest).
+    pub fn from_body_and_signature_bytes(
+        manifest: LicenseManifest,
+        signature_bytes: &[u8],
+    ) -> Result<Self, crate::authz::policy::InvalidSignatureLength> {
+        Ok(Self {
+            manifest,
+            signature: Ed25519SignatureBytes::from_slice(signature_bytes)?,
+        })
+    }
+}
+
+/// Canonical byte serialization for signing. Matches the
+/// Batch 8 `FirmwareManifest::canonical_bytes` discipline:
+/// deterministic BE-encoded fields in a stable order so
+/// the cloud HSM ceremony + edge verify compute identical
+/// bytes.
+impl LicenseManifest {
+    pub fn canonical_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(256);
+        // Tenant ID (16 bytes).
+        out.extend_from_slice(self.tenant_id.as_bytes());
+        // Policy version.
+        out.extend_from_slice(&self.policy_version.to_be_bytes());
+        // Validity window.
+        out.extend_from_slice(&self.valid_from_unix_secs.to_be_bytes());
+        out.extend_from_slice(&self.valid_until_unix_secs.to_be_bytes());
+        // Issuance timestamp.
+        out.extend_from_slice(&self.issued_at_unix_secs.to_be_bytes());
+        // Limits tier wire tag.
+        out.push(self.limits.tier.wire_tag());
+        out.extend_from_slice(&self.limits.valid_until_unix_secs.to_be_bytes());
+        out.extend_from_slice(&self.limits.max_io_channels.to_be_bytes());
+        out.extend_from_slice(&self.limits.max_fb_instances.to_be_bytes());
+        out.extend_from_slice(&self.limits.min_scan_cycle_ms.to_be_bytes());
+        out.extend_from_slice(&self.limits.max_st_programs.to_be_bytes());
+        out.extend_from_slice(&self.limits.max_concurrent_tasks.to_be_bytes());
+        out.extend_from_slice(&self.limits.max_watch_sessions.to_be_bytes());
+        out.extend_from_slice(&self.limits.max_concurrent_forces.to_be_bytes());
+        out.push(u8::from(self.limits.signed_deploy_required));
+        out.push(u8::from(self.limits.opc_ua_server_enabled));
+        // Domain-separation trailer — prevents canonical-
+        // bytes collision with firmware manifest or RBAC
+        // manifest bodies signed by the same key.
+        out.extend_from_slice(b"license-manifest-v1");
+        out
+    }
+}
+
+/// Verify-time failure taxonomy. Mirrors the Batch 8
+/// ManifestVerifyError shape.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LicenseVerifyError {
+    /// Tenant binding mismatch.
+    TenantMismatch,
+    /// Inbound policy_version ≤ persisted
+    /// highest_seen_policy_version → rollback attempt.
+    StalePolicyVersion {
+        claimed: u64,
+        highest_seen: u64,
+    },
+    /// `now_unix_secs` is negative.
+    InvalidNow,
+    /// Validity window shape malformed
+    /// (valid_from > valid_until).
+    InvalidValidityWindow {
+        valid_from: i64,
+        valid_until: i64,
+    },
+    /// Manifest not yet valid (now < valid_from).
+    NotYetValid {
+        now_unix_secs: i64,
+        valid_from: i64,
+    },
+    /// Manifest expired (now > valid_until).
+    Expired {
+        now_unix_secs: i64,
+        valid_until: i64,
+    },
+    /// ed25519 signature check failed.
+    InvalidSignature,
+}
+
+impl std::fmt::Display for LicenseVerifyError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::TenantMismatch => f.write_str("tenant_mismatch"),
+            Self::StalePolicyVersion { .. } => f.write_str("stale_policy_version"),
+            Self::InvalidNow => f.write_str("invalid_now"),
+            Self::InvalidValidityWindow { .. } => f.write_str("invalid_validity_window"),
+            Self::NotYetValid { .. } => f.write_str("not_yet_valid"),
+            Self::Expired { .. } => f.write_str("expired"),
+            Self::InvalidSignature => f.write_str("invalid_signature"),
+        }
+    }
+}
+
+impl std::error::Error for LicenseVerifyError {}
+
+/// Verify a signed license manifest. Same
+/// closure-injection discipline as the Batch 8
+/// firmware verify: the ed25519 primitive is injected
+/// so the pure function stays crypto-backend-agnostic.
+///
+/// Gate ordering (cheapest-first):
+/// 1. Clock sanity (now < 0).
+/// 2. Validity-window shape.
+/// 3. Tenant match.
+/// 4. Policy-version monotonic (strict `>`).
+/// 5. Freshness window (now in [valid_from, valid_until]).
+/// 6. ed25519 verify (expensive).
+pub fn verify_license_manifest(
+    signed: &SignedLicenseManifest,
+    expected_tenant: &TenantId,
+    highest_seen_policy_version: u64,
+    now_unix_secs: i64,
+    verify_signature: impl FnOnce(&[u8], &[u8; 64]) -> bool,
+) -> Result<LicenseManifest, LicenseVerifyError> {
+    // Gate 1 — clock sanity.
+    if now_unix_secs < 0 {
+        return Err(LicenseVerifyError::InvalidNow);
+    }
+
+    // Gate 2 — validity window shape.
+    if signed.manifest.valid_from_unix_secs > signed.manifest.valid_until_unix_secs {
+        return Err(LicenseVerifyError::InvalidValidityWindow {
+            valid_from: signed.manifest.valid_from_unix_secs,
+            valid_until: signed.manifest.valid_until_unix_secs,
+        });
+    }
+
+    // Gate 3 — tenant match.
+    if &signed.manifest.tenant_id != expected_tenant {
+        return Err(LicenseVerifyError::TenantMismatch);
+    }
+
+    // Gate 4 — policy version monotonic.
+    if signed.manifest.policy_version <= highest_seen_policy_version {
+        return Err(LicenseVerifyError::StalePolicyVersion {
+            claimed: signed.manifest.policy_version,
+            highest_seen: highest_seen_policy_version,
+        });
+    }
+
+    // Gate 5 — freshness window.
+    if now_unix_secs < signed.manifest.valid_from_unix_secs {
+        return Err(LicenseVerifyError::NotYetValid {
+            now_unix_secs,
+            valid_from: signed.manifest.valid_from_unix_secs,
+        });
+    }
+    if now_unix_secs > signed.manifest.valid_until_unix_secs {
+        return Err(LicenseVerifyError::Expired {
+            now_unix_secs,
+            valid_until: signed.manifest.valid_until_unix_secs,
+        });
+    }
+
+    // Gate 6 — ed25519 signature.
+    let canonical = signed.manifest.canonical_bytes();
+    if !verify_signature(&canonical, signed.signature.as_bytes()) {
+        return Err(LicenseVerifyError::InvalidSignature);
+    }
+
+    Ok(signed.manifest.clone())
+}
+
+#[cfg(test)]
+mod verify_tests {
+    use super::*;
+    use ed25519_dalek::{Signer, SigningKey};
+
+    fn tenant_id() -> TenantId {
+        TenantId::new_from_verified([0xAAu8; 16])
+    }
+
+    fn canned_manifest(version: u64) -> LicenseManifest {
+        LicenseManifest {
+            tenant_id: tenant_id(),
+            policy_version: version,
+            valid_from_unix_secs: 1_700_000_000,
+            valid_until_unix_secs: 1_800_000_000,
+            issued_at_unix_secs: 1_700_000_000,
+            limits: EdgeLicenseLimits {
+                tier: LicenseTier::Professional,
+                valid_until_unix_secs: 1_800_000_000,
+                max_io_channels: 64,
+                max_fb_instances: 32,
+                min_scan_cycle_ms: 500,
+                max_st_programs: 8,
+                max_concurrent_tasks: 4,
+                max_watch_sessions: 3,
+                max_concurrent_forces: 5,
+                signed_deploy_required: false,
+                opc_ua_server_enabled: false,
+            },
+        }
+    }
+
+    fn sign(manifest: LicenseManifest, key: &SigningKey) -> SignedLicenseManifest {
+        let canonical = manifest.canonical_bytes();
+        let sig = key.sign(&canonical);
+        SignedLicenseManifest::from_body_and_signature_bytes(
+            manifest,
+            &sig.to_bytes(),
+        )
+        .expect("valid sig bytes")
+    }
+
+    fn verify_with(pubkey: &ed25519_dalek::VerifyingKey) -> impl FnOnce(&[u8], &[u8; 64]) -> bool + '_ {
+        move |canonical, sig_bytes| {
+            let sig = ed25519_dalek::Signature::from_bytes(sig_bytes);
+            pubkey.verify_strict(canonical, &sig).is_ok()
+        }
+    }
+
+    #[test]
+    fn canonical_bytes_deterministic() {
+        let m = canned_manifest(1);
+        let a = m.canonical_bytes();
+        let b = m.canonical_bytes();
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn canonical_bytes_includes_domain_separator() {
+        let m = canned_manifest(1);
+        let bytes = m.canonical_bytes();
+        assert!(bytes.ends_with(b"license-manifest-v1"));
+    }
+
+    #[test]
+    fn verify_happy_path() {
+        let seed = [0x5au8; 32];
+        let signing_key = SigningKey::from_bytes(&seed);
+        let pubkey = signing_key.verifying_key();
+        let signed = sign(canned_manifest(10), &signing_key);
+
+        let ok = verify_license_manifest(
+            &signed,
+            &tenant_id(),
+            5,
+            1_700_000_000,
+            verify_with(&pubkey),
+        )
+        .expect("verify ok");
+        assert_eq!(ok.policy_version, 10);
+        assert!(matches!(ok.limits.tier, LicenseTier::Professional));
+    }
+
+    #[test]
+    fn verify_rejects_tenant_mismatch() {
+        let seed = [0x5au8; 32];
+        let signing_key = SigningKey::from_bytes(&seed);
+        let pubkey = signing_key.verifying_key();
+        let signed = sign(canned_manifest(10), &signing_key);
+
+        let foreign = TenantId::new_from_verified([0xBBu8; 16]);
+        let err = verify_license_manifest(
+            &signed,
+            &foreign,
+            5,
+            1_700_000_000,
+            verify_with(&pubkey),
+        )
+        .expect_err("must reject");
+        assert_eq!(err, LicenseVerifyError::TenantMismatch);
+    }
+
+    #[test]
+    fn verify_rejects_stale_policy_version() {
+        let seed = [0x5au8; 32];
+        let signing_key = SigningKey::from_bytes(&seed);
+        let pubkey = signing_key.verifying_key();
+        let signed = sign(canned_manifest(10), &signing_key);
+
+        let err = verify_license_manifest(
+            &signed,
+            &tenant_id(),
+            10, // equal = rejected
+            1_700_000_000,
+            verify_with(&pubkey),
+        )
+        .expect_err("must reject equal");
+        assert!(matches!(
+            err,
+            LicenseVerifyError::StalePolicyVersion {
+                claimed: 10,
+                highest_seen: 10
+            }
+        ));
+    }
+
+    #[test]
+    fn verify_rejects_not_yet_valid() {
+        let seed = [0x5au8; 32];
+        let signing_key = SigningKey::from_bytes(&seed);
+        let pubkey = signing_key.verifying_key();
+        let signed = sign(canned_manifest(10), &signing_key);
+
+        let err = verify_license_manifest(
+            &signed,
+            &tenant_id(),
+            5,
+            1_600_000_000, // before valid_from
+            verify_with(&pubkey),
+        )
+        .expect_err("must reject");
+        assert!(matches!(err, LicenseVerifyError::NotYetValid { .. }));
+    }
+
+    #[test]
+    fn verify_rejects_expired() {
+        let seed = [0x5au8; 32];
+        let signing_key = SigningKey::from_bytes(&seed);
+        let pubkey = signing_key.verifying_key();
+        let signed = sign(canned_manifest(10), &signing_key);
+
+        let err = verify_license_manifest(
+            &signed,
+            &tenant_id(),
+            5,
+            1_900_000_000, // after valid_until
+            verify_with(&pubkey),
+        )
+        .expect_err("must reject");
+        assert!(matches!(err, LicenseVerifyError::Expired { .. }));
+    }
+
+    #[test]
+    fn verify_rejects_negative_now() {
+        let seed = [0x5au8; 32];
+        let signing_key = SigningKey::from_bytes(&seed);
+        let pubkey = signing_key.verifying_key();
+        let signed = sign(canned_manifest(10), &signing_key);
+
+        let err = verify_license_manifest(
+            &signed,
+            &tenant_id(),
+            5,
+            -1,
+            verify_with(&pubkey),
+        )
+        .expect_err("must reject");
+        assert_eq!(err, LicenseVerifyError::InvalidNow);
+    }
+
+    #[test]
+    fn verify_rejects_inverted_validity_window() {
+        let seed = [0x5au8; 32];
+        let signing_key = SigningKey::from_bytes(&seed);
+        let pubkey = signing_key.verifying_key();
+        let mut m = canned_manifest(10);
+        m.valid_from_unix_secs = 2_000_000_000;
+        m.valid_until_unix_secs = 1_700_000_000;
+        let signed = sign(m, &signing_key);
+
+        let err = verify_license_manifest(
+            &signed,
+            &tenant_id(),
+            5,
+            1_750_000_000,
+            verify_with(&pubkey),
+        )
+        .expect_err("must reject");
+        assert!(matches!(err, LicenseVerifyError::InvalidValidityWindow { .. }));
+    }
+
+    #[test]
+    fn verify_rejects_tampered_body() {
+        // Sign genuine manifest, then tamper the limits;
+        // verify must reject because canonical bytes
+        // change with the tamper.
+        let seed = [0x5au8; 32];
+        let signing_key = SigningKey::from_bytes(&seed);
+        let pubkey = signing_key.verifying_key();
+        let genuine = canned_manifest(10);
+        let sig = signing_key.sign(&genuine.canonical_bytes());
+
+        let tampered = LicenseManifest {
+            limits: EdgeLicenseLimits {
+                max_io_channels: 9999,
+                ..genuine.limits.clone()
+            },
+            ..genuine
+        };
+        let signed = SignedLicenseManifest::from_body_and_signature_bytes(
+            tampered,
+            &sig.to_bytes(),
+        )
+        .expect("sig bytes");
+
+        let err = verify_license_manifest(
+            &signed,
+            &tenant_id(),
+            5,
+            1_700_000_000,
+            verify_with(&pubkey),
+        )
+        .expect_err("tamper must reject");
+        assert_eq!(err, LicenseVerifyError::InvalidSignature);
+    }
+
+    #[test]
+    fn verify_rejects_wrong_key() {
+        let seed_genuine = [0x5au8; 32];
+        let seed_attacker = [0x77u8; 32];
+        let signing_key = SigningKey::from_bytes(&seed_genuine);
+        let attacker_key = SigningKey::from_bytes(&seed_attacker);
+        let pubkey_genuine = signing_key.verifying_key();
+        // Attacker signs with THEIR key; agent verifies with
+        // device-bound genuine key.
+        let signed = sign(canned_manifest(10), &attacker_key);
+
+        let err = verify_license_manifest(
+            &signed,
+            &tenant_id(),
+            5,
+            1_700_000_000,
+            verify_with(&pubkey_genuine),
+        )
+        .expect_err("wrong key must reject");
+        assert_eq!(err, LicenseVerifyError::InvalidSignature);
+    }
+}

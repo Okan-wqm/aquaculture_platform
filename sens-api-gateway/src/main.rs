@@ -2641,6 +2641,48 @@ async fn async_main() -> Result<()> {
         state_guard.init_license_cache();
     }
 
+    // Batch 146 Faz 7 wire: signature_mode consistency
+    // gate. If the license (loaded post-init_license_cache)
+    // requires signed deploys AND operator
+    // signature_mode=Disabled, emit CRITICAL boot log.
+    // Plan Faz 7 discipline: CRITICAL log + alarm (no
+    // fail-closed — the license mismatch is operator
+    // misconfiguration, not an attack; fail-closed would
+    // brick the agent over a config drift).
+    {
+        let state_guard = state.read().await;
+        let signature_mode = state_guard.config.signature_mode;
+        let result = crate::license::check_signature_mode_consistency(
+            &state_guard.license,
+            signature_mode,
+        );
+        match result {
+            crate::license::SignatureModeConsistency::LicenseDoesNotRequireSignedDeploy => {
+                // Most common — conservative() + STARTER
+                // set signed_deploy_required=false. Log
+                // at info level for audit trail.
+                info!(
+                    "License contract: signed_deploy_required=false (tier={}); signature_mode={:?} accepted without consistency check.",
+                    state_guard.license.tier.as_str(),
+                    signature_mode
+                );
+            }
+            crate::license::SignatureModeConsistency::Consistent => {
+                info!(
+                    "License contract: signed_deploy_required=true (tier={}) + signature_mode={:?} — CONSISTENT.",
+                    state_guard.license.tier.as_str(),
+                    signature_mode
+                );
+            }
+            crate::license::SignatureModeConsistency::CriticalMismatchDisabledSignatureMode => {
+                error!(
+                    "CRITICAL LICENSE CONTRACT MISMATCH: license tier={} requires signed_deploy_required=true BUT config.signature_mode=Disabled. Agent accepts UNSIGNED mutating commands despite license contract. Operator MUST flip signature_mode to Permissive or Enforcing immediately. This is NOT an attack; this is config drift. Plan Faz 7 discipline: log + alarm (no fail-closed).",
+                    state_guard.license.tier.as_str()
+                );
+            }
+        }
+    }
+
     // Initialize clock authority (Batch 90 Sprint 6.7 wire).
     //
     // WHY: Plan §5 Faz 2 item 10 + D-7. Selects between

@@ -212,6 +212,56 @@ impl Default for EdgeLicenseLimits {
     }
 }
 
+/// Consistency-check result between a license's
+/// `signed_deploy_required` flag + the agent's
+/// `signature_mode` runtime setting (Batch 146 Faz 7).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SignatureModeConsistency {
+    /// License does not require signed deploys — any
+    /// signature_mode is acceptable.
+    LicenseDoesNotRequireSignedDeploy,
+    /// License requires signed deploys + operator config
+    /// is Permissive or Enforcing — consistent.
+    Consistent,
+    /// License requires signed deploys but operator
+    /// config has signature_mode=Disabled. Plan Faz 7
+    /// specifies CRITICAL boot log + alarm — the
+    /// license contract is violated by the static
+    /// config. Operator MUST flip signature_mode to
+    /// Permissive or Enforcing.
+    CriticalMismatchDisabledSignatureMode,
+}
+
+/// Check whether the license's `signed_deploy_required`
+/// contract is consistent with the agent's
+/// `signature_mode` runtime setting.
+///
+/// Returns a structured result enum so the caller can
+/// route:
+/// - boot log emission
+/// - Prometheus metric label
+/// - operator audit-trail classification
+///
+/// Pure function — testable without AppState fixtures.
+pub fn check_signature_mode_consistency(
+    license: &EdgeLicenseLimits,
+    signature_mode: crate::command_envelope::envelope::SignatureMode,
+) -> SignatureModeConsistency {
+    use crate::command_envelope::envelope::SignatureMode;
+
+    if !license.signed_deploy_required {
+        return SignatureModeConsistency::LicenseDoesNotRequireSignedDeploy;
+    }
+    match signature_mode {
+        SignatureMode::Disabled => {
+            SignatureModeConsistency::CriticalMismatchDisabledSignatureMode
+        }
+        SignatureMode::Permissive | SignatureMode::Enforcing => {
+            SignatureModeConsistency::Consistent
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -317,6 +367,61 @@ mod tests {
         assert_eq!(j, "\"professional\"");
         let j = serde_json::to_string(&LicenseTier::Custom).unwrap();
         assert_eq!(j, "\"custom\"");
+    }
+
+    // ====================================================================
+    // Batch 146 Faz 7 — signature_mode consistency tests
+    // ====================================================================
+
+    use crate::command_envelope::envelope::SignatureMode;
+
+    #[test]
+    fn consistency_conservative_never_requires_signature() {
+        // conservative() has signed_deploy_required=false
+        // so EVERY signature_mode is acceptable.
+        let c = EdgeLicenseLimits::conservative();
+        for mode in [SignatureMode::Disabled, SignatureMode::Permissive, SignatureMode::Enforcing] {
+            assert!(matches!(
+                check_signature_mode_consistency(&c, mode),
+                SignatureModeConsistency::LicenseDoesNotRequireSignedDeploy
+            ));
+        }
+    }
+
+    #[test]
+    fn consistency_signed_required_plus_disabled_is_critical() {
+        let l = EdgeLicenseLimits {
+            signed_deploy_required: true,
+            ..EdgeLicenseLimits::conservative()
+        };
+        assert!(matches!(
+            check_signature_mode_consistency(&l, SignatureMode::Disabled),
+            SignatureModeConsistency::CriticalMismatchDisabledSignatureMode
+        ));
+    }
+
+    #[test]
+    fn consistency_signed_required_plus_permissive_is_consistent() {
+        let l = EdgeLicenseLimits {
+            signed_deploy_required: true,
+            ..EdgeLicenseLimits::conservative()
+        };
+        assert!(matches!(
+            check_signature_mode_consistency(&l, SignatureMode::Permissive),
+            SignatureModeConsistency::Consistent
+        ));
+    }
+
+    #[test]
+    fn consistency_signed_required_plus_enforcing_is_consistent() {
+        let l = EdgeLicenseLimits {
+            signed_deploy_required: true,
+            ..EdgeLicenseLimits::conservative()
+        };
+        assert!(matches!(
+            check_signature_mode_consistency(&l, SignatureMode::Enforcing),
+            SignatureModeConsistency::Consistent
+        ));
     }
 }
 

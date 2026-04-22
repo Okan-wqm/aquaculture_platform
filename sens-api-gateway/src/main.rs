@@ -672,6 +672,16 @@ pub struct AppState {
     /// init_firmware_signing_pubkey (exit 1).
     pub firmware_signing_pubkey:
         Option<std::sync::Arc<ed25519_dalek::VerifyingKey>>,
+
+    /// Bytecode program registry — Batch 167 Faz 3 wire.
+    /// Populated at AppState::new with an empty registry;
+    /// `cmd_deploy_program` (future batch) inserts signed
+    /// + verified programs via `bytecode_deploy::
+    /// verify_and_deploy`; ScriptEngine Phase 5b scan-
+    /// cycle orchestrator (future batch) reads
+    /// `list_enabled()` every tick.
+    pub bytecode_registry:
+        std::sync::Arc<crate::scripting::bytecode_registry::BytecodeProgramRegistry>,
 }
 
 impl AppState {
@@ -814,6 +824,16 @@ impl AppState {
             // init land.
             #[cfg(feature = "health")]
             lifecycle_cell: None,
+            // Batch 167 Faz 3 wire: empty registry at
+            // AppState::new. cmd_deploy_program (future
+            // batch) inserts verified programs; the
+            // scan-cycle orchestrator (future batch)
+            // reads via list_enabled() every tick. Arc-
+            // shared so ScriptEngine + CommandHandler
+            // see the same source of truth.
+            bytecode_registry: std::sync::Arc::new(
+                crate::scripting::bytecode_registry::BytecodeProgramRegistry::new(),
+            ),
         }
     }
 

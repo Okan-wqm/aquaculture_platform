@@ -180,6 +180,16 @@ mod apply_signed_manifest;
 // Batch 144 (cache) adds cross-boot persistence.
 mod refresh_license;
 
+// Batch 167 Faz 3: deploy_bytecode_program — operator pushes
+// signed ST bytecode via MQTT; edge verifies ed25519
+// signature + tenant binding + monotonic policy_version,
+// inserts into AppState.bytecode_registry. Named distinctly
+// from the legacy `deploy_program` (which installs JSON
+// scripts via ScriptStorage) so the two deploy paths stay
+// independent. Thin adapter over
+// scripting::bytecode_deploy::verify_and_deploy (Batch 166).
+mod deploy_bytecode_program;
+
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -876,6 +886,8 @@ impl CommandHandler {
             "apply_signed_manifest" => self.cmd_apply_signed_manifest(&command.params).await,
             // License tier refresh (Batch 143 Faz 7)
             "refresh_license" => self.cmd_refresh_license(&command.params).await,
+            // ST bytecode program deploy (Batch 167 Faz 3)
+            "deploy_bytecode_program" => self.cmd_deploy_bytecode_program(&command.params).await,
             _ => {
                 // v1.2.2: Sanitize user-provided command name to prevent log injection
                 warn!("Unknown command: {}", sanitize_for_log(&command.command));

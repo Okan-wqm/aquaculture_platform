@@ -878,6 +878,8 @@ mod tests {
         Bytecode {
             program_id: "t".into(),
             program_name: "t".into(),
+            tenant_id: None,
+            policy_version: 0,
             max_gas_per_tick: 1_000_000,
             local_count: locals,
             retain_vars: vec![],
@@ -1313,6 +1315,8 @@ mod tests {
         Bytecode {
             program_id: "t".into(),
             program_name: "t".into(),
+            tenant_id: None,
+            policy_version: 0,
             max_gas_per_tick: 1_000_000,
             local_count: locals,
             retain_vars: vec![],

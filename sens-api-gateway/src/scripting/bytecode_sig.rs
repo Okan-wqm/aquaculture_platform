@@ -23,7 +23,7 @@
 //!   manifest pattern: big-endian integers, length-prefixed
 //!   strings, opcodes serialized by stable wire_tag +
 //!   per-variant payload. Trailing domain tag
-//!   `b"st-bytecode-v1"` binds the signature to THIS schema
+//!   `b"st-bytecode-v2"` binds the signature to THIS schema
 //!   — a future schema revision bumps the tag + key ceremony.
 //! - `verify_signed_bytecode(signed, verify_closure) ->
 //!   Result<Bytecode, BytecodeVerifyError>` — returns the
@@ -101,22 +101,31 @@ impl std::error::Error for BytecodeVerifyError {}
 /// bytecode schema version — the verifier recomputes this
 /// exact byte string as part of the canonical bytes, so a
 /// signature produced over `firmware-manifest-v1` can NEVER
-/// verify against `st-bytecode-v1`.
-const DOMAIN_TAG_V1: &[u8] = b"st-bytecode-v1";
+/// verify against `st-bytecode-v2`.
+///
+/// Bumped from v1 to v2 in Batch 165 when `tenant_id` +
+/// `policy_version` joined the encoded fields. A v1
+/// signature never verifies against a v2 canonical bytes
+/// because the trailing tag differs; ensures schema-
+/// migration safety.
+const DOMAIN_TAG_V2: &[u8] = b"st-bytecode-v2";
 
 /// Wire-format version for the canonical encoding. Bumped
 /// in lockstep with DOMAIN_TAG_V* when the encoding changes.
-const WIRE_VERSION_V1: u16 = 1;
+const WIRE_VERSION_V2: u16 = 2;
 
 /// Produce the canonical byte representation of a Bytecode
 /// for signing / verification.
 ///
-/// Encoding:
+/// Encoding (wire_version v2 — Batch 165):
 /// ```text
 ///   magic          "STBC" (4 bytes)
-///   wire_version   u16 big-endian
+///   wire_version   u16 big-endian  (= 2)
 ///   program_id     u32 len + bytes
 ///   program_name   u32 len + bytes
+///   tenant_id      u32 len + bytes  (len=0 for None)
+///                  + u8 presence byte (0 = None, 1 = Some)
+///   policy_version u64 big-endian
 ///   max_gas_per_tick  u32 big-endian
 ///   local_count       u32 big-endian
 ///   retain_vars    u32 count, each = u32 len + name bytes
@@ -124,16 +133,35 @@ const WIRE_VERSION_V1: u16 = 1;
 ///   allowed_write_tags   u32 count, each = u32 len + bytes
 ///   safe_state_pinned_tags  u32 count, each = u32 len + bytes
 ///   opcodes        u32 count, each = u8 wire_tag + per-variant payload
-///   domain_tag     b"st-bytecode-v1"  (no length prefix; trailing binding)
+///   domain_tag     b"st-bytecode-v2"  (no length prefix; trailing binding)
 /// ```
 pub fn canonical_bytes(bc: &Bytecode) -> Result<Vec<u8>, BytecodeVerifyError> {
     let mut out = Vec::with_capacity(256 + bc.opcodes.len() * 8);
 
     out.extend_from_slice(b"STBC");
-    out.extend_from_slice(&WIRE_VERSION_V1.to_be_bytes());
+    out.extend_from_slice(&WIRE_VERSION_V2.to_be_bytes());
 
     write_str(&mut out, &bc.program_id, "program_id")?;
     write_str(&mut out, &bc.program_name, "program_name")?;
+
+    // Tenant id (v2). Option presence = 1 byte; Some
+    // then carries the str; None carries an empty len.
+    match &bc.tenant_id {
+        Some(t) => {
+            out.push(1u8);
+            write_str(&mut out, t, "tenant_id")?;
+        }
+        None => {
+            out.push(0u8);
+            // Also emit a zero-length str field so layout
+            // stays fixed (parser reads presence, then
+            // always reads str — empty when absent).
+            write_u32_len(&mut out, 0, "tenant_id (empty)")?;
+        }
+    }
+
+    // Policy version (v2) — u64 big-endian.
+    out.extend_from_slice(&bc.policy_version.to_be_bytes());
 
     out.extend_from_slice(&bc.max_gas_per_tick.to_be_bytes());
     out.extend_from_slice(&bc.local_count.to_be_bytes());
@@ -167,7 +195,7 @@ pub fn canonical_bytes(bc: &Bytecode) -> Result<Vec<u8>, BytecodeVerifyError> {
         write_opcode(&mut out, op)?;
     }
 
-    out.extend_from_slice(DOMAIN_TAG_V1);
+    out.extend_from_slice(DOMAIN_TAG_V2);
     Ok(out)
 }
 
@@ -312,6 +340,8 @@ mod tests {
         Bytecode {
             program_id: "script-001".into(),
             program_name: "Fish Feeder".into(),
+            tenant_id: Some("tenant-a".into()),
+            policy_version: 1,
             max_gas_per_tick: 10_000,
             local_count: 2,
             retain_vars: vec![("total_feed".into(), StValueType::Real)],
@@ -342,14 +372,14 @@ mod tests {
         let bc = canned_bytecode();
         let bytes = canonical_bytes(&bc).expect("ok");
         assert_eq!(&bytes[0..4], b"STBC");
-        assert_eq!(&bytes[4..6], &WIRE_VERSION_V1.to_be_bytes());
+        assert_eq!(&bytes[4..6], &WIRE_VERSION_V2.to_be_bytes());
     }
 
     #[test]
     fn canonical_bytes_ends_with_domain_tag() {
         let bc = canned_bytecode();
         let bytes = canonical_bytes(&bc).expect("ok");
-        assert!(bytes.ends_with(DOMAIN_TAG_V1));
+        assert!(bytes.ends_with(DOMAIN_TAG_V2));
     }
 
     #[test]
@@ -451,6 +481,51 @@ mod tests {
     }
 
     #[test]
+    fn verify_signed_bytecode_rejects_tenant_swap() {
+        // Batch 165: tenant_id is bound into canonical
+        // bytes. An attacker swapping tenant_id from
+        // tenant-a to tenant-b post-signing must fail
+        // verify — defeats the cross-tenant replay vector.
+        let key = signing_key_seed_1();
+        let bc = canned_bytecode();
+        let mut signed = sign(&bc, &key);
+        signed.bytecode.tenant_id = Some("tenant-b".into());
+        assert_eq!(
+            verify_signed_bytecode(&signed, verify_with(key.verifying_key())),
+            Err(BytecodeVerifyError::InvalidSignature)
+        );
+    }
+
+    #[test]
+    fn verify_signed_bytecode_rejects_policy_version_rollback() {
+        // Batch 165: policy_version bound into canonical
+        // bytes. Attacker replaying an old v1 signature
+        // against a v3-claimed header must fail — defeats
+        // rollback / version-downgrade attack.
+        let key = signing_key_seed_1();
+        let bc = canned_bytecode();
+        let mut signed = sign(&bc, &key);
+        signed.bytecode.policy_version = 999;
+        assert_eq!(
+            verify_signed_bytecode(&signed, verify_with(key.verifying_key())),
+            Err(BytecodeVerifyError::InvalidSignature)
+        );
+    }
+
+    #[test]
+    fn verify_signed_bytecode_accepts_none_tenant_platform_scoped() {
+        // Platform-scoped programs (tenant_id = None) sign
+        // + verify cleanly. The encoding presence byte
+        // + empty-str placeholder keeps the layout uniform.
+        let key = signing_key_seed_1();
+        let mut bc = canned_bytecode();
+        bc.tenant_id = None;
+        let signed = sign(&bc, &key);
+        verify_signed_bytecode(&signed, verify_with(key.verifying_key()))
+            .expect("platform-scoped verify ok");
+    }
+
+    #[test]
     fn verify_signed_bytecode_rejects_pinned_tag_downgrade() {
         // Security-critical: if an attacker strips a tag
         // out of safe_state_pinned_tags (so the Batch 156
@@ -475,13 +550,19 @@ mod tests {
         // signature verifies; the domain tag binds them.
         let bc = canned_bytecode();
         let bytes = canonical_bytes(&bc).expect("ok");
-        let tail_len = DOMAIN_TAG_V1.len();
+        let tail_len = DOMAIN_TAG_V2.len();
         let (body, tail) = bytes.split_at(bytes.len() - tail_len);
-        assert_eq!(tail, DOMAIN_TAG_V1);
-        // Body without the domain tag must be distinct
-        // from body + wrong-tag.
+        assert_eq!(tail, DOMAIN_TAG_V2);
+        // Body with a DIFFERENT schema tag (simulating a
+        // future v3 or replaying an older v1 signature
+        // against the current v2 verifier) must yield
+        // distinct bytes.
         let mut fake = body.to_vec();
-        fake.extend_from_slice(b"st-bytecode-v2");
+        fake.extend_from_slice(b"st-bytecode-v3");
         assert_ne!(bytes, fake);
+
+        let mut older = body.to_vec();
+        older.extend_from_slice(b"st-bytecode-v1");
+        assert_ne!(bytes, older);
     }
 }

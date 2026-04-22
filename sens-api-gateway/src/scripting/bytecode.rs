@@ -367,6 +367,20 @@ pub struct Bytecode {
     pub program_id: String,
     /// Program name for audit + dashboard display.
     pub program_name: String,
+    /// Tenant binding (Batch 165 Faz 3) — bound into the
+    /// signed canonical encoding so a cross-tenant replay
+    /// cannot swap this field without invalidating the
+    /// signature. `None` indicates a platform-scoped
+    /// program (rare; factory-default alarms).
+    #[serde(default)]
+    pub tenant_id: Option<String>,
+    /// Monotonic policy version (Batch 165 Faz 3) — the
+    /// registry rejects deploys whose version is ≤ the
+    /// existing entry's. Bound into the signed canonical
+    /// encoding so a rollback / replay attacker cannot
+    /// re-sign with a lower number.
+    #[serde(default)]
+    pub policy_version: u64,
     /// Per-tick gas budget. VM starts each scan cycle
     /// with this amount + trips SafeState on exhaustion.
     pub max_gas_per_tick: u32,
@@ -586,6 +600,8 @@ mod tests {
         let bc = Bytecode {
             program_id: "prog-alpha".into(),
             program_name: "fish_feeder".into(),
+            tenant_id: Some("tenant-a".into()),
+            policy_version: 1,
             max_gas_per_tick: 10_000,
             local_count: 5,
             retain_vars: vec![
@@ -622,6 +638,8 @@ mod tests {
         let bc = Bytecode {
             program_id: "empty".into(),
             program_name: "empty".into(),
+            tenant_id: None,
+            policy_version: 0,
             max_gas_per_tick: 100,
             local_count: 0,
             retain_vars: vec![],

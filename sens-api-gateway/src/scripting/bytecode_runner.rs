@@ -205,6 +205,8 @@ mod tests {
         Bytecode {
             program_id: "p".into(),
             program_name: "loopback".into(),
+            tenant_id: None,
+            policy_version: 0,
             max_gas_per_tick: 1000,
             local_count: 0,
             retain_vars: vec![],
@@ -327,6 +329,8 @@ mod tests {
         let fail_bc = Bytecode {
             program_id: "fail".into(),
             program_name: "fail".into(),
+            tenant_id: None,
+            policy_version: 0,
             max_gas_per_tick: 1000,
             local_count: 0,
             retain_vars: vec![],
@@ -393,6 +397,8 @@ mod tests {
         let no_op = Bytecode {
             program_id: "irrelevant".into(),
             program_name: "n".into(),
+            tenant_id: None,
+            policy_version: 0,
             max_gas_per_tick: 1000,
             local_count: 0,
             retain_vars: vec![],
@@ -444,6 +450,8 @@ mod tests {
         let bc_a = Bytecode {
             program_id: "a".into(),
             program_name: "a".into(),
+            tenant_id: None,
+            policy_version: 0,
             max_gas_per_tick: 1000,
             local_count: 0,
             retain_vars: vec![],
@@ -461,6 +469,8 @@ mod tests {
         let bc_b = Bytecode {
             program_id: "b".into(),
             program_name: "b".into(),
+            tenant_id: None,
+            policy_version: 0,
             max_gas_per_tick: 1000,
             local_count: 0,
             retain_vars: vec![],

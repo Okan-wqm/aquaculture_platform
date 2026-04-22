@@ -1350,6 +1350,8 @@ pub fn compile_program(
     Ok(Bytecode {
         program_id,
         program_name: program.name.clone(),
+        tenant_id: None,
+        policy_version: 0,
         max_gas_per_tick,
         local_count,
         retain_vars,

@@ -262,6 +262,8 @@ mod tests {
         Bytecode {
             program_id: program_id.to_string(),
             program_name: format!("{}-name", program_id),
+            tenant_id: None,
+            policy_version: 0,
             max_gas_per_tick: 1000,
             local_count: 0,
             retain_vars: vec![],

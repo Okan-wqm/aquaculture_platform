@@ -1,12 +1,12 @@
 # ADR-031: NATS Request-Reply Pattern Adoption (`@platform/event-bus` Extension)
 
-**Status:** Proposed
+**Status:** Accepted — Rust + TS sides landed across commits `f555cec2` (typed `request_reply` primitive in nats-client crate) → `d37e6231` (Rust `DynamicBackendPolicy` + cold-start bootstrap + NATS subscriber + disk fallback) → `189bcaf5` (TS `NatsRequestReply` typed primitive + error taxonomy) → `4254a6b1` (`@platform/event-contracts` `IngestBackendPolicyChangedEvent` wire contract) → `3c987bdc` (admin-api-service policy-snapshot responder + `IngestBackendPolicyChanged` publisher + V1787300000000 migration). The end-to-end `policy.ingest_backend.snapshot` round trip + `policy.ingest_backend.changed` hot-swap chain is live; live testcontainers integration test lands in PR-C #9 without breaking the invariant.
 **Date:** 2026-04-22
 **Deciders:** platform team, admin-api-service owner, sensor-ingestion owner
 **Owner:** Okan
 **Related ADRs:** ADR-006 (event flat pattern), ADR-014/015 (NATS cert-is-identity SSoT), ADR-025 (Rust sidecar architecture), ADR-027 (per-tenant IngestBackend toggle)
-**Related orphan findings:** `PLATFORM-HIGH-001` (see `docs/reviews/orphan-findings.md` ORPHAN-019 in the agentic-rust-unified id space)
-**Related plans:** `/root/.claude/plans/snappy-sniffing-pine.md` Kör Nokta 6
+**Related orphan findings:** `docs/reviews/orphan-findings.md#ORPHAN-019` (RESOLVED by this ADR's implementation commits)
+**Related plans:** `/root/.claude/plans/snappy-sniffing-pine.md` Kör Nokta 6 + 11 (cold-start disk persistence merged into this ADR per the delta plan)
 
 ---
 
@@ -24,49 +24,72 @@ The decision is whether to extend the platform lib, hand-roll the Rust side only
 
 Extend `@platform/event-bus` with a request-reply primitive. Adopt it platform-wide; the sensor-ingestion sidecar + its admin-api responder are the first users.
 
-### API surface
+### API surface (as landed)
 
 ```typescript
-// platform/libs/event-bus/src/nats/nats-request-reply.ts (new)
-interface NatsRequestReply {
-  request<TReq, TRes>(
+// platform/libs/event-bus/src/nats/nats-request-reply.ts
+@Injectable()
+class NatsRequestReply implements IRequestReply {
+  requestTyped<Req, Res>(
     subject: string,
-    payload: TReq,
-    opts: { timeoutMs: number; correlationId?: string }
-  ): Promise<TRes>;
+    request: Req,
+    options: { timeoutMs: number },
+  ): Promise<Res>;
 
-  respond<TReq, TRes>(
+  respond<Req, Res>(
     subject: string,
-    handler: (req: TReq, meta: RequestMeta) => Promise<TRes>
-  ): Subscription;
+    handler: RequestReplyHandler<Req, Res>,
+  ): Promise<RequestReplyResponderHandle>;
 }
 
-interface RequestMeta {
+type RequestReplyHandler<Req, Res> = (
+  request: Req,
+  context: RequestReplyContext,
+) => Promise<Res>;
+
+interface RequestReplyContext {
   subject: string;
-  replyTo: string;
-  correlationId: string;
-  authenticatedIdentity: string; // mTLS cert CN of the requester
+  authenticatedIdentity?: string; // mTLS cert CN of the requester
+}
+
+interface RequestReplyResponderHandle {
+  drain(): Promise<void>;
+  readonly subject: string;
 }
 ```
 
-### Rust side
+Error taxonomy — one class per operator-alarm shelf:
+- `RequestReplyTimeoutError` — responder did not answer within budget
+- `RequestReplyTransportError` — NoResponders, broker disconnect, connection-null
+- `RequestReplyEncodeError` — request body could not be JSON-encoded
+- `RequestReplyDecodeError` — reply bytes could not be JSON-decoded
+- `RequestReplyRemoteError` — responder surfaced a structured error envelope `{__error:true, code, message}`
+
+Variance from original proposal:
+- Method renamed from `request` → `requestTyped` for callsite clarity (there is already a `NatsConnection.request`; the typed variant communicates intent).
+- `correlationId` dropped from the per-call options — the transport already surfaces it via NATS headers; the caller-owned field added complexity without a concrete consumer in the first adopter.
+- `RequestMeta` → `RequestReplyContext` rename — matches the `Handler(request, context)` callback shape that feels natural to TS developers.
+- `respond()` returns a handle with `drain()` (vs raw `Subscription`) so the lifecycle is explicit at shutdown.
+
+### Rust side (as landed)
 
 `crates/nats-client/src/request_reply.rs`:
 
 ```rust
-pub async fn request<Req, Res>(
-    conn: &Client,
+pub async fn request_typed<Req, Res>(
+    client: &NatsClient,
     subject: &str,
-    payload: &Req,
-    timeout: Duration,
+    request: &Req,
+    budget: Duration,
 ) -> Result<Res, RequestError>
 where
-    Req: Serialize,
+    Req: Serialize + Sync + ?Sized,
     Res: DeserializeOwned,
-{ /* async-nats request() wrapped with typed serde + timeout */ }
 ```
 
-Responders on the Rust side follow the same pattern using `Client::queue_subscribe` + send-to-reply-subject loop.
+`RequestError` enumerates Timeout / Transport / Encode / Decode — same shelves as the TS side, different naming conventions per the language idiom (thiserror-based enum).
+
+The Rust sidecar uses `request_typed` at cold-start in `apps/sensor-ingestion/src/policy.rs::bootstrap_policy` with a 3-retry × 5s-timeout budget; the `policy.ingest_backend.>` subscriber task calls `policy.apply_change()` on every decoded event + persists the resulting snapshot to disk so the next cold boot has durable fallback even if the broker is down.
 
 ### Identity + authorization
 
@@ -75,25 +98,27 @@ Responders on the Rust side follow the same pattern using `Client::queue_subscri
 
 ### Correlation + tracing
 
-- `correlationId` defaults to `uuid::Uuid::new_v4()` if absent. Propagated through `RequestMeta`.
-- W3C `traceparent` header (cf. ADR-032 on supply chain hardening — separate concern, but the same header primitive is reused via the Rust plan Kör Nokta 3) piggybacks on the NATS message header; request-reply pairs appear as a single distributed trace.
+- `authenticated-identity` NATS header surfaces the requester's mTLS cert CN to the responder via `RequestReplyContext`; applications can check it against an expected list (e.g. the policy-snapshot responder only replies to `sensor_ingestion`).
+- W3C `traceparent` header (ADR-032 Kör Nokta 3 — implemented by `crates/observability::trace_propagation`) piggybacks on the NATS message header; request-reply pairs appear as a single distributed trace.
 
-### First adoption
+### First adoption (as landed)
 
-1. **`admin-api-service`** registers a responder for `policy.ingest_backend.snapshot` — returns `{ global: 'rust' | 'node', overrides: Record<TenantId, 'rust' | 'node'> }` by reading `tenant_settings.ingest_backend_override`.
-2. **`sensor-ingestion`** calls this responder at boot; holds snapshot in `ArcSwap<IngestBackendPolicy>`; subsequent `policy.ingest_backend.>` publishes (pub-sub) keep the ArcSwap in sync.
+1. **`admin-api-service`** registers a responder for `policy.ingest_backend.snapshot` via `PolicySnapshotResponder.onModuleInit` (`apps/admin-api-service/src/policy/services/policy-snapshot.responder.ts`). Reply is the `IngestBackendSnapshot` projected from the `admin.ingest_backend_policy_state` singleton row.
+2. **`sensor-ingestion`** calls this responder at boot via `policy::bootstrap_policy` in `apps/sensor-ingestion/src/policy.rs`; holds the snapshot in `ArcSwap<IngestBackendSnapshot>` (DynamicBackendPolicy) for lock-free hot-path reads; subsequent `policy.ingest_backend.>` publishes (pub-sub) keep the ArcSwap in sync.
+3. **`admin-api-service`** publishes `IngestBackendPolicyChangedEvent` on `policy.ingest_backend.changed` via `IngestBackendPolicyService.applyChange` whenever an operator mutates the rollout decision; the Rust sidecar's subscriber applies the incremental change + persists the resulting snapshot to disk.
 
-### Cold-start failure mode (critical)
+### Cold-start failure mode (as landed)
 
-`sensor-ingestion` boot policy:
+`sensor-ingestion` boot policy (see `apps/sensor-ingestion/src/policy.rs::bootstrap_policy`):
 
-1. Call `request('policy.ingest_backend.snapshot', {}, { timeoutMs: 5_000 })`.
-2. If timeout: retry 3× with exponential backoff (total wait ≤ 30s).
-3. Throughout this window, `boot_mode = true`; the MQTT subscription does NOT start — no ingestion until policy is authoritative.
-4. If all retries fail: load `/var/lib/sensor-ingestion/last-known-policy.json` (persisted on every `IngestBackendPolicyChangedEvent`); raise `sensor_ingestion_boot_policy_fallback_total` counter; continue in degraded mode.
-5. Once NATS is reachable again, the pub-sub subscriber catches up via normal `policy.ingest_backend.>` events.
+1. Call `request_typed::<(), IngestBackendSnapshot>('policy.ingest_backend.snapshot', &empty, 5s)`.
+2. If timeout / transport error: retry per `IngestBackendConfig.snapshot_request_retries` (default 3). Worst-case cold-start wall-clock is ≤ 15s before the fallback engages.
+3. If all retries fail: load `/var/lib/sensor-ingestion/last-known-policy.json` (the disk file that `spawn_policy_subscriber` refreshes on every successful `apply_change`). Returns `PolicySource::Disk`.
+4. If the disk file is missing / corrupt: fall back to the operator-signed TOML config (`[ingest_backend]` section). Returns `PolicySource::Config`. Default is `defaultBackend = "node"` (fail-closed — no Rust-side processing).
+5. `sensor_ingestion_policy_bootstrap_source_{nats,disk,config}_total` counters expose which step of the chain won, so operators see the fallback hit ratio on a dashboard.
+6. Once NATS is reachable again, the pub-sub subscriber catches up via normal `policy.ingest_backend.>` events.
 
-This prevents the race where a NATS outage at sidecar boot causes wrong routing.
+This prevents the race where a NATS outage at sidecar boot causes wrong routing, AND preserves operator intent across broker outages.
 
 ---
 

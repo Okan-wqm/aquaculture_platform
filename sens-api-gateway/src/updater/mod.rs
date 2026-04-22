@@ -64,10 +64,16 @@ pub mod watchdog;
 // Batch 111 Sprint 6.5: bootloader-coordination trait +
 // NoopBootloaderHandle (non-RPi). Closes the "software
 // state updated but bootloader flag stays on old slot"
-// gap flagged in Batch 108's commit body. TrybootBootloaderHandle
-// real-RPi impl lands in a follow-up batch that requires
-// hardware for signed autoboot.txt verification.
+// gap flagged in Batch 108's commit body. Batch 127 adds
+// the TrybootBootloaderHandle real-RPi impl as a sibling
+// module; construction is config-driven at boot time.
 pub mod bootloader;
+// Batch 127 Sprint 6.5: TrybootBootloaderHandle — RPi
+// autoboot.txt manipulator implementing BootloaderHandle.
+// Pure I/O on a configurable path so tests exercise the
+// full logic against a tempfile + the production path is
+// a config swap away.
+pub mod tryboot;
 // Batch 122 Sprint 6.5: reusable Confirm orchestrator.
 // Factored out of commands/confirm_slot.rs so the MQTT
 // command path + the new HTTP lifecycle endpoint share
@@ -103,6 +109,10 @@ pub use watchdog::{
     DEFAULT_WATCHDOG_POLL_INTERVAL_SECS,
 };
 pub use bootloader::{BootloaderError, BootloaderHandle, NoopBootloaderHandle};
+pub use tryboot::{
+    TrybootBootloaderHandle, DEFAULT_AUTOBOOT_TXT_PATH, DEFAULT_SLOT_A_PARTITION,
+    DEFAULT_SLOT_B_PARTITION,
+};
 pub use confirm_orchestrator::{
     parse_slot_param, perform_confirm_slot, ConfirmOutcome, ConfirmSlotSelector,
 };

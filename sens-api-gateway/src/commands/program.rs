@@ -58,6 +58,54 @@ use crate::st_validator::validate_st;
 
 use super::{CommandHandler, ProgramDefinition, ProgramState};
 
+/// Batch 142 Faz 7: stricter-of-both license + config
+/// intersection for cmd_deploy_program gates.
+///
+/// Pure function extracted for unit testability — the
+/// CommandHandler body reads from AppState + delegates
+/// to this for the actual decision.
+///
+/// Returns:
+/// - `effective_max_fbs` = min(config, license)
+/// - `effective_min_scan_ms` = max(config, license)
+/// - `fb_gated_by_license`: true if license was the
+///   stricter half (used for error message attribution).
+/// - `scan_gated_by_license`: same semantic for scan
+///   cycle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct EffectiveDeployLimits {
+    pub effective_max_fbs: usize,
+    pub effective_min_scan_ms: u64,
+    pub fb_gated_by_license: bool,
+    pub scan_gated_by_license: bool,
+}
+
+pub(super) fn compute_effective_deploy_limits(
+    config_max_fbs: usize,
+    config_min_scan_ms: u64,
+    license_max_fbs: u32,
+    license_min_scan_ms: u32,
+) -> EffectiveDeployLimits {
+    let license_max_fbs_usize = license_max_fbs as usize;
+    let license_min_scan_u64 = license_min_scan_ms as u64;
+
+    let effective_max_fbs = config_max_fbs.min(license_max_fbs_usize);
+    let effective_min_scan_ms = config_min_scan_ms.max(license_min_scan_u64);
+
+    EffectiveDeployLimits {
+        effective_max_fbs,
+        effective_min_scan_ms,
+        // FB gated by LICENSE iff license is the stricter
+        // (smaller) half. Tie goes to license for
+        // error-attribution consistency (operator
+        // intuition: "my tier limits me").
+        fb_gated_by_license: license_max_fbs_usize <= config_max_fbs,
+        // Scan-min gated by LICENSE iff license_min is
+        // the stricter (larger) floor. Same tie rule.
+        scan_gated_by_license: license_min_scan_u64 >= config_min_scan_ms,
+    }
+}
+
 impl CommandHandler {
     /// Deploy an IEC 61131-3 program.
     ///
@@ -80,14 +128,36 @@ impl CommandHandler {
         let _deploy_guard = self.deploy_lock.lock().await;
         info!("Executing deploy_program command");
 
-        let (max_fbs, min_scan, max_scan) = {
+        // Batch 142 Faz 7 wire: effective limits are the
+        // intersection of static operator config +
+        // license tier caps. `min(config.max, license.max)`
+        // for upper bounds, `max(config.min, license.min)`
+        // for lower bounds. Neither can bypass the other —
+        // license cannot be overridden by loose config;
+        // config cannot be overridden by permissive
+        // license.
+        //
+        // Error surfaces which side gated (config vs
+        // license) for operator visibility — an operator
+        // on PROFESSIONAL tier who tightens config to
+        // max_function_blocks=4 needs to know their
+        // deploy rejection is a CONFIG choice, not a
+        // license limit.
+        let (config_max_fbs, config_min_scan, config_max_scan, license) = {
             let state = self.state.read().await;
             (
                 state.config.scripting.max_function_blocks,
                 state.config.scripting.min_scan_cycle_ms,
                 state.config.scripting.max_scan_cycle_ms,
+                state.license.clone(),
             )
         };
+        let eff = compute_effective_deploy_limits(
+            config_max_fbs,
+            config_min_scan,
+            license.max_fb_instances,
+            license.min_scan_cycle_ms,
+        );
 
         let program: ProgramDefinition = match serde_json::from_value(params.clone()) {
             Ok(p) => p,
@@ -101,21 +171,47 @@ impl CommandHandler {
             }
         };
 
-        if program.function_blocks.len() > max_fbs {
-            return (
-                false,
-                json!(null),
-                Some(format!("Too many function blocks (max {})", max_fbs)),
-            );
-        }
-
-        if program.scan_cycle_ms < min_scan || program.scan_cycle_ms > max_scan {
+        if program.function_blocks.len() > eff.effective_max_fbs {
+            let gated_by = if eff.fb_gated_by_license {
+                format!("license tier={:?}", license.tier)
+            } else {
+                "scripting config".to_string()
+            };
             return (
                 false,
                 json!(null),
                 Some(format!(
-                    "Scan cycle must be between {}ms and {}ms",
-                    min_scan, max_scan
+                    "Too many function blocks: {} submitted > {} effective max (gated by {}). config_max={}, license_max={}",
+                    program.function_blocks.len(),
+                    eff.effective_max_fbs,
+                    gated_by,
+                    config_max_fbs,
+                    license.max_fb_instances
+                )),
+            );
+        }
+
+        if program.scan_cycle_ms < eff.effective_min_scan_ms
+            || program.scan_cycle_ms > config_max_scan
+        {
+            let gated_by = if program.scan_cycle_ms < eff.effective_min_scan_ms
+                && eff.scan_gated_by_license
+            {
+                format!("license tier={:?}", license.tier)
+            } else {
+                "scripting config".to_string()
+            };
+            return (
+                false,
+                json!(null),
+                Some(format!(
+                    "Scan cycle {}ms outside effective range [{}ms, {}ms] (gated by {}). config_min={}, license_min={}",
+                    program.scan_cycle_ms,
+                    eff.effective_min_scan_ms,
+                    config_max_scan,
+                    gated_by,
+                    config_min_scan,
+                    license.min_scan_cycle_ms
                 )),
             );
         }
@@ -454,5 +550,82 @@ impl CommandHandler {
 
         debug!(path = ?self.program_state_path, "Program state saved (atomic)");
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn effective_limits_license_stricter_on_both() {
+        // STARTER license: fb=8, scan=5000.
+        // Config: fb=32, scan=100.
+        // License is the stricter half on both → gated by
+        // license for both.
+        let eff = compute_effective_deploy_limits(32, 100, 8, 5000);
+        assert_eq!(eff.effective_max_fbs, 8);
+        assert_eq!(eff.effective_min_scan_ms, 5000);
+        assert!(eff.fb_gated_by_license);
+        assert!(eff.scan_gated_by_license);
+    }
+
+    #[test]
+    fn effective_limits_config_stricter_on_fb() {
+        // ENTERPRISE license: fb=128, scan=100.
+        // Config: fb=4, scan=200.
+        // Config is stricter on FB (4 < 128); license is
+        // stricter on scan (100 < 200 means license floor
+        // 100 is LESS restrictive than config floor 200,
+        // so config wins for scan too).
+        let eff = compute_effective_deploy_limits(4, 200, 128, 100);
+        assert_eq!(eff.effective_max_fbs, 4);
+        assert_eq!(eff.effective_min_scan_ms, 200);
+        assert!(!eff.fb_gated_by_license);
+        assert!(!eff.scan_gated_by_license);
+    }
+
+    #[test]
+    fn effective_limits_mixed() {
+        // License: fb=8 (stricter), scan=50 (looser).
+        // Config: fb=32 (looser), scan=200 (stricter).
+        // FB gated by license, scan gated by config.
+        let eff = compute_effective_deploy_limits(32, 200, 8, 50);
+        assert_eq!(eff.effective_max_fbs, 8);
+        assert_eq!(eff.effective_min_scan_ms, 200);
+        assert!(eff.fb_gated_by_license);
+        assert!(!eff.scan_gated_by_license);
+    }
+
+    #[test]
+    fn effective_limits_equal_values_tie_goes_to_license() {
+        // Exactly-equal limits: tie-break attribution to
+        // license. Operators on tier X who set matching
+        // config see "license tier=X" in error messages —
+        // consistent with "my tier limits me" intuition.
+        let eff = compute_effective_deploy_limits(16, 500, 16, 500);
+        assert_eq!(eff.effective_max_fbs, 16);
+        assert_eq!(eff.effective_min_scan_ms, 500);
+        assert!(eff.fb_gated_by_license);
+        assert!(eff.scan_gated_by_license);
+    }
+
+    #[test]
+    fn effective_limits_conservative_starter_produces_starter_caps() {
+        // Plug the Batch 140 conservative() values in.
+        use crate::license::EdgeLicenseLimits;
+        let c = EdgeLicenseLimits::conservative();
+        // Generous config: fb=100, scan=50.
+        let eff = compute_effective_deploy_limits(
+            100,
+            50,
+            c.max_fb_instances,
+            c.min_scan_cycle_ms,
+        );
+        // STARTER caps should win.
+        assert_eq!(eff.effective_max_fbs, c.max_fb_instances as usize);
+        assert_eq!(eff.effective_min_scan_ms, c.min_scan_cycle_ms as u64);
+        assert!(eff.fb_gated_by_license);
+        assert!(eff.scan_gated_by_license);
     }
 }

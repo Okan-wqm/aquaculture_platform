@@ -36,12 +36,14 @@
 //! - SQLCipher-backed `license_cache` persistence for
 //!   offline grace — Batch 143.
 //!
-//! Primitive-first batch — no consumers yet. Accepted
-//! dead-code status per the same pattern as the
-//! Batch 111 BootloaderHandle primitive (runtime
-//! wire lands in Batch 142 when cmd_deploy_program
-//! consumes EdgeLicenseLimits + the allow is removed).
-#![allow(dead_code)]
+//! As of Batch 142, cmd_deploy_program is the first
+//! enforcement consumer (FB instance cap + scan cycle
+//! floor). Further enforcement hooks land at io_poll,
+//! task_scheduler, opc_ua_server, watch_subscribe,
+//! force_value, signature_mode in subsequent batches;
+//! the verify primitive + SignedLicenseManifest types
+//! stay dead-code-allowed at item level until Batch
+//! 143 wires the fetch path that consumes them.
 
 use serde::{Deserialize, Serialize};
 
@@ -329,6 +331,7 @@ use crate::authz::policy::Ed25519SignatureBytes;
 /// `canonical_bytes()` of this with the firmware signing
 /// key (plan R-10 key-reuse refinement) + ships as JSON
 /// `SignedLicenseManifest` payload.
+#[allow(dead_code)] // Batch 143 wires the fetch path consumer.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LicenseManifest {
     /// Tenant binding. MUST equal the edge's
@@ -363,12 +366,14 @@ pub struct LicenseManifest {
 /// through `verify_license_manifest`. Same discipline as
 /// `updater::SignedFirmwareManifest` (Batch 8) +
 /// `authz::SignedRbacManifest`.
+#[allow(dead_code)] // Batch 143 wires the fetch path consumer.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SignedLicenseManifest {
     pub(crate) manifest: LicenseManifest,
     pub signature: Ed25519SignatureBytes,
 }
 
+#[allow(dead_code)] // Batch 143 wires the fetch path consumer.
 impl SignedLicenseManifest {
     /// Construct from body + signature bytes. Validates
     /// signature length at parse boundary (same pattern
@@ -423,6 +428,7 @@ impl LicenseManifest {
 
 /// Verify-time failure taxonomy. Mirrors the Batch 8
 /// ManifestVerifyError shape.
+#[allow(dead_code)] // Batch 143 wires the fetch path consumer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LicenseVerifyError {
     /// Tenant binding mismatch.
@@ -475,6 +481,7 @@ impl std::error::Error for LicenseVerifyError {}
 /// closure-injection discipline as the Batch 8
 /// firmware verify: the ed25519 primitive is injected
 /// so the pure function stays crypto-backend-agnostic.
+#[allow(dead_code)] // Batch 143 wires the fetch path consumer.
 ///
 /// Gate ordering (cheapest-first):
 /// 1. Clock sanity (now < 0).

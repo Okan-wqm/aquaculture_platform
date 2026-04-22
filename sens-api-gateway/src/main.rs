@@ -617,6 +617,23 @@ pub struct AppState {
     /// signed autoboot.txt verification.
     pub bootloader: std::sync::Arc<dyn crate::updater::BootloaderHandle>,
 
+    /// Current per-device license limits (Batch 142 Faz 7
+    /// wire).
+    ///
+    /// WHY: Plan R-10 + Faz 7 specify per-tenant tier
+    /// enforcement at cmd_deploy_program + io_poll +
+    /// task_scheduler + watch_subscribe + force_value +
+    /// opc_ua_server + signature_mode. Each enforcement
+    /// site reads from this field.
+    ///
+    /// WHAT: `Arc<EdgeLicenseLimits>` — always Some;
+    /// defaults to `conservative()` STARTER fallback at
+    /// AppState::new. Batch 143 (future) wires SQLCipher
+    /// license_cache + fetch from platform; until then
+    /// every boot uses conservative() which matches plan
+    /// R-10 "tek kripto primitive fallback" discipline.
+    pub license: std::sync::Arc<crate::license::EdgeLicenseLimits>,
+
     /// Parsed ed25519 verifying key for SignedFirmwareManifest
     /// verify (Batch 114 Sprint 6.5 wire).
     ///
@@ -741,6 +758,16 @@ impl AppState {
             // verification).
             bootloader: std::sync::Arc::new(
                 crate::updater::NoopBootloaderHandle,
+            ),
+            // Batch 142 Faz 7 wire: conservative()
+            // STARTER fallback at boot. Batch 143 swaps
+            // to SQLCipher-loaded value once license_cache
+            // + fetch paths land. Conservative is
+            // always-expired by design so enforcement
+            // sites routing through is_expired() treat it
+            // as "re-verify required".
+            license: std::sync::Arc::new(
+                crate::license::EdgeLicenseLimits::conservative(),
             ),
             // Batch 114 Sprint 6.5 wire: None-init.
             // `init_firmware_signing_pubkey()` parses the

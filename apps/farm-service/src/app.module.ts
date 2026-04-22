@@ -48,6 +48,7 @@ import { CqrsModule } from '@platform/cqrs';
 import { EventBusModule } from '@platform/event-bus';
 import { DatabaseModule } from './database/database.module';
 import { FarmMetricsModule } from './common/metrics/farm-metrics.module';
+import { FarmAppErrorFilter } from './common/errors/farm-app-error.filter';
 import { FarmOutboxModule } from './outbox/farm-outbox.module';
 import { FarmModule } from './farm/farm.module';
 import { HealthModule } from './health/health.module';
@@ -469,10 +470,19 @@ import { AddFarmOutboxModernColumns1786200000000 } from './database/migrations/1
     SchemaDriftModule.forRoot({ serviceName: 'farm' }),
   ],
   providers: [
-    // Global exception filter
+    // Phase 6.4 — domain error filter runs BEFORE the generic
+    // GlobalExceptionFilter. NestJS invokes filters in reverse
+    // registration order so the FarmAppErrorFilter needs to come
+    // AFTER GlobalExceptionFilter in the array to be picked first
+    // for FarmAppError subclasses. Non-FarmAppError exceptions
+    // fall through untouched to the generic filter.
     {
       provide: APP_FILTER,
       useClass: GlobalExceptionFilter,
+    },
+    {
+      provide: APP_FILTER,
+      useClass: FarmAppErrorFilter,
     },
     // SECURITY: Service identity guard - validates HMAC-signed service identity headers
     // Must be FIRST guard (before tenant/roles) to verify request origin

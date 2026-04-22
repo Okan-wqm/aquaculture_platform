@@ -1117,3 +1117,4 @@ Bu orphan'ı Faz 1.3 hot-fix olarak **ayrı PR** ile kapatmak gerekir — Faz 2.
 | 26 | Faz 5.2 — JSONB GIN index (narrowed to real workload) | ✅ RESOLVED (Faz 5.2 narrowed) | `storage_lot_mixes.contributingLots` — traceLot path; WQ + batch-weight indexes skipped as speculative |
 | 27 | Faz 5.3 — Prometheus domain metrics | ✅ RESOLVED (Faz 5.3) | Girdi 14d — FarmDomainMetricsService + APP_INTERCEPTOR + backdate wiring |
 | 28 | Faz 5.5 — Timezone-aware recurring tasks | ✅ RESOLVED (Faz 5.5) | Girdi 15-B13 — luxon + `timezone` column + DST-safe DAILY/MONTHLY |
+| 29 | Faz 6.4 — Structured error conventions | ✅ RESOLVED (Faz 6.4) | Girdi 15-C1 + Orphan 10 — FarmAppError base + 5 concrete classes + filter |

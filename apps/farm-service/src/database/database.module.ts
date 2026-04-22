@@ -9,10 +9,12 @@
  *   sırasında çalıştırır (SourceSchemaBootstrap.synchronize() sonrası)
  */
 import { Module, Global } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuditLog } from './entities/audit-log.entity';
 import { CodeSequence } from './entities/code-sequence.entity';
 import { AuditLogService } from './services/audit-log.service';
+import { AuditRedactionService } from './services/audit-redaction.service';
 import { CodeGeneratorService } from './services/code-generator.service';
 import { FarmSeedService } from './services/farm-seed.service';
 import { MigrationRunnerService } from './services/migration-runner.service';
@@ -20,14 +22,16 @@ import { MigrationRunnerService } from './services/migration-runner.service';
 @Global()
 @Module({
   imports: [
+    ConfigModule,
     TypeOrmModule.forFeature([AuditLog, CodeSequence]),
   ],
   providers: [
     AuditLogService,
+    AuditRedactionService,
     CodeGeneratorService,
     FarmSeedService,
     MigrationRunnerService,
   ],
-  exports: [AuditLogService, CodeGeneratorService, TypeOrmModule],
+  exports: [AuditLogService, AuditRedactionService, CodeGeneratorService, TypeOrmModule],
 })
 export class DatabaseModule {}

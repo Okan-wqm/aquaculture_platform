@@ -44,6 +44,8 @@ mod gpio;
 mod health;
 #[cfg(feature = "health")]
 mod lifecycle; // Batch 122 Sprint 6.5: HTTP lifecycle endpoint (confirm-active)
+#[cfg(feature = "health")]
+mod lifecycle_auth; // Batch 129 Sprint 6.6: HMAC auth for lifecycle endpoint
 mod i2c; // v1.2.4: I2C support for sensor communication
 mod interning;
 mod modbus;
@@ -558,6 +560,21 @@ pub struct AppState {
     /// creates file with initial state.
     pub partition_store: Option<std::sync::Arc<crate::updater::PartitionStore>>,
 
+    /// Lifecycle HMAC auth key (Batch 129 Sprint 6.6).
+    ///
+    /// Loaded at boot from
+    /// `$CREDENTIALS_DIRECTORY/<credential_name>` when
+    /// `lifecycle_endpoint.auth_mode = HmacToken`. None
+    /// when auth_mode = Disabled (HC-1 default) or load
+    /// fails (fail-closed boot then exits).
+    ///
+    /// Populated into LifecycleHandles via
+    /// `init_lifecycle_cell()` after
+    /// `init_lifecycle_auth_key()` runs.
+    #[cfg(feature = "health")]
+    pub lifecycle_auth_key:
+        Option<std::sync::Arc<crate::lifecycle_auth::LifecycleAuthKey>>,
+
     /// Lifecycle HTTP endpoint cell (Batch 122 Sprint 6.5).
     ///
     /// WHY: `POST /lifecycle/confirm-active` needs the
@@ -730,6 +747,12 @@ impl AppState {
             // mode leaves it None (HC-1 backward compat;
             // legacy tarball OTA still works).
             firmware_signing_pubkey: None,
+            // Batch 129 Sprint 6.6 wire: None-init.
+            // init_lifecycle_auth_key() populates when
+            // auth_mode=HmacToken; stays None in Disabled
+            // mode (HC-1 default).
+            #[cfg(feature = "health")]
+            lifecycle_auth_key: None,
             // Batch 122 Sprint 6.5 wire: None-init.
             // init_health_server() constructs + installs
             // the cell when health is enabled;
@@ -895,6 +918,59 @@ impl AppState {
         Ok(Some(server_handle))
     }
 
+    /// Load the lifecycle HMAC auth key from systemd-
+    /// credentials (Batch 129 Sprint 6.6 wire).
+    ///
+    /// NO-OP when `lifecycle_endpoint.auth_mode = Disabled`
+    /// (HC-1 default). When HmacToken, reads
+    /// `$CREDENTIALS_DIRECTORY/<name>` + populates
+    /// `self.lifecycle_auth_key`. Fail-closed on load
+    /// error — an operator who CONFIGURED HmacToken but
+    /// didn't supply the credential expects the agent to
+    /// refuse boot rather than silently degrading to
+    /// Disabled.
+    ///
+    /// Returns Err(msg) on load failure so the caller can
+    /// exit(1); Ok(()) on success or NO-OP.
+    #[cfg(feature = "health")]
+    pub fn init_lifecycle_auth_key(&mut self) -> Result<(), String> {
+        use crate::config::LifecycleAuthMode;
+        if matches!(
+            self.config.lifecycle_endpoint.auth_mode,
+            LifecycleAuthMode::Disabled
+        ) {
+            info!(
+                "Lifecycle auth: Disabled (HC-1 default) — HTTP endpoint relies on localhost-binding + same-UID isolation only"
+            );
+            return Ok(());
+        }
+
+        let credential_name = self
+            .config
+            .lifecycle_endpoint
+            .systemd_credential_name
+            .as_deref()
+            .unwrap_or(crate::lifecycle_auth::DEFAULT_CREDENTIAL_NAME);
+
+        let key = crate::lifecycle_auth::LifecycleAuthKey::load_from_credentials_dir(
+            credential_name,
+        )
+        .map_err(|e| {
+            format!(
+                "Lifecycle auth: HmacToken mode configured but credential load failed: {}. \
+                 Ensure the systemd unit has LoadCredential=<name>:<file> set and the file exists.",
+                e
+            )
+        })?;
+
+        info!(
+            "Lifecycle auth: HmacToken mode active (credential_name={} loaded successfully)",
+            credential_name
+        );
+        self.lifecycle_auth_key = Some(std::sync::Arc::new(key));
+        Ok(())
+    }
+
     /// Populate the lifecycle cell with PartitionStore +
     /// bootloader + audit_sink references (Batch 122 Sprint
     /// 6.5 wire).
@@ -934,6 +1010,7 @@ impl AppState {
             audit_sink: self.audit_sink.clone(),
             device_id: self.config.device_id.clone(),
             tenant,
+            auth_key: self.lifecycle_auth_key.clone(),
         };
 
         if cell.set(handles).is_err() {
@@ -2409,6 +2486,22 @@ async fn async_main() -> Result<()> {
                 "Audit sink init failed (fail-closed boot, mode=Enabled): {}",
                 msg
             );
+            std::process::exit(1);
+        }
+    }
+
+    // Batch 129 Sprint 6.6: load the lifecycle HMAC auth
+    // key from systemd-credentials BEFORE populating the
+    // lifecycle cell. NO-OP in auth_mode=Disabled; fail-
+    // closed exit(1) when auth_mode=HmacToken + the
+    // credential load fails (operator configured auth
+    // but didn't supply the key — safer to refuse boot
+    // than silently degrade).
+    #[cfg(feature = "health")]
+    {
+        let mut state_guard = state.write().await;
+        if let Err(msg) = state_guard.init_lifecycle_auth_key() {
+            error!("{}", msg);
             std::process::exit(1);
         }
     }

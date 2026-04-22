@@ -80,6 +80,9 @@ use crate::audit::{
     AuditSink,
 };
 use crate::authz::permission::TenantId;
+use crate::lifecycle_auth::{
+    verify_request, AuthError, LifecycleAuthKey, HEADER_HMAC, HEADER_TIMESTAMP,
+};
 use crate::updater::{
     perform_confirm_slot, AbPartition, BootloaderHandle, ConfirmOutcome,
     ConfirmSlotSelector, PartitionStore,
@@ -94,6 +97,11 @@ pub struct LifecycleHandles {
     pub audit_sink: Option<Arc<AuditSink>>,
     pub device_id: String,
     pub tenant: TenantId,
+    /// Batch 129 Sprint 6.6: HMAC auth key. None when
+    /// `lifecycle_endpoint.auth_mode = Disabled` (HC-1
+    /// default); Some when operator enables HmacToken +
+    /// systemd-creds load succeeds at boot.
+    pub auth_key: Option<Arc<LifecycleAuthKey>>,
 }
 
 /// Axum-shareable container for `LifecycleHandles`.
@@ -129,6 +137,7 @@ pub fn new_cell() -> LifecycleHandlesCell {
 ///   other than idempotent no-op).
 pub async fn confirm_active_handler(
     Extension(cell): Extension<LifecycleHandlesCell>,
+    headers: axum::http::HeaderMap,
 ) -> impl IntoResponse {
     let Some(handles) = cell.get() else {
         warn!("lifecycle confirm_active: cell not yet populated (partition_store init pending or disabled)");
@@ -140,6 +149,48 @@ pub async fn confirm_active_handler(
             })),
         );
     };
+
+    // Batch 129 Sprint 6.6: HMAC auth gate. When auth_key
+    // is Some (auth_mode=HmacToken), verify the per-request
+    // HMAC before any state work. When None (auth_mode=
+    // Disabled or systemd-creds not loaded), skip — HC-1
+    // backward compat.
+    if let Some(auth_key) = handles.auth_key.as_ref() {
+        let hmac_header = headers
+            .get(HEADER_HMAC)
+            .and_then(|v| v.to_str().ok());
+        let ts_header = headers
+            .get(HEADER_TIMESTAMP)
+            .and_then(|v| v.to_str().ok());
+        if let Err(auth_err) = verify_request(
+            auth_key,
+            "POST",
+            "/lifecycle/confirm-active",
+            hmac_header,
+            ts_header,
+        ) {
+            warn!(
+                "lifecycle confirm_active: HMAC auth REJECTED: {}",
+                auth_err
+            );
+            let gate_label = match auth_err {
+                AuthError::MissingHmacHeader => "missing_hmac_header",
+                AuthError::MissingTimestampHeader => "missing_timestamp_header",
+                AuthError::MalformedHmacHeader => "malformed_hmac_header",
+                AuthError::MalformedTimestampHeader => "malformed_timestamp_header",
+                AuthError::TimestampOutOfWindow { .. } => "timestamp_out_of_window",
+                AuthError::InvalidHmac => "invalid_hmac",
+            };
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({
+                    "error": "hmac_auth_rejected",
+                    "gate": gate_label,
+                    "reason": auth_err.to_string(),
+                })),
+            );
+        }
+    }
 
     // Pre-exec audit emit — matches the Batch 113 watchdog
     // pattern for out-of-dispatch-path producers.
@@ -367,6 +418,23 @@ mod tests {
             audit_sink: None,
             device_id: "test-dev".to_string(),
             tenant: TenantId::new_from_verified([0u8; 16]),
+            auth_key: None,
+        }
+    }
+
+    fn build_handles_with_auth(
+        store: Arc<PartitionStore>,
+        key_bytes: Vec<u8>,
+    ) -> LifecycleHandles {
+        let key =
+            LifecycleAuthKey::from_bytes(key_bytes).expect("valid test key");
+        LifecycleHandles {
+            partition_store: store,
+            bootloader: Arc::new(NoopBootloaderHandle),
+            audit_sink: None,
+            device_id: "test-dev".to_string(),
+            tenant: TenantId::new_from_verified([0u8; 16]),
+            auth_key: Some(Arc::new(key)),
         }
     }
 
@@ -400,7 +468,7 @@ mod tests {
     #[tokio::test]
     async fn confirm_active_returns_503_when_cell_empty() {
         let cell: LifecycleHandlesCell = new_cell();
-        let resp = confirm_active_handler(Extension(cell))
+        let resp = confirm_active_handler(Extension(cell), axum::http::HeaderMap::new())
             .await
             .into_response();
         assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
@@ -434,7 +502,137 @@ mod tests {
         let cell: LifecycleHandlesCell = new_cell();
         cell.set(build_handles(store.clone())).ok();
 
-        let resp = confirm_active_handler(Extension(cell))
+        let resp = confirm_active_handler(Extension(cell), axum::http::HeaderMap::new())
+            .await
+            .into_response();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&lock_path);
+    }
+
+    #[tokio::test]
+    async fn confirm_active_with_auth_rejects_missing_headers() {
+        // Batch 129: when auth_key is Some, missing HMAC
+        // headers → 401.
+        let path = tmp_partition_path();
+        let _ = std::fs::remove_file(&path);
+        let lock_path = {
+            let mut s = path.clone().into_os_string();
+            s.push(".lock");
+            std::path::PathBuf::from(s)
+        };
+        let _ = std::fs::remove_file(&lock_path);
+        let store = Arc::new(PartitionStore::open(Some(&path)).expect("open"));
+
+        let cell: LifecycleHandlesCell = new_cell();
+        cell.set(build_handles_with_auth(store.clone(), vec![0x42u8; 32]))
+            .ok();
+
+        let resp = confirm_active_handler(
+            Extension(cell),
+            axum::http::HeaderMap::new(), // no auth headers
+        )
+        .await
+        .into_response();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&lock_path);
+    }
+
+    #[tokio::test]
+    async fn confirm_active_with_auth_rejects_wrong_hmac() {
+        let path = tmp_partition_path();
+        let _ = std::fs::remove_file(&path);
+        let lock_path = {
+            let mut s = path.clone().into_os_string();
+            s.push(".lock");
+            std::path::PathBuf::from(s)
+        };
+        let _ = std::fs::remove_file(&lock_path);
+        let store = Arc::new(PartitionStore::open(Some(&path)).expect("open"));
+
+        let cell: LifecycleHandlesCell = new_cell();
+        cell.set(build_handles_with_auth(store.clone(), vec![0x42u8; 32]))
+            .ok();
+
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            .to_string();
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(
+            HEADER_TIMESTAMP,
+            axum::http::HeaderValue::from_str(&ts).unwrap(),
+        );
+        headers.insert(
+            HEADER_HMAC,
+            axum::http::HeaderValue::from_str(&"00".repeat(32)).unwrap(),
+        );
+
+        let resp = confirm_active_handler(Extension(cell), headers)
+            .await
+            .into_response();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&lock_path);
+    }
+
+    #[tokio::test]
+    async fn confirm_active_with_auth_accepts_valid_hmac() {
+        let path = tmp_partition_path();
+        let _ = std::fs::remove_file(&path);
+        let lock_path = {
+            let mut s = path.clone().into_os_string();
+            s.push(".lock");
+            std::path::PathBuf::from(s)
+        };
+        let _ = std::fs::remove_file(&lock_path);
+        let store = Arc::new(PartitionStore::open(Some(&path)).expect("open"));
+        store
+            .apply_roll(
+                crate::updater::PartitionRoll::InitialInstall { target: AbPartition::A },
+                3600,
+            )
+            .expect("install");
+        store
+            .apply_roll(crate::updater::PartitionRoll::Confirm { slot: AbPartition::A }, 3600)
+            .expect("confirm");
+        // Slot A already Active → idempotent 200 path.
+
+        let key_bytes = vec![0x55u8; 32];
+        let cell: LifecycleHandlesCell = new_cell();
+        cell.set(build_handles_with_auth(store.clone(), key_bytes.clone()))
+            .ok();
+
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        // Compute HMAC as the client would.
+        let key = LifecycleAuthKey::from_bytes(key_bytes).unwrap();
+        let mac = crate::lifecycle_auth::compute_hmac(
+            &key,
+            ts,
+            "POST",
+            "/lifecycle/confirm-active",
+        );
+        let hmac_hex: String = mac.iter().map(|b| format!("{:02x}", b)).collect();
+
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(
+            HEADER_TIMESTAMP,
+            axum::http::HeaderValue::from_str(&ts.to_string()).unwrap(),
+        );
+        headers.insert(
+            HEADER_HMAC,
+            axum::http::HeaderValue::from_str(&hmac_hex).unwrap(),
+        );
+
+        let resp = confirm_active_handler(Extension(cell), headers)
             .await
             .into_response();
         assert_eq!(resp.status(), StatusCode::OK);
@@ -469,7 +667,7 @@ mod tests {
         let cell: LifecycleHandlesCell = new_cell();
         cell.set(build_handles(store.clone())).ok();
 
-        let resp = confirm_active_handler(Extension(cell))
+        let resp = confirm_active_handler(Extension(cell), axum::http::HeaderMap::new())
             .await
             .into_response();
         assert_eq!(resp.status(), StatusCode::OK);

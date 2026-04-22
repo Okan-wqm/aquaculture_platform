@@ -312,6 +312,17 @@ pub struct AgentConfig {
     #[serde(default)]
     pub firmware_update: FirmwareUpdateConfig,
 
+    /// Lifecycle HTTP endpoint auth config (Batch 129
+    /// Sprint 6.6). Controls whether
+    /// `POST /lifecycle/confirm-active` requires a
+    /// per-request HMAC derived from a
+    /// systemd-credential-delivered key. HC-1 default is
+    /// Disabled; production deployments set
+    /// `auth_mode = hmac_token` + deploy the corresponding
+    /// systemd unit with LoadCredential.
+    #[serde(default)]
+    pub lifecycle_endpoint: LifecycleEndpointConfig,
+
     /// Audit sink configuration (Batch 78 Sprint 6.2 Phase 2).
     /// Controls whether pre+post audit events are written to
     /// `/var/log/suderra/audit.log` with HMAC chain integrity.
@@ -1733,6 +1744,42 @@ pub enum FirmwareUpdateMode {
     /// Signed-manifest path required. Legacy tarball OTA
     /// rejected at command dispatch.
     Enforcing,
+}
+
+/// Lifecycle HTTP endpoint authentication mode (Batch 129
+/// Sprint 6.6 hardening — closes Batch 122 obs #1).
+///
+/// Controls whether `POST /lifecycle/confirm-active`
+/// requires a per-request HMAC-SHA256 proving knowledge
+/// of a systemd-credential-delivered secret.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LifecycleAuthMode {
+    /// No auth beyond localhost-binding + same-UID
+    /// isolation. HC-1 backward compat default. Acceptable
+    /// for isolated-device deployments; production multi-
+    /// tenant-host deployments should enable HmacToken.
+    #[default]
+    Disabled,
+    /// HMAC-SHA256 required on every request. Key loaded
+    /// at boot from `$CREDENTIALS_DIRECTORY/<name>` via
+    /// systemd LoadCredential. 401 on missing / malformed
+    /// / out-of-window / mismatched HMAC.
+    HmacToken,
+}
+
+/// Lifecycle HTTP endpoint config (Batch 129 Sprint 6.6).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct LifecycleEndpointConfig {
+    #[serde(default)]
+    pub auth_mode: LifecycleAuthMode,
+
+    /// Systemd credential filename within
+    /// `$CREDENTIALS_DIRECTORY`. None → default
+    /// "lifecycle-hmac-key". Operators with non-default
+    /// credential naming override here.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub systemd_credential_name: Option<String>,
 }
 
 /// Bootloader backend selector (Batch 128 Sprint 6.5).

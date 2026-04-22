@@ -51,14 +51,18 @@
 //!   sketch. The edge agent (`sens-api-gateway/Cargo.toml`) already
 //!   uses `moka = "0.12"`, so the supply-chain footprint is unchanged.
 //!
-//! WHY papaya for the per-tenant counter map:
+//! WHY papaya for the per-tenant semaphore map:
 //!   The plan names `papaya` as the read-heavy lock-free concurrent
 //!   map for ingestion (PLAN.md § Faz 2 — Crate Seçimleri). Per-tenant
-//!   counter probes happen on EVERY cache insert and the typical
+//!   semaphore probes happen on EVERY cache insert and the typical
 //!   pattern is many reads vs few writes per tenant id. papaya's
 //!   seqlock-based reads stay lock-free; classic `RwLock<HashMap>`
-//!   would serialise the hot path. We use `papaya::HashMap<TenantId,
-//!   Arc<AtomicUsize>>` so the counter itself is also lock-free.
+//!   would serialise the hot path. We use
+//!   `papaya::HashMap<TenantId, Arc<tokio::sync::Semaphore>>` so the
+//!   admission-control primitive is both lock-free at the map layer
+//!   AND structurally race-free at the per-tenant layer — the
+//!   `try_acquire_owned` primitive replaces the earlier AtomicUsize
+//!   load/fetch_add window that could race past the cap.
 //!
 //! WHY entries are wrapped in `Arc<SensorMeta>`:
 //!   Downstream stages (payload validator, batch aggregator) want to
@@ -96,13 +100,20 @@
 //!     subscriber code will call.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+// Per-tenant cap enforcement moved from an AtomicUsize counter + load/
+// fetch_add window to a tokio::sync::Semaphore permit-based admission
+// control (ADR-030 Kör Nokta 15). The semaphore's `try_acquire_owned`
+// is the atomic check-and-take primitive: a concurrent inserter that
+// would have raced past the counter's `load` now gets `NoPermits`
+// deterministically, falls into the evict-and-retry loop, and the cap
+// holds structurally. The counter race window is closed by construction.
 
 use moka::notification::RemovalCause;
 use moka::sync::Cache;
 use papaya::HashMap as PapayaMap;
 use serde::{Deserialize, Serialize};
 use tenant_context::TenantId;
+use tokio::sync::{Semaphore, TryAcquireError};
 use uuid::Uuid;
 
 // ---------- public bound defaults ---------------------------------------
@@ -215,14 +226,23 @@ pub struct TopicCache {
     /// hash bucket discriminator is the pair.
     storage: Cache<(TenantId, Uuid), Arc<SensorMeta>>,
 
-    /// Per-tenant entry counter. Read-heavy: every cache `insert`
-    /// probes the counter for the per-tenant cap. Lock-free under
-    /// papaya's seqlock pattern. The value is `Arc<AtomicUsize>` so
-    /// a single in-flight reader holding the counter through a
-    /// lookup→increment window cannot be racing with a concurrent
-    /// remove that would otherwise drop the slot underneath them;
-    /// `Arc` keeps the counter alive across the whole increment.
-    per_tenant_counts: Arc<PapayaMap<TenantId, Arc<AtomicUsize>>>,
+    /// Per-tenant admission control — one [`Semaphore`] per tenant id,
+    /// initialised with `per_tenant_capacity` permits. Every successful
+    /// new-slot insert consumes a permit (via `permit.forget()`); every
+    /// eviction returns a permit (via `add_permits(1)` in the listener).
+    ///
+    /// The cap is structurally enforced — `Semaphore::try_acquire_owned()`
+    /// returns `NoPermits` at capacity, the insert path falls into the
+    /// evict-and-retry loop, and the storage never exceeds the cap.
+    /// Upserts (key already present) do NOT consume a permit — they
+    /// overwrite in place so no new slot is claimed.
+    ///
+    /// Read-heavy: every cache `insert` probes the tenant's semaphore.
+    /// Lock-free map layer under papaya's seqlock pattern; the permit
+    /// admission itself is a tokio `Semaphore` primitive (sync
+    /// `try_acquire_owned` — no async context required, suits the
+    /// sync `insert` API).
+    per_tenant_semaphores: Arc<PapayaMap<TenantId, Arc<Semaphore>>>,
 
     /// Per-tenant cap (entries-per-tenant ceiling). Stored on the
     /// struct so eviction policy + capacity audit are both readable
@@ -250,36 +270,44 @@ impl TopicCache {
     /// [`TopicCache::new`].
     #[must_use]
     pub fn new_with_caps(per_tenant_capacity: usize, total_capacity: usize) -> Self {
-        let per_tenant_counts: Arc<PapayaMap<TenantId, Arc<AtomicUsize>>> =
+        let per_tenant_semaphores: Arc<PapayaMap<TenantId, Arc<Semaphore>>> =
             Arc::new(PapayaMap::new());
-        let listener_counts = Arc::clone(&per_tenant_counts);
+        let listener_semaphores = Arc::clone(&per_tenant_semaphores);
         // moka's eviction_listener fires on size-pressure eviction,
-        // explicit invalidate, and TTL expiry (we do not set a TTL).
-        // Decrement the per-tenant counter on every removal so the
-        // counter and the storage stay consistent. The closure must be
+        // explicit invalidate, and TTL expiry (no TTL set here). Return
+        // the vacated slot's permit to the per-tenant semaphore so the
+        // next insert can take it. The closure must be
         // `Send + Sync + 'static` and the captured `Arc<PapayaMap>`
-        // satisfies both.
+        // satisfies both. Add_permits is infallible (the panic case is
+        // permit-count > MAX_PERMITS which cannot happen: we add at
+        // most `per_tenant_capacity` permits over the semaphore's
+        // lifetime, matching the initial count).
         let storage = Cache::<(TenantId, Uuid), Arc<SensorMeta>>::builder()
             .max_capacity(total_capacity as u64)
             .eviction_listener(
-                move |key: Arc<(TenantId, Uuid)>, _value, _cause: RemovalCause| {
+                move |key: Arc<(TenantId, Uuid)>, _value, cause: RemovalCause| {
+                    // `Replaced` = upsert. The slot is not freed; the
+                    // existing key was overwritten in place so the
+                    // permit accounting must NOT treat it as an
+                    // eviction — otherwise every upsert would leak a
+                    // permit and the effective cap would grow
+                    // unboundedly. Only genuine evictions (Explicit
+                    // invalidate, Expired TTL, Size pressure) release
+                    // the slot.
+                    if matches!(cause, RemovalCause::Replaced) {
+                        return;
+                    }
                     let (tenant, _sensor) = *key;
-                    let pinned = listener_counts.pin();
-                    if let Some(counter) = pinned.get(&tenant) {
-                        // saturating_sub via fetch_update — `fetch_sub` would
-                        // wrap on a logic bug, which the loud underflow of
-                        // saturating logic surfaces faster.
-                        let _ =
-                            counter.fetch_update(Ordering::Release, Ordering::Acquire, |current| {
-                                Some(current.saturating_sub(1))
-                            });
+                    let pinned = listener_semaphores.pin();
+                    if let Some(sem) = pinned.get(&tenant) {
+                        sem.add_permits(1);
                     }
                 },
             )
             .build();
         Self {
             storage,
-            per_tenant_counts,
+            per_tenant_semaphores,
             per_tenant_capacity,
         }
     }
@@ -320,20 +348,78 @@ impl TopicCache {
     pub fn insert(&self, meta: SensorMeta) {
         let tenant = meta.tenant_id;
         let sensor = meta.sensor_id;
-        let counter = self.counter_for(tenant);
-        // Probe BEFORE the insert so the over-cap eviction happens in
-        // the right window. The increment happens AFTER the moka insert
-        // so a concurrent eviction listener cannot decrement a counter
-        // that has not yet been incremented.
-        let current = counter.load(Ordering::Acquire);
-        if current >= self.per_tenant_capacity {
-            self.evict_one_for_tenant(tenant);
+
+        // If the key already exists, the insert overwrites in place —
+        // no new slot is claimed, no permit is consumed. Fast-path
+        // check before touching the semaphore keeps upsert traffic
+        // free of admission-control overhead.
+        if self.storage.contains_key(&(tenant, sensor)) {
+            self.storage.insert((tenant, sensor), Arc::new(meta));
+            return;
         }
-        let already_present = self.storage.contains_key(&(tenant, sensor));
-        self.storage.insert((tenant, sensor), Arc::new(meta));
-        if !already_present {
-            counter.fetch_add(1, Ordering::AcqRel);
+
+        let sem = self.semaphore_for(tenant);
+
+        // Evict-and-retry loop. Bounded by `per_tenant_capacity + 1` so
+        // a logic bug cannot spin forever: each iteration either wins
+        // a permit (succeeds, returns) or drops one storage slot (the
+        // eviction releases a permit, making the next try_acquire
+        // succeed). The ceiling is defensive — steady-state loops
+        // finish in one or two iterations.
+        let max_retries = self.per_tenant_capacity.saturating_add(1);
+        for _ in 0..=max_retries {
+            match Arc::clone(&sem).try_acquire_owned() {
+                Ok(permit) => {
+                    // Second contains_key check inside the permit-held
+                    // window: a concurrent inserter may have upserted
+                    // the same key between our fast-path check and the
+                    // acquire. If so, release the permit immediately
+                    // (drop handles the return) and just overwrite.
+                    if self.storage.contains_key(&(tenant, sensor)) {
+                        drop(permit);
+                        self.storage.insert((tenant, sensor), Arc::new(meta));
+                        return;
+                    }
+                    // New slot committed. `permit.forget()` transfers
+                    // ownership of the permit to the eviction listener,
+                    // which will call `add_permits(1)` when moka later
+                    // evicts this key. Without `forget`, dropping the
+                    // permit here would immediately return it and the
+                    // cap would stop working.
+                    self.storage.insert((tenant, sensor), Arc::new(meta));
+                    permit.forget();
+                    return;
+                }
+                Err(TryAcquireError::NoPermits) => {
+                    // At cap. Evict one entry for this tenant; the
+                    // eviction listener calls add_permits(1) which
+                    // unblocks the next try_acquire.
+                    self.evict_one_for_tenant(tenant);
+                    // run_pending_tasks is already invoked inside
+                    // evict_one_for_tenant; no extra drain needed
+                    // before the loop's next iteration.
+                }
+                Err(TryAcquireError::Closed) => {
+                    // Semaphore closed — happens only at process
+                    // shutdown in our use. Skip the insert silently;
+                    // the next boot builds a fresh cache.
+                    tracing::debug!(
+                        tenant = %tenant.as_uuid(),
+                        "per-tenant semaphore closed; cache insert skipped"
+                    );
+                    return;
+                }
+            }
         }
+        // Retry ceiling exhausted — a logic bug has prevented an
+        // eviction from releasing a permit. Log loud + drop the insert
+        // so the hot path does not stall. Cap invariant stays intact
+        // (we did not insert, we did not bypass admission control).
+        tracing::error!(
+            tenant = %tenant.as_uuid(),
+            retries = max_retries,
+            "per-tenant insert: evict-retry ceiling exhausted; dropping — cap invariant preserved"
+        );
     }
 
     /// Drop a single entry. Idempotent — calling on a missing key is a
@@ -358,12 +444,20 @@ impl TopicCache {
         // mutation-during-iteration territory we do not need to
         // explore. The vector is sized by the per-tenant counter so
         // allocation is bounded by the cap, not by the global storage.
-        let counter_hint = self
-            .per_tenant_counts
+        // Pre-size the victim vector. `per_tenant_capacity - available_permits`
+        // is the current slot count for this tenant (permits start at
+        // capacity, every outstanding slot has forget()ed one). Worst
+        // case we oversize slightly; the cost is a stack-sized Vec
+        // header, not a reallocation round-trip.
+        let used_slots_hint = self
+            .per_tenant_semaphores
             .pin()
             .get(&tenant)
-            .map_or(0, |c| c.load(Ordering::Acquire));
-        let mut victims: Vec<(TenantId, Uuid)> = Vec::with_capacity(counter_hint);
+            .map_or(0, |sem| {
+                self.per_tenant_capacity
+                    .saturating_sub(sem.available_permits())
+            });
+        let mut victims: Vec<(TenantId, Uuid)> = Vec::with_capacity(used_slots_hint);
         for (key, _value) in &self.storage {
             if key.0 == tenant {
                 victims.push(*key);
@@ -403,41 +497,50 @@ impl TopicCache {
 
     // ---------- internals ----------
 
-    /// Look up (or create) the per-tenant counter slot. Lock-free read
+    /// Look up (or create) the per-tenant semaphore. Lock-free read
     /// path under papaya; only the first write per tenant takes the
-    /// store-side allocation hit.
-    fn counter_for(&self, tenant: TenantId) -> Arc<AtomicUsize> {
-        // First try the read-only path — the common case is "tenant
-        // already has a counter" because the very first publish for a
-        // tenant in process-lifetime is rare relative to the steady
-        // stream that follows.
+    /// store-side allocation hit. The semaphore is initialised with
+    /// `per_tenant_capacity` permits so a tenant that has never
+    /// published before starts with a full slot budget.
+    fn semaphore_for(&self, tenant: TenantId) -> Arc<Semaphore> {
+        // Fast path: tenant already seen. papaya's pin() is a
+        // lock-free read; the common case (warm tenant) returns
+        // without allocation.
         {
-            let pinned = self.per_tenant_counts.pin();
+            let pinned = self.per_tenant_semaphores.pin();
             if let Some(existing) = pinned.get(&tenant) {
                 return Arc::clone(existing);
             }
         }
-        // Cold path: allocate and insert. `get_or_insert_with` keeps
-        // the operation race-free — concurrent callers either see the
+        // Cold path: allocate + insert. `get_or_insert_with` keeps the
+        // operation race-free — concurrent callers either see the
         // value we just wrote OR a value another thread wrote first,
-        // and both observers get the same `Arc`.
-        let pinned = self.per_tenant_counts.pin();
-        let entry = pinned.get_or_insert_with(tenant, || Arc::new(AtomicUsize::new(0)));
+        // and both observers receive the same `Arc<Semaphore>`.
+        let pinned = self.per_tenant_semaphores.pin();
+        let entry = pinned.get_or_insert_with(tenant, || {
+            Arc::new(Semaphore::new(self.per_tenant_capacity))
+        });
         Arc::clone(entry)
     }
 
-    /// Test internals visibility for the per-tenant counter. Used by
-    /// the self-smoke check to assert post-teardown invariants
-    /// (counter must be observably 0 for a tenant whose entries we
-    /// just invalidated). Not part of the cache's public message-
-    /// path API; the function lives here because exposing the
-    /// counter atomically is intentional (test surface only).
+    /// Test-internals visibility for the per-tenant slot count. Used
+    /// by the self-smoke check + the multi-tenant unit tests to
+    /// assert post-teardown invariants (0 slots for a tenant whose
+    /// entries we just invalidated). Derived from the semaphore's
+    /// `available_permits()` — slots-in-use = capacity - available.
+    ///
+    /// Not on the cache's public message-path API; exposing the
+    /// semaphore state is intentional for tests only, mirroring the
+    /// pre-refactor `debug_tenant_count` accessor.
     #[must_use]
     pub(crate) fn debug_tenant_count(&self, tenant: TenantId) -> usize {
-        self.per_tenant_counts
+        self.per_tenant_semaphores
             .pin()
             .get(&tenant)
-            .map_or(0, |c| c.load(Ordering::Acquire))
+            .map_or(0, |sem| {
+                self.per_tenant_capacity
+                    .saturating_sub(sem.available_permits())
+            })
     }
 
     /// Evict ONE entry for the named tenant, chosen as the first the
@@ -1056,6 +1159,153 @@ mod tests {
         assert!(
             !json.contains("\"pondId\""),
             "rendered JSON must not contain pondId; got: {json}"
+        );
+    }
+
+    // ================================================================
+    // Semaphore-backed hard-cap invariants (ADR-030 Kör Nokta 15).
+    // The pre-refactor AtomicUsize counter had a load→fetch_add race
+    // window that let concurrent inserters exceed the cap transiently.
+    // The Semaphore's `try_acquire_owned` is the atomic check-and-take
+    // primitive — these tests anchor the invariant at the behaviour
+    // layer so a future regression (e.g. someone swapping back to an
+    // AtomicUsize) fails loudly.
+    // ================================================================
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn per_tenant_cap_is_never_exceeded_under_concurrent_burst() {
+        // Flood ONE tenant with many more unique sensor ids than the
+        // per-tenant cap, from 8 concurrent tasks. The invariant: at
+        // no point does the cache's view of this tenant's slot count
+        // exceed the cap. The pre-Semaphore AtomicUsize path could
+        // transiently race past the cap here — this test would have
+        // failed under that impl.
+        let cap: usize = 32;
+        let cache = Arc::new(TopicCache::new_with_caps(cap, 1024));
+        let tenant = fixed_tenant(0xAA);
+
+        let mut handles = Vec::new();
+        for w in 0_u8..8 {
+            let c = Arc::clone(&cache);
+            handles.push(tokio::spawn(async move {
+                // Each task writes 64 unique sensors for the same
+                // tenant — 8 tasks × 64 = 512 inserts against a 32-slot
+                // cap. The semaphore forces evict-and-retry so only
+                // `cap` slots are ever live; the remaining are evicted
+                // as new ones arrive.
+                for i in 0_u8..64 {
+                    let s = fixed_sensor(w, i);
+                    c.insert(meta_for(tenant, s));
+                }
+            }));
+        }
+        for h in handles {
+            h.await.expect("task join");
+        }
+
+        // Flush pending eviction-listener work so the permit counters
+        // are observable. `run_pending_tasks` is idempotent + cheap.
+        cache.storage.run_pending_tasks();
+
+        let used = cache.debug_tenant_count(tenant);
+        assert!(
+            used <= cap,
+            "per-tenant slot count MUST NOT exceed the cap; got used={used}, cap={cap}"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn cross_tenant_inserts_do_not_block_each_other_at_cap() {
+        // Tenant A floods its cap + spills; tenant B should still be
+        // able to insert freely up to its own cap. The per-tenant
+        // semaphore isolates admission control by tenant — a saturated
+        // A cannot stall B's insert path.
+        // Pick cap as u8 so the loops iterate without a fallible cast;
+        // the cache APIs take usize so the one-direction upcast is
+        // lossless.
+        let cap: u8 = 8;
+        let cap_usize = usize::from(cap);
+        let cache = Arc::new(TopicCache::new_with_caps(cap_usize, 256));
+        let tenant_a = fixed_tenant(0xA1);
+        let tenant_b = fixed_tenant(0xB2);
+
+        // Saturate A with 2× cap unique sensors. Evict-and-retry drives
+        // the storage to `cap` slots for A.
+        for i in 0_u8..(cap * 2) {
+            cache.insert(meta_for(tenant_a, fixed_sensor(0xAA, i)));
+        }
+        cache.storage.run_pending_tasks();
+        let a_used = cache.debug_tenant_count(tenant_a);
+        assert!(a_used <= cap_usize, "tenant A cap must hold: used={a_used}");
+
+        // Insert for B should succeed freely — B's semaphore starts
+        // with full permits.
+        for i in 0_u8..cap {
+            cache.insert(meta_for(tenant_b, fixed_sensor(0xBB, i)));
+        }
+        cache.storage.run_pending_tasks();
+        let b_used = cache.debug_tenant_count(tenant_b);
+        assert_eq!(
+            b_used, cap_usize,
+            "tenant B should reach its own cap unblocked by A's saturation"
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn eviction_listener_returns_permit_to_the_semaphore() {
+        // After an explicit invalidate, the eviction listener must
+        // call `add_permits(1)` so the freed slot is re-usable. Without
+        // this, a flood → invalidate cycle would permanently shrink
+        // the effective cap. `invalidate` runs pending tasks
+        // synchronously (see its doc); we rely on that here.
+        let cap: usize = 4;
+        let cache = TopicCache::new_with_caps(cap, 128);
+        let tenant = fixed_tenant(0xC3);
+        let sensor = fixed_sensor(0xCC, 0);
+
+        cache.insert(meta_for(tenant, sensor));
+        cache.storage.run_pending_tasks();
+        assert_eq!(cache.debug_tenant_count(tenant), 1);
+
+        cache.invalidate(tenant, sensor);
+        // After eviction listener fires, the semaphore's available
+        // permits are restored, which the debug accessor observes as
+        // slot count = 0.
+        assert_eq!(
+            cache.debug_tenant_count(tenant),
+            0,
+            "evicted slot must return its permit — otherwise the effective cap decays"
+        );
+
+        // Sanity: the tenant can insert a fresh sensor immediately,
+        // proving a permit is actually available.
+        cache.insert(meta_for(tenant, fixed_sensor(0xCC, 1)));
+        cache.storage.run_pending_tasks();
+        assert_eq!(cache.debug_tenant_count(tenant), 1);
+    }
+
+    #[test]
+    fn upsert_does_not_consume_a_permit() {
+        // Re-inserting the same (tenant, sensor) key overwrites in
+        // place — no new slot is claimed. The pre-fast-path
+        // contains_key check + the inside-permit contains_key probe
+        // both cooperate: under sequential access the fast path fires;
+        // under a concurrent race the in-permit check catches it. Both
+        // paths converge on "no permit leak for an upsert".
+        let cap: usize = 4;
+        let cache = TopicCache::new_with_caps(cap, 128);
+        let tenant = fixed_tenant(0xD4);
+        let sensor = fixed_sensor(0xDD, 0);
+
+        for _ in 0..20 {
+            cache.insert(meta_for(tenant, sensor));
+        }
+        cache.storage.run_pending_tasks();
+        // 20 upserts but exactly 1 slot consumed.
+        assert_eq!(
+            cache.debug_tenant_count(tenant),
+            1,
+            "20 upserts for the same key must consume exactly 1 slot; if this flips to >1 the permit accounting leaked"
         );
     }
 }

@@ -81,6 +81,14 @@ pub mod confirm_orchestrator;
 // Tier-1 defense against post-download corruption +
 // post-manifest-verify file tampering.
 pub mod file_verify;
+// Batch 125 Sprint 6.5: file-streaming orchestrator.
+// Writes signed firmware files to the standby partition
+// via stage → fsync → rename → chmod → TOCTOU reverify
+// pipeline. FileSource trait lets the caller pick a
+// transport (MQTT / HTTP / in-memory). Tests cover the
+// full happy path + source-missing + digest-mismatch +
+// unsafe-path + partial-failure scenarios.
+pub mod file_stream;
 pub mod verify;
 
 pub use error::{FirmwareManifestCanonicalBytesError, ManifestVerifyError};
@@ -100,5 +108,9 @@ pub use confirm_orchestrator::{
 };
 pub use file_verify::{
     verify_all_files, verify_file_against_entry, BatchVerifyReport, FileVerifyError,
+};
+pub use file_stream::{
+    stream_files_to_standby, FileSource, FileSourceError, InMemoryFileSource,
+    StreamError, StreamReport,
 };
 pub use verify::verify_firmware_manifest;

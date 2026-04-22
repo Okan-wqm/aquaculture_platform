@@ -10,8 +10,10 @@
 //!
 //! Architectural invariants (compile-time + serde-time):
 //!   - **Branded `EventId`**: opaque newtype; `Default` impl absent.
-//!     Producible only via [`EventId::generate`] or
-//!     [`EventBuilder`]-style constructors.
+//!     Producible only via [`EventId::generate`] or `EventBuilder`-style
+//!     constructors (the TS `createBaseEvent` factory has no 1:1 Rust
+//!     surface yet — tracked with the Rust migration event-contracts
+//!     codegen follow-up).
 //!   - **ADR-006 flat pattern**: every event struct uses
 //!     `#[serde(deny_unknown_fields)]` so a consumer that mistakenly
 //!     emits `{ "payload": {...} }` instead of flat fields hits a

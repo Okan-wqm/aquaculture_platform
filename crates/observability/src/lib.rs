@@ -7,9 +7,9 @@
 //!   correlates a `traceparent` propagated through MQTT (v5 user
 //!   property) and NATS (header `Nats-Trace-Context`) end-to-end.
 //!
-//!   PII safety is a first-class concern. The TS [`StructuredLoggerService`]
-//!   auto-applies a `maskPii()` transform; this crate provides a
-//!   structurally equivalent path:
+//!   PII safety is a first-class concern. The TS `StructuredLoggerService`
+//!   (in `libs/backend-common/src/telemetry/`) auto-applies a `maskPii()`
+//!   transform; this crate provides a structurally equivalent path:
 //!     - Wrap secrets in [`secrecy::Secret<T>`] so accidental Display
 //!       / Debug uses cannot reveal the inner value.
 //!     - [`Masked<T>`] is a thinner wrapper for non-secret PII (email,

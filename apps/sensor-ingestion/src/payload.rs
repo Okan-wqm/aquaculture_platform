@@ -14,27 +14,27 @@
 //!   reach (the JSON bytes have not been branded yet). The contract
 //!   it enforces:
 //!
-//!     1. Payload is well-formed JSON with EXACTLY the fields the
-//!        sensor-service contract names — no more, no less
-//!        (`#[serde(deny_unknown_fields)]`). Closes the prototype-
-//!        pollution class (ADR-025 § Threat 3).
-//!     2. The three UUID fields parse as strict 36-byte UUIDs via
-//!        `uuid::try_parse` (no regex, ~10 ns vs ~500 ns + 3 alloc
-//!        for a regex pass per the plan's measured numbers).
-//!     3. `value` is a finite f64 — `NaN` and `±Inf` are rejected
-//!        because a downstream `WHERE value > X` query would silently
-//!        misclassify them.
-//!     4. `quality` is in the IEC 61131-3 quality-code subset 0..=3.
-//!     5. `producerTs` is a positive ms-epoch within a sane window
-//!        (post 2024-01-01, before year 2100). Drift outside that
-//!        window means a clock-skewed device or a forged timestamp
-//!        and the row is rejected before it pollutes Timescale's
-//!        chunk-pruning heuristic.
-//!     6. The payload's `tenantId` MUST equal the `topic_tenant` that
-//!        the topic parser already extracted. This is the Threat 2
-//!        bind. Without it, the rest of the pipeline trusts the
-//!        broker-supplied tenant id; with it, the bind is an explicit
-//!        precondition every downstream stage can rely on.
+//!   1. Payload is well-formed JSON with EXACTLY the fields the
+//!      sensor-service contract names — no more, no less
+//!      (`#[serde(deny_unknown_fields)]`). Closes the prototype-
+//!      pollution class (ADR-025 § Threat 3).
+//!   2. The three UUID fields parse as strict 36-byte UUIDs via
+//!      `uuid::try_parse` (no regex, ~10 ns vs ~500 ns + 3 alloc
+//!      for a regex pass per the plan's measured numbers).
+//!   3. `value` is a finite f64 — `NaN` and `±Inf` are rejected
+//!      because a downstream `WHERE value > X` query would silently
+//!      misclassify them.
+//!   4. `quality` is in the IEC 61131-3 quality-code subset 0..=3.
+//!   5. `producerTs` is a positive ms-epoch within a sane window
+//!      (post 2024-01-01, before year 2100). Drift outside that
+//!      window means a clock-skewed device or a forged timestamp
+//!      and the row is rejected before it pollutes Timescale's
+//!      chunk-pruning heuristic.
+//!   6. The payload's `tenantId` MUST equal the `topic_tenant` that
+//!      the topic parser already extracted. This is the Threat 2
+//!      bind. Without it, the rest of the pipeline trusts the
+//!      broker-supplied tenant id; with it, the bind is an explicit
+//!      precondition every downstream stage can rely on.
 //!
 //! WHY no `as any`-style escape hatch:
 //!   Every error variant is a concrete enum, never an attacker-

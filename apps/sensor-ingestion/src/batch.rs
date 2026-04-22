@@ -10,8 +10,8 @@
 //!   of single readings into right-sized chunks.
 //!
 //! ARCHITECTURE:
-//!   - [`BatchAggregator`] owns an mpsc::Receiver<SensorReading>
-//!     (input from the drain loop) and an mpsc::Sender<Vec<SensorReading>>
+//!   - [`BatchAggregator`] owns an `mpsc::Receiver<SensorReading>`
+//!     (input from the drain loop) and an `mpsc::Sender<Vec<SensorReading>>`
 //!     (output to the persistence layer).
 //!   - [`BatchAggregator::run`] loops on `select!`-of-three: input
 //!     channel, flush timer tick, shutdown signal. Either path that

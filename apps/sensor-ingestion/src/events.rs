@@ -23,8 +23,9 @@
 //!       call and counts it, so the sidecar boots clean without a
 //!       broker for local smoke runs;
 //!     * unit tests trivial — the [`LoggingEventPublisher`] records the
-//!       last event for assertion-based tests, [`FailingPublisher`]
-//!       (test-only) lets us pin loop-survives-publish-error semantics.
+//!       last event for assertion-based tests, `FailingPublisher`
+//!       (test-only, defined in the unit-test module) lets us pin the
+//!       loop-survives-publish-error semantics.
 //!   The two implementations share zero code paths with the production
 //!   `NatsEventPublisher`, so no test-only behaviour can leak into the
 //!   prod binary.

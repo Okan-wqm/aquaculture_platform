@@ -7,7 +7,7 @@
 //! Coverage:
 //!   - FC 0x03 Read Holding Registers — response PDU.
 //!   - FC 0x04 Read Input Registers — response PDU (identical wire shape
-//!     to FC 0x03; shares the byte-array-to-Vec<u16> helper).
+//!     to FC 0x03; shares the byte-array-to-`Vec<u16>` helper).
 //!   - FC 0x06 Write Single Register — request / response (the two are
 //!     wire-identical: server echoes the request).
 //!   - FC 0x10 Write Multiple Registers — response only (request adds a

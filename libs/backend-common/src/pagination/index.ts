@@ -49,3 +49,12 @@ export {
   type CursorKeyedRow,
   type CursorPaginatedResponse,
 } from './cursor';
+
+// TypeORM adapter — the one-line bridge from Repository<T> to
+// CursorPaginatedResponse<T>. Keeps per-resolver adoption
+// boilerplate-free so the tuple WHERE clause stays in one
+// place platform-wide.
+export {
+  paginateCursor,
+  type PaginateCursorOptions,
+} from './cursor-repository';

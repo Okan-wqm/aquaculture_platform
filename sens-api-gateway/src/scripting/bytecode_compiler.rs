@@ -56,6 +56,16 @@ use crate::st_validator::{BinaryOp, DataType, Expression, Statement, UnaryOp};
 #[derive(Debug, Clone, Default)]
 pub struct SymbolTable {
     entries: HashMap<String, SymbolEntry>,
+    /// Batch 182 Faz 3: declared output pin types per
+    /// FB instance name. Consumed by
+    /// `compile_expression` MemberAccess arm so
+    /// `my_timer.Q` resolves to the correct StValueType
+    /// (Bool, Int, Real) at compile time. Absence in
+    /// the map falls back to Real (the Batch 181
+    /// placeholder default — preserves backward compat
+    /// for tests that construct SymbolTable without
+    /// FB info).
+    fb_instance_outputs: HashMap<String, HashMap<String, StValueType>>,
 }
 
 /// Symbol classification — Batch 157 Faz 3 adds the
@@ -139,6 +149,31 @@ impl SymbolTable {
 
     pub fn get(&self, name: &str) -> Option<&SymbolEntry> {
         self.entries.get(name)
+    }
+
+    /// Batch 182: register an FB instance's output pin
+    /// types so `MemberAccess` typing is precise.
+    pub fn insert_fb_outputs(
+        &mut self,
+        instance_name: impl Into<String>,
+        outputs: HashMap<String, StValueType>,
+    ) {
+        self.fb_instance_outputs.insert(instance_name.into(), outputs);
+    }
+
+    /// Batch 182: look up an FB instance output pin's
+    /// declared type. Returns None when either the FB
+    /// instance or the named pin is unknown — caller
+    /// falls back to the Batch 181 placeholder (Real).
+    pub fn fb_output_type(
+        &self,
+        instance_name: &str,
+        pin_name: &str,
+    ) -> Option<StValueType> {
+        self.fb_instance_outputs
+            .get(instance_name)?
+            .get(pin_name)
+            .copied()
     }
 
     pub fn len(&self) -> usize {
@@ -327,12 +362,22 @@ pub fn compile_expression(
                     });
                 }
             };
+            // Batch 182: look up the FB output pin's
+            // declared type from the symbol table.
+            // Absent → fall back to Real (Batch 181
+            // default). Present → use the precise
+            // type so downstream opcodes + assignment
+            // targets type-check correctly at compile
+            // time.
+            let inferred = symbols
+                .fb_output_type(&fb_name, member)
+                .unwrap_or(StValueType::Real);
             Ok((
                 vec![Opcode::FbReadOutput {
                     fb_id: fb_name,
                     output_name: member.clone(),
                 }],
-                StValueType::Real,
+                inferred,
             ))
         }
         Expression::FunctionCall { name, args } => {
@@ -3118,6 +3163,131 @@ mod tests {
         // Batch 181 inferred type = Real; Batch 182
         // adds the FB type catalog for precise typing.
         assert_eq!(t, StValueType::Real);
+    }
+
+    #[test]
+    fn compile_member_access_uses_fb_output_type_from_symbol_table() {
+        // Batch 182: register my_timer.Q as Bool in the
+        // symbol table so compile_expression picks
+        // StValueType::Bool rather than the Real
+        // placeholder.
+        let mut syms = SymbolTable::new();
+        let mut timer_outputs = HashMap::new();
+        timer_outputs.insert("Q".to_string(), StValueType::Bool);
+        timer_outputs.insert("ET".to_string(), StValueType::Int);
+        syms.insert_fb_outputs("my_timer", timer_outputs);
+
+        // Q → Bool.
+        let (_ops, t_q) = compile_expression(
+            &Expression::MemberAccess {
+                object: Box::new(Expression::Variable(
+                    "my_timer".into(),
+                    None,
+                )),
+                member: "Q".into(),
+            },
+            &syms,
+        )
+        .expect("ok");
+        assert_eq!(t_q, StValueType::Bool);
+
+        // ET → Int.
+        let (_ops, t_et) = compile_expression(
+            &Expression::MemberAccess {
+                object: Box::new(Expression::Variable(
+                    "my_timer".into(),
+                    None,
+                )),
+                member: "ET".into(),
+            },
+            &syms,
+        )
+        .expect("ok");
+        assert_eq!(t_et, StValueType::Int);
+    }
+
+    #[test]
+    fn compile_member_access_unknown_fb_falls_back_to_real() {
+        // Batch 182: unregistered FB instance → inferred
+        // type stays Real (Batch 181 backward-compat).
+        let (_ops, t) = compile_expression(
+            &Expression::MemberAccess {
+                object: Box::new(Expression::Variable(
+                    "unknown_fb".into(),
+                    None,
+                )),
+                member: "Q".into(),
+            },
+            &SymbolTable::new(),
+        )
+        .expect("ok");
+        assert_eq!(t, StValueType::Real);
+    }
+
+    #[test]
+    fn compile_member_access_unknown_pin_falls_back_to_real() {
+        // FB registered but queried pin is not in the
+        // output map — falls back to Real.
+        let mut syms = SymbolTable::new();
+        let mut outputs = HashMap::new();
+        outputs.insert("Q".to_string(), StValueType::Bool);
+        syms.insert_fb_outputs("my_timer", outputs);
+
+        let (_ops, t) = compile_expression(
+            &Expression::MemberAccess {
+                object: Box::new(Expression::Variable(
+                    "my_timer".into(),
+                    None,
+                )),
+                member: "NotDeclared".into(),
+            },
+            &syms,
+        )
+        .expect("ok");
+        assert_eq!(t, StValueType::Real);
+    }
+
+    #[test]
+    fn compile_member_access_bool_output_roundtrips_through_if_condition() {
+        // Full smoke: `IF my_timer.Q THEN x := 1; END_IF`
+        // compiles cleanly when Q is declared Bool.
+        // Without Batch 182, Q would infer as Real,
+        // then the IF condition's Bool gate would
+        // reject with TypeMismatch.
+        let mut syms = build_symbols(vec![sym("x", 0, StValueType::Int)]);
+        let mut outputs = HashMap::new();
+        outputs.insert("Q".to_string(), StValueType::Bool);
+        syms.insert_fb_outputs("my_timer", outputs);
+
+        let mut ops = vec![];
+        compile_stmt_program_scope(
+            &Statement::If {
+                condition: Expression::MemberAccess {
+                    object: Box::new(Expression::Variable(
+                        "my_timer".into(),
+                        None,
+                    )),
+                    member: "Q".into(),
+                },
+                then_body: vec![Statement::Assignment {
+                    target: Expression::Variable("x".into(), None),
+                    value: Expression::IntLiteral(1),
+                    span: None,
+                }],
+                elsif_branches: vec![],
+                else_body: None,
+                span: None,
+            },
+            &syms,
+            &mut ops,
+        )
+        .expect("ok");
+        // First opcode is FbReadOutput, followed by
+        // JumpIfFalse. No promotion / cast opcodes
+        // between — proves the compile-time type
+        // matched Bool.
+        assert!(matches!(ops[0], Opcode::FbReadOutput { .. }));
+        assert!(matches!(ops[1], Opcode::JumpIfFalse { .. }));
     }
 
     #[test]

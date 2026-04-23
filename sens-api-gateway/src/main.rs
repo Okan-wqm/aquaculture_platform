@@ -371,6 +371,20 @@ pub struct AppState {
     #[cfg(feature = "scada-display")]
     pub scada_db: Option<Arc<scada_db::ScadaDb>>,
 
+    /// OPC UA server runtime handle (Batch 218 Faz 5 wire
+    /// point; Batch 219 boot-path wire populates this).
+    ///
+    /// `None` = server not running. Present only when:
+    /// - binary built with the `opc-ua-server` Cargo feature
+    /// - `config.opc_ua_server.enabled == true`
+    /// - license tier permits OPC UA (Faz 7 enforcement #5)
+    ///
+    /// Arc-wrapped because Batch 219 spawns a shutdown-
+    /// bridge task that holds a clone to call `.cancel()`
+    /// on the shutdown broadcast signal.
+    #[cfg(feature = "opc-ua-server")]
+    pub opc_ua_server: Option<std::sync::Arc<opc_ua_server_runtime::SuderraOpcUaHandle>>,
+
     /// Activation state
     pub is_activated: bool,
     pub tenant_id: Option<String>,
@@ -776,6 +790,12 @@ impl AppState {
             scada_state: None,
             #[cfg(feature = "scada-display")]
             scada_db: None,
+            // Batch 219 Faz 5: None-init; the boot-path wire
+            // below constructs + assigns via
+            // `init_opc_ua_server(&config.opc_ua_server,
+            // &process_image, &license)` iff both gates open.
+            #[cfg(feature = "opc-ua-server")]
+            opc_ua_server: None,
             is_activated: false,
             tenant_id: None,
             // BATCH-001-CI-FIX-007: None-init; Batch 13 (Faz 1 ARC-001)
@@ -4336,6 +4356,81 @@ async fn run_agent(
             info!(
                 "Bytecode scan-cycle driver NOT spawned: config.scripting.enabled=false"
             );
+        }
+    }
+
+    // Batch 219 Faz 5: OPC UA server boot path.
+    // Runs the Batch 218 init_opc_ua_server gate chain:
+    //   operator config switch → Faz 7 license gate →
+    //   tag-catalog build → server start.
+    //
+    // Spawns a cancel-bridge task so ShutdownCoordinator's
+    // broadcast signal propagates to SuderraOpcUaHandle::
+    // cancel. The server's internal run-loop JoinHandle is
+    // owned by the SuderraOpcUaHandle; graceful shutdown
+    // awaits that internally once cancel fires.
+    #[cfg(feature = "opc-ua-server")]
+    {
+        let (opc_ua_cfg, pi_for_opcua, license_for_opcua) = {
+            let s = state.read().await;
+            (
+                s.config.opc_ua_server.clone(),
+                s.process_image.clone(),
+                s.license.clone(),
+            )
+        };
+        match opc_ua_server_runtime::init_opc_ua_server(
+            &opc_ua_cfg,
+            &pi_for_opcua,
+            &license_for_opcua,
+        )
+        .await
+        {
+            Ok(Some(handle)) => {
+                // Cancel-bridge task: on ShutdownCoordinator
+                // broadcast, invoke handle.cancel() so the
+                // async-opcua run-loop exits cleanly.
+                let handle_for_bridge = handle.clone();
+                let mut broadcast_rx = shutdown_coordinator.subscribe();
+                let bridge_handle = tokio::spawn(async move {
+                    let _ = broadcast_rx.recv().await;
+                    handle_for_bridge.cancel();
+                    info!(
+                        "opc_ua_server: cancel signal forwarded from ShutdownCoordinator"
+                    );
+                });
+                shutdown_coordinator
+                    .register_task("opc_ua_cancel_bridge", bridge_handle);
+
+                let summary_pop = handle
+                    .population()
+                    .cloned()
+                    .map(|s| format!(
+                        "variables={} writable={}",
+                        s.variable_nodes_added, s.writable_nodes,
+                    ))
+                    .unwrap_or_else(|| "(no summary)".to_string());
+                info!(
+                    "opc_ua_server boot OK: ns_index={:?} {}",
+                    handle.namespace_index(),
+                    summary_pop
+                );
+                let mut w = state.write().await;
+                w.opc_ua_server = Some(handle);
+            }
+            Ok(None) => {
+                info!(
+                    "opc_ua_server boot skipped (either operator switch OFF or license gate closed)"
+                );
+            }
+            Err(e) => {
+                // Init failure is NOT fatal — the agent
+                // stays operational without OPC UA, and the
+                // operator sees the structured reason. Other
+                // subsystems (MQTT, scan-cycle, scheduler)
+                // continue unaffected.
+                error!("opc_ua_server boot FAILED: {}", e);
+            }
         }
     }
 

@@ -362,6 +362,11 @@ pub struct SweepSummary {
     pub ticks_executed: u64,
     /// Total entries dropped across all ticks.
     pub total_expired: u64,
+    /// Batch 200 Faz 6: entries dropped by the
+    /// shutdown drain of non-persistent forces. Non-
+    /// zero when the agent went down with active
+    /// forces that had `persist_across_reboot=false`.
+    pub total_shutdown_drained: u64,
 }
 
 /// Long-running 1-Hz sweep task — Batch 198 Faz 6.
@@ -407,21 +412,50 @@ pub async fn run_sweep_task(
             changed = shutdown_rx.changed() => {
                 match changed {
                     Ok(()) if *shutdown_rx.borrow() => {
+                        // Batch 200 Faz 6 — shutdown
+                        // drain. Clear every non-
+                        // persistent force so the
+                        // reboot leaves only
+                        // `persist_across_reboot=true`
+                        // entries. Plan R-9 fail-safe
+                        // rule: a forgotten force
+                        // MUST NOT silently survive a
+                        // reboot unless the operator
+                        // explicitly opted in.
+                        let drained = registry.drain_non_persistent().await;
+                        summary.total_shutdown_drained = drained.len() as u64;
+                        for entry in &drained {
+                            tracing::info!(
+                                "force-registry shutdown drain: tag=`{}` \
+                                 force_id={} actor=`{}` (non-persistent)",
+                                entry.tag_name,
+                                entry.force_id,
+                                entry.actor,
+                            );
+                        }
                         tracing::info!(
                             "force-registry sweep task shutdown: \
-                             ticks={} total_expired={}",
+                             ticks={} total_expired={} drained={}",
                             summary.ticks_executed,
                             summary.total_expired,
+                            summary.total_shutdown_drained,
                         );
                         return summary;
                     }
                     Ok(()) => {}
                     Err(_) => {
+                        // Sender dropped — also perform
+                        // the shutdown drain (treat as
+                        // an abnormal but still graceful
+                        // exit).
+                        let drained = registry.drain_non_persistent().await;
+                        summary.total_shutdown_drained = drained.len() as u64;
                         tracing::info!(
                             "force-registry sweep task shutdown (sender \
-                             dropped): ticks={} total_expired={}",
+                             dropped): ticks={} total_expired={} drained={}",
                             summary.ticks_executed,
                             summary.total_expired,
+                            summary.total_shutdown_drained,
                         );
                         return summary;
                     }
@@ -655,6 +689,62 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn sweep_task_drains_non_persistent_forces_on_shutdown() {
+        // Apply one non-persistent + one persistent
+        // force. Shut down the sweep task. Verify:
+        // - summary.total_shutdown_drained == 1
+        // - non-persistent force is gone
+        // - persistent force survives
+        let reg = std::sync::Arc::new(ForceRegistry::new());
+        reg.apply(
+            "volatile_tag".into(),
+            1.0,
+            TagQuality::Good,
+            "op".into(),
+            "diag".into(),
+            3600,
+            false, // non-persistent
+        )
+        .await
+        .expect("ok");
+        // Wait past the rate-limit window before
+        // applying the second force on a DIFFERENT
+        // tag — different tags don't share the rate
+        // limit, but we add a small delay anyway for
+        // deterministic ordering.
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        reg.apply(
+            "persistent_tag".into(),
+            2.0,
+            TagQuality::Good,
+            "op".into(),
+            "long-diag".into(),
+            3600,
+            true, // persistent
+        )
+        .await
+        .expect("ok");
+
+        let (tx, rx) = tokio::sync::watch::channel(false);
+        let reg_clone = reg.clone();
+        let handle = tokio::spawn(async move {
+            run_sweep_task(
+                reg_clone,
+                std::time::Duration::from_millis(10),
+                rx,
+            )
+            .await
+        });
+
+        tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+        tx.send(true).expect("signal");
+        let summary = handle.await.expect("join");
+        assert_eq!(summary.total_shutdown_drained, 1);
+        assert!(!reg.is_forced("volatile_tag").await);
+        assert!(reg.is_forced("persistent_tag").await);
+    }
+
+    #[tokio::test]
     async fn maybe_update_tag_bypass_behavior_guard() {
         // Batch 199 guard: the is_forced check that
         // io_poll's maybe_update_tag depends on MUST
@@ -673,10 +763,20 @@ mod tests {
     #[tokio::test]
     async fn sweep_task_preserves_non_expired_entries() {
         let reg = std::sync::Arc::new(ForceRegistry::new());
-        // Long TTL — won't expire during the test.
-        canned_apply(&reg, "long_lived", 3600)
-            .await
-            .expect("ok");
+        // Long TTL + persist=true so the Batch 200
+        // shutdown drain doesn't remove it at the
+        // end of the test.
+        reg.apply(
+            "long_lived".into(),
+            1.0,
+            TagQuality::Good,
+            "op".into(),
+            "diag".into(),
+            3600,
+            true, // persistent — survives shutdown drain
+        )
+        .await
+        .expect("ok");
 
         let (tx, rx) = tokio::sync::watch::channel(false);
         let reg_clone = reg.clone();
@@ -693,6 +793,9 @@ mod tests {
         tx.send(true).expect("signal");
         let summary = handle.await.expect("join");
         assert_eq!(summary.total_expired, 0);
+        // Persistent force survives both the TTL sweep
+        // (not expired) AND the shutdown drain (opted
+        // in via persist_across_reboot=true).
         assert_eq!(reg.active_count().await, 1);
     }
 

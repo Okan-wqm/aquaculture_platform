@@ -3894,6 +3894,43 @@ async fn run_agent(
     // Step 6b: Start I/O poll loop
     tokio::spawn(io_poll::io_poll_loop(state.clone()));
 
+    // Batch 198 Faz 6 wire: spawn the 1-Hz force-
+    // registry sweep task. Always spawned regardless
+    // of whether any force is active — the task is
+    // cheap (one lock + comparison per second) +
+    // ensures TTL-expired entries get cleaned up even
+    // if no command or io_poll tick triggers a
+    // lookup.
+    {
+        let force_registry = {
+            let s = state.read().await;
+            s.force_registry.clone()
+        };
+        let (force_sweep_watch_tx, force_sweep_watch_rx) =
+            tokio::sync::watch::channel(false);
+        let mut force_broadcast_rx = shutdown_coordinator.subscribe();
+        tokio::spawn(async move {
+            let _ = force_broadcast_rx.recv().await;
+            let _ = force_sweep_watch_tx.send(true);
+        });
+        let sweep_handle = tokio::spawn(async move {
+            let summary =
+                crate::scripting::force_registry::run_sweep_task(
+                    force_registry,
+                    std::time::Duration::from_secs(1),
+                    force_sweep_watch_rx,
+                )
+                .await;
+            info!(
+                "force_registry_sweep exit: ticks={} total_expired={}",
+                summary.ticks_executed, summary.total_expired
+            );
+        });
+        shutdown_coordinator
+            .register_task("force_registry_sweep", sweep_handle);
+        info!("Force-registry sweep task spawned (1 Hz)");
+    }
+
     // Batch 171 Faz 3 + Batch 193 Faz 4 wire: spawn
     // the bytecode scan-cycle / scheduler driver(s).
     // Only when scripting is enabled — disabled

@@ -348,6 +348,89 @@ fn unix_ms_now() -> i64 {
         .unwrap_or(0)
 }
 
+fn unix_secs_now() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+/// Summary returned when the sweep task exits.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SweepSummary {
+    /// Total sweep ticks dispatched.
+    pub ticks_executed: u64,
+    /// Total entries dropped across all ticks.
+    pub total_expired: u64,
+}
+
+/// Long-running 1-Hz sweep task — Batch 198 Faz 6.
+///
+/// Every `interval` (default 1 s), calls
+/// `force_registry.sweep_expired(now)`. Dropped
+/// entries are logged at info so operators see the
+/// TTL-expiry lifecycle in boot + runtime logs.
+///
+/// Shutdown responsive via `tokio::select!` on the
+/// watch channel — exits cleanly when the signal
+/// fires.
+pub async fn run_sweep_task(
+    registry: std::sync::Arc<ForceRegistry>,
+    interval: std::time::Duration,
+    mut shutdown_rx: tokio::sync::watch::Receiver<bool>,
+) -> SweepSummary {
+    tracing::info!(
+        "Force-registry sweep task starting (interval={:?})",
+        interval
+    );
+    let mut summary = SweepSummary::default();
+
+    loop {
+        let expired = registry.sweep_expired(unix_secs_now()).await;
+        summary.ticks_executed += 1;
+
+        if !expired.is_empty() {
+            let count = expired.len() as u64;
+            summary.total_expired += count;
+            for entry in &expired {
+                tracing::info!(
+                    "force-registry sweep: expired tag=`{}` force_id={} actor=`{}`",
+                    entry.tag_name,
+                    entry.force_id,
+                    entry.actor,
+                );
+            }
+        }
+
+        tokio::select! {
+            _ = tokio::time::sleep(interval) => {}
+            changed = shutdown_rx.changed() => {
+                match changed {
+                    Ok(()) if *shutdown_rx.borrow() => {
+                        tracing::info!(
+                            "force-registry sweep task shutdown: \
+                             ticks={} total_expired={}",
+                            summary.ticks_executed,
+                            summary.total_expired,
+                        );
+                        return summary;
+                    }
+                    Ok(()) => {}
+                    Err(_) => {
+                        tracing::info!(
+                            "force-registry sweep task shutdown (sender \
+                             dropped): ticks={} total_expired={}",
+                            summary.ticks_executed,
+                            summary.total_expired,
+                        );
+                        return summary;
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -515,6 +598,86 @@ mod tests {
         let list = reg.list().await;
         let names: Vec<&str> = list.iter().map(|e| e.tag_name.as_str()).collect();
         assert_eq!(names, vec!["alpha", "mango", "zebra"]);
+    }
+
+    // Batch 198 Faz 6 — sweep task tests.
+
+    #[tokio::test]
+    async fn sweep_task_exits_on_shutdown_signal() {
+        let reg = std::sync::Arc::new(ForceRegistry::new());
+        let (tx, rx) = tokio::sync::watch::channel(false);
+        let reg_clone = reg.clone();
+        let handle = tokio::spawn(async move {
+            run_sweep_task(
+                reg_clone,
+                std::time::Duration::from_millis(10),
+                rx,
+            )
+            .await
+        });
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        tx.send(true).expect("signal");
+        let summary = handle.await.expect("join");
+        assert!(summary.ticks_executed >= 1);
+        assert_eq!(summary.total_expired, 0);
+    }
+
+    #[tokio::test]
+    async fn sweep_task_drops_expired_entries() {
+        let reg = std::sync::Arc::new(ForceRegistry::new());
+        // Apply an entry that's already expired
+        // (expires_at_unix in the past by writing
+        // directly via the test-internal apply +
+        // then mutating via sweep_expired with a
+        // distant-future clock).
+        canned_apply(&reg, "expiring_tag", 1).await.expect("ok");
+
+        let (tx, rx) = tokio::sync::watch::channel(false);
+        let reg_clone = reg.clone();
+        let handle = tokio::spawn(async move {
+            run_sweep_task(
+                reg_clone,
+                std::time::Duration::from_millis(10),
+                rx,
+            )
+            .await
+        });
+
+        // Wait longer than the 1-sec TTL so the sweep
+        // task's `sweep_expired(now)` catches it.
+        tokio::time::sleep(std::time::Duration::from_millis(1_200)).await;
+        tx.send(true).expect("signal");
+        let summary = handle.await.expect("join");
+        assert!(summary.total_expired >= 1);
+        // Registry should be empty after expiry.
+        assert_eq!(reg.active_count().await, 0);
+    }
+
+    #[tokio::test]
+    async fn sweep_task_preserves_non_expired_entries() {
+        let reg = std::sync::Arc::new(ForceRegistry::new());
+        // Long TTL — won't expire during the test.
+        canned_apply(&reg, "long_lived", 3600)
+            .await
+            .expect("ok");
+
+        let (tx, rx) = tokio::sync::watch::channel(false);
+        let reg_clone = reg.clone();
+        let handle = tokio::spawn(async move {
+            run_sweep_task(
+                reg_clone,
+                std::time::Duration::from_millis(10),
+                rx,
+            )
+            .await
+        });
+
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        tx.send(true).expect("signal");
+        let summary = handle.await.expect("join");
+        assert_eq!(summary.total_expired, 0);
+        assert_eq!(reg.active_count().await, 1);
     }
 
     #[tokio::test]

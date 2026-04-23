@@ -4,7 +4,7 @@
 import { Resolver, Query, Mutation, Args, ID, ResolveField, Parent } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
-import { TenantGuard, CurrentTenant, CurrentUser, fromCqrsPaginated } from '@aquaculture/backend-common';
+import { TenantGuard, CurrentTenant, CurrentUser, Role, Roles, fromCqrsPaginated } from '@aquaculture/backend-common';
 import { SystemResponse, PaginatedSystemsResponse } from './dto/system.response';
 import { SystemDeletePreviewResponse } from './dto/system-delete-preview.response';
 import { CreateSystemInput } from './dto/create-system.input';
@@ -35,6 +35,7 @@ export class SystemResolver {
   /**
    * Create new system
    */
+  @Roles(Role.MODULE_MANAGER, Role.TENANT_ADMIN)
   @Mutation(() => SystemResponse)
   async createSystem(
     @Args('input') input: CreateSystemInput,
@@ -49,6 +50,7 @@ export class SystemResolver {
   /**
    * Update existing system
    */
+  @Roles(Role.MODULE_MANAGER, Role.TENANT_ADMIN)
   @Mutation(() => SystemResponse)
   async updateSystem(
     @Args('input') input: UpdateSystemInput,
@@ -78,6 +80,7 @@ export class SystemResolver {
    * Delete (soft) system
    * @param cascade If true, cascade soft delete all related items (child systems, equipment connections)
    */
+  @Roles(Role.TENANT_ADMIN)
   @Mutation(() => Boolean)
   async deleteSystem(
     @Args('id', { type: () => ID }) id: string,

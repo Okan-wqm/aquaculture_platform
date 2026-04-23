@@ -73,6 +73,7 @@ export class AiInsightsResolver {
    * anomaly summary card on the dashboard. Returns an array (possibly empty)
    * rather than null — the mobile app always renders a list, even if empty.
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [FarmAnomaly], {
     description: 'Active anomalies detected across the entire farm',
   })
@@ -107,6 +108,7 @@ export class AiInsightsResolver {
    * a single response, minimizing round trips over potentially slow mobile
    * connections.
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => FarmDashboardInsights, {
     description: 'Aggregated AI insights for the farm dashboard (risk + anomalies + feeding)',
   })

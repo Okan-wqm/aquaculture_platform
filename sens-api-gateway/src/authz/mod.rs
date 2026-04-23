@@ -73,6 +73,15 @@ pub mod manifest_runtime;
 // wires this into RbacManifestStore::load_from_file_inner.
 pub mod manifest_version_store;
 
+// Batch 223 — InMemoryPolicyEngine: PolicyEngine impl backed by
+// RbacManifestStore. Closes gap A-1 from the ruthless assessment
+// (Faz 5 write chain was DenyAll-only; this batch wires the real
+// authorize path — tenant check, policy-version monotonicity,
+// manifest-validity window, operator-binding lookup, role-set
+// permission match, co-approver gate for two-person-integrity
+// commands).
+pub mod in_memory_engine;
+
 // Re-export the commonly-used types for ergonomic downstream use.
 // Keep this list in sync with public API surface; every addition here is a
 // commitment to forward-compat for downstream consumers (ST VM, commands,

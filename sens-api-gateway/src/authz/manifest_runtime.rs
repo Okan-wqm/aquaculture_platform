@@ -424,6 +424,44 @@ impl RbacManifestStore {
             .ok()
             .and_then(|g| g.as_ref().map(|m| m.policy_version))
     }
+
+    /// Batch 223 test-only bypass: seed the `current`
+    /// RwLock with a manifest directly, without running the
+    /// signature-verify gates. ONLY callable inside the
+    /// crate's `#[cfg(test)]` builds — production paths
+    /// (`load_from_file`, `hot_reload_from_bytes`) enforce
+    /// the full verification chain. Exists purely so unit
+    /// tests for the InMemoryPolicyEngine + other consumers
+    /// can seed deterministic manifest shapes without
+    /// building a full ed25519 signing pipeline.
+    #[cfg(test)]
+    pub(crate) fn test_set_manifest(&self, manifest: RbacManifest) {
+        *self.current.write().expect("RwLock") = Some(manifest);
+    }
+
+    /// Batch 223 Faz 2 Sprint 6.1 — scoped read of the
+    /// current manifest body for PolicyEngine consumers.
+    /// Closure receives a borrowed `&RbacManifest` under
+    /// the read-lock; returns whatever the closure yields.
+    /// `None` when the store is empty OR the lock is
+    /// poisoned (latter treated as empty for fail-closed
+    /// semantic).
+    ///
+    /// WHY this shape (not a `fn current(&self) ->
+    /// Option<Arc<RbacManifest>>`): keeps the manifest
+    /// tightly sealed inside the store's RwLock — callers
+    /// cannot clone the manifest out of the lock and accumulate
+    /// stale copies that diverge from a later hot-reload.
+    /// Scoped-reader pattern matches the rest of the
+    /// `manifest_runtime` access discipline.
+    pub fn with_manifest<R, F>(&self, f: F) -> Option<R>
+    where
+        F: FnOnce(&RbacManifest) -> R,
+    {
+        let guard = self.current.read().ok()?;
+        let manifest = guard.as_ref()?;
+        Some(f(manifest))
+    }
 }
 
 impl Default for RbacManifestStore {

@@ -941,6 +941,60 @@ This orphan entry is the architectural tier-4 "document" fallback for `AUDIT-LOW
 - No deadline — this is an informational classification, not an actionable fix.
 - Closure path: commit that adds this note carries `Closes: docs/reviews/_audit/2026-04-22-cold-audit/03-explore-findings.md#AUDIT-LOW-001`.
 
+## 2026-04-23 ORPHAN-SCADA-EDGES-001 — scada-builder/edges diverge materially from process-editor/edges
+
+**Status:** OPEN — kept out of scope for AUDIT-HIGH-006's close because the divergence is structural, not stylistic.
+
+**Scope:**
+`web/modules/sensor-module/src/components/scada-builder/edges/{DraggableEdge,MultiHandleEdge,OrthogonalEdge}.tsx` — 378 / 461 / 530 lines respectively, totaling ~1370 lines.
+
+**Why not collapsed to the lib when AUDIT-HIGH-006 was closed:**
+
+The 2026-04-22 cold audit reported node-components edges duplicated across three locations: `libs/node-components/src/edges`, process-editor, and scada-builder. The first two had only one real divergence (ReactFlow `setEdges` vs. a zustand `processStore.updateEdgeData`) which is now handled by the lib's `updateEdgeData?` prop — process-editor shrank to a 3-file, 75-line adapter set.
+
+scada-builder is different. Each of its three edges is 60–90 lines LARGER than the lib counterpart, and the extra lines are not a boilerplate divergence — they implement the SCADA workspace's own controller-driven workflow: `useEdgeStoreContext()` hook (React context, not zustand), edge-level SCADA property panels, a distinct hover/select/drag interaction model, and keyboard-shortcut bindings that process-editor lacks.
+
+Mechanically applying the lib → wrapper refactor would lose those SCADA-specific behaviours OR require pushing them back into the lib (which would make the lib SCADA-coupled and violate ADR-028's lib-rubric for `libs/node-components` — "ReactFlow primitives", not SCADA app behaviour).
+
+**Closure path:**
+
+Before collapsing scada-builder onto the lib, the SCADA-specific behaviours must be decomposed into injectable pieces (e.g. a `useEdgeContextMenuBindings` hook, a `ScadaEdgePropertyPanel` render-prop). Once that split exists, each scada-builder edge file shrinks to a thin wrapper (same pattern as process-editor) that composes the lib edge + scada-specific hooks.
+
+**Follow-on tracking:**
+- Owner: frontend-expert + sensor-expert.
+- Deadline: next SCADA-workspace feature cycle — the decomposition lands alongside whoever next touches the scada-builder edge interactions.
+- Closure path: commit that lands the decomposition deletes these three files and carries `Closes: docs/reviews/orphan-findings.md#ORPHAN-SCADA-EDGES-001`.
+
+## 2026-04-23 MONITOR-HOTSPOT-001 — churn-only findings archived until next audit cycle
+
+**Status:** DOCUMENT-ONLY. Closes `AUDIT-MEDIUM-001`, `AUDIT-MEDIUM-004`, `AUDIT-MEDIUM-010` as Tier-4 monitor markers.
+
+**Scope:** Three 2026-04-22 cold-audit findings that surfaced as hotspot-score signals (high commit frequency + large surface area) but do not carry a structural defect claim:
+
+- `AUDIT-MEDIUM-001` — `web/modules/sensor-module` (319 pts): automation editor, SCADA builder, package-builder pages.
+- `AUDIT-MEDIUM-004` — `apps/hr-service` (225 pts): `app.module.ts` + `employee.entity.ts` + `hr.resolver.ts` churn.
+- `AUDIT-MEDIUM-010` — `web/modules/tenant-admin` (86 pts): TenantDashboard / TenantUsers / TenantSettings pages.
+
+**Why Tier-4 document is the correct tier:**
+
+Churn is a leading indicator, not a defect. All three surfaces are actively under feature development in this cycle per `git log --since="3 months ago" --name-only`. No ADR violation, no tenant-isolation bypass, no schema drift, no lint-rule violation attaches to these files — only high edit frequency.
+
+Applying Tier 1–3 (make-impossible / make-automatic / make-detectable) would mean freezing the surfaces or adding artificial rate-limits on commit frequency. That is over-correction; active feature development SHOULD produce churn hotspots.
+
+**Escalation rule (the Tier-3 half of this entry):**
+
+The next cold-audit cycle (2026-06 or earlier on a triggered audit) inspects these three surfaces AGAIN. If ANY of them shows:
+- churn *and* a correlated failing e2e test suite, OR
+- churn *and* a spike in open AUDIT-* findings on the same files, OR
+- churn *and* a rise in lint-warning count for the service,
+
+the relevant MEDIUM-NNN escalates to a HIGH-severity finding with the specific defect class it correlates with. The MONITOR classification is automatic — no human-review handoff needed — because the audit tooling (`tools/audit/aggregate-hotspots.ts`) can compute the correlation deterministically.
+
+**Follow-on tracking:**
+- Owner: orchestrator.
+- Deadline: next cold-audit cycle (tracked by the audit tooling itself, not a date).
+- Closure path: commit that adds this note carries `Closes: docs/reviews/_audit/2026-04-22-cold-audit/03-explore-findings.md#AUDIT-MEDIUM-001` + `#AUDIT-MEDIUM-004` + `#AUDIT-MEDIUM-010` trailers on separate lines.
+
 ## 2026-04-23 ORPHAN-DIC-001 — sensor-service child entities have no `tenantId` column
 
 **Status:** OPEN — surfaced during the Phase B.3 cold-audit remediation while trying to migrate sensor-service `manager.getRepository(Entity)` calls to `tenantManagerRepo()`.

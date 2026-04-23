@@ -90,7 +90,18 @@ describe('BatchCostCalculatorService', () => {
     it('sums every axis and yields costPerKg / costPerFish', async () => {
       const service = makeService({
         healthEvents: [{ estimatedCost: 2_000 }, { estimatedCost: 500 }],
-        workOrders: [{ costSummary: { laborCost: 1_000, materialCost: 0, totalCost: 1_000 } }],
+        workOrders: [
+          {
+            costSummary: {
+              laborCost: 1_000,
+              materialCost: 0,
+              externalServiceCost: 0,
+              otherCosts: 0,
+              totalCost: 1_000,
+              currency: 'USD',
+            },
+          },
+        ],
       });
 
       const result = await service.compute(makeBatch());

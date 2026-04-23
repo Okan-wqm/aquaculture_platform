@@ -394,6 +394,7 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   regulatoryHealth: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   regulatorySettings: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   rootSystems: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  sentinelHubCredentials: [Role.TENANT_ADMIN],
   sentinelHubStatus: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   sentinelHubToken: [Role.TENANT_ADMIN],
   sentinelHubWmtsConfig: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
@@ -551,17 +552,11 @@ export const UNGATED_OPERATIONS: ReadonlySet<string> = Object.freeze(new Set([
   // cleanerFishBatches / cleanerFishReport (MODULE_USER+MANAGER+
   // ADMIN); farmAnomalies / farmDashboardInsights
   // (MODULE_USER+MANAGER+ADMIN).
-  // Queries — only `getCredentials` remains. This is a resolver
-  // method name (not a GraphQL operation name — the @Query carries
-  // `{ name: 'sentinelHubCredentials' }`), so whether the scanner
-  // reports it as `getCredentials` or `sentinelHubCredentials`
-  // depends on the multi-line decorator joining behaviour. It is
-  // explicitly TENANT_ADMIN at runtime via the SentinelHubSettings
-  // page contract and the sibling `sentinelHubToken` (which IS
-  // classified as TENANT_ADMIN). Left in the whitelist so the
-  // invariant test keeps passing; a follow-up cleanup will align
-  // the resolver name override with the scanner + matrix.
-  'getCredentials',
+  // Empty after phase 6.1.1 complete. Every @Mutation and @Query
+  // surface in farm-service now appears in MUTATION_ROLES or
+  // QUERY_ROLES with an explicit @Roles decorator matching the
+  // matrix entry. New operations added after this point MUST
+  // ship with @Roles or fail the invariant test.
 ] as const));
 
 /**

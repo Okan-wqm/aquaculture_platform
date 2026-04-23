@@ -123,12 +123,48 @@ function extractOperationsFromFile(file: string): ResolverOperation[] {
       pendingKind = kindMatch[1] as 'Mutation' | 'Query';
       pendingDecoratorLine = i + 1;
       // The whole decorator call may span multiple lines. Scan
-      // forward for the closing `)` so we can read the `name:` option.
-      let joined = line;
+      // forward until the matching closing `)` — tracked by a
+      // simple paren depth counter so the scanner doesn't stop
+      // on the `()` in `() => SomeType` return-type arrows.
+      // Ignores parens inside strings so `name: 'foo(bar)'` would
+      // still close correctly; strings are walked char-by-char.
+      let joined = '';
+      let depth = 0;
+      let closed = false;
       let j = i;
-      while (!joined.includes(')') && j < lines.length - 1) {
+      while (j < lines.length && !closed) {
+        const current = lines[j] ?? '';
+        joined += (j === i ? '' : '\n') + current;
+        let inStr: '"' | "'" | '`' | null = null;
+        let escaped = false;
+        for (const ch of current) {
+          if (escaped) {
+            escaped = false;
+            continue;
+          }
+          if (inStr) {
+            if (ch === '\\') {
+              escaped = true;
+            } else if (ch === inStr) {
+              inStr = null;
+            }
+            continue;
+          }
+          if (ch === '"' || ch === "'" || ch === '`') {
+            inStr = ch;
+            continue;
+          }
+          if (ch === '(') {
+            depth += 1;
+          } else if (ch === ')') {
+            depth -= 1;
+            if (depth === 0) {
+              closed = true;
+              break;
+            }
+          }
+        }
         j += 1;
-        joined += '\n' + (lines[j] ?? '');
       }
       const nameMatch = NAME_OPTION_RE.exec(joined);
       pendingNameOverride = nameMatch?.[1] ?? null;

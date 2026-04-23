@@ -76,11 +76,22 @@ pub const SUDERRA_NAMESPACE_URI: &str = "urn:suderra:edge";
 /// logic when there's more than one.
 const SUDERRA_NODE_MANAGER_NAME: &str = "suderra-tags";
 
+/// Details of a single failed tag-node insertion. Batch
+/// 227 (E-3 closure) structures the previous `warn!`-only
+/// drop so callers can emit audit records + operators see
+/// the exact rejection reason per tag.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TagInsertionFailure {
+    pub tag_name: String,
+    pub browse_name: String,
+    pub reason: &'static str,
+}
+
 /// Summary of the Suderra address-space population pass
-/// (Batch 217). Reported to boot logs + `/metrics` so
-/// operators can confirm the tag catalog made it into the
-/// OPC UA address space without parsing async-opcua internal
-/// state.
+/// (Batch 217, refined by Batch 227). Reported to boot logs
+/// + `/metrics` so operators can confirm the tag catalog
+/// made it into the OPC UA address space without parsing
+/// async-opcua internal state.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AddressSpacePopulationSummary {
     /// Namespace index assigned to `SUDERRA_NAMESPACE_URI`
@@ -90,19 +101,19 @@ pub struct AddressSpacePopulationSummary {
     /// Number of variable nodes actually added to the
     /// address space. Equal to `registry.len()` on the
     /// happy path; short of it if any node collided with
-    /// pre-existing entries (should not happen with unique
-    /// registry BrowseNames but reported separately for
-    /// forensic clarity).
+    /// pre-existing entries.
     pub variable_nodes_added: usize,
     /// Subset of `variable_nodes_added` that were marked
     /// writable (DO + AO). Reported to boot log so
     /// operators see at a glance how many actuators an HMI
     /// could reach.
     pub writable_nodes: usize,
-    /// Subset that failed to insert (duplicate NodeId,
-    /// address-space rejection). Zero on the healthy path;
-    /// non-zero surfaces a forensic red flag.
-    pub insertion_failures: usize,
+    /// Structured list of failed insertions. Batch 227
+    /// replaced the previous `usize` count with the Vec so
+    /// init_opc_ua_server can route each failure through
+    /// the audit port (forensic completeness per plan
+    /// §5 Faz 5 step 11 pre+post-exec audit contract).
+    pub insertion_failures: Vec<TagInsertionFailure>,
 }
 
 /// Owned handle over the running OPC UA server. Wraps the
@@ -362,7 +373,7 @@ pub fn populate_tag_nodes(
 
     let mut variable_nodes_added = 0usize;
     let mut writable_nodes = 0usize;
-    let mut insertion_failures = 0usize;
+    let mut insertion_failures: Vec<TagInsertionFailure> = Vec::new();
 
     for node in registry.iter() {
         match insert_tag_variable(
@@ -378,11 +389,15 @@ pub fn populate_tag_nodes(
                 }
             }
             TagInsertOutcome::Failed => {
-                insertion_failures += 1;
                 warn!(
                     "opc_ua populate: failed to insert tag `{}` (BrowseName `{}`) — NodeId collision?",
                     node.tag_name, node.browse_name
                 );
+                insertion_failures.push(TagInsertionFailure {
+                    tag_name: node.tag_name.clone(),
+                    browse_name: node.browse_name.clone(),
+                    reason: "address_space_insert_rejected",
+                });
             }
         }
     }
@@ -1085,8 +1100,22 @@ pub async fn start_opcua_server(
         population_summary.namespace_index,
         population_summary.variable_nodes_added,
         population_summary.writable_nodes,
-        population_summary.insertion_failures,
+        population_summary.insertion_failures.len(),
     );
+    // Batch 227 E-3 closure: forensic warn per structured
+    // failure so an operator-facing audit can inspect the
+    // exact rejection reason per tag. A future batch pipes
+    // this through the audit_sink when it becomes available
+    // at this point in the init flow.
+    for failure in &population_summary.insertion_failures {
+        warn!(
+            target: "opc_ua.populate",
+            tag_name = %failure.tag_name,
+            browse_name = %failure.browse_name,
+            reason = %failure.reason,
+            "opc_ua_server: tag-node insertion dropped during populate (forensic marker)"
+        );
+    }
 
     // Spawn the run loop. `server.run()` binds TCP internally
     // from the host/port we passed to the builder; errors
@@ -1227,7 +1256,7 @@ mod tests {
         let summary = handle.population().expect("population summary present");
         assert_eq!(summary.variable_nodes_added, 0);
         assert_eq!(summary.writable_nodes, 0);
-        assert_eq!(summary.insertion_failures, 0);
+        assert!(summary.insertion_failures.is_empty());
         handle.cancel();
         // Arc makes `.join()` tricky; unwrap the Arc. Tests
         // are the only consumer of `.join()` at Batch 216.
@@ -1366,7 +1395,7 @@ mod tests {
         assert_eq!(summary.variable_nodes_added, 4);
         // DO + AO are writable; AI + DI are read-only.
         assert_eq!(summary.writable_nodes, 2);
-        assert_eq!(summary.insertion_failures, 0);
+        assert!(summary.insertion_failures.is_empty());
         assert!(summary.namespace_index > 0, "Suderra NS gets an index > core 0");
         assert_eq!(handle.namespace_index(), Some(summary.namespace_index));
 

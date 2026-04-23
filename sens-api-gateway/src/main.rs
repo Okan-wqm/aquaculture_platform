@@ -151,6 +151,7 @@ mod alarm_engine;
 mod trend_engine;
 #[cfg(feature = "scada-display")]
 mod calibration_engine;
+mod opc_ua_server; // Batch 208 Faz 5: OPC UA address-space registry primitive
 
 use anyhow::{Context, Result};
 use std::sync::Arc;

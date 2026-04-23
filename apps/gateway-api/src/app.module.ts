@@ -17,18 +17,12 @@ import {
   simpleEstimator,
   fieldExtensionsEstimator,
 } from 'graphql-query-complexity';
-import {
-  UserContextMiddleware,
-  TenantContextMiddleware,
-  CorrelationIdMiddleware,
-  RequestLoggingMiddleware,
-  RequestContextMiddleware,
-  MetricsMiddleware,
-  RedisModule,
-  RedisService,
-  generateServiceIdentityHeaders,
-  PlatformJwtModule,
-} from '@aquaculture/backend-common';
+import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
+import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
+import { MetricsMiddleware } from '@aquaculture/backend-common/metrics';
+import { UserContextMiddleware, TenantContextMiddleware, CorrelationIdMiddleware, RequestLoggingMiddleware } from '@aquaculture/backend-common/middleware';
+import { RedisModule, RedisService } from '@aquaculture/backend-common/redis';
+import { generateServiceIdentityHeaders } from '@aquaculture/backend-common/utils';
 import { StorageModule, StorageConfig } from '@platform/storage';
 
 import { GlobalExceptionFilter } from './filters/global-exception.filter';

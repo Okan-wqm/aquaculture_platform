@@ -46,13 +46,7 @@
 
 import { TestDatabase } from '../../helpers/db.helper';
 
-// TENANT_AWARE_SCHEMAS + tenant-schema regex come from the SSoT module
-// in backend-common (MA6). This spec previously carried a local copy
-// with a tombstone comment marking the drift debt — now closed.
-import {
-  TENANT_AWARE_SCHEMAS,
-  TENANT_SCHEMA_NAME_RE as TENANT_SCHEMA_RE,
-} from '@aquaculture/backend-common';
+import { TENANT_AWARE_SCHEMAS, TENANT_SCHEMA_NAME_RE as TENANT_SCHEMA_RE } from '@aquaculture/backend-common/database';
 
 const TENANT_AWARE_SOURCE_SCHEMAS = [...TENANT_AWARE_SCHEMAS] as const;
 

@@ -1,5 +1,5 @@
 import * as crypto from 'crypto';
-import { getTenantSchemaName, tenantManagerRepo } from '@aquaculture/backend-common';
+import { getTenantSchemaName, tenantManagerRepo } from '@aquaculture/backend-common/database';
 
 import {
   Injectable,

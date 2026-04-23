@@ -23,14 +23,8 @@ import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { DataSource, IsNull, Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import DataLoader from 'dataloader';
-import {
-  TenantGuard,
-  Tenant,
-  CurrentUser,
-  CurrentUserPayload,
-  Roles,
-  Role,
-} from '@aquaculture/backend-common';
+import { Tenant, CurrentUser, CurrentUserPayload, Roles, Role } from '@aquaculture/backend-common/decorators';
+import { TenantGuard } from '@aquaculture/backend-common/guards';
 
 // Entities
 import { Channel, ChannelType } from '../entities/channel.entity';

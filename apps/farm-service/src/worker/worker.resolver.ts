@@ -1,7 +1,8 @@
 import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@platform/cqrs';
-import { TenantGuard, CurrentTenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common';
+import { CurrentTenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
+import { TenantGuard } from '@aquaculture/backend-common/guards';
 import { WorkerResponse } from './dto/worker.response';
 import { CreateWorkerInput } from './dto/create-worker.input';
 import { UpdateWorkerInput } from './dto/update-worker.input';

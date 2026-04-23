@@ -25,7 +25,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { EntityManager, Repository } from 'typeorm';
 
-import { tenantManagerRepo } from '@aquaculture/backend-common';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { StorageInventory, StorageItemType } from '../entities/storage-inventory.entity';
 import {
   LotContribution,

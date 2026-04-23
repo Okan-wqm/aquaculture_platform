@@ -2,7 +2,7 @@
  * Consumable Response Types for GraphQL
  */
 import { ObjectType, Field, Int, Float, ID } from '@nestjs/graphql';
-import { StandardPaginatedResponse } from '@aquaculture/backend-common';
+import { StandardPaginatedResponse } from '@aquaculture/backend-common/pagination';
 import { ConsumableCategory, ConsumableStatus } from '../entities/consumable.entity';
 
 @ObjectType()

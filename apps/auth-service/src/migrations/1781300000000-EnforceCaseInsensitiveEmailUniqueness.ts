@@ -1,5 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
-import { MigrationLogger } from '@aquaculture/backend-common';
+import { MigrationLogger } from '@aquaculture/backend-common/database';
 
 /**
  * EnforceCaseInsensitiveEmailUniqueness1781300000000
@@ -44,9 +44,9 @@ import { MigrationLogger } from '@aquaculture/backend-common';
  * aborts before any schema change happens. Operators then:
  *
  *   1. Investigate each duplicate pair manually
- *   2. Merge the two accounts (data migration — out of scope for this
- *      migration because it requires domain knowledge about which row
- *      to keep and which to retire)
+ *   2. Merge the two accounts (data migration not performed by this
+ *      DDL migration because row-selection requires domain knowledge about
+ *      which row to keep and which to retire)
  *   3. Re-run the migration
  *
  * This is the only safe pattern for introducing a tighter constraint

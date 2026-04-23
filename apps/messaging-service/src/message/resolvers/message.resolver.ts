@@ -17,12 +17,8 @@ import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import DataLoader from 'dataloader';
 import GraphQLJSON from 'graphql-type-json';
 import { MessagingRateLimit, MessagingRateLimitInterceptor } from '../../shared/interceptors/messaging-rate-limit.interceptor';
-import {
-  CurrentUser,
-  CurrentUserPayload,
-  Tenant,
-  TenantGuard,
-} from '@aquaculture/backend-common';
+import { CurrentUser, CurrentUserPayload, Tenant } from '@aquaculture/backend-common/decorators';
+import { TenantGuard } from '@aquaculture/backend-common/guards';
 
 import { Message } from '../entities/message.entity';
 import { MessageAttachment } from '../entities/message-attachment.entity';

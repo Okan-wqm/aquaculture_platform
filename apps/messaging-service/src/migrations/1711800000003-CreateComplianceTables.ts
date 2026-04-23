@@ -1,5 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
-import { MigrationLogger } from '@aquaculture/backend-common';
+import { MigrationLogger } from '@aquaculture/backend-common/database';
 
 /**
  * Creates compliance-related tables for the messaging service:

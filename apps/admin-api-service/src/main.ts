@@ -4,7 +4,7 @@
 // meaning reflect-metadata hasn't executed yet. This guarantees it loads first.
 import 'reflect-metadata';
 import { VersioningType, VERSION_NEUTRAL } from '@nestjs/common';
-import { bootstrapService } from '@aquaculture/backend-common';
+import { bootstrapService } from '@aquaculture/backend-common/bootstrap';
 import { AppModule } from './app.module';
 
 bootstrapService(AppModule, {

@@ -12,12 +12,8 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import {
-  Role,
-  TimingSafeService,
-  SESSION_MANAGER,
-  TOKEN_BLACKLIST,
-} from '@aquaculture/backend-common';
+import { Role } from '@aquaculture/backend-common/decorators';
+import { TimingSafeService, SESSION_MANAGER, TOKEN_BLACKLIST } from '@aquaculture/backend-common/security';
 import { DataSource, Repository, SelectQueryBuilder } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';

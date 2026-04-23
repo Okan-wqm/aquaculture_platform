@@ -5,7 +5,7 @@ import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { ConflictException, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
-import { tenantManagerRepo } from '@aquaculture/backend-common';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { CreateFeedCommand } from '../commands/create-feed.command';
 import { Feed, FeedStatus, FloatingType } from '../entities/feed.entity';
 import { FeedSite } from '../entities/feed-site.entity';

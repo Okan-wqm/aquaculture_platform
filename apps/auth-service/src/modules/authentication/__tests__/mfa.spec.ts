@@ -12,7 +12,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { Role } from '@aquaculture/backend-common';
+import { Role } from '@aquaculture/backend-common/decorators';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { User } from '../entities/user.entity';

@@ -64,7 +64,7 @@
 /* eslint-disable no-console */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { glob } from 'glob';
+import { execSync } from 'node:child_process';
 import * as ts from 'typescript';
 
 const REPO = path.resolve(__dirname, '../..');
@@ -333,21 +333,19 @@ async function main(): Promise<void> {
   const all = args.includes('--all');
   const files: string[] = [];
   if (all) {
-    const patterns = [
-      'apps/**/*.ts',
-      'libs/**/*.ts',
-      'platform/**/*.ts',
-      'tools/**/*.ts',
-      'tests/**/*.ts',
-      'e2e/**/*.ts',
-    ];
-    for (const p of patterns) {
-      const hits = await glob(p, {
-        cwd: REPO,
-        absolute: true,
-        ignore: ['**/node_modules/**', '**/dist/**', '**/*.d.ts'],
-      });
-      files.push(...hits);
+    // Use git ls-files (fast; already respects .gitignore) to collect every
+    // tracked TS file under the four roots that consume backend-common.
+    const gitOut = execSync(
+      `git -C ${REPO} ls-files -- apps libs platform tools tests e2e '*.ts' '*.tsx'`,
+      { encoding: 'utf-8', maxBuffer: 64 * 1024 * 1024 },
+    );
+    for (const rel of gitOut.split('\n')) {
+      const trimmed = rel.trim();
+      if (!trimmed) continue;
+      if (trimmed.endsWith('.d.ts')) continue;
+      if (trimmed.endsWith('.ts') || trimmed.endsWith('.tsx')) {
+        files.push(path.join(REPO, trimmed));
+      }
     }
   } else {
     for (const a of args) {

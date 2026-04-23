@@ -16,12 +16,12 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
-import { listTenantSchemas } from '@aquaculture/backend-common';
+import { listTenantSchemas } from '@aquaculture/backend-common/database';
 import { Cron } from '@nestjs/schedule';
 import { NatsEventBus } from '@platform/event-bus';
 import { createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
-import { IStandardPaginatedResult, createStandardPaginatedResult } from '@aquaculture/backend-common';
+import { IStandardPaginatedResult, createStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import { Task, TaskStatus, TaskPriority } from '../entities/task.entity';
 import { RecurringTemplate } from '../entities/recurring-template.entity';
 import { CreateTaskInput } from '../dto/create-task.dto';

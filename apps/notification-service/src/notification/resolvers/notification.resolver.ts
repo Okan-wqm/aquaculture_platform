@@ -11,7 +11,7 @@ import {
 import { Logger, UseGuards } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common';
+import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
 import { InAppNotificationService } from '../services/in-app.service';
 import { DeadLetterQueueService } from '../services/dead-letter-queue.service';
 import { DeviceToken } from '../entities/device-token.entity';

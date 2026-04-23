@@ -6,7 +6,8 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Role, getTenantSchemaName, tenantManagerRepo } from '@aquaculture/backend-common';
+import { getTenantSchemaName, tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { Role } from '@aquaculture/backend-common/decorators';
 // User stays raw because User.tenantId is nullable (platform-admin
 // users). UserModuleAssignment.tenantId is required, so it uses the
 // scoped wrapper.

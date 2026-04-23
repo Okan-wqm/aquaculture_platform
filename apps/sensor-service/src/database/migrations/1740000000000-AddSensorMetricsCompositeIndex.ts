@@ -1,5 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
-import { MigrationLogger } from '@aquaculture/backend-common';
+import { MigrationLogger } from '@aquaculture/backend-common/database';
 
 /**
  * Migration: Add composite covering index on sensor_metrics

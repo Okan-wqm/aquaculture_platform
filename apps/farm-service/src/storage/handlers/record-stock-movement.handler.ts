@@ -5,7 +5,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, EntityManager } from 'typeorm';
 import { NotFoundException, Logger, BadRequestException, Optional, Inject } from '@nestjs/common';
 import { NatsEventBus } from '@platform/event-bus';
-import { tenantManagerRepo, TenantScopedRepository } from '@aquaculture/backend-common';
+import { tenantManagerRepo, TenantScopedRepository } from '@aquaculture/backend-common/database';
 import type { StockMovementRecordedEvent, LowStockDetectedEvent } from '@platform/event-contracts';
 import { createBaseEvent } from '@platform/event-contracts';
 import { RecordStockMovementCommand } from '../commands/record-stock-movement.command';

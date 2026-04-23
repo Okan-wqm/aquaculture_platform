@@ -1,5 +1,5 @@
 import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
-import { TenantAdminOrHigher, SuperAdminOnly, CurrentUser } from '@aquaculture/backend-common';
+import { TenantAdminOrHigher, SuperAdminOnly, CurrentUser } from '@aquaculture/backend-common/decorators';
 import {
   CreateThreadInput,
   SendMessageInput,

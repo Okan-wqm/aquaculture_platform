@@ -198,6 +198,10 @@ const EXEMPT_PATHS: readonly RegExp[] = [
   // rows. The file is exempt only for the "deferred" rule; other banned
   // phrases (for now, pragmatic, etc.) still apply.
   /^apps\/hr-service\/src\/performance\/entities\/goal\.entity\.ts$/,
+  // Same rationale: the migration that CREATES the goal_status enum must
+  // ship `'deferred'` as a SQL literal to match the entity. Phrase appears
+  // inside an SQL string, not as a gating excuse.
+  /^apps\/hr-service\/src\/database\/migrations\/1736000000000-CreateHRModuleSchema\.ts$/,
 ];
 
 interface Violation {

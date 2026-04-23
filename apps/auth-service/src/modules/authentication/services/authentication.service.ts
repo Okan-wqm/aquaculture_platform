@@ -13,17 +13,10 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
-import {
-  Role,
-  TimingSafeService,
-  ISessionManager,
-  ITokenBlacklist,
-  SESSION_MANAGER,
-  TOKEN_BLACKLIST,
-  requestContextStorage,
-  getRequestContext,
-  BypassRlsService,
-} from '@aquaculture/backend-common';
+import { BypassRlsService } from '@aquaculture/backend-common/database';
+import { Role } from '@aquaculture/backend-common/decorators';
+import { requestContextStorage, getRequestContext } from '@aquaculture/backend-common/logging';
+import { TimingSafeService, ISessionManager, ITokenBlacklist, SESSION_MANAGER, TOKEN_BLACKLIST } from '@aquaculture/backend-common/security';
 import { IEventBus } from '@platform/event-bus';
 import { createBaseEvent } from '@platform/event-contracts';
 import { DataSource, Repository } from 'typeorm';

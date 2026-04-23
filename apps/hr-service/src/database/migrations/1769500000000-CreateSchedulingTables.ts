@@ -1,9 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
-import {
-  MigrationLogger,
-  pinSearchPath,
-  dropPartialTables,
-} from '@aquaculture/backend-common';
+import { MigrationLogger, pinSearchPath, dropPartialTables } from '@aquaculture/backend-common/database';
 
 const SCHEDULING_PARTIAL_STATE_TABLES = [
   'scheduling_settings',

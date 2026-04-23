@@ -8,7 +8,7 @@ import {
   ConnectionOptions,
   headers as natsHeaders,
 } from 'nats';
-import { buildNatsConnectionOptions } from '@aquaculture/backend-common';
+import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
 import * as fs from 'fs';
 
 import { STLanguageGateway } from './st-language.gateway';

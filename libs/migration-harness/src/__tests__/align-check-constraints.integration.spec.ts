@@ -1,4 +1,4 @@
-import { alignCheckConstraints, sql } from '@aquaculture/backend-common';
+import { alignCheckConstraints, sql } from '@aquaculture/backend-common/database';
 
 import {
   type HarnessContext,

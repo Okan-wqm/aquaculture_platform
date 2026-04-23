@@ -3,7 +3,7 @@
  */
 import { ObjectType, Field, Int, Float, ID, registerEnumType } from '@nestjs/graphql';
 import { GraphQLJSON } from 'graphql-type-json';
-import { StandardPaginatedResponse } from '@aquaculture/backend-common';
+import { StandardPaginatedResponse } from '@aquaculture/backend-common/pagination';
 import { FeedType } from '../entities/feed.entity';
 
 /**

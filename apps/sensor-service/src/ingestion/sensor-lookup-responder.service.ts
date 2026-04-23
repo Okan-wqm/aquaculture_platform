@@ -13,7 +13,7 @@ import {
   type Subscription,
 } from 'nats';
 
-import { buildNatsConnectionOptions } from '@aquaculture/backend-common';
+import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
 
 import { SensorMetaCacheService } from './sensor-meta-cache.service';
 

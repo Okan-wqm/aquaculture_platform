@@ -2,7 +2,7 @@
  * Chemical Response Types for GraphQL
  */
 import { ObjectType, Field, Int, Float, ID, registerEnumType } from '@nestjs/graphql';
-import { StandardPaginatedResponse } from '@aquaculture/backend-common';
+import { StandardPaginatedResponse } from '@aquaculture/backend-common/pagination';
 import { ChemicalType, ChemicalStatus } from '../entities/chemical.entity';
 
 // Register enums for GraphQL

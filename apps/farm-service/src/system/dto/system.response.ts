@@ -2,7 +2,7 @@
  * System Response Types for GraphQL
  */
 import { ObjectType, Field, Int, Float, ID } from '@nestjs/graphql';
-import { StandardPaginatedResponse } from '@aquaculture/backend-common';
+import { StandardPaginatedResponse } from '@aquaculture/backend-common/pagination';
 import { SystemType, SystemStatus } from '../entities/system.entity';
 import { SiteResponse } from '../../site/dto/site.response';
 import { DepartmentResponse } from '../../department/dto/department.response';

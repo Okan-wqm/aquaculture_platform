@@ -16,7 +16,7 @@ import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { Logger, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
-import { tenantManagerRepo } from '@aquaculture/backend-common';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { ApproveInventoryCountCommand } from '../commands/approve-inventory-count.command';
 import { InventoryCount, InventoryCountStatus } from '../entities/inventory-count.entity';
 import { InventoryCountItem } from '../entities/inventory-count-item.entity';

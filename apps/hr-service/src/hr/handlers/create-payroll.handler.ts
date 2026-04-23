@@ -2,7 +2,7 @@ import { Injectable, NotFoundException, ConflictException, BadRequestException, 
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, Between } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
-import { Money } from '@aquaculture/backend-common';
+import { Money } from '@aquaculture/backend-common/monetary';
 import { CreatePayrollCommand } from '../commands/create-payroll.command';
 import { Payroll, PayrollStatus, EarningsBreakdown, DeductionsBreakdown } from '../entities/payroll.entity';
 import { PayrollAudit, PayrollAuditAction } from '../entities/payroll-audit.entity';

@@ -1,5 +1,5 @@
 import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
-import { Tenant, CurrentUser, CurrentUserPayload, Roles, Role } from '@aquaculture/backend-common';
+import { Tenant, CurrentUser, CurrentUserPayload, Roles, Role } from '@aquaculture/backend-common/decorators';
 
 import {
   CreateProcessInput,

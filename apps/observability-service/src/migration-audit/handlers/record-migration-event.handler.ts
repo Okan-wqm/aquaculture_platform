@@ -4,10 +4,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { CommandHandler, type ICommandHandler } from '@platform/cqrs';
 import { Repository } from 'typeorm';
 
-import {
-  hmacTenantHash,
-  sanitizePgError,
-} from '@aquaculture/backend-common';
+import { hmacTenantHash, sanitizePgError } from '@aquaculture/backend-common/utils';
 
 import { RecordMigrationEventCommand } from '../commands/record-migration-event.command';
 import { MigrationEventRepository } from '../repositories/migration-event.repository';

@@ -6,11 +6,8 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
-import {
-  Role,
-  ISessionManager,
-  SESSION_MANAGER,
-} from '@aquaculture/backend-common';
+import { Role } from '@aquaculture/backend-common/decorators';
+import { ISessionManager, SESSION_MANAGER } from '@aquaculture/backend-common/security';
 
 import { SECURITY_CONSTANTS } from '../../../constants/auth.constants';
 import { RefreshToken } from '../entities/refresh-token.entity';

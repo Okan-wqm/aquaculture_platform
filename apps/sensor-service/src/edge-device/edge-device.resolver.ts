@@ -10,7 +10,7 @@ import {
   Parent,
 } from '@nestjs/graphql';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common';
+import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
 import { Repository } from 'typeorm';
 
 import { AutomationProgram, ProgramStatus } from '../automation/entities/automation-program.entity';

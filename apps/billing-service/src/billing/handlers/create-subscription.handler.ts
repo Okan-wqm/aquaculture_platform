@@ -3,7 +3,9 @@ import { DataSource, QueryRunner } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { NatsEventBus } from '@platform/event-bus';
 import { createBaseEvent, SubscriptionCreatedEvent } from '@platform/event-contracts';
-import { AuditedOperation, RedisService, tenantManagerRepo } from '@aquaculture/backend-common';
+import { AuditedOperation } from '@aquaculture/backend-common/audit';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { RedisService } from '@aquaculture/backend-common/redis';
 import { CreateSubscriptionCommand } from '../commands/create-subscription.command';
 import { Subscription, SubscriptionStatus, BillingCycle, PlanTier } from '../entities/subscription.entity';
 

@@ -9,13 +9,9 @@ import { Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import {
-  IS_PUBLIC_KEY,
-  ITokenBlacklist,
-  TOKEN_BLACKLIST,
-  getJwtVerifyOptions,
-  enforceAccessTokenType,
-} from '@aquaculture/backend-common';
+import { getJwtVerifyOptions, enforceAccessTokenType } from '@aquaculture/backend-common/auth';
+import { IS_PUBLIC_KEY } from '@aquaculture/backend-common/decorators';
+import { ITokenBlacklist, TOKEN_BLACKLIST } from '@aquaculture/backend-common/security';
 import { Logger } from '@nestjs/common';
 import { Request } from 'express';
 

@@ -3,7 +3,7 @@ import { DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { NatsEventBus } from '@platform/event-bus';
 import { createBaseEvent, SubscriptionCancelledEvent } from '@platform/event-contracts';
-import { RedisService } from '@aquaculture/backend-common';
+import { RedisService } from '@aquaculture/backend-common/redis';
 import { CancelSubscriptionCommand } from '../commands/cancel-subscription.command';
 import { Subscription, SubscriptionStatus } from '../entities/subscription.entity';
 

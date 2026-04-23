@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException, ConflictException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { SchemaManagerService } from '@aquaculture/backend-common';
+import { SchemaManagerService } from '@aquaculture/backend-common/database';
 import { DataSource } from 'typeorm';
 
 import { PanelPermissions, panelPermissionsToResourceArray } from '../entities/tenant-role-permissions.entity';

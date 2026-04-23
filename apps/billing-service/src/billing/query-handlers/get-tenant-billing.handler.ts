@@ -1,7 +1,8 @@
 import { Injectable, Optional } from '@nestjs/common';
 import { DataSource, In } from 'typeorm';
 import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
-import { RedisService, TenantScopedRepository } from '@aquaculture/backend-common';
+import { TenantScopedRepository } from '@aquaculture/backend-common/database';
+import { RedisService } from '@aquaculture/backend-common/redis';
 import { GetTenantBillingQuery } from '../queries/get-tenant-billing.query';
 import {
   TenantBillingResponse,

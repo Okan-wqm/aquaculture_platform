@@ -1,21 +1,6 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-/**
- * Migration: Add Regulatory Settings Table
- *
- * Creates regulatory_settings table for storing:
- * - Company information (name, org number, address)
- * - Maskinporten OAuth2 credentials (encrypted)
- * - Default contact information
- * - Site → Lokalitetsnummer mappings
- * - Slaughter facility approval number
- *
- * IMPORTANT: This migration follows schema-level tenant isolation:
- * 1. Creates source table in 'farm' schema (template)
- * 2. Copies to all existing tenant schemas using CREATE TABLE LIKE
- * 3. New tenants get the table automatically via MODULE_SCHEMAS
- */
-import { MigrationLogger, assertSafeSchemaName } from '@aquaculture/backend-common';
+import { MigrationLogger, assertSafeSchemaName } from '@aquaculture/backend-common/database';
 
 export class AddRegulatorySettings1769000000000 implements MigrationInterface {
   private readonly logger = new MigrationLogger('AddRegulatorySettings1769000000000');

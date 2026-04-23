@@ -10,7 +10,11 @@ import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core'
 import { join } from 'path';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import depthLimit from 'graphql-depth-limit';
-import { TenantContextMiddleware, CorrelationIdMiddleware, RequestContextMiddleware, UserContextMiddleware, TenantGuard, RolesGuard, RedisModule, SourceSchemaBootstrapService, ServiceIdentityGuard, createTenantSchemaMiddleware, createTenantConnectionBootstrap, TenantSchemaSyncService, SourceSchemaWriteGuardService, RlsModule, createMigrationRunnerService, SchemaDriftModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common';
+import { SourceSchemaBootstrapService, createTenantConnectionBootstrap, TenantSchemaSyncService, SourceSchemaWriteGuardService, RlsModule, createMigrationRunnerService, SchemaDriftModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common/database';
+import { TenantGuard, RolesGuard, ServiceIdentityGuard } from '@aquaculture/backend-common/guards';
+import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
+import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware, createTenantSchemaMiddleware } from '@aquaculture/backend-common/middleware';
+import { RedisModule } from '@aquaculture/backend-common/redis';
 import { AuditLogModule, AuditLogInterceptor } from '@aquaculture/backend-common/audit';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('alert');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('alert');

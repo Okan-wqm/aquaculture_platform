@@ -1,6 +1,6 @@
 import { Controller, Optional } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { StandardHealthController } from '@aquaculture/backend-common';
+import { StandardHealthController } from '@aquaculture/backend-common/health';
 import { DataSource } from 'typeorm';
 import { SmsService } from '../notification/services/sms.service';
 import { PushService } from '../notification/services/push.service';

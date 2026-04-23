@@ -29,7 +29,7 @@ import {
   AuthenticatedRequest,
   GqlContext,
 } from '../types/index';
-import { getJwtVerifyOptions } from '@aquaculture/backend-common';
+import { getJwtVerifyOptions } from '@aquaculture/backend-common/auth';
 import {
   TokenBlacklistStore,
   TOKEN_BLACKLIST_STORE,
@@ -37,7 +37,7 @@ import {
 } from './redis-token-blacklist.store';
 import { ApiKeyAuthStrategy } from './strategies/api-key-auth.strategy';
 import { BasicAuthStrategy } from './strategies/basic-auth.strategy';
-import { enforceAccessTokenType } from '@aquaculture/backend-common';
+import { enforceAccessTokenType } from '@aquaculture/backend-common/auth';
 
 /**
  * Public route decorator — marks a route as publicly accessible without authentication

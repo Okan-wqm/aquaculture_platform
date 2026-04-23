@@ -11,7 +11,11 @@ import {
 import { ScheduleModule } from '@nestjs/schedule';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import depthLimit from 'graphql-depth-limit';
-import { RedisModule, TenantGuard, RolesGuard, LoggingModule, ServiceIdentityGuard, UserContextMiddleware, TenantContextMiddleware, RlsModule, AuditColumnsModule, createMigrationRunnerService, SchemaDriftModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common';
+import { RlsModule, AuditColumnsModule, createMigrationRunnerService, SchemaDriftModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common/database';
+import { TenantGuard, RolesGuard, ServiceIdentityGuard } from '@aquaculture/backend-common/guards';
+import { LoggingModule } from '@aquaculture/backend-common/logging';
+import { UserContextMiddleware, TenantContextMiddleware } from '@aquaculture/backend-common/middleware';
+import { RedisModule } from '@aquaculture/backend-common/redis';
 import { AuditLogModule, AuditLogInterceptor } from '@aquaculture/backend-common/audit';
 
 /**

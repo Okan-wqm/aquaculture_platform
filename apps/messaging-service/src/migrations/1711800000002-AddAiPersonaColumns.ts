@@ -9,8 +9,8 @@
  * @see ADR-012 Phase 4 (AI Persona-Based Messaging Channels)
  */
 import { MigrationInterface, QueryRunner } from 'typeorm';
-import { MigrationLogger } from '@aquaculture/backend-common';
-import { assertSafeSchemaName } from '@aquaculture/backend-common';
+import { MigrationLogger } from '@aquaculture/backend-common/database';
+import { assertSafeSchemaName } from '@aquaculture/backend-common/database';
 
 export class AddAiPersonaColumns1711800000002 implements MigrationInterface {
   private readonly logger = new MigrationLogger('AddAiPersonaColumns1711800000002');

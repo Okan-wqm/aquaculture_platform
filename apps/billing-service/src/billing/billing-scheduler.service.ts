@@ -4,7 +4,7 @@ import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, LessThanOrEqual, LessThan, In } from 'typeorm';
 import { NatsEventBus } from '@platform/event-bus';
 import { createBaseEvent, InvoiceGeneratedEvent } from '@platform/event-contracts';
-import { Money } from '@aquaculture/backend-common';
+import { Money } from '@aquaculture/backend-common/monetary';
 import { Subscription, SubscriptionStatus, BillingCycle } from './entities/subscription.entity';
 import { ScheduledPlanChange, ScheduledChangeStatus } from './entities/scheduled-plan-change.entity';
 import { Invoice, InvoiceStatus } from './entities/invoice.entity';

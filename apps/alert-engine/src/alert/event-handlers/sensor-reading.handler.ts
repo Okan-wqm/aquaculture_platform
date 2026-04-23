@@ -1,7 +1,8 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Inject } from '@nestjs/common';
 import { IEventBus, IEventHandler, IEvent } from '@platform/event-bus';
-import { requestContextStorage, RequestContext, getTenantSchemaName, isValidUUID } from '@aquaculture/backend-common';
+import { getTenantSchemaName, isValidUUID } from '@aquaculture/backend-common/database';
+import { requestContextStorage, RequestContext } from '@aquaculture/backend-common/logging';
 import { AlertEvaluationService } from '../services/alert-evaluation.service';
 
 // UUID validation imported from @aquaculture/backend-common (isValidUUID)

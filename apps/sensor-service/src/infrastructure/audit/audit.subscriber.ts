@@ -6,7 +6,8 @@ import {
   UpdateEvent,
   RemoveEvent,
 } from 'typeorm';
-import { getRequestContext, SENSITIVE_FIELDS_SET } from '@aquaculture/backend-common';
+import { getRequestContext } from '@aquaculture/backend-common/logging';
+import { SENSITIVE_FIELDS_SET } from '@aquaculture/backend-common/security';
 import { isAuditable } from './auditable.decorator';
 
 /**

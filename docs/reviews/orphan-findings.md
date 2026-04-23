@@ -1026,3 +1026,40 @@ Should `DeviceIoConfig` gain a `tenantId` column?
 A follow-up PR that lands the `tenantId` column migration + entity update can delete the eslint-disable comment in `bulkAddIoConfigs` AND rewrite the line to `tenantManagerRepo(manager, DeviceIoConfig, tenantId)`, carrying `Closes: docs/reviews/orphan-findings.md#ORPHAN-DIC-001`.
 
 Until then this ORPHAN documents why the getRepository rule has a single sensor-service exception with a traceable reference — an architectural acknowledgement, not a patch.
+
+---
+
+## ORPHAN-REF-DATA-001 — sensor-service `industry_templates` schema consolidation
+
+**Severity:** LOW — reference-data cleanup, not a correctness or security issue
+**Discovered:** 2026-04-23 (referenced from apps/sensor-service/src/database/migrations/1786000100000-MovePublicTablesToSensor.ts)
+**Owner:** sensor-expert
+
+**Context:**
+
+The sensor-service schema migration `1786000100000-MovePublicTablesToSensor.ts`
+moved 14 tenant-scoped reference-data tables out of `public` into the
+`sensor` schema. `industry_templates` is also listed under
+`MODULE_SCHEMAS[sensor].referenceDataTables` but was explicitly excluded
+from that batch because it has no `tenantId` column and therefore was
+never in the original RLS scope.
+
+**Why it wasn't included:**
+
+- No `tenantId` column → RLS policy installation would be a no-op
+- The 14-table batch was sized to the tenant-scoped set specifically
+- A `SET SCHEMA` for a non-tenant reference-data table is a trivially
+  isolated operation; bundling it with the tenant-scoped migration
+  mixed two concerns.
+
+**Closure path:**
+
+Small follow-up migration that runs
+`ALTER TABLE public.industry_templates SET SCHEMA sensor;` plus a
+`SchemaDriftValidator` expectation update. No data migration, no
+downtime risk. Would carry
+`Closes: docs/reviews/orphan-findings.md#ORPHAN-REF-DATA-001`.
+
+Tracked here (not in the audit registry) because it is pre-existing
+reference-data hygiene, not a cold-audit finding — the audit plan's
+scope was the tenant-scoped RLS table set, which is complete.

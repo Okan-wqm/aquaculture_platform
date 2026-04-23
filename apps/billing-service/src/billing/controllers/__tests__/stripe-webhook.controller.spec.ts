@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { createHmac } from 'crypto';
-import { RedisService } from '@aquaculture/backend-common';
+import { RedisService } from '@aquaculture/backend-common/redis';
 import { StripeWebhookController } from '../stripe-webhook.controller';
 import { StripeWebhookService } from '../stripe-webhook.service';
 

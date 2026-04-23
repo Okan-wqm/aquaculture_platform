@@ -27,7 +27,8 @@ import { DeviceEvent, DeviceEventType, DeviceEventSeverity } from '../edge-devic
 import { DeviceIoConfig } from '../edge-device/entities/device-io-config.entity';
 import { EdgeDevice } from '../edge-device/entities/edge-device.entity';
 import { EdgeDeviceService, DeviceHeartbeat } from '../edge-device/edge-device.service';
-import { getTenantSchemaName, withTenantContext, TenantScopedRepository } from '@aquaculture/backend-common';
+import { withTenantContext } from '@aquaculture/backend-common/context';
+import { getTenantSchemaName, TenantScopedRepository } from '@aquaculture/backend-common/database';
 import { MqttClientService } from '../shared-mqtt/mqtt-client.service';
 import { SensorServiceProfileService } from '../config/sensor-service-profile.service';
 import { SensorTopicCacheService, CachedSensorInfo } from './sensor-topic-cache.service';

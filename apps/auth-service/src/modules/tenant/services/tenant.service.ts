@@ -7,7 +7,8 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { Role, SchemaManagerService, DEFAULT_TENANT_MODULES, getTenantSchemaName, tenantManagerRepo } from '@aquaculture/backend-common';
+import { SchemaManagerService, DEFAULT_TENANT_MODULES, getTenantSchemaName, tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { Role } from '@aquaculture/backend-common/decorators';
 import { IEventBus } from '@platform/event-bus';
 import {
   TenantCreatedEvent,

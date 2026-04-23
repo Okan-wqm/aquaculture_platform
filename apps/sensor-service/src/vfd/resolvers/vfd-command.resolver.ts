@@ -1,6 +1,8 @@
 import { UseGuards } from '@nestjs/common';
 import { Resolver, Query, Mutation, Args, ID, Float, ObjectType, Field } from '@nestjs/graphql';
-import { Roles, Role, TenantGuard, Tenant, ThrottleSensitive } from '@aquaculture/backend-common';
+import { Roles, Role, Tenant } from '@aquaculture/backend-common/decorators';
+import { TenantGuard } from '@aquaculture/backend-common/guards';
+import { ThrottleSensitive } from '@aquaculture/backend-common/security';
 import { GraphQLJSON } from 'graphql-scalars';
 
 import { VFD_BRAND_COMMANDS } from '../brand-configs';

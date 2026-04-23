@@ -13,7 +13,7 @@ import {
   JoinColumn,
   VersionColumn,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import { registerEnumType } from '@nestjs/graphql';
 import type { Supplier } from '../../supplier/entities/supplier.entity';
 

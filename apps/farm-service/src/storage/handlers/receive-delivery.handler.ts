@@ -2,7 +2,7 @@ import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { Logger, NotFoundException, BadRequestException } from '@nestjs/common';
-import { tenantManagerRepo } from '@aquaculture/backend-common';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { ReceiveDeliveryCommand } from '../commands/receive-delivery.command';
 import { PurchaseOrder, PurchaseOrderStatus, PurchaseOrderCategory } from '../entities/purchase-order.entity';
 import { PurchaseOrderItem } from '../entities/purchase-order-item.entity';

@@ -555,7 +555,8 @@
       "Bash(sed 's/:.*$//')",
       "Bash(bash /tmp/check_lane_b.sh)",
       "Bash(mkdir -p docs/reviews/prompt-writer/)",
-      "Bash(mkdir -p /tmp/prompt-writer-stubs/)"
+      "Bash(mkdir -p /tmp/prompt-writer-stubs/)",
+      "Bash(awk -F/ '/^apps\\\\//{print $2}')"
     ],
     "deny": [],
     "ask": []

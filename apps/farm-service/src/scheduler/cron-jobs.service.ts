@@ -17,7 +17,7 @@ import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression, SchedulerRegistry } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, DataSource } from 'typeorm';
-import { listTenantSchemas } from '@aquaculture/backend-common';
+import { listTenantSchemas } from '@aquaculture/backend-common/database';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
 // Entities

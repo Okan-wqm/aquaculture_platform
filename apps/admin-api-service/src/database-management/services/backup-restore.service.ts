@@ -15,7 +15,7 @@ import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, LessThan } from 'typeorm';
-import { isValidSchemaName } from '@aquaculture/backend-common';
+import { isValidSchemaName } from '@aquaculture/backend-common/database';
 
 const execFileAsync = promisify(execFile);
 

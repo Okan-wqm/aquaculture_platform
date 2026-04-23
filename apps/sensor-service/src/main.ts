@@ -2,7 +2,7 @@
 import 'reflect-metadata';
 import { BadRequestException, Logger, ValidationPipe } from '@nestjs/common';
 import { ValidationError } from 'class-validator';
-import { bootstrapService } from '@aquaculture/backend-common';
+import { bootstrapService } from '@aquaculture/backend-common/bootstrap';
 import { AppModule } from './app.module';
 
 // ── Custom Validation Pipe ──

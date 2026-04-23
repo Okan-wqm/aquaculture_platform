@@ -1,9 +1,6 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 import { Logger } from '@nestjs/common';
-import {
-  applyTenantRlsToSchema,
-  removeTenantRlsFromSchema,
-} from '@aquaculture/backend-common';
+import { applyTenantRlsToSchema, removeTenantRlsFromSchema } from '@aquaculture/backend-common/database';
 
 /**
  * Migration: Install canonical tenant_isolation_policy on all tenant-scoped

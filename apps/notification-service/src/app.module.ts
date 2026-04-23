@@ -8,7 +8,12 @@ import {
 } from '@nestjs/apollo';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
 import depthLimit from 'graphql-depth-limit';
-import { CorrelationIdMiddleware, RequestContextMiddleware, UserContextMiddleware, TenantContextMiddleware, RedisModule, ServiceIdentityGuard, TenantGuard, RolesGuard, RlsModule, AuditColumnsModule, createMigrationRunnerService, SchemaDriftModule, PlatformJwtModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common';
+import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
+import { RlsModule, AuditColumnsModule, createMigrationRunnerService, SchemaDriftModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common/database';
+import { ServiceIdentityGuard, TenantGuard, RolesGuard } from '@aquaculture/backend-common/guards';
+import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
+import { CorrelationIdMiddleware, UserContextMiddleware, TenantContextMiddleware } from '@aquaculture/backend-common/middleware';
+import { RedisModule } from '@aquaculture/backend-common/redis';
 import { AuditLogModule, AuditLogInterceptor } from '@aquaculture/backend-common/audit';
 
 /**

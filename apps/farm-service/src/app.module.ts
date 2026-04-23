@@ -10,18 +10,12 @@ import { APP_FILTER, APP_GUARD, Reflector } from '@nestjs/core';
 import { join } from 'path';
 import { Request } from 'express';
 import depthLimit from 'graphql-depth-limit';
-import {
-  TenantContextMiddleware,
-  CorrelationIdMiddleware,
-  RequestContextMiddleware,
-  TenantGuard,
-  RolesGuard,
-  UserContextMiddleware,
-  SourceSchemaBootstrapService,
-  ServiceIdentityGuard,
-  ThrottlerModule,
-  PlatformJwtModule,
-} from '@aquaculture/backend-common';
+import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
+import { SourceSchemaBootstrapService } from '@aquaculture/backend-common/database';
+import { TenantGuard, RolesGuard, ServiceIdentityGuard } from '@aquaculture/backend-common/guards';
+import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
+import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware } from '@aquaculture/backend-common/middleware';
+import { ThrottlerModule } from '@aquaculture/backend-common/security';
 
 /**
  * Extended request interface for GraphQL context
@@ -32,7 +26,8 @@ interface GraphQLContextRequest extends Request {
     roles: string[];
   };
 }
-import { createTenantSchemaMiddleware, createTenantConnectionBootstrap, TenantSchemaSyncService, SourceSchemaWriteGuardService, RlsModule, SchemaDriftModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common';
+import { createTenantConnectionBootstrap, TenantSchemaSyncService, SourceSchemaWriteGuardService, RlsModule, SchemaDriftModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common/database';
+import { createTenantSchemaMiddleware } from '@aquaculture/backend-common/middleware';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('farm');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('farm');
 import { WatchdogCronService } from './infrastructure/watchdog-cron.service';

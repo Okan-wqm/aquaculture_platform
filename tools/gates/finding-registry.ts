@@ -52,10 +52,37 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+// ESM module with .js extension — ts-node in this CLI runs in ESM
+// mode (finding-registry.ts uses import.meta.url above), so the
+// specifier needs the explicit file extension. The Jest invariant
+// test uses the same module via ts-jest with different interop and
+// omits the extension there.
+import Ajv2020Mod, { type ValidateFunction } from 'ajv/dist/2020.js';
+const Ajv2020 = (Ajv2020Mod as unknown as { default?: typeof Ajv2020Mod }).default ?? Ajv2020Mod;
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const REGISTRY_PATH = resolve(REPO_ROOT, 'docs', 'reviews', '_registry', 'findings.jsonl');
+const SCHEMA_PATH = resolve(REPO_ROOT, 'docs', 'reviews', '_registry', 'findings.jsonl.schema.json');
 const ZERO_HASH = '0'.repeat(64);
+
+/**
+ * Ajv-compiled validator for the finding schema. Compiled once at
+ * first-use; exits 1 if the stub fails validation. This is the
+ * add-time half of the Tier-1 defence (companion to the
+ * finding-registry-integrity Jest invariant that validates the whole
+ * ledger in CI). Before this existed, historical seed scripts wrote
+ * entries with free-text evidence and over-long titles that violated
+ * the schema; those entries survived until the invariant ran post-hoc.
+ * Now every append is schema-checked before the hash chain advances.
+ */
+let cachedValidator: ValidateFunction | null = null;
+function loadStubValidator(): ValidateFunction {
+  if (cachedValidator) return cachedValidator;
+  const schema = JSON.parse(readFileSync(SCHEMA_PATH, 'utf8')) as object;
+  const ajv = new Ajv2020({ allErrors: true, strict: false });
+  cachedValidator = ajv.compile(schema);
+  return cachedValidator;
+}
 
 /**
  * Finding schema mirror — narrow to what the CLI touches. The canonical
@@ -241,9 +268,25 @@ function cmdAdd(stubPath: string): number {
     owner_user: stub.owner_user ?? null,
     override_of: stub.override_of ?? null,
     notes: stub.notes ?? '',
+    ...(stub.narrative ? { narrative: stub.narrative } : {}),
     prev_hash: ZERO_HASH, // fixed by rechain
     content_hash: ZERO_HASH, // fixed by rechain
   };
+
+  // Schema validation BEFORE rechain: reject malformed stubs at the
+  // earliest point. The prev_hash/content_hash placeholders match the
+  // schema's pattern rule (64-hex OR 64-zero), so validation can run
+  // pre-rechain. This guarantees no schema-violating entry ever hits
+  // the JSONL — the invariant test becomes a belt-and-suspenders
+  // check rather than the primary defence.
+  const validate = loadStubValidator();
+  if (!validate(newEntry)) {
+    console.error('Stub failed schema validation:');
+    for (const err of validate.errors ?? []) {
+      console.error(`  ${err.instancePath || '<root>'}: ${err.message} (${err.keyword})`);
+    }
+    return 1;
+  }
 
   entries.push(newEntry);
   rechain(entries, entries.length - 1);

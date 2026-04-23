@@ -19,8 +19,8 @@
   "properties": {
     "id": {
       "type": "string",
-      "pattern": "^(DATA|SEC|PLAT|FE|EDGE|MT|FARM|SENSOR|HR|MSG|ADMIN|ANTI|ADR|AUDIT|CTX|INFRA|PROC|P0|COMPLIANCE|PERF|OBS|SUPPLY|CONTRACT|CIRCUIT|MEM|CLAUDE|BILLING|ALERT|LEGAL|AUDITTRAIL|TENANTCOST|AISAFETY|PRODUCT|DEPLOY)-(CRITICAL|HIGH|MEDIUM|LOW)-[0-9]{3}$",
-      "description": "Finding ID per _shared/output-format.md. Format: {PREFIX}-{SEVERITY}-{NNN}. P0 reserved for Phase-0 audit bootstrap. PRODUCT-* reserved for test-agents lane-B (Phase 13). DEPLOY-* reserved for deploy-resilience findings (ADR-016 class). Other prefixes match agent finding-id-prefix sections."
+      "pattern": "^(DATA|SEC|PLAT|FE|EDGE|MT|FARM|SENSOR|HR|MSG|ADMIN|ANTI|ADR|AUDIT|CTX|INFRA|PROC|P0|COMPLIANCE|PERF|OBS|SUPPLY|CONTRACT|CIRCUIT|MEM|CLAUDE|BILLING|ALERT|LEGAL|AUDITTRAIL|TENANTCOST|AISAFETY|PRODUCT|DEPLOY|RUST)-(CRITICAL|HIGH|MEDIUM|LOW|CVE)-[0-9]{3}$",
+      "description": "Finding ID per _shared/output-format.md. Format: {PREFIX}-{CLASSIFIER}-{NNN}. CLASSIFIER is usually severity (CRITICAL|HIGH|MEDIUM|LOW); CVE is a separate classifier for findings sourced from CVE databases (RUSTSEC/GHSA etc.) whose identity is upstream-stable even as severity mutates. P0 reserved for Phase-0 audit bootstrap. PRODUCT-* reserved for test-agents lane-B (Phase 13). DEPLOY-* reserved for deploy-resilience findings (ADR-016 class). RUST-* reserved for Rust sidecar (sens-api-gateway, sensor-ingestion) findings. Other prefixes match agent finding-id-prefix sections."
     },
     "severity": {
       "enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW"],
@@ -108,6 +108,11 @@
     "notes": {
       "type": "string",
       "description": "Free-text notes. No structural requirements; avoid sensitive data — the jsonl is committed to the repo."
+    },
+    "narrative": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Free-form multi-paragraph context entries, captured when an incident note is too large for a single `notes` string and is not a precise `file:line` citation that belongs in `evidence`. Optional companion to `evidence`; `evidence` remains the canonical locus for file:line references."
     }
   },
   "allOf": [

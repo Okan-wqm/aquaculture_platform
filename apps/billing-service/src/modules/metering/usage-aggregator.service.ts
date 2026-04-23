@@ -165,8 +165,14 @@ export class UsageAggregatorService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   async onModuleInit(): Promise<void> {
-    // Initialize repositories from DataSource
+    // Initialize repositories at module init — this service is a cross-
+    // tenant aggregator (runs a 30s persistence interval + periodic
+    // rollups across ALL tenants in one pass). tenantManagerRepo is
+    // not applicable because no single tenantId holds for the service's
+    // lifetime; every downstream query pins tenantId explicitly.
+    // eslint-disable-next-line no-restricted-syntax -- cross-tenant aggregator
     this.aggregationRepository = this.dataSource.getRepository(UsageAggregation);
+    // eslint-disable-next-line no-restricted-syntax -- cross-tenant aggregator
     this.hourlyDataRepository = this.dataSource.getRepository(UsageHourlyData);
 
     this.initializeDefaultRollupConfigs();

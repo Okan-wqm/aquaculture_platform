@@ -470,9 +470,10 @@ export class BillingSchedulerService {
    * Every hour, find PENDING scheduled plan changes whose effectiveDate
    * has passed and apply them to the subscription.
    *
-   * WHY: Downgrades are intentionally scheduled to billing period end so
-   * tenants keep access to features they've already paid for. This cron
-   * job is the mechanism that actually applies the scheduled change.
+   * WHY: Downgrades are intentionally scheduled for billing-period end
+   * so tenants keep access to features they have already paid for.
+   * This cron is the mechanism that applies the scheduled change once
+   * effectiveDate has passed.
    *
    * SECURITY: Uses pg_try_advisory_lock to prevent concurrent execution
    * across multiple billing-service instances.
@@ -495,6 +496,11 @@ export class BillingSchedulerService {
     }
 
     try {
+      // Cross-tenant cron scan: processes pending plan changes for every
+      // tenant in one pass. tenantId is not fixed at query time because
+      // the cron job has no current tenant context — each matched row's
+      // tenantId drives the downstream per-tenant transaction.
+      // eslint-disable-next-line no-restricted-syntax -- cross-tenant cron scan
       const changeRepo = this.dataSource.getRepository(ScheduledPlanChange);
 
       const pendingChanges = await changeRepo.find({

@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { DataSource, FindOptionsWhere, MoreThanOrEqual, LessThanOrEqual, Between } from 'typeorm';
 import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
+import { TenantScopedRepository } from '@aquaculture/backend-common';
 import { GetPaymentsQuery } from '../queries/get-payments.query';
 import { Payment } from '../entities/payment.entity';
 
@@ -12,13 +13,13 @@ export class GetPaymentsHandler implements IQueryHandler<GetPaymentsQuery, Payme
   async execute(query: GetPaymentsQuery): Promise<Payment[]> {
     const { tenantId, filter } = query;
 
-    const paymentRepo = this.dataSource.getRepository(Payment);
+    const paymentRepo = TenantScopedRepository.create(this.dataSource, Payment, tenantId);
 
-    // tenantId is always included in the WHERE clause, which enforces tenant isolation
-    // and prevents IDOR without requiring a separate invoice ownership lookup.
-    // A payment row for a given invoiceId that belongs to a different tenant simply
-    // will not match because tenantId is part of the composite filter.
-    const where: FindOptionsWhere<Payment> = { tenantId };
+    // tenantId is auto-injected by TenantScopedRepository — the
+    // IDOR/cross-tenant payment-for-another-tenant's-invoice risk is
+    // closed by construction (previously relied on the manual
+    // composite-where convention documented below).
+    const where: FindOptionsWhere<Payment> = {};
 
     if (filter?.invoiceId) {
       where.invoiceId = filter.invoiceId;

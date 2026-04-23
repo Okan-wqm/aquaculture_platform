@@ -1,6 +1,7 @@
 import { Injectable, Optional } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
+import { TenantScopedRepository } from '@aquaculture/backend-common/database';
 import { RedisService } from '@aquaculture/backend-common/redis';
 import { GetSubscriptionQuery } from '../queries/get-subscription.query';
 import { Subscription } from '../entities/subscription.entity';
@@ -28,10 +29,10 @@ export class GetSubscriptionHandler
       if (cached) return cached;
     }
 
-    const subscriptionRepo = this.dataSource.getRepository(Subscription);
+    const subscriptionRepo = TenantScopedRepository.create(this.dataSource, Subscription, tenantId);
 
     const subscription = await subscriptionRepo.findOne({
-      where: { tenantId },
+      where: {},
       order: { createdAt: 'DESC' },
     });
 

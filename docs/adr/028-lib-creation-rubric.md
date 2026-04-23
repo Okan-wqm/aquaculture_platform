@@ -59,6 +59,7 @@ Every path below has a Nx project.json + tsconfig.json + package.json. Columns d
 | `libs/migration-harness` | libs/backend-common/ (deploy-time only) | apps/db-migrate CLI |
 | `libs/shared-contracts` | libs/event-contracts/ (schema SSoT sibling) | event-contracts consumers |
 | `libs/sdk` | libs/<domain>/ (TypeScript SDK generator outputs) | scripts/sdk codegen, agent harness |
+| `libs/sensor-automation-types` | libs/<domain>/ (IEC 61131 ST AST types) | apps/sensor-service parser/analyzer/formatter, web/modules/sensor-module simulator |
 | `libs/shared` | libs/backend-common/ (cross-service decorators + errors) | every backend service via `@platform/shared` |
 | `libs/storage` | libs/backend-common/ (MinIO object storage client) | messaging, ai, billing services |
 | `libs/testing` | libs/backend-common/ (test factories + fixtures) | every backend service's spec files |
@@ -69,7 +70,7 @@ Every path below has a Nx project.json + tsconfig.json + package.json. Columns d
 
 **Pending additions (not yet on disk — will join the inventory above when the cold-audit remediation commits land):**
 
-- `libs/sensor-automation-types` — pending AUDIT-HIGH-005 (Phase C.3). Rubric row: libs/<domain>/. Consumers: apps/sensor-service, web/sensor-module, sens-api-gateway.
+_(None currently pending. `libs/sensor-automation-types` was promoted from this list to the main table when AUDIT-HIGH-005 landed on 2026-04-23.)_
 
 ## Enforcement (Phase E.1 of the cold-audit plan)
 

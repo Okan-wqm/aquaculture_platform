@@ -25,6 +25,7 @@ import { UseGuards } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { TenantGuard, CurrentTenant, CurrentUser, Roles, Role, StandardPaginationInput, StandardPaginatedResponse, fromCqrsPaginated, IStandardPaginatedResult } from '@aquaculture/backend-common';
+import { Cacheable } from '../../common/cache/cacheable.decorator';
 import GraphQLJSON from 'graphql-type-json';
 
 // Entities
@@ -444,8 +445,14 @@ export class GrowthResolver {
   }
 
   /**
-   * Get growth analysis for a batch
+   * Get growth analysis for a batch.
+   *
+   * Phase 7.3.1 — cached via @Cacheable with 2-hour TTL. The
+   * underlying handler used to carry its own Redis read-through
+   * block; the cache now lives at the resolver boundary so the
+   * whole service uses one caching pattern.
    */
+  @Cacheable({ prefix: 'growth:analysis', ttlSeconds: 7200 })
   @Query(() => GrowthAnalysisResponse)
   async growthAnalysis(
     @CurrentTenant() tenantId: string,

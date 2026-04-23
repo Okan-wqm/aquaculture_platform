@@ -22,6 +22,7 @@ import { UseGuards, Logger } from '@nestjs/common';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
 import { Tenant, CurrentUser, Roles, Role, fromCqrsPaginated } from '@aquaculture/backend-common';
+import { Cacheable } from '../../common/cache/cacheable.decorator';
 import { Batch, BatchStatus, BatchInputType } from '../entities/batch.entity';
 
 /**
@@ -150,6 +151,14 @@ export class BatchResolver {
     return fromCqrsPaginated(result);
   }
 
+  /**
+   * Phase 7.3.1 — cache batch performance for 1 hour. The calculator
+   * fan-outs across batch + health_events + work_orders and used to
+   * do its own Redis caching inside the query handler. The cache
+   * logic now lives at the resolver boundary (one pattern for the
+   * whole service) and the handler body is pure compute.
+   */
+  @Cacheable({ prefix: 'batch:performance', ttlSeconds: 3600 })
   @Query(() => BatchPerformanceResponse, { name: 'batchPerformance' })
   async getBatchPerformance(
     @Args('id', { type: () => ID }) id: string,

@@ -2,6 +2,7 @@ import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { Logger } from '@nestjs/common';
+import { tenantManagerRepo } from '@aquaculture/backend-common';
 import { CreatePurchaseOrderCommand } from '../commands/create-purchase-order.command';
 import { PurchaseOrder, PurchaseOrderStatus } from '../entities/purchase-order.entity';
 import { PurchaseOrderItem } from '../entities/purchase-order-item.entity';
@@ -20,15 +21,17 @@ export class CreatePurchaseOrderHandler implements ICommandHandler<CreatePurchas
     const { input, tenantId, userId } = command;
 
     return this.dataSource.transaction(async (manager) => {
-      const poRepo = manager.getRepository(PurchaseOrder);
-      const itemRepo = manager.getRepository(PurchaseOrderItem);
+      const poRepo = tenantManagerRepo(manager, PurchaseOrder, tenantId);
+      const itemRepo = tenantManagerRepo(manager, PurchaseOrderItem, tenantId);
 
-      // Generate order number: PO-YYYY-NNN
+      // Generate order number: PO-YYYY-NNN.
+      // tenantId is auto-injected by poRepo.createQueryBuilder() — dropping
+      // the explicit WHERE clause avoids the redundant AND tenantId = ...
+      // that TypeORM would emit otherwise.
       const year = new Date().getFullYear();
       const countResult = await poRepo
         .createQueryBuilder('po')
-        .where('po.tenantId = :tenantId', { tenantId })
-        .andWhere('po.orderNumber LIKE :prefix', { prefix: `PO-${year}-%` })
+        .where('po.orderNumber LIKE :prefix', { prefix: `PO-${year}-%` })
         .getCount();
       const orderNumber = `PO-${year}-${String(countResult + 1).padStart(3, '0')}`;
 
@@ -76,7 +79,9 @@ export class CreatePurchaseOrderHandler implements ICommandHandler<CreatePurchas
       for (const item of itemEntities) {
         item.purchaseOrderId = savedPO.id;
       }
-      const savedItems = await itemRepo.save(itemEntities);
+      // saveMany — TenantScopedRepository's array counterpart to save()
+      // auto-injects tenantId on every entity before upsert.
+      const savedItems = await itemRepo.saveMany(itemEntities);
 
       this.logger.log(`Created PO ${orderNumber} with ${savedItems.length} items for tenant ${tenantId}`);
 

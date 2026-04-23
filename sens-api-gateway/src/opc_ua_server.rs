@@ -31,8 +31,10 @@
 #![allow(dead_code)]
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
-use crate::process_image::{IoType, TagConfig};
+use crate::process_image::{IoType, ProcessImage, TagConfig, TagQuality, TagSource};
+use crate::scripting::force_registry::ForceRegistry;
 
 /// A single tag node exposed to the OPC UA address space.
 ///
@@ -511,6 +513,86 @@ pub async fn execute_opcua_write(
             audit.record_write_attempt(actor, tag_name, value, &outcome).await;
             outcome
         }
+    }
+}
+
+// ============================================================
+// Batch 210 Faz 5 — concrete port adapters
+// ============================================================
+//
+// Wraps the real in-proc primitives (ProcessImage,
+// ForceRegistry) behind the trait seams declared in Batch 209.
+// Keeping the adapters in the same module as the traits means
+// future port-shape changes (new audit field, richer write
+// return value) surface as compile errors against both the
+// trait + adapter in a single diff — impossible to drift.
+//
+// The authz + audit adapters ship in Batch 211+ once the
+// actor-identity resolution design lands (ActorIdentity is
+// richer than &str + needs session-layer context to
+// construct).
+
+/// ProcessImage → OpcUaProcessImagePort adapter.
+///
+/// Stamps `source = TagSource::OpcUaClient` so downstream
+/// consumers (SCADA UI, audit log, MQTT telemetry) can
+/// distinguish HMI writes from live sensor reads without
+/// inspecting the originating session. Quality fixed at
+/// `Good` because a successful OPC UA write means the HMI
+/// sent a deterministic value + the authz/range chain
+/// already accepted it; Batch 211+ may widen to carry HMI-
+/// supplied quality if the spec path requires it.
+pub struct ProcessImageOpcUaAdapter {
+    process_image: Arc<ProcessImage>,
+}
+
+impl ProcessImageOpcUaAdapter {
+    pub fn new(process_image: Arc<ProcessImage>) -> Self {
+        Self { process_image }
+    }
+}
+
+#[async_trait::async_trait]
+impl OpcUaProcessImagePort for ProcessImageOpcUaAdapter {
+    async fn write_tag(
+        &self,
+        tag_name: &str,
+        value: f64,
+        _actor: &str,
+    ) -> Result<(), String> {
+        // Actor is carried by the audit port (Batch 211+);
+        // ProcessImage itself tracks source, not actor.
+        // ProcessImage::update_tag_raw returns (); the port
+        // signature reserves a fail path so Batch 212+ can
+        // widen the storage layer to surface faults without
+        // re-shaping the orchestrator.
+        self.process_image
+            .update_tag_raw(tag_name, value, TagQuality::Good, TagSource::OpcUaClient)
+            .await;
+        Ok(())
+    }
+}
+
+/// ForceRegistry → OpcUaForceRegistryPort adapter. Thin
+/// wrapper over `ForceRegistry::is_forced`. Present so the
+/// orchestrator call site depends on the trait, not the
+/// concrete registry — lets alternate sources (e.g. a test
+/// harness with a pre-loaded forced-tag list) drop in
+/// without any orchestrator changes.
+pub struct ForceRegistryOpcUaAdapter {
+    force_registry: Arc<ForceRegistry>,
+}
+
+impl ForceRegistryOpcUaAdapter {
+    pub fn new(force_registry: Arc<ForceRegistry>) -> Self {
+        Self { force_registry }
+    }
+}
+
+#[async_trait::async_trait]
+impl OpcUaForceRegistryPort for ForceRegistryOpcUaAdapter {
+    async fn is_forced(&self, tag_name: &str) -> bool {
+        self.force_registry.is_forced(tag_name).await
     }
 }
 
@@ -1176,6 +1258,96 @@ mod tests {
             !tripwire.load(Ordering::SeqCst),
             "authz MUST NOT be consulted after force short-circuit"
         );
+    }
+
+    // ============================================================
+    // Batch 210 Faz 5 — concrete adapter tests
+    // ============================================================
+
+    #[tokio::test]
+    async fn process_image_adapter_writes_with_opcua_source() {
+        use crate::process_image::TagSource;
+
+        let pi = Arc::new(ProcessImage::new());
+        let adapter = ProcessImageOpcUaAdapter::new(pi.clone());
+
+        adapter
+            .write_tag("do_pump", 75.0, "hmi-op")
+            .await
+            .unwrap();
+
+        let got = pi.get_tag("do_pump").await.expect("tag persisted");
+        assert_eq!(got.value, 75.0);
+        // HMI writes must be tagged with OpcUaClient source so
+        // downstream UI + audit can distinguish from sensor reads.
+        assert_eq!(got.source, TagSource::OpcUaClient);
+        // Quality pegged to Good on the success path — the authz +
+        // range chain already validated the write.
+        assert_eq!(got.quality, TagQuality::Good);
+    }
+
+    #[tokio::test]
+    async fn process_image_adapter_overwrites_existing_tag() {
+        let pi = Arc::new(ProcessImage::new());
+        let adapter = ProcessImageOpcUaAdapter::new(pi.clone());
+
+        adapter.write_tag("setpoint", 10.0, "op-a").await.unwrap();
+        adapter.write_tag("setpoint", 20.0, "op-b").await.unwrap();
+
+        let got = pi.get_tag("setpoint").await.expect("tag persisted");
+        assert_eq!(got.value, 20.0);
+    }
+
+    #[tokio::test]
+    async fn force_registry_adapter_reflects_force_state() {
+        // Minimal registry fixture — the is_forced path runs
+        // purely off the in-memory map, no DB or sweep task
+        // required.
+        let fr = Arc::new(ForceRegistry::new());
+        let adapter = ForceRegistryOpcUaAdapter::new(fr.clone());
+
+        // Empty registry — no tag forced.
+        assert!(!adapter.is_forced("do_pump").await);
+
+        // Apply a force + verify adapter reflects it.
+        fr.apply(
+            "do_pump".to_string(),
+            50.0,
+            TagQuality::Good,
+            "op-a".to_string(),
+            "test force".to_string(),
+            60,
+            false,
+        )
+        .await
+        .unwrap();
+        assert!(adapter.is_forced("do_pump").await);
+        assert!(
+            !adapter.is_forced("other_tag").await,
+            "unrelated tags MUST NOT appear forced"
+        );
+    }
+
+    #[tokio::test]
+    async fn force_registry_adapter_reflects_removal() {
+        let fr = Arc::new(ForceRegistry::new());
+        let adapter = ForceRegistryOpcUaAdapter::new(fr.clone());
+
+        fr.apply(
+            "do_pump".to_string(),
+            50.0,
+            TagQuality::Good,
+            "op-a".to_string(),
+            "test".to_string(),
+            60,
+            false,
+        )
+        .await
+        .unwrap();
+        assert!(adapter.is_forced("do_pump").await);
+
+        fr.remove("do_pump").await.unwrap();
+        assert!(!adapter.is_forced("do_pump").await);
     }
 
     #[tokio::test]

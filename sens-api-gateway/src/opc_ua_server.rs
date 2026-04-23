@@ -37,7 +37,9 @@ use crate::audit::entry::{
     AuditAction, AuditActor, AuditEntry, AuditOutcome, AuditPhase, AuditResource,
 };
 use crate::audit::sink::AuditSink;
-use crate::authz::permission::TenantId;
+use crate::authz::context::{ActorIdentity, AuthorizationDecision};
+use crate::authz::permission::{Permission, TagId, TenantId};
+use crate::authz::policy::{AuthorizationRequest, PolicyEngine};
 use crate::process_image::{IoType, ProcessImage, TagConfig, TagQuality, TagSource};
 use crate::scripting::force_registry::ForceRegistry;
 
@@ -711,6 +713,99 @@ impl AuditSinkOpcUaAdapter {
             "extra": extra,
         })
         .to_string()
+    }
+}
+
+// ============================================================
+// Batch 212 Faz 5 — PolicyEngine adapter
+// ============================================================
+
+/// Closure resolving a session-string actor (X509 CN,
+/// username, or literal "anonymous") into the authz crate's
+/// `ActorIdentity`. None surfaces as an authz denial
+/// (unresolvable actor ⇒ cannot be granted any permission);
+/// session layer constructs this closure with session-level
+/// context (manifest lookup, cert chain, U/P table) at spawn
+/// time.
+///
+/// A closure — not a trait — so the session layer can inline
+/// arbitrary resolution logic without a new trait impl per
+/// session type (X509 / U/P / anonymous).
+pub type ActorResolverFn = Arc<dyn Fn(&str) -> Option<ActorIdentity> + Send + Sync>;
+
+/// PolicyEngine → OpcUaAuthzPort adapter.
+///
+/// Maps `(actor_str, tag_name) → bool` onto the full
+/// PolicyEngine::authorize request shape. The adapter owns
+/// the static surfaces (engine handle, tenant binding, actor
+/// resolver) and mints a per-call `AuthorizationRequest`
+/// with current policy_version + `received_at = SystemTime::now()`.
+///
+/// Rejects without consulting the engine when:
+/// - actor resolver returns None (unresolvable actor)
+///
+/// Otherwise delegates to `engine.authorize(..)` and maps the
+/// `AuthorizationDecision::Allow` → true; every Deny reason
+/// (PermissionNotGranted, RoleExpired, TenantMismatch,
+/// TwoPersonIntegrityMissing, EmergencyOverrideRequired,
+/// StalePolicyVersion, LicenseTierInsufficient) → false.
+/// The denial reason itself is captured by the audit adapter
+/// through the OpcUaWriteOutcome layer (the orchestrator
+/// short-circuits on the bool, and the audit port receives
+/// RejectedNoPermission), matching the current audit contract.
+pub struct PolicyEngineOpcUaAdapter {
+    engine: Arc<dyn PolicyEngine>,
+    tenant: TenantId,
+    actor_resolver: ActorResolverFn,
+}
+
+impl PolicyEngineOpcUaAdapter {
+    pub fn new(
+        engine: Arc<dyn PolicyEngine>,
+        tenant: TenantId,
+        actor_resolver: ActorResolverFn,
+    ) -> Self {
+        Self {
+            engine,
+            tenant,
+            actor_resolver,
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl OpcUaAuthzPort for PolicyEngineOpcUaAdapter {
+    async fn is_write_allowed(&self, actor: &str, tag_name: &str) -> bool {
+        let actor_identity = match (self.actor_resolver)(actor) {
+            Some(a) => a,
+            None => {
+                // Unresolvable actor cannot be granted any
+                // permission — fail-closed per plan HC-3.
+                // The audit port sees `RejectedNoPermission`
+                // via the orchestrator short-circuit.
+                return false;
+            }
+        };
+
+        let request = AuthorizationRequest::new(
+            actor_identity,
+            Permission::OpcUaWrite {
+                tag_id: TagId::new(tag_name.to_string()),
+            },
+            self.tenant.clone(),
+            self.engine.current_policy_version(),
+            std::time::SystemTime::now(),
+        );
+
+        match self.engine.authorize(request).await {
+            Ok(AuthorizationDecision::Allow(_)) => true,
+            // Every Deny reason collapses to false at this
+            // boundary. The orchestrator already classifies the
+            // distinct reasons via its own reject variants; the
+            // engine's structured deny reason is captured in
+            // the engine's own audit trail.
+            Ok(AuthorizationDecision::Deny(_)) | Err(_) => false,
+        }
     }
 }
 
@@ -1495,6 +1590,192 @@ mod tests {
             !adapter.is_forced("other_tag").await,
             "unrelated tags MUST NOT appear forced"
         );
+    }
+
+    // ============================================================
+    // Batch 212 Faz 5 — PolicyEngine adapter tests
+    // ============================================================
+
+    use crate::authz::context::{
+        AuthorizationDenyReason, AuthorizedContext,
+    };
+    use crate::authz::permission::OperatorId;
+    use crate::authz::policy::PolicyEngineError;
+    use async_trait::async_trait;
+
+    fn operator_actor() -> ActorIdentity {
+        ActorIdentity::Operator(OperatorId::new_from_verified([0x7Au8; 16]))
+    }
+
+    /// Canned PolicyEngine — returns the configured decision
+    /// unconditionally. Captures the last request for assertion.
+    struct CannedPolicyEngine {
+        decision: std::sync::Mutex<
+            Result<AuthorizationDecision, PolicyEngineError>,
+        >,
+        last_request: std::sync::Mutex<Option<AuthorizationRequest>>,
+        policy_version: u64,
+    }
+
+    #[async_trait]
+    impl PolicyEngine for CannedPolicyEngine {
+        async fn authorize(
+            &self,
+            request: AuthorizationRequest,
+        ) -> Result<AuthorizationDecision, PolicyEngineError> {
+            *self.last_request.lock().unwrap() = Some(request);
+            // Replace locked decision so re-issue paths return
+            // Ok(Deny(...)) without cloning AuthorizationDecision
+            // (which has no Clone impl).
+            let taken = std::mem::replace(
+                &mut *self.decision.lock().unwrap(),
+                Ok(AuthorizationDecision::Deny(
+                    AuthorizationDenyReason::PermissionNotGranted,
+                )),
+            );
+            taken
+        }
+
+        fn current_policy_version(&self) -> u64 {
+            self.policy_version
+        }
+
+        async fn reload_manifest(&self) -> Result<u64, PolicyEngineError> {
+            Ok(self.policy_version)
+        }
+    }
+
+    fn canned_allow() -> Arc<CannedPolicyEngine> {
+        let ctx = AuthorizedContext::new_from_verified(
+            operator_actor(),
+            Permission::OpcUaWrite {
+                tag_id: TagId::new("do_pump".into()),
+            },
+            test_tenant(),
+            42,
+            false,
+            std::time::SystemTime::UNIX_EPOCH,
+        );
+        Arc::new(CannedPolicyEngine {
+            decision: std::sync::Mutex::new(Ok(AuthorizationDecision::Allow(ctx))),
+            last_request: std::sync::Mutex::new(None),
+            policy_version: 42,
+        })
+    }
+
+    fn canned_deny(reason: AuthorizationDenyReason) -> Arc<CannedPolicyEngine> {
+        Arc::new(CannedPolicyEngine {
+            decision: std::sync::Mutex::new(Ok(AuthorizationDecision::Deny(reason))),
+            last_request: std::sync::Mutex::new(None),
+            policy_version: 42,
+        })
+    }
+
+    fn canned_err() -> Arc<CannedPolicyEngine> {
+        Arc::new(CannedPolicyEngine {
+            decision: std::sync::Mutex::new(Err(
+                PolicyEngineError::ManifestUnavailable,
+            )),
+            last_request: std::sync::Mutex::new(None),
+            policy_version: 42,
+        })
+    }
+
+    #[tokio::test]
+    async fn authz_adapter_allows_when_engine_allows() {
+        let engine = canned_allow();
+        let adapter = PolicyEngineOpcUaAdapter::new(
+            engine.clone(),
+            test_tenant(),
+            Arc::new(|_actor: &str| Some(operator_actor())),
+        );
+
+        assert!(adapter.is_write_allowed("hmi-op", "do_pump").await);
+
+        // Request shape verified.
+        let req = engine
+            .last_request
+            .lock()
+            .unwrap()
+            .clone()
+            .expect("engine called");
+        assert_eq!(
+            req.requested_permission,
+            Permission::OpcUaWrite {
+                tag_id: TagId::new("do_pump".into()),
+            }
+        );
+        assert_eq!(req.claimed_policy_version, 42);
+    }
+
+    #[tokio::test]
+    async fn authz_adapter_denies_when_engine_denies() {
+        let engine = canned_deny(AuthorizationDenyReason::PermissionNotGranted);
+        let adapter = PolicyEngineOpcUaAdapter::new(
+            engine,
+            test_tenant(),
+            Arc::new(|_actor: &str| Some(operator_actor())),
+        );
+
+        assert!(!adapter.is_write_allowed("stranger", "do_pump").await);
+    }
+
+    #[tokio::test]
+    async fn authz_adapter_denies_when_engine_errors() {
+        // Engine surfacing ManifestUnavailable is a fail-closed
+        // signal (plan HC-3 root-cause discipline). The
+        // adapter MUST treat the error as a denial; the
+        // orchestrator audit trail captures the denial at the
+        // RejectedNoPermission boundary.
+        let engine = canned_err();
+        let adapter = PolicyEngineOpcUaAdapter::new(
+            engine,
+            test_tenant(),
+            Arc::new(|_actor: &str| Some(operator_actor())),
+        );
+
+        assert!(!adapter.is_write_allowed("hmi-op", "do_pump").await);
+    }
+
+    #[tokio::test]
+    async fn authz_adapter_denies_unresolved_actor_without_calling_engine() {
+        let engine = canned_allow();
+        let adapter = PolicyEngineOpcUaAdapter::new(
+            engine.clone(),
+            test_tenant(),
+            Arc::new(|_actor: &str| None), // unresolvable actor
+        );
+
+        assert!(!adapter.is_write_allowed("anonymous", "do_pump").await);
+        assert!(
+            engine.last_request.lock().unwrap().is_none(),
+            "engine MUST NOT be called for an unresolvable actor",
+        );
+    }
+
+    #[tokio::test]
+    async fn authz_adapter_binds_tenant_to_adapter_not_request_actor() {
+        // Verify the adapter stamps its captured tenant on the
+        // request, NOT the actor's tenant. Cross-tenant attempts
+        // surface as the engine's TenantMismatch deny reason —
+        // but that's the engine's concern, not the adapter's.
+        let engine = canned_allow();
+        let my_tenant = TenantId::new_from_verified([0xAAu8; 16]);
+        let adapter = PolicyEngineOpcUaAdapter::new(
+            engine.clone(),
+            my_tenant.clone(),
+            Arc::new(|_actor: &str| Some(operator_actor())),
+        );
+
+        let _ = adapter.is_write_allowed("hmi-op", "do_pump").await;
+
+        let req = engine
+            .last_request
+            .lock()
+            .unwrap()
+            .clone()
+            .expect("engine called");
+        assert_eq!(req.tenant, my_tenant);
     }
 
     // ============================================================

@@ -100,6 +100,8 @@ export default {
         '<rootDir>/finding-registry-integrity.spec.ts',
         '<rootDir>/upcaster-chain.spec.ts',
         '<rootDir>/lib-creation-rubric.spec.ts',
+        '<rootDir>/messaging-joins.spec.ts',
+        '<rootDir>/admin-api-schema-boundaries.spec.ts',
       ],
     },
     {

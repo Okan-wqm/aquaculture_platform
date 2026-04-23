@@ -1092,8 +1092,8 @@ Bu orphan'ı Faz 1.3 hot-fix olarak **ayrı PR** ile kapatmak gerekir — Faz 2.
 | 1 | vite.config.ts FarmList/FarmDetail exposes regresyonu | ✅ Düzeltildi (bu PR) | — |
 | 2 | allocate-to-tank zaten hard-enforce | 📋 Faz 1.1 plan güncel | Faz 1.1 |
 | 3 | Equipment.hasCapacityFor() duplicate | 📋 Faz 1.1 plan güncel | Faz 1.1 |
-| 4 | observability-service farm.farms | ⚠ Cross-service fix gerek | Faz 4.3 pre |
-| 5 | admin-api test farm.ponds | ⚠ Test update gerek | Faz 4.3 pre |
+| 4 | observability-service farm.farms | ✅ RESOLVED (Faz 4.3 pre) | Switched to `farm.sites` + isDeleted filter |
+| 5 | admin-api test farm.ponds | ✅ RESOLVED (Faz 4.3 pre) | Test updated to `farm.sites` |
 | 6 | farm.entity.ts pond comment | 📋 Faz 1.2 | Faz 1.2 |
 | 7 | restore() 6+ entity'de expose edilmemiş | 📋 Faz 4.2 mixin | Faz 4.2 |
 | 8 | libs/storage MinIO mevcut | 📋 Faz 6.2 güncel | Faz 6.2 |
@@ -1123,3 +1123,4 @@ Bu orphan'ı Faz 1.3 hot-fix olarak **ayrı PR** ile kapatmak gerekir — Faz 2.
 | 32 | Faz 6.1 — Permission matrix SSoT + invariant + surfaced recordStockMovement duplicate | ✅ RESOLVED (Faz 6.1) | Girdi 15-C2 — 198 mutations / 193 queries classified; 227 ungated ops whitelisted for phase 6.1.1; spare-part `recordStockMovement` renamed to `recordSparePartStockMovement` to break the federation name collision |
 | 33 | Faz 6.5 — WQ strict validation + zero-config gate | ✅ RESOLVED (Faz 6.5) | Girdi 15-B5 — strict default; opt-out via env |
 | 34 | Faz 7.5 partial — WQ parameter config seeder | ✅ RESOLVED (Faz 7.5 partial) | Girdi 15-C7 partial — seedDefaultWaterQualityParameterConfigs mutation; closes phase 6.5 onboarding gap |
+| 35 | Orphans 3 + 5 — cross-service `farm.farms`/`farm.ponds` refs | ✅ RESOLVED (Faz 4.3 pre) | observability + admin-api swap onto `farm.sites` — unblocks Faz 4.3 legacy migration |

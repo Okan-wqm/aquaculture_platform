@@ -180,14 +180,25 @@ export class MetricsAggregatorService {
         'tenant-users',
       );
 
-      // Query farm count
+      // Query site count. Historical context: this query used to
+      // target the legacy `farm.farms` table, but the farm-service
+      // v2 taxonomy (commit 52935e83, docs/illustrator/farm-modulu-
+      // kor-noktalar-dogrulama.md Girdi 15-A1) deprecated farms in
+      // favour of sites-departments-systems-tanks. The legacy table
+      // still exists read-only for backward compat, but
+      // observability should report the active-surface count so a
+      // new tenant (with zero legacy farms but real sites) does not
+      // show "0 farms" on the overview dashboard. Renamed field
+      // stays `farms` in the response envelope to avoid breaking
+      // downstream observability consumers — phase 4.3 legacy-
+      // migration PR will rename the field across the contract.
       const farmResult = await safeQuery<{ count: string }[]>(
         this.dataSource,
-        `SELECT count(*)::text as count FROM farm.farms WHERE "tenantId" = $1`,
+        `SELECT count(*)::text as count FROM farm.sites WHERE "tenantId" = $1 AND "isDeleted" = false`,
         [tenantId],
         [{ count: '0' }],
         this.logger,
-        'tenant-farms',
+        'tenant-sites',
       );
 
       // Query sensor count from tenant-specific schema

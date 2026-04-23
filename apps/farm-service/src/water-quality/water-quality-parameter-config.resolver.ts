@@ -42,6 +42,7 @@ import { ListParameterTemplatesQuery } from './queries/list-parameter-templates.
 import { ListParamEquipmentQuery } from './queries/list-param-equipment.query';
 import { GetEquipmentParamsQuery } from './queries/get-equipment-params.query';
 import { WaterQualityParameterConfigSeederService } from './services/water-quality-parameter-config-seeder.service';
+import { Cacheable } from '../common/cache/cacheable.decorator';
 
 // ============================================================================
 // RESPONSE TYPES
@@ -139,8 +140,19 @@ export class WaterQualityParameterConfigResolver {
   }
 
   /**
-   * Kullanilabilir parametre sablonlarini listeler
+   * Kullanilabilir parametre sablonlarini listeler.
+   *
+   * Phase 7.3 — cached for 1 hour. The catalogue is a static
+   * template registry that changes only when a new template ships
+   * in a release; once-an-hour staleness is well within any
+   * operational expectation. `scopeToTenant: false` because
+   * templates are identical across tenants.
    */
+  @Cacheable({
+    prefix: 'wq:parameterTemplates',
+    ttlSeconds: 3600,
+    scopeToTenant: false,
+  })
   @Query(() => [ParameterTemplateResponse], { name: 'parameterTemplates' })
   async listParameterTemplates(): Promise<ParameterTemplateResponse[]> {
     this.logger.debug('Listing parameter templates');

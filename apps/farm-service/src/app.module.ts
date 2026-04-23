@@ -49,6 +49,7 @@ import { EventBusModule } from '@platform/event-bus';
 import { DatabaseModule } from './database/database.module';
 import { FarmMetricsModule } from './common/metrics/farm-metrics.module';
 import { FarmAppErrorFilter } from './common/errors/farm-app-error.filter';
+import { CacheableModule } from './common/cache/cacheable.module';
 import { FarmOutboxModule } from './outbox/farm-outbox.module';
 import { FarmModule } from './farm/farm.module';
 import { HealthModule } from './health/health.module';
@@ -403,6 +404,12 @@ import { AddFarmOutboxModernColumns1786200000000 } from './database/migrations/1
     // FarmDomainMetricsService (counters + histograms) and the
     // APP_INTERCEPTOR that auto-records every GraphQL resolver call.
     FarmMetricsModule,
+
+    // Systematic @Cacheable interceptor — phase 7.3. Read-through
+    // Redis caching for any resolver/service method decorated with
+    // @Cacheable. Tenant-scoped keys by default; operators tune
+    // TTL per call site.
+    CacheableModule,
 
     // Transactional outbox for reliable event publishing
     // (handlers enqueue → OutboxWorkerService polls → NATS publish)

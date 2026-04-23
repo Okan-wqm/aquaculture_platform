@@ -55,6 +55,10 @@ import { WaterQualityEvaluationService } from './services/water-quality-evaluati
 import { WaterQualityValidationService } from './services/water-quality-validation.service';
 import { WaterQualityParameterConfigSeederService } from './services/water-quality-parameter-config-seeder.service';
 
+// Phase 7.5 — event handler that auto-seeds default WQ parameter
+// configs when a new tenant is provisioned.
+import { TenantOnboardingEventHandler } from './event-handlers/tenant-onboarding.event-handler';
+
 const CommandHandlers = [
   CreateParameterConfigHandler,
   UpdateParameterConfigHandler,
@@ -83,6 +87,7 @@ const CommandHandlers = [
     WaterQualityEvaluationService,
     WaterQualityValidationService,
     WaterQualityParameterConfigSeederService,
+    TenantOnboardingEventHandler,
     WaterQualityResolver,
     WaterQualityParameterConfigResolver,
     ...CommandHandlers,

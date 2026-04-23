@@ -245,7 +245,7 @@ pub fn build_server(config: &OpcUaServerConfig) -> Result<ServerBuilder, OpcUaSe
         ..Default::default()
     };
 
-    let builder = ServerBuilder::new()
+    let mut builder = ServerBuilder::new()
         .application_name("suderra-edge")
         .application_uri(SUDERRA_NAMESPACE_URI)
         .product_uri(format!("{}:product", SUDERRA_NAMESPACE_URI))
@@ -257,6 +257,19 @@ pub fn build_server(config: &OpcUaServerConfig) -> Result<ServerBuilder, OpcUaSe
         .add_endpoint("default", endpoint)
         .discovery_urls(vec![discovery_url])
         .with_node_manager(simple_node_manager(namespace_meta, SUDERRA_NODE_MANAGER_NAME));
+
+    // Batch 228 B-3 closure (partial): wire
+    // config.max_sessions into the server-level Limits. The
+    // async-opcua runtime rejects ActivateSession when the
+    // count exceeds this cap → HMIs see
+    // `BadSessionIdLimitExceeded`. Per-window brute-force
+    // throttle (config.max_failed_auth_per_60s, gap B-2)
+    // needs session-level auth hooks + lands with the
+    // custom NodeManager + auth-port batch.
+    {
+        let limits = builder.limits_mut();
+        limits.max_sessions = config.max_sessions as usize;
+    }
 
     Ok(builder)
 }

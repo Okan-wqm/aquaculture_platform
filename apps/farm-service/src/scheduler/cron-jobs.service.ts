@@ -823,6 +823,74 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
+  /**
+   * Nightly materialized-view refresh — runs 03:00 Europe/Istanbul.
+   *
+   * Phase 7.2: farm analytics dashboards read from
+   * `farm.mv_daily_batch_feeding` (migration 1787400000000) instead
+   * of scanning `feeding_records` row-by-row. The view is refreshed
+   * CONCURRENTLY so dashboard reads never block during the refresh.
+   * Per-tenant iteration uses a dedicated QueryRunner per schema
+   * so a single tenant's failure does not stall the rest.
+   *
+   * Worst-case staleness is one day — acceptable because the
+   * batch-performance dashboards drive weekly operational reviews,
+   * not real-time control loops. Ops can trigger a manual refresh
+   * via `triggerJob('refreshAnalyticsViews')` for urgent cases.
+   */
+  @Cron(CronExpression.EVERY_DAY_AT_3AM, {
+    name: 'refreshAnalyticsViews',
+    timeZone: 'Europe/Istanbul',
+  })
+  async refreshAnalyticsViews(): Promise<void> {
+    const viewsToRefresh = [
+      'farm.mv_daily_batch_feeding',
+    ];
+
+    this.logger.log(
+      `Refreshing ${viewsToRefresh.length} analytics materialized view(s) across tenant schemas`,
+    );
+
+    let tenantSchemas: string[];
+    try {
+      tenantSchemas = await listTenantSchemas(this.dataSource);
+    } catch (err) {
+      this.logger.error(
+        `Failed to list tenant schemas for analytics refresh: ${(err as Error).message}`,
+      );
+      return;
+    }
+
+    for (const schema of tenantSchemas) {
+      const queryRunner = this.dataSource.createQueryRunner();
+      await queryRunner.connect();
+      try {
+        await queryRunner.query(
+          `SET search_path TO "${schema}", farm, public`,
+        );
+        for (const view of viewsToRefresh) {
+          try {
+            await queryRunner.query(
+              `REFRESH MATERIALIZED VIEW CONCURRENTLY ${view}`,
+            );
+            this.logger.log(
+              `Tenant ${schema}: refreshed ${view}`,
+            );
+          } catch (err) {
+            // View may not exist on a legacy tenant schema; log
+            // and continue so the rest of the views still refresh
+            // for the other tenants.
+            this.logger.warn(
+              `Tenant ${schema}: ${view} refresh skipped — ${(err as Error).message}`,
+            );
+          }
+        }
+      } finally {
+        await queryRunner.release();
+      }
+    }
+  }
+
   // -------------------------------------------------------------------------
   // MANUAL EXECUTION
   // -------------------------------------------------------------------------
@@ -848,6 +916,9 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
         break;
       case 'monthlyComplianceReport':
         await this.monthlyComplianceReport();
+        break;
+      case 'refreshAnalyticsViews':
+        await this.refreshAnalyticsViews();
         break;
       default:
         throw new Error(`Unknown job: ${jobName}`);

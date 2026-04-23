@@ -66,6 +66,15 @@ pub struct SymbolTable {
     /// for tests that construct SymbolTable without
     /// FB info).
     fb_instance_outputs: HashMap<String, HashMap<String, StValueType>>,
+    /// Batch 183 Faz 3: declared INPUT pin types per FB
+    /// instance. Symmetric to outputs. Consumed by
+    /// `compile_statement` FunctionBlockCall arm so a
+    /// wrong-typed argument rejects at compile time
+    /// (vs waiting for runtime `FbIoError::TypeMismatch`).
+    /// Int→Real promotion is emitted when the argument
+    /// is Int and the pin is Real, matching the Batch
+    /// 153 assignment-boundary promotion rule.
+    fb_instance_inputs: HashMap<String, HashMap<String, StValueType>>,
 }
 
 /// Symbol classification — Batch 157 Faz 3 adds the
@@ -171,6 +180,34 @@ impl SymbolTable {
         pin_name: &str,
     ) -> Option<StValueType> {
         self.fb_instance_outputs
+            .get(instance_name)?
+            .get(pin_name)
+            .copied()
+    }
+
+    /// Batch 183: register an FB instance's input pin
+    /// types so `FbCall` arg typing is enforced at
+    /// compile time.
+    pub fn insert_fb_inputs(
+        &mut self,
+        instance_name: impl Into<String>,
+        inputs: HashMap<String, StValueType>,
+    ) {
+        self.fb_instance_inputs
+            .insert(instance_name.into(), inputs);
+    }
+
+    /// Batch 183: look up an FB instance input pin's
+    /// declared type. None when the FB instance or the
+    /// named pin is not registered — caller skips the
+    /// compile-time type check (matches Batch 181
+    /// runtime-only behavior for unregistered FBs).
+    pub fn fb_input_type(
+        &self,
+        instance_name: &str,
+        pin_name: &str,
+    ) -> Option<StValueType> {
+        self.fb_instance_inputs
             .get(instance_name)?
             .get(pin_name)
             .copied()
@@ -891,16 +928,41 @@ pub fn compile_statement(
             let mut input_names: Vec<String> =
                 Vec::with_capacity(assignments.len());
             for (input_name, value_expr) in assignments {
-                let (value_ops, _value_type) =
+                let (value_ops, value_type) =
                     compile_expression(value_expr, symbols)?;
-                // Type check handled at runtime — FB
-                // pin type catalog is not yet
-                // compile-time accessible (Batch 182
-                // adds it). The Batch 180
-                // `FbIo::set_input` return surfaces
-                // `FbIoError::TypeMismatch` → VM
-                // converts to `VmError::FbIoFailed`.
-                ops.extend(value_ops);
+
+                // Batch 183: compile-time type check
+                // against the registered pin type when
+                // available. Matches the assignment-
+                // boundary promotion rule: Int→Real
+                // promotion emits CastIntToReal; other
+                // mismatches yield TypeMismatch.
+                // Unregistered FBs skip the check +
+                // rely on the runtime `FbIoError::
+                // TypeMismatch` (Batch 180).
+                let promoted_ops = match symbols.fb_input_type(fb_name, input_name) {
+                    Some(expected) if expected == value_type => value_ops,
+                    Some(expected)
+                        if expected == StValueType::Real
+                            && value_type == StValueType::Int =>
+                    {
+                        let mut promoted = value_ops;
+                        promoted.push(Opcode::CastIntToReal);
+                        promoted
+                    }
+                    Some(expected) => {
+                        return Err(CompileError::TypeMismatch {
+                            op: format!(
+                                "fb-input `{}.{}`",
+                                fb_name, input_name
+                            ),
+                            left: expected,
+                            right: value_type,
+                        });
+                    }
+                    None => value_ops,
+                };
+                ops.extend(promoted_ops);
                 input_names.push(input_name.clone());
             }
             ops.push(Opcode::FbCall {
@@ -3163,6 +3225,102 @@ mod tests {
         // Batch 181 inferred type = Real; Batch 182
         // adds the FB type catalog for precise typing.
         assert_eq!(t, StValueType::Real);
+    }
+
+    #[test]
+    fn compile_fb_call_type_checks_args_against_registered_input_types() {
+        // Batch 183: register my_timer(IN: Bool, PT: Real).
+        // `my_timer(IN := true_flag, PT := 5.0)` → compile
+        // ok; same call with `PT := "string"` would not
+        // type-check but we don't have String literals
+        // compiled yet. Use an Int argument on a Real
+        // pin to check the promotion path.
+        let mut syms = build_symbols(vec![
+            sym("true_flag", 0, StValueType::Bool),
+        ]);
+        let mut inputs = HashMap::new();
+        inputs.insert("IN".to_string(), StValueType::Bool);
+        inputs.insert("PT".to_string(), StValueType::Real);
+        syms.insert_fb_inputs("my_timer", inputs);
+
+        let mut ops = vec![];
+        compile_stmt_program_scope(
+            &Statement::FunctionBlockCall {
+                fb_name: "my_timer".into(),
+                assignments: vec![
+                    (
+                        "IN".to_string(),
+                        Expression::Variable("true_flag".into(), None),
+                    ),
+                    (
+                        "PT".to_string(),
+                        Expression::IntLiteral(5000), // Int → Real promotion
+                    ),
+                ],
+                span: None,
+            },
+            &syms,
+            &mut ops,
+        )
+        .expect("ok");
+        // Expected shape:
+        //  0: LoadLocal{0}           (true_flag : Bool → matches IN: Bool)
+        //  1: PushConst{Int(5000)}
+        //  2: CastIntToReal          (promotion because PT is Real)
+        //  3: FbCall { ... }
+        assert_eq!(ops.len(), 4);
+        assert_eq!(ops[0], Opcode::LoadLocal { index: 0 });
+        assert_eq!(ops[1], Opcode::PushConst { value: StValue::Int(5000) });
+        assert_eq!(ops[2], Opcode::CastIntToReal);
+        assert!(matches!(ops[3], Opcode::FbCall { .. }));
+    }
+
+    #[test]
+    fn compile_fb_call_rejects_wrong_type_on_registered_pin() {
+        // IN is Bool; passing an IntLiteral → TypeMismatch
+        // (not Int→Real-eligible, no Int→Bool promotion).
+        let mut syms = SymbolTable::new();
+        let mut inputs = HashMap::new();
+        inputs.insert("IN".to_string(), StValueType::Bool);
+        syms.insert_fb_inputs("my_timer", inputs);
+
+        let mut ops = vec![];
+        let err = compile_stmt_program_scope(
+            &Statement::FunctionBlockCall {
+                fb_name: "my_timer".into(),
+                assignments: vec![(
+                    "IN".to_string(),
+                    Expression::IntLiteral(1),
+                )],
+                span: None,
+            },
+            &syms,
+            &mut ops,
+        )
+        .expect_err("type mismatch");
+        assert!(matches!(err, CompileError::TypeMismatch { .. }));
+    }
+
+    #[test]
+    fn compile_fb_call_unregistered_fb_skips_type_check() {
+        // No insert_fb_inputs call → compile-time check
+        // is skipped, runtime catches (Batch 180 path).
+        let mut ops = vec![];
+        compile_stmt_program_scope(
+            &Statement::FunctionBlockCall {
+                fb_name: "unregistered_fb".into(),
+                assignments: vec![(
+                    "whatever".to_string(),
+                    Expression::IntLiteral(1),
+                )],
+                span: None,
+            },
+            &SymbolTable::new(),
+            &mut ops,
+        )
+        .expect("unregistered FB compiles (runtime check path)");
+        // One PushConst + one FbCall = 2 opcodes.
+        assert_eq!(ops.len(), 2);
     }
 
     #[test]

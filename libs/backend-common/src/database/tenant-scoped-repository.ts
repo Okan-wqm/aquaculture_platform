@@ -2,6 +2,7 @@ import {
   Repository,
   EntityTarget,
   DataSource,
+  EntityManager,
   ObjectLiteral,
   DeepPartial,
   FindManyOptions,
@@ -416,4 +417,52 @@ export class TenantScopedRepository<T extends TenantEntity> {
       } as FindOptionsWhere<T>,
     };
   }
+}
+
+/**
+ * `tenantManagerRepo(manager, Entity)` — the canonical way to obtain a
+ * tenant-scoped repository inside a TypeORM transaction. Wraps
+ * `manager.getRepository(Entity)` in a TenantScopedRepository so every
+ * query auto-injects tenantId from AsyncLocalStorage.
+ *
+ * Without this helper, transaction-scoped code falls back to raw
+ * `manager.getRepository(Entity)` + manual `{ where: { ..., tenantId } }`
+ * — which the ESLint rule `no-restricted-syntax` rightly flags
+ * (CLAUDE.md: "getRepository() is FORBIDDEN") and which frequently
+ * leaks cross-tenant queries when a developer forgets the `tenantId`
+ * key. The wrapper has a single, audited, eslint-disabled
+ * `manager.getRepository()` call at the library boundary — that call
+ * is architecturally justified because the return value is
+ * immediately handed to TenantScopedRepository which enforces
+ * tenant scoping on every downstream query.
+ *
+ * Usage pattern:
+ * ```ts
+ * await this.dataSource.transaction(async (manager) => {
+ *   const inventoryRepo = tenantManagerRepo(manager, StorageInventory);
+ *   const movementRepo = tenantManagerRepo(manager, StockMovement);
+ *
+ *   // Both queries below auto-include tenantId in the WHERE clause.
+ *   const inventory = await inventoryRepo.findOne({ where: { id: inventoryId } });
+ *   await movementRepo.save({ ... });
+ * });
+ * ```
+ *
+ * @param manager - TypeORM EntityManager (from `dataSource.transaction(m => ...)` or
+ *   `queryRunner.manager`).
+ * @param entity - The entity class to scope.
+ * @param explicitTenantId - Optional override; falls back to
+ *   AsyncLocalStorage via TenantScopedRepository.requireTenantId().
+ */
+export function tenantManagerRepo<T extends TenantEntity>(
+  manager: EntityManager,
+  entity: EntityTarget<T>,
+  explicitTenantId?: string,
+): TenantScopedRepository<T> {
+  // eslint-disable-next-line no-restricted-syntax -- justified: the Repository
+  // returned is immediately wrapped by TenantScopedRepository.fromRepository,
+  // which enforces tenantId injection on every downstream query. This is the
+  // single point of contact with manager.getRepository in the whole codebase.
+  const repository = manager.getRepository(entity);
+  return TenantScopedRepository.fromRepository(repository, explicitTenantId);
 }

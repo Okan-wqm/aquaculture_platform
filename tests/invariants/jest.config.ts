@@ -102,6 +102,7 @@ export default {
         '<rootDir>/lib-creation-rubric.spec.ts',
         '<rootDir>/messaging-joins.spec.ts',
         '<rootDir>/admin-api-schema-boundaries.spec.ts',
+        '<rootDir>/eslint-rule-presence.spec.ts',
       ],
     },
     {

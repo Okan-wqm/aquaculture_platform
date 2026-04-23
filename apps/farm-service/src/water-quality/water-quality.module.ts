@@ -61,6 +61,7 @@ import { WaterQualityParameterConfigSeederService } from './services/water-quali
 // onboarding-owning module gets pulled in via a module import.
 import { TenantOnboardingEventHandler } from './event-handlers/tenant-onboarding.event-handler';
 import { SpeciesModule } from '../species/species.module';
+import { FeedModule } from '../feed/feed.module';
 
 const CommandHandlers = [
   CreateParameterConfigHandler,
@@ -83,9 +84,12 @@ const CommandHandlers = [
       Tank,
       Equipment,
     ]),
-    // Onboarding handler fans out to sibling seeders — SpeciesModule
-    // exports SpeciesSeederService for the handler to inject.
+    // Onboarding handler fans out to sibling seeders. Each source
+    // module re-exports its seeder service so the handler can
+    // inject across module boundaries without the seeders leaking
+    // into unrelated consumer surfaces.
     SpeciesModule,
+    FeedModule,
   ],
   providers: [
     WaterQualityService,

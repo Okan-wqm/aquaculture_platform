@@ -17,6 +17,7 @@ import { Species } from '../species/entities/species.entity';
 // Resolvers
 import { FeedResolver } from './feed.resolver';
 import { FeedingProtocolResolver } from './feeding-protocol.resolver';
+import { FeedingProtocolSeederService } from './services/feeding-protocol-seeder.service';
 
 import { RestoreModule } from '../common/services/restore.module';
 
@@ -75,11 +76,13 @@ const QueryHandlers = [
   providers: [
     FeedResolver,
     FeedingProtocolResolver,
+    FeedingProtocolSeederService,
     ...CommandHandlers,
     ...QueryHandlers,
   ],
   exports: [
     TypeOrmModule,
+    FeedingProtocolSeederService,
   ],
 })
 export class FeedModule {}

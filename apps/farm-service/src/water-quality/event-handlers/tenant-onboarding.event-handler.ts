@@ -57,6 +57,7 @@ import type { TenantCreatedEvent } from '@platform/event-contracts';
 
 import { WaterQualityParameterConfigSeederService } from '../services/water-quality-parameter-config-seeder.service';
 import { SpeciesSeederService } from '../../species/services/species-seeder.service';
+import { FeedingProtocolSeederService } from '../../feed/services/feeding-protocol-seeder.service';
 
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -78,6 +79,7 @@ export class TenantOnboardingEventHandler
   constructor(
     private readonly wqSeeder: WaterQualityParameterConfigSeederService,
     private readonly speciesSeeder: SpeciesSeederService,
+    private readonly feedingProtocolSeeder: FeedingProtocolSeederService,
     @Optional() @Inject('EVENT_BUS')
     private readonly eventBus?: IEventBus,
   ) {}
@@ -127,6 +129,15 @@ export class TenantOnboardingEventHandler
     summaries.push(
       await this.runSeeder('species', () =>
         this.speciesSeeder.seedDefaults(event.tenantId),
+      ),
+    );
+
+    // Feeding protocols — life-stage protocols for Atlantic Salmon
+    // (FRY → STARTER → GROWER → FINISHER). The feeding scheduler
+    // picks the stage-matched protocol automatically on new batches.
+    summaries.push(
+      await this.runSeeder('feeding-protocols', () =>
+        this.feedingProtocolSeeder.seedDefaults(event.tenantId),
       ),
     );
 

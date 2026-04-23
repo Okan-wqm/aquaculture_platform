@@ -49,9 +49,10 @@ use tokio::task::JoinHandle;
 use tracing::{info, warn};
 
 use crate::audit::sink::AuditSink;
-use crate::authz::context::AuthorizationDenyReason;
-use crate::authz::permission::TenantId;
-use crate::authz::policy::DenyAllPolicyEngine;
+use crate::authz::context::ActorIdentity;
+use crate::authz::in_memory_engine::InMemoryPolicyEngine;
+use crate::authz::manifest_runtime::RbacManifestStore;
+use crate::authz::permission::{OperatorId, TenantId};
 use crate::config::OpcUaServerConfig;
 use crate::license::{check_opc_ua_server_gate, EdgeLicenseLimits, OpcUaServerGate};
 use crate::opc_ua_server::{
@@ -398,6 +399,68 @@ pub fn populate_tag_nodes(
 // Batch 218 Faz 5 — AppState boot-path init helper
 // ============================================================
 
+/// Parse an OPC UA session-layer actor string into the
+/// `authz::ActorIdentity` the PolicyEngine consumes. Batch
+/// 224 (partial closure of gap A-2): the session-context
+/// threading for SimpleNodeManager callbacks still forces
+/// every actor to the literal `"opc-ua-anonymous"` string
+/// (plan-specified anonymous-only-first-release). This
+/// parser anticipates the Batch 225+ custom NodeManager
+/// that will pass through U/P + X509 session identity.
+///
+/// Conventions:
+/// - `"opc-ua-anonymous"` → `None` (unresolvable; fail-
+///   closed at adapter boundary → write denied)
+/// - `"op:<hex32>"` → `ActorIdentity::Operator(OperatorId)`
+///   with the 32-hex-char blob decoded to `[u8; 16]`
+/// - `"svc:<cn>"` → `ActorIdentity::MachineIssuer {
+///   subject_cn: cn }`. Note: machine issuers are NOT in
+///   the RBAC manifest's operator_bindings (they
+///   authenticate via mTLS); InMemoryPolicyEngine denies
+///   them per plan R-5 (Batch 223 Gate 6) so this branch
+///   is documentation-complete but currently yields a
+///   silent deny in practice.
+/// - anything else → `None`
+pub(crate) fn parse_opc_ua_session_actor(
+    actor: &str,
+) -> Option<ActorIdentity> {
+    if actor == "opc-ua-anonymous" {
+        return None;
+    }
+    if let Some(hex) = actor.strip_prefix("op:") {
+        if hex.len() != 32 {
+            return None;
+        }
+        let mut out = [0u8; 16];
+        for (i, pair) in hex.as_bytes().chunks_exact(2).enumerate() {
+            let hi = hex_nibble(pair[0])?;
+            let lo = hex_nibble(pair[1])?;
+            out[i] = (hi << 4) | lo;
+        }
+        return Some(ActorIdentity::Operator(OperatorId::new_from_verified(
+            out,
+        )));
+    }
+    if let Some(cn) = actor.strip_prefix("svc:") {
+        if cn.is_empty() {
+            return None;
+        }
+        return Some(ActorIdentity::MachineIssuer {
+            subject_cn: cn.to_string(),
+        });
+    }
+    None
+}
+
+fn hex_nibble(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(b - b'a' + 10),
+        b'A'..=b'F' => Some(b - b'A' + 10),
+        _ => None,
+    }
+}
+
 /// Fallback audit port used when no real `AuditSink` is
 /// configured on AppState. Emits tracing::info so the
 /// forensic trail is still visible in the agent's logs;
@@ -437,6 +500,16 @@ pub struct OpcUaInitDeps<'a> {
     pub force_registry: Arc<ForceRegistry>,
     pub audit_sink: Option<Arc<AuditSink>>,
     pub tenant: Option<TenantId>,
+    /// Batch 224 Faz 5+2: shared RbacManifestStore so the
+    /// OPC UA authz adapter can bind to the real
+    /// InMemoryPolicyEngine (Batch 223) instead of
+    /// DenyAllPolicyEngine. When the store has no manifest
+    /// loaded, the engine returns ManifestUnavailable +
+    /// the adapter treats that as a deny (fail-closed per
+    /// plan HC-3). When the store has a verified manifest
+    /// loaded, authorized operators with the correct
+    /// OpcUaWrite permission get Allow.
+    pub rbac_manifest_store: Arc<RbacManifestStore>,
     pub license: &'a EdgeLicenseLimits,
 }
 
@@ -481,6 +554,7 @@ pub async fn init_opc_ua_server(
         force_registry,
         audit_sink,
         tenant,
+        rbac_manifest_store,
         license,
     } = deps;
     // Gate 1: operator off-switch.
@@ -576,23 +650,28 @@ pub async fn init_opc_ua_server(
             }
         };
 
-        // Authz adapter with DenyAllPolicyEngine — fail-
-        // closed per plan HC-3. Every HMI write currently
-        // denies with BadUserAccessDenied + the audit port
-        // records the attempt. Safe until the real
-        // InMemoryPolicyEngine + session-actor resolver
-        // land in a subsequent batch.
-        let engine = Arc::new(DenyAllPolicyEngine::new(
-            AuthorizationDenyReason::PermissionNotGranted,
-        ));
+        // Batch 224: swap DenyAll for InMemoryPolicyEngine.
+        // When the manifest store has a verified manifest
+        // loaded, authorized operators with the correct
+        // OpcUaWrite{tag_id} permission now get Allow. When
+        // the store is empty, the engine returns
+        // ManifestUnavailable → the adapter collapses that
+        // to Err → OpcUaAuthzPort::is_write_allowed returns
+        // false (fail-closed per plan HC-3). Either way the
+        // audit port records the attempt.
+        //
+        // Actor resolver: parses the session-layer actor
+        // string back into an ActorIdentity. For operator
+        // sessions (username/password or X509 CN) the
+        // string is a hex-encoded OperatorId. For anonymous
+        // sessions the literal "anonymous" surfaces →
+        // resolver returns None → adapter denies. This is
+        // the Batch 222 fail-closed contract extended with
+        // a real parse path.
+        let engine: Arc<dyn crate::authz::policy::PolicyEngine> =
+            Arc::new(InMemoryPolicyEngine::new(rbac_manifest_store));
         let actor_resolver: crate::opc_ua_server::ActorResolverFn =
-            Arc::new(|_actor: &str| {
-                // Unresolvable actor → PolicyEngineOpcUa
-                // Adapter returns false before calling the
-                // engine. Matches the plan's fail-closed
-                // anonymous-only-first-release contract.
-                None
-            });
+            Arc::new(parse_opc_ua_session_actor);
         let authz_adapter: Arc<dyn crate::opc_ua_server::OpcUaAuthzPort> =
             Arc::new(PolicyEngineOpcUaAdapter::new(
                 engine,
@@ -1318,6 +1397,14 @@ mod tests {
             force_registry: Arc::new(ForceRegistry::new()),
             audit_sink: None,
             tenant: Some(test_tenant_id()),
+            // Batch 224: empty store = InMemoryPolicyEngine
+            // returns ManifestUnavailable → authz adapter
+            // denies every write (fail-closed). Test
+            // fixtures don't need a loaded manifest to
+            // exercise the boot + cancel contract; Batch
+            // 223's in_memory_engine tests cover the
+            // manifest-loaded paths.
+            rbac_manifest_store: Arc::new(RbacManifestStore::new()),
             license,
         }
     }
@@ -1728,6 +1815,80 @@ mod tests {
         let (t, v) = captured.expect("process-image write captured");
         assert_eq!(t, "do_pump");
         assert_eq!(v, 73.5);
+    }
+
+    // ============================================================
+    // Batch 224 Faz 5+2 — parse_opc_ua_session_actor tests
+    // ============================================================
+
+    #[test]
+    fn parse_actor_anonymous_returns_none() {
+        assert!(parse_opc_ua_session_actor("opc-ua-anonymous").is_none());
+    }
+
+    #[test]
+    fn parse_actor_empty_returns_none() {
+        assert!(parse_opc_ua_session_actor("").is_none());
+    }
+
+    #[test]
+    fn parse_actor_operator_hex_roundtrip() {
+        // 16 bytes = 32 hex chars; pattern `op:<hex32>`.
+        let hex = "0102030405060708090a0b0c0d0e0f10";
+        let actor = format!("op:{}", hex);
+        match parse_opc_ua_session_actor(&actor) {
+            Some(ActorIdentity::Operator(id)) => {
+                assert_eq!(
+                    id.as_bytes(),
+                    &[
+                        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A,
+                        0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10
+                    ]
+                );
+            }
+            other => panic!("expected Operator, got {:?}", other.is_some()),
+        }
+    }
+
+    #[test]
+    fn parse_actor_operator_wrong_length_returns_none() {
+        // 30 chars → wrong length.
+        assert!(parse_opc_ua_session_actor("op:01020304050607080910111213141")
+            .is_none());
+        // 34 chars → wrong length.
+        assert!(parse_opc_ua_session_actor(
+            "op:0102030405060708091011121314151617"
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn parse_actor_operator_non_hex_returns_none() {
+        // "zz" is not hex.
+        assert!(
+            parse_opc_ua_session_actor("op:zz02030405060708090a0b0c0d0e0f10").is_none()
+        );
+    }
+
+    #[test]
+    fn parse_actor_machine_issuer_cn() {
+        match parse_opc_ua_session_actor("svc:auth-service") {
+            Some(ActorIdentity::MachineIssuer { subject_cn }) => {
+                assert_eq!(subject_cn, "auth-service");
+            }
+            other => panic!("expected MachineIssuer, got {:?}", other.is_some()),
+        }
+    }
+
+    #[test]
+    fn parse_actor_machine_issuer_empty_cn_returns_none() {
+        assert!(parse_opc_ua_session_actor("svc:").is_none());
+    }
+
+    #[test]
+    fn parse_actor_unknown_prefix_returns_none() {
+        assert!(parse_opc_ua_session_actor("user:alice").is_none());
+        assert!(parse_opc_ua_session_actor("random-string").is_none());
     }
 
     #[test]

@@ -63,6 +63,7 @@ import { TenantOnboardingEventHandler } from './event-handlers/tenant-onboarding
 import { SpeciesModule } from '../species/species.module';
 import { FeedModule } from '../feed/feed.module';
 import { RegulatoryModule } from '../regulatory/regulatory.module';
+import { EquipmentModule } from '../equipment/equipment.module';
 
 const CommandHandlers = [
   CreateParameterConfigHandler,
@@ -92,6 +93,7 @@ const CommandHandlers = [
     SpeciesModule,
     FeedModule,
     RegulatoryModule,
+    EquipmentModule,
   ],
   providers: [
     WaterQualityService,

@@ -25,6 +25,7 @@ import { FeedingModule } from '../feeding/feeding.module';
 
 // Services
 import { EquipmentTypeLookupService } from './services/equipment-type-lookup.service';
+import { EquipmentTypeCatalogCheckerService } from './services/equipment-type-catalog-checker.service';
 
 // Resolvers
 import { EquipmentResolver } from './equipment.resolver';
@@ -98,12 +99,14 @@ const QueryHandlers = [
     EquipmentResolver,
     SubEquipmentResolver,
     EquipmentTypeLookupService,
+    EquipmentTypeCatalogCheckerService,
     ...CommandHandlers,
     ...QueryHandlers,
   ],
   exports: [
     TypeOrmModule,
     EquipmentTypeLookupService,
+    EquipmentTypeCatalogCheckerService,
   ],
 })
 export class EquipmentModule {}

@@ -25,11 +25,17 @@
  *      credential columns left NULL for the tenant-admin to
  *      fill in) so biomass / mortality / Mattilsynet surfaces
  *      have a deterministic anchor row on first query.
+ *   5. `EquipmentTypeCatalogCheckerService` — read-only sanity
+ *      check on the GLOBAL `equipment_types` table. Never
+ *      writes. Logs a loud WARN if the catalogue is empty
+ *      (migration 007 didn't run) so operators catch
+ *      deployment-health gaps before customers hit
+ *      "no equipment type found" errors.
  *
- * Future phase-7.5.* PRs add:
- *   - equipment-types seeder (global table, no per-tenant
- *     row; just a sanity check that the global catalog is
- *     reachable)
+ * Phase 7.5 onboarding seeders — COMPLETE. Further expansions
+ * (country-aware defaults, hardware-specific seeds) arrive in
+ * their own phases; the onboarding event handler stays open to
+ * extension via this same seeder array pattern.
  *
  * # Per-seeder fault tolerance
  *
@@ -64,6 +70,7 @@ import { WaterQualityParameterConfigSeederService } from '../services/water-qual
 import { SpeciesSeederService } from '../../species/services/species-seeder.service';
 import { FeedingProtocolSeederService } from '../../feed/services/feeding-protocol-seeder.service';
 import { RegulatorySettingsSeederService } from '../../regulatory/services/regulatory-settings-seeder.service';
+import { EquipmentTypeCatalogCheckerService } from '../../equipment/services/equipment-type-catalog-checker.service';
 
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -87,6 +94,7 @@ export class TenantOnboardingEventHandler
     private readonly speciesSeeder: SpeciesSeederService,
     private readonly feedingProtocolSeeder: FeedingProtocolSeederService,
     private readonly regulatorySettingsSeeder: RegulatorySettingsSeederService,
+    private readonly equipmentTypeChecker: EquipmentTypeCatalogCheckerService,
     @Optional() @Inject('EVENT_BUS')
     private readonly eventBus?: IEventBus,
   ) {}
@@ -103,7 +111,8 @@ export class TenantOnboardingEventHandler
     await this.eventBus.subscribeWildcard('TenantCreated', this);
     this.logger.log(
       'Subscribed to TenantCreated events for automatic tenant onboarding ' +
-        '(water-quality configs + species catalogue + feeding protocols + regulatory settings)',
+        '(water-quality configs + species catalogue + feeding protocols + ' +
+        'regulatory settings + equipment-types catalogue check)',
     );
   }
 
@@ -154,6 +163,16 @@ export class TenantOnboardingEventHandler
     summaries.push(
       await this.runSeeder('regulatory-settings', () =>
         this.regulatorySettingsSeeder.seedDefaults(event.tenantId),
+      ),
+    );
+
+    // Equipment-type catalogue sanity check — global (not per-tenant)
+    // so the checker never writes rows. Logs a WARN if the global
+    // catalogue is empty so deployment-health issues surface early
+    // instead of at first customer equipment registration.
+    summaries.push(
+      await this.runSeeder('equipment-types-global', () =>
+        this.equipmentTypeChecker.seedDefaults(event.tenantId),
       ),
     );
 

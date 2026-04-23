@@ -14,6 +14,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
 use std::fs;
 use std::path::PathBuf;
+use std::str::FromStr;
 use tracing::{debug, info, warn};
 
 use crate::i2c::I2cDeviceConfig;
@@ -353,6 +354,26 @@ pub struct AgentConfig {
     /// LoRaWAN gateway configuration (v1.5.0)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lorawan: Option<LoRaWanConfig>,
+
+    /// OPC UA server configuration (Batch 207 Faz 5).
+    ///
+    /// WHY: Plan §5 Faz 5 specifies an async-opcua-backed server
+    /// that 3rd-party HMIs (Ignition, UaExpert, Kepware,
+    /// Wonderware) browse + subscribe to without the cloud
+    /// broker. Read paths expose the process image; write paths
+    /// go through the same authz + audit gate every MQTT-command
+    /// write uses, so the OPC UA surface cannot bypass policy.
+    ///
+    /// HC-1 backward compat: `enabled` default false — existing
+    /// config.yaml files deserialize unchanged and no OPC UA
+    /// port is opened. The `opc-ua-server` Cargo feature flag
+    /// compiles the implementation out of the binary entirely
+    /// when not built; this config block is always accepted at
+    /// the serde layer so operators can pre-stage the config for
+    /// a feature-built binary roll-out without re-deploying
+    /// agent configs.
+    #[serde(default)]
+    pub opc_ua_server: OpcUaServerConfig,
 }
 
 /// MQTT TLS configuration (IEC 62443 SL2 FR4: Data Confidentiality)
@@ -2152,6 +2173,331 @@ impl Default for ConfigIntegrityConfig {
     }
 }
 
+/// OPC UA server TLS security policy (Batch 207 Faz 5).
+///
+/// Plan §5 Faz 5 step 7 mandates Basic256Sha256 — the minimum
+/// industrial policy current HMIs (Ignition / UaExpert /
+/// Kepware / Wonderware) negotiate without operator override.
+/// Deprecated policies (None, Basic128Rsa15) are intentionally
+/// excluded at the type level so the config cannot deserialize
+/// into an insecure mode. Future policies (Aes128_Sha256_RsaOaep,
+/// Aes256_Sha256_RsaPss) extend this enum additively.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OpcUaSecurityPolicy {
+    /// Basic256Sha256 — the plan's fixed minimum. All 3rd-party
+    /// HMIs in the plan interop matrix support this policy.
+    Basic256Sha256,
+}
+
+impl Default for OpcUaSecurityPolicy {
+    fn default() -> Self {
+        Self::Basic256Sha256
+    }
+}
+
+impl OpcUaSecurityPolicy {
+    /// async-opcua / OPC UA spec string representation —
+    /// stable across versions so this is safe to stringify here.
+    pub fn as_uri_suffix(&self) -> &'static str {
+        match self {
+            Self::Basic256Sha256 => "Basic256Sha256",
+        }
+    }
+}
+
+/// OPC UA server authentication mode (Batch 207 Faz 5).
+///
+/// Plan §5 Faz 5 step 3 lists three supported modes. The enum
+/// captures the operator-selected primary mode; every session
+/// always falls through to a final authz gate regardless of
+/// mode, so `Anonymous` in the plan's words means "anonymous
+/// read-only + write always denied at the policy layer" — not
+/// "no authz at all".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OpcUaAuthMode {
+    /// Anonymous sessions allowed; reads gate only on policy.
+    /// Writes are rejected regardless of policy (anonymous
+    /// actors cannot satisfy any `Permission::OpcUaWrite`
+    /// binding). This is the HC-1 backward-compat default for
+    /// the first pilot release.
+    AnonymousReadOnly,
+    /// Operator user/password. The per-user pubkey binding
+    /// lives in the RBAC manifest (Sprint 6.1) — matching the
+    /// shape of MQTT-command actor resolution.
+    UsernamePassword,
+    /// X509 client cert. Operator cert CN resolves to the
+    /// RBAC manifest actor entry.
+    X509,
+}
+
+impl Default for OpcUaAuthMode {
+    fn default() -> Self {
+        Self::AnonymousReadOnly
+    }
+}
+
+/// OPC UA server configuration (Batch 207 Faz 5).
+///
+/// Shape-level primitive — the config block does not start the
+/// server (Batch 208+ wires `async-opcua`). Keeping the shape
+/// separate from the runtime lets operators pre-stage config
+/// for a feature-built binary roll-out, and gives unit tests
+/// something stable to validate against without the full
+/// async-opcua dep chain.
+///
+/// Every field is `serde(default)` so existing config.yaml
+/// files deserialize unchanged (HC-1 backward compat).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct OpcUaServerConfig {
+    /// Master switch. `false` (default) leaves the server
+    /// subsystem off regardless of Cargo feature build. Set to
+    /// `true` only on agents built with the `opc-ua-server`
+    /// feature flag; Batch 208 boot wiring logs a CRITICAL warn
+    /// when the feature is absent but this flag is true.
+    pub enabled: bool,
+
+    /// Bind address. Default `0.0.0.0` — intentional: plan
+    /// §5 Faz 5 step 8 notes LAN HMI interop is the primary
+    /// consumer. Operators restrict to a VLAN interface by
+    /// overriding here (e.g. `10.10.5.1`).
+    pub bind: String,
+
+    /// TCP port. Default 4840 is the OPC UA registered well-
+    /// known port; operators can override to 48400 etc. when
+    /// running multiple tenants on a single host.
+    pub port: u16,
+
+    /// Hard cap on concurrent sessions. Plan §5 Faz 5 step 9:
+    /// "max 10 concurrent sessions". License-tier overrides this
+    /// downward at boot (license_cache clamps at enforce time).
+    pub max_sessions: u32,
+
+    /// Brute-force throttle — sessions with more than this many
+    /// failed auth attempts in any 60-second sliding window get
+    /// IP-throttled. Plan §5 Faz 5 step 9: 20 failed / 60s.
+    pub max_failed_auth_per_60s: u32,
+
+    /// Primary auth mode. Secondary gate is always the authz
+    /// policy engine — see module doc.
+    pub auth_mode: OpcUaAuthMode,
+
+    /// TLS security policy. Fixed at `Basic256Sha256` by type
+    /// until a future batch extends the enum; operators cannot
+    /// downgrade to `None` or `Basic128Rsa15`.
+    pub security_policy: OpcUaSecurityPolicy,
+
+    /// Directory holding the server's own PKI keypair +
+    /// self-signed cert. Default matches plan §5 Faz 5 step 7.
+    pub own_pki_dir: String,
+
+    /// Directory holding trusted HMI client certs. Operators
+    /// drop peer certs here after the first-boot mutual trust
+    /// exchange. Default matches plan §5 Faz 5 step 7.
+    pub trusted_certs_dir: String,
+
+    /// Phase 1 MVP polling interval — how often the server re-
+    /// reads the process image to publish MonitoredItem values.
+    /// Batch 209+ swaps this for push via
+    /// `ProcessImage::subscribe_changes` (plan §5 Faz 5 step 6);
+    /// the polling knob stays available as the fallback path.
+    pub subscription_polling_interval_ms: u64,
+}
+
+impl Default for OpcUaServerConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            bind: "0.0.0.0".to_string(),
+            port: 4840,
+            max_sessions: 10,
+            max_failed_auth_per_60s: 20,
+            auth_mode: OpcUaAuthMode::default(),
+            security_policy: OpcUaSecurityPolicy::default(),
+            own_pki_dir: "/var/lib/suderra/pki/own".to_string(),
+            trusted_certs_dir: "/var/lib/suderra/pki/trusted/certs".to_string(),
+            subscription_polling_interval_ms: 100,
+        }
+    }
+}
+
+impl OpcUaServerConfig {
+    /// Load-time validator. Runs regardless of `enabled` so
+    /// operators get immediate feedback on mis-configured blocks
+    /// at boot — latent bad values cannot survive a feature-flag
+    /// flip. Returns on the first violation to keep error
+    /// surfaces small + actionable.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.bind.trim().is_empty() {
+            return Err(
+                "opc_ua_server.bind must be a non-empty IP address (e.g. 0.0.0.0)"
+                    .to_string(),
+            );
+        }
+        if std::net::IpAddr::from_str(self.bind.trim()).is_err() {
+            return Err(format!(
+                "opc_ua_server.bind `{}` is not a parseable IP address",
+                self.bind
+            ));
+        }
+        if self.port == 0 {
+            return Err(
+                "opc_ua_server.port must be non-zero (standard 4840)"
+                    .to_string(),
+            );
+        }
+        if self.max_sessions == 0 {
+            return Err(
+                "opc_ua_server.max_sessions must be >= 1 so at least one HMI can connect"
+                    .to_string(),
+            );
+        }
+        if self.max_failed_auth_per_60s == 0 {
+            return Err(
+                "opc_ua_server.max_failed_auth_per_60s must be >= 1 (0 disables brute-force throttle)"
+                    .to_string(),
+            );
+        }
+        // Polling below 10ms risks pathological lock contention
+        // on ProcessImage::get_all_tags + starves other tasks.
+        // The plan's 100ms default comfortably clears this floor.
+        if self.subscription_polling_interval_ms < 10 {
+            return Err(format!(
+                "opc_ua_server.subscription_polling_interval_ms ({}) below 10ms floor — ProcessImage lock contention + task starvation risk",
+                self.subscription_polling_interval_ms
+            ));
+        }
+        if self.own_pki_dir.trim().is_empty() {
+            return Err(
+                "opc_ua_server.own_pki_dir must be a non-empty directory path"
+                    .to_string(),
+            );
+        }
+        if self.trusted_certs_dir.trim().is_empty() {
+            return Err(
+                "opc_ua_server.trusted_certs_dir must be a non-empty directory path"
+                    .to_string(),
+            );
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod opc_ua_server_config_tests {
+    use super::*;
+
+    #[test]
+    fn default_is_disabled_with_plan_specified_values() {
+        let cfg = OpcUaServerConfig::default();
+        assert!(!cfg.enabled);
+        assert_eq!(cfg.bind, "0.0.0.0");
+        assert_eq!(cfg.port, 4840);
+        assert_eq!(cfg.max_sessions, 10);
+        assert_eq!(cfg.max_failed_auth_per_60s, 20);
+        assert_eq!(cfg.auth_mode, OpcUaAuthMode::AnonymousReadOnly);
+        assert_eq!(cfg.security_policy, OpcUaSecurityPolicy::Basic256Sha256);
+        assert_eq!(cfg.subscription_polling_interval_ms, 100);
+    }
+
+    #[test]
+    fn validate_accepts_default() {
+        OpcUaServerConfig::default().validate().unwrap();
+    }
+
+    #[test]
+    fn validate_rejects_empty_bind() {
+        let mut c = OpcUaServerConfig::default();
+        c.bind = String::new();
+        let err = c.validate().unwrap_err();
+        assert!(err.contains("bind"), "err={}", err);
+    }
+
+    #[test]
+    fn validate_rejects_unparseable_bind() {
+        let mut c = OpcUaServerConfig::default();
+        c.bind = "not an ip".to_string();
+        let err = c.validate().unwrap_err();
+        assert!(err.contains("parseable IP"), "err={}", err);
+    }
+
+    #[test]
+    fn validate_rejects_zero_port() {
+        let mut c = OpcUaServerConfig::default();
+        c.port = 0;
+        let err = c.validate().unwrap_err();
+        assert!(err.contains("port"), "err={}", err);
+    }
+
+    #[test]
+    fn validate_rejects_zero_max_sessions() {
+        let mut c = OpcUaServerConfig::default();
+        c.max_sessions = 0;
+        let err = c.validate().unwrap_err();
+        assert!(err.contains("max_sessions"), "err={}", err);
+    }
+
+    #[test]
+    fn validate_rejects_zero_failed_auth_window() {
+        let mut c = OpcUaServerConfig::default();
+        c.max_failed_auth_per_60s = 0;
+        let err = c.validate().unwrap_err();
+        assert!(err.contains("max_failed_auth"), "err={}", err);
+    }
+
+    #[test]
+    fn validate_rejects_polling_below_floor() {
+        let mut c = OpcUaServerConfig::default();
+        c.subscription_polling_interval_ms = 5;
+        let err = c.validate().unwrap_err();
+        assert!(err.contains("10ms floor"), "err={}", err);
+    }
+
+    #[test]
+    fn validate_accepts_ipv6_bind() {
+        let mut c = OpcUaServerConfig::default();
+        c.bind = "::1".to_string();
+        c.validate().unwrap();
+    }
+
+    #[test]
+    fn serde_round_trip_default_yaml_is_empty_safe() {
+        // Existing config.yaml files with no `opc_ua_server`
+        // block MUST deserialize — this is HC-1 backward compat.
+        let yaml = "";
+        let got: OpcUaServerConfig = serde_yaml::from_str(yaml).unwrap_or_default();
+        assert!(!got.enabled);
+    }
+
+    #[test]
+    fn serde_partial_yaml_fills_defaults() {
+        // Operator overrides only port + enabled; every other
+        // field MUST default to the plan's value.
+        let yaml = "enabled: true\nport: 48400\n";
+        let got: OpcUaServerConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(got.enabled);
+        assert_eq!(got.port, 48400);
+        assert_eq!(got.bind, "0.0.0.0");
+        assert_eq!(got.max_sessions, 10);
+        assert_eq!(got.security_policy, OpcUaSecurityPolicy::Basic256Sha256);
+    }
+
+    #[test]
+    fn security_policy_uri_suffix_stable() {
+        assert_eq!(
+            OpcUaSecurityPolicy::Basic256Sha256.as_uri_suffix(),
+            "Basic256Sha256"
+        );
+    }
+
+    #[test]
+    fn auth_mode_default_is_anonymous_read_only() {
+        assert_eq!(OpcUaAuthMode::default(), OpcUaAuthMode::AnonymousReadOnly);
+    }
+}
+
 /// TLS mode enum (Batch 22 ARC-007).
 ///
 /// Type-level encoding of the three valid Modbus-over-TLS
@@ -3001,6 +3347,14 @@ impl AgentConfig {
                     }
                 }
             }
+        }
+
+        // Batch 207 Faz 5: OPC UA server config shape check.
+        // Runs regardless of `opc_ua_server.enabled` so operators
+        // cannot ship a latent bad value that flips live the
+        // moment the feature flag gets toggled on.
+        if let Err(e) = self.opc_ua_server.validate() {
+            anyhow::bail!("opc_ua_server config invalid: {}", e);
         }
 
         // Batch 39: Faz 2 security-posture coherence checks.

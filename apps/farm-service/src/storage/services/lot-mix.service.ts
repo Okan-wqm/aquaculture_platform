@@ -25,6 +25,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { EntityManager, Repository } from 'typeorm';
 
+import { tenantManagerRepo } from '@aquaculture/backend-common';
 import { StorageInventory, StorageItemType } from '../entities/storage-inventory.entity';
 import {
   LotContribution,
@@ -93,9 +94,10 @@ export class LotMixService {
       return { mixCreated: false, mix: null, effectiveLotNumber: null };
     }
 
-    const inventoryRepo = manager.getRepository(StorageInventory);
+    const inventoryRepo = tenantManagerRepo(manager, StorageInventory, tenantId);
+    // tenantId auto-injected by the scoped wrapper — drop it from the WHERE.
     const existing = await inventoryRepo.find({
-      where: { tenantId, storageLocationId, itemType, itemId },
+      where: { storageLocationId, itemType, itemId },
       select: ['id', 'lotNumber', 'quantity', 'expiryDate'],
     });
 
@@ -149,7 +151,7 @@ export class LotMixService {
       ...contributions.map((c) => c.lotNumber).sort(),
     ].join('-');
 
-    const mixRepo = manager.getRepository(StorageLotMix);
+    const mixRepo = tenantManagerRepo(manager, StorageLotMix, tenantId);
     const mix = mixRepo.create({
       tenantId,
       storageLocationId,

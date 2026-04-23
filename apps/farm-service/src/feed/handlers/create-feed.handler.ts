@@ -5,6 +5,7 @@ import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { ConflictException, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { tenantManagerRepo } from '@aquaculture/backend-common';
 import { CreateFeedCommand } from '../commands/create-feed.command';
 import { Feed, FeedStatus, FloatingType } from '../entities/feed.entity';
 import { FeedSite } from '../entities/feed-site.entity';
@@ -110,9 +111,9 @@ export class CreateFeedHandler implements ICommandHandler<CreateFeedCommand, Fee
         : input.targetSpecies;
 
     const savedFeed = await this.feedRepository.manager.transaction(async (manager) => {
-      const feedRepo = manager.getRepository(Feed);
-      const feedSiteRepo = manager.getRepository(FeedSite);
-      const feedTypeSpeciesRepo = manager.getRepository(FeedTypeSpecies);
+      const feedRepo = tenantManagerRepo(manager, Feed, tenantId);
+      const feedSiteRepo = tenantManagerRepo(manager, FeedSite, tenantId);
+      const feedTypeSpeciesRepo = tenantManagerRepo(manager, FeedTypeSpecies, tenantId);
 
       // Create feed entity - aligned with Feed entity
       const feed = feedRepo.create({
@@ -207,7 +208,7 @@ export class CreateFeedHandler implements ICommandHandler<CreateFeedCommand, Fee
           });
         });
 
-        await feedTypeSpeciesRepo.save(rows);
+        await feedTypeSpeciesRepo.saveMany(rows);
       }
 
       return created;

@@ -461,15 +461,19 @@ fn hex_nibble(b: u8) -> Option<u8> {
     }
 }
 
-/// Fallback audit port used when no real `AuditSink` is
-/// configured on AppState. Emits tracing::info so the
-/// forensic trail is still visible in the agent's logs;
-/// the on-disk HMAC chain only fires when the full sink
-/// path is wired. Present in Batch 222 as the degradation
-/// path — production deployments MUST configure the real
-/// AuditSink, but dev + pre-prod operator smoke-tests can
-/// still observe writes without a fully provisioned audit
-/// pipeline.
+/// Tracing-only audit port — test fixture + pre-prod smoke
+/// observation ONLY. Batch 226 removed this from the
+/// production init path after the plan HC-3 fail-closed
+/// contract ruled out tracing-only audit as production
+/// shape (HMAC-chained on-disk audit is load-bearing). The
+/// type stays in-tree as a drop-in mock for unit tests that
+/// exercise the OpcUaAuditPort trait without provisioning
+/// a full AuditSink + tempdir.
+///
+/// Calling this in a production code path is a CRITICAL
+/// review finding — the init helper now refuses to wire
+/// write callbacks when AuditSink is None instead of
+/// falling through to this port.
 pub struct TracingLogAuditPort;
 
 #[async_trait::async_trait]
@@ -522,17 +526,23 @@ pub struct OpcUaInitDeps<'a> {
 ///
 /// Batch 222 extended the init to also register per-tag
 /// write callbacks immediately after
-/// `populate_tag_nodes`. Adapters:
+/// `populate_tag_nodes`. Batch 226 tightened the contract:
+/// write callbacks wire ONLY when `audit_sink = Some`
+/// (HMAC-chained audit is load-bearing per plan HC-3;
+/// tracing-only audit is not production shape).
+///
+/// Adapters:
 /// - ProcessImage → ProcessImageOpcUaAdapter (Batch 210)
 /// - ForceRegistry → ForceRegistryOpcUaAdapter (Batch 210)
-/// - AuditSink → AuditSinkOpcUaAdapter (Batch 211) if
-///   `audit_sink` is Some; TracingLogAuditPort fallback
-///   when None (dev + pre-prod degraded path)
+/// - AuditSink → AuditSinkOpcUaAdapter (Batch 211) —
+///   REQUIRED; audit_sink=None skips the write-callback
+///   wire entirely, read path stays live
 /// - PolicyEngine → PolicyEngineOpcUaAdapter wrapping
-///   DenyAllPolicyEngine (fail-closed per plan HC-3; all
-///   HMI writes deny with BadUserAccessDenied until the
-///   real `InMemoryPolicyEngine` lands in a subsequent
-///   batch alongside the session-actor resolver)
+///   InMemoryPolicyEngine (Batch 223+224) bound to the
+///   shared RbacManifestStore. When the store has a
+///   verified manifest with the right operator + role +
+///   permission, writes get Allow. Empty store collapses
+///   to ManifestUnavailable → adapter denies → fail-closed.
 ///
 /// Tenant binding: the audit + authz adapters need a
 /// `TenantId`. `None` tenant (pre-provisioned edge) means
@@ -605,12 +615,38 @@ pub async fn init_opc_ua_server(
         .await
         .map_err(|e| format!("opc_ua_server start failed: {}", e))?;
 
-    // Batch 222: wire write callbacks if the server started +
-    // tenant is present. Without a tenant we cannot mint
-    // AuthorizationRequest / AuditEntry bindings, so writes
-    // stay on the default SimpleNodeManager path (address-
-    // space-local).
-    if let (Some(handle), Some(tenant_id)) = (&handle_opt, tenant) {
+    // Batch 222 + Batch 226 E-2 closure: wire write callbacks
+    // only when BOTH tenant AND AuditSink are present.
+    // Missing either means the write chain cannot satisfy the
+    // plan's HC-3 fail-closed + audit-load-bearing contract
+    // (writes without HMAC-chained forensic records are not
+    // production shape). Degraded paths:
+    //   - tenant=None  → pre-provisioning boot; writes stay
+    //                    on the default SimpleNodeManager
+    //                    handler (address-space cache only).
+    //   - audit_sink=None → dev/pre-prod without audit pipe;
+    //                       writes stay on default handler.
+    // Real production has both Some and the wire activates.
+    let tenant_and_audit = match (&handle_opt, tenant.as_ref(), audit_sink.as_ref()) {
+        (Some(h), Some(t), Some(s)) => {
+            Some((h.clone(), t.clone(), s.clone()))
+        }
+        (Some(_), None, _) => {
+            warn!(
+                "opc_ua_server: started without tenant — write callbacks NOT wired (authz + audit need tenant binding)"
+            );
+            None
+        }
+        (Some(_), Some(_), None) => {
+            warn!(
+                "opc_ua_server: started without AuditSink — write callbacks NOT wired (HC-3 fail-closed: audit is load-bearing, writes without HMAC chain are not production shape). Configure audit.mode != Disabled + audit_sink to activate write path."
+            );
+            None
+        }
+        _ => None,
+    };
+    if let Some((handle, tenant_id, audit_sink_arc)) = tenant_and_audit {
+        let handle = &handle;
         let ns_index = handle.namespace_index().ok_or_else(|| {
             "opc_ua_server: namespace index missing after populate".to_string()
         })?;
@@ -626,29 +662,21 @@ pub async fn init_opc_ua_server(
         let force_adapter: Arc<dyn crate::opc_ua_server::OpcUaForceRegistryPort> =
             Arc::new(ForceRegistryOpcUaAdapter::new(force_registry));
 
-        // Audit adapter: real sink when AppState has one,
-        // fallback to TracingLogAuditPort otherwise.
-        let audit_adapter: Arc<dyn OpcUaAuditPort> = match audit_sink {
-            Some(sink) => {
-                // Placeholder policy_version_fn — the Batch
-                // 222 authz adapter uses DenyAllPolicyEngine
-                // whose current_policy_version() is always
-                // 0; the audit record carries that value
-                // until the real PolicyEngine lands.
-                let pv_fn: PolicyVersionFn = Arc::new(|| 0u64);
-                Arc::new(AuditSinkOpcUaAdapter::new(
-                    sink,
-                    tenant_id.clone(),
-                    pv_fn,
-                ))
-            }
-            None => {
-                warn!(
-                    "opc_ua_server: no AuditSink configured — HMI writes will audit via tracing ONLY (production MUST configure audit.mode != Disabled)"
-                );
-                Arc::new(TracingLogAuditPort)
-            }
-        };
+        // Batch 226: AuditSink is REQUIRED for this branch —
+        // the tenant_and_audit guard above already ensured it.
+        // Placeholder policy_version_fn — Batch 224 routes to
+        // InMemoryPolicyEngine whose current_policy_version
+        // reflects the manifest store; a future batch threads
+        // the engine's closure here so the audit record tags
+        // every write with the exact policy version the
+        // engine used for the decision.
+        let pv_fn: PolicyVersionFn = Arc::new(|| 0u64);
+        let audit_adapter: Arc<dyn OpcUaAuditPort> =
+            Arc::new(AuditSinkOpcUaAdapter::new(
+                audit_sink_arc,
+                tenant_id.clone(),
+                pv_fn,
+            ));
 
         // Batch 224: swap DenyAll for InMemoryPolicyEngine.
         // When the manifest store has a verified manifest
@@ -704,10 +732,6 @@ pub async fn init_opc_ua_server(
                 );
             }
         }
-    } else if handle_opt.is_some() && tenant.is_none() {
-        warn!(
-            "opc_ua_server: started without a tenant — write callbacks NOT wired (authz + audit need a tenant binding to mint AuthorizationRequest)"
-        );
     }
 
     Ok(handle_opt)

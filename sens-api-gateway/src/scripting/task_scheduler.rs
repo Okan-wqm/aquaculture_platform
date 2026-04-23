@@ -355,9 +355,23 @@ impl TaskState {
 /// first). Within the same priority, tasks fire in
 /// task-name order so scheduler behavior is
 /// reproducible across invocations.
+///
+/// Batch 190 Faz 4 adds event-task trigger state.
+/// Event-driven tasks have a pending-event flag; a
+/// TagChange matching the task's `event_tag` sets it
+/// via `trigger_event`. The fire-decision path then
+/// returns the event task alongside the time-based
+/// Cyclic fires. `record_tick_fired` clears the
+/// flag so the task waits for the next event.
 #[derive(Debug)]
 pub struct TaskScheduler {
     tasks: Vec<TaskState>,
+    /// Batch 190: task names of Event-kind tasks that
+    /// have a pending trigger. `trigger_event(tag)`
+    /// walks tasks + inserts matching ones; the fire-
+    /// decision path drains via inclusion-check;
+    /// `record_tick_fired` removes the entry.
+    pending_events: std::collections::HashSet<String>,
 }
 
 impl TaskScheduler {
@@ -393,7 +407,37 @@ impl TaskScheduler {
                 .cmp(&a.config.slo_tier.priority())
                 .then_with(|| a.config.name.cmp(&b.config.name))
         });
-        Ok(Self { tasks })
+        Ok(Self {
+            tasks,
+            pending_events: std::collections::HashSet::new(),
+        })
+    }
+
+    /// Batch 190 Faz 4: signal that a tag changed.
+    /// Any Event-kind task whose `event_tag` matches
+    /// `changed_tag` gets a pending-event flag set;
+    /// the next `tasks_to_fire` call reports the
+    /// task as ready.
+    ///
+    /// Non-matching tasks are untouched. Calling this
+    /// with a tag that no task subscribes to is cheap
+    /// (no-op).
+    pub fn trigger_event(&mut self, changed_tag: &str) {
+        for task in &self.tasks {
+            if let TaskKind::Event { event_tag } = &task.config.kind {
+                if event_tag == changed_tag {
+                    self.pending_events
+                        .insert(task.config.name.clone());
+                }
+            }
+        }
+    }
+
+    /// Diagnostic — how many event tasks have pending
+    /// triggers. Zero means no event tasks are ready
+    /// to fire next tick.
+    pub fn pending_event_count(&self) -> usize {
+        self.pending_events.len()
     }
 
     /// Number of registered tasks.
@@ -414,19 +458,29 @@ impl TaskScheduler {
     /// dispatch actually runs (so a dispatch failure
     /// doesn't reset the fire clock).
     ///
-    /// Semantics per TaskKind:
+    /// Semantics per TaskKind (Batch 190 extended):
     /// - Cyclic { period_ms }: fire if (now - last >=
     ///   period_ms).
     /// - Freewheeling: always fire.
-    /// - Event: NEVER fire from this method —
-    ///   event-driven tasks wake via ProcessImage
-    ///   subscription (plumbed in Batch 188+). Keeping
-    ///   them out of the time-based decision avoids
-    ///   double-firing.
+    /// - Event: fire if a matching TagChange fired
+    ///   `trigger_event` since the last dispatch. The
+    ///   pending_events HashSet tracks this flag;
+    ///   `record_tick_fired` clears it.
     pub fn tasks_to_fire(&self, now_ms: u64) -> Vec<String> {
         self.tasks
             .iter()
-            .filter(|t| should_fire(&t.config, t.last_fired_at_ms, now_ms))
+            .filter(|t| {
+                // Cyclic / Freewheeling path (Batch
+                // 185 logic unchanged).
+                if should_fire(&t.config, t.last_fired_at_ms, now_ms) {
+                    return true;
+                }
+                // Event task path (Batch 190): fire if
+                // there's a pending trigger for this
+                // task's name.
+                matches!(t.config.kind, TaskKind::Event { .. })
+                    && self.pending_events.contains(&t.config.name)
+            })
             .map(|t| t.config.name.clone())
             .collect()
     }
@@ -455,6 +509,11 @@ impl TaskScheduler {
         let target = target_cycle_ms_for(&task.config);
         task.stats.record_tick(actual_cycle_ms, target);
         task.last_fired_at_ms = now_ms;
+        // Batch 190: event tasks clear their pending
+        // flag after successful dispatch. The task
+        // then waits for the NEXT matching TagChange
+        // to fire trigger_event again.
+        self.pending_events.remove(task_name);
         Ok(())
     }
 
@@ -997,11 +1056,162 @@ mod tests {
             programs: vec![],
         };
         let s = TaskScheduler::new(vec![cfg]).expect("ok");
-        // tasks_to_fire returns empty regardless of
-        // time. Event-driven tasks dispatch via a
-        // separate path plumbed in Batch 188+.
+        // tasks_to_fire returns empty UNTIL a trigger
+        // arrives. Event-driven tasks dispatch via
+        // `trigger_event` (Batch 190).
         assert!(s.tasks_to_fire(0).is_empty());
         assert!(s.tasks_to_fire(999999).is_empty());
+    }
+
+    // ====================================================================
+    // Batch 190 Faz 4 — event-task trigger state
+    // ====================================================================
+
+    #[test]
+    fn scheduler_trigger_event_marks_matching_task_ready() {
+        let cfg = TaskConfig {
+            name: "on_temp_change".into(),
+            kind: TaskKind::Event {
+                event_tag: "water_temp".into(),
+            },
+            slo_tier: SloTier::SafetyCritical,
+            watchdog_ms: 100,
+            programs: vec![],
+        };
+        let mut s = TaskScheduler::new(vec![cfg]).expect("ok");
+        assert_eq!(s.pending_event_count(), 0);
+
+        // Trigger matching event → task should appear
+        // in tasks_to_fire.
+        s.trigger_event("water_temp");
+        assert_eq!(s.pending_event_count(), 1);
+        let fired = s.tasks_to_fire(0);
+        assert_eq!(fired, vec!["on_temp_change"]);
+    }
+
+    #[test]
+    fn scheduler_trigger_event_non_matching_tag_is_noop() {
+        let cfg = TaskConfig {
+            name: "on_temp".into(),
+            kind: TaskKind::Event {
+                event_tag: "water_temp".into(),
+            },
+            slo_tier: SloTier::SafetyCritical,
+            watchdog_ms: 100,
+            programs: vec![],
+        };
+        let mut s = TaskScheduler::new(vec![cfg]).expect("ok");
+        s.trigger_event("ph"); // not subscribed
+        assert_eq!(s.pending_event_count(), 0);
+        assert!(s.tasks_to_fire(0).is_empty());
+    }
+
+    #[test]
+    fn scheduler_trigger_event_only_marks_event_kind_tasks() {
+        // Cyclic + Event tasks both have the same
+        // event_tag is nonsensical — Cyclic tasks
+        // ignore trigger_event entirely.
+        let cfg_cyclic = TaskConfig {
+            name: "cyclic_task".into(),
+            kind: TaskKind::Cyclic { period_ms: 500 },
+            slo_tier: SloTier::Routine,
+            watchdog_ms: 100,
+            programs: vec![],
+        };
+        let cfg_event = TaskConfig {
+            name: "event_task".into(),
+            kind: TaskKind::Event {
+                event_tag: "water_temp".into(),
+            },
+            slo_tier: SloTier::SafetyCritical,
+            watchdog_ms: 100,
+            programs: vec![],
+        };
+        let mut s = TaskScheduler::new(vec![cfg_cyclic, cfg_event]).expect("ok");
+        s.trigger_event("water_temp");
+        let fired = s.tasks_to_fire(0);
+        // Only the event task fires (Cyclic fires on
+        // time-based check, not event-based).
+        assert_eq!(fired, vec!["event_task"]);
+    }
+
+    #[test]
+    fn scheduler_record_tick_fired_clears_pending_event() {
+        let cfg = TaskConfig {
+            name: "on_temp".into(),
+            kind: TaskKind::Event {
+                event_tag: "water_temp".into(),
+            },
+            slo_tier: SloTier::SafetyCritical,
+            watchdog_ms: 100,
+            programs: vec![],
+        };
+        let mut s = TaskScheduler::new(vec![cfg]).expect("ok");
+        s.trigger_event("water_temp");
+        assert_eq!(s.tasks_to_fire(0), vec!["on_temp"]);
+
+        // Simulate dispatch completion.
+        s.record_tick_fired("on_temp", 100, 50).expect("ok");
+        // Pending flag should clear; next tasks_to_fire
+        // returns empty until another trigger.
+        assert_eq!(s.pending_event_count(), 0);
+        assert!(s.tasks_to_fire(200).is_empty());
+    }
+
+    #[test]
+    fn scheduler_multiple_triggers_before_dispatch_coalesce() {
+        // Firing trigger_event twice on the same tag
+        // before the task runs should still result in
+        // ONE pending + ONE fire (coalescing avoids
+        // re-running the task N times when many
+        // updates happen between dispatches).
+        let cfg = TaskConfig {
+            name: "on_temp".into(),
+            kind: TaskKind::Event {
+                event_tag: "water_temp".into(),
+            },
+            slo_tier: SloTier::SafetyCritical,
+            watchdog_ms: 100,
+            programs: vec![],
+        };
+        let mut s = TaskScheduler::new(vec![cfg]).expect("ok");
+        s.trigger_event("water_temp");
+        s.trigger_event("water_temp");
+        s.trigger_event("water_temp");
+        assert_eq!(s.pending_event_count(), 1);
+        let fired = s.tasks_to_fire(0);
+        assert_eq!(fired, vec!["on_temp"]);
+    }
+
+    #[test]
+    fn scheduler_multiple_event_tasks_same_tag_all_fire() {
+        // Two event tasks subscribed to water_temp;
+        // both fire on one trigger.
+        let cfg_a = TaskConfig {
+            name: "alarm_eval".into(),
+            kind: TaskKind::Event {
+                event_tag: "water_temp".into(),
+            },
+            slo_tier: SloTier::SafetyCritical,
+            watchdog_ms: 100,
+            programs: vec![],
+        };
+        let cfg_b = TaskConfig {
+            name: "trend_log".into(),
+            kind: TaskKind::Event {
+                event_tag: "water_temp".into(),
+            },
+            slo_tier: SloTier::LowPriority,
+            watchdog_ms: 100,
+            programs: vec![],
+        };
+        let mut s = TaskScheduler::new(vec![cfg_a, cfg_b]).expect("ok");
+        s.trigger_event("water_temp");
+        assert_eq!(s.pending_event_count(), 2);
+        let fired = s.tasks_to_fire(0);
+        // Priority order: alarm_eval (SafetyCritical)
+        // before trend_log (LowPriority).
+        assert_eq!(fired, vec!["alarm_eval", "trend_log"]);
     }
 
     #[test]

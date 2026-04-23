@@ -95,6 +95,10 @@ pub mod force_registry_store;
 // task + MQTT command handlers land in batches
 // 204-205.
 pub mod watch_sessions;
+// Batch 206 Faz 6: production MQTT adapter for the
+// watch publisher. Implements WatchPublishSink on
+// top of MqttClient::publish_raw via AppState.
+pub mod watch_publisher_wire;
 // Batch 175 Faz 3 (plan R-1): RETAIN variable load/save
 // bridge between Bytecode.retain_vars declarations +
 // the existing SqlitePersistence variable store.

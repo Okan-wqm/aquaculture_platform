@@ -4008,6 +4008,70 @@ async fn run_agent(
     // Step 6b: Start I/O poll loop
     tokio::spawn(io_poll::io_poll_loop(state.clone()));
 
+    // Batch 206 Faz 6 wire: spawn the watch publisher
+    // task. Reads sessions_to_publish every 100 ms
+    // (cadence tuned under the plan R-9 WATCH_MIN_
+    // INTERVAL_MS floor of 100 ms so no session
+    // request a rate faster than the publisher can
+    // serve). Side-effect of sessions_to_publish:
+    // drops expired sessions automatically, so a
+    // dedicated watch-sweep task isn't needed —
+    // the publisher IS the sweep mechanism for the
+    // watch-session path.
+    {
+        let (watch_sessions, process_image) = {
+            let s = state.read().await;
+            (s.watch_sessions.clone(), s.process_image.clone())
+        };
+        let (tenant_str, device_code) = {
+            let s = state.read().await;
+            (
+                s.tenant_id.clone().unwrap_or_else(|| "unknown".into()),
+                s.config.device_code.clone(),
+            )
+        };
+        let topic_base = format!(
+            "tenants/{}/devices/{}/watch",
+            tenant_str, device_code
+        );
+        let sink: std::sync::Arc<
+            dyn crate::scripting::watch_sessions::WatchPublishSink,
+        > = std::sync::Arc::new(
+            crate::scripting::watch_publisher_wire::MqttWatchPublishSink::new(
+                state.clone(),
+            ),
+        );
+
+        let (watch_watch_tx, watch_watch_rx) = tokio::sync::watch::channel(false);
+        let mut watch_broadcast_rx = shutdown_coordinator.subscribe();
+        tokio::spawn(async move {
+            let _ = watch_broadcast_rx.recv().await;
+            let _ = watch_watch_tx.send(true);
+        });
+
+        let publisher_handle = tokio::spawn(async move {
+            let summary =
+                crate::scripting::watch_sessions::run_watch_publisher_task(
+                    watch_sessions,
+                    process_image,
+                    sink,
+                    topic_base,
+                    100,
+                    watch_watch_rx,
+                )
+                .await;
+            info!(
+                "watch_publisher exit: ticks={} published={} errors={}",
+                summary.ticks_executed,
+                summary.sessions_published,
+                summary.publish_errors,
+            );
+        });
+        shutdown_coordinator
+            .register_task("watch_publisher", publisher_handle);
+        info!("Watch-session publisher task spawned (cadence=100ms)");
+    }
+
     // Batch 198 Faz 6 wire: spawn the 1-Hz force-
     // registry sweep task. Always spawned regardless
     // of whether any force is active — the task is

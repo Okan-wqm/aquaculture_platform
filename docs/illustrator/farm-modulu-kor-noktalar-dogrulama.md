@@ -829,7 +829,7 @@ Hepsi kabul edilmeli:
 | 15-A7 | Outbox index naming | ✅ | Yanıltıcı isim |
 | 15-A8 | published vs publishedAt redundancy | ✅ | Tek alan yeterli |
 | 15-B3 | Optimistic lock + JSONB | ✅ | Field-level merge yok |
-| 15-B5 | Water quality key validation | ⚠ | Config olan tenant'ta OK, olmayan'da typo geçer |
+| 15-B5 | Water quality key validation | ✅ RESOLVED (Faz 6.5) | strict mode default; zero-config tenant + non-empty submission → NO_ACTIVE_PARAMETER_CONFIGS 400; WQ_STRICT_VALIDATION env opt-out |
 | 15-B6 | Stock movement enum eksik | ✅ | **Doküman 4 tip, kod 6 tip** (WASTE, RETURN atlanmış) |
 | 15-B7 | Batch status tek tablo yok | ✅ | Single source of truth |
 | 15-B8 | cost_per_kg eksik kalemler | ✅ **VERİ KUSURU** | İş gücü/kimyasal/amortisman DAHİL DEĞİL |
@@ -1121,3 +1121,4 @@ Bu orphan'ı Faz 1.3 hot-fix olarak **ayrı PR** ile kapatmak gerekir — Faz 2.
 | 30 | Faz 6.4.1 — Migration of throw sites | ✅ RESOLVED (Faz 6.4.1) | TankCapacity / Backdate / Restore / HarvestPolicy migrated; HarvestEligibility throws via HttpException chain already structured |
 | 31 | Faz 6.4.2 — Withdrawal throw-site migration + 5.3.1 tenantId metrics wiring | ✅ RESOLVED (Faz 6.4.2 + 5.3.1) | close-batch + create-harvest-record call sites emit BatchWithdrawalBlockedError + incWithdrawalBlock; TankCapacityService emits incCapacityBlock |
 | 32 | Faz 6.1 — Permission matrix SSoT + invariant + surfaced recordStockMovement duplicate | ✅ RESOLVED (Faz 6.1) | Girdi 15-C2 — 198 mutations / 193 queries classified; 227 ungated ops whitelisted for phase 6.1.1; spare-part `recordStockMovement` renamed to `recordSparePartStockMovement` to break the federation name collision |
+| 33 | Faz 6.5 — WQ strict validation + zero-config gate | ✅ RESOLVED (Faz 6.5) | Girdi 15-B5 — strict default; opt-out via env |

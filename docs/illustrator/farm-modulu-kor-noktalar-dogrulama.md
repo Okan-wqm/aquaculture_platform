@@ -1135,3 +1135,4 @@ Bu orphan'ı Faz 1.3 hot-fix olarak **ayrı PR** ile kapatmak gerekir — Faz 2.
 | 44 | Faz 7.2.2 — WQ daily materialized view | ✅ RESOLVED (Faz 7.2.2) | `farm.mv_daily_tank_water_quality` — avg/min/max per (tenant, tank, day); nightly CONCURRENTLY refresh |
 | 45 | Faz 6.2.1 — EXIF / metadata strip for image uploads | ✅ RESOLVED (Faz 6.2.1) | sharp-based strip on JPEG/PNG/WEBP; PDFs pass through; fail-safe on corrupt files |
 | 46 | Faz 6.1.1 (task module) — Thread @Roles on 13 ungated ops | ✅ RESOLVED (Faz 6.1.1 task-module) | Task + recurring-template + auto-rule mutations annotated; UNGATED_OPERATIONS whitelist shrinks from 227 → 214 |
+| 47 | Faz 6.1.1 (work-order + maintenance) — Thread @Roles on 20 ungated ops | ✅ RESOLVED (Faz 6.1.1 maintenance-module) | Work-order + maintenance-schedule resolvers annotated; UNGATED_OPERATIONS whitelist shrinks from 214 → 194 |

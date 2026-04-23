@@ -77,6 +77,12 @@ pub mod bytecode_scan_cycle_task;
 // TaskConfig / TaskStats. The runtime that dispatches
 // tasks according to these configs lands in Batch 185+.
 pub mod task_scheduler;
+// Batch 194 Faz 6 (plan R-9): live-debug force
+// registry — per-tag ForceEntry with TTL + rate
+// limit + concurrent count cap + persist opt-in.
+// Command handlers (Batch 197+) apply security gates
+// before calling into this primitive.
+pub mod force_registry;
 // Batch 175 Faz 3 (plan R-1): RETAIN variable load/save
 // bridge between Bytecode.retain_vars declarations +
 // the existing SqlitePersistence variable store.

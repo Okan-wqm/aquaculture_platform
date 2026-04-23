@@ -469,6 +469,36 @@ pub struct Bytecode {
     pub opcodes: Vec<Opcode>,
 }
 
+impl Bytecode {
+    /// Batch 215 Faz 7 — distinct FB instance identifiers
+    /// referenced by this program's opcodes.
+    ///
+    /// An "FB instance" in IEC 61131-3 semantics is a named
+    /// block that holds state between invocations. In the
+    /// bytecode, every `FbCall { fb_id, .. }` and
+    /// `FbReadOutput { fb_id, .. }` opcode carries the
+    /// instance identifier; distinct `fb_id` strings across
+    /// the opcode vector = distinct instances used by the
+    /// program. Returned as a `BTreeSet` so callers get
+    /// deterministic ordering + easy set-union across
+    /// programs (downstream registry aggregator unions per-
+    /// program sets to get the global FB-instance cardinality
+    /// used by the Faz 7 license gate).
+    pub fn fb_instance_ids(&self) -> std::collections::BTreeSet<String> {
+        let mut ids = std::collections::BTreeSet::new();
+        for op in &self.opcodes {
+            match op {
+                Opcode::FbCall { fb_id, .. }
+                | Opcode::FbReadOutput { fb_id, .. } => {
+                    ids.insert(fb_id.clone());
+                }
+                _ => {}
+            }
+        }
+        ids
+    }
+}
+
 /// Declared type for RETAIN variable slots (Batch 148).
 /// Matches the `StValue` variants — runtime value must
 /// match declared type at RETAIN restore time.
@@ -740,5 +770,116 @@ mod tests {
         // wire-compatible with operator tooling.
         assert!(j.contains("\"kind\":\"int\""));
         assert!(j.contains("\"value\":42"));
+    }
+
+    // ============================================================
+    // Batch 215 Faz 7 — fb_instance_ids tests
+    // ============================================================
+
+    fn mk_bc_with_ops(opcodes: Vec<Opcode>) -> Bytecode {
+        Bytecode {
+            program_id: "p".into(),
+            program_name: "p".into(),
+            tenant_id: None,
+            policy_version: 0,
+            max_gas_per_tick: 1000,
+            local_count: 0,
+            retain_vars: vec![],
+            allowed_write_tags: vec![],
+            safe_state_pinned_tags: vec![],
+            opcodes,
+        }
+    }
+
+    #[test]
+    fn fb_instance_ids_empty_when_no_fb_ops() {
+        let bc = mk_bc_with_ops(vec![
+            Opcode::PushConst {
+                value: StValue::Int(1),
+            },
+            Opcode::PushConst {
+                value: StValue::Int(2),
+            },
+            Opcode::AddInt,
+            Opcode::Return,
+        ]);
+        assert!(bc.fb_instance_ids().is_empty());
+    }
+
+    #[test]
+    fn fb_instance_ids_collects_fb_call_ids() {
+        let bc = mk_bc_with_ops(vec![
+            Opcode::FbCall {
+                fb_id: "timer1".into(),
+                input_names: vec![],
+            },
+            Opcode::FbCall {
+                fb_id: "pid1".into(),
+                input_names: vec![],
+            },
+            Opcode::Return,
+        ]);
+        let ids = bc.fb_instance_ids();
+        assert_eq!(ids.len(), 2);
+        assert!(ids.contains("timer1"));
+        assert!(ids.contains("pid1"));
+    }
+
+    #[test]
+    fn fb_instance_ids_collects_fb_read_output_ids() {
+        let bc = mk_bc_with_ops(vec![
+            Opcode::FbReadOutput {
+                fb_id: "timer1".into(),
+                output_name: "Q".into(),
+            },
+            Opcode::Return,
+        ]);
+        assert_eq!(bc.fb_instance_ids().len(), 1);
+        assert!(bc.fb_instance_ids().contains("timer1"));
+    }
+
+    #[test]
+    fn fb_instance_ids_dedup_repeat_references() {
+        // Same FB instance referenced multiple times = 1
+        // instance. Instances, not invocations.
+        let bc = mk_bc_with_ops(vec![
+            Opcode::FbCall {
+                fb_id: "timer1".into(),
+                input_names: vec![],
+            },
+            Opcode::FbReadOutput {
+                fb_id: "timer1".into(),
+                output_name: "Q".into(),
+            },
+            Opcode::FbCall {
+                fb_id: "timer1".into(),
+                input_names: vec![],
+            },
+            Opcode::Return,
+        ]);
+        assert_eq!(bc.fb_instance_ids().len(), 1);
+    }
+
+    #[test]
+    fn fb_instance_ids_returns_deterministic_order() {
+        // BTreeSet ordering — proven so callers using the
+        // union across programs get stable results.
+        let bc = mk_bc_with_ops(vec![
+            Opcode::FbCall {
+                fb_id: "zeta".into(),
+                input_names: vec![],
+            },
+            Opcode::FbCall {
+                fb_id: "alpha".into(),
+                input_names: vec![],
+            },
+            Opcode::FbCall {
+                fb_id: "mike".into(),
+                input_names: vec![],
+            },
+            Opcode::Return,
+        ]);
+        let collected: Vec<_> = bc.fb_instance_ids().into_iter().collect();
+        assert_eq!(collected, vec!["alpha", "mike", "zeta"]);
     }
 }

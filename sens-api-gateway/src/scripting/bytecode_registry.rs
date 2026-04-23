@@ -251,6 +251,33 @@ impl BytecodeProgramRegistry {
     pub async fn len(&self) -> usize {
         self.inner.read().await.len()
     }
+
+    /// Batch 215 Faz 7 — union of FB instance identifiers
+    /// across every loaded program, optionally excluding one
+    /// program (the one being replaced at deploy time).
+    ///
+    /// The deploy budget gate unions this set with the
+    /// incoming bytecode's `fb_instance_ids` to compute the
+    /// POST-deploy FB instance cardinality. Excluding the
+    /// program being replaced avoids double-counting
+    /// instances that only exist in the current version (they
+    /// drop out when the new version lands) so operators
+    /// don't hit false-positive cap rejections on version
+    /// bumps that refactor FB use.
+    pub async fn fb_instance_ids_except(
+        &self,
+        exclude_program_id: Option<&str>,
+    ) -> std::collections::BTreeSet<String> {
+        let inner = self.inner.read().await;
+        let mut union = std::collections::BTreeSet::new();
+        for (id, entry) in inner.iter() {
+            if Some(id.as_str()) == exclude_program_id {
+                continue;
+            }
+            union.extend(entry.bytecode.fb_instance_ids());
+        }
+        union
+    }
 }
 
 #[cfg(test)]
@@ -505,5 +532,84 @@ mod tests {
             .expect("ok");
         // Clone sees the insert — both share the same Arc.
         assert!(reg_b.get("p1").await.is_some());
+    }
+
+    // ============================================================
+    // Batch 215 Faz 7 — fb_instance_ids_except tests
+    // ============================================================
+
+    fn mk_entry_with_fb_ops(
+        program_id: &str,
+        tenant: Option<&str>,
+        fb_ids: &[&str],
+    ) -> ProgramEntry {
+        let mut bc = mk_bc(program_id);
+        bc.opcodes = fb_ids
+            .iter()
+            .map(|id| Opcode::FbCall {
+                fb_id: id.to_string(),
+                input_names: vec![],
+            })
+            .chain(std::iter::once(Opcode::Return))
+            .collect();
+        ProgramEntry {
+            program_id: program_id.to_string(),
+            bytecode: bc,
+            tenant_id: tenant.map(|s| s.to_string()),
+            policy_version: 1,
+            enabled: true,
+            deployed_at: Utc::now(),
+        }
+    }
+
+    #[tokio::test]
+    async fn fb_instance_ids_except_empty_registry_returns_empty() {
+        let reg = BytecodeProgramRegistry::new();
+        assert!(reg.fb_instance_ids_except(None).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn fb_instance_ids_except_unions_every_program() {
+        let reg = BytecodeProgramRegistry::new();
+        reg.insert(mk_entry_with_fb_ops("p1", Some("t1"), &["timer1", "pid1"]))
+            .await
+            .expect("ok");
+        reg.insert(mk_entry_with_fb_ops("p2", Some("t1"), &["timer1", "ctr1"]))
+            .await
+            .expect("ok");
+        let union = reg.fb_instance_ids_except(None).await;
+        assert_eq!(union.len(), 3);
+        assert!(union.contains("timer1"));
+        assert!(union.contains("pid1"));
+        assert!(union.contains("ctr1"));
+    }
+
+    #[tokio::test]
+    async fn fb_instance_ids_except_excludes_named_program() {
+        // Excluding p2 drops its unique `ctr1` but keeps
+        // shared `timer1` (also in p1) + p1's unique `pid1`.
+        let reg = BytecodeProgramRegistry::new();
+        reg.insert(mk_entry_with_fb_ops("p1", Some("t1"), &["timer1", "pid1"]))
+            .await
+            .expect("ok");
+        reg.insert(mk_entry_with_fb_ops("p2", Some("t1"), &["timer1", "ctr1"]))
+            .await
+            .expect("ok");
+        let without_p2 = reg.fb_instance_ids_except(Some("p2")).await;
+        assert_eq!(without_p2.len(), 2);
+        assert!(without_p2.contains("timer1"));
+        assert!(without_p2.contains("pid1"));
+        assert!(!without_p2.contains("ctr1"));
+    }
+
+    #[tokio::test]
+    async fn fb_instance_ids_except_unknown_id_is_noop() {
+        let reg = BytecodeProgramRegistry::new();
+        reg.insert(mk_entry_with_fb_ops("p1", Some("t1"), &["timer1"]))
+            .await
+            .expect("ok");
+        let union = reg.fb_instance_ids_except(Some("ghost")).await;
+        assert_eq!(union.len(), 1);
+        assert!(union.contains("timer1"));
     }
 }

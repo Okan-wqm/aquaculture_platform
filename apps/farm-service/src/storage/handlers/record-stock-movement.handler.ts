@@ -5,6 +5,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, EntityManager } from 'typeorm';
 import { NotFoundException, Logger, BadRequestException, Optional, Inject } from '@nestjs/common';
 import { NatsEventBus } from '@platform/event-bus';
+import { tenantManagerRepo, TenantScopedRepository } from '@aquaculture/backend-common';
 import type { StockMovementRecordedEvent, LowStockDetectedEvent } from '@platform/event-contracts';
 import { createBaseEvent } from '@platform/event-contracts';
 import { RecordStockMovementCommand } from '../commands/record-stock-movement.command';
@@ -129,8 +130,8 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
     // Outbox Pattern principle: only publish events for data that is confirmed
     // persisted. NATS JetStream handles retry/DLQ for delivery failures.
     const { saved, currentTotal } = await this.dataSource.transaction(async (manager) => {
-      const inventoryRepo = manager.getRepository(StorageInventory);
-      const movementRepo = manager.getRepository(StockMovement);
+      const inventoryRepo = tenantManagerRepo(manager, StorageInventory, tenantId);
+      const movementRepo = tenantManagerRepo(manager, StockMovement, tenantId);
 
       // Update inventory based on movement type.
       // asOfDate carries the operational event timestamp so FEFO picks
@@ -224,12 +225,11 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
       // to read the post-update state before commit).
       let txCurrentTotal = 0;
       if (fromLocation && (movementType === MovementType.OUT || movementType === MovementType.WASTE)) {
-        const stockResult = await manager.getRepository(StorageInventory)
+        const stockResult = await tenantManagerRepo(manager, StorageInventory, tenantId)
           .createQueryBuilder('inv')
           .select('COALESCE(SUM(inv.quantity), 0)', 'total')
           .where('inv.itemType = :itemType', { itemType })
           .andWhere('inv.itemId = :itemId', { itemId })
-          .andWhere('inv.tenantId = :tenantId', { tenantId })
           .getRawOne();
         txCurrentTotal = parseFloat(stockResult?.total || '0');
       }
@@ -411,7 +411,7 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
   }
 
   private async decreaseInventory(
-    repo: Repository<StorageInventory>,
+    repo: TenantScopedRepository<StorageInventory>,
     tenantId: string, locationId: string,
     itemType: StorageItemType, itemId: string,
     quantity: number, unit: string,
@@ -513,7 +513,7 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
   }
 
   private async increaseInventory(
-    repo: Repository<StorageInventory>,
+    repo: TenantScopedRepository<StorageInventory>,
     tenantId: string, locationId: string,
     itemType: StorageItemType, itemId: string,
     quantity: number, unit: string,
@@ -557,19 +557,19 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
     itemType: StorageItemType, itemId: string, tenantId: string,
   ): Promise<void> {
     // Sum all inventory for this item
-    const result = await manager.getRepository(StorageInventory)
+    const result = await tenantManagerRepo(manager, StorageInventory, tenantId)
       .createQueryBuilder('inv')
       .select('COALESCE(SUM(inv.quantity), 0)', 'total')
       .where('inv.itemType = :itemType', { itemType })
       .andWhere('inv.itemId = :itemId', { itemId })
-      .andWhere('inv.tenantId = :tenantId', { tenantId })
       .getRawOne();
 
     const totalQuantity = parseFloat(result?.total || '0');
 
     switch (itemType) {
       case StorageItemType.FEED: {
-        const feed = await manager.getRepository(Feed).findOne({ where: { id: itemId, tenantId } });
+        const feedRepo = tenantManagerRepo(manager, Feed, tenantId);
+        const feed = await feedRepo.findOne({ where: { id: itemId } });
         if (feed) {
           feed.quantity = totalQuantity;
           // Use the FeedStatus enum to ensure type-safe status assignment.
@@ -577,25 +577,27 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
           if (totalQuantity <= 0) feed.status = FeedStatus.OUT_OF_STOCK;
           else if (totalQuantity <= Number(feed.minStock)) feed.status = FeedStatus.LOW_STOCK;
           else feed.status = FeedStatus.AVAILABLE;
-          await manager.getRepository(Feed).save(feed);
+          await feedRepo.save(feed);
         }
         break;
       }
       case StorageItemType.CHEMICAL: {
-        const chem = await manager.getRepository(Chemical).findOne({ where: { id: itemId, tenantId } });
+        const chemRepo = tenantManagerRepo(manager, Chemical, tenantId);
+        const chem = await chemRepo.findOne({ where: { id: itemId } });
         if (chem) {
           chem.quantity = totalQuantity;
           chem.updateStockStatus();
-          await manager.getRepository(Chemical).save(chem);
+          await chemRepo.save(chem);
         }
         break;
       }
       case StorageItemType.CONSUMABLE: {
-        const cons = await manager.getRepository(Consumable).findOne({ where: { id: itemId, tenantId } });
+        const consRepo = tenantManagerRepo(manager, Consumable, tenantId);
+        const cons = await consRepo.findOne({ where: { id: itemId } });
         if (cons) {
           cons.quantity = totalQuantity;
           cons.updateStockStatus();
-          await manager.getRepository(Consumable).save(cons);
+          await consRepo.save(cons);
         }
         break;
       }
@@ -603,13 +605,14 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
         // Healthcare products share the consumable entity table. Updating the
         // total quantity and stock status ensures the consumable record reflects
         // the aggregate across all storage locations, just like feeds and chemicals.
-        const healthcare = await manager.getRepository(Consumable).findOne({
-          where: { id: itemId, tenantId },
+        const healthcareRepo = tenantManagerRepo(manager, Consumable, tenantId);
+        const healthcare = await healthcareRepo.findOne({
+          where: { id: itemId },
         });
         if (healthcare) {
           healthcare.quantity = totalQuantity;
           healthcare.updateStockStatus();
-          await manager.getRepository(Consumable).save(healthcare);
+          await healthcareRepo.save(healthcare);
         }
         break;
       }

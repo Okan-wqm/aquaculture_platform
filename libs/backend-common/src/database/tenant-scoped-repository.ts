@@ -267,6 +267,43 @@ export class TenantScopedRepository<T extends TenantEntity> {
   }
 
   /**
+   * Construct an in-memory entity instance (no persistence) with tenantId
+   * auto-populated from the current tenant context.
+   *
+   * Mirrors TypeORM `Repository.create(dto)` but guarantees the returned
+   * entity carries the correct tenantId, so subsequent `.save()` through
+   * THIS repository (or the underlying DataSource) cannot accidentally
+   * land under a different tenant.
+   *
+   * @param dto - Partial entity shape
+   * @returns A new unsaved entity instance with tenantId injected
+   */
+  create(dto: DeepPartial<T>): T {
+    const tenantId = this.requireTenantId();
+    return this.repository.create({ ...dto, tenantId } as DeepPartial<T>);
+  }
+
+  /**
+   * Delete an entity that was previously loaded from THIS repository.
+   * Verifies `entity.tenantId` matches the current tenant context
+   * before issuing the DELETE — protects against a caller passing an
+   * entity loaded via a different (or unscoped) path.
+   *
+   * @param entity - Entity instance to remove
+   * @returns The removed entity (same shape as TypeORM Repository.remove)
+   */
+  async remove(entity: T): Promise<T> {
+    const tenantId = this.requireTenantId();
+    if ((entity as { tenantId?: string }).tenantId !== tenantId) {
+      throw new Error(
+        `TenantScopedRepository.remove: entity.tenantId (${(entity as { tenantId?: string }).tenantId}) ` +
+          `!= current tenant (${tenantId}). Refusing to remove cross-tenant entity.`,
+      );
+    }
+    return this.repository.remove(entity);
+  }
+
+  /**
    * Save multiple entities with tenant ID enforcement.
    *
    * SECURITY: Every entity gets tenantId forced to the current tenant.

@@ -51,6 +51,11 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
+// Batch 187 wire: used by `dispatch_scheduler_tick`
+// signature. Bringing it into scope avoids the
+// fully-qualified path in the fn arg type.
+use super::bytecode::StValueType;
+
 /// Plan D-11 SLO tier classification. The tier maps to
 /// a canonical target cycle time + drives priority
 /// ordering when the scheduler decides which task to
@@ -486,6 +491,115 @@ impl TaskScheduler {
     }
 }
 
+/// Compose scheduler + filtered dispatch into one async
+/// helper — Batch 187 Faz 4.
+///
+/// Per call:
+/// 1. Asks the scheduler which tasks should fire at
+///    `now_ms`.
+/// 2. For each fired task:
+///    a. Records the dispatch start time (monotonic).
+///    b. Calls `run_scan_tick_for_programs` with the
+///       task's program id list.
+///    c. Computes the actual elapsed ms.
+///    d. Updates the scheduler's per-task stats via
+///       `record_tick_fired`.
+/// 3. Returns a Vec of `(task_name, per-program-results,
+///    elapsed_ms)` so the caller can log / emit
+///    metrics / trigger follow-up actions.
+///
+/// Watchdog enforcement: if `elapsed_ms > watchdog_ms`
+/// for a task AND watchdog_ms > 0, the result is
+/// tagged as a watchdog kill via
+/// `record_watchdog_kill`. The task's kill_count is
+/// incremented but the actual program execution still
+/// completed (the VM has no preemption primitive).
+/// Future batch adds a hard tokio::timeout around
+/// each task's dispatch.
+///
+/// Stays failure-isolated per Batch 164 invariant:
+/// one task's dispatch error (VmError, FbIoError) is
+/// recorded in that task's results; the others still
+/// fire.
+pub async fn dispatch_scheduler_tick(
+    scheduler: &mut TaskScheduler,
+    registry: &super::bytecode_registry::BytecodeProgramRegistry,
+    pi: &crate::process_image::ProcessImage,
+    declared_types: &std::collections::HashMap<String, StValueType>,
+    persistence: Option<&super::persistence::SqlitePersistence>,
+    options: &super::bytecode_runner::ScanTickOptions,
+    now_ms: u64,
+) -> Vec<SchedulerDispatchResult> {
+    let fired = scheduler.tasks_to_fire(now_ms);
+    let mut results = Vec::with_capacity(fired.len());
+
+    for task_name in fired {
+        let programs: Vec<String> = scheduler
+            .tasks
+            .iter()
+            .find(|t| t.config.name == task_name)
+            .map(|t| t.config.programs.clone())
+            .unwrap_or_default();
+
+        let start = std::time::Instant::now();
+        let per_program =
+            super::bytecode_runner::run_scan_tick_for_programs(
+                registry,
+                pi,
+                declared_types,
+                persistence,
+                options,
+                &programs,
+            )
+            .await;
+        let elapsed_ms = start.elapsed().as_millis() as u64;
+
+        // Watchdog gate: record kill if we overran the
+        // watchdog window (but the programs still
+        // completed — the VM is co-operative, no
+        // preemption yet).
+        let watchdog_ms = scheduler
+            .tasks
+            .iter()
+            .find(|t| t.config.name == task_name)
+            .map(|t| t.config.watchdog_ms)
+            .unwrap_or(0);
+        let tripped_watchdog =
+            watchdog_ms > 0 && elapsed_ms > watchdog_ms;
+
+        if tripped_watchdog {
+            // record_watchdog_kill also counts it as a
+            // tick for stats + overrun tracking. Does
+            // NOT advance the fire timestamp so the
+            // next tick re-evaluates.
+            let _ = scheduler.record_watchdog_kill(&task_name);
+        } else {
+            let _ = scheduler.record_tick_fired(
+                &task_name, now_ms, elapsed_ms,
+            );
+        }
+
+        results.push(SchedulerDispatchResult {
+            task_name,
+            per_program,
+            elapsed_ms,
+            tripped_watchdog,
+        });
+    }
+
+    results
+}
+
+/// One task's dispatch outcome.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SchedulerDispatchResult {
+    pub task_name: String,
+    pub per_program:
+        Vec<(String, super::bytecode_runner::BytecodeRunResult)>,
+    pub elapsed_ms: u64,
+    pub tripped_watchdog: bool,
+}
+
 /// Pure decision: does this task's next fire point
 /// fall before `now_ms`?
 fn should_fire(config: &TaskConfig, last_fired_at_ms: u64, now_ms: u64) -> bool {
@@ -894,6 +1008,205 @@ mod tests {
         let mut s = TaskScheduler::new(vec![]).expect("ok");
         let err = s.record_tick_fired("ghost", 100, 50).unwrap_err();
         assert!(matches!(err, SchedulerRuntimeError::UnknownTask { .. }));
+    }
+
+    // ====================================================================
+    // Batch 187 Faz 4 — dispatch_scheduler_tick integration
+    // ====================================================================
+
+    use super::super::bytecode::{Bytecode, Opcode, StValue};
+    use super::super::bytecode_registry::{
+        BytecodeProgramRegistry, ProgramEntry,
+    };
+    use super::super::bytecode_runner::{
+        BytecodeRunResult, ScanTickOptions,
+    };
+    use crate::process_image::{ProcessImage, TagQuality, TagSource};
+
+    fn mk_bc_write(program_id: &str, value: f64) -> Bytecode {
+        Bytecode {
+            program_id: program_id.to_string(),
+            program_name: format!("{}_prog", program_id),
+            tenant_id: Some("tenant-a".into()),
+            policy_version: 1,
+            max_gas_per_tick: 1000,
+            local_count: 0,
+            retain_vars: vec![],
+            allowed_write_tags: vec!["setpoint".into()],
+            safe_state_pinned_tags: vec![],
+            opcodes: vec![
+                Opcode::PushConst { value: StValue::Real(value) },
+                Opcode::WriteTag {
+                    name: "setpoint".into(),
+                },
+                Opcode::Return,
+            ],
+        }
+    }
+
+    fn mk_prog_entry(program_id: &str, bc: Bytecode) -> ProgramEntry {
+        ProgramEntry {
+            program_id: program_id.to_string(),
+            bytecode: bc,
+            tenant_id: Some("tenant-a".into()),
+            policy_version: 1,
+            enabled: true,
+            deployed_at: chrono::Utc::now(),
+        }
+    }
+
+    #[tokio::test]
+    async fn dispatch_scheduler_tick_runs_fired_tasks() {
+        let reg = BytecodeProgramRegistry::new();
+        let pi = ProcessImage::new();
+        pi.update_tag_raw(
+            "setpoint",
+            0.0,
+            TagQuality::Good,
+            TagSource::Modbus,
+        )
+        .await;
+
+        reg.insert(mk_prog_entry("prog_safety", mk_bc_write("prog_safety", 100.0)))
+            .await
+            .expect("ok");
+        reg.insert(mk_prog_entry("prog_routine", mk_bc_write("prog_routine", 200.0)))
+            .await
+            .expect("ok");
+
+        let safety_cfg = TaskConfig {
+            name: "safety".into(),
+            kind: TaskKind::Cyclic { period_ms: 500 },
+            slo_tier: SloTier::SafetyCritical,
+            watchdog_ms: 1000,
+            programs: vec!["prog_safety".into()],
+        };
+        let routine_cfg = TaskConfig {
+            name: "routine".into(),
+            kind: TaskKind::Cyclic { period_ms: 1200 },
+            slo_tier: SloTier::Routine,
+            watchdog_ms: 2000,
+            programs: vec!["prog_routine".into()],
+        };
+        let mut scheduler =
+            TaskScheduler::new(vec![safety_cfg, routine_cfg]).expect("ok");
+
+        // At t=500: safety fires (period 500), routine
+        // doesn't (period 1200 > elapsed 500).
+        let results = dispatch_scheduler_tick(
+            &mut scheduler,
+            &reg,
+            &pi,
+            &std::collections::HashMap::new(),
+            None,
+            &ScanTickOptions::default(),
+            500,
+        )
+        .await;
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].task_name, "safety");
+        assert_eq!(results[0].per_program.len(), 1);
+        assert_eq!(results[0].per_program[0].0, "prog_safety");
+        assert!(matches!(
+            results[0].per_program[0].1,
+            BytecodeRunResult::Ok { .. }
+        ));
+        // Setpoint reflects safety's write (100.0).
+        assert_eq!(
+            pi.get_tag("setpoint").await.expect("present").value,
+            100.0
+        );
+
+        // Scheduler advanced safety's timestamp.
+        let stats = scheduler.stats_of("safety").expect("present");
+        assert_eq!(stats.ticks_executed, 1);
+
+        // At t=1200: routine fires (elapsed 1200 >=
+        // period 1200). Safety also fires (elapsed
+        // 1200-500 = 700 >= period 500).
+        let results2 = dispatch_scheduler_tick(
+            &mut scheduler,
+            &reg,
+            &pi,
+            &std::collections::HashMap::new(),
+            None,
+            &ScanTickOptions::default(),
+            1200,
+        )
+        .await;
+        assert_eq!(results2.len(), 2);
+        // Priority order: safety first.
+        assert_eq!(results2[0].task_name, "safety");
+        assert_eq!(results2[1].task_name, "routine");
+        // Setpoint now reflects routine's write
+        // (200.0) — ran AFTER safety per priority
+        // order in a single call, so last-writer-
+        // wins.
+        assert_eq!(
+            pi.get_tag("setpoint").await.expect("present").value,
+            200.0
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatch_scheduler_tick_isolates_task_with_no_programs() {
+        // A task with empty programs list → fires but
+        // runs zero programs (no-op tick).
+        let reg = BytecodeProgramRegistry::new();
+        let pi = ProcessImage::new();
+
+        let empty_cfg = TaskConfig {
+            name: "empty_task".into(),
+            kind: TaskKind::Cyclic { period_ms: 500 },
+            slo_tier: SloTier::Routine,
+            watchdog_ms: 1000,
+            programs: vec![],
+        };
+        let mut scheduler = TaskScheduler::new(vec![empty_cfg]).expect("ok");
+
+        let results = dispatch_scheduler_tick(
+            &mut scheduler,
+            &reg,
+            &pi,
+            &std::collections::HashMap::new(),
+            None,
+            &ScanTickOptions::default(),
+            500,
+        )
+        .await;
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].task_name, "empty_task");
+        assert!(results[0].per_program.is_empty());
+        // Stats still recorded (tick counted).
+        let stats = scheduler.stats_of("empty_task").expect("present");
+        assert_eq!(stats.ticks_executed, 1);
+    }
+
+    #[tokio::test]
+    async fn dispatch_scheduler_tick_skips_task_whose_time_not_due() {
+        let reg = BytecodeProgramRegistry::new();
+        let pi = ProcessImage::new();
+        let cfg = TaskConfig {
+            name: "task1".into(),
+            kind: TaskKind::Cyclic { period_ms: 1000 },
+            slo_tier: SloTier::Routine,
+            watchdog_ms: 2000,
+            programs: vec![],
+        };
+        let mut scheduler = TaskScheduler::new(vec![cfg]).expect("ok");
+
+        // At t=100: task1 (period 1000) should NOT fire.
+        let results = dispatch_scheduler_tick(
+            &mut scheduler,
+            &reg,
+            &pi,
+            &std::collections::HashMap::new(),
+            None,
+            &ScanTickOptions::default(),
+            100,
+        )
+        .await;
+        assert!(results.is_empty());
     }
 
     #[test]

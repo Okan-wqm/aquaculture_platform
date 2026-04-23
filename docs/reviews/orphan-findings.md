@@ -941,6 +941,30 @@ This orphan entry is the architectural tier-4 "document" fallback for `AUDIT-LOW
 - No deadline — this is an informational classification, not an actionable fix.
 - Closure path: commit that adds this note carries `Closes: docs/reviews/_audit/2026-04-22-cold-audit/03-explore-findings.md#AUDIT-LOW-001`.
 
+## 2026-04-23 ORPHAN-SCADA-EDGES-001 — scada-builder/edges diverge materially from process-editor/edges
+
+**Status:** OPEN — kept out of scope for AUDIT-HIGH-006's close because the divergence is structural, not stylistic.
+
+**Scope:**
+`web/modules/sensor-module/src/components/scada-builder/edges/{DraggableEdge,MultiHandleEdge,OrthogonalEdge}.tsx` — 378 / 461 / 530 lines respectively, totaling ~1370 lines.
+
+**Why not collapsed to the lib when AUDIT-HIGH-006 was closed:**
+
+The 2026-04-22 cold audit reported node-components edges duplicated across three locations: `libs/node-components/src/edges`, process-editor, and scada-builder. The first two had only one real divergence (ReactFlow `setEdges` vs. a zustand `processStore.updateEdgeData`) which is now handled by the lib's `updateEdgeData?` prop — process-editor shrank to a 3-file, 75-line adapter set.
+
+scada-builder is different. Each of its three edges is 60–90 lines LARGER than the lib counterpart, and the extra lines are not a boilerplate divergence — they implement the SCADA workspace's own controller-driven workflow: `useEdgeStoreContext()` hook (React context, not zustand), edge-level SCADA property panels, a distinct hover/select/drag interaction model, and keyboard-shortcut bindings that process-editor lacks.
+
+Mechanically applying the lib → wrapper refactor would lose those SCADA-specific behaviours OR require pushing them back into the lib (which would make the lib SCADA-coupled and violate ADR-028's lib-rubric for `libs/node-components` — "ReactFlow primitives", not SCADA app behaviour).
+
+**Closure path:**
+
+Before collapsing scada-builder onto the lib, the SCADA-specific behaviours must be decomposed into injectable pieces (e.g. a `useEdgeContextMenuBindings` hook, a `ScadaEdgePropertyPanel` render-prop). Once that split exists, each scada-builder edge file shrinks to a thin wrapper (same pattern as process-editor) that composes the lib edge + scada-specific hooks.
+
+**Follow-on tracking:**
+- Owner: frontend-expert + sensor-expert.
+- Deadline: next SCADA-workspace feature cycle — the decomposition lands alongside whoever next touches the scada-builder edge interactions.
+- Closure path: commit that lands the decomposition deletes these three files and carries `Closes: docs/reviews/orphan-findings.md#ORPHAN-SCADA-EDGES-001`.
+
 ## 2026-04-23 MONITOR-HOTSPOT-001 — churn-only findings archived until next audit cycle
 
 **Status:** DOCUMENT-ONLY. Closes `AUDIT-MEDIUM-001`, `AUDIT-MEDIUM-004`, `AUDIT-MEDIUM-010` as Tier-4 monitor markers.

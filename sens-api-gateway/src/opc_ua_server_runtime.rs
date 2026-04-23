@@ -43,7 +43,7 @@ use opcua::server::{
     ServerBuilder, ServerEndpoint, ServerHandle, ANONYMOUS_USER_TOKEN_ID,
 };
 use opcua::types::{
-    DataTypeId, LocalizedText, NodeId, ObjectId, QualifiedName, Variant,
+    DataTypeId, LocalizedText, NodeId, ObjectId, QualifiedName, StatusCode, Variant,
 };
 use tokio::task::JoinHandle;
 use tracing::{info, warn};
@@ -450,6 +450,143 @@ pub async fn init_opc_ua_server(
     start_opcua_server(config, &registry)
         .await
         .map_err(|e| format!("opc_ua_server start failed: {}", e))
+}
+
+// ============================================================
+// Batch 220 Faz 5 — write-callback bridge primitives
+// ============================================================
+//
+// The `async-opcua` SimpleNodeManager callbacks are sync
+// (`Fn(DataValue, &NumericRange) -> StatusCode`). The Batch
+// 209 OpcUa write-orchestrator is async (port traits use
+// `async fn`). The bridge primitives here — value extraction
+// + outcome → StatusCode mapping — are pure sync functions
+// so they're unit-tested without any tokio runtime + reused
+// by the sync→async escape-hatch (`tokio::task::block_in_place
+// + Handle::current().block_on(..)`) wire in a future batch.
+
+/// Errors converting an incoming `Variant` into the `f64`
+/// the OPC UA write-orchestrator expects.
+#[derive(Debug, Clone, PartialEq)]
+pub enum VariantToF64Error {
+    /// Variant carried a type the orchestrator cannot
+    /// represent as `f64` without loss (Array, ByteString,
+    /// ExtensionObject, etc). Maps to OPC UA
+    /// `BadTypeMismatch`.
+    UnsupportedType { got: &'static str },
+    /// Variant was Empty / null — operator-visible reject
+    /// with OPC UA `BadTypeMismatch` matches the empty-value
+    /// rejection semantics in the async-opcua spec.
+    EmptyVariant,
+}
+
+impl std::fmt::Display for VariantToF64Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnsupportedType { got } => {
+                write!(f, "unsupported Variant type for f64 write: {}", got)
+            }
+            Self::EmptyVariant => f.write_str("Variant is Empty / null"),
+        }
+    }
+}
+
+impl std::error::Error for VariantToF64Error {}
+
+/// Extract a numeric value from an incoming Variant for
+/// passing to the write-orchestrator. Boolean → 0/1;
+/// every integer variant → f64; Float/Double → f64; anything
+/// else → `UnsupportedType`.
+///
+/// Lossy conversion is accepted: int64 values outside f64's
+/// 53-bit exact range silently round. This matches Suderra's
+/// tag scan-cycle convention (tags carry f64 representations
+/// regardless of declared data_type). Operators who care
+/// about exact integer fidelity configure the tag as Int32
+/// rather than Int64.
+pub fn variant_to_f64(value: &Variant) -> Result<f64, VariantToF64Error> {
+    match value {
+        Variant::Empty => Err(VariantToF64Error::EmptyVariant),
+        Variant::Boolean(b) => Ok(if *b { 1.0 } else { 0.0 }),
+        Variant::SByte(n) => Ok(*n as f64),
+        Variant::Byte(n) => Ok(*n as f64),
+        Variant::Int16(n) => Ok(*n as f64),
+        Variant::UInt16(n) => Ok(*n as f64),
+        Variant::Int32(n) => Ok(*n as f64),
+        Variant::UInt32(n) => Ok(*n as f64),
+        Variant::Int64(n) => Ok(*n as f64),
+        Variant::UInt64(n) => Ok(*n as f64),
+        Variant::Float(f) => Ok(*f as f64),
+        Variant::Double(f) => Ok(*f),
+        Variant::String(_) => Err(VariantToF64Error::UnsupportedType { got: "String" }),
+        Variant::DateTime(_) => Err(VariantToF64Error::UnsupportedType { got: "DateTime" }),
+        Variant::Guid(_) => Err(VariantToF64Error::UnsupportedType { got: "Guid" }),
+        Variant::ByteString(_) => {
+            Err(VariantToF64Error::UnsupportedType { got: "ByteString" })
+        }
+        Variant::XmlElement(_) => {
+            Err(VariantToF64Error::UnsupportedType { got: "XmlElement" })
+        }
+        Variant::NodeId(_) => Err(VariantToF64Error::UnsupportedType { got: "NodeId" }),
+        Variant::ExpandedNodeId(_) => {
+            Err(VariantToF64Error::UnsupportedType { got: "ExpandedNodeId" })
+        }
+        Variant::StatusCode(_) => {
+            Err(VariantToF64Error::UnsupportedType { got: "StatusCode" })
+        }
+        Variant::QualifiedName(_) => {
+            Err(VariantToF64Error::UnsupportedType { got: "QualifiedName" })
+        }
+        Variant::LocalizedText(_) => {
+            Err(VariantToF64Error::UnsupportedType { got: "LocalizedText" })
+        }
+        Variant::ExtensionObject(_) => {
+            Err(VariantToF64Error::UnsupportedType { got: "ExtensionObject" })
+        }
+        // Catch-all — `Variant` is marked `#[non_exhaustive]`
+        // in newer async-opcua revisions; fall-through stays
+        // in lockstep without a breaking match arm list.
+        _ => Err(VariantToF64Error::UnsupportedType {
+            got: "UnknownOrArray",
+        }),
+    }
+}
+
+/// Map an `OpcUaWriteOutcome` (from the Batch 209 write-
+/// orchestrator) to the `opcua::types::StatusCode` that the
+/// async-opcua session returns to the HMI.
+///
+/// Mapping follows plan §5 Faz 5 step 4 sub-step 13: reject
+/// reasons surface as distinct OPC UA status codes so HMIs
+/// display the correct error in their UI.
+pub fn outcome_to_status_code(
+    outcome: &crate::opc_ua_server::OpcUaWriteOutcome,
+) -> StatusCode {
+    use crate::opc_ua_server::OpcUaWriteOutcome as O;
+    match outcome {
+        O::Success { .. } => StatusCode::Good,
+        O::RejectedUnknownTag { .. } => StatusCode::BadNodeIdUnknown,
+        O::RejectedNotWritable { .. } => StatusCode::BadNotWritable,
+        // Force-blocked writes surface as BadNotWritable too —
+        // HMI sees "tag not writable" which matches the
+        // operator-facing "tag is currently forced" semantic
+        // when combined with the force banner the UI already
+        // renders. Audit record carries the distinct reason.
+        O::RejectedForced { .. } => StatusCode::BadNotWritable,
+        O::RejectedOutOfRange { .. } => StatusCode::BadOutOfRange,
+        O::RejectedNoPermission { .. } => StatusCode::BadUserAccessDenied,
+        O::RejectedProcessImage { .. } => StatusCode::BadInternalError,
+    }
+}
+
+/// Convert a Variant-extraction failure directly to the
+/// OPC UA status code the session returns. Saves the caller
+/// a match when they only care about the status.
+pub fn variant_error_to_status_code(err: &VariantToF64Error) -> StatusCode {
+    match err {
+        VariantToF64Error::UnsupportedType { .. }
+        | VariantToF64Error::EmptyVariant => StatusCode::BadTypeMismatch,
+    }
 }
 
 enum TagInsertOutcome {
@@ -977,6 +1114,114 @@ mod tests {
         )
         .await;
         let _ = std::fs::remove_dir_all(&pki_dir);
+    }
+
+    // ============================================================
+    // Batch 220 Faz 5 — bridge primitive tests
+    // ============================================================
+
+    #[test]
+    fn variant_to_f64_covers_numeric_variants() {
+        use opcua::types::Variant;
+        assert_eq!(variant_to_f64(&Variant::Boolean(true)).unwrap(), 1.0);
+        assert_eq!(variant_to_f64(&Variant::Boolean(false)).unwrap(), 0.0);
+        assert_eq!(variant_to_f64(&Variant::SByte(-5)).unwrap(), -5.0);
+        assert_eq!(variant_to_f64(&Variant::Byte(200)).unwrap(), 200.0);
+        assert_eq!(variant_to_f64(&Variant::Int16(-12345)).unwrap(), -12345.0);
+        assert_eq!(variant_to_f64(&Variant::UInt16(54321)).unwrap(), 54321.0);
+        assert_eq!(variant_to_f64(&Variant::Int32(-2_000_000)).unwrap(), -2_000_000.0);
+        assert_eq!(variant_to_f64(&Variant::UInt32(4_000_000_000)).unwrap(), 4_000_000_000.0);
+        assert_eq!(variant_to_f64(&Variant::Int64(42)).unwrap(), 42.0);
+        assert_eq!(variant_to_f64(&Variant::UInt64(100)).unwrap(), 100.0);
+        assert_eq!(variant_to_f64(&Variant::Float(1.5)).unwrap(), 1.5);
+        assert_eq!(variant_to_f64(&Variant::Double(std::f64::consts::PI)).unwrap(), std::f64::consts::PI);
+    }
+
+    #[test]
+    fn variant_to_f64_rejects_empty() {
+        use opcua::types::Variant;
+        match variant_to_f64(&Variant::Empty) {
+            Err(VariantToF64Error::EmptyVariant) => {}
+            other => panic!("expected EmptyVariant, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn variant_to_f64_rejects_string() {
+        use opcua::types::Variant;
+        let err = variant_to_f64(&Variant::String("hello".into())).unwrap_err();
+        match err {
+            VariantToF64Error::UnsupportedType { got } => {
+                assert_eq!(got, "String");
+            }
+            other => panic!("expected UnsupportedType, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn outcome_to_status_code_maps_every_variant() {
+        use crate::opc_ua_server::OpcUaWriteOutcome as O;
+        assert_eq!(
+            outcome_to_status_code(&O::Success {
+                tag_name: "x".into()
+            }),
+            StatusCode::Good
+        );
+        assert_eq!(
+            outcome_to_status_code(&O::RejectedUnknownTag {
+                tag_name: "ghost".into()
+            }),
+            StatusCode::BadNodeIdUnknown
+        );
+        assert_eq!(
+            outcome_to_status_code(&O::RejectedNotWritable {
+                tag_name: "ai".into()
+            }),
+            StatusCode::BadNotWritable
+        );
+        assert_eq!(
+            outcome_to_status_code(&O::RejectedForced {
+                tag_name: "do".into()
+            }),
+            StatusCode::BadNotWritable
+        );
+        assert_eq!(
+            outcome_to_status_code(&O::RejectedOutOfRange {
+                tag_name: "do".into(),
+                value: 200.0,
+                eng_min: 0.0,
+                eng_max: 100.0
+            }),
+            StatusCode::BadOutOfRange
+        );
+        assert_eq!(
+            outcome_to_status_code(&O::RejectedNoPermission {
+                tag_name: "do".into(),
+                actor: "a".into()
+            }),
+            StatusCode::BadUserAccessDenied
+        );
+        assert_eq!(
+            outcome_to_status_code(&O::RejectedProcessImage {
+                tag_name: "do".into(),
+                reason: "timeout".into()
+            }),
+            StatusCode::BadInternalError
+        );
+    }
+
+    #[test]
+    fn variant_error_to_status_code_maps_to_type_mismatch() {
+        assert_eq!(
+            variant_error_to_status_code(&VariantToF64Error::EmptyVariant),
+            StatusCode::BadTypeMismatch
+        );
+        assert_eq!(
+            variant_error_to_status_code(&VariantToF64Error::UnsupportedType {
+                got: "String"
+            }),
+            StatusCode::BadTypeMismatch
+        );
     }
 
     #[tokio::test]

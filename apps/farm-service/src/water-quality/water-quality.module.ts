@@ -62,6 +62,7 @@ import { WaterQualityParameterConfigSeederService } from './services/water-quali
 import { TenantOnboardingEventHandler } from './event-handlers/tenant-onboarding.event-handler';
 import { SpeciesModule } from '../species/species.module';
 import { FeedModule } from '../feed/feed.module';
+import { RegulatoryModule } from '../regulatory/regulatory.module';
 
 const CommandHandlers = [
   CreateParameterConfigHandler,
@@ -90,6 +91,7 @@ const CommandHandlers = [
     // into unrelated consumer surfaces.
     SpeciesModule,
     FeedModule,
+    RegulatoryModule,
   ],
   providers: [
     WaterQualityService,

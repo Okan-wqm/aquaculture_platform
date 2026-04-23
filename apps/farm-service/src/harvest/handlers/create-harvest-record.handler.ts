@@ -20,7 +20,7 @@
  * @module Harvest/Handlers
  */
 import { randomUUID } from 'crypto';
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import type { BatchHarvestedEvent } from '@platform/event-contracts';
@@ -35,6 +35,8 @@ import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { TankOperation, OperationType } from '../../batch/entities/tank-operation.entity';
 import { Tank } from '../../tank/entities/tank.entity';
 import { BatchHarvestEligibilityService } from '../../fish-health/services/batch-harvest-eligibility.service';
+import { BatchWithdrawalBlockedError } from '../../common/errors/farm-errors';
+import { FarmDomainMetricsService } from '../../common/metrics/farm-domain-metrics.service';
 import { BackdatePolicyService } from '../../common/services/backdate-policy.service';
 import { HarvestPolicyService } from '../services/harvest-policy.service';
 
@@ -58,6 +60,8 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
     private readonly tankBatchRepository: Repository<TankBatch>,
     @InjectRepository(Tank)
     private readonly tankRepository: Repository<Tank>,
+    @Optional()
+    private readonly metricsService?: FarmDomainMetricsService,
   ) {}
 
   async execute(command: CreateHarvestRecordCommand): Promise<HarvestRecord> {
@@ -116,10 +120,27 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
         harvestDate,
       );
       if (!eligibility.eligible) {
-        throw new BadRequestException(
-          eligibility.reason ??
+        this.metricsService?.incWithdrawalBlock({
+          tenantId,
+          surface: 'harvest_record',
+        });
+        throw new BatchWithdrawalBlockedError({
+          userMessage:
+            eligibility.reason ??
             'Harvest blocked by active medicine withdrawal period.',
-        );
+          activeTreatments: eligibility.blockingEvents.map((e) => ({
+            eventCode: e.id,
+            productName: e.title,
+            earliestHarvestDate: e.earliestHarvestDate.toISOString(),
+            daysRemaining: Math.max(
+              0,
+              Math.ceil(
+                (e.earliestHarvestDate.getTime() - Date.now()) / 86_400_000,
+              ),
+            ),
+          })),
+          fieldPath: ['createHarvestRecord', 'batchId'],
+        });
       }
 
       // ── POLICY GATE: harvest-plan mandatory for large harvests ──────

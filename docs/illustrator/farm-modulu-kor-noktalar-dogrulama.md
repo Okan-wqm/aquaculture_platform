@@ -1119,3 +1119,4 @@ Bu orphan'ı Faz 1.3 hot-fix olarak **ayrı PR** ile kapatmak gerekir — Faz 2.
 | 28 | Faz 5.5 — Timezone-aware recurring tasks | ✅ RESOLVED (Faz 5.5) | Girdi 15-B13 — luxon + `timezone` column + DST-safe DAILY/MONTHLY |
 | 29 | Faz 6.4 — Structured error conventions | ✅ RESOLVED (Faz 6.4) | Girdi 15-C1 + Orphan 10 — FarmAppError base + 5 concrete classes + filter |
 | 30 | Faz 6.4.1 — Migration of throw sites | ✅ RESOLVED (Faz 6.4.1) | TankCapacity / Backdate / Restore / HarvestPolicy migrated; HarvestEligibility throws via HttpException chain already structured |
+| 31 | Faz 6.4.2 — Withdrawal throw-site migration + 5.3.1 tenantId metrics wiring | ✅ RESOLVED (Faz 6.4.2 + 5.3.1) | close-batch + create-harvest-record call sites emit BatchWithdrawalBlockedError + incWithdrawalBlock; TankCapacityService emits incCapacityBlock |

@@ -707,6 +707,17 @@ pub struct AppState {
     /// boot warning.
     pub retain_persistence:
         Option<std::sync::Arc<crate::scripting::SqlitePersistence>>,
+
+    /// Live-debug force registry — Batch 196 Faz 6 wire.
+    /// Always present (constructed empty at
+    /// AppState::new). Operators populate via MQTT
+    /// `force_value` command (Batch 197). The io_poll
+    /// bypass (Batch 198) consults this on every poll
+    /// tick to skip refreshes for forced tags. The
+    /// 1-Hz sweep task (Batch 198) drops expired
+    /// entries automatically.
+    pub force_registry:
+        std::sync::Arc<crate::scripting::force_registry::ForceRegistry>,
 }
 
 impl AppState {
@@ -874,6 +885,14 @@ impl AppState {
             // RETAIN paths use the same key ceremony +
             // write-through to one file.
             retain_persistence: None,
+            // Batch 196 Faz 6 wire: always-present
+            // empty force registry. Operators populate
+            // via MQTT `force_value` (Batch 197);
+            // io_poll consults `is_forced` on each
+            // poll tick (Batch 198).
+            force_registry: std::sync::Arc::new(
+                crate::scripting::force_registry::ForceRegistry::new(),
+            ),
         }
     }
 

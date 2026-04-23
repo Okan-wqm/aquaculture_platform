@@ -1127,3 +1127,4 @@ Bu orphan'ı Faz 1.3 hot-fix olarak **ayrı PR** ile kapatmak gerekir — Faz 2.
 | 36 | Faz 7.3 — Systematic @Cacheable interceptor | ✅ RESOLVED (Faz 7.3) | Girdi 15-C3 — decorator + interceptor + module + parameterTemplates wiring |
 | 37 | Faz 5.7 — JSONB patch service | ✅ RESOLVED (Faz 5.7) | Girdi 15-B3 — jsonb_set() UPDATE with whitelist + tenant/id guard — sibling handlers on different JSONB keys commit concurrently |
 | 38 | Faz 6.1.2 — Runtime fail-closed permission matrix guard | ✅ RESOLVED (Faz 6.1.2) | Unknown operations 403 at runtime; grandfathered + introspection pass |
+| 39 | Faz 7.2 — Daily batch feeding materialized view + nightly refresh | ✅ RESOLVED (Faz 7.2) | Girdi 15-C12 — `farm.mv_daily_batch_feeding` + CONCURRENTLY refresh at 03:00; Timescale upgrade path documented |

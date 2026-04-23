@@ -83,6 +83,12 @@ pub mod task_scheduler;
 // Command handlers (Batch 197+) apply security gates
 // before calling into this primitive.
 pub mod force_registry;
+// Batch 201 Faz 6 (plan R-9): SQLCipher persistence
+// for persist_across_reboot=true force entries.
+// Boot-time rehydrator restores into the in-memory
+// registry. Non-persistent forces bypass this store
+// entirely + evaporate at shutdown drain.
+pub mod force_registry_store;
 // Batch 175 Faz 3 (plan R-1): RETAIN variable load/save
 // bridge between Bytecode.retain_vars declarations +
 // the existing SqlitePersistence variable store.

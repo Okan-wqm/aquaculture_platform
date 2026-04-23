@@ -203,18 +203,15 @@ describe('resolveAllowedRoles helper', () => {
     expect(closeBatchRoles.length).toBeGreaterThan(0);
   });
 
-  it('grandfathered operations map to null', () => {
-    // Phase 6.1.1 query sweep is essentially complete. The only
-    // entry left in UNGATED_OPERATIONS is `getCredentials`, a
-    // resolver-method-name whose @Query carries
-    // `{ name: 'sentinelHubCredentials' }` — whether the scanner
-    // reports it as `getCredentials` or `sentinelHubCredentials`
-    // is a multi-line decorator joining quirk. Runtime is still
-    // safe because the sibling `sentinelHubToken` (deepest
-    // credential) IS classified as TENANT_ADMIN, and the resolver
-    // file itself lives behind `@UseGuards(TenantGuard)`. A
-    // follow-up will align the scanner with the name override so
-    // this last entry can graduate into QUERY_ROLES.
-    expect(UNGATED_OPERATIONS.has('getCredentials')).toBe(true);
+  it('grandfathered whitelist is empty after phase 6.1.1 — every operation is explicitly classified', () => {
+    // Phase 6.1.1 is complete. Every @Mutation / @Query in
+    // farm-service now appears in MUTATION_ROLES or QUERY_ROLES
+    // with an explicit @Roles decorator. The whitelist is the
+    // empty set. New operations added after this point either
+    // carry @Roles + a matrix entry or the invariant test
+    // rejects the PR — the fail-closed runtime guard (phase
+    // 6.1.2) then rejects the request in production as a
+    // defence-in-depth layer. No more grandfathering.
+    expect(UNGATED_OPERATIONS.size).toBe(0);
   });
 });

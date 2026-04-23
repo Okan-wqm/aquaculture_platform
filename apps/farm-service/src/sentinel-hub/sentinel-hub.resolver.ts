@@ -34,6 +34,7 @@ export class SentinelHubResolver {
    * Returns masked clientId, instanceId and metadata
    * SECURITY: clientSecret is NEVER returned - only hasClientSecret boolean
    */
+  @Roles(Role.TENANT_ADMIN)
   @Query(() => SentinelHubCredentials, {
     name: 'sentinelHubCredentials',
     nullable: true,

@@ -198,10 +198,6 @@ export class BatchCostCalculatorService {
       .select(['wo.id', 'wo.costSummary'])
       .getMany();
 
-    if (orders.length === 0) {
-      return 0;
-    }
-
     let total = 0;
     let withoutCost = 0;
     for (const wo of orders) {
@@ -218,6 +214,11 @@ export class BatchCostCalculatorService {
       );
     }
 
+    // The env-driven baseline applies regardless of whether the
+    // batch had any work orders — operators that opt in to per-day
+    // labour modelling expect it as a floor on the cost axis even
+    // on idle cycles. The previous early return on `orders.length
+    // === 0` was a correctness bug caught by the baseline spec.
     const baselineLabour = this.estimateBaselineLabour(batch, warnings);
     return total + baselineLabour;
   }

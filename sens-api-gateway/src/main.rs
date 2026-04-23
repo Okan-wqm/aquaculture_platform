@@ -152,6 +152,8 @@ mod trend_engine;
 #[cfg(feature = "scada-display")]
 mod calibration_engine;
 mod opc_ua_server; // Batch 208 Faz 5: OPC UA address-space registry primitive
+#[cfg(feature = "opc-ua-server")]
+mod opc_ua_server_runtime; // Batch 216 Faz 5: async-opcua 0.18 ServerBuilder wire (feature-gated)
 
 use anyhow::{Context, Result};
 use std::sync::Arc;

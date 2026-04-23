@@ -98,6 +98,23 @@ pub enum TagSource {
     /// serde rename_all="snake_case" "lo_ra" uretir, bu yanlis — explicit "lora" kullaniyoruz
     #[serde(rename = "lora")]
     LoRa,
+    /// Batch 195 Faz 6 (plan R-9): value applied by
+    /// the live-debug force registry. io_poll's
+    /// bypass path sets TagSource::Force when the
+    /// tag has an active ForceEntry. Downstream
+    /// consumers (SCADA UI, OPC UA server, audit
+    /// log) can distinguish forced values from live
+    /// sensor reads without inspecting the force
+    /// registry directly.
+    Force,
+    /// Batch 195 Faz 6 (plan §5 Faz 5 OPC UA preview):
+    /// value written to the tag by a connected OPC
+    /// UA HMI client. Scripts MAY be allowed to
+    /// overwrite OpcUaClient values (depends on
+    /// per-tag policy); audit records both the
+    /// OpcUaClient write + the script overwrite so
+    /// operators see the chain.
+    OpcUaClient,
 }
 
 /// I/O type (IEC 61131-3)
@@ -403,6 +420,41 @@ mod tag_change_tests {
     //! Batch 189 Faz 4 — subscribe_changes + TagChange
     //! broadcast tests.
     use super::*;
+
+    // Batch 195 Faz 6: TagSource extension tests.
+
+    #[test]
+    fn tag_source_force_serde_roundtrips_snake_case() {
+        // TagSource::Force should serialize as "force".
+        let s = serde_json::to_string(&TagSource::Force).expect("ok");
+        assert_eq!(s, "\"force\"");
+        let back: TagSource = serde_json::from_str(&s).expect("ok");
+        assert_eq!(back, TagSource::Force);
+    }
+
+    #[test]
+    fn tag_source_opc_ua_client_serde_roundtrips_snake_case() {
+        let s = serde_json::to_string(&TagSource::OpcUaClient).expect("ok");
+        assert_eq!(s, "\"opc_ua_client\"");
+        let back: TagSource = serde_json::from_str(&s).expect("ok");
+        assert_eq!(back, TagSource::OpcUaClient);
+    }
+
+    #[tokio::test]
+    async fn update_tag_raw_with_force_source_emits_change_event() {
+        // TagSource::Force is a valid source for
+        // update_tag_raw — the emitted TagChange
+        // carries source=Force so subscribers can
+        // distinguish forced writes from live sensor
+        // reads.
+        let pi = ProcessImage::new();
+        let mut rx = pi.subscribe_changes();
+        pi.update_tag_raw("feeder_rate", 3.5, TagQuality::Good, TagSource::Force)
+            .await;
+        let ev = rx.recv().await.expect("event");
+        assert_eq!(ev.source, TagSource::Force);
+        assert_eq!(ev.new_value, 3.5);
+    }
 
     #[tokio::test]
     async fn subscribe_delivers_tag_change_on_update_tag_raw() {

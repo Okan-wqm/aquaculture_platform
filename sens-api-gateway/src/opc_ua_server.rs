@@ -33,6 +33,11 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use crate::audit::entry::{
+    AuditAction, AuditActor, AuditEntry, AuditOutcome, AuditPhase, AuditResource,
+};
+use crate::audit::sink::AuditSink;
+use crate::authz::permission::TenantId;
 use crate::process_image::{IoType, ProcessImage, TagConfig, TagQuality, TagSource};
 use crate::scripting::force_registry::ForceRegistry;
 
@@ -593,6 +598,170 @@ impl ForceRegistryOpcUaAdapter {
 impl OpcUaForceRegistryPort for ForceRegistryOpcUaAdapter {
     async fn is_forced(&self, tag_name: &str) -> bool {
         self.force_registry.is_forced(tag_name).await
+    }
+}
+
+// ============================================================
+// Batch 211 Faz 5 — AuditSink adapter
+// ============================================================
+
+/// Closure type that yields the current PolicyEngine policy
+/// version at call time. Kept as a `dyn Fn()` so the adapter
+/// stays decoupled from the concrete PolicyEngine impl —
+/// production wires `move || engine.current_policy_version()`;
+/// tests wire a canned integer closure.
+pub type PolicyVersionFn = Arc<dyn Fn() -> u64 + Send + Sync>;
+
+/// AuditSink → OpcUaAuditPort adapter.
+///
+/// Converts OpcUaWriteOutcome into the canonical `AuditEntry`
+/// shape (plan §5 Faz 5 step 4 sub-step 13: "audit pre + post-
+/// exec"). Every OPC UA write attempt — success OR reject —
+/// produces exactly one Post-phase entry; silent denies would
+/// hide brute-force patterns from the SIEM.
+///
+/// Why Post-phase only: the orchestrator runs the full 7-step
+/// chain before calling `record_write_attempt`, so the audit
+/// record captures the FINAL outcome. The existing command
+/// handler pattern uses Pre + Post pairs because the command
+/// handler runs authz BEFORE the mutation — for OPC UA writes
+/// the orchestrator encapsulates both phases internally, so a
+/// single Post entry correctly represents the full decision
+/// chain. Tenant-side SIEM correlation uses `correlation_id`
+/// to thread per-session HMI activity.
+pub struct AuditSinkOpcUaAdapter {
+    sink: Arc<AuditSink>,
+    tenant: TenantId,
+    policy_version_fn: PolicyVersionFn,
+}
+
+impl AuditSinkOpcUaAdapter {
+    pub fn new(
+        sink: Arc<AuditSink>,
+        tenant: TenantId,
+        policy_version_fn: PolicyVersionFn,
+    ) -> Self {
+        Self {
+            sink,
+            tenant,
+            policy_version_fn,
+        }
+    }
+
+    /// Map OpcUaWriteOutcome → AuditOutcome. Success is
+    /// obvious; authz denies surface as AuthorizationDenied
+    /// (distinct from Failure so cloud-side analytics can
+    /// separate "actor tried something not allowed" from
+    /// "hardware/storage fault"). Everything else collapses
+    /// to Failure with the reason carried in `detail`.
+    fn classify_outcome(outcome: &OpcUaWriteOutcome) -> AuditOutcome {
+        match outcome {
+            OpcUaWriteOutcome::Success { .. } => AuditOutcome::Success,
+            OpcUaWriteOutcome::RejectedNoPermission { .. } => {
+                AuditOutcome::AuthorizationDenied
+            }
+            OpcUaWriteOutcome::RejectedUnknownTag { .. }
+            | OpcUaWriteOutcome::RejectedNotWritable { .. }
+            | OpcUaWriteOutcome::RejectedForced { .. }
+            | OpcUaWriteOutcome::RejectedOutOfRange { .. }
+            | OpcUaWriteOutcome::RejectedProcessImage { .. } => AuditOutcome::Failure,
+        }
+    }
+
+    /// Stable short reason tag for the audit detail payload.
+    /// Analytics tools match against this string so variants
+    /// must keep stable names across releases.
+    fn outcome_reason_tag(outcome: &OpcUaWriteOutcome) -> &'static str {
+        match outcome {
+            OpcUaWriteOutcome::Success { .. } => "success",
+            OpcUaWriteOutcome::RejectedUnknownTag { .. } => "unknown_tag",
+            OpcUaWriteOutcome::RejectedNotWritable { .. } => "not_writable",
+            OpcUaWriteOutcome::RejectedForced { .. } => "forced",
+            OpcUaWriteOutcome::RejectedOutOfRange { .. } => "out_of_range",
+            OpcUaWriteOutcome::RejectedNoPermission { .. } => "no_permission",
+            OpcUaWriteOutcome::RejectedProcessImage { .. } => "process_image_error",
+        }
+    }
+
+    /// Build the JSON `detail` payload. Includes the value +
+    /// reason tag + outcome-specific context (range bounds,
+    /// ProcessImage error string). Bounded to `MAX_DETAIL_BYTES`
+    /// at canonical-bytes serialization time; the JSON
+    /// constructed here stays well under that cap.
+    fn build_detail(
+        value: f64,
+        outcome: &OpcUaWriteOutcome,
+    ) -> String {
+        let reason = Self::outcome_reason_tag(outcome);
+        let extra = match outcome {
+            OpcUaWriteOutcome::RejectedOutOfRange {
+                eng_min, eng_max, ..
+            } => {
+                serde_json::json!({ "eng_min": eng_min, "eng_max": eng_max })
+            }
+            OpcUaWriteOutcome::RejectedProcessImage { reason: r, .. } => {
+                serde_json::json!({ "process_image_error": r })
+            }
+            _ => serde_json::Value::Null,
+        };
+        serde_json::json!({
+            "opc_ua_write": true,
+            "value": value,
+            "reason": reason,
+            "extra": extra,
+        })
+        .to_string()
+    }
+}
+
+#[async_trait::async_trait]
+impl OpcUaAuditPort for AuditSinkOpcUaAdapter {
+    async fn record_write_attempt(
+        &self,
+        actor: &str,
+        tag_name: &str,
+        value: f64,
+        outcome: &OpcUaWriteOutcome,
+    ) {
+        let now = chrono::Utc::now();
+        let entry = AuditEntry {
+            timestamp_unix_secs: now.timestamp(),
+            timestamp_nanos: now.timestamp_subsec_nanos(),
+            correlation_id: uuid::Uuid::new_v4().to_string(),
+            phase: AuditPhase::Post,
+            // `opc-ua:` prefix matches the `op:` / `svc:` shape
+            // ActorIdentity::audit_label produces; analytics
+            // treats it as a distinct source class. The session
+            // layer passes the resolved subject (X509 CN, or
+            // username, or literal "anonymous") as `actor`.
+            actor: AuditActor::new(format!("opc-ua:{}", actor)),
+            tenant: self.tenant.clone(),
+            policy_version: (self.policy_version_fn)(),
+            // OPC UA writes never carry two-person integrity —
+            // the async-opcua session model is single-actor.
+            // Force-value commands + policy pushes flow through
+            // the MQTT command path which enforces TPI there.
+            two_person_integrity_verified: false,
+            action: AuditAction::TagWrite,
+            resource: AuditResource::Tag {
+                name: tag_name.to_string(),
+            },
+            outcome: Self::classify_outcome(outcome),
+            detail: Self::build_detail(value, outcome),
+        };
+        if let Err(e) = self.sink.append(entry) {
+            // Audit sink failure is SEV-HIGH ops incident but
+            // MUST NOT abort the OPC UA session — the HMI write
+            // already either landed (Success) or was rejected
+            // (any Rejected* variant), and swallowing the audit
+            // error would hide the forensic gap. tracing::warn
+            // surfaces to the observability pipeline.
+            tracing::warn!(
+                error = %e,
+                tag = tag_name,
+                "opc_ua audit append failed — forensic gap for this write"
+            );
+        }
     }
 }
 
@@ -1326,6 +1495,245 @@ mod tests {
             !adapter.is_forced("other_tag").await,
             "unrelated tags MUST NOT appear forced"
         );
+    }
+
+    // ============================================================
+    // Batch 211 Faz 5 — AuditSink adapter tests
+    // ============================================================
+
+    use crate::audit::sink::AuditHmacKey;
+
+    fn test_tenant() -> TenantId {
+        TenantId::new_from_verified([0x42u8; 16])
+    }
+
+    fn tmp_audit_path() -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "suderra-opcua-audit-{}-{}.log",
+            std::process::id(),
+            rand::random::<u32>()
+        ))
+    }
+
+    fn read_audit_ndjson(
+        path: &std::path::Path,
+    ) -> Vec<serde_json::Value> {
+        let text = std::fs::read_to_string(path).unwrap_or_default();
+        text.lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| serde_json::from_str(l).expect("valid NDJSON"))
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn audit_adapter_writes_success_entry() {
+        let path = tmp_audit_path();
+        let key = AuditHmacKey::from_bytes([0xAAu8; 32]);
+        let sink = Arc::new(AuditSink::open(&path, key).expect("open"));
+        let adapter = AuditSinkOpcUaAdapter::new(
+            sink,
+            test_tenant(),
+            Arc::new(|| 42u64),
+        );
+
+        adapter
+            .record_write_attempt(
+                "hmi-op",
+                "do_pump",
+                75.0,
+                &OpcUaWriteOutcome::Success {
+                    tag_name: "do_pump".into(),
+                },
+            )
+            .await;
+
+        let records = read_audit_ndjson(&path);
+        assert_eq!(records.len(), 1);
+        // HmacChainEntry nests AuditEntry under `entry`.
+        let entry = &records[0]["entry"];
+        // Canonical shape checks — these are the fields the
+        // cloud-side analytics correlator indexes on.
+        assert_eq!(entry["phase"], "post");
+        assert_eq!(entry["outcome"], "success");
+        assert_eq!(entry["action"], "tag_write");
+        assert_eq!(entry["policy_version"], 42);
+        assert_eq!(entry["actor"]["label"], "opc-ua:hmi-op");
+        // AuditResource::Tag serializes as externally-tagged
+        // enum default → {"tag":{"name":"do_pump"}}.
+        assert_eq!(entry["resource"]["tag"]["name"], "do_pump");
+
+        let detail: serde_json::Value =
+            serde_json::from_str(entry["detail"].as_str().unwrap()).unwrap();
+        assert_eq!(detail["opc_ua_write"], true);
+        assert_eq!(detail["value"], 75.0);
+        assert_eq!(detail["reason"], "success");
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[tokio::test]
+    async fn audit_adapter_writes_auth_denied_entry() {
+        let path = tmp_audit_path();
+        let key = AuditHmacKey::from_bytes([0xBBu8; 32]);
+        let sink = Arc::new(AuditSink::open(&path, key).expect("open"));
+        let adapter = AuditSinkOpcUaAdapter::new(
+            sink,
+            test_tenant(),
+            Arc::new(|| 7u64),
+        );
+
+        adapter
+            .record_write_attempt(
+                "stranger",
+                "do_pump",
+                50.0,
+                &OpcUaWriteOutcome::RejectedNoPermission {
+                    tag_name: "do_pump".into(),
+                    actor: "stranger".into(),
+                },
+            )
+            .await;
+
+        let records = read_audit_ndjson(&path);
+        assert_eq!(records.len(), 1);
+        // Authz denials MUST classify as AuthorizationDenied, not
+        // Failure — cloud-side analytics separates "actor tried
+        // something not allowed" from "hardware fault".
+        assert_eq!(records[0]["entry"]["outcome"], "authorization_denied");
+        assert_eq!(records[0]["entry"]["actor"]["label"], "opc-ua:stranger");
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[tokio::test]
+    async fn audit_adapter_writes_reject_paths_as_failure() {
+        let path = tmp_audit_path();
+        let key = AuditHmacKey::from_bytes([0xCCu8; 32]);
+        let sink = Arc::new(AuditSink::open(&path, key).expect("open"));
+        let adapter = AuditSinkOpcUaAdapter::new(
+            sink,
+            test_tenant(),
+            Arc::new(|| 99u64),
+        );
+
+        let rejects = [
+            OpcUaWriteOutcome::RejectedUnknownTag {
+                tag_name: "ghost".into(),
+            },
+            OpcUaWriteOutcome::RejectedNotWritable {
+                tag_name: "ai_sensor".into(),
+            },
+            OpcUaWriteOutcome::RejectedForced {
+                tag_name: "do_pump".into(),
+            },
+            OpcUaWriteOutcome::RejectedOutOfRange {
+                tag_name: "do_pump".into(),
+                value: 150.0,
+                eng_min: 0.0,
+                eng_max: 100.0,
+            },
+            OpcUaWriteOutcome::RejectedProcessImage {
+                tag_name: "do_pump".into(),
+                reason: "modbus timeout".into(),
+            },
+        ];
+        for o in rejects.iter() {
+            adapter.record_write_attempt("hmi-op", "tag", 1.0, o).await;
+        }
+
+        let records = read_audit_ndjson(&path);
+        assert_eq!(records.len(), 5);
+        for r in &records {
+            assert_eq!(r["entry"]["outcome"], "failure");
+        }
+        // Reason tags distinguish the five variants.
+        let reasons: Vec<String> = records
+            .iter()
+            .map(|r| {
+                let detail: serde_json::Value = serde_json::from_str(
+                    r["entry"]["detail"].as_str().unwrap(),
+                )
+                .unwrap();
+                detail["reason"].as_str().unwrap().to_string()
+            })
+            .collect();
+        assert_eq!(
+            reasons,
+            vec![
+                "unknown_tag",
+                "not_writable",
+                "forced",
+                "out_of_range",
+                "process_image_error",
+            ]
+        );
+
+        // Out-of-range entry includes the bounds for forensics.
+        let detail: serde_json::Value = serde_json::from_str(
+            records[3]["entry"]["detail"].as_str().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(detail["extra"]["eng_min"], 0.0);
+        assert_eq!(detail["extra"]["eng_max"], 100.0);
+
+        // process_image_error entry carries the underlying
+        // reason string for ops + forensics triage.
+        let detail: serde_json::Value = serde_json::from_str(
+            records[4]["entry"]["detail"].as_str().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(detail["extra"]["process_image_error"], "modbus timeout");
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[tokio::test]
+    async fn audit_adapter_policy_version_refreshed_per_call() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        let counter = Arc::new(AtomicU64::new(10));
+        let counter_for_closure = counter.clone();
+        let path = tmp_audit_path();
+        let key = AuditHmacKey::from_bytes([0xDDu8; 32]);
+        let sink = Arc::new(AuditSink::open(&path, key).expect("open"));
+        let adapter = AuditSinkOpcUaAdapter::new(
+            sink,
+            test_tenant(),
+            Arc::new(move || counter_for_closure.load(Ordering::SeqCst)),
+        );
+
+        adapter
+            .record_write_attempt(
+                "hmi-op",
+                "do_pump",
+                1.0,
+                &OpcUaWriteOutcome::Success {
+                    tag_name: "do_pump".into(),
+                },
+            )
+            .await;
+
+        // Bump policy_version (simulating a hot-reload);
+        // next audit call MUST pick up the new value.
+        counter.store(11, Ordering::SeqCst);
+
+        adapter
+            .record_write_attempt(
+                "hmi-op",
+                "do_pump",
+                2.0,
+                &OpcUaWriteOutcome::Success {
+                    tag_name: "do_pump".into(),
+                },
+            )
+            .await;
+
+        let records = read_audit_ndjson(&path);
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0]["entry"]["policy_version"], 10);
+        assert_eq!(records[1]["entry"]["policy_version"], 11);
+
+        let _ = std::fs::remove_file(&path);
     }
 
     #[tokio::test]

@@ -39,9 +39,17 @@
  *   Closes Girdi 15-C4 size + mime axes.
  */
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import sharp from 'sharp';
 
 import { MinioClientService } from './minio-client.service';
 import type { UploadOptions, UploadResult } from './interfaces/storage.interfaces';
+
+/** Mime types that carry EXIF / metadata and need to be stripped. */
+const IMAGE_MIMES_WITH_METADATA: ReadonlySet<string> = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+]);
 
 /**
  * Document-type policy. `documentType` values align with the
@@ -151,6 +159,18 @@ export class FileUploadSecurityService {
    */
   async uploadSecure(request: SecureUploadRequest): Promise<UploadResult> {
     this.preflight(request);
+
+    // Phase 6.2.1 — strip EXIF / metadata from image uploads
+    // BEFORE the bytes reach MinIO. sharp().rotate() normalises
+    // orientation (the main EXIF field operators care about
+    // preserving) and then re-encodes without the metadata
+    // block. PDFs and other non-image mimes pass through
+    // unchanged.
+    const sanitisedBuffer = await this.stripMetadataIfImage(
+      request.buffer,
+      request.declaredMime,
+    );
+
     const options: UploadOptions = {
       ...(request.options ?? {}),
       contentType: request.declaredMime,
@@ -160,9 +180,53 @@ export class FileUploadSecurityService {
       request.entityType,
       request.entityId,
       request.filename,
-      request.buffer,
+      sanitisedBuffer,
       options,
     );
+  }
+
+  /**
+   * Strip EXIF / metadata from an image buffer. Returns the
+   * original buffer unchanged for non-image mimes. When sharp
+   * fails (corrupt file, unsupported sub-format), logs and
+   * falls through with the original buffer — the upload still
+   * succeeds but the metadata is NOT stripped, surfaced in logs
+   * so ops can triage. Fail-safe beats fail-closed here because
+   * the pre-flight mime check already restricted the surface to
+   * known-good image types.
+   */
+  async stripMetadataIfImage(
+    buffer: Buffer,
+    declaredMime: string,
+  ): Promise<Buffer> {
+    if (!IMAGE_MIMES_WITH_METADATA.has(declaredMime.toLowerCase())) {
+      return buffer;
+    }
+    try {
+      // rotate() honours EXIF orientation before stripping, so a
+      // phone photo taken in portrait renders portrait on the
+      // far side. Without rotate() the stripped image would
+      // revert to the raw sensor orientation.
+      const pipeline = sharp(buffer).rotate();
+      if (declaredMime === 'image/jpeg') {
+        return await pipeline.jpeg({ quality: 90 }).toBuffer();
+      }
+      if (declaredMime === 'image/png') {
+        return await pipeline.png().toBuffer();
+      }
+      if (declaredMime === 'image/webp') {
+        return await pipeline.webp({ quality: 90 }).toBuffer();
+      }
+      return buffer;
+    } catch (err) {
+      this.logger.warn(
+        `EXIF strip failed for declaredMime='${declaredMime}': ` +
+          `${(err as Error).message}. Uploading original buffer — metadata ` +
+          `NOT stripped. Investigate the source file; the pre-flight mime ` +
+          `check should have caught this.`,
+      );
+      return buffer;
+    }
   }
 
   /** Pre-flight validation exposed so callers can dry-run the gate. */

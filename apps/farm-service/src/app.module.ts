@@ -51,6 +51,7 @@ import { FarmMetricsModule } from './common/metrics/farm-metrics.module';
 import { FarmAppErrorFilter } from './common/errors/farm-app-error.filter';
 import { CacheableModule } from './common/cache/cacheable.module';
 import { JsonbPatchModule } from './common/jsonb/jsonb-patch.module';
+import { PermissionMatrixGuard } from './common/authz/permission-matrix.guard';
 import { FarmOutboxModule } from './outbox/farm-outbox.module';
 import { FarmModule } from './farm/farm.module';
 import { HealthModule } from './health/health.module';
@@ -519,6 +520,17 @@ import { AddFarmOutboxModernColumns1786200000000 } from './database/migrations/1
       useFactory: (reflector: Reflector): RolesGuard =>
         new RolesGuard(reflector),
       inject: [Reflector],
+    },
+    // Phase 6.1.2 — fail-closed permission-matrix guard. Rejects
+    // any GraphQL @Mutation / @Query whose operation name is not
+    // present in permission-matrix.ts. Grandfathered operations
+    // (UNGATED_OPERATIONS) pass; unknown ones return 403. This is
+    // the runtime counterpart to the build-time invariant test —
+    // together they make "new mutation without matrix entry" a
+    // zero-time-to-detect regression.
+    {
+      provide: APP_GUARD,
+      useClass: PermissionMatrixGuard,
     },
     // Bootstrap source schema tables on startup (creates template tables if missing)
     SourceSchemaBootstrapService,

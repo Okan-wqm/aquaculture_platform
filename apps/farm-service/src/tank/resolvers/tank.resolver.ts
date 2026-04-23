@@ -179,6 +179,7 @@ export class TankResolver {
   /**
    * Get a single tank by ID
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => Tank, { name: 'tank' })
   async getTank(
     @Args('id', { type: () => ID }) id: string,
@@ -191,6 +192,7 @@ export class TankResolver {
   /**
    * List tanks with filtering and pagination
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => TankListResponse, { name: 'tanks' })
   async listTanks(
     @CurrentTenant() tenantId: string,
@@ -205,6 +207,7 @@ export class TankResolver {
   /**
    * Get tanks by department
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [Tank], { name: 'tanksByDepartment' })
   async getTanksByDepartment(
     @Args('departmentId', { type: () => ID }) departmentId: string,
@@ -219,6 +222,7 @@ export class TankResolver {
   /**
    * Get tanks with available capacity
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [Tank], { name: 'availableTanks' })
   async getAvailableTanks(
     @CurrentTenant() tenantId: string,

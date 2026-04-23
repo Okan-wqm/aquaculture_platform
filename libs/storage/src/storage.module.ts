@@ -5,6 +5,8 @@
  */
 import { Module, DynamicModule, Global, Logger } from '@nestjs/common';
 import { MinioClientService, STORAGE_CONFIG } from './minio-client.service';
+import { FileUploadSecurityService } from './file-upload-security.service';
+import { StorageOrphanCleanupService } from './orphan-cleanup.service';
 import { StorageConfig, StorageModuleAsyncOptions } from './interfaces/storage.interfaces';
 
 @Global()
@@ -36,8 +38,15 @@ export class StorageModule {
           useValue: config,
         },
         MinioClientService,
+        FileUploadSecurityService,
+        StorageOrphanCleanupService,
       ],
-      exports: [MinioClientService, STORAGE_CONFIG],
+      exports: [
+        MinioClientService,
+        FileUploadSecurityService,
+        StorageOrphanCleanupService,
+        STORAGE_CONFIG,
+      ],
     };
   }
 
@@ -58,8 +67,15 @@ export class StorageModule {
           inject: options.inject || [],
         },
         MinioClientService,
+        FileUploadSecurityService,
+        StorageOrphanCleanupService,
       ],
-      exports: [MinioClientService, STORAGE_CONFIG],
+      exports: [
+        MinioClientService,
+        FileUploadSecurityService,
+        StorageOrphanCleanupService,
+        STORAGE_CONFIG,
+      ],
     };
   }
 }

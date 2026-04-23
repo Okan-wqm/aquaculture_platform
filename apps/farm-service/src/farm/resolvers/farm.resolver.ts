@@ -76,6 +76,7 @@ export class FarmResolver {
   /**
    * Get a single farm by ID
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => Farm, { name: 'farm', nullable: true })
   async getFarm(
     @Args('id', { type: () => ID }) id: string,
@@ -90,6 +91,7 @@ export class FarmResolver {
   /**
    * List all farms for the tenant
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [Farm], { name: 'farms' })
   async listFarms(
     @Tenant() tenantId: string,
@@ -117,6 +119,7 @@ export class FarmResolver {
   /**
    * Get a single pond by ID
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => Pond, { name: 'pond', nullable: true })
   async getPond(
     @Args('id', { type: () => ID }) id: string,

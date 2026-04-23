@@ -19,7 +19,7 @@
  * @module Batch/Handlers
  */
 import { randomUUID } from 'crypto';
-import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException, Optional } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
@@ -30,6 +30,8 @@ import { CloseBatchCommand, BatchCloseReason } from '../commands/close-batch.com
 import { Batch, BatchStatus } from '../entities/batch.entity';
 import { Role, hasAnyRole } from '@aquaculture/backend-common/decorators';
 import { BatchHarvestEligibilityService } from '../../fish-health/services/batch-harvest-eligibility.service';
+import { BatchWithdrawalBlockedError } from '../../common/errors/farm-errors';
+import { FarmDomainMetricsService } from '../../common/metrics/farm-domain-metrics.service';
 
 @Injectable()
 @CommandHandler(CloseBatchCommand)
@@ -43,6 +45,8 @@ export class CloseBatchHandler implements ICommandHandler<CloseBatchCommand, Bat
     private readonly batchRepository: Repository<Batch>,
     private readonly outboxPublisher: OutboxPublisher,
     private readonly harvestEligibility: BatchHarvestEligibilityService,
+    @Optional()
+    private readonly metricsService?: FarmDomainMetricsService,
   ) {}
 
   async execute(command: CloseBatchCommand): Promise<Batch> {
@@ -90,17 +94,34 @@ export class CloseBatchHandler implements ICommandHandler<CloseBatchCommand, Bat
         new Date(),
       );
       if (!eligibility.eligible && !acknowledgeActiveTreatments) {
+        this.metricsService?.incWithdrawalBlock({
+          tenantId,
+          surface: 'close_batch',
+        });
         const titles = eligibility.blockingEvents
           .map((e) => `"${e.title}"`)
           .join(', ');
-        throw new BadRequestException(
-          `Batch ${batchId} has ${eligibility.blockingEvents.length} active ` +
+        throw new BatchWithdrawalBlockedError({
+          userMessage:
+            `Batch ${batchId} has ${eligibility.blockingEvents.length} active ` +
             `health event(s) with open withdrawal periods (${titles}). ` +
             `Earliest permissible harvest date: ` +
             `${eligibility.blockedUntil?.toISOString().slice(0, 10)}. ` +
             `Set acknowledgeActiveTreatments=true on the close request to ` +
             `accept the override (will be audit-logged).`,
-        );
+          activeTreatments: eligibility.blockingEvents.map((e) => ({
+            eventCode: e.id,
+            productName: e.title,
+            earliestHarvestDate: e.earliestHarvestDate.toISOString(),
+            daysRemaining: Math.max(
+              0,
+              Math.ceil(
+                (e.earliestHarvestDate.getTime() - Date.now()) / 86_400_000,
+              ),
+            ),
+          })),
+          fieldPath: ['closeBatch', 'id'],
+        });
       }
       if (!eligibility.eligible && acknowledgeActiveTreatments) {
         this.logger.warn(

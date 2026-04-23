@@ -8,7 +8,7 @@
  */
 import { Resolver, Query, Mutation, Args, ID, Int, ObjectType, Field, GraphQLISODateTime } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
-import { CurrentTenant, CurrentUser } from '@aquaculture/backend-common/decorators';
+import { CurrentTenant, CurrentUser, Role, Roles } from '@aquaculture/backend-common/decorators';
 import { TenantGuard } from '@aquaculture/backend-common/guards';
 import { StandardPaginatedResponse, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import GraphQLJSON from 'graphql-type-json';
@@ -123,6 +123,7 @@ export class HealthEventResolver {
   /**
    * Get a single health event by ID
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => HealthEvent, { nullable: true, description: 'Get health event by ID' })
   async healthEvent(
     @CurrentTenant() tenantId: string,
@@ -134,6 +135,7 @@ export class HealthEventResolver {
   /**
    * List health events with filtering and pagination
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => PaginatedHealthEventsResponse, { description: 'List health events with filters' })
   async healthEvents(
     @CurrentTenant() tenantId: string,
@@ -145,6 +147,7 @@ export class HealthEventResolver {
   /**
    * Get health events for a specific batch
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [HealthEvent], { description: 'Get health events for a batch' })
   async healthEventsByBatch(
     @CurrentTenant() tenantId: string,
@@ -157,6 +160,7 @@ export class HealthEventResolver {
   /**
    * Get critical health events (severe or critical severity, active status)
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [HealthEvent], { description: 'Get critical health events' })
   async criticalHealthEvents(
     @CurrentTenant() tenantId: string,
@@ -167,6 +171,7 @@ export class HealthEventResolver {
   /**
    * Get health events with overdue follow-ups
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [HealthEvent], { description: 'Get events with overdue follow-ups' })
   async overdueHealthFollowUps(
     @CurrentTenant() tenantId: string,
@@ -177,6 +182,7 @@ export class HealthEventResolver {
   /**
    * Get health event statistics
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => HealthEventStatsResponse, { description: 'Get health event statistics' })
   async healthEventStats(
     @CurrentTenant() tenantId: string,
@@ -191,6 +197,7 @@ export class HealthEventResolver {
   /**
    * Create a new health event
    */
+  @Roles(Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN)
   @Mutation(() => HealthEvent, { description: 'Create a new health event' })
   async createHealthEvent(
     @CurrentTenant() tenantId: string,
@@ -204,6 +211,7 @@ export class HealthEventResolver {
   /**
    * Update an existing health event
    */
+  @Roles(Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN)
   @Mutation(() => HealthEvent, { description: 'Update a health event' })
   async updateHealthEvent(
     @CurrentTenant() tenantId: string,
@@ -218,6 +226,7 @@ export class HealthEventResolver {
   /**
    * Delete a health event
    */
+  @Roles(Role.TENANT_ADMIN)
   @Mutation(() => Boolean, { description: 'Delete a health event' })
   async deleteHealthEvent(
     @CurrentTenant() tenantId: string,
@@ -234,6 +243,7 @@ export class HealthEventResolver {
   /**
    * Start treatment for a health event
    */
+  @Roles(Role.MODULE_MANAGER, Role.TENANT_ADMIN)
   @Mutation(() => HealthEvent, { description: 'Start treatment for a health event' })
   async startHealthEventTreatment(
     @CurrentTenant() tenantId: string,
@@ -248,6 +258,7 @@ export class HealthEventResolver {
   /**
    * End treatment for a health event
    */
+  @Roles(Role.MODULE_MANAGER, Role.TENANT_ADMIN)
   @Mutation(() => HealthEvent, { description: 'End treatment for a health event' })
   async endHealthEventTreatment(
     @CurrentTenant() tenantId: string,
@@ -266,6 +277,7 @@ export class HealthEventResolver {
   /**
    * Start quarantine for a health event
    */
+  @Roles(Role.MODULE_MANAGER, Role.TENANT_ADMIN)
   @Mutation(() => HealthEvent, { description: 'Start quarantine for a health event' })
   async startHealthEventQuarantine(
     @CurrentTenant() tenantId: string,
@@ -280,6 +292,7 @@ export class HealthEventResolver {
   /**
    * End quarantine for a health event
    */
+  @Roles(Role.MODULE_MANAGER, Role.TENANT_ADMIN)
   @Mutation(() => HealthEvent, { description: 'End quarantine for a health event' })
   async endHealthEventQuarantine(
     @CurrentTenant() tenantId: string,
@@ -297,6 +310,7 @@ export class HealthEventResolver {
   /**
    * Resolve a health event
    */
+  @Roles(Role.MODULE_MANAGER, Role.TENANT_ADMIN)
   @Mutation(() => HealthEvent, { description: 'Resolve a health event' })
   async resolveHealthEvent(
     @CurrentTenant() tenantId: string,
@@ -323,6 +337,7 @@ export class HealthEventResolver {
    * createHarvestRecord command handler — this query just surfaces the
    * decision to the UI early.
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => HarvestEligibilityOutput, {
     description:
       "Check whether a batch can be harvested on the given date " +

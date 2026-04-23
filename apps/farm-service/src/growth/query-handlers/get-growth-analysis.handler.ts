@@ -3,11 +3,13 @@
  *
  * GetGrowthAnalysisQuery'yi işler ve detaylı büyüme analizi döner.
  *
- * OPTIMIZED: Redis caching with 2 hour TTL for expensive calculations.
+ * Phase 7.3.1: Redis caching moved from this handler to the
+ * @Cacheable decorator on the `growthAnalysis` resolver method
+ * (TTL 7200s = 2h). The handler body is now pure compute.
  *
  * @module Growth/QueryHandlers
  */
-import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
@@ -15,12 +17,10 @@ import { GetGrowthAnalysisQuery, GrowthAnalysisResult } from '../queries/get-gro
 import { GrowthMeasurement, GrowthPerformance } from '../entities/growth-measurement.entity';
 import { Batch } from '../../batch/entities/batch.entity';
 import { Species } from '../../species/entities/species.entity';
-import { RedisService } from '@aquaculture/backend-common/redis';
 
 @Injectable()
 @QueryHandler(GetGrowthAnalysisQuery)
 export class GetGrowthAnalysisHandler implements IQueryHandler<GetGrowthAnalysisQuery, GrowthAnalysisResult> {
-  private static readonly CACHE_TTL = 7200; // 2 hours
   private readonly logger = new Logger(GetGrowthAnalysisHandler.name);
 
   constructor(
@@ -30,25 +30,10 @@ export class GetGrowthAnalysisHandler implements IQueryHandler<GetGrowthAnalysis
     private readonly batchRepository: Repository<Batch>,
     @InjectRepository(Species)
     private readonly speciesRepository: Repository<Species>,
-    @Optional()
-    private readonly redisService?: RedisService,
   ) {}
 
   async execute(query: GetGrowthAnalysisQuery): Promise<GrowthAnalysisResult> {
     const { tenantId, batchId } = query;
-
-    // OPTIMIZED: Check Redis cache first
-    const cacheKey = `growth:analysis:${tenantId}:${batchId}`;
-    if (this.redisService) {
-      try {
-        const cached = await this.redisService.getJson<GrowthAnalysisResult>(cacheKey);
-        if (cached) {
-          return cached;
-        }
-      } catch {
-        // Cache miss or error, continue to compute
-      }
-    }
 
     // Batch'i bul
     const batch = await this.batchRepository.findOne({
@@ -208,13 +193,6 @@ export class GetGrowthAnalysisHandler implements IQueryHandler<GetGrowthAnalysis
 
       recommendations,
     };
-
-    // Cache the result (TTL: 2 hours)
-    if (this.redisService) {
-      this.redisService.setJson(cacheKey, result, GetGrowthAnalysisHandler.CACHE_TTL).catch((err) => {
-        this.logger.warn(`Failed to cache growth analysis result: ${err instanceof Error ? err.message : String(err)}`);
-      });
-    }
 
     return result;
   }

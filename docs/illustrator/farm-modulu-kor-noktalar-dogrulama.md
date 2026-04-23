@@ -828,14 +828,14 @@ Hepsi kabul edilmeli:
 | 15-A6 | REST controller sayısı | ⧗ Girdi 1 | — |
 | 15-A7 | Outbox index naming | ✅ | Yanıltıcı isim |
 | 15-A8 | published vs publishedAt redundancy | ✅ | Tek alan yeterli |
-| 15-B3 | Optimistic lock + JSONB | ✅ | Field-level merge yok |
-| 15-B5 | Water quality key validation | ⚠ | Config olan tenant'ta OK, olmayan'da typo geçer |
+| 15-B3 | Optimistic lock + JSONB | ✅ RESOLVED (Faz 5.7) | JsonbPatchService + whitelist registry — concurrent patches to different JSONB paths no longer 409 each other |
+| 15-B5 | Water quality key validation | ✅ RESOLVED (Faz 6.5) | strict mode default; zero-config tenant + non-empty submission → NO_ACTIVE_PARAMETER_CONFIGS 400; WQ_STRICT_VALIDATION env opt-out |
 | 15-B6 | Stock movement enum eksik | ✅ | **Doküman 4 tip, kod 6 tip** (WASTE, RETURN atlanmış) |
 | 15-B7 | Batch status tek tablo yok | ✅ | Single source of truth |
 | 15-B8 | cost_per_kg eksik kalemler | ✅ **VERİ KUSURU** | İş gücü/kimyasal/amortisman DAHİL DEĞİL |
 | 15-B10 | Harvest plan shortcut path | ✅ | Compliance riski |
 | 15-B12 | Growth populationSize | ❌ Yanlış | Default `batch.currentQuantity` |
-| 15-B13 | Recurring task timezone | ✅ | Sunucu saati, site tz yok |
+| 15-B13 | Recurring task timezone | ✅ RESOLVED (Faz 5.5) | luxon-based timezone-aware calculateDueDate + calculateNextGeneration, `timezone` column on RecurringTemplate, DST edge case covered |
 | 15-B14 | Auto rule parser riski | ❌ Yanlış | Enum-bazlı, eval yok |
 | 15-B15 | Cleaner fish capacity | 🔴 **KRİTİK** | max_biomass_kg kontrolü yok |
 | 15-B16 | Lot mixing teorik vs fiziksel | ✅ RESOLVED (Faz 2.4) | Gıda güvenliği izlenebilirlik — `StorageLotMix` + `LotMixService` |
@@ -1092,8 +1092,8 @@ Bu orphan'ı Faz 1.3 hot-fix olarak **ayrı PR** ile kapatmak gerekir — Faz 2.
 | 1 | vite.config.ts FarmList/FarmDetail exposes regresyonu | ✅ Düzeltildi (bu PR) | — |
 | 2 | allocate-to-tank zaten hard-enforce | 📋 Faz 1.1 plan güncel | Faz 1.1 |
 | 3 | Equipment.hasCapacityFor() duplicate | 📋 Faz 1.1 plan güncel | Faz 1.1 |
-| 4 | observability-service farm.farms | ⚠ Cross-service fix gerek | Faz 4.3 pre |
-| 5 | admin-api test farm.ponds | ⚠ Test update gerek | Faz 4.3 pre |
+| 4 | observability-service farm.farms | ✅ RESOLVED (Faz 4.3 pre) | Switched to `farm.sites` + isDeleted filter |
+| 5 | admin-api test farm.ponds | ✅ RESOLVED (Faz 4.3 pre) | Test updated to `farm.sites` |
 | 6 | farm.entity.ts pond comment | 📋 Faz 1.2 | Faz 1.2 |
 | 7 | restore() 6+ entity'de expose edilmemiş | 📋 Faz 4.2 mixin | Faz 4.2 |
 | 8 | libs/storage MinIO mevcut | 📋 Faz 6.2 güncel | Faz 6.2 |
@@ -1105,10 +1105,38 @@ Bu orphan'ı Faz 1.3 hot-fix olarak **ayrı PR** ile kapatmak gerekir — Faz 2.
 | 14 | batch_feed_assignments UNIQUE + restore | 📋 Pre-check | Faz 4.2 |
 | 15 | Cleaner fish deploy pre-check query yok | 📋 UI genişlet | Faz 3 + 1.1 |
 | 16 | cleanupOldData method isim duplikasyonu | ⚠ Düşük öncelik | cosmetic |
-| 17 | StorageInventory.receivedDate entity'de yok | ⚠ Faz 1.3 hot-fix | Faz 1.3 follow-up |
+| 17 | StorageInventory.receivedDate entity'de yok | ✅ RESOLVED (Faz 1.3 hot-fix) | 1787100000000 migration + entity + handler insert |
 | 18 | Faz 3 Tier 1 — updateBatchStatus UI | ✅ RESOLVED (Faz 3 partial) | Phase 3 Tier 1 |
 | 19 | Faz 3 Tier 1 — closeBatch UI (acknowledgeActiveTreatments) | ✅ RESOLVED (Faz 3 partial) | Phase 3 Tier 1 |
 | 20 | Faz 3 Tier 1 — allocateBatchToTank UI | ✅ RESOLVED (Faz 3 partial) | Phase 3 Tier 1 |
 | 21 | Faz 3 Tier 1 — createSubEquipment UI + update/delete (Tier 3) | ✅ RESOLVED (Faz 3 partial) | Phase 3 Tier 1 part 2 |
 | 22 | Faz 3 Tier 1 — assignFeedsToBatch UI + update/delete (Tier 2) | ✅ RESOLVED (Faz 3 partial) | Phase 3 Tier 1 part 2 |
 | 23 | Faz 4.2 — Generic RestoreService + restore mutations | ✅ RESOLVED (Faz 4.2) | Girdi 6 — Feed/Species/Supplier/Chemical/Consumable surfaces |
+| 24 | Faz 4.1 — Domain retention functions + cron wiring | ✅ RESOLVED (Faz 4.1) | Girdi 14b — feeding/growth/wq/tank_op/harvest retention |
+| 25 | Faz 5.4 — GraphQL query complexity limit | ✅ RESOLVED (Faz 5.4) | Girdi 15-C9 + Orphan 7 — default 1000 with env override |
+| 26 | Faz 5.2 — JSONB GIN index (narrowed to real workload) | ✅ RESOLVED (Faz 5.2 narrowed) | `storage_lot_mixes.contributingLots` — traceLot path; WQ + batch-weight indexes skipped as speculative |
+| 27 | Faz 5.3 — Prometheus domain metrics | ✅ RESOLVED (Faz 5.3) | Girdi 14d — FarmDomainMetricsService + APP_INTERCEPTOR + backdate wiring |
+| 28 | Faz 5.5 — Timezone-aware recurring tasks | ✅ RESOLVED (Faz 5.5) | Girdi 15-B13 — luxon + `timezone` column + DST-safe DAILY/MONTHLY |
+| 29 | Faz 6.4 — Structured error conventions | ✅ RESOLVED (Faz 6.4) | Girdi 15-C1 + Orphan 10 — FarmAppError base + 5 concrete classes + filter |
+| 30 | Faz 6.4.1 — Migration of throw sites | ✅ RESOLVED (Faz 6.4.1) | TankCapacity / Backdate / Restore / HarvestPolicy migrated; HarvestEligibility throws via HttpException chain already structured |
+| 31 | Faz 6.4.2 — Withdrawal throw-site migration + 5.3.1 tenantId metrics wiring | ✅ RESOLVED (Faz 6.4.2 + 5.3.1) | close-batch + create-harvest-record call sites emit BatchWithdrawalBlockedError + incWithdrawalBlock; TankCapacityService emits incCapacityBlock |
+| 32 | Faz 6.1 — Permission matrix SSoT + invariant + surfaced recordStockMovement duplicate | ✅ RESOLVED (Faz 6.1) | Girdi 15-C2 — 198 mutations / 193 queries classified; 227 ungated ops whitelisted for phase 6.1.1; spare-part `recordStockMovement` renamed to `recordSparePartStockMovement` to break the federation name collision |
+| 33 | Faz 6.5 — WQ strict validation + zero-config gate | ✅ RESOLVED (Faz 6.5) | Girdi 15-B5 — strict default; opt-out via env |
+| 34 | Faz 7.5 partial — WQ parameter config seeder | ✅ RESOLVED (Faz 7.5 partial) | Girdi 15-C7 partial — seedDefaultWaterQualityParameterConfigs mutation; closes phase 6.5 onboarding gap |
+| 35 | Orphans 3 + 5 — cross-service `farm.farms`/`farm.ponds` refs | ✅ RESOLVED (Faz 4.3 pre) | observability + admin-api swap onto `farm.sites` — unblocks Faz 4.3 legacy migration |
+| 36 | Faz 7.3 — Systematic @Cacheable interceptor | ✅ RESOLVED (Faz 7.3) | Girdi 15-C3 — decorator + interceptor + module + parameterTemplates wiring |
+| 37 | Faz 5.7 — JSONB patch service | ✅ RESOLVED (Faz 5.7) | Girdi 15-B3 — jsonb_set() UPDATE with whitelist + tenant/id guard — sibling handlers on different JSONB keys commit concurrently |
+| 38 | Faz 6.1.2 — Runtime fail-closed permission matrix guard | ✅ RESOLVED (Faz 6.1.2) | Unknown operations 403 at runtime; grandfathered + introspection pass |
+| 39 | Faz 7.2 — Daily batch feeding materialized view + nightly refresh | ✅ RESOLVED (Faz 7.2) | Girdi 15-C12 — `farm.mv_daily_batch_feeding` + CONCURRENTLY refresh at 03:00; Timescale upgrade path documented |
+| 40 | Faz 7.3.2 — @CacheEvict decorator + APP_INTERCEPTOR | ✅ RESOLVED (Faz 7.3.2) | Declarative cache invalidation completes the Phase 7.3 caching contract |
+| 41 | Faz 7.5 full — Tenant onboarding event handler | ✅ RESOLVED (Faz 7.5) | Girdi 15-C7 — TenantCreated wildcard subscription auto-seeds WQ parameter catalogue on provisioning |
+| 42 | Faz 6.2 partial — File upload size + mime whitelist | ✅ RESOLVED (Faz 6.2 partial) | Girdi 15-C4 — FileUploadSecurityService with per-document-type policies + magic-byte sniff; EXIF strip (6.2.1) + ClamAV (6.2.2) + orphan cleanup (6.2.3) deferred to follow-ups |
+| 43 | Faz 7.3.1 partial — batch-performance + growth-analysis migrated to @Cacheable | ✅ RESOLVED (Faz 7.3.1 partial) | Ad-hoc Redis blocks stripped from handlers; @Cacheable at the resolver boundary; AI-insights keeps its stale-fallback pattern |
+| 44 | Faz 7.2.2 — WQ daily materialized view | ✅ RESOLVED (Faz 7.2.2) | `farm.mv_daily_tank_water_quality` — avg/min/max per (tenant, tank, day); nightly CONCURRENTLY refresh |
+| 45 | Faz 6.2.1 — EXIF / metadata strip for image uploads | ✅ RESOLVED (Faz 6.2.1) | sharp-based strip on JPEG/PNG/WEBP; PDFs pass through; fail-safe on corrupt files |
+| 46 | Faz 6.1.1 (task module) — Thread @Roles on 13 ungated ops | ✅ RESOLVED (Faz 6.1.1 task-module) | Task + recurring-template + auto-rule mutations annotated; UNGATED_OPERATIONS whitelist shrinks from 227 → 214 |
+| 47 | Faz 6.1.1 (work-order + maintenance) — Thread @Roles on 20 ungated ops | ✅ RESOLVED (Faz 6.1.1 maintenance-module) | Work-order + maintenance-schedule resolvers annotated; UNGATED_OPERATIONS whitelist shrinks from 214 → 194 |
+| 48 | Faz 6.1.1 (health + system + feed) — ALL MUTATIONS CLASSIFIED | ✅ RESOLVED (Faz 6.1.1 complete for mutations) | Every @Mutation now carries @Roles; UNGATED_OPERATIONS contains queries only |
+| 49 | Faz 6.3 — GDPR tenant export + erasure | ✅ RESOLVED (Faz 6.3) | Girdi 15-C11 + COMPLIANCE-CRITICAL-001 — `TenantExportService` walks `entityMetadatas` for all tenant-scoped tables (defence-in-depth redaction on farm_audit_logs); `TenantErasureService` two-step confirm (32-hex token / 5-min TTL) with topological-sort DELETE cascade + SHA-256 userId anonymisation on farm_audit_logs; 3 `TENANT_ADMIN` mutations (`exportTenantData` / `initiateTenantErasure` / `confirmTenantErasure`). Cross-service `TenantErased` event fan-out lands in phase 6.3.1. |
+| 50 | Faz 5.1 — Cursor pagination primitive + TypeORM adapter + first resolver adoption | ✅ RESOLVED (Faz 5.1) | Girdi 14a + Orphan 7 — `libs/backend-common/src/pagination/cursor.ts` primitive (opaque base64url `{id, createdAt}` / fail-closed decode / `CursorPaginationInput` / `buildCursorResponse` / `normaliseCursorInput`); `cursor-repository.ts` TypeORM adapter (`paginateCursor` one-line bridge); first resolver adoption `storageInventoryByCursor` alongside offset-based `storageInventory` (6-month deprecation window). 29 primitive/adapter tests + 5 resolver-handler wiring tests all green. |
+| 51 | Faz 7.5 — Onboarding fan-out complete (5/5 seeders) | ✅ RESOLVED (Faz 7.5 complete) | Girdi 15-C7 — `TenantCreated` wildcard subscription fans out to five hooks: `WaterQualityParameterConfigSeederService` (1) → `SpeciesSeederService` (2) → `FeedingProtocolSeederService` (3) → `RegulatorySettingsSeederService` (4: Maskinporten env=TEST skeleton) → `EquipmentTypeCatalogCheckerService` (5: read-only global-catalogue sanity WARN). Per-seeder fault isolation via runSeeder try/catch; sibling seeders always run when one fails. 11 tests across 2 suites pin the wiring contract; happy-path log confirms `5/5 seeders ok`. |

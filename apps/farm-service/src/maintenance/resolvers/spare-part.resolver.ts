@@ -139,6 +139,7 @@ export class SparePartResolver {
   // QUERIES
   // -------------------------------------------------------------------------
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => SparePart, { name: 'sparePart' })
   async getSparePart(
     @Args('id', { type: () => ID }) id: string,
@@ -148,6 +149,7 @@ export class SparePartResolver {
     return this.sparePartService.findById(tenantId, id);
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => SparePart, { name: 'sparePartByCode' })
   async getSparePartByCode(
     @Args('code') code: string,
@@ -157,6 +159,7 @@ export class SparePartResolver {
     return this.sparePartService.findByCode(tenantId, code);
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => SparePart, { name: 'sparePartByPartNumber' })
   async getSparePartByPartNumber(
     @Args('partNumber') partNumber: string,
@@ -166,6 +169,7 @@ export class SparePartResolver {
     return this.sparePartService.findByPartNumber(tenantId, partNumber);
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => SparePartListResponse, { name: 'spareParts' })
   async listSpareParts(
     @Tenant() tenantId: string,
@@ -191,6 +195,7 @@ export class SparePartResolver {
     );
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [LowStockAlertResponse], { name: 'lowStockAlerts' })
   async getLowStockAlerts(
     @Tenant() tenantId: string,
@@ -207,6 +212,7 @@ export class SparePartResolver {
     }));
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [SparePart], { name: 'sparePartsByEquipmentType' })
   async getSparePartsByEquipmentType(
     @Args('equipmentTypeId', { type: () => ID }) equipmentTypeId: string,
@@ -216,6 +222,7 @@ export class SparePartResolver {
     return this.sparePartService.findByEquipmentType(tenantId, equipmentTypeId);
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => StockSummaryResponse, { name: 'stockSummary' })
   async getStockSummary(
     @Tenant() tenantId: string,
@@ -275,7 +282,17 @@ export class SparePartResolver {
     };
   }
 
-  @Mutation(() => SparePart)
+  /**
+   * Phase 6.1 rename: this was declared as `recordStockMovement`
+   * which collided with `storage.resolver.ts:recordStockMovement`
+   * (the inventory mutation). GraphQL federation only registers one
+   * of two colliding operation names, so one of these mutations
+   * silently became unreachable at the federation edge. Renaming
+   * the spare-part version to `recordSparePartStockMovement`
+   * disambiguates the two endpoints and lets the permission matrix
+   * surface per-operation authorisation cleanly.
+   */
+  @Mutation(() => SparePart, { name: 'recordSparePartStockMovement' })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async recordStockMovement(
     @Args('input') input: StockMovementInput,
@@ -283,7 +300,7 @@ export class SparePartResolver {
     @CurrentUser() user: UserContext,
   ): Promise<SparePart> {
     this.logger.log(
-      `Recording stock movement: ${input.sparePartId} - ${input.movementType} ${input.quantity}`,
+      `Recording spare-part stock movement: ${input.sparePartId} - ${input.movementType} ${input.quantity}`,
     );
     return this.sparePartService.recordStockMovement(tenantId, input, user.sub);
   }

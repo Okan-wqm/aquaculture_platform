@@ -157,6 +157,7 @@ export class ChemicalResolver {
   /**
    * Get a single chemical by ID
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => ChemicalResponse, { nullable: true })
   async chemical(
     @Args('id', { type: () => ID }) id: string,
@@ -169,6 +170,7 @@ export class ChemicalResolver {
   /**
    * List chemicals with pagination and filtering
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => PaginatedChemicalsResponse)
   async chemicals(
     @Args('filter', { type: () => ChemicalFilterInput, nullable: true }) filter: ChemicalFilterInput | undefined,
@@ -183,6 +185,7 @@ export class ChemicalResolver {
   /**
    * Get chemicals by type for dropdowns
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [ChemicalResponse])
   async chemicalsByType(
     @Args('type', { type: () => ChemicalType }) type: ChemicalType,
@@ -196,6 +199,7 @@ export class ChemicalResolver {
   /**
    * Get treatment chemicals for dropdowns
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [ChemicalResponse])
   async treatmentChemicals(
     @CurrentTenant() tenantId: string,
@@ -208,6 +212,7 @@ export class ChemicalResolver {
   /**
    * Get disinfectant chemicals for dropdowns
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [ChemicalResponse])
   async disinfectantChemicals(
     @CurrentTenant() tenantId: string,
@@ -221,6 +226,7 @@ export class ChemicalResolver {
    * Get all chemical types (global, not tenant-specific)
    */
   @SkipTenantGuard()
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [ChemicalTypeResponse])
   async chemicalTypes(): Promise<ChemicalTypeResponse[]> {
     return this.chemicalTypeRepository.find({

@@ -17,7 +17,7 @@
  */
 import { Resolver, Query, Args, ID } from '@nestjs/graphql';
 import { Logger } from '@nestjs/common';
-import { CurrentTenant } from '@aquaculture/backend-common/decorators';
+import { CurrentTenant, Role, Roles } from '@aquaculture/backend-common/decorators';
 import { AiInsightsService } from './services/ai-insights.service';
 import {
   TankRiskAssessment,
@@ -38,6 +38,7 @@ export class AiInsightsResolver {
    * tank detail screen. Nullable return allows the mobile app to degrade
    * gracefully when the MCP server is unavailable.
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => TankRiskAssessment, {
     nullable: true,
     description: 'AI-powered risk assessment for a specific tank (0-100 score with factors)',
@@ -54,6 +55,7 @@ export class AiInsightsResolver {
    * WHY: Growth prediction enables proactive harvest planning. The 30-day
    * window matches the typical production cycle checkpoint interval.
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => BatchGrowthPrediction, {
     nullable: true,
     description: 'AI growth prediction for a batch over the next 30 days',
@@ -71,6 +73,7 @@ export class AiInsightsResolver {
    * anomaly summary card on the dashboard. Returns an array (possibly empty)
    * rather than null — the mobile app always renders a list, even if empty.
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [FarmAnomaly], {
     description: 'Active anomalies detected across the entire farm',
   })
@@ -86,6 +89,7 @@ export class AiInsightsResolver {
    * driver of water quality degradation. Nullable because the MCP
    * predict_feeding_impact tool may be unavailable.
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => FeedingAdvice, {
     nullable: true,
     description: 'AI-driven feeding recommendation for a specific tank',
@@ -104,6 +108,7 @@ export class AiInsightsResolver {
    * a single response, minimizing round trips over potentially slow mobile
    * connections.
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => FarmDashboardInsights, {
     description: 'Aggregated AI insights for the farm dashboard (risk + anomalies + feeding)',
   })

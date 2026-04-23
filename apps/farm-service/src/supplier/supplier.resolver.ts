@@ -108,6 +108,7 @@ export class SupplierResolver {
   /**
    * Get a single supplier by ID
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => SupplierResponse, { nullable: true })
   async supplier(
     @Args('id', { type: () => ID }) id: string,
@@ -120,6 +121,7 @@ export class SupplierResolver {
   /**
    * List suppliers with pagination and filtering
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => PaginatedSuppliersResponse)
   async suppliers(
     @Args('filter', { type: () => SupplierFilterInput, nullable: true }) filter: SupplierFilterInput | undefined,
@@ -134,6 +136,7 @@ export class SupplierResolver {
   /**
    * Get suppliers by type for dropdowns
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [SupplierResponse])
   async suppliersByType(
     @Args('type', { type: () => SupplierType }) type: SupplierType,
@@ -147,6 +150,7 @@ export class SupplierResolver {
   /**
    * Get equipment suppliers for dropdowns
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [SupplierResponse])
   async equipmentSuppliers(
     @CurrentTenant() tenantId: string,
@@ -159,6 +163,7 @@ export class SupplierResolver {
   /**
    * Get feed suppliers for dropdowns
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [SupplierResponse])
   async feedSuppliers(
     @CurrentTenant() tenantId: string,
@@ -171,6 +176,7 @@ export class SupplierResolver {
   /**
    * Get chemical suppliers for dropdowns
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [SupplierResponse])
   async chemicalSuppliers(
     @CurrentTenant() tenantId: string,
@@ -184,6 +190,7 @@ export class SupplierResolver {
    * Get all supplier types (global, not tenant-specific)
    */
   @SkipTenantGuard()
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [SupplierTypeResponse])
   async supplierTypes(): Promise<SupplierTypeResponse[]> {
     return this.supplierTypeRepository.find({

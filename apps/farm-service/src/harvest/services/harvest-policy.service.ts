@@ -43,6 +43,7 @@ import {
   HarvestPlan,
   HarvestPlanStatus,
 } from '../entities/harvest-plan.entity';
+import { HarvestPlanRequiredError } from '../../common/errors/farm-errors';
 
 export interface HarvestPolicyDecision {
   /** True when the harvest size crossed either configured threshold. */
@@ -105,13 +106,19 @@ export class HarvestPolicyService {
       params.projectedQuantity > quantityThreshold;
 
     if (planRequired && !params.harvestPlanId) {
-      throw new BadRequestException(
-        `Harvest of batch ${params.batchId} exceeds the unplanned-harvest ` +
+      throw new HarvestPlanRequiredError({
+        userMessage:
+          `Harvest of batch ${params.batchId} exceeds the unplanned-harvest ` +
           `limits (biomass=${params.projectedBiomassKg}kg vs ${biomassThresholdKg}kg, ` +
           `quantity=${params.projectedQuantity} vs ${quantityThreshold}). ` +
           `A harvestPlanId pointing at an APPROVED / SCHEDULED / IN_PROGRESS ` +
           `plan for this batch is required. Create a harvest plan first.`,
-      );
+        batchId: params.batchId,
+        projectedBiomassKg: params.projectedBiomassKg,
+        projectedQuantity: params.projectedQuantity,
+        thresholdBiomassKg: biomassThresholdKg,
+        thresholdQuantity: quantityThreshold,
+      });
     }
 
     if (params.harvestPlanId) {

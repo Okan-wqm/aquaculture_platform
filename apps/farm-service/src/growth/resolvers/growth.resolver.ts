@@ -27,6 +27,7 @@ import { Repository } from 'typeorm';
 import { CurrentTenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
 import { TenantGuard } from '@aquaculture/backend-common/guards';
 import { StandardPaginationInput, StandardPaginatedResponse, fromCqrsPaginated, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
+import { Cacheable } from '../../common/cache/cacheable.decorator';
 import GraphQLJSON from 'graphql-type-json';
 
 // Entities
@@ -405,6 +406,7 @@ export class GrowthResolver {
   /**
    * Get growth measurement by ID
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => GrowthMeasurement, { nullable: true })
   async growthMeasurement(
     @Args('id', { type: () => ID }) id: string,
@@ -419,6 +421,7 @@ export class GrowthResolver {
   /**
    * List growth measurements with filters
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => GrowthMeasurementConnection)
   async growthMeasurements(
     @CurrentTenant() tenantId: string,
@@ -446,8 +449,15 @@ export class GrowthResolver {
   }
 
   /**
-   * Get growth analysis for a batch
+   * Get growth analysis for a batch.
+   *
+   * Phase 7.3.1 — cached via @Cacheable with 2-hour TTL. The
+   * underlying handler used to carry its own Redis read-through
+   * block; the cache now lives at the resolver boundary so the
+   * whole service uses one caching pattern.
    */
+  @Cacheable({ prefix: 'growth:analysis', ttlSeconds: 7200 })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => GrowthAnalysisResponse)
   async growthAnalysis(
     @CurrentTenant() tenantId: string,
@@ -461,6 +471,7 @@ export class GrowthResolver {
   /**
    * Get latest measurement for a batch
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => GrowthMeasurement, { nullable: true })
   async latestGrowthMeasurement(
     @CurrentTenant() tenantId: string,
@@ -474,6 +485,7 @@ export class GrowthResolver {
   /**
    * Get measurements for specific batch
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [GrowthMeasurement])
   async batchGrowthHistory(
     @CurrentTenant() tenantId: string,

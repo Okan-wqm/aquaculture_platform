@@ -86,11 +86,19 @@ const ENV_VAR_NAMES: Record<BackdateContext, string> = {
   harvest: 'HARVEST_BACKDATE_LIMIT_DAYS',
 };
 
+import { Optional } from '@nestjs/common';
+import { FarmDomainMetricsService } from '../metrics/farm-domain-metrics.service';
+import { BackdateBlockedError } from '../errors/farm-errors';
+
 @Injectable()
 export class BackdatePolicyService {
   private readonly logger = new Logger(BackdatePolicyService.name);
 
-  constructor(private readonly configService: ConfigService) {}
+  constructor(
+    private readonly configService: ConfigService,
+    @Optional()
+    private readonly metricsService?: FarmDomainMetricsService,
+  ) {}
 
   /**
    * Resolve the effective limit for a context. Env var takes priority,
@@ -133,32 +141,44 @@ export class BackdatePolicyService {
     const { context, proposedDate, limitDays, subjectLabel } = options;
 
     if (!(proposedDate instanceof Date) || Number.isNaN(proposedDate.getTime())) {
-      throw new BadRequestException(
-        `Invalid ${context} date: proposed value is not a valid Date.`,
-      );
+      this.metricsService?.incBackdateRejection({ context });
+      throw new BackdateBlockedError({
+        userMessage: `Invalid ${context} date: proposed value is not a valid Date.`,
+        backdateContext: context,
+      });
     }
 
     const now = new Date();
     const futureMs = proposedDate.getTime() - now.getTime();
 
     if (futureMs > FUTURE_CLOCK_SKEW_MS) {
-      throw new BadRequestException(
-        `Invalid ${context} date: ${proposedDate.toISOString()} is in the future. ` +
+      this.metricsService?.incBackdateRejection({ context });
+      throw new BackdateBlockedError({
+        userMessage:
+          `Invalid ${context} date: ${proposedDate.toISOString()} is in the future. ` +
           `Future-dated operational records are never accepted.`,
-      );
+        backdateContext: context,
+        proposedDate: proposedDate.toISOString(),
+      });
     }
 
     const effectiveLimit = this.getLimitForContext(context, limitDays);
     const backdatedDays = Math.max(0, Math.floor(-futureMs / 86_400_000));
 
     if (backdatedDays > effectiveLimit) {
+      this.metricsService?.incBackdateRejection({ context });
       const subject = subjectLabel ? ` for ${subjectLabel}` : '';
-      throw new BadRequestException(
-        `Proposed ${context} date${subject} is ${backdatedDays} day(s) in the past, ` +
+      throw new BackdateBlockedError({
+        userMessage:
+          `Proposed ${context} date${subject} is ${backdatedDays} day(s) in the past, ` +
           `beyond the configured limit of ${effectiveLimit} day(s). ` +
           `Adjust the ${ENV_VAR_NAMES[context]} environment variable if the bulk-import ` +
           `use case requires a larger window, or pass a per-call override.`,
-      );
+        backdateContext: context,
+        proposedDate: proposedDate.toISOString(),
+        limitDays: effectiveLimit,
+        backdatedDays,
+      });
     }
 
     return {

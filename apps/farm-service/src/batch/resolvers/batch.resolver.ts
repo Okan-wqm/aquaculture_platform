@@ -23,6 +23,7 @@ import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
 import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
 import { fromCqrsPaginated } from '@aquaculture/backend-common/pagination';
+import { Cacheable } from '../../common/cache/cacheable.decorator';
 import { Batch, BatchStatus, BatchInputType } from '../entities/batch.entity';
 
 /**
@@ -125,6 +126,7 @@ export class BatchResolver {
   // QUERIES
   // -------------------------------------------------------------------------
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => Batch, { name: 'batch' })
   async getBatch(
     @Args('id', { type: () => ID }) id: string,
@@ -134,6 +136,7 @@ export class BatchResolver {
     return this.queryBus.execute(new GetBatchQuery(tenantId, id));
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => BatchListResponse, { name: 'batches' })
   async listBatches(
     @Tenant() tenantId: string,
@@ -151,6 +154,15 @@ export class BatchResolver {
     return fromCqrsPaginated(result);
   }
 
+  /**
+   * Phase 7.3.1 — cache batch performance for 1 hour. The calculator
+   * fan-outs across batch + health_events + work_orders and used to
+   * do its own Redis caching inside the query handler. The cache
+   * logic now lives at the resolver boundary (one pattern for the
+   * whole service) and the handler body is pure compute.
+   */
+  @Cacheable({ prefix: 'batch:performance', ttlSeconds: 3600 })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Query(() => BatchPerformanceResponse, { name: 'batchPerformance' })
   async getBatchPerformance(
     @Args('id', { type: () => ID }) id: string,
@@ -160,6 +172,7 @@ export class BatchResolver {
     return this.queryBus.execute(new GetBatchPerformanceQuery(tenantId, id));
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [BatchHistoryEntryResponse], { name: 'batchHistory' })
   async getBatchHistory(
     @Args('id', { type: () => ID }) id: string,
@@ -175,6 +188,7 @@ export class BatchResolver {
     );
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [AvailableTankResponse], { name: 'availableTanks' })
   async listAvailableTanks(
     @Tenant() tenantId: string,
@@ -188,6 +202,7 @@ export class BatchResolver {
     );
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => String, { name: 'generateBatchNumber' })
   async generateBatchNumber(
     @Tenant() tenantId: string,

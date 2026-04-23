@@ -33,8 +33,8 @@ describe('BaseEntity', () => {
       const afterDelete = new Date();
 
       expect(entity.deletedAt).toBeDefined();
-      expect(entity.deletedAt.getTime()).toBeGreaterThanOrEqual(beforeDelete.getTime());
-      expect(entity.deletedAt.getTime()).toBeLessThanOrEqual(afterDelete.getTime());
+      expect(entity.deletedAt!.getTime()).toBeGreaterThanOrEqual(beforeDelete.getTime());
+      expect(entity.deletedAt!.getTime()).toBeLessThanOrEqual(afterDelete.getTime());
     });
 
     it('should set deletedBy when provided', () => {

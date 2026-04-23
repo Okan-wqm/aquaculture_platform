@@ -534,6 +534,9 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
       inventory.quantity = Number(inventory.quantity) + quantity;
       inventory.updatedBy = userId;
       if (expiryDate) inventory.expiryDate = expiryDate;
+      // Do NOT refresh `receivedDate` on restock — the original
+      // arrival date is the FEFO tiebreaker and must stay stable
+      // across top-ups of the same lot.
       await repo.save(inventory);
     } else {
       inventory = repo.create({
@@ -545,6 +548,11 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
         unit,
         lotNumber,
         expiryDate,
+        // Stamp `receivedDate` on the initial insert so the FEFO
+        // ORDER BY (expiryDate, receivedDate, lotNumber) has a real
+        // timestamp to compare. Older rows that predate the
+        // 1787100000000 migration get a default from the DB.
+        receivedDate: new Date(),
         createdBy: userId,
         updatedBy: userId,
       });

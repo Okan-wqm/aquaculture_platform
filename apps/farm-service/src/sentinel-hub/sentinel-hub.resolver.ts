@@ -24,6 +24,7 @@ export class SentinelHubResolver {
   /**
    * Get Sentinel Hub configuration status (masked)
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Query(() => SentinelHubStatus, { name: 'sentinelHubStatus' })
   async getStatus(@CurrentTenant() tenantId: string): Promise<SentinelHubStatus> {
     return this.sentinelHubService.getStatus(tenantId);
@@ -34,6 +35,7 @@ export class SentinelHubResolver {
    * Returns masked clientId, instanceId and metadata
    * SECURITY: clientSecret is NEVER returned - only hasClientSecret boolean
    */
+  @Roles(Role.TENANT_ADMIN)
   @Query(() => SentinelHubCredentials, {
     name: 'sentinelHubCredentials',
     nullable: true,
@@ -72,6 +74,7 @@ export class SentinelHubResolver {
   /**
    * Check if Sentinel Hub is configured
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Query(() => Boolean, { name: 'isSentinelHubConfigured' })
   async isConfigured(@CurrentTenant() tenantId: string): Promise<boolean> {
     return this.sentinelHubService.isConfigured(tenantId);
@@ -86,6 +89,7 @@ export class SentinelHubResolver {
    * the OAuth token server-side. The frontend uses this query only to
    * check if a valid token can be obtained (i.e., credentials are working).
    */
+  @Roles(Role.TENANT_ADMIN)
   @Query(() => SentinelHubToken, { name: 'sentinelHubToken', nullable: true })
   async getAccessToken(
     @CurrentTenant() tenantId: string,
@@ -105,6 +109,7 @@ export class SentinelHubResolver {
    * The frontend uses the instanceId to construct proxy URLs (routed through
    * /api/sentinel-hub/wms/:layerId) and expiresIn for refresh scheduling.
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Query(() => SentinelHubWmtsConfig, { name: 'sentinelHubWmtsConfig', nullable: true })
   async getWmtsConfig(
     @CurrentTenant() tenantId: string,

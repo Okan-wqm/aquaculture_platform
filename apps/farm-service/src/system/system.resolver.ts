@@ -4,7 +4,7 @@
 import { Resolver, Query, Mutation, Args, ID, ResolveField, Parent } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
-import { CurrentTenant, CurrentUser } from '@aquaculture/backend-common/decorators';
+import { CurrentTenant, CurrentUser, Role, Roles } from '@aquaculture/backend-common/decorators';
 import { TenantGuard } from '@aquaculture/backend-common/guards';
 import { fromCqrsPaginated } from '@aquaculture/backend-common/pagination';
 import { SystemResponse, PaginatedSystemsResponse } from './dto/system.response';
@@ -37,6 +37,7 @@ export class SystemResolver {
   /**
    * Create new system
    */
+  @Roles(Role.MODULE_MANAGER, Role.TENANT_ADMIN)
   @Mutation(() => SystemResponse)
   async createSystem(
     @Args('input') input: CreateSystemInput,
@@ -51,6 +52,7 @@ export class SystemResolver {
   /**
    * Update existing system
    */
+  @Roles(Role.MODULE_MANAGER, Role.TENANT_ADMIN)
   @Mutation(() => SystemResponse)
   async updateSystem(
     @Args('input') input: UpdateSystemInput,
@@ -66,6 +68,7 @@ export class SystemResolver {
    * Get delete preview for a system
    * Returns what will be deleted when the system is cascade soft deleted
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Query(() => SystemDeletePreviewResponse)
   async systemDeletePreview(
     @Args('id', { type: () => ID }) id: string,
@@ -80,6 +83,7 @@ export class SystemResolver {
    * Delete (soft) system
    * @param cascade If true, cascade soft delete all related items (child systems, equipment connections)
    */
+  @Roles(Role.TENANT_ADMIN)
   @Mutation(() => Boolean)
   async deleteSystem(
     @Args('id', { type: () => ID }) id: string,
@@ -95,6 +99,7 @@ export class SystemResolver {
   /**
    * Get single system by ID
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => SystemResponse, { nullable: true })
   async system(
     @Args('id', { type: () => ID }) id: string,
@@ -108,6 +113,7 @@ export class SystemResolver {
   /**
    * List systems with pagination and filtering
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => PaginatedSystemsResponse)
   async systems(
     @Args('filter', { type: () => SystemFilterInput, nullable: true }) filter?: SystemFilterInput,
@@ -125,6 +131,7 @@ export class SystemResolver {
   /**
    * Get systems by site for dropdowns
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [SystemResponse])
   async systemsBySite(
     @Args('siteId', { type: () => ID }) siteId: string,
@@ -138,6 +145,7 @@ export class SystemResolver {
   /**
    * Get systems by department for dropdowns
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [SystemResponse])
   async systemsByDepartment(
     @Args('departmentId', { type: () => ID }) departmentId: string,
@@ -151,6 +159,7 @@ export class SystemResolver {
   /**
    * Get child systems of a parent system
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [SystemResponse])
   async childSystems(
     @Args('parentSystemId', { type: () => ID }) parentSystemId: string,
@@ -164,6 +173,7 @@ export class SystemResolver {
   /**
    * Get root systems (no parent)
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [SystemResponse])
   async rootSystems(
     @Args('siteId', { type: () => ID, nullable: true }) siteId?: string,

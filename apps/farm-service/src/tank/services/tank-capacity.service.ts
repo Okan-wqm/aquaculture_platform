@@ -55,13 +55,15 @@
  *   → equipment.volume (top-level denormalised field)
  */
 import {
-  BadRequestException,
   Injectable,
   Logger,
+  Optional,
 } from '@nestjs/common';
 
 import { EquipmentStatus } from '../../equipment/entities/equipment.entity';
 import type { Equipment } from '../../equipment/entities/equipment.entity';
+import { TankCapacityExceededError } from '../../common/errors/farm-errors';
+import { FarmDomainMetricsService } from '../../common/metrics/farm-domain-metrics.service';
 
 /** Shape of the biomass already present on the tank (from TankBatch / equipment.currentBiomass). */
 export interface ExistingTankBiomass {
@@ -152,6 +154,11 @@ const ADMIN_OVERRIDE_ROLES: ReadonlySet<string> = new Set([
 @Injectable()
 export class TankCapacityService {
   private readonly logger = new Logger(TankCapacityService.name);
+
+  constructor(
+    @Optional()
+    private readonly metricsService?: FarmDomainMetricsService,
+  ) {}
 
   /**
    * Compute every capacity flag for the tank after an allocation.
@@ -277,7 +284,31 @@ export class TankCapacityService {
 
     // Hard mode (or admin-override without the role) — reject.
     this.logger.warn(`Tank capacity check failed: ${message}`);
-    throw new BadRequestException(message);
+    const axis = this.mapAxis(calc.primaryBlockReason);
+    const mode = this.mapMode(params.mode);
+    this.metricsService?.incCapacityBlock({ mode, axis });
+    throw new TankCapacityExceededError({
+      userMessage: message,
+      axis,
+      mode,
+      projectedBiomassKg: calc.projectedBiomassKg,
+      maxBiomassKg: calc.maxBiomassKg > 0 ? calc.maxBiomassKg : undefined,
+      projectedDensityKgM3: calc.projectedDensityKgM3,
+      maxDensityKgM3: calc.maxDensityKgM3,
+    });
+  }
+
+  private mapAxis(
+    reason: CapacityCalculation['primaryBlockReason'],
+  ): 'biomass' | 'density' | 'status' {
+    if (reason === 'biomass') return 'biomass';
+    if (reason === 'density') return 'density';
+    return 'status';
+  }
+
+  private mapMode(mode: EnforceOptions['mode']): 'hard' | 'admin_override' | 'soft' {
+    if (mode === 'admin-override') return 'admin_override';
+    return mode;
   }
 
   /**

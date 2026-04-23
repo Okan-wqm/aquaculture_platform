@@ -42,6 +42,8 @@ import { GetParameterConfigByCodeQuery } from './queries/get-parameter-config-by
 import { ListParameterTemplatesQuery } from './queries/list-parameter-templates.query';
 import { ListParamEquipmentQuery } from './queries/list-param-equipment.query';
 import { GetEquipmentParamsQuery } from './queries/get-equipment-params.query';
+import { WaterQualityParameterConfigSeederService } from './services/water-quality-parameter-config-seeder.service';
+import { Cacheable } from '../common/cache/cacheable.decorator';
 
 // ============================================================================
 // RESPONSE TYPES
@@ -68,6 +70,21 @@ export class ParameterTemplateResponse {
   parameterCodes: string[];
 }
 
+/**
+ * Result of a default-parameter seed run. `seeded` lists the codes
+ * that were inserted; `skipped` lists the codes that already
+ * existed so an operator re-running the seeder can tell whether
+ * the call did anything.
+ */
+@ObjectType()
+export class SeedDefaultParameterConfigsResponse {
+  @Field(() => [String])
+  seeded: string[];
+
+  @Field(() => [String])
+  skipped: string[];
+}
+
 // ============================================================================
 // RESOLVER
 // ============================================================================
@@ -80,6 +97,7 @@ export class WaterQualityParameterConfigResolver {
   constructor(
     private readonly commandBus: CommandBus,
     private readonly queryBus: QueryBus,
+    private readonly seeder: WaterQualityParameterConfigSeederService,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -89,6 +107,7 @@ export class WaterQualityParameterConfigResolver {
   /**
    * Filtrelenmis parametre konfigurasyonlarini listeler
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [WaterQualityParameterConfig], { name: 'parameterConfigs' })
   async listParameterConfigs(
     @CurrentTenant() tenantId: string,
@@ -101,6 +120,7 @@ export class WaterQualityParameterConfigResolver {
   /**
    * ID ile tek bir parametre konfigurasyonunu getirir
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => WaterQualityParameterConfig, { name: 'parameterConfig', nullable: true })
   async getParameterConfig(
     @Args('id', { type: () => ID }) id: string,
@@ -113,6 +133,7 @@ export class WaterQualityParameterConfigResolver {
   /**
    * Code ile tek bir parametre konfigurasyonunu getirir
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => WaterQualityParameterConfig, { name: 'parameterConfigByCode', nullable: true })
   async getParameterConfigByCode(
     @Args('code') code: string,
@@ -123,8 +144,20 @@ export class WaterQualityParameterConfigResolver {
   }
 
   /**
-   * Kullanilabilir parametre sablonlarini listeler
+   * Kullanilabilir parametre sablonlarini listeler.
+   *
+   * Phase 7.3 — cached for 1 hour. The catalogue is a static
+   * template registry that changes only when a new template ships
+   * in a release; once-an-hour staleness is well within any
+   * operational expectation. `scopeToTenant: false` because
+   * templates are identical across tenants.
    */
+  @Cacheable({
+    prefix: 'wq:parameterTemplates',
+    ttlSeconds: 3600,
+    scopeToTenant: false,
+  })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [ParameterTemplateResponse], { name: 'parameterTemplates' })
   async listParameterTemplates(): Promise<ParameterTemplateResponse[]> {
     this.logger.debug('Listing parameter templates');
@@ -183,6 +216,29 @@ export class WaterQualityParameterConfigResolver {
   }
 
   /**
+   * Seed the seven-parameter salmonid default catalogue for a
+   * tenant (temperature, pH, dissolved oxygen, ammonia, nitrite,
+   * salinity, turbidity). Idempotent on re-run — codes that
+   * already exist get skipped rather than duplicated.
+   *
+   * Phase 7.5 partial of the "Farm modülü kalan kör noktalar"
+   * plan. Closes the phase-6.5 onboarding gap: new tenants
+   * hitting strict validation mode can now bootstrap a working
+   * config set in one mutation instead of clicking through the
+   * setup page one parameter at a time.
+   */
+  @Roles(Role.TENANT_ADMIN)
+  @Mutation(() => SeedDefaultParameterConfigsResponse)
+  async seedDefaultWaterQualityParameterConfigs(
+    @CurrentTenant() tenantId: string,
+  ): Promise<SeedDefaultParameterConfigsResponse> {
+    this.logger.log(
+      `Seeding default water-quality parameter configs for tenant ${tenantId}`,
+    );
+    return this.seeder.seedDefaults(tenantId);
+  }
+
+  /**
    * Sablondan toplu parametre konfigurasyonu olusturur
    */
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
@@ -220,6 +276,7 @@ export class WaterQualityParameterConfigResolver {
   /**
    * Lists parameter-equipment mappings with optional filters
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [WaterQualityParamEquipment], { name: 'parameterEquipmentMappings' })
   async listParamEquipmentMappings(
     @CurrentTenant() tenantId: string,
@@ -236,6 +293,7 @@ export class WaterQualityParameterConfigResolver {
   /**
    * Gets all active parameter mappings for a specific equipment
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [WaterQualityParamEquipment], { name: 'equipmentParameters' })
   async getEquipmentParameters(
     @Args('equipmentId', { type: () => ID }) equipmentId: string,

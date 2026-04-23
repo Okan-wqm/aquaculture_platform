@@ -56,6 +56,7 @@ export class SubEquipmentResolver {
   /**
    * Get single sub-equipment by ID
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => SubEquipmentResponse, { nullable: true, name: 'subEquipment' })
   async getSubEquipment(
     @Args('id', { type: () => ID }) id: string,
@@ -71,6 +72,7 @@ export class SubEquipmentResolver {
   /**
    * List sub-equipment with pagination and filtering
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => PaginatedSubEquipmentResponse, { name: 'subEquipmentList' })
   async listSubEquipment(
     @Args('filter', { type: () => SubEquipmentFilterInput, nullable: true })
@@ -91,6 +93,7 @@ export class SubEquipmentResolver {
   /**
    * Get sub-equipment for a specific parent equipment
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [SubEquipmentResponse], { name: 'subEquipmentByParent' })
   async getSubEquipmentByParent(
     @Args('parentEquipmentId', { type: () => ID }) parentEquipmentId: string,
@@ -112,6 +115,7 @@ export class SubEquipmentResolver {
    * Get all sub-equipment types (global, not tenant-specific)
    */
   @SkipTenantGuard()
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [SubEquipmentTypeResponse], { name: 'subEquipmentTypes' })
   async getSubEquipmentTypes(
     @Args('filter', { type: () => SubEquipmentTypeFilterInput, nullable: true })
@@ -126,6 +130,7 @@ export class SubEquipmentResolver {
    * Get sub-equipment types compatible with a specific equipment type
    */
   @SkipTenantGuard()
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [SubEquipmentTypeResponse], { name: 'subEquipmentTypesForEquipment' })
   async getSubEquipmentTypesForEquipment(
     @Args('equipmentTypeCode') equipmentTypeCode: string,
@@ -142,6 +147,7 @@ export class SubEquipmentResolver {
    * Get single sub-equipment type by ID
    */
   @SkipTenantGuard()
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => SubEquipmentTypeResponse, { nullable: true, name: 'subEquipmentType' })
   async getSubEquipmentType(
     @Args('id', { type: () => ID }) id: string,

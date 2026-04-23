@@ -66,6 +66,7 @@ export class DepartmentResolver {
    * Get delete preview for a department
    * Returns what will be deleted when the department is cascade soft deleted
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Query(() => DepartmentDeletePreviewResponse)
   async departmentDeletePreview(
     @Args('id', { type: () => ID }) id: string,
@@ -96,6 +97,7 @@ export class DepartmentResolver {
   /**
    * Get a single department by ID
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => DepartmentResponse, { nullable: true })
   async department(
     @Args('id', { type: () => ID }) id: string,
@@ -109,6 +111,7 @@ export class DepartmentResolver {
   /**
    * List departments with pagination and filtering
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => PaginatedDepartmentsResponse)
   async departments(
     @Args('filter', { type: () => DepartmentFilterInput, nullable: true }) filter?: DepartmentFilterInput,
@@ -126,6 +129,7 @@ export class DepartmentResolver {
   /**
    * Get departments by site for dropdowns
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [DepartmentResponse])
   async departmentsBySite(
     @Args('siteId', { type: () => ID }) siteId: string,

@@ -19,7 +19,7 @@ import {
 } from '@nestjs/graphql';
 import { Logger, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
-import { Tenant, CurrentUser } from '@aquaculture/backend-common/decorators';
+import { Tenant, CurrentUser, Role, Roles } from '@aquaculture/backend-common/decorators';
 import { StandardPaginatedResponse, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import {
   MaintenanceSchedule,
@@ -139,6 +139,7 @@ export class MaintenanceScheduleResolver {
   // QUERIES
   // -------------------------------------------------------------------------
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => MaintenanceSchedule, { name: 'maintenanceSchedule' })
   async getMaintenanceSchedule(
     @Args('id', { type: () => ID }) id: string,
@@ -148,6 +149,7 @@ export class MaintenanceScheduleResolver {
     return this.maintenanceScheduleService.findById(tenantId, id);
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => MaintenanceSchedule, { name: 'maintenanceScheduleByCode' })
   async getMaintenanceScheduleByCode(
     @Args('code') code: string,
@@ -157,6 +159,7 @@ export class MaintenanceScheduleResolver {
     return this.maintenanceScheduleService.findByCode(tenantId, code);
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => MaintenanceScheduleListResponse, { name: 'maintenanceSchedules' })
   async listMaintenanceSchedules(
     @Tenant() tenantId: string,
@@ -182,6 +185,7 @@ export class MaintenanceScheduleResolver {
     );
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [MaintenanceSchedule], { name: 'upcomingMaintenanceSchedules' })
   async getUpcomingMaintenanceSchedules(
     @Tenant() tenantId: string,
@@ -192,6 +196,7 @@ export class MaintenanceScheduleResolver {
     return this.maintenanceScheduleService.findUpcoming(tenantId, days);
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [MaintenanceSchedule], { name: 'overdueMaintenanceSchedules' })
   async getOverdueMaintenanceSchedules(
     @Tenant() tenantId: string,
@@ -200,6 +205,7 @@ export class MaintenanceScheduleResolver {
     return this.maintenanceScheduleService.findOverdue(tenantId);
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [ScheduleAlertResponse], { name: 'maintenanceAlerts' })
   async getMaintenanceAlerts(
     @Tenant() tenantId: string,
@@ -216,6 +222,7 @@ export class MaintenanceScheduleResolver {
     }));
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Query(() => ComplianceReportResponse, { name: 'maintenanceComplianceReport' })
   async getComplianceReport(
     @Tenant() tenantId: string,
@@ -237,6 +244,7 @@ export class MaintenanceScheduleResolver {
   // MUTATIONS
   // -------------------------------------------------------------------------
 
+  @Roles(Role.MODULE_MANAGER, Role.TENANT_ADMIN)
   @Mutation(() => MaintenanceSchedule)
   async createMaintenanceSchedule(
     @Args('input') input: CreateMaintenanceScheduleInput,
@@ -247,6 +255,7 @@ export class MaintenanceScheduleResolver {
     return this.maintenanceScheduleService.create(tenantId, input, user.sub);
   }
 
+  @Roles(Role.MODULE_MANAGER, Role.TENANT_ADMIN)
   @Mutation(() => MaintenanceSchedule)
   async updateMaintenanceSchedule(
     @Args('input') input: UpdateMaintenanceScheduleInput,
@@ -256,6 +265,7 @@ export class MaintenanceScheduleResolver {
     return this.maintenanceScheduleService.update(tenantId, input);
   }
 
+  @Roles(Role.TENANT_ADMIN)
   @Mutation(() => DeleteMaintenanceScheduleResponse)
   async deleteMaintenanceSchedule(
     @Args('id', { type: () => ID }) id: string,
@@ -270,6 +280,7 @@ export class MaintenanceScheduleResolver {
     };
   }
 
+  @Roles(Role.MODULE_MANAGER, Role.TENANT_ADMIN)
   @Mutation(() => MaintenanceSchedule)
   async pauseMaintenanceSchedule(
     @Args('id', { type: () => ID }) id: string,
@@ -279,6 +290,7 @@ export class MaintenanceScheduleResolver {
     return this.maintenanceScheduleService.pause(tenantId, id);
   }
 
+  @Roles(Role.MODULE_MANAGER, Role.TENANT_ADMIN)
   @Mutation(() => MaintenanceSchedule)
   async resumeMaintenanceSchedule(
     @Args('id', { type: () => ID }) id: string,
@@ -288,6 +300,7 @@ export class MaintenanceScheduleResolver {
     return this.maintenanceScheduleService.resume(tenantId, id);
   }
 
+  @Roles(Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN)
   @Mutation(() => MaintenanceSchedule)
   async completeMaintenance(
     @Args('input') input: CompleteMaintenanceInput,
@@ -302,6 +315,7 @@ export class MaintenanceScheduleResolver {
     );
   }
 
+  @Roles(Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN)
   @Mutation(() => MaintenanceSchedule)
   async updateMeterReading(
     @Args('input') input: UpdateMeterReadingInput,
@@ -311,6 +325,7 @@ export class MaintenanceScheduleResolver {
     return this.maintenanceScheduleService.updateMeterReading(tenantId, input);
   }
 
+  @Roles(Role.MODULE_MANAGER, Role.TENANT_ADMIN)
   @Mutation(() => WorkOrder)
   async generateWorkOrderFromSchedule(
     @Args('scheduleId', { type: () => ID }) scheduleId: string,
@@ -325,6 +340,7 @@ export class MaintenanceScheduleResolver {
     );
   }
 
+  @Roles(Role.TENANT_ADMIN)
   @Mutation(() => [WorkOrder])
   async processAutoGenerateWorkOrders(
     @Tenant() tenantId: string,

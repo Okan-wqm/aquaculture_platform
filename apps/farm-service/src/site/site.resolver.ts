@@ -62,6 +62,7 @@ export class SiteResolver {
    * Get delete preview for a site
    * Returns what will be deleted when the site is cascade soft deleted
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Query(() => SiteDeletePreviewResponse)
   async siteDeletePreview(
     @Args('id', { type: () => ID }) id: string,
@@ -92,6 +93,7 @@ export class SiteResolver {
   /**
    * Get a single site by ID
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => SiteResponse, { nullable: true })
   async site(
     @Args('id', { type: () => ID }) id: string,
@@ -105,6 +107,7 @@ export class SiteResolver {
   /**
    * List sites with pagination and filtering
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => PaginatedSitesResponse)
   async sites(
     @Args('filter', { type: () => SiteFilterInput, nullable: true }) filter?: SiteFilterInput,
@@ -122,6 +125,7 @@ export class SiteResolver {
   /**
    * Get active sites for dropdowns
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [SiteResponse])
   async activeSites(
     @CurrentTenant() tenantId: string,

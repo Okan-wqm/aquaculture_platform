@@ -93,6 +93,7 @@ export class ConsumableResolver {
     );
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => ConsumableResponse, { nullable: true })
   async consumable(
     @Args('id', { type: () => ID }) id: string,
@@ -102,6 +103,7 @@ export class ConsumableResolver {
     return this.queryBus.execute(query);
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => PaginatedConsumablesResponse)
   async consumables(
     @Args('filter', { type: () => ConsumableFilterInput, nullable: true }) filter: ConsumableFilterInput | undefined,

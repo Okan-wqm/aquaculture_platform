@@ -210,6 +210,7 @@ export class HarvestResolver {
   /**
    * List all harvest records with filtering and pagination
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => PaginatedHarvestsResponse, { description: 'List harvest records with filtering and pagination' })
   async harvests(
     @Tenant() tenantId: string,
@@ -260,6 +261,7 @@ export class HarvestResolver {
   /**
    * Get a single harvest record by ID
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => HarvestRecord, { nullable: true, description: 'Get a single harvest record by ID' })
   async harvest(
     @Tenant() tenantId: string,
@@ -274,6 +276,7 @@ export class HarvestResolver {
   /**
    * Get harvest records for a specific batch
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => PaginatedHarvestsResponse, { description: 'Get harvest records for a specific batch' })
   async harvestsByBatch(
     @Tenant() tenantId: string,
@@ -300,6 +303,7 @@ export class HarvestResolver {
   /**
    * Get harvest statistics for a tenant within a date range
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Query(() => HarvestStatisticsResponse, { description: 'Get harvest statistics for a tenant within a date range' })
   async harvestStatistics(
     @Tenant() tenantId: string,

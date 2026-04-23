@@ -18,16 +18,26 @@ import { Global, Module } from '@nestjs/common';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 
 import { CacheableInterceptor } from './cacheable.interceptor';
+import { CacheEvictInterceptor } from './cache-evict.interceptor';
 
 @Global()
 @Module({
   providers: [
     CacheableInterceptor,
+    CacheEvictInterceptor,
     {
       provide: APP_INTERCEPTOR,
       useClass: CacheableInterceptor,
     },
+    // Phase 7.3.2 — the evict interceptor runs alongside the
+    // read-through interceptor. Both are declarative via metadata
+    // so a method that carries neither decorator passes through
+    // both interceptors untouched.
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: CacheEvictInterceptor,
+    },
   ],
-  exports: [CacheableInterceptor],
+  exports: [CacheableInterceptor, CacheEvictInterceptor],
 })
 export class CacheableModule {}

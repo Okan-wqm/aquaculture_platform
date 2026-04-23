@@ -941,6 +941,36 @@ This orphan entry is the architectural tier-4 "document" fallback for `AUDIT-LOW
 - No deadline — this is an informational classification, not an actionable fix.
 - Closure path: commit that adds this note carries `Closes: docs/reviews/_audit/2026-04-22-cold-audit/03-explore-findings.md#AUDIT-LOW-001`.
 
+## 2026-04-23 MONITOR-HOTSPOT-001 — churn-only findings archived until next audit cycle
+
+**Status:** DOCUMENT-ONLY. Closes `AUDIT-MEDIUM-001`, `AUDIT-MEDIUM-004`, `AUDIT-MEDIUM-010` as Tier-4 monitor markers.
+
+**Scope:** Three 2026-04-22 cold-audit findings that surfaced as hotspot-score signals (high commit frequency + large surface area) but do not carry a structural defect claim:
+
+- `AUDIT-MEDIUM-001` — `web/modules/sensor-module` (319 pts): automation editor, SCADA builder, package-builder pages.
+- `AUDIT-MEDIUM-004` — `apps/hr-service` (225 pts): `app.module.ts` + `employee.entity.ts` + `hr.resolver.ts` churn.
+- `AUDIT-MEDIUM-010` — `web/modules/tenant-admin` (86 pts): TenantDashboard / TenantUsers / TenantSettings pages.
+
+**Why Tier-4 document is the correct tier:**
+
+Churn is a leading indicator, not a defect. All three surfaces are actively under feature development in this cycle per `git log --since="3 months ago" --name-only`. No ADR violation, no tenant-isolation bypass, no schema drift, no lint-rule violation attaches to these files — only high edit frequency.
+
+Applying Tier 1–3 (make-impossible / make-automatic / make-detectable) would mean freezing the surfaces or adding artificial rate-limits on commit frequency. That is over-correction; active feature development SHOULD produce churn hotspots.
+
+**Escalation rule (the Tier-3 half of this entry):**
+
+The next cold-audit cycle (2026-06 or earlier on a triggered audit) inspects these three surfaces AGAIN. If ANY of them shows:
+- churn *and* a correlated failing e2e test suite, OR
+- churn *and* a spike in open AUDIT-* findings on the same files, OR
+- churn *and* a rise in lint-warning count for the service,
+
+the relevant MEDIUM-NNN escalates to a HIGH-severity finding with the specific defect class it correlates with. The MONITOR classification is automatic — no human-review handoff needed — because the audit tooling (`tools/audit/aggregate-hotspots.ts`) can compute the correlation deterministically.
+
+**Follow-on tracking:**
+- Owner: orchestrator.
+- Deadline: next cold-audit cycle (tracked by the audit tooling itself, not a date).
+- Closure path: commit that adds this note carries `Closes: docs/reviews/_audit/2026-04-22-cold-audit/03-explore-findings.md#AUDIT-MEDIUM-001` + `#AUDIT-MEDIUM-004` + `#AUDIT-MEDIUM-010` trailers on separate lines.
+
 ## 2026-04-23 ORPHAN-DIC-001 — sensor-service child entities have no `tenantId` column
 
 **Status:** OPEN — surfaced during the Phase B.3 cold-audit remediation while trying to migrate sensor-service `manager.getRepository(Entity)` calls to `tenantManagerRepo()`.

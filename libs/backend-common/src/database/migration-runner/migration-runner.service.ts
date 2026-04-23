@@ -58,7 +58,7 @@ import { DataSource, MigrationExecutor, QueryRunner } from 'typeorm';
  *
  * ```ts
  * // apps/farm-service/src/database/database.module.ts
- * import { createMigrationRunnerService } from '@aquaculture/backend-common';
+ * import { createMigrationRunnerService } from '@aquaculture/backend-common/migration-runner';
  *
  * const FarmMigrationRunnerService = createMigrationRunnerService('farm');
  * //                                                                ^^^^

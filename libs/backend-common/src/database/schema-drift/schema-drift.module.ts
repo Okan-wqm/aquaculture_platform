@@ -38,7 +38,7 @@ import { createSchemaDriftValidator } from '../schema-drift-validator.service';
  * # Usage
  *
  * ```ts
- * import { SchemaDriftModule } from '@aquaculture/backend-common';
+ * import { SchemaDriftModule } from '@aquaculture/backend-common/schema-drift';
  *
  * @Module({
  *   imports: [

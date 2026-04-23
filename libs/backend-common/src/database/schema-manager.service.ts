@@ -458,7 +458,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
  * Derived from MODULE_SCHEMAS to prevent drift when new modules are added.
  *
  * Usage:
- *   import { DEFAULT_TENANT_MODULES } from '@aquaculture/backend-common';
+ *   import { DEFAULT_TENANT_MODULES } from '@aquaculture/backend-common/database';
  *   await schemaManager.createTenantSchema(tenantId, DEFAULT_TENANT_MODULES);
  */
 export const DEFAULT_TENANT_MODULES: string[] = MODULE_SCHEMAS.map(m => m.moduleName);

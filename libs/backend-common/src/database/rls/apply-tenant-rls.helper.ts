@@ -76,7 +76,7 @@ import { Logger } from '@nestjs/common';
  *
  * @example
  * ```ts
- * import { applyTenantRlsToSchema } from '@aquaculture/backend-common';
+ * import { applyTenantRlsToSchema } from '@aquaculture/backend-common/rls';
  *
  * export class EnableRowLevelSecurity1781000000000 implements MigrationInterface {
  *   public async up(qr: QueryRunner): Promise<void> {

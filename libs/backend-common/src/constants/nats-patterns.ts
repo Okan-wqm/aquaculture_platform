@@ -9,7 +9,7 @@
  *
  * @example
  * // In a controller:
- * import { NATS_PATTERNS } from '@aquaculture/backend-common';
+ * import { NATS_PATTERNS } from '@aquaculture/backend-common/nats-patterns.ts';
  * @MessagePattern(NATS_PATTERNS.SENSOR.VERIFY_DEVICE_OWNERSHIP)
  *
  * // In a client:

@@ -19,7 +19,7 @@
  *
  * ```ts
  * import { Column, Entity, PrimaryColumn } from 'typeorm';
- * import { EncryptedAtRest } from '@aquaculture/backend-common';
+ * import { EncryptedAtRest } from '@aquaculture/backend-common/encrypted-at-rest.decorator.ts';
  *
  * @Entity('employees', { schema: 'hr' })
  * class Employee {

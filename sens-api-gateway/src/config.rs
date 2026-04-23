@@ -1069,6 +1069,21 @@ pub struct ScriptingConfig {
     /// production deployments.
     #[serde(default)]
     pub bytecode_store_path: String,
+
+    /// Batch 192 Faz 4 (plan R-3): multi-task scheduler
+    /// configuration. Empty vector (default) runs the
+    /// legacy single-cadence bytecode scan-cycle loop
+    /// (Batch 170). Populated → main.rs boot sequence
+    /// constructs a `TaskScheduler` + spawns the
+    /// scheduler cadence loop + event listener in
+    /// place of the single-cadence loop.
+    ///
+    /// Backward compat: existing config.yaml files
+    /// without a `tasks:` key deserialize to an empty
+    /// Vec (via serde default) and get the single-
+    /// cadence behavior unchanged.
+    #[serde(default)]
+    pub tasks: Vec<crate::scripting::task_scheduler::TaskConfig>,
 }
 
 impl Default for ScriptingConfig {
@@ -1083,6 +1098,7 @@ impl Default for ScriptingConfig {
             max_actions: default_max_actions(),
             max_execution_time_secs: default_max_execution_time_secs(),
             bytecode_store_path: String::new(),
+            tasks: Vec::new(),
         }
     }
 }
@@ -3488,6 +3504,99 @@ impl AgentConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ====================================================================
+    // Batch 192 Faz 4 — ScriptingConfig.tasks schema round-trip
+    // ====================================================================
+
+    #[test]
+    fn scripting_config_tasks_default_is_empty_vec() {
+        let cfg = ScriptingConfig::default();
+        assert!(cfg.tasks.is_empty());
+    }
+
+    #[test]
+    fn scripting_config_tasks_missing_key_deserializes_to_empty() {
+        // Legacy config.yaml without `tasks:` still
+        // parses cleanly — backward compat.
+        let yaml = r#"
+enabled: true
+default_scan_cycle_ms: 1000
+min_scan_cycle_ms: 10
+max_scan_cycle_ms: 10000
+max_function_blocks: 50
+max_execution_depth: 10
+max_actions: 1000
+max_execution_time_secs: 30
+bytecode_store_path: ""
+"#;
+        let cfg: ScriptingConfig = serde_yaml::from_str(yaml).expect("ok");
+        assert!(cfg.tasks.is_empty());
+    }
+
+    #[test]
+    fn scripting_config_tasks_round_trip_with_populated_vec() {
+        use crate::scripting::task_scheduler::{SloTier, TaskKind};
+
+        let yaml = r#"
+enabled: true
+default_scan_cycle_ms: 1000
+min_scan_cycle_ms: 10
+max_scan_cycle_ms: 10000
+max_function_blocks: 50
+max_execution_depth: 10
+max_actions: 1000
+max_execution_time_secs: 30
+bytecode_store_path: "/var/lib/suderra/bytecode.db"
+tasks:
+  - name: safety_alarms
+    kind:
+      kind: cyclic
+      period_ms: 500
+    slo_tier: safety_critical
+    watchdog_ms: 400
+    programs:
+      - o2_guard
+      - ph_guard
+  - name: feed_schedule
+    kind:
+      kind: cyclic
+      period_ms: 1200
+    slo_tier: routine
+    watchdog_ms: 1000
+    programs:
+      - feeder_cron
+  - name: on_temp_change
+    kind:
+      kind: event
+      event_tag: water_temp
+    slo_tier: safety_critical
+    watchdog_ms: 300
+    programs:
+      - temp_alarm_eval
+"#;
+        let cfg: ScriptingConfig = serde_yaml::from_str(yaml).expect("ok");
+        assert_eq!(cfg.tasks.len(), 3);
+
+        assert_eq!(cfg.tasks[0].name, "safety_alarms");
+        assert_eq!(cfg.tasks[0].slo_tier, SloTier::SafetyCritical);
+        assert_eq!(cfg.tasks[0].programs, vec!["o2_guard", "ph_guard"]);
+        assert_eq!(
+            cfg.tasks[0].kind,
+            TaskKind::Cyclic { period_ms: 500 }
+        );
+
+        assert_eq!(cfg.tasks[1].name, "feed_schedule");
+        assert_eq!(cfg.tasks[1].slo_tier, SloTier::Routine);
+
+        assert_eq!(cfg.tasks[2].name, "on_temp_change");
+        assert_eq!(
+            cfg.tasks[2].kind,
+            TaskKind::Event {
+                event_tag: "water_temp".into()
+            }
+        );
+    }
 
     #[test]
     fn test_topic_resolution() {

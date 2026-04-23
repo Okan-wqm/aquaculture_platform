@@ -1,0 +1,6 @@
+     74 CRITICAL
+     30 HIGH
+     21 MEDIUM
+      8 LOW
+      3 
+      1 severity

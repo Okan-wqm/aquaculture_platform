@@ -1,0 +1,17 @@
+{
+  "id": "AUDIT-HIGH-005",
+  "severity": "HIGH",
+  "state": "OPEN",
+  "title": "ST AST types duplicated across apps/sensor-service and web/modules/sensor-module (520 lines)",
+  "layer": 2,
+  "evidence": [
+    "apps/sensor-service/src/automation/compiler/parser/st-ast.ts:14-533",
+    "web/modules/sensor-module/src/simulation/st-ast-types.ts:16-535"
+  ],
+  "rule_violated": "DRY / extract-to-lib — drift-prone domain types shared across backend parser and frontend simulator.",
+  "owner_agent": "sensor-expert",
+  "raised_in_cycle": "2026-04-22-cold-audit",
+  "review_file": "docs/reviews/_audit/2026-04-22-cold-audit/03-explore-findings.md",
+  "created_at": "2026-04-22T19:00:00Z",
+  "notes": "Create libs/sensor-automation-types (pure types, no runtime). Both sides import. Align with sens-api-gateway ST compiler if types converge there too."
+}

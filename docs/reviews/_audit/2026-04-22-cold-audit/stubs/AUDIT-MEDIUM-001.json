@@ -1,0 +1,17 @@
+{
+  "id": "AUDIT-MEDIUM-001",
+  "severity": "MEDIUM",
+  "state": "OPEN",
+  "title": "web/sensor-module high churn (319 pts) on automation editor, scada-builder, package-builder pages",
+  "layer": 1,
+  "evidence": [
+    "web/modules/sensor-module/src/pages/automation/AutomationProgramEditorPage.tsx:1",
+    "web/modules/sensor-module/src/components/scada-builder/ScreenCanvas.tsx:1"
+  ],
+  "rule_violated": "No hard rule — churn is a leading signal that the abstraction may be under-fitting requirements.",
+  "owner_agent": "frontend-expert",
+  "raised_in_cycle": "2026-04-22-cold-audit",
+  "review_file": "docs/reviews/_audit/2026-04-22-cold-audit/03-explore-findings.md",
+  "created_at": "2026-04-22T19:00:00Z",
+  "notes": "Tier 4 monitor: revisit after next cycle; if churn correlates with failing e2e, escalate to Tier 3 (coverage invariant)."
+}

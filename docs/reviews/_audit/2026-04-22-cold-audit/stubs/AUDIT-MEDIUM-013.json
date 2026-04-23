@@ -1,0 +1,18 @@
+{
+  "id": "AUDIT-MEDIUM-013",
+  "severity": "MEDIUM",
+  "state": "OPEN",
+  "title": "platform/libs/event-bus real circular dependency: nats-event-bus.ts ↔ nats.module.ts (the only real cycle from madge)",
+  "layer": 2,
+  "evidence": [
+    "platform/libs/event-bus/src/nats/nats-event-bus.ts:1",
+    "platform/libs/event-bus/src/nats/nats.module.ts:1",
+    "platform/libs/event-bus/src/nats/nats-request-reply.ts:1"
+  ],
+  "rule_violated": "NestJS module boundary — service imports module; module imports service for provider registration.",
+  "owner_agent": "platform-kernel-expert",
+  "raised_in_cycle": "2026-04-22-cold-audit",
+  "review_file": "docs/reviews/_audit/2026-04-22-cold-audit/03-explore-findings.md",
+  "created_at": "2026-04-22T19:00:00Z",
+  "notes": "Minimum-cost break: extract bare NatsEventBus class to nats-event-bus-impl.ts (no decorators); module imports factory function, not the service class directly. All 24 other circular chains are TypeORM/NestJS false-positives."
+}

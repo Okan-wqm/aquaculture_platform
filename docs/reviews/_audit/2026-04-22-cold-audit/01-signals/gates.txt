@@ -1,0 +1,13 @@
+
+> aquaculture-platform@1.0.0 gates:all
+> npm run gates:banned-phrase && npm run gates:migration-sql && npm run gates:tier-claim
+
+
+> aquaculture-platform@1.0.0 gates:banned-phrase
+> ts-node --project tools/gates/tsconfig.json tools/gates/banned-phrase.ts
+
+Usage: ts-node tools/gates/banned-phrase.ts --mode=<staged|range|commit|file> [args]
+
+real	0m3.305s
+user	0m1.394s
+sys	0m0.320s

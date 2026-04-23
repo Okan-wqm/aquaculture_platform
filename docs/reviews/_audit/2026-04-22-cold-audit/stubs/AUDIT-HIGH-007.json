@@ -1,0 +1,19 @@
+{
+  "id": "AUDIT-HIGH-007",
+  "severity": "HIGH",
+  "state": "OPEN",
+  "title": "AI safety validators (SSRF + input-filter + output-pii) duplicated byte-identical across ai-service and messaging-service (~782 lines)",
+  "layer": 2,
+  "evidence": [
+    "apps/ai-service/src/safety/ssrf-validator.service.ts:1",
+    "apps/messaging-service/src/ai/safety/ssrf-validator.service.ts:1",
+    "apps/ai-service/src/safety/input-filter.service.ts:1",
+    "apps/ai-service/src/safety/output-pii-scanner.service.ts:1"
+  ],
+  "rule_violated": "Cross-service security logic must live in libs/backend-common/src/security to prevent future divergence — next patch will ship to only one copy otherwise.",
+  "owner_agent": "security-reviewer",
+  "raised_in_cycle": "2026-04-22-cold-audit",
+  "review_file": "docs/reviews/_audit/2026-04-22-cold-audit/03-explore-findings.md",
+  "created_at": "2026-04-22T19:00:00Z",
+  "notes": "Byte-level diff verified identical today. Extract to libs/backend-common/src/ai-safety/ (or a new libs/ai-safety/) before next security fix lands on either side."
+}

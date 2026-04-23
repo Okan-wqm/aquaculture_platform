@@ -1,0 +1,17 @@
+{
+  "id": "AUDIT-MEDIUM-009",
+  "severity": "MEDIUM",
+  "state": "OPEN",
+  "title": "apps/admin-api-service hotspot — explorer controller has broad DB access by design, needs explicit contract",
+  "layer": 3,
+  "evidence": [
+    "apps/admin-api-service/src/database-management/controllers/explorer.controller.ts:1",
+    "apps/admin-api-service/src/tenant/services/tenant-provisioning.service.ts:1"
+  ],
+  "rule_violated": "ADR-011 shared schema boundaries — admin has cross-tenant reach; tenant-provisioning writes to auth.tenants + shared schema.",
+  "owner_agent": "admin-expert",
+  "raised_in_cycle": "2026-04-22-cold-audit",
+  "review_file": "docs/reviews/_audit/2026-04-22-cold-audit/03-explore-findings.md",
+  "created_at": "2026-04-22T19:00:00Z",
+  "notes": "Tier 4 document + Tier 3 guard: write an explicit contract (admin may not write outside its own schema + auth + shared), enforce via CI invariant."
+}

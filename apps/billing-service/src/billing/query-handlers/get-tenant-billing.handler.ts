@@ -1,7 +1,7 @@
 import { Injectable, Optional } from '@nestjs/common';
 import { DataSource, In } from 'typeorm';
 import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
-import { RedisService } from '@aquaculture/backend-common';
+import { RedisService, TenantScopedRepository } from '@aquaculture/backend-common';
 import { GetTenantBillingQuery } from '../queries/get-tenant-billing.query';
 import {
   TenantBillingResponse,
@@ -71,18 +71,17 @@ export class GetTenantBillingHandler
   // ============================================================================
 
   private async getSubscription(tenantId: string): Promise<Subscription | null> {
-    const repo = this.dataSource.getRepository(Subscription);
+    const repo = TenantScopedRepository.create(this.dataSource, Subscription, tenantId);
     return repo.findOne({
-      where: { tenantId },
+      where: {},
       order: { createdAt: 'DESC' },
     });
   }
 
   private async getRecentInvoices(tenantId: string): Promise<Invoice[]> {
-    const repo = this.dataSource.getRepository(Invoice);
+    const repo = TenantScopedRepository.create(this.dataSource, Invoice, tenantId);
     return repo.find({
       where: {
-        tenantId,
         status: In([
           InvoiceStatus.PAID,
           InvoiceStatus.PENDING,
@@ -97,12 +96,11 @@ export class GetTenantBillingHandler
   }
 
   private async getCurrentUsageMetrics(tenantId: string): Promise<TenantUsageMetrics | null> {
-    const repo = this.dataSource.getRepository(TenantUsageMetrics);
+    const repo = TenantScopedRepository.create(this.dataSource, TenantUsageMetrics, tenantId);
 
-    // Get the most recent monthly usage record for this tenant (tenant-wide, moduleId is null)
+    // Get the most recent monthly usage record (moduleId is null for tenant-wide).
     return repo.findOne({
       where: {
-        tenantId,
         periodType: UsagePeriodType.MONTHLY,
       },
       order: { periodStart: 'DESC' },

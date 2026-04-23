@@ -3,7 +3,7 @@ import { DataSource, QueryRunner } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { NatsEventBus } from '@platform/event-bus';
 import { createBaseEvent, SubscriptionCreatedEvent } from '@platform/event-contracts';
-import { AuditedOperation, RedisService } from '@aquaculture/backend-common';
+import { AuditedOperation, RedisService, tenantManagerRepo } from '@aquaculture/backend-common';
 import { CreateSubscriptionCommand } from '../commands/create-subscription.command';
 import { Subscription, SubscriptionStatus, BillingCycle, PlanTier } from '../entities/subscription.entity';
 
@@ -67,11 +67,12 @@ export class CreateSubscriptionHandler
     await queryRunner.startTransaction('READ COMMITTED');
 
     try {
-      const subscriptionRepo = queryRunner.manager.getRepository(Subscription);
+      const subscriptionRepo = tenantManagerRepo(queryRunner.manager, Subscription, tenantId);
 
-      // Check for existing subscription with pessimistic lock to prevent race conditions
+      // Check for existing subscription with pessimistic lock to prevent race conditions.
+      // tenantId auto-injected by the scoped wrapper.
       const existingSubscription = await subscriptionRepo.findOne({
-        where: { tenantId },
+        where: {},
         lock: { mode: 'pessimistic_write' },
       });
 
@@ -81,7 +82,7 @@ export class CreateSubscriptionHandler
         }
         // Delete the cancelled subscription so the unique index on tenantId
         // is not violated when the new row is inserted below.
-        await subscriptionRepo.delete(existingSubscription.id);
+        await subscriptionRepo.delete({ id: existingSubscription.id });
       }
 
       const periodEnd = this.calculatePeriodEnd(startDate, input.billingCycle);

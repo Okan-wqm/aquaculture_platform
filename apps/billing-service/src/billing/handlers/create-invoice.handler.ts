@@ -3,7 +3,7 @@ import { DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { NatsEventBus } from '@platform/event-bus';
 import { createBaseEvent, InvoiceGeneratedEvent } from '@platform/event-contracts';
-import { AuditedOperation, Money } from '@aquaculture/backend-common';
+import { AuditedOperation, Money, TenantScopedRepository } from '@aquaculture/backend-common';
 import Decimal from 'decimal.js';
 import { CreateInvoiceCommand } from '../commands/create-invoice.command';
 import { Invoice, InvoiceStatus, InvoiceLineItem } from '../entities/invoice.entity';
@@ -24,13 +24,16 @@ export class CreateInvoiceHandler implements ICommandHandler<CreateInvoiceComman
   async execute(command: CreateInvoiceCommand): Promise<Invoice> {
     const { tenantId, input, userId } = command;
 
-    const invoiceRepo = this.dataSource.getRepository(Invoice);
+    const invoiceRepo = TenantScopedRepository.create(this.dataSource, Invoice, tenantId);
 
-    // Validate subscription belongs to this tenant (IDOR prevention)
+    // Validate subscription belongs to this tenant (IDOR prevention is
+    // now by-construction via TenantScopedRepository — the scoped
+    // findOne auto-filters by tenantId so a malicious subscriptionId
+    // belonging to another tenant returns null).
     if (input.subscriptionId) {
-      const subscriptionRepo = this.dataSource.getRepository(Subscription);
+      const subscriptionRepo = TenantScopedRepository.create(this.dataSource, Subscription, tenantId);
       const subscription = await subscriptionRepo.findOne({
-        where: { id: input.subscriptionId, tenantId },
+        where: { id: input.subscriptionId },
       });
       if (!subscription) {
         throw new NotFoundException(

@@ -22,6 +22,8 @@ export class DeactivatePlanHandler
     const { planId, userId } = command;
 
     return await this.dataSource.transaction(async (manager) => {
+      // Plan is the cross-tenant platform catalog (platform-admin CRUD).
+      // eslint-disable-next-line no-restricted-syntax -- cross-tenant catalog
       const planRepo = manager.getRepository(Plan);
 
       const plan = await planRepo.findOne({

@@ -3,6 +3,7 @@ import { EventsHandler, IEventHandler, CommandBus } from '@nestjs/cqrs';
 import { DataSource } from 'typeorm';
 import { Cron } from '@nestjs/schedule';
 import { NatsEventBus } from '@platform/event-bus';
+import { TenantScopedRepository } from '@aquaculture/backend-common';
 import { createBaseEvent, SubscriptionProvisioningFailedEvent } from '@platform/event-contracts';
 import { CreateSubscriptionCommand } from '../commands/create-subscription.command';
 import { SubscriptionStatus, BillingCycle, PlanTier } from '../entities/subscription.entity';
@@ -238,6 +239,8 @@ export class TenantSubscriptionRequestedHandler
       let pricing: typeof DEFAULT_PRICING[string];
       let resolvedPlanId: string | undefined;
 
+      // Plan is the cross-tenant platform catalog.
+      // eslint-disable-next-line no-restricted-syntax -- cross-tenant catalog
       const planEntity = await this.dataSource.getRepository(Plan).findOne({
         where: { tier: planTier, isActive: true },
         order: { sortOrder: 'ASC' },
@@ -346,8 +349,8 @@ export class TenantSubscriptionRequestedHandler
       // Link the subscription to the Plan entity if one was resolved
       if (resolvedPlanId) {
         const { Subscription } = await import('../entities/subscription.entity');
-        await this.dataSource.getRepository(Subscription).update(
-          subscription.id,
+        await TenantScopedRepository.create(this.dataSource, Subscription, tenantId).update(
+          { id: subscription.id },
           { planId: resolvedPlanId },
         );
         subscription.planId = resolvedPlanId;
@@ -394,6 +397,9 @@ export class TenantSubscriptionRequestedHandler
       sensors?: number;
     }>,
   ): Promise<void> {
+    // SubscriptionModuleItem has no tenantId column — it is a child of
+    // Subscription (scoped by subscriptionId FK). See ORPHAN-DIC-001.
+    // eslint-disable-next-line no-restricted-syntax -- ORPHAN-DIC-001
     const moduleItemRepo = this.dataSource.getRepository(SubscriptionModuleItem);
 
     try {

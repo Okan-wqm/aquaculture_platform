@@ -24,6 +24,8 @@ export class PlanSeedService implements OnModuleInit {
   }
 
   private async seedDefaultPlans(): Promise<void> {
+    // Plan is the cross-tenant platform catalog; seed runs as platform admin.
+    // eslint-disable-next-line no-restricted-syntax -- cross-tenant catalog
     const planRepo = this.dataSource.getRepository(Plan);
 
     const defaultPlans: Partial<Plan>[] = [

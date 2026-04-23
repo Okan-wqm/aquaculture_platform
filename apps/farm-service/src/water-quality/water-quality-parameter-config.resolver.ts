@@ -287,6 +287,7 @@ export class WaterQualityParameterConfigResolver {
   /**
    * Gets all active parameter mappings for a specific equipment
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [WaterQualityParamEquipment], { name: 'equipmentParameters' })
   async getEquipmentParameters(
     @Args('equipmentId', { type: () => ID }) equipmentId: string,

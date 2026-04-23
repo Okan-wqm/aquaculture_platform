@@ -12,7 +12,7 @@
  *
  * @module Scheduler
  */
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression, SchedulerRegistry } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -31,6 +31,7 @@ import { SparePart, SparePartStatus } from '../maintenance/entities/spare-part.e
 // Services
 import { MaintenanceScheduleService } from '../maintenance/services/maintenance-schedule.service';
 import { SparePartService } from '../maintenance/services/spare-part.service';
+import { FarmOrphanCleanupService } from '../common/file-cleanup/farm-orphan-cleanup.service';
 
 /**
  * Cron job execution result
@@ -81,6 +82,14 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
     private readonly eventEmitter: EventEmitter2,
     private readonly dataSource: DataSource,
     private readonly configService: ConfigService,
+    /**
+     * `@Optional` so farm-service still boots in environments
+     * that haven't wired StorageModule yet (dev harnesses, unit
+     * tests of sibling crons). When absent, the orphan-cleanup
+     * cron logs a one-time warning and no-ops — a separate
+     * concern from the maintenance / analytics crons.
+     */
+    @Optional() private readonly orphanCleanup?: FarmOrphanCleanupService,
   ) {}
 
   async onModuleInit() {
@@ -892,6 +901,45 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /**
+   * Nightly MinIO orphan cleanup (phase 6.2.3). Deletes objects
+   * in the configured bucket that no longer have a live
+   * database reference AND are older than the safety threshold
+   * (default 24 hours). Runs at 04:00 Europe/Istanbul — after
+   * the 03:00 analytics view refresh completes but well before
+   * the morning operator shift.
+   *
+   * The cron is a no-op when FarmOrphanCleanupService isn't DI-
+   * registered (dev harnesses without StorageModule). This is
+   * deliberate: the cron must be configurable to stay
+   * independent of the rest of the scheduler's hot paths.
+   */
+  @Cron(CronExpression.EVERY_DAY_AT_4AM, {
+    name: 'minioOrphanCleanup',
+    timeZone: 'Europe/Istanbul',
+  })
+  async minioOrphanCleanup(): Promise<void> {
+    if (!this.orphanCleanup) {
+      this.logger.warn(
+        'FarmOrphanCleanupService not available — minioOrphanCleanup ' +
+          'cron is a no-op. Register StorageModule + FarmFileCleanupModule ' +
+          'in app.module.ts to enable nightly MinIO orphan sweeps.',
+      );
+      return;
+    }
+    try {
+      await this.orphanCleanup.run();
+    } catch (err) {
+      // FarmOrphanCleanupService's contract is non-throwing, but
+      // a catastrophic MinIO client failure could still leak out.
+      // Log + continue — the next nightly run retries.
+      this.logger.error(
+        `minioOrphanCleanup cron failed: ${(err as Error).message}`,
+        err instanceof Error ? err.stack : undefined,
+      );
+    }
+  }
+
   // -------------------------------------------------------------------------
   // MANUAL EXECUTION
   // -------------------------------------------------------------------------
@@ -920,6 +968,9 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
         break;
       case 'refreshAnalyticsViews':
         await this.refreshAnalyticsViews();
+        break;
+      case 'minioOrphanCleanup':
+        await this.minioOrphanCleanup();
         break;
       default:
         throw new Error(`Unknown job: ${jobName}`);

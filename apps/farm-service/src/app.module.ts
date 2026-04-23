@@ -51,6 +51,7 @@ import { FarmMetricsModule } from './common/metrics/farm-metrics.module';
 import { FarmAppErrorFilter } from './common/errors/farm-app-error.filter';
 import { CacheableModule } from './common/cache/cacheable.module';
 import { JsonbPatchModule } from './common/jsonb/jsonb-patch.module';
+import { ComplianceModule } from './compliance/compliance.module';
 import { PermissionMatrixGuard } from './common/authz/permission-matrix.guard';
 import { FarmOutboxModule } from './outbox/farm-outbox.module';
 import { FarmModule } from './farm/farm.module';
@@ -417,6 +418,12 @@ import { AddFarmOutboxModernColumns1786200000000 } from './database/migrations/1
     // concurrent handlers patch DIFFERENT keys of the same JSONB
     // column without tripping each other's @VersionColumn.
     JsonbPatchModule,
+
+    // GDPR primitives — phase 6.3. Tenant export (right-of-access)
+    // and two-step erasure (right-to-erasure) with audit-row
+    // anonymisation. Platform-wide fan-out + event emission live
+    // in admin-api + libs/event-contracts (phase 6.3.1).
+    ComplianceModule,
 
     // Transactional outbox for reliable event publishing
     // (handlers enqueue → OutboxWorkerService polls → NATS publish)

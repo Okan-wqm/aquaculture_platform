@@ -30,7 +30,7 @@
     "lint:all": "nx run-many --target=lint --all",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md}\"",
-    "type-check": "tsc --noEmit",
+    "type-check": "node tools/scripts/type-check-all.mjs",
     "affected:graph": "nx affected:graph",
     "graph": "nx graph",
     "prepare": "husky install",

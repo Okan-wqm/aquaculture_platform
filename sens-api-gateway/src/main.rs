@@ -4031,68 +4031,92 @@ async fn run_agent(
     // Step 6b: Start I/O poll loop
     tokio::spawn(io_poll::io_poll_loop(state.clone()));
 
-    // Batch 206 Faz 6 wire: spawn the watch publisher
-    // task. Reads sessions_to_publish every 100 ms
-    // (cadence tuned under the plan R-9 WATCH_MIN_
-    // INTERVAL_MS floor of 100 ms so no session
-    // request a rate faster than the publisher can
-    // serve). Side-effect of sessions_to_publish:
+    // Batch 206 Faz 6 wire + Batch 225 E-1 closure: spawn
+    // the watch publisher task ONLY when the agent has a
+    // resolved tenant_id. Pre-provisioning boot has
+    // tenant_id=None — publishing to `tenants/unknown/...`
+    // would (a) pollute the operator's MQTT namespace with
+    // a phantom tenant, (b) route HMI live-watch payloads
+    // through an unauthorized path under most broker ACLs,
+    // (c) surface forensic ambiguity in the audit chain.
+    // Correct behavior: defer spawn until tenant resolves.
+    // Self-registration flow re-triggers AppState init;
+    // post-registration boot picks tenant_id Some and this
+    // block spawns normally.
+    //
+    // Reads sessions_to_publish every 100 ms (cadence
+    // tuned under plan R-9 WATCH_MIN_INTERVAL_MS floor
+    // of 100 ms). Side-effect of sessions_to_publish
     // drops expired sessions automatically, so a
-    // dedicated watch-sweep task isn't needed —
-    // the publisher IS the sweep mechanism for the
-    // watch-session path.
+    // dedicated sweep task isn't needed — the publisher
+    // IS the sweep mechanism for the watch-session path.
     {
-        let (watch_sessions, process_image) = {
-            let s = state.read().await;
-            (s.watch_sessions.clone(), s.process_image.clone())
-        };
-        let (tenant_str, device_code) = {
+        let (watch_sessions, process_image, tenant_str_opt, device_code) = {
             let s = state.read().await;
             (
-                s.tenant_id.clone().unwrap_or_else(|| "unknown".into()),
+                s.watch_sessions.clone(),
+                s.process_image.clone(),
+                s.tenant_id.clone(),
                 s.config.device_code.clone(),
             )
         };
-        let topic_base = format!(
-            "tenants/{}/devices/{}/watch",
-            tenant_str, device_code
-        );
-        let sink: std::sync::Arc<
-            dyn crate::scripting::watch_sessions::WatchPublishSink,
-        > = std::sync::Arc::new(
-            crate::scripting::watch_publisher_wire::MqttWatchPublishSink::new(
-                state.clone(),
-            ),
-        );
+        match tenant_str_opt {
+            Some(tenant_str) => {
+                let topic_base = format!(
+                    "tenants/{}/devices/{}/watch",
+                    tenant_str, device_code
+                );
+                let sink: std::sync::Arc<
+                    dyn crate::scripting::watch_sessions::WatchPublishSink,
+                > = std::sync::Arc::new(
+                    crate::scripting::watch_publisher_wire::MqttWatchPublishSink::new(
+                        state.clone(),
+                    ),
+                );
 
-        let (watch_watch_tx, watch_watch_rx) = tokio::sync::watch::channel(false);
-        let mut watch_broadcast_rx = shutdown_coordinator.subscribe();
-        tokio::spawn(async move {
-            let _ = watch_broadcast_rx.recv().await;
-            let _ = watch_watch_tx.send(true);
-        });
+                let (watch_watch_tx, watch_watch_rx) =
+                    tokio::sync::watch::channel(false);
+                let mut watch_broadcast_rx = shutdown_coordinator.subscribe();
+                tokio::spawn(async move {
+                    let _ = watch_broadcast_rx.recv().await;
+                    let _ = watch_watch_tx.send(true);
+                });
 
-        let publisher_handle = tokio::spawn(async move {
-            let summary =
-                crate::scripting::watch_sessions::run_watch_publisher_task(
-                    watch_sessions,
-                    process_image,
-                    sink,
-                    topic_base,
-                    100,
-                    watch_watch_rx,
-                )
-                .await;
-            info!(
-                "watch_publisher exit: ticks={} published={} errors={}",
-                summary.ticks_executed,
-                summary.sessions_published,
-                summary.publish_errors,
-            );
-        });
-        shutdown_coordinator
-            .register_task("watch_publisher", publisher_handle);
-        info!("Watch-session publisher task spawned (cadence=100ms)");
+                let publisher_handle = tokio::spawn(async move {
+                    let summary =
+                        crate::scripting::watch_sessions::run_watch_publisher_task(
+                            watch_sessions,
+                            process_image,
+                            sink,
+                            topic_base,
+                            100,
+                            watch_watch_rx,
+                        )
+                        .await;
+                    info!(
+                        "watch_publisher exit: ticks={} published={} errors={}",
+                        summary.ticks_executed,
+                        summary.sessions_published,
+                        summary.publish_errors,
+                    );
+                });
+                shutdown_coordinator
+                    .register_task("watch_publisher", publisher_handle);
+                info!(
+                    "Watch-session publisher task spawned (cadence=100ms, tenant=resolved)"
+                );
+            }
+            None => {
+                // Pre-provisioning boot — tenant not yet
+                // assigned. Watch publisher stays down;
+                // self-registration flow will re-init
+                // AppState + re-enter this block with a
+                // resolved tenant_id.
+                info!(
+                    "Watch-session publisher NOT spawned: tenant_id unresolved (pre-provisioning boot). Will start after successful self-registration."
+                );
+            }
+        }
     }
 
     // Batch 198 Faz 6 wire: spawn the 1-Hz force-

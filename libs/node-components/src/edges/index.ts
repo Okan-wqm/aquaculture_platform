@@ -11,12 +11,27 @@ import MultiHandleEdge from './MultiHandleEdge';
 import OrthogonalEdge from './OrthogonalEdge';
 import DraggableEdge from './DraggableEdge';
 
-// Re-export individual edges
+// Re-export individual edges + their data / props types so consumers
+// can build thin wrappers that inject a zustand/context-backed
+// `updateEdgeData` override without duplicating the edge component.
 export {
   MultiHandleEdge,
   OrthogonalEdge,
   DraggableEdge,
 };
+export type {
+  MultiHandleEdgeData,
+  MultiHandleEdgeProps,
+} from './MultiHandleEdge';
+export type {
+  OrthogonalEdgeData,
+  OrthogonalEdgeProps,
+  EdgeDataUpdater,
+} from './OrthogonalEdge';
+export type {
+  DraggableEdgeData,
+  DraggableEdgeProps,
+} from './DraggableEdge';
 
 // Pre-configured edge types for ReactFlow
 export const edgeTypes: EdgeTypes = {

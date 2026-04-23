@@ -123,18 +123,78 @@ pub async fn run_scan_tick(
     persistence: Option<&super::persistence::SqlitePersistence>,
     options: &ScanTickOptions,
 ) -> Vec<(String, BytecodeRunResult)> {
+    run_scan_tick_filtered(registry, pi, declared_types, persistence, options, None)
+        .await
+}
+
+/// Filtered variant — Batch 186 Faz 4. Runs only the
+/// enabled programs whose `program_id` is present in
+/// `program_id_filter`. When `program_id_filter` is
+/// None, behaves identically to `run_scan_tick`
+/// (all enabled programs run).
+///
+/// Consumed by the Batch 187 multi-task scheduler
+/// dispatch so each task executes its OWN program
+/// subset, not the global enabled list. Other tasks'
+/// programs don't run during one task's tick —
+/// matches plan R-3 task-ownership semantic.
+pub async fn run_scan_tick_for_programs(
+    registry: &BytecodeProgramRegistry,
+    pi: &ProcessImage,
+    declared_types: &HashMap<String, StValueType>,
+    persistence: Option<&super::persistence::SqlitePersistence>,
+    options: &ScanTickOptions,
+    program_id_filter: &[String],
+) -> Vec<(String, BytecodeRunResult)> {
+    run_scan_tick_filtered(
+        registry,
+        pi,
+        declared_types,
+        persistence,
+        options,
+        Some(program_id_filter),
+    )
+    .await
+}
+
+/// Shared implementation. `filter` = None → all enabled
+/// programs run; Some(&[]) → no programs run; Some(
+/// non-empty slice) → only enabled programs whose id
+/// is in the slice.
+async fn run_scan_tick_filtered(
+    registry: &BytecodeProgramRegistry,
+    pi: &ProcessImage,
+    declared_types: &HashMap<String, StValueType>,
+    persistence: Option<&super::persistence::SqlitePersistence>,
+    options: &ScanTickOptions,
+    filter: Option<&[String]>,
+) -> Vec<(String, BytecodeRunResult)> {
     // Step 1 — one snapshot per tick, shared across all
-    // enabled programs. Respects IEC 61131-3 "all
-    // programs see the same process image" semantic.
+    // selected programs. Respects IEC 61131-3 "all
+    // programs see the same process image" semantic,
+    // scoped to the caller's filter set.
     let snapshot = snapshot_process_image(pi).await;
 
     // Step 2 — enumerate enabled programs.
     let enabled = registry.list_enabled().await;
 
-    let mut results: Vec<(String, BytecodeRunResult)> =
-        Vec::with_capacity(enabled.len());
+    // Step 2a — apply the optional program-id filter.
+    let selected: Vec<_> = match filter {
+        None => enabled,
+        Some(allowed) => {
+            let allowed_set: std::collections::HashSet<&str> =
+                allowed.iter().map(|s| s.as_str()).collect();
+            enabled
+                .into_iter()
+                .filter(|e| allowed_set.contains(e.program_id.as_str()))
+                .collect()
+        }
+    };
 
-    for entry in enabled {
+    let mut results: Vec<(String, BytecodeRunResult)> =
+        Vec::with_capacity(selected.len());
+
+    for entry in selected {
         // Fresh SnapshotTagIo per program so pending-
         // writes buffers don't leak across programs.
         // Snapshot + declared_types are cloned — cheap
@@ -526,6 +586,163 @@ mod tests {
     // ====================================================================
     // Batch 176 — RETAIN persistence hookup in run_scan_tick
     // ====================================================================
+
+    // ====================================================================
+    // Batch 186 Faz 4 — program-id filter for scheduler dispatch
+    // ====================================================================
+
+    #[tokio::test]
+    async fn run_scan_tick_for_programs_filters_to_allowed_subset() {
+        let reg = BytecodeProgramRegistry::new();
+        let pi = ProcessImage::new();
+        pi.update_tag_raw("tag_a", 0.0, TagQuality::Good, TagSource::Modbus)
+            .await;
+        pi.update_tag_raw("tag_b", 0.0, TagQuality::Good, TagSource::Modbus)
+            .await;
+
+        // Three enabled programs; filter to only [p1, p3].
+        reg.insert(mk_entry(
+            "p1",
+            bc_loopback("tag_a", vec!["tag_a".into()]),
+            true,
+        ))
+        .await
+        .expect("ok");
+        reg.insert(mk_entry(
+            "p2",
+            bc_loopback("tag_b", vec!["tag_b".into()]),
+            true,
+        ))
+        .await
+        .expect("ok");
+        reg.insert(mk_entry(
+            "p3",
+            bc_loopback("tag_a", vec!["tag_a".into()]),
+            true,
+        ))
+        .await
+        .expect("ok");
+
+        let filter = vec!["p1".to_string(), "p3".to_string()];
+        let results = run_scan_tick_for_programs(
+            &reg,
+            &pi,
+            &HashMap::new(),
+            None,
+            &ScanTickOptions::default(),
+            &filter,
+        )
+        .await;
+        // Only p1 + p3 should appear; p2 is NOT in the
+        // filter so it's skipped entirely.
+        assert_eq!(results.len(), 2);
+        let names: Vec<&str> = results.iter().map(|(n, _)| n.as_str()).collect();
+        assert!(names.contains(&"p1"));
+        assert!(names.contains(&"p3"));
+        assert!(!names.contains(&"p2"));
+    }
+
+    #[tokio::test]
+    async fn run_scan_tick_for_programs_empty_filter_runs_nothing() {
+        let reg = BytecodeProgramRegistry::new();
+        let pi = ProcessImage::new();
+        reg.insert(mk_entry(
+            "p1",
+            bc_loopback("tag_a", vec!["tag_a".into()]),
+            true,
+        ))
+        .await
+        .expect("ok");
+
+        let results = run_scan_tick_for_programs(
+            &reg,
+            &pi,
+            &HashMap::new(),
+            None,
+            &ScanTickOptions::default(),
+            &[],
+        )
+        .await;
+        assert!(results.is_empty());
+    }
+
+    #[tokio::test]
+    async fn run_scan_tick_for_programs_filter_unknown_id_skipped() {
+        let reg = BytecodeProgramRegistry::new();
+        let pi = ProcessImage::new();
+        pi.update_tag_raw("tag_a", 0.0, TagQuality::Good, TagSource::Modbus)
+            .await;
+
+        reg.insert(mk_entry(
+            "p1",
+            bc_loopback("tag_a", vec!["tag_a".into()]),
+            true,
+        ))
+        .await
+        .expect("ok");
+
+        // Filter includes p1 + a non-existent id. Only
+        // p1 runs; ghost_id is silently skipped (not
+        // present in enabled list).
+        let filter = vec!["p1".to_string(), "ghost_id".to_string()];
+        let results = run_scan_tick_for_programs(
+            &reg,
+            &pi,
+            &HashMap::new(),
+            None,
+            &ScanTickOptions::default(),
+            &filter,
+        )
+        .await;
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0, "p1");
+    }
+
+    #[tokio::test]
+    async fn run_scan_tick_unchanged_behavior_when_no_filter() {
+        // Regression guard: run_scan_tick without a
+        // filter should behave identically to
+        // run_scan_tick_for_programs with a filter
+        // matching every enabled id.
+        let reg = BytecodeProgramRegistry::new();
+        let pi = ProcessImage::new();
+        pi.update_tag_raw("tag_a", 0.0, TagQuality::Good, TagSource::Modbus)
+            .await;
+
+        reg.insert(mk_entry(
+            "p1",
+            bc_loopback("tag_a", vec!["tag_a".into()]),
+            true,
+        ))
+        .await
+        .expect("ok");
+        reg.insert(mk_entry(
+            "p2",
+            bc_loopback("tag_a", vec!["tag_a".into()]),
+            true,
+        ))
+        .await
+        .expect("ok");
+
+        let all_results = run_scan_tick(
+            &reg,
+            &pi,
+            &HashMap::new(),
+            None,
+            &ScanTickOptions::default(),
+        )
+        .await;
+        let filtered_results = run_scan_tick_for_programs(
+            &reg,
+            &pi,
+            &HashMap::new(),
+            None,
+            &ScanTickOptions::default(),
+            &["p1".to_string(), "p2".to_string()],
+        )
+        .await;
+        assert_eq!(all_results.len(), filtered_results.len());
+    }
 
     #[tokio::test]
     async fn run_scan_tick_loads_and_saves_retain_vars_across_ticks() {

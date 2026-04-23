@@ -22,7 +22,7 @@ import type {
   VarDeclarationNode,
   TypeNode,
   Expression,
-} from '../simulation/st-ast-types';
+} from '@platform/sensor-automation-types';
 
 // ============================================================================
 // Public Types

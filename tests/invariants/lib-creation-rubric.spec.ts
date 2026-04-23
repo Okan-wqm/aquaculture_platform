@@ -69,7 +69,14 @@ interface InventoryRow {
  */
 function parseInventoryTable(): InventoryRow[] {
   const text = readFileSync(ADR_PATH, 'utf8');
-  const sectionMatch = /^## Lib inventory[\s\S]*?(?=^## |\z)/m.exec(text);
+  // Match from the "## Lib inventory" heading up to (but not including)
+  // the NEXT "## " heading. JS regex has no \z anchor — a literal `z`
+  // in the alternation was the original bug and matched "anal`z`er" in
+  // a consumer cell, cutting the section mid-row. Dropping the \z
+  // alternative lets `[\s\S]*?` run to end-of-string when no further
+  // `## ` exists; the lookahead forces non-greedy termination at the
+  // next heading.
+  const sectionMatch = /^## Lib inventory[\s\S]*?(?=\n## |$(?![\s\S]))/m.exec(text);
   if (!sectionMatch) {
     throw new Error(`ADR-028 is missing "## Lib inventory" section at ${ADR_PATH}`);
   }

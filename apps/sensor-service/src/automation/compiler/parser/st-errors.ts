@@ -13,7 +13,7 @@
  * - SYNC_POU_END: skip to END_PROGRAM / END_FUNCTION / END_FUNCTION_BLOCK
  */
 
-import type { ParseError } from './st-ast';
+import type { ParseError } from '@platform/sensor-automation-types';
 
 // ────────────────────────────────────────────────────────────────────────────
 // Error Codes

@@ -89,6 +89,12 @@ pub mod force_registry;
 // registry. Non-persistent forces bypass this store
 // entirely + evaporate at shutdown drain.
 pub mod force_registry_store;
+// Batch 203 Faz 6 (plan R-9 watch_subscribe): live-
+// watch session registry. Per-session tag list +
+// interval + TTL + next-fire timestamp. Publisher
+// task + MQTT command handlers land in batches
+// 204-205.
+pub mod watch_sessions;
 // Batch 175 Faz 3 (plan R-1): RETAIN variable load/save
 // bridge between Bytecode.retain_vars declarations +
 // the existing SqlitePersistence variable store.

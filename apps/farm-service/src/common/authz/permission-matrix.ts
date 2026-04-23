@@ -332,6 +332,7 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   growthMeasurements: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   growthSimulation: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   harvestPlan: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  isSentinelHubConfigured: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   harvestPlanByCode: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   harvestPlans: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   harvestPlansByBatch: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
@@ -344,6 +345,8 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   latestWaterQuality: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   lowStockAlerts: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   maintenanceAlerts: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  maskinportenStatus: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  mattilsynetStatus: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   // maintenanceComplianceReport is supervisory / audit output —
   // restricted to MANAGER + ADMIN to match the shape of other
   // compliance-oriented queries.
@@ -366,7 +369,13 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   projectHarvestDate: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   recurringTemplate: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   recurringTemplates: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  regulatoryConfigurationStatus: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  regulatoryHealth: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  regulatorySettings: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   rootSystems: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  sentinelHubStatus: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  sentinelHubToken: [Role.TENANT_ADMIN],
+  sentinelHubWmtsConfig: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   site: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   siteDeletePreview: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   sites: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
@@ -424,6 +433,7 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   workOrderByCode: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   workOrderStatistics: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   workOrders: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  workers: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
 });
 
 /**
@@ -496,6 +506,14 @@ export const UNGATED_OPERATIONS: ReadonlySet<string> = Object.freeze(new Set([
   // upcomingMaintenanceSchedules / overdueMaintenanceSchedules /
   // maintenanceAlerts / maintenanceComplianceReport / autoRule /
   // autoRules / recurringTemplate / recurringTemplates.
+  // Phase 6.1.1 (sensitive-regulatory-credentials queries)
+  // moved 10 with tighter gates: sentinelHubStatus /
+  // isSentinelHubConfigured / sentinelHubWmtsConfig
+  // (MANAGER + ADMIN), sentinelHubToken (ADMIN only —
+  // deepest credential), maskinportenStatus /
+  // mattilsynetStatus / regulatoryConfigurationStatus /
+  // regulatoryHealth / regulatorySettings (MANAGER + ADMIN),
+  // workers (MANAGER + ADMIN — HR-adjacent PII).
   // Queries
   'cleanerFishBatches',
   'cleanerFishReport',
@@ -511,24 +529,14 @@ export const UNGATED_OPERATIONS: ReadonlySet<string> = Object.freeze(new Set([
   'harvestStatistics',
   'inventoryCount',
   'inventoryCounts',
-  'isSentinelHubConfigured',
   'marineObservations',
-  'maskinportenStatus',
-  'mattilsynetStatus',
   'pendingDeliveries',
   'pond',
   'purchaseOrder',
   'purchaseOrders',
-  'regulatoryConfigurationStatus',
-  'regulatoryHealth',
-  'regulatorySettings',
-  'sentinelHubStatus',
-  'sentinelHubToken',
-  'sentinelHubWmtsConfig',
   'weatherForecast',
   'weatherObservations',
   'weatherSettings',
-  'workers',
 ] as const));
 
 /**

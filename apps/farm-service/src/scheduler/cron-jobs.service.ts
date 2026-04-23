@@ -845,6 +845,7 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
   async refreshAnalyticsViews(): Promise<void> {
     const viewsToRefresh = [
       'farm.mv_daily_batch_feeding',
+      'farm.mv_daily_tank_water_quality',
     ];
 
     this.logger.log(

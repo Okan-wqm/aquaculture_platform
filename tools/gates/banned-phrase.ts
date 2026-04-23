@@ -463,12 +463,14 @@ function scanRangeCommitBodies(baseRef: string, headRef: string): Violation[] {
 }
 
 function main(): void {
-  const [, , modeFlag, ...args] = process.argv;
-  if (!modeFlag) {
-    console.error(
-      'Usage: ts-node tools/gates/banned-phrase.ts --mode=<staged|range|commit|file> [args]',
-    );
-    process.exit(2);
+  const [, , rawModeFlag, ...args] = process.argv;
+  // Default mode when invoked via `npm run gates:all` or a bare shell:
+  // scan the git-staged files. CI always supplies --mode=range <base>
+  // <head> explicitly, so the default only fires for local developer
+  // ergonomics — not a silent fallback for the CI path.
+  const modeFlag = rawModeFlag ?? '--mode=staged';
+  if (!rawModeFlag) {
+    console.error('[banned-phrase] no --mode supplied; defaulting to --mode=staged.');
   }
 
   const mode = modeFlag.replace(/^--mode=/, '');

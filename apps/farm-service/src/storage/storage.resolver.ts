@@ -129,6 +129,7 @@ export class StorageResolver {
     return this.commandBus.execute(command);
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => StorageLocationResponse, { nullable: true })
   async storageLocation(
     @Args('id', { type: () => ID }) id: string,
@@ -138,6 +139,7 @@ export class StorageResolver {
     return this.queryBus.execute(query);
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => PaginatedStorageLocationsResponse)
   async storageLocations(
     @Args('filter', { type: () => StorageLocationFilterInput, nullable: true }) filter: StorageLocationFilterInput | undefined,
@@ -151,6 +153,7 @@ export class StorageResolver {
 
   // === Storage Inventory ===
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [StorageInventoryResponse])
   async storageInventory(
     @Args('locationId', { type: () => ID, nullable: true }) locationId: string | undefined,
@@ -204,6 +207,7 @@ export class StorageResolver {
 
   // === Overview ===
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => StorageOverviewResponse)
   async storageOverview(
     @CurrentTenant() tenantId: string,

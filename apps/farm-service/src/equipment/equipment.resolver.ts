@@ -80,6 +80,7 @@ export class EquipmentResolver {
    * Get delete preview for an equipment
    * Returns what will be deleted when the equipment is cascade soft deleted
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Query(() => EquipmentDeletePreviewResponse)
   async equipmentDeletePreview(
     @Args('id', { type: () => ID }) id: string,
@@ -110,6 +111,7 @@ export class EquipmentResolver {
   /**
    * Get single equipment by ID
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => EquipmentResponse, { nullable: true })
   async equipment(
     @Args('id', { type: () => ID }) id: string,
@@ -123,6 +125,7 @@ export class EquipmentResolver {
   /**
    * List equipment with pagination and filtering
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => PaginatedEquipmentResponse)
   async equipmentList(
     @Args('filter', { type: () => EquipmentFilterInput, nullable: true }) filter?: EquipmentFilterInput,
@@ -140,6 +143,7 @@ export class EquipmentResolver {
   /**
    * Get equipment by department for dropdowns
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [EquipmentResponse])
   async equipmentByDepartment(
     @Args('departmentId', { type: () => ID }) departmentId: string,
@@ -154,6 +158,7 @@ export class EquipmentResolver {
    * Get all equipment types (global, not tenant-specific)
    */
   @SkipTenantGuard()
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [EquipmentTypeResponse])
   async equipmentTypes(
     @Args('filter', { type: () => EquipmentTypeFilterInput, nullable: true }) filter?: EquipmentTypeFilterInput,
@@ -167,6 +172,7 @@ export class EquipmentResolver {
    * PERF(F3-001): Query directly by ID instead of fetching all types and filtering in JS
    */
   @SkipTenantGuard()
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => EquipmentTypeResponse, { nullable: true })
   async equipmentType(
     @Args('id', { type: () => ID }) id: string,

@@ -75,7 +75,7 @@ describe('BatchHarvestEligibilityService', () => {
     expect(result.blockedUntil).toEqual(earliest);
     expect(result.reason).toContain('1 active health event');
     expect(result.blockingEvents).toHaveLength(1);
-    expect(result.blockingEvents[0].id).toBe('evt-1');
+    expect(result.blockingEvents[0]!.id).toBe('evt-1');
   });
 
   it('returns the LATEST earliestHarvestDate as blockedUntil when multiple events block', async () => {
@@ -88,7 +88,7 @@ describe('BatchHarvestEligibilityService', () => {
       {
         id: 'evt-late',
         title: 'Oxytetracycline treatment',
-        diseaseName: null,
+        diseaseName: undefined,
         earliestHarvestDate: later,
         withdrawalPeriodDays: 30,
         status: HealthEventStatus.ACTIVE,

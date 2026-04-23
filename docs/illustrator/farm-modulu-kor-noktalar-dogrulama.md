@@ -1132,3 +1132,4 @@ Bu orphan'ı Faz 1.3 hot-fix olarak **ayrı PR** ile kapatmak gerekir — Faz 2.
 | 41 | Faz 7.5 full — Tenant onboarding event handler | ✅ RESOLVED (Faz 7.5) | Girdi 15-C7 — TenantCreated wildcard subscription auto-seeds WQ parameter catalogue on provisioning |
 | 42 | Faz 6.2 partial — File upload size + mime whitelist | ✅ RESOLVED (Faz 6.2 partial) | Girdi 15-C4 — FileUploadSecurityService with per-document-type policies + magic-byte sniff; EXIF strip (6.2.1) + ClamAV (6.2.2) + orphan cleanup (6.2.3) deferred to follow-ups |
 | 43 | Faz 7.3.1 partial — batch-performance + growth-analysis migrated to @Cacheable | ✅ RESOLVED (Faz 7.3.1 partial) | Ad-hoc Redis blocks stripped from handlers; @Cacheable at the resolver boundary; AI-insights keeps its stale-fallback pattern |
+| 44 | Faz 7.2.2 — WQ daily materialized view | ✅ RESOLVED (Faz 7.2.2) | `farm.mv_daily_tank_water_quality` — avg/min/max per (tenant, tank, day); nightly CONCURRENTLY refresh |

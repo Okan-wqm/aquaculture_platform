@@ -20,6 +20,7 @@ import { RegulatorySettingsService } from './regulatory-settings.service';
 import { BiomassReport } from './entities/biomass-report.entity';
 import { BiomassReportService } from './services/biomass-report.service';
 import { BiomassReportResolver } from './biomass-report.resolver';
+import { RegulatorySettingsSeederService } from './services/regulatory-settings-seeder.service';
 
 @Module({
   imports: [
@@ -33,12 +34,14 @@ import { BiomassReportResolver } from './biomass-report.resolver';
     RegulatorySettingsService,
     BiomassReportService,
     BiomassReportResolver,
+    RegulatorySettingsSeederService,
   ],
   exports: [
     MaskinportenService,
     MattilsynetApiService,
     RegulatorySettingsService,
     BiomassReportService,
+    RegulatorySettingsSeederService,
   ],
 })
 export class RegulatoryModule {}

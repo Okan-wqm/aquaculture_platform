@@ -18,13 +18,18 @@
  *      ammonia / nitrite / salinity / turbidity).
  *   2. `SpeciesSeederService` — Atlantic Salmon + the two
  *      cleaner-fish species (Lumpfish + Ballan Wrasse).
+ *   3. `FeedingProtocolSeederService` — Atlantic-salmon
+ *      life-stage protocols (FRY / STARTER / GROWER / FINISHER).
+ *   4. `RegulatorySettingsSeederService` — skeleton
+ *      `regulatory_settings` row (Maskinporten env = TEST,
+ *      credential columns left NULL for the tenant-admin to
+ *      fill in) so biomass / mortality / Mattilsynet surfaces
+ *      have a deterministic anchor row on first query.
  *
  * Future phase-7.5.* PRs add:
  *   - equipment-types seeder (global table, no per-tenant
  *     row; just a sanity check that the global catalog is
  *     reachable)
- *   - feeding-protocols seeder (per-species, per-life-stage)
- *   - regulatory-settings seeder (country-aware)
  *
  * # Per-seeder fault tolerance
  *
@@ -58,6 +63,7 @@ import type { TenantCreatedEvent } from '@platform/event-contracts';
 import { WaterQualityParameterConfigSeederService } from '../services/water-quality-parameter-config-seeder.service';
 import { SpeciesSeederService } from '../../species/services/species-seeder.service';
 import { FeedingProtocolSeederService } from '../../feed/services/feeding-protocol-seeder.service';
+import { RegulatorySettingsSeederService } from '../../regulatory/services/regulatory-settings-seeder.service';
 
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -80,6 +86,7 @@ export class TenantOnboardingEventHandler
     private readonly wqSeeder: WaterQualityParameterConfigSeederService,
     private readonly speciesSeeder: SpeciesSeederService,
     private readonly feedingProtocolSeeder: FeedingProtocolSeederService,
+    private readonly regulatorySettingsSeeder: RegulatorySettingsSeederService,
     @Optional() @Inject('EVENT_BUS')
     private readonly eventBus?: IEventBus,
   ) {}
@@ -96,7 +103,7 @@ export class TenantOnboardingEventHandler
     await this.eventBus.subscribeWildcard('TenantCreated', this);
     this.logger.log(
       'Subscribed to TenantCreated events for automatic tenant onboarding ' +
-        '(water-quality parameter configs + species catalogue)',
+        '(water-quality configs + species catalogue + feeding protocols + regulatory settings)',
     );
   }
 
@@ -138,6 +145,15 @@ export class TenantOnboardingEventHandler
     summaries.push(
       await this.runSeeder('feeding-protocols', () =>
         this.feedingProtocolSeeder.seedDefaults(event.tenantId),
+      ),
+    );
+
+    // Regulatory settings — skeleton row with Maskinporten env=TEST
+    // and empty credentials. Ensures biomass / mortality / Mattilsynet
+    // read-paths don't return null on first query for the new tenant.
+    summaries.push(
+      await this.runSeeder('regulatory-settings', () =>
+        this.regulatorySettingsSeeder.seedDefaults(event.tenantId),
       ),
     );
 

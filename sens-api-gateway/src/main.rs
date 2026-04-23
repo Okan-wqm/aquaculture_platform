@@ -4140,6 +4140,7 @@ async fn run_agent(
             scripting_enabled,
             retain_persistence,
             tasks_config,
+            license,
         ) = {
             let s = state.read().await;
             (
@@ -4150,7 +4151,40 @@ async fn run_agent(
                 s.config.scripting.enabled,
                 s.retain_persistence.clone(),
                 s.config.scripting.tasks.clone(),
+                s.license.clone(),
             )
+        };
+
+        // Batch 214 Faz 7 wire: license task-scheduler cap.
+        // Multi-task scheduler is active only when
+        // `tasks_config` is non-empty (single-cadence path
+        // below doesn't count against the cap because a
+        // single scan-cycle is not a "scheduled task" in the
+        // Faz 4 sense). Exceed = refuse to start the whole
+        // multi-task scheduler — the single-cadence fallback
+        // below stays available. Operator fixes config OR
+        // upgrades tier.
+        let license_permits_scheduler = if tasks_config.is_empty() {
+            true
+        } else {
+            match crate::license::check_task_scheduler_budget(
+                tasks_config.len(),
+                &license,
+            ) {
+                crate::license::TaskSchedulerBudget::WithinBudget { .. } => true,
+                crate::license::TaskSchedulerBudget::Exceeded {
+                    configured,
+                    cap,
+                } => {
+                    warn!(
+                        "multi-task scheduler NOT started: license cap hit (configured={} cap={} tier={}) — reduce tasks or upgrade tier",
+                        configured,
+                        cap,
+                        license.tier.as_str(),
+                    );
+                    false
+                }
+            }
         };
 
         if scripting_enabled {
@@ -4168,9 +4202,14 @@ async fn run_agent(
                 declared_types.len()
             );
 
-            if tasks_config.is_empty() {
+            if tasks_config.is_empty() || !license_permits_scheduler {
                 // Single-cadence branch (Batch 170
-                // preserved for backward compat).
+                // preserved for backward compat). Also
+                // used as the Batch 214 Faz 7 fallback
+                // when the license denies the multi-task
+                // scheduler — agent stays usable with the
+                // legacy single-scan-cycle path until the
+                // operator reduces tasks or upgrades tier.
                 let (watch_tx, watch_rx) = tokio::sync::watch::channel(false);
                 let mut broadcast_rx = shutdown_coordinator.subscribe();
                 tokio::spawn(async move {

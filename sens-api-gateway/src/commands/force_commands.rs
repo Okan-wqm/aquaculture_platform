@@ -140,14 +140,44 @@ impl CommandHandler {
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
-        let (force_registry, process_image, force_store) = {
+        let (force_registry, process_image, force_store, license) = {
             let state = self.state.read().await;
             (
                 state.force_registry.clone(),
                 state.process_image.clone(),
                 state.force_registry_store.clone(),
+                state.license.clone(),
             )
         };
+
+        // Batch 214 Faz 7 wire: license concurrent-force cap.
+        // check_force_budget uses `>=` so the current registry
+        // size is checked BEFORE apply — rejecting here stops
+        // the registry from growing past cap. conservative()
+        // fallback has cap=0; STARTER tenants cannot force at
+        // all, which matches the plan's tier-gating discipline.
+        let active_forces = force_registry.active_count().await;
+        match crate::license::check_force_budget(active_forces, &license) {
+            crate::license::ForceBudget::WithinBudget { .. } => {}
+            crate::license::ForceBudget::Exceeded { active, cap } => {
+                warn!(
+                    "force_value rejected: license cap hit (active={} cap={} tier={})",
+                    active,
+                    cap,
+                    license.tier.as_str(),
+                );
+                return (
+                    false,
+                    json!(null),
+                    Some(format!(
+                        "force_value: license cap reached (active={} cap={} tier={}) — upgrade tier or unforce an existing entry",
+                        active,
+                        cap,
+                        license.tier.as_str(),
+                    )),
+                );
+            }
+        }
 
         match force_registry
             .apply(

@@ -101,10 +101,38 @@ impl CommandHandler {
             .unwrap_or("command-envelope")
             .to_string();
 
-        let registry = {
+        let (registry, license) = {
             let state = self.state.read().await;
-            state.watch_sessions.clone()
+            (state.watch_sessions.clone(), state.license.clone())
         };
+
+        // Batch 214 Faz 7 wire: license watch-session cap.
+        // `>=` semantics — rejecting active==cap stops the
+        // registry from growing past cap. conservative()
+        // fallback gives 1 session which still allows a single
+        // debug-watch cycle for STARTER tenants.
+        let active_sessions = registry.active_count().await;
+        match crate::license::check_watch_budget(active_sessions, &license) {
+            crate::license::WatchBudget::WithinBudget { .. } => {}
+            crate::license::WatchBudget::Exceeded { active, cap } => {
+                warn!(
+                    "watch_subscribe rejected: license cap hit (active={} cap={} tier={})",
+                    active,
+                    cap,
+                    license.tier.as_str(),
+                );
+                return (
+                    false,
+                    json!(null),
+                    Some(format!(
+                        "watch_subscribe: license cap reached (active={} cap={} tier={}) — upgrade tier or unsubscribe an existing session",
+                        active,
+                        cap,
+                        license.tier.as_str(),
+                    )),
+                );
+            }
+        }
 
         match registry
             .subscribe(tags.clone(), interval_ms, ttl_secs, actor.clone())

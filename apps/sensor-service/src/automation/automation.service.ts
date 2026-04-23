@@ -12,7 +12,7 @@ import {
 import { Interval } from '@nestjs/schedule';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, EntityManager, In, LessThan } from 'typeorm';
-import { getTenantSchemaName } from '@aquaculture/backend-common/database';
+import { getTenantSchemaName, tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 
 import { EdgeDeviceService } from '../edge-device/edge-device.service';
@@ -131,7 +131,7 @@ export class AutomationService {
     createdBy?: string,
   ): Promise<AutomationProgram> {
     return this.withTenantSchema(tenantId, async (manager) => {
-      const repo = manager.getRepository(AutomationProgram);
+      const repo = tenantManagerRepo(manager, AutomationProgram, tenantId);
 
       // Check for duplicate code
       const existing = await repo.findOne({
@@ -189,7 +189,7 @@ export class AutomationService {
     input: UpdateProgramInput,
   ): Promise<AutomationProgram> {
     return this.withTenantSchema(tenantId, async (manager) => {
-      const repo = manager.getRepository(AutomationProgram);
+      const repo = tenantManagerRepo(manager, AutomationProgram, tenantId);
       const program = await repo.findOne({ where: { id, tenantId } });
       if (!program) {
         throw new NotFoundException(`Program ${id} not found`);
@@ -686,6 +686,11 @@ export class AutomationService {
         throw new NotFoundException(`Program ${input.programId} not found`);
       }
 
+      // ProgramVariable has no tenantId column — scoping is inherited
+      // from the parent AutomationProgram row (validated above via the
+      // programId WHERE clause). See ORPHAN-DIC-001 for the broader
+      // architectural question about adding tenantId to child entities.
+      // eslint-disable-next-line no-restricted-syntax -- ORPHAN-DIC-001
       const varRepo = manager.getRepository(ProgramVariable);
 
       // Check for duplicate variable name
@@ -859,6 +864,11 @@ export class AutomationService {
       let updated = 0;
       let unchanged = 0;
 
+      // ProgramVariable has no tenantId column — scoping is inherited
+      // from the parent AutomationProgram row (validated above via the
+      // programId WHERE clause). See ORPHAN-DIC-001 for the broader
+      // architectural question about adding tenantId to child entities.
+      // eslint-disable-next-line no-restricted-syntax -- ORPHAN-DIC-001
       const varRepo = manager.getRepository(ProgramVariable);
 
       // Process each incoming variable
@@ -1666,6 +1676,9 @@ export class AutomationService {
       return new Map();
     }
 
+    // DeviceIoConfig has no tenantId column; tenant scoping is
+    // inherited from parent EdgeDevice. See ORPHAN-DIC-001.
+    // eslint-disable-next-line no-restricted-syntax -- ORPHAN-DIC-001
     const configs = await this.dataSource
       .getRepository(DeviceIoConfig)
       .find({ where: { id: In(ioConfigIds) } });
@@ -2488,7 +2501,7 @@ export class AutomationService {
    */
   async getStats(tenantId: string): Promise<ProgramStats> {
     return this.withTenantSchema(tenantId, async (manager) => {
-      const repo = manager.getRepository(AutomationProgram);
+      const repo = tenantManagerRepo(manager, AutomationProgram, tenantId);
       const [total, statusResult, typeResult, lockedCount, deployedCount] = await Promise.all([
         repo.count({ where: { tenantId } }),
 

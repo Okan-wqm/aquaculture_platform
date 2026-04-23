@@ -941,11 +941,16 @@ This orphan entry is the architectural tier-4 "document" fallback for `AUDIT-LOW
 - No deadline — this is an informational classification, not an actionable fix.
 - Closure path: commit that adds this note carries `Closes: docs/reviews/_audit/2026-04-22-cold-audit/03-explore-findings.md#AUDIT-LOW-001`.
 
-## 2026-04-23 ORPHAN-DIC-001 — `apps/sensor-service/.../device-io-config.entity.ts` has no `tenantId` column
+## 2026-04-23 ORPHAN-DIC-001 — sensor-service child entities have no `tenantId` column
 
-**Status:** OPEN — surfaced during the Phase B.3 cold-audit remediation while trying to migrate `apps/sensor-service/src/edge-device/edge-device.service.ts`'s `manager.getRepository(DeviceIoConfig)` call to `tenantManagerRepo()`.
+**Status:** OPEN — surfaced during the Phase B.3 cold-audit remediation while trying to migrate sensor-service `manager.getRepository(Entity)` calls to `tenantManagerRepo()`.
 
-**Scope:** `apps/sensor-service/src/edge-device/entities/device-io-config.entity.ts` — no `@Column` declares a `tenantId` field. Rows are only reachable via the parent `EdgeDevice` relationship, whose row does carry `tenantId`.
+**Scope (3 entities):**
+1. `apps/sensor-service/src/edge-device/entities/device-io-config.entity.ts` — reachable only via parent `EdgeDevice`.
+2. `apps/sensor-service/src/automation/entities/program-variable.entity.ts` — reachable only via parent `AutomationProgram`.
+3. (implicit) any future sensor-service child entity that follows the same parent-scoped pattern.
+
+None of these declare a `@Column` for `tenantId`. Rows are reachable only via the parent relationship, whose row does carry `tenantId`.
 
 **Why the entity can't be wrapped by `tenantManagerRepo()`:**
 

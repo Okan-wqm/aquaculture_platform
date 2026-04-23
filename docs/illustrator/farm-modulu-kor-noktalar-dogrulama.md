@@ -1124,3 +1124,4 @@ Bu orphan'ı Faz 1.3 hot-fix olarak **ayrı PR** ile kapatmak gerekir — Faz 2.
 | 33 | Faz 6.5 — WQ strict validation + zero-config gate | ✅ RESOLVED (Faz 6.5) | Girdi 15-B5 — strict default; opt-out via env |
 | 34 | Faz 7.5 partial — WQ parameter config seeder | ✅ RESOLVED (Faz 7.5 partial) | Girdi 15-C7 partial — seedDefaultWaterQualityParameterConfigs mutation; closes phase 6.5 onboarding gap |
 | 35 | Orphans 3 + 5 — cross-service `farm.farms`/`farm.ponds` refs | ✅ RESOLVED (Faz 4.3 pre) | observability + admin-api swap onto `farm.sites` — unblocks Faz 4.3 legacy migration |
+| 36 | Faz 7.3 — Systematic @Cacheable interceptor | ✅ RESOLVED (Faz 7.3) | Girdi 15-C3 — decorator + interceptor + module + parameterTemplates wiring |

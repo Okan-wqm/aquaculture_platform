@@ -41,6 +41,7 @@ import { GetParameterConfigByCodeQuery } from './queries/get-parameter-config-by
 import { ListParameterTemplatesQuery } from './queries/list-parameter-templates.query';
 import { ListParamEquipmentQuery } from './queries/list-param-equipment.query';
 import { GetEquipmentParamsQuery } from './queries/get-equipment-params.query';
+import { WaterQualityParameterConfigSeederService } from './services/water-quality-parameter-config-seeder.service';
 
 // ============================================================================
 // RESPONSE TYPES
@@ -67,6 +68,21 @@ export class ParameterTemplateResponse {
   parameterCodes: string[];
 }
 
+/**
+ * Result of a default-parameter seed run. `seeded` lists the codes
+ * that were inserted; `skipped` lists the codes that already
+ * existed so an operator re-running the seeder can tell whether
+ * the call did anything.
+ */
+@ObjectType()
+export class SeedDefaultParameterConfigsResponse {
+  @Field(() => [String])
+  seeded: string[];
+
+  @Field(() => [String])
+  skipped: string[];
+}
+
 // ============================================================================
 // RESOLVER
 // ============================================================================
@@ -79,6 +95,7 @@ export class WaterQualityParameterConfigResolver {
   constructor(
     private readonly commandBus: CommandBus,
     private readonly queryBus: QueryBus,
+    private readonly seeder: WaterQualityParameterConfigSeederService,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -179,6 +196,29 @@ export class WaterQualityParameterConfigResolver {
     return this.commandBus.execute(
       new DeleteParameterConfigCommand(tenantId, id),
     );
+  }
+
+  /**
+   * Seed the seven-parameter salmonid default catalogue for a
+   * tenant (temperature, pH, dissolved oxygen, ammonia, nitrite,
+   * salinity, turbidity). Idempotent on re-run — codes that
+   * already exist get skipped rather than duplicated.
+   *
+   * Phase 7.5 partial of the "Farm modülü kalan kör noktalar"
+   * plan. Closes the phase-6.5 onboarding gap: new tenants
+   * hitting strict validation mode can now bootstrap a working
+   * config set in one mutation instead of clicking through the
+   * setup page one parameter at a time.
+   */
+  @Roles(Role.TENANT_ADMIN)
+  @Mutation(() => SeedDefaultParameterConfigsResponse)
+  async seedDefaultWaterQualityParameterConfigs(
+    @CurrentTenant() tenantId: string,
+  ): Promise<SeedDefaultParameterConfigsResponse> {
+    this.logger.log(
+      `Seeding default water-quality parameter configs for tenant ${tenantId}`,
+    );
+    return this.seeder.seedDefaults(tenantId);
   }
 
   /**

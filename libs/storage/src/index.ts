@@ -14,6 +14,11 @@ export {
   type UploadPolicy,
   type SecureUploadRequest,
 } from './file-upload-security.service';
+export {
+  StorageOrphanCleanupService,
+  type OrphanCleanupRequest,
+  type OrphanCleanupResult,
+} from './orphan-cleanup.service';
 
 // Interfaces
 export {

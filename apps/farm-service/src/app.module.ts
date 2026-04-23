@@ -52,6 +52,8 @@ import { FarmAppErrorFilter } from './common/errors/farm-app-error.filter';
 import { CacheableModule } from './common/cache/cacheable.module';
 import { JsonbPatchModule } from './common/jsonb/jsonb-patch.module';
 import { ComplianceModule } from './compliance/compliance.module';
+import { StorageModule } from '@platform/storage';
+import type { StorageConfig } from '@platform/storage';
 import { PermissionMatrixGuard } from './common/authz/permission-matrix.guard';
 import { FarmOutboxModule } from './outbox/farm-outbox.module';
 import { FarmModule } from './farm/farm.module';
@@ -424,6 +426,45 @@ import { AddFarmOutboxModernColumns1786200000000 } from './database/migrations/1
     // anonymisation. Platform-wide fan-out + event emission live
     // in admin-api + libs/event-contracts (phase 6.3.1).
     ComplianceModule,
+
+    // @platform/storage — MinIO/S3 client + file upload security
+    // + orphan cleanup service. Farm-service owns the domain
+    // references (BatchDocument.storagePath, Chemical.documents[].url)
+    // so the nightly cleanup cron lives here too. Fail-fast on
+    // missing credentials in production; dev defaults in non-prod.
+    StorageModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService): StorageConfig => {
+        const nodeEnv = configService.get<string>('NODE_ENV', 'development');
+        const isProduction = nodeEnv === 'production';
+        const accessKey = configService.get<string>('MINIO_ACCESS_KEY', '');
+        const secretKey = configService.get<string>('MINIO_SECRET_KEY', '');
+        if (isProduction && (!accessKey || !secretKey)) {
+          throw new Error(
+            'CRITICAL: MINIO_ACCESS_KEY and MINIO_SECRET_KEY must be ' +
+              'explicitly configured in production. Farm-service startup ' +
+              'aborted to prevent use of default credentials.',
+          );
+        }
+        const rawPort = configService.get<string | number>('MINIO_PORT');
+        const port =
+          typeof rawPort === 'string' && rawPort.length > 0
+            ? Number(rawPort)
+            : typeof rawPort === 'number'
+              ? rawPort
+              : undefined;
+        return {
+          endpoint: configService.get<string>('MINIO_ENDPOINT', 'localhost'),
+          port,
+          useSSL: configService.get<string>('MINIO_USE_SSL', 'false') === 'true',
+          accessKey: accessKey || 'minioadmin',
+          secretKey: secretKey || 'minioadmin',
+          bucket: configService.get<string>('MINIO_BUCKET', 'farm-uploads'),
+          region: configService.get<string>('MINIO_REGION', 'us-east-1'),
+        };
+      },
+    }),
 
     // Transactional outbox for reliable event publishing
     // (handlers enqueue → OutboxWorkerService polls → NATS publish)

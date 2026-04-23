@@ -101,6 +101,15 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
     }
 
     let process_image = s.process_image.clone();
+    // Batch 199 Faz 6 wire: force-registry bypass.
+    // Every update_tag call in this poll cycle passes
+    // through `maybe_update_tag` which checks
+    // `force_registry.is_forced` first + skips the
+    // refresh when the tag is forced. The forced
+    // value stays live (ProcessImage was set to the
+    // force value when the `force_value` command
+    // fired per Batch 197).
+    let force_registry = s.force_registry.clone();
 
     let configs = process_image.get_configs().await;
 
@@ -117,7 +126,7 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
                 if let ProtocolConfig::Gpio { pin, .. } = &cfg.protocol_config {
                     if *pin == pin_value.pin {
                         let value = if matches!(pin_value.state, PinState::High) { 1.0 } else { 0.0 };
-                        process_image.update_tag(&cfg.tag_name, value, TagQuality::Good, TagSource::Gpio).await;
+                        maybe_update_tag(&process_image, &force_registry, &cfg.tag_name, value, TagQuality::Good, TagSource::Gpio).await;
                     }
                 }
             }
@@ -154,7 +163,7 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
                 for cfg in &configs {
                     if let ProtocolConfig::Modbus { .. } = &cfg.protocol_config {
                         if reg_value.name == cfg.tag_name {
-                            process_image.update_tag(&cfg.tag_name, reg_value.scaled_value, TagQuality::Good, TagSource::Modbus).await;
+                            maybe_update_tag(&process_image, &force_registry, &cfg.tag_name, reg_value.scaled_value, TagQuality::Good, TagSource::Modbus).await;
                         }
                     }
                 }
@@ -194,7 +203,7 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
                                 }
                             }
                         }
-                        process_image.update_tag_raw(&cfg.tag_name, value, quality, TagSource::I2c).await;
+                        maybe_update_tag_raw(&process_image, &force_registry, &cfg.tag_name, value, quality, TagSource::I2c).await;
                     }
                     I2cDriverType::GenericRegister { read_register, read_length } => {
                         let result = i2c.read_register(&cfg.tag_name, *read_register, *read_length as usize).await;
@@ -220,10 +229,10 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
                             // TagQuality::Simulated so SCADA
                             // cannot mistake sim for live data.
                             let quality = if result.simulated { TagQuality::Simulated } else { TagQuality::Good };
-                            process_image.update_tag(&cfg.tag_name, value, quality, TagSource::I2c).await;
+                            maybe_update_tag(&process_image, &force_registry, &cfg.tag_name, value, quality, TagSource::I2c).await;
                         } else {
                             warn!("I2C register read failed for '{}': {}", cfg.tag_name, result.error.as_deref().unwrap_or("unknown"));
-                            process_image.update_tag(&cfg.tag_name, 0.0, TagQuality::CommFailure, TagSource::I2c).await;
+                            maybe_update_tag(&process_image, &force_registry, &cfg.tag_name, 0.0, TagQuality::CommFailure, TagSource::I2c).await;
                         }
                     }
                     I2cDriverType::GenericDirect { read_length } => {
@@ -239,10 +248,10 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
                             let value = bytes_to_f64(&result.data);
                             // ARC-006: sim read quality routing.
                             let quality = if result.simulated { TagQuality::Simulated } else { TagQuality::Good };
-                            process_image.update_tag(&cfg.tag_name, value, quality, TagSource::I2c).await;
+                            maybe_update_tag(&process_image, &force_registry, &cfg.tag_name, value, quality, TagSource::I2c).await;
                         } else {
                             warn!("I2C direct read failed for '{}': {}", cfg.tag_name, result.error.as_deref().unwrap_or("unknown"));
-                            process_image.update_tag(&cfg.tag_name, 0.0, TagQuality::CommFailure, TagSource::I2c).await;
+                            maybe_update_tag(&process_image, &force_registry, &cfg.tag_name, 0.0, TagQuality::CommFailure, TagSource::I2c).await;
                         }
                     }
                 }
@@ -352,6 +361,50 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
 }
 
 /// Convert raw bytes to f64 (big-endian, supports 2 or 4 byte values)
+/// Batch 199 Faz 6: force-registry-aware update_tag
+/// shim. Skips the refresh when the tag has an active
+/// force entry so the forced value stays live.
+///
+/// Consolidated here (instead of inlined at every
+/// update_tag callsite) so future refinements
+/// (metrics, audit emit on skip) land in one place.
+async fn maybe_update_tag(
+    pi: &crate::process_image::ProcessImage,
+    force_registry: &crate::scripting::force_registry::ForceRegistry,
+    tag_name: &str,
+    value: f64,
+    quality: crate::process_image::TagQuality,
+    source: crate::process_image::TagSource,
+) {
+    if force_registry.is_forced(tag_name).await {
+        // Skip — the forced value was written to PI
+        // when the `force_value` command fired
+        // (Batch 197) + TTL sweep (Batch 198)
+        // drops it when expired. Polling refresh
+        // would clobber the operator-applied
+        // value.
+        return;
+    }
+    pi.update_tag(tag_name, value, quality, source).await;
+}
+
+/// Batch 199 Faz 6: the same for the raw variant
+/// used by I2C / Atlas EZO paths that write already-
+/// scaled values.
+async fn maybe_update_tag_raw(
+    pi: &crate::process_image::ProcessImage,
+    force_registry: &crate::scripting::force_registry::ForceRegistry,
+    tag_name: &str,
+    value: f64,
+    quality: crate::process_image::TagQuality,
+    source: crate::process_image::TagSource,
+) {
+    if force_registry.is_forced(tag_name).await {
+        return;
+    }
+    pi.update_tag_raw(tag_name, value, quality, source).await;
+}
+
 fn bytes_to_f64(data: &[u8]) -> f64 {
     match data.len() {
         2 => {

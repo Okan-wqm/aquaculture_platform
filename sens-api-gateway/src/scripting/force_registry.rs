@@ -655,6 +655,22 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn maybe_update_tag_bypass_behavior_guard() {
+        // Batch 199 guard: the is_forced check that
+        // io_poll's maybe_update_tag depends on MUST
+        // return true after an apply + MUST return
+        // false after a remove. Any refactor that
+        // breaks this invariant silently lets sensor
+        // values clobber operator-applied forces.
+        let reg = ForceRegistry::new();
+        assert!(!reg.is_forced("feeder_rate").await);
+        canned_apply(&reg, "feeder_rate", 60).await.expect("ok");
+        assert!(reg.is_forced("feeder_rate").await);
+        reg.remove("feeder_rate").await.expect("ok");
+        assert!(!reg.is_forced("feeder_rate").await);
+    }
+
+    #[tokio::test]
     async fn sweep_task_preserves_non_expired_entries() {
         let reg = std::sync::Arc::new(ForceRegistry::new());
         // Long TTL — won't expire during the test.

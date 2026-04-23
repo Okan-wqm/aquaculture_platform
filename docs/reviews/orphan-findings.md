@@ -490,3 +490,54 @@ $ grep -l "sens-api-gateway\|cargo" .github/workflows/*.yml
 - Each entry reviewed for "real problem vs stylistic preference" — preferences NOT recorded.
 - CLAUDE.md banned-phrase rules apply; "deferred" only with owner/deadline/finding-ID per rule.
 - Resolution path: linked to plan phase / sprint where fix lands.
+
+---
+
+## ORPHAN-MEDIUM-017 — Ruthless-assessment ADR/infrastructure coverage overcount (2026-04-23)
+
+**Status:** RESOLVED (documentation correction; ultra-plan annotation scope captured).
+
+**Scope:** 2026-04-23 ruthless-assessment that produced the ultra-plan at `docs/plans/2026-04-24-sens-api-gateway-gap-closure-ultra-plan.md` (commit `d8c22155`).
+
+**Symptom:** Ultra-plan §2 Gap Matrisi and §5 Batch Design Blokları claimed the following gaps as "not yet implemented", but verification showed them already present in the tree:
+
+1. **ADR-016..ADR-024** exist in `docs/adr/`:
+   - ADR-017 `st-bytecode-runtime.md` ← ultra-plan C-1a claim (already Proposed status, revised post-audit)
+   - ADR-018 `edge-rbac-abac-model.md` ← ultra-plan C-1b claim
+   - ADR-019 `edge-firmware-signing-ab-partition.md` ← ultra-plan C-1c claim
+   - ADR-021 `platform-key-ceremony-lifecycle.md` ← ultra-plan C-1e claim
+   - ADR-022 `edge-schema-placement.md` ← ultra-plan C-1f claim
+   - ADR-023 `sl3-upgrade-path.md` ← ultra-plan Faz 11 SL-3 claim
+   - ADR-024 `edge-hardware-adapter-inventory.md` ← ultra-plan C-1d claim
+2. **systemd unit hardening** (ultra-plan C-6): `sens-api-gateway/systemd/suderra-agent.service` already contains 12 hardening directives (`LimitCORE=0`, `SystemCallFilter`, `WatchdogSec=60`, etc.) + header documents IEC 62443 SL-2 FR mapping + `systemd-analyze security` verification command.
+3. **PR-time CI gate** (partial C-7 overlap): `.github/workflows/ci-edge.yml` exists with `cargo check --features health --tests` + `cargo test --features health --bin` gates (Batch 70 + 86 per file header). Missing piece: 5-variant Cargo feature matrix.
+
+**Root cause:** The ruthless-assessment ran against conversation-context claims from prior Plan-mode prompts without re-verifying each claim against `ls docs/adr/`, `sens-api-gateway/systemd/`, `.github/workflows/` current state. 23 batches of earlier work already landed these artifacts. The assessment inherited the "primer gaps" shape from the original canonical plan §5 Faz 0 step 1 which LISTED the ADRs as to-open — plan wording did not get updated as the ADRs were authored in prior phases. A fresh `ls docs/adr/` would have caught this in seconds.
+
+**Impact on ultra-plan:**
+- Ultra-plan Batches #229-#234 (C-1a..C-1f) are mostly **VERIFICATION + ALIGNMENT** work, not net-new ADR authoring. Target: validate each existing ADR meets the canonical plan erratum target content + commit any content delta.
+- Ultra-plan Batch #249 (C-6 systemd hardening) is a LINT + verification pass, not net-new authoring. Target: `tools/gates/systemd-unit-lint.ts` over the existing file + CI gate.
+- Ultra-plan Batch #250 (C-7 CI matrix) genuinely missing the 5-variant matrix; remains net-new authoring.
+- Ultra-plan Batches #235 (C-2 finding board), #247 (C-4 STRIDE), #248 (C-5 supply chain SBOM + cosign + SLSA L3), #282-#288 (G-* cross-repo platform), #289-#300 (F-* E2E + release) remain as claimed — genuine net-new architectural work.
+
+**Fix:** Ultra-plan `§5 Batch Design Blokları` bölümünde C-1a..C-1f + C-6 blok'ları "VERIFICATION ONLY (existing artifact covers)" annotasyonu ile işaretlenir ve `§2 Gap Matrisi` bu gap'leri `VERIFIED`/`PARTIAL` state'e güncellenir. Düzeltme commit'i bu orphan finding'in yazımıyla birlikte; ultra-plan'ın bir sonraki review iterasyonunda patch uygulanır.
+
+**Architectural lesson:** This orphan illustrates **why fresh repo-state verification must prefix every ruthless-assessment, not follow it**. The session's `ls`-level checks were done for some surfaces (orphan-findings doc, ci-edge.yml) but not uniformly across every gap category. The correction discipline: before listing any gap as "missing", a single-line verification command (`ls`, `grep`, `wc`) MUST run. Ultra-plan §2 Gap Matrisi should carry a `verification_command` column in future iterations so readers see the evidence path.
+
+**Linked plan:** Ultra-plan `docs/plans/2026-04-24-sens-api-gateway-gap-closure-ultra-plan.md` receives patch at next architectural-arbiter review cycle (extend §5 C-1 blocks with VERIFIED annotation + §2 matrix updates + add §1.1 "Verification Discipline" subsection).
+
+---
+
+## ORPHAN-LOW-018 — Ultra-plan batch numbering assumes sequential PR assignment; reality likely bursts (2026-04-23)
+
+**Status:** OPEN (operational — tracked for release planning).
+
+**Scope:** Ultra-plan §4 Sprint Cadence assigns linear PR numbers #54-#125 to 72 batches over 12 weeks, assuming one PR per batch per working day. Real cadence under parallelization (W4-W5 + W6-W7 split between D-team and edge-team) will produce PR bursts.
+
+**Symptom:** PR number sequence in commit footers will skip or reorder as parallel streams merge asynchronously. Ultra-plan's PR# column treated as "target" not "guaranteed" — release manager maps final PR#s at merge time.
+
+**Root cause:** Batch numbering + PR numbering conflated for readability; the two dimensions are related but not identical. Batch IDs remain stable (commit-footer-cited, registry-indexed); PR IDs are assigned by GitHub at `gh pr create` time and may land out-of-order.
+
+**Fix:** Ultra-plan §4 Sprint Cadence note added at next review stating "PR# is indicative; batch_id is the stable reference for registry and commit-footer `Closes:`".
+
+**Linked plan:** Same ultra-plan; §4 table footnote target.

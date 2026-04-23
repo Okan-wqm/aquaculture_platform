@@ -1,12 +1,19 @@
 /**
- * List Farms Handler Unit Tests
+ * ListFarmsQueryHandler Unit Tests
  *
- * Tests for farm list/read operations via CQRS query handler
+ * Phase 5.6 repair — the spec predated the `PaginatedQueryResult<T>`
+ * shape change (flat `items / total / page / totalPages / hasNext`
+ * → nested `data + pagination { page, limit, total, totalPages,
+ * hasNextPage, hasPreviousPage }`) and stopped compiling. It also
+ * asserted properties the handler no longer returns. This rewrite
+ * keeps the original test surface (pagination math, tenant
+ * filtering, search escaping, relation loading, ordering, skip
+ * offset) but against the current shape.
  */
-
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository, Like } from 'typeorm';
+
 import { ListFarmsQueryHandler } from '../query-handlers/list-farms.handler';
 import { ListFarmsQuery } from '../queries/list-farms.query';
 import { Farm } from '../entities/farm.entity';
@@ -50,42 +57,41 @@ describe('ListFarmsQueryHandler', () => {
   });
 
   describe('execute', () => {
-    it('should return paginated farms', async () => {
+    it('returns a paginated result on the canonical shape', async () => {
       const farms = [createMockFarm(1), createMockFarm(2), createMockFarm(3)];
       farmRepository.findAndCount.mockResolvedValue([farms, 3]);
 
       const query = new ListFarmsQuery(mockTenantId, { page: 1, limit: 10 });
       const result = await handler.execute(query);
 
-      expect(result.items).toHaveLength(3);
-      expect(result.total).toBe(3);
-      expect(result.page).toBe(1);
-      expect(result.limit).toBe(10);
-      expect(result.totalPages).toBe(1);
-      expect(result.hasNext).toBe(false);
-      expect(result.hasPrevious).toBe(false);
+      expect(result.data).toHaveLength(3);
+      expect(result.pagination).toEqual({
+        page: 1,
+        limit: 10,
+        total: 3,
+        totalPages: 1,
+        hasNextPage: false,
+        hasPreviousPage: false,
+      });
     });
 
-    it('should correctly calculate pagination metadata', async () => {
-      const farms = [
-        createMockFarm(1),
-        createMockFarm(2),
-      ];
+    it('calculates pagination metadata on a partial page', async () => {
+      const farms = [createMockFarm(1), createMockFarm(2)];
       farmRepository.findAndCount.mockResolvedValue([farms, 25]);
 
       const query = new ListFarmsQuery(mockTenantId, { page: 2, limit: 2 });
       const result = await handler.execute(query);
 
-      expect(result.items).toHaveLength(2);
-      expect(result.total).toBe(25);
-      expect(result.page).toBe(2);
-      expect(result.limit).toBe(2);
-      expect(result.totalPages).toBe(13); // 25/2 = 12.5, ceil = 13
-      expect(result.hasNext).toBe(true);
-      expect(result.hasPrevious).toBe(true);
+      expect(result.data).toHaveLength(2);
+      expect(result.pagination.total).toBe(25);
+      expect(result.pagination.page).toBe(2);
+      expect(result.pagination.limit).toBe(2);
+      expect(result.pagination.totalPages).toBe(13); // ceil(25/2)
+      expect(result.pagination.hasNextPage).toBe(true);
+      expect(result.pagination.hasPreviousPage).toBe(true);
     });
 
-    it('should filter farms by tenant', async () => {
+    it('filters by tenant', async () => {
       farmRepository.findAndCount.mockResolvedValue([[], 0]);
 
       const query = new ListFarmsQuery(mockTenantId);
@@ -93,14 +99,12 @@ describe('ListFarmsQueryHandler', () => {
 
       expect(farmRepository.findAndCount).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: expect.objectContaining({
-            tenantId: mockTenantId,
-          }),
+          where: expect.objectContaining({ tenantId: mockTenantId }),
         }),
       );
     });
 
-    it('should filter by isActive when provided', async () => {
+    it('filters by isActive when provided', async () => {
       farmRepository.findAndCount.mockResolvedValue([[], 0]);
 
       const query = new ListFarmsQuery(
@@ -120,7 +124,7 @@ describe('ListFarmsQueryHandler', () => {
       );
     });
 
-    it('should filter by search term', async () => {
+    it('filters by search term with escaped LIKE wildcards', async () => {
       farmRepository.findAndCount.mockResolvedValue([[], 0]);
 
       const query = new ListFarmsQuery(
@@ -132,72 +136,86 @@ describe('ListFarmsQueryHandler', () => {
 
       expect(farmRepository.findAndCount).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: expect.objectContaining({
-            name: Like('%coastal%'),
-          }),
+          where: expect.objectContaining({ name: Like('%coastal%') }),
         }),
       );
     });
 
-    it('should include ponds when requested', async () => {
+    it('escapes % and _ in the search term to prevent LIKE pattern injection', async () => {
+      farmRepository.findAndCount.mockResolvedValue([[], 0]);
+
+      const query = new ListFarmsQuery(
+        mockTenantId,
+        { page: 1, limit: 10 },
+        { search: '50%_off' },
+      );
+      await handler.execute(query);
+
+      expect(farmRepository.findAndCount).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ name: Like('%50\\%\\_off%') }),
+        }),
+      );
+    });
+
+    it('includes ponds relation when requested', async () => {
       farmRepository.findAndCount.mockResolvedValue([[], 0]);
 
       const query = new ListFarmsQuery(
         mockTenantId,
         { page: 1, limit: 10 },
         undefined,
-        true, // includePonds
+        true,
       );
       await handler.execute(query);
 
       expect(farmRepository.findAndCount).toHaveBeenCalledWith(
-        expect.objectContaining({
-          relations: ['ponds'],
-        }),
+        expect.objectContaining({ relations: ['ponds'] }),
       );
     });
 
-    it('should not include ponds by default', async () => {
+    it('loads no relations by default', async () => {
       farmRepository.findAndCount.mockResolvedValue([[], 0]);
 
       const query = new ListFarmsQuery(mockTenantId);
       await handler.execute(query);
 
       expect(farmRepository.findAndCount).toHaveBeenCalledWith(
-        expect.objectContaining({
-          relations: [],
-        }),
+        expect.objectContaining({ relations: [] }),
       );
     });
 
-    it('should return empty result when no farms found', async () => {
+    it('returns zero-total result when no farms match', async () => {
       farmRepository.findAndCount.mockResolvedValue([[], 0]);
 
       const query = new ListFarmsQuery(mockTenantId);
       const result = await handler.execute(query);
 
-      expect(result.items).toHaveLength(0);
-      expect(result.total).toBe(0);
-      expect(result.totalPages).toBe(0);
-      expect(result.hasNext).toBe(false);
-      expect(result.hasPrevious).toBe(false);
+      expect(result.data).toHaveLength(0);
+      expect(result.pagination.total).toBe(0);
+      // `createPaginatedQueryResult` floors totalPages at 1 even
+      // when the result is empty — page-1 of zero is still a valid
+      // "empty page" for the frontend's pagination control.
+      expect(result.pagination.totalPages).toBe(1);
+      expect(result.pagination.hasNextPage).toBe(false);
+      expect(result.pagination.hasPreviousPage).toBe(false);
     });
 
-    it('should handle last page correctly', async () => {
+    it('handles last-page metadata correctly', async () => {
       const farms = [createMockFarm(1)];
       farmRepository.findAndCount.mockResolvedValue([farms, 21]);
 
       const query = new ListFarmsQuery(mockTenantId, { page: 3, limit: 10 });
       const result = await handler.execute(query);
 
-      expect(result.items).toHaveLength(1);
-      expect(result.page).toBe(3);
-      expect(result.totalPages).toBe(3);
-      expect(result.hasNext).toBe(false);
-      expect(result.hasPrevious).toBe(true);
+      expect(result.data).toHaveLength(1);
+      expect(result.pagination.page).toBe(3);
+      expect(result.pagination.totalPages).toBe(3);
+      expect(result.pagination.hasNextPage).toBe(false);
+      expect(result.pagination.hasPreviousPage).toBe(true);
     });
 
-    it('should calculate correct skip offset', async () => {
+    it('translates (page, limit) into the correct SKIP / TAKE', async () => {
       farmRepository.findAndCount.mockResolvedValue([[], 0]);
 
       const query = new ListFarmsQuery(mockTenantId, { page: 3, limit: 5 });
@@ -205,60 +223,55 @@ describe('ListFarmsQueryHandler', () => {
 
       expect(farmRepository.findAndCount).toHaveBeenCalledWith(
         expect.objectContaining({
-          skip: 10, // (3-1) * 5 = 10
+          skip: 10, // (3-1) * 5
           take: 5,
         }),
       );
     });
 
-    it('should order by createdAt descending', async () => {
+    it('orders by createdAt descending', async () => {
       farmRepository.findAndCount.mockResolvedValue([[], 0]);
 
       const query = new ListFarmsQuery(mockTenantId);
       await handler.execute(query);
 
       expect(farmRepository.findAndCount).toHaveBeenCalledWith(
-        expect.objectContaining({
-          order: { createdAt: 'DESC' },
-        }),
+        expect.objectContaining({ order: { createdAt: 'DESC' } }),
       );
     });
   });
 
   describe('pagination edge cases', () => {
-    it('should handle first page', async () => {
+    it('first page flags hasPreviousPage=false, hasNextPage=true when more pages exist', async () => {
       farmRepository.findAndCount.mockResolvedValue([[], 20]);
 
       const query = new ListFarmsQuery(mockTenantId, { page: 1, limit: 10 });
       const result = await handler.execute(query);
 
-      expect(result.hasPrevious).toBe(false);
-      expect(result.hasNext).toBe(true);
+      expect(result.pagination.hasPreviousPage).toBe(false);
+      expect(result.pagination.hasNextPage).toBe(true);
     });
 
-    it('should handle single page result', async () => {
+    it('single-page result flags both hasPreviousPage and hasNextPage false', async () => {
       const farms = [createMockFarm(1)];
       farmRepository.findAndCount.mockResolvedValue([farms, 1]);
 
       const query = new ListFarmsQuery(mockTenantId, { page: 1, limit: 10 });
       const result = await handler.execute(query);
 
-      expect(result.totalPages).toBe(1);
-      expect(result.hasNext).toBe(false);
-      expect(result.hasPrevious).toBe(false);
+      expect(result.pagination.totalPages).toBe(1);
+      expect(result.pagination.hasNextPage).toBe(false);
+      expect(result.pagination.hasPreviousPage).toBe(false);
     });
 
-    it('should default to page 1, limit 10', async () => {
+    it('defaults to page 1, limit 10 when pagination is omitted', async () => {
       farmRepository.findAndCount.mockResolvedValue([[], 0]);
 
       const query = new ListFarmsQuery(mockTenantId);
       await handler.execute(query);
 
       expect(farmRepository.findAndCount).toHaveBeenCalledWith(
-        expect.objectContaining({
-          skip: 0,
-          take: 10,
-        }),
+        expect.objectContaining({ skip: 0, take: 10 }),
       );
     });
   });

@@ -57,11 +57,13 @@
 import {
   Injectable,
   Logger,
+  Optional,
 } from '@nestjs/common';
 
 import { EquipmentStatus } from '../../equipment/entities/equipment.entity';
 import type { Equipment } from '../../equipment/entities/equipment.entity';
 import { TankCapacityExceededError } from '../../common/errors/farm-errors';
+import { FarmDomainMetricsService } from '../../common/metrics/farm-domain-metrics.service';
 
 /** Shape of the biomass already present on the tank (from TankBatch / equipment.currentBiomass). */
 export interface ExistingTankBiomass {
@@ -152,6 +154,11 @@ const ADMIN_OVERRIDE_ROLES: ReadonlySet<string> = new Set([
 @Injectable()
 export class TankCapacityService {
   private readonly logger = new Logger(TankCapacityService.name);
+
+  constructor(
+    @Optional()
+    private readonly metricsService?: FarmDomainMetricsService,
+  ) {}
 
   /**
    * Compute every capacity flag for the tank after an allocation.
@@ -277,10 +284,13 @@ export class TankCapacityService {
 
     // Hard mode (or admin-override without the role) — reject.
     this.logger.warn(`Tank capacity check failed: ${message}`);
+    const axis = this.mapAxis(calc.primaryBlockReason);
+    const mode = this.mapMode(params.mode);
+    this.metricsService?.incCapacityBlock({ mode, axis });
     throw new TankCapacityExceededError({
       userMessage: message,
-      axis: this.mapAxis(calc.primaryBlockReason),
-      mode: this.mapMode(params.mode),
+      axis,
+      mode,
       projectedBiomassKg: calc.projectedBiomassKg,
       maxBiomassKg: calc.maxBiomassKg > 0 ? calc.maxBiomassKg : undefined,
       projectedDensityKgM3: calc.projectedDensityKgM3,

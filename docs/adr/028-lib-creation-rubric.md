@@ -51,18 +51,25 @@ Every path below has a Nx project.json + tsconfig.json + package.json. Columns d
 
 | Path | Rubric row | Consumers (examples) |
 |---|---|---|
-| `libs/aquaculture-engines/` | libs/<domain>/ | ai-service, farm-management-mcp, web/farm-module, web/hydroponics-module |
-| `libs/backend-common/` | libs/backend-common/ | every backend service (apps/*) |
-| `libs/event-contracts/` | libs/event-contracts/ | 30+ emitters + consumers across apps/, platform/libs/ |
-| `libs/farm-shared/` | libs/<domain>/ | web/farm-module |
-| `libs/node-components/` | libs/node-components/ | web/sensor-module (process-editor, scada-builder) |
-| `libs/migration-harness/` | libs/backend-common/ (deploy-time only) | apps/db-migrate CLI |
-| `libs/shared-contracts/` | libs/event-contracts/ (schema SSoT sibling) | event-contracts consumers |
-| `libs/sensor-automation-types/` (pending AUDIT-HIGH-005) | libs/<domain>/ | apps/sensor-service, web/sensor-module, sens-api-gateway |
-| `platform/libs/cqrs/` | platform/libs/<name>/ | every CQRS handler in apps/ |
-| `platform/libs/event-bus/` | platform/libs/<name>/ | every event-emitting service in apps/ |
-| `platform/libs/outbox/` | platform/libs/<name>/ | services using the transactional outbox pattern |
-| `web/shared-ui/` | web/shared-ui/ | every web module (admin-panel, farm-module, etc.) |
+| `libs/aquaculture-engines` | libs/<domain>/ | ai-service, farm-management-mcp, web/farm-module, web/hydroponics-module |
+| `libs/backend-common` | libs/backend-common/ | every backend service (apps/*) |
+| `libs/event-contracts` | libs/event-contracts/ | 30+ emitters + consumers across apps/, platform/libs/ |
+| `libs/farm-shared` | libs/<domain>/ | web/farm-module |
+| `libs/node-components` | libs/node-components/ | web/sensor-module (process-editor, scada-builder) |
+| `libs/migration-harness` | libs/backend-common/ (deploy-time only) | apps/db-migrate CLI |
+| `libs/shared-contracts` | libs/event-contracts/ (schema SSoT sibling) | event-contracts consumers |
+| `libs/sdk` | libs/<domain>/ (TypeScript SDK generator outputs) | scripts/sdk codegen, agent harness |
+| `libs/shared` | libs/backend-common/ (cross-service decorators + errors) | every backend service via `@platform/shared` |
+| `libs/storage` | libs/backend-common/ (MinIO object storage client) | messaging, ai, billing services |
+| `libs/testing` | libs/backend-common/ (test factories + fixtures) | every backend service's spec files |
+| `platform/libs/cqrs` | platform/libs/<name>/ | every CQRS handler in apps/ |
+| `platform/libs/event-bus` | platform/libs/<name>/ | every event-emitting service in apps/ |
+| `platform/libs/outbox` | platform/libs/<name>/ | services using the transactional outbox pattern |
+| `web/shared-ui` | web/shared-ui/ | every web module (admin-panel, farm-module, etc.) |
+
+**Pending additions (not yet on disk — will join the inventory above when the cold-audit remediation commits land):**
+
+- `libs/sensor-automation-types` — pending AUDIT-HIGH-005 (Phase C.3). Rubric row: libs/<domain>/. Consumers: apps/sensor-service, web/sensor-module, sens-api-gateway.
 
 ## Enforcement (Phase E.1 of the cold-audit plan)
 

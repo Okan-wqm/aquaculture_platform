@@ -50,6 +50,7 @@ import { DatabaseModule } from './database/database.module';
 import { FarmMetricsModule } from './common/metrics/farm-metrics.module';
 import { FarmAppErrorFilter } from './common/errors/farm-app-error.filter';
 import { CacheableModule } from './common/cache/cacheable.module';
+import { JsonbPatchModule } from './common/jsonb/jsonb-patch.module';
 import { FarmOutboxModule } from './outbox/farm-outbox.module';
 import { FarmModule } from './farm/farm.module';
 import { HealthModule } from './health/health.module';
@@ -410,6 +411,11 @@ import { AddFarmOutboxModernColumns1786200000000 } from './database/migrations/1
     // @Cacheable. Tenant-scoped keys by default; operators tune
     // TTL per call site.
     CacheableModule,
+
+    // Targeted jsonb_set UPDATE helper — phase 5.7. Lets
+    // concurrent handlers patch DIFFERENT keys of the same JSONB
+    // column without tripping each other's @VersionColumn.
+    JsonbPatchModule,
 
     // Transactional outbox for reliable event publishing
     // (handlers enqueue → OutboxWorkerService polls → NATS publish)

@@ -926,6 +926,7 @@ export class FeedingResolver {
   /**
    * Get feeding record by ID
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => FeedingRecord, { nullable: true })
   async feedingRecord(
     @Args('id', { type: () => ID }) id: string,
@@ -940,6 +941,7 @@ export class FeedingResolver {
   /**
    * List feeding records with filters
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => FeedingRecordConnection)
   async feedingRecords(
     @CurrentTenant() tenantId: string,
@@ -976,6 +978,7 @@ export class FeedingResolver {
    * `type` option NestJS may fall back to `String`, causing an HTTP 400 when
    * the gateway validates the incoming query against the composed supergraph.
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => DailyFeedingPlanResponse)
   async dailyFeedingPlan(
     @CurrentTenant() tenantId: string,
@@ -990,6 +993,7 @@ export class FeedingResolver {
   /**
    * Get feeding summary/statistics
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => FeedingSummaryResponse)
   async feedingSummary(
     @CurrentTenant() tenantId: string,
@@ -1006,6 +1010,7 @@ export class FeedingResolver {
   /**
    * Get feed inventory
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => FeedInventoryConnection)
   async feedInventory(
     @CurrentTenant() tenantId: string,
@@ -1035,6 +1040,7 @@ export class FeedingResolver {
    * Projects fish growth over time using SGR formula
    * Tank-based simulation is preferred for per-tank feed management
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => GrowthSimulationResponse, { description: 'Simulate fish growth and feed requirements' })
   async growthSimulation(
     @CurrentTenant() tenantId: string,
@@ -1066,6 +1072,7 @@ export class FeedingResolver {
    * Forecast feed consumption across all active batches
    * Calculates stockout dates and reorder recommendations
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => FeedForecastResponse, { description: 'Forecast feed consumption and stockout dates' })
   async feedConsumptionForecast(
     @CurrentTenant() tenantId: string,
@@ -1133,6 +1140,7 @@ export class FeedingResolver {
   /**
    * Estimate SGR based on species and temperature
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => Float, { description: 'Estimate SGR for species at temperature' })
   estimateSGR(
     @Args('species') species: string,

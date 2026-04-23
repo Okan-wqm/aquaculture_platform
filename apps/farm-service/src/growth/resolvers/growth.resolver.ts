@@ -404,6 +404,7 @@ export class GrowthResolver {
   /**
    * Get growth measurement by ID
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => GrowthMeasurement, { nullable: true })
   async growthMeasurement(
     @Args('id', { type: () => ID }) id: string,
@@ -418,6 +419,7 @@ export class GrowthResolver {
   /**
    * List growth measurements with filters
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => GrowthMeasurementConnection)
   async growthMeasurements(
     @CurrentTenant() tenantId: string,
@@ -453,6 +455,7 @@ export class GrowthResolver {
    * whole service uses one caching pattern.
    */
   @Cacheable({ prefix: 'growth:analysis', ttlSeconds: 7200 })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => GrowthAnalysisResponse)
   async growthAnalysis(
     @CurrentTenant() tenantId: string,
@@ -466,6 +469,7 @@ export class GrowthResolver {
   /**
    * Get latest measurement for a batch
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => GrowthMeasurement, { nullable: true })
   async latestGrowthMeasurement(
     @CurrentTenant() tenantId: string,

@@ -44,6 +44,7 @@ export class FeedingProtocolResolver {
   /**
    * Get a single feeding protocol by ID
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => FeedingProtocolResponse, { nullable: true, description: 'Get a feeding protocol by ID' })
   async feedingProtocol(
     @Args('id', { type: () => ID }) id: string,
@@ -57,6 +58,7 @@ export class FeedingProtocolResolver {
   /**
    * List feeding protocols with pagination and filtering
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => PaginatedFeedingProtocolsResponse, { description: 'List feeding protocols with filters' })
   async feedingProtocols(
     @Args('filter', { type: () => FeedingProtocolFilterInput, nullable: true }) filter: FeedingProtocolFilterInput | undefined,
@@ -72,6 +74,7 @@ export class FeedingProtocolResolver {
   /**
    * Get feeding protocols by species
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [FeedingProtocolResponse], { description: 'Get feeding protocols for a species' })
   async feedingProtocolsBySpecies(
     @Args('species') species: string,
@@ -90,6 +93,7 @@ export class FeedingProtocolResolver {
   /**
    * Get the default feeding protocol for a species and stage
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => FeedingProtocolResponse, { nullable: true, description: 'Get default protocol for species/stage' })
   async defaultFeedingProtocol(
     @Args('species') species: string,

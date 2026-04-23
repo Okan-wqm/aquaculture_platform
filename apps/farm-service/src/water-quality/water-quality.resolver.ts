@@ -71,6 +71,7 @@ export class WaterQualityResolver {
   /**
    * ID ile ölçüm getirir
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => WaterQualityMeasurement, { name: 'waterQuality', nullable: true })
   async getWaterQuality(
     @Args('id', { type: () => ID }) id: string,
@@ -83,6 +84,7 @@ export class WaterQualityResolver {
   /**
    * Filtreli liste getirir
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => WaterQualityListResponse, { name: 'waterQualityMeasurements' })
   async listWaterQualityMeasurements(
     @CurrentTenant() tenantId: string,
@@ -96,6 +98,7 @@ export class WaterQualityResolver {
   /**
    * Tank için son ölçümü getirir
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => WaterQualityMeasurement, { name: 'latestWaterQuality', nullable: true })
   async getLatestWaterQuality(
     @Args('tankId', { type: () => ID }) tankId: string,
@@ -108,6 +111,7 @@ export class WaterQualityResolver {
   /**
    * Kritik durumda olan tankları listeler
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [WaterQualityMeasurement], { name: 'criticalWaterQuality' })
   async getCriticalWaterQuality(
     @CurrentTenant() tenantId: string,
@@ -119,6 +123,7 @@ export class WaterQualityResolver {
   /**
    * Tank için grafik verisi
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [WaterQualityMeasurement], { name: 'waterQualityChart' })
   async getWaterQualityChart(
     @Args('tankId', { type: () => ID }) tankId: string,
@@ -133,6 +138,7 @@ export class WaterQualityResolver {
   /**
    * Tank için istatistikler
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => WaterQualityStatistics, { name: 'waterQualityStatistics' })
   async getWaterQualityStatistics(
     @Args('tankId', { type: () => ID }) tankId: string,
@@ -146,6 +152,7 @@ export class WaterQualityResolver {
   /**
    * System-level chart data — aggregates all tanks in a production system
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [WaterQualityMeasurement], { name: 'waterQualityChartBySystem' })
   async getWaterQualityChartBySystem(
     @Args('systemId', { type: () => ID }) systemId: string,
@@ -160,6 +167,7 @@ export class WaterQualityResolver {
   /**
    * System-level statistics — aggregate stats across all tanks in a system
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => WaterQualityStatistics, { name: 'waterQualityStatisticsBySystem' })
   async getWaterQualityStatisticsBySystem(
     @Args('systemId', { type: () => ID }) systemId: string,

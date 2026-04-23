@@ -106,6 +106,7 @@ export class WaterQualityParameterConfigResolver {
   /**
    * Filtrelenmis parametre konfigurasyonlarini listeler
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [WaterQualityParameterConfig], { name: 'parameterConfigs' })
   async listParameterConfigs(
     @CurrentTenant() tenantId: string,
@@ -118,6 +119,7 @@ export class WaterQualityParameterConfigResolver {
   /**
    * ID ile tek bir parametre konfigurasyonunu getirir
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => WaterQualityParameterConfig, { name: 'parameterConfig', nullable: true })
   async getParameterConfig(
     @Args('id', { type: () => ID }) id: string,
@@ -130,6 +132,7 @@ export class WaterQualityParameterConfigResolver {
   /**
    * Code ile tek bir parametre konfigurasyonunu getirir
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => WaterQualityParameterConfig, { name: 'parameterConfigByCode', nullable: true })
   async getParameterConfigByCode(
     @Args('code') code: string,
@@ -153,6 +156,7 @@ export class WaterQualityParameterConfigResolver {
     ttlSeconds: 3600,
     scopeToTenant: false,
   })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [ParameterTemplateResponse], { name: 'parameterTemplates' })
   async listParameterTemplates(): Promise<ParameterTemplateResponse[]> {
     this.logger.debug('Listing parameter templates');
@@ -271,6 +275,7 @@ export class WaterQualityParameterConfigResolver {
   /**
    * Lists parameter-equipment mappings with optional filters
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [WaterQualityParamEquipment], { name: 'parameterEquipmentMappings' })
   async listParamEquipmentMappings(
     @CurrentTenant() tenantId: string,

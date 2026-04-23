@@ -1,8 +1,29 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::{broadcast, RwLock};
 use chrono::{DateTime, Utc};
 use serde::{Serialize, Deserialize};
+
+/// Batch 189 Faz 4 (plan R-3 item 6): one tag-change
+/// event fanned out to subscribers. The event-driven
+/// task scheduler wakes on these so operators can run
+/// scripts only when a relevant tag actually changes
+/// (vs the time-based Cyclic + Freewheeling paths).
+#[derive(Debug, Clone, PartialEq)]
+pub struct TagChange {
+    pub tag_name: String,
+    pub new_value: f64,
+    pub quality: TagQuality,
+    pub source: TagSource,
+    pub timestamp: DateTime<Utc>,
+}
+
+/// Broadcast channel capacity for tag-change events.
+/// Picked to absorb a typical scan-cycle's worth of
+/// updates (50 tags × 10 Hz = 500/sec) with enough
+/// head-room that a slow subscriber lags by up to 2
+/// seconds before dropping events.
+const TAG_CHANGE_CHANNEL_CAPACITY: usize = 1024;
 
 /// Tag data quality following OPC UA quality codes.
 ///
@@ -183,16 +204,54 @@ struct ProcessImageInner {
 #[derive(Debug, Clone)]
 pub struct ProcessImage {
     inner: Arc<RwLock<ProcessImageInner>>,
+    /// Batch 189 Faz 4: broadcast channel for tag-
+    /// change events. `update_tag` + `update_tag_raw`
+    /// emit one TagChange per call; subscribers (event-
+    /// driven tasks, live-watch MQTT subscribers,
+    /// future OPC UA notification bridge) receive
+    /// them.
+    ///
+    /// Always present — the channel costs ~kb even
+    /// when idle + `broadcast::send` with zero
+    /// subscribers is a tiny no-op (Ok(0)). Keeps the
+    /// API simple (no Option unwrap).
+    change_tx: broadcast::Sender<TagChange>,
 }
 
 impl ProcessImage {
     pub fn new() -> Self {
+        let (change_tx, _initial_rx) =
+            broadcast::channel(TAG_CHANGE_CHANNEL_CAPACITY);
         Self {
             inner: Arc::new(RwLock::new(ProcessImageInner {
                 tags: HashMap::new(),
                 configs: HashMap::new(),
             })),
+            change_tx,
         }
+    }
+
+    /// Batch 189 Faz 4: subscribe to tag-change events.
+    /// Returns a `broadcast::Receiver<TagChange>` that
+    /// yields one message per `update_tag` /
+    /// `update_tag_raw` call.
+    ///
+    /// Receivers that lag behind the broadcast capacity
+    /// receive `RecvError::Lagged(n)` on their next
+    /// recv — operators decide whether to resync from
+    /// `get_all_tags` or just skip the dropped events.
+    /// The event-driven task scheduler treats a lag as
+    /// "wake + run the task" since a missed event still
+    /// means something changed worth running on.
+    pub fn subscribe_changes(&self) -> broadcast::Receiver<TagChange> {
+        self.change_tx.subscribe()
+    }
+
+    /// Batch 189 Faz 4: diagnostic — current subscriber
+    /// count. Metrics endpoints + health dashboards
+    /// read this to detect subscription leaks.
+    pub fn change_subscriber_count(&self) -> usize {
+        self.change_tx.receiver_count()
     }
 
     /// Update a tag value in the process image.
@@ -250,13 +309,32 @@ impl ProcessImage {
 
     /// Update a tag with a pre-scaled value (no scaling applied)
     pub async fn update_tag_raw(&self, name: &str, value: f64, quality: TagQuality, source: TagSource) {
-        let mut inner = self.inner.write().await;
-        inner.tags.insert(name.to_string(), TagValue {
-            value,
+        let ts = Utc::now();
+        {
+            let mut inner = self.inner.write().await;
+            inner.tags.insert(name.to_string(), TagValue {
+                value,
+                quality,
+                timestamp: ts,
+                raw_value: Some(value),
+                source,
+            });
+        } // drop write lock BEFORE broadcast so
+          // subscribers that call back into ProcessImage
+          // (e.g. get_tag inside a subscribe_changes
+          // handler) don't deadlock.
+
+        // Batch 189 Faz 4: fan-out tag-change event.
+        // `send` on a broadcast with zero subscribers
+        // is a tiny no-op returning Ok(0); errors only
+        // surface when ALL receivers have dropped,
+        // which is the normal state — ignored.
+        let _ = self.change_tx.send(TagChange {
+            tag_name: name.to_string(),
+            new_value: value,
             quality,
-            timestamp: Utc::now(),
-            raw_value: Some(value),
             source,
+            timestamp: ts,
         });
     }
 
@@ -317,5 +395,105 @@ impl ProcessImage {
 impl Default for ProcessImage {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tag_change_tests {
+    //! Batch 189 Faz 4 — subscribe_changes + TagChange
+    //! broadcast tests.
+    use super::*;
+
+    #[tokio::test]
+    async fn subscribe_delivers_tag_change_on_update_tag_raw() {
+        let pi = ProcessImage::new();
+        let mut rx = pi.subscribe_changes();
+        pi.update_tag_raw(
+            "water_temp",
+            22.5,
+            TagQuality::Good,
+            TagSource::I2c,
+        )
+        .await;
+        let ev = rx.recv().await.expect("event");
+        assert_eq!(ev.tag_name, "water_temp");
+        assert_eq!(ev.new_value, 22.5);
+        assert_eq!(ev.quality, TagQuality::Good);
+        assert_eq!(ev.source, TagSource::I2c);
+    }
+
+    #[tokio::test]
+    async fn subscribe_count_starts_at_zero_and_grows() {
+        let pi = ProcessImage::new();
+        assert_eq!(pi.change_subscriber_count(), 0);
+        let _rx1 = pi.subscribe_changes();
+        assert_eq!(pi.change_subscriber_count(), 1);
+        let _rx2 = pi.subscribe_changes();
+        assert_eq!(pi.change_subscriber_count(), 2);
+    }
+
+    #[tokio::test]
+    async fn update_tag_raw_with_no_subscribers_does_not_error() {
+        // broadcast::send returns Ok(0) when no
+        // subscribers — ProcessImage ignores it +
+        // continues. This test guards against a future
+        // refactor accidentally unwrap()ing the send
+        // result.
+        let pi = ProcessImage::new();
+        pi.update_tag_raw(
+            "lonely_tag",
+            1.0,
+            TagQuality::Good,
+            TagSource::Modbus,
+        )
+        .await;
+        // No assertion — test passes if the call
+        // returned without panicking.
+    }
+
+    #[tokio::test]
+    async fn multiple_subscribers_each_see_every_event() {
+        let pi = ProcessImage::new();
+        let mut rx1 = pi.subscribe_changes();
+        let mut rx2 = pi.subscribe_changes();
+        pi.update_tag_raw(
+            "tag_a",
+            1.0,
+            TagQuality::Good,
+            TagSource::Modbus,
+        )
+        .await;
+        let e1 = rx1.recv().await.expect("rx1");
+        let e2 = rx2.recv().await.expect("rx2");
+        assert_eq!(e1.tag_name, "tag_a");
+        assert_eq!(e2.tag_name, "tag_a");
+        assert_eq!(e1.new_value, e2.new_value);
+    }
+
+    #[tokio::test]
+    async fn subscribe_after_updates_misses_past_events() {
+        // broadcast is a live stream — subscribers
+        // only see events AFTER they subscribe. Past
+        // events don't replay (matches the standard
+        // pub/sub semantic operators expect).
+        let pi = ProcessImage::new();
+        pi.update_tag_raw(
+            "past_tag",
+            9.0,
+            TagQuality::Good,
+            TagSource::Modbus,
+        )
+        .await;
+        let mut rx = pi.subscribe_changes();
+        // No message should be ready (past_tag update
+        // happened before subscribe).
+        assert!(
+            tokio::time::timeout(
+                std::time::Duration::from_millis(10),
+                rx.recv(),
+            )
+            .await
+            .is_err()
+        );
     }
 }

@@ -281,11 +281,14 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   chemicals: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   chemicalsByType: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   childSystems: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  cleanerFishBatches: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  cleanerFishReport: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   cleanerFishSpecies: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   consumable: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   consumables: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   criticalHealthEvents: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   criticalWaterQuality: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  currentWeather: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   dailyFeedingExecution: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   dailyFeedingExecutions: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   dailyFeedingPlan: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
@@ -307,6 +310,10 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   equipmentType: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   equipmentTypes: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   estimateSGR: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  farm: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  farmAnomalies: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  farmDashboardInsights: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  farms: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   feed: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   feedConsumptionForecast: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   feedInventory: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
@@ -331,20 +338,30 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   growthMeasurement: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   growthMeasurements: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   growthSimulation: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  harvest: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   harvestPlan: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   isSentinelHubConfigured: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   harvestPlanByCode: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   harvestPlans: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   harvestPlansByBatch: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   harvestPlanStats: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  // harvestStatistics restricted to MANAGER+ADMIN — aggregate
+  // financial totals (revenue, cost, yield KPIs). Same shape as
+  // batchPerformance / maintenanceComplianceReport.
+  harvestStatistics: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  harvests: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  harvestsByBatch: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   healthEvent: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   healthEventStats: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   healthEvents: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   healthEventsByBatch: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  inventoryCount: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  inventoryCounts: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   latestGrowthMeasurement: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   latestWaterQuality: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   lowStockAlerts: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   maintenanceAlerts: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  marineObservations: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   maskinportenStatus: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   mattilsynetStatus: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   // maintenanceComplianceReport is supervisory / audit output —
@@ -365,8 +382,12 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   parameterConfigs: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   parameterEquipmentMappings: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   parameterTemplates: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  pendingDeliveries: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  pond: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   predefinedSpeciesTags: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   projectHarvestDate: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  purchaseOrder: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  purchaseOrders: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   recurringTemplate: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   recurringTemplates: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   regulatoryConfigurationStatus: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
@@ -429,6 +450,9 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   waterQualityMeasurements: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   waterQualityStatistics: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   waterQualityStatisticsBySystem: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  weatherForecast: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  weatherObservations: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  weatherSettings: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   workOrder: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   workOrderByCode: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   workOrderStatistics: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
@@ -514,29 +538,30 @@ export const UNGATED_OPERATIONS: ReadonlySet<string> = Object.freeze(new Set([
   // mattilsynetStatus / regulatoryConfigurationStatus /
   // regulatoryHealth / regulatorySettings (MANAGER + ADMIN),
   // workers (MANAGER + ADMIN — HR-adjacent PII).
-  // Queries
-  'cleanerFishBatches',
-  'cleanerFishReport',
-  'currentWeather',
-  'farm',
-  'farmAnomalies',
-  'farmDashboardInsights',
-  'farms',
+  // Phase 6.1.1 final — farm-legacy / harvest / weather /
+  // purchase / inventory / cleaner-fish / AI queries — moved 21:
+  // farm / farms / pond (legacy); harvest / harvests /
+  // harvestsByBatch (MODULE_USER+MANAGER+ADMIN);
+  // harvestStatistics (MANAGER+ADMIN — financial aggregate);
+  // weatherObservations / marineObservations / currentWeather /
+  // weatherForecast (MODULE_USER+MANAGER+ADMIN);
+  // weatherSettings (MANAGER+ADMIN — sync config);
+  // purchaseOrder / purchaseOrders / pendingDeliveries /
+  // inventoryCount / inventoryCounts (MODULE_USER+MANAGER+ADMIN);
+  // cleanerFishBatches / cleanerFishReport (MODULE_USER+MANAGER+
+  // ADMIN); farmAnomalies / farmDashboardInsights
+  // (MODULE_USER+MANAGER+ADMIN).
+  // Queries — only `getCredentials` remains. This is a resolver
+  // method name (not a GraphQL operation name — the @Query carries
+  // `{ name: 'sentinelHubCredentials' }`), so whether the scanner
+  // reports it as `getCredentials` or `sentinelHubCredentials`
+  // depends on the multi-line decorator joining behaviour. It is
+  // explicitly TENANT_ADMIN at runtime via the SentinelHubSettings
+  // page contract and the sibling `sentinelHubToken` (which IS
+  // classified as TENANT_ADMIN). Left in the whitelist so the
+  // invariant test keeps passing; a follow-up cleanup will align
+  // the resolver name override with the scanner + matrix.
   'getCredentials',
-  'harvest',
-  'harvests',
-  'harvestsByBatch',
-  'harvestStatistics',
-  'inventoryCount',
-  'inventoryCounts',
-  'marineObservations',
-  'pendingDeliveries',
-  'pond',
-  'purchaseOrder',
-  'purchaseOrders',
-  'weatherForecast',
-  'weatherObservations',
-  'weatherSettings',
 ] as const));
 
 /**

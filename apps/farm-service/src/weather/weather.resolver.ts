@@ -31,6 +31,7 @@ export class WeatherResolver {
   // Queries
   // =========================================================================
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [WeatherObservation])
   async weatherObservations(
     @Args('siteId', { type: () => ID }) siteId: string,
@@ -55,6 +56,7 @@ export class WeatherResolver {
     });
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [MarineObservation])
   async marineObservations(
     @Args('siteId', { type: () => ID }) siteId: string,
@@ -79,6 +81,7 @@ export class WeatherResolver {
     });
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => CurrentWeatherResponse, { nullable: true })
   async currentWeather(
     @Args('siteId', { type: () => ID }) siteId: string,
@@ -120,6 +123,7 @@ export class WeatherResolver {
     };
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [WeatherObservation])
   async weatherForecast(
     @Args('siteId', { type: () => ID }) siteId: string,
@@ -140,6 +144,7 @@ export class WeatherResolver {
     });
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Query(() => WeatherSettings)
   async weatherSettings(
     @CurrentTenant() tenantId: string,

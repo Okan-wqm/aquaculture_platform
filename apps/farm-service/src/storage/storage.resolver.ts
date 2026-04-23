@@ -242,6 +242,7 @@ export class StorageResolver {
 
   // === Purchase Orders ===
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => PaginatedPurchaseOrdersResponse)
   async purchaseOrders(
     @Args('filter', { type: () => PurchaseOrderFilterInput, nullable: true }) filter: PurchaseOrderFilterInput | undefined,
@@ -258,6 +259,7 @@ export class StorageResolver {
     return fromCqrsPaginated(result);
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => PurchaseOrderResponse, { nullable: true })
   async purchaseOrder(
     @Args('id', { type: () => ID }) id: string,
@@ -267,6 +269,7 @@ export class StorageResolver {
     return this.queryBus.execute(query);
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [PurchaseOrderResponse])
   async pendingDeliveries(
     @CurrentTenant() tenantId: string,
@@ -322,6 +325,7 @@ export class StorageResolver {
 
   // === Inventory Counts ===
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => PaginatedInventoryCountsResponse)
   async inventoryCounts(
     @Args('filter', { type: () => InventoryCountFilterInput, nullable: true }) filter: InventoryCountFilterInput | undefined,
@@ -338,6 +342,7 @@ export class StorageResolver {
     return fromCqrsPaginated(result);
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => InventoryCountResponse, { nullable: true })
   async inventoryCount(
     @Args('id', { type: () => ID }) id: string,

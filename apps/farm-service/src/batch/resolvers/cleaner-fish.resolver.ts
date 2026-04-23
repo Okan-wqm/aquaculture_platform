@@ -458,6 +458,7 @@ export class CleanerFishResolver {
     }));
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [Batch], { name: 'cleanerFishBatches' })
   async getCleanerFishBatches(
     @Tenant() tenantId: string,
@@ -519,6 +520,7 @@ export class CleanerFishResolver {
     };
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => CleanerFishReport, { name: 'cleanerFishReport', nullable: true })
   async getCleanerFishReport(
     @Tenant() tenantId: string,

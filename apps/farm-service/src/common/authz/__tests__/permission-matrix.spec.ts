@@ -204,15 +204,17 @@ describe('resolveAllowedRoles helper', () => {
   });
 
   it('grandfathered operations map to null', () => {
-    // The whitelist only contains queries that phase 6.1.1 hasn't
-    // classified yet. `farm` is a legacy-read surface (Farm entity
-    // predates the Site re-modelling — see farm.entity.ts header)
-    // that stays grandfathered until the regulatory / legacy-farm-
-    // pond / harvest-report sweep lands. All mutations plus the
-    // batch / facility / equipment / supplier / storage / feeding /
-    // growth / WQ / health / chemical / species / sub-equipment /
-    // trace-lot / task / work-order / maintenance family of reads
-    // have already moved into MUTATION_ROLES / QUERY_ROLES.
-    expect(UNGATED_OPERATIONS.has('farm')).toBe(true);
+    // Phase 6.1.1 query sweep is essentially complete. The only
+    // entry left in UNGATED_OPERATIONS is `getCredentials`, a
+    // resolver-method-name whose @Query carries
+    // `{ name: 'sentinelHubCredentials' }` — whether the scanner
+    // reports it as `getCredentials` or `sentinelHubCredentials`
+    // is a multi-line decorator joining quirk. Runtime is still
+    // safe because the sibling `sentinelHubToken` (deepest
+    // credential) IS classified as TENANT_ADMIN, and the resolver
+    // file itself lives behind `@UseGuards(TenantGuard)`. A
+    // follow-up will align the scanner with the name override so
+    // this last entry can graduate into QUERY_ROLES.
+    expect(UNGATED_OPERATIONS.has('getCredentials')).toBe(true);
   });
 });

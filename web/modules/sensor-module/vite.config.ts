@@ -39,6 +39,14 @@ export default defineConfig({
       '@': resolve(__dirname, 'src'),
       '@aquaculture/shared-ui': resolve(__dirname, '../../shared-ui/dist'),
       '@platform/shared-ui': resolve(__dirname, '../../shared-ui/src'),
+      '@aquaculture/node-components': resolve(
+        __dirname,
+        '../../../libs/node-components/src/index.ts',
+      ),
+      '@aquaculture/node-components/edges': resolve(
+        __dirname,
+        '../../../libs/node-components/src/edges/index.ts',
+      ),
       '@platform/sensor-automation-types': resolve(
         __dirname,
         '../../../libs/sensor-automation-types/src/index.ts',

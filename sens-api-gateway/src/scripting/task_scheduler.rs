@@ -704,6 +704,119 @@ pub struct SchedulerDispatchResult {
     pub tripped_watchdog: bool,
 }
 
+/// Listener task that bridges
+/// `ProcessImage::subscribe_changes` broadcast →
+/// `TaskScheduler::trigger_event` calls — Batch 191
+/// Faz 4.
+///
+/// Runs as a spawned tokio task. Each TagChange event
+/// grabs the scheduler lock briefly, fires
+/// `trigger_event`, releases. Shutdown signal exits
+/// the loop cleanly.
+///
+/// Broadcast lag: if the listener falls behind the
+/// channel capacity (Batch 189
+/// TAG_CHANGE_CHANNEL_CAPACITY=1024), it logs a warn
+/// + resumes. Missed events aren't replayed — the
+/// scheduler's coalescing semantic means ONE trigger
+/// per dispatch cycle is equivalent to many, so
+/// lost intermediate events don't cause stale state
+/// (the task still runs on the next matching event).
+///
+/// Caller supplies the scheduler as
+/// `Arc<tokio::sync::Mutex<TaskScheduler>>` so the
+/// listener + the cadence-loop driver share the same
+/// scheduler state.
+pub async fn run_event_listener(
+    pi: &crate::process_image::ProcessImage,
+    scheduler: std::sync::Arc<tokio::sync::Mutex<TaskScheduler>>,
+    mut shutdown_rx: tokio::sync::watch::Receiver<bool>,
+) -> EventListenerSummary {
+    tracing::info!("Bytecode event listener starting");
+    let mut rx = pi.subscribe_changes();
+    let mut summary = EventListenerSummary::default();
+
+    loop {
+        tokio::select! {
+            msg = rx.recv() => {
+                match msg {
+                    Ok(tag_change) => {
+                        // Brief lock — insert the
+                        // pending flag + release.
+                        let mut sched = scheduler.lock().await;
+                        let before = sched.pending_event_count();
+                        sched.trigger_event(&tag_change.tag_name);
+                        let added = sched.pending_event_count() > before;
+                        drop(sched);
+                        summary.events_received += 1;
+                        if added {
+                            summary.events_matched += 1;
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                        tracing::warn!(
+                            "Bytecode event listener lagged {} events — \
+                             scheduler coalescing absorbs this; next \
+                             matching event still triggers the task",
+                            n
+                        );
+                        summary.lag_events += n;
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                        tracing::info!(
+                            "Bytecode event listener: broadcast channel \
+                             closed — exiting cleanly"
+                        );
+                        return summary;
+                    }
+                }
+            }
+            changed = shutdown_rx.changed() => {
+                match changed {
+                    Ok(()) if *shutdown_rx.borrow() => {
+                        tracing::info!(
+                            "Bytecode event listener shutdown signal \
+                             received; exiting after {} events ({} \
+                             matched, {} lag)",
+                            summary.events_received,
+                            summary.events_matched,
+                            summary.lag_events,
+                        );
+                        return summary;
+                    }
+                    Ok(()) => {
+                        // Signal fired with value=false;
+                        // keep looping.
+                    }
+                    Err(_) => {
+                        tracing::info!(
+                            "Bytecode event listener: shutdown sender \
+                             dropped — exiting cleanly"
+                        );
+                        return summary;
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Summary returned when the event listener exits.
+/// Operators + tests read these counts to verify
+/// bridge behavior.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct EventListenerSummary {
+    /// Total broadcast events received (matched OR
+    /// not).
+    pub events_received: u64,
+    /// Subset of `events_received` that increased the
+    /// scheduler's pending_event_count (i.e. matched
+    /// at least one Event-kind task).
+    pub events_matched: u64,
+    /// Total dropped events from broadcast lag.
+    pub lag_events: u64,
+}
+
 /// Pure decision: does this task's next fire point
 /// fall before `now_ms`?
 fn should_fire(config: &TaskConfig, last_fired_at_ms: u64, now_ms: u64) -> bool {
@@ -1522,6 +1635,121 @@ mod tests {
         // call returns a result.
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].task_name, "speedy");
+    }
+
+    // ====================================================================
+    // Batch 191 Faz 4 — event listener bridge
+    // ====================================================================
+
+    #[tokio::test]
+    async fn event_listener_forwards_tag_change_to_scheduler() {
+        let pi = ProcessImage::new();
+        let cfg = TaskConfig {
+            name: "on_temp".into(),
+            kind: TaskKind::Event {
+                event_tag: "water_temp".into(),
+            },
+            slo_tier: SloTier::SafetyCritical,
+            watchdog_ms: 100,
+            programs: vec![],
+        };
+        let scheduler = std::sync::Arc::new(tokio::sync::Mutex::new(
+            TaskScheduler::new(vec![cfg]).expect("ok"),
+        ));
+
+        let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+        let pi_clone = pi.clone();
+        let sched_clone = scheduler.clone();
+        let handle = tokio::spawn(async move {
+            run_event_listener(&pi_clone, sched_clone, shutdown_rx).await
+        });
+
+        // Give the listener a moment to subscribe.
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+
+        pi.update_tag_raw(
+            "water_temp",
+            22.5,
+            TagQuality::Good,
+            TagSource::I2c,
+        )
+        .await;
+        // Let the listener process the event.
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+
+        let sched = scheduler.lock().await;
+        assert_eq!(sched.pending_event_count(), 1);
+        assert_eq!(sched.tasks_to_fire(0), vec!["on_temp"]);
+        drop(sched);
+
+        shutdown_tx.send(true).expect("signal");
+        let summary = handle.await.expect("join");
+        assert_eq!(summary.events_received, 1);
+        assert_eq!(summary.events_matched, 1);
+    }
+
+    #[tokio::test]
+    async fn event_listener_ignores_non_matching_tag_events() {
+        let pi = ProcessImage::new();
+        let cfg = TaskConfig {
+            name: "on_temp".into(),
+            kind: TaskKind::Event {
+                event_tag: "water_temp".into(),
+            },
+            slo_tier: SloTier::SafetyCritical,
+            watchdog_ms: 100,
+            programs: vec![],
+        };
+        let scheduler = std::sync::Arc::new(tokio::sync::Mutex::new(
+            TaskScheduler::new(vec![cfg]).expect("ok"),
+        ));
+
+        let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+        let pi_clone = pi.clone();
+        let sched_clone = scheduler.clone();
+        let handle = tokio::spawn(async move {
+            run_event_listener(&pi_clone, sched_clone, shutdown_rx).await
+        });
+
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        // Update a DIFFERENT tag — should not trigger the task.
+        pi.update_tag_raw("ph", 7.0, TagQuality::Good, TagSource::I2c)
+            .await;
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+
+        let sched = scheduler.lock().await;
+        assert_eq!(sched.pending_event_count(), 0);
+        drop(sched);
+
+        shutdown_tx.send(true).expect("signal");
+        let summary = handle.await.expect("join");
+        assert_eq!(summary.events_received, 1);
+        assert_eq!(summary.events_matched, 0);
+    }
+
+    #[tokio::test]
+    async fn event_listener_exits_on_shutdown_signal() {
+        let pi = ProcessImage::new();
+        let scheduler = std::sync::Arc::new(tokio::sync::Mutex::new(
+            TaskScheduler::new(vec![]).expect("ok"),
+        ));
+        let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+        let pi_clone = pi.clone();
+        let sched_clone = scheduler.clone();
+        let handle = tokio::spawn(async move {
+            run_event_listener(&pi_clone, sched_clone, shutdown_rx).await
+        });
+
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        shutdown_tx.send(true).expect("signal");
+        let summary = tokio::time::timeout(
+            std::time::Duration::from_millis(500),
+            handle,
+        )
+        .await
+        .expect("no timeout")
+        .expect("join");
+        assert_eq!(summary.events_received, 0);
     }
 
     #[tokio::test]

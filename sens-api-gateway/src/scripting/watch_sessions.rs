@@ -302,6 +302,168 @@ fn unix_ms_now() -> i64 {
         .unwrap_or(0)
 }
 
+/// Abstraction for MQTT publishing — Batch 204 Faz 6.
+/// Kept as a trait so the watch-publisher task can be
+/// unit-tested against a mock sink without spinning
+/// up a real MQTT broker.
+///
+/// Production implementation wraps `MqttClient::
+/// publish_raw`. Test implementations capture
+/// (topic, payload) pairs into a Vec for assertion.
+#[async_trait::async_trait]
+pub trait WatchPublishSink: Send + Sync {
+    async fn publish(
+        &self,
+        topic: &str,
+        payload: Vec<u8>,
+    ) -> Result<(), String>;
+}
+
+/// Publisher summary returned when the task exits.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct WatchPublisherSummary {
+    pub ticks_executed: u64,
+    pub sessions_published: u64,
+    pub publish_errors: u64,
+}
+
+/// Run the watch publisher loop — Batch 204 Faz 6.
+///
+/// Per tick (cadence `publish_cadence_ms`, default
+/// 100 ms):
+/// 1. Read `sessions_to_publish(now_ms)` for
+///    currently-due sessions.
+/// 2. For each due session:
+///    a. Read each subscribed tag from
+///       ProcessImage. Missing tags become
+///       `null` in the payload (operator sees
+///       unambiguous absence).
+///    b. JSON-serialize:
+///       `{ session_id, timestamp_unix_ms,
+///          tags: { name: {value, quality}, ... } }`
+///    c. Publish to `{topic_base}/{session_id}`.
+///    d. Call `record_published` to advance
+///       next_publish_unix_ms by the session's
+///       interval.
+/// 3. Sleep `publish_cadence_ms` OR exit on
+///    shutdown.
+///
+/// Shutdown drain: on exit, all sessions are NOT
+/// proactively dropped (the sweep-task shutdown
+/// drain covers that via `sessions.remove_all`).
+pub async fn run_watch_publisher_task(
+    sessions: std::sync::Arc<WatchSessionRegistry>,
+    pi: crate::process_image::ProcessImage,
+    sink: std::sync::Arc<dyn WatchPublishSink>,
+    topic_base: String,
+    publish_cadence_ms: u64,
+    mut shutdown_rx: tokio::sync::watch::Receiver<bool>,
+) -> WatchPublisherSummary {
+    tracing::info!(
+        "Watch publisher task starting (cadence={}ms, topic_base={})",
+        publish_cadence_ms,
+        topic_base
+    );
+    let cadence = std::time::Duration::from_millis(publish_cadence_ms.max(10));
+    let mut summary = WatchPublisherSummary::default();
+
+    loop {
+        let now_ms = unix_ms_now();
+        let due = sessions.sessions_to_publish(now_ms).await;
+        summary.ticks_executed += 1;
+
+        for session in due {
+            // Build the per-session payload.
+            let mut tag_values = serde_json::Map::new();
+            for tag_name in &session.tags {
+                match pi.get_tag(tag_name).await {
+                    Some(tv) => {
+                        tag_values.insert(
+                            tag_name.clone(),
+                            serde_json::json!({
+                                "value": tv.value,
+                                "quality": tv.quality,
+                                "source": tv.source,
+                                "timestamp_unix_secs": tv.timestamp.timestamp(),
+                            }),
+                        );
+                    }
+                    None => {
+                        tag_values.insert(
+                            tag_name.clone(),
+                            serde_json::json!(null),
+                        );
+                    }
+                }
+            }
+            let payload = serde_json::json!({
+                "session_id": session.session_id.to_string(),
+                "timestamp_unix_ms": now_ms,
+                "tags": tag_values,
+            });
+            let topic = format!("{}/{}", topic_base, session.session_id);
+            let bytes = match serde_json::to_vec(&payload) {
+                Ok(b) => b,
+                Err(e) => {
+                    tracing::warn!(
+                        "watch publisher: JSON serialize failed for session \
+                         {}: {}",
+                        session.session_id,
+                        e
+                    );
+                    summary.publish_errors += 1;
+                    continue;
+                }
+            };
+            match sink.publish(&topic, bytes).await {
+                Ok(()) => {
+                    summary.sessions_published += 1;
+                    sessions.record_published(&session.session_id, now_ms).await;
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "watch publisher: publish failed for session {} \
+                         topic={}: {}",
+                        session.session_id,
+                        topic,
+                        e
+                    );
+                    summary.publish_errors += 1;
+                    // Don't advance next_publish — the
+                    // next tick retries this session.
+                }
+            }
+        }
+
+        tokio::select! {
+            _ = tokio::time::sleep(cadence) => {}
+            changed = shutdown_rx.changed() => {
+                match changed {
+                    Ok(()) if *shutdown_rx.borrow() => {
+                        tracing::info!(
+                            "watch publisher task shutdown: ticks={} \
+                             published={} errors={}",
+                            summary.ticks_executed,
+                            summary.sessions_published,
+                            summary.publish_errors,
+                        );
+                        return summary;
+                    }
+                    Ok(()) => {}
+                    Err(_) => {
+                        tracing::info!(
+                            "watch publisher task shutdown (sender \
+                             dropped): ticks={}",
+                            summary.ticks_executed
+                        );
+                        return summary;
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -452,6 +614,208 @@ mod tests {
         let list = reg.list().await;
         assert_eq!(list.len(), 2);
         assert!(list[0].created_at <= list[1].created_at);
+    }
+
+    // ====================================================================
+    // Batch 204 Faz 6 — watch publisher task
+    // ====================================================================
+
+    use crate::process_image::{ProcessImage, TagQuality, TagSource};
+    use std::sync::Mutex as StdMutex;
+
+    #[derive(Default)]
+    struct RecordingSink {
+        messages: StdMutex<Vec<(String, Vec<u8>)>>,
+        fail_mode: StdMutex<bool>,
+    }
+
+    #[async_trait::async_trait]
+    impl WatchPublishSink for RecordingSink {
+        async fn publish(
+            &self,
+            topic: &str,
+            payload: Vec<u8>,
+        ) -> Result<(), String> {
+            let fail = *self.fail_mode.lock().unwrap();
+            if fail {
+                return Err("simulated publish failure".to_string());
+            }
+            self.messages
+                .lock()
+                .unwrap()
+                .push((topic.to_string(), payload));
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn publisher_emits_payload_for_due_session() {
+        let pi = ProcessImage::new();
+        pi.update_tag_raw(
+            "water_temp",
+            22.5,
+            TagQuality::Good,
+            TagSource::I2c,
+        )
+        .await;
+
+        let reg = std::sync::Arc::new(WatchSessionRegistry::new());
+        let session_id = reg
+            .subscribe(
+                vec!["water_temp".into()],
+                500,
+                60,
+                "operator-alice".into(),
+            )
+            .await
+            .expect("ok");
+
+        let sink = std::sync::Arc::new(RecordingSink::default());
+
+        let (tx, rx) = tokio::sync::watch::channel(false);
+        let reg_clone = reg.clone();
+        let pi_clone = pi.clone();
+        let sink_clone: std::sync::Arc<dyn WatchPublishSink> = sink.clone();
+        let handle = tokio::spawn(async move {
+            run_watch_publisher_task(
+                reg_clone,
+                pi_clone,
+                sink_clone,
+                "tenants/t1/devices/d1/watch".to_string(),
+                20, // fast cadence for test
+                rx,
+            )
+            .await
+        });
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        tx.send(true).expect("signal");
+        let summary = handle.await.expect("join");
+        assert!(summary.sessions_published >= 1);
+        assert_eq!(summary.publish_errors, 0);
+
+        let messages = sink.messages.lock().unwrap();
+        assert!(!messages.is_empty(), "at least one payload should be sent");
+        let (topic, payload) = &messages[0];
+        assert!(topic.ends_with(&session_id.to_string()));
+        let parsed: serde_json::Value =
+            serde_json::from_slice(payload).expect("json");
+        assert_eq!(parsed["session_id"], session_id.to_string());
+        assert!(parsed["tags"]["water_temp"].is_object());
+        assert_eq!(parsed["tags"]["water_temp"]["value"], 22.5);
+    }
+
+    #[tokio::test]
+    async fn publisher_missing_tag_yields_null_entry() {
+        let pi = ProcessImage::new();
+        // No tag written.
+        let reg = std::sync::Arc::new(WatchSessionRegistry::new());
+        reg.subscribe(
+            vec!["ghost_tag".into()],
+            200,
+            60,
+            "op".into(),
+        )
+        .await
+        .expect("ok");
+        let sink = std::sync::Arc::new(RecordingSink::default());
+
+        let (tx, rx) = tokio::sync::watch::channel(false);
+        let reg_clone = reg.clone();
+        let pi_clone = pi.clone();
+        let sink_clone: std::sync::Arc<dyn WatchPublishSink> = sink.clone();
+        let handle = tokio::spawn(async move {
+            run_watch_publisher_task(
+                reg_clone,
+                pi_clone,
+                sink_clone,
+                "topic_base".to_string(),
+                20,
+                rx,
+            )
+            .await
+        });
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        tx.send(true).expect("signal");
+        let _ = handle.await.expect("join");
+
+        let messages = sink.messages.lock().unwrap();
+        let (_, payload) = &messages[0];
+        let parsed: serde_json::Value =
+            serde_json::from_slice(payload).expect("json");
+        // Missing tag serializes as null.
+        assert!(parsed["tags"]["ghost_tag"].is_null());
+    }
+
+    #[tokio::test]
+    async fn publisher_publish_error_counted_no_advance() {
+        let pi = ProcessImage::new();
+        pi.update_tag_raw("t", 1.0, TagQuality::Good, TagSource::Modbus)
+            .await;
+        let reg = std::sync::Arc::new(WatchSessionRegistry::new());
+        reg.subscribe(vec!["t".into()], 200, 60, "op".into())
+            .await
+            .expect("ok");
+
+        let sink = std::sync::Arc::new(RecordingSink::default());
+        *sink.fail_mode.lock().unwrap() = true;
+
+        let (tx, rx) = tokio::sync::watch::channel(false);
+        let reg_clone = reg.clone();
+        let pi_clone = pi.clone();
+        let sink_clone: std::sync::Arc<dyn WatchPublishSink> = sink.clone();
+        let handle = tokio::spawn(async move {
+            run_watch_publisher_task(
+                reg_clone,
+                pi_clone,
+                sink_clone,
+                "topic_base".to_string(),
+                20,
+                rx,
+            )
+            .await
+        });
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        tx.send(true).expect("signal");
+        let summary = handle.await.expect("join");
+        assert!(summary.publish_errors >= 1);
+        assert_eq!(summary.sessions_published, 0);
+    }
+
+    #[tokio::test]
+    async fn publisher_exits_on_shutdown_signal() {
+        let pi = ProcessImage::new();
+        let reg = std::sync::Arc::new(WatchSessionRegistry::new());
+        let sink = std::sync::Arc::new(RecordingSink::default());
+
+        let (tx, rx) = tokio::sync::watch::channel(false);
+        let reg_clone = reg.clone();
+        let pi_clone = pi.clone();
+        let sink_clone: std::sync::Arc<dyn WatchPublishSink> = sink.clone();
+        let handle = tokio::spawn(async move {
+            run_watch_publisher_task(
+                reg_clone,
+                pi_clone,
+                sink_clone,
+                "topic_base".to_string(),
+                50,
+                rx,
+            )
+            .await
+        });
+
+        tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+        tx.send(true).expect("signal");
+        let summary = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            handle,
+        )
+        .await
+        .expect("no timeout")
+        .expect("join");
+        assert_eq!(summary.sessions_published, 0);
     }
 
     #[tokio::test]

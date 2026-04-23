@@ -37,6 +37,7 @@ import { ApproveInventoryCountHandler } from './handlers/approve-inventory-count
 import { GetStorageLocationHandler } from './handlers/get-storage-location.handler';
 import { ListStorageLocationsHandler } from './handlers/list-storage-locations.handler';
 import { GetStorageInventoryHandler } from './handlers/get-storage-inventory.handler';
+import { ListStorageInventoryByCursorHandler } from './handlers/list-storage-inventory-by-cursor.handler';
 import { ListStockMovementsHandler } from './handlers/list-stock-movements.handler';
 import { GetStorageOverviewHandler } from './handlers/get-storage-overview.handler';
 import { ListPurchaseOrdersHandler } from './handlers/list-purchase-orders.handler';
@@ -65,6 +66,7 @@ const QueryHandlers = [
   GetStorageLocationHandler,
   ListStorageLocationsHandler,
   GetStorageInventoryHandler,
+  ListStorageInventoryByCursorHandler,
   ListStockMovementsHandler,
   GetStorageOverviewHandler,
   ListPurchaseOrdersHandler,

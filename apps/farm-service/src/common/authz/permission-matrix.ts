@@ -413,6 +413,7 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   stockMovements: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   stockSummary: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   storageInventory: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  storageInventoryByCursor: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   storageLocation: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   storageLocations: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   storageOverview: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],

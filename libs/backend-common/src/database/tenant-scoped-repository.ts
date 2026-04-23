@@ -14,7 +14,7 @@ import {
 import { Logger } from '@nestjs/common';
 
 import { getRequestContext } from '../logging/request-context';
-import { TenantEntity } from './tenant-aware.repository';
+import { TenantEntity } from './tenant-entity.interface';
 
 /**
  * TenantScopedRepository<T> — wraps TypeORM Repository with mandatory tenant isolation.

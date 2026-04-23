@@ -4359,10 +4359,11 @@ async fn run_agent(
         }
     }
 
-    // Batch 219 Faz 5: OPC UA server boot path.
+    // Batch 219+222 Faz 5: OPC UA server boot path.
     // Runs the Batch 218 init_opc_ua_server gate chain:
     //   operator config switch → Faz 7 license gate →
-    //   tag-catalog build → server start.
+    //   tag-catalog build → server start →
+    //   Batch 222 write-callback adapter wire.
     //
     // Spawns a cancel-bridge task so ShutdownCoordinator's
     // broadcast signal propagates to SuderraOpcUaHandle::
@@ -4371,18 +4372,42 @@ async fn run_agent(
     // awaits that internally once cancel fires.
     #[cfg(feature = "opc-ua-server")]
     {
-        let (opc_ua_cfg, pi_for_opcua, license_for_opcua) = {
+        let (
+            opc_ua_cfg,
+            pi_for_opcua,
+            license_for_opcua,
+            force_registry_for_opcua,
+            audit_sink_for_opcua,
+            tenant_id_str,
+        ) = {
             let s = state.read().await;
             (
                 s.config.opc_ua_server.clone(),
                 s.process_image.clone(),
                 s.license.clone(),
+                s.force_registry.clone(),
+                s.audit_sink.clone(),
+                s.tenant_id.clone(),
             )
         };
+        // Convert UUID-string tenant_id → TenantId bytes.
+        // Missing or unparseable tenant → write callbacks
+        // stay unwired; the server still boots with the
+        // read path live (operator sees this in boot log).
+        let tenant_opt = tenant_id_str.as_deref().and_then(|s| {
+            uuid::Uuid::parse_str(s)
+                .ok()
+                .map(|u| crate::authz::permission::TenantId::new_from_verified(*u.as_bytes()))
+        });
         match opc_ua_server_runtime::init_opc_ua_server(
-            &opc_ua_cfg,
-            &pi_for_opcua,
-            &license_for_opcua,
+            opc_ua_server_runtime::OpcUaInitDeps {
+                config: &opc_ua_cfg,
+                process_image: &pi_for_opcua,
+                force_registry: force_registry_for_opcua,
+                audit_sink: audit_sink_for_opcua,
+                tenant: tenant_opt,
+                license: &license_for_opcua,
+            },
         )
         .await
         {

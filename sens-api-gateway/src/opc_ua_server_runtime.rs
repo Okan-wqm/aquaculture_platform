@@ -48,10 +48,19 @@ use opcua::types::{
 use tokio::task::JoinHandle;
 use tracing::{info, warn};
 
+use crate::audit::sink::AuditSink;
+use crate::authz::context::AuthorizationDenyReason;
+use crate::authz::permission::TenantId;
+use crate::authz::policy::DenyAllPolicyEngine;
 use crate::config::OpcUaServerConfig;
 use crate::license::{check_opc_ua_server_gate, EdgeLicenseLimits, OpcUaServerGate};
-use crate::opc_ua_server::{OpcUaTagNode, OpcUaTagRegistry};
+use crate::opc_ua_server::{
+    AuditSinkOpcUaAdapter, ForceRegistryOpcUaAdapter, OpcUaAuditPort,
+    OpcUaTagNode, OpcUaTagRegistry, OpcUaWriteOutcome,
+    PolicyEngineOpcUaAdapter, PolicyVersionFn, ProcessImageOpcUaAdapter,
+};
 use crate::process_image::ProcessImage;
+use crate::scripting::force_registry::ForceRegistry;
 
 /// The Suderra edge-agent OPC UA namespace URI. Stable
 /// across releases — HMIs cache NodeId references keyed on
@@ -146,6 +155,16 @@ impl SuderraOpcUaHandle {
     /// Batch 217: read-only view of the population summary.
     pub fn population(&self) -> Option<&AddressSpacePopulationSummary> {
         self.population_summary.as_ref()
+    }
+
+    /// Batch 222: borrow the async-opcua `ServerHandle` for
+    /// post-start wire operations (write-callback
+    /// registration, namespace lookup). Kept crate-private
+    /// because leaking the raw handle beyond the runtime
+    /// module would invite direct mutation paths that
+    /// bypass the SuderraOpcUaHandle contract.
+    pub(crate) fn server_handle_ref(&self) -> &ServerHandle {
+        &self.handle
     }
 }
 
@@ -379,30 +398,91 @@ pub fn populate_tag_nodes(
 // Batch 218 Faz 5 — AppState boot-path init helper
 // ============================================================
 
+/// Fallback audit port used when no real `AuditSink` is
+/// configured on AppState. Emits tracing::info so the
+/// forensic trail is still visible in the agent's logs;
+/// the on-disk HMAC chain only fires when the full sink
+/// path is wired. Present in Batch 222 as the degradation
+/// path — production deployments MUST configure the real
+/// AuditSink, but dev + pre-prod operator smoke-tests can
+/// still observe writes without a fully provisioned audit
+/// pipeline.
+pub struct TracingLogAuditPort;
+
+#[async_trait::async_trait]
+impl OpcUaAuditPort for TracingLogAuditPort {
+    async fn record_write_attempt(
+        &self,
+        actor: &str,
+        tag_name: &str,
+        value: f64,
+        outcome: &OpcUaWriteOutcome,
+    ) {
+        tracing::info!(
+            actor = %actor,
+            tag = %tag_name,
+            value,
+            outcome = ?outcome,
+            "opc_ua audit (tracing-only, no sink configured)"
+        );
+    }
+}
+
+/// Bundle of AppState fields the OPC UA init helper needs.
+/// Grouped into a struct because the parameter list grew
+/// past readability when every field passed positionally.
+pub struct OpcUaInitDeps<'a> {
+    pub config: &'a OpcUaServerConfig,
+    pub process_image: &'a ProcessImage,
+    pub force_registry: Arc<ForceRegistry>,
+    pub audit_sink: Option<Arc<AuditSink>>,
+    pub tenant: Option<TenantId>,
+    pub license: &'a EdgeLicenseLimits,
+}
+
 /// Gate-chained startup: operator config switch → Faz 7
-/// license gate → tag-catalog build → server start. Returns
-/// `Ok(None)` when either gate closes; `Ok(Some(handle))`
-/// when the server is running; `Err(..)` when the gates pass
-/// but the server itself refused to start (config validation
-/// drift, async-opcua builder rejection).
+/// license gate → tag-catalog build → server start →
+/// write-callback wire. Returns `Ok(None)` when either gate
+/// closes; `Ok(Some(handle))` when the server is running;
+/// `Err(..)` when the gates pass but the server itself
+/// refused to start.
 ///
-/// Callers pass a reference to the `ProcessImage` rather
-/// than the tag list directly so the tag catalog reflects
-/// whatever `process_image` was booted with (modbus + gpio +
-/// i2c + atlas tags merged by the platform init path). Config
-/// reloads that mutate tag entries require a server restart
-/// — a future batch adds hot-reload by tearing down the
-/// existing handle and re-invoking this init.
+/// Batch 222 extended the init to also register per-tag
+/// write callbacks immediately after
+/// `populate_tag_nodes`. Adapters:
+/// - ProcessImage → ProcessImageOpcUaAdapter (Batch 210)
+/// - ForceRegistry → ForceRegistryOpcUaAdapter (Batch 210)
+/// - AuditSink → AuditSinkOpcUaAdapter (Batch 211) if
+///   `audit_sink` is Some; TracingLogAuditPort fallback
+///   when None (dev + pre-prod degraded path)
+/// - PolicyEngine → PolicyEngineOpcUaAdapter wrapping
+///   DenyAllPolicyEngine (fail-closed per plan HC-3; all
+///   HMI writes deny with BadUserAccessDenied until the
+///   real `InMemoryPolicyEngine` lands in a subsequent
+///   batch alongside the session-actor resolver)
 ///
-/// Error surface is `String` rather than `OpcUaServerStartError`
-/// because this is the AppState-facing boundary; main.rs
-/// routes the string through the bootstrap error channel
-/// alongside other init failures.
+/// Tenant binding: the audit + authz adapters need a
+/// `TenantId`. `None` tenant (pre-provisioned edge) means
+/// the server still boots + populates the address space
+/// but write callbacks are NOT registered — writes hit
+/// the default SimpleNodeManager handler + land in the
+/// address-space cache (safe: ProcessImage untouched,
+/// operator sees the write drift in browse responses).
+///
+/// Error surface is `String` rather than
+/// `OpcUaServerStartError` because this is the AppState-
+/// facing boundary.
 pub async fn init_opc_ua_server(
-    config: &OpcUaServerConfig,
-    process_image: &ProcessImage,
-    license: &EdgeLicenseLimits,
+    deps: OpcUaInitDeps<'_>,
 ) -> Result<Option<Arc<SuderraOpcUaHandle>>, String> {
+    let OpcUaInitDeps {
+        config,
+        process_image,
+        force_registry,
+        audit_sink,
+        tenant,
+        license,
+    } = deps;
     // Gate 1: operator off-switch.
     if !config.enabled {
         info!(
@@ -444,12 +524,114 @@ pub async fn init_opc_ua_server(
         tag_count
     );
 
-    // Start the server — the function's internal pre-spawn
-    // population uses `registry` to populate the Suderra
-    // address space.
-    start_opcua_server(config, &registry)
+    // Start the server — internal pre-spawn population
+    // uses `registry` to populate the Suderra address space.
+    let registry_arc = Arc::new(registry);
+    let handle_opt = start_opcua_server(config, &*registry_arc)
         .await
-        .map_err(|e| format!("opc_ua_server start failed: {}", e))
+        .map_err(|e| format!("opc_ua_server start failed: {}", e))?;
+
+    // Batch 222: wire write callbacks if the server started +
+    // tenant is present. Without a tenant we cannot mint
+    // AuthorizationRequest / AuditEntry bindings, so writes
+    // stay on the default SimpleNodeManager path (address-
+    // space-local).
+    if let (Some(handle), Some(tenant_id)) = (&handle_opt, tenant) {
+        let ns_index = handle.namespace_index().ok_or_else(|| {
+            "opc_ua_server: namespace index missing after populate".to_string()
+        })?;
+
+        // Port adapters — each one bridges an AppState
+        // subsystem into the write-orchestrator's abstract
+        // port trait. Arcs are cheap to clone into the
+        // closure.
+        let pi_adapter: Arc<dyn crate::opc_ua_server::OpcUaProcessImagePort> =
+            Arc::new(ProcessImageOpcUaAdapter::new(Arc::new(
+                process_image.clone(),
+            )));
+        let force_adapter: Arc<dyn crate::opc_ua_server::OpcUaForceRegistryPort> =
+            Arc::new(ForceRegistryOpcUaAdapter::new(force_registry));
+
+        // Audit adapter: real sink when AppState has one,
+        // fallback to TracingLogAuditPort otherwise.
+        let audit_adapter: Arc<dyn OpcUaAuditPort> = match audit_sink {
+            Some(sink) => {
+                // Placeholder policy_version_fn — the Batch
+                // 222 authz adapter uses DenyAllPolicyEngine
+                // whose current_policy_version() is always
+                // 0; the audit record carries that value
+                // until the real PolicyEngine lands.
+                let pv_fn: PolicyVersionFn = Arc::new(|| 0u64);
+                Arc::new(AuditSinkOpcUaAdapter::new(
+                    sink,
+                    tenant_id.clone(),
+                    pv_fn,
+                ))
+            }
+            None => {
+                warn!(
+                    "opc_ua_server: no AuditSink configured — HMI writes will audit via tracing ONLY (production MUST configure audit.mode != Disabled)"
+                );
+                Arc::new(TracingLogAuditPort)
+            }
+        };
+
+        // Authz adapter with DenyAllPolicyEngine — fail-
+        // closed per plan HC-3. Every HMI write currently
+        // denies with BadUserAccessDenied + the audit port
+        // records the attempt. Safe until the real
+        // InMemoryPolicyEngine + session-actor resolver
+        // land in a subsequent batch.
+        let engine = Arc::new(DenyAllPolicyEngine::new(
+            AuthorizationDenyReason::PermissionNotGranted,
+        ));
+        let actor_resolver: crate::opc_ua_server::ActorResolverFn =
+            Arc::new(|_actor: &str| {
+                // Unresolvable actor → PolicyEngineOpcUa
+                // Adapter returns false before calling the
+                // engine. Matches the plan's fail-closed
+                // anonymous-only-first-release contract.
+                None
+            });
+        let authz_adapter: Arc<dyn crate::opc_ua_server::OpcUaAuthzPort> =
+            Arc::new(PolicyEngineOpcUaAdapter::new(
+                engine,
+                tenant_id,
+                actor_resolver,
+            ));
+
+        let bridge_deps = Arc::new(OpcUaWriteBridgeDeps {
+            registry: registry_arc,
+            authz: authz_adapter,
+            force: force_adapter,
+            process_image: pi_adapter,
+            audit: audit_adapter,
+        });
+
+        match wire_write_callbacks(handle.server_handle_ref(), ns_index, bridge_deps) {
+            Ok(count) => {
+                info!(
+                    "opc_ua_server: write callbacks wired for {} writable tag(s)",
+                    count
+                );
+            }
+            Err(e) => {
+                // Not fatal — the server is already live +
+                // read paths still work. Operator sees the
+                // reason to fix.
+                warn!(
+                    "opc_ua_server: write callback wire failed, writes will hit the default SimpleNodeManager handler: {}",
+                    e
+                );
+            }
+        }
+    } else if handle_opt.is_some() && tenant.is_none() {
+        warn!(
+            "opc_ua_server: started without a tenant — write callbacks NOT wired (authz + audit need a tenant binding to mint AuthorizationRequest)"
+        );
+    }
+
+    Ok(handle_opt)
 }
 
 // ============================================================
@@ -1121,12 +1303,31 @@ mod tests {
         pi
     }
 
+    fn test_tenant_id() -> TenantId {
+        TenantId::new_from_verified([0x42u8; 16])
+    }
+
+    fn init_deps<'a>(
+        cfg: &'a OpcUaServerConfig,
+        pi: &'a ProcessImage,
+        license: &'a EdgeLicenseLimits,
+    ) -> OpcUaInitDeps<'a> {
+        OpcUaInitDeps {
+            config: cfg,
+            process_image: pi,
+            force_registry: Arc::new(ForceRegistry::new()),
+            audit_sink: None,
+            tenant: Some(test_tenant_id()),
+            license,
+        }
+    }
+
     #[tokio::test]
     async fn init_returns_none_when_config_disabled() {
         let mut cfg = minimal_enabled_config();
         cfg.enabled = false;
         let pi = ProcessImage::new();
-        let result = init_opc_ua_server(&cfg, &pi, &tier_opc_ua_enabled()).await;
+        let result = init_opc_ua_server(init_deps(&cfg, &pi, &tier_opc_ua_enabled())).await;
         match result {
             Ok(None) => {}
             Ok(Some(_)) => panic!("disabled config MUST NOT start"),
@@ -1141,7 +1342,7 @@ mod tests {
         // server stays down.
         let cfg = minimal_enabled_config();
         let pi = ProcessImage::new();
-        let result = init_opc_ua_server(&cfg, &pi, &tier_conservative()).await;
+        let result = init_opc_ua_server(init_deps(&cfg, &pi, &tier_conservative())).await;
         match result {
             Ok(None) => {}
             Ok(Some(_)) => panic!("license-denied MUST stay down"),
@@ -1154,7 +1355,7 @@ mod tests {
         let cfg = minimal_enabled_config();
         let pki_dir = cfg.own_pki_dir.clone();
         let pi = ProcessImage::new();
-        let handle = match init_opc_ua_server(&cfg, &pi, &tier_opc_ua_enabled()).await {
+        let handle = match init_opc_ua_server(init_deps(&cfg, &pi, &tier_opc_ua_enabled())).await {
             Ok(Some(h)) => h,
             Ok(None) => panic!("both gates open — server MUST start"),
             Err(e) => panic!("start failed: {}", e),
@@ -1231,7 +1432,7 @@ mod tests {
         ])
         .await;
 
-        let handle = init_opc_ua_server(&cfg, &pi, &tier_opc_ua_enabled())
+        let handle = init_opc_ua_server(init_deps(&cfg, &pi, &tier_opc_ua_enabled()))
             .await
             .expect("ok")
             .expect("some");

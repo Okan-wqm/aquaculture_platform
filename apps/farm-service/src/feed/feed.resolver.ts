@@ -39,6 +39,7 @@ export class FeedResolver {
   /**
    * Create a new feed
    */
+  @Roles(Role.MODULE_MANAGER, Role.TENANT_ADMIN)
   @Mutation(() => FeedResponse)
   async createFeed(
     @Args('input') input: CreateFeedInput,
@@ -53,6 +54,7 @@ export class FeedResolver {
   /**
    * Update an existing feed
    */
+  @Roles(Role.MODULE_MANAGER, Role.TENANT_ADMIN)
   @Mutation(() => FeedResponse)
   async updateFeed(
     @Args('input') input: UpdateFeedInput,
@@ -67,6 +69,7 @@ export class FeedResolver {
   /**
    * Delete (soft) a feed
    */
+  @Roles(Role.TENANT_ADMIN)
   @Mutation(() => Boolean)
   async deleteFeed(
     @Args('id', { type: () => ID }) id: string,

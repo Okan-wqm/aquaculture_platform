@@ -8,7 +8,7 @@
  */
 import { Resolver, Query, Mutation, Args, ID, Int, ObjectType, Field, GraphQLISODateTime } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
-import { TenantGuard, CurrentTenant, CurrentUser, StandardPaginatedResponse, IStandardPaginatedResult } from '@aquaculture/backend-common';
+import { TenantGuard, CurrentTenant, CurrentUser, Role, Roles, StandardPaginatedResponse, IStandardPaginatedResult } from '@aquaculture/backend-common';
 import GraphQLJSON from 'graphql-type-json';
 
 import { HealthEvent, HealthEventStatus, TreatmentDetails } from '../entities/health-event.entity';
@@ -189,6 +189,7 @@ export class HealthEventResolver {
   /**
    * Create a new health event
    */
+  @Roles(Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN)
   @Mutation(() => HealthEvent, { description: 'Create a new health event' })
   async createHealthEvent(
     @CurrentTenant() tenantId: string,
@@ -202,6 +203,7 @@ export class HealthEventResolver {
   /**
    * Update an existing health event
    */
+  @Roles(Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN)
   @Mutation(() => HealthEvent, { description: 'Update a health event' })
   async updateHealthEvent(
     @CurrentTenant() tenantId: string,
@@ -216,6 +218,7 @@ export class HealthEventResolver {
   /**
    * Delete a health event
    */
+  @Roles(Role.TENANT_ADMIN)
   @Mutation(() => Boolean, { description: 'Delete a health event' })
   async deleteHealthEvent(
     @CurrentTenant() tenantId: string,
@@ -232,6 +235,7 @@ export class HealthEventResolver {
   /**
    * Start treatment for a health event
    */
+  @Roles(Role.MODULE_MANAGER, Role.TENANT_ADMIN)
   @Mutation(() => HealthEvent, { description: 'Start treatment for a health event' })
   async startHealthEventTreatment(
     @CurrentTenant() tenantId: string,
@@ -246,6 +250,7 @@ export class HealthEventResolver {
   /**
    * End treatment for a health event
    */
+  @Roles(Role.MODULE_MANAGER, Role.TENANT_ADMIN)
   @Mutation(() => HealthEvent, { description: 'End treatment for a health event' })
   async endHealthEventTreatment(
     @CurrentTenant() tenantId: string,
@@ -264,6 +269,7 @@ export class HealthEventResolver {
   /**
    * Start quarantine for a health event
    */
+  @Roles(Role.MODULE_MANAGER, Role.TENANT_ADMIN)
   @Mutation(() => HealthEvent, { description: 'Start quarantine for a health event' })
   async startHealthEventQuarantine(
     @CurrentTenant() tenantId: string,
@@ -278,6 +284,7 @@ export class HealthEventResolver {
   /**
    * End quarantine for a health event
    */
+  @Roles(Role.MODULE_MANAGER, Role.TENANT_ADMIN)
   @Mutation(() => HealthEvent, { description: 'End quarantine for a health event' })
   async endHealthEventQuarantine(
     @CurrentTenant() tenantId: string,
@@ -295,6 +302,7 @@ export class HealthEventResolver {
   /**
    * Resolve a health event
    */
+  @Roles(Role.MODULE_MANAGER, Role.TENANT_ADMIN)
   @Mutation(() => HealthEvent, { description: 'Resolve a health event' })
   async resolveHealthEvent(
     @CurrentTenant() tenantId: string,

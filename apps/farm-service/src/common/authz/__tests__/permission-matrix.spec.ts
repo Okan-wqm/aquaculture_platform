@@ -204,7 +204,10 @@ describe('resolveAllowedRoles helper', () => {
   });
 
   it('grandfathered operations map to null', () => {
-    // Example chosen from UNGATED_OPERATIONS.
-    expect(UNGATED_OPERATIONS.has('createFeed')).toBe(true);
+    // The whitelist now only contains queries — every mutation has
+    // been moved into MUTATION_ROLES across the phase-6.1.1
+    // sweep. `batches` is a canonical query that stays
+    // grandfathered until query authorisation lands.
+    expect(UNGATED_OPERATIONS.has('batches')).toBe(true);
   });
 });

@@ -274,7 +274,17 @@ export class SparePartResolver {
     };
   }
 
-  @Mutation(() => SparePart)
+  /**
+   * Phase 6.1 rename: this was declared as `recordStockMovement`
+   * which collided with `storage.resolver.ts:recordStockMovement`
+   * (the inventory mutation). GraphQL federation only registers one
+   * of two colliding operation names, so one of these mutations
+   * silently became unreachable at the federation edge. Renaming
+   * the spare-part version to `recordSparePartStockMovement`
+   * disambiguates the two endpoints and lets the permission matrix
+   * surface per-operation authorisation cleanly.
+   */
+  @Mutation(() => SparePart, { name: 'recordSparePartStockMovement' })
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async recordStockMovement(
     @Args('input') input: StockMovementInput,
@@ -282,7 +292,7 @@ export class SparePartResolver {
     @CurrentUser() user: UserContext,
   ): Promise<SparePart> {
     this.logger.log(
-      `Recording stock movement: ${input.sparePartId} - ${input.movementType} ${input.quantity}`,
+      `Recording spare-part stock movement: ${input.sparePartId} - ${input.movementType} ${input.quantity}`,
     );
     return this.sparePartService.recordStockMovement(tenantId, input, user.sub);
   }

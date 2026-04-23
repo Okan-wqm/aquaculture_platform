@@ -18,7 +18,7 @@ import {
 } from '@nestjs/graphql';
 import { Logger, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
-import { CurrentTenant, CurrentUser, StandardPaginatedResponse, IStandardPaginatedResult } from '@aquaculture/backend-common';
+import { CurrentTenant, CurrentUser, Role, Roles, StandardPaginatedResponse, IStandardPaginatedResult } from '@aquaculture/backend-common';
 import { Task, TaskStatus } from '../entities/task.entity';
 import { TaskService } from '../services/task.service';
 import { CreateTaskInput } from '../dto/create-task.dto';
@@ -129,6 +129,7 @@ export class TaskResolver {
   // MUTATIONS
   // -------------------------------------------------------------------------
 
+  @Roles(Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN)
   @Mutation(() => Task)
   async createTask(
     @Args('input') input: CreateTaskInput,
@@ -139,6 +140,7 @@ export class TaskResolver {
     return this.taskService.create(tenantId, input, user.sub);
   }
 
+  @Roles(Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN)
   @Mutation(() => Task)
   async updateTask(
     @Args('input') input: UpdateTaskInput,
@@ -149,6 +151,7 @@ export class TaskResolver {
     return this.taskService.update(tenantId, input, user.sub);
   }
 
+  @Roles(Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN)
   @Mutation(() => Task)
   async completeTask(
     @Args('id', { type: () => ID }) id: string,
@@ -159,6 +162,7 @@ export class TaskResolver {
     return this.taskService.completeTask(tenantId, id, user.sub);
   }
 
+  @Roles(Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN)
   @Mutation(() => Task)
   async startTask(
     @Args('id', { type: () => ID }) id: string,
@@ -169,6 +173,7 @@ export class TaskResolver {
     return this.taskService.startTask(tenantId, id, user.sub);
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Mutation(() => Boolean)
   async deleteTask(
     @Args('id', { type: () => ID }) id: string,
@@ -178,6 +183,7 @@ export class TaskResolver {
     return this.taskService.delete(tenantId, id);
   }
 
+  @Roles(Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN)
   @Mutation(() => Task)
   async toggleChecklistItem(
     @Args('taskId', { type: () => ID }) taskId: string,
@@ -188,6 +194,7 @@ export class TaskResolver {
     return this.taskService.toggleChecklistItem(tenantId, taskId, itemId);
   }
 
+  @Roles(Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN)
   @Mutation(() => Task)
   async addTaskNote(
     @Args('taskId', { type: () => ID }) taskId: string,

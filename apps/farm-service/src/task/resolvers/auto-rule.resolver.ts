@@ -14,7 +14,7 @@ import {
 } from '@nestjs/graphql';
 import { Logger, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
-import { CurrentTenant, CurrentUser } from '@aquaculture/backend-common';
+import { CurrentTenant, CurrentUser, Role, Roles } from '@aquaculture/backend-common';
 import { AutoRule } from '../entities/auto-rule.entity';
 import { AutoRuleService } from '../services/auto-rule.service';
 import { CreateAutoRuleInput } from '../dto/create-auto-rule.dto';
@@ -67,6 +67,7 @@ export class AutoRuleResolver {
   // MUTATIONS
   // -------------------------------------------------------------------------
 
+  @Roles(Role.MODULE_MANAGER, Role.TENANT_ADMIN)
   @Mutation(() => AutoRule)
   async createAutoRule(
     @Args('input') input: CreateAutoRuleInput,
@@ -76,6 +77,7 @@ export class AutoRuleResolver {
     return this.autoRuleService.create(tenantId, input);
   }
 
+  @Roles(Role.MODULE_MANAGER, Role.TENANT_ADMIN)
   @Mutation(() => AutoRule)
   async updateAutoRule(
     @Args('input') input: UpdateAutoRuleInput,
@@ -86,6 +88,7 @@ export class AutoRuleResolver {
     return this.autoRuleService.update(tenantId, id, data);
   }
 
+  @Roles(Role.TENANT_ADMIN)
   @Mutation(() => Boolean)
   async deleteAutoRule(
     @Args('id', { type: () => ID }) id: string,
@@ -95,6 +98,7 @@ export class AutoRuleResolver {
     return this.autoRuleService.delete(tenantId, id);
   }
 
+  @Roles(Role.MODULE_MANAGER, Role.TENANT_ADMIN)
   @Mutation(() => AutoRule)
   async toggleAutoRuleActive(
     @Args('id', { type: () => ID }) id: string,

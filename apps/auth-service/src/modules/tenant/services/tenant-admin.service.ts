@@ -6,7 +6,10 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Role, getTenantSchemaName } from '@aquaculture/backend-common';
+import { Role, getTenantSchemaName, tenantManagerRepo } from '@aquaculture/backend-common';
+// User stays raw because User.tenantId is nullable (platform-admin
+// users). UserModuleAssignment.tenantId is required, so it uses the
+// scoped wrapper.
 import * as crypto from 'crypto';
 import { Repository, DataSource } from 'typeorm';
 
@@ -246,8 +249,13 @@ export class TenantAdminService {
     // SECURITY: Wrap user creation + assignment in a transaction to prevent
     // orphaned users on assignment failure or partial state
     return this.dataSource.transaction(async (manager) => {
+      // User.tenantId is nullable in the schema (platform-admin users
+      // belong to no tenant). tenantManagerRepo requires a non-null
+      // tenantId type constraint, so the User repo stays raw here.
+      // The code below sets tenantId explicitly on each create().
+      // eslint-disable-next-line no-restricted-syntax -- User.tenantId is nullable for platform admins
       const userRepo = manager.getRepository(User);
-      const assignmentRepo = manager.getRepository(UserModuleAssignment);
+      const assignmentRepo = tenantManagerRepo(manager, UserModuleAssignment, admin.tenantId!);
 
       if (!user) {
         // Check user limit

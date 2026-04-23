@@ -125,6 +125,12 @@ export class UserConsentService {
     // Batch insert in a single transaction to ensure atomicity (M-10)
     // and avoid N sequential round-trips (HIGH-06)
     const saved = await this.dataSource.transaction(async (manager) => {
+      // context.tenantId can legitimately be null for pre-tenant-signup
+      // consents (e.g. cookie/privacy acceptance before the tenant is
+      // provisioned). tenantManagerRepo requires a non-null tenantId,
+      // so this callsite uses the raw repo and relies on the tenantId
+      // already baked into each entity by create() above.
+      // eslint-disable-next-line no-restricted-syntax -- pre-tenant-signup GDPR consent flow
       return manager.getRepository(UserConsent).save(entities);
     });
 

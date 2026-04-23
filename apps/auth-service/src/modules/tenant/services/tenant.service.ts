@@ -7,7 +7,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { Role, SchemaManagerService, DEFAULT_TENANT_MODULES, getTenantSchemaName } from '@aquaculture/backend-common';
+import { Role, SchemaManagerService, DEFAULT_TENANT_MODULES, getTenantSchemaName, tenantManagerRepo } from '@aquaculture/backend-common';
 import { IEventBus } from '@platform/event-bus';
 import {
   TenantCreatedEvent,
@@ -458,10 +458,12 @@ export class TenantService {
     // SECURITY: Wrap delete + re-create in a transaction to prevent
     // zero-assignment state on save failure (H-10/M-06)
     const saved = await this.dataSource.transaction(async (manager) => {
-      const tmRepo = manager.getRepository(TenantModule);
+      const tmRepo = tenantManagerRepo(manager, TenantModule, tenant.id);
 
-      // Remove existing module assignments
-      await tmRepo.delete({ tenantId: tenant.id });
+      // Remove existing module assignments; tenantId auto-injected by
+      // the scoped wrapper — the tenant.id filter is structurally part
+      // of every delete call now.
+      await tmRepo.delete({});
 
       // Create new assignments
       const assignments = modules.map(mod =>
@@ -472,7 +474,7 @@ export class TenantService {
         }),
       );
 
-      return tmRepo.save(assignments);
+      return tmRepo.saveMany(assignments);
     });
 
     this.logger.log(`Assigned ${saved.length} modules to tenant ${tenant.name}`);

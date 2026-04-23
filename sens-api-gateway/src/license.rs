@@ -309,6 +309,197 @@ pub fn check_signature_mode_consistency(
     }
 }
 
+// ============================================================
+// Batch 213 Faz 7 — remaining enforcement-point primitives
+// ============================================================
+//
+// Plan §5 Faz 7 step 4 lists seven enforcement points; Batches
+// 142+146 wired io_poll + signature_mode. The rest are
+// introduced here as pure-function checks so each call site
+// (cmd_deploy_program, task_scheduler boot, cmd_watch_subscribe,
+// cmd_force_value, opc_ua_server boot) can route the decision
+// (reject / warn / allow) against a testable primitive.
+//
+// Primitive-first: none of these functions walk AppState. Each
+// one takes the raw counts + the license, returns a structured
+// enum so caller assembles the full error message (which
+// includes actor + correlation_id context the primitive
+// deliberately doesn't know about).
+
+/// ST / FB / scan-cycle budget check result. Batch 213 Faz 7
+/// step 4 enforcement point #3 (cmd_deploy_program).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeployProgramBudget {
+    /// Every check passed — deploy proceeds.
+    WithinBudget {
+        st_programs: usize,
+        fb_instances: usize,
+        scan_cycle_ms: u64,
+    },
+    /// Post-deploy ST program count would exceed
+    /// `max_st_programs`. Handler rejects with the structured
+    /// reason; operator upgrades tier OR removes a program.
+    StProgramCountExceeded { configured: usize, cap: u32 },
+    /// Post-deploy FB instance count would exceed
+    /// `max_fb_instances`. Handler rejects similarly.
+    FbInstanceCountExceeded { configured: usize, cap: u32 },
+    /// Declared scan_cycle_ms below the license tier's
+    /// `min_scan_cycle_ms`. Lower cycle = higher hardware
+    /// load = paid-tier only. Handler rejects with the tier
+    /// hint.
+    ScanCycleBelowFloor { configured_ms: u64, min_ms: u32 },
+}
+
+/// Check a pending ST program deploy against every limits
+/// field the plan's enforcement-point #3 covers. Returns the
+/// FIRST failing dimension so the operator error is small +
+/// actionable; cascading all three at once would obscure the
+/// primary corrective action.
+pub fn check_deploy_program_budget(
+    pending_st_program_count: usize,
+    pending_fb_instance_count: usize,
+    pending_scan_cycle_ms: u64,
+    license: &EdgeLicenseLimits,
+) -> DeployProgramBudget {
+    if pending_st_program_count > license.max_st_programs as usize {
+        return DeployProgramBudget::StProgramCountExceeded {
+            configured: pending_st_program_count,
+            cap: license.max_st_programs,
+        };
+    }
+    if pending_fb_instance_count > license.max_fb_instances as usize {
+        return DeployProgramBudget::FbInstanceCountExceeded {
+            configured: pending_fb_instance_count,
+            cap: license.max_fb_instances,
+        };
+    }
+    if pending_scan_cycle_ms < license.min_scan_cycle_ms as u64 {
+        return DeployProgramBudget::ScanCycleBelowFloor {
+            configured_ms: pending_scan_cycle_ms,
+            min_ms: license.min_scan_cycle_ms,
+        };
+    }
+    DeployProgramBudget::WithinBudget {
+        st_programs: pending_st_program_count,
+        fb_instances: pending_fb_instance_count,
+        scan_cycle_ms: pending_scan_cycle_ms,
+    }
+}
+
+/// Task scheduler cap check. Batch 213 Faz 7 step 4
+/// enforcement point #4 (task_scheduler boot).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TaskSchedulerBudget {
+    /// Configured task count within cap.
+    WithinBudget { configured: usize, cap: u32 },
+    /// Configured count exceeds cap. Plan Faz 7: scheduler
+    /// MUST NOT start the excess tasks + CRITICAL boot log.
+    Exceeded { configured: usize, cap: u32 },
+}
+
+pub fn check_task_scheduler_budget(
+    configured_tasks: usize,
+    license: &EdgeLicenseLimits,
+) -> TaskSchedulerBudget {
+    let cap = license.max_concurrent_tasks;
+    if configured_tasks > cap as usize {
+        TaskSchedulerBudget::Exceeded {
+            configured: configured_tasks,
+            cap,
+        }
+    } else {
+        TaskSchedulerBudget::WithinBudget {
+            configured: configured_tasks,
+            cap,
+        }
+    }
+}
+
+/// Concurrent-force cap check. Batch 213 Faz 7 step 4
+/// enforcement point #6 (cmd_force_value).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ForceBudget {
+    /// Current active-force count within cap.
+    WithinBudget { active: usize, cap: u32 },
+    /// Active count at cap. cmd_force_value MUST reject with
+    /// the structured reason; operator clears an existing
+    /// force OR upgrades tier.
+    Exceeded { active: usize, cap: u32 },
+}
+
+pub fn check_force_budget(
+    active_forces: usize,
+    license: &EdgeLicenseLimits,
+) -> ForceBudget {
+    let cap = license.max_concurrent_forces;
+    // `>=` because incoming force would make active+1 which
+    // would exceed cap — reject BEFORE the registry grows.
+    if active_forces >= cap as usize {
+        ForceBudget::Exceeded {
+            active: active_forces,
+            cap,
+        }
+    } else {
+        ForceBudget::WithinBudget {
+            active: active_forces,
+            cap,
+        }
+    }
+}
+
+/// Active watch-session cap check. Batch 213 Faz 7 step 4
+/// enforcement point #7 (cmd_watch_subscribe).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WatchBudget {
+    /// Current active watch-session count within cap.
+    WithinBudget { active: usize, cap: u32 },
+    /// Active count at cap. cmd_watch_subscribe MUST reject;
+    /// operator unsubscribes an existing session OR upgrades.
+    Exceeded { active: usize, cap: u32 },
+}
+
+pub fn check_watch_budget(
+    active_watch_sessions: usize,
+    license: &EdgeLicenseLimits,
+) -> WatchBudget {
+    let cap = license.max_watch_sessions;
+    // Same `>=` semantics as ForceBudget — reject BEFORE the
+    // subscription grows past cap.
+    if active_watch_sessions >= cap as usize {
+        WatchBudget::Exceeded {
+            active: active_watch_sessions,
+            cap,
+        }
+    } else {
+        WatchBudget::WithinBudget {
+            active: active_watch_sessions,
+            cap,
+        }
+    }
+}
+
+/// OPC UA server gate. Batch 213 Faz 7 step 4 enforcement
+/// point #5 (opc_ua_server boot).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OpcUaServerGate {
+    /// License authorizes OPC UA server start. Operator's
+    /// `config.opc_ua_server.enabled` is the secondary gate
+    /// layered on top.
+    LicenseAllowsStart,
+    /// License denies OPC UA server start (tier too low).
+    /// opc_ua_server boot MUST NOT listen on :4840 + audit
+    /// event fires + operator sees CRITICAL log.
+    LicenseDisabled,
+}
+
+pub fn check_opc_ua_server_gate(license: &EdgeLicenseLimits) -> OpcUaServerGate {
+    if license.opc_ua_server_enabled {
+        OpcUaServerGate::LicenseAllowsStart
+    } else {
+        OpcUaServerGate::LicenseDisabled
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -592,6 +783,230 @@ i2c:
             }
             other => panic!("expected WithinBudget at boundary, got {:?}", other),
         }
+    }
+
+    // ========================================================
+    // Batch 213 Faz 7 — enforcement-point primitive tests
+    // ========================================================
+
+    fn limits_with(
+        max_st_programs: u32,
+        max_fb_instances: u32,
+        min_scan_cycle_ms: u32,
+        max_concurrent_tasks: u32,
+        max_concurrent_forces: u32,
+        max_watch_sessions: u32,
+        opc_ua_server_enabled: bool,
+    ) -> EdgeLicenseLimits {
+        EdgeLicenseLimits {
+            max_st_programs,
+            max_fb_instances,
+            min_scan_cycle_ms,
+            max_concurrent_tasks,
+            max_concurrent_forces,
+            max_watch_sessions,
+            opc_ua_server_enabled,
+            ..EdgeLicenseLimits::conservative()
+        }
+    }
+
+    // --- DeployProgramBudget ---
+
+    #[test]
+    fn deploy_within_budget_passes_every_check() {
+        let lic = limits_with(4, 16, 500, 3, 8, 5, true);
+        match check_deploy_program_budget(3, 12, 600, &lic) {
+            DeployProgramBudget::WithinBudget {
+                st_programs,
+                fb_instances,
+                scan_cycle_ms,
+            } => {
+                assert_eq!(st_programs, 3);
+                assert_eq!(fb_instances, 12);
+                assert_eq!(scan_cycle_ms, 600);
+            }
+            other => panic!("expected WithinBudget, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn deploy_reports_st_program_count_first() {
+        let lic = limits_with(2, 16, 500, 3, 8, 5, true);
+        match check_deploy_program_budget(3, 1, 1000, &lic) {
+            DeployProgramBudget::StProgramCountExceeded { configured, cap } => {
+                assert_eq!(configured, 3);
+                assert_eq!(cap, 2);
+            }
+            other => panic!("expected StProgramCountExceeded, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn deploy_reports_fb_instance_count_second() {
+        // ST count OK; FB count exceeds.
+        let lic = limits_with(4, 4, 500, 3, 8, 5, true);
+        match check_deploy_program_budget(2, 5, 1000, &lic) {
+            DeployProgramBudget::FbInstanceCountExceeded { configured, cap } => {
+                assert_eq!(configured, 5);
+                assert_eq!(cap, 4);
+            }
+            other => panic!("expected FbInstanceCountExceeded, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn deploy_reports_scan_cycle_below_floor_third() {
+        // ST + FB OK; scan cycle below min.
+        let lic = limits_with(4, 16, 500, 3, 8, 5, true);
+        match check_deploy_program_budget(1, 1, 250, &lic) {
+            DeployProgramBudget::ScanCycleBelowFloor {
+                configured_ms,
+                min_ms,
+            } => {
+                assert_eq!(configured_ms, 250);
+                assert_eq!(min_ms, 500);
+            }
+            other => panic!("expected ScanCycleBelowFloor, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn deploy_reports_first_failure_when_multiple_would_fail() {
+        // Every dimension fails; ST is checked first so the
+        // operator sees the ST rejection — not a downstream
+        // message that would obscure the primary fix.
+        let lic = limits_with(1, 1, 1000, 3, 8, 5, true);
+        match check_deploy_program_budget(5, 5, 100, &lic) {
+            DeployProgramBudget::StProgramCountExceeded { .. } => {}
+            other => panic!("expected ST first, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn deploy_accepts_exact_scan_cycle_floor() {
+        let lic = limits_with(4, 16, 500, 3, 8, 5, true);
+        match check_deploy_program_budget(1, 1, 500, &lic) {
+            DeployProgramBudget::WithinBudget { .. } => {}
+            other => panic!("expected WithinBudget at floor, got {:?}", other),
+        }
+    }
+
+    // --- TaskSchedulerBudget ---
+
+    #[test]
+    fn task_scheduler_within_budget_at_cap() {
+        let lic = limits_with(4, 16, 500, 3, 8, 5, true);
+        match check_task_scheduler_budget(3, &lic) {
+            TaskSchedulerBudget::WithinBudget { configured, cap } => {
+                assert_eq!(configured, 3);
+                assert_eq!(cap, 3);
+            }
+            other => panic!("expected WithinBudget, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn task_scheduler_exceeds_when_over() {
+        let lic = limits_with(4, 16, 500, 2, 8, 5, true);
+        match check_task_scheduler_budget(3, &lic) {
+            TaskSchedulerBudget::Exceeded { configured, cap } => {
+                assert_eq!(configured, 3);
+                assert_eq!(cap, 2);
+            }
+            other => panic!("expected Exceeded, got {:?}", other),
+        }
+    }
+
+    // --- ForceBudget ---
+
+    #[test]
+    fn force_within_budget_when_below_cap() {
+        let lic = limits_with(4, 16, 500, 3, 8, 5, true);
+        match check_force_budget(5, &lic) {
+            ForceBudget::WithinBudget { active, cap } => {
+                assert_eq!(active, 5);
+                assert_eq!(cap, 8);
+            }
+            other => panic!("expected WithinBudget, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn force_exceeds_at_exact_cap() {
+        // `>=` semantics — active count reaching cap MUST
+        // reject the NEXT incoming force (active=cap would
+        // become active+1>cap after apply).
+        let lic = limits_with(4, 16, 500, 3, 2, 5, true);
+        match check_force_budget(2, &lic) {
+            ForceBudget::Exceeded { active, cap } => {
+                assert_eq!(active, 2);
+                assert_eq!(cap, 2);
+            }
+            other => panic!("expected Exceeded at cap, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn force_conservative_zero_cap_always_rejects() {
+        // conservative() sets max_concurrent_forces=0; even
+        // an empty registry MUST reject the incoming force
+        // because 0>=0.
+        let lic = EdgeLicenseLimits::conservative();
+        match check_force_budget(0, &lic) {
+            ForceBudget::Exceeded { active, cap } => {
+                assert_eq!(active, 0);
+                assert_eq!(cap, 0);
+            }
+            other => panic!("expected Exceeded for conservative, got {:?}", other),
+        }
+    }
+
+    // --- WatchBudget ---
+
+    #[test]
+    fn watch_within_budget_when_below_cap() {
+        let lic = limits_with(4, 16, 500, 3, 8, 5, true);
+        match check_watch_budget(2, &lic) {
+            WatchBudget::WithinBudget { active, cap } => {
+                assert_eq!(active, 2);
+                assert_eq!(cap, 5);
+            }
+            other => panic!("expected WithinBudget, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn watch_exceeds_at_exact_cap() {
+        let lic = limits_with(4, 16, 500, 3, 8, 3, true);
+        match check_watch_budget(3, &lic) {
+            WatchBudget::Exceeded { active, cap } => {
+                assert_eq!(active, 3);
+                assert_eq!(cap, 3);
+            }
+            other => panic!("expected Exceeded at cap, got {:?}", other),
+        }
+    }
+
+    // --- OpcUaServerGate ---
+
+    #[test]
+    fn opc_ua_gate_allows_when_license_enables() {
+        let lic = limits_with(4, 16, 500, 3, 8, 5, true);
+        assert_eq!(check_opc_ua_server_gate(&lic), OpcUaServerGate::LicenseAllowsStart);
+    }
+
+    #[test]
+    fn opc_ua_gate_denies_when_license_disables() {
+        let lic = limits_with(4, 16, 500, 3, 8, 5, false);
+        assert_eq!(check_opc_ua_server_gate(&lic), OpcUaServerGate::LicenseDisabled);
+    }
+
+    #[test]
+    fn opc_ua_gate_conservative_is_disabled() {
+        assert_eq!(
+            check_opc_ua_server_gate(&EdgeLicenseLimits::conservative()),
+            OpcUaServerGate::LicenseDisabled
+        );
     }
 }
 

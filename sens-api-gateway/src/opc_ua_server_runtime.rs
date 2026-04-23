@@ -49,7 +49,9 @@ use tokio::task::JoinHandle;
 use tracing::{info, warn};
 
 use crate::config::OpcUaServerConfig;
+use crate::license::{check_opc_ua_server_gate, EdgeLicenseLimits, OpcUaServerGate};
 use crate::opc_ua_server::{OpcUaTagNode, OpcUaTagRegistry};
+use crate::process_image::ProcessImage;
 
 /// The Suderra edge-agent OPC UA namespace URI. Stable
 /// across releases — HMIs cache NodeId references keyed on
@@ -371,6 +373,83 @@ pub fn populate_tag_nodes(
         writable_nodes,
         insertion_failures,
     })
+}
+
+// ============================================================
+// Batch 218 Faz 5 — AppState boot-path init helper
+// ============================================================
+
+/// Gate-chained startup: operator config switch → Faz 7
+/// license gate → tag-catalog build → server start. Returns
+/// `Ok(None)` when either gate closes; `Ok(Some(handle))`
+/// when the server is running; `Err(..)` when the gates pass
+/// but the server itself refused to start (config validation
+/// drift, async-opcua builder rejection).
+///
+/// Callers pass a reference to the `ProcessImage` rather
+/// than the tag list directly so the tag catalog reflects
+/// whatever `process_image` was booted with (modbus + gpio +
+/// i2c + atlas tags merged by the platform init path). Config
+/// reloads that mutate tag entries require a server restart
+/// — a future batch adds hot-reload by tearing down the
+/// existing handle and re-invoking this init.
+///
+/// Error surface is `String` rather than `OpcUaServerStartError`
+/// because this is the AppState-facing boundary; main.rs
+/// routes the string through the bootstrap error channel
+/// alongside other init failures.
+pub async fn init_opc_ua_server(
+    config: &OpcUaServerConfig,
+    process_image: &ProcessImage,
+    license: &EdgeLicenseLimits,
+) -> Result<Option<Arc<SuderraOpcUaHandle>>, String> {
+    // Gate 1: operator off-switch.
+    if !config.enabled {
+        info!(
+            "opc_ua_server NOT started: config.opc_ua_server.enabled=false (operator off-switch)"
+        );
+        return Ok(None);
+    }
+
+    // Gate 2: Faz 7 license enforcement point #5. License
+    // cap overrides operator config — an off-tier tenant
+    // cannot start OPC UA even with config.enabled=true. The
+    // boot log emits a CRITICAL-grade warn so operators see
+    // the tier mismatch the moment the agent starts.
+    match check_opc_ua_server_gate(license) {
+        OpcUaServerGate::LicenseAllowsStart => {}
+        OpcUaServerGate::LicenseDisabled => {
+            warn!(
+                "opc_ua_server NOT started: license tier `{}` does NOT authorize OPC UA (plan Faz 7 enforcement point #5) — upgrade tier or disable config.opc_ua_server.enabled",
+                license.tier.as_str(),
+            );
+            return Ok(None);
+        }
+    }
+
+    // Build the tag registry from whatever the process image
+    // already has wired. `get_configs` is O(n) over the
+    // HashMap so it's cheap even on a large tag catalog.
+    let tag_configs = process_image.get_configs().await;
+    let tag_count = tag_configs.len();
+    let registry = OpcUaTagRegistry::build(tag_configs.iter()).map_err(|e| {
+        format!(
+            "opc_ua_server: tag catalog build failed ({} tag configs): {}",
+            tag_count, e
+        )
+    })?;
+    info!(
+        "opc_ua_server: tag registry built ({} tags from {} configs)",
+        registry.len(),
+        tag_count
+    );
+
+    // Start the server — the function's internal pre-spawn
+    // population uses `registry` to populate the Suderra
+    // address space.
+    start_opcua_server(config, &registry)
+        .await
+        .map_err(|e| format!("opc_ua_server start failed: {}", e))
 }
 
 enum TagInsertOutcome {
@@ -740,6 +819,158 @@ mod tests {
             Ok(i) => i,
             Err(_) => panic!("handle still Arc-shared"),
         };
+        let _ = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            inner.join(),
+        )
+        .await;
+        let _ = std::fs::remove_dir_all(&pki_dir);
+    }
+
+    // ============================================================
+    // Batch 218 Faz 5 — init_opc_ua_server gate-chain tests
+    // ============================================================
+
+    fn tier_conservative() -> EdgeLicenseLimits {
+        EdgeLicenseLimits::conservative()
+    }
+
+    fn tier_opc_ua_enabled() -> EdgeLicenseLimits {
+        EdgeLicenseLimits {
+            opc_ua_server_enabled: true,
+            ..EdgeLicenseLimits::conservative()
+        }
+    }
+
+    async fn pi_with_tags_async(
+        configs: Vec<crate::process_image::TagConfig>,
+    ) -> ProcessImage {
+        let pi = ProcessImage::new();
+        pi.set_configs(configs).await;
+        pi
+    }
+
+    #[tokio::test]
+    async fn init_returns_none_when_config_disabled() {
+        let mut cfg = minimal_enabled_config();
+        cfg.enabled = false;
+        let pi = ProcessImage::new();
+        let result = init_opc_ua_server(&cfg, &pi, &tier_opc_ua_enabled()).await;
+        match result {
+            Ok(None) => {}
+            Ok(Some(_)) => panic!("disabled config MUST NOT start"),
+            Err(e) => panic!("unexpected error: {}", e),
+        }
+    }
+
+    #[tokio::test]
+    async fn init_returns_none_when_license_denies() {
+        // Config enabled but license tier lacks the
+        // opc_ua_server_enabled flag → Faz 7 gate closes →
+        // server stays down.
+        let cfg = minimal_enabled_config();
+        let pi = ProcessImage::new();
+        let result = init_opc_ua_server(&cfg, &pi, &tier_conservative()).await;
+        match result {
+            Ok(None) => {}
+            Ok(Some(_)) => panic!("license-denied MUST stay down"),
+            Err(e) => panic!("unexpected error: {}", e),
+        }
+    }
+
+    #[tokio::test]
+    async fn init_starts_server_when_both_gates_pass() {
+        let cfg = minimal_enabled_config();
+        let pki_dir = cfg.own_pki_dir.clone();
+        let pi = ProcessImage::new();
+        let handle = match init_opc_ua_server(&cfg, &pi, &tier_opc_ua_enabled()).await {
+            Ok(Some(h)) => h,
+            Ok(None) => panic!("both gates open — server MUST start"),
+            Err(e) => panic!("start failed: {}", e),
+        };
+        // Empty process image → empty tag registry → summary
+        // shows 0 variable nodes added.
+        let summary = handle.population().expect("population ran");
+        assert_eq!(summary.variable_nodes_added, 0);
+        handle.cancel();
+        let inner = Arc::try_unwrap(handle).map_err(|_| "Arc").unwrap();
+        let _ = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            inner.join(),
+        )
+        .await;
+        let _ = std::fs::remove_dir_all(&pki_dir);
+    }
+
+    #[tokio::test]
+    async fn init_forwards_tag_catalog_from_process_image() {
+        use crate::process_image::{IoType, ProtocolConfig, TagConfig, TagSource};
+
+        let cfg = minimal_enabled_config();
+        let pki_dir = cfg.own_pki_dir.clone();
+        let pi = pi_with_tags_async(vec![
+            TagConfig {
+                tag_name: "pi_tag_a".to_string(),
+                io_type: IoType::DO,
+                data_type: "Bool".to_string(),
+                source: TagSource::Modbus,
+                poll_interval_ms: Some(1000),
+                raw_min: None,
+                raw_max: None,
+                eng_min: Some(0.0),
+                eng_max: Some(1.0),
+                eng_unit: None,
+                invert: false,
+                alarm_hh: None,
+                alarm_h: None,
+                alarm_l: None,
+                alarm_ll: None,
+                deadband: None,
+                protocol_config: ProtocolConfig::Modbus {
+                    slave_id: 1,
+                    register: 0,
+                    function: 3,
+                    register_type: "holding".to_string(),
+                },
+            },
+            TagConfig {
+                tag_name: "pi_tag_b".to_string(),
+                io_type: IoType::AI,
+                data_type: "Real".to_string(),
+                source: TagSource::Modbus,
+                poll_interval_ms: Some(1000),
+                raw_min: None,
+                raw_max: None,
+                eng_min: Some(0.0),
+                eng_max: Some(100.0),
+                eng_unit: Some("mg/L".to_string()),
+                invert: false,
+                alarm_hh: None,
+                alarm_h: None,
+                alarm_l: None,
+                alarm_ll: None,
+                deadband: None,
+                protocol_config: ProtocolConfig::Modbus {
+                    slave_id: 1,
+                    register: 0,
+                    function: 3,
+                    register_type: "holding".to_string(),
+                },
+            },
+        ])
+        .await;
+
+        let handle = init_opc_ua_server(&cfg, &pi, &tier_opc_ua_enabled())
+            .await
+            .expect("ok")
+            .expect("some");
+        let summary = handle.population().expect("ran");
+        // Both tags reach the address space.
+        assert_eq!(summary.variable_nodes_added, 2);
+        // Only the DO tag is writable.
+        assert_eq!(summary.writable_nodes, 1);
+        handle.cancel();
+        let inner = Arc::try_unwrap(handle).map_err(|_| "Arc").unwrap();
         let _ = tokio::time::timeout(
             std::time::Duration::from_secs(5),
             inner.join(),

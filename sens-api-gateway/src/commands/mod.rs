@@ -197,6 +197,13 @@ mod deploy_bytecode_program;
 // delete removes from both in-memory + SQLCipher.
 mod bytecode_ops;
 
+// Batch 197 Faz 6: live-debug force commands —
+// force_value / unforce_value / unforce_all /
+// list_forces. Thin adapters over the Batch 194
+// ForceRegistry primitive; signature + authz gates
+// handled by the envelope_adapter layer.
+mod force_commands;
+
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -900,6 +907,11 @@ impl CommandHandler {
             "enable_bytecode_program" => self.cmd_enable_bytecode_program(&command.params).await,
             "disable_bytecode_program" => self.cmd_disable_bytecode_program(&command.params).await,
             "delete_bytecode_program" => self.cmd_delete_bytecode_program(&command.params).await,
+            // Live-debug force commands (Batch 197 Faz 6)
+            "force_value" => self.cmd_force_value(&command.params).await,
+            "unforce_value" => self.cmd_unforce_value(&command.params).await,
+            "unforce_all" => self.cmd_unforce_all(&command.params).await,
+            "list_forces" => self.cmd_list_forces(&command.params).await,
             _ => {
                 // v1.2.2: Sanitize user-provided command name to prevent log injection
                 warn!("Unknown command: {}", sanitize_for_log(&command.command));

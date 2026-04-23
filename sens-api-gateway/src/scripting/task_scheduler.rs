@@ -308,6 +308,245 @@ impl TaskStats {
     }
 }
 
+/// Per-task runtime state. Holds the config + stats +
+/// last-fired timestamp so the scheduler can decide
+/// whether each task should fire this tick.
+///
+/// Batch 185 Faz 4 introduces the shape; Batch 186+
+/// adds the dispatch hook that calls `run_scan_tick`
+/// against the task's subset of programs.
+#[derive(Debug, Clone)]
+pub struct TaskState {
+    pub config: TaskConfig,
+    pub stats: TaskStats,
+    /// Monotonic milliseconds since scheduler start of
+    /// the last time this task's dispatch fired. Seeded
+    /// to 0 on scheduler construction so every task
+    /// fires on the first tick.
+    pub last_fired_at_ms: u64,
+}
+
+impl TaskState {
+    pub fn new(config: TaskConfig) -> Self {
+        Self {
+            config,
+            stats: TaskStats::default(),
+            last_fired_at_ms: 0,
+        }
+    }
+}
+
+/// Multi-task scheduler runtime. Holds N tasks;
+/// `tick_all(now_ms)` reports which tasks SHOULD fire
+/// this cycle based on their TaskKind semantic.
+///
+/// The scheduler is a pure state-machine primitive —
+/// deciding "fire or wait" + updating timestamps +
+/// stats. The actual program dispatch (calling
+/// `run_scan_tick` for each task's program subset)
+/// is the caller's responsibility in Batch 186.
+///
+/// Tasks fire in priority order (SafetyCritical
+/// first). Within the same priority, tasks fire in
+/// task-name order so scheduler behavior is
+/// reproducible across invocations.
+#[derive(Debug)]
+pub struct TaskScheduler {
+    tasks: Vec<TaskState>,
+}
+
+impl TaskScheduler {
+    /// Build a scheduler from a set of task configs.
+    /// Each config is validated; any failure aborts
+    /// construction.
+    ///
+    /// Duplicate task names reject as
+    /// `SchedulerInitError::DuplicateName` — the
+    /// scheduler identifies tasks by name in metrics
+    /// + admin commands so uniqueness is required.
+    pub fn new(configs: Vec<TaskConfig>) -> Result<Self, SchedulerInitError> {
+        let mut seen_names: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
+        for cfg in &configs {
+            cfg.validate().map_err(SchedulerInitError::InvalidConfig)?;
+            if !seen_names.insert(cfg.name.clone()) {
+                return Err(SchedulerInitError::DuplicateName {
+                    name: cfg.name.clone(),
+                });
+            }
+        }
+
+        let mut tasks: Vec<TaskState> =
+            configs.into_iter().map(TaskState::new).collect();
+        // Sort tasks in deterministic priority order:
+        // higher priority first; within same priority,
+        // task name alphabetical.
+        tasks.sort_by(|a, b| {
+            b.config
+                .slo_tier
+                .priority()
+                .cmp(&a.config.slo_tier.priority())
+                .then_with(|| a.config.name.cmp(&b.config.name))
+        });
+        Ok(Self { tasks })
+    }
+
+    /// Number of registered tasks.
+    pub fn task_count(&self) -> usize {
+        self.tasks.len()
+    }
+
+    /// Iterator over tasks in scheduler order (priority
+    /// descending, then name ascending).
+    pub fn tasks(&self) -> impl Iterator<Item = &TaskState> {
+        self.tasks.iter()
+    }
+
+    /// Decide which tasks should fire THIS tick.
+    /// Returns their names in scheduler order (priority
+    /// descending). Does NOT update last_fired_at_ms —
+    /// caller invokes `record_tick_fired` after the
+    /// dispatch actually runs (so a dispatch failure
+    /// doesn't reset the fire clock).
+    ///
+    /// Semantics per TaskKind:
+    /// - Cyclic { period_ms }: fire if (now - last >=
+    ///   period_ms).
+    /// - Freewheeling: always fire.
+    /// - Event: NEVER fire from this method —
+    ///   event-driven tasks wake via ProcessImage
+    ///   subscription (plumbed in Batch 188+). Keeping
+    ///   them out of the time-based decision avoids
+    ///   double-firing.
+    pub fn tasks_to_fire(&self, now_ms: u64) -> Vec<String> {
+        self.tasks
+            .iter()
+            .filter(|t| should_fire(&t.config, t.last_fired_at_ms, now_ms))
+            .map(|t| t.config.name.clone())
+            .collect()
+    }
+
+    /// Record a completed tick for a task. Updates the
+    /// stats + advances `last_fired_at_ms` to `now_ms`.
+    ///
+    /// `actual_cycle_ms` is the wall-clock elapsed from
+    /// the previous `last_fired_at_ms` (Cyclic tasks)
+    /// or the per-tick elapsed (Freewheeling). The
+    /// caller measures this at dispatch time.
+    pub fn record_tick_fired(
+        &mut self,
+        task_name: &str,
+        now_ms: u64,
+        actual_cycle_ms: u64,
+    ) -> Result<(), SchedulerRuntimeError> {
+        let task = self
+            .tasks
+            .iter_mut()
+            .find(|t| t.config.name == task_name)
+            .ok_or_else(|| SchedulerRuntimeError::UnknownTask {
+                name: task_name.to_string(),
+            })?;
+
+        let target = target_cycle_ms_for(&task.config);
+        task.stats.record_tick(actual_cycle_ms, target);
+        task.last_fired_at_ms = now_ms;
+        Ok(())
+    }
+
+    /// Record a watchdog kill on a task. Increments the
+    /// watchdog counter without advancing
+    /// `last_fired_at_ms` — the task stays "not fired"
+    /// so the scheduler re-attempts on the next tick.
+    pub fn record_watchdog_kill(
+        &mut self,
+        task_name: &str,
+    ) -> Result<(), SchedulerRuntimeError> {
+        let task = self
+            .tasks
+            .iter_mut()
+            .find(|t| t.config.name == task_name)
+            .ok_or_else(|| SchedulerRuntimeError::UnknownTask {
+                name: task_name.to_string(),
+            })?;
+
+        let target = target_cycle_ms_for(&task.config);
+        task.stats
+            .record_watchdog_kill(task.config.watchdog_ms, target);
+        Ok(())
+    }
+
+    /// Read-only stats snapshot for a task. Metrics +
+    /// admin endpoints call this to surface per-task
+    /// telemetry.
+    pub fn stats_of(&self, task_name: &str) -> Option<TaskStats> {
+        self.tasks
+            .iter()
+            .find(|t| t.config.name == task_name)
+            .map(|t| t.stats.clone())
+    }
+}
+
+/// Pure decision: does this task's next fire point
+/// fall before `now_ms`?
+fn should_fire(config: &TaskConfig, last_fired_at_ms: u64, now_ms: u64) -> bool {
+    match &config.kind {
+        TaskKind::Cyclic { period_ms } => {
+            now_ms.saturating_sub(last_fired_at_ms) >= *period_ms
+        }
+        TaskKind::Freewheeling => true,
+        TaskKind::Event { .. } => false,
+    }
+}
+
+/// Effective target-cycle-ms per task kind. Cyclic
+/// uses its declared period; Freewheeling + Event fall
+/// back to the SLO tier's canonical cycle.
+fn target_cycle_ms_for(config: &TaskConfig) -> u64 {
+    match &config.kind {
+        TaskKind::Cyclic { period_ms } => *period_ms,
+        _ => config.slo_tier.target_cycle_ms(),
+    }
+}
+
+/// Init-time failure taxonomy.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SchedulerInitError {
+    InvalidConfig(TaskConfigError),
+    DuplicateName { name: String },
+}
+
+impl std::fmt::Display for SchedulerInitError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidConfig(e) => write!(f, "scheduler init: {}", e),
+            Self::DuplicateName { name } => {
+                write!(f, "scheduler init: duplicate task name `{}`", name)
+            }
+        }
+    }
+}
+
+impl std::error::Error for SchedulerInitError {}
+
+/// Runtime failure taxonomy (called while the
+/// scheduler is live).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SchedulerRuntimeError {
+    UnknownTask { name: String },
+}
+
+impl std::fmt::Display for SchedulerRuntimeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnknownTask { name } => {
+                write!(f, "scheduler runtime: unknown task `{}`", name)
+            }
+        }
+    }
+}
+
+impl std::error::Error for SchedulerRuntimeError {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -481,5 +720,193 @@ mod tests {
         // The watchdog kill counts as a tick with
         // actual=1000 vs target=500 → overrun.
         assert_eq!(s.overrun_count, 1);
+    }
+
+    // ====================================================================
+    // Batch 185 Faz 4 — TaskScheduler state machine
+    // ====================================================================
+
+    fn mk_cfg(name: &str, period_ms: u64, tier: SloTier) -> TaskConfig {
+        TaskConfig {
+            name: name.to_string(),
+            kind: TaskKind::Cyclic { period_ms },
+            slo_tier: tier,
+            watchdog_ms: period_ms * 2,
+            programs: vec![format!("{}_prog", name)],
+        }
+    }
+
+    #[test]
+    fn scheduler_new_with_valid_configs_ok() {
+        let cfgs = vec![
+            mk_cfg("safety", 500, SloTier::SafetyCritical),
+            mk_cfg("routine", 1200, SloTier::Routine),
+        ];
+        let s = TaskScheduler::new(cfgs).expect("ok");
+        assert_eq!(s.task_count(), 2);
+    }
+
+    #[test]
+    fn scheduler_rejects_duplicate_task_names() {
+        let cfgs = vec![
+            mk_cfg("dup", 500, SloTier::SafetyCritical),
+            mk_cfg("dup", 1200, SloTier::Routine),
+        ];
+        assert!(matches!(
+            TaskScheduler::new(cfgs),
+            Err(SchedulerInitError::DuplicateName { .. })
+        ));
+    }
+
+    #[test]
+    fn scheduler_rejects_invalid_config() {
+        let cfgs = vec![TaskConfig {
+            name: "bad".into(),
+            kind: TaskKind::Cyclic { period_ms: 0 },
+            slo_tier: SloTier::Routine,
+            watchdog_ms: 100,
+            programs: vec![],
+        }];
+        assert!(matches!(
+            TaskScheduler::new(cfgs),
+            Err(SchedulerInitError::InvalidConfig(_))
+        ));
+    }
+
+    #[test]
+    fn scheduler_sorts_tasks_by_priority_descending() {
+        let cfgs = vec![
+            mk_cfg("low_pri", 5000, SloTier::LowPriority),
+            mk_cfg("crit_a", 500, SloTier::SafetyCritical),
+            mk_cfg("crit_b", 500, SloTier::SafetyCritical),
+            mk_cfg("routine", 1200, SloTier::Routine),
+        ];
+        let s = TaskScheduler::new(cfgs).expect("ok");
+        let names: Vec<String> = s
+            .tasks()
+            .map(|t| t.config.name.clone())
+            .collect();
+        // SafetyCritical first (alphabetical within
+        // tier), then Routine, then LowPriority.
+        assert_eq!(names, vec!["crit_a", "crit_b", "routine", "low_pri"]);
+    }
+
+    #[test]
+    fn scheduler_first_tick_fires_all_cyclic_tasks() {
+        let cfgs = vec![
+            mk_cfg("safety", 500, SloTier::SafetyCritical),
+            mk_cfg("routine", 1200, SloTier::Routine),
+        ];
+        let s = TaskScheduler::new(cfgs).expect("ok");
+        // At now=0, every task's last_fired_at_ms=0 too;
+        // elapsed=0 < period so they DON'T fire yet.
+        // Actually the should_fire rule is `elapsed >=
+        // period`. At now=0, elapsed=0, period=500 →
+        // 0 >= 500 is false → NO fire. Let me check
+        // with now=500.
+        assert!(s.tasks_to_fire(0).is_empty());
+        let fire_at_500 = s.tasks_to_fire(500);
+        // Safety (period 500) → elapsed 500 >= 500 → fire.
+        // Routine (period 1200) → elapsed 500 < 1200 → no.
+        assert_eq!(fire_at_500, vec!["safety"]);
+    }
+
+    #[test]
+    fn scheduler_freewheeling_task_always_fires() {
+        let cfg = TaskConfig {
+            name: "fw".into(),
+            kind: TaskKind::Freewheeling,
+            slo_tier: SloTier::LowPriority,
+            watchdog_ms: 100,
+            programs: vec![],
+        };
+        let s = TaskScheduler::new(vec![cfg]).expect("ok");
+        assert_eq!(s.tasks_to_fire(0), vec!["fw"]);
+        assert_eq!(s.tasks_to_fire(1), vec!["fw"]);
+        assert_eq!(s.tasks_to_fire(999999), vec!["fw"]);
+    }
+
+    #[test]
+    fn scheduler_event_task_never_fires_on_time_based_check() {
+        let cfg = TaskConfig {
+            name: "event".into(),
+            kind: TaskKind::Event {
+                event_tag: "water_temp".into(),
+            },
+            slo_tier: SloTier::SafetyCritical,
+            watchdog_ms: 100,
+            programs: vec![],
+        };
+        let s = TaskScheduler::new(vec![cfg]).expect("ok");
+        // tasks_to_fire returns empty regardless of
+        // time. Event-driven tasks dispatch via a
+        // separate path plumbed in Batch 188+.
+        assert!(s.tasks_to_fire(0).is_empty());
+        assert!(s.tasks_to_fire(999999).is_empty());
+    }
+
+    #[test]
+    fn scheduler_record_tick_fired_advances_last_timestamp() {
+        let cfgs = vec![mk_cfg("task1", 500, SloTier::Routine)];
+        let mut s = TaskScheduler::new(cfgs).expect("ok");
+        assert_eq!(s.tasks_to_fire(500), vec!["task1"]);
+        s.record_tick_fired("task1", 500, 480).expect("ok");
+        // After firing at 500, next fire at t=500+500=1000.
+        // At t=999, no fire.
+        assert!(s.tasks_to_fire(999).is_empty());
+        // At t=1000, fires.
+        assert_eq!(s.tasks_to_fire(1000), vec!["task1"]);
+    }
+
+    #[test]
+    fn scheduler_record_tick_updates_stats() {
+        let cfgs = vec![mk_cfg("task1", 500, SloTier::Routine)];
+        let mut s = TaskScheduler::new(cfgs).expect("ok");
+        s.record_tick_fired("task1", 500, 480).expect("ok");
+        s.record_tick_fired("task1", 1000, 520).expect("ok");
+        let stats = s.stats_of("task1").expect("present");
+        assert_eq!(stats.ticks_executed, 2);
+        assert_eq!(stats.cycle_ms_min, 480);
+        assert_eq!(stats.cycle_ms_max, 520);
+        // 520 > 500 target → 1 overrun.
+        assert_eq!(stats.overrun_count, 1);
+    }
+
+    #[test]
+    fn scheduler_record_watchdog_kill_does_not_advance_timestamp() {
+        let cfgs = vec![mk_cfg("task1", 500, SloTier::Routine)];
+        let mut s = TaskScheduler::new(cfgs).expect("ok");
+        // Fire once at 500 (advances last to 500).
+        s.record_tick_fired("task1", 500, 450).expect("ok");
+        // At t=1000 task1 should fire again.
+        assert_eq!(s.tasks_to_fire(1000), vec!["task1"]);
+        // Watchdog kill does NOT advance last_fired_at,
+        // so next tick at t=1001 still shows it as
+        // "should fire".
+        s.record_watchdog_kill("task1").expect("ok");
+        assert_eq!(s.tasks_to_fire(1001), vec!["task1"]);
+        let stats = s.stats_of("task1").expect("present");
+        assert_eq!(stats.watchdog_kill_count, 1);
+    }
+
+    #[test]
+    fn scheduler_record_tick_unknown_task_errors() {
+        let mut s = TaskScheduler::new(vec![]).expect("ok");
+        let err = s.record_tick_fired("ghost", 100, 50).unwrap_err();
+        assert!(matches!(err, SchedulerRuntimeError::UnknownTask { .. }));
+    }
+
+    #[test]
+    fn scheduler_fire_order_respects_priority() {
+        let cfgs = vec![
+            mk_cfg("low", 100, SloTier::LowPriority),
+            mk_cfg("high", 100, SloTier::SafetyCritical),
+            mk_cfg("mid", 100, SloTier::Routine),
+        ];
+        let s = TaskScheduler::new(cfgs).expect("ok");
+        // All three ready at t=100. Fire order:
+        // SafetyCritical → Routine → LowPriority.
+        let order = s.tasks_to_fire(100);
+        assert_eq!(order, vec!["high", "mid", "low"]);
     }
 }

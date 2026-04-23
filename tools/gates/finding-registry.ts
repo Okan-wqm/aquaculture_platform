@@ -598,10 +598,125 @@ function cmdRechainFrom(startIdxRaw: string | undefined): number {
   return 0;
 }
 
+/**
+ * cmdDedupe — one-time cleanup of duplicate ids introduced before the
+ * add CLI's uniqueness gate existed. For every id appearing more than
+ * once, keeps the entry with the earliest created_at (tie-break: first
+ * position) and drops the rest. Rechains from the earliest dropped
+ * index; verifies post-rechain.
+ *
+ * Safety:
+ *   - Refuses to drop a duplicate whose content fields differ semantically
+ *     from its counterpart (content fields = all fields except prev_hash
+ *     and content_hash). Semantic-drift duplicates must be reconciled
+ *     by a human editor — automatic-drop would silently lose work.
+ *   - --dry-run prints what would change without touching disk.
+ *
+ * Usage:
+ *   finding-registry dedupe [--dry-run]
+ */
+function cmdDedupe(args: string[]): number {
+  const dryRun = args.includes('--dry-run');
+  const entries = loadRegistry();
+  if (entries.length === 0) {
+    console.log('dedupe: registry is empty, nothing to do.');
+    return 0;
+  }
+
+  // Group indices by id.
+  const byId = new Map<string, number[]>();
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    if (!entry) continue;
+    const list = byId.get(entry.id) ?? [];
+    list.push(i);
+    byId.set(entry.id, list);
+  }
+
+  // Collect indices to drop (sorted descending so splice works without shifting).
+  const toDrop: number[] = [];
+  const semanticConflicts: { id: string; indices: number[] }[] = [];
+  let firstDropIndex = entries.length;
+
+  for (const [id, indices] of byId) {
+    if (indices.length < 2) continue;
+
+    const keepers = indices.map((i) => entries[i]!);
+    // Detect semantic drift: compare content fields (strip prev_hash + content_hash).
+    const canonicals = keepers.map((e) => {
+      const { prev_hash: _p, content_hash: _c, ...rest } = e;
+      return canonicalJson(rest);
+    });
+    const allIdentical = canonicals.every((c) => c === canonicals[0]);
+    if (!allIdentical) {
+      semanticConflicts.push({ id, indices });
+      continue;
+    }
+
+    // Pick the winner: earliest created_at, tie-break on first index.
+    let winnerIdx = indices[0]!;
+    let winner = entries[winnerIdx]!;
+    for (const i of indices.slice(1)) {
+      const candidate = entries[i]!;
+      if (candidate.created_at < winner.created_at) {
+        winner = candidate;
+        winnerIdx = i;
+      }
+    }
+    for (const i of indices) {
+      if (i !== winnerIdx) {
+        toDrop.push(i);
+        if (i < firstDropIndex) firstDropIndex = i;
+      }
+    }
+  }
+
+  if (semanticConflicts.length > 0) {
+    console.error(
+      `dedupe: ${semanticConflicts.length} duplicate id(s) have semantic drift and CANNOT be auto-dropped:`,
+    );
+    for (const c of semanticConflicts) {
+      console.error(
+        `  - ${c.id}: indices [${c.indices.join(', ')}] differ in content; manual reconcile required.`,
+      );
+    }
+    return 1;
+  }
+
+  if (toDrop.length === 0) {
+    console.log('dedupe: no duplicates found; registry is already clean.');
+    return 0;
+  }
+
+  console.log(`dedupe: ${toDrop.length} duplicate row(s) will be removed.`);
+  console.log(`dedupe: affected ids: ${[...byId.entries()].filter(([, v]) => v.length > 1).map(([k]) => k).join(', ')}`);
+  console.log(`dedupe: earliest removal position: ${firstDropIndex}`);
+
+  if (dryRun) {
+    console.log('dedupe: --dry-run mode, not writing.');
+    return 0;
+  }
+
+  // Splice highest-index first so earlier indices stay stable.
+  toDrop.sort((a, b) => b - a);
+  for (const i of toDrop) entries.splice(i, 1);
+
+  rechain(entries, firstDropIndex);
+  const result = verify(entries);
+  if (!result.ok) {
+    console.error(`dedupe: post-rechain verify FAILED: ${result.reason}`);
+    return 1;
+  }
+  writeRegistry(entries);
+  console.log(`dedupe: done. Registry is now ${entries.length} entries, chain tip:`);
+  console.log(entries[entries.length - 1]?.content_hash ?? '(empty)');
+  return 0;
+}
+
 function main(): void {
   const [, , sub, ...args] = process.argv;
   if (!sub) {
-    console.error('Usage: finding-registry <verify|add|close|sweep|export|list|rechain-from> [args]');
+    console.error('Usage: finding-registry <verify|add|close|sweep|export|list|rechain-from|dedupe> [args]');
     console.error('  verify');
     console.error('  add <stub.json>');
     console.error('  close <finding-id> <short-sha>');
@@ -609,6 +724,7 @@ function main(): void {
     console.error('  export <json-array|csv>');
     console.error('  list [--state <CSV>] [--severity <CSV>] [--owner <name>] [--format table|id-only|json]');
     console.error('  rechain-from <N>   — post-merge integrity repair (see docblock)');
+    console.error('  dedupe [--dry-run] — one-time duplicate-id cleanup (see docblock)');
     process.exit(2);
   }
 
@@ -643,6 +759,8 @@ function main(): void {
     exitCode = cmdList(args);
   } else if (sub === 'rechain-from') {
     exitCode = cmdRechainFrom(args[0]);
+  } else if (sub === 'dedupe') {
+    exitCode = cmdDedupe(args);
   } else {
     console.error(`Unknown subcommand: ${sub}`);
     process.exit(2);

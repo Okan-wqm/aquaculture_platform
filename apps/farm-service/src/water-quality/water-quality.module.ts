@@ -53,6 +53,7 @@ import { WaterQualityQueryHandlers } from './query-handlers';
 import { ParameterConfigCacheService } from './services/parameter-config-cache.service';
 import { WaterQualityEvaluationService } from './services/water-quality-evaluation.service';
 import { WaterQualityValidationService } from './services/water-quality-validation.service';
+import { WaterQualityParameterConfigSeederService } from './services/water-quality-parameter-config-seeder.service';
 
 const CommandHandlers = [
   CreateParameterConfigHandler,
@@ -81,6 +82,7 @@ const CommandHandlers = [
     ParameterConfigCacheService,
     WaterQualityEvaluationService,
     WaterQualityValidationService,
+    WaterQualityParameterConfigSeederService,
     WaterQualityResolver,
     WaterQualityParameterConfigResolver,
     ...CommandHandlers,
@@ -92,6 +94,7 @@ const CommandHandlers = [
     ParameterConfigCacheService,
     WaterQualityEvaluationService,
     WaterQualityValidationService,
+    WaterQualityParameterConfigSeederService,
   ],
 })
 export class WaterQualityModule {}

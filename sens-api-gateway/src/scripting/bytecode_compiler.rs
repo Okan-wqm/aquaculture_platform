@@ -296,9 +296,45 @@ pub fn compile_expression(
         Expression::ArrayAccess { .. } => Err(CompileError::Unsupported {
             what: "array access (future batch)".to_string(),
         }),
-        Expression::MemberAccess { .. } => Err(CompileError::Unsupported {
-            what: "member access (future FB-integration batch)".to_string(),
-        }),
+        Expression::MemberAccess { object, member } => {
+            // Batch 181 Faz 3: `fb_instance.output_pin`
+            // maps to `FbReadOutput { fb_id, output_name }`.
+            // The object MUST be a bare Variable whose
+            // name denotes an FB instance; more complex
+            // left-hand shapes (`arr[0].x`, nested
+            // member access) stay Unsupported until
+            // the FB-type catalog lands.
+            //
+            // Type inference: the compiler doesn't know
+            // the FB output's declared type at this
+            // call site. Pick Real as the inferred
+            // type — most FB outputs are numeric
+            // (ET timer elapsed, PID output, counter
+            // value). Bool outputs (TON.Q, rising-edge
+            // trip) downgrade to wrong inferred type
+            // which the downstream opcode catches at
+            // runtime via VmError::TypeMismatch. Batch
+            // 182 plumbs an FbTypeCatalog so the
+            // compiler can pick the right type.
+            let fb_name = match object.as_ref() {
+                Expression::Variable(name, _) => name.clone(),
+                other => {
+                    return Err(CompileError::Unsupported {
+                        what: format!(
+                            "member-access LHS must be a bare FB instance name (got {:?})",
+                            target_kind(other)
+                        ),
+                    });
+                }
+            };
+            Ok((
+                vec![Opcode::FbReadOutput {
+                    fb_id: fb_name,
+                    output_name: member.clone(),
+                }],
+                StValueType::Real,
+            ))
+        }
         Expression::FunctionCall { name, args } => {
             compile_stdlib_function_call(name, args, symbols)
         }
@@ -794,9 +830,40 @@ pub fn compile_statement(
             ops,
             loop_stack,
         ),
-        Statement::FunctionBlockCall { .. } => Err(CompileError::Unsupported {
-            what: "function block call (Batch 155 FB-integration)".to_string(),
-        }),
+        Statement::FunctionBlockCall { fb_name, assignments, .. } => {
+            // Batch 181 Faz 3: compile the IEC 61131-3
+            // `fb_instance(IN1 := expr1, IN2 := expr2);`
+            // syntax to a sequence of argument-push
+            // opcodes followed by one `FbCall` opcode
+            // that carries the input-pin name list.
+            //
+            // Argument order on the stack matches the
+            // assignments' order in the AST (left-to-
+            // right). VM pops in reverse so the first
+            // pop is the LAST argument; the VM's FbCall
+            // handler reverses to match the
+            // `input_names` vector.
+            let mut input_names: Vec<String> =
+                Vec::with_capacity(assignments.len());
+            for (input_name, value_expr) in assignments {
+                let (value_ops, _value_type) =
+                    compile_expression(value_expr, symbols)?;
+                // Type check handled at runtime — FB
+                // pin type catalog is not yet
+                // compile-time accessible (Batch 182
+                // adds it). The Batch 180
+                // `FbIo::set_input` return surfaces
+                // `FbIoError::TypeMismatch` → VM
+                // converts to `VmError::FbIoFailed`.
+                ops.extend(value_ops);
+                input_names.push(input_name.clone());
+            }
+            ops.push(Opcode::FbCall {
+                fb_id: fb_name.clone(),
+                input_names,
+            });
+            Ok(())
+        }
         Statement::FunctionCall { name, args, .. } => {
             // Statement-level call: compile as expression
             // then discard the result. IEC 61131-3
@@ -2950,6 +3017,125 @@ mod tests {
                 },
             ]
         );
+    }
+
+    // ====================================================================
+    // Batch 181 Faz 3 — FunctionBlockCall + MemberAccess compilation
+    // ====================================================================
+
+    #[test]
+    fn compile_fb_call_emits_push_args_then_fb_call_opcode() {
+        // my_timer(IN := flag, PT := 5000);
+        // where flag: Bool, 5000 is IntLiteral.
+        let syms = build_symbols(vec![
+            sym("flag", 0, StValueType::Bool),
+        ]);
+        let mut ops = vec![];
+        compile_stmt_program_scope(
+            &Statement::FunctionBlockCall {
+                fb_name: "my_timer".into(),
+                assignments: vec![
+                    (
+                        "IN".to_string(),
+                        Expression::Variable("flag".into(), None),
+                    ),
+                    (
+                        "PT".to_string(),
+                        Expression::IntLiteral(5000),
+                    ),
+                ],
+                span: None,
+            },
+            &syms,
+            &mut ops,
+        )
+        .expect("ok");
+        // Expected shape:
+        //  0: LoadLocal{0}                (flag)
+        //  1: PushConst{Int(5000)}
+        //  2: FbCall { fb_id: "my_timer", input_names: [IN, PT] }
+        assert_eq!(ops.len(), 3);
+        assert_eq!(ops[0], Opcode::LoadLocal { index: 0 });
+        assert_eq!(ops[1], Opcode::PushConst { value: StValue::Int(5000) });
+        match &ops[2] {
+            Opcode::FbCall { fb_id, input_names } => {
+                assert_eq!(fb_id, "my_timer");
+                assert_eq!(
+                    input_names,
+                    &vec!["IN".to_string(), "PT".to_string()]
+                );
+            }
+            other => panic!("expected FbCall, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn compile_fb_call_with_zero_args_emits_only_fb_call() {
+        // my_counter();  — no assignments
+        let mut ops = vec![];
+        compile_stmt_program_scope(
+            &Statement::FunctionBlockCall {
+                fb_name: "my_counter".into(),
+                assignments: vec![],
+                span: None,
+            },
+            &SymbolTable::new(),
+            &mut ops,
+        )
+        .expect("ok");
+        assert_eq!(ops.len(), 1);
+        match &ops[0] {
+            Opcode::FbCall { fb_id, input_names } => {
+                assert_eq!(fb_id, "my_counter");
+                assert!(input_names.is_empty());
+            }
+            other => panic!("expected FbCall, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn compile_member_access_as_expression_emits_fb_read_output() {
+        // my_timer.Q  (as an expression)
+        let (ops, t) = compile_expression(
+            &Expression::MemberAccess {
+                object: Box::new(Expression::Variable(
+                    "my_timer".into(),
+                    None,
+                )),
+                member: "Q".into(),
+            },
+            &SymbolTable::new(),
+        )
+        .expect("ok");
+        assert_eq!(ops.len(), 1);
+        match &ops[0] {
+            Opcode::FbReadOutput { fb_id, output_name } => {
+                assert_eq!(fb_id, "my_timer");
+                assert_eq!(output_name, "Q");
+            }
+            other => panic!("expected FbReadOutput, got {:?}", other),
+        }
+        // Batch 181 inferred type = Real; Batch 182
+        // adds the FB type catalog for precise typing.
+        assert_eq!(t, StValueType::Real);
+    }
+
+    #[test]
+    fn compile_member_access_non_variable_lhs_rejects() {
+        // (1 + 2).foo  → LHS is BinaryOp not Variable → Unsupported.
+        let err = compile_expression(
+            &Expression::MemberAccess {
+                object: Box::new(Expression::BinaryOp {
+                    left: Box::new(Expression::IntLiteral(1)),
+                    op: BinaryOp::Add,
+                    right: Box::new(Expression::IntLiteral(2)),
+                }),
+                member: "foo".into(),
+            },
+            &SymbolTable::new(),
+        )
+        .expect_err("non-variable lhs");
+        assert!(matches!(err, CompileError::Unsupported { .. }));
     }
 
     // ====================================================================

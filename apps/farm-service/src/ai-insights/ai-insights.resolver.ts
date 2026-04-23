@@ -88,6 +88,7 @@ export class AiInsightsResolver {
    * driver of water quality degradation. Nullable because the MCP
    * predict_feeding_impact tool may be unavailable.
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => FeedingAdvice, {
     nullable: true,
     description: 'AI-driven feeding recommendation for a specific tank',

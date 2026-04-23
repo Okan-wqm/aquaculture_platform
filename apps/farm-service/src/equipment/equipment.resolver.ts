@@ -412,6 +412,7 @@ export class EquipmentResolver {
   /**
    * List feeder calibrations for an equipment
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [FeederCalibrationResponse])
   async feederCalibrations(
     @Args('equipmentId', { type: () => ID }) equipmentId: string,

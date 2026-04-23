@@ -114,6 +114,7 @@ export class FeedResolver {
   /**
    * Get a single feed by ID
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => FeedResponse, { nullable: true })
   async feed(
     @Args('id', { type: () => ID }) id: string,
@@ -126,6 +127,7 @@ export class FeedResolver {
   /**
    * List feeds with pagination and filtering
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => PaginatedFeedsResponse)
   async feeds(
     @Args('filter', { type: () => FeedFilterInput, nullable: true }) filter: FeedFilterInput | undefined,
@@ -140,6 +142,7 @@ export class FeedResolver {
   /**
    * Get feeds by type for dropdowns
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [FeedResponse])
   async feedsByType(
     @Args('type', { type: () => FeedType }) type: FeedType,
@@ -153,6 +156,7 @@ export class FeedResolver {
   /**
    * Get feeds by pellet size for dropdowns
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [FeedResponse])
   async feedsByPelletSize(
     @Args('pelletSize', { type: () => Float }) pelletSize: number,
@@ -166,6 +170,7 @@ export class FeedResolver {
   /**
    * Get feeds for specific species (legacy convenience)
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [FeedResponse])
   async feedsForSpecies(
     @Args('species') species: string,
@@ -180,6 +185,7 @@ export class FeedResolver {
    * Get all feed types (global, not tenant-specific)
    */
   @SkipTenantGuard()
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [FeedTypeResponse])
   async feedTypes(): Promise<FeedTypeResponse[]> {
     return this.feedTypeRepository.find({

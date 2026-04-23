@@ -481,6 +481,7 @@ export class CleanerFishResolver {
     });
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => TankCleanerFishInfo, { name: 'tankCleanerFish', nullable: true })
   async getTankCleanerFish(
     @Tenant() tenantId: string,

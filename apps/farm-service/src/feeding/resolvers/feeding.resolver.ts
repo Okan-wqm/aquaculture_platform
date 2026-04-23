@@ -1145,6 +1145,7 @@ export class FeedingResolver {
    * Get all active tanks with fish
    * Returns tanks that have fish (totalQuantity > 0) for tank selection in UI
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [ActiveTankResponse], { description: 'Get all active tanks with fish for simulation' })
   async activeTanks(
     @CurrentTenant() tenantId: string,

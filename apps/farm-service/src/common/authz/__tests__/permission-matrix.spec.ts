@@ -205,10 +205,11 @@ describe('resolveAllowedRoles helper', () => {
 
   it('grandfathered operations map to null', () => {
     // The whitelist only contains queries that phase 6.1.1 hasn't
-    // classified yet. `sites` is a canonical large-surface read
-    // that stays grandfathered until the sites/departments query
-    // sweep lands. Every mutation and the batch-family reads have
-    // already moved into MUTATION_ROLES / QUERY_ROLES.
-    expect(UNGATED_OPERATIONS.has('sites')).toBe(true);
+    // classified yet. `equipment` is a canonical large-surface
+    // read that stays grandfathered until the equipment query
+    // sweep lands. Every mutation plus the batch / site / dept /
+    // system / tank family of reads have already moved into
+    // MUTATION_ROLES / QUERY_ROLES.
+    expect(UNGATED_OPERATIONS.has('equipment')).toBe(true);
   });
 });

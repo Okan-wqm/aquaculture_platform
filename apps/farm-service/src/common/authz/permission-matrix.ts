@@ -256,6 +256,8 @@ export const MUTATION_ROLES: Readonly<Record<string, readonly Role[]>> = Object.
  */
 export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.freeze({
   activeFeedingPrograms: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  activeSites: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  activeTanks: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   availableTanks: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   batch: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   batchFeedAssignment: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
@@ -270,8 +272,16 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   batches: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   biomassReport: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   biomassReports: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  childSystems: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   dailyFeedingExecution: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   dailyFeedingExecutions: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  department: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  // delete-preview queries are pre-flight checks for destructive
+  // mutations — same authorisation shape as the corresponding
+  // delete mutation (MANAGER + ADMIN, no operator).
+  departmentDeletePreview: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  departments: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  departmentsBySite: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   feedingProgram: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   feedingPrograms: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   generateBatchNumber: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
@@ -282,6 +292,20 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   harvestPlanStats: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   overdueHarvestPlans: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   projectHarvestDate: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  rootSystems: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  site: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  siteDeletePreview: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  sites: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  system: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  systemDeletePreview: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  systems: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  systemsByDepartment: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  systemsBySite: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  tank: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  tankCleanerFish: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  tankRiskAssessment: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  tanks: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  tanksByDepartment: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   todaysFeedingPlan: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   upcomingHarvestPlans: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
 });
@@ -306,11 +330,15 @@ export const UNGATED_OPERATIONS: ReadonlySet<string> = Object.freeze(new Set([
   // 11 batch-related reads out: batch / batches / batchFeedAssignment
   // / batchGrowthHistory / batchGrowthPrediction / batchHarvestEligibility
   // / batchHistory / batchPerformance / availableTanks /
-  // generateBatchNumber / projectHarvestDate.
+  // generateBatchNumber / projectHarvestDate. Phase 6.1.1
+  // (site-dept-system-tank queries) moved 20 more: activeSites /
+  // activeTanks / site / sites / siteDeletePreview / department /
+  // departments / departmentsBySite / departmentDeletePreview /
+  // system / systems / systemsBySite / systemsByDepartment /
+  // systemDeletePreview / rootSystems / childSystems / tank /
+  // tanks / tanksByDepartment / tankCleanerFish / tankRiskAssessment.
   // Queries
-  'activeSites',
   'activeSpecies',
-  'activeTanks',
   'autoRule',
   'autoRules',
   'chemical',
@@ -318,7 +346,6 @@ export const UNGATED_OPERATIONS: ReadonlySet<string> = Object.freeze(new Set([
   'chemicalsByType',
   'chemicalSuppliers',
   'chemicalTypes',
-  'childSystems',
   'cleanerFishBatches',
   'cleanerFishReport',
   'cleanerFishSpecies',
@@ -329,10 +356,6 @@ export const UNGATED_OPERATIONS: ReadonlySet<string> = Object.freeze(new Set([
   'currentWeather',
   'dailyFeedingPlan',
   'defaultFeedingProtocol',
-  'department',
-  'departmentDeletePreview',
-  'departments',
-  'departmentsBySite',
   'disinfectantChemicals',
   'equipment',
   'equipmentByDepartment',
@@ -411,13 +434,9 @@ export const UNGATED_OPERATIONS: ReadonlySet<string> = Object.freeze(new Set([
   'regulatoryConfigurationStatus',
   'regulatoryHealth',
   'regulatorySettings',
-  'rootSystems',
   'sentinelHubStatus',
   'sentinelHubToken',
   'sentinelHubWmtsConfig',
-  'site',
-  'siteDeletePreview',
-  'sites',
   'sparePart',
   'sparePartByCode',
   'sparePartByPartNumber',
@@ -443,16 +462,6 @@ export const UNGATED_OPERATIONS: ReadonlySet<string> = Object.freeze(new Set([
   'suppliers',
   'suppliersByType',
   'supplierTypes',
-  'system',
-  'systemDeletePreview',
-  'systems',
-  'systemsByDepartment',
-  'systemsBySite',
-  'tank',
-  'tankCleanerFish',
-  'tankRiskAssessment',
-  'tanks',
-  'tanksByDepartment',
   'task',
   'tasks',
   'taskStats',

@@ -1,0 +1,164 @@
+apps/hr-service/src/aquaculture/handlers/create-work-rotation.handler.ts:48:      const rotationRepo = queryRunner.manager.getRepository(WorkRotation);
+apps/hr-service/src/aquaculture/handlers/create-work-rotation.handler.ts:49:      const workAreaRepo = queryRunner.manager.getRepository(WorkArea);
+apps/hr-service/src/aquaculture/handlers/deactivate-work-area.handler.ts:22:      const repo = queryRunner.manager.getRepository(WorkArea);
+apps/hr-service/src/performance/handlers/update-key-result.handler.ts:21:      const goalRepo = queryRunner.manager.getRepository(Goal);
+apps/hr-service/src/performance/handlers/complete-goal.handler.ts:21:      const goalRepo = queryRunner.manager.getRepository(Goal);
+apps/hr-service/src/performance/handlers/add-key-result.handler.ts:22:      const goalRepo = queryRunner.manager.getRepository(Goal);
+apps/hr-service/src/performance/handlers/update-goal.handler.ts:21:      const goalRepo = queryRunner.manager.getRepository(Goal);
+apps/hr-service/src/aquaculture/handlers/create-safety-training-record.handler.ts:28:      const repo = queryRunner.manager.getRepository(SafetyTrainingRecord);
+apps/hr-service/src/aquaculture/handlers/end-rotation.handler.ts:34:      const repo = queryRunner.manager.getRepository(WorkRotation);
+apps/hr-service/src/aquaculture/handlers/cancel-rotation.handler.ts:29:      const repo = queryRunner.manager.getRepository(WorkRotation);
+apps/hr-service/src/training/handlers/revoke-certification.handler.ts:25:   * HR-HIGH-014: Uses queryRunner.manager.find/update directly instead of getRepository().
+apps/hr-service/src/training/handlers/revoke-certification.handler.ts:33:    // SECURITY: All queries include tenantId — no getRepository() bypass
+apps/hr-service/src/attendance/handlers/create-shift.handler.ts:74:      const shiftRepo = queryRunner.manager.getRepository(Shift);
+apps/hr-service/src/performance/handlers/submit-manager-assessment.handler.ts:31:      const reviewRepo = queryRunner.manager.getRepository(PerformanceReview);
+apps/hr-service/src/attendance/handlers/approve-attendance.handler.ts:23:      const attendanceRepo = queryRunner.manager.getRepository(AttendanceRecord);
+apps/hr-service/src/performance/handlers/reopen-review.handler.ts:21:      const reviewRepo = queryRunner.manager.getRepository(PerformanceReview);
+apps/hr-service/src/performance/handlers/update-goal-progress.handler.ts:21:      const goalRepo = queryRunner.manager.getRepository(Goal);
+apps/hr-service/src/performance/handlers/finalize-review.handler.ts:21:      const reviewRepo = queryRunner.manager.getRepository(PerformanceReview);
+apps/billing-service/src/modules/metering/usage-aggregator.service.ts:169:    this.aggregationRepository = this.dataSource.getRepository(UsageAggregation);
+apps/billing-service/src/modules/metering/usage-aggregator.service.ts:170:    this.hourlyDataRepository = this.dataSource.getRepository(UsageHourlyData);
+apps/billing-service/src/billing/query-handlers/get-subscription.handler.ts:31:    const subscriptionRepo = this.dataSource.getRepository(Subscription);
+apps/billing-service/src/billing/query-handlers/get-plan-by-id.handler.ts:15:    const planRepo = this.dataSource.getRepository(Plan);
+apps/billing-service/src/billing/handlers/deactivate-plan.handler.ts:25:      const planRepo = manager.getRepository(Plan);
+apps/billing-service/src/billing/handlers/update-plan.handler.ts:26:      const planRepo = manager.getRepository(Plan);
+apps/hr-service/src/hr/handlers/approve-payroll.handler.ts:29:      const payrollRepo = queryRunner.manager.getRepository(Payroll);
+apps/hr-service/src/hr/handlers/update-department.handler.ts:24:      const repo = queryRunner.manager.getRepository(DepartmentHR);
+apps/hr-service/src/hr/handlers/create-employee.handler.ts:28:      const employeeRepo = queryRunner.manager.getRepository(Employee);
+apps/hr-service/src/hr/handlers/create-department.handler.ts:24:      const repo = queryRunner.manager.getRepository(DepartmentHR);
+apps/hr-service/src/hr/handlers/update-employee.handler.ts:29:      const employeeRepo = queryRunner.manager.getRepository(Employee);
+apps/hr-service/src/aquaculture/handlers/update-work-area.handler.ts:23:      const repo = queryRunner.manager.getRepository(WorkArea);
+apps/hr-service/src/aquaculture/handlers/start-rotation.handler.ts:37:      const repo = queryRunner.manager.getRepository(WorkRotation);
+apps/hr-service/src/aquaculture/handlers/update-work-rotation.handler.ts:30:      const repo = queryRunner.manager.getRepository(WorkRotation);
+apps/billing-service/src/billing/query-handlers/get-tenant-billing.handler.ts:74:    const repo = this.dataSource.getRepository(Subscription);
+apps/billing-service/src/billing/query-handlers/get-tenant-billing.handler.ts:82:    const repo = this.dataSource.getRepository(Invoice);
+apps/billing-service/src/billing/query-handlers/get-tenant-billing.handler.ts:100:    const repo = this.dataSource.getRepository(TenantUsageMetrics);
+apps/billing-service/src/billing/event-handlers/tenant-subscription-requested.handler.ts:241:      const planEntity = await this.dataSource.getRepository(Plan).findOne({
+apps/billing-service/src/billing/event-handlers/tenant-subscription-requested.handler.ts:349:        await this.dataSource.getRepository(Subscription).update(
+apps/billing-service/src/billing/event-handlers/tenant-subscription-requested.handler.ts:397:    const moduleItemRepo = this.dataSource.getRepository(SubscriptionModuleItem);
+apps/billing-service/src/billing/handlers/create-plan.handler.ts:28:      const planRepo = manager.getRepository(Plan);
+apps/hr-service/src/aquaculture/handlers/create-work-area.handler.ts:22:      const repo = queryRunner.manager.getRepository(WorkArea);
+apps/hr-service/src/aquaculture/handlers/confirm-safety-training-attendance.handler.ts:30:      const repo = queryRunner.manager.getRepository(SafetyTrainingRecord);
+apps/hr-service/src/aquaculture/handlers/approve-rotation.handler.ts:28:      const repo = queryRunner.manager.getRepository(WorkRotation);
+apps/hr-service/src/performance/handlers/submit-self-assessment.handler.ts:21:      const reviewRepo = queryRunner.manager.getRepository(PerformanceReview);
+apps/hr-service/src/performance/handlers/complete-milestone.handler.ts:21:      const goalRepo = queryRunner.manager.getRepository(Goal);
+apps/hr-service/src/performance/handlers/defer-goal.handler.ts:21:      const goalRepo = queryRunner.manager.getRepository(Goal);
+apps/billing-service/src/billing/billing-scheduler.service.ts:498:      const changeRepo = this.dataSource.getRepository(ScheduledPlanChange);
+apps/billing-service/src/billing/query-handlers/get-invoices.handler.ts:15:    const invoiceRepo = this.dataSource.getRepository(Invoice);
+apps/billing-service/src/billing/query-handlers/get-payments.handler.ts:15:    const paymentRepo = this.dataSource.getRepository(Payment);
+apps/billing-service/src/billing/seed/plan-seed.service.ts:27:    const planRepo = this.dataSource.getRepository(Plan);
+apps/billing-service/src/billing/handlers/create-invoice.handler.ts:27:    const invoiceRepo = this.dataSource.getRepository(Invoice);
+apps/billing-service/src/billing/handlers/create-invoice.handler.ts:31:      const subscriptionRepo = this.dataSource.getRepository(Subscription);
+apps/hr-service/src/performance/handlers/create-goal.handler.ts:36:      const employeeRepo = queryRunner.manager.getRepository(Employee);
+apps/hr-service/src/performance/handlers/create-goal.handler.ts:37:      const goalRepo = queryRunner.manager.getRepository(Goal);
+apps/hr-service/src/performance/handlers/cancel-goal.handler.ts:21:      const goalRepo = queryRunner.manager.getRepository(Goal);
+apps/hr-service/src/performance/handlers/add-milestone.handler.ts:22:      const goalRepo = queryRunner.manager.getRepository(Goal);
+apps/hr-service/src/performance/handlers/create-performance-review.handler.ts:22:      const employeeRepo = queryRunner.manager.getRepository(Employee);
+apps/hr-service/src/performance/handlers/create-performance-review.handler.ts:23:      const reviewRepo = queryRunner.manager.getRepository(PerformanceReview);
+apps/hr-service/src/performance/handlers/acknowledge-review.handler.ts:21:      const reviewRepo = queryRunner.manager.getRepository(PerformanceReview);
+apps/billing-service/src/billing/query-handlers/get-plans.handler.ts:15:    const planRepo = this.dataSource.getRepository(Plan);
+apps/billing-service/src/billing/handlers/change-subscription-plan.handler.ts:57:      const subscriptionRepo = manager.getRepository(Subscription);
+apps/billing-service/src/billing/handlers/change-subscription-plan.handler.ts:58:      const planRepo = manager.getRepository(Plan);
+apps/billing-service/src/billing/handlers/change-subscription-plan.handler.ts:147:        const scheduledChangeRepo = manager.getRepository(ScheduledPlanChange);
+apps/billing-service/src/billing/handlers/create-subscription.handler.ts:70:      const subscriptionRepo = queryRunner.manager.getRepository(Subscription);
+apps/auth-service/src/modules/gdpr/services/user-consent.service.ts:128:      return manager.getRepository(UserConsent).save(entities);
+apps/auth-service/src/modules/authentication/services/authentication.service.ts:501:        .getRepository(Invitation)
+apps/auth-service/src/modules/authentication/services/authentication.service.ts:510:          .getRepository(Invitation)
+apps/auth-service/src/modules/authentication/services/authentication.service.ts:531:        .getRepository(User)
+apps/auth-service/src/modules/authentication/services/authentication.service.ts:537:          .getRepository(User)
+apps/auth-service/src/modules/authentication/services/authentication.service.ts:654:      const tokenRepo = manager.getRepository(RefreshToken);
+apps/auth-service/src/modules/authentication/services/authentication.service.ts:671:        .getRepository(User)
+apps/auth-service/src/modules/authentication/services/authentication.service.ts:709:      const tokenRepo = manager.getRepository(RefreshToken);
+apps/auth-service/src/modules/authentication/services/authentication.service.ts:750:        .getRepository(User)
+apps/auth-service/src/modules/tenant/services/user-lifecycle.service.ts:680:      const userRepo = manager.getRepository(User);
+apps/auth-service/src/modules/tenant/services/user-lifecycle.service.ts:681:      const invitationRepo = manager.getRepository(Invitation);
+apps/auth-service/src/modules/tenant/services/user-lifecycle.service.ts:682:      const umaRepo = manager.getRepository(UserModuleAssignment);
+apps/auth-service/src/modules/tenant/services/user-lifecycle.service.ts:683:      const tenantRepo = manager.getRepository(Tenant);
+apps/auth-service/src/modules/tenant/services/tenant.service.ts:461:      const tmRepo = manager.getRepository(TenantModule);
+apps/messaging-service/src/compliance/services/compliance-audit.service.ts:77:    const repo = manager ? manager.getRepository(ComplianceAuditLog) : this.auditRepo;
+apps/auth-service/src/modules/tenant/services/tenant-admin.service.ts:249:      const userRepo = manager.getRepository(User);
+apps/auth-service/src/modules/tenant/services/tenant-admin.service.ts:250:      const assignmentRepo = manager.getRepository(UserModuleAssignment);
+apps/messaging-service/test/e2e-setup.ts:450: * BUT: tests that perform direct `dataSource.getRepository().save(...)` /
+apps/messaging-service/test/e2e-setup.ts:468: *   await dataSource.getRepository(Channel).save({ tenantId: TENANT_A, ... });
+apps/messaging-service/src/compliance/services/retention-policy.service.ts:53:    const repo = manager ? manager.getRepository(RetentionPolicy) : this.policyRepo;
+apps/messaging-service/src/compliance/services/legal-hold.service.ts:72:    const repo = manager ? manager.getRepository(LegalHold) : this.holdRepo;
+apps/messaging-service/src/compliance/services/legal-hold.service.ts:120:    const repo = manager ? manager.getRepository(LegalHold) : this.holdRepo;
+apps/messaging-service/src/channel/commands/create-channel.handler.ts:94:        .getRepository(Channel)
+apps/sensor-service/src/ingestion/mqtt-listener.service.ts:1192:        .getRepository(DeviceIoConfig)
+apps/sensor-service/src/ingestion/mqtt-listener.service.ts:1262:          await this.dataSource.getRepository(DeviceEvent).save(events);
+apps/sensor-service/src/ingestion/mqtt-listener.service.ts:1585:            .getRepository(Sensor)
+apps/sensor-service/src/ingestion/mqtt-listener.service.ts:1597:            .getRepository(Sensor)
+apps/sensor-service/src/dashboard/dashboard.service.ts:215:      const repo = txManager.getRepository(DashboardLayout);
+apps/sensor-service/src/sensor-type/channel-detection.service.ts:141:      const channelRepo = manager.getRepository(SensorDataChannel);
+apps/sensor-service/src/sensor-type/channel-detection.service.ts:142:      const logRepo = manager.getRepository(ChannelDetectionLog);
+apps/sensor-service/src/database/migrations/1781400000000-AddSensorProtocolTopicIndex.ts:21: *   .getRepository(Sensor)
+apps/sensor-service/src/edge-device/edge-device.service.ts:1838:      const ioConfigRepo = manager.getRepository(DeviceIoConfig);
+apps/farm-service/src/feed/handlers/create-feed.handler.ts:113:      const feedRepo = manager.getRepository(Feed);
+apps/farm-service/src/feed/handlers/create-feed.handler.ts:114:      const feedSiteRepo = manager.getRepository(FeedSite);
+apps/farm-service/src/feed/handlers/create-feed.handler.ts:115:      const feedTypeSpeciesRepo = manager.getRepository(FeedTypeSpecies);
+apps/sensor-service/src/automation/automation.service.ts:133:      const repo = manager.getRepository(AutomationProgram);
+apps/sensor-service/src/automation/automation.service.ts:191:      const repo = manager.getRepository(AutomationProgram);
+apps/sensor-service/src/automation/automation.service.ts:688:      const varRepo = manager.getRepository(ProgramVariable);
+apps/sensor-service/src/automation/automation.service.ts:861:      const varRepo = manager.getRepository(ProgramVariable);
+apps/sensor-service/src/automation/automation.service.ts:1669:      .getRepository(DeviceIoConfig)
+apps/sensor-service/src/automation/automation.service.ts:2490:      const repo = manager.getRepository(AutomationProgram);
+apps/sensor-service/src/edge-device/provisioning.service.ts:570:        existing = await qr.manager.getRepository(EdgeDevice)
+apps/farm-service/src/feeding/resolvers/feeding-program.resolver.ts:1070:            const subEquipmentRepo = this.dataSource.getRepository('SubEquipment');
+apps/farm-service/src/feeding/resolvers/feeding-program.resolver.ts:1719:        const feedRepo = this.dataSource.getRepository('Feed');
+apps/farm-service/src/feeding/resolvers/feeding-program.resolver.ts:1788:          const feedRepo = this.dataSource.getRepository('Feed');
+apps/farm-service/src/storage/handlers/transfer-stock.handler.ts:66:      const inventoryRepo = manager.getRepository(StorageInventory);
+apps/farm-service/src/storage/handlers/transfer-stock.handler.ts:67:      const movementRepo = manager.getRepository(StockMovement);
+apps/farm-service/src/storage/handlers/update-inventory-count.handler.ts:34:      const countRepo = manager.getRepository(InventoryCount);
+apps/farm-service/src/storage/handlers/update-inventory-count.handler.ts:35:      const itemRepo = manager.getRepository(InventoryCountItem);
+apps/farm-service/src/chemical/handlers/create-chemical.handler.ts:65:      const chemicalRepo = manager.getRepository(Chemical);
+apps/farm-service/src/chemical/handlers/create-chemical.handler.ts:66:      const chemicalSiteRepo = manager.getRepository(ChemicalSite);
+apps/farm-service/src/storage/handlers/approve-inventory-count.handler.ts:66:      const countRepo = manager.getRepository(InventoryCount);
+apps/farm-service/src/storage/handlers/approve-inventory-count.handler.ts:67:      const inventoryRepo = manager.getRepository(StorageInventory);
+apps/farm-service/src/storage/handlers/approve-inventory-count.handler.ts:68:      const movementRepo = manager.getRepository(StockMovement);
+apps/farm-service/src/storage/services/lot-mix.service.ts:96:    const inventoryRepo = manager.getRepository(StorageInventory);
+apps/farm-service/src/storage/services/lot-mix.service.ts:152:    const mixRepo = manager.getRepository(StorageLotMix);
+apps/farm-service/src/scheduler/feeding-scheduler.service.ts:1158:    const repo = queryRunner.manager.getRepository(FeedingTable);
+apps/farm-service/src/scheduler/feeding-scheduler.service.ts:1215:      ? queryRunner.manager.getRepository(FeedingTable)
+apps/farm-service/src/scheduler/feeding-scheduler.service.ts:1299:      ? queryRunner.manager.getRepository(FeedingRecord)
+apps/farm-service/src/scheduler/feeding-scheduler.service.ts:1303:      ? queryRunner.manager.getRepository(FeedingTable)
+apps/farm-service/src/scheduler/feeding-scheduler.service.ts:1355:      ? queryRunner.manager.getRepository(Batch)
+apps/farm-service/src/scheduler/feeding-scheduler.service.ts:1411:      ? queryRunner.manager.getRepository(FeedInventory)
+apps/farm-service/src/scheduler/feeding-scheduler.service.ts:1442:      ? queryRunner.manager.getRepository(FeedInventory)
+apps/farm-service/src/scheduler/feeding-scheduler.service.ts:1483:      ? queryRunner.manager.getRepository(FeedingTable)
+apps/farm-service/src/scheduler/feeding-scheduler.service.ts:1487:      ? queryRunner.manager.getRepository(FeedInventory)
+apps/farm-service/src/storage/handlers/receive-delivery.handler.ts:57:      const poItemRepo = manager.getRepository(PurchaseOrderItem);
+apps/farm-service/src/storage/handlers/receive-delivery.handler.ts:58:      const inventoryRepo = manager.getRepository(StorageInventory);
+apps/farm-service/src/storage/handlers/receive-delivery.handler.ts:59:      const movementRepo = manager.getRepository(StockMovement);
+apps/farm-service/src/storage/handlers/receive-delivery.handler.ts:137:      const savedPO = await manager.getRepository(PurchaseOrder).save(po);
+apps/farm-service/src/storage/handlers/create-inventory-count.handler.ts:54:      const countRepo = manager.getRepository(InventoryCount);
+apps/farm-service/src/storage/handlers/create-inventory-count.handler.ts:55:      const itemRepo = manager.getRepository(InventoryCountItem);
+apps/farm-service/src/storage/handlers/create-inventory-count.handler.ts:56:      const inventoryRepo = manager.getRepository(StorageInventory);
+apps/farm-service/src/storage/handlers/record-stock-movement.handler.ts:132:      const inventoryRepo = manager.getRepository(StorageInventory);
+apps/farm-service/src/storage/handlers/record-stock-movement.handler.ts:133:      const movementRepo = manager.getRepository(StockMovement);
+apps/farm-service/src/storage/handlers/record-stock-movement.handler.ts:227:        const stockResult = await manager.getRepository(StorageInventory)
+apps/farm-service/src/storage/handlers/record-stock-movement.handler.ts:560:    const result = await manager.getRepository(StorageInventory)
+apps/farm-service/src/storage/handlers/record-stock-movement.handler.ts:572:        const feed = await manager.getRepository(Feed).findOne({ where: { id: itemId, tenantId } });
+apps/farm-service/src/storage/handlers/record-stock-movement.handler.ts:580:          await manager.getRepository(Feed).save(feed);
+apps/farm-service/src/storage/handlers/record-stock-movement.handler.ts:585:        const chem = await manager.getRepository(Chemical).findOne({ where: { id: itemId, tenantId } });
+apps/farm-service/src/storage/handlers/record-stock-movement.handler.ts:589:          await manager.getRepository(Chemical).save(chem);
+apps/farm-service/src/storage/handlers/record-stock-movement.handler.ts:594:        const cons = await manager.getRepository(Consumable).findOne({ where: { id: itemId, tenantId } });
+apps/farm-service/src/storage/handlers/record-stock-movement.handler.ts:598:          await manager.getRepository(Consumable).save(cons);
+apps/farm-service/src/storage/handlers/record-stock-movement.handler.ts:606:        const healthcare = await manager.getRepository(Consumable).findOne({
+apps/farm-service/src/storage/handlers/record-stock-movement.handler.ts:612:          await manager.getRepository(Consumable).save(healthcare);
+apps/farm-service/src/storage/handlers/create-purchase-order.handler.ts:23:      const poRepo = manager.getRepository(PurchaseOrder);
+apps/farm-service/src/storage/handlers/create-purchase-order.handler.ts:24:      const itemRepo = manager.getRepository(PurchaseOrderItem);
+apps/config-service/src/configuration/handlers/delete-configuration.handler.ts:33:      const configRepo = queryRunner.manager.getRepository(Configuration);
+apps/config-service/src/configuration/handlers/upsert-configuration.handler.ts:30:      const repo = this.dataSource.getRepository(Configuration);
+apps/config-service/src/configuration/handlers/upsert-configuration.handler.ts:82:          const historyRepo = this.dataSource.getRepository(ConfigurationHistory);
+libs/backend-common/src/database/tenant-aware.repository.ts:50:    this.repository = this.dataSource.getRepository(entity);
+libs/backend-common/src/database/tenant-aware.repository.ts:269:  getRepository(): never {
+libs/backend-common/src/database/tenant-aware.repository.ts:271:      'getRepository() is deprecated and unsafe. ' +
+libs/backend-common/src/database/tenant-scoped-repository.ts:99:    const repository = dataSource.getRepository(entity);
+apps/config-service/src/configuration/handlers/update-configuration.handler.ts:38:      const configRepo = queryRunner.manager.getRepository(Configuration);
+apps/config-service/src/configuration/handlers/update-configuration.handler.ts:39:      const historyRepo = queryRunner.manager.getRepository(ConfigurationHistory);
+apps/config-service/src/configuration/handlers/create-configuration.handler.ts:44:      const configRepo = queryRunner.manager.getRepository(Configuration);
+libs/backend-common/src/context/with-tenant-context.ts:16: * Any `dataSource.getRepository()` or `queryRunner.manager` call inside `fn`
+libs/backend-common/src/context/with-tenant-context.ts:23: *   await this.dataSource.getRepository(DeviceEvent).save(events);
+libs/backend-common/src/finding-registry/finding-registry.service.ts:233:    const repo = this.dataSource.getRepository(FindingEntity);
+libs/backend-common/src/finding-registry/finding-registry.service.ts:253:    const entries = await this.dataSource.getRepository(FindingEntity).find({
+libs/backend-common/src/audit/audited-operation.interceptor.ts:250:      await this.dataSource.getRepository(AuditLogEntity).save(auditEntry);

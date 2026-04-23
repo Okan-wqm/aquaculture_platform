@@ -1,0 +1,17 @@
+{
+  "id": "AUDIT-CRITICAL-003",
+  "severity": "CRITICAL",
+  "state": "OPEN",
+  "title": "npm run invariants:fast has 3 failing tests including finding-registry-integrity (duplicate ids) and knowledge-ssot",
+  "layer": 3,
+  "evidence": [
+    "tests/invariants/finding-registry-integrity.spec.ts:144",
+    "tests/invariants/knowledge-ssot.spec.ts:1"
+  ],
+  "rule_violated": "ADR-012 schema-drift-prevention: invariants must be green at every commit. Registry integrity gate is DETECTING duplicate ids (INFRA-CRITICAL-001 etc.) that should have been prevented at add time.",
+  "owner_agent": "context-manager",
+  "raised_in_cycle": "2026-04-22-cold-audit",
+  "review_file": "docs/reviews/_audit/2026-04-22-cold-audit/03-explore-findings.md",
+  "created_at": "2026-04-22T19:00:00Z",
+  "notes": "Root causes: (a) seed-finding-registry script reused numeric suffixes across runs; dedupe at add-time or switch to monotonic counter. (b) knowledge-ssot test expects 17 services, apps/ has 17 dirs (includes db-migrate CLI which is not a service per CLAUDE.md \"16 services (15 runtime + db-migrate CLI)\")."
+}

@@ -1,0 +1,6 @@
+
+> aquaculture-platform@1.0.0 findings:verify
+> ts-node --project tools/gates/tsconfig.json tools/gates/finding-registry.ts verify
+
+OK: registry chain valid (133 entries).
+Chain tip: 59c0d71a772d20307d4ff9d8e74360f0d54afb5aba16f0d3e1432847a67d8097

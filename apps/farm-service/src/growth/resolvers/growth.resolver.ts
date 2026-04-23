@@ -479,6 +479,7 @@ export class GrowthResolver {
   /**
    * Get measurements for specific batch
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [GrowthMeasurement])
   async batchGrowthHistory(
     @CurrentTenant() tenantId: string,

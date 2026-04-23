@@ -49,6 +49,7 @@ export class BatchFeedAssignmentResolver {
   /**
    * Get feed assignment for a batch
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => BatchFeedAssignmentResponse, { nullable: true })
   async batchFeedAssignment(
     @Args('batchId', { type: () => ID }) batchId: string,

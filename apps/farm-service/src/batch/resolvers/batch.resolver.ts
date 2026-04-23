@@ -125,6 +125,7 @@ export class BatchResolver {
   // QUERIES
   // -------------------------------------------------------------------------
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => Batch, { name: 'batch' })
   async getBatch(
     @Args('id', { type: () => ID }) id: string,
@@ -134,6 +135,7 @@ export class BatchResolver {
     return this.queryBus.execute(new GetBatchQuery(tenantId, id));
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => BatchListResponse, { name: 'batches' })
   async listBatches(
     @Tenant() tenantId: string,
@@ -159,6 +161,7 @@ export class BatchResolver {
    * whole service) and the handler body is pure compute.
    */
   @Cacheable({ prefix: 'batch:performance', ttlSeconds: 3600 })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Query(() => BatchPerformanceResponse, { name: 'batchPerformance' })
   async getBatchPerformance(
     @Args('id', { type: () => ID }) id: string,
@@ -168,6 +171,7 @@ export class BatchResolver {
     return this.queryBus.execute(new GetBatchPerformanceQuery(tenantId, id));
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [BatchHistoryEntryResponse], { name: 'batchHistory' })
   async getBatchHistory(
     @Args('id', { type: () => ID }) id: string,
@@ -183,6 +187,7 @@ export class BatchResolver {
     );
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [AvailableTankResponse], { name: 'availableTanks' })
   async listAvailableTanks(
     @Tenant() tenantId: string,
@@ -196,6 +201,7 @@ export class BatchResolver {
     );
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => String, { name: 'generateBatchNumber' })
   async generateBatchNumber(
     @Tenant() tenantId: string,

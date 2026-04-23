@@ -1113,6 +1113,7 @@ export class FeedingResolver {
   /**
    * Calculate recommended harvest date based on target weight
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => Date, { description: 'Project harvest date for target weight' })
   async projectHarvestDate(
     @Args('currentWeightG', { type: () => Float }) currentWeightG: number,

@@ -138,6 +138,7 @@ export class MaintenanceScheduleResolver {
   // QUERIES
   // -------------------------------------------------------------------------
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => MaintenanceSchedule, { name: 'maintenanceSchedule' })
   async getMaintenanceSchedule(
     @Args('id', { type: () => ID }) id: string,
@@ -147,6 +148,7 @@ export class MaintenanceScheduleResolver {
     return this.maintenanceScheduleService.findById(tenantId, id);
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => MaintenanceSchedule, { name: 'maintenanceScheduleByCode' })
   async getMaintenanceScheduleByCode(
     @Args('code') code: string,
@@ -156,6 +158,7 @@ export class MaintenanceScheduleResolver {
     return this.maintenanceScheduleService.findByCode(tenantId, code);
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => MaintenanceScheduleListResponse, { name: 'maintenanceSchedules' })
   async listMaintenanceSchedules(
     @Tenant() tenantId: string,
@@ -181,6 +184,7 @@ export class MaintenanceScheduleResolver {
     );
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [MaintenanceSchedule], { name: 'upcomingMaintenanceSchedules' })
   async getUpcomingMaintenanceSchedules(
     @Tenant() tenantId: string,
@@ -191,6 +195,7 @@ export class MaintenanceScheduleResolver {
     return this.maintenanceScheduleService.findUpcoming(tenantId, days);
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [MaintenanceSchedule], { name: 'overdueMaintenanceSchedules' })
   async getOverdueMaintenanceSchedules(
     @Tenant() tenantId: string,
@@ -199,6 +204,7 @@ export class MaintenanceScheduleResolver {
     return this.maintenanceScheduleService.findOverdue(tenantId);
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [ScheduleAlertResponse], { name: 'maintenanceAlerts' })
   async getMaintenanceAlerts(
     @Tenant() tenantId: string,
@@ -215,6 +221,7 @@ export class MaintenanceScheduleResolver {
     }));
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Query(() => ComplianceReportResponse, { name: 'maintenanceComplianceReport' })
   async getComplianceReport(
     @Tenant() tenantId: string,

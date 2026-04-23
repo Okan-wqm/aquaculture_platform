@@ -205,14 +205,14 @@ describe('resolveAllowedRoles helper', () => {
 
   it('grandfathered operations map to null', () => {
     // The whitelist only contains queries that phase 6.1.1 hasn't
-    // classified yet. `workOrders` is a canonical large-surface
-    // read still in the whitelist — task / work-order / maintenance
-    // schedule / regulatory / sentinel-hub / weather / harvest /
-    // legacy farm-pond sweeps land in follow-up PRs. All
-    // mutations plus the batch / facility / equipment / supplier /
-    // storage / feeding / growth / WQ / health / chemical /
-    // species / sub-equipment / trace-lot family of reads have
-    // already moved into MUTATION_ROLES / QUERY_ROLES.
-    expect(UNGATED_OPERATIONS.has('workOrders')).toBe(true);
+    // classified yet. `farm` is a legacy-read surface (Farm entity
+    // predates the Site re-modelling — see farm.entity.ts header)
+    // that stays grandfathered until the regulatory / legacy-farm-
+    // pond / harvest-report sweep lands. All mutations plus the
+    // batch / facility / equipment / supplier / storage / feeding /
+    // growth / WQ / health / chemical / species / sub-equipment /
+    // trace-lot / task / work-order / maintenance family of reads
+    // have already moved into MUTATION_ROLES / QUERY_ROLES.
+    expect(UNGATED_OPERATIONS.has('farm')).toBe(true);
   });
 });

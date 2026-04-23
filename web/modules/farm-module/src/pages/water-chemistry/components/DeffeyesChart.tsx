@@ -26,7 +26,7 @@ import {
   Label,
   Customized,
 } from 'recharts';
-import { DeffeyesChartData, OnDemandStep } from '../engine/types';
+import type { DeffeyesChartData, OnDemandStep } from '@platform/aquaculture-engines';
 
 interface DeffeyesChartProps {
   data: DeffeyesChartData;

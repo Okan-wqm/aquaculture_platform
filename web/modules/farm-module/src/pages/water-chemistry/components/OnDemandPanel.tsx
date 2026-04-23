@@ -5,7 +5,7 @@
  * Inputs are configured via the "Simulator" tab in the InputPanel.
  */
 import React from 'react';
-import { OnDemandStep } from '../engine/types';
+import type { OnDemandStep } from '@platform/aquaculture-engines';
 
 interface OnDemandPanelProps {
   steps: OnDemandStep[];

@@ -589,6 +589,140 @@ pub fn variant_error_to_status_code(err: &VariantToF64Error) -> StatusCode {
     }
 }
 
+// ============================================================
+// Batch 221 Faz 5 — write-callback bridge
+// ============================================================
+//
+// Composes the Batch 220 primitives (variant_to_f64 +
+// outcome_to_status_code) with the Batch 209 write-
+// orchestrator + Batches 210-212 adapter quartet to register
+// sync write callbacks on the SimpleNodeManager.
+//
+// Sync→async escape: `tokio::task::block_in_place +
+// Handle::current().block_on(async)`. This is the documented
+// load-bearing pattern for calling async code from inside a
+// sync callback that the tokio multi-thread runtime invokes.
+// Panics on a current-thread runtime — the production server
+// always runs on the multi-thread flavor, so this is safe.
+
+/// Bundle of the four ports the write-orchestrator needs,
+/// captured by the closure in each write callback. Arc-wrapped
+/// because the closure needs to be `Fn + Send + Sync +
+/// 'static` (multiple writes may fire concurrently across
+/// different sessions; each one fires on whichever tokio
+/// worker the session is running on).
+pub struct OpcUaWriteBridgeDeps {
+    pub registry: Arc<crate::opc_ua_server::OpcUaTagRegistry>,
+    pub authz: Arc<dyn crate::opc_ua_server::OpcUaAuthzPort>,
+    pub force: Arc<dyn crate::opc_ua_server::OpcUaForceRegistryPort>,
+    pub process_image: Arc<dyn crate::opc_ua_server::OpcUaProcessImagePort>,
+    pub audit: Arc<dyn crate::opc_ua_server::OpcUaAuditPort>,
+}
+
+/// Wire a sync write callback for every writable tag in the
+/// registry. Called immediately after
+/// `populate_tag_nodes` so each Variable node has a
+/// callback before the server starts accepting HMI sessions.
+///
+/// Returns the count of callbacks registered. Non-writable
+/// tags are skipped (their address-space entries carry
+/// read-only AccessLevel already, so writes hit
+/// `BadNotWritable` at the protocol layer before reaching
+/// the callback).
+///
+/// NOTE on actor plumbing: async-opcua's SimpleNodeManager
+/// write callback does NOT pass session context. For Batch
+/// 221 every write runs with actor = "opc-ua-anonymous"
+/// (plan Batch 216 ships anonymous-only auth). Session-actor
+/// resolution requires a custom NodeManager impl that gets
+/// the ServerContext threaded in; that's a subsequent batch.
+/// Consequence: until the actor-resolver lands, EVERY HMI
+/// write gets RejectedNoPermission from the DenyAll authz
+/// port — which is safe (plan's fail-closed anonymous-only
+/// constraint) + the audit record still fires.
+pub fn wire_write_callbacks(
+    handle: &ServerHandle,
+    namespace_index: u16,
+    deps: Arc<OpcUaWriteBridgeDeps>,
+) -> Result<usize, String> {
+    let node_manager = handle
+        .node_managers()
+        .get_of_type::<SimpleNodeManager>()
+        .ok_or_else(|| {
+            "SimpleNodeManager not present — populate_tag_nodes must run first".to_string()
+        })?;
+
+    let mut registered = 0usize;
+    let writable_snapshot: Vec<_> = deps
+        .registry
+        .iter()
+        .filter(|n| n.is_writable())
+        .map(|n| (n.tag_name.clone(), n.browse_name.clone()))
+        .collect();
+
+    for (tag_name, browse_name) in writable_snapshot {
+        let node_id = NodeId::new(namespace_index, browse_name.clone());
+        let deps = deps.clone();
+        let captured_tag_name = tag_name.clone();
+        // SimpleNodeManager wraps SimpleNodeManagerImpl via
+        // `InMemoryNodeManager<Impl>`. The callback API lives
+        // on the impl — reach it through `.inner()`.
+        node_manager
+            .inner()
+            .add_write_callback(node_id, move |data_value, _range| {
+                write_callback_body(data_value, &captured_tag_name, &deps)
+            });
+        registered += 1;
+    }
+
+    Ok(registered)
+}
+
+/// Body of the sync write callback. Factored out so it's
+/// independently grep-able + easier to unit-test the pieces
+/// below that don't need block_in_place (variant extraction
+/// + status-code mapping).
+fn write_callback_body(
+    data_value: opcua::types::DataValue,
+    tag_name: &str,
+    deps: &Arc<OpcUaWriteBridgeDeps>,
+) -> StatusCode {
+    let variant = match data_value.value.as_ref() {
+        Some(v) => v.clone(),
+        None => return variant_error_to_status_code(&VariantToF64Error::EmptyVariant),
+    };
+    let value = match variant_to_f64(&variant) {
+        Ok(v) => v,
+        Err(e) => return variant_error_to_status_code(&e),
+    };
+    let deps_captured = deps.clone();
+    let tag_name_owned = tag_name.to_string();
+    // Sync→async bridge. block_in_place tells the
+    // tokio multi-thread scheduler "this worker is about to
+    // block; keep the runtime responsive" and then we
+    // block_on the orchestrator future on the current
+    // thread. Requires the multi-thread runtime — server's
+    // tokio runtime is multi-thread by construction.
+    tokio::task::block_in_place(move || {
+        tokio::runtime::Handle::current().block_on(async move {
+            let outcome = crate::opc_ua_server::execute_opcua_write(
+                &*deps_captured.registry,
+                &crate::opc_ua_server::OpcUaWriteRequest {
+                    tag_name: &tag_name_owned,
+                    value,
+                    actor: "opc-ua-anonymous",
+                },
+                &*deps_captured.authz,
+                &*deps_captured.force,
+                &*deps_captured.process_image,
+                &*deps_captured.audit,
+            )
+            .await;
+            outcome_to_status_code(&outcome)
+        })
+    })
+}
+
 enum TagInsertOutcome {
     Inserted { writable: bool },
     Failed,
@@ -1208,6 +1342,191 @@ mod tests {
             }),
             StatusCode::BadInternalError
         );
+    }
+
+    // ============================================================
+    // Batch 221 Faz 5 — write-callback body tests
+    // ============================================================
+
+    use crate::opc_ua_server::{
+        OpcUaAuditPort, OpcUaAuthzPort, OpcUaForceRegistryPort,
+        OpcUaProcessImagePort, OpcUaWriteOutcome,
+    };
+
+    fn deps_for_body(
+        registry: OpcUaTagRegistry,
+        authz: impl OpcUaAuthzPort + 'static,
+        force: impl OpcUaForceRegistryPort + 'static,
+        pi: impl OpcUaProcessImagePort + 'static,
+        audit: impl OpcUaAuditPort + 'static,
+    ) -> Arc<OpcUaWriteBridgeDeps> {
+        Arc::new(OpcUaWriteBridgeDeps {
+            registry: Arc::new(registry),
+            authz: Arc::new(authz),
+            force: Arc::new(force),
+            process_image: Arc::new(pi),
+            audit: Arc::new(audit),
+        })
+    }
+
+    struct AlwaysAllow;
+    #[async_trait::async_trait]
+    impl OpcUaAuthzPort for AlwaysAllow {
+        async fn is_write_allowed(&self, _a: &str, _t: &str) -> bool {
+            true
+        }
+    }
+    struct AlwaysDeny;
+    #[async_trait::async_trait]
+    impl OpcUaAuthzPort for AlwaysDeny {
+        async fn is_write_allowed(&self, _a: &str, _t: &str) -> bool {
+            false
+        }
+    }
+
+    struct NeverForced;
+    #[async_trait::async_trait]
+    impl OpcUaForceRegistryPort for NeverForced {
+        async fn is_forced(&self, _t: &str) -> bool {
+            false
+        }
+    }
+
+    struct CapturingPi2 {
+        captured: tokio::sync::Mutex<Option<(String, f64)>>,
+    }
+    #[async_trait::async_trait]
+    impl OpcUaProcessImagePort for CapturingPi2 {
+        async fn write_tag(
+            &self,
+            tag_name: &str,
+            value: f64,
+            _actor: &str,
+        ) -> Result<(), String> {
+            *self.captured.lock().await = Some((tag_name.to_string(), value));
+            Ok(())
+        }
+    }
+
+    struct NoopAudit;
+    #[async_trait::async_trait]
+    impl OpcUaAuditPort for NoopAudit {
+        async fn record_write_attempt(
+            &self,
+            _actor: &str,
+            _tag_name: &str,
+            _value: f64,
+            _outcome: &OpcUaWriteOutcome,
+        ) {
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn write_body_happy_path_allow_returns_good() {
+        use opcua::types::{DataValue, Variant};
+        let reg = registry_from(vec![mk_node("do_pump", IoType::DO, "Real")]);
+        let pi = CapturingPi2 {
+            captured: tokio::sync::Mutex::new(None),
+        };
+        let deps = deps_for_body(reg, AlwaysAllow, NeverForced, pi, NoopAudit);
+        let dv = DataValue {
+            value: Some(Variant::Double(42.0)),
+            ..Default::default()
+        };
+        let status = write_callback_body(dv, "do_pump", &deps);
+        assert_eq!(status, StatusCode::Good);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn write_body_deny_returns_user_access_denied() {
+        use opcua::types::{DataValue, Variant};
+        let reg = registry_from(vec![mk_node("do_pump", IoType::DO, "Real")]);
+        let pi = CapturingPi2 {
+            captured: tokio::sync::Mutex::new(None),
+        };
+        let deps = deps_for_body(reg, AlwaysDeny, NeverForced, pi, NoopAudit);
+        let dv = DataValue {
+            value: Some(Variant::Double(42.0)),
+            ..Default::default()
+        };
+        let status = write_callback_body(dv, "do_pump", &deps);
+        assert_eq!(status, StatusCode::BadUserAccessDenied);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn write_body_empty_variant_returns_type_mismatch() {
+        use opcua::types::DataValue;
+        let reg = registry_from(vec![mk_node("do_pump", IoType::DO, "Real")]);
+        let pi = CapturingPi2 {
+            captured: tokio::sync::Mutex::new(None),
+        };
+        let deps = deps_for_body(reg, AlwaysAllow, NeverForced, pi, NoopAudit);
+        let dv = DataValue {
+            value: None,
+            ..Default::default()
+        };
+        let status = write_callback_body(dv, "do_pump", &deps);
+        assert_eq!(status, StatusCode::BadTypeMismatch);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn write_body_string_variant_returns_type_mismatch() {
+        use opcua::types::{DataValue, Variant};
+        let reg = registry_from(vec![mk_node("do_pump", IoType::DO, "Real")]);
+        let pi = CapturingPi2 {
+            captured: tokio::sync::Mutex::new(None),
+        };
+        let deps = deps_for_body(reg, AlwaysAllow, NeverForced, pi, NoopAudit);
+        let dv = DataValue {
+            value: Some(Variant::String("hello".into())),
+            ..Default::default()
+        };
+        let status = write_callback_body(dv, "do_pump", &deps);
+        assert_eq!(status, StatusCode::BadTypeMismatch);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn write_body_unknown_tag_returns_node_id_unknown() {
+        use opcua::types::{DataValue, Variant};
+        // Registry empty → orchestrator sees unknown tag.
+        let reg = OpcUaTagRegistry::default();
+        let pi = CapturingPi2 {
+            captured: tokio::sync::Mutex::new(None),
+        };
+        let deps = deps_for_body(reg, AlwaysAllow, NeverForced, pi, NoopAudit);
+        let dv = DataValue {
+            value: Some(Variant::Double(1.0)),
+            ..Default::default()
+        };
+        let status = write_callback_body(dv, "ghost", &deps);
+        assert_eq!(status, StatusCode::BadNodeIdUnknown);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn write_body_pi_write_reaches_process_image_adapter_on_allow() {
+        use opcua::types::{DataValue, Variant};
+        let reg = registry_from(vec![mk_node("do_pump", IoType::DO, "Real")]);
+        let pi = CapturingPi2 {
+            captured: tokio::sync::Mutex::new(None),
+        };
+        let pi_arc_cell = Arc::new(pi);
+        let deps = Arc::new(OpcUaWriteBridgeDeps {
+            registry: Arc::new(reg),
+            authz: Arc::new(AlwaysAllow),
+            force: Arc::new(NeverForced),
+            process_image: pi_arc_cell.clone(),
+            audit: Arc::new(NoopAudit),
+        });
+        let dv = DataValue {
+            value: Some(Variant::Double(73.5)),
+            ..Default::default()
+        };
+        let status = write_callback_body(dv, "do_pump", &deps);
+        assert_eq!(status, StatusCode::Good);
+        let captured = pi_arc_cell.captured.lock().await.clone();
+        let (t, v) = captured.expect("process-image write captured");
+        assert_eq!(t, "do_pump");
+        assert_eq!(v, 73.5);
     }
 
     #[test]

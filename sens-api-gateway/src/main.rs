@@ -735,6 +735,17 @@ pub struct AppState {
             crate::scripting::force_registry_store::ForceRegistryStore,
         >,
     >,
+
+    /// Live-watch session registry — Batch 205 Faz 6.
+    /// Always present (empty at AppState::new).
+    /// Operators populate via `watch_subscribe`
+    /// command; publisher task (Batch 206 spawn)
+    /// reads due sessions + publishes to MQTT;
+    /// sweep task drops expired entries. Never
+    /// persisted to disk — watch sessions are live-
+    /// only per plan R-9.
+    pub watch_sessions:
+        std::sync::Arc<crate::scripting::watch_sessions::WatchSessionRegistry>,
 }
 
 impl AppState {
@@ -915,6 +926,11 @@ impl AppState {
             // SQLCipher file + rehydrates persistent
             // forces. None when config path empty.
             force_registry_store: None,
+            // Batch 205 Faz 6 wire: always-present
+            // empty watch-session registry.
+            watch_sessions: std::sync::Arc::new(
+                crate::scripting::watch_sessions::WatchSessionRegistry::new(),
+            ),
         }
     }
 

@@ -204,6 +204,12 @@ mod bytecode_ops;
 // handled by the envelope_adapter layer.
 mod force_commands;
 
+// Batch 205 Faz 6: watch-session commands —
+// watch_subscribe / watch_unsubscribe /
+// list_watch_sessions. Thin adapters over the
+// Batch 203 WatchSessionRegistry primitive.
+mod watch_commands;
+
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -912,6 +918,10 @@ impl CommandHandler {
             "unforce_value" => self.cmd_unforce_value(&command.params).await,
             "unforce_all" => self.cmd_unforce_all(&command.params).await,
             "list_forces" => self.cmd_list_forces(&command.params).await,
+            // Watch-session commands (Batch 205 Faz 6)
+            "watch_subscribe" => self.cmd_watch_subscribe(&command.params).await,
+            "watch_unsubscribe" => self.cmd_watch_unsubscribe(&command.params).await,
+            "list_watch_sessions" => self.cmd_list_watch_sessions(&command.params).await,
             _ => {
                 // v1.2.2: Sanitize user-provided command name to prevent log injection
                 warn!("Unknown command: {}", sanitize_for_log(&command.command));

@@ -37,7 +37,7 @@ export function createMockDataSource(): MockDataSourceResult {
       create: jest.fn().mockImplementation((data: unknown) => data),
       update: jest.fn().mockResolvedValue({ affected: 1 }),
       count: jest.fn().mockResolvedValue(0),
-    } as unknown as jest.Mocked<Repository<unknown>>),
+    } as unknown as jest.Mocked<Repository<Record<string, unknown>>>),
   } as unknown as jest.Mocked<EntityManager>;
 
   const mockQueryRunner = {

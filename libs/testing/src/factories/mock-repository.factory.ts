@@ -5,9 +5,11 @@
  * Use with NestJS testing module:
  *   { provide: getRepositoryToken(Entity), useValue: createMockRepository() }
  */
-import { Repository } from 'typeorm';
+import { ObjectLiteral, Repository } from 'typeorm';
 
-export function createMockRepository<T = unknown>(): jest.Mocked<Repository<T>> {
+export function createMockRepository<
+  T extends ObjectLiteral = ObjectLiteral,
+>(): jest.Mocked<Repository<T>> {
   return {
     find: jest.fn().mockResolvedValue([]),
     findOne: jest.fn().mockResolvedValue(null),

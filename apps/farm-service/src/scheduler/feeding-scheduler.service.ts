@@ -22,7 +22,11 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, LessThanOrEqual, MoreThanOrEqual, In, DataSource, QueryRunner } from 'typeorm';
-import { listTenantSchemas } from '@aquaculture/backend-common';
+import {
+  listTenantSchemas,
+  tenantManagerRepo,
+  TenantScopedRepository,
+} from '@aquaculture/backend-common';
 import { Cron, CronExpression, SchedulerRegistry } from '@nestjs/schedule';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
@@ -1155,11 +1159,11 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
     const today = new Date(now);
     today.setHours(0, 0, 0, 0);
 
-    const repo = queryRunner.manager.getRepository(FeedingTable);
+    const repo = tenantManagerRepo(queryRunner.manager, FeedingTable, tenantId);
 
+    // tenantId auto-injected by the scoped wrapper — drop it from WHERE.
     const feedingTables = await repo.find({
       where: {
-        tenantId,
         status: FeedingTableStatus.ACTIVE,
         isActive: true,
       },
@@ -1210,14 +1214,15 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
     const entries: FeedingEntry[] = [];
     let totalFeedQuantity = 0;
 
-    // Get active feeding tables — use queryRunner.manager when available
+    // Get active feeding tables — use queryRunner.manager when available.
+    // Both branches produce a TenantScopedRepository so tenantId is
+    // auto-injected regardless of the transaction context.
     const repo = queryRunner
-      ? queryRunner.manager.getRepository(FeedingTable)
-      : this.feedingTableRepository;
+      ? tenantManagerRepo(queryRunner.manager, FeedingTable, tenantId)
+      : TenantScopedRepository.fromRepository(this.feedingTableRepository, tenantId);
 
     const feedingTables = await repo.find({
       where: {
-        tenantId,
         status: FeedingTableStatus.ACTIVE,
         isActive: true,
       },
@@ -1296,17 +1301,16 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
     endOfDay.setHours(23, 59, 59, 999);
 
     const recordRepo = queryRunner
-      ? queryRunner.manager.getRepository(FeedingRecord)
-      : this.feedingRecordRepository;
+      ? tenantManagerRepo(queryRunner.manager, FeedingRecord, tenantId)
+      : TenantScopedRepository.fromRepository(this.feedingRecordRepository, tenantId);
 
     const tableRepo = queryRunner
-      ? queryRunner.manager.getRepository(FeedingTable)
-      : this.feedingTableRepository;
+      ? tenantManagerRepo(queryRunner.manager, FeedingTable, tenantId)
+      : TenantScopedRepository.fromRepository(this.feedingTableRepository, tenantId);
 
     // Get feeding records for the day
     const records = await recordRepo.find({
       where: {
-        tenantId,
         feedingDate: Between(startOfDay, endOfDay),
       },
     });
@@ -1314,7 +1318,6 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
     // Get expected feedings from active schedules
     const schedules = await tableRepo.find({
       where: {
-        tenantId,
         status: FeedingTableStatus.ACTIVE,
         isActive: true,
       },
@@ -1352,13 +1355,12 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
     const alerts: FCRAlert[] = [];
 
     const repo = queryRunner
-      ? queryRunner.manager.getRepository(Batch)
-      : this.batchRepository;
+      ? tenantManagerRepo(queryRunner.manager, Batch, tenantId)
+      : TenantScopedRepository.fromRepository(this.batchRepository, tenantId);
 
     // Get active batches with FCR data
     const batches = await repo.find({
       where: {
-        tenantId,
         isActive: true,
         status: In([BatchStatus.ACTIVE, BatchStatus.GROWING]),
       },
@@ -1408,13 +1410,12 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
     queryRunner?: QueryRunner,
   ): Promise<{ feedId: string; feedName: string; currentStock: number; minStock: number }[]> {
     const repo = queryRunner
-      ? queryRunner.manager.getRepository(FeedInventory)
-      : this.feedInventoryRepository;
+      ? tenantManagerRepo(queryRunner.manager, FeedInventory, tenantId)
+      : TenantScopedRepository.fromRepository(this.feedInventoryRepository, tenantId);
 
     // Check feed inventory
     const lowStockInventory = await repo.find({
       where: {
-        tenantId,
         status: In([InventoryStatus.LOW_STOCK, InventoryStatus.OUT_OF_STOCK]),
       },
       relations: ['feed'],
@@ -1439,15 +1440,14 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
     queryRunner?: QueryRunner,
   ): Promise<{ feedId: string; feedName: string; expiryDate: Date; quantity: number }[]> {
     const repo = queryRunner
-      ? queryRunner.manager.getRepository(FeedInventory)
-      : this.feedInventoryRepository;
+      ? tenantManagerRepo(queryRunner.manager, FeedInventory, tenantId)
+      : TenantScopedRepository.fromRepository(this.feedInventoryRepository, tenantId);
 
     const expiryThreshold = new Date();
     expiryThreshold.setDate(expiryThreshold.getDate() + days);
 
     const expiringInventory = await repo.find({
       where: {
-        tenantId,
         expiryDate: LessThanOrEqual(expiryThreshold),
         status: In([InventoryStatus.AVAILABLE, InventoryStatus.LOW_STOCK]),
       },
@@ -1480,12 +1480,12 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
     shortfall: number;
   }> {
     const tableRepo = queryRunner
-      ? queryRunner.manager.getRepository(FeedingTable)
-      : this.feedingTableRepository;
+      ? tenantManagerRepo(queryRunner.manager, FeedingTable, tenantId)
+      : TenantScopedRepository.fromRepository(this.feedingTableRepository, tenantId);
 
     const invRepo = queryRunner
-      ? queryRunner.manager.getRepository(FeedInventory)
-      : this.feedInventoryRepository;
+      ? tenantManagerRepo(queryRunner.manager, FeedInventory, tenantId)
+      : TenantScopedRepository.fromRepository(this.feedInventoryRepository, tenantId);
 
     const feedRequirements = new Map<string, { feedId: string; feedName: string; quantity: number }>();
     let totalRequired = 0;
@@ -1493,7 +1493,6 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
     // Get active feeding tables
     const feedingTables = await tableRepo.find({
       where: {
-        tenantId,
         status: FeedingTableStatus.ACTIVE,
         isActive: true,
       },
@@ -1631,7 +1630,10 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
     const tIdx = this.findBoundingIndex(temperatures, temperature);
     const wIdx = this.findBoundingIndex(weights, weightG);
 
-    // Simple nearest neighbor for now (could be enhanced with full bilinear)
+    // Nearest-neighbor interpolation. A full bilinear kernel would
+    // blend the four surrounding grid points instead of snapping to
+    // the closest one; kept simple here because the FCR lookup table
+    // is dense enough that nearest-neighbor error is <1% of target.
     const tI = Math.max(0, Math.min(tIdx, temperatures.length - 1));
     const wI = Math.max(0, Math.min(wIdx, weights.length - 1));
 

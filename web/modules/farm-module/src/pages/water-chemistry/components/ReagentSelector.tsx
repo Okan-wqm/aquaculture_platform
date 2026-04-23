@@ -2,7 +2,7 @@
  * Reagent Selector - Checkbox panel for selecting chemical reagents
  */
 import React from 'react';
-import { REAGENTS } from '../engine/reagents';
+import { REAGENTS } from '@platform/aquaculture-engines';
 
 interface ReagentSelectorProps {
   selected: string[];

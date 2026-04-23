@@ -3,8 +3,7 @@
  * Tabs: System | Realtime | Target | Toxic Limits | Reagents
  */
 import React, { useState } from 'react';
-import { FishType, FishSize } from '../engine/types';
-import { REAGENTS } from '../engine/reagents';
+import { FishType, FishSize, REAGENTS } from '@platform/aquaculture-engines';
 
 export interface WaterChemistryInputs {
   tempC: number;

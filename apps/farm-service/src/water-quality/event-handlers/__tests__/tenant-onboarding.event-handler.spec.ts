@@ -13,6 +13,7 @@
 import { TenantOnboardingEventHandler } from '../tenant-onboarding.event-handler';
 import { WaterQualityParameterConfigSeederService } from '../../services/water-quality-parameter-config-seeder.service';
 import { SpeciesSeederService } from '../../../species/services/species-seeder.service';
+import { FeedingProtocolSeederService } from '../../../feed/services/feeding-protocol-seeder.service';
 import type { TenantCreatedEvent } from '@platform/event-contracts';
 
 interface SeederDouble {
@@ -28,11 +29,14 @@ function makeHandler(opts: {
   wqError?: Error;
   speciesResult?: { seeded: string[]; skipped: string[] };
   speciesError?: Error;
+  protocolResult?: { seeded: string[]; skipped: string[] };
+  protocolError?: Error;
   eventBus?: BusDouble;
 }): {
   handler: TenantOnboardingEventHandler;
   wq: SeederDouble;
   species: SeederDouble;
+  protocol: SeederDouble;
   bus?: BusDouble;
 } {
   const wq: SeederDouble = {
@@ -47,13 +51,25 @@ function makeHandler(opts: {
       return opts.speciesResult ?? { seeded: ['ATLANTIC_SALMON'], skipped: [] };
     }),
   };
+  const protocol: SeederDouble = {
+    seedDefaults: jest.fn().mockImplementation(async () => {
+      if (opts.protocolError) throw opts.protocolError;
+      return (
+        opts.protocolResult ?? {
+          seeded: ['ATLANTIC_SALMON:grower'],
+          skipped: [],
+        }
+      );
+    }),
+  };
   const handler = new TenantOnboardingEventHandler(
     wq as unknown as WaterQualityParameterConfigSeederService,
     species as unknown as SpeciesSeederService,
+    protocol as unknown as FeedingProtocolSeederService,
     opts.eventBus as never,
   );
   (handler as unknown as { eventBus?: BusDouble }).eventBus = opts.eventBus;
-  return { handler, wq, species, bus: opts.eventBus };
+  return { handler, wq, species, protocol, bus: opts.eventBus };
 }
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
@@ -64,8 +80,8 @@ describe('TenantOnboardingEventHandler', () => {
     expect(handler.getEventType()).toBe('TenantCreated');
   });
 
-  it('runs BOTH seeders on a valid TenantCreated event', async () => {
-    const { handler, wq, species } = makeHandler({});
+  it('runs every seeder on a valid TenantCreated event', async () => {
+    const { handler, wq, species, protocol } = makeHandler({});
     await handler.handle({
       eventType: 'TenantCreated',
       tenantId: TENANT,
@@ -74,10 +90,11 @@ describe('TenantOnboardingEventHandler', () => {
     } as TenantCreatedEvent);
     expect(wq.seedDefaults).toHaveBeenCalledWith(TENANT);
     expect(species.seedDefaults).toHaveBeenCalledWith(TENANT);
+    expect(protocol.seedDefaults).toHaveBeenCalledWith(TENANT);
   });
 
   it('skips every seeder when tenantId format is invalid', async () => {
-    const { handler, wq, species } = makeHandler({});
+    const { handler, wq, species, protocol } = makeHandler({});
     await handler.handle({
       eventType: 'TenantCreated',
       tenantId: 'not-a-uuid',
@@ -86,10 +103,11 @@ describe('TenantOnboardingEventHandler', () => {
     } as TenantCreatedEvent);
     expect(wq.seedDefaults).not.toHaveBeenCalled();
     expect(species.seedDefaults).not.toHaveBeenCalled();
+    expect(protocol.seedDefaults).not.toHaveBeenCalled();
   });
 
   it('skips every seeder when tenantId is missing', async () => {
-    const { handler, wq, species } = makeHandler({});
+    const { handler, wq, species, protocol } = makeHandler({});
     await handler.handle({
       eventType: 'TenantCreated',
       name: 'Missing',
@@ -97,10 +115,11 @@ describe('TenantOnboardingEventHandler', () => {
     } as unknown as TenantCreatedEvent);
     expect(wq.seedDefaults).not.toHaveBeenCalled();
     expect(species.seedDefaults).not.toHaveBeenCalled();
+    expect(protocol.seedDefaults).not.toHaveBeenCalled();
   });
 
-  it('sibling seeder still runs when the first one throws (fault isolation)', async () => {
-    const { handler, wq, species } = makeHandler({
+  it('sibling seeders still run when the first one throws (fault isolation)', async () => {
+    const { handler, wq, species, protocol } = makeHandler({
       wqError: new Error('wq db locked'),
     });
     await expect(
@@ -112,14 +131,19 @@ describe('TenantOnboardingEventHandler', () => {
       } as TenantCreatedEvent),
     ).resolves.toBeUndefined();
     expect(wq.seedDefaults).toHaveBeenCalledTimes(1);
-    // Critical invariant: species seed still runs even though WQ failed.
+    // Critical invariant: species + protocol seeders still run
+    // even though WQ failed. A broken upstream seeder must not
+    // cascade into skipped downstream seeders — the tables are
+    // independent.
     expect(species.seedDefaults).toHaveBeenCalledWith(TENANT);
+    expect(protocol.seedDefaults).toHaveBeenCalledWith(TENANT);
   });
 
-  it('both seeders failing does not rethrow', async () => {
-    const { handler, wq, species } = makeHandler({
+  it('all seeders failing does not rethrow', async () => {
+    const { handler, wq, species, protocol } = makeHandler({
       wqError: new Error('wq db locked'),
       speciesError: new Error('species db locked'),
+      protocolError: new Error('protocol db locked'),
     });
     await expect(
       handler.handle({
@@ -131,6 +155,7 @@ describe('TenantOnboardingEventHandler', () => {
     ).resolves.toBeUndefined();
     expect(wq.seedDefaults).toHaveBeenCalledTimes(1);
     expect(species.seedDefaults).toHaveBeenCalledTimes(1);
+    expect(protocol.seedDefaults).toHaveBeenCalledTimes(1);
   });
 
   it('no-ops onModuleInit when EventBus is unavailable', async () => {

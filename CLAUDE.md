@@ -48,13 +48,14 @@ npm run format                   # Prettier write
 
 Nx monorepo. NestJS microservices (`apps/`), React microfrontends (`web/`), platform libs (`platform/libs/`), shared libs (`libs/`), Rust edge gateway (`sens-api-gateway/`).
 
-### Backend Services (`apps/`) — 16 services (15 runtime + `db-migrate` CLI)
+### Backend Services (`apps/`) — 17 services (15 runtime + `sensor-ingestion` Rust sidecar + `db-migrate` CLI)
 | Service | Schema | Responsibility |
 |---|---|---|
 | `gateway-api` | — | API gateway, auth guard, rate limiting, CSP, OPA |
 | `auth-service` | `auth` | JWT (RS256), RBAC, tenant provisioning, refresh token rotation, MFA |
 | `farm-service` | `farm` | Farm, pond, batch, feed, harvest, water quality (schema-per-tenant) |
 | `sensor-service` | `sensor` | Sensor ingestion, calibration, aggregation, MQTT/LoRaWAN (schema-per-tenant) |
+| `sensor-ingestion` | `sensor` | Rust sidecar for high-throughput sensor payload decode + NATS publish (ADR per `project_rust_migration.md` hybrid plan) |
 | `hydroponics-service` | `hydroponics` | Hydroponics config, grow cycles (schema-per-tenant) |
 | `alert-engine` | `alert` | Alert rules, risk scoring, escalation (schema-per-tenant) |
 | `billing-service` | `billing` | Subscription, invoicing, Stripe webhook/API |

@@ -940,3 +940,30 @@ This orphan entry is the architectural tier-4 "document" fallback for `AUDIT-LOW
 - Owner: orchestrator.
 - No deadline — this is an informational classification, not an actionable fix.
 - Closure path: commit that adds this note carries `Closes: docs/reviews/_audit/2026-04-22-cold-audit/03-explore-findings.md#AUDIT-LOW-001`.
+
+## 2026-04-23 ORPHAN-DIC-001 — `apps/sensor-service/.../device-io-config.entity.ts` has no `tenantId` column
+
+**Status:** OPEN — surfaced during the Phase B.3 cold-audit remediation while trying to migrate `apps/sensor-service/src/edge-device/edge-device.service.ts`'s `manager.getRepository(DeviceIoConfig)` call to `tenantManagerRepo()`.
+
+**Scope:** `apps/sensor-service/src/edge-device/entities/device-io-config.entity.ts` — no `@Column` declares a `tenantId` field. Rows are only reachable via the parent `EdgeDevice` relationship, whose row does carry `tenantId`.
+
+**Why the entity can't be wrapped by `tenantManagerRepo()`:**
+
+The scoped repo auto-injects `{ ..., tenantId }` into every save / update / create / delete. DeviceIoConfig has no `tenantId` column → the INSERT would fail at runtime with a `column "tenantId" does not exist` Postgres error. Wrapping with `tenantManagerRepo()` is therefore *structurally incorrect* until the column exists.
+
+**Current state:**
+
+`bulkAddIoConfigs()` in `edge-device.service.ts` still calls `manager.getRepository(DeviceIoConfig)` directly, with an `// eslint-disable-next-line no-restricted-syntax -- ORPHAN-DIC-001` comment pointing at this entry.
+
+**The architectural question:**
+
+Should `DeviceIoConfig` gain a `tenantId` column?
+
+- **Pro:** explicit tenant scoping at every repository call; no reliance on parent-row traversal; RLS policies would work without JOINs; matches the pattern every other sensor-service entity follows.
+- **Con:** denormalizes the tenantId (stored twice — on EdgeDevice and again on each of its DeviceIoConfig rows). Adds a migration touching every live DeviceIoConfig row. Adds an index-maintenance cost.
+
+**Closure path:**
+
+A follow-up PR that lands the `tenantId` column migration + entity update can delete the eslint-disable comment in `bulkAddIoConfigs` AND rewrite the line to `tenantManagerRepo(manager, DeviceIoConfig, tenantId)`, carrying `Closes: docs/reviews/orphan-findings.md#ORPHAN-DIC-001`.
+
+Until then this ORPHAN documents why the getRepository rule has a single sensor-service exception with a traceable reference — an architectural acknowledgement, not a patch.

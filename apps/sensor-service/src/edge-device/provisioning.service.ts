@@ -1,5 +1,5 @@
 import * as crypto from 'crypto';
-import { getTenantSchemaName } from '@aquaculture/backend-common';
+import { getTenantSchemaName, tenantManagerRepo } from '@aquaculture/backend-common';
 
 import {
   Injectable,
@@ -567,7 +567,11 @@ export class ProvisioningService {
       let existing: EdgeDevice | null = null;
       try {
         await qr.query(`SET search_path TO "${tenantSchema}", sensor, public`);
-        existing = await qr.manager.getRepository(EdgeDevice)
+        // tenantId auto-injected by the scoped wrapper; explicit
+        // `d.tenant_id = :tenantId` clause below is redundant but kept
+        // because this query pins a snake_case column name that the
+        // auto-injected camelCase tenantId clause would not match.
+        existing = await tenantManagerRepo(qr.manager, EdgeDevice, key.tenantId)
           .createQueryBuilder('d')
           .where('d.tenant_id = :tenantId', { tenantId: key.tenantId })
           .andWhere("d.fingerprint->>'machineId' = :machineId", {

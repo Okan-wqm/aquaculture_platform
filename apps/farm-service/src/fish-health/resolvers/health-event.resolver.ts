@@ -121,6 +121,7 @@ export class HealthEventResolver {
   /**
    * Get a single health event by ID
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => HealthEvent, { nullable: true, description: 'Get health event by ID' })
   async healthEvent(
     @CurrentTenant() tenantId: string,
@@ -132,6 +133,7 @@ export class HealthEventResolver {
   /**
    * List health events with filtering and pagination
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => PaginatedHealthEventsResponse, { description: 'List health events with filters' })
   async healthEvents(
     @CurrentTenant() tenantId: string,
@@ -143,6 +145,7 @@ export class HealthEventResolver {
   /**
    * Get health events for a specific batch
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [HealthEvent], { description: 'Get health events for a batch' })
   async healthEventsByBatch(
     @CurrentTenant() tenantId: string,
@@ -155,6 +158,7 @@ export class HealthEventResolver {
   /**
    * Get critical health events (severe or critical severity, active status)
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [HealthEvent], { description: 'Get critical health events' })
   async criticalHealthEvents(
     @CurrentTenant() tenantId: string,
@@ -165,6 +169,7 @@ export class HealthEventResolver {
   /**
    * Get health events with overdue follow-ups
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [HealthEvent], { description: 'Get events with overdue follow-ups' })
   async overdueHealthFollowUps(
     @CurrentTenant() tenantId: string,
@@ -175,6 +180,7 @@ export class HealthEventResolver {
   /**
    * Get health event statistics
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => HealthEventStatsResponse, { description: 'Get health event statistics' })
   async healthEventStats(
     @CurrentTenant() tenantId: string,

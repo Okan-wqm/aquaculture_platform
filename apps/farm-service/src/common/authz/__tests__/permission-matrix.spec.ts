@@ -205,12 +205,14 @@ describe('resolveAllowedRoles helper', () => {
 
   it('grandfathered operations map to null', () => {
     // The whitelist only contains queries that phase 6.1.1 hasn't
-    // classified yet. `healthEvents` is a canonical large-surface
-    // read still in the whitelist — health events / chemicals /
-    // species / task / work-order query sweeps land in follow-up
-    // PRs. All mutations plus the batch / facility / equipment /
-    // supplier / storage / feeding / growth / WQ family of reads
-    // have already moved into MUTATION_ROLES / QUERY_ROLES.
-    expect(UNGATED_OPERATIONS.has('healthEvents')).toBe(true);
+    // classified yet. `workOrders` is a canonical large-surface
+    // read still in the whitelist — task / work-order / maintenance
+    // schedule / regulatory / sentinel-hub / weather / harvest /
+    // legacy farm-pond sweeps land in follow-up PRs. All
+    // mutations plus the batch / facility / equipment / supplier /
+    // storage / feeding / growth / WQ / health / chemical /
+    // species / sub-equipment / trace-lot family of reads have
+    // already moved into MUTATION_ROLES / QUERY_ROLES.
+    expect(UNGATED_OPERATIONS.has('workOrders')).toBe(true);
   });
 });

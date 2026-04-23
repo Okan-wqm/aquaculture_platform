@@ -194,6 +194,7 @@ export class StorageResolver {
     return this.commandBus.execute(command);
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => PaginatedStockMovementsResponse)
   async stockMovements(
     @Args('filter', { type: () => StockMovementFilterInput, nullable: true }) filter: StockMovementFilterInput | undefined,
@@ -227,6 +228,7 @@ export class StorageResolver {
    * - Backward: "Where did the feed in Tank A come from?" (supplier, delivery)
    * - Recall: "Find all consumption points for recalled lot X"
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [StockMovementResponse], {
     description: 'Trace all stock movements for a lot number (regulatory traceability)',
   })

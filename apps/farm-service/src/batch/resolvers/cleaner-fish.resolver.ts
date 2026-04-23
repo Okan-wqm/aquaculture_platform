@@ -436,6 +436,7 @@ export class CleanerFishResolver {
   // QUERIES
   // -------------------------------------------------------------------------
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [CleanerFishSpeciesInfo], { name: 'cleanerFishSpecies' })
   async getCleanerFishSpecies(
     @Tenant() tenantId: string,

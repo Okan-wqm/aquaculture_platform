@@ -88,6 +88,7 @@ export class SpeciesResolver {
   /**
    * Get a single species by ID
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => Species, { name: 'species' })
   async getSpecies(
     @Args('id', { type: () => ID }) id: string,
@@ -100,6 +101,7 @@ export class SpeciesResolver {
   /**
    * Get a species by code
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => Species, { name: 'speciesByCode' })
   async getSpeciesByCode(
     @Args('code') code: string,
@@ -112,6 +114,7 @@ export class SpeciesResolver {
   /**
    * List species with filtering and pagination
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => SpeciesListResponse, { name: 'speciesList' })
   async listSpecies(
     @CurrentTenant() tenantId: string,
@@ -126,6 +129,7 @@ export class SpeciesResolver {
   /**
    * Get all active species (shorthand query)
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [Species], { name: 'activeSpecies' })
   async getActiveSpecies(
     @CurrentTenant() tenantId: string,
@@ -140,6 +144,7 @@ export class SpeciesResolver {
    * Get all unique tags used by species in the tenant
    * Returns both predefined tags and custom tags
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [String], { name: 'speciesTags' })
   async getSpeciesTags(
     @CurrentTenant() tenantId: string,
@@ -168,6 +173,7 @@ export class SpeciesResolver {
   /**
    * Get predefined species tags (static list)
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [String], { name: 'predefinedSpeciesTags' })
   async getPredefinedSpeciesTags(): Promise<string[]> {
     return [...PREDEFINED_SPECIES_TAGS];

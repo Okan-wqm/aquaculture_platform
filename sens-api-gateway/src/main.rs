@@ -3875,28 +3875,46 @@ async fn run_agent(
     // Step 6b: Start I/O poll loop
     tokio::spawn(io_poll::io_poll_loop(state.clone()));
 
-    // Batch 171 Faz 3 wire: spawn bytecode scan-cycle
-    // cadence driver. Only when scripting is enabled —
-    // disabled scripting (dev / edge-read-only mode)
-    // skips spawning the task so the process image
-    // stays operator-controlled without script writes.
+    // Batch 171 Faz 3 + Batch 193 Faz 4 wire: spawn
+    // the bytecode scan-cycle / scheduler driver(s).
+    // Only when scripting is enabled — disabled
+    // scripting (dev / edge-read-only mode) skips
+    // spawning so the process image stays operator-
+    // controlled without script writes.
+    //
+    // Dispatch-mode selection (Batch 193):
+    // - `config.scripting.tasks` is EMPTY → spawn the
+    //   Batch 170 single-cadence loop (backward compat
+    //   with v1.6.0 config.yaml).
+    // - `config.scripting.tasks` is NON-EMPTY →
+    //   construct a TaskScheduler + spawn the Batch
+    //   193 multi-task cadence loop + Batch 191 event
+    //   listener.
     //
     // Shutdown bridging: ShutdownCoordinator emits a
-    // broadcast `()` signal; the scan-cycle loop takes
-    // a `watch::Receiver<bool>`. A small bridge task
-    // forwards the broadcast → watch so the loop gets
-    // responsive shutdown via its existing
-    // tokio::select! path without changing its
-    // signature (keeps the Batch 170 unit tests intact).
+    // broadcast `()` signal; both loops take a
+    // `watch::Receiver<bool>`. A bridge task forwards
+    // the broadcast → watch so each loop exits via
+    // its `tokio::select!` path.
     {
-        let (registry, pi, scan_cycle_ms, scripting_enabled, retain_persistence) = {
+        let (
+            registry,
+            pi,
+            scan_cycle_ms,
+            min_scan_cycle_ms,
+            scripting_enabled,
+            retain_persistence,
+            tasks_config,
+        ) = {
             let s = state.read().await;
             (
                 s.bytecode_registry.clone(),
                 s.process_image.clone(),
                 s.config.scripting.default_scan_cycle_ms,
+                s.config.scripting.min_scan_cycle_ms,
                 s.config.scripting.enabled,
                 s.retain_persistence.clone(),
+                s.config.scripting.tasks.clone(),
             )
         };
 
@@ -3904,10 +3922,7 @@ async fn run_agent(
             // Batch 172 wire: build declared-types catalog
             // from the ProcessImage tag configs so Bool /
             // Int tags round-trip through the VM with
-            // their declared type (vs being treated as
-            // Real by default). The catalog is computed
-            // once at boot; future batch adds reload on
-            // config change.
+            // their declared type.
             let declared_types =
                 crate::scripting::process_image_tagio::declared_types_from_process_image(
                     &pi,
@@ -3918,48 +3933,129 @@ async fn run_agent(
                 declared_types.len()
             );
 
-            let (watch_tx, watch_rx) = tokio::sync::watch::channel(false);
-            let mut broadcast_rx = shutdown_coordinator.subscribe();
+            if tasks_config.is_empty() {
+                // Single-cadence branch (Batch 170
+                // preserved for backward compat).
+                let (watch_tx, watch_rx) = tokio::sync::watch::channel(false);
+                let mut broadcast_rx = shutdown_coordinator.subscribe();
+                tokio::spawn(async move {
+                    let _ = broadcast_rx.recv().await;
+                    let _ = watch_tx.send(true);
+                });
 
-            // Bridge: forward broadcast shutdown → watch.
-            tokio::spawn(async move {
-                let _ = broadcast_rx.recv().await;
-                let _ = watch_tx.send(true);
-            });
-
-            // Batch 177 wire: pass the shared RETAIN
-            // persistence Arc into the scan-cycle loop.
-            // None when `init_retain_persistence` failed
-            // (SQLCipher unavailable) — bytecode RETAIN
-            // becomes a no-op for the current boot + the
-            // agent logs the failure, matching the
-            // policy applied to the legacy ScriptEngine.
-            let persistence_opt = retain_persistence;
-            let scan_cycle_handle = tokio::spawn(async move {
-                let summary = crate::scripting::bytecode_scan_cycle_task::run_scan_cycle_loop(
-                    registry,
-                    pi,
-                    declared_types,
-                    persistence_opt,
-                    scan_cycle_ms,
-                    crate::scripting::bytecode_runner::ScanTickOptions::default(),
-                    watch_rx,
-                )
-                .await;
+                let persistence_opt = retain_persistence;
+                let scan_cycle_handle = tokio::spawn(async move {
+                    let summary = crate::scripting::bytecode_scan_cycle_task::run_scan_cycle_loop(
+                        registry,
+                        pi,
+                        declared_types,
+                        persistence_opt,
+                        scan_cycle_ms,
+                        crate::scripting::bytecode_runner::ScanTickOptions::default(),
+                        watch_rx,
+                    )
+                    .await;
+                    info!(
+                        "bytecode_scan_cycle exit: ticks={} ok={} failed={} overruns={}",
+                        summary.ticks_executed,
+                        summary.programs_ok,
+                        summary.programs_failed,
+                        summary.overrun_count
+                    );
+                });
+                shutdown_coordinator
+                    .register_task("bytecode_scan_cycle", scan_cycle_handle);
                 info!(
-                    "bytecode_scan_cycle exit: ticks={} ok={} failed={} overruns={}",
-                    summary.ticks_executed,
-                    summary.programs_ok,
-                    summary.programs_failed,
-                    summary.overrun_count
+                    "Bytecode scan-cycle driver spawned (scan_cycle_ms={}, single-cadence)",
+                    scan_cycle_ms
                 );
-            });
-            shutdown_coordinator
-                .register_task("bytecode_scan_cycle", scan_cycle_handle);
-            info!(
-                "Bytecode scan-cycle driver spawned (scan_cycle_ms={})",
-                scan_cycle_ms
-            );
+            } else {
+                // Multi-task scheduler branch (Batch 193).
+                match crate::scripting::task_scheduler::TaskScheduler::new(
+                    tasks_config,
+                ) {
+                    Ok(scheduler) => {
+                        let task_count = scheduler.task_count();
+                        let scheduler_arc = std::sync::Arc::new(
+                            tokio::sync::Mutex::new(scheduler),
+                        );
+
+                        // Shared shutdown watch for both
+                        // the cadence loop + the event
+                        // listener.
+                        let (watch_tx, _) = tokio::sync::watch::channel(false);
+                        let cadence_rx = watch_tx.subscribe();
+                        let listener_rx = watch_tx.subscribe();
+                        let mut broadcast_rx = shutdown_coordinator.subscribe();
+                        tokio::spawn(async move {
+                            let _ = broadcast_rx.recv().await;
+                            let _ = watch_tx.send(true);
+                        });
+
+                        // Spawn event listener bridge.
+                        let pi_listener = pi.clone();
+                        let sched_listener = scheduler_arc.clone();
+                        let listener_handle = tokio::spawn(async move {
+                            let summary =
+                                crate::scripting::task_scheduler::run_event_listener(
+                                    &pi_listener,
+                                    sched_listener,
+                                    listener_rx,
+                                )
+                                .await;
+                            info!(
+                                "scheduler_event_listener exit: received={} matched={} lag={}",
+                                summary.events_received,
+                                summary.events_matched,
+                                summary.lag_events
+                            );
+                        });
+                        shutdown_coordinator
+                            .register_task("scheduler_event_listener", listener_handle);
+
+                        // Spawn the scheduler cadence loop.
+                        let persistence_opt = retain_persistence;
+                        let quantum_ms = min_scan_cycle_ms.max(10);
+                        let sched_cadence = scheduler_arc;
+                        let pi_cadence = pi;
+                        let cadence_handle = tokio::spawn(async move {
+                            let summary =
+                                crate::scripting::task_scheduler::run_scheduler_cadence_loop(
+                                    sched_cadence,
+                                    registry,
+                                    pi_cadence,
+                                    declared_types,
+                                    persistence_opt,
+                                    crate::scripting::bytecode_runner::ScanTickOptions::default(),
+                                    quantum_ms,
+                                    cadence_rx,
+                                )
+                                .await;
+                            info!(
+                                "scheduler_cadence exit: ticks={} dispatches={} ok={} failed={} watchdog={}",
+                                summary.quantum_ticks,
+                                summary.total_task_dispatches,
+                                summary.programs_ok,
+                                summary.programs_failed,
+                                summary.watchdog_trips,
+                            );
+                        });
+                        shutdown_coordinator
+                            .register_task("scheduler_cadence", cadence_handle);
+
+                        info!(
+                            "Bytecode multi-task scheduler spawned (tasks={}, quantum_ms={})",
+                            task_count, quantum_ms
+                        );
+                    }
+                    Err(e) => {
+                        error!(
+                            "Multi-task scheduler construction FAILED: {} — agent boots with NO bytecode dispatch. Operator must fix config.scripting.tasks.",
+                            e
+                        );
+                    }
+                }
+            }
         } else {
             info!(
                 "Bytecode scan-cycle driver NOT spawned: config.scripting.enabled=false"

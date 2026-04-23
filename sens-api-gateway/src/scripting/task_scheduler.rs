@@ -817,6 +817,153 @@ pub struct EventListenerSummary {
     pub lag_events: u64,
 }
 
+/// Cadence loop for the multi-task scheduler — Batch
+/// 193 Faz 4. Replaces Batch 170's single-cadence
+/// `run_scan_cycle_loop` when the operator declares
+/// `scripting.tasks` in config.yaml.
+///
+/// Runs at a fine-grained quantum (default 10 ms, clamped
+/// against `config.scripting.min_scan_cycle_ms`). Every
+/// tick:
+/// 1. Reads `now_ms` from the monotonic clock.
+/// 2. Briefly locks the scheduler to call
+///    `dispatch_scheduler_tick`.
+/// 3. Logs per-task outcomes (structured).
+/// 4. Sleeps the quantum OR exits on shutdown.
+///
+/// Fine-grained quantum = one source of latency
+/// reduction for SafetyCritical tasks (500 ms cycle
+/// with 10 ms quantum = up to 50 chances to fire per
+/// period — jitter ≤ 10 ms).
+pub async fn run_scheduler_cadence_loop(
+    scheduler: std::sync::Arc<tokio::sync::Mutex<TaskScheduler>>,
+    registry: std::sync::Arc<super::bytecode_registry::BytecodeProgramRegistry>,
+    pi: crate::process_image::ProcessImage,
+    declared_types: std::collections::HashMap<String, StValueType>,
+    persistence: Option<std::sync::Arc<super::persistence::SqlitePersistence>>,
+    options: super::bytecode_runner::ScanTickOptions,
+    quantum_ms: u64,
+    mut shutdown_rx: tokio::sync::watch::Receiver<bool>,
+) -> SchedulerLoopSummary {
+    tracing::info!(
+        "Bytecode scheduler cadence loop starting (quantum_ms={})",
+        quantum_ms
+    );
+    let started_at = std::time::Instant::now();
+    let quantum = std::time::Duration::from_millis(quantum_ms.max(1));
+    let mut summary = SchedulerLoopSummary::default();
+
+    loop {
+        let now_ms = started_at.elapsed().as_millis() as u64;
+
+        // Brief scheduler lock for the dispatch.
+        let mut sched = scheduler.lock().await;
+        let dispatch_results = dispatch_scheduler_tick(
+            &mut sched,
+            &registry,
+            &pi,
+            &declared_types,
+            persistence.as_deref(),
+            &options,
+            now_ms,
+        )
+        .await;
+        drop(sched);
+
+        summary.quantum_ticks += 1;
+        for r in &dispatch_results {
+            summary.total_task_dispatches += 1;
+            if r.tripped_watchdog {
+                summary.watchdog_trips += 1;
+                tracing::warn!(
+                    "scheduler cadence: task `{}` tripped watchdog \
+                     (elapsed_ms={})",
+                    r.task_name,
+                    r.elapsed_ms
+                );
+            } else {
+                tracing::debug!(
+                    "scheduler cadence: task `{}` ran {} programs in \
+                     {} ms",
+                    r.task_name,
+                    r.per_program.len(),
+                    r.elapsed_ms
+                );
+            }
+            for (pid, result) in &r.per_program {
+                match result {
+                    super::bytecode_runner::BytecodeRunResult::Ok { .. } => {
+                        summary.programs_ok += 1;
+                    }
+                    super::bytecode_runner::BytecodeRunResult::Failed {
+                        ..
+                    } => {
+                        summary.programs_failed += 1;
+                        tracing::warn!(
+                            "scheduler cadence: task `{}` program `{}` \
+                             failed",
+                            r.task_name,
+                            pid
+                        );
+                    }
+                }
+            }
+        }
+
+        // Sleep until the next quantum OR the shutdown
+        // signal fires.
+        tokio::select! {
+            _ = tokio::time::sleep(quantum) => {}
+            changed = shutdown_rx.changed() => {
+                match changed {
+                    Ok(()) if *shutdown_rx.borrow() => {
+                        tracing::info!(
+                            "scheduler cadence loop shutdown: ticks={} \
+                             dispatches={} ok={} failed={} watchdog={}",
+                            summary.quantum_ticks,
+                            summary.total_task_dispatches,
+                            summary.programs_ok,
+                            summary.programs_failed,
+                            summary.watchdog_trips,
+                        );
+                        return summary;
+                    }
+                    Ok(()) => {}
+                    Err(_) => {
+                        tracing::info!(
+                            "scheduler cadence loop shutdown (sender \
+                             dropped): ticks={} dispatches={}",
+                            summary.quantum_ticks,
+                            summary.total_task_dispatches,
+                        );
+                        return summary;
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Cumulative summary returned when the scheduler
+/// cadence loop exits.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SchedulerLoopSummary {
+    /// Total quantum-rate ticks (one per
+    /// `dispatch_scheduler_tick` call).
+    pub quantum_ticks: u64,
+    /// Total task dispatches aggregated across quantum
+    /// ticks. A single tick with 3 fired tasks adds
+    /// 3 to this counter.
+    pub total_task_dispatches: u64,
+    /// Tasks whose watchdog deadline tripped (hard
+    /// kill OR soft overrun).
+    pub watchdog_trips: u64,
+    /// Per-program results summed across all task
+    /// dispatches.
+    pub programs_ok: u64,
+    pub programs_failed: u64,
+}
+
 /// Pure decision: does this task's next fire point
 /// fall before `now_ms`?
 fn should_fire(config: &TaskConfig, last_fired_at_ms: u64, now_ms: u64) -> bool {

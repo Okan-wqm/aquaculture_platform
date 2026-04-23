@@ -202,6 +202,37 @@ pub enum Opcode {
     /// without runtime type-polymorphic operators.
     CastIntToReal,
 
+    // =========================== FB invoke =============
+    /// Batch 180 Faz 3 (plan R-1): invoke a function
+    /// block instance. Semantics:
+    /// 1. Pops `input_names.len()` values from the stack
+    ///    (pushed by the compiler left-to-right; VM pops
+    ///    in REVERSE order so the first pop is the LAST
+    ///    argument).
+    /// 2. For each (input_name, value) pair, calls
+    ///    `FbIo::set_input(fb_id, input_name, value)`.
+    /// 3. Calls `FbIo::execute_fb(fb_id)` so the FB
+    ///    updates its internal state + outputs.
+    /// 4. Does NOT push anything to the stack —
+    ///    outputs are read via `FbReadOutput` opcode
+    ///    on demand.
+    ///
+    /// Rejects with `VmError::FbIoNotWired` when the
+    /// VM runs without an FbIo backend injected.
+    FbCall {
+        fb_id: String,
+        input_names: Vec<String>,
+    },
+    /// Batch 180 Faz 3: read one output of a function
+    /// block instance. Pushes the named output's
+    /// current value onto the stack. Batch 181 compiler
+    /// maps `my_timer.Q` (MemberAccess expression) to
+    /// this opcode.
+    FbReadOutput {
+        fb_id: String,
+        output_name: String,
+    },
+
     // ============================ Comparison ==========
     /// Pop two values of same type, push Bool (equal).
     Eq,
@@ -299,6 +330,9 @@ impl Opcode {
             // Batch 153 — new tag slots appended only
             // (never renumber existing ones).
             Self::CastIntToReal => 29,
+            // Batch 180 — FB invoke opcodes.
+            Self::FbCall { .. } => 30,
+            Self::FbReadOutput { .. } => 31,
         }
     }
 
@@ -324,6 +358,22 @@ impl Opcode {
 
             // Cast: 1 gas — a single i64→f64 conversion.
             Self::CastIntToReal => 1,
+
+            // FB invoke: 20 gas. Reflects the cost of
+            // N set_input calls + one execute_fb call
+            // that may do FB-internal work (timer
+            // increment, rising-edge detection, PID
+            // integration etc). Matches the "stdlib =
+            // 10" conservative cost ceiling, bumped to
+            // 20 because FBs do strictly more work than
+            // a single stdlib function.
+            Self::FbCall { .. } => 20,
+            // FB read: 3 gas — one get_output call +
+            // one stack push. Slightly cheaper than
+            // Tag IO (5 gas) because FB outputs are
+            // in-process lookup vs ProcessImage
+            // cross-component access.
+            Self::FbReadOutput { .. } => 3,
 
             // Control: 1 gas (branch prediction free in
             // interpreted dispatch).
@@ -534,6 +584,23 @@ mod tests {
         // Stable-tag invariant: new opcodes may only
         // extend this enum at the tail.
         assert_eq!(Opcode::CastIntToReal.wire_tag(), 29);
+        // Batch 180: FB invoke appended as tags 30-31.
+        assert_eq!(
+            Opcode::FbCall {
+                fb_id: "t".into(),
+                input_names: vec![]
+            }
+            .wire_tag(),
+            30
+        );
+        assert_eq!(
+            Opcode::FbReadOutput {
+                fb_id: "t".into(),
+                output_name: "Q".into()
+            }
+            .wire_tag(),
+            31
+        );
     }
 
     #[test]

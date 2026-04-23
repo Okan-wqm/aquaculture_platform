@@ -115,6 +115,19 @@ pub enum VmError {
     /// in-depth even when the tag is also in the
     /// allowlist.
     SafeStatePinned { tag: String },
+    /// Batch 180: FbCall / FbReadOutput dispatched
+    /// without an FbIo backend injected. Matches the
+    /// TagIoNotWired pattern (Batch 159).
+    FbIoNotWired {
+        fb_id: String,
+        direction: &'static str,
+    },
+    /// Batch 180: FbIo backend returned an error.
+    FbIoFailed {
+        fb_id: String,
+        direction: &'static str,
+        reason: String,
+    },
 }
 
 impl std::fmt::Display for VmError {
@@ -172,6 +185,16 @@ impl std::fmt::Display for VmError {
             Self::SafeStatePinned { tag } => {
                 write!(f, "vm: write to safe-state-pinned tag `{}` blocked", tag)
             }
+            Self::FbIoNotWired { fb_id, direction } => write!(
+                f,
+                "vm: FB IO not wired ({} on fb `{}`)",
+                direction, fb_id
+            ),
+            Self::FbIoFailed { fb_id, direction, reason } => write!(
+                f,
+                "vm: FB IO failed ({} on fb `{}`): {}",
+                direction, fb_id, reason
+            ),
         }
     }
 }
@@ -292,6 +315,108 @@ impl std::fmt::Display for TagIoError {
 
 impl std::error::Error for TagIoError {}
 
+/// Function-block I/O backend — Batch 180 Faz 3.
+///
+/// Mirrors the `TagIo` (Batch 159) abstraction: the VM
+/// stays decoupled from the `FBRegistry` concrete type
+/// so tests can drive a mock + production can plug the
+/// real registry. Three operations cover the FB invoke
+/// primitive:
+/// - `set_input(fb_id, name, value)` → writes one FB
+///   input pin before execution.
+/// - `execute_fb(fb_id)` → runs the FB's state machine
+///   once (timer tick, counter increment, PID step).
+/// - `get_output(fb_id, name)` → reads one FB output
+///   pin for `FbReadOutput` opcode.
+///
+/// All three return `FbIoError` on failure; the VM
+/// converts each to the appropriate `VmError` variant.
+pub trait FbIo {
+    fn set_input(
+        &self,
+        fb_id: &str,
+        input_name: &str,
+        value: StValue,
+    ) -> Result<(), FbIoError>;
+    fn execute_fb(&self, fb_id: &str) -> Result<(), FbIoError>;
+    fn get_output(
+        &self,
+        fb_id: &str,
+        output_name: &str,
+    ) -> Result<StValue, FbIoError>;
+}
+
+/// FB-IO failure taxonomy. Each variant maps to a
+/// specific operator-facing situation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FbIoError {
+    /// FB instance id not in the backend registry.
+    NotFound { fb_id: String },
+    /// Input / output pin name not declared on this
+    /// FB type.
+    PinNotFound { fb_id: String, pin: String },
+    /// Type mismatch on set_input or get_output.
+    TypeMismatch {
+        fb_id: String,
+        pin: String,
+        expected: StValueType,
+        got: StValueType,
+    },
+    /// Backend internal failure (state corruption, lock
+    /// poison, etc).
+    Internal { fb_id: String, reason: String },
+}
+
+impl FbIoError {
+    fn fb_id(&self) -> &str {
+        match self {
+            Self::NotFound { fb_id }
+            | Self::PinNotFound { fb_id, .. }
+            | Self::TypeMismatch { fb_id, .. }
+            | Self::Internal { fb_id, .. } => fb_id,
+        }
+    }
+
+    fn into_vm_error(self, direction: &'static str) -> VmError {
+        let fb_id = self.fb_id().to_string();
+        let reason = match self {
+            Self::NotFound { .. } => "FB instance not found".to_string(),
+            Self::PinNotFound { pin, .. } => format!("pin `{}` not found", pin),
+            Self::TypeMismatch { pin, expected, got, .. } => format!(
+                "pin `{}`: type mismatch (expected {:?}, got {:?})",
+                pin, expected, got
+            ),
+            Self::Internal { reason, .. } => format!("backend internal: {}", reason),
+        };
+        VmError::FbIoFailed {
+            fb_id,
+            direction,
+            reason,
+        }
+    }
+}
+
+impl std::fmt::Display for FbIoError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotFound { fb_id } => write!(f, "fb `{}` not found", fb_id),
+            Self::PinNotFound { fb_id, pin } => {
+                write!(f, "fb `{}`: pin `{}` not found", fb_id, pin)
+            }
+            Self::TypeMismatch { fb_id, pin, expected, got } => write!(
+                f,
+                "fb `{}`: pin `{}`: type mismatch (expected {:?}, got {:?})",
+                fb_id, pin, expected, got
+            ),
+            Self::Internal { fb_id, reason } => {
+                write!(f, "fb `{}`: backend internal — {}", fb_id, reason)
+            }
+        }
+    }
+}
+
+impl std::error::Error for FbIoError {}
+
 /// Stack-based VM runtime state.
 #[derive(Debug)]
 pub struct ScriptVm {
@@ -376,7 +501,7 @@ impl ScriptVm {
     /// `VmError::TagIoNotWired`. Retained for in-proc
     /// tests + programs that genuinely do no tag IO.
     pub fn run(&mut self, bc: &Bytecode) -> VmOutcome {
-        self.run_internal(bc, None)
+        self.run_internal(bc, None, None)
     }
 
     /// Execute the full bytecode program with an injected
@@ -385,10 +510,28 @@ impl ScriptVm {
     /// WriteTag (after Batch 156 allowlist + pinned gates)
     /// writes through `io.write_tag`.
     pub fn run_with_io(&mut self, bc: &Bytecode, io: &dyn TagIo) -> VmOutcome {
-        self.run_internal(bc, Some(io))
+        self.run_internal(bc, Some(io), None)
     }
 
-    fn run_internal(&mut self, bc: &Bytecode, io: Option<&dyn TagIo>) -> VmOutcome {
+    /// Execute with both tag IO + function block backends
+    /// (Batch 180 Faz 3). Programs that invoke FB blocks
+    /// (TON, TOF, CTU, PID, etc) use this path; pure-
+    /// expression programs can stick with `run_with_io`.
+    pub fn run_with_io_and_fb(
+        &mut self,
+        bc: &Bytecode,
+        io: &dyn TagIo,
+        fb: &dyn FbIo,
+    ) -> VmOutcome {
+        self.run_internal(bc, Some(io), Some(fb))
+    }
+
+    fn run_internal(
+        &mut self,
+        bc: &Bytecode,
+        io: Option<&dyn TagIo>,
+        fb: Option<&dyn FbIo>,
+    ) -> VmOutcome {
         self.ip = 0;
         loop {
             // Safety: ip bounds check on every
@@ -414,7 +557,7 @@ impl ScriptVm {
             }
             self.gas_remaining -= cost;
 
-            match self.dispatch_one(opcode, bc, io) {
+            match self.dispatch_one(opcode, bc, io, fb) {
                 Ok(DispatchStep::Advance) => {
                     self.ip += 1;
                 }
@@ -440,6 +583,7 @@ impl ScriptVm {
         opcode: &Opcode,
         bc: &Bytecode,
         io: Option<&dyn TagIo>,
+        fb: Option<&dyn FbIo>,
     ) -> Result<DispatchStep, VmError> {
         match opcode {
             // Stack ops
@@ -691,6 +835,49 @@ impl ScriptVm {
                 Ok(DispatchStep::Advance)
             }
             Opcode::SafeStateTrip => Err(VmError::SafeStateTripped),
+
+            // Batch 180 — FB invoke.
+            Opcode::FbCall { fb_id, input_names } => match fb {
+                None => Err(VmError::FbIoNotWired {
+                    fb_id: fb_id.clone(),
+                    direction: "call",
+                }),
+                Some(fb) => {
+                    // Pop arguments in REVERSE push
+                    // order. Compiler emission pushes
+                    // left-to-right; stack top = last
+                    // argument. Iterate input_names in
+                    // reverse so pop order matches
+                    // name order.
+                    let mut values: Vec<StValue> = Vec::with_capacity(input_names.len());
+                    for _ in 0..input_names.len() {
+                        values.push(self.pop("FbCall")?);
+                    }
+                    values.reverse();
+                    for (name, value) in input_names.iter().zip(values.into_iter()) {
+                        if let Err(e) = fb.set_input(fb_id, name, value) {
+                            return Err(e.into_vm_error("set_input"));
+                        }
+                    }
+                    if let Err(e) = fb.execute_fb(fb_id) {
+                        return Err(e.into_vm_error("execute"));
+                    }
+                    Ok(DispatchStep::Advance)
+                }
+            },
+            Opcode::FbReadOutput { fb_id, output_name } => match fb {
+                None => Err(VmError::FbIoNotWired {
+                    fb_id: fb_id.clone(),
+                    direction: "read",
+                }),
+                Some(fb) => match fb.get_output(fb_id, output_name) {
+                    Ok(v) => {
+                        self.stack.push(v);
+                        Ok(DispatchStep::Advance)
+                    }
+                    Err(e) => Err(e.into_vm_error("read")),
+                },
+            },
         }
     }
 
@@ -1667,6 +1854,275 @@ mod tests {
             vm.run(&b),
             VmOutcome::Error(VmError::TagIoNotWired { direction: "load", .. })
         ));
+    }
+
+    // ====================================================================
+    // Batch 180 — FbIo trait + FbCall / FbReadOutput dispatch
+    // ====================================================================
+
+    #[derive(Debug, Default)]
+    struct MockFbStore {
+        inputs: RefCell<HashMap<String, HashMap<String, StValue>>>,
+        outputs: RefCell<HashMap<String, HashMap<String, StValue>>>,
+        execution_count: RefCell<HashMap<String, u32>>,
+    }
+
+    impl MockFbStore {
+        fn with_fb(fb_id: &str) -> Self {
+            let mut inputs = HashMap::new();
+            inputs.insert(fb_id.to_string(), HashMap::new());
+            let mut outputs = HashMap::new();
+            outputs.insert(fb_id.to_string(), HashMap::new());
+            Self {
+                inputs: RefCell::new(inputs),
+                outputs: RefCell::new(outputs),
+                execution_count: RefCell::new(HashMap::new()),
+            }
+        }
+
+        fn set_output(&self, fb_id: &str, output_name: &str, value: StValue) {
+            self.outputs
+                .borrow_mut()
+                .entry(fb_id.to_string())
+                .or_default()
+                .insert(output_name.to_string(), value);
+        }
+
+        fn input(&self, fb_id: &str, name: &str) -> Option<StValue> {
+            self.inputs
+                .borrow()
+                .get(fb_id)
+                .and_then(|m| m.get(name).cloned())
+        }
+
+        fn exec_count(&self, fb_id: &str) -> u32 {
+            self.execution_count
+                .borrow()
+                .get(fb_id)
+                .copied()
+                .unwrap_or(0)
+        }
+    }
+
+    impl TagIo for MockFbStore {
+        fn read_tag(&self, _tag_name: &str) -> Result<StValue, TagIoError> {
+            Err(TagIoError::NotFound { tag: String::new() })
+        }
+        fn write_tag(
+            &self,
+            _tag_name: &str,
+            _value: StValue,
+        ) -> Result<(), TagIoError> {
+            Ok(())
+        }
+    }
+
+    impl FbIo for MockFbStore {
+        fn set_input(
+            &self,
+            fb_id: &str,
+            input_name: &str,
+            value: StValue,
+        ) -> Result<(), FbIoError> {
+            if !self.inputs.borrow().contains_key(fb_id) {
+                return Err(FbIoError::NotFound {
+                    fb_id: fb_id.to_string(),
+                });
+            }
+            self.inputs
+                .borrow_mut()
+                .get_mut(fb_id)
+                .unwrap()
+                .insert(input_name.to_string(), value);
+            Ok(())
+        }
+
+        fn execute_fb(&self, fb_id: &str) -> Result<(), FbIoError> {
+            if !self.inputs.borrow().contains_key(fb_id) {
+                return Err(FbIoError::NotFound {
+                    fb_id: fb_id.to_string(),
+                });
+            }
+            *self
+                .execution_count
+                .borrow_mut()
+                .entry(fb_id.to_string())
+                .or_insert(0) += 1;
+            Ok(())
+        }
+
+        fn get_output(
+            &self,
+            fb_id: &str,
+            output_name: &str,
+        ) -> Result<StValue, FbIoError> {
+            self.outputs
+                .borrow()
+                .get(fb_id)
+                .and_then(|m| m.get(output_name).cloned())
+                .ok_or_else(|| FbIoError::PinNotFound {
+                    fb_id: fb_id.to_string(),
+                    pin: output_name.to_string(),
+                })
+        }
+    }
+
+    #[test]
+    fn run_fb_call_not_wired_without_backend() {
+        let b = bc(
+            vec![
+                Opcode::FbCall {
+                    fb_id: "timer1".into(),
+                    input_names: vec![],
+                },
+                Opcode::Return,
+            ],
+            0,
+        );
+        let mut vm = ScriptVm::new(&b);
+        assert!(matches!(
+            vm.run(&b),
+            VmOutcome::Error(VmError::FbIoNotWired { direction: "call", .. })
+        ));
+    }
+
+    #[test]
+    fn run_fb_read_output_not_wired_without_backend() {
+        let b = bc(
+            vec![
+                Opcode::FbReadOutput {
+                    fb_id: "timer1".into(),
+                    output_name: "Q".into(),
+                },
+                Opcode::Return,
+            ],
+            0,
+        );
+        let mut vm = ScriptVm::new(&b);
+        assert!(matches!(
+            vm.run(&b),
+            VmOutcome::Error(VmError::FbIoNotWired { direction: "read", .. })
+        ));
+    }
+
+    #[test]
+    fn run_fb_call_with_inputs_sets_pins_and_executes() {
+        // FbCall(timer1, [IN, PT]) consumes 2 stack args
+        // (in push order, so top = PT).
+        let fb = MockFbStore::with_fb("timer1");
+        let b = bc(
+            vec![
+                Opcode::PushConst { value: StValue::Bool(true) }, // IN
+                Opcode::PushConst { value: StValue::Int(5000) },  // PT (ms)
+                Opcode::FbCall {
+                    fb_id: "timer1".into(),
+                    input_names: vec!["IN".into(), "PT".into()],
+                },
+                Opcode::Return,
+            ],
+            0,
+        );
+        let mut vm = ScriptVm::new(&b);
+        assert_eq!(vm.run_with_io_and_fb(&b, &fb, &fb), VmOutcome::Returned);
+        assert_eq!(fb.input("timer1", "IN"), Some(StValue::Bool(true)));
+        assert_eq!(fb.input("timer1", "PT"), Some(StValue::Int(5000)));
+        assert_eq!(fb.exec_count("timer1"), 1);
+        // No return value pushed — stack is empty.
+        assert!(vm.stack().is_empty());
+    }
+
+    #[test]
+    fn run_fb_read_output_pushes_value() {
+        let fb = MockFbStore::with_fb("timer1");
+        fb.set_output("timer1", "Q", StValue::Bool(true));
+        let b = bc(
+            vec![
+                Opcode::FbReadOutput {
+                    fb_id: "timer1".into(),
+                    output_name: "Q".into(),
+                },
+                Opcode::Return,
+            ],
+            0,
+        );
+        let mut vm = ScriptVm::new(&b);
+        assert_eq!(vm.run_with_io_and_fb(&b, &fb, &fb), VmOutcome::Returned);
+        assert_eq!(vm.stack(), &[StValue::Bool(true)]);
+    }
+
+    #[test]
+    fn run_fb_call_unknown_fb_returns_fb_io_failed() {
+        let fb = MockFbStore::with_fb("known_fb");
+        let b = bc(
+            vec![
+                Opcode::FbCall {
+                    fb_id: "ghost_fb".into(),
+                    input_names: vec![],
+                },
+                Opcode::Return,
+            ],
+            0,
+        );
+        let mut vm = ScriptVm::new(&b);
+        match vm.run_with_io_and_fb(&b, &fb, &fb) {
+            VmOutcome::Error(VmError::FbIoFailed {
+                fb_id, reason, ..
+            }) => {
+                assert_eq!(fb_id, "ghost_fb");
+                assert!(reason.contains("not found"));
+            }
+            other => panic!("expected FbIoFailed, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn run_fb_read_output_unknown_pin_returns_fb_io_failed() {
+        let fb = MockFbStore::with_fb("timer1");
+        // output "Q" never set, so get_output returns
+        // PinNotFound.
+        let b = bc(
+            vec![
+                Opcode::FbReadOutput {
+                    fb_id: "timer1".into(),
+                    output_name: "Q".into(),
+                },
+                Opcode::Return,
+            ],
+            0,
+        );
+        let mut vm = ScriptVm::new(&b);
+        assert!(matches!(
+            vm.run_with_io_and_fb(&b, &fb, &fb),
+            VmOutcome::Error(VmError::FbIoFailed { .. })
+        ));
+    }
+
+    #[test]
+    fn run_fb_call_then_read_roundtrip() {
+        // Call(FB, [IN]) then read output — full loop.
+        let fb = MockFbStore::with_fb("timer1");
+        fb.set_output("timer1", "Q", StValue::Bool(false));
+        let b = bc(
+            vec![
+                Opcode::PushConst { value: StValue::Bool(true) },
+                Opcode::FbCall {
+                    fb_id: "timer1".into(),
+                    input_names: vec!["IN".into()],
+                },
+                Opcode::FbReadOutput {
+                    fb_id: "timer1".into(),
+                    output_name: "Q".into(),
+                },
+                Opcode::Return,
+            ],
+            0,
+        );
+        let mut vm = ScriptVm::new(&b);
+        assert_eq!(vm.run_with_io_and_fb(&b, &fb, &fb), VmOutcome::Returned);
+        // Q pushed on stack from FbReadOutput.
+        assert_eq!(vm.stack(), &[StValue::Bool(false)]);
+        assert_eq!(fb.input("timer1", "IN"), Some(StValue::Bool(true)));
+        assert_eq!(fb.exec_count("timer1"), 1);
     }
 
     #[test]

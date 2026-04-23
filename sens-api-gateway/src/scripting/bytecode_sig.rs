@@ -310,6 +310,23 @@ fn write_opcode(
             out.push(stdlib_wire_tag(fn_id));
             Ok(())
         }
+        // Batch 180: FB invoke opcodes. Additive
+        // canonical encoding — existing v3 signatures
+        // don't use these, so adding the variants +
+        // their payload shape leaves prior signatures
+        // intact.
+        Opcode::FbCall { fb_id, input_names } => {
+            write_str(out, fb_id, "opcode.fb_id")?;
+            write_u32_len(out, input_names.len(), "fb_call input_names count")?;
+            for name in input_names {
+                write_str(out, name, "fb_call.input_name")?;
+            }
+            Ok(())
+        }
+        Opcode::FbReadOutput { fb_id, output_name } => {
+            write_str(out, fb_id, "opcode.fb_id")?;
+            write_str(out, output_name, "opcode.output_name")
+        }
     }
 }
 

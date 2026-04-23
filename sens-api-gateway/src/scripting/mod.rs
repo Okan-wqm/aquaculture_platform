@@ -72,6 +72,11 @@ pub mod bytecode_registry_store;
 // drives `run_scan_tick` at the configured interval
 // with overrun detection + structured summary return.
 pub mod bytecode_scan_cycle_task;
+// Batch 184 Faz 4 (plan R-3 + D-11): multi-task
+// scheduler primitives — SloTier / TaskKind /
+// TaskConfig / TaskStats. The runtime that dispatches
+// tasks according to these configs lands in Batch 185+.
+pub mod task_scheduler;
 // Batch 175 Faz 3 (plan R-1): RETAIN variable load/save
 // bridge between Bytecode.retain_vars declarations +
 // the existing SqlitePersistence variable store.

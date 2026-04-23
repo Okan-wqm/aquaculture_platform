@@ -201,6 +201,6 @@ function resolveEventSink(
  * single import:
  *
  *   import { MigrationRunnerModule, NatsMigrationEventSink }
- *     from '@aquaculture/backend-common';
+ *     from '@aquaculture/backend-common/database';
  */
 export { NatsMigrationEventSink };

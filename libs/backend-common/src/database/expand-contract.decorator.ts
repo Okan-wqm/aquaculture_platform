@@ -21,7 +21,7 @@
  * # Usage
  *
  * ```ts
- * import { ExpandContract } from '@aquaculture/backend-common';
+ * import { ExpandContract } from '@aquaculture/backend-common/expand-contract.decorator.ts';
  *
  * (at)ExpandContract({ phase: 'expand' })
  * export class AddEmployeePreferredName1786900000000 implements MigrationInterface {

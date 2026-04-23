@@ -11,7 +11,7 @@ import { MetricsController } from './metrics.controller';
  * Usage in a service's AppModule:
  *
  * ```typescript
- * import { ServiceMetricsModule } from '@aquaculture/backend-common';
+ * import { ServiceMetricsModule } from '@aquaculture/backend-common/metrics.module.ts';
  *
  * @Module({
  *   imports: [ServiceMetricsModule],

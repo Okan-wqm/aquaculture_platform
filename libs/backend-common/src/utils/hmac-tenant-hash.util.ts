@@ -33,7 +33,7 @@
  * # Usage
  *
  * ```ts
- * import { hmacTenantHash, assertTenantHashPepperSet } from '@aquaculture/backend-common';
+ * import { hmacTenantHash, assertTenantHashPepperSet } from '@aquaculture/backend-common/hmac-tenant-hash.util.ts';
  *
  * // At app startup (in main.ts or AppModule):
  * assertTenantHashPepperSet();

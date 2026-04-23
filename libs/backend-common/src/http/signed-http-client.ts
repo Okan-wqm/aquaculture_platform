@@ -23,7 +23,7 @@ import { generateServiceIdentityHeaders } from '../utils/service-identity.util';
  *
  * USAGE:
  * ```ts
- * import { signedFetch } from '@aquaculture/backend-common';
+ * import { signedFetch } from '@aquaculture/backend-common/signed-http-client.ts';
  *
  * // Public / non-tenant call
  * const res = await signedFetch('http://auth-service:3000/health', {

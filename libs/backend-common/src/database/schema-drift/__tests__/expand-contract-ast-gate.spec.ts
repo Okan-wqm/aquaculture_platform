@@ -53,7 +53,7 @@ describe('expand-contract-ast inspectFile', () => {
       '1700000000000-AddFoo.ts',
       `
 import { MigrationInterface } from 'typeorm';
-import { ExpandContract } from '@aquaculture/backend-common';
+import { ExpandContract } from '@aquaculture/backend-common/database';
 
 @ExpandContract({ phase: 'expand' })
 export class AddFoo1700000000000 implements MigrationInterface {
@@ -77,7 +77,7 @@ export class AddFoo1700000000000 implements MigrationInterface {
       '1700000000001-DropLegacyFoo.ts',
       `
 import { MigrationInterface } from 'typeorm';
-import { ExpandContract } from '@aquaculture/backend-common';
+import { ExpandContract } from '@aquaculture/backend-common/database';
 
 @ExpandContract({ phase: 'contract', dependsOn: 'AddFoo1700000000000' })
 export class DropLegacyFoo1700000000001 implements MigrationInterface {

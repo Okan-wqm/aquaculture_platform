@@ -76,11 +76,26 @@ function makeDs(opts: {
     }),
   };
   const createQueryBuilder = jest.fn().mockImplementation(() => qb);
+  // Double the EntityManager surface that the service uses inside
+  // `dataSource.transaction()`. The manager's queryRunner must
+  // expose `isTransactionActive: true` because the real
+  // OutboxPublisher asserts it before calling `.enqueue()`.
+  const managerDouble = {
+    createQueryBuilder,
+    queryRunner: { isTransactionActive: true },
+  };
+  const transaction = jest
+    .fn()
+    .mockImplementation(
+      async <T>(cb: (mgr: typeof managerDouble) => Promise<T>): Promise<T> =>
+        cb(managerDouble),
+    );
   const dataSource = {
     entityMetadatas: opts.entities,
     createQueryBuilder,
+    transaction,
   };
-  return { dataSource, executed, qb, auditQb };
+  return { dataSource, executed, qb, auditQb, managerDouble, transaction };
 }
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
@@ -238,6 +253,113 @@ describe('TenantErasureService DELETE cascade', () => {
     // Parent has 1 inbound FK (from child); child has 0.
     // Sort ascending by inbound count → child (0), parent (1).
     expect(executed).toEqual(['child', 'parent']);
+  });
+});
+
+describe('TenantErasureService TenantErased event emission', () => {
+  it('enqueues a TenantErased event on the outbox inside the same transaction', async () => {
+    const { dataSource, transaction } = makeDs({
+      entities: [
+        {
+          tableName: 'batches_v2',
+          target: class Batch {},
+          columns: [{ propertyName: 'tenantId' }],
+          foreignKeys: [],
+        },
+        {
+          tableName: 'farm_audit_logs',
+          target: class AuditLog {},
+          columns: [{ propertyName: 'tenantId' }],
+          foreignKeys: [],
+        },
+      ],
+      deleteResults: { batches_v2: 7 },
+      auditAnonAffected: 4,
+    });
+    const enqueue = jest.fn().mockResolvedValue(undefined);
+    const publisher = { enqueue } as unknown;
+    const service = new TenantErasureService(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dataSource as any,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      publisher as any,
+    );
+    const ticket = service.initiate(TENANT, USER);
+    const result = await service.confirm(TENANT, ticket.token);
+
+    // Transaction was opened exactly once and the whole cascade ran
+    // inside it — the outbox row commits atomically with the writes.
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(enqueue).toHaveBeenCalledTimes(1);
+    const [event, mgrArg] = enqueue.mock.calls[0]!;
+    expect(event.eventType).toBe('TenantErased');
+    expect(event.tenantId).toBe(TENANT);
+    expect(event.requestedBy).toBe(USER);
+    expect(event.totalDeleted).toBe(7);
+    expect(event.auditRowsAnonymised).toBe(4);
+    expect(event.tableCount).toBe(1); // batches_v2 only; audit skipped
+    expect(event.aggregateId).toBe(TENANT);
+    expect(event.aggregateType).toBe('Tenant');
+    expect(event.confirmedAt).toBe(result.confirmedAt);
+    // The `mgr` passed to enqueue is the transaction-scoped
+    // EntityManager double — the publisher asserts an active
+    // transaction so the outbox row commits with the domain writes.
+    expect(mgrArg).toBeDefined();
+    expect(mgrArg.queryRunner.isTransactionActive).toBe(true);
+  });
+
+  it('absent outbox publisher still completes the erasure (test harness path)', async () => {
+    const { dataSource, transaction } = makeDs({
+      entities: [
+        {
+          tableName: 'batches_v2',
+          target: class Batch {},
+          columns: [{ propertyName: 'tenantId' }],
+          foreignKeys: [],
+        },
+      ],
+      deleteResults: { batches_v2: 2 },
+    });
+    const service = new TenantErasureService(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dataSource as any,
+    );
+    const ticket = service.initiate(TENANT, USER);
+    const result = await service.confirm(TENANT, ticket.token);
+    expect(result.totalDeleted).toBe(2);
+    // Transaction still opens — erasure atomicity doesn't depend on
+    // the publisher being present.
+    expect(transaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('DELETE failure rolls back the transaction and suppresses the event', async () => {
+    const { dataSource } = makeDs({
+      entities: [
+        {
+          tableName: 'batches_v2',
+          target: class Batch {},
+          columns: [{ propertyName: 'tenantId' }],
+          foreignKeys: [],
+        },
+      ],
+      deleteError: new Error('PG-23503: FK violation'),
+    });
+    const enqueue = jest.fn();
+    const publisher = { enqueue } as unknown;
+    const service = new TenantErasureService(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dataSource as any,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      publisher as any,
+    );
+    const ticket = service.initiate(TENANT, USER);
+    await expect(service.confirm(TENANT, ticket.token)).rejects.toThrow(
+      /FK violation/,
+    );
+    // The event MUST NOT be published if the cascade failed — otherwise
+    // downstream services would cascade a tenant erasure that never
+    // actually completed.
+    expect(enqueue).not.toHaveBeenCalled();
   });
 });
 

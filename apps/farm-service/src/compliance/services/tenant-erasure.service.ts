@@ -54,9 +54,15 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { createHash, randomBytes } from 'crypto';
-import { DataSource, EntityMetadata } from 'typeorm';
+import { DataSource, EntityManager, EntityMetadata } from 'typeorm';
+import { OutboxPublisher } from '@platform/outbox';
+import {
+  createBaseEvent,
+  TenantErasedEvent,
+} from '@platform/event-contracts';
 
 export interface ErasureTicket {
   tenantId: string;
@@ -90,7 +96,18 @@ export class TenantErasureService {
    */
   private readonly pending = new Map<string, ErasureTicket>();
 
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(
+    private readonly dataSource: DataSource,
+    /**
+     * `@Optional` so the service compiles and runs in test harnesses
+     * that stand the service up without the `FarmOutboxModule`
+     * wiring. In the app DI graph the publisher is a `@Global()`
+     * provider — production code always gets the real instance.
+     * When absent, erasure still succeeds; the `TenantErased`
+     * event is just not fanned out.
+     */
+    @Optional() private readonly outboxPublisher?: OutboxPublisher,
+  ) {}
 
   /**
    * Step 1 — create a pending erasure ticket. Returns the plain
@@ -151,7 +168,7 @@ export class TenantErasureService {
     // same token.
     this.pending.delete(tenantId);
 
-    const result = await this.executeErasure(tenantId);
+    const result = await this.executeErasure(tenantId, ticket.requestedBy);
     this.logger.warn(
       `Erasure COMPLETED for tenant ${tenantId.slice(0, 8)}... — ` +
         `${result.totalDeleted} rows deleted across ` +
@@ -172,48 +189,87 @@ export class TenantErasureService {
    * last — TypeORM metadata gives us the foreign-key graph so
    * we sort topologically by inbound-FK count descending (most
    * FK targets delete first).
+   *
+   * The entire sequence (all DELETEs + audit anonymise + outbox
+   * enqueue) runs inside a single `dataSource.transaction()`.
+   * If ANY step fails, the whole cascade rolls back AND the
+   * `TenantErased` event is never emitted — downstream services
+   * see no signal to cascade the erasure on their side.
+   *
+   * The `@Optional` publisher means test harnesses that don't
+   * wire `FarmOutboxModule` still run the cascade; the event
+   * emission is simply skipped. Production DI always provides it.
    */
-  private async executeErasure(tenantId: string): Promise<ErasureResult> {
-    const deleted: Record<string, number> = {};
+  private async executeErasure(
+    tenantId: string,
+    requestedBy: string,
+  ): Promise<ErasureResult> {
     const entities = this.resolveTenantScopedEntities();
     const sorted = this.topologicallySort(entities);
 
-    let totalDeleted = 0;
-    for (const meta of sorted) {
-      if (meta.tableName === 'farm_audit_logs') {
-        // Audit logs are NOT deleted — they are anonymised below
-        // so the compliance trail survives an erasure without
-        // identifying the data subject.
-        continue;
-      }
-      try {
-        const result = await this.dataSource
-          .createQueryBuilder()
-          .delete()
-          .from(meta.target)
-          .where('"tenantId" = :tenantId', { tenantId })
-          .execute();
-        const count = result.affected ?? 0;
-        if (count > 0) {
-          deleted[meta.tableName] = count;
-          totalDeleted += count;
-        }
-      } catch (err) {
-        this.logger.error(
-          `Erasure DELETE failed for ${meta.tableName}: ${(err as Error).message}`,
-        );
-        throw err;
-      }
-    }
+    return this.dataSource.transaction(async (mgr) => {
+      const deleted: Record<string, number> = {};
+      let totalDeleted = 0;
 
-    const auditRowsAnonymised = await this.anonymiseAuditLogs(tenantId);
-    return {
-      tenantId,
-      confirmedAt: new Date().toISOString(),
-      deletedRowsByTable: deleted,
-      totalDeleted,
-      auditRowsAnonymised,
-    };
+      for (const meta of sorted) {
+        if (meta.tableName === 'farm_audit_logs') {
+          // Audit logs are NOT deleted — they are anonymised below
+          // so the compliance trail survives an erasure without
+          // identifying the data subject.
+          continue;
+        }
+        try {
+          const result = await mgr
+            .createQueryBuilder()
+            .delete()
+            .from(meta.target)
+            .where('"tenantId" = :tenantId', { tenantId })
+            .execute();
+          const count = result.affected ?? 0;
+          if (count > 0) {
+            deleted[meta.tableName] = count;
+            totalDeleted += count;
+          }
+        } catch (err) {
+          this.logger.error(
+            `Erasure DELETE failed for ${meta.tableName}: ${(err as Error).message}`,
+          );
+          throw err;
+        }
+      }
+
+      const auditRowsAnonymised = await this.anonymiseAuditLogs(tenantId, mgr);
+      const confirmedAt = new Date().toISOString();
+
+      // Emit TenantErased to the transactional outbox INSIDE the
+      // same transaction — the event is only published if the whole
+      // erasure committed. Phase 6.3.1 of the plan.
+      if (this.outboxPublisher) {
+        const tableCount = Object.keys(deleted).length;
+        const erasedEvent: TenantErasedEvent = {
+          ...createBaseEvent<TenantErasedEvent>('TenantErased', tenantId, {
+            aggregateId: tenantId,
+            aggregateType: 'Tenant',
+          }),
+          timestamp: confirmedAt,
+          userId: requestedBy,
+          confirmedAt,
+          requestedBy,
+          totalDeleted,
+          auditRowsAnonymised,
+          tableCount,
+        };
+        await this.outboxPublisher.enqueue(erasedEvent, mgr);
+      }
+
+      return {
+        tenantId,
+        confirmedAt,
+        deletedRowsByTable: deleted,
+        totalDeleted,
+        auditRowsAnonymised,
+      };
+    });
   }
 
   /**
@@ -222,8 +278,11 @@ export class TenantErasureService {
    * audit history still works (linking what a now-anonymous
    * user did), but the raw userId is destroyed.
    */
-  private async anonymiseAuditLogs(tenantId: string): Promise<number> {
-    const result = await this.dataSource
+  private async anonymiseAuditLogs(
+    tenantId: string,
+    mgr: EntityManager,
+  ): Promise<number> {
+    const result = await mgr
       .createQueryBuilder()
       .update('farm.farm_audit_logs')
       .set({

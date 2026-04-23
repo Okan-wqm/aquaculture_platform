@@ -1084,6 +1084,23 @@ pub struct ScriptingConfig {
     /// cadence behavior unchanged.
     #[serde(default)]
     pub tasks: Vec<crate::scripting::task_scheduler::TaskConfig>,
+
+    /// Batch 202 Faz 6 (plan R-9): path to the
+    /// SQLCipher file that persists
+    /// `persist_across_reboot=true` force entries
+    /// across reboots. Empty string (default)
+    /// disables persistence — `force_value` commands
+    /// with `persist_across_reboot: true` still
+    /// succeed in memory but DON'T survive reboot
+    /// (operator sees `persisted: false` flag in the
+    /// response + a warn log).
+    ///
+    /// Set to e.g.
+    /// `/var/lib/suderra/force_registry.db` for
+    /// production edges supporting long-running
+    /// diagnostics.
+    #[serde(default)]
+    pub force_store_path: String,
 }
 
 impl Default for ScriptingConfig {
@@ -1099,6 +1116,7 @@ impl Default for ScriptingConfig {
             max_execution_time_secs: default_max_execution_time_secs(),
             bytecode_store_path: String::new(),
             tasks: Vec::new(),
+            force_store_path: String::new(),
         }
     }
 }

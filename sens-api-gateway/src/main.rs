@@ -718,6 +718,23 @@ pub struct AppState {
     /// entries automatically.
     pub force_registry:
         std::sync::Arc<crate::scripting::force_registry::ForceRegistry>,
+
+    /// Force registry SQLCipher store — Batch 202 Faz 6
+    /// wire. None when `scripting.force_store_path`
+    /// is empty (default — in-memory registry only).
+    /// Some when `init_force_registry_store` opens
+    /// the configured path + rehydrates
+    /// persist_across_reboot=true entries.
+    ///
+    /// cmd_force_value saves to this store after
+    /// apply when persist=true. cmd_unforce_value /
+    /// cmd_unforce_all delete from it. Sweep task
+    /// purges expired rows on shutdown.
+    pub force_registry_store: Option<
+        std::sync::Arc<
+            crate::scripting::force_registry_store::ForceRegistryStore,
+        >,
+    >,
 }
 
 impl AppState {
@@ -893,6 +910,11 @@ impl AppState {
             force_registry: std::sync::Arc::new(
                 crate::scripting::force_registry::ForceRegistry::new(),
             ),
+            // Batch 202 Faz 6 wire: None-init.
+            // init_force_registry_store() opens the
+            // SQLCipher file + rehydrates persistent
+            // forces. None when config path empty.
+            force_registry_store: None,
         }
     }
 
@@ -2201,6 +2223,71 @@ impl AppState {
         );
     }
 
+    /// Initialize the force-registry SQLCipher store +
+    /// rehydrate persist_across_reboot=true entries
+    /// into the in-memory registry. Batch 202 Faz 6.
+    ///
+    /// No-op when `config.scripting.force_store_path`
+    /// is empty (dev default). Failure (permissions,
+    /// schema drift) logs at warn + leaves
+    /// `force_registry_store = None`; the agent boots
+    /// with in-memory force registry only, `force_
+    /// value { persist_across_reboot: true }` still
+    /// succeeds but its row never reaches disk.
+    pub async fn init_force_registry_store(&mut self) {
+        let path = self
+            .config
+            .scripting
+            .force_store_path
+            .trim()
+            .to_string();
+        if path.is_empty() {
+            info!(
+                "Force-registry store disabled (scripting.force_store_path is empty). Persistent forces will not survive reboot."
+            );
+            return;
+        }
+
+        let store = match crate::scripting::force_registry_store::ForceRegistryStore::new(&path) {
+            Ok(s) => std::sync::Arc::new(s),
+            Err(e) => {
+                error!(
+                    "Force-registry store open failed at {}: {}. Agent boots with in-memory force registry only — persistent forces will NOT persist.",
+                    path, e
+                );
+                return;
+            }
+        };
+
+        self.force_registry_store = Some(store.clone());
+
+        // Rehydrate existing persistent forces into
+        // the in-memory registry.
+        let results = crate::scripting::force_registry_store::load_into_registry(
+            &store,
+            &self.force_registry,
+        )
+        .await;
+        let mut loaded = 0usize;
+        let mut failed = 0usize;
+        for r in &results {
+            match r {
+                Ok(tag) => {
+                    loaded += 1;
+                    info!("Force-registry rehydrated: tag=`{}`", tag);
+                }
+                Err((tag, e)) => {
+                    failed += 1;
+                    error!("Force-registry rehydrate failed for `{}`: {}", tag, e);
+                }
+            }
+        }
+        info!(
+            "Force-registry store ready at {}: rehydrated {} + failed {}",
+            path, loaded, failed
+        );
+    }
+
     /// Initialize the shared RETAIN SqlitePersistence
     /// store at `{data_dir}/retain.db`. Batch 177 Faz 3.
     ///
@@ -2859,6 +2946,17 @@ async fn async_main() -> Result<()> {
     {
         let mut state_guard = state.write().await;
         state_guard.init_retain_persistence();
+    }
+
+    // Batch 202 Faz 6 wire: force-registry SQLCipher
+    // store. No-op when scripting.force_store_path is
+    // empty (dev default). Loads persistent forces
+    // BEFORE the sweep task (Batch 198) spawns so the
+    // rehydrated entries start with their correct
+    // remaining TTL already tracked.
+    {
+        let mut state_guard = state.write().await;
+        state_guard.init_force_registry_store().await;
     }
 
     // Batch 146 Faz 7 wire: signature_mode consistency

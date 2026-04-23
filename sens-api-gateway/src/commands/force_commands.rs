@@ -140,11 +140,12 @@ impl CommandHandler {
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
-        let (force_registry, process_image) = {
+        let (force_registry, process_image, force_store) = {
             let state = self.state.read().await;
             (
                 state.force_registry.clone(),
                 state.process_image.clone(),
+                state.force_registry_store.clone(),
             )
         };
 
@@ -174,14 +175,56 @@ impl CommandHandler {
                     )
                     .await;
 
+                // Batch 202 Faz 6: persist
+                // opt-in forces to SQLCipher so they
+                // survive reboot. Non-persist forces
+                // skip this step entirely — in-memory
+                // only. Store unavailable (None) +
+                // persist=true logs a warn + returns
+                // persisted=false so operators see
+                // the mismatch.
+                let persisted_ok = if persist {
+                    match force_registry.get(&tag_name).await {
+                        Some(entry) => match force_store.as_ref() {
+                            Some(store) => match store.save(&entry) {
+                                Ok(()) => true,
+                                Err(e) => {
+                                    warn!(
+                                        "force_value: registry apply OK but store save failed for `{}`: {}",
+                                        sanitize_for_log(&tag_name),
+                                        e
+                                    );
+                                    false
+                                }
+                            },
+                            None => {
+                                warn!(
+                                    "force_value: persist=true requested but force_registry_store not configured. Force lives in memory only."
+                                );
+                                false
+                            }
+                        },
+                        None => {
+                            warn!(
+                                "force_value: registry apply OK but entry missing at save-back read for `{}`",
+                                sanitize_for_log(&tag_name)
+                            );
+                            false
+                        }
+                    }
+                } else {
+                    false
+                };
+
                 info!(
-                    "force_value: tag=`{}` value={} ttl={}s force_id={} actor=`{}` persist={}",
+                    "force_value: tag=`{}` value={} ttl={}s force_id={} actor=`{}` persist={} persisted={}",
                     sanitize_for_log(&tag_name),
                     value,
                     ttl_secs,
                     force_id,
                     sanitize_for_log(&actor),
                     persist,
+                    persisted_ok,
                 );
                 (
                     true,
@@ -192,6 +235,7 @@ impl CommandHandler {
                         "value": value,
                         "ttl_secs": ttl_secs,
                         "persist_across_reboot": persist,
+                        "persisted": persisted_ok,
                     }),
                     None,
                 )
@@ -229,13 +273,29 @@ impl CommandHandler {
             }
         };
 
-        let force_registry = {
+        let (force_registry, force_store) = {
             let state = self.state.read().await;
-            state.force_registry.clone()
+            (state.force_registry.clone(), state.force_registry_store.clone())
         };
 
         match force_registry.remove(&tag_name).await {
             Ok(entry) => {
+                // Batch 202: purge from SQLCipher
+                // store too so the force doesn't
+                // re-appear on reboot. Best-effort —
+                // store failure logs at warn +
+                // returns success (in-memory removal
+                // is authoritative for the current
+                // boot).
+                if let Some(store) = force_store.as_ref() {
+                    if let Err(e) = store.delete(&tag_name) {
+                        warn!(
+                            "unforce_value: registry remove OK but store delete failed for `{}`: {}",
+                            sanitize_for_log(&tag_name),
+                            e
+                        );
+                    }
+                }
                 info!(
                     "unforce_value: tag=`{}` force_id={} old_value={} actor=`{}`",
                     sanitize_for_log(&tag_name),
@@ -274,15 +334,34 @@ impl CommandHandler {
     ) -> (bool, Value, Option<String>) {
         info!("Executing unforce_all command (Faz 6 Batch 197)");
 
-        let force_registry = {
+        let (force_registry, force_store) = {
             let state = self.state.read().await;
-            state.force_registry.clone()
+            (state.force_registry.clone(), state.force_registry_store.clone())
         };
         let drained = force_registry.remove_all().await;
         let tag_names: Vec<String> = drained
             .iter()
             .map(|e| e.tag_name.clone())
             .collect();
+
+        // Batch 202: purge each drained entry from
+        // SQLCipher. Failures are logged + skipped;
+        // the in-memory drain already completed so
+        // runtime is consistent. Worst-case stale
+        // rows get filtered by the load_into_registry
+        // gate on next boot.
+        if let Some(store) = force_store.as_ref() {
+            for name in &tag_names {
+                if let Err(e) = store.delete(name) {
+                    warn!(
+                        "unforce_all: store delete failed for `{}`: {}",
+                        sanitize_for_log(name),
+                        e
+                    );
+                }
+            }
+        }
+
         info!(
             "unforce_all: drained {} force(s): {:?}",
             drained.len(),

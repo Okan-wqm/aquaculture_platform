@@ -66,6 +66,7 @@ export class SystemResolver {
    * Get delete preview for a system
    * Returns what will be deleted when the system is cascade soft deleted
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Query(() => SystemDeletePreviewResponse)
   async systemDeletePreview(
     @Args('id', { type: () => ID }) id: string,
@@ -96,6 +97,7 @@ export class SystemResolver {
   /**
    * Get single system by ID
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => SystemResponse, { nullable: true })
   async system(
     @Args('id', { type: () => ID }) id: string,
@@ -109,6 +111,7 @@ export class SystemResolver {
   /**
    * List systems with pagination and filtering
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => PaginatedSystemsResponse)
   async systems(
     @Args('filter', { type: () => SystemFilterInput, nullable: true }) filter?: SystemFilterInput,
@@ -126,6 +129,7 @@ export class SystemResolver {
   /**
    * Get systems by site for dropdowns
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [SystemResponse])
   async systemsBySite(
     @Args('siteId', { type: () => ID }) siteId: string,
@@ -139,6 +143,7 @@ export class SystemResolver {
   /**
    * Get systems by department for dropdowns
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [SystemResponse])
   async systemsByDepartment(
     @Args('departmentId', { type: () => ID }) departmentId: string,
@@ -152,6 +157,7 @@ export class SystemResolver {
   /**
    * Get child systems of a parent system
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [SystemResponse])
   async childSystems(
     @Args('parentSystemId', { type: () => ID }) parentSystemId: string,
@@ -165,6 +171,7 @@ export class SystemResolver {
   /**
    * Get root systems (no parent)
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [SystemResponse])
   async rootSystems(
     @Args('siteId', { type: () => ID, nullable: true }) siteId?: string,

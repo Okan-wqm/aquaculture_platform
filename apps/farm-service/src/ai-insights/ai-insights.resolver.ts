@@ -38,6 +38,7 @@ export class AiInsightsResolver {
    * tank detail screen. Nullable return allows the mobile app to degrade
    * gracefully when the MCP server is unavailable.
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => TankRiskAssessment, {
     nullable: true,
     description: 'AI-powered risk assessment for a specific tank (0-100 score with factors)',

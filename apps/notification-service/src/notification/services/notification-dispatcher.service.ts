@@ -12,7 +12,7 @@ import {
 import { EmailService, AlertEmailData } from './email.service';
 import { SmsService } from './sms.service';
 import { PushService } from './push.service';
-import { SsrfValidatorService } from './ssrf-validator.service';
+import { SsrfValidatorService } from '@aquaculture/backend-common/ai-safety';
 
 /**
  * Redact sensitive parts from webhook URL for safe logging/storage

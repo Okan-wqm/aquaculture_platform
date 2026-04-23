@@ -46,6 +46,9 @@
       "@aquaculture/backend-common/finding-registry": [
         "libs/backend-common/src/finding-registry/index.ts"
       ],
+      "@aquaculture/backend-common/ai-safety": [
+        "libs/backend-common/src/ai-safety/index.ts"
+      ],
       "@platform/event-contracts": ["libs/event-contracts/src/index.ts"],
       "@platform/storage": ["libs/storage/src/index.ts"],
       "@platform/sdk": ["libs/sdk/typescript/src/index.ts"],

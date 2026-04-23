@@ -29,3 +29,23 @@ export {
   calculateHasMore,
   createPaginatedResult,
 } from './pagination.dto';
+
+// Cursor pagination primitive — phase 5.1. Opaque-cursor
+// forward-traversal pagination for hot paths that outgrow
+// offset/limit. Resolvers migrate at their own pace behind a
+// parallel API; the legacy StandardPaginationInput stays valid
+// throughout the deprecation window.
+export {
+  CursorPaginationInput,
+  CursorEdge,
+  CursorPageInfo,
+  DEFAULT_FIRST,
+  DEFAULT_FIRST_CAP,
+  encodeCursor,
+  decodeCursor,
+  buildCursorResponse,
+  normaliseCursorInput,
+  type CursorPayload,
+  type CursorKeyedRow,
+  type CursorPaginatedResponse,
+} from './cursor';

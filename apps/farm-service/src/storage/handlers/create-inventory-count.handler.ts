@@ -12,6 +12,7 @@ import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { Logger, NotFoundException } from '@nestjs/common';
+import { tenantManagerRepo } from '@aquaculture/backend-common';
 import { CreateInventoryCountCommand } from '../commands/create-inventory-count.command';
 import { InventoryCount, InventoryCountStatus } from '../entities/inventory-count.entity';
 import { InventoryCountItem } from '../entities/inventory-count-item.entity';
@@ -51,9 +52,9 @@ export class CreateInventoryCountHandler implements ICommandHandler<CreateInvent
     }
 
     return this.dataSource.transaction(async (manager) => {
-      const countRepo = manager.getRepository(InventoryCount);
-      const itemRepo = manager.getRepository(InventoryCountItem);
-      const inventoryRepo = manager.getRepository(StorageInventory);
+      const countRepo = tenantManagerRepo(manager, InventoryCount, tenantId);
+      const itemRepo = tenantManagerRepo(manager, InventoryCountItem, tenantId);
+      const inventoryRepo = tenantManagerRepo(manager, StorageInventory, tenantId);
 
       // Generate count number: IC-YYYYMMDD-NNN (sequential per tenant per day).
       // The date prefix groups counts by day for easy warehouse shift reporting.
@@ -119,7 +120,7 @@ export class CreateInventoryCountHandler implements ICommandHandler<CreateInvent
           : `${item.itemType}:${item.itemId.slice(0, 8)}${lotSuffix}`;
       }
 
-      const savedItems = await itemRepo.save(itemEntities);
+      const savedItems = await itemRepo.saveMany(itemEntities);
 
       this.logger.log(
         `Created inventory count ${countNumber} with ${savedItems.length} items ` +

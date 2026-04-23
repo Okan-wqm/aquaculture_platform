@@ -16,6 +16,7 @@ import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { Logger, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { tenantManagerRepo } from '@aquaculture/backend-common';
 import { ApproveInventoryCountCommand } from '../commands/approve-inventory-count.command';
 import { InventoryCount, InventoryCountStatus } from '../entities/inventory-count.entity';
 import { InventoryCountItem } from '../entities/inventory-count-item.entity';
@@ -63,9 +64,9 @@ export class ApproveInventoryCountHandler implements ICommandHandler<ApproveInve
     }
 
     return this.dataSource.transaction(async (manager) => {
-      const countRepo = manager.getRepository(InventoryCount);
-      const inventoryRepo = manager.getRepository(StorageInventory);
-      const movementRepo = manager.getRepository(StockMovement);
+      const countRepo = tenantManagerRepo(manager, InventoryCount, tenantId);
+      const inventoryRepo = tenantManagerRepo(manager, StorageInventory, tenantId);
+      const movementRepo = tenantManagerRepo(manager, StockMovement, tenantId);
 
       // Process each item with a non-zero variance
       for (const item of count.items) {

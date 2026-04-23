@@ -2,6 +2,7 @@ import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { tenantManagerRepo } from '@aquaculture/backend-common';
 import { ReceiveDeliveryCommand } from '../commands/receive-delivery.command';
 import { PurchaseOrder, PurchaseOrderStatus, PurchaseOrderCategory } from '../entities/purchase-order.entity';
 import { PurchaseOrderItem } from '../entities/purchase-order-item.entity';
@@ -54,9 +55,9 @@ export class ReceiveDeliveryHandler implements ICommandHandler<ReceiveDeliveryCo
     const storageItemType = itemTypeMap[po.category] || StorageItemType.CONSUMABLE;
 
     return this.dataSource.transaction(async (manager) => {
-      const poItemRepo = manager.getRepository(PurchaseOrderItem);
-      const inventoryRepo = manager.getRepository(StorageInventory);
-      const movementRepo = manager.getRepository(StockMovement);
+      const poItemRepo = tenantManagerRepo(manager, PurchaseOrderItem, tenantId);
+      const inventoryRepo = tenantManagerRepo(manager, StorageInventory, tenantId);
+      const movementRepo = tenantManagerRepo(manager, StockMovement, tenantId);
 
       for (const receiveItem of input.items) {
         const poItem = po.items.find(i => i.itemId === receiveItem.itemId);
@@ -134,7 +135,7 @@ export class ReceiveDeliveryHandler implements ICommandHandler<ReceiveDeliveryCo
         po.status = PurchaseOrderStatus.PARTIALLY_RECEIVED;
       }
 
-      const savedPO = await manager.getRepository(PurchaseOrder).save(po);
+      const savedPO = await tenantManagerRepo(manager, PurchaseOrder, tenantId).save(po);
       this.logger.log(`Received delivery for PO ${po.orderNumber}: status=${savedPO.status}`);
       return savedPO;
     });

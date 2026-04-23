@@ -21,6 +21,7 @@ export class WorkerResolver {
     private readonly queryBus: QueryBus,
   ) {}
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Query(() => [WorkerResponse])
   async workers(
     @CurrentTenant() tenantId: string,

@@ -256,18 +256,32 @@ export const MUTATION_ROLES: Readonly<Record<string, readonly Role[]>> = Object.
  */
 export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.freeze({
   activeFeedingPrograms: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  availableTanks: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  batch: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  batchFeedAssignment: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  batchGrowthHistory: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  batchGrowthPrediction: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  batchHarvestEligibility: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  batchHistory: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  // batchPerformance restricted to MANAGER + ADMIN — the query
+  // exposes cost-per-kg, treatment totals, and labour costs which
+  // are financial signals beyond the operator's scope.
+  batchPerformance: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  batches: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   biomassReport: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   biomassReports: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   dailyFeedingExecution: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   dailyFeedingExecutions: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   feedingProgram: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   feedingPrograms: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  generateBatchNumber: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   harvestPlan: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   harvestPlanByCode: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   harvestPlans: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   harvestPlansByBatch: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   harvestPlanStats: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   overdueHarvestPlans: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  projectHarvestDate: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   todaysFeedingPlan: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   upcomingHarvestPlans: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
 });
@@ -288,22 +302,17 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
 export const UNGATED_OPERATIONS: ReadonlySet<string> = Object.freeze(new Set([
   // All mutations have now been classified (phase 6.1.1 complete
   // through health-event + system + feed batches). Remaining
-  // entries are queries only.
+  // entries are queries only. Phase 6.1.1 (batch-queries) moved
+  // 11 batch-related reads out: batch / batches / batchFeedAssignment
+  // / batchGrowthHistory / batchGrowthPrediction / batchHarvestEligibility
+  // / batchHistory / batchPerformance / availableTanks /
+  // generateBatchNumber / projectHarvestDate.
   // Queries
   'activeSites',
   'activeSpecies',
   'activeTanks',
   'autoRule',
   'autoRules',
-  'availableTanks',
-  'batch',
-  'batches',
-  'batchFeedAssignment',
-  'batchGrowthHistory',
-  'batchGrowthPrediction',
-  'batchHarvestEligibility',
-  'batchHistory',
-  'batchPerformance',
   'chemical',
   'chemicals',
   'chemicalsByType',
@@ -355,7 +364,6 @@ export const UNGATED_OPERATIONS: ReadonlySet<string> = Object.freeze(new Set([
   'feedsForSpecies',
   'feedSuppliers',
   'feedTypes',
-  'generateBatchNumber',
   'getCredentials',
   'growthAnalysis',
   'growthMeasurement',
@@ -396,7 +404,6 @@ export const UNGATED_OPERATIONS: ReadonlySet<string> = Object.freeze(new Set([
   'pendingDeliveries',
   'pond',
   'predefinedSpeciesTags',
-  'projectHarvestDate',
   'purchaseOrder',
   'purchaseOrders',
   'recurringTemplate',

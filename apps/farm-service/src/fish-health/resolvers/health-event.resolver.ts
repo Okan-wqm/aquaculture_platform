@@ -329,6 +329,7 @@ export class HealthEventResolver {
    * createHarvestRecord command handler — this query just surfaces the
    * decision to the UI early.
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => HarvestEligibilityOutput, {
     description:
       "Check whether a batch can be harvested on the given date " +

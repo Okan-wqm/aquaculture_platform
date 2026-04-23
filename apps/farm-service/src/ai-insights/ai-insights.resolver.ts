@@ -17,7 +17,7 @@
  */
 import { Resolver, Query, Args, ID } from '@nestjs/graphql';
 import { Logger } from '@nestjs/common';
-import { CurrentTenant } from '@aquaculture/backend-common';
+import { CurrentTenant, Role, Roles } from '@aquaculture/backend-common';
 import { AiInsightsService } from './services/ai-insights.service';
 import {
   TankRiskAssessment,
@@ -54,6 +54,7 @@ export class AiInsightsResolver {
    * WHY: Growth prediction enables proactive harvest planning. The 30-day
    * window matches the typical production cycle checkpoint interval.
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => BatchGrowthPrediction, {
     nullable: true,
     description: 'AI growth prediction for a batch over the next 30 days',

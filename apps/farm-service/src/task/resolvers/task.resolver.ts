@@ -79,6 +79,7 @@ export class TaskResolver {
   // QUERIES
   // -------------------------------------------------------------------------
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => Task, { name: 'task' })
   async getTask(
     @Args('id', { type: () => ID }) id: string,
@@ -88,6 +89,7 @@ export class TaskResolver {
     return this.taskService.findById(tenantId, id);
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => TaskListResponse, { name: 'tasks' })
   async getTasks(
     @CurrentTenant() tenantId: string,
@@ -98,6 +100,7 @@ export class TaskResolver {
     return this.taskService.findAll(tenantId, filter);
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [Task], { name: 'myTasks' })
   async getMyTasks(
     @CurrentTenant() tenantId: string,
@@ -109,6 +112,7 @@ export class TaskResolver {
     return this.taskService.findByAssignee(tenantId, user.sub, status);
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [Task], { name: 'todaysTasks' })
   async getTodaysTasks(
     @CurrentTenant() tenantId: string,
@@ -117,6 +121,7 @@ export class TaskResolver {
     return this.taskService.findTodaysTasks(tenantId);
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => TaskStatsResponse, { name: 'taskStats' })
   async getTaskStats(
     @CurrentTenant() tenantId: string,

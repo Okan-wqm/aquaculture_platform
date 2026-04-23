@@ -149,6 +149,7 @@ export class WorkOrderResolver {
   // QUERIES
   // -------------------------------------------------------------------------
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => WorkOrder, { name: 'workOrder' })
   async getWorkOrder(
     @Args('id', { type: () => ID }) id: string,
@@ -158,6 +159,7 @@ export class WorkOrderResolver {
     return this.workOrderService.findById(tenantId, id);
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => WorkOrder, { name: 'workOrderByCode' })
   async getWorkOrderByCode(
     @Args('code') code: string,
@@ -167,6 +169,7 @@ export class WorkOrderResolver {
     return this.workOrderService.findByCode(tenantId, code);
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => WorkOrderListResponse, { name: 'workOrders' })
   async listWorkOrders(
     @Tenant() tenantId: string,
@@ -192,6 +195,7 @@ export class WorkOrderResolver {
     );
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [WorkOrder], { name: 'overdueWorkOrders' })
   async getOverdueWorkOrders(
     @Tenant() tenantId: string,
@@ -200,6 +204,7 @@ export class WorkOrderResolver {
     return this.workOrderService.findOverdue(tenantId);
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [WorkOrder], { name: 'myWorkOrders' })
   async getMyWorkOrders(
     @Tenant() tenantId: string,
@@ -211,6 +216,7 @@ export class WorkOrderResolver {
     return this.workOrderService.findByAssignee(tenantId, user.sub, activeOnly);
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => WorkOrderStatisticsResponse, { name: 'workOrderStatistics' })
   async getWorkOrderStatistics(
     @Tenant() tenantId: string,

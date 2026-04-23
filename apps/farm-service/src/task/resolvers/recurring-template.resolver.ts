@@ -199,6 +199,7 @@ export class RecurringTemplateResolver {
   // QUERIES
   // -------------------------------------------------------------------------
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [RecurringTemplate], { name: 'recurringTemplates' })
   async getRecurringTemplates(
     @CurrentTenant() tenantId: string,
@@ -207,6 +208,7 @@ export class RecurringTemplateResolver {
     return this.recurringTaskService.findAll(tenantId);
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => RecurringTemplate, { name: 'recurringTemplate' })
   async getRecurringTemplate(
     @Args('id', { type: () => ID }) id: string,

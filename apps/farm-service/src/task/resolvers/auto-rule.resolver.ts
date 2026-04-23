@@ -46,6 +46,7 @@ export class AutoRuleResolver {
   // QUERIES
   // -------------------------------------------------------------------------
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [AutoRule], { name: 'autoRules' })
   async getAutoRules(
     @CurrentTenant() tenantId: string,
@@ -54,6 +55,7 @@ export class AutoRuleResolver {
     return this.autoRuleService.findAll(tenantId);
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => AutoRule, { name: 'autoRule' })
   async getAutoRule(
     @Args('id', { type: () => ID }) id: string,

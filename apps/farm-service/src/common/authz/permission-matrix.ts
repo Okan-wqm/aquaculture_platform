@@ -259,6 +259,8 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   activeSites: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   activeSpecies: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   activeTanks: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  autoRule: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  autoRules: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   availableTanks: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   batch: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   batchFeedAssignment: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
@@ -341,8 +343,20 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   latestGrowthMeasurement: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   latestWaterQuality: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   lowStockAlerts: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  maintenanceAlerts: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  // maintenanceComplianceReport is supervisory / audit output —
+  // restricted to MANAGER + ADMIN to match the shape of other
+  // compliance-oriented queries.
+  maintenanceComplianceReport: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  maintenanceSchedule: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  maintenanceScheduleByCode: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  maintenanceSchedules: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  myTasks: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  myWorkOrders: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   overdueHarvestPlans: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   overdueHealthFollowUps: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  overdueMaintenanceSchedules: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  overdueWorkOrders: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   parameterConfig: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   parameterConfigByCode: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   parameterConfigs: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
@@ -350,6 +364,8 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   parameterTemplates: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   predefinedSpeciesTags: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   projectHarvestDate: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  recurringTemplate: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  recurringTemplates: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   rootSystems: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   site: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   siteDeletePreview: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
@@ -389,16 +405,25 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   tankRiskAssessment: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   tanks: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   tanksByDepartment: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  task: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  taskStats: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  tasks: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   todaysFeedingPlan: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  todaysTasks: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   traceLot: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   treatmentChemicals: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   upcomingHarvestPlans: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  upcomingMaintenanceSchedules: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   waterQuality: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   waterQualityChart: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   waterQualityChartBySystem: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   waterQualityMeasurements: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   waterQualityStatistics: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   waterQualityStatisticsBySystem: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  workOrder: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  workOrderByCode: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  workOrderStatistics: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  workOrders: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
 });
 
 /**
@@ -463,9 +488,15 @@ export const UNGATED_OPERATIONS: ReadonlySet<string> = Object.freeze(new Set([
   // stockMovements / subEquipment / subEquipmentByParent /
   // subEquipmentList / subEquipmentType / subEquipmentTypes /
   // subEquipmentTypesForEquipment.
+  // Phase 6.1.1 (task-workOrder-maintenance-automation queries)
+  // moved 22: task / tasks / taskStats / todaysTasks / myTasks /
+  // workOrder / workOrders / workOrderByCode / workOrderStatistics /
+  // myWorkOrders / overdueWorkOrders / maintenanceSchedule /
+  // maintenanceScheduleByCode / maintenanceSchedules /
+  // upcomingMaintenanceSchedules / overdueMaintenanceSchedules /
+  // maintenanceAlerts / maintenanceComplianceReport / autoRule /
+  // autoRules / recurringTemplate / recurringTemplates.
   // Queries
-  'autoRule',
-  'autoRules',
   'cleanerFishBatches',
   'cleanerFishReport',
   'currentWeather',
@@ -481,43 +512,23 @@ export const UNGATED_OPERATIONS: ReadonlySet<string> = Object.freeze(new Set([
   'inventoryCount',
   'inventoryCounts',
   'isSentinelHubConfigured',
-  'maintenanceAlerts',
-  'maintenanceComplianceReport',
-  'maintenanceSchedule',
-  'maintenanceScheduleByCode',
-  'maintenanceSchedules',
   'marineObservations',
   'maskinportenStatus',
   'mattilsynetStatus',
-  'myTasks',
-  'myWorkOrders',
-  'overdueMaintenanceSchedules',
-  'overdueWorkOrders',
   'pendingDeliveries',
   'pond',
   'purchaseOrder',
   'purchaseOrders',
-  'recurringTemplate',
-  'recurringTemplates',
   'regulatoryConfigurationStatus',
   'regulatoryHealth',
   'regulatorySettings',
   'sentinelHubStatus',
   'sentinelHubToken',
   'sentinelHubWmtsConfig',
-  'task',
-  'tasks',
-  'taskStats',
-  'todaysTasks',
-  'upcomingMaintenanceSchedules',
   'weatherForecast',
   'weatherObservations',
   'weatherSettings',
   'workers',
-  'workOrder',
-  'workOrderByCode',
-  'workOrders',
-  'workOrderStatistics',
 ] as const));
 
 /**

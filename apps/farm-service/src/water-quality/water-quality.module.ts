@@ -56,8 +56,11 @@ import { WaterQualityValidationService } from './services/water-quality-validati
 import { WaterQualityParameterConfigSeederService } from './services/water-quality-parameter-config-seeder.service';
 
 // Phase 7.5 — event handler that auto-seeds default WQ parameter
-// configs when a new tenant is provisioned.
+// configs when a new tenant is provisioned. The handler also runs
+// sibling seeders (species, feeding protocols, etc.) so each
+// onboarding-owning module gets pulled in via a module import.
 import { TenantOnboardingEventHandler } from './event-handlers/tenant-onboarding.event-handler';
+import { SpeciesModule } from '../species/species.module';
 
 const CommandHandlers = [
   CreateParameterConfigHandler,
@@ -80,6 +83,9 @@ const CommandHandlers = [
       Tank,
       Equipment,
     ]),
+    // Onboarding handler fans out to sibling seeders — SpeciesModule
+    // exports SpeciesSeederService for the handler to inject.
+    SpeciesModule,
   ],
   providers: [
     WaterQualityService,

@@ -25,6 +25,9 @@ import { SpeciesHandlers } from './handlers';
 // Resolvers
 import { SpeciesResolver } from './resolvers/species.resolver';
 
+// Services
+import { SpeciesSeederService } from './services/species-seeder.service';
+
 import { RestoreModule } from '../common/services/restore.module';
 
 @Module({
@@ -35,9 +38,11 @@ import { RestoreModule } from '../common/services/restore.module';
   providers: [
     ...SpeciesHandlers,
     SpeciesResolver,
+    SpeciesSeederService,
   ],
   exports: [
     TypeOrmModule,
+    SpeciesSeederService,
   ],
 })
 export class SpeciesModule {}

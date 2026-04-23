@@ -275,6 +275,245 @@ fn sanitize_browse_name(tag_name: &str) -> String {
         .collect()
 }
 
+// ============================================================
+// Batch 209 Faz 5 — write-orchestrator primitive
+// ============================================================
+//
+// Plan §5 Faz 5 step 4 "Write-through security chain":
+//   1. Session auth check (handled by async-opcua session layer
+//      before the orchestrator runs)
+//   2. Registry lookup → BadNodeIdUnknown if tag not in catalog
+//   3. IoType DO/AO check → BadNotWritable for DI/AI
+//   4. ForceRegistry check → BadNotWritable if the tag is
+//      actively forced (operators see the force banner; HMI
+//      writes silently landing on top would strip that signal)
+//   5. EURange check → BadOutOfRange if eng_min/eng_max exceeded
+//   6. authz::PolicyEngine evaluate → BadUserAccessDenied if
+//      the actor lacks OpcUaWrite{tag_id}
+//   7. process_image.update_tag_raw(source=OpcUaClient) + audit
+//
+// Steps 2-5 are pure logic against the registry — no async.
+// Steps 6 + 7 dispatch through trait objects so the orchestrator
+// stays async-opcua-free and unit tests can drive every branch
+// without spinning a runtime.
+
+/// Outcome of an OPC UA write attempt.
+///
+/// Success carries the tag_name (for audit correlation); every
+/// reject variant encodes the exact reason so the async-opcua
+/// session handler can translate to the matching OPC UA status
+/// code (BadNotWritable, BadOutOfRange, BadUserAccessDenied,
+/// BadNodeIdUnknown, BadInternalError).
+#[derive(Debug, Clone, PartialEq)]
+pub enum OpcUaWriteOutcome {
+    /// The write landed in ProcessImage + an audit entry was
+    /// emitted. Carries the canonical tag_name so the async-
+    /// opcua layer can map back to its NodeId for the response.
+    Success { tag_name: String },
+    /// Registry returned no node for the resolved tag_name.
+    /// Maps to OPC UA `BadNodeIdUnknown`.
+    RejectedUnknownTag { tag_name: String },
+    /// Tag's IoType is DI/AI — reads only. Maps to OPC UA
+    /// `BadNotWritable`.
+    RejectedNotWritable { tag_name: String },
+    /// Tag has an active force entry; writes through the OPC UA
+    /// path would strip the force banner HMIs display. Maps to
+    /// OPC UA `BadNotWritable` (with a distinct audit reason so
+    /// operators see "blocked by force" vs "read-only node").
+    RejectedForced { tag_name: String },
+    /// Value lies outside eng_min/eng_max. Maps to OPC UA
+    /// `BadOutOfRange`. Carries the range for audit context.
+    RejectedOutOfRange {
+        tag_name: String,
+        value: f64,
+        eng_min: f64,
+        eng_max: f64,
+    },
+    /// authz PolicyEngine denied the actor. Maps to OPC UA
+    /// `BadUserAccessDenied`. Carries the actor + reason so the
+    /// audit record + OPC UA fault response match the authz
+    /// decision exactly.
+    RejectedNoPermission { tag_name: String, actor: String },
+    /// ProcessImage update_tag_raw returned an error
+    /// (underlying storage or bus fault). Maps to OPC UA
+    /// `BadInternalError`.
+    RejectedProcessImage { tag_name: String, reason: String },
+}
+
+impl OpcUaWriteOutcome {
+    /// True when the write landed in ProcessImage.
+    pub fn is_success(&self) -> bool {
+        matches!(self, Self::Success { .. })
+    }
+}
+
+/// Inputs the orchestrator needs from the OPC UA session layer.
+///
+/// Kept as a plain struct (not a trait) because the shape is
+/// fixed by the write-through chain and adding fields later is
+/// an additive change.
+#[derive(Debug, Clone)]
+pub struct OpcUaWriteRequest<'a> {
+    /// Canonical tag identifier (NOT BrowseName). The session
+    /// handler resolves BrowseName → tag_name via
+    /// `OpcUaTagRegistry::find_by_browse_name` before building
+    /// the request.
+    pub tag_name: &'a str,
+    /// Value the HMI wrote.
+    pub value: f64,
+    /// Actor identifier — either the authenticated OPC UA
+    /// username, or the X509 cert CN, or "anonymous" when the
+    /// session is anonymous (authz will deny these at step 6).
+    pub actor: &'a str,
+}
+
+/// Authz port — abstract over the real
+/// `authz::PolicyEngine::evaluate`. Returns true when the
+/// actor is allowed to write the named tag.
+///
+/// Kept as a thin trait so unit tests can drive both allow +
+/// deny branches without pulling the full policy engine in.
+#[async_trait::async_trait]
+pub trait OpcUaAuthzPort: Send + Sync {
+    async fn is_write_allowed(&self, actor: &str, tag_name: &str) -> bool;
+}
+
+/// Force-registry port — abstract over
+/// `ForceRegistry::is_forced`. Non-async (registry is in-proc
+/// + uses blocking locks); wrapped in an async trait so the
+/// orchestrator's `.await` chain reads uniformly.
+#[async_trait::async_trait]
+pub trait OpcUaForceRegistryPort: Send + Sync {
+    async fn is_forced(&self, tag_name: &str) -> bool;
+}
+
+/// ProcessImage write port — abstract over
+/// `ProcessImage::update_tag_raw(.., source=OpcUaClient)`.
+/// Returns Ok on a successful write, Err(reason) when the
+/// underlying storage/bus rejected the write.
+#[async_trait::async_trait]
+pub trait OpcUaProcessImagePort: Send + Sync {
+    async fn write_tag(&self, tag_name: &str, value: f64, actor: &str) -> Result<(), String>;
+}
+
+/// Audit sink port — abstract over the pre+post audit-chain
+/// writer. Batch 210+ wires this to the real `audit` module.
+#[async_trait::async_trait]
+pub trait OpcUaAuditPort: Send + Sync {
+    /// Emit an audit entry for an OPC UA write attempt,
+    /// regardless of outcome. The outcome variant decides the
+    /// `result` field of the audit record.
+    async fn record_write_attempt(
+        &self,
+        actor: &str,
+        tag_name: &str,
+        value: f64,
+        outcome: &OpcUaWriteOutcome,
+    );
+}
+
+/// Execute the Faz 5 OPC UA write-through security chain.
+///
+/// Every reject path STILL emits an audit entry — silent
+/// denies would hide policy scans + brute-force patterns from
+/// the SIEM. Success path emits both pre + post implicitly
+/// (audit sink sees the final outcome + the engine handles
+/// the chain-splitting internally; this is why the sink
+/// gets the outcome ref, not just the attempt shape).
+pub async fn execute_opcua_write(
+    registry: &OpcUaTagRegistry,
+    request: &OpcUaWriteRequest<'_>,
+    authz: &dyn OpcUaAuthzPort,
+    force_registry: &dyn OpcUaForceRegistryPort,
+    process_image: &dyn OpcUaProcessImagePort,
+    audit: &dyn OpcUaAuditPort,
+) -> OpcUaWriteOutcome {
+    let tag_name = request.tag_name;
+    let actor = request.actor;
+    let value = request.value;
+
+    // Step 2: Registry lookup.
+    let node = match registry.get(tag_name) {
+        Some(n) => n,
+        None => {
+            let outcome = OpcUaWriteOutcome::RejectedUnknownTag {
+                tag_name: tag_name.to_string(),
+            };
+            audit.record_write_attempt(actor, tag_name, value, &outcome).await;
+            return outcome;
+        }
+    };
+
+    // Step 3: IoType DO/AO check.
+    if !node.is_writable() {
+        let outcome = OpcUaWriteOutcome::RejectedNotWritable {
+            tag_name: tag_name.to_string(),
+        };
+        audit.record_write_attempt(actor, tag_name, value, &outcome).await;
+        return outcome;
+    }
+
+    // Step 4: Forced-tag check. A forced tag is an operator-
+    // held actuator state — OPC UA HMI writes silently
+    // landing on top would strip the force banner, so we
+    // reject with a distinct audit reason.
+    if force_registry.is_forced(tag_name).await {
+        let outcome = OpcUaWriteOutcome::RejectedForced {
+            tag_name: tag_name.to_string(),
+        };
+        audit.record_write_attempt(actor, tag_name, value, &outcome).await;
+        return outcome;
+    }
+
+    // Step 5: EURange check. If either bound is unset the
+    // range constraint is considered non-binding on that
+    // side (operators opt-in by declaring eng_min/eng_max);
+    // this matches the existing CommandHandler write path
+    // so OPC UA doesn't impose stricter-than-policy limits.
+    if let (Some(lo), Some(hi)) = (node.eng_min, node.eng_max) {
+        if value < lo || value > hi {
+            let outcome = OpcUaWriteOutcome::RejectedOutOfRange {
+                tag_name: tag_name.to_string(),
+                value,
+                eng_min: lo,
+                eng_max: hi,
+            };
+            audit.record_write_attempt(actor, tag_name, value, &outcome).await;
+            return outcome;
+        }
+    }
+
+    // Step 6: authz — PolicyEngine is the single source of
+    // truth for per-actor per-tag write permission.
+    if !authz.is_write_allowed(actor, tag_name).await {
+        let outcome = OpcUaWriteOutcome::RejectedNoPermission {
+            tag_name: tag_name.to_string(),
+            actor: actor.to_string(),
+        };
+        audit.record_write_attempt(actor, tag_name, value, &outcome).await;
+        return outcome;
+    }
+
+    // Step 7: ProcessImage update.
+    match process_image.write_tag(tag_name, value, actor).await {
+        Ok(()) => {
+            let outcome = OpcUaWriteOutcome::Success {
+                tag_name: tag_name.to_string(),
+            };
+            audit.record_write_attempt(actor, tag_name, value, &outcome).await;
+            outcome
+        }
+        Err(reason) => {
+            let outcome = OpcUaWriteOutcome::RejectedProcessImage {
+                tag_name: tag_name.to_string(),
+                reason,
+            };
+            audit.record_write_attempt(actor, tag_name, value, &outcome).await;
+            outcome
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -447,5 +686,559 @@ mod tests {
         let r = OpcUaTagRegistry::default();
         let _r2 = r.clone();
         let _dbg = format!("{:?}", r);
+    }
+
+    // ============================================================
+    // Batch 209 Faz 5 — write-orchestrator tests
+    // ============================================================
+
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+    use tokio::sync::Mutex;
+
+    /// Canned authz port — flips allow/deny based on the
+    /// (actor, tag_name) pair passed at construction.
+    struct CannedAuthz {
+        allow_for: Option<(String, String)>,
+    }
+
+    #[async_trait::async_trait]
+    impl OpcUaAuthzPort for CannedAuthz {
+        async fn is_write_allowed(&self, actor: &str, tag_name: &str) -> bool {
+            match &self.allow_for {
+                Some((a, t)) => a == actor && t == tag_name,
+                None => false,
+            }
+        }
+    }
+
+    /// Canned force-registry port — returns true for the
+    /// stored tag_name, false otherwise.
+    struct CannedForce {
+        forced_tag: Option<String>,
+    }
+
+    #[async_trait::async_trait]
+    impl OpcUaForceRegistryPort for CannedForce {
+        async fn is_forced(&self, tag_name: &str) -> bool {
+            self.forced_tag.as_deref() == Some(tag_name)
+        }
+    }
+
+    /// Capturing process-image port — stores the last write
+    /// attempt + returns the configured result.
+    struct CapturingPi {
+        result: Result<(), String>,
+        last: Mutex<Option<(String, f64, String)>>,
+    }
+
+    #[async_trait::async_trait]
+    impl OpcUaProcessImagePort for CapturingPi {
+        async fn write_tag(
+            &self,
+            tag_name: &str,
+            value: f64,
+            actor: &str,
+        ) -> Result<(), String> {
+            *self.last.lock().await =
+                Some((tag_name.to_string(), value, actor.to_string()));
+            self.result.clone()
+        }
+    }
+
+    /// Capturing audit port — stores every outcome the chain
+    /// emitted. Every reject path MUST emit exactly one audit
+    /// record; success path MUST also emit exactly one.
+    struct CapturingAudit {
+        outcomes: Mutex<Vec<OpcUaWriteOutcome>>,
+    }
+
+    #[async_trait::async_trait]
+    impl OpcUaAuditPort for CapturingAudit {
+        async fn record_write_attempt(
+            &self,
+            _actor: &str,
+            _tag_name: &str,
+            _value: f64,
+            outcome: &OpcUaWriteOutcome,
+        ) {
+            self.outcomes.lock().await.push(outcome.clone());
+        }
+    }
+
+    fn registry_with(tags: Vec<TagConfig>) -> OpcUaTagRegistry {
+        OpcUaTagRegistry::build(tags.iter()).expect("registry builds")
+    }
+
+    async fn audit_outcomes(audit: &CapturingAudit) -> Vec<OpcUaWriteOutcome> {
+        audit.outcomes.lock().await.clone()
+    }
+
+    #[tokio::test]
+    async fn write_success_happy_path() {
+        let reg = registry_with(vec![tag("do_pump", IoType::DO)]);
+        let authz = CannedAuthz {
+            allow_for: Some(("hmi-op".into(), "do_pump".into())),
+        };
+        let force = CannedForce { forced_tag: None };
+        let pi = CapturingPi {
+            result: Ok(()),
+            last: Mutex::new(None),
+        };
+        let audit = CapturingAudit {
+            outcomes: Mutex::new(Vec::new()),
+        };
+
+        let out = execute_opcua_write(
+            &reg,
+            &OpcUaWriteRequest {
+                tag_name: "do_pump",
+                value: 50.0,
+                actor: "hmi-op",
+            },
+            &authz,
+            &force,
+            &pi,
+            &audit,
+        )
+        .await;
+
+        assert!(out.is_success(), "outcome={:?}", out);
+        let last = pi.last.lock().await.clone().expect("pi received write");
+        assert_eq!(last.0, "do_pump");
+        assert_eq!(last.1, 50.0);
+        assert_eq!(last.2, "hmi-op");
+        let outs = audit_outcomes(&audit).await;
+        assert_eq!(outs.len(), 1);
+        assert!(outs[0].is_success());
+    }
+
+    #[tokio::test]
+    async fn write_unknown_tag_rejects_and_audits() {
+        let reg = registry_with(vec![]);
+        let authz = CannedAuthz { allow_for: None };
+        let force = CannedForce { forced_tag: None };
+        let pi = CapturingPi {
+            result: Ok(()),
+            last: Mutex::new(None),
+        };
+        let audit = CapturingAudit {
+            outcomes: Mutex::new(Vec::new()),
+        };
+
+        let out = execute_opcua_write(
+            &reg,
+            &OpcUaWriteRequest {
+                tag_name: "ghost",
+                value: 1.0,
+                actor: "hmi-op",
+            },
+            &authz,
+            &force,
+            &pi,
+            &audit,
+        )
+        .await;
+
+        assert_eq!(
+            out,
+            OpcUaWriteOutcome::RejectedUnknownTag {
+                tag_name: "ghost".into(),
+            }
+        );
+        // Silent denies would hide scans; assert audit fired.
+        assert_eq!(audit_outcomes(&audit).await.len(), 1);
+        assert!(pi.last.lock().await.is_none(), "pi untouched");
+    }
+
+    #[tokio::test]
+    async fn write_rejects_read_only_tag() {
+        let reg = registry_with(vec![tag("ai_sensor", IoType::AI)]);
+        let authz = CannedAuthz {
+            allow_for: Some(("hmi-op".into(), "ai_sensor".into())),
+        };
+        let force = CannedForce { forced_tag: None };
+        let pi = CapturingPi {
+            result: Ok(()),
+            last: Mutex::new(None),
+        };
+        let audit = CapturingAudit {
+            outcomes: Mutex::new(Vec::new()),
+        };
+
+        let out = execute_opcua_write(
+            &reg,
+            &OpcUaWriteRequest {
+                tag_name: "ai_sensor",
+                value: 50.0,
+                actor: "hmi-op",
+            },
+            &authz,
+            &force,
+            &pi,
+            &audit,
+        )
+        .await;
+
+        assert_eq!(
+            out,
+            OpcUaWriteOutcome::RejectedNotWritable {
+                tag_name: "ai_sensor".into(),
+            }
+        );
+        // authz NOT consulted (step 3 fires before step 6) —
+        // the pi check confirms no write attempted.
+        assert!(pi.last.lock().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn write_rejects_forced_tag_with_distinct_reason() {
+        let reg = registry_with(vec![tag("do_pump", IoType::DO)]);
+        let authz = CannedAuthz {
+            allow_for: Some(("hmi-op".into(), "do_pump".into())),
+        };
+        let force = CannedForce {
+            forced_tag: Some("do_pump".into()),
+        };
+        let pi = CapturingPi {
+            result: Ok(()),
+            last: Mutex::new(None),
+        };
+        let audit = CapturingAudit {
+            outcomes: Mutex::new(Vec::new()),
+        };
+
+        let out = execute_opcua_write(
+            &reg,
+            &OpcUaWriteRequest {
+                tag_name: "do_pump",
+                value: 50.0,
+                actor: "hmi-op",
+            },
+            &authz,
+            &force,
+            &pi,
+            &audit,
+        )
+        .await;
+
+        assert_eq!(
+            out,
+            OpcUaWriteOutcome::RejectedForced {
+                tag_name: "do_pump".into(),
+            }
+        );
+        assert!(pi.last.lock().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn write_rejects_out_of_range_against_eng_bounds() {
+        // eng_min=0 eng_max=100 per the helper `tag`.
+        let reg = registry_with(vec![tag("do_pump", IoType::DO)]);
+        let authz = CannedAuthz {
+            allow_for: Some(("hmi-op".into(), "do_pump".into())),
+        };
+        let force = CannedForce { forced_tag: None };
+        let pi = CapturingPi {
+            result: Ok(()),
+            last: Mutex::new(None),
+        };
+        let audit = CapturingAudit {
+            outcomes: Mutex::new(Vec::new()),
+        };
+
+        let out = execute_opcua_write(
+            &reg,
+            &OpcUaWriteRequest {
+                tag_name: "do_pump",
+                value: 150.0,
+                actor: "hmi-op",
+            },
+            &authz,
+            &force,
+            &pi,
+            &audit,
+        )
+        .await;
+
+        match out {
+            OpcUaWriteOutcome::RejectedOutOfRange {
+                tag_name,
+                value,
+                eng_min,
+                eng_max,
+            } => {
+                assert_eq!(tag_name, "do_pump");
+                assert_eq!(value, 150.0);
+                assert_eq!(eng_min, 0.0);
+                assert_eq!(eng_max, 100.0);
+            }
+            other => panic!("unexpected outcome: {:?}", other),
+        }
+        assert!(pi.last.lock().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn write_permits_exact_boundary_values() {
+        let reg = registry_with(vec![tag("do_pump", IoType::DO)]);
+        let authz = CannedAuthz {
+            allow_for: Some(("hmi-op".into(), "do_pump".into())),
+        };
+        let force = CannedForce { forced_tag: None };
+        let pi = CapturingPi {
+            result: Ok(()),
+            last: Mutex::new(None),
+        };
+        let audit = CapturingAudit {
+            outcomes: Mutex::new(Vec::new()),
+        };
+
+        let out = execute_opcua_write(
+            &reg,
+            &OpcUaWriteRequest {
+                tag_name: "do_pump",
+                value: 100.0, // exact upper bound
+                actor: "hmi-op",
+            },
+            &authz,
+            &force,
+            &pi,
+            &audit,
+        )
+        .await;
+        assert!(out.is_success());
+    }
+
+    #[tokio::test]
+    async fn write_without_eng_range_skips_step_5() {
+        // When eng_min OR eng_max is missing the range check
+        // is non-binding on that side — matches the existing
+        // CommandHandler write path.
+        let mut t = tag("do_pump", IoType::DO);
+        t.eng_min = None;
+        t.eng_max = None;
+        let reg = registry_with(vec![t]);
+        let authz = CannedAuthz {
+            allow_for: Some(("hmi-op".into(), "do_pump".into())),
+        };
+        let force = CannedForce { forced_tag: None };
+        let pi = CapturingPi {
+            result: Ok(()),
+            last: Mutex::new(None),
+        };
+        let audit = CapturingAudit {
+            outcomes: Mutex::new(Vec::new()),
+        };
+
+        let out = execute_opcua_write(
+            &reg,
+            &OpcUaWriteRequest {
+                tag_name: "do_pump",
+                value: 1_000_000.0, // would fail every bounded range
+                actor: "hmi-op",
+            },
+            &authz,
+            &force,
+            &pi,
+            &audit,
+        )
+        .await;
+        assert!(out.is_success());
+    }
+
+    #[tokio::test]
+    async fn write_rejects_when_authz_denies() {
+        let reg = registry_with(vec![tag("do_pump", IoType::DO)]);
+        let authz = CannedAuthz { allow_for: None };
+        let force = CannedForce { forced_tag: None };
+        let pi = CapturingPi {
+            result: Ok(()),
+            last: Mutex::new(None),
+        };
+        let audit = CapturingAudit {
+            outcomes: Mutex::new(Vec::new()),
+        };
+
+        let out = execute_opcua_write(
+            &reg,
+            &OpcUaWriteRequest {
+                tag_name: "do_pump",
+                value: 50.0,
+                actor: "stranger",
+            },
+            &authz,
+            &force,
+            &pi,
+            &audit,
+        )
+        .await;
+
+        match out {
+            OpcUaWriteOutcome::RejectedNoPermission { tag_name, actor } => {
+                assert_eq!(tag_name, "do_pump");
+                assert_eq!(actor, "stranger");
+            }
+            other => panic!("unexpected outcome: {:?}", other),
+        }
+        // The permission audit MUST fire so the SIEM sees
+        // unauthorized HMI attempts.
+        assert_eq!(audit_outcomes(&audit).await.len(), 1);
+        assert!(pi.last.lock().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn write_surfaces_process_image_error() {
+        let reg = registry_with(vec![tag("do_pump", IoType::DO)]);
+        let authz = CannedAuthz {
+            allow_for: Some(("hmi-op".into(), "do_pump".into())),
+        };
+        let force = CannedForce { forced_tag: None };
+        let pi = CapturingPi {
+            result: Err("modbus write timeout".into()),
+            last: Mutex::new(None),
+        };
+        let audit = CapturingAudit {
+            outcomes: Mutex::new(Vec::new()),
+        };
+
+        let out = execute_opcua_write(
+            &reg,
+            &OpcUaWriteRequest {
+                tag_name: "do_pump",
+                value: 50.0,
+                actor: "hmi-op",
+            },
+            &authz,
+            &force,
+            &pi,
+            &audit,
+        )
+        .await;
+
+        match out {
+            OpcUaWriteOutcome::RejectedProcessImage { tag_name, reason } => {
+                assert_eq!(tag_name, "do_pump");
+                assert_eq!(reason, "modbus write timeout");
+            }
+            other => panic!("unexpected outcome: {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn write_chain_order_short_circuits_before_authz() {
+        // Forced tag in step 4 must short-circuit before the
+        // authz port is ever consulted in step 6. Verify with
+        // an AtomicBool that authz was NOT queried.
+        struct TripwireAuthz {
+            queried: Arc<AtomicBool>,
+        }
+        #[async_trait::async_trait]
+        impl OpcUaAuthzPort for TripwireAuthz {
+            async fn is_write_allowed(&self, _actor: &str, _tag_name: &str) -> bool {
+                self.queried.store(true, Ordering::SeqCst);
+                true
+            }
+        }
+
+        let reg = registry_with(vec![tag("do_pump", IoType::DO)]);
+        let tripwire = Arc::new(AtomicBool::new(false));
+        let authz = TripwireAuthz {
+            queried: tripwire.clone(),
+        };
+        let force = CannedForce {
+            forced_tag: Some("do_pump".into()),
+        };
+        let pi = CapturingPi {
+            result: Ok(()),
+            last: Mutex::new(None),
+        };
+        let audit = CapturingAudit {
+            outcomes: Mutex::new(Vec::new()),
+        };
+
+        let _ = execute_opcua_write(
+            &reg,
+            &OpcUaWriteRequest {
+                tag_name: "do_pump",
+                value: 50.0,
+                actor: "hmi-op",
+            },
+            &authz,
+            &force,
+            &pi,
+            &audit,
+        )
+        .await;
+
+        assert!(
+            !tripwire.load(Ordering::SeqCst),
+            "authz MUST NOT be consulted after force short-circuit"
+        );
+    }
+
+    #[tokio::test]
+    async fn write_every_reject_path_audits_exactly_once() {
+        // Cross-check: every reject variant above emitted
+        // exactly 1 audit entry. This test re-issues each
+        // reject flavour and asserts the audit-capture
+        // length is 1 on every path.
+        for scenario in [
+            // unknown tag
+            ("ghost", false, None, 50.0, false),
+            // not writable
+            ("ai_sensor", false, None, 50.0, false),
+            // forced
+            ("do_pump", false, Some("do_pump"), 50.0, false),
+            // out of range
+            ("do_pump", true, None, 150.0, false),
+            // no permission
+            ("do_pump", false, None, 50.0, true),
+        ] {
+            let (tag_name, authz_allow, forced, value, authz_reject_only) = scenario;
+            let reg = registry_with(vec![
+                tag("do_pump", IoType::DO),
+                tag("ai_sensor", IoType::AI),
+            ]);
+            let authz = CannedAuthz {
+                allow_for: if authz_reject_only {
+                    None
+                } else if authz_allow {
+                    Some(("hmi-op".into(), tag_name.to_string()))
+                } else {
+                    None
+                },
+            };
+            let force = CannedForce {
+                forced_tag: forced.map(|s| s.to_string()),
+            };
+            let pi = CapturingPi {
+                result: Ok(()),
+                last: Mutex::new(None),
+            };
+            let audit = CapturingAudit {
+                outcomes: Mutex::new(Vec::new()),
+            };
+            let _ = execute_opcua_write(
+                &reg,
+                &OpcUaWriteRequest {
+                    tag_name,
+                    value,
+                    actor: "hmi-op",
+                },
+                &authz,
+                &force,
+                &pi,
+                &audit,
+            )
+            .await;
+            assert_eq!(
+                audit_outcomes(&audit).await.len(),
+                1,
+                "scenario={:?}",
+                scenario
+            );
+        }
     }
 }

@@ -22,7 +22,8 @@ import { NatsEventBus } from '@platform/event-bus';
 import { createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import { IStandardPaginatedResult, createStandardPaginatedResult } from '@aquaculture/backend-common';
-import { Task, TaskStatus, TaskPriority } from '../entities/task.entity';
+import { randomUUID } from 'crypto';
+import { Task, TaskChecklistItem, TaskStatus, TaskPriority } from '../entities/task.entity';
 import { RecurringTemplate } from '../entities/recurring-template.entity';
 import { CreateTaskInput } from '../dto/create-task.dto';
 import { UpdateTaskInput } from '../dto/update-task.dto';
@@ -32,6 +33,63 @@ import { EventNames } from '../../events/event-types';
 @Injectable()
 export class TaskService {
   private readonly logger = new Logger(TaskService.name);
+
+  /**
+   * Normalise a single `checklistItems` entry so every stored item
+   * carries (a) a server-assigned UUID `id` and (b) the canonical
+   * `isCompleted` boolean flag.
+   *
+   * Two historical shapes are accepted on input:
+   *   - UI/DTO shape: `{ text, isCompleted? }` — the `TaskChecklistItemInput`
+   *     DTO's field set.
+   *   - Legacy toggle shape: `{ completed, completedAt }` — produced
+   *     by older `toggleChecklistItem` writes before the canonical
+   *     field was unified.
+   *
+   * The return is always `{ id, text, isCompleted, completedAt?, completedBy? }`:
+   * the `completed` field is dropped from future writes so there's a
+   * single source of truth for UI reads. Existing rows with the
+   * legacy field stay readable (TypeORM doesn't delete JSONB keys on
+   * save — whatever we emit REPLACES the array entry, so the stale
+   * `completed` is gone after the first normalise-and-save).
+   */
+  static normaliseChecklistItem(raw: Partial<TaskChecklistItem>): TaskChecklistItem {
+    const canonicalCompleted = raw.isCompleted ?? raw.completed ?? false;
+    const normalised: TaskChecklistItem = {
+      id: raw.id ?? randomUUID(),
+      text: raw.text ?? '',
+      isCompleted: canonicalCompleted,
+    };
+    if (raw.completedAt !== undefined) normalised.completedAt = raw.completedAt;
+    if (raw.completedBy !== undefined) normalised.completedBy = raw.completedBy;
+    return normalised;
+  }
+
+  private static normaliseChecklistItems(
+    raw: Partial<TaskChecklistItem>[] | undefined,
+  ): TaskChecklistItem[] {
+    if (!raw || !Array.isArray(raw)) return [];
+    return raw.map((item) => TaskService.normaliseChecklistItem(item));
+  }
+
+  /**
+   * Clone a template's checklist items into a fresh list suitable
+   * for a new Task. Each propagated item gets a fresh UUID so
+   * toggles on the spawned task don't collide with the template's
+   * ids (or with sibling tasks spawned from the same template),
+   * and the `isCompleted`/`completedAt`/`completedBy` audit fields
+   * are reset — a brand-new task starts with everything unchecked.
+   */
+  static propagateChecklistItemsFromTemplate(
+    templateItems: Partial<TaskChecklistItem>[] | undefined,
+  ): TaskChecklistItem[] {
+    if (!templateItems || !Array.isArray(templateItems)) return [];
+    return templateItems.map((t) => ({
+      id: randomUUID(),
+      text: t.text ?? '',
+      isCompleted: false,
+    }));
+  }
 
   private static readonly VALID_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
     [TaskStatus.PENDING]: [TaskStatus.IN_PROGRESS, TaskStatus.CANCELLED],
@@ -81,7 +139,7 @@ export class TaskService {
       siteId: input.siteId,
       location: input.location,
       estimatedMinutes: input.estimatedMinutes,
-      checklistItems: input.checklistItems || [],
+      checklistItems: TaskService.normaliseChecklistItems(input.checklistItems),
       notes: [],
       tags: input.tags,
       isRecurring: input.isRecurring || false,
@@ -145,7 +203,9 @@ export class TaskService {
     if (input.siteId !== undefined) task.siteId = input.siteId;
     if (input.location !== undefined) task.location = input.location;
     if (input.estimatedMinutes !== undefined) task.estimatedMinutes = input.estimatedMinutes;
-    if (input.checklistItems !== undefined) task.checklistItems = input.checklistItems;
+    if (input.checklistItems !== undefined) {
+      task.checklistItems = TaskService.normaliseChecklistItems(input.checklistItems);
+    }
     if (input.notes !== undefined) task.notes = input.notes;
     if (input.tags !== undefined) task.tags = input.tags;
     if (input.isRecurring !== undefined) task.isRecurring = input.isRecurring;
@@ -418,13 +478,23 @@ export class TaskService {
       throw new BadRequestException('Görevde checklist bulunamadı');
     }
 
+    // Normalise the entire list before mutating so any legacy rows
+    // (missing id, or `completed` instead of `isCompleted`) are
+    // repaired on the same save. This prevents a toggle from leaving
+    // a half-legacy half-canonical list behind.
+    task.checklistItems = task.checklistItems.map((i) =>
+      TaskService.normaliseChecklistItem(i),
+    );
+
     const item = task.checklistItems.find((i) => i.id === itemId);
     if (!item) {
       throw new NotFoundException(`Checklist öğesi bulunamadı: ${itemId}`);
     }
 
-    item.completed = !item.completed;
-    item.completedAt = item.completed ? new Date().toISOString() : null;
+    // Canonical: `isCompleted` (UI field). The legacy `completed`
+    // field is dropped by the normaliser above.
+    item.isCompleted = !item.isCompleted;
+    item.completedAt = item.isCompleted ? new Date().toISOString() : null;
 
     return this.taskRepository.save(task);
   }

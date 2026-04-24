@@ -55,6 +55,7 @@
 //! - Batch 5b `verify_manifest` closure-injection precedent
 
 pub mod canonical;
+pub mod dispatcher;
 pub mod envelope;
 pub mod handler;
 pub mod jti;
@@ -75,6 +76,7 @@ pub use envelope::{
     verify_envelope, CommandEnvelope, EnvelopeVerifyError, SignatureMode,
     MAX_CMD_NAME_BYTES, MAX_NONCE_BYTES,
 };
+pub use dispatcher::{BoxedHandler, CommandDispatcher, DispatchError};
 pub use handler::{
     EnvelopeHandler, EnvelopeMeta, HandlerError, HandlerInput, HandlerResponse,
 };

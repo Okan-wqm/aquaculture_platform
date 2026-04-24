@@ -541,3 +541,29 @@ $ grep -l "sens-api-gateway\|cargo" .github/workflows/*.yml
 **Fix:** Ultra-plan §4 Sprint Cadence note added at next review stating "PR# is indicative; batch_id is the stable reference for registry and commit-footer `Closes:`".
 
 **Linked plan:** Same ultra-plan; §4 table footnote target.
+
+---
+
+## ORPHAN-MEDIUM-019 — `CommandEnvelope` wire format lacks `claimed_policy_version` field; rollback-defense gate degraded (2026-04-24)
+
+**Status:** OPEN (architectural; envelope schema extension required).
+
+**Scope:** `sens-api-gateway/src/command_envelope/envelope.rs:86` `CommandEnvelope` struct. Canonical plan §3 R-5 + `authz::policy::AuthorizationRequest::claimed_policy_version` (monotonic rollback defense per ADR-018 §9) expect every command to claim the policy version the operator signed against. The current wire format carries `{cmd, params, actor, tenant_id, iat, exp, jti, nonce, cmd_hash, signature}` — `claimed_policy_version` absent.
+
+**Symptom:** The Batch #237 `CommandDispatcher::run` takes `claimed_policy_version: u64` as a separate parameter. In production callers will source this from `engine.current_policy_version()` which makes `claimed < highest_seen` monotonic check trivially pass (claimed is always == current). Rollback-replay defense therefore collapses to "attacker cannot replay a stale envelope because jti dedup catches it" — correct for the 72h dedup window, FAILS after jti cache eviction.
+
+**Root cause:** Plan §4.10 Zero-Trust Command Model listed envelope fields ({cmd, params, actor, tenant_id, iat, exp, jti, nonce, sig}) but did not call out `claimed_policy_version`. Batch 7's envelope wire format followed the plan's field list verbatim. ADR-018 §9's monotonic defense was written after Batch 7 and never cycled back into the envelope schema. The orphan surfaced when Batch #237 `CommandDispatcher` design needed to pass `claimed_policy_version` to `PolicyEngine::authorize` — wire format absence made the parameter a dispatcher-call concern rather than a cryptographic claim.
+
+**Architectural fix:**
+
+1. Extend `CommandEnvelope` with `pub claimed_policy_version: u64` field.
+2. Include the field in canonical bytes (`canonical_params` + `cmd_hash` already bind cmd+params; claimed_policy_version needs to bind too — extend the signed envelope bytes computation).
+3. Wire format version bump from v1 → v2; backward-compat via `SignatureMode::Disabled/Permissive` fallback that accepts v1 envelopes under a tri-state envelope-version negotiation matching the existing `SignatureMode` rollout staging.
+4. Auth-service platform-side (`signEdgeCommand` mutation in ultra-plan G-1) receives `claimed_policy_version` from operator UI — signed along with the command.
+5. `CommandDispatcher::run` reads `env.claimed_policy_version` instead of taking it as a separate parameter. The separate-param path stays for transition window.
+
+**Severity: MEDIUM** — current deployment is single-tenant + jti dedup covers the 72h replay window the operator most cares about. Rollback beyond 72h requires both (a) attacker retains a stale signed envelope past dedup eviction AND (b) edge's `highest_seen` decreased (which it doesn't — monotonic). Not CRITICAL because the concrete attack requires both conditions. But architecturally the gate exists in the engine design and is currently a no-op — ADR-018 §9 claims "monotonic rollback-replay defense" that is not in fact defended end-to-end. This is a documentation-vs-implementation drift that MUST close before Faz 10 release.
+
+**Fix target:** Ultra-plan has no explicit batch for this; filing it against the C-1b ADR-017/018 cross-reference, target Batch A-1 post-split (after #237). Proposed Batch #237.5 or splice into existing A-1b wire work. Deadline 2026-05-29 (W5) to align with D-4 mTLS rotation surface which also depends on envelope versioning.
+
+**Discovered by:** Batch #237 dispatcher primitive design. ORPHAN-MEDIUM-019 is net-new; previous sessions did not reach the dispatcher layer where the gap became visible.

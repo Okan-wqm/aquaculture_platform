@@ -1,0 +1,302 @@
+/**
+ * RecordGrowthSampleHandler — Transactional Outbox Unit Tests
+ *
+ * The handler now wraps the three domain writes (measurement insert,
+ * batch weight update, isProcessed flip) AND the `GrowthSampleRecorded`
+ * outbox enqueue in a single DataSource transaction. These tests pin
+ * the invariants that contract depends on:
+ *
+ *   1. Happy path: all 3 saves + 1 outbox enqueue + commit (once).
+ *   2. Event payload carries batchId / measurementId / sampleSize /
+ *      averageWeightG / weightCV / measurementDate / performance.
+ *   3. `updateBatchWeight = false` skips the batch save AND the
+ *      isProcessed second save — but still emits the event.
+ *   4. Enqueue failure → rollback, no partial writes.
+ *   5. Measurement save failure → rollback, no event enqueued.
+ *   6. Existing validation paths (NotFound / inactive batch /
+ *      <3 individual measurements) throw BEFORE any transaction
+ *      starts.
+ *   7. Backdate policy throws BEFORE any DB or tx work — the
+ *      outbox never sees a rejected event.
+ */
+import { BadRequestException, NotFoundException } from '@nestjs/common';
+import type { DataSource, EntityManager, QueryRunner, Repository } from 'typeorm';
+
+import { RecordGrowthSampleHandler } from '../../handlers/record-growth-sample.handler';
+import { RecordGrowthSampleCommand } from '../../commands/record-growth-sample.command';
+import {
+  GrowthMeasurement,
+  MeasurementMethod,
+  MeasurementType,
+} from '../../entities/growth-measurement.entity';
+import type { Batch } from '../../../batch/entities/batch.entity';
+import type { FCRCalculationService } from '../../services/fcr-calculation.service';
+import type { BackdatePolicyService } from '../../../common/services/backdate-policy.service';
+import type { OutboxPublisher } from '@platform/outbox';
+
+interface HarnessOpts {
+  batch?: Partial<Batch> | null;
+  previousMeasurement?: Partial<GrowthMeasurement> | null;
+  measurementSaveImpl?: (entity: GrowthMeasurement) => Promise<GrowthMeasurement>;
+  batchSaveImpl?: (entity: Batch) => Promise<Batch>;
+  enqueueImpl?: (event: unknown, em: EntityManager) => Promise<void>;
+  backdatePolicyImpl?: () => void;
+}
+
+function makeHarness(opts: HarnessOpts = {}) {
+  const measurementSave = jest.fn(async (entity: GrowthMeasurement) =>
+    opts.measurementSaveImpl
+      ? opts.measurementSaveImpl(entity)
+      : { ...entity, id: entity.id ?? 'measurement-1' },
+  );
+  const batchSave = jest.fn(async (entity: Batch) =>
+    opts.batchSaveImpl ? opts.batchSaveImpl(entity) : entity,
+  );
+
+  const managerSave = jest.fn(
+    async (Entity: unknown, entity: unknown): Promise<unknown> => {
+      const name = (Entity as { name?: string }).name;
+      if (name === 'GrowthMeasurement') {
+        return measurementSave(entity as GrowthMeasurement);
+      }
+      if (name === 'Batch') {
+        return batchSave(entity as Batch);
+      }
+      return entity;
+    },
+  );
+
+  const commit = jest.fn().mockResolvedValue(undefined);
+  const rollback = jest.fn().mockResolvedValue(undefined);
+  const release = jest.fn().mockResolvedValue(undefined);
+  const queryRunner: Partial<QueryRunner> = {
+    connect: jest.fn().mockResolvedValue(undefined),
+    startTransaction: jest.fn().mockResolvedValue(undefined),
+    commitTransaction: commit,
+    rollbackTransaction: rollback,
+    release,
+    manager: { save: managerSave } as unknown as EntityManager,
+  };
+  const dataSource: Partial<DataSource> = {
+    createQueryRunner: jest.fn().mockReturnValue(queryRunner),
+  };
+
+  const batchRow: Partial<Batch> =
+    opts.batch === null
+      ? (null as unknown as Partial<Batch>)
+      : {
+          id: 'batch-1',
+          tenantId: 'tenant-1',
+          isActive: true,
+          currentQuantity: 1000,
+          weight: {
+            actual: { avgWeight: 0, totalBiomass: 0, lastMeasuredAt: new Date() },
+          } as Batch['weight'],
+          fcr: { target: 1.5 } as Batch['fcr'],
+          species: {
+            growthParameters: { avgDailyGrowth: 2 },
+          } as unknown as Batch['species'],
+          ...(opts.batch ?? {}),
+        };
+
+  const measurementRepository = {
+    create: jest.fn((partial: Partial<GrowthMeasurement>) => {
+      const proto: Partial<GrowthMeasurement> = {
+        ...partial,
+        calculateStatistics() {
+          (this as GrowthMeasurement).averageWeight = 250;
+          (this as GrowthMeasurement).weightCV = 8;
+          (this as GrowthMeasurement).estimatedBiomass = 250 * 1000;
+          (this as GrowthMeasurement).statistics = {} as GrowthMeasurement['statistics'];
+        },
+        evaluatePerformance() {
+          (this as GrowthMeasurement).performance = 'good' as GrowthMeasurement['performance'];
+        },
+        generateSuggestedActions() {
+          /* no-op in tests */
+        },
+        isProcessed: false,
+      };
+      return proto as GrowthMeasurement;
+    }),
+    findOne: jest.fn().mockResolvedValue(opts.previousMeasurement ?? null),
+  };
+
+  const batchRepository = {
+    findOne: jest.fn().mockResolvedValue(opts.batch === null ? null : batchRow),
+  };
+
+  const fcrService = {
+    calculatePeriodFCR: jest.fn().mockResolvedValue({ isValid: false }),
+  } as unknown as FCRCalculationService;
+
+  const backdatePolicy = {
+    validate: jest
+      .fn()
+      .mockImplementation(opts.backdatePolicyImpl ?? (() => undefined)),
+  } as unknown as BackdatePolicyService;
+
+  const enqueue = jest.fn(async (event: unknown, em: EntityManager) => {
+    if (opts.enqueueImpl) return opts.enqueueImpl(event, em);
+    return undefined;
+  });
+  const outboxPublisher = { enqueue } as unknown as OutboxPublisher;
+
+  const handler = new RecordGrowthSampleHandler(
+    dataSource as DataSource,
+    measurementRepository as unknown as Repository<GrowthMeasurement>,
+    batchRepository as unknown as Repository<Batch>,
+    fcrService,
+    backdatePolicy,
+    outboxPublisher,
+  );
+
+  return {
+    handler,
+    enqueue,
+    commit,
+    rollback,
+    release,
+    measurementSave,
+    batchSave,
+    managerSave,
+    backdatePolicy: backdatePolicy as unknown as { validate: jest.Mock },
+  };
+}
+
+function makeCommand(overrides: Partial<{
+  individualMeasurements: Array<{ weightG: number }>;
+  updateBatchWeight: boolean | undefined;
+  measurementDate: Date;
+}> = {}) {
+  return new RecordGrowthSampleCommand(
+    'tenant-1',
+    {
+      batchId: 'batch-1',
+      measurementDate: overrides.measurementDate ?? new Date('2026-04-10T09:00:00Z'),
+      measurementType: MeasurementType.ROUTINE,
+      measurementMethod: MeasurementMethod.MANUAL_SCALE,
+      individualMeasurements:
+        overrides.individualMeasurements ?? [
+          { weightG: 240 },
+          { weightG: 250 },
+          { weightG: 260 },
+        ],
+      populationSize: 1000,
+      measuredBy: 'user-1',
+      updateBatchWeight: overrides.updateBatchWeight,
+    } as unknown as RecordGrowthSampleCommand['payload'],
+    'user-1',
+  );
+}
+
+describe('RecordGrowthSampleHandler — transactional outbox', () => {
+  it('happy path: 3 writes + 1 enqueue + commit', async () => {
+    const { handler, enqueue, commit, rollback, measurementSave, batchSave } =
+      makeHarness();
+
+    await handler.execute(makeCommand());
+
+    // Initial measurement save + isProcessed flip = 2 measurement saves
+    expect(measurementSave).toHaveBeenCalledTimes(2);
+    // Batch weight snapshot save = 1
+    expect(batchSave).toHaveBeenCalledTimes(1);
+    // Outbox enqueue exactly once, with the queryRunner.manager
+    expect(enqueue).toHaveBeenCalledTimes(1);
+    const enqueuedEvent = enqueue.mock.calls[0]![0] as Record<string, unknown>;
+    expect(enqueuedEvent.eventType).toBe('GrowthSampleRecorded');
+    expect(enqueuedEvent.batchId).toBe('batch-1');
+    expect(enqueuedEvent.tenantId).toBe('tenant-1');
+    expect(enqueuedEvent.sampleSize).toBe(3);
+    expect(enqueuedEvent.averageWeightG).toBe(250);
+    expect(enqueuedEvent.weightCV).toBe(8);
+    expect(enqueuedEvent.performance).toBe('good');
+    expect(enqueuedEvent.measurementDate).toBeInstanceOf(Date);
+
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(rollback).not.toHaveBeenCalled();
+  });
+
+  it('updateBatchWeight=false skips both batch save and isProcessed flip but still emits the event', async () => {
+    const { handler, enqueue, commit, measurementSave, batchSave } = makeHarness();
+
+    await handler.execute(makeCommand({ updateBatchWeight: false }));
+
+    expect(measurementSave).toHaveBeenCalledTimes(1);
+    expect(batchSave).not.toHaveBeenCalled();
+    expect(enqueue).toHaveBeenCalledTimes(1);
+    expect(commit).toHaveBeenCalledTimes(1);
+  });
+
+  it('outbox enqueue failure rolls back every domain write', async () => {
+    const { handler, rollback, commit } = makeHarness({
+      enqueueImpl: async () => {
+        throw new Error('outbox enqueue failed');
+      },
+    });
+
+    await expect(handler.execute(makeCommand())).rejects.toThrow(
+      'outbox enqueue failed',
+    );
+    expect(rollback).toHaveBeenCalledTimes(1);
+    expect(commit).not.toHaveBeenCalled();
+  });
+
+  it('measurement save failure rolls back and never enqueues', async () => {
+    const { handler, rollback, commit, enqueue } = makeHarness({
+      measurementSaveImpl: async () => {
+        throw new Error('db offline');
+      },
+    });
+
+    await expect(handler.execute(makeCommand())).rejects.toThrow('db offline');
+    expect(rollback).toHaveBeenCalledTimes(1);
+    expect(commit).not.toHaveBeenCalled();
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it('throws NotFoundException when batch does not exist — no tx started', async () => {
+    const { handler, enqueue } = makeHarness({ batch: null });
+
+    await expect(handler.execute(makeCommand())).rejects.toThrow(NotFoundException);
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it('throws BadRequestException when batch is not active — no tx started', async () => {
+    const { handler, enqueue } = makeHarness({
+      batch: { isActive: false } as Batch,
+    });
+
+    await expect(handler.execute(makeCommand())).rejects.toThrow(
+      BadRequestException,
+    );
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it('throws BadRequestException when fewer than 3 individual measurements — no tx started', async () => {
+    const { handler, enqueue } = makeHarness();
+
+    await expect(
+      handler.execute(
+        makeCommand({
+          individualMeasurements: [{ weightG: 100 }, { weightG: 110 }],
+        }),
+      ),
+    ).rejects.toThrow(BadRequestException);
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it('backdate policy violation throws BEFORE any DB or tx work', async () => {
+    const { handler, enqueue, backdatePolicy } = makeHarness({
+      backdatePolicyImpl: () => {
+        throw new BadRequestException('backdate window exceeded');
+      },
+    });
+
+    await expect(handler.execute(makeCommand())).rejects.toThrow(
+      'backdate window exceeded',
+    );
+    expect(backdatePolicy.validate).toHaveBeenCalledTimes(1);
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+});

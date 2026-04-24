@@ -145,6 +145,89 @@ describe('finding registry integrity invariant', () => {
   });
 
   /**
+   * SEC-REVIEW-005 — finding re-open detection.
+   *
+   * When a finding previously closed as RESOLVED regresses, the correct
+   * shape per the schema is to APPEND a new entry with a fresh id (e.g.
+   * `AUDIT-HIGH-008-R1`) and `override_of: "AUDIT-HIGH-008"` pointing at
+   * the prior finding. The chain stays append-only; the earlier RESOLVED
+   * row is never edited.
+   *
+   * Integrity invariant: every `override_of` value, when non-null, must
+   * refer to an id that exists earlier in the chain. Without this check
+   * a typo (override_of: "AUDIT-HIGH-0008") would pass the Ajv schema
+   * (string field) and silently orphan the reopen.
+   *
+   * Observability: this block additionally emits a console.warn with
+   * the list of re-opens (non-null override_of) so the CI log surfaces
+   * regressions that matched the semantic `RESOLVED → R1` pattern. The
+   * test itself does not fail on re-opens — reopens are legitimate; it
+   * fails only when the pointer is orphaned.
+   */
+  describe('re-open detection (SEC-REVIEW-005)', () => {
+    interface OverrideEntry {
+      id: string;
+      overrides: string;
+      state: string;
+      severity: string;
+    }
+
+    function overrides(): OverrideEntry[] {
+      const out: OverrideEntry[] = [];
+      for (const e of entries) {
+        const ovr = (e as { override_of?: unknown }).override_of;
+        if (typeof ovr === 'string' && ovr.length > 0) {
+          out.push({ id: e.id, overrides: ovr, state: e.state, severity: e.severity });
+        }
+      }
+      return out;
+    }
+
+    it('every non-null override_of references an existing earlier finding id', () => {
+      const seen = new Set<string>();
+      const orphans: Array<{ id: string; overrides: string }> = [];
+      for (const e of entries) {
+        const ovr = (e as { override_of?: unknown }).override_of;
+        if (typeof ovr === 'string' && ovr.length > 0) {
+          if (!seen.has(ovr)) {
+            orphans.push({ id: e.id, overrides: ovr });
+          }
+        }
+        seen.add(e.id);
+      }
+      if (orphans.length > 0) {
+        const lines = orphans
+          .map((o) => `  ${o.id} → override_of: "${o.overrides}" (not present earlier in chain)`)
+          .join('\n');
+        throw new Error(
+          `findings.jsonl contains ${orphans.length} override_of pointer(s) that do not ` +
+            `reference an earlier entry. Either fix the pointer typo OR append the missing ` +
+            `override-target as a prior entry first:\n${lines}`,
+        );
+      }
+      expect(orphans).toEqual([]);
+    });
+
+    it('surfaces re-opened findings as a CI-visible warning (soft signal, never fails)', () => {
+      const reopens = overrides();
+      if (reopens.length > 0) {
+        // eslint-disable-next-line no-console -- invariant-level CI telemetry
+        console.warn(
+          `[registry] ${reopens.length} re-opened finding(s) in chain — review for regression patterns:`,
+        );
+        for (const r of reopens) {
+          // eslint-disable-next-line no-console
+          console.warn(`  ${r.id} (${r.severity} ${r.state}) overrides ${r.overrides}`);
+        }
+      }
+      // Soft signal only — do not fail the build on re-opens; they are
+      // legitimate when a regression genuinely happens. The fail-case
+      // (orphan pointer) is caught by the sibling `it` above.
+      expect(reopens).toBeDefined();
+    });
+  });
+
+  /**
    * Soft check — Faz 6 of parallel-jumping-ladybug.md.
    *
    * Append-only ledger cannot be edited, but evidence paths recorded

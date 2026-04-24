@@ -24,6 +24,43 @@ import {
 } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
 
+/**
+ * Runtime shape of a single item in `Task.checklistItems` (JSONB).
+ *
+ * `isCompleted` is the field the `TaskChecklistItemInput` DTO writes
+ * on creation (UI-facing name). `completed` + `completedAt` are the
+ * fields the `TaskService.toggleChecklistItem` path mutates — the
+ * two names DIVERGE today; a follow-up will unify them. Keeping the
+ * interface permissive (both optional) documents the reality
+ * accurately rather than papering over it with a single name that
+ * doesn't match what's stored.
+ */
+export interface TaskChecklistItem {
+  /** UUID, assigned by the service on first toggle / on creation. */
+  id?: string;
+  text: string;
+  /** UI input field — set on creation via `TaskChecklistItemInput`. */
+  isCompleted?: boolean;
+  /** Runtime toggle field — flipped by `toggleChecklistItem`. */
+  completed?: boolean;
+  /** ISO-8601 string written by `toggleChecklistItem`. */
+  completedAt?: string | null;
+  completedBy?: string;
+}
+
+/**
+ * Runtime shape of a single item in `Task.notes` (JSONB). Written
+ * exclusively by `TaskService.addNote` — the shape is under that
+ * service's control.
+ */
+export interface TaskNote {
+  id: string;
+  text: string;
+  createdBy: string;
+  /** ISO-8601 string. */
+  createdAt: string;
+}
+
 // ============================================================================
 // ENUMS
 // ============================================================================
@@ -180,11 +217,11 @@ export class Task {
 
   @Field(() => GraphQLJSON, { nullable: true })
   @Column({ type: 'jsonb', default: [] })
-  checklistItems: any[];
+  checklistItems: TaskChecklistItem[];
 
   @Field(() => GraphQLJSON, { nullable: true })
   @Column({ type: 'jsonb', default: [] })
-  notes: any[];
+  notes: TaskNote[];
 
   // -------------------------------------------------------------------------
   // ETIKETLER

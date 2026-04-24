@@ -31,7 +31,7 @@ import GraphQLJSON from 'graphql-type-json';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
 import { CurrentTenant, CurrentUser, Role, Roles } from '@aquaculture/backend-common';
 import { RecurringTemplate, RecurrenceFrequency } from '../entities/recurring-template.entity';
-import { TaskCategory, TaskPriority } from '../entities/task.entity';
+import { TaskCategory, TaskChecklistItem, TaskPriority } from '../entities/task.entity';
 import { RecurringTaskService } from '../services/recurring-task.service';
 
 // ============================================================================
@@ -105,7 +105,7 @@ class CreateRecurringTemplateInput {
 
   @Field(() => GraphQLJSON, { nullable: true })
   @IsOptional()
-  checklistItems?: any;
+  checklistItems?: TaskChecklistItem[];
 
   @Field(() => [String], { nullable: true })
   @IsOptional()
@@ -175,7 +175,7 @@ class UpdateRecurringTemplateInput {
 
   @Field(() => GraphQLJSON, { nullable: true })
   @IsOptional()
-  checklistItems?: any;
+  checklistItems?: TaskChecklistItem[];
 
   @Field(() => [String], { nullable: true })
   @IsOptional()

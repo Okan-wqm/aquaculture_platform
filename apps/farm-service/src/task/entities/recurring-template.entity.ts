@@ -22,7 +22,7 @@ import {
   registerEnumType,
 } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
-import { TaskCategory, TaskPriority } from './task.entity';
+import { TaskCategory, TaskChecklistItem, TaskPriority } from './task.entity';
 
 // ============================================================================
 // ENUMS
@@ -144,7 +144,7 @@ export class RecurringTemplate {
 
   @Field(() => GraphQLJSON, { nullable: true })
   @Column({ type: 'jsonb', default: [] })
-  checklistItems: any[];
+  checklistItems: TaskChecklistItem[];
 
   // -------------------------------------------------------------------------
   // DURUM

@@ -418,7 +418,7 @@ export class TaskService {
       throw new BadRequestException('Görevde checklist bulunamadı');
     }
 
-    const item = task.checklistItems.find((i: any) => i.id === itemId);
+    const item = task.checklistItems.find((i) => i.id === itemId);
     if (!item) {
       throw new NotFoundException(`Checklist öğesi bulunamadı: ${itemId}`);
     }

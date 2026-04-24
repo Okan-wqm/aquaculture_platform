@@ -394,7 +394,13 @@ export class TransferBatchHandler implements ICommandHandler<TransferBatchComman
       where: { tenantId, tankId },
     });
 
-    const equipment = await manager.findOne(Equipment, { where: { id: tankId } });
+    // Scope by tenantId on every lookup — `tankId` arrived from a
+    // tenant-scoped caller but the discipline is that every findOne
+    // carries its tenant filter so a future caller refactor can't
+    // silently strip the isolation boundary.
+    const equipment = await manager.findOne(Equipment, {
+      where: { id: tankId, tenantId },
+    });
     const effectiveVolume = equipment?.volume || 0;
 
     if (!tankBatch && quantityDelta > 0) {

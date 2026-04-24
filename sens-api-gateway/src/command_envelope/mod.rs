@@ -56,6 +56,7 @@
 
 pub mod canonical;
 pub mod envelope;
+pub mod handler;
 pub mod jti;
 pub mod moka_dedup;
 pub mod mutating;
@@ -73,6 +74,9 @@ pub use canonical::{canonical_params, CanonicalParamsError, CmdHash};
 pub use envelope::{
     verify_envelope, CommandEnvelope, EnvelopeVerifyError, SignatureMode,
     MAX_CMD_NAME_BYTES, MAX_NONCE_BYTES,
+};
+pub use handler::{
+    EnvelopeHandler, EnvelopeMeta, HandlerError, HandlerInput, HandlerResponse,
 };
 pub use jti::{DedupResult, DedupTableError, InvalidJti, Jti, JtiDedupTable, MAX_JTI_BYTES};
 pub use moka_dedup::{MokaJtiDedupTable, DEFAULT_MOKA_CAPACITY, DEFAULT_MOKA_TTL_SECS};

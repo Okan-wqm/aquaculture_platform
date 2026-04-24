@@ -169,6 +169,43 @@ export interface CullRecordedEvent extends BaseEvent {
 }
 
 /**
+ * Cleaner Fish Deployed Event
+ *
+ * Emitted when cleaner fish (lumpfish / wrasse) are placed into a
+ * tank from a cleaner-fish batch. Mirror event of
+ * `CleanerFishRemoved`; together they form the deploy / remove life-
+ * cycle pair that sea-lice-control dashboards project against a
+ * tank timeline.
+ *
+ * Downstream consumers (welfare dashboards, tank-density alerting,
+ * AI insights, stock-movement read models) use the post-operation
+ * snapshot fields to patch their projections without re-reading the
+ * TankBatch + Batch aggregates. `isOverCapacity` reflects the
+ * TankCapacityService decision at deploy time — a true flag signals
+ * a welfare-regulation edge (stocking above `maxDensity`) that
+ * historically triggered an operator override or an audit-review
+ * workflow downstream.
+ */
+export interface CleanerFishDeployedEvent extends BaseEvent {
+  eventType: 'CleanerFishDeployed';
+  cleanerBatchId: string;
+  targetTankId: string;
+  speciesName: string;
+  quantity: number;
+  avgWeightG: number;
+  biomassKg: number;
+  deployedAt: Date;
+  /** Tank-batch cleaner-fish stock AFTER the deploy is applied. */
+  newTankCleanerFishQuantity: number;
+  newTankCleanerFishBiomassKg: number;
+  newTankDensityKgM3: number;
+  /** Cleaner-batch running stock AFTER the deploy (decremented by quantity). */
+  newCleanerBatchCurrentQuantity: number;
+  /** True when the deploy pushed total tank biomass past the welfare density gate. */
+  isOverCapacity: boolean;
+}
+
+/**
  * Cleaner Fish Removed Event
  *
  * Emitted when cleaner fish (lumpfish / wrasse) are taken out of a
@@ -515,6 +552,7 @@ export type FarmEvent =
   | BatchStatusChangedEvent
   | MortalityRecordedEvent
   | CullRecordedEvent
+  | CleanerFishDeployedEvent
   | CleanerFishRemovedEvent
   | BatchTransferredEvent
   | BatchAllocatedToTankEvent

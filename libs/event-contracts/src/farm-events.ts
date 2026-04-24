@@ -169,6 +169,48 @@ export interface CullRecordedEvent extends BaseEvent {
 }
 
 /**
+ * Cleaner Fish Removed Event
+ *
+ * Emitted when cleaner fish (lumpfish / wrasse) are taken out of a
+ * tank — at end of cycle, as part of a harvest, or relocated to
+ * another deployment. Separate from `CullRecorded` because cleaner
+ * fish are tracked as their OWN batch with its own `currentQuantity`
+ * (they live alongside salmon but count independently); a `relocation`
+ * removal actually returns quantity to the cleaner-batch stock
+ * (the fish move, they are not destroyed).
+ *
+ * `CleanerFishRemovalReasonCode` mirrors
+ * `apps/farm-service/src/batch/commands/remove-cleaner-fish.command.ts`
+ * exactly — the command-layer enum is this contract's vocabulary so
+ * consumers don't have to know about server-side representation
+ * choices. Adding a new enum value is a backwards-compatible change
+ * (consumers with narrowing on the existing values keep working).
+ */
+export type CleanerFishRemovalReasonCode =
+  | 'end_of_cycle'
+  | 'harvest'
+  | 'relocation'
+  | 'other';
+
+export interface CleanerFishRemovedEvent extends BaseEvent {
+  eventType: 'CleanerFishRemoved';
+  cleanerBatchId: string;
+  tankId: string;
+  speciesName: string;
+  quantity: number;
+  avgWeightG: number;
+  biomassKg: number;
+  reason: CleanerFishRemovalReasonCode;
+  detail?: string;
+  removedAt: Date;
+  /** Tank-batch cleaner-fish stock AFTER the removal is applied. */
+  newTankCleanerFishQuantity: number;
+  newTankCleanerFishBiomassKg: number;
+  /** Cleaner-batch running stock AFTER the removal (only changes on `relocation`). */
+  newCleanerBatchCurrentQuantity: number;
+}
+
+/**
  * Batch Transferred Event
  *
  * Represents an atomic transfer of fish between tanks.
@@ -473,6 +515,7 @@ export type FarmEvent =
   | BatchStatusChangedEvent
   | MortalityRecordedEvent
   | CullRecordedEvent
+  | CleanerFishRemovedEvent
   | BatchTransferredEvent
   | BatchAllocatedToTankEvent
   | GrowthSampleRecordedEvent

@@ -838,6 +838,90 @@ export interface FeedInventoryConsumedEvent extends BaseEvent {
  * `siteId` identifies the site where inventory is tracked.
  * `farmId` is provided when the site maps to a known farm.
  */
+/**
+ * Legacy Farm Data Migrated Event
+ *
+ * Emitted by the `farm-service migrate-legacy-farm --execute` CLI
+ * once per tenant schema after legacy `farms` / `ponds` rows have
+ * been copied into the canonical `sites` / `tanks` tables. The
+ * event is audit-grade — consumers (observability, compliance
+ * export, read-model rebuilders) use the counts to verify that the
+ * expected tenant-level migration actually landed.
+ *
+ * Scope 1 of the 2026-04-24 deferred-items plan (Phase 4.3.0 /
+ * 4.3.2). One event per tenant per CLI run — NOT per legacy row.
+ * Per-row replay granularity is unnecessary because cross-service
+ * consumers were migrated off `farm.farms` / `farm.ponds` before
+ * this CLI existed.
+ */
+export interface LegacyFarmDataMigratedEvent extends BaseEvent {
+  eventType: 'LegacyFarmDataMigrated';
+  /**
+   * Tenant schema that was processed (e.g. `tenant_9f83a2b1c4d5e6f7`).
+   * Redundant with BaseEvent.tenantId but carried explicitly for
+   * audit dashboards that want to filter by the physical schema
+   * without re-deriving it from the UUID.
+   */
+  tenantSchemaName: string;
+  /** How many legacy `farms` rows were inserted into `sites` during this run. */
+  farmsMigrated: number;
+  /** How many legacy `farms` rows were skipped (already migrated, idempotent re-run). */
+  farmsSkipped: number;
+  /** How many legacy `ponds` rows were inserted into `tanks` during this run. */
+  pondsMigrated: number;
+  /** How many legacy `ponds` rows were skipped. */
+  pondsSkipped: number;
+  /**
+   * How many synthetic `Department` rows were created to satisfy the
+   * `tanks.departmentId` NOT NULL constraint (see plan Q2). One per
+   * migrated site that had at least one pond.
+   */
+  syntheticDepartmentsCreated: number;
+  /** Identity of the operator who ran the CLI (from --operator-id flag). */
+  operatorId: string;
+  /** When the CLI started, ISO-8601. */
+  migrationStartedAt: Date;
+  /** When the CLI finished for THIS tenant, ISO-8601. */
+  migrationCompletedAt: Date;
+}
+
+/**
+ * Legacy Farm Table Converted Event
+ *
+ * Emitted once per tenant schema per conversion-step for the legacy
+ * `farms` and `ponds` TABLES as they progress through the retirement
+ * lifecycle:
+ *
+ *   `table-to-view`  — Phase 4.3.3 swaps each TABLE for a compat VIEW
+ *                      projecting from `sites` / `tanks`. Row counts
+ *                      preserved; writes now fail ("cannot insert into
+ *                      view") which is the intended fail-closed posture.
+ *   `view-dropped`   — Phase 4.3.5 drops the VIEW entirely after the
+ *                      retention window. Read-side callers that
+ *                      survived the 90-day grace see a hard error now.
+ *
+ * One event per tenant per table per phase. Consumers (compliance
+ * export, deprecation dashboards) use the `phase` discriminator to
+ * track progress without re-running inventory queries.
+ */
+export interface LegacyFarmTableConvertedEvent extends BaseEvent {
+  eventType: 'LegacyFarmTableConverted';
+  /** Tenant schema where the conversion ran. */
+  tenantSchemaName: string;
+  /** Which legacy table this event concerns. */
+  table: 'farms' | 'ponds';
+  /** Conversion phase — see the docstring above for semantics. */
+  phase: 'table-to-view' | 'view-dropped';
+  /**
+   * Row count at conversion time (for `table-to-view`: rows in the
+   * legacy TABLE before conversion; for `view-dropped`: 0 — there
+   * are no rows to report, VIEW is being removed).
+   */
+  rowCount: number;
+  /** When the conversion ran, ISO-8601. */
+  convertedAt: Date;
+}
+
 export interface FeedInventoryLowEvent extends BaseEvent {
   eventType: 'FeedInventoryLow';
   inventoryId: string;
@@ -875,6 +959,8 @@ export type FarmEvent =
   | HarvestRecordUpdatedEvent
   | HarvestRecordCancelledEvent
   | BatchMetadataUpdatedEvent
+  | LegacyFarmDataMigratedEvent
+  | LegacyFarmTableConvertedEvent
   | BatchTransferredEvent
   | BatchAllocatedToTankEvent
   | GrowthSampleRecordedEvent

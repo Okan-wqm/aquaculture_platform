@@ -198,6 +198,19 @@ hkdf = "0.12"
 argon2 = "0.5"
 
 # =============================================================================
+# unicode-normalization (PINNED) — Batch #242 A-3a homoglyph defense
+# =============================================================================
+# WHY: OPC UA UserName/Password tokens (ADR-017 §4.2) accept raw UTF-8
+#      usernames from external HMI clients. Unicode canonical composition
+#      (NFKC) + lowercase normalization closes the homoglyph attack class
+#      where "admin" vs "аdmin" (Cyrillic a U+0430) would otherwise resolve
+#      to two distinct lookup keys — letting an attacker enroll a
+#      look-alike user with an unrelated password.
+# INVARIANT: All usernames cross the NFKC normalization gate before any
+#            manifest lookup; raw bytes never touch the enrollment map.
+unicode-normalization = "0.1"
+
+# =============================================================================
 # bincode (PINNED) — ADR-020 FINDING-019 + ADR-017 §6 bytecode serialization
 # =============================================================================
 # WHY: Audit chain entries (ADR-020 §1 AuditEntry) + ST bytecode artifacts

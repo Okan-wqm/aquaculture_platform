@@ -154,6 +154,7 @@ mod calibration_engine;
 mod opc_ua_server; // Batch 208 Faz 5: OPC UA address-space registry primitive
 mod opc_ua_server_session; // Batch #239 Faz 5 A-2a: typed session principal (sealed newtype)
 mod opc_ua_server_typed_authz; // Batch #241 Faz 5: typed authz port composing resolver + PolicyEngine
+mod opc_ua_server_user_tokens; // Batch #242 Faz 5 A-3a: UserTokenEnrollment primitive (UserName/Password + X.509)
 #[cfg(feature = "opc-ua-server")]
 mod opc_ua_server_runtime; // Batch 216 Faz 5: async-opcua 0.18 ServerBuilder wire (feature-gated)
 

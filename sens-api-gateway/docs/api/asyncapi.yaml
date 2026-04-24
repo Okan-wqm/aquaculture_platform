@@ -1,0 +1,515 @@
+asyncapi: 2.6.0
+info:
+  title: Suderra Edge Agent MQTT API
+  version: 1.6.0
+  description: |
+    MQTT topic tree exposed by the Suderra edge agent (`sens-api-gateway`) for
+    bidirectional cloud ↔ edge communication. 9 topics rooted at
+    `tenants/{tenant_id}/devices/{device_id}/...`.
+
+    Evidence: topic defaults `src/config.rs:1294-1324`; publish sites
+    `src/mqtt.rs:535-653`; subscribe sites `src/mqtt.rs:515-532`.
+  contact:
+    name: Suderra Edge Team
+    email: info@suderra.com
+  license:
+    name: Proprietary
+    url: https://suderra.com/license
+defaultContentType: application/json
+servers:
+  production:
+    url: '{broker_host}:{broker_port}'
+    protocol: mqtt
+    description: Tenant-provisioned MQTT broker (TLS mandatory in production).
+    variables:
+      broker_host:
+        default: mqtt.example.com
+      broker_port:
+        default: '8883'
+    security:
+      - mqttTls: []
+channels:
+  'tenants/{tenant_id}/devices/{device_id}/status':
+    description: |
+      Device lifecycle: Online on connect, Offline on disconnect (MQTT Last Will).
+      QoS 1, retained=true. Evidence: `src/mqtt.rs:264-269`, `src/mqtt.rs:535-559`.
+    parameters:
+      tenant_id:
+        $ref: '#/components/parameters/tenant_id'
+      device_id:
+        $ref: '#/components/parameters/device_id'
+    publish:
+      summary: Edge publishes device status
+      operationId: publishStatus
+      bindings:
+        mqtt:
+          qos: 1
+          retain: true
+      message:
+        $ref: '#/components/messages/StatusMessage'
+  'tenants/{tenant_id}/devices/{device_id}/telemetry':
+    description: |
+      Periodic system + hardware metrics. System metrics include CPU / memory /
+      disk / temperature; hardware metrics include Modbus register values and
+      GPIO pin states. NOT cloud SensorReadingEvent shape — see CONTRACT-DRIFT
+      in `docs/api/event-schemas.md`.
+      QoS 1, retained=false. Evidence: `src/mqtt.rs:562-593`.
+    parameters:
+      tenant_id:
+        $ref: '#/components/parameters/tenant_id'
+      device_id:
+        $ref: '#/components/parameters/device_id'
+    publish:
+      summary: Edge publishes telemetry
+      operationId: publishTelemetry
+      bindings:
+        mqtt:
+          qos: 1
+          retain: false
+      message:
+        $ref: '#/components/messages/TelemetryMessage'
+  'tenants/{tenant_id}/devices/{device_id}/responses':
+    description: |
+      Command execution results. QoS 1, retained=false.
+      Evidence: `src/mqtt.rs:596-613`.
+    parameters:
+      tenant_id:
+        $ref: '#/components/parameters/tenant_id'
+      device_id:
+        $ref: '#/components/parameters/device_id'
+    publish:
+      summary: Edge publishes command responses
+      operationId: publishResponse
+      bindings:
+        mqtt:
+          qos: 1
+          retain: false
+      message:
+        $ref: '#/components/messages/CommandResponse'
+  'tenants/{tenant_id}/devices/{device_id}/commands':
+    description: |
+      Remote command invocation from cloud. QoS 1. Retained messages are
+      REJECTED by the handler to prevent replay attacks
+      (`src/mqtt.rs:60-67` IncomingMessage.retain propagated).
+      Evidence: `src/mqtt.rs:515-532`; dispatcher `src/commands.rs:399-470`.
+    parameters:
+      tenant_id:
+        $ref: '#/components/parameters/tenant_id'
+      device_id:
+        $ref: '#/components/parameters/device_id'
+    subscribe:
+      summary: Edge subscribes to receive commands from cloud
+      operationId: receiveCommand
+      bindings:
+        mqtt:
+          qos: 1
+      message:
+        $ref: '#/components/messages/CommandMessage'
+  'tenants/{tenant_id}/devices/{device_id}/config':
+    description: |
+      Configuration hot-reload payload. QoS 1. Retained=true accepted inbound
+      so a restarted agent picks up the current config on subscribe.
+      Evidence: `src/mqtt.rs:515-532`; handler `src/commands.rs:3199`.
+    parameters:
+      tenant_id:
+        $ref: '#/components/parameters/tenant_id'
+      device_id:
+        $ref: '#/components/parameters/device_id'
+    subscribe:
+      summary: Edge subscribes to receive config updates
+      operationId: receiveConfig
+      bindings:
+        mqtt:
+          qos: 1
+      message:
+        $ref: '#/components/messages/ConfigUpdateMessage'
+  'tenants/{tenant_id}/devices/{device_id}/capabilities':
+    description: |
+      Hardware capabilities report (boot-time only). QoS 1, retained=true so
+      a subscriber connecting mid-session reads the current hardware inventory.
+      Emitted via `MqttClient::publish_raw` (`src/mqtt.rs:643-653`).
+    parameters:
+      tenant_id:
+        $ref: '#/components/parameters/tenant_id'
+      device_id:
+        $ref: '#/components/parameters/device_id'
+    publish:
+      summary: Edge publishes hardware capabilities
+      operationId: publishCapabilities
+      bindings:
+        mqtt:
+          qos: 1
+          retain: true
+      message:
+        $ref: '#/components/messages/CapabilitiesReport'
+  'tenants/{tenant_id}/devices/{device_id}/io_data':
+    description: |
+      Real-time process-image tag values. QoS 0 (AtMostOnce): the next frame
+      carries fresher state — losing an intermediate frame is acceptable
+      because the most recent value is what matters.
+      Evidence: `src/mqtt.rs:615-622`.
+    parameters:
+      tenant_id:
+        $ref: '#/components/parameters/tenant_id'
+      device_id:
+        $ref: '#/components/parameters/device_id'
+    publish:
+      summary: Edge publishes I/O tag values
+      operationId: publishIoData
+      bindings:
+        mqtt:
+          qos: 0
+          retain: false
+      message:
+        $ref: '#/components/messages/IoDataMessage'
+  'tenants/{tenant_id}/devices/{device_id}/alarms':
+    description: |
+      IEC 62682 alarm events. QoS 1, retained=false.
+      Evidence: `src/mqtt.rs:625-631`.
+    parameters:
+      tenant_id:
+        $ref: '#/components/parameters/tenant_id'
+      device_id:
+        $ref: '#/components/parameters/device_id'
+    publish:
+      summary: Edge publishes alarm events
+      operationId: publishAlarms
+      bindings:
+        mqtt:
+          qos: 1
+          retain: false
+      message:
+        $ref: '#/components/messages/AlarmEventBatch'
+  'tenants/{tenant_id}/devices/{device_id}/lora_events':
+    description: |
+      LoRaWAN uplink / join-accept / downlink events. QoS 0, retained=false.
+      Feature-gated `lorawan`. Evidence: `src/mqtt.rs:634-640`.
+    parameters:
+      tenant_id:
+        $ref: '#/components/parameters/tenant_id'
+      device_id:
+        $ref: '#/components/parameters/device_id'
+    publish:
+      summary: Edge publishes LoRa events
+      operationId: publishLoraEvent
+      bindings:
+        mqtt:
+          qos: 0
+          retain: false
+      message:
+        $ref: '#/components/messages/LoRaEvent'
+components:
+  parameters:
+    tenant_id:
+      description: UUID of the tenant (SaaS customer).
+      schema:
+        type: string
+        format: uuid
+    device_id:
+      description: UUID of the edge device.
+      schema:
+        type: string
+        format: uuid
+  securitySchemes:
+    mqttTls:
+      type: X509
+      description: |
+        TLS 1.2+ with mandatory rustls validation; mTLS optional today
+        (`src/mqtt.rs:696-787`). cert-is-identity is the Sprint 6.8 roadmap
+        (`src/mtls/` module staged at `src/main.rs:94-99`).
+  messages:
+    StatusMessage:
+      name: StatusMessage
+      title: Device Status Message
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/StatusMessagePayload'
+    TelemetryMessage:
+      name: TelemetryMessage
+      title: Telemetry Message
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/TelemetryMessagePayload'
+    CommandMessage:
+      name: CommandMessage
+      title: Command Invocation Message
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/CommandMessagePayload'
+    CommandResponse:
+      name: CommandResponse
+      title: Command Response Message
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/CommandResponsePayload'
+    ConfigUpdateMessage:
+      name: ConfigUpdateMessage
+      title: Config Hot-Reload Message
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ConfigUpdateMessagePayload'
+    CapabilitiesReport:
+      name: CapabilitiesReport
+      title: Hardware Capabilities Report
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/CapabilitiesReportPayload'
+    IoDataMessage:
+      name: IoDataMessage
+      title: Process-Image Tag Values
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/IoDataMessagePayload'
+    AlarmEventBatch:
+      name: AlarmEventBatch
+      title: Alarm Event Batch
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/AlarmEventBatchPayload'
+    LoRaEvent:
+      name: LoRaEvent
+      title: LoRa Device Event
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/LoRaEventPayload'
+  schemas:
+    StatusMessagePayload:
+      type: object
+      description: Evidence `src/mqtt.rs:70-88`.
+      required: [device_id, device_code, status, timestamp, agent_version, uptime_seconds]
+      properties:
+        device_id:
+          type: string
+          format: uuid
+        device_code:
+          type: string
+          description: Human-readable (e.g. RPI-A1B2C3D4).
+        status:
+          type: string
+          enum: [online, offline, maintenance, error]
+        timestamp:
+          type: string
+          format: date-time
+        agent_version:
+          type: string
+        uptime_seconds:
+          type: integer
+          format: int64
+          minimum: 0
+    TelemetryMessagePayload:
+      type: object
+      description: Evidence `src/mqtt.rs:92-139`.
+      required: [device_id, device_code, timestamp, agent_version, metrics]
+      properties:
+        device_id:
+          type: string
+        device_code:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+          description: Single timestamp for all fields to avoid microsecond skew (MED-27).
+        agent_version:
+          type: string
+        metrics:
+          $ref: '#/components/schemas/TelemetryMetrics'
+    TelemetryMetrics:
+      type: object
+      description: Evidence `src/mqtt.rs:101-139`. All fields optional (`skip_serializing_if`).
+      properties:
+        cpu_usage_percent:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 100
+        memory_usage_percent:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 100
+        memory_used_mb:
+          type: integer
+          format: int64
+          minimum: 0
+        memory_total_mb:
+          type: integer
+          format: int64
+          minimum: 0
+        disk_usage_percent:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 100
+        disk_used_gb:
+          type: number
+          format: double
+          minimum: 0
+        disk_total_gb:
+          type: number
+          format: double
+          minimum: 0
+        temperature_celsius:
+          type: number
+          format: float
+        network_rx_mb:
+          type: number
+          format: double
+          description: MB not bytes — LOW-42 avoids u64 precision issues in float parsers.
+        network_tx_mb:
+          type: number
+          format: double
+        ip_address:
+          type: string
+        modbus:
+          type: array
+          items:
+            $ref: '#/components/schemas/ModbusDeviceData'
+        gpio:
+          type: array
+          items:
+            $ref: '#/components/schemas/GpioPinData'
+    ModbusDeviceData:
+      type: object
+      required: [device_name, registers]
+      properties:
+        device_name:
+          type: string
+        registers:
+          type: array
+          items:
+            $ref: '#/components/schemas/ModbusRegisterData'
+        errors:
+          type: array
+          items:
+            type: string
+    ModbusRegisterData:
+      type: object
+      required: [name, address, value]
+      properties:
+        name:
+          type: string
+        address:
+          type: integer
+          minimum: 0
+          maximum: 65535
+        value:
+          type: number
+          format: double
+        unit:
+          type: string
+    GpioPinData:
+      type: object
+      required: [name, pin, direction, state]
+      properties:
+        name:
+          type: string
+        pin:
+          type: integer
+          minimum: 0
+          maximum: 255
+        direction:
+          type: string
+          enum: [in, out]
+        state:
+          type: string
+          enum: [high, low]
+    CommandMessagePayload:
+      type: object
+      description: Evidence `src/mqtt.rs:169-179`. Retained messages rejected by dispatcher.
+      required: [commandId, command, timestamp]
+      properties:
+        commandId:
+          type: string
+          description: Client-supplied correlation ID — echoed back in CommandResponse.
+        command:
+          type: string
+          description: Command name (see `remote-commands.md`).
+        params:
+          type: object
+          description: Command-specific parameters.
+          additionalProperties: true
+        timestamp:
+          type: string
+          format: date-time
+    CommandResponsePayload:
+      type: object
+      description: Evidence `src/mqtt.rs:182-192`.
+      required: [commandId, deviceId, success, result, timestamp]
+      properties:
+        commandId:
+          type: string
+        deviceId:
+          type: string
+        success:
+          type: boolean
+        result:
+          description: Command-specific result body (nullable on failure).
+        timestamp:
+          type: string
+          format: date-time
+        error:
+          type: string
+          description: Present only when success=false.
+    ConfigUpdateMessagePayload:
+      type: object
+      description: |
+        Config hot-reload body. Today the agent accepts the SAME shape as the
+        YAML config file (deserialised via serde). Handler `handle_config_update`
+        (`src/commands.rs:3199`). Full schema: `docs/api/config-schema.md`.
+      additionalProperties: true
+    CapabilitiesReportPayload:
+      type: object
+      description: |
+        Boot-time hardware capabilities report — used by cloud auto-detection.
+        Shape is agent-emitted (serde_json::Value); exact fields are version-
+        dependent. See `src/hardware_scanner.rs` for constructors.
+      additionalProperties: true
+    IoDataMessagePayload:
+      type: object
+      description: |
+        Process-image tag values. Serialised from the Rust `ProcessImage`
+        snapshot emitter (`src/io_poll.rs`). Cloud side receives as
+        `EdgeDeviceIoDataEvent.tagsJson` (JSON string) —
+        `libs/event-contracts/src/edge-device-events.ts:45-49`.
+      properties:
+        ts:
+          type: string
+          format: date-time
+        tags:
+          type: object
+          additionalProperties: true
+    AlarmEventBatchPayload:
+      type: object
+      description: |
+        IEC 62682 alarm events. Serialised from `src/alarms.rs` AlarmManager;
+        exact fields are version-dependent. Cloud side receives as
+        `EdgeDeviceAlarmEvent.alarmsJson` (JSON string) + `alarmCount`.
+      properties:
+        alarms:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+    LoRaEventPayload:
+      type: object
+      description: |
+        LoRaWAN event. Serialised from `src/lora/` (feature-gated `lorawan`).
+        Cloud side: `LoRaDeviceEventEvent` —
+        `libs/event-contracts/src/edge-device-events.ts:82-91`.
+      properties:
+        event_type:
+          type: string
+          enum: [join_accept, uplink_summary, downlink_ack]
+        dev_eui:
+          type: string
+        rssi:
+          type: number
+          format: float
+        snr:
+          type: number
+          format: float
+        frame_count_up:
+          type: integer
+          minimum: 0
+        dev_addr:
+          type: string

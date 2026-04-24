@@ -1,0 +1,302 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://suderra.com/schemas/sens-api-gateway/config/v1.6.0",
+  "title": "Suderra Edge Agent Configuration",
+  "description": "YAML configuration schema for the Suderra edge agent (sens-api-gateway) v1.6.0. Source of truth: src/config.rs.",
+  "type": "object",
+  "required": ["device_id", "device_code", "api_url", "mqtt"],
+  "additionalProperties": false,
+  "properties": {
+    "device_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique device identifier (UUID)"
+    },
+    "device_code": {
+      "type": "string",
+      "pattern": "^[A-Z0-9-]+$",
+      "description": "Human-readable device code (e.g. RPI-A1B2C3D4)"
+    },
+    "provisioning_token": {
+      "type": ["string", "null"],
+      "description": "Cleared after successful activation; zeroized on drop"
+    },
+    "tenant_token": {
+      "type": ["string", "null"],
+      "description": "Self-registration token; cleared after success"
+    },
+    "api_url": {
+      "type": "string",
+      "format": "uri",
+      "description": "Cloud API base URL"
+    },
+    "mqtt": { "$ref": "#/$defs/MqttConfig" },
+    "telemetry": { "$ref": "#/$defs/TelemetryConfig" },
+    "logging": { "$ref": "#/$defs/LoggingConfig" },
+    "tenant_id": {
+      "type": ["string", "null"],
+      "format": "uuid",
+      "description": "Set automatically after provisioning"
+    },
+    "modbus": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/ModbusDeviceConfig" },
+      "default": []
+    },
+    "gpio": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/GpioConfig" },
+      "default": []
+    },
+    "i2c": {
+      "type": "array",
+      "items": { "type": "object", "additionalProperties": true },
+      "default": []
+    },
+    "scripting": { "$ref": "#/$defs/ScriptingConfig" },
+    "runtime": { "$ref": "#/$defs/RuntimeConfig" },
+    "cache": { "$ref": "#/$defs/CacheConfig" },
+    "circuit_breaker": { "$ref": "#/$defs/CircuitBreakerConfig" },
+    "lorawan": { "$ref": "#/$defs/LoRaWanConfig" }
+  },
+  "$defs": {
+    "MqttConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "broker": { "type": ["string", "null"] },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535, "default": 8883 },
+        "username": { "type": ["string", "null"] },
+        "password": { "type": ["string", "null"] },
+        "tls": { "$ref": "#/$defs/MqttTlsConfig" },
+        "topics": { "$ref": "#/$defs/MqttTopics" },
+        "keepalive_secs": { "type": "integer", "minimum": 1, "default": 30 },
+        "clean_session": { "type": "boolean", "default": false },
+        "last_will_topic": { "type": ["string", "null"] },
+        "failover": { "$ref": "#/$defs/MqttFailoverConfig" }
+      }
+    },
+    "MqttTlsConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": true },
+        "ca_cert_path": { "type": ["string", "null"] },
+        "client_cert_path": { "type": ["string", "null"] },
+        "client_key_path": { "type": ["string", "null"] },
+        "verify_hostname": {
+          "type": "boolean",
+          "default": true,
+          "description": "MUST be true — setting false is rejected at MQTT client construction (src/mqtt.rs:703-709)"
+        },
+        "insecure_skip_verify": {
+          "type": "boolean",
+          "default": false,
+          "description": "BLOCKED in release builds (src/config.rs:250-260)"
+        }
+      }
+    },
+    "MqttTopics": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Placeholders {tenant_id} and {device_id} are resolved at runtime (src/config.rs:441-485).",
+      "properties": {
+        "status": { "type": "string", "default": "tenants/{tenant_id}/devices/{device_id}/status" },
+        "telemetry": { "type": "string", "default": "tenants/{tenant_id}/devices/{device_id}/telemetry" },
+        "responses": { "type": "string", "default": "tenants/{tenant_id}/devices/{device_id}/responses" },
+        "commands": { "type": "string", "default": "tenants/{tenant_id}/devices/{device_id}/commands" },
+        "config": { "type": "string", "default": "tenants/{tenant_id}/devices/{device_id}/config" },
+        "capabilities": { "type": "string", "default": "tenants/{tenant_id}/devices/{device_id}/capabilities" },
+        "io_data": { "type": "string", "default": "tenants/{tenant_id}/devices/{device_id}/io_data" },
+        "alarms": { "type": "string", "default": "tenants/{tenant_id}/devices/{device_id}/alarms" },
+        "lora_events": { "type": "string", "default": "tenants/{tenant_id}/devices/{device_id}/lora_events" }
+      }
+    },
+    "MqttFailoverConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "backup_broker": { "type": ["string", "null"] },
+        "backup_port": { "type": ["integer", "null"], "minimum": 1, "maximum": 65535 },
+        "timeout_secs": { "type": "integer", "minimum": 1, "default": 30 },
+        "health_check_interval_secs": { "type": "integer", "minimum": 1, "default": 60 },
+        "max_failures": { "type": "integer", "minimum": 1, "default": 3 },
+        "recovery_delay_secs": { "type": "integer", "minimum": 0, "default": 5 }
+      }
+    },
+    "TelemetryConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "interval_seconds": { "type": "integer", "minimum": 1, "default": 30 },
+        "include_cpu": { "type": "boolean", "default": true },
+        "include_memory": { "type": "boolean", "default": true },
+        "include_disk": { "type": "boolean", "default": true },
+        "include_temperature": { "type": "boolean", "default": true },
+        "include_system": { "type": "boolean", "default": true },
+        "include_modbus": { "type": "boolean", "default": true },
+        "include_gpio": { "type": "boolean", "default": true },
+        "include_i2c": { "type": "boolean", "default": true },
+        "io_data_interval_ms": { "type": "integer", "minimum": 10, "default": 1000 },
+        "otlp": { "$ref": "#/$defs/OtlpConfig" }
+      }
+    },
+    "OtlpConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "endpoint": { "type": ["string", "null"] },
+        "service_name": { "type": "string", "default": "suderra-agent" },
+        "sample_ratio": { "type": "number", "minimum": 0, "maximum": 1, "default": 1.0 }
+      }
+    },
+    "LoggingConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "level": {
+          "type": "string",
+          "enum": ["trace", "debug", "info", "warn", "error"],
+          "default": "info"
+        },
+        "file": { "type": "string", "default": "/var/log/suderra-agent.log" }
+      }
+    },
+    "ModbusDeviceConfig": {
+      "type": "object",
+      "required": ["name", "connection_type", "address"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "connection_type": { "type": "string", "enum": ["tcp", "rtu"] },
+        "address": { "type": "string" },
+        "slave_id": { "type": "integer", "minimum": 1, "maximum": 247, "default": 1 },
+        "baud_rate": { "type": ["integer", "null"] },
+        "registers": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ModbusRegisterConfig" },
+          "default": []
+        },
+        "security": { "type": "object", "additionalProperties": true },
+        "tls": { "type": "object", "additionalProperties": true }
+      }
+    },
+    "ModbusRegisterConfig": {
+      "type": "object",
+      "required": ["name", "address", "register_type"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "address": { "type": "integer", "minimum": 0, "maximum": 65535 },
+        "register_type": {
+          "type": "string",
+          "enum": ["holding", "input", "coil", "discrete"]
+        },
+        "data_type": {
+          "type": "string",
+          "enum": ["u16", "i16", "u32", "i32", "f32"],
+          "default": "u16"
+        },
+        "byte_order": {
+          "type": "string",
+          "enum": ["big_endian", "little_endian", "big_endian_byte_swap", "little_endian_byte_swap"],
+          "default": "big_endian"
+        },
+        "scale": { "type": "number", "default": 1.0 },
+        "unit": { "type": ["string", "null"] },
+        "poll_interval_ms": { "type": ["integer", "null"], "minimum": 10 }
+      }
+    },
+    "GpioConfig": {
+      "type": "object",
+      "required": ["name", "pin", "direction"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "pin": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255,
+          "description": "Platform-dependent valid range — RPi 0-40, RevPi 0-63; see GpioPlatform::valid_range"
+        },
+        "direction": { "type": "string", "enum": ["input", "output"] },
+        "pull": { "type": "string", "enum": ["up", "down", "none"], "default": "none" },
+        "invert": { "type": "boolean", "default": false },
+        "debounce_ms": { "type": ["integer", "null"], "minimum": 0 }
+      }
+    },
+    "ScriptingConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": true },
+        "default_scan_cycle_ms": { "type": "integer", "minimum": 10 },
+        "min_scan_cycle_ms": { "type": "integer", "minimum": 10 },
+        "max_scan_cycle_ms": { "type": "integer", "minimum": 10, "maximum": 10000 },
+        "max_function_blocks": { "type": "integer", "minimum": 1 },
+        "max_execution_depth": { "type": "integer", "minimum": 1 },
+        "max_actions": { "type": "integer", "minimum": 1 },
+        "max_execution_time_secs": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "RuntimeConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "rate_limit_max_commands": { "type": "integer", "minimum": 1 },
+        "rate_limit_window_secs": { "type": "integer", "minimum": 1 },
+        "gpio_timeout_secs": { "type": "integer", "minimum": 1 },
+        "modbus_timeout_secs": { "type": "integer", "minimum": 1 },
+        "modbus_connect_timeout_secs": { "type": "integer", "minimum": 1 },
+        "circuit_breaker_recovery_secs": { "type": "integer", "minimum": 1 },
+        "provisioning_timeout_secs": { "type": "integer", "minimum": 1 },
+        "shutdown_timeout_secs": { "type": "integer", "minimum": 1 },
+        "mqtt_reconnect_min_secs": { "type": "integer", "minimum": 1 },
+        "mqtt_reconnect_max_secs": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "CacheConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_capacity": { "type": "integer", "minimum": 1 },
+        "ttl_secs": { "type": "integer", "minimum": 0 },
+        "tti_secs": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "CircuitBreakerConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "failure_threshold": { "type": "integer", "minimum": 1 },
+        "success_threshold": { "type": "integer", "minimum": 1 },
+        "recovery_secs": { "type": "integer", "minimum": 1 },
+        "half_open_permits": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "LoRaWanConfig": {
+      "type": "object",
+      "required": ["region", "net_id"],
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "region": {
+          "type": "string",
+          "enum": ["EU868", "US915", "AS923", "AU915", "IN865", "KR920", "RU864"]
+        },
+        "net_id": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{6}$",
+          "description": "3-byte hex string (e.g. 000001)"
+        },
+        "spi_device": { "type": "string", "default": "/dev/spidev0.0" },
+        "reset_gpio_pin": { "type": "integer", "minimum": 0, "maximum": 255, "default": 0 },
+        "channels": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+        "devices": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+        "rx1_delay": { "type": "integer", "minimum": 1, "maximum": 15, "default": 1 },
+        "max_devices": { "type": "integer", "minimum": 1, "default": 100 }
+      }
+    }
+  }
+}

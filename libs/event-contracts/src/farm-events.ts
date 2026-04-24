@@ -657,6 +657,32 @@ export interface EquipmentDeletedEvent extends BaseEvent {
 // ==================== Feed Inventory Events ====================
 
 /**
+ * Harvest Record Updated Event
+ *
+ * Emitted when an existing harvest record's regulatory / financial /
+ * quantity fields are corrected post-hoc. Harvest records feed the
+ * Mattilsynet Slakterapport and downstream customer traceability —
+ * any edit must be audit-visible so the regulatory export reconciles
+ * to the same numbers the live dashboard shows.
+ *
+ * Carries the list of field paths that changed so downstream
+ * consumers can narrow their re-projection scope (a notes-only edit
+ * doesn't require re-sending the Slakterapport).
+ */
+export interface HarvestRecordUpdatedEvent extends BaseEvent {
+  eventType: 'HarvestRecordUpdated';
+  harvestRecordId: string;
+  batchId: string;
+  /** List of field names that changed on this update — audit-grade. */
+  changedFields: string[];
+  /** New `quantityHarvested` — carried for convenience of the hottest projection path. */
+  newQuantityHarvested: number;
+  newTotalBiomass: number;
+  newStatus: string;
+  updatedAt: Date;
+}
+
+/**
  * Feeding Record Updated Event
  *
  * Emitted when an existing feeding record's actual / waste / cost /
@@ -794,6 +820,7 @@ export type FarmEvent =
   | FeedInventoryConsumedEvent
   | FeedInventoryAdjustedEvent
   | FeedingRecordUpdatedEvent
+  | HarvestRecordUpdatedEvent
   | BatchTransferredEvent
   | BatchAllocatedToTankEvent
   | GrowthSampleRecordedEvent

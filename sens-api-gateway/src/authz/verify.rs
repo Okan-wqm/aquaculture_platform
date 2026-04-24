@@ -35,6 +35,7 @@
 use std::time::SystemTime;
 
 use super::manifest::{CanonicalBytesError, RbacManifest, SignedRbacManifest};
+use super::manifest_common::{run_envelope_gates, ManifestStructuralError};
 use super::permission::TenantId;
 
 /// Structured verification errors. Every variant discriminates a distinct
@@ -96,6 +97,46 @@ impl From<CanonicalBytesError> for ManifestVerifyError {
     }
 }
 
+/// Map the shared structural-gate error taxonomy into this module's local
+/// error enum. Keeps RBAC-specific audit-log formatting intact while
+/// sourcing the actual gate logic from `manifest_common`.
+impl From<ManifestStructuralError> for ManifestVerifyError {
+    fn from(e: ManifestStructuralError) -> Self {
+        match e {
+            ManifestStructuralError::InvalidValidityWindow {
+                valid_from,
+                valid_until,
+            } => Self::InvalidValidityWindow {
+                valid_from,
+                valid_until,
+            },
+            ManifestStructuralError::InvalidNow => Self::InvalidNow,
+            ManifestStructuralError::TenantMismatch => Self::TenantMismatch,
+            ManifestStructuralError::StalePolicyVersion {
+                claimed,
+                highest_seen,
+            } => Self::StalePolicyVersion {
+                claimed,
+                highest_seen,
+            },
+            ManifestStructuralError::NotYetValid {
+                now_unix_secs,
+                valid_from,
+            } => Self::NotYetValid {
+                now_unix_secs,
+                valid_from,
+            },
+            ManifestStructuralError::Expired {
+                now_unix_secs,
+                valid_until,
+            } => Self::Expired {
+                now_unix_secs,
+                valid_until,
+            },
+        }
+    }
+}
+
 /// Verify a signed manifest. Returns the validated [`RbacManifest`] on
 /// success; fail-closed with a structured [`ManifestVerifyError`] on any
 /// gate rejection.
@@ -121,52 +162,25 @@ pub fn verify_manifest(
     now: SystemTime,
     verify_signature: impl FnOnce(&[u8], &[u8; 64]) -> bool,
 ) -> Result<RbacManifest, ManifestVerifyError> {
-    // Gate 1: validity window sanity. Inverted window is a signer bug.
-    if signed.manifest.manifest_valid_from_unix_secs
-        > signed.manifest.manifest_valid_until_unix_secs
-    {
-        return Err(ManifestVerifyError::InvalidValidityWindow {
-            valid_from: signed.manifest.manifest_valid_from_unix_secs,
-            valid_until: signed.manifest.manifest_valid_until_unix_secs,
-        });
-    }
-
-    // Gate 2: clock sanity — `now` must be >= UNIX_EPOCH.
-    let now_unix_secs = match now.duration_since(SystemTime::UNIX_EPOCH) {
-        Ok(d) => d.as_secs() as i64,
-        Err(_) => return Err(ManifestVerifyError::InvalidNow),
-    };
-
-    // Gate 3: tenant match — CRITICAL make-it-impossible for cross-tenant
-    // manifest pivot. Compares by byte equality on the sealed TenantId.
-    if &signed.manifest.tenant_id != expected_tenant {
-        return Err(ManifestVerifyError::TenantMismatch);
-    }
-
-    // Gate 4: policy version monotonicity. Strictly greater; equal is
-    // treated as stale (replay of the current manifest).
-    if signed.manifest.policy_version <= highest_seen_policy_version {
-        return Err(ManifestVerifyError::StalePolicyVersion {
-            claimed: signed.manifest.policy_version,
-            highest_seen: highest_seen_policy_version,
-        });
-    }
-
-    // Gate 5: manifest validity window covers `now`.
-    if now_unix_secs < signed.manifest.manifest_valid_from_unix_secs {
-        return Err(ManifestVerifyError::NotYetValid {
-            now_unix_secs,
-            valid_from: signed.manifest.manifest_valid_from_unix_secs,
-        });
-    }
-    if now_unix_secs > signed.manifest.manifest_valid_until_unix_secs {
-        return Err(ManifestVerifyError::Expired {
-            now_unix_secs,
-            valid_until: signed.manifest.manifest_valid_until_unix_secs,
-        });
-    }
+    // Gates 1-5 (validity window, clock, tenant, version, expiry) are
+    // the SHARED envelope contract every signed edge manifest runs —
+    // delegated to `manifest_common::run_envelope_gates` per Batch #243
+    // refactor (zero duplication with `user_token_manifest::verify_
+    // user_token_manifest`). The helper returns `now_unix_secs` on
+    // success so the audit path doesn't recompute it.
+    let _now_unix_secs = run_envelope_gates(
+        expected_tenant,
+        &signed.manifest.tenant_id,
+        signed.manifest.manifest_valid_from_unix_secs,
+        signed.manifest.manifest_valid_until_unix_secs,
+        signed.manifest.policy_version,
+        highest_seen_policy_version,
+        now,
+    )?;
 
     // Gate 6: canonical-bytes serialization (surface structural errors).
+    // Manifest-specific — different domain tag per manifest type; stays
+    // in this module.
     let canonical = signed.manifest.canonical_bytes()?;
 
     // Gate 7: signature verify. Closure-injected to keep crypto dep out

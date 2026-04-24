@@ -61,6 +61,22 @@ pub mod policy;
 pub mod manifest;
 pub mod verify;
 
+// Batch #243 refactor — shared envelope-gate helper. Gates 1-5
+// (validity window / clock / tenant / version / expiry) are common to
+// every signed edge manifest; `manifest_common::run_envelope_gates` is
+// the single canonical implementation consumed by `verify` (RBAC) and
+// `user_token_manifest` (OPC UA credentials). Zero duplication across
+// manifest verifiers.
+pub mod manifest_common;
+
+// Batch #243 — UserTokenManifest wire format + verify_user_token_manifest.
+// Parallel to `manifest` + `verify` for the OPC UA UserName/Password +
+// X.509 credential side of operator authentication. Signed by
+// `user_token_manifest_signing_key` (ADR-021 slot 4); independent
+// monotonic version stream so credential rotation doesn't force RBAC
+// fleet re-signing.
+pub mod user_token_manifest;
+
 // Batch 67 — RbacManifestStore runtime loader (Sprint 6.1 full wire
 // partial). Holds the verified manifest in memory + exposes operator→
 // pubkey lookup for Batch 68+ envelope Gate 7 swap.
@@ -131,3 +147,10 @@ pub use manifest::{
 };
 
 pub use verify::{verify_manifest, ManifestVerifyError};
+
+pub use manifest_common::{run_envelope_gates, ManifestStructuralError};
+
+pub use user_token_manifest::{
+    verify_user_token_manifest, SignedUserTokenManifest, UserPassManifestBinding,
+    UserTokenManifest, UserTokenManifestVerifyError, X509ManifestBinding,
+};

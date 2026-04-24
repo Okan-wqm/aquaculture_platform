@@ -15,6 +15,16 @@
 // invisible outside the `commands` module tree.
 mod helpers;
 
+// Batch #238 ULTRA-HIGH-002 (A-1b): first `impl EnvelopeHandler`
+// migration. `PingHandler` demonstrates the full dispatcher chain
+// (verify → InMemoryPolicyEngine.authorize → handler.dispatch) end-
+// to-end. Existing inherent `CommandHandler::cmd_ping` method at
+// `diagnostic.rs:40` stays the production dispatch target until a
+// subsequent batch flips the MQTT subscriber match-arm and deletes
+// the legacy inherent method. `pub mod` so tests in this crate can
+// exercise `PingHandler` directly.
+pub mod ping_handler;
+
 // Batch 28+47 Sprint 6.1/6.4 foundation: command →
 // authz::Permission mapping table. `permission_for_command(
 // cmd, params) -> Option<Permission>` is the canonical SSoT

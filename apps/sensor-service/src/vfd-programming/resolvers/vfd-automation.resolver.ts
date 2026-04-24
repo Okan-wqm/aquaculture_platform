@@ -1,12 +1,7 @@
 import { UseGuards } from '@nestjs/common';
 import { Resolver, Query, Mutation, Args, ID, Int, InputType, Field } from '@nestjs/graphql';
-import {
-  Roles,
-  Role,
-  TenantGuard,
-  Tenant,
-  CurrentUser,
-} from '@aquaculture/backend-common';
+import { Roles, Role, Tenant, CurrentUser } from '@aquaculture/backend-common/decorators';
+import { TenantGuard } from '@aquaculture/backend-common/guards';
 import { GraphQLJSON } from 'graphql-scalars';
 import { IsNotEmpty, IsOptional, IsString, IsArray, IsBoolean, IsInt } from 'class-validator';
 

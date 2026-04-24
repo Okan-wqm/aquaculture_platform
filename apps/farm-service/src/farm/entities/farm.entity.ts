@@ -9,7 +9,7 @@ import {
   VersionColumn,
 } from 'typeorm';
 import { ObjectType, Field, ID, Float, Directive } from '@nestjs/graphql';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 // Note: Pond is referenced via string to avoid circular dependency
 // Type-only import for TypeScript type checking
 import type { Pond } from './pond.entity';

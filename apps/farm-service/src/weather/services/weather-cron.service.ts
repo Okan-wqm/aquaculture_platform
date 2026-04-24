@@ -8,7 +8,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { DataSource } from 'typeorm';
-import { listTenantSchemas, requestContextStorage } from '@aquaculture/backend-common';
+import { listTenantSchemas } from '@aquaculture/backend-common/database';
+import { requestContextStorage } from '@aquaculture/backend-common/logging';
 import { WeatherSettings } from '../entities/weather-settings.entity';
 import { WeatherSyncService } from './weather-sync.service';
 

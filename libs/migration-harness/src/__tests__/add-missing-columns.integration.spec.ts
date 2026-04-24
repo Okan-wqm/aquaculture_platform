@@ -1,14 +1,4 @@
-/**
- * Integration spec for the addMissingColumns Phase 3 primitive.
- * Uses the harness's PG testcontainer + ephemeral schema to exercise
- * real ALTER TABLE semantics: idempotency, @EncryptedAtRest refusal,
- * DEFAULT expression handling, identifier validation.
- */
-import {
-  EncryptedAtRest,
-  addMissingColumns,
-  sql,
-} from '@aquaculture/backend-common';
+import { EncryptedAtRest, addMissingColumns, sql } from '@aquaculture/backend-common/database';
 import { Column, Entity, PrimaryColumn } from 'typeorm';
 
 import {

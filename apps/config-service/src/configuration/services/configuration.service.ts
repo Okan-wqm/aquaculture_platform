@@ -7,7 +7,7 @@ import {
   ConfigEnvironment,
 } from '../entities/configuration.entity';
 import { EncryptionService } from './encryption.service';
-import { RedisService } from '@aquaculture/backend-common';
+import { RedisService } from '@aquaculture/backend-common/redis';
 
 interface CacheEntry {
   value: Configuration;

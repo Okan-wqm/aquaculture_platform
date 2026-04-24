@@ -1,4 +1,4 @@
-import { backfillColumn, sql } from '@aquaculture/backend-common';
+import { backfillColumn, sql } from '@aquaculture/backend-common/database';
 
 import {
   type HarnessContext,

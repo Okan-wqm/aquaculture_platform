@@ -28,7 +28,7 @@ import type { BatchClosedEvent } from '@platform/event-contracts';
 import { createBaseEvent } from '@platform/event-contracts';
 import { CloseBatchCommand, BatchCloseReason } from '../commands/close-batch.command';
 import { Batch, BatchStatus } from '../entities/batch.entity';
-import { Role, hasAnyRole } from '@aquaculture/backend-common';
+import { Role, hasAnyRole } from '@aquaculture/backend-common/decorators';
 import { BatchHarvestEligibilityService } from '../../fish-health/services/batch-harvest-eligibility.service';
 import { BatchWithdrawalBlockedError } from '../../common/errors/farm-errors';
 import { FarmDomainMetricsService } from '../../common/metrics/farm-domain-metrics.service';

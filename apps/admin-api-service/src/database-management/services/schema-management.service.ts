@@ -7,7 +7,7 @@
 import { Injectable, Logger, BadRequestException, NotFoundException, Optional, InternalServerErrorException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
-import { SchemaManagerService, DEFAULT_TENANT_MODULES, getTenantSchemaName } from '@aquaculture/backend-common';
+import { SchemaManagerService, DEFAULT_TENANT_MODULES, getTenantSchemaName } from '@aquaculture/backend-common/database';
 
 import { AuditLogService } from '../../audit/audit.service';
 import { AuditSeverity } from '../../audit/audit.entity';

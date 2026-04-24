@@ -7,9 +7,11 @@
  */
 import { Resolver, Query, Mutation, Args, ID, ObjectType, Field, Int, Float } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
-import { TenantGuard, CurrentTenant, CurrentUser, Roles, Role, StandardPaginatedResponse, IStandardPaginatedResult } from '@aquaculture/backend-common';
+import { CurrentTenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
+import { TenantGuard } from '@aquaculture/backend-common/guards';
+import { StandardPaginatedResponse, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import { WaterQualityMeasurement, WaterQualityStatus } from './entities/water-quality-measurement.entity';
-import { Throttle } from '@aquaculture/backend-common';
+import { Throttle } from '@aquaculture/backend-common/security';
 import { WaterQualityService } from './water-quality.service';
 import { CreateWaterQualityInput } from './dto/create-water-quality.input';
 import { CreateBatchWaterQualityInput } from './dto/create-batch-water-quality.input';

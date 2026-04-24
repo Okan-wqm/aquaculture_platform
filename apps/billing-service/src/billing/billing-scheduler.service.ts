@@ -4,7 +4,7 @@ import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, LessThanOrEqual, LessThan, In } from 'typeorm';
 import { NatsEventBus } from '@platform/event-bus';
 import { createBaseEvent, InvoiceGeneratedEvent } from '@platform/event-contracts';
-import { Money } from '@aquaculture/backend-common';
+import { Money } from '@aquaculture/backend-common/monetary';
 import { Subscription, SubscriptionStatus, BillingCycle } from './entities/subscription.entity';
 import { ScheduledPlanChange, ScheduledChangeStatus } from './entities/scheduled-plan-change.entity';
 import { Invoice, InvoiceStatus } from './entities/invoice.entity';
@@ -470,9 +470,9 @@ export class BillingSchedulerService {
    * Every hour, find PENDING scheduled plan changes whose effectiveDate
    * has passed and apply them to the subscription.
    *
-   * WHY: Downgrades are deferred to billing period end so tenants keep
-   * access to features they've already paid for. This cron job is the
-   * mechanism that actually applies the deferred change.
+   * WHY: Downgrades are intentionally scheduled to billing period end so
+   * tenants keep access to features they've already paid for. This cron
+   * job is the mechanism that actually applies the scheduled change.
    *
    * SECURITY: Uses pg_try_advisory_lock to prevent concurrent execution
    * across multiple billing-service instances.

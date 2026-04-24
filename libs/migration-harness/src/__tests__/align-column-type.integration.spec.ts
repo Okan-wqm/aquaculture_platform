@@ -1,8 +1,4 @@
-import {
-  EncryptedAtRest,
-  alignColumnType,
-  sql,
-} from '@aquaculture/backend-common';
+import { EncryptedAtRest, alignColumnType, sql } from '@aquaculture/backend-common/database';
 import { Column, Entity, PrimaryColumn } from 'typeorm';
 
 import {

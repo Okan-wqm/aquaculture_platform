@@ -20,7 +20,8 @@ import * as crypto from 'crypto';
 import supertest from 'supertest';
 import Redis from 'ioredis';
 import { AppModule } from '../src/app.module';
-import { getTenantSchemaName, requestContextStorage } from '@aquaculture/backend-common';
+import { getTenantSchemaName } from '@aquaculture/backend-common/database';
+import { requestContextStorage } from '@aquaculture/backend-common/logging';
 import { NatsEventBus } from '@platform/event-bus';
 import { REDIS_CLIENT } from '../src/shared/redis.provider';
 

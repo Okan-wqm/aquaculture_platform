@@ -10,7 +10,7 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { ObjectType, Field, ID, Int, registerEnumType, Float } from '@nestjs/graphql';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import { Employee } from './employee.entity';
 
 export enum PayrollStatus {

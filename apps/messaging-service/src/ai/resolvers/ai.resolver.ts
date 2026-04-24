@@ -21,14 +21,8 @@ import {
 } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
 import { QueryBus } from '@nestjs/cqrs';
-import {
-  TenantGuard,
-  Tenant,
-  CurrentUser,
-  CurrentUserPayload,
-  Roles,
-  Role,
-} from '@aquaculture/backend-common';
+import { Tenant, CurrentUser, CurrentUserPayload, Roles, Role } from '@aquaculture/backend-common/decorators';
+import { TenantGuard } from '@aquaculture/backend-common/guards';
 
 import { Message } from '../../message/entities/message.entity';
 

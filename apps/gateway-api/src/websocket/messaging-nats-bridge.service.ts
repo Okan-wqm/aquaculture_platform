@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { connect, NatsConnection, Subscription, StringCodec, ConnectionOptions } from 'nats';
-import { buildNatsConnectionOptions } from '@aquaculture/backend-common';
+import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
 
 import { MessagingGateway } from './messaging.gateway';
 

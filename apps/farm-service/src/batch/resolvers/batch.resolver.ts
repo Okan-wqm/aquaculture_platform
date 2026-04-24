@@ -21,7 +21,8 @@ import {
 import { UseGuards, Logger } from '@nestjs/common';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
-import { Tenant, CurrentUser, Roles, Role, fromCqrsPaginated } from '@aquaculture/backend-common';
+import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
+import { fromCqrsPaginated } from '@aquaculture/backend-common/pagination';
 import { Cacheable } from '../../common/cache/cacheable.decorator';
 import { Batch, BatchStatus, BatchInputType } from '../entities/batch.entity';
 

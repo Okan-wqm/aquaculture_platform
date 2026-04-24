@@ -19,7 +19,8 @@ import {
 } from '@nestjs/graphql';
 import { Logger, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
-import { Tenant, CurrentUser, Role, Roles, StandardPaginatedResponse, IStandardPaginatedResult } from '@aquaculture/backend-common';
+import { Tenant, CurrentUser, Role, Roles } from '@aquaculture/backend-common/decorators';
+import { StandardPaginatedResponse, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import {
   MaintenanceSchedule,
   MaintenanceScheduleStatus,

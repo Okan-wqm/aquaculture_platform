@@ -1,11 +1,4 @@
-/**
- * Integration test — introspectSchema against a real PG testcontainer.
- *
- * Lives in migration-harness (not backend-common) because the harness is
- * the canonical place for testcontainer-backed tests; backend-common's
- * own jest suite is pure-unit (mocked QueryRunners).
- */
-import { introspectSchema } from '@aquaculture/backend-common';
+import { introspectSchema } from '@aquaculture/backend-common/database';
 
 import {
   type HarnessContext,

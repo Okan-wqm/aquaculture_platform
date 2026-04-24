@@ -15,7 +15,9 @@ import {
 } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
-import { TenantGuard, CurrentTenant, CurrentUser, SkipTenantGuard, Roles, Role, fromCqrsPaginated } from '@aquaculture/backend-common';
+import { CurrentTenant, CurrentUser, SkipTenantGuard, Roles, Role } from '@aquaculture/backend-common/decorators';
+import { TenantGuard } from '@aquaculture/backend-common/guards';
+import { fromCqrsPaginated } from '@aquaculture/backend-common/pagination';
 import {
   SubEquipmentResponse,
   PaginatedSubEquipmentResponse,

@@ -19,8 +19,7 @@ import {
 } from 'class-validator';
 import { Request } from 'express';
 
-// Fix: MEDIUM-002 -- rate-limit sensitive PUT endpoints
-import { ThrottleSensitive } from '@aquaculture/backend-common';
+import { ThrottleSensitive } from '@aquaculture/backend-common/security';
 import { getAuthUserId } from '../shared/authenticated-request';
 import { SettingCategory } from './entities/system-setting.entity';
 import { SystemSettingService, UpdateSystemSettingDto } from './services/system-setting.service';

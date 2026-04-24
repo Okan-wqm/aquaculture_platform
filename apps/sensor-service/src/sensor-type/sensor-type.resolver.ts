@@ -7,7 +7,7 @@ import {
   ID,
 } from '@nestjs/graphql';
 import { GraphQLJSON } from 'graphql-scalars';
-import { Tenant, Roles, Role } from '@aquaculture/backend-common';
+import { Tenant, Roles, Role } from '@aquaculture/backend-common/decorators';
 
 import { ChannelDetectionLog } from '../database/entities/channel-detection-log.entity';
 import { SensorDataChannel } from '../database/entities/sensor-data-channel.entity';

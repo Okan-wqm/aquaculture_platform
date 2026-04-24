@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException, Logger, InternalServerErrorException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
-import { Money } from '@aquaculture/backend-common';
+import { Money } from '@aquaculture/backend-common/monetary';
 import { OutboxPublisher } from '@platform/outbox';
 import { ApprovePayrollCommand } from '../commands/approve-payroll.command';
 import { Payroll, PayrollStatus } from '../entities/payroll.entity';

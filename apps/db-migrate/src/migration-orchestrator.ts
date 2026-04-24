@@ -53,15 +53,7 @@ import type { EntityMetadata } from 'typeorm';
  */
 const SAFE_IDENT_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 
-// TENANT_AWARE_SCHEMAS + tenant-schema regex come from the SSoT module
-// in backend-common (MA6). Previously this orchestrator and
-// MigrationRunnerService each maintained a local copy of the same
-// 7-element Set — the SSoT export makes drift between the two
-// impossible.
-import {
-  TENANT_AWARE_SCHEMAS,
-  TENANT_SCHEMA_NAME_RE as TENANT_SCHEMA_RE,
-} from '@aquaculture/backend-common';
+import { TENANT_AWARE_SCHEMAS, TENANT_SCHEMA_NAME_RE as TENANT_SCHEMA_RE } from '@aquaculture/backend-common/database';
 
 /** Hash used for pg_try_advisory_lock keys (one 64-bit int per schema). */
 function advisoryLockKey(schema: string): string {

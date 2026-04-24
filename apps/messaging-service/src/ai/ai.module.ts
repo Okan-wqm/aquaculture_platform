@@ -16,7 +16,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CqrsModule } from '@nestjs/cqrs';
 import { ClientsModule, Transport } from '@nestjs/microservices';
-import { buildNatsTransportOptions } from '@aquaculture/backend-common';
+import { buildNatsTransportOptions } from '@aquaculture/backend-common/nats';
 
 // Feature module dependencies
 import { ChannelModule } from '../channel/channel.module';

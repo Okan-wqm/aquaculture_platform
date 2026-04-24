@@ -6,7 +6,8 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Role, getTenantSchemaName } from '@aquaculture/backend-common';
+import { getTenantSchemaName } from '@aquaculture/backend-common/database';
+import { Role } from '@aquaculture/backend-common/decorators';
 import * as crypto from 'crypto';
 import { Repository, DataSource } from 'typeorm';
 

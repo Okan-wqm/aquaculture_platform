@@ -23,7 +23,7 @@ import { JwtService } from '@nestjs/jwt';
 // enforced at library level. jsonwebtoken still imported for error
 // type-checking in the catch block.
 import * as jwt from 'jsonwebtoken';
-import { getJwtVerifyOptions } from '@aquaculture/backend-common';
+import { getJwtVerifyOptions } from '@aquaculture/backend-common/auth';
 import { ROLES_KEY } from '../decorators/roles.decorator';
 
 /**

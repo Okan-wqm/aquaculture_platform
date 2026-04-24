@@ -19,7 +19,7 @@
  */
 import type { Repository } from 'typeorm';
 
-import { encodeCursor } from '@aquaculture/backend-common';
+import { encodeCursor } from '@aquaculture/backend-common/pagination';
 
 import { ListStorageInventoryByCursorHandler } from '../handlers/list-storage-inventory-by-cursor.handler';
 import { ListStorageInventoryByCursorQuery } from '../queries/list-storage-inventory-by-cursor.query';

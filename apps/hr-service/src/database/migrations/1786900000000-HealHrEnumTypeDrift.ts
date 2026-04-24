@@ -1,9 +1,6 @@
 import { Logger } from '@nestjs/common';
 import { MigrationInterface, QueryRunner } from 'typeorm';
-import {
-  dropDependentPartialIndexes,
-  parseAlterColumnTypeTargets,
-} from '@aquaculture/backend-common';
+import { dropDependentPartialIndexes, parseAlterColumnTypeTargets } from '@aquaculture/backend-common/database';
 
 /**
  * HealHrEnumTypeDrift

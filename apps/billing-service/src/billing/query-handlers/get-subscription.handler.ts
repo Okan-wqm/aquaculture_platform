@@ -1,7 +1,7 @@
 import { Injectable, Optional } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
-import { RedisService } from '@aquaculture/backend-common';
+import { RedisService } from '@aquaculture/backend-common/redis';
 import { GetSubscriptionQuery } from '../queries/get-subscription.query';
 import { Subscription } from '../entities/subscription.entity';
 

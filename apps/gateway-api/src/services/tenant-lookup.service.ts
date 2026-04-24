@@ -7,7 +7,7 @@
 
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { signedFetch } from '@aquaculture/backend-common';
+import { signedFetch } from '@aquaculture/backend-common/http';
 import {
   TenantMetadata,
   TenantStatus,

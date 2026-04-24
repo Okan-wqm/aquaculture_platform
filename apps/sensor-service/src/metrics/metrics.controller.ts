@@ -1,6 +1,7 @@
 import { Controller, Get, Res, Header } from '@nestjs/common';
 import { Response } from 'express';
-import { Public, SkipTenantGuard, ServiceMetricsService } from '@aquaculture/backend-common';
+import { Public, SkipTenantGuard } from '@aquaculture/backend-common/decorators';
+import { ServiceMetricsService } from '@aquaculture/backend-common/metrics';
 
 /**
  * Sensor Service Metrics Controller

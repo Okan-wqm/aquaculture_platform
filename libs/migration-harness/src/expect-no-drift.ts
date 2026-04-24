@@ -42,10 +42,7 @@
  */
 import { randomBytes } from 'node:crypto';
 
-import {
-  getEncryptedAtRestMetadata,
-  isTenantDeltaAllowed,
-} from '@aquaculture/backend-common';
+import { getEncryptedAtRestMetadata, isTenantDeltaAllowed } from '@aquaculture/backend-common/database';
 import type { DataSourceOptions, EntityMetadata, QueryRunner } from 'typeorm';
 
 export interface DriftReport {

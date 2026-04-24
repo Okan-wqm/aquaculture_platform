@@ -1,5 +1,5 @@
 import { ObjectType, Field, Int, Float, ID } from '@nestjs/graphql';
-import { StandardPaginatedResponse } from '@aquaculture/backend-common';
+import { StandardPaginatedResponse } from '@aquaculture/backend-common/pagination';
 import { MovementType } from '../entities/stock-movement.entity';
 
 @ObjectType()

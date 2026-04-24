@@ -2,7 +2,7 @@ import { Logger, NotFoundException } from '@nestjs/common';
 import { Resolver, Mutation, Args, Query } from '@nestjs/graphql';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { CurrentUser, SkipTenantGuard } from '@aquaculture/backend-common';
+import { CurrentUser, SkipTenantGuard } from '@aquaculture/backend-common/decorators';
 
 import { User } from '../entities/user.entity';
 import {

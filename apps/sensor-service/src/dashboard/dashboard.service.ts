@@ -1,7 +1,7 @@
 import { Injectable, Logger, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull, DataSource } from 'typeorm';
-import { getTenantSchemaName } from '@aquaculture/backend-common';
+import { getTenantSchemaName } from '@aquaculture/backend-common/database';
 
 import { SaveDashboardLayoutInput, CreateSystemDefaultLayoutInput } from './dto/dashboard-layout.dto';
 import { DashboardLayout } from './entities/dashboard-layout.entity';

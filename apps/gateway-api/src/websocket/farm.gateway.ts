@@ -32,11 +32,8 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import * as promClient from 'prom-client';
-import {
-  buildWsCorsConfig,
-  enforceAccessTokenType,
-  getJwtVerifyOptions,
-} from '@aquaculture/backend-common';
+import { enforceAccessTokenType, getJwtVerifyOptions } from '@aquaculture/backend-common/auth';
+import { buildWsCorsConfig } from '@aquaculture/backend-common/websocket';
 
 /** Per-client state tracked by the gateway. */
 interface FarmClient {

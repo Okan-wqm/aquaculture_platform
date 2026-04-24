@@ -22,7 +22,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, LessThanOrEqual, MoreThanOrEqual, In, DataSource, QueryRunner } from 'typeorm';
-import { listTenantSchemas } from '@aquaculture/backend-common';
+import { listTenantSchemas } from '@aquaculture/backend-common/database';
 import { Cron, CronExpression, SchedulerRegistry } from '@nestjs/schedule';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
@@ -1631,7 +1631,7 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
     const tIdx = this.findBoundingIndex(temperatures, temperature);
     const wIdx = this.findBoundingIndex(weights, weightG);
 
-    // Simple nearest neighbor for now (could be enhanced with full bilinear)
+    // Nearest-neighbor interpolation; bilinear upgrade tracked separately as an accuracy refinement.
     const tI = Math.max(0, Math.min(tIdx, temperatures.length - 1));
     const wI = Math.max(0, Math.min(wIdx, weights.length - 1));
 

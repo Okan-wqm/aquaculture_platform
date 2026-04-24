@@ -16,12 +16,7 @@
 import { Args, ID, Int, Mutation, Query, Resolver } from '@nestjs/graphql';
 import { Logger, UseGuards } from '@nestjs/common';
 
-import {
-  CurrentTenant,
-  CurrentUser,
-  Role,
-  Roles,
-} from '@aquaculture/backend-common';
+import { CurrentTenant, CurrentUser, Role, Roles } from '@aquaculture/backend-common/decorators';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
 
 import { BiomassReport } from './entities/biomass-report.entity';

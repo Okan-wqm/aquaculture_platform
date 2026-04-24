@@ -6,7 +6,8 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
-import { ConsentType, ConsentRecord, ConsentStatus, Role } from '@aquaculture/backend-common';
+import { Role } from '@aquaculture/backend-common/decorators';
+import { ConsentType, ConsentRecord, ConsentStatus } from '@aquaculture/backend-common/security';
 import { UserConsent } from '@aquaculture/backend-common/gdpr';
 
 import { User } from '../../authentication/entities/user.entity';

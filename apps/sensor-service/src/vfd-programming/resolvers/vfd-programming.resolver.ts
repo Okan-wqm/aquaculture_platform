@@ -1,13 +1,7 @@
 import { UseGuards } from '@nestjs/common';
 import { Resolver, Query, Mutation, Args, ID, Int } from '@nestjs/graphql';
-import {
-  Roles,
-  Role,
-  TenantGuard,
-  Tenant,
-  CurrentUser,
-  CurrentUserPayload,
-} from '@aquaculture/backend-common';
+import { Roles, Role, Tenant, CurrentUser, CurrentUserPayload } from '@aquaculture/backend-common/decorators';
+import { TenantGuard } from '@aquaculture/backend-common/guards';
 import { GraphQLJSON } from 'graphql-scalars';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';

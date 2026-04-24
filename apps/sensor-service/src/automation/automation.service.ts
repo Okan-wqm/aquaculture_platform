@@ -12,7 +12,8 @@ import {
 import { Interval } from '@nestjs/schedule';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, EntityManager, In, LessThan } from 'typeorm';
-import { getTenantSchemaName, createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common';
+import { getTenantSchemaName } from '@aquaculture/backend-common/database';
+import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 
 import { EdgeDeviceService } from '../edge-device/edge-device.service';
 import { DeviceIoConfig } from '../edge-device/entities/device-io-config.entity';

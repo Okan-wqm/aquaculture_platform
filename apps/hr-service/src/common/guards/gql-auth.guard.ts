@@ -20,7 +20,7 @@ import { Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
 import { JwtService } from '@nestjs/jwt';
 import { Request } from 'express';
-import { getJwtVerifyOptions, enforceAccessTokenType } from '@aquaculture/backend-common';
+import { getJwtVerifyOptions, enforceAccessTokenType } from '@aquaculture/backend-common/auth';
 
 /**
  * Metadata key for public routes

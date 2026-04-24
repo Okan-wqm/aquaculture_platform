@@ -4,7 +4,7 @@
  * IP-3: CQRS handler test coverage -- batch closure with reason validation.
  */
 import { NotFoundException, BadRequestException } from '@nestjs/common';
-import { Role } from '@aquaculture/backend-common';
+import { Role } from '@aquaculture/backend-common/decorators';
 import { CloseBatchHandler } from '../../handlers/close-batch.handler';
 import { CloseBatchCommand, BatchCloseReason } from '../../commands/close-batch.command';
 import { Batch, BatchStatus } from '../../entities/batch.entity';

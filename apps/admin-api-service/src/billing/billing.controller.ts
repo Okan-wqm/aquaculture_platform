@@ -16,8 +16,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { getAuthUserId } from '../shared/authenticated-request';
 
-// Fix: H8 -- per-route throttle for sensitive billing operations
-import { ThrottleSensitive } from '@aquaculture/backend-common';
+import { ThrottleSensitive } from '@aquaculture/backend-common/security';
 import { InvoiceStatus } from '../analytics/entities/external/invoice.entity';
 import { PaginationQueryDto } from '../shared/pagination-query.dto';
 

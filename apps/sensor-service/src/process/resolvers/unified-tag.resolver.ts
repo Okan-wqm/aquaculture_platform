@@ -1,5 +1,5 @@
 import { Resolver, Query, Mutation, Args, ID, Int } from '@nestjs/graphql';
-import { Tenant, Roles, Role } from '@aquaculture/backend-common';
+import { Tenant, Roles, Role } from '@aquaculture/backend-common/decorators';
 
 import {
   CreateTagInput,

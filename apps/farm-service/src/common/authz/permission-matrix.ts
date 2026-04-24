@@ -1,44 +1,4 @@
-/**
- * Farm-Service Permission Matrix
- *
- * SINGLE SOURCE OF TRUTH for the authorisation intent of every
- * root-level @Mutation / @Query in farm-service. The matrix is
- * paired with an invariant test (`permission-matrix.spec.ts`) that
- * scans every resolver file, extracts the @Roles decorator call,
- * and asserts it matches the entry here. Any drift fails CI.
- *
- * Rationale: before phase 6.1 the 198 mutations + 193 queries had
- * their authorisation decorators scattered across 36 resolver
- * files. There was no single place to audit who could call what.
- * A surprise change to a single @Roles decorator — or forgetting
- * to add one entirely — escaped review. A scan at PR time showed
- * 227 operations with NO @Roles decorator at all (the bare
- * @Mutation falls through to TenantGuard's default, which is
- * tenant-scoped but not role-scoped — i.e. any authenticated user
- * in the tenant can call it). That is the real gap Girdi 15-C2
- * surfaced.
- *
- * This phase CAPTURES the current state as the baseline. Phase
- * 6.1.1 (follow-up) will add @Roles to the grandfathered
- * operations one module at a time. Any NEW mutation / query added
- * after this phase MUST appear in this matrix or the invariant
- * test rejects the PR.
- *
- * Three maps:
- *
- *   MUTATION_ROLES  — operation → Role[] (ordered alphabetically,
- *                     roles sorted alphabetically) for every
- *                     @Mutation that carries a @Roles decorator
- *   QUERY_ROLES     — same, for @Query
- *   UNGATED_OPERATIONS — grandfather whitelist of operations that
- *                        deliberately carry NO @Roles decorator.
- *                        Every entry is a known authorisation debt
- *                        scheduled for phase 6.1.1.
- *
- * Phase 6.1 of the "Farm modülü kalan kör noktalar" plan. Closes
- * Girdi 15-C2.
- */
-import { Role } from '@aquaculture/backend-common';
+import { Role } from '@aquaculture/backend-common/decorators';
 
 /**
  * All @Mutation operations that carry an explicit @Roles decorator.

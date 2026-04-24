@@ -1,5 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
-import { pinSearchPath, dropPartialTables } from '@aquaculture/backend-common';
+import { pinSearchPath, dropPartialTables } from '@aquaculture/backend-common/database';
 
 const HR_PARTIAL_STATE_TABLES = [
   'departments_hr',

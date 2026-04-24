@@ -53,9 +53,15 @@
 //! - Batch #245 next siblings: `UserTokenValidator` adapter (same
 //!   file below) + hot-reload integration tests.
 
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
+use std::time::SystemTime;
 
-use super::user_token_manifest::UserTokenManifest;
+use super::manifest_version_store::ManifestVersionStore;
+use super::permission::TenantId;
+use super::user_token_manifest::{
+    verify_user_token_manifest, SignedUserTokenManifest, UserTokenManifest,
+    UserTokenManifestVerifyError,
+};
 use crate::opc_ua_server_user_tokens::{
     EnrollmentBuildError, UserTokenEnrollment,
 };
@@ -67,6 +73,14 @@ use crate::opc_ua_server_user_tokens::{
 /// readers cannot observe mismatched pairs.
 pub struct UserTokenManifestStore {
     inner: RwLock<Option<CachedEntry>>,
+    /// Optional persistent monotonic-version floor (Batch #246
+    /// multi-stream `manifest_version` table under
+    /// `STREAM_ID_USER_TOKEN`). When present, `ingest_signed` reads
+    /// the floor pre-verify + writes the accepted version post-
+    /// verify. When absent (tests / ingest_verified direct path),
+    /// the store has no cross-reboot replay defense — callers using
+    /// the test ctor explicitly opt out.
+    version_store: Option<Arc<ManifestVersionStore>>,
 }
 
 struct CachedEntry {
@@ -86,12 +100,28 @@ impl Default for UserTokenManifestStore {
 }
 
 impl UserTokenManifestStore {
-    /// Construct an empty store. First-boot shape — `with_enrollment`
-    /// returns `None` until the first `ingest_verified` completes.
+    /// Construct an empty store WITHOUT version persistence. Used
+    /// by tests that exercise `ingest_verified` directly; production
+    /// boot path uses `new().with_version_store(...)` so reboot-
+    /// across replay is caught.
     pub fn new() -> Self {
         Self {
             inner: RwLock::new(None),
+            version_store: None,
         }
+    }
+
+    /// Builder-style persistence attachment. Pre-Batch-247 call sites
+    /// that only want in-memory hot-reload keep working (just never
+    /// call this). Production boot path attaches the version store
+    /// opened via `ManifestVersionStore::open_for_stream(path,
+    /// STREAM_ID_USER_TOKEN)`.
+    pub fn with_version_store(
+        mut self,
+        store: Arc<ManifestVersionStore>,
+    ) -> Self {
+        self.version_store = Some(store);
+        self
     }
 
     /// Swap the active manifest + rebuild the cached enrollment
@@ -167,7 +197,153 @@ impl UserTokenManifestStore {
     pub fn is_loaded(&self) -> bool {
         self.with_enrollment(|e| e.is_some())
     }
+
+    /// End-to-end ingress: verify the signed manifest + build the
+    /// enrollment + swap the cache + advance the persistent
+    /// version floor. Production callers (MQTT
+    /// `update_user_token_manifest` handler — Batch #248) invoke
+    /// this single method rather than composing the steps by hand.
+    ///
+    /// ## Flow (fail-closed at every step)
+    ///
+    /// 1. Read the current floor from `version_store` (or 0 if no
+    ///    persistence configured — test-only path).
+    /// 2. Run the Batch #243 `verify_user_token_manifest` 7-gate
+    ///    crypto + tenant + version + expiry gate using the floor
+    ///    as `highest_seen_policy_version`. Caller-injected
+    ///    `verify_signature` closure runs ed25519_dalek against the
+    ///    `user_token_manifest_signing_key`.
+    /// 3. Run the Batch #244 `UserTokenEnrollment::from_manifest`
+    ///    builder — typed validation + duplicate detection.
+    /// 4. Atomic swap: replace cached enrollment under the write
+    ///    lock. Before this point the old enrollment serves all
+    ///    authentication; after, the new one does.
+    /// 5. Advance the persistent floor via
+    ///    `version_store.record_accepted(policy_version)`.
+    ///
+    /// ## Ordering invariant (load-bearing)
+    ///
+    /// Step 4 MUST precede step 5. If a crash happens between 4 and
+    /// 5, the next boot re-reads the OLD floor + allows the same
+    /// manifest to be re-ingested — idempotent + safe. If the
+    /// ordering were reversed (floor advanced before cache swap),
+    /// a crash between 5 and 4 would leave the floor advanced but
+    /// the cache stale with the OLD manifest — the next manifest
+    /// push would need a version ABOVE the already-accepted one,
+    /// but the enrollment serving auth would still reflect the
+    /// pre-accepted manifest. That drift is the more dangerous
+    /// state (fail-open window); current ordering fails-closed.
+    pub fn ingest_signed(
+        &self,
+        signed: &SignedUserTokenManifest,
+        expected_tenant: &TenantId,
+        now: SystemTime,
+        verify_signature: impl FnOnce(&[u8], &[u8; 64]) -> bool,
+    ) -> Result<IngestOutcome, IngestError> {
+        // Step 1: read floor.
+        let floor = match self.version_store.as_ref() {
+            Some(vs) => vs
+                .get_highest_seen()
+                .map_err(IngestError::VersionStoreRead)?,
+            None => 0,
+        };
+
+        // Step 2: verify (7 gates including version monotonicity
+        // against the floor).
+        let verified = verify_user_token_manifest(
+            signed,
+            expected_tenant,
+            floor,
+            now,
+            verify_signature,
+        )
+        .map_err(IngestError::VerifyFailed)?;
+
+        let accepted_version = verified.policy_version;
+
+        // Step 3: build typed enrollment (may fail on signer-side
+        // bug — duplicate username / malformed PHC).
+        let enrollment = UserTokenEnrollment::from_manifest(&verified)
+            .map_err(IngestError::BuildFailed)?;
+
+        // Step 4: atomic swap.
+        let entry = CachedEntry {
+            manifest: verified,
+            enrollment,
+        };
+        match self.inner.write() {
+            Ok(mut guard) => *guard = Some(entry),
+            Err(poisoned) => *poisoned.into_inner() = Some(entry),
+        }
+
+        // Step 5: advance persistent floor AFTER the cache is live.
+        if let Some(vs) = self.version_store.as_ref() {
+            vs.record_accepted(accepted_version)
+                .map_err(IngestError::VersionStoreWrite)?;
+        }
+
+        Ok(IngestOutcome { accepted_version })
+    }
 }
+
+/// Outcome of a successful [`UserTokenManifestStore::ingest_signed`]
+/// call. Carries the accepted `policy_version` so the MQTT handler
+/// can emit an audit event with the new floor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct IngestOutcome {
+    pub accepted_version: u64,
+}
+
+/// Top-level ingress error taxonomy. One variant per step of the
+/// ingest_signed pipeline so the MQTT handler can route failures
+/// to distinct audit events.
+#[derive(Debug, Clone)]
+pub enum IngestError {
+    /// Failed to read the persistent floor from SQLCipher. Should
+    /// not happen under normal operation — indicates DB corruption
+    /// or permission loss. Caller MUST fail closed (keep serving
+    /// the old enrollment) rather than default-to-0.
+    VersionStoreRead(String),
+
+    /// 7-gate verify rejected the signed manifest.
+    VerifyFailed(UserTokenManifestVerifyError),
+
+    /// Post-verify, the typed-newtype builder rejected the manifest
+    /// body (signer-side bug: duplicate normalized username,
+    /// malformed PHC hash, invalid X.509 DER). The OLD cache is
+    /// retained — the rejected manifest never becomes the live
+    /// enrollment.
+    BuildFailed(EnrollmentBuildError),
+
+    /// The cache swap succeeded but the persistent floor write
+    /// failed. The in-memory enrollment is now the new manifest but
+    /// the floor was NOT advanced — on reboot the same (already-
+    /// accepted) manifest will pass monotonicity again. Annoying
+    /// but SAFE: idempotent replay of an already-accepted manifest
+    /// is not an attack. Emit a warning but do NOT roll back the
+    /// cache (the cache swap is irreversible — the new manifest
+    /// is already the truth). Caller MUST audit-log this variant;
+    /// it indicates SQLCipher write failure + operator should
+    /// investigate DB health.
+    VersionStoreWrite(String),
+}
+
+impl std::fmt::Display for IngestError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::VersionStoreRead(msg) => {
+                write!(f, "version_store_read: {}", msg)
+            }
+            Self::VerifyFailed(e) => write!(f, "verify_failed: {}", e),
+            Self::BuildFailed(e) => write!(f, "build_failed: {}", e),
+            Self::VersionStoreWrite(msg) => {
+                write!(f, "version_store_write: {}", msg)
+            }
+        }
+    }
+}
+
+impl std::error::Error for IngestError {}
 
 #[cfg(test)]
 mod tests {
@@ -323,5 +499,250 @@ mod tests {
         // be shared across the async runtime.
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<UserTokenManifestStore>();
+    }
+
+    // ========================================================
+    // Batch #247 — ingest_signed end-to-end wire
+    // ========================================================
+
+    use super::super::manifest_version_store::{
+        ManifestVersionStore, STREAM_ID_USER_TOKEN,
+    };
+    use super::super::policy::Ed25519SignatureBytes;
+    use super::super::user_token_manifest::SignedUserTokenManifest;
+    use std::time::Duration;
+
+    fn sign_with_dummy(m: UserTokenManifest) -> SignedUserTokenManifest {
+        SignedUserTokenManifest {
+            manifest: m,
+            signature: Ed25519SignatureBytes::from_slice(&[0u8; 64]).unwrap(),
+        }
+    }
+
+    fn now_inside() -> SystemTime {
+        SystemTime::UNIX_EPOCH + Duration::from_secs(1_750_000_000)
+    }
+
+    fn tmp_version_db() -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "suderra-usertoken-ingest-test-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).expect("mkdir tmp");
+        dir.join(format!(
+            "v-{}-{}.sqlite",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+            rand::random::<u32>(),
+        ))
+    }
+
+    fn try_version_store(path: &std::path::Path) -> Option<Arc<ManifestVersionStore>> {
+        match ManifestVersionStore::open_for_stream(path, STREAM_ID_USER_TOKEN) {
+            Ok(s) => Some(Arc::new(s)),
+            Err(e) => {
+                eprintln!("Skipping test: version_store open failed: {}", e);
+                None
+            }
+        }
+    }
+
+    #[test]
+    fn ingest_signed_without_persistence_accepts_valid_manifest() {
+        let s = UserTokenManifestStore::new(); // no version store
+        let signed = sign_with_dummy(manifest_v1());
+        let out = s
+            .ingest_signed(
+                &signed,
+                &tenant(),
+                now_inside(),
+                |_, _| true,
+            )
+            .unwrap();
+        assert_eq!(out.accepted_version, 1);
+        assert!(s.is_loaded());
+    }
+
+    #[test]
+    fn ingest_signed_rejects_on_signature_failure() {
+        let s = UserTokenManifestStore::new();
+        let signed = sign_with_dummy(manifest_v1());
+        let err = s
+            .ingest_signed(
+                &signed,
+                &tenant(),
+                now_inside(),
+                |_, _| false, // verifier rejects
+            )
+            .unwrap_err();
+        match err {
+            IngestError::VerifyFailed(UserTokenManifestVerifyError::InvalidSignature) => {}
+            other => panic!("wrong variant: {:?}", other),
+        }
+        assert!(!s.is_loaded());
+    }
+
+    #[test]
+    fn ingest_signed_rejects_on_tenant_mismatch() {
+        let s = UserTokenManifestStore::new();
+        let signed = sign_with_dummy(manifest_v1());
+        let other_tenant = TenantId::new_from_verified([0xBB; 16]);
+        let err = s
+            .ingest_signed(&signed, &other_tenant, now_inside(), |_, _| true)
+            .unwrap_err();
+        match err {
+            IngestError::VerifyFailed(UserTokenManifestVerifyError::TenantMismatch) => {}
+            other => panic!("wrong variant: {:?}", other),
+        }
+        assert!(!s.is_loaded());
+    }
+
+    #[test]
+    fn ingest_signed_with_persistence_advances_floor() {
+        let path = tmp_version_db();
+        let Some(vs) = try_version_store(&path) else { return };
+        let s =
+            UserTokenManifestStore::new().with_version_store(vs.clone());
+
+        let signed_v1 = sign_with_dummy(manifest_v1());
+        let out = s
+            .ingest_signed(
+                &signed_v1,
+                &tenant(),
+                now_inside(),
+                |_, _| true,
+            )
+            .unwrap();
+        assert_eq!(out.accepted_version, 1);
+        assert_eq!(vs.get_highest_seen().unwrap(), 1);
+
+        // Replay the same manifest — stale version rejected.
+        let err = s
+            .ingest_signed(
+                &signed_v1,
+                &tenant(),
+                now_inside(),
+                |_, _| true,
+            )
+            .unwrap_err();
+        match err {
+            IngestError::VerifyFailed(
+                UserTokenManifestVerifyError::StalePolicyVersion {
+                    claimed,
+                    highest_seen,
+                },
+            ) => {
+                assert_eq!(claimed, 1);
+                assert_eq!(highest_seen, 1);
+            }
+            other => panic!("wrong variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn ingest_signed_rejects_rollback_across_reboot_simulation() {
+        let path = tmp_version_db();
+        let Some(vs) = try_version_store(&path) else { return };
+        let s =
+            UserTokenManifestStore::new().with_version_store(vs.clone());
+
+        // Ingest v2 first.
+        let signed_v2 = sign_with_dummy(manifest_v2_bob_added());
+        s.ingest_signed(&signed_v2, &tenant(), now_inside(), |_, _| true)
+            .unwrap();
+        assert_eq!(vs.get_highest_seen().unwrap(), 2);
+
+        // Simulate reboot: NEW store + REOPENED version store on the
+        // same path. Attacker replays the captured v1 manifest.
+        drop(s);
+        let Some(vs2) = try_version_store(&path) else { return };
+        let s2 =
+            UserTokenManifestStore::new().with_version_store(vs2.clone());
+
+        let signed_v1 = sign_with_dummy(manifest_v1());
+        let err = s2
+            .ingest_signed(
+                &signed_v1,
+                &tenant(),
+                now_inside(),
+                |_, _| true,
+            )
+            .unwrap_err();
+        match err {
+            IngestError::VerifyFailed(
+                UserTokenManifestVerifyError::StalePolicyVersion {
+                    claimed: 1,
+                    highest_seen: 2,
+                },
+            ) => {}
+            other => panic!("wrong variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn ingest_signed_with_persistence_accepts_monotonic_bump() {
+        let path = tmp_version_db();
+        let Some(vs) = try_version_store(&path) else { return };
+        let s =
+            UserTokenManifestStore::new().with_version_store(vs.clone());
+
+        let signed_v1 = sign_with_dummy(manifest_v1());
+        s.ingest_signed(&signed_v1, &tenant(), now_inside(), |_, _| true)
+            .unwrap();
+
+        // v2 > v1 → accepted, floor advances.
+        let signed_v2 = sign_with_dummy(manifest_v2_bob_added());
+        let out = s
+            .ingest_signed(
+                &signed_v2,
+                &tenant(),
+                now_inside(),
+                |_, _| true,
+            )
+            .unwrap();
+        assert_eq!(out.accepted_version, 2);
+        assert_eq!(vs.get_highest_seen().unwrap(), 2);
+
+        // Cached enrollment reflects v2 (bob now enrolled).
+        s.with_enrollment(|e| {
+            let e = e.unwrap();
+            assert_eq!(e.user_pass_count(), 2);
+        });
+    }
+
+    #[test]
+    fn ingest_signed_preserves_old_cache_on_build_failure() {
+        // Ingest v1 (valid) → cache holds v1.
+        let s = UserTokenManifestStore::new();
+        let signed_v1 = sign_with_dummy(manifest_v1());
+        s.ingest_signed(&signed_v1, &tenant(), now_inside(), |_, _| true)
+            .unwrap();
+        assert!(s.is_loaded());
+
+        // Ingest v2 with a malformed PHC hash — verify succeeds,
+        // build fails, old cache retained.
+        let mut broken = manifest_v2_bob_added();
+        broken.user_pass_bindings[1].argon2id_phc =
+            "not-a-phc".to_string();
+        let signed_broken = sign_with_dummy(broken);
+        let err = s
+            .ingest_signed(
+                &signed_broken,
+                &tenant(),
+                now_inside(),
+                |_, _| true,
+            )
+            .unwrap_err();
+        match err {
+            IngestError::BuildFailed(EnrollmentBuildError::HashInvalid { .. }) => {}
+            other => panic!("wrong variant: {:?}", other),
+        }
+
+        // Old v1 cache still serves.
+        s.with_enrollment(|e| {
+            assert_eq!(e.unwrap().user_pass_count(), 1);
+        });
     }
 }

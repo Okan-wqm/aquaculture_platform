@@ -169,6 +169,41 @@ export interface CullRecordedEvent extends BaseEvent {
 }
 
 /**
+ * Feed Inventory Received Event
+ *
+ * Emitted when a feed lot lands in a site's inventory — either a
+ * brand-new `feed_inventory` row is created or an existing row for
+ * the same `(feedId, siteId, lotNumber)` has additional quantity
+ * folded in.
+ *
+ * This is the primary lot-traceability anchor. Food-safety audits
+ * (FDA 21 CFR 507 / EU 183/2005 Art 5) require the ability to
+ * reconstruct "which lot arrived at which site on which date from
+ * which supplier" — without an always-fire receive event, the
+ * trail lives only in the DB row and becomes invisible to every
+ * downstream consumer (regulatory reporting, supplier-performance
+ * analytics, AI inventory projections).
+ */
+export interface FeedInventoryReceivedEvent extends BaseEvent {
+  eventType: 'FeedInventoryReceived';
+  inventoryId: string;
+  feedId: string;
+  siteId: string;
+  departmentId?: string;
+  lotNumber?: string;
+  quantityKg: number;
+  /** Running total AFTER this receipt (for lot-roll-up projections). */
+  newTotalQuantityKg: number;
+  manufacturingDate?: Date;
+  expiryDate?: Date;
+  receivedDate: Date;
+  unitPricePerKg?: number;
+  currency?: string;
+  /** True when a new row was created; false when an existing row absorbed the receipt. */
+  isNewLotRow: boolean;
+}
+
+/**
  * Cleaner Fish Batch Created Event
  *
  * Lifecycle-start partner to `CleanerFishDeployed` / `…Mortality` /
@@ -658,6 +693,7 @@ export type FarmEvent =
   | CleanerFishMortalityRecordedEvent
   | CleanerFishTransferredEvent
   | CleanerFishBatchCreatedEvent
+  | FeedInventoryReceivedEvent
   | BatchTransferredEvent
   | BatchAllocatedToTankEvent
   | GrowthSampleRecordedEvent

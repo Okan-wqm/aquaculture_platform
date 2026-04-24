@@ -116,6 +116,7 @@ export default {
         '<rootDir>/doc-cardinality.spec.ts',
         '<rootDir>/skills-catalog.spec.ts',
         '<rootDir>/boundary-allowlist-invariants.spec.ts',
+        '<rootDir>/farm-service-tenant-isolation.spec.ts',
       ],
     },
     {

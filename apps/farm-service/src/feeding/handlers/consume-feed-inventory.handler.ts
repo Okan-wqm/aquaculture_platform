@@ -1,23 +1,36 @@
 /**
  * ConsumeFeedInventoryHandler
  *
- * ConsumeFeedInventoryCommand'ı işler ve stoktan tüketim yapar.
+ * Records a withdrawal from a feed lot — feeding event, spillage,
+ * write-off, etc. Pessimistic-write lock on the inventory row
+ * prevents TOCTOU double-spend on the `quantityKg` decrement.
  *
- * SECURITY FIX: Added DataSource injection and wrapped all operations in a
- * transaction with pessimistic_write lock to prevent TOCTOU race conditions
- * (double-spend of feed inventory). Math.max(0, ...) added to prevent
- * negative inventory quantities.
+ * # Two events, one transaction
+ *
+ * Every consumption ALWAYS enqueues a `FeedInventoryConsumed` event
+ * — this is the food-safety-traceability anchor that lets auditors
+ * follow every gram out of the lot. When the post-op stock lands
+ * in the LOW_STOCK band, a second `FeedInventoryLow` event is
+ * enqueued alongside it as a derived alert signal.
+ *
+ * Both events enqueue INSIDE the same transaction as the row
+ * decrement via `OutboxPublisher.enqueue(event, queryRunner.manager)`.
+ * A prior iteration used a direct NATS publish for the Low event
+ * OUTSIDE the tx — that variant loses events if NATS is briefly
+ * unavailable. The outbox is the at-least-once guarantee.
  *
  * @module Feeding/Handlers
  */
-import { randomUUID } from 'crypto';
-
-import { Injectable, NotFoundException, BadRequestException, Logger, Optional, Inject } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-import { NatsEventBus } from '@platform/event-bus';
-import { FeedInventoryLowEvent , createBaseEvent } from '@platform/event-contracts';
+import { OutboxPublisher } from '@platform/outbox';
+import {
+  createBaseEvent,
+  type FeedInventoryConsumedEvent,
+  type FeedInventoryLowEvent,
+} from '@platform/event-contracts';
 import { ConsumeFeedInventoryCommand, ConsumptionReason } from '../commands/consume-feed-inventory.command';
 import { FeedInventory, InventoryStatus } from '../entities/feed-inventory.entity';
 
@@ -31,22 +44,18 @@ export class ConsumeFeedInventoryHandler implements ICommandHandler<ConsumeFeedI
     private readonly inventoryRepository: Repository<FeedInventory>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
-    @Optional() @Inject('EVENT_BUS')
-    private readonly eventBus?: NatsEventBus,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   async execute(command: ConsumeFeedInventoryCommand): Promise<FeedInventory> {
     const { tenantId, payload, userId } = command;
 
-    // All reads and writes inside a single transaction with pessimistic lock
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
-    let saved: FeedInventory;
-
     try {
-      // Inventory'yi bul with pessimistic lock (prevents concurrent consumption)
+      // Pessimistic lock on inventory to prevent concurrent double-spend.
       const inventory = await queryRunner.manager.findOne(FeedInventory, {
         where: { id: payload.inventoryId, tenantId },
         lock: { mode: 'pessimistic_write' },
@@ -56,7 +65,6 @@ export class ConsumeFeedInventoryHandler implements ICommandHandler<ConsumeFeedI
         throw new NotFoundException(`Inventory ${payload.inventoryId} bulunamadı`);
       }
 
-      // Stok kontrolü
       if (inventory.status === InventoryStatus.OUT_OF_STOCK) {
         throw new BadRequestException('Stok tükendi');
       }
@@ -72,52 +80,64 @@ export class ConsumeFeedInventoryHandler implements ICommandHandler<ConsumeFeedI
         );
       }
 
-      // Stoğu azalt (Math.max to prevent negative inventory)
+      // Stoğu azalt (Math.max to prevent negative inventory under any
+      // transient arithmetic drift — the explicit check above already
+      // rejects over-spend, this is belt-and-braces).
       inventory.quantityKg = Math.max(0, currentQuantity - payload.quantityKg);
       inventory.updatedBy = userId;
 
-      // Toplam değeri güncelle
       if (inventory.unitPricePerKg) {
         inventory.totalValue = Number(inventory.unitPricePerKg) * inventory.quantityKg;
       }
 
-      // Durumu güncelle
       inventory.updateStatus();
 
-      // Kaydet
-      saved = await queryRunner.manager.save(FeedInventory, inventory);
+      const saved = await queryRunner.manager.save(FeedInventory, inventory);
 
-      // Commit transaction
-      await queryRunner.commitTransaction();
-    } catch (error) {
-      // Rollback transaction on any error
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      // Release query runner
-      await queryRunner.release();
-    }
+      // Always-fire traceability event.
+      const consumedEvent: FeedInventoryConsumedEvent = {
+        ...createBaseEvent<FeedInventoryConsumedEvent>('FeedInventoryConsumed', tenantId, {
+          aggregateId: saved.id,
+          aggregateType: 'FeedInventory',
+        }),
+        inventoryId: saved.id,
+        feedId: saved.feedId,
+        siteId: saved.siteId,
+        reason: payload.reason,
+        quantityKg: payload.quantityKg,
+        newQuantityKg: Number(saved.quantityKg),
+        newStatus: saved.status,
+        consumedAt: new Date(),
+      };
+      await this.outboxPublisher.enqueue(consumedEvent, queryRunner.manager);
 
-    // Publish domain event: FeedInventoryLow (low stock alert) -- after commit, outside transaction
-    if (saved.status === InventoryStatus.LOW_STOCK && this.eventBus) {
-      try {
-        const event: FeedInventoryLowEvent = {
-          ...createBaseEvent<FeedInventoryLowEvent>('FeedInventoryLow', tenantId),
+      // Derivative alert when the post-op stock drops to the
+      // LOW_STOCK band. Same tx so the alert never lands without
+      // its underlying consumption (which would leave a dashboard
+      // firing an alert nobody can trace to a cause).
+      if (saved.status === InventoryStatus.LOW_STOCK) {
+        const lowEvent: FeedInventoryLowEvent = {
+          ...createBaseEvent<FeedInventoryLowEvent>('FeedInventoryLow', tenantId, {
+            aggregateId: saved.id,
+            aggregateType: 'FeedInventory',
+          }),
           inventoryId: saved.id,
           feedId: saved.feedId,
           siteId: saved.siteId,
-          currentQuantityKg: saved.quantityKg,
-          reorderPointKg: saved.minStockKg,
+          currentQuantityKg: Number(saved.quantityKg),
+          reorderPointKg: Number(saved.minStockKg ?? 0),
           status: 'low_stock',
-          version: 1,
         };
-        await this.eventBus.publish(event);
-        this.logger.debug(`Published FeedInventoryLowEvent for inventory ${saved.id}`);
-      } catch (eventError) {
-        this.logger.warn(`Failed to publish FeedInventoryLowEvent: ${(eventError as Error).message}`);
+        await this.outboxPublisher.enqueue(lowEvent, queryRunner.manager);
       }
-    }
 
-    return saved;
+      await queryRunner.commitTransaction();
+      return saved;
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
   }
 }

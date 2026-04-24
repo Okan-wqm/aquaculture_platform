@@ -657,6 +657,37 @@ export interface EquipmentDeletedEvent extends BaseEvent {
 // ==================== Feed Inventory Events ====================
 
 /**
+ * Feed Inventory Consumed Event
+ *
+ * Always-fire partner to `FeedInventoryReceived`. Every withdrawal
+ * from a feed lot — whether used for feeding, spilled, or written
+ * off as expired — emits this event. Food-safety traceability
+ * demands a complete input/output ledger per lot; without an
+ * always-fire consumption event, `FeedInventoryLow` (the alert-
+ * derivative) was the only signal and it only fired on the edge
+ * where running stock dropped into the LOW_STOCK band. Every other
+ * withdrawal was invisible.
+ */
+export interface FeedInventoryConsumedEvent extends BaseEvent {
+  eventType: 'FeedInventoryConsumed';
+  inventoryId: string;
+  feedId: string;
+  siteId: string;
+  /**
+   * Reason code — mirrors the command-layer `ConsumptionReason` enum
+   * (FEEDING / WASTE / SPILLAGE / EXPIRED / OTHER). Lower-snake on
+   * the wire so downstream consumers don't need to know server-side
+   * enum representation.
+   */
+  reason: string;
+  quantityKg: number;
+  /** Running stock AFTER this consumption (for lot-depletion projections). */
+  newQuantityKg: number;
+  newStatus: string;
+  consumedAt: Date;
+}
+
+/**
  * Feed Inventory Low Event
  *
  * Location hierarchy: Farm > Site > Department > System > Equipment.
@@ -694,6 +725,7 @@ export type FarmEvent =
   | CleanerFishTransferredEvent
   | CleanerFishBatchCreatedEvent
   | FeedInventoryReceivedEvent
+  | FeedInventoryConsumedEvent
   | BatchTransferredEvent
   | BatchAllocatedToTankEvent
   | GrowthSampleRecordedEvent

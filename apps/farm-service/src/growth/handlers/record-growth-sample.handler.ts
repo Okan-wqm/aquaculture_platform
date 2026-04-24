@@ -1,19 +1,43 @@
 /**
  * RecordGrowthSampleHandler
  *
- * RecordGrowthSampleCommand'ı işler ve yeni büyüme ölçümü oluşturur.
+ * Records a new growth measurement for a batch, updates the batch's
+ * running weight snapshot, and publishes a `GrowthSampleRecorded`
+ * domain event via the transactional outbox so downstream consumers
+ * (analytics, AI insights, SGR-degradation alerting) can react.
+ *
+ * # Transactional outbox
+ *
+ * The three writes (measurement insert, batch weight update, and
+ * isProcessed flip on the measurement) commit atomically with the
+ * outbox row via a single DataSource transaction. A crash mid-flight
+ * rolls back everything — the outbox never sees an event whose
+ * corresponding domain write was lost, and the domain never commits
+ * a measurement whose event failed to enqueue.
+ *
+ * # Why we didn't take a pessimistic lock on the batch
+ *
+ * Unlike culls / mortality (which race on `currentQuantity` decrement
+ * and need serialising), two concurrent growth samples on the same
+ * batch write distinct `growth_measurements` rows and then each
+ * overwrite `batch.weight.actual` with their own snapshot. Last-
+ * writer-wins on the batch weight is the intended semantics — a
+ * newer sample should overwrite an older one. No lock needed.
  *
  * @module Growth/Handlers
  */
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
-// TODO: EventBus integration - import { EventBus } from '@platform/event-bus';
+import { OutboxPublisher } from '@platform/outbox';
+import {
+  createBaseEvent,
+  type GrowthSampleRecordedEvent,
+} from '@platform/event-contracts';
 import { RecordGrowthSampleCommand } from '../commands/record-growth-sample.command';
 import { GrowthMeasurement, MeasurementType, MeasurementMethod, StatisticalSummary } from '../entities/growth-measurement.entity';
 import { Batch } from '../../batch/entities/batch.entity';
-import { FeedingRecord } from '../../feeding/entities/feeding-record.entity';
 import { FCRCalculationService } from '../services/fcr-calculation.service';
 import { BackdatePolicyService } from '../../common/services/backdate-policy.service';
 
@@ -21,14 +45,14 @@ import { BackdatePolicyService } from '../../common/services/backdate-policy.ser
 @CommandHandler(RecordGrowthSampleCommand)
 export class RecordGrowthSampleHandler implements ICommandHandler<RecordGrowthSampleCommand, GrowthMeasurement> {
   constructor(
+    private readonly dataSource: DataSource,
     @InjectRepository(GrowthMeasurement)
     private readonly measurementRepository: Repository<GrowthMeasurement>,
     @InjectRepository(Batch)
     private readonly batchRepository: Repository<Batch>,
-    @InjectRepository(FeedingRecord)
-    private readonly feedingRepository: Repository<FeedingRecord>,
     private readonly fcrService: FCRCalculationService,
     private readonly backdatePolicy: BackdatePolicyService,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   async execute(command: RecordGrowthSampleCommand): Promise<GrowthMeasurement> {
@@ -50,7 +74,8 @@ export class RecordGrowthSampleHandler implements ICommandHandler<RecordGrowthSa
       subjectLabel: `batch ${payload.batchId}`,
     });
 
-    // Batch'i doğrula
+    // Batch'i doğrula — read outside the tx is fine; the batch row
+    // is validated again (implicitly) when we save it inside the tx.
     const batch = await this.batchRepository.findOne({
       where: { id: payload.batchId, tenantId },
       relations: ['species'],
@@ -64,18 +89,17 @@ export class RecordGrowthSampleHandler implements ICommandHandler<RecordGrowthSa
       throw new BadRequestException('Aktif olmayan batch için ölçüm yapılamaz');
     }
 
-    // Minimum örnek sayısı kontrolü
     if (payload.individualMeasurements.length < 3) {
       throw new BadRequestException('Minimum 3 adet bireysel ölçüm gerekli');
     }
 
-    // Önceki ölçümü bul
+    // Önceki ölçümü bul — used only for growth-comparison / FCR, so
+    // a non-tx read is adequate.
     const previousMeasurement = await this.measurementRepository.findOne({
       where: { tenantId, batchId: payload.batchId },
       order: { measurementDate: 'DESC' },
     });
 
-    // Ölçüm kaydı oluştur
     const measurement = this.measurementRepository.create({
       tenantId,
       batchId: payload.batchId,
@@ -88,14 +112,14 @@ export class RecordGrowthSampleHandler implements ICommandHandler<RecordGrowthSa
 
       sampleSize: payload.individualMeasurements.length,
       populationSize: payload.populationSize || batch.currentQuantity,
-      samplePercent: 0, // calculateDerivedFields'da hesaplanacak
+      samplePercent: 0,
 
       individualMeasurements: payload.individualMeasurements,
-      statistics: {} as StatisticalSummary, // calculateStatistics'te doldurulacak
+      statistics: {} as StatisticalSummary,
 
-      averageWeight: 0, // calculateStatistics'te hesaplanacak
-      weightCV: 0, // calculateStatistics'te hesaplanacak
-      estimatedBiomass: 0, // calculateDerivedFields'da hesaplanacak
+      averageWeight: 0,
+      weightCV: 0,
+      estimatedBiomass: 0,
 
       previousBiomass: previousMeasurement?.estimatedBiomass,
 
@@ -105,10 +129,8 @@ export class RecordGrowthSampleHandler implements ICommandHandler<RecordGrowthSa
       updateBatchWeight: payload.updateBatchWeight ?? true,
     });
 
-    // İstatistikleri hesapla
     measurement.calculateStatistics();
 
-    // Büyüme karşılaştırması
     if (previousMeasurement) {
       const daysSincePrevious = this.calculateDaysBetween(
         previousMeasurement.measurementDate,
@@ -119,14 +141,12 @@ export class RecordGrowthSampleHandler implements ICommandHandler<RecordGrowthSa
         ? (measurement.averageWeight - previousMeasurement.averageWeight) / daysSincePrevious
         : 0;
 
-      // SGR hesapla
       const sgr = this.calculateSGR(
         previousMeasurement.averageWeight,
         measurement.averageWeight,
         daysSincePrevious,
       );
 
-      // Theoretical weight hesapla
       const theoreticalWeight = this.calculateTheoreticalWeight(
         previousMeasurement.averageWeight,
         daysSincePrevious,
@@ -148,10 +168,8 @@ export class RecordGrowthSampleHandler implements ICommandHandler<RecordGrowthSa
       };
     }
 
-    // Performans değerlendirmesi
     measurement.evaluatePerformance();
 
-    // FCR analizi
     if (previousMeasurement) {
       const fcrResult = await this.fcrService.calculatePeriodFCR({
         tenantId,
@@ -166,18 +184,54 @@ export class RecordGrowthSampleHandler implements ICommandHandler<RecordGrowthSa
       }
     }
 
-    // Önerilen aksiyonları oluştur
     measurement.generateSuggestedActions();
 
-    // Kaydet
-    const saved = await this.measurementRepository.save(measurement);
+    // Atomic block: save measurement → (optional) update batch weight
+    // → flip isProcessed → enqueue event → commit. Rolls back together.
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    try {
+      const saved = await queryRunner.manager.save(GrowthMeasurement, measurement);
 
-    // Batch ağırlığını güncelle
-    if (saved.updateBatchWeight) {
-      await this.updateBatchWeight(batch, saved);
+      if (saved.updateBatchWeight) {
+        if (batch.weight && batch.weight.actual) {
+          batch.weight.actual.avgWeight = saved.averageWeight;
+          batch.weight.actual.totalBiomass = saved.estimatedBiomass;
+          batch.weight.actual.lastMeasuredAt = saved.measurementDate;
+        }
+        await queryRunner.manager.save(Batch, batch);
+
+        saved.isProcessed = true;
+        await queryRunner.manager.save(GrowthMeasurement, saved);
+      }
+
+      const event: GrowthSampleRecordedEvent = {
+        ...createBaseEvent<GrowthSampleRecordedEvent>('GrowthSampleRecorded', tenantId, {
+          aggregateId: saved.id,
+          aggregateType: 'GrowthMeasurement',
+        }),
+        batchId: saved.batchId,
+        measurementId: saved.id,
+        sampleSize: saved.sampleSize,
+        averageWeightG: saved.averageWeight,
+        weightCV: saved.weightCV,
+        measurementDate:
+          saved.measurementDate instanceof Date
+            ? saved.measurementDate
+            : new Date(saved.measurementDate),
+        performance: saved.performance,
+      };
+      await this.outboxPublisher.enqueue(event, queryRunner.manager);
+
+      await queryRunner.commitTransaction();
+      return saved;
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
     }
-
-    return saved;
   }
 
   private calculateDaysBetween(start: Date, end: Date): number {
@@ -198,20 +252,5 @@ export class RecordGrowthSampleHandler implements ICommandHandler<RecordGrowthSa
     dailyGrowthRate: number,
   ): number {
     return startWeight + (days * dailyGrowthRate);
-  }
-
-  private async updateBatchWeight(batch: Batch, measurement: GrowthMeasurement): Promise<void> {
-    // Batch'in actual weight tracking'ini güncelle
-    if (batch.weight && batch.weight.actual) {
-      batch.weight.actual.avgWeight = measurement.averageWeight;
-      batch.weight.actual.totalBiomass = measurement.estimatedBiomass;
-      batch.weight.actual.lastMeasuredAt = measurement.measurementDate;
-    }
-
-    await this.batchRepository.save(batch);
-
-    // Measurement'ı işlenmiş olarak işaretle
-    measurement.isProcessed = true;
-    await this.measurementRepository.save(measurement);
   }
 }

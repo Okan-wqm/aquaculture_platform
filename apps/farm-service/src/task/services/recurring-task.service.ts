@@ -21,6 +21,7 @@ import { NatsEventBus } from '@platform/event-bus';
 import { createBaseEvent } from '@platform/event-contracts';
 import { RecurringTemplate, RecurrenceFrequency } from '../entities/recurring-template.entity';
 import { Task, TaskStatus } from '../entities/task.entity';
+import { TaskService } from './task.service';
 
 /**
  * Default timezone when a template was created before phase 5.5 or
@@ -215,7 +216,9 @@ export class RecurringTaskService {
               dueDate,
               location: template.location,
               estimatedMinutes: template.estimatedMinutes,
-              checklistItems: template.checklistItems ? [...template.checklistItems] : [],
+              checklistItems: TaskService.propagateChecklistItemsFromTemplate(
+                template.checklistItems,
+              ),
               notes: [],
               tags: template.tags,
               isRecurring: true,

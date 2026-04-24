@@ -278,7 +278,14 @@ export interface ConfirmModalProps {
   onClose: () => void;
   onConfirm: () => void;
   title: string;
-  message: string;
+  /**
+   * Modal gövde metni. `string` geçmeye devam edebilirsin; `ReactNode`
+   * kabul etmesi (formatlı içerik — vurgu, liste, sayı-rengi, vs.)
+   * çağrı tarafında `<p>`/`<strong>` gibi şeyleri sarmalamak zorunda
+   * kalmadan "12 satır silinecek" gibi zengin mesajları iletmeni sağlar.
+   * Backward-compatible — string hâlâ geçerli bir ReactNode.
+   */
+  message: React.ReactNode;
   confirmText?: string;
   cancelText?: string;
   /** Onay butonu varyantı */
@@ -286,6 +293,16 @@ export interface ConfirmModalProps {
   /** Onay butonu varyantı (alias for variant) */
   confirmVariant?: 'danger' | 'warning' | 'info';
   isLoading?: boolean;
+  /**
+   * Yüksek-riskli aksiyonlar için yazı-ile-onay kapısı. Buraya
+   * `"ONAYLIYORUM"` gibi bir metin verirsen, kullanıcı onay butonuna
+   * bastığında önce bu metni aynen yazmak zorunda kalır — fat-finger
+   * tıklamaları tek yanlışla yıkıcı işlem tetikleyemez (örn. prod'da
+   * toplu iş-emri üretim tetiklemesi, tenant erasure, vs.).
+   *
+   * Undefined bırakırsan eski davranış korunur — tek-tık onay.
+   */
+  requireTypedConfirmation?: string;
 }
 
 /**
@@ -314,9 +331,23 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   variant: variantProp = 'info',
   confirmVariant,
   isLoading = false,
+  requireTypedConfirmation,
 }) => {
   // isOpen ve open birleştir
   const isOpen = isOpenProp ?? open ?? false;
+
+  // Yazı-ile-onay kapısı — kullanıcı istenen metni aynen yazana kadar
+  // onay butonu disabled kalır. Modal her açıldığında sıfırlanır (yanlış
+  // yazıp iptal eden bir kullanıcı ikinci açışta "hazır onaylı" bulmasın).
+  const [typedConfirmation, setTypedConfirmation] = React.useState('');
+  React.useEffect(() => {
+    if (isOpen) {
+      setTypedConfirmation('');
+    }
+  }, [isOpen]);
+  const typedGatePassed =
+    !requireTypedConfirmation ||
+    typedConfirmation.trim() === requireTypedConfirmation.trim();
 
   // BUG-011: confirmVariant is now properly typed — use it directly with fallback to variant prop
   const variant: 'danger' | 'warning' | 'info' = confirmVariant ?? variantProp;
@@ -365,7 +396,37 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
 
         {/* Başlık ve mesaj */}
         <h3 className="mt-4 text-lg font-semibold text-gray-900">{title}</h3>
-        <p className="mt-2 text-sm text-gray-500">{message}</p>
+        {/*
+          `message` ReactNode kabul ediyor — string ile tipografi
+          `<p>` sarmalaması; ReactNode ile olduğu gibi render.
+        */}
+        {typeof message === 'string' ? (
+          <p className="mt-2 text-sm text-gray-500">{message}</p>
+        ) : (
+          <div className="mt-2 text-sm text-gray-500">{message}</div>
+        )}
+
+        {/* Yazı-ile-onay gate — yalnızca requireTypedConfirmation verilmişse */}
+        {requireTypedConfirmation && (
+          <div className="mt-4 text-left">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Devam etmek için aşağıya{' '}
+              <code className="font-mono font-semibold">
+                {requireTypedConfirmation}
+              </code>{' '}
+              yazın
+            </label>
+            <input
+              type="text"
+              value={typedConfirmation}
+              onChange={(e) => setTypedConfirmation(e.target.value)}
+              disabled={isLoading}
+              autoComplete="off"
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-0 focus:ring-blue-500 disabled:opacity-50"
+              aria-label="Typed confirmation"
+            />
+          </div>
+        )}
 
         {/* Butonlar */}
         <div className="mt-6 flex justify-center space-x-3">
@@ -380,7 +441,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
           <button
             type="button"
             onClick={onConfirm}
-            disabled={isLoading}
+            disabled={isLoading || !typedGatePassed}
             className={`px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 ${buttonColors[variant]}`}
           >
             {isLoading ? 'İşleniyor...' : confirmText}

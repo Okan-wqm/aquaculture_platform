@@ -134,3 +134,24 @@ export {
 } from './hooks/useGraphQL';
 export { useToast, ToastContainer } from './hooks/useToast';
 export type { ToastOptions } from './hooks/useToast';
+
+// ============================================================================
+// Error-message helpers (Scope C PR-0a)
+// ============================================================================
+
+export {
+  parseGraphQLError,
+  formatErrorForToast,
+  useErrorMessage,
+  type ParsedGraphQLError,
+} from './hooks/useErrorMessage';
+
+// ============================================================================
+// Frontend authorization (Scope C PR-0a) — mirror of backend matrix
+// ============================================================================
+
+export {
+  FRONTEND_MUTATION_ROLES,
+  useCanMutate,
+  type FrontendMutationName,
+} from './authz';

@@ -521,6 +521,12 @@ pub enum Permission {
     ManagePolicy,
     /// Refresh edge-license (ADR-018 §2 license tier).
     ManageLicense,
+    /// Push a new OPC UA user-token manifest — operator UserName/Password
+    /// + X.509 credential enrollment hot-reload (Batch #243 wire format,
+    /// Batch #247 ingest pipeline, Batch #248 MQTT handler). Parallel to
+    /// `ManagePolicy` but gates a distinct key + distinct monotonic
+    /// version stream per Plan B R-4 3-key segregation.
+    ManageUserTokenManifest,
 
     // -------------------------------------------------------------------------
     // Debug + live operations
@@ -650,6 +656,13 @@ mod tests {
             }
             .requires_two_person_integrity()
         );
+        // Manifest pushes (RBAC + user-token) are NOT two-person —
+        // they are cloud-signed by the quorum-gated HSM ceremony, so
+        // the edge-side single signature is the ed25519 manifest
+        // signature, not an operator single-person action.
+        assert!(!Permission::ManagePolicy.requires_two_person_integrity());
+        assert!(!Permission::ManageUserTokenManifest
+            .requires_two_person_integrity());
     }
 
     // WHY: is_mutating drives signature-enforcement routing; same regression
@@ -821,6 +834,7 @@ mod tests {
         assert!(Permission::FailoverControl.is_mutating());
         assert!(Permission::ManagePolicy.is_mutating());
         assert!(Permission::ManageLicense.is_mutating());
+        assert!(Permission::ManageUserTokenManifest.is_mutating());
 
         // Debug + live:
         // DebugStep changes scan-cycle timing → treated as mutating for signature

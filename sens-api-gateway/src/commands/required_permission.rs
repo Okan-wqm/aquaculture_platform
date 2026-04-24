@@ -247,6 +247,21 @@ pub(crate) fn permission_for_command(cmd: &str, params: &Value) -> Option<Permis
         "refresh_license" => Some(Permission::ManagePolicy),
 
         // -----------------------------------------------------------------
+        // OPC UA user-token manifest hot-reload (Batch #248 Faz 5 A-3c).
+        // -----------------------------------------------------------------
+        // WHY ManageUserTokenManifest (distinct from ManagePolicy):
+        // the user-token manifest is signed by a DIFFERENT HSM key
+        // (user_token_manifest_signing_key — Plan B R-4 3-key
+        // segregation) and tracks a DIFFERENT monotonic version
+        // stream. Gating both manifests under a single
+        // ManagePolicy would collapse the blast-radius separation:
+        // an operator with RBAC-management scope could then also
+        // enroll arbitrary OPC UA credentials (or vice versa),
+        // defeating the whole reason two separate signing keys
+        // exist. Batch #243 intro docs + ADR-021 slot 4.
+        "update_user_token_manifest" => Some(Permission::ManageUserTokenManifest),
+
+        // -----------------------------------------------------------------
         // Unknown command — fail-closed. Safer than implicit None
         // (anonymous) because an unknown command COULD be a future
         // safety-critical operation that the gate must reject.
@@ -349,6 +364,36 @@ mod tests {
         // rotation gate as update_policy — ManagePolicy.
         assert!(matches!(
             permission_for_command("rotate_master", &json!({})),
+            Some(Permission::ManagePolicy)
+        ));
+    }
+
+    #[test]
+    fn update_user_token_manifest_requires_distinct_permission() {
+        // Batch #248 Faz 5 A-3c hot-reload: user-token manifest
+        // is a DIFFERENT trust anchor (different HSM signing key,
+        // different monotonic version stream). Must require
+        // ManageUserTokenManifest, NOT ManagePolicy — collapsing
+        // the two would defeat the R-4 3-key segregation.
+        assert!(matches!(
+            permission_for_command(
+                "update_user_token_manifest",
+                &json!({})
+            ),
+            Some(Permission::ManageUserTokenManifest)
+        ));
+    }
+
+    #[test]
+    fn update_user_token_manifest_is_not_manage_policy() {
+        // Regression gate: if someone reroutes this permission to
+        // ManagePolicy "for convenience", that collapses the key
+        // segregation. Guard with an explicit negative assertion.
+        assert!(!matches!(
+            permission_for_command(
+                "update_user_token_manifest",
+                &json!({})
+            ),
             Some(Permission::ManagePolicy)
         ));
     }

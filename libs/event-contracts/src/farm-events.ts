@@ -657,6 +657,35 @@ export interface EquipmentDeletedEvent extends BaseEvent {
 // ==================== Feed Inventory Events ====================
 
 /**
+ * Feeding Record Updated Event
+ *
+ * Emitted when an existing feeding record's actual / waste / cost /
+ * behaviour / environment fields are corrected post-hoc. Critical
+ * because FCR (Feed Conversion Ratio) and batch running feed-cost
+ * totals project off these values — an untracked correction would
+ * leave downstream aggregates out of sync with the source of truth.
+ *
+ * The `amountDiffKg` and `costDiff` fields let consumers patch
+ * their rolling aggregates without fetching the pre/post rows and
+ * recomputing the delta locally.
+ */
+export interface FeedingRecordUpdatedEvent extends BaseEvent {
+  eventType: 'FeedingRecordUpdated';
+  feedingRecordId: string;
+  batchId: string;
+  /** Previous `actualAmount` (kg) BEFORE the edit. */
+  previousActualAmountKg: number;
+  /** New `actualAmount` (kg) AFTER the edit. */
+  newActualAmountKg: number;
+  /** New minus previous. Positive = over-reported last time, negative = under-reported. */
+  amountDiffKg: number;
+  previousFeedCost: number;
+  newFeedCost: number;
+  costDiff: number;
+  updatedAt: Date;
+}
+
+/**
  * Feed Inventory Adjusted Event
  *
  * Emitted on every manual correction of a feed lot's running
@@ -764,6 +793,7 @@ export type FarmEvent =
   | FeedInventoryReceivedEvent
   | FeedInventoryConsumedEvent
   | FeedInventoryAdjustedEvent
+  | FeedingRecordUpdatedEvent
   | BatchTransferredEvent
   | BatchAllocatedToTankEvent
   | GrowthSampleRecordedEvent

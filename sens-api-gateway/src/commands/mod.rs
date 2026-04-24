@@ -151,6 +151,15 @@ mod ide_deploy;
 // the full verify + floor + atomic swap chain.
 mod rbac;
 
+// Batch #249b Faz 5 A-3c: OPC UA user-token manifest hot-reload
+// command handler (cmd_update_user_token_manifest). Parallel to
+// `rbac` but for the credential-enrollment side; delegates to
+// UserTokenManifestStore::hot_reload_from_bytes (Batch #249a) for
+// the full verify + floor + atomic swap chain against the
+// user_token_manifest_signing_pubkey_hex + STREAM_ID_USER_TOKEN
+// persistent floor. Closes Gap A-3 live-enrollment data path.
+mod user_token;
+
 // Batch 79 Sprint 6.2 Phase 2: audit emission helpers —
 // action_for_command mapping + build_entry constructor +
 // emit_pre/post_event wrappers around AuditSink. Thin glue
@@ -906,6 +915,10 @@ impl CommandHandler {
             "lora_downlink" => self.cmd_lora_downlink(&command.params).await,
             // RBAC manifest hot-reload (Batch 72 Sprint 6.1)
             "update_policy" => self.cmd_update_policy(&command.params).await,
+            // OPC UA user-token manifest hot-reload (Batch #249b Faz 5 A-3c)
+            "update_user_token_manifest" => {
+                self.cmd_update_user_token_manifest(&command.params).await
+            }
             // Master-key rotation orchestrator (Batch 100 Sprint 6.3)
             "rotate_master" => self.cmd_rotate_master(&command.params).await,
             // Firmware A/B slot confirmation (Batch 109 Sprint 6.5)

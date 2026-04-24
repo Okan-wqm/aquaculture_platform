@@ -301,6 +301,13 @@ pub struct AgentConfig {
     #[serde(default)]
     pub rbac_manifest: RbacManifestConfig,
 
+    /// User-token manifest knobs (Batch #249b Faz 5 A-3c).
+    /// Serde-default so pre-Batch-249b config.yaml files continue
+    /// to parse; when absent, user-token manifest stays disabled
+    /// (fail-closed — no credentials can be enrolled).
+    #[serde(default)]
+    pub user_token_manifest: UserTokenManifestConfig,
+
     /// Firmware update verification configuration (Batch 114
     /// Sprint 6.5 / ADR-019 §3). Controls whether incoming
     /// firmware payloads are verified as SignedFirmwareManifest
@@ -1596,6 +1603,46 @@ impl Default for RbacManifestConfig {
             version_store_path: None,
         }
     }
+}
+
+/// User-token manifest loader knobs (Batch #249b Faz 5 A-3c wire).
+///
+/// Parallel to [`RbacManifestConfig`] but gates the OPC UA
+/// UserName/Password + X.509 credential side. Distinct signing key
+/// (ADR-021 slot 4) + distinct monotonic version stream
+/// (ManifestVersionStore::STREAM_ID_USER_TOKEN per Batch #246) so
+/// credential rotation is independent of RBAC role rotation.
+///
+/// **No `mode` field.** The user-token manifest does not need the
+/// RBAC manifest's staged-rollout modes (Disabled / Permissive /
+/// Enforcing). Authentication is either enrolled (manifest
+/// ingested, signing pubkey configured) or NOT enrolled
+/// (UserTokenValidator fails closed with NoManifestLoaded). There
+/// is no "permissive" middle state — an unauthenticated session
+/// cannot upgrade by skipping the check.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct UserTokenManifestConfig {
+    /// Hex-encoded 32-byte ed25519 pubkey for user-token manifest
+    /// signature verify (ADR-021 slot 4 / Plan B R-4 3-key
+    /// segregation). When `None`, `cmd_update_user_token_manifest`
+    /// rejects with `SigningPubkeyNotConfigured` — operator must
+    /// populate via config.yaml before the cloud can push
+    /// enrollments. No default: the edge agent does not embed a
+    /// fallback pubkey.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub manifest_signing_pubkey_hex: Option<String>,
+
+    /// Persistent `highest_seen_policy_version` store path override
+    /// for the user-token stream. None →
+    /// `/var/lib/suderra/user_token_version.sqlite`.
+    ///
+    /// **Separate file from `rbac_version.sqlite`** — intentional
+    /// blast-radius isolation. A `DROP TABLE` or corruption in one
+    /// stream's database cannot cascade into the other's rollback
+    /// defense. SQLCipher-encrypted via the shared
+    /// `offline_queue::derive_db_encryption_key()` helper.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub version_store_path: Option<std::path::PathBuf>,
 }
 
 // ============================================================================

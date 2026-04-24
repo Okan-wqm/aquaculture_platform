@@ -657,6 +657,29 @@ export interface EquipmentDeletedEvent extends BaseEvent {
 // ==================== Feed Inventory Events ====================
 
 /**
+ * Batch Metadata Updated Event
+ *
+ * Emitted when batch descriptive / target fields (name, description,
+ * strain, targetFCR, expectedHarvestDate, notes) are edited. Separate
+ * from `BatchStatusChangedEvent` because status transitions have
+ * their own event with its own semantics (active → harvesting → etc.).
+ *
+ * Carries `changedFields[]` so downstream consumers can narrow
+ * re-projection scope. A notes-only edit doesn't warrant a dashboard
+ * re-render; a `targetFCR` edit does trigger FCR-drift recalculation.
+ */
+export interface BatchMetadataUpdatedEvent extends BaseEvent {
+  eventType: 'BatchMetadataUpdated';
+  batchId: string;
+  /** List of changed top-level field names — audit-grade. */
+  changedFields: string[];
+  /** Carried for convenience on the hottest consumer path (FCR projections). */
+  newTargetFCR?: number;
+  newExpectedHarvestDate?: Date;
+  updatedAt: Date;
+}
+
+/**
  * Harvest Record Cancelled Event
  *
  * Emitted when a harvest record is soft-deleted (status flipped to
@@ -851,6 +874,7 @@ export type FarmEvent =
   | FeedingRecordUpdatedEvent
   | HarvestRecordUpdatedEvent
   | HarvestRecordCancelledEvent
+  | BatchMetadataUpdatedEvent
   | BatchTransferredEvent
   | BatchAllocatedToTankEvent
   | GrowthSampleRecordedEvent

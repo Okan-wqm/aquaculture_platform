@@ -282,7 +282,6 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   chemicalsByType: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   childSystems: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   cleanerFishBatches: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
-  cleanerFishReport: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   cleanerFishSpecies: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   consumable: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   consumables: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
@@ -550,8 +549,9 @@ export const UNGATED_OPERATIONS: ReadonlySet<string> = Object.freeze(new Set([
   // weatherSettings (MANAGER+ADMIN — sync config);
   // purchaseOrder / purchaseOrders / pendingDeliveries /
   // inventoryCount / inventoryCounts (MODULE_USER+MANAGER+ADMIN);
-  // cleanerFishBatches / cleanerFishReport (MODULE_USER+MANAGER+
-  // ADMIN); farmAnomalies / farmDashboardInsights
+  // cleanerFishBatches (MODULE_USER+MANAGER+ADMIN — note:
+  // cleanerFishReport was removed as a dead zero-returning stub);
+  // farmAnomalies / farmDashboardInsights
   // (MODULE_USER+MANAGER+ADMIN).
   // Empty after phase 6.1.1 complete. Every @Mutation and @Query
   // surface in farm-service now appears in MUTATION_ROLES or

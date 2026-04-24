@@ -77,6 +77,13 @@ pub mod manifest_common;
 // fleet re-signing.
 pub mod user_token_manifest;
 
+// Batch #245 — UserTokenManifestStore hot-reload atom. Holds the
+// verified user-token manifest + a cached UserTokenEnrollment; the
+// store swap is atomic so validator readers never see mismatched
+// pairs. Paired with `opc_ua_server_user_token_validator` (at crate
+// root) which consumes this store.
+pub mod user_token_manifest_runtime;
+
 // Batch 67 — RbacManifestStore runtime loader (Sprint 6.1 full wire
 // partial). Holds the verified manifest in memory + exposes operator→
 // pubkey lookup for Batch 68+ envelope Gate 7 swap.
@@ -154,3 +161,5 @@ pub use user_token_manifest::{
     verify_user_token_manifest, SignedUserTokenManifest, UserPassManifestBinding,
     UserTokenManifest, UserTokenManifestVerifyError, X509ManifestBinding,
 };
+
+pub use user_token_manifest_runtime::UserTokenManifestStore;

@@ -169,6 +169,40 @@ export interface CullRecordedEvent extends BaseEvent {
 }
 
 /**
+ * Cleaner Fish Transferred Event
+ *
+ * Emitted when cleaner fish move from one tank to another within the
+ * same cleaner-fish batch. Completes the cleaner-fish lifecycle event
+ * quartet (deploy → transfer → mortality → remove).
+ *
+ * Distinct from `BatchTransferredEvent` (salmon-side) because the
+ * cleaner-fish-in-tank state is tracked on `TankBatch.cleanerFishDetails`
+ * JSONB and on `Batch.cleanerFishDetails` rather than on the main
+ * batch-location table. Downstream consumers projecting a cleaner-
+ * fish per-tank timeline need both `source` and `destination`
+ * post-operation snapshots to patch state atomically.
+ */
+export interface CleanerFishTransferredEvent extends BaseEvent {
+  eventType: 'CleanerFishTransferred';
+  cleanerBatchId: string;
+  sourceTankId: string;
+  destinationTankId: string;
+  speciesName: string;
+  quantity: number;
+  avgWeightG: number;
+  biomassKg: number;
+  reason?: string;
+  transferredAt: Date;
+  /** Source tank-batch cleaner-fish stock AFTER the transfer. */
+  newSourceTankCleanerFishQuantity: number;
+  newSourceTankCleanerFishBiomassKg: number;
+  /** Destination tank-batch cleaner-fish stock AFTER the transfer. */
+  newDestinationTankCleanerFishQuantity: number;
+  newDestinationTankCleanerFishBiomassKg: number;
+  newDestinationTankDensityKgM3: number;
+}
+
+/**
  * Cleaner Fish Mortality Recorded Event
  *
  * Emitted when cleaner fish (lumpfish / wrasse) die in a tank. The
@@ -591,6 +625,7 @@ export type FarmEvent =
   | CleanerFishDeployedEvent
   | CleanerFishRemovedEvent
   | CleanerFishMortalityRecordedEvent
+  | CleanerFishTransferredEvent
   | BatchTransferredEvent
   | BatchAllocatedToTankEvent
   | GrowthSampleRecordedEvent

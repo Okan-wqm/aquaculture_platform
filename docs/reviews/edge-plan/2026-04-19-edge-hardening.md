@@ -203,3 +203,110 @@ Plan §5 Faz 8.
 **Next action:** Faz 0'ın kalan 3 ADR'ını aç (ADR-019 Firmware, ADR-020 Hardware, ADR-021 Key Ceremony, ADR-022 Schema), sonra Faz 1 wiring'e geç.
 
 **Audit validation:** Her commit'in `Closes:` footer'ı bu board'daki finding ID'sini refere eder. Missing `Closes:` → PROCESS MEDIUM finding yazar'a. Security CRITICAL fix'lerde missing `Closes:` → PROCESS HIGH.
+
+---
+
+## Bulgular — ULTRA (2026-04-24 Ultra-Plan Gap Closure)
+
+Ultra-plan `docs/plans/2026-04-24-sens-api-gateway-gap-closure-ultra-plan.md` ekseninde açılan 45 finding. Registry IDs `{PREFIX}-{SEVERITY}-{NNN}` commit-msg-validator (`tools/gates/commit-msg-validator.ts`) şemasıyla uyumlu; ultra-plan Gap-ID'leri (A-1a, B-4, G-5a) `notes` alanında korunur.
+
+**Commit footer şablonu:**
+```
+Closes: docs/reviews/edge-plan/2026-04-19-edge-hardening.md#ULTRA-HIGH-NNN
+```
+
+### ULTRA — Dependency Inversion (A-eksen + E-4 seal)
+
+| Registry ID | Ultra-Gap | Başlık | Severity | State | Batch | Hafta | Deadline |
+|---|---|---|---|---|---|---|---|
+| ULTRA-HIGH-001 | A-1a | CommandHandler + HandlerInput sealed-ctor primitive | HIGH | OPEN | #236 | W2 | 2026-05-08 |
+| ULTRA-HIGH-002 | A-1b | Wire all existing command handlers through dispatcher | HIGH | OPEN | #237 | W2 | 2026-05-08 |
+| ULTRA-HIGH-003 | A-2a | AuthenticatedUser newtype + SessionActor primitive | HIGH | OPEN | #241 | W3 | 2026-05-15 |
+| ULTRA-HIGH-004 | A-2b | Custom SensNodeManager impl capturing RequestContext | HIGH | OPEN | #242 | W3 | 2026-05-15 |
+| ULTRA-HIGH-005 | A-2c | Wire SensNodeManager + delete legacy SimpleNodeManager | HIGH | OPEN | #243 | W3 | 2026-05-15 |
+| ULTRA-HIGH-006 | A-3a | UserTokenEnrollment from manifest | HIGH | OPEN | #244 | W4 | 2026-05-22 |
+| ULTRA-HIGH-007 | A-3b | Wire validator + manifest hot-reload rebuild | HIGH | OPEN | #245 | W4 | 2026-05-22 |
+| ULTRA-MEDIUM-001 | E-4 | AuditActorLabel invariant seal | MEDIUM | OPEN | #246 | W4 | 2026-05-22 |
+
+### ULTRA — Faz 5 OPC UA Surface (B-eksen)
+
+| Registry ID | Ultra-Gap | Başlık | Severity | State | Batch | Hafta | Deadline |
+|---|---|---|---|---|---|---|---|
+| ULTRA-HIGH-008 | B-1 | OPC UA TLS cert lifecycle (PkiStore + rotation + pinning) | HIGH | OPEN | #266-268 | W6 | 2026-06-05 |
+| ULTRA-HIGH-009 | B-2 | Brute-force throttle FailedAuthWindow + AuthHandler | HIGH | OPEN | #269-270 | W7 | 2026-06-12 |
+| ULTRA-MEDIUM-002 | B-3 | Per-tenant + per-user session quota | MEDIUM | OPEN | #271-272 | W7 | 2026-06-12 |
+| ULTRA-HIGH-010 | B-4 | Push-subscription via ProcessImage::subscribe_changes | HIGH | OPEN | #273-275 | W7-8 | 2026-06-19 |
+| ULTRA-HIGH-011 | B-5 | Config reload lifecycle | HIGH | OPEN | #276-277 | W8 | 2026-06-19 |
+| ULTRA-MEDIUM-003 | B-6 | Real HMI interop E2E (Ignition + UaExpert) | MEDIUM | OPEN | #278-280 | W9 | 2026-06-26 |
+| ULTRA-MEDIUM-004 | B-7 | Feature isolation CI gate (no-feature strings) | MEDIUM | OPEN | #281 | W9 | 2026-06-26 |
+
+### ULTRA — Foundation + Faz 1 Wiring (C-eksen; C-1 + C-6 = VERIFIED per ORPHAN-MEDIUM-017)
+
+| Registry ID | Ultra-Gap | Başlık | Severity | State | Batch | Hafta | Deadline |
+|---|---|---|---|---|---|---|---|
+| ULTRA-HIGH-012 | C-2 | Finding board + Closes trailer linkage (this entry) | HIGH | IN-PROGRESS | #235 | W2 | 2026-05-08 |
+| ULTRA-HIGH-013 | C-3-1/2/3 | commands.rs split to ≤500-line ceiling | HIGH | OPEN | #238-240 | W3 | 2026-05-15 |
+| ULTRA-MEDIUM-005 | C-4 | STRIDE threat model per component | MEDIUM | OPEN | #247 | W4 | 2026-05-22 |
+| ULTRA-HIGH-014 | C-5 | Supply chain: SBOM + cosign + SLSA L3 + Dependabot SHA-pin | HIGH | OPEN | #248 | W4 | 2026-05-22 |
+| ULTRA-MEDIUM-006 | C-7 | 5-variant Cargo feature CI matrix | MEDIUM | OPEN | #250 | W4 | 2026-05-22 |
+
+### ULTRA — Faz 2 Security Fundamentals (D-eksen)
+
+| Registry ID | Ultra-Gap | Başlık | Severity | State | Batch | Hafta | Deadline |
+|---|---|---|---|---|---|---|---|
+| ULTRA-HIGH-015 | D-1a | TPM keystore backend | HIGH | OPEN | #251 | W4 | 2026-05-22 |
+| ULTRA-MEDIUM-007 | D-1b | File-backend gate + 180-day rotation playbook | MEDIUM | OPEN | #252 | W4 | 2026-05-22 |
+| ULTRA-HIGH-016 | D-2 | mlock + prctl + panic-zeroize + memfd_secret | HIGH | OPEN | #253-254 | W5 | 2026-05-29 |
+| ULTRA-HIGH-017 | D-3 | SQLCipher v1→v2 migration binary | HIGH | OPEN | #255-257 | W5 | 2026-05-29 |
+| ULTRA-HIGH-018 | D-4 | mTLS rotation state machine + leaf pinning + staged rollout | HIGH | OPEN | #258-259 | W5 | 2026-05-29 |
+| ULTRA-HIGH-019 | D-5 | Config integrity sidecar verify wire at boot | HIGH | OPEN | #260 | W5 | 2026-05-29 |
+| ULTRA-HIGH-020 | D-6 | mTLS stack unified assembly | HIGH | OPEN | #261 | W5 | 2026-05-29 |
+| ULTRA-MEDIUM-008 | D-8 | fuzz_st_parser + 24h nightly schedule | MEDIUM | OPEN | #262-263 | W5 | 2026-05-29 |
+| ULTRA-HIGH-021 | D-9 | Clock authority NTS + chrony + CLOCK_MONOTONIC | HIGH | OPEN | #264-265 | W6 | 2026-06-05 |
+
+### ULTRA — Faz 8 Platform-side (G-eksen)
+
+| Registry ID | Ultra-Gap | Başlık | Severity | State | Batch | Hafta | Deadline |
+|---|---|---|---|---|---|---|---|
+| ULTRA-HIGH-028 | G-1 | auth-service generateEdgeCommandToken + JwtKeyRotationService | HIGH | OPEN | #282 | W9 | 2026-06-26 |
+| ULTRA-HIGH-029 | G-2 | billing-service PlanLimits + edgeLicense resolver + REST | HIGH | OPEN | #283 | W10 | 2026-07-03 |
+| ULTRA-HIGH-030 | G-3 | admin-api-service Edge{Policy,License,Audit}Controller | HIGH | OPEN | #284 | W10 | 2026-07-03 |
+| ULTRA-HIGH-031 | G-4 | libs/event-contracts edge-events + NATS subject + JSON Schema | HIGH | OPEN | #285 | W10 | 2026-07-03 |
+| ULTRA-MEDIUM-012 | G-5a | tenant-admin MFE pages 1-2 (LiveMonitor + AuditLog) | MEDIUM | OPEN | #286 | W11 | 2026-07-10 |
+| ULTRA-MEDIUM-013 | G-5b | tenant-admin MFE pages 3-5 (StEditor + PolicyEditor + FaultForensics) | MEDIUM | OPEN | #287 | W11 | 2026-07-10 |
+| ULTRA-HIGH-032 | G-6 | Contract tests: canonical hash + ed25519 + policy + license | HIGH | OPEN | #288 | W11 | 2026-07-10 |
+
+### ULTRA — Faz 9 E2E + Faz 10 Release (F-eksen)
+
+| Registry ID | Ultra-Gap | Başlık | Severity | State | Batch | Hafta | Deadline |
+|---|---|---|---|---|---|---|---|
+| ULTRA-MEDIUM-009 | F-1 | 41 E2E scenarios (4 sub-batches) | MEDIUM | OPEN | #289-292 | W11-12 | 2026-07-17 |
+| ULTRA-HIGH-022 | F-2-1 | SL-2 adversarial re-audit Faz 2 end | HIGH | OPEN | #293 | W5 | 2026-05-29 |
+| ULTRA-HIGH-023 | F-2-2 | SL-2 adversarial re-audit Faz 9 end | HIGH | OPEN | #294 | W12 | 2026-07-17 |
+| ULTRA-HIGH-024 | F-2-3 | SL-2 adversarial re-audit Faz 10 end (release gate) | HIGH | OPEN | #295 | W12 | 2026-07-17 |
+| ULTRA-MEDIUM-010 | F-3 | Chaos engineering weekly CI schedule | MEDIUM | OPEN | #296 | W8 | 2026-06-19 |
+| ULTRA-HIGH-025 | F-4 | Kani formal verification harnesses | HIGH | OPEN | #297 | W8 | 2026-06-19 |
+| ULTRA-HIGH-026 | F-5 | Reproducible build SLSA L3 dual-runner sha256 | HIGH | OPEN | #298 | W11 | 2026-07-10 |
+| ULTRA-MEDIUM-011 | F-6 | 7 operational runbooks | MEDIUM | OPEN | #299 | W11 | 2026-07-10 |
+| ULTRA-HIGH-027 | F-7 | SL-2 evidence package FR1-FR7 per directory | HIGH | OPEN | #300 | W12 | 2026-07-17 |
+
+### ULTRA — Summary
+
+| Bölüm | Toplam | OPEN | IN-PROGRESS | RESOLVED | BLOCKED |
+|---|---|---|---|---|---|
+| A-eksen + E-4 | 8 | 8 | 0 | 0 | 0 |
+| B-eksen | 7 | 7 | 0 | 0 | 0 |
+| C-eksen (C-2/3/4/5/7 only) | 5 | 4 | 1 | 0 | 0 |
+| D-eksen | 9 | 9 | 0 | 0 | 0 |
+| G-eksen | 7 | 7 | 0 | 0 | 0 |
+| F-eksen | 9 | 9 | 0 | 0 | 0 |
+| **ULTRA toplam** | **45** | **44** | **1 (C-2 this commit)** | **0** | **0** |
+
+**Relation to existing 79-row board:** ULTRA-* entries are strictly additive — they do NOT supersede any of the pre-existing ARC/SEC/PRF/TST/DEC/STL/PROC/PLA rows. The existing rows use documentation-IDs (`ARC-001`, `DEC-001`) that do NOT match the commit-msg-validator regex; they remain as canonical-plan phase-gate traceability. Going forward, any commit that touches a surface covered by both an existing row AND an ULTRA-* row SHOULD cite the ULTRA-* ID in the `Closes:` trailer (registry-validated), with the existing row noted in the commit body for cross-reference.
+
+**Registry JSONL:** `docs/reviews/_registry/findings.jsonl` receives 45 ULTRA-* entries via append-mode seeder `tools/scripts/seed-ultra-finding-registry.ts` (this same commit). Hash chain tip advances from current tail → 45 new SHA-256 links.
+
+**Closure discipline:** State transitions go through `tools/gates/finding-registry.ts` (planned). Until that lands, state changes are direct JSONL edits with `closing_commits` SHA array populated by the closing commit's author. Each closure MUST carry:
+1. Commit SHA that implements the fix
+2. `closed_at` timestamp
+3. Notes field update describing the regression-guard (invariant test ID, e2e test ID, or Kani harness name)

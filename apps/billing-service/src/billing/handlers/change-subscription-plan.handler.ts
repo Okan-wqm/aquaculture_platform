@@ -12,6 +12,7 @@ import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { NatsEventBus } from '@platform/event-bus';
 import { createBaseEvent, SubscriptionUpdatedEvent } from '@platform/event-contracts';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { Money } from '@aquaculture/backend-common/monetary';
 import { RedisService } from '@aquaculture/backend-common/redis';
 import { ChangeSubscriptionPlanCommand } from '../commands/change-subscription-plan.command';
@@ -56,7 +57,12 @@ export class ChangeSubscriptionPlanHandler
     const { tenantId, input, userId } = command;
 
     return await this.dataSource.transaction(async (manager) => {
-      const subscriptionRepo = manager.getRepository(Subscription);
+      const subscriptionRepo = tenantManagerRepo(manager, Subscription, tenantId);
+      // Plan is a cross-tenant catalog entity (billing plans are shared
+      // across tenants; new tenants subscribe to an existing plan). The
+      // tenant-scoped repo would inject a tenantId filter that kills the
+      // catalog lookup. Raw getRepository is the correct shape here.
+      // eslint-disable-next-line no-restricted-syntax -- cross-tenant catalog
       const planRepo = manager.getRepository(Plan);
 
       // 1. Fetch current subscription with lock
@@ -146,7 +152,7 @@ export class ChangeSubscriptionPlanHandler
         // WHY: Immediate downgrades would revoke access to features the tenant
         // has already paid for. The scheduled change preserves full value for
         // the current period. The billing scheduler cron applies it at periodEnd.
-        const scheduledChangeRepo = manager.getRepository(ScheduledPlanChange);
+        const scheduledChangeRepo = tenantManagerRepo(manager, ScheduledPlanChange, tenantId);
 
         // Cancel any existing pending change for this subscription
         await scheduledChangeRepo.update(

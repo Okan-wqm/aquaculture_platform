@@ -3,12 +3,25 @@
  *
  * CreateCleanerBatchCommand'ı işler ve yeni cleaner fish batch oluşturur.
  *
+ * The handler wraps the single `batches_v2` insert and the
+ * `CleanerFishBatchCreated` outbox enqueue in a DataSource
+ * transaction — either both land or neither does. Without that
+ * atomicity, a DB commit followed by an enqueue failure would
+ * leave a cleaner-fish batch visible via queries but silent on
+ * the event bus, breaking every downstream timeline projection
+ * right at the lifecycle starting point.
+ *
  * @module Batch/Handlers
  */
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
+import { OutboxPublisher } from '@platform/outbox';
+import {
+  createBaseEvent,
+  type CleanerFishBatchCreatedEvent,
+} from '@platform/event-contracts';
 import { CreateCleanerBatchCommand } from '../commands/create-cleaner-batch.command';
 import { Batch, BatchStatus, BatchInputType, BatchType } from '../entities/batch.entity';
 import { Species } from '../../species/entities/species.entity';
@@ -23,6 +36,8 @@ export class CreateCleanerBatchHandler implements ICommandHandler<CreateCleanerB
     @InjectRepository(Species)
     private readonly speciesRepository: Repository<Species>,
     private readonly codeGenerator: CodeGeneratorService,
+    private readonly dataSource: DataSource,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   async execute(command: CreateCleanerBatchCommand): Promise<Batch> {
@@ -144,8 +159,40 @@ export class CreateCleanerBatchHandler implements ICommandHandler<CreateCleanerB
       },
     });
 
-    const savedBatch = await this.batchRepository.save(batch);
+    // Atomic: save batch + enqueue event. Commit together or neither.
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    try {
+      const savedBatch = await queryRunner.manager.save(Batch, batch);
 
-    return savedBatch;
+      const event: CleanerFishBatchCreatedEvent = {
+        ...createBaseEvent<CleanerFishBatchCreatedEvent>(
+          'CleanerFishBatchCreated',
+          tenantId,
+          { aggregateId: savedBatch.id, aggregateType: 'Batch' },
+        ),
+        cleanerBatchId: savedBatch.id,
+        batchNumber: savedBatch.batchNumber,
+        speciesId: savedBatch.speciesId,
+        speciesName: species.commonName,
+        sourceType: payload.sourceType,
+        sourceLocation: payload.sourceLocation,
+        supplierId: payload.supplierId,
+        initialQuantity: savedBatch.initialQuantity,
+        initialAvgWeightG: payload.initialAvgWeightG,
+        initialBiomassKg: initialBiomass,
+        stockedAt: savedBatch.stockedAt,
+      };
+      await this.outboxPublisher.enqueue(event, queryRunner.manager);
+
+      await queryRunner.commitTransaction();
+      return savedBatch;
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
   }
 }

@@ -169,6 +169,37 @@ export interface CullRecordedEvent extends BaseEvent {
 }
 
 /**
+ * Cleaner Fish Batch Created Event
+ *
+ * Lifecycle-start partner to `CleanerFishDeployed` / `…Mortality` /
+ * `…Transferred` / `…Removed`. Emitted when a new cleaner-fish
+ * batch is registered in the system — a batch lives BEFORE any
+ * deploy happens (the fish exist in the batch pool awaiting
+ * deployment). Making this moment an event lets AI / analytics
+ * services build the full lifecycle timeline from the first row.
+ *
+ * Carries the `sourceType` discriminator (farmed vs wild_caught)
+ * because regulatory exports (Mattilsynet Cleaner Fish Report)
+ * split the two sources at report-level; downstream consumers
+ * that project per-source summaries don't have to re-read the
+ * Batch aggregate.
+ */
+export interface CleanerFishBatchCreatedEvent extends BaseEvent {
+  eventType: 'CleanerFishBatchCreated';
+  cleanerBatchId: string;
+  batchNumber: string;
+  speciesId: string;
+  speciesName: string;
+  sourceType: 'farmed' | 'wild_caught';
+  sourceLocation?: string;
+  supplierId?: string;
+  initialQuantity: number;
+  initialAvgWeightG: number;
+  initialBiomassKg: number;
+  stockedAt: Date;
+}
+
+/**
  * Cleaner Fish Transferred Event
  *
  * Emitted when cleaner fish move from one tank to another within the
@@ -626,6 +657,7 @@ export type FarmEvent =
   | CleanerFishRemovedEvent
   | CleanerFishMortalityRecordedEvent
   | CleanerFishTransferredEvent
+  | CleanerFishBatchCreatedEvent
   | BatchTransferredEvent
   | BatchAllocatedToTankEvent
   | GrowthSampleRecordedEvent

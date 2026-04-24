@@ -169,6 +169,42 @@ export interface CullRecordedEvent extends BaseEvent {
 }
 
 /**
+ * Cleaner Fish Mortality Recorded Event
+ *
+ * Emitted when cleaner fish (lumpfish / wrasse) die in a tank. The
+ * salmon-side analogue is `MortalityRecordedEvent`; these are
+ * published as a SEPARATE event type so welfare dashboards and
+ * Mattilsynet compliance tooling can filter cleaner-fish mortality
+ * without walking every mortality row's associated batch to check
+ * `batchType`.
+ *
+ * Downstream consumers use the `newCleanerBatchTotalMortality` /
+ * `newCleanerBatchMortalityRate` fields to patch dashboards without
+ * re-reading the Batch aggregate. Welfare-alert engines watch
+ * `newCleanerBatchMortalityRate` against the species-specific
+ * threshold (lumpfish: 5% / wrasse: 8%) and trigger operator
+ * review when crossed.
+ */
+export interface CleanerFishMortalityRecordedEvent extends BaseEvent {
+  eventType: 'CleanerFishMortalityRecorded';
+  cleanerBatchId: string;
+  tankId: string;
+  speciesName: string;
+  quantity: number;
+  biomassKg: number;
+  /** Uppercase normalised reason — matches `MortalityReasonCode`. */
+  reason: MortalityReasonCode;
+  detail?: string;
+  observedAt: Date;
+  /** Tank-batch cleaner-fish stock AFTER the mortality is applied. */
+  newTankCleanerFishQuantity: number;
+  newTankCleanerFishBiomassKg: number;
+  /** Cleaner-batch cumulative totals AFTER this death. */
+  newCleanerBatchTotalMortality: number;
+  newCleanerBatchMortalityRate: number;
+}
+
+/**
  * Cleaner Fish Deployed Event
  *
  * Emitted when cleaner fish (lumpfish / wrasse) are placed into a
@@ -554,6 +590,7 @@ export type FarmEvent =
   | CullRecordedEvent
   | CleanerFishDeployedEvent
   | CleanerFishRemovedEvent
+  | CleanerFishMortalityRecordedEvent
   | BatchTransferredEvent
   | BatchAllocatedToTankEvent
   | GrowthSampleRecordedEvent

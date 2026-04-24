@@ -9,6 +9,13 @@ import { Injectable, BadRequestException, NotFoundException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
+import { OutboxPublisher } from '@platform/outbox';
+import {
+  createBaseEvent,
+  MORTALITY_REASONS,
+  type CleanerFishMortalityRecordedEvent,
+  type MortalityReasonCode,
+} from '@platform/event-contracts';
 import { RecordCleanerMortalityCommand } from '../commands/record-cleaner-mortality.command';
 import { Batch, BatchType } from '../entities/batch.entity';
 import { TankBatch } from '../entities/tank-batch.entity';
@@ -16,6 +23,22 @@ import { TankOperation, OperationType, MortalityReason } from '../entities/tank-
 import { MortalityRecord, MortalityCause } from '../entities/mortality-record.entity';
 import { Equipment } from '../../equipment/entities/equipment.entity';
 import { Species } from '../../species/entities/species.entity';
+
+/**
+ * Normalise the command-layer mortality reason (lower-snake) to the
+ * `MortalityReasonCode` (UPPER_SNAKE) used on the domain-event
+ * contract. Falls back to `UNKNOWN` if the caller supplies a reason
+ * that isn't in the enumerated set — never throws; event emission
+ * must not be blocked by an invalid enum label on the input side,
+ * and the TankOperation `mortalityReason` column stores the raw
+ * input anyway.
+ */
+function toMortalityReasonCode(reason: string): MortalityReasonCode {
+  const upper = reason.toUpperCase();
+  return (MORTALITY_REASONS as readonly string[]).includes(upper)
+    ? (upper as MortalityReasonCode)
+    : 'UNKNOWN';
+}
 
 @Injectable()
 @CommandHandler(RecordCleanerMortalityCommand)
@@ -34,6 +57,7 @@ export class RecordCleanerMortalityHandler implements ICommandHandler<RecordClea
     @InjectRepository(Species)
     private readonly speciesRepository: Repository<Species>,
     private readonly dataSource: DataSource,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   async execute(command: RecordCleanerMortalityCommand): Promise<Batch> {
@@ -210,7 +234,10 @@ export class RecordCleanerMortalityHandler implements ICommandHandler<RecordClea
       isDeleted: false,
     });
 
-    // All saves in a single transaction for data consistency
+    // All saves + outbox enqueue in a single transaction. Welfare
+    // alerting (species-specific mortality-rate thresholds) + Mattilsynet
+    // compliance tooling consume this event; skipping it on a successful
+    // write would leave ops blind to rate-of-loss trends.
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
@@ -219,6 +246,32 @@ export class RecordCleanerMortalityHandler implements ICommandHandler<RecordClea
       await queryRunner.manager.save(Batch, cleanerBatch);
       await queryRunner.manager.save(MortalityRecord, mortalityRecord);
       await queryRunner.manager.save(TankOperation, operation);
+
+      const newRate =
+        cleanerBatch.initialQuantity > 0
+          ? (cleanerBatch.totalMortality / cleanerBatch.initialQuantity) * 100
+          : 0;
+      const event: CleanerFishMortalityRecordedEvent = {
+        ...createBaseEvent<CleanerFishMortalityRecordedEvent>(
+          'CleanerFishMortalityRecorded',
+          tenantId,
+          { aggregateId: cleanerBatch.id, aggregateType: 'Batch' },
+        ),
+        cleanerBatchId: cleanerBatch.id,
+        tankId: payload.tankId,
+        speciesName,
+        quantity: payload.quantity,
+        biomassKg,
+        reason: toMortalityReasonCode(payload.reason),
+        detail: payload.detail,
+        observedAt: payload.observedAt,
+        newTankCleanerFishQuantity: tankBatch.cleanerFishQuantity ?? 0,
+        newTankCleanerFishBiomassKg: Number(tankBatch.cleanerFishBiomassKg ?? 0),
+        newCleanerBatchTotalMortality: cleanerBatch.totalMortality,
+        newCleanerBatchMortalityRate: newRate,
+      };
+      await this.outboxPublisher.enqueue(event, queryRunner.manager);
+
       await queryRunner.commitTransaction();
     } catch (error) {
       await queryRunner.rollbackTransaction();

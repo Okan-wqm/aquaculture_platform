@@ -781,7 +781,7 @@ Hedef tablo: `farm.health_events` (ana tablo), opsiyonel `water_quality_measurem
 | Slaughter Report | `reports/tabs/SlaughterReportTab.tsx` | `harvest_records` view, ~~regulatory_events~~ ⚠ *(tablo yok — health_events'e yazılır)* | ilgili mutation'lar |
 | Sea Lice Report | `reports/tabs/SeaLiceReportTab.tsx` | ~~regulatory_events~~ ⚠ *(tablo yok — health_events'e yazılır)*, `health_events` | — |
 | Smolt Report | `reports/tabs/SmoltReportTab.tsx` | ~~regulatory_events~~ ⚠ *(tablo yok — health_events'e yazılır)* | — |
-| Cleaner Fish Report | `reports/tabs/CleanerFishReportTab.tsx` | `batches_v2` (filtered cleaner), `tank_batches` | `cleanerFishReport` query (read) |
+| Cleaner Fish Report | `reports/tabs/CleanerFishReportTab.tsx` | `batches_v2` (filtered cleaner), `tank_batches` | ⚠ UI uses mock aggregates; `cleanerFishReport` backend query removed as a zero-returning stub. Mattilsynet submission goes through `submitCleanerFishReport` mutation in `regulatory.resolver.ts`. |
 
 #### DiseaseOutbreakModal — Norveç FDIR regülasyonu (17+ alan)
 

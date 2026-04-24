@@ -657,6 +657,35 @@ export interface EquipmentDeletedEvent extends BaseEvent {
 // ==================== Feed Inventory Events ====================
 
 /**
+ * Harvest Record Cancelled Event
+ *
+ * Emitted when a harvest record is soft-deleted (status flipped to
+ * `CANCELLED`). NOT called "deleted" because the row persists for
+ * audit — the status is the source of truth, and the cascade
+ * reverses batch + tank-batch + tank biomass/quantity projections.
+ *
+ * The event carries the reversed quantities so downstream consumers
+ * know the exact numerical delta to apply to their projections
+ * without re-reading the aggregates (the harvest record has the
+ * pre-reversal values; consumers patching after the event need the
+ * delta direction).
+ *
+ * Not emitted on dispatched / delivered records — those cannot be
+ * cancelled (enforced at the handler level).
+ */
+export interface HarvestRecordCancelledEvent extends BaseEvent {
+  eventType: 'HarvestRecordCancelled';
+  harvestRecordId: string;
+  batchId: string;
+  tankId?: string;
+  /** Quantity that was reversed on the batch (added back to currentQuantity). */
+  reversedQuantity: number;
+  /** Biomass (kg) that was reversed on the tank + tank-batch. */
+  reversedBiomassKg: number;
+  cancelledAt: Date;
+}
+
+/**
  * Harvest Record Updated Event
  *
  * Emitted when an existing harvest record's regulatory / financial /
@@ -821,6 +850,7 @@ export type FarmEvent =
   | FeedInventoryAdjustedEvent
   | FeedingRecordUpdatedEvent
   | HarvestRecordUpdatedEvent
+  | HarvestRecordCancelledEvent
   | BatchTransferredEvent
   | BatchAllocatedToTankEvent
   | GrowthSampleRecordedEvent

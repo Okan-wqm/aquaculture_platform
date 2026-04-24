@@ -10,6 +10,11 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
+import { OutboxPublisher } from '@platform/outbox';
+import {
+  createBaseEvent,
+  type HarvestRecordCancelledEvent,
+} from '@platform/event-contracts';
 import { DeleteHarvestRecordCommand } from '../commands/delete-harvest-record.command';
 import { HarvestRecord, HarvestRecordStatus } from '../entities/harvest-record.entity';
 import { Batch } from '../../batch/entities/batch.entity';
@@ -29,6 +34,7 @@ export class DeleteHarvestRecordHandler implements ICommandHandler<DeleteHarvest
     @InjectRepository(Tank)
     private readonly tankRepository: Repository<Tank>,
     private readonly dataSource: DataSource,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   async execute(command: DeleteHarvestRecordCommand): Promise<boolean> {
@@ -102,6 +108,24 @@ export class DeleteHarvestRecordHandler implements ICommandHandler<DeleteHarvest
       // Mark the harvest record as cancelled (soft delete)
       harvestRecord.status = HarvestRecordStatus.CANCELLED;
       await queryRunner.manager.save(HarvestRecord, harvestRecord);
+
+      // HarvestRecordCancelled — announce the cascade reversal so
+      // Slakterapport consumers withdraw their projection line and
+      // batch-retention projections reverse the retention-rate bump
+      // without re-reading aggregates.
+      const event: HarvestRecordCancelledEvent = {
+        ...createBaseEvent<HarvestRecordCancelledEvent>('HarvestRecordCancelled', tenantId, {
+          aggregateId: harvestRecord.id,
+          aggregateType: 'HarvestRecord',
+        }),
+        harvestRecordId: harvestRecord.id,
+        batchId: harvestRecord.batchId,
+        tankId: harvestRecord.tankId,
+        reversedQuantity: harvestRecord.quantityHarvested,
+        reversedBiomassKg: Number(harvestRecord.totalBiomass),
+        cancelledAt: new Date(),
+      };
+      await this.outboxPublisher.enqueue(event, queryRunner.manager);
 
       await queryRunner.commitTransaction();
     } catch (error) {

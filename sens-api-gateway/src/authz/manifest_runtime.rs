@@ -470,27 +470,28 @@ impl Default for RbacManifestStore {
     }
 }
 
-/// Parse a 64-char hex ed25519 pubkey into VerifyingKey.
-/// Mirrors `config_integrity::verify_runtime::parse_factory_
-/// pubkey` — same hex discipline, different key role.
+/// Parse a 64-char hex ed25519 pubkey into VerifyingKey — RBAC
+/// caller-side shim around the shared
+/// [`super::signing_key_util::parse_ed25519_pubkey_hex`] (Batch #249a
+/// refactor). Owns the "manifest_signing_pubkey_hex" string prefix
+/// for pre-Batch-249a error message stability (consumers that
+/// string-match on the message stay happy).
 fn parse_ed25519_pubkey_hex(hex: &str) -> Result<ed25519_dalek::VerifyingKey, String> {
-    if hex.len() != 64 {
-        return Err(format!(
-            "manifest_signing_pubkey_hex must be 64 chars, got {}",
-            hex.len()
-        ));
-    }
-    let mut bytes = [0u8; 32];
-    for (i, b) in bytes.iter_mut().enumerate() {
-        let byte_idx = i * 2;
-        let hex_byte = hex
-            .get(byte_idx..byte_idx + 2)
-            .ok_or_else(|| format!("hex slice error at index {}", byte_idx))?;
-        *b = u8::from_str_radix(hex_byte, 16)
-            .map_err(|e| format!("invalid hex at byte {}: {}", i, e))?;
-    }
-    ed25519_dalek::VerifyingKey::from_bytes(&bytes)
-        .map_err(|e| format!("ed25519 key construction failed: {}", e))
+    super::signing_key_util::parse_ed25519_pubkey_hex(hex).map_err(|e| {
+        use super::signing_key_util::SigningKeyHexError;
+        match e {
+            SigningKeyHexError::WrongLength { got } => format!(
+                "manifest_signing_pubkey_hex must be 64 chars, got {}",
+                got
+            ),
+            SigningKeyHexError::InvalidHexAt { byte_index, reason } => {
+                format!("invalid hex at byte {}: {}", byte_index, reason)
+            }
+            SigningKeyHexError::InvalidCurvePoint { reason } => {
+                format!("ed25519 key construction failed: {}", reason)
+            }
+        }
+    })
 }
 
 #[cfg(test)]

@@ -515,6 +515,26 @@ pub struct AppState {
     /// None on empty-store which is the Disabled semantic.
     pub rbac_manifest_store: std::sync::Arc<crate::authz::manifest_runtime::RbacManifestStore>,
 
+    /// User-token manifest store (Batch #245 hot-reload atom +
+    /// Batch #247 ingest_signed wire + Batch #249 MQTT handler).
+    ///
+    /// WHY: Parallel to `rbac_manifest_store` but gates the OPC UA
+    /// UserName/Password + X.509 credential side. Distinct HSM
+    /// signing key (ADR-021 slot 4) + distinct monotonic version
+    /// stream (ManifestVersionStore::STREAM_ID_USER_TOKEN per
+    /// Batch #246) so credential rotation is independent of RBAC
+    /// role rotation.
+    ///
+    /// WHAT: `Arc<UserTokenManifestStore>` held ALWAYS (not Option)
+    /// for the same ergonomic reason as `rbac_manifest_store` —
+    /// consumers unconditionally clone and call `with_enrollment`
+    /// which returns None when no manifest has been ingested yet.
+    /// Boot-time `init_user_token_manifest_store` attaches the
+    /// version store IFF the config opts into persistence; until
+    /// then the validator fails closed with NoManifestLoaded.
+    pub user_token_manifest_store:
+        std::sync::Arc<crate::authz::user_token_manifest_runtime::UserTokenManifestStore>,
+
     /// Audit sink for HMAC-chained event log (Batch 78
     /// Sprint 6.2 Phase 2).
     ///
@@ -840,6 +860,16 @@ impl AppState {
             // unconditionally clone without Option unwrapping.
             rbac_manifest_store: std::sync::Arc::new(
                 crate::authz::manifest_runtime::RbacManifestStore::new(),
+            ),
+            // Batch #249 Faz 5 A-3c wire: empty store at boot;
+            // Batch #248 MQTT `update_user_token_manifest` command
+            // later calls `ingest_signed` to populate. Until then,
+            // `UserTokenValidator` fails closed with
+            // NoManifestLoaded. Boot-time `init_user_token_manifest
+            // _store()` below attaches the version store (per-
+            // stream floor) when the SQLCipher path is available.
+            user_token_manifest_store: std::sync::Arc::new(
+                crate::authz::user_token_manifest_runtime::UserTokenManifestStore::new(),
             ),
             // Batch 78 Sprint 6.2 Phase 2: None-init;
             // `init_audit_sink()` below constructs AuditSink

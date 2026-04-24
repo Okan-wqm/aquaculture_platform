@@ -58,6 +58,7 @@ use std::time::SystemTime;
 
 use super::manifest_version_store::ManifestVersionStore;
 use super::permission::TenantId;
+use super::signing_key_util::{parse_ed25519_pubkey_hex, SigningKeyHexError};
 use super::user_token_manifest::{
     verify_user_token_manifest, SignedUserTokenManifest, UserTokenManifest,
     UserTokenManifestVerifyError,
@@ -284,7 +285,98 @@ impl UserTokenManifestStore {
 
         Ok(IngestOutcome { accepted_version })
     }
+
+    /// Wire-bytes ingress — handler-side entry point (Batch #249a).
+    /// Takes the JSON bytes of a [`SignedUserTokenManifest`] + the
+    /// hex-encoded signing pubkey from config + the device's
+    /// provisioning-bound tenant. Runs the full pipeline:
+    ///
+    /// 1. Parse bytes as `SignedUserTokenManifest` JSON.
+    /// 2. Parse pubkey hex via the shared
+    ///    [`super::signing_key_util::parse_ed25519_pubkey_hex`] helper.
+    /// 3. Build the ed25519 verify closure.
+    /// 4. Delegate to [`Self::ingest_signed`] for floor read + 7-gate
+    ///    verify + typed build + atomic swap + floor write.
+    ///
+    /// The MQTT command handler (Batch #249b
+    /// `cmd_update_user_token_manifest`) invokes this single method
+    /// per arriving envelope; it stays a thin transport-layer
+    /// adapter with no crypto / storage knowledge.
+    ///
+    /// **Fail-closed on every step** — any error leaves the cached
+    /// enrollment + persistent floor unchanged.
+    pub fn hot_reload_from_bytes(
+        &self,
+        signing_pubkey_hex: Option<&str>,
+        bytes: &[u8],
+        expected_tenant: &TenantId,
+        now: SystemTime,
+    ) -> Result<IngestOutcome, HotReloadError> {
+        let hex = signing_pubkey_hex
+            .ok_or(HotReloadError::SigningPubkeyNotConfigured)?;
+
+        let pubkey = parse_ed25519_pubkey_hex(hex)
+            .map_err(HotReloadError::InvalidSigningPubkey)?;
+
+        let signed: SignedUserTokenManifest = serde_json::from_slice(bytes)
+            .map_err(|e| HotReloadError::JsonParseFailed(e.to_string()))?;
+
+        let verify_fn = |canonical: &[u8], sig_bytes: &[u8; 64]| -> bool {
+            let sig = ed25519_dalek::Signature::from_bytes(sig_bytes);
+            pubkey.verify_strict(canonical, &sig).is_ok()
+        };
+
+        self.ingest_signed(&signed, expected_tenant, now, verify_fn)
+            .map_err(HotReloadError::Ingest)
+    }
 }
+
+/// Top-level error for [`UserTokenManifestStore::hot_reload_from_bytes`].
+/// Distinct from [`IngestError`] because the handler can fail BEFORE
+/// the ingest pipeline even starts (missing pubkey in config,
+/// malformed pubkey hex, malformed JSON envelope).
+#[derive(Debug, Clone)]
+pub enum HotReloadError {
+    /// Config did not carry `user_token_manifest_signing_pubkey_hex`
+    /// — operator needs to populate this before the cloud can push
+    /// enrollments. Fail-closed: no manifest is accepted until the
+    /// pubkey is wired.
+    SigningPubkeyNotConfigured,
+
+    /// The hex-encoded pubkey failed validation (wrong length, bad
+    /// hex character, invalid curve point). Ops should re-check the
+    /// value copied into `config.yaml`.
+    InvalidSigningPubkey(SigningKeyHexError),
+
+    /// The byte payload failed to deserialize as a
+    /// SignedUserTokenManifest JSON object. MQTT publisher bug or
+    /// transport corruption.
+    JsonParseFailed(String),
+
+    /// Parse + pubkey OK, but the ingest pipeline itself rejected
+    /// the manifest (verify / build / floor). See
+    /// [`IngestError`] for the fail-mode taxonomy.
+    Ingest(IngestError),
+}
+
+impl std::fmt::Display for HotReloadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::SigningPubkeyNotConfigured => {
+                f.write_str("signing_pubkey_not_configured")
+            }
+            Self::InvalidSigningPubkey(e) => {
+                write!(f, "invalid_signing_pubkey: {}", e)
+            }
+            Self::JsonParseFailed(msg) => {
+                write!(f, "json_parse_failed: {}", msg)
+            }
+            Self::Ingest(e) => write!(f, "{}", e),
+        }
+    }
+}
+
+impl std::error::Error for HotReloadError {}
 
 /// Outcome of a successful [`UserTokenManifestStore::ingest_signed`]
 /// call. Carries the accepted `policy_version` so the MQTT handler
@@ -710,6 +802,163 @@ mod tests {
             let e = e.unwrap();
             assert_eq!(e.user_pass_count(), 2);
         });
+    }
+
+    // ========================================================
+    // Batch #249a — hot_reload_from_bytes bytes-to-outcome wrapper
+    // ========================================================
+
+    use ed25519_dalek::{SigningKey, Signer, SECRET_KEY_LENGTH};
+
+    /// Mint a real signing key + pubkey hex + signed manifest body.
+    /// Uses a deterministic secret so tests are reproducible.
+    fn real_signed_bytes(m: UserTokenManifest) -> (String, Vec<u8>) {
+        let sk = SigningKey::from_bytes(&[42u8; SECRET_KEY_LENGTH]);
+        let vk = sk.verifying_key();
+        let pubkey_hex: String =
+            vk.to_bytes().iter().map(|b| format!("{:02x}", b)).collect();
+
+        let canonical = m.canonical_bytes().expect("canonical");
+        let sig = sk.sign(&canonical);
+        let signed = SignedUserTokenManifest {
+            manifest: m,
+            signature: super::super::policy::Ed25519SignatureBytes::from_slice(
+                &sig.to_bytes(),
+            )
+            .unwrap(),
+        };
+        let bytes = serde_json::to_vec(&signed).expect("json");
+        (pubkey_hex, bytes)
+    }
+
+    #[test]
+    fn hot_reload_happy_path_end_to_end() {
+        let s = UserTokenManifestStore::new();
+        let (hex, bytes) = real_signed_bytes(manifest_v1());
+        let out = s
+            .hot_reload_from_bytes(
+                Some(&hex),
+                &bytes,
+                &tenant(),
+                now_inside(),
+            )
+            .unwrap();
+        assert_eq!(out.accepted_version, 1);
+        assert!(s.is_loaded());
+    }
+
+    #[test]
+    fn hot_reload_rejects_missing_signing_pubkey() {
+        let s = UserTokenManifestStore::new();
+        let (_, bytes) = real_signed_bytes(manifest_v1());
+        let err = s
+            .hot_reload_from_bytes(None, &bytes, &tenant(), now_inside())
+            .unwrap_err();
+        match err {
+            HotReloadError::SigningPubkeyNotConfigured => {}
+            other => panic!("wrong variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn hot_reload_rejects_malformed_pubkey_hex() {
+        let s = UserTokenManifestStore::new();
+        let (_, bytes) = real_signed_bytes(manifest_v1());
+        let err = s
+            .hot_reload_from_bytes(
+                Some("not-hex"),
+                &bytes,
+                &tenant(),
+                now_inside(),
+            )
+            .unwrap_err();
+        match err {
+            HotReloadError::InvalidSigningPubkey(_) => {}
+            other => panic!("wrong variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn hot_reload_rejects_malformed_json() {
+        let s = UserTokenManifestStore::new();
+        let (hex, _) = real_signed_bytes(manifest_v1());
+        let err = s
+            .hot_reload_from_bytes(
+                Some(&hex),
+                b"not json at all",
+                &tenant(),
+                now_inside(),
+            )
+            .unwrap_err();
+        match err {
+            HotReloadError::JsonParseFailed(_) => {}
+            other => panic!("wrong variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn hot_reload_rejects_wrong_signature() {
+        // Sign with key A, verify with key B → InvalidSignature at
+        // the Ingest/Verify layer.
+        let s = UserTokenManifestStore::new();
+        let (_correct_hex, bytes) = real_signed_bytes(manifest_v1());
+        // Attacker pubkey — a different curve point.
+        let attacker_sk = SigningKey::from_bytes(&[77u8; SECRET_KEY_LENGTH]);
+        let wrong_hex: String = attacker_sk
+            .verifying_key()
+            .to_bytes()
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect();
+
+        let err = s
+            .hot_reload_from_bytes(
+                Some(&wrong_hex),
+                &bytes,
+                &tenant(),
+                now_inside(),
+            )
+            .unwrap_err();
+        match err {
+            HotReloadError::Ingest(IngestError::VerifyFailed(
+                UserTokenManifestVerifyError::InvalidSignature,
+            )) => {}
+            other => panic!("wrong variant: {:?}", other),
+        }
+        assert!(!s.is_loaded());
+    }
+
+    #[test]
+    fn hot_reload_rejects_cross_tenant_manifest() {
+        let s = UserTokenManifestStore::new();
+        let (hex, bytes) = real_signed_bytes(manifest_v1());
+        // Device-side expected tenant != manifest tenant.
+        let other_tenant = TenantId::new_from_verified([0xBB; 16]);
+        let err = s
+            .hot_reload_from_bytes(
+                Some(&hex),
+                &bytes,
+                &other_tenant,
+                now_inside(),
+            )
+            .unwrap_err();
+        match err {
+            HotReloadError::Ingest(IngestError::VerifyFailed(
+                UserTokenManifestVerifyError::TenantMismatch,
+            )) => {}
+            other => panic!("wrong variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn hot_reload_display_error_strings_are_stable() {
+        // Smoke test to lock the Display strings for audit-log
+        // routing. Actual error creation is trivial and pattern-
+        // matched against exact snake_case tokens.
+        assert_eq!(
+            HotReloadError::SigningPubkeyNotConfigured.to_string(),
+            "signing_pubkey_not_configured"
+        );
     }
 
     #[test]

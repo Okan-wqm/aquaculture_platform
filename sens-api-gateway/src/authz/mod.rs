@@ -61,6 +61,12 @@ pub mod policy;
 pub mod manifest;
 pub mod verify;
 
+// Batch #249a refactor — shared ed25519 pubkey hex parser.
+// Used by every signed-manifest verifier in the authz tree (RBAC
+// + user-token + future streams) so the 64-char-length + hex
+// conversion + VerifyingKey ctor lives in exactly ONE place.
+pub mod signing_key_util;
+
 // Batch #243 refactor — shared envelope-gate helper. Gates 1-5
 // (validity window / clock / tenant / version / expiry) are common to
 // every signed edge manifest; `manifest_common::run_envelope_gates` is

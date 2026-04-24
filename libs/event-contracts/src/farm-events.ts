@@ -657,6 +657,43 @@ export interface EquipmentDeletedEvent extends BaseEvent {
 // ==================== Feed Inventory Events ====================
 
 /**
+ * Feed Inventory Adjusted Event
+ *
+ * Emitted on every manual correction of a feed lot's running
+ * quantity — whether an operator increases (found extra bags),
+ * decreases (damage / theft write-off), or sets a new absolute
+ * quantity (reconciliation against a physical count). This is the
+ * audit-trail-critical event; without it, lot discrepancies between
+ * expected and physical inventory leave no wire-visible record.
+ *
+ * Downstream consumers (audit / reconciliation dashboards, AI
+ * inventory-variance detection) use `adjustmentType` + `reason` to
+ * categorise the adjustment and the post-op `newQuantityKg` to
+ * patch projections.
+ */
+export interface FeedInventoryAdjustedEvent extends BaseEvent {
+  eventType: 'FeedInventoryAdjusted';
+  inventoryId: string;
+  feedId: string;
+  siteId: string;
+  /**
+   * Mirror of the command-layer `AdjustmentType` enum:
+   * `increase | decrease | set_quantity`. Lower-snake on the wire.
+   */
+  adjustmentType: string;
+  /** THIS operation's input magnitude — positive regardless of direction. */
+  adjustmentQuantityKg: number;
+  /** Stock BEFORE the adjustment. */
+  previousQuantityKg: number;
+  /** Stock AFTER the adjustment. */
+  newQuantityKg: number;
+  /** Operator-supplied reason for the adjustment (free text, audit-grade). */
+  reason: string;
+  notes?: string;
+  adjustedAt: Date;
+}
+
+/**
  * Feed Inventory Consumed Event
  *
  * Always-fire partner to `FeedInventoryReceived`. Every withdrawal
@@ -726,6 +763,7 @@ export type FarmEvent =
   | CleanerFishBatchCreatedEvent
   | FeedInventoryReceivedEvent
   | FeedInventoryConsumedEvent
+  | FeedInventoryAdjustedEvent
   | BatchTransferredEvent
   | BatchAllocatedToTankEvent
   | GrowthSampleRecordedEvent

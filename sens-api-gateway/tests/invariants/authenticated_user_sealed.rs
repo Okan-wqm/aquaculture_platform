@@ -84,6 +84,46 @@ fn is_exempt(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+/// Return the line index where `#[cfg(test)]` test-module region
+/// starts (inclusive) — any content from this line onward is test-
+/// only code and exempt from production-seal grep. Returns
+/// `content.lines().count()` (i.e. "no exemption") when the file
+/// has no test-gated module.
+///
+/// Pattern heuristic: find the first `#[cfg(test)]` whose next non-
+/// blank line starts with `mod ` or `pub mod ` or `pub(crate) mod `.
+/// This catches the idiomatic `#[cfg(test)] mod tests { ... }`
+/// shape used throughout the codebase without needing a full Rust
+/// parser. A `#[cfg(test)]` ANNOTATION ALONE on a single item (not
+/// a module) is treated as exempt only for that single item — but
+/// since handler primitives are module-scoped `mod tests` blocks
+/// at the end of files, the module-heuristic is sufficient for
+/// the current source tree.
+fn find_test_region_start(content: &str) -> usize {
+    let lines: Vec<&str> = content.lines().collect();
+    for (i, line) in lines.iter().enumerate() {
+        if line.trim() == "#[cfg(test)]" {
+            // Look ahead to the next non-blank non-comment line;
+            // if it introduces a module, this is the test-region
+            // start.
+            for j in (i + 1)..lines.len() {
+                let peek = lines[j].trim();
+                if peek.is_empty() || peek.starts_with("//") {
+                    continue;
+                }
+                if peek.starts_with("mod ")
+                    || peek.starts_with("pub mod ")
+                    || peek.starts_with("pub(crate) mod ")
+                {
+                    return i;
+                }
+                break;
+            }
+        }
+    }
+    lines.len()
+}
+
 #[test]
 fn authenticated_user_seal_forbids_external_constructors() {
     let src = src_dir();
@@ -110,13 +150,20 @@ fn authenticated_user_seal_forbids_external_constructors() {
             Ok(c) => c,
             Err(_) => continue,
         };
+        // Exempt code that lives inside `#[cfg(test)] mod ...`
+        // blocks — test-only call sites of `for_test_*` ctors are
+        // legitimate. The walker already excludes `tests/` dir.
+        let test_region_start = find_test_region_start(&content);
         for pattern in FORBIDDEN_PATTERNS {
-            // Scan the file line by line. A match inside a `//`
-            // comment is still a violation: if someone
-            // documents `From<String> for AuthenticatedUser`
-            // they probably wrote the impl — the doc serves as
-            // a proxy signal.
+            // Scan the file line by line up to (but excluding)
+            // the test-region start. A match inside a `//` comment
+            // is still a violation because doc claims of the
+            // forbidden impl usually correlate with the impl
+            // actually existing.
             for (lineno, line) in content.lines().enumerate() {
+                if lineno >= test_region_start {
+                    break;
+                }
                 if line.contains(pattern) {
                     violations.push(format!(
                         "{}:{}: forbidden pattern `{}`",

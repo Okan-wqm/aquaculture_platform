@@ -617,3 +617,12 @@ path = "tests/invariants/rbac_hot_reload.rs"
 [[test]]
 name = "audit_pipeline"
 path = "tests/invariants/audit_pipeline.rs"
+
+# Batch #240 Faz 5 A-2a part 2 — AuthenticatedUser sealed-ctor
+# invariant (grep-enforced). Asserts no external constructor
+# path exists for the typed session principal (no From<&str>,
+# FromStr, TryFrom, Deserialize, or test-ctor reference in
+# production code).
+[[test]]
+name = "authenticated_user_sealed"
+path = "tests/invariants/authenticated_user_sealed.rs"

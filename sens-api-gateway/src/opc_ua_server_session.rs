@@ -72,8 +72,10 @@
 #![allow(dead_code)]
 
 use std::fmt;
+use std::sync::Arc;
 
 use crate::authz::context::ActorIdentity;
+use crate::authz::manifest_runtime::RbacManifestStore;
 use crate::authz::permission::OperatorId;
 
 /// Validated machine-issuer common name. Carries only the CN string
@@ -297,6 +299,117 @@ impl fmt::Display for SessionActorError {
 
 impl std::error::Error for SessionActorError {}
 
+/// Adapter that validates an [`AuthenticatedUser`] against the
+/// current RBAC manifest — Batch #240 Faz 5 (ultra-plan `A-2a`
+/// part 2 adapter).
+///
+/// ## Why resolver + primitive split
+///
+/// `AuthenticatedUser::to_actor_identity` is a **pure** conversion:
+/// it emits `ActorIdentity` from the typed principal without
+/// touching any external state. That's the right primitive shape
+/// because the authentication event (X.509 chain verify, UserPass
+/// Argon2id verify) happened at session-establish time — the
+/// principal is already authenticated by the time it reaches this
+/// code.
+///
+/// But authorization at write-time needs a fresh liveness check:
+/// the RBAC manifest MAY have hot-reloaded between session-establish
+/// and the write attempt. An operator revoked by a newer manifest
+/// must lose access on the next write even if their session stays
+/// open. The `OpcUaActorResolver` is the boundary where
+/// "authenticated at session-establish" meets "currently enrolled
+/// per the live manifest" — it reads the `RbacManifestStore` on
+/// every resolve call (scoped-read via `with_manifest`, Batch 223)
+/// so hot-reload propagates instantly.
+///
+/// ## Return shape
+///
+/// Returns the authz `ActorIdentity` on success. The downstream
+/// `PolicyEngine::authorize` then does the per-request check
+/// (tenant, policy version, permission match, role validity
+/// window). So the resolver's job is narrow: "is this principal
+/// enrolled right now?" — not "is this principal authorized for
+/// this specific command?"
+///
+/// The separation matters because enrollment is stable across
+/// commands in a session while authorization is per-command.
+/// Conflating them would mean re-running the whole authz chain at
+/// session-establish OR caching authz decisions (both wrong).
+pub struct OpcUaActorResolver {
+    manifest_store: Arc<RbacManifestStore>,
+}
+
+impl OpcUaActorResolver {
+    pub fn new(manifest_store: Arc<RbacManifestStore>) -> Self {
+        Self { manifest_store }
+    }
+
+    /// Validate the session principal is enrolled in the current
+    /// manifest + produce an `ActorIdentity` for downstream authz.
+    ///
+    /// - Anonymous → `AnonymousSessionRejected` (fail-closed;
+    ///   downstream never sees an anonymous `ActorIdentity`).
+    /// - UserPass → manifest lookup of `operator_bindings` by
+    ///   `operator_id`. Missing → `OperatorNotEnrolled`. Hit →
+    ///   `Ok(Operator)`.
+    /// - X509 → same operator_id lookup. CN carried through the
+    ///   `AuthenticatedUser` is informational at this layer; the
+    ///   binding decision is keyed on operator_id. Future manifest
+    ///   extension will add a `machine_issuers` table with explicit
+    ///   revocation timestamps + the resolver will cross-check CN
+    ///   → revoked_at (raised as `MachineIssuerRevoked`).
+    pub fn resolve(
+        &self,
+        user: &AuthenticatedUser,
+    ) -> Result<ActorIdentity, SessionActorError> {
+        // Short-circuit Anonymous BEFORE touching the manifest —
+        // anonymous never reaches an enrollment check.
+        if user.is_anonymous() {
+            return Err(SessionActorError::AnonymousSessionRejected);
+        }
+
+        // Extract operator_id via the principal's typed projection.
+        // The primitive's `to_actor_identity` already produces the
+        // right enum; we just cross-check enrollment.
+        let identity = user.to_actor_identity()?;
+        let operator_id = match &identity {
+            ActorIdentity::Operator(id) => id.clone(),
+            ActorIdentity::MachineIssuer { .. } => {
+                // Batch 223's InMemoryPolicyEngine denies
+                // MachineIssuer at gate 6 because the current
+                // manifest has no machine_issuers table. The
+                // resolver mirrors that semantic here: it does
+                // not claim to validate machine-issuer enrollment
+                // until the manifest schema carries that binding.
+                // Until then machine-issuer sessions surface as
+                // `MachineIssuer` with no extra enrollment check;
+                // the engine's gate 6 denies them downstream. The
+                // schema extension is tracked via ULTRA-HIGH-003
+                // follow-up work in Batch A-2b.
+                return Ok(identity);
+            }
+        };
+
+        // Scope-read manifest; enrollment = operator_id in
+        // operator_bindings.
+        let enrolled = self
+            .manifest_store
+            .with_manifest(|m| {
+                m.operator_bindings
+                    .iter()
+                    .any(|b| b.operator_id.as_bytes() == operator_id.as_bytes())
+            })
+            .unwrap_or(false); // empty store → not enrolled
+
+        if enrolled {
+            Ok(identity)
+        } else {
+            Err(SessionActorError::OperatorNotEnrolled)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -437,6 +550,160 @@ mod tests {
             assert!(s.contains(needle), "err={:?} needle={}", e, needle);
         }
     }
+
+    // ============================================================
+    // Batch #240 A-2a part 2 — OpcUaActorResolver tests
+    // ============================================================
+
+    use crate::authz::manifest::{
+        CustomRole, Ed25519PublicKeyBytes, OperatorBinding, RbacManifest,
+    };
+    use crate::authz::permission::{Permission, TenantId};
+
+    fn canned_tenant() -> TenantId {
+        TenantId::new_from_verified([0x42u8; 16])
+    }
+
+    fn canned_pubkey() -> Ed25519PublicKeyBytes {
+        Ed25519PublicKeyBytes::from_bytes([0xAAu8; 32])
+    }
+
+    /// Manifest with `canned_op_id()` enrolled under a single role.
+    fn manifest_with_canned_operator() -> RbacManifest {
+        RbacManifest {
+            policy_version: 10,
+            tenant_id: canned_tenant(),
+            manifest_valid_from_unix_secs: 1_000_000_000,
+            manifest_valid_until_unix_secs: 2_000_000_000,
+            operator_bindings: vec![OperatorBinding {
+                operator_id: canned_op_id(),
+                pubkey: canned_pubkey(),
+                role_names: vec!["observer".into()],
+            }],
+            roles: vec![CustomRole {
+                name: "observer".into(),
+                permissions: vec![Permission::ReadTag],
+                valid_from_unix_secs: 1_000_000_000,
+                valid_until_unix_secs: 2_000_000_000,
+                is_emergency_role: false,
+            }],
+        }
+    }
+
+    fn store_with(m: RbacManifest) -> Arc<RbacManifestStore> {
+        let s = Arc::new(RbacManifestStore::new());
+        s.test_set_manifest(m);
+        s
+    }
+
+    fn empty_store() -> Arc<RbacManifestStore> {
+        Arc::new(RbacManifestStore::new())
+    }
+
+    #[test]
+    fn resolver_rejects_anonymous_without_touching_manifest() {
+        // Even an empty store must not be consulted for anonymous;
+        // the resolver short-circuits at the seal layer.
+        let r = OpcUaActorResolver::new(empty_store());
+        let u = AuthenticatedUser::for_test_anonymous();
+        match r.resolve(&u) {
+            Err(SessionActorError::AnonymousSessionRejected) => {}
+            other => panic!("expected AnonymousSessionRejected, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn resolver_returns_operator_for_enrolled_user_pass() {
+        let r = OpcUaActorResolver::new(store_with(manifest_with_canned_operator()));
+        let u = AuthenticatedUser::for_test_user_pass(canned_op_id());
+        match r.resolve(&u) {
+            Ok(ActorIdentity::Operator(got)) => {
+                assert_eq!(got.as_bytes(), canned_op_id().as_bytes());
+            }
+            other => panic!("expected Operator, got {:?}", other.as_ref().err()),
+        }
+    }
+
+    #[test]
+    fn resolver_rejects_unenrolled_user_pass() {
+        let r = OpcUaActorResolver::new(store_with(manifest_with_canned_operator()));
+        // Stranger operator_id — not in the manifest's operator_bindings.
+        let stranger = OperatorId::new_from_verified([0xDEu8; 16]);
+        let u = AuthenticatedUser::for_test_user_pass(stranger);
+        match r.resolve(&u) {
+            Err(SessionActorError::OperatorNotEnrolled) => {}
+            other => panic!("expected OperatorNotEnrolled, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn resolver_rejects_when_manifest_empty() {
+        // Empty store → operator cannot be enrolled → rejected.
+        // This is the pre-provisioning / manifest-unverified path
+        // — the engine will also deny but the resolver fail-fast
+        // avoids a needless PolicyEngine round-trip.
+        let r = OpcUaActorResolver::new(empty_store());
+        let u = AuthenticatedUser::for_test_user_pass(canned_op_id());
+        match r.resolve(&u) {
+            Err(SessionActorError::OperatorNotEnrolled) => {}
+            other => panic!("expected OperatorNotEnrolled, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn resolver_passes_x509_through_to_downstream_without_enrollment_check() {
+        // Per module doc: current manifest schema has no
+        // machine_issuers table; X509 passes through as
+        // MachineIssuer + the engine's gate 6 denies it. When the
+        // schema extends, this test changes + machine-issuer
+        // enrollment becomes the resolver's concern.
+        let r = OpcUaActorResolver::new(store_with(manifest_with_canned_operator()));
+        let cn = MachineIssuerCn::from_verified_cert_cn("auth-service".into()).unwrap();
+        let u = AuthenticatedUser::for_test_x509(cn, canned_op_id());
+        match r.resolve(&u) {
+            Ok(ActorIdentity::MachineIssuer { subject_cn }) => {
+                assert_eq!(subject_cn, "auth-service");
+            }
+            other => panic!("expected MachineIssuer, got {:?}", other.as_ref().err()),
+        }
+    }
+
+    #[test]
+    fn resolver_hot_reload_revokes_previously_enrolled_operator() {
+        // Critical liveness check: manifest hot-reload between
+        // session-establish and write-attempt MUST revoke a
+        // removed operator on the next resolve. This models the
+        // ADR-018 operator-revocation contract.
+        let store = Arc::new(RbacManifestStore::new());
+        store.test_set_manifest(manifest_with_canned_operator());
+        let r = OpcUaActorResolver::new(store.clone());
+        let u = AuthenticatedUser::for_test_user_pass(canned_op_id());
+
+        // First resolve: enrolled.
+        assert!(matches!(r.resolve(&u), Ok(ActorIdentity::Operator(_))));
+
+        // Simulate manifest hot-reload that drops the operator.
+        let revoked_manifest = RbacManifest {
+            policy_version: 11,
+            operator_bindings: vec![], // canned_op_id removed
+            ..manifest_with_canned_operator()
+        };
+        store.test_set_manifest(revoked_manifest);
+
+        // Second resolve (same AuthenticatedUser, no session
+        // re-establish): now rejects.
+        match r.resolve(&u) {
+            Err(SessionActorError::OperatorNotEnrolled) => {}
+            other => panic!(
+                "expected OperatorNotEnrolled after revocation, got {:?}",
+                other
+            ),
+        }
+    }
+
+    // ============================================================
+    // Sealed-ctor invariants (grep-enforced gate convention)
+    // ============================================================
 
     #[test]
     fn authenticated_user_has_no_public_constructor_from_string() {

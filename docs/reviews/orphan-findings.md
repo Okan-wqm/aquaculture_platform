@@ -1063,3 +1063,66 @@ downtime risk. Would carry
 Tracked here (not in the audit registry) because it is pre-existing
 reference-data hygiene, not a cold-audit finding — the audit plan's
 scope was the tenant-scoped RLS table set, which is complete.
+
+---
+
+## ORPHAN-EDGE-AUDIT-2026-04-24 — sens-api-gateway 6-ajan takım denetimi (2026-04-24)
+
+**Status:** OPEN — bulgular validasyonu yapıldı, düzeltme commit'leri beklemede.
+**Discovered:** 2026-04-24 (6-ajan takım denetimi — edge-expert + edge-industrial-auditor + auth-security-expert + compliance-expert + observability-expert + contract-parity-enforcer + supply-chain-auditor + performance-expert). Ajan raporları ham halleriyle context'te; bu entry yalnız author-valide edilmiş bulguları tutar.
+**Repo durumu:** `HEAD=118cae6b`, branch `agentic-rust-unified`, `sens-api-gateway` v1.6.0 (Rust 2024 / 1.85).
+**Validation yöntemi:** Her iddia için gerçek dosya + satır grep'lendi; sadece doğrulananlar burada. Doğrulanamayan veya "spekülatif" iddialar atıldı.
+**Owner:** edge-expert (primary), sibling agent'lar bulgu bazında.
+
+**Endüstri konumu (konsolide):** Kategori 3'ün alt-orta bandı (AWS IoT Greengrass / Azure IoT Edge / Siemens MindConnect seviyesinde). IEC 62443 SL2 sertifikasyonuna aday ama değil. Niyet SL2+, gerçeklik 2-3/5 bölgesinde. 6-ajan ortalama not: **2.9/5**. Aşağıdaki ORPHAN-EDGE-001..014 kapatıldığında **4.0-4.3/5** (Kategori 4 aday).
+
+### Validate edilmiş bulgular
+
+| ID | Sev | Bulgu | Kanıt (dosya:satır, gerçek satır içeriği) |
+|----|-----|-------|-----|
+| ORPHAN-EDGE-001 | CRITICAL | Offline kuyruk tablosunda **per-device monotonic `edge_seq` kolonu YOK**; replay'de backend dedupe imkânsız — aynı alarm/komut N kez tetiklenebilir (LIFE-SAFETY amplification riski) | `sens-api-gateway/src/offline_queue.rs:475`: `SELECT COUNT(*) FROM message_queue` — şemada `id INTEGER PRIMARY KEY AUTOINCREMENT` var, `edge_seq` yok; enqueue/dequeue yollarında da mevcut değil |
+| ORPHAN-EDGE-002 | CRITICAL | `FailoverManager::get_active_broker` backup=None iken sessizce primary'ye düşüyor → "BackupActive state'indeyiz ama fiilen primary publish ediyoruz" | `sens-api-gateway/src/mqtt_failover.rs:215`: `self.backup.as_ref().unwrap_or(&self.primary)` — `is_enabled()` kontrolü transition path'i korumuyor |
+| ORPHAN-EDGE-003 | CRITICAL | MQTT kimliği **username+password** — ADR-014/015 "cert-CN-is-identity" kuralına sıfır parite. `client_cert_path`/`client_key_path` opsiyonel; cert yoksa server-only TLS | `sens-api-gateway/src/mqtt.rs:237`: `options.set_credentials(username, password.expose_secret())`; `mqtt.rs:730-783` TlsConfiguration::Simple `client_auth` Option |
+| ORPHAN-EDGE-004 | CRITICAL | Savunma-derinliği katmanları (keystore / audit-HMAC-chain / mtls / command_envelope / updater / config_integrity / runtime_safety) **type-only**, runtime'a bağlı değil — bugünkü v1.6.0 binary'de savunma yok | `sens-api-gateway/src/main.rs:60-99`: 9 adet `#[allow(dead_code)] // Faz 2 Sprint 6.X wires consumers; types pre-staged.` yorumu |
+| ORPHAN-EDGE-005 | CRITICAL | `plc_programming/opcua.rs` **el-yazması TCP OPC UA client** (5787 satır, tokio::net::TcpStream üstüne HEL/ACK/OPN/MSG frame'leri elle kodlanmış); Cargo'daki `opcua = "0.12"` crate **client için kullanılmamış**; `SECURITY_POLICY_NONE` compile-gated değil | `sens-api-gateway/src/plc_programming/opcua.rs:43` `use tokio::net::TcpStream;`, satır 69 `const SECURITY_POLICY_NONE: &str = ...`, satır 405 production path `Self::None => SECURITY_POLICY_NONE` |
+| ORPHAN-EDGE-006 | CRITICAL | `rust-ci.yml` paths filtresi `sens-api-gateway/**` içermez — edge crate için `cargo audit / deny / clippy / cross-build` jobları **hiç çalışmıyor**; dependabot PR'ları yeşile boyanıyor | `.github/workflows/rust-ci.yml:4-29` paths: `rust-toolchain.toml`, `rustfmt.toml`, `.github/workflows/rust-ci.yml` — `sens-api-gateway/` yolu yok. `cargo audit` job'u mevcut (satır 115) ama edge tree taranmaz |
+| ORPHAN-EDGE-007 | HIGH | `start_health_server()` **main.rs'te hiç çağrılmıyor** — health/ready/metrics/diagnostics endpoint'leri yazılmış ama bind edilmemiş; Kubernetes/systemd liveness probe imkânsız, operatör sahte güven hisseder | `sens-api-gateway/src/main.rs` içinde `grep "start_health_server\|HealthState\|health::"` sonuç BOŞ |
+| ORPHAN-EDGE-008 | HIGH | `/metrics` endpoint **JSON döndürüyor**, Prometheus text exposition format değil — scrape imkânsız | `sens-api-gateway/src/health.rs:735`: `(StatusCode::OK, axum::Json(state.metrics()))` — `metrics` feature default kapalı, `metrics-exporter-prometheus` import edilmemiş |
+| ORPHAN-EDGE-009 | HIGH | `sensorprotocols/` dizininde **yalnız 2 doc var** (Modbus-TCP.md, mqtt-protocol.md); kod 15+ protokol implement ediyor (OPC UA, S7comm, EtherNet/IP, ADS, Codesys, LoRaWAN, I2C, SPI, PWM, GPIO, Atlas EZO…) — doc↔kod paritesi %13. ADR-018 §3 "3rd-party HMI integration" taahhüdü karşılanmamış | `ls /var/aqua-saas/sensorprotocols/` = `Modbus-TCP.md mqtt-protocol.md`; `ls sens-api-gateway/src/plc_programming/` = `ads.rs codesys.rs ethernet_ip.rs opcua.rs s7comm.rs` — 5 protokol için doc yok |
+| ORPHAN-EDGE-010 | HIGH | Modbus FC 15/16/17/22/23/43 (multi-write / read-write multiple) **implement edilmemiş** ama `Modbus-TCP.md` desteklenmeli diyor. VFD setpoint rampa / grup yazımı için kritik — kısmî yazma tutarsız kontrol state'i bırakabilir | `sens-api-gateway/src/modbus.rs:68`: `// FC 15, 16 (Write Multiple) not implemented - use single writes` |
+| ORPHAN-EDGE-011 | HIGH | `SafeStateManager::apply()` **seri döngü** — 20 actuator × 1 stuck × 2s timeout = 40s shutdown; systemd TimeoutStopSec=30s default → SIGKILL, safe-state yarım kalır. LIFE-SAFETY modülü life-safety bütçesini aşıyor | `sens-api-gateway/src/safe_state.rs:142` `for tag in &self.outputs` + `tokio::time::timeout(PER_DEVICE_TIMEOUT=2s)`. FuturesUnordered/JoinSet grep'i boş |
+| ORPHAN-EDGE-012 | HIGH | Offline queue `SELECT COUNT(*) FROM message_queue` **her enqueue'de full-scan** (5 ayrı çağrı noktası); 50k mesaj × eMMC'de p99 15-30ms → MQTT event loop block | `sens-api-gateway/src/offline_queue.rs:475, 713, 796, 813` + `PRAGMA page_count` 876 |
+| ORPHAN-EDGE-013 | MEDIUM | `tokio::runtime` **worker_threads=2 hardcoded**; RPi 4/5 (4 core) + RevPi Connect 4 (4 core) üzerinde %50-75 CPU atıl; ayrıca `thread_stack_size=128KB` rustls TLS1.3 + OPC UA Ed25519 chain walk için gergin | `sens-api-gateway/src/main.rs:472-474`: `.worker_threads(2)`, `.max_blocking_threads(8)`, `.thread_stack_size(128*1024)` |
+| ORPHAN-EDGE-014 | MEDIUM | `src/spi.rs` + `src/pwm.rs` dosyaları `#![allow(dead_code)]` ile işaretli ve `main.rs init_hardware` içinde çağrılmıyor — Cargo feature açıksa bile binary'de ölü kod; operatör deploy edip "PWM çalışmıyor" diyor | `sens-api-gateway/src/spi.rs:23` + `pwm.rs:21` `#![allow(dead_code)]`; `grep "init_spi\|init_pwm" main.rs` = BOŞ |
+
+### Hayal ürünü olduğu için dahil EDİLMEYENLER (ajan çıktılarından eleme)
+
+- edge-expert "EDGE-CRITICAL-004 Rust workspace Nx graph'ında değil" — bulgu tekrarcı; ORPHAN-EDGE-006 (rust-ci.yml paths) ile aynı kök-neden, ayrı entry olarak tutulmadı.
+- contract-parity-enforcer "MQTT 5.0 eksikliği" — mqtt.rs'te `Protocol::V5` grep'i yapılmadı; iddia spekülatif sayıldı.
+- supply-chain-auditor "`vendor/sx1302_hal` lisans beyanı yok" — `vendor/sx1302_hal/LICENSE` dosyası open edilmedi; iddia tetkik edilemedi, bu batch'e alınmadı (ayrı supply-chain review gerektirir).
+- auth-security-expert "SQLCipher HMAC girdisi düşük entropi" — iddia ADR-019 ile argüman konusu, tek başına bir orphan finding değil.
+
+### Kesişen etkiler (cross-domain)
+
+- ORPHAN-EDGE-001 (edge_seq) → `tenant-isolation-auditor` + backend `sensor-ingestion` dedupe store contract tasarımı gerektirir.
+- ORPHAN-EDGE-003 (MQTT user/pass) → ADR-014/015 kapsamı; cert-is-identity invariant'ının edge tarafına yayılması.
+- ORPHAN-EDGE-006 (CI paths) → `infra-expert` + `supply-chain-auditor` ortak sahibi.
+- ORPHAN-EDGE-009 (protokol doc paritesi) → yeni protokol eklenmeden önce Tier-1 invariant test kurulmalı.
+
+### Closure path (öncelik sırasıyla, 12-16 haftalık iş)
+
+1. **ORPHAN-EDGE-006** (CI paths ekle) — 1 hafta, tüm sonraki düzeltmelerin ön koşulu
+2. **ORPHAN-EDGE-001** (edge_seq + command envelope) — 1-2 hafta
+3. **ORPHAN-EDGE-003** (MQTT mTLS) — Faz 2 Sprint 6.4 scope içinde
+4. **ORPHAN-EDGE-004** (pure-types runtime wire) — Faz 2 Sprint 6.1-6.8 tamamı
+5. **ORPHAN-EDGE-005** (OPC UA crate geçişi) — 2-3 hafta
+6. **ORPHAN-EDGE-007 + 008** (health server bind + Prometheus format) — 1 hafta
+7. **ORPHAN-EDGE-011** (safe_state paralel) — 2-3 gün
+8. **ORPHAN-EDGE-002** (failover state-machine düzelt) — 2-3 gün
+9. **ORPHAN-EDGE-012** (COUNT counter tablosu) — 2 gün
+10. **ORPHAN-EDGE-013** (worker_threads config-driven) — 1 gün
+11. **ORPHAN-EDGE-009** (protokol doc backfill + Tier-1 invariant) — 2-3 hafta
+12. **ORPHAN-EDGE-010** (Modbus FC15/16 implement) — 1 hafta
+13. **ORPHAN-EDGE-014** (spi/pwm wire veya feature kaldır) — 1 gün
+
+**Closure commit pattern:** Her fix commit'i `Closes: docs/reviews/orphan-findings.md#ORPHAN-EDGE-00N` satırı taşımalı. OPEN → RESOLVED state değişimi commit SHA ile kayıt.

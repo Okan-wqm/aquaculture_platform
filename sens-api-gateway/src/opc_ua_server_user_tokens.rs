@@ -85,6 +85,7 @@ use secrecy::{ExposeSecret, Secret};
 use unicode_normalization::UnicodeNormalization;
 
 use crate::authz::permission::OperatorId;
+use crate::authz::user_token_manifest::UserTokenManifest;
 use crate::opc_ua_server_session::MachineIssuerCn;
 
 /// Minimum acceptable username length (bytes after normalization).
@@ -343,6 +344,112 @@ impl UserTokenEnrollment {
         }
     }
 
+    /// Build an enrollment from a verified [`UserTokenManifest`] (Batch
+    /// #243 wire format). Every raw-string binding in the manifest is
+    /// walked through the Batch #242 validator newtypes; the first
+    /// malformed entry rejects the whole build (fail-closed — partial
+    /// enrollment would silently drop enrolled operators and produce
+    /// CredentialMismatch where valid auth should succeed).
+    ///
+    /// **Duplicate detection** — two defensive checks that catch signer-
+    /// side bugs the manifest verifier cannot catch:
+    ///
+    /// - Two user-pass bindings with the same normalized username →
+    ///   `DuplicateNormalizedUsername`. Cloud policy ambiguity; the
+    ///   edge cannot know which OperatorId the login should resolve to.
+    /// - Two x509 bindings with the same issuer_cn →
+    ///   `DuplicateIssuerCn`. Same ambiguity for machine-issuer paths.
+    ///
+    /// An OperatorId MAY legitimately appear in BOTH a user-pass
+    /// binding AND an x509 binding — that represents one operator with
+    /// two enrolled auth mechanisms (typed login + machine cert). Not a
+    /// collision.
+    ///
+    /// ## Why the manifest must already be verified
+    ///
+    /// `from_manifest` takes `&UserTokenManifest`, not
+    /// `&SignedUserTokenManifest`. The signed envelope seal (Batch #243
+    /// `pub(crate) manifest` field) means the only way to obtain a
+    /// non-sealed `UserTokenManifest` is through
+    /// `verify_user_token_manifest`, which runs all 7 gates (tenant +
+    /// version + expiry + signature). This builder is therefore the
+    /// post-verify build step — it trusts the body came from the
+    /// verifier and focuses exclusively on typed-newtype validation +
+    /// duplicate detection.
+    pub fn from_manifest(
+        manifest: &UserTokenManifest,
+    ) -> Result<Self, EnrollmentBuildError> {
+        let mut user_pass: Vec<OperatorUserPassBinding> =
+            Vec::with_capacity(manifest.user_pass_bindings.len());
+
+        for raw in &manifest.user_pass_bindings {
+            let username = NormalizedUsername::from_raw(&raw.username_normalized)
+                .map_err(|e| EnrollmentBuildError::UsernameInvalid {
+                    operator_id: raw.operator_id.clone(),
+                    reason: e,
+                })?;
+
+            // Duplicate-normalized-username check — run BEFORE the
+            // Argon2id parse (which is the expensive step) so a signer
+            // bug that duplicates a username rejects cheaply.
+            if user_pass.iter().any(|b| b.username == username) {
+                return Err(EnrollmentBuildError::DuplicateNormalizedUsername {
+                    username: username.as_str().to_string(),
+                });
+            }
+
+            let credential_hash =
+                Argon2idHash::from_phc(raw.argon2id_phc.clone()).map_err(
+                    |e| EnrollmentBuildError::HashInvalid {
+                        operator_id: raw.operator_id.clone(),
+                        reason: e,
+                    },
+                )?;
+
+            user_pass.push(OperatorUserPassBinding {
+                username,
+                credential_hash,
+                operator_id: raw.operator_id.clone(),
+            });
+        }
+
+        let mut x509: Vec<MachineIssuerX509Binding> =
+            Vec::with_capacity(manifest.x509_bindings.len());
+
+        for raw in &manifest.x509_bindings {
+            let issuer_cn = MachineIssuerCn::from_verified_cert_cn(
+                raw.issuer_cn.clone(),
+            )
+            .map_err(|_| EnrollmentBuildError::IssuerCnInvalid {
+                operator_id: raw.operator_id.clone(),
+            })?;
+
+            // Duplicate-issuer-CN check — same ambiguity defense as
+            // user-pass duplicates; runs before the DER parse.
+            if x509.iter().any(|b| b.issuer_cn == issuer_cn) {
+                return Err(EnrollmentBuildError::DuplicateIssuerCn {
+                    issuer_cn: raw.issuer_cn.clone(),
+                });
+            }
+
+            let trust_anchor =
+                X509CertDer::from_der(raw.trust_anchor_der.clone()).map_err(
+                    |e| EnrollmentBuildError::TrustAnchorInvalid {
+                        operator_id: raw.operator_id.clone(),
+                        reason: e,
+                    },
+                )?;
+
+            x509.push(MachineIssuerX509Binding {
+                issuer_cn,
+                trust_anchor,
+                operator_id: raw.operator_id.clone(),
+            });
+        }
+
+        Ok(Self { user_pass, x509 })
+    }
+
     /// Look up the X.509 binding for a presented CN. Returns
     /// `OperatorId` when the CN matches + the trust_anchor bytes
     /// equal the caller-provided bytes. Trust-anchor comparison
@@ -415,6 +522,97 @@ impl fmt::Display for UserTokenError {
 }
 
 impl std::error::Error for UserTokenError {}
+
+/// Error taxonomy for [`UserTokenEnrollment::from_manifest`] build-time
+/// validation. Distinct from [`UserTokenError`] because build-time
+/// errors identify WHICH binding was malformed (audit / operator
+/// diagnostic) — the runtime `verify_user_pass` / `resolve_x509` path
+/// deliberately COLLAPSES any per-operator distinction into
+/// `CredentialMismatch` to defend against enumeration.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EnrollmentBuildError {
+    /// A user-pass binding carried a username that failed
+    /// [`NormalizedUsername::from_raw`] validation. Signer-side bug —
+    /// cloud should reject malformed usernames before sign.
+    UsernameInvalid {
+        operator_id: OperatorId,
+        reason: UserTokenError,
+    },
+
+    /// A user-pass binding carried a PHC-format hash that failed
+    /// [`Argon2idHash::from_phc`] validation. Signer-side bug.
+    HashInvalid {
+        operator_id: OperatorId,
+        reason: UserTokenError,
+    },
+
+    /// Two user-pass bindings resolved to the same NFKC-normalized
+    /// username. Edge cannot pick one — policy ambiguity.
+    DuplicateNormalizedUsername { username: String },
+
+    /// An x509 binding carried an empty / malformed issuer CN.
+    IssuerCnInvalid { operator_id: OperatorId },
+
+    /// Two x509 bindings carry the same issuer CN.
+    DuplicateIssuerCn { issuer_cn: String },
+
+    /// An x509 binding's trust_anchor_der failed DER prefix / min
+    /// length validation.
+    TrustAnchorInvalid {
+        operator_id: OperatorId,
+        reason: UserTokenError,
+    },
+}
+
+impl fmt::Display for EnrollmentBuildError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::UsernameInvalid { operator_id, reason } => {
+                write!(
+                    f,
+                    "user_pass_binding_username_invalid (operator_id={:?}): {}",
+                    operator_id.as_bytes(),
+                    reason
+                )
+            }
+            Self::HashInvalid { operator_id, reason } => {
+                write!(
+                    f,
+                    "user_pass_binding_hash_invalid (operator_id={:?}): {}",
+                    operator_id.as_bytes(),
+                    reason
+                )
+            }
+            Self::DuplicateNormalizedUsername { username } => {
+                write!(
+                    f,
+                    "duplicate_normalized_username (username={})",
+                    username
+                )
+            }
+            Self::IssuerCnInvalid { operator_id } => {
+                write!(
+                    f,
+                    "x509_binding_issuer_cn_invalid (operator_id={:?})",
+                    operator_id.as_bytes()
+                )
+            }
+            Self::DuplicateIssuerCn { issuer_cn } => {
+                write!(f, "duplicate_issuer_cn (issuer_cn={})", issuer_cn)
+            }
+            Self::TrustAnchorInvalid { operator_id, reason } => {
+                write!(
+                    f,
+                    "x509_binding_trust_anchor_invalid (operator_id={:?}): {}",
+                    operator_id.as_bytes(),
+                    reason
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for EnrollmentBuildError {}
 
 #[cfg(test)]
 mod tests {
@@ -743,5 +941,357 @@ mod tests {
             let s = format!("{}", e);
             assert!(s.contains(needle), "err `{}` missing `{}`", s, needle);
         }
+    }
+
+    // ========================================================
+    // UserTokenEnrollment::from_manifest — Batch #244
+    // ========================================================
+
+    use crate::authz::permission::TenantId;
+    use crate::authz::user_token_manifest::{
+        UserPassManifestBinding, UserTokenManifest, X509ManifestBinding,
+    };
+
+    fn tenant_aa() -> TenantId {
+        TenantId::new_from_verified([0xAA; 16])
+    }
+
+    /// A PHC-format Argon2id hash produced at test build time against
+    /// the password "pw-alice" + a canned salt. Generated via the
+    /// test-only `Argon2idHash::for_test_hash` helper so we don't embed
+    /// a canned string that rots on argon2 crate upgrades.
+    fn alice_phc() -> String {
+        Argon2idHash::for_test_hash(
+            b"pw-alice",
+            "c2FsdHNhbHRzYWx0", // b64 of "saltsaltsalt"
+        )
+        .unwrap()
+        .as_phc()
+        .to_string()
+    }
+
+    fn bob_phc() -> String {
+        // Raw b64 (no padding) of "saltsaltbob" (11 bytes). The argon2
+        // password-hash SaltString ctor rejects padded b64 — keep the
+        // salt encoding padding-free.
+        Argon2idHash::for_test_hash(b"pw-bob", "c2FsdHNhbHRib2I")
+            .unwrap()
+            .as_phc()
+            .to_string()
+    }
+
+    fn canned_manifest() -> UserTokenManifest {
+        UserTokenManifest {
+            policy_version: 1,
+            tenant_id: tenant_aa(),
+            manifest_valid_from_unix_secs: 1_700_000_000,
+            manifest_valid_until_unix_secs: 1_800_000_000,
+            user_pass_bindings: vec![UserPassManifestBinding {
+                operator_id: canned_operator(),
+                username_normalized: "alice".to_string(),
+                argon2id_phc: alice_phc(),
+            }],
+            x509_bindings: vec![X509ManifestBinding {
+                operator_id: other_operator(),
+                issuer_cn: "ignition-hmi-01".to_string(),
+                trust_anchor_der: canned_der(0x30, 256),
+            }],
+        }
+    }
+
+    #[test]
+    fn from_manifest_builds_happy_path_with_both_mechanisms() {
+        let m = canned_manifest();
+        let e = UserTokenEnrollment::from_manifest(&m).unwrap();
+        assert_eq!(e.user_pass_count(), 1);
+        assert_eq!(e.x509_count(), 1);
+
+        // Roundtrip: built enrollment should verify the alice password.
+        let op = e
+            .verify_user_pass(
+                "alice",
+                &Secret::new(b"pw-alice".to_vec()),
+            )
+            .unwrap();
+        assert_eq!(op, canned_operator());
+
+        // Roundtrip: built enrollment should resolve the x509 binding.
+        let op = e
+            .resolve_x509(&canned_cn("ignition-hmi-01"), &canned_der(0x30, 256))
+            .unwrap();
+        assert_eq!(op, other_operator());
+    }
+
+    #[test]
+    fn from_manifest_empty_produces_empty_enrollment() {
+        let mut m = canned_manifest();
+        m.user_pass_bindings.clear();
+        m.x509_bindings.clear();
+        let e = UserTokenEnrollment::from_manifest(&m).unwrap();
+        assert_eq!(e.user_pass_count(), 0);
+        assert_eq!(e.x509_count(), 0);
+
+        // Every auth attempt against an empty enrollment must fail
+        // with CredentialMismatch.
+        let r = e.verify_user_pass(
+            "alice",
+            &Secret::new(b"pw-alice".to_vec()),
+        );
+        assert_eq!(r, Err(UserTokenError::CredentialMismatch));
+    }
+
+    #[test]
+    fn from_manifest_rejects_malformed_username() {
+        let mut m = canned_manifest();
+        m.user_pass_bindings[0].username_normalized = "".to_string();
+        let err = UserTokenEnrollment::from_manifest(&m).unwrap_err();
+        match err {
+            EnrollmentBuildError::UsernameInvalid {
+                operator_id,
+                reason,
+            } => {
+                assert_eq!(operator_id, canned_operator());
+                assert_eq!(reason, UserTokenError::UsernameEmpty);
+            }
+            other => panic!("wrong variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn from_manifest_rejects_malformed_username_too_long() {
+        let mut m = canned_manifest();
+        m.user_pass_bindings[0].username_normalized = "a".repeat(200);
+        let err = UserTokenEnrollment::from_manifest(&m).unwrap_err();
+        match err {
+            EnrollmentBuildError::UsernameInvalid { reason, .. } => match reason
+            {
+                UserTokenError::UsernameTooLong { got } => {
+                    assert_eq!(got, 200);
+                }
+                other => panic!("wrong inner reason: {:?}", other),
+            },
+            other => panic!("wrong variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn from_manifest_rejects_malformed_phc() {
+        let mut m = canned_manifest();
+        m.user_pass_bindings[0].argon2id_phc = "not-a-phc-string".to_string();
+        let err = UserTokenEnrollment::from_manifest(&m).unwrap_err();
+        match err {
+            EnrollmentBuildError::HashInvalid {
+                operator_id,
+                reason,
+            } => {
+                assert_eq!(operator_id, canned_operator());
+                match reason {
+                    UserTokenError::HashFormatInvalid { .. } => {}
+                    other => panic!("wrong inner reason: {:?}", other),
+                }
+            }
+            other => panic!("wrong variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn from_manifest_rejects_duplicate_normalized_username() {
+        let mut m = canned_manifest();
+        // Two user-pass bindings with the SAME normalized username but
+        // different operator_ids — ambiguous, reject.
+        m.user_pass_bindings.push(UserPassManifestBinding {
+            operator_id: other_operator(),
+            username_normalized: "alice".to_string(),
+            argon2id_phc: bob_phc(),
+        });
+        let err = UserTokenEnrollment::from_manifest(&m).unwrap_err();
+        match err {
+            EnrollmentBuildError::DuplicateNormalizedUsername { username } => {
+                assert_eq!(username, "alice");
+            }
+            other => panic!("wrong variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn from_manifest_duplicate_detection_uses_nfkc_normalized_form() {
+        let mut m = canned_manifest();
+        // Cyrillic "a" (U+0430) — after NFKC + lowercase it's distinct
+        // from ASCII "a" in raw form but both normalize via the lower-
+        // case fold. Cyrillic "а" stays as U+0430 (it IS lowercase).
+        // To force a collision, use a clearly-compatibility-equivalent
+        // Latin capital: "ALICE" (NFKC + lowercase → "alice").
+        m.user_pass_bindings.push(UserPassManifestBinding {
+            operator_id: other_operator(),
+            username_normalized: "ALICE".to_string(),
+            argon2id_phc: bob_phc(),
+        });
+        let err = UserTokenEnrollment::from_manifest(&m).unwrap_err();
+        match err {
+            EnrollmentBuildError::DuplicateNormalizedUsername { username } => {
+                assert_eq!(username, "alice");
+            }
+            other => panic!("wrong variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn from_manifest_rejects_empty_issuer_cn() {
+        let mut m = canned_manifest();
+        m.x509_bindings[0].issuer_cn = "".to_string();
+        let err = UserTokenEnrollment::from_manifest(&m).unwrap_err();
+        match err {
+            EnrollmentBuildError::IssuerCnInvalid { operator_id } => {
+                assert_eq!(operator_id, other_operator());
+            }
+            other => panic!("wrong variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn from_manifest_rejects_malformed_trust_anchor() {
+        let mut m = canned_manifest();
+        // Replace 0x30 SEQUENCE prefix with 0x00 → X509NotDerSequence.
+        m.x509_bindings[0].trust_anchor_der = canned_der(0x00, 256);
+        let err = UserTokenEnrollment::from_manifest(&m).unwrap_err();
+        match err {
+            EnrollmentBuildError::TrustAnchorInvalid {
+                operator_id,
+                reason,
+            } => {
+                assert_eq!(operator_id, other_operator());
+                match reason {
+                    UserTokenError::X509NotDerSequence { got_prefix } => {
+                        assert_eq!(got_prefix, 0x00);
+                    }
+                    other => panic!("wrong inner reason: {:?}", other),
+                }
+            }
+            other => panic!("wrong variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn from_manifest_rejects_too_short_trust_anchor() {
+        let mut m = canned_manifest();
+        // Minimum length is MIN_DER_LEN = 128; 64 bytes triggers
+        // X509DerTooShort.
+        m.x509_bindings[0].trust_anchor_der = canned_der(0x30, 64);
+        let err = UserTokenEnrollment::from_manifest(&m).unwrap_err();
+        match err {
+            EnrollmentBuildError::TrustAnchorInvalid { reason, .. } => {
+                match reason {
+                    UserTokenError::X509DerTooShort { got, .. } => {
+                        assert_eq!(got, 64);
+                    }
+                    other => panic!("wrong inner reason: {:?}", other),
+                }
+            }
+            other => panic!("wrong variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn from_manifest_rejects_duplicate_issuer_cn() {
+        let mut m = canned_manifest();
+        m.x509_bindings.push(X509ManifestBinding {
+            operator_id: canned_operator(),
+            issuer_cn: "ignition-hmi-01".to_string(),
+            trust_anchor_der: canned_der(0x30, 300),
+        });
+        let err = UserTokenEnrollment::from_manifest(&m).unwrap_err();
+        match err {
+            EnrollmentBuildError::DuplicateIssuerCn { issuer_cn } => {
+                assert_eq!(issuer_cn, "ignition-hmi-01");
+            }
+            other => panic!("wrong variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn from_manifest_accepts_same_operator_in_user_pass_and_x509() {
+        // One operator MAY legitimately enroll via both mechanisms.
+        // Build must succeed.
+        let mut m = canned_manifest();
+        m.x509_bindings[0].operator_id = canned_operator();
+        let e = UserTokenEnrollment::from_manifest(&m).unwrap();
+        assert_eq!(e.user_pass_count(), 1);
+        assert_eq!(e.x509_count(), 1);
+    }
+
+    #[test]
+    fn from_manifest_accepts_multi_operator_enrollment() {
+        let mut m = canned_manifest();
+        m.user_pass_bindings.push(UserPassManifestBinding {
+            operator_id: other_operator(),
+            username_normalized: "bob".to_string(),
+            argon2id_phc: bob_phc(),
+        });
+        m.x509_bindings.push(X509ManifestBinding {
+            operator_id: canned_operator(),
+            issuer_cn: "uaexpert-lab".to_string(),
+            trust_anchor_der: canned_der(0x30, 300),
+        });
+        let e = UserTokenEnrollment::from_manifest(&m).unwrap();
+        assert_eq!(e.user_pass_count(), 2);
+        assert_eq!(e.x509_count(), 2);
+
+        // Both bindings resolve.
+        assert_eq!(
+            e.verify_user_pass("alice", &Secret::new(b"pw-alice".to_vec()))
+                .unwrap(),
+            canned_operator()
+        );
+        assert_eq!(
+            e.verify_user_pass("bob", &Secret::new(b"pw-bob".to_vec()))
+                .unwrap(),
+            other_operator()
+        );
+        assert_eq!(
+            e.resolve_x509(
+                &canned_cn("ignition-hmi-01"),
+                &canned_der(0x30, 256)
+            )
+            .unwrap(),
+            other_operator()
+        );
+        assert_eq!(
+            e.resolve_x509(&canned_cn("uaexpert-lab"), &canned_der(0x30, 300))
+                .unwrap(),
+            canned_operator()
+        );
+    }
+
+    #[test]
+    fn from_manifest_fail_closed_on_any_binding_error() {
+        // First binding OK, second binding malformed → whole build
+        // rejects (no partial enrollment).
+        let mut m = canned_manifest();
+        m.user_pass_bindings.push(UserPassManifestBinding {
+            operator_id: other_operator(),
+            username_normalized: "bob".to_string(),
+            argon2id_phc: "corrupted-phc".to_string(),
+        });
+        let err = UserTokenEnrollment::from_manifest(&m).unwrap_err();
+        match err {
+            EnrollmentBuildError::HashInvalid { operator_id, .. } => {
+                assert_eq!(operator_id, other_operator());
+            }
+            other => panic!("wrong variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn enrollment_build_error_display_is_stable() {
+        let e = EnrollmentBuildError::DuplicateNormalizedUsername {
+            username: "alice".to_string(),
+        };
+        assert!(e.to_string().contains("duplicate_normalized_username"));
+        assert!(e.to_string().contains("alice"));
+
+        let e = EnrollmentBuildError::DuplicateIssuerCn {
+            issuer_cn: "hmi-01".to_string(),
+        };
+        assert!(e.to_string().contains("duplicate_issuer_cn"));
     }
 }

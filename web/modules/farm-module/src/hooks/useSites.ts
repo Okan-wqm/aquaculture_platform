@@ -386,3 +386,150 @@ export function useDeleteSite() {
     },
   });
 }
+
+// =============================================================================
+// SITE CONTACTS — frontend wiring for upsertSiteContacts mutation
+// (Scope A Phase 4.4.3, backend shipped in PR #149).
+// =============================================================================
+//
+// The backend exposes:
+//   query   siteContacts(siteId: ID!): [SiteContactResponse!]!
+//   mutation upsertSiteContacts(siteId: ID!, contacts: [SiteContactInput!]!): [SiteContactResponse!]!
+//
+// Mutation semantics: REPLACE the full contact list for a site (DELETE+
+// INSERT in one transaction + outbox event). Empty `contacts` clears
+// all contacts. At most one entry may carry `isPrimary=true` — backend
+// enforces via partial unique index AND a handler-level pre-check for
+// clearer error messages.
+//
+// Frontend usage flow:
+//   1. Open SiteFormModal in edit mode (siteId is set).
+//   2. `useSiteContacts(siteId)` populates the existing contact rows.
+//   3. Operator edits in-modal; on submit, `useUpsertSiteContacts()`
+//      ships the full new list. Cache invalidation refreshes the
+//      query so the modal sees the post-write state on next open.
+
+export interface SiteContact {
+  id: string;
+  tenantId: string;
+  siteId: string;
+  name: string;
+  role?: string;
+  email?: string;
+  phone?: string;
+  isPrimary: boolean;
+  createdAt: string;
+  createdBy?: string;
+}
+
+/**
+ * Input shape for one row in `upsertSiteContacts` — mirror of the
+ * backend `SiteContactInput` GraphQL type. `id` is INTENTIONALLY
+ * absent on the input shape: upsert is replace-semantics, the
+ * server mints fresh ids on the new rows and the previous rows
+ * are deleted in the same transaction. (Future-proofing tip: if
+ * we add per-row update semantics later, that's a NEW mutation
+ * `updateSiteContact(id, ...)`, not a shape mutation here — keep
+ * the input deliberately narrow.)
+ */
+export interface SiteContactInput {
+  name: string;
+  role?: string;
+  email?: string;
+  phone?: string;
+  isPrimary?: boolean;
+}
+
+const SITE_CONTACTS_QUERY = `
+  query SiteContacts($siteId: ID!) {
+    siteContacts(siteId: $siteId) {
+      id
+      tenantId
+      siteId
+      name
+      role
+      email
+      phone
+      isPrimary
+      createdAt
+      createdBy
+    }
+  }
+`;
+
+const UPSERT_SITE_CONTACTS_MUTATION = `
+  mutation UpsertSiteContacts($siteId: ID!, $contacts: [SiteContactInput!]!) {
+    upsertSiteContacts(siteId: $siteId, contacts: $contacts) {
+      id
+      tenantId
+      siteId
+      name
+      role
+      email
+      phone
+      isPrimary
+      createdAt
+      createdBy
+    }
+  }
+`;
+
+/**
+ * Fetch all contact rows for a site, primary first, then chronological.
+ * `enabled` gate: query is skipped when `siteId` is undefined (the
+ * SiteFormModal in CREATE mode has no siteId yet, so there's nothing
+ * to load).
+ */
+export function useSiteContacts(siteId: string | undefined) {
+  const { token, tenantId } = useAuth();
+  return useQuery({
+    queryKey: createTenantQueryKey(tenantId, 'sites', 'contacts', siteId ?? ''),
+    queryFn: async () => {
+      if (!siteId) return [] as SiteContact[];
+      const data = await graphqlClient.request<{ siteContacts: SiteContact[] }>(
+        SITE_CONTACTS_QUERY,
+        { siteId },
+      );
+      return data.siteContacts;
+    },
+    enabled: !!token && !!tenantId && !!siteId,
+    staleTime: 60_000,
+  });
+}
+
+/**
+ * Replace the FULL contact list for one site. Server-side this is one
+ * transactional swap + a `SiteContactsChanged` outbox event.
+ *
+ * Cache invalidation invalidates BOTH the per-site contacts query
+ * (the modal's read view) AND the sites list (in case the list view
+ * grows a "primary contact name" column in the future).
+ */
+export function useUpsertSiteContacts() {
+  const { token, tenantId } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (vars: { siteId: string; contacts: SiteContactInput[] }) => {
+      if (!token) {
+        throw new Error('Authentication required. Please login first.');
+      }
+      if (!tenantId) {
+        throw new Error('Tenant context required. Please re-login.');
+      }
+      const data = await graphqlClient.request<{ upsertSiteContacts: SiteContact[] }>(
+        UPSERT_SITE_CONTACTS_MUTATION,
+        vars,
+      );
+      return data.upsertSiteContacts;
+    },
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({
+        queryKey: createTenantQueryKey(tenantId, 'sites', 'contacts', vars.siteId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: createTenantQueryKey(tenantId, 'sites', 'list'),
+      });
+    },
+  });
+}

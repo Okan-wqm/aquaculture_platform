@@ -1,18 +1,27 @@
 /**
  * BatchFeedingTab
  *
- * Renders the batch's current feed assignments + the action button
- * that opens `AssignFeedsToBatchModal` (create OR edit — the modal
- * handles both via the `existing` prop).
+ * Renders the batch's current feed assignments + the action buttons:
+ *   - "Atamayı Düzenle" / "İlk atamayı oluştur" → AssignFeedsToBatchModal
+ *     (the modal handles both create and edit via the `existing` prop).
+ *   - "Atamayı Sil" → ConfirmModal + useDeleteBatchFeedAssignment.
  *
- * Per-row Edit / Delete actions (Tier 2 PR-3) and the inline weight-
- * range overlap visualisation will land in the next PR.
+ * Inline weight-range overlap visualisation will land in a follow-up
+ * (tracked under the Scope C plan PR-3 design notes).
  */
 import React, { useState } from 'react';
-import { useCanMutate } from '@aquaculture/shared-ui';
+import {
+  ConfirmModal,
+  formatErrorForToast,
+  useCanMutate,
+  useToast,
+} from '@aquaculture/shared-ui';
 
 import type { Batch } from '../../../hooks/useBatches';
-import { useBatchFeedAssignment } from '../../../hooks/useBatchFeedAssignments';
+import {
+  useBatchFeedAssignment,
+  useDeleteBatchFeedAssignment,
+} from '../../../hooks/useBatchFeedAssignments';
 import AssignFeedsToBatchModal from '../components/AssignFeedsToBatchModal';
 
 interface BatchFeedingTabProps {
@@ -21,11 +30,42 @@ interface BatchFeedingTabProps {
 
 const BatchFeedingTab: React.FC<BatchFeedingTabProps> = ({ batch }) => {
   const [showAssignModal, setShowAssignModal] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const canAssign = useCanMutate('assignFeedsToBatch');
+  // Backend has updateBatchFeedAssignment + assignFeedsToBatch as
+  // separate mutations; the UPSERT path through `assignFeedsToBatch`
+  // covers edits via the modal's `existing` prop. We still gate the
+  // explicit "Düzenle" affordance on the more permissive of the two.
+  const canEdit =
+    useCanMutate('updateBatchFeedAssignment') ||
+    useCanMutate('assignFeedsToBatch');
+  const canDelete = useCanMutate('deleteBatchFeedAssignment');
 
   const { data: assignment, isLoading, error } = useBatchFeedAssignment(
     batch.id,
   );
+
+  const { toast } = useToast();
+  const deleteMutation = useDeleteBatchFeedAssignment();
+
+  const handleDelete = async () => {
+    if (!assignment) return;
+    try {
+      await deleteMutation.mutateAsync(assignment.id);
+      toast({
+        title: 'Yem ataması silindi',
+        description: `${batch.batchNumber} için yem ataması kaldırıldı.`,
+        variant: 'success',
+      });
+      setShowDeleteConfirm(false);
+    } catch (err) {
+      toast({
+        title: 'Silme başarısız',
+        description: formatErrorForToast(err),
+        variant: 'error',
+      });
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -39,15 +79,27 @@ const BatchFeedingTab: React.FC<BatchFeedingTabProps> = ({ batch }) => {
             yemleme planı bu eşlemeyi okur.
           </p>
         </div>
-        {canAssign && (
-          <button
-            type="button"
-            onClick={() => setShowAssignModal(true)}
-            className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
-          >
-            {assignment ? 'Atamayı Düzenle' : 'Yem Atamaları Ekle'}
-          </button>
-        )}
+        <div className="flex items-center space-x-2">
+          {assignment && canDelete && (
+            <button
+              type="button"
+              onClick={() => setShowDeleteConfirm(true)}
+              disabled={deleteMutation.isPending}
+              className="px-3 py-1.5 text-sm bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-40"
+            >
+              Atamayı Sil
+            </button>
+          )}
+          {((assignment && canEdit) || (!assignment && canAssign)) && (
+            <button
+              type="button"
+              onClick={() => setShowAssignModal(true)}
+              className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
+            >
+              {assignment ? 'Atamayı Düzenle' : 'Yem Atamaları Ekle'}
+            </button>
+          )}
+        </div>
       </div>
 
       {isLoading && (
@@ -148,6 +200,29 @@ const BatchFeedingTab: React.FC<BatchFeedingTabProps> = ({ batch }) => {
         batchId={batch.id}
         batchNumber={batch.batchNumber}
         existing={assignment ?? null}
+      />
+
+      <ConfirmModal
+        isOpen={showDeleteConfirm}
+        onClose={() => setShowDeleteConfirm(false)}
+        onConfirm={handleDelete}
+        title="Yem ataması silinsin mi?"
+        message={
+          <span>
+            <strong className="font-semibold">{batch.batchNumber}</strong>{' '}
+            partisinin tüm yem ataması (
+            <span className="font-semibold">
+              {assignment?.feedAssignments.length ?? 0} satır
+            </span>
+            ) silinecek. Bu işlem yemleme programının bu partiyi
+            tanımayan duruma dönmesine yol açar — silmeden önce
+            yerine yeni bir atama planlamanız önerilir.
+          </span>
+        }
+        confirmText="Sil"
+        cancelText="İptal"
+        variant="danger"
+        isLoading={deleteMutation.isPending}
       />
     </div>
   );

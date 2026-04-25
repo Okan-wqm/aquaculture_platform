@@ -195,6 +195,14 @@ fn apply_db_encryption_key(conn: &Connection) -> Result<()> {
 /// as SQLite handles its own transaction rollback.
 ///
 /// # v1.3.3: Added connection health check after poison recovery
+///
+/// **Batch #257 wire status:** retained as a generic helper for
+/// non-SQLite mutex paths (no current callers — SQLite hot path
+/// migrated to `acquire_sqlite_lock` for the BUG-015 health-check
+/// fix). Kept compiled with `#[allow(dead_code)]` so future
+/// non-Connection mutex consumers can reuse the simple-poison-
+/// recovery shape without re-deriving it.
+#[allow(dead_code)]
 fn acquire_lock<T>(mutex: &Mutex<T>) -> Result<MutexGuard<'_, T>> {
     match mutex.lock() {
         Ok(guard) => Ok(guard),
@@ -224,16 +232,14 @@ fn acquire_lock<T>(mutex: &Mutex<T>) -> Result<MutexGuard<'_, T>> {
 /// acquisition (enqueue, dequeue, stats) for the rest of the process lifetime,
 /// adding unnecessary SQLite overhead in scan-cycle mode (BUG-015).
 ///
-/// ## Wire status (Batch #256 audit)
+/// ## Wire status (Batch #257)
 ///
-/// Currently NOT used — the 9+ hot-path callers (enqueue,
-/// dequeue, ack, peek, etc.) call the simpler `acquire_lock` that
-/// returns the raw poison Err without the SELECT-1 health probe.
-/// The poison-recovery fix is intentionally kept compiled +
-/// allow(dead_code) so a future migration of the hot-path callers
-/// can land as a single behavior-only change without bringing the
-/// fix back from a separate branch. Tracked as orphan finding.
-#[allow(dead_code)]
+/// Wired across all 11 hot-path callers (enqueue, dequeue, ack,
+/// peek, stats, retention-clean, etc.) as of Batch #257. The
+/// SELECT-1 health probe fires exactly once after a mutex
+/// poison event — subsequent acquisitions on the same poisoned
+/// mutex skip the probe via the `poison_health_verified` flag,
+/// keeping the hot-path overhead at one atomic-load per call.
 fn acquire_sqlite_lock<'a>(
     mutex: &'a Mutex<Connection>,
     health_verified: &AtomicBool,
@@ -371,9 +377,8 @@ pub struct OfflineQueue {
     /// Tracks whether the SQLite connection health check has already passed after
     /// a mutex poison event. Prevents running SELECT 1 on every hot-path lock
     /// acquisition for the lifetime of the process once a panic has been recovered
-    /// (BUG-015 fix). Paired with the pending `acquire_sqlite_lock` migration —
-    /// see that function's docstring for wire status.
-    #[allow(dead_code)]
+    /// (BUG-015 fix). Wired by Batch #257 — every `acquire_sqlite_lock` callsite
+    /// passes a reference to this flag.
     poison_health_verified: AtomicBool,
 }
 
@@ -498,7 +503,7 @@ impl OfflineQueue {
 
     /// Initialize database schema
     fn init_schema(&self) -> Result<()> {
-        let conn = acquire_lock(&self.conn)?;
+        let conn = acquire_sqlite_lock(&self.conn, &self.poison_health_verified)?;
 
         conn.execute_batch(
             "
@@ -545,7 +550,7 @@ impl OfflineQueue {
         qos: u8,
         retain: bool,
     ) -> Result<i64> {
-        let conn = acquire_lock(&self.conn)?;
+        let conn = acquire_sqlite_lock(&self.conn, &self.poison_health_verified)?;
 
         // Check current queue size
         let mut current_size: usize = conn
@@ -626,7 +631,7 @@ impl OfflineQueue {
     /// Returns the message but does NOT remove it from queue.
     /// Call `ack()` after successful processing to remove.
     pub fn peek(&self) -> Result<Option<QueuedMessage>> {
-        let conn = acquire_lock(&self.conn)?;
+        let conn = acquire_sqlite_lock(&self.conn, &self.poison_health_verified)?;
 
         // Clean up expired messages first
         if self.max_age_secs > 0 {
@@ -662,7 +667,7 @@ impl OfflineQueue {
 
     /// Acknowledge successful message processing (removes from queue)
     pub fn ack(&self, message_id: i64) -> Result<bool> {
-        let conn = acquire_lock(&self.conn)?;
+        let conn = acquire_sqlite_lock(&self.conn, &self.poison_health_verified)?;
 
         let deleted = conn
             .execute(
@@ -680,7 +685,7 @@ impl OfflineQueue {
 
     /// Mark message for retry (increments retry count)
     pub fn nack(&self, message_id: i64) -> Result<()> {
-        let conn = acquire_lock(&self.conn)?;
+        let conn = acquire_sqlite_lock(&self.conn, &self.poison_health_verified)?;
 
         conn.execute(
             "UPDATE message_queue SET retry_count = retry_count + 1 WHERE id = ?1",
@@ -694,7 +699,7 @@ impl OfflineQueue {
 
     /// Get multiple messages for batch processing
     pub fn peek_batch(&self, max_count: usize) -> Result<Vec<QueuedMessage>> {
-        let conn = acquire_lock(&self.conn)?;
+        let conn = acquire_sqlite_lock(&self.conn, &self.poison_health_verified)?;
 
         // Clean up expired messages first
         if self.max_age_secs > 0 {
@@ -733,7 +738,7 @@ impl OfflineQueue {
             return Ok(0);
         }
 
-        let conn = acquire_lock(&self.conn)?;
+        let conn = acquire_sqlite_lock(&self.conn, &self.poison_health_verified)?;
 
         // Build parameterized query
         let placeholders: Vec<String> =
@@ -784,7 +789,7 @@ impl OfflineQueue {
 
     /// Get queue statistics
     pub fn stats(&self) -> Result<QueueStats> {
-        let conn = acquire_lock(&self.conn)?;
+        let conn = acquire_sqlite_lock(&self.conn, &self.poison_health_verified)?;
 
         let total_messages: usize = conn
             .query_row("SELECT COUNT(*) FROM message_queue", [], |row| row.get(0))
@@ -852,7 +857,7 @@ impl OfflineQueue {
 
     /// Clear all messages from queue
     pub fn clear(&self) -> Result<usize> {
-        let conn = acquire_lock(&self.conn)?;
+        let conn = acquire_sqlite_lock(&self.conn, &self.poison_health_verified)?;
 
         let deleted = conn
             .execute("DELETE FROM message_queue", [])
@@ -901,7 +906,7 @@ impl OfflineQueue {
     /// * `Ok((before, after))` - Bytes before and after VACUUM
     /// * `Err` if VACUUM fails
     pub fn vacuum(&self) -> Result<(u64, u64)> {
-        let conn = acquire_lock(&self.conn)?;
+        let conn = acquire_sqlite_lock(&self.conn, &self.poison_health_verified)?;
 
         let before = self.get_db_size(&conn);
 
@@ -934,7 +939,7 @@ impl OfflineQueue {
     /// * `Some((before, after))` if VACUUM was run
     /// * `None` if VACUUM was skipped
     pub fn vacuum_if_needed(&self) -> Result<Option<(u64, u64)>> {
-        let conn = acquire_lock(&self.conn)?;
+        let conn = acquire_sqlite_lock(&self.conn, &self.poison_health_verified)?;
 
         // Skip if no disk limit set
         if self.max_disk_bytes == 0 {

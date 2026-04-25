@@ -1,11 +1,64 @@
 import { BaseEvent } from './base-event';
 
 /**
- * Sensor Reading Event (v2 — flat fields)
- * Published when sensor data is ingested.
+ * Identifies which sensor reading parameter is the SUBJECT of an event.
  *
- * ARCH-C01: readings are flat `readingXxx` fields instead of nested `readings` object.
- * Legacy v1 events with nested `readings` are upcasted by SensorReadingUpcaster.
+ * v3 (federation correlation, Scope B Phase S1.1) introduces this so a
+ * consumer that needs to correlate a single reading with a downstream
+ * `WaterQualityMeasurement` (farm-service) knows which one of the
+ * potentially-many `readingXxx` fields the event is "about" without
+ * having to introspect `Object.keys(...).filter(...)`.
+ *
+ * The string literals match the existing flat-field names dropped of
+ * the `reading` prefix — so a consumer can construct
+ * `event['reading' + capitalise(parameter)]` to read the value.
+ */
+export type SensorReadingParameter =
+  | 'temperature'
+  | 'ph'
+  | 'dissolvedOxygen'
+  | 'salinity'
+  | 'ammonia'
+  | 'nitrite'
+  | 'nitrate'
+  | 'turbidity'
+  | 'waterLevel';
+
+/**
+ * Sensor Reading Event (v3 — federation correlation fields, Scope B Phase S1.1)
+ *
+ * Published when sensor data is ingested. Consumed by the alert-engine
+ * (existing) AND now by farm-service for cross-service `WaterQualityMeasurement`
+ * correlation (new — federation Phase S1.3 lands the Tank.sensorReadings
+ * field resolver that this contract feeds).
+ *
+ * # Versioning posture
+ *   - v1: nested `readings: {temperature?, ph?, ...}` object. Removed.
+ *   - v2: flat `readingXxx` fields (ARCH-C01). The v1→v2 upcaster
+ *     (`upcasters/sensor-reading.upcaster.ts`) renames the nested
+ *     keys; this transformation is permanent and v1 cannot reach the
+ *     bus today.
+ *   - v3 (THIS revision): adds OPTIONAL correlation axes `tankId`,
+ *     `parameter`, `unit`, `relatedWaterQualityMeasurementId`. All
+ *     four are optional so v2 events deserialise as valid v3 — the
+ *     v2→v3 upcaster (`upcasters/sensor-reading-v2-to-v3.upcaster.ts`)
+ *     is intentionally identity (just a version bump). A consumer
+ *     that NEEDS the correlation fields (federation resolver) gates
+ *     on their presence; a consumer that doesn't (alert-engine)
+ *     ignores them transparently.
+ *
+ * # Why optional + identity upcaster, not required + backfill
+ *
+ * Sensor-service's NATS consumer is the only producer today
+ * (`apps/sensor-service/src/sensor-service.consumer.ts` re-emits
+ * the typed event after enriching from `metaCache`). When sensor-service
+ * gains the new fields (Phase S1.2), it populates them at mint time;
+ * older in-flight events that pre-date that change still validate.
+ * Forcing a backfill across the entire historical event stream would
+ * gate this PR on every old-event re-publication path, which is not
+ * the architectural cut we want — schema evolution rules in
+ * `BaseEvent.version` handle this exact case via additive optional
+ * fields.
  */
 export interface SensorReadingEvent extends BaseEvent {
   eventType: 'SensorReading';
@@ -21,6 +74,43 @@ export interface SensorReadingEvent extends BaseEvent {
   readingNitrate?: number;
   readingTurbidity?: number;
   readingWaterLevel?: number;
+
+  // ---- v3 federation correlation fields ----------------------------------
+  /**
+   * Tank the sensor is attached to at event time. When present, the
+   * farm-service `Tank.sensorReadings` field resolver (Phase S1.3)
+   * uses this to bind the reading to the right tank without a
+   * sensor-meta lookup. Absent for legacy / non-tank-mounted sensors;
+   * federation resolver falls through to a sensorId-keyed lookup in
+   * that case.
+   */
+  tankId?: string;
+  /**
+   * Single canonical parameter this reading is "about", from the
+   * `SensorReadingParameter` union. Lets a consumer pick the right
+   * `readingXxx` field without iterating every flat field. Optional
+   * for events that emit multiple reading values at once
+   * (multi-channel sensors); the consumer is then expected to read
+   * every populated `readingXxx` field.
+   */
+  parameter?: SensorReadingParameter;
+  /**
+   * Unit string for the reading value (e.g. `'°C'`, `'mg/L'`,
+   * `'ppt'`, `'NTU'`). Optional because most consumers know the
+   * unit from `parameter` alone — `'temperature'` is always °C in
+   * this codebase. Carrying it explicitly future-proofs against
+   * units-of-measure migration without forcing a v4 bump.
+   */
+  unit?: string;
+  /**
+   * When sensor-service auto-creates a `WaterQualityMeasurement`
+   * row in farm-service from a sensor read (auto-pull pattern, not
+   * manual entry), this carries the id of that row so federation
+   * consumers can resolve back to the canonical farm-service record
+   * without a heuristic timestamp join. Absent when no
+   * WaterQualityMeasurement was created (sensor-only events).
+   */
+  relatedWaterQualityMeasurementId?: string;
 }
 
 /**

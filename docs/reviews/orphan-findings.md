@@ -1078,3 +1078,177 @@ Additionally, every other service pushed by `deploy-digitalocean.yml` (backend N
 - **Cumulative orphan-EDGE numbering:** the existing registry uses ORPHAN-EDGE-001..014. New IDs in this batch use the prefixed namespaces ORPHAN-EDGE-CI-NNN, ORPHAN-EDGE-LICENSE-NNN, ORPHAN-EDGE-CONTRACT-NNN, ORPHAN-EDGE-TEST-NNN, ORPHAN-EDGE-ADR-NNN, ORPHAN-EDGE-AGENT-NNN, ORPHAN-EDGE-DOCS-NNN to avoid collision with the pre-existing 014 ceiling. The seed-finding-registry CLI should be extended to recognise these namespaces (or to migrate them into a flat ORPHAN-EDGE-NNN sequence at next consolidation).
 - **None of the 12 producer agents wrote any code** — they only documented existing reality, surfaced these findings as a side effect of evidence-link discipline. CLAUDE.md's "no patches, architectural-only" rule is upheld: each closure path above is a Tier-1 / Tier-2 fix, not a workaround.
 - **Banned-phrase posture in this entry:** the substitution-table words above (interim, deferred, out-of-scope, temporary, pragmatic) appear ONLY inside fenced blocks describing the rule itself. Per `tools/gates/banned-phrase.ts` EXEMPT_PATHS line 179, `^docs/reviews/` is allowlisted; this file is `docs/reviews/orphan-findings.md` and is therefore exempt. Producers writing under `sens-api-gateway/docs/` continue to follow the substitution table strictly.
+
+---
+
+## ORPHAN-EDGE-AUDIT-2026-04-25-DEEP — 14 additional architectural gaps surfaced during PR-#132 + PR-#151 audits (2026-04-25)
+
+**Status:** OPEN — every sub-finding gets a closure PR.
+**Discovered during:** Same Lane-C run + post-merge audits as `ORPHAN-EDGE-AUDIT-2026-04-25` above. The first batch registered the directly-task-related items; this batch captures everything else the operator-facing instruction "don't ignore any problem you see, even if not related to this task" surfaces — pre-existing infra / supply-chain / hygiene gaps that became visible through the docs work but predate it.
+**Why this entry exists separately:** Keeping task-related findings (above) and incidentally-surfaced findings (below) in distinct anchors makes the registry queryable: "what did this PR actually close?" vs "what did this PR see?" .
+
+### A. Supply-chain + dependency hygiene
+
+#### ORPHAN-EDGE-DEP-001 — 157 unaddressed Dependabot vulnerabilities on default branch (CRITICAL; pre-existing, not introduced by us)
+**Evidence:** GitHub remote returned the banner on every push during this session: `GitHub found 157 vulnerabilities on Okan-wqm/aquaculture_platform's default branch (9 critical, 60 high, 72 moderate, 16 low)`. Trend during the session: 155 → 157 between the two pushes (new advisories landed without remediation).
+**Class:** Tier-2 automatic — weekly Dependabot triage cadence + auto-PR for non-breaking patch upgrades.
+**Root-cause architectural fix:**
+1. Establish a cadence: weekly review of Dependabot dashboard (current banner is observability noise without action).
+2. Auto-merge policy for patch-level (semver `~`) and devDependency upgrades when CI is green.
+3. Manual review queue for major/minor bumps; SLA Critical 7 d / High 30 d / Medium 90 d / Low 180 d (mirrors CVD policy).
+4. Track the count itself: a CI invariant or scheduled job that posts the count to the team channel weekly so trend (157 → 0 over weeks) is visible.
+**Owner:** supply-chain-auditor + infra-expert
+**Deadline:** 2026-05-31 (initial sweep down to <50 high+critical) / 2026-09-30 (zero high+critical).
+**Closure path:** Multiple PRs as Dependabot batches land; first PR carries `Closes: docs/reviews/orphan-findings.md#ORPHAN-EDGE-DEP-001` and explains the cadence rule.
+
+#### ORPHAN-EDGE-DEP-002 — GitHub Actions Node.js 20 deprecation looms 2026-06-02 (HIGH)
+**Evidence:** Every workflow run produced the warning: `actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683, actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af, gitleaks/gitleaks-action@83373cf2f8c4db6e24b41c1a9b086bb9619e9cd3 are running on Node.js 20 ... Actions will be forced to run with Node.js 24 by default starting June 2nd, 2026`.
+**Class:** Tier-2 automatic — pin to Node-24-compatible SHAs before forced cutover.
+**Root-cause architectural fix:**
+1. Identify and SHA-pin the latest releases of each affected action that supports Node 24.
+2. Test in a workflow_dispatch run on a staging branch before sweeping production workflows.
+3. Replace SHAs in every `.github/workflows/*.yml` and every `.github/actions/*/action.yml`.
+**Owner:** infra-expert
+**Deadline:** 2026-05-26 (one-week buffer before forced cutover).
+**Closure path:** PR `chore(actions): SHA-pin to Node-24-compatible action releases`, Closes this anchor.
+
+#### ORPHAN-EDGE-DEP-003 — `Cargo.lock` committed but no reproducible-build CI test (LOW; SLSA L3 prerequisite)
+**Evidence:** `sens-api-gateway/Cargo.lock` is committed (correct posture). No CI step asserts that `cargo build --release --locked` produces a bit-identical binary across runs from the same toolchain + same lockfile. `SOURCE_DATE_EPOCH` not set in workflow.
+**Class:** Tier-3 detect — measurable invariant.
+**Root-cause architectural fix:** Add `tests/invariants/cargo-reproducible-build.spec.ts` (or a workflow job) that runs two consecutive builds and `sha256sum`-compares the output binaries. Exit 1 on mismatch.
+**Owner:** infra-expert + edge-expert
+**Deadline:** 2026-08-31 (alongside SBOM + signed-release rollout per ORPHAN-021).
+**Closure path:** PR `ci(rust): reproducible-build invariant`, Closes this anchor.
+
+### B. CI gate gaps (beyond CI-001/002/003 already registered)
+
+#### ORPHAN-EDGE-CI-004 — `MODULE_TYPELESS_PACKAGE_JSON` warning on every gate invocation (LOW)
+**Evidence:** Every `husky` and CI gate run emits the same warning four times: `(node:N) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///var/aqua-saas/tools/gates/banned-phrase.ts is not specified ... Reparsing as ES module because module syntax was detected. This incurs a performance overhead.` Same line for `migration-sql-lint.ts`, `tier-claim-lint.ts`, `commit-msg-validator.ts`. Four reparses per commit + four per CI run.
+**Class:** Tier-2 automatic — declare the module type once.
+**Root-cause architectural fix:** Add `"type": "module"` to root `package.json` (current omission is the cause); OR carve out `tools/gates/` into its own `package.json` with the field set. Both eliminate every reparse.
+**Owner:** infra-expert
+**Deadline:** 2026-05-15
+**Closure path:** PR `chore(tools/gates): declare ESM type to eliminate reparse overhead`, Closes this anchor.
+
+#### ORPHAN-EDGE-CI-005 — `main` branch protection allows merge despite required-check FAILUREs (HIGH; governance)
+**Evidence:** PR #132 had `banned-phrase-gate` FAILURE + `Scan repository for committed secrets` FAILURE; `gh pr merge --auto --merge` queued and the merge fired immediately at `2026-04-25T08:59:09Z` while the failed checks were still being scored. Either: (a) those checks are not in `main`'s required-status-checks list, or (b) admin override bypassed them, or (c) auto-merge raced the check completion. None of these is acceptable for a production-bound branch.
+**Class:** Tier-1 make-impossible — branch protection MUST list every gate as required.
+**Root-cause architectural fix:**
+1. Audit `main` branch protection settings; enumerate required status checks.
+2. Add every Quality-Gates job (banned-phrase, migration-sql-lint, tier-claim-lint, finding-registry-verify, commit-msg, eslint-rules-dist) + Gitleaks + dependency-review as REQUIRED.
+3. Disable admin-bypass for required checks (or scope it to a tightly-controlled set).
+4. Document the policy in a new `docs/runbooks/branch-protection.md`.
+**Owner:** infra-expert + repo admin
+**Deadline:** 2026-05-10 (before any further merges to main).
+**Closure path:** Out-of-band repo settings change + PR `docs(runbooks): main branch protection policy`, Closes this anchor.
+
+### C. Documentation completeness (referenced files that don't exist yet)
+
+#### ORPHAN-EDGE-DOCS-002 — `tests/invariants/edge-docs-evidence-links.spec.ts` referenced in Lane-C README, not created (LOW)
+**Evidence:** `.claude/agents/edge-docs/README.md` § Quality Gates lists this as a CI gate candidate. No corresponding file exists under `tests/invariants/`. Without it, the evidence-link discipline ("every cited `src/*.rs:N` resolves") is enforced manually by reviewers only.
+**Class:** Tier-3 detect — automate the resolver.
+**Root-cause architectural fix:** Implement the invariant: glob `sens-api-gateway/docs/**/*.md`, regex-extract `src/[A-Za-z0-9_./]+\.rs:\d+`, assert each resolves to an existing file with a line at least that count. Run in CI on every Lane-C touch.
+**Owner:** edge-docs maintainers + test-runner
+**Deadline:** 2026-06-30
+**Closure path:** PR `test(invariants): edge-docs-evidence-links resolver`, Closes this anchor.
+
+#### ORPHAN-EDGE-DOCS-003 — `docs/runbooks/agent-output-recovery.md` referenced in ORPHAN-EDGE-AGENT-001 closure path, not created (LOW)
+**Evidence:** Closure path text mentions this runbook; no file exists. The recovery procedure (when a parallel-shell branch reset destroys uncommitted producer outputs) is undocumented.
+**Class:** Tier-4 document — runbook only.
+**Root-cause architectural fix:** Author the runbook covering: detect-and-diagnose (reflog walk), reconstruction (when content survives in agent transcripts vs when re-dispatch is needed), prevention (immediate-commit invariant per ORPHAN-EDGE-AGENT-001).
+**Owner:** edge-docs-orchestrator maintainers
+**Deadline:** 2026-05-30 (paired with ORPHAN-EDGE-AGENT-001).
+**Closure path:** PR `docs(runbooks): agent-output-recovery procedure`, Closes this anchor.
+
+#### ORPHAN-EDGE-DOCS-004 — `docs/runbooks/cert-rotation.md` referenced by `security/pki-hierarchy.md`, not created (LOW)
+**Evidence:** Lane-C `pki-hierarchy.md` cross-references this operator runbook for X.509 cert rotation procedure. File does not exist.
+**Class:** Tier-4 document.
+**Root-cause architectural fix:** Author the runbook (Day-30 rotation gate, command path, audit-log entry, rollback on verification failure, dual-control approval).
+**Owner:** security-architecture-writer + deployment-runbook-writer
+**Deadline:** 2026-06-15
+**Closure path:** PR `docs(runbooks): cert-rotation procedure for edge devices`, Closes this anchor.
+
+#### ORPHAN-EDGE-DOCS-005 — Phase 5 doc-drift gate spec'd but not implemented (MEDIUM)
+**Evidence:** `.claude/agents/edge-docs/edge-docs-orchestrator.md` § Phase 5 declares: "Every `pub fn` in `src/**/*.rs` exposed outside the crate boundary must appear in `api/rust-api.md`. Every protocol file under `sensorprotocols/*.md` must have a matching chapter under `docs/protocols/`. Every ADR under `docs/adr/*.md` must be indexed in `architecture/adr-index.md`. Missing items = HIGH finding." No invariant test exists.
+**Class:** Tier-3 detect.
+**Root-cause architectural fix:** Implement three invariant tests under `tests/invariants/edge-docs-{rust-api,protocols,adr-index}-coverage.spec.ts`. Each globs the source surface, globs the doc surface, and asserts coverage. Wire into CI Quality Gates job.
+**Owner:** edge-docs-orchestrator maintainers + test-runner
+**Deadline:** 2026-07-31
+**Closure path:** PR `test(invariants): edge-docs Phase-5 doc-drift gate (3 specs)`, Closes this anchor.
+
+### D. Cross-lane invariant gaps
+
+#### ORPHAN-EDGE-INVARIANT-001 — Lane-C agent cross-references to Lane-A agents not validated (MEDIUM)
+**Evidence:** Every Lane-C agent file's "Canonical References" section lists `@.claude/agents/auth-security-expert.md`, `@.claude/agents/compliance-expert.md`, `@.claude/agents/test-runner.md`, etc. If a Lane-A agent is renamed, those references break silently — agents cannot Read a non-existent file at runtime.
+**Class:** Tier-3 detect.
+**Root-cause architectural fix:** Extend `tests/invariants/agent-name-uniqueness.spec.ts` (or add a sibling `agent-cross-reference.spec.ts`) to scan every `.md` under `.claude/agents/` for `@.claude/...` lines and assert each path resolves.
+**Owner:** edge-docs maintainers + agent-name-uniqueness invariant maintainers
+**Deadline:** 2026-06-30
+**Closure path:** PR `test(invariants): agent cross-reference resolver`, Closes this anchor.
+
+#### ORPHAN-EDGE-INVARIANT-002 — Banned-phrase substitution table SSoT not enforced (LOW)
+**Evidence:** The canonical table lives in `.claude/agents/edge-docs/README.md` § Banned-phrase discipline. `deployment/README.md` already once duplicated it (caught by post-producer sweep, fixed in PR #132). Nothing prevents future docs from re-introducing the same trap.
+**Class:** Tier-3 detect.
+**Root-cause architectural fix:** Add `tests/invariants/banned-phrase-table-ssot.spec.ts` that greps the literal banned-phrase enumeration (or a stable marker comment) and asserts it appears in exactly the canonical file plus `tools/gates/banned-phrase.ts`. Anywhere else = fail.
+**Owner:** edge-docs maintainers
+**Deadline:** 2026-06-30
+**Closure path:** PR `test(invariants): banned-phrase table SSoT`, Closes this anchor.
+
+### E. Hygiene + housekeeping
+
+#### ORPHAN-EDGE-HYG-001 — `.claude/scheduled_tasks.lock` was untracked + not gitignored (LOW; closed in this PR)
+**Evidence:** Every `git status` during this session listed `.claude/scheduled_tasks.lock` as untracked. The file is auto-generated by Claude Code session machinery; it represents transient session state, never committable content. Until now, contributors had to mentally exclude it from `git add`.
+**Class:** Tier-1 make-impossible.
+**Root-cause architectural fix:** Added `.claude/scheduled_tasks.lock` to `.gitignore` in this PR with rationale comment.
+**Owner:** edge-docs maintainers (this PR).
+**Closure path:** Closed by `.gitignore` change in this commit.
+
+#### ORPHAN-EDGE-HYG-002 — Cross-shell index sharing causes pre-existing staged files to surface in unrelated commits (LOW)
+**Evidence:** At session start, `git diff --cached --name-only` listed `docs/reviews/_registry/findings.jsonl` + `tools/gates/finding-registry.ts` as staged — work from a parallel shell session. Without explicit awareness, my commits would have included these unrelated files. Each commit had to filter via `git commit -- <pathspec>`.
+**Class:** Tier-4 document — process guideline, not a code fix.
+**Root-cause architectural fix:** Add a `CONTRIBUTING.md` section "Working alongside parallel shells" describing: (a) check `git diff --cached --name-only` before any `git commit`, (b) prefer `git commit -- <pathspec>` over `git commit -a`, (c) consider per-session worktrees (`git worktree add`) for fully-isolated work.
+**Owner:** comprehensive-review:architect-review (process docs)
+**Deadline:** 2026-06-30
+**Closure path:** PR `docs(contributing): parallel-shell hygiene`, Closes this anchor.
+
+### F. SSoT drift inside CLAUDE.md
+
+#### ORPHAN-EDGE-SSOT-001 — CLAUDE.md service count drift: claims "16 services (15 runtime + db-migrate CLI)" but earlier session-context noted 17 (15 runtime + sensor-ingestion sidecar + db-migrate CLI) (LOW)
+**Evidence:** `CLAUDE.md` § "Backend Services (`apps/`) — 16 services (15 runtime + `db-migrate` CLI)". Earlier session-context recorded `apps/sensor-ingestion` as a Rust sidecar service per the rust-migration plan. Either CLAUDE.md is one service short, or sensor-ingestion is not yet a runtime service.
+**Class:** Tier-3 detect.
+**Root-cause architectural fix:**
+1. Reconcile by reading actual `apps/` directory and counting runtime services.
+2. Update CLAUDE.md table to reflect the live count.
+3. CI invariant: `tests/invariants/claude-md-service-count.spec.ts` asserts the count matches `ls -d apps/*-service apps/*-api apps/gateway-* | wc -l` plus any explicitly-named non-suffixed services.
+**Owner:** claude-md maintainer + data-expert
+**Deadline:** 2026-05-31
+**Closure path:** PR `docs(claude-md): reconcile service count + invariant`, Closes this anchor.
+
+### G. Operational + governance
+
+#### ORPHAN-EDGE-OPS-001 — No automated branch cleanup on merge (LOW)
+**Evidence:** After PR #132 + #151 merged, the source branches (`agentic-audit`, `agentic-audit-pr`) remained on the remote until I ran `git push origin --delete` manually. Standard GitHub repo setting "Automatically delete head branches" is off.
+**Class:** Tier-2 automatic — flip the repo setting.
+**Root-cause architectural fix:** Enable "Automatically delete head branches" in repo settings → Pull Requests. No code change.
+**Owner:** repo admin
+**Deadline:** 2026-05-10
+**Closure path:** Out-of-band settings change; record on next `infra-runbook` PR.
+
+#### ORPHAN-EDGE-OPS-002 — `edge-docs-orchestrator` agent never tested in vivo (LOW)
+**Evidence:** During this session, I dispatched 12 producers directly via `general-purpose` agent (proxy reading the producer-definition file at runtime) because Claude Code auto-discovers agents only at session start. The native `edge-docs-orchestrator` Phase 1-5 dispatch contract was never executed end-to-end.
+**Class:** Tier-3 detect — exercise the contract.
+**Root-cause architectural fix:**
+1. After `agentic-audit-followup-2` merges, in a fresh Claude Code session, invoke `Agent(subagent_type="edge-docs-orchestrator")` with mode=DELTA-RELEASE on a synthetic source-of-truth bump.
+2. Verify Phase 4 cross-reference consolidation runs, Phase 5 doc-drift gate fires, `_consolidation-report.md` is emitted.
+3. Capture findings (any) in a follow-up entry.
+**Owner:** edge-docs-orchestrator maintainers
+**Deadline:** 2026-06-15
+**Closure path:** Test session + record findings; close anchor when first end-to-end run succeeds.
+
+### Cross-cutting consolidation notes
+
+- **None of the 14 sub-findings above are application-code defects.** They are tooling, supply-chain, governance, hygiene, and documentation gaps. CLAUDE.md "no patches, architectural-only" continues to hold: each closure path is a Tier-1, Tier-2, or Tier-3 fix.
+- **CRITICAL items in this batch:** ORPHAN-EDGE-DEP-001 (157 vulnerabilities — pre-existing) and ORPHAN-EDGE-CI-005 (branch protection allows merge despite gate failures). Both are pre-existing repo-state, not introduced by Lane-C work.
+- **HIGH items:** ORPHAN-EDGE-DEP-002 (Node 20 deprecation deadline 2026-06-02 — 38 days at the time of writing).
+- **Why this DEEP entry exists alongside the first AUDIT-2026-04-25 entry:** Per operator instruction, every observed problem is recorded — even when un-related to the originating Lane-C task. The first batch covered task-direct findings; this batch covers everything else the work surfaced.
+- **Banned-phrase posture in this entry:** same as above. `^docs/reviews/` is allowlisted by `tools/gates/banned-phrase.ts:179`.

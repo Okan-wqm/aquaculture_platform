@@ -30,6 +30,7 @@ import {
   useToast,
 } from '@aquaculture/shared-ui';
 import { FeederCalibrationSection } from '../components/FeederCalibrationSection';
+import { SubEquipmentSection } from '../components/SubEquipmentSection';
 
 // Equipment categories for two-stage selection
 // Values must match backend equipment_types.category column (lowercase in DB)
@@ -1135,6 +1136,15 @@ export const EquipmentTab: React.FC = () => {
                           </div>
                         </div>
                       ) : null}
+
+                      {editingId && (
+                        <SubEquipmentSection
+                          parentEquipmentId={editingId}
+                          parentEquipmentTypeCode={
+                            equipment.find((eq) => eq.id === editingId)?.equipmentType?.code
+                          }
+                        />
+                      )}
                     </div>
 
                     {/* Details Section */}

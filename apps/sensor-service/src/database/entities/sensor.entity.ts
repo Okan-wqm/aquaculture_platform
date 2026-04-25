@@ -2,6 +2,7 @@ import {
   ObjectType,
   Field,
   ID,
+  Directive,
   registerEnumType,
 } from '@nestjs/graphql';
 import { GraphQLJSON } from 'graphql-scalars';
@@ -111,10 +112,36 @@ export interface SensorConnectionStatus {
 }
 
 /**
- * Sensor entity - represents an IoT sensor device
+ * Sensor entity - represents an IoT sensor device.
+ *
+ * Apollo Federation v2 entity (Scope B Phase S1.2): the
+ * `@key(fields: "id")` directive announces that sensor-service is
+ * the OWNER of this type in the supergraph. Other subgraphs (today:
+ * farm-service via the upcoming `Tank.sensor` extension in S1.3)
+ * can `extend type Sensor @key(fields: "id") { ... }` and reference
+ * a sensor by `{ __typename: 'Sensor', id }`. The reference is then
+ * resolved by `SensorResolver.resolveReference` (existing — see
+ * `apps/sensor-service/src/sensor/resolvers/sensor.resolver.ts:58`).
+ *
+ * Why ONLY `id` as the key (and not `id + tenantId`):
+ *   - Sensor IDs are global UUIDs; the tenant boundary is enforced
+ *     by the resolver's runtime check, not by composite-key
+ *     uniqueness. A composite federation key would force every
+ *     consumer to send tenantId on every reference, which (a) is
+ *     redundant since the resolver re-derives it from the
+ *     authenticated request context, and (b) creates a footgun
+ *     where a forgotten tenantId silently widens the cross-tenant
+ *     surface.
+ *   - The resolver's "no tenantId → null" gate (line 71-76 of
+ *     sensor.resolver.ts) closes the security side architecturally.
+ *
+ * INFRA-MEDIUM-015 closing note: until this directive landed, any
+ * future federated extension of `Sensor` would silently break
+ * because the gateway had no way to introspect ownership.
  */
 @Auditable()
 @ObjectType()
+@Directive('@key(fields: "id")')
 @Entity('sensors', { schema: 'sensor' })
 @Index(['tenantId', 'status'])
 @Index('IDX_sensors_serial_number', ['serialNumber'], { unique: true })

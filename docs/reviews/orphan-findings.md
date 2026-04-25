@@ -715,7 +715,27 @@ Plus the `ForceRegistry` + `ProcessImage` + `AuditSink` Arcs needed by `execute_
 
 ## ORPHAN-HIGH-024 — Batches #243-#280 dangling `Closes: ULTRA-HIGH-NNN` trailers; finding-registry hash chain not advanced (2026-04-25)
 
-**Status:** OPEN (process; tracked for batched registry-update).
+**Status:** PARTIALLY FIXED in Batch #282 PILOT (5 of 38 entries registered: ULTRA-HIGH-033..037; chain tip advanced 103→108 entries, integrity verified).
+
+**Progress:**
+
+- ✅ **Batch #282 PILOT** registered the 5 highest-value architectural milestones into the finding-registry with full hash-chain integrity:
+  * **ULTRA-HIGH-033 (RESOLVED):** Gap A-3 OPC UA user-token enrollment chain (Batches #242-#250, +95 tests, 10 closing commits).
+  * **ULTRA-HIGH-034 (RESOLVED):** ARC-002 OfflineQueue + DrainTask production wire (Batches #251-#255 + #261 + #268, +17 tests, 8 closing commits).
+  * **ULTRA-HIGH-035 (PARTIAL_FIX):** A-2b SensNodeManager + SensAuthManager 4/5 part wire (Batches #263-#266, 4 closing commits, deadline 2026-05-15).
+  * **ULTRA-HIGH-036 (RESOLVED):** Edge-runtime module-level wire-status audit cycle (Batches #259 + #270-#280, 18+ modules, 10 closing commits).
+  * **ULTRA-HIGH-037 (RESOLVED):** C-7 shutdown-race fix + BUG-015 mutex-poison wire + ARC-001/003 cleanup (Batches #256-#258, 3 closing commits).
+- Registry chain tip advanced from `0af50f8c...d2247276` (pre-session, 103 entries) to `d6baee07...e365232` (post-PILOT, 108 entries). 5-entry hash-chain integrity verified via `finding-registry verify` → "OK: registry chain valid (108 entries)".
+
+**Remaining to close:** the per-module audit batches (Batches #270/#271/#273/#274/#275/#276/#278/#279/#280) were registered together as a SINGLE registry entry — ULTRA-HIGH-036 — because they share the canonical "wire-status audit cycle" theme; an alternative future batch could split them into per-batch entries for finer audit-pipeline visibility. The doc-only / metadata clarification commits (Batches #269/#272/#277/#281) closed existing ORPHAN-* findings via the orphan-findings tracker doc rather than minting new registry entries — design decision: tracker-doc closure is sufficient for resolved-orphan tracking, no registry duplication.
+
+**Architectural choice ratified in #282 PILOT (path B per the original finding):**
+
+The registry IDs (`ULTRA-HIGH-033..037`) DO NOT match the in-history Closes trailers (`ULTRA-HIGH-006..038`). The PILOT implicitly chose path B: the registry is the authoritative tracker of ARCHITECTURAL OUTCOMES; commit-message trailers are PROCESS ARTIFACTS that may not align 1:1 with registry IDs.
+
+**Follow-up gate-tightening recommended:** the `commit-msg-validator.ts` gate currently checks only the regex format `{PREFIX}-{SEVERITY}-{NNN}`. A future batch should add cross-check against the registry: "the cited ID must exist in `findings.jsonl`." That gate would have caught the 38-trailer dangling pattern at commit time. Tracking that as a separate sibling finding when this orphan fully closes.
+
+**Original scope (preserved for history):**
 
 **Scope:** Every commit footer in this session (Batches #242-#280 except batches that closed pre-existing ORPHAN-* findings via the orphan-findings tracker doc) carries a `Closes: docs/reviews/edge-plan/2026-04-19-edge-hardening.md#ULTRA-HIGH-NNN` trailer where `NNN` ranges 006..038. The finding-registry at `docs/reviews/_registry/findings.jsonl` (the SHA-256 hash-chained append-only registry) ends at `ULTRA-HIGH-032` (entry: "G-6: Contract tests canonical hash + ed25519 + policy + license") + has not been advanced for any of this session's 38 batches.
 

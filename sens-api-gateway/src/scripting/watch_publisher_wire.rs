@@ -13,6 +13,25 @@
 //! MQTT — dev mode) surfaces as a structured error
 //! back to the publisher, which counts it under
 //! `publish_errors` + retries next tick.
+//!
+//! ## Wire status (Batch #275 audit)
+//!
+//! Production wire confirmed:
+//! - `main.rs:4407-4424` — `MqttWatchPublishSink::new(state)`
+//!   constructed + cast to `Arc<dyn WatchPublishSink>` +
+//!   passed to `run_watch_publisher_task(...)` (Batch 206
+//!   Faz 6 wire — the watch publisher task drains every
+//!   active watch-session's payload queue + publishes
+//!   per-session via this sink).
+//!
+//! Note (per Batch #255 ARC-002 triage): this sink uses
+//! `MqttClient::publish_raw` DIRECTLY rather than routing
+//! through the OutboundPublisher dispatcher because watch
+//! sessions are real-time observability streams; a
+//! drop-during-outage is acceptable (operator reconnects
+//! the watch + a fresh stream starts). This is the
+//! documented exception to the ARC-002 universal-routing
+//! rule, surfaced in the Batch #255 commit message.
 
 #![allow(dead_code)]
 

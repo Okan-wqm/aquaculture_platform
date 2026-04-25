@@ -53,6 +53,20 @@
 //!   trusts the VM's gated input + performs the write
 //!   unconditionally. The future RbacGatedWriter layer
 //!   wraps this adapter for permission-aware writes.
+//!
+//! ## Wire status (Batch #275 audit)
+//!
+//! Production wire confirmed:
+//! - `bytecode_runner.rs:67` — `use super::process_image_tagio::
+//!   {TagIo, TagIoError, SnapshotTagIo}` — the bytecode runner
+//!   passes a SnapshotTagIo adapter into every ScriptVm tick
+//!   so the VM's tag READ + tag WRITE opcodes flow through this
+//!   adapter to/from the canonical `ProcessImage` snapshot.
+//!
+//! Per-item dead-code allow audit pending — blanket allow
+//! retained as WHITELIST-with-reason while the future
+//! RbacGatedWriter wrap (named in the docstring above) consumes
+//! the remaining unused write helpers in a focused batch.
 
 #![allow(dead_code)]
 

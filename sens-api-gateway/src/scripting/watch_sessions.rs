@@ -23,6 +23,23 @@
 //! Design matches the Batch 194 ForceRegistry pattern
 //! so operators see consistent shape + both registries
 //! drain cleanly at shutdown.
+//!
+//! ## Wire status (Batch #275 audit)
+//!
+//! Production wire confirmed:
+//! - `main.rs:851` — AppState carries
+//!   `Arc<WatchSessionRegistry>`.
+//! - `main.rs:1061` — `WatchSessionRegistry::new()` boot
+//!   constructs the registry.
+//! - `main.rs:4424` — `run_watch_publisher_task(...)` spawns
+//!   the per-session publish loop under tokio::spawn (Batch
+//!   206 Faz 6 wire).
+//!
+//! Per-item dead-code allow audit pending — blanket allow
+//! retained as WHITELIST-with-reason while a focused F-series
+//! cleanup batch (mirror of #270/#271/#273/#274) surfaces
+//! the unused `is_active`, `expired_count`, debug-introspection
+//! helpers individually.
 
 #![allow(dead_code)]
 

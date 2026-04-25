@@ -769,3 +769,41 @@ Mint registry entries with the EXACT IDs cited in the commit history (`ULTRA-HIG
 **Fix target:** dedicated registry-catchup batch session. Estimated 1-2 hours focused work to mint 38 stub JSON files + run `finding-registry add` for each + verify chain integrity via `finding-registry verify`. The renumbering vs. accept-collision question is itself an architectural decision the next session should make explicitly.
 
 **Linked plan:** ultra-plan ARC-009 + meta-tracking discipline. The orphan-findings doc + the finding-registry are TWO TRACKERS that should agree; this session's work was added to the orphan-findings doc but not to the registry — the divergence is the orphan.
+
+---
+
+## ORPHAN-MEDIUM-025 — `commit-msg-validator.ts` does not cross-check `Closes:` trailer IDs against finding-registry; format-only check leaks dangling pointers (2026-04-25)
+
+**Status:** OPEN (gate-tightening; spotted while resolving ORPHAN-HIGH-024).
+
+**Scope:** `tools/gates/commit-msg-validator.ts` — the pre-commit / commit-msg gate validates the `Closes:` trailer's REGEX FORMAT (`{PREFIX}-{SEVERITY}-{NNN}`) but does NOT validate that the cited ID EXISTS in `docs/reviews/_registry/findings.jsonl`. This is the root cause of ORPHAN-HIGH-024's 38-batch dangling-trailer pattern: every trailer matched the regex, every commit landed, but 38 IDs pointed to registry rows that didn't exist.
+
+**Symptom (gate effectiveness):** The gate's stated purpose (per CLAUDE.md "Review Finding Traceability (MANDATORY)") is to enforce that "Every fix commit must formally reference the review finding it closes." The current implementation enforces only the FORMAT of the reference, not the EXISTENCE — a spelling-correctness check, not a referential-integrity check. Trailers can cite phantom IDs indefinitely without gate intervention.
+
+**Symptom (audit pipeline):** Operators running registry-driven audit queries (`finding-registry list --state OPEN`, `finding-registry list --owner okan`, etc.) get incomplete state because dangling trailers' "Closes" don't actually close any registry row. The pipeline silently misses architectural progress.
+
+**Architectural fix:**
+
+The `commit-msg-validator.ts` gate should add a registry-existence check after the format check:
+
+```typescript
+// Pseudocode for the new gate step
+const registry = loadRegistry(); // existing helper from finding-registry.ts
+const ids_in_registry = new Set(registry.map(e => e.id));
+for (const id of citedClosesIds) {
+  if (!ids_in_registry.has(id)) {
+    console.error(`Closes trailer cites unknown ID: ${id} (not in findings.jsonl)`);
+    process.exit(1);
+  }
+}
+```
+
+The check is O(N) on registry size + O(M) on trailer count per commit; both bounded by reasonable caps (registry ~hundreds; trailers per commit ~1-5). Negligible overhead on the commit-msg path.
+
+**Severity: MEDIUM** — gate-discipline gap; not a security or correctness gap. Architecturally significant because the gate's documented purpose is referential integrity but the implementation only enforces format. The gap was hidden until ORPHAN-HIGH-024 surfaced 38 cumulative violations.
+
+**Discovered by:** Batch #283 commit message draft naming the gate-tightening recommendation. Promoted to OPEN finding so the gap is auditable + future commit-msg validator improvement work has a concrete tracking target.
+
+**Fix target:** dedicated commit-msg-validator gate-hardening batch. Estimated 1 batch (gate code + unit test against canned good-trailer + bad-trailer fixtures + integration test against current registry).
+
+**Linked plan:** Plan §3.1 ARC-009 review-finding traceability discipline + ORPHAN-HIGH-024 (the 38-batch dangling pattern this gate would have caught).

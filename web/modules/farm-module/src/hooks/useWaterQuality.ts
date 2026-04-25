@@ -145,6 +145,33 @@ export interface CreateWaterQualityInput {
   weatherConditions?: string;
 }
 
+/**
+ * Bulk-creation input mirrors the backend `CreateBatchWaterQualityInput`
+ * DTO at apps/farm-service/src/water-quality/dto/create-batch-water-quality.input.ts.
+ *
+ * Constraints (enforced server-side; UI mirrors them as gates):
+ *   - 1..50 measurements per request
+ *   - dynamicParameters keys must match the equipment's mapped parameter
+ *     configs (the backend's WaterQualityValidationService rejects
+ *     unknown keys when strict mode is enabled)
+ *   - idempotencyKey must be a UUID — frontend mints with crypto.randomUUID()
+ *     so a duplicate submit (network retry, double-click) maps to the same
+ *     server-side row instead of creating a second record
+ *   - notes <= 500 chars per row (server bound; UI gates this too)
+ */
+export interface BatchMeasurementItemInput {
+  equipmentId: string;
+  dynamicParameters: Record<string, number | string | boolean>;
+  idempotencyKey: string;
+  notes?: string;
+}
+
+export interface CreateBatchWaterQualityInput {
+  measuredAt: string;
+  source: MeasurementSource;
+  measurements: BatchMeasurementItemInput[];
+}
+
 export interface UpdateWaterQualityInput {
   id: string;
   parameters?: {
@@ -284,6 +311,14 @@ const UPDATE_WATER_QUALITY = `
 const DELETE_WATER_QUALITY = `
   mutation DeleteWaterQualityMeasurement($id: ID!) {
     deleteWaterQualityMeasurement(id: $id)
+  }
+`;
+
+const CREATE_BATCH_WATER_QUALITY = `
+  mutation CreateBatchWaterQualityMeasurements($input: CreateBatchWaterQualityInput!) {
+    createBatchWaterQualityMeasurements(input: $input) {
+      ${WATER_QUALITY_FRAGMENT}
+    }
   }
 `;
 
@@ -544,6 +579,38 @@ export function useCreateWaterQuality() {
       queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'waterQuality', 'latest', data.tankId) });
       queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'waterQuality', 'critical') });
       queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'waterQuality', 'statistics', data.tankId) });
+    },
+  });
+}
+
+/**
+ * Bulk water quality creation — single transactional call that writes
+ * 1..50 measurements (one per equipment) under a shared `measuredAt` and
+ * `source`. Used by the BulkRecordTab to let a tank-walker enter the
+ * morning's WQ readings for every tank in one round.
+ *
+ * Cache invalidation strategy
+ * ---------------------------
+ * Bulk inserts touch many equipment + many derived views at once.
+ * Rather than fan out to per-equipment `latest` keys (which would be a
+ * 50-key invalidation parade), we invalidate the broad `waterQuality`
+ * root and let TanStack Query's tag matcher walk the tree. This is
+ * cheaper than a per-row useCreateWaterQuality flow and keeps the
+ * dashboard / critical-alerts panel reactive without staleness windows.
+ */
+export function useCreateBatchWaterQuality() {
+  const queryClient = useQueryClient();
+  const { tenantId } = useAuth();
+
+  return useMutation({
+    mutationFn: async (input: CreateBatchWaterQualityInput) => {
+      const response = await graphqlClient.request<{
+        createBatchWaterQualityMeasurements: WaterQualityMeasurement[];
+      }>(CREATE_BATCH_WATER_QUALITY, { input });
+      return response.createBatchWaterQualityMeasurements;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'waterQuality') });
     },
   });
 }

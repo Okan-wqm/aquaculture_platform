@@ -115,6 +115,8 @@ use opcua::types::NodeId;
 #[cfg(feature = "opc-ua-server")]
 use crate::authz::permission::TenantId;
 #[cfg(feature = "opc-ua-server")]
+use crate::opc_ua_server::OpcUaTagRegistry;
+#[cfg(feature = "opc-ua-server")]
 use crate::opc_ua_server_typed_authz::TypedAuthzPort;
 #[cfg(feature = "opc-ua-server")]
 use crate::opc_ua_server_user_token_validator::UserTokenValidator;
@@ -219,6 +221,16 @@ pub struct SensNodeManager {
     /// flow through this.
     process_image: Arc<ProcessImage>,
 
+    /// OPC UA address-space tag catalog (Batch #264 read-body
+    /// dependency). Provides `find_by_browse_name(browse_name)
+    /// -> Option<&OpcUaTagNode>` so the trait method bodies can
+    /// resolve incoming NodeId.identifier (a UAString
+    /// browse_name) back to the canonical Suderra tag_name +
+    /// declared data type for `ProcessImage` lookup. Built once
+    /// at boot from the tag config catalog (immutable
+    /// post-construction).
+    tag_registry: Arc<OpcUaTagRegistry>,
+
     /// Debug name returned by `name()`. Static literal because
     /// we instantiate exactly one custom manager per agent.
     manager_name: &'static str,
@@ -251,6 +263,7 @@ impl SensNodeManager {
         authz: Arc<dyn TypedAuthzPort>,
         validator: Arc<UserTokenValidator>,
         process_image: Arc<ProcessImage>,
+        tag_registry: Arc<OpcUaTagRegistry>,
     ) -> Self {
         Self {
             namespace_uri: Self::NAMESPACE_URI.to_string(),
@@ -259,6 +272,7 @@ impl SensNodeManager {
             authz,
             validator,
             process_image,
+            tag_registry,
             manager_name: Self::NAME,
         }
     }
@@ -365,6 +379,38 @@ impl NodeManager for SensNodeManager {
     ///
     /// Batch #264 implements the real `read` body using the
     /// `process_image` snapshot.
+    /// **Wire status:** real implementation (Batch #264).
+    ///
+    /// Per-node read body. For each `ReadNode`:
+    /// 1. If the NodeId namespace doesn't match this manager's,
+    ///    skip — async-opcua's runtime fans the request out to
+    ///    every registered manager; only this manager's nodes
+    ///    get a real response from this method.
+    /// 2. If the AttributeId is not `Value`, set an
+    ///    `BadAttributeIdInvalid` error. Future Batch #266+
+    ///    extends to NodeClass / BrowseName / DisplayName when
+    ///    HMI clients need richer browse responses.
+    /// 3. Extract the browse name from `NodeId.identifier` (a
+    ///    `Identifier::String(UAString)` for every Suderra tag
+    ///    per `opc_ua_server_runtime.rs:977` registration shape).
+    /// 4. Reverse-lookup the canonical tag_name via
+    ///    `OpcUaTagRegistry.find_by_browse_name(...)`.
+    /// 5. Snapshot the current tag value via
+    ///    `ProcessImage.get_tag(tag_name)`.
+    /// 6. Build a `DataValue` from the f64 + quality +
+    ///    timestamp; set it on the ReadNode via `set_result`.
+    ///
+    /// **Authorization:** read is intentionally NOT
+    /// authz-gated today — the Suderra address space is
+    /// observable to every authenticated session per Plan §3
+    /// R-8 ("Anonymous (read-only), Username/Password
+    /// (policy-gated), X509 cert (operator cert)"). Anonymous
+    /// reads are explicitly allowed; only WRITE crosses the
+    /// `TypedAuthzPort` gate. Future ADR may tighten read
+    /// authz per-tag (e.g., pre-production tag visibility) —
+    /// at which point this method consumes
+    /// `context.session.user_identity_token` like `write` will
+    /// in Batch #265.
     async fn read(
         &self,
         _context: &RequestContext,
@@ -372,18 +418,106 @@ impl NodeManager for SensNodeManager {
         _timestamps_to_return: opcua::types::TimestampsToReturn,
         nodes_to_read: &mut [&mut opcua::server::node_manager::ReadNode],
     ) -> Result<(), opcua::types::StatusCode> {
-        // ReadNode uses `set_error(status)` (not `set_status`)
-        // for the unsuccessful per-node outcome — async-opcua
-        // 0.18 API; see attributes.rs:110.
-        for n in nodes_to_read.iter_mut() {
-            n.set_error(opcua::types::StatusCode::BadServiceUnsupported);
+        let my_namespace = match self.current_namespace_index().await {
+            Some(idx) => idx,
+            None => {
+                // init() hasn't run yet — every node returns
+                // BadNoCommunication so HMIs see a transient
+                // boot state rather than silent BadNothingToDo.
+                for n in nodes_to_read.iter_mut() {
+                    n.set_error(
+                        opcua::types::StatusCode::BadNoCommunication,
+                    );
+                }
+                return Ok(());
+            }
+        };
+
+        for node in nodes_to_read.iter_mut() {
+            // Step 1: namespace ownership filter.
+            let read_id = node.node().node_id.clone();
+            if read_id.namespace != my_namespace {
+                // Not our node — let other managers respond.
+                // async-opcua skips already-responded ReadNodes
+                // by default; we set nothing here.
+                continue;
+            }
+
+            // Step 2: attribute filter — only Value supported in
+            // Batch #264 skeleton. async-opcua's `attribute_id`
+            // accessor returns the AttributeId enum directly.
+            let attr_id = node.node().attribute_id;
+            if attr_id != opcua::types::AttributeId::Value {
+                node.set_error(
+                    opcua::types::StatusCode::BadAttributeIdInvalid,
+                );
+                continue;
+            }
+
+            // Step 3: extract browse_name from the NodeId
+            // identifier. async-opcua represents string-keyed
+            // node identifiers as Identifier::String(UAString).
+            let browse_name = match &read_id.identifier {
+                opcua::types::Identifier::String(s) => s.to_string(),
+                _ => {
+                    node.set_error(
+                        opcua::types::StatusCode::BadNodeIdInvalid,
+                    );
+                    continue;
+                }
+            };
+
+            // Step 4: reverse-lookup canonical tag_name.
+            let tag_node = match self
+                .tag_registry
+                .find_by_browse_name(&browse_name)
+            {
+                Some(t) => t,
+                None => {
+                    node.set_error(
+                        opcua::types::StatusCode::BadNodeIdUnknown,
+                    );
+                    continue;
+                }
+            };
+
+            // Step 5: snapshot current tag value.
+            let tag_value = self
+                .process_image
+                .get_tag(&tag_node.tag_name)
+                .await;
+            let tag_value = match tag_value {
+                Some(v) => v,
+                None => {
+                    // Tag is in the catalog but not yet in the
+                    // process image — first-boot before the I/O
+                    // poll has populated it.
+                    node.set_error(
+                        opcua::types::StatusCode::BadDataUnavailable,
+                    );
+                    continue;
+                }
+            };
+
+            // Step 6: build DataValue. Suderra's process image
+            // stores every tag as f64 (canonical numeric); OPC
+            // UA Variant::Double matches that natively. Future
+            // ADR may map per-DataType (Boolean for DI, Int32
+            // for INT) — today every tag surfaces as Double
+            // which HMIs handle via implicit cast.
+            let dv = opcua::types::DataValue {
+                value: Some(opcua::types::Variant::Double(tag_value.value)),
+                status: Some(quality_to_opcua_status(&tag_value.quality)),
+                source_timestamp: Some(opcua::types::DateTime::from(
+                    tag_value.timestamp,
+                )),
+                server_timestamp: Some(opcua::types::DateTime::now()),
+                source_picoseconds: None,
+                server_picoseconds: None,
+            };
+            node.set_result(dv);
         }
-        tracing::warn!(
-            "SensNodeManager::read() is a Batch #263 skeleton — \
-             returning BadServiceUnsupported for {} nodes. \
-             Batch #264 wires the real ProcessImage snapshot read.",
-            nodes_to_read.len()
-        );
+
         Ok(())
     }
 
@@ -424,6 +558,36 @@ impl NodeManager for SensNodeManager {
             nodes_to_write.len()
         );
         Ok(())
+    }
+}
+
+/// Map Suderra `TagQuality` → OPC UA `StatusCode`. Batch #264
+/// read-body helper. The mapping mirrors the OPC UA spec's
+/// quality categories:
+/// - `Good` → `Good` (everything is fine).
+/// - `Bad` → `Bad` (sensor offline, communication failure).
+/// - `Uncertain` → `Uncertain` (stale value, sensor in warmup).
+/// - `Simulated` → `UncertainInitialValue` (Suderra runs a
+///   simulator branch on default-build hardware-less paths;
+///   surfacing Uncertain to HMIs makes the simulation visible
+///   without inventing a non-spec value).
+#[cfg(feature = "opc-ua-server")]
+fn quality_to_opcua_status(
+    quality: &crate::process_image::TagQuality,
+) -> opcua::types::StatusCode {
+    use crate::process_image::TagQuality;
+    use opcua::types::StatusCode;
+    match quality {
+        TagQuality::Good => StatusCode::Good,
+        TagQuality::Bad => StatusCode::Bad,
+        TagQuality::Uncertain => StatusCode::Uncertain,
+        TagQuality::Simulated => StatusCode::UncertainInitialValue,
+        // BATCH-#264 audit: the TagQuality enum has additional
+        // variants (Force, OpcUaClient — Batch #245-#250 extensions).
+        // Cover via the catch-all so a future variant addition
+        // doesn't compile-fail this read body before its
+        // categorical mapping is decided.
+        _ => StatusCode::UncertainSubNormal,
     }
 }
 

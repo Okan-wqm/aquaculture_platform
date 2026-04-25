@@ -14,6 +14,27 @@
 //!
 //! NOTE: Complete script engine API. Many methods are for direct script
 //! management and are called via commands/MQTT, not from main.rs directly.
+//!
+//! ## Wire status (Batch #274 audit)
+//!
+//! Production wire confirmed:
+//! - `main.rs:5144,5145` — `ScriptEngine::new(state)` /
+//!   `ScriptEngine::with_persistence(state, persistence)` boot
+//!   the orchestrator under `tokio::spawn` for the scan-cycle
+//!   loop. The persistence-Some path runs RETAIN-aware scan
+//!   cycles; the persistence-None path runs ephemeral scan
+//!   cycles for hardware-less default-build paths.
+//! - Re-exported via `scripting::mod.rs:128` `pub use
+//!   engine::ScriptEngine` — the canonical scripting public
+//!   surface for command-handler script-management API
+//!   (`cmd_deploy_program`, `cmd_list_scripts`, etc.).
+//!
+//! The blanket allow stays because the methods that look unused
+//! from main.rs's POV are the PUBLIC API the command handlers
+//! consume via the re-export — exactly what the original NOTE
+//! above predicted. Per-item audit pending in a focused
+//! F-series cleanup batch.
+
 #![allow(dead_code)]
 
 use chrono::Utc;

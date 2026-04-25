@@ -1303,6 +1303,54 @@ export function useResumeMaintenanceSchedule() {
   });
 }
 
+/**
+ * Generate a one-off WorkOrder from an ACTIVE MaintenanceSchedule.
+ *
+ * Backend resolver: `generateWorkOrderFromSchedule(scheduleId: ID!): WorkOrder`
+ * (apps/farm-service/src/maintenance/resolvers/maintenance-schedule.resolver.ts).
+ * The service rejects non-ACTIVE schedules with a 400 — UI also pre-checks
+ * via `useCanMutate('generateWorkOrderFromSchedule')` and a status guard.
+ *
+ * Cache invalidation:
+ *   - Work order list / statistics (new row appears)
+ *   - Schedule list + detail (lastGeneratedAt / nextDueDate may shift)
+ */
+export function useGenerateWorkOrderFromSchedule() {
+  const queryClient = useQueryClient();
+  const { tenantId } = useAuth();
+
+  return useMutation({
+    mutationFn: async (scheduleId: string) => {
+      const mutation = `
+        mutation GenerateWorkOrderFromSchedule($scheduleId: ID!) {
+          generateWorkOrderFromSchedule(scheduleId: $scheduleId) {
+            ${WORK_ORDER_FIELDS}
+          }
+        }
+      `;
+
+      const result = await graphqlClient.request<{ generateWorkOrderFromSchedule: WorkOrder }>(
+        mutation,
+        { scheduleId }
+      );
+
+      return result.generateWorkOrderFromSchedule;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrders') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrderStatistics') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceSchedules') });
+      if (data.maintenanceScheduleId) {
+        queryClient.invalidateQueries({
+          queryKey: createTenantQueryKey(tenantId, 'maintenanceSchedule', data.maintenanceScheduleId),
+        });
+      }
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'upcomingMaintenanceSchedules') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceAlerts') });
+    },
+  });
+}
+
 // ============================================================================
 // HOOKS - Spare Parts
 // ============================================================================

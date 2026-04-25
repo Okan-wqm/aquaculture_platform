@@ -27,6 +27,7 @@ import {
   MaintenanceScheduleFilter,
   CreateMaintenanceScheduleInput,
 } from '../../hooks/useMaintenance';
+import GenerateWorkOrderButton from './components/GenerateWorkOrderButton';
 
 // Status colors
 const statusColors: Record<MaintenanceScheduleStatus, string> = {
@@ -399,34 +400,37 @@ export const MaintenanceSchedulesPage: React.FC = () => {
                         {item.executionCount} kez
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <button
-                          onClick={() => handleOpenEdit(item)}
-                          className="text-indigo-600 hover:text-indigo-900 mr-3"
-                        >
-                          Düzenle
-                        </button>
-                        {item.status === 'ACTIVE' && (
+                        <div className="flex items-center justify-end gap-2">
                           <button
-                            onClick={() => handlePause(item.id)}
-                            className="text-yellow-600 hover:text-yellow-900 mr-3"
+                            onClick={() => handleOpenEdit(item)}
+                            className="text-indigo-600 hover:text-indigo-900"
                           >
-                            Duraklat
+                            Düzenle
                           </button>
-                        )}
-                        {item.status === 'PAUSED' && (
+                          {item.status === 'ACTIVE' && (
+                            <button
+                              onClick={() => handlePause(item.id)}
+                              className="text-yellow-600 hover:text-yellow-900"
+                            >
+                              Duraklat
+                            </button>
+                          )}
+                          {item.status === 'PAUSED' && (
+                            <button
+                              onClick={() => handleResume(item.id)}
+                              className="text-green-600 hover:text-green-900"
+                            >
+                              Devam Et
+                            </button>
+                          )}
+                          <GenerateWorkOrderButton schedule={item} />
                           <button
-                            onClick={() => handleResume(item.id)}
-                            className="text-green-600 hover:text-green-900 mr-3"
+                            onClick={() => handleDelete(item.id)}
+                            className="text-red-600 hover:text-red-900"
                           >
-                            Devam Et
+                            Sil
                           </button>
-                        )}
-                        <button
-                          onClick={() => handleDelete(item.id)}
-                          className="text-red-600 hover:text-red-900"
-                        >
-                          Sil
-                        </button>
+                        </div>
                       </td>
                     </tr>
                   ))

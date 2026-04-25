@@ -182,6 +182,7 @@ export const MUTATION_ROLES: Readonly<Record<string, readonly Role[]>> = Object.
   scheduleHarvestPlan: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   seedDefaultWaterQualityParameterConfigs: [Role.TENANT_ADMIN],
   setDefaultFeedingProtocol: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  setSupplierApprovedSites: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   skipDailyFeeding: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   startHarvestPlan: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   startHealthEventQuarantine: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],

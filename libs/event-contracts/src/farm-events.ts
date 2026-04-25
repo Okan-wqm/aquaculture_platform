@@ -922,6 +922,69 @@ export interface LegacyFarmTableConvertedEvent extends BaseEvent {
   convertedAt: Date;
 }
 
+/**
+ * SupplierApprovedSitesChanged — emitted when an operator updates the
+ * set of sites a supplier is approved to deliver to (Scope A Phase
+ * 4.4.2). The event carries the BEFORE and AFTER site-id sets so
+ * downstream consumers (audit log, procurement-policy enforcement,
+ * site-onboarding workflows) can detect deltas without re-querying.
+ *
+ * Why both `previousSiteIds` and `newSiteIds`:
+ *   - `previousSiteIds` is the snapshot at the start of the
+ *     transactional `setSupplierApprovedSites` handler (before delete).
+ *   - `newSiteIds` is what the row set looks like after the insert.
+ * The diff (added/removed sites) is computable on the consumer side;
+ * shipping both lists keeps the event self-contained for replay.
+ *
+ * `preferredSiteId` is included because operators may flip the
+ * preferred site for an unchanged set of approved sites — the diff
+ * alone wouldn't surface that change.
+ *
+ * One event per setSupplierApprovedSites call (per supplier). Tenant
+ * isolation is via `tenantId` on the BaseEvent.
+ */
+export interface SupplierApprovedSitesChangedEvent extends BaseEvent {
+  eventType: 'SupplierApprovedSitesChanged';
+  supplierId: string;
+  previousSiteIds: string[];
+  newSiteIds: string[];
+  previousPreferredSiteId: string | null;
+  newPreferredSiteId: string | null;
+  /** Operator who triggered the change (resolver `user.sub`). */
+  changedBy: string;
+}
+
+/**
+ * SiteContactsChanged — emitted when an operator upserts the contact
+ * list for a site (Scope A Phase 4.4.3). Carries before/after lists
+ * so downstream consumers (audit log, notification preferences,
+ * tenant erasure workflows) get a self-contained record.
+ *
+ * Contacts are PII, so the event ships only `name`, `role`, `email`,
+ * `phone`, and `isPrimary` — no free-text notes (none on this
+ * entity) and no derived metadata.
+ */
+export interface SiteContactsChangedEvent extends BaseEvent {
+  eventType: 'SiteContactsChanged';
+  siteId: string;
+  previousContacts: ReadonlyArray<{
+    name: string;
+    role: string | null;
+    email: string | null;
+    phone: string | null;
+    isPrimary: boolean;
+  }>;
+  newContacts: ReadonlyArray<{
+    name: string;
+    role: string | null;
+    email: string | null;
+    phone: string | null;
+    isPrimary: boolean;
+  }>;
+  /** Operator who triggered the change (resolver `user.sub`). */
+  changedBy: string;
+}
+
 export interface FeedInventoryLowEvent extends BaseEvent {
   eventType: 'FeedInventoryLow';
   inventoryId: string;
@@ -961,6 +1024,8 @@ export type FarmEvent =
   | BatchMetadataUpdatedEvent
   | LegacyFarmDataMigratedEvent
   | LegacyFarmTableConvertedEvent
+  | SupplierApprovedSitesChangedEvent
+  | SiteContactsChangedEvent
   | BatchTransferredEvent
   | BatchAllocatedToTankEvent
   | GrowthSampleRecordedEvent

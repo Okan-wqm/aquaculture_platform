@@ -6,7 +6,18 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, Button, Input, Alert, graphqlClient } from '@aquaculture/shared-ui';
+import {
+  Card,
+  Button,
+  Input,
+  Alert,
+  formatErrorForToast,
+  graphqlClient,
+  useCanMutate,
+  useToast,
+} from '@aquaculture/shared-ui';
+
+import { useUpdateSentinelHubInstanceId } from '../../hooks/useSentinelHub';
 
 // GraphQL queries/mutations
 const SENTINEL_HUB_STATUS_QUERY = `
@@ -50,6 +61,12 @@ export const SentinelHubSettingsPage: React.FC = () => {
   const [isStatusLoading, setIsStatusLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+
+  // Targeted instance-id update — see PR-10 docblock on the hook.
+  const { toast } = useToast();
+  const canUpdateInstanceId = useCanMutate('updateSentinelHubInstanceId');
+  const updateInstanceMutation = useUpdateSentinelHubInstanceId();
+  const [instanceOnlyInput, setInstanceOnlyInput] = useState('');
 
   const fetchStatus = useCallback(async () => {
     setIsStatusLoading(true);
@@ -119,6 +136,34 @@ export const SentinelHubSettingsPage: React.FC = () => {
       setError(err instanceof Error ? err.message : 'Silme hatasi');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleUpdateInstanceIdOnly = async () => {
+    const trimmed = instanceOnlyInput.trim();
+    if (!trimmed) {
+      toast({
+        title: 'Instance ID gerekli',
+        description: 'Güncellemek için yeni Instance ID girin.',
+        variant: 'error',
+      });
+      return;
+    }
+    try {
+      await updateInstanceMutation.mutateAsync(trimmed);
+      toast({
+        title: 'Instance ID güncellendi',
+        description: 'Sentinel Hub Instance ID değişti, kimlik bilgileri korundu.',
+        variant: 'success',
+      });
+      setInstanceOnlyInput('');
+      fetchStatus();
+    } catch (err) {
+      toast({
+        title: 'Güncelleme başarısız',
+        description: formatErrorForToast(err),
+        variant: 'error',
+      });
     }
   };
 
@@ -197,6 +242,40 @@ export const SentinelHubSettingsPage: React.FC = () => {
                 Hizli uydu goruntuleri icin Instance ID gerekli. Asagidaki WMTS kurulum adimlarini izleyin.
               </div>
             )}
+
+            {/* Targeted Instance ID update (admin-only) — PR-10 */}
+            {canUpdateInstanceId && (
+              <div className="mt-3 p-3 bg-gray-50 border border-gray-200 rounded space-y-2">
+                <p className="text-xs text-gray-600">
+                  <strong>Sadece Instance ID güncelle:</strong> Client ID
+                  / Secret'ı yeniden girmeden WMTS Instance ID'sini
+                  değiştirin. Sentinel Hub Dashboard'da yeni bir
+                  Configuration Instance oluşturduğunuzda bu yolu
+                  kullanın.
+                </p>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <Input
+                    type="text"
+                    value={instanceOnlyInput}
+                    onChange={(e) => setInstanceOnlyInput(e.target.value)}
+                    placeholder="Yeni Instance ID (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)"
+                    className="font-mono flex-1"
+                    disabled={updateInstanceMutation.isPending}
+                  />
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={handleUpdateInstanceIdOnly}
+                    disabled={
+                      !instanceOnlyInput.trim() || updateInstanceMutation.isPending
+                    }
+                  >
+                    {updateInstanceMutation.isPending ? 'Güncelleniyor…' : 'Sadece Güncelle'}
+                  </Button>
+                </div>
+              </div>
+            )}
+
             <Button
               variant="danger"
               size="sm"

@@ -1,0 +1,424 @@
+openapi: 3.1.0
+info:
+  title: Suderra Edge Agent HTTP API
+  version: 1.6.0
+  description: |
+    HTTP endpoints exposed by the Suderra edge agent (`sens-api-gateway`) for
+    liveness, readiness, metrics, and diagnostics.
+
+    STATUS — NOT WIRED TODAY (per `docs/api/http-api.md`):
+    `start_health_server` is defined in `src/health.rs:670-703` but never
+    invoked from `src/main.rs`. The running agent does NOT bind any HTTP
+    listener. See ORPHAN-EDGE-007.
+
+    `/metrics` returns JSON today, not Prometheus text format. See ORPHAN-EDGE-008.
+  contact:
+    name: Suderra Edge Team
+    email: info@suderra.com
+  license:
+    name: Proprietary
+    identifier: LicenseRef-Proprietary
+servers:
+  - url: http://{host}:{port}
+    description: Local bind (not enabled by default)
+    variables:
+      host:
+        default: 127.0.0.1
+      port:
+        default: '8080'
+paths:
+  /health:
+    get:
+      summary: Liveness probe
+      description: |
+        Returns 200 when the service is alive (healthy or degraded).
+        Returns 503 when config has not been loaded.
+        Evidence: `src/health.rs:706-716`.
+      operationId: getHealth
+      responses:
+        '200':
+          description: Alive (healthy or degraded)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              examples:
+                healthy:
+                  summary: Fully initialised
+                  value:
+                    status: healthy
+                    version: 1.6.0
+                    uptime_secs: 3712
+                degraded:
+                  summary: Config loaded, device not yet activated
+                  value:
+                    status: degraded
+                    version: 1.6.0
+                    uptime_secs: 12
+        '503':
+          description: Config not loaded — service not yet alive
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              examples:
+                unhealthy:
+                  value:
+                    status: unhealthy
+                    version: 1.6.0
+                    uptime_secs: 2
+  /ready:
+    get:
+      summary: Readiness probe
+      description: |
+        Returns 200 only when `config_loaded && device_activated`.
+        Evidence: `src/health.rs:719-729`, readiness gate `src/health.rs:466-469`.
+      operationId: getReady
+      responses:
+        '200':
+          description: Ready to accept traffic
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadinessResponse'
+        '503':
+          description: Not ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadinessResponse'
+  /metrics:
+    get:
+      summary: Counter snapshot (JSON, NOT Prometheus today)
+      description: |
+        Returns JSON-encoded counters. ORPHAN-EDGE-008: Prometheus
+        text-format migration is tracked — `metrics-exporter-prometheus`
+        is already in Cargo.toml (feature-gated `metrics`, off by default).
+        Evidence: `src/health.rs:731-736`.
+      operationId: getMetrics
+      responses:
+        '200':
+          description: Metrics snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MetricsResponse'
+  /diagnostics:
+    get:
+      summary: Comprehensive diagnostics
+      description: |
+        Full troubleshooting snapshot: system + process info, component
+        status, sanitised config summary, last 10 errors.
+        Evidence: `src/health.rs:738-743`; construction `src/health.rs:513-651`.
+      operationId: getDiagnostics
+      responses:
+        '200':
+          description: Diagnostics payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DiagnosticsResponse'
+components:
+  schemas:
+    HealthResponse:
+      type: object
+      description: Aggregated liveness response (`src/health.rs:31-39`).
+      required: [status, version, uptime_secs]
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+          description: |
+            `healthy` = config loaded AND device activated.
+            `degraded` = config loaded, device not activated.
+            `unhealthy` = config not loaded.
+        version:
+          type: string
+          description: Agent binary version (CARGO_PKG_VERSION).
+          example: 1.6.0
+        uptime_secs:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Seconds since HealthState::new().
+    ReadinessResponse:
+      type: object
+      description: Kubernetes-style readiness probe response (`src/health.rs:42-48`).
+      required: [ready, checks]
+      properties:
+        ready:
+          type: boolean
+          description: True only when config_loaded AND device_activated.
+        checks:
+          $ref: '#/components/schemas/ReadinessChecks'
+    ReadinessChecks:
+      type: object
+      description: Individual readiness signals (`src/health.rs:51-59`).
+      required: [config_loaded, mqtt_connected, device_activated]
+      properties:
+        config_loaded:
+          type: boolean
+        mqtt_connected:
+          type: boolean
+          description: |
+            Informational — readiness gate does NOT consider this. An agent with
+            broken broker connection but valid provisioning still reports
+            ready=true.
+        device_activated:
+          type: boolean
+    MetricsResponse:
+      type: object
+      description: Counter snapshot (`src/health.rs:62-76`).
+      required:
+        [uptime_secs, mqtt_messages_sent, mqtt_messages_received, modbus_reads, script_executions, offline_queue_size]
+      properties:
+        uptime_secs:
+          type: integer
+          format: int64
+          minimum: 0
+        mqtt_messages_sent:
+          type: integer
+          format: int64
+          minimum: 0
+        mqtt_messages_received:
+          type: integer
+          format: int64
+          minimum: 0
+        modbus_reads:
+          type: integer
+          format: int64
+          minimum: 0
+        script_executions:
+          type: integer
+          format: int64
+          minimum: 0
+        offline_queue_size:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Gauge (NOT a counter) — current offline queue depth.
+    DiagnosticsResponse:
+      type: object
+      description: Comprehensive diagnostics (`src/health.rs:79-97`).
+      required: [timestamp, version, uptime_secs, system, process, components, config, recent_errors]
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          description: RFC 3339 / ISO 8601 UTC.
+        version:
+          type: string
+        uptime_secs:
+          type: integer
+          format: int64
+          minimum: 0
+        system:
+          $ref: '#/components/schemas/SystemDiagnostics'
+        process:
+          $ref: '#/components/schemas/ProcessDiagnostics'
+        components:
+          $ref: '#/components/schemas/ComponentDiagnostics'
+        config:
+          $ref: '#/components/schemas/ConfigDiagnostics'
+        recent_errors:
+          type: array
+          description: Last 10 error strings (VecDeque with O(1) pop per v1.2.6).
+          maxItems: 10
+          items:
+            type: string
+    SystemDiagnostics:
+      type: object
+      required: [os, hostname, cpu_count, cpu_usage_percent, memory_total_bytes, memory_used_bytes, memory_usage_percent, disk]
+      properties:
+        os:
+          type: string
+        hostname:
+          type: string
+        cpu_count:
+          type: integer
+          minimum: 0
+        cpu_usage_percent:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 100
+        memory_total_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+        memory_used_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+        memory_usage_percent:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 100
+        disk:
+          $ref: '#/components/schemas/DiskDiagnostics'
+    DiskDiagnostics:
+      type: object
+      required: [total_bytes, available_bytes, usage_percent]
+      properties:
+        total_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+        available_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+        usage_percent:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 100
+    ProcessDiagnostics:
+      type: object
+      required: [pid, memory_bytes, thread_count, start_time]
+      properties:
+        pid:
+          type: integer
+          format: int32
+          minimum: 0
+        memory_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+        thread_count:
+          type: integer
+          format: int32
+          minimum: 0
+          description: Thread count not directly available via sysinfo today — reports 0 (`src/health.rs:542-543`).
+        start_time:
+          type: string
+          format: date-time
+    ComponentDiagnostics:
+      type: object
+      required: [mqtt, modbus, scripts, function_blocks, offline_queue]
+      properties:
+        mqtt:
+          $ref: '#/components/schemas/MqttDiagnostics'
+        modbus:
+          $ref: '#/components/schemas/ModbusDiagnostics'
+        scripts:
+          $ref: '#/components/schemas/ScriptDiagnostics'
+        function_blocks:
+          $ref: '#/components/schemas/FunctionBlockDiagnostics'
+        offline_queue:
+          $ref: '#/components/schemas/OfflineQueueDiagnostics'
+    MqttDiagnostics:
+      type: object
+      required: [connected, messages_sent, messages_received]
+      properties:
+        connected:
+          type: boolean
+        messages_sent:
+          type: integer
+          format: int64
+          minimum: 0
+        messages_received:
+          type: integer
+          format: int64
+          minimum: 0
+        last_connected:
+          type: string
+          format: date-time
+          nullable: true
+    ModbusDiagnostics:
+      type: object
+      required: [client_count, total_reads, read_errors, circuit_states]
+      properties:
+        client_count:
+          type: integer
+          minimum: 0
+        total_reads:
+          type: integer
+          format: int64
+          minimum: 0
+        read_errors:
+          type: integer
+          format: int64
+          minimum: 0
+        circuit_states:
+          type: array
+          description: Tuple array — each entry is [device_name, state]. State is one of Closed, Open, HalfOpen.
+          items:
+            type: array
+            minItems: 2
+            maxItems: 2
+            items:
+              type: string
+    ScriptDiagnostics:
+      type: object
+      required: [loaded_count, active_count, total_executions, execution_errors]
+      properties:
+        loaded_count:
+          type: integer
+          minimum: 0
+        active_count:
+          type: integer
+          minimum: 0
+        total_executions:
+          type: integer
+          format: int64
+          minimum: 0
+        execution_errors:
+          type: integer
+          format: int64
+          minimum: 0
+    FunctionBlockDiagnostics:
+      type: object
+      required: [instance_count, type_counts]
+      properties:
+        instance_count:
+          type: integer
+          minimum: 0
+        type_counts:
+          type: object
+          additionalProperties:
+            type: integer
+            minimum: 0
+    OfflineQueueDiagnostics:
+      type: object
+      required: [size, capacity, total_queued, total_sent]
+      properties:
+        size:
+          type: integer
+          format: int64
+          minimum: 0
+        capacity:
+          type: integer
+          format: int64
+          minimum: 0
+        total_queued:
+          type: integer
+          format: int64
+          minimum: 0
+        total_sent:
+          type: integer
+          format: int64
+          minimum: 0
+    ConfigDiagnostics:
+      type: object
+      description: Sanitised config summary — no secrets (`src/health.rs:220-233`).
+      required: [device_id, mqtt_host, modbus_device_count, gpio_mapping_count, telemetry_interval_secs]
+      properties:
+        device_id:
+          type: string
+          description: Masked device ID (not raw UUID).
+        mqtt_host:
+          type: string
+        modbus_device_count:
+          type: integer
+          minimum: 0
+        gpio_mapping_count:
+          type: integer
+          minimum: 0
+        telemetry_interval_secs:
+          type: integer
+          format: int64
+          minimum: 0
+  securitySchemes: {}
+security: []

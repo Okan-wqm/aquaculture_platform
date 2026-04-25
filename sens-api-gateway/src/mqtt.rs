@@ -327,8 +327,26 @@ impl MqttClient {
         // Subscribe to command and config topics
         mqtt_client.subscribe().await?;
 
-        // Publish online status
-        mqtt_client.publish_status(DeviceStatus::Online, 0).await?;
+        // Initial Online status publish was REMOVED from
+        // MqttClient::new in Batch #268 — see ORPHAN-MEDIUM-022.
+        //
+        // **Why removed:** The publish-status path needs to route
+        // through the broker-aware OutboundPublisher dispatcher
+        // (Batch #251-#255 ARC-002 wire) so a transient broker
+        // outage during the connect→publish window queues the
+        // status transition to disk + replays on reconnect.
+        // Calling publish_status here on the bare MqttClient
+        // bypasses the queue protection — a status loss during
+        // intermittent broker availability defeats the
+        // operator-facing "device just came online" gauge.
+        //
+        // **Replacement:** main.rs boot sequence calls
+        // `publish_helpers::publish_status` from a helper invoked
+        // AFTER `init_outbound_publisher` populates the
+        // dispatcher Arc, ensuring the Online-publish path goes
+        // through the queue-aware route. Wire location:
+        // `main.rs::publish_initial_online_status` post-init
+        // helper.
 
         Ok(mqtt_client)
     }

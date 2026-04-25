@@ -4255,6 +4255,49 @@ async fn run_agent(
         }
     }
 
+    // Initial Online status publish — Batch #268 closure of
+    // ORPHAN-MEDIUM-022.
+    //
+    // Pre-Batch-268, MqttClient::new() did `mqtt_client.
+    // publish_status(DeviceStatus::Online, 0).await?` directly
+    // on the bare client at the end of connect — bypassing the
+    // OutboundPublisher dispatcher because MqttClient internal
+    // methods don't have AppState reference. A transient broker
+    // outage during the connect→publish window would lose the
+    // Online status transition silently.
+    //
+    // Now: connect happens in MqttClient::new (still); the
+    // Online status publish moves HERE, post-init_outbound_
+    // publisher, so the publish routes through the queue-aware
+    // dispatcher. If the broker drops between connect + this
+    // helper call, the status transition queues to disk + drains
+    // on reconnect. Operator-actionable visibility of "device
+    // just came online" preserved across broker flap.
+    //
+    // Payload shape mirrors the legacy MqttClient::publish_status
+    // envelope (device_id, device_code, status, timestamp,
+    // agent_version, uptime_seconds=0 since we just connected)
+    // — no cloud-side schema break.
+    {
+        let state_guard = state.read().await;
+        if let Some(ref mqtt) = state_guard.mqtt_client {
+            let payload = serde_json::json!({
+                "device_id": mqtt.device_id(),
+                "device_code": mqtt.device_code(),
+                "status": crate::mqtt::DeviceStatus::Online,
+                "timestamp": chrono::Utc::now().to_rfc3339(),
+                "agent_version": env!("CARGO_PKG_VERSION"),
+                "uptime_seconds": 0,
+            });
+            crate::publish_helpers::publish_status(
+                &state_guard,
+                &payload,
+            )
+            .await;
+            info!("Initial Online status published via OutboundPublisher (Batch #268 wire — ORPHAN-MEDIUM-022 closure)");
+        }
+    }
+
     // Step 4: Initialize hardware interfaces
     info!("Initializing hardware interfaces...");
     init_hardware(&state).await;

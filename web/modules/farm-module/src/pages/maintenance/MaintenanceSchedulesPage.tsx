@@ -30,6 +30,7 @@ import {
 import GenerateWorkOrderButton from './components/GenerateWorkOrderButton';
 import CompleteMaintenanceModal from './components/CompleteMaintenanceModal';
 import ProcessAutoGenerateButton from './components/ProcessAutoGenerateButton';
+import UpdateMeterReadingButton from './components/UpdateMeterReadingButton';
 import { useCanMutate } from '@aquaculture/shared-ui';
 
 // Status colors
@@ -436,6 +437,7 @@ export const MaintenanceSchedulesPage: React.FC = () => {
                             </button>
                           )}
                           <GenerateWorkOrderButton schedule={item} />
+                          <UpdateMeterReadingButton schedule={item} />
                           {canCompleteMaintenance && item.status === 'ACTIVE' && (
                             <button
                               onClick={() => setCompletingSchedule(item)}

@@ -1466,6 +1466,49 @@ export function useGenerateWorkOrderFromSchedule() {
   });
 }
 
+/**
+ * Update the current meter reading on a METER_BASED maintenance
+ * schedule. Used between maintenance events for walk-around meter
+ * captures — distinct from `useCompleteMaintenance`, which uses the
+ * meter reading as part of closing a cycle.
+ *
+ * Backend resolver: `updateMeterReading(input: UpdateMeterReadingInput!): MaintenanceSchedule`
+ * (apps/farm-service/src/maintenance/resolvers/maintenance-schedule.resolver.ts:319).
+ * The service rejects non-METER_BASED schedules with a 400 — UI also
+ * pre-checks via the row's `recurrenceRule.type`.
+ */
+export interface UpdateMeterReadingInput {
+  id: string;
+  meterReading: number;
+}
+
+export function useUpdateMeterReading() {
+  const queryClient = useQueryClient();
+  const { tenantId } = useAuth();
+
+  return useMutation({
+    mutationFn: async (input: UpdateMeterReadingInput) => {
+      const mutation = `
+        mutation UpdateMeterReading($input: UpdateMeterReadingInput!) {
+          updateMeterReading(input: $input) {
+            ${MAINTENANCE_SCHEDULE_FIELDS}
+          }
+        }
+      `;
+      const result = await graphqlClient.request<{
+        updateMeterReading: MaintenanceSchedule;
+      }>(mutation, { input });
+      return result.updateMeterReading;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceSchedules') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceSchedule', data.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'upcomingMaintenanceSchedules') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceAlerts') });
+    },
+  });
+}
+
 // ============================================================================
 // HOOKS - Spare Parts
 // ============================================================================

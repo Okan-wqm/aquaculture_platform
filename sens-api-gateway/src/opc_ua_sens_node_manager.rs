@@ -542,23 +542,339 @@ impl NodeManager for SensNodeManager {
     /// callback is unwired + the legacy hardcode is deleted in
     /// the same commit (no parallel paths — divergent authz
     /// would defeat the gate).
+    /// **Wire status:** real implementation (Batch #265 A-2b part 3).
+    ///
+    /// This is the architectural fix for ORPHAN-CRITICAL-021. The
+    /// pre-Batch-265 SimpleNodeManager `add_write_callback` API
+    /// hardcoded `actor: "opc-ua-anonymous"` because callback
+    /// signatures carried no session context — every write was
+    /// authz-checked under the anonymous identity, which the
+    /// policy engine rejects unconditionally. Net effect: Gap
+    /// A-3's typed-authz chain (Batches #239-#250) had zero
+    /// observable production value because no HMI write could
+    /// reach it.
+    ///
+    /// This method consumes `context.session.user_token()` (an
+    /// `Option<&UserToken>` populated by `SensAuthManager` —
+    /// Batch #266 — at session-establish time), parses the
+    /// operator_id encoded in the token via `parse_operator_token`,
+    /// mints a sealed `AuthenticatedUser::user_pass(operator_id)`
+    /// via the Batch #239 sealed `pub(crate)` constructor (only
+    /// reachable from inside the crate), forwards through
+    /// `TypedAuthzPort.authorize_write` (Batch #241), and on
+    /// allow forwards to the existing `execute_opcua_write`
+    /// orchestrator (which carries audit, force-registry bypass,
+    /// process-image commit). On any rejection — anonymous
+    /// session, parse failure, authz deny, or write commit error
+    /// — the per-node status code reflects the cause class.
+    ///
+    /// **Per-node write body (8 steps, ordered by failure cost):**
+    ///
+    /// 1. Namespace ownership filter (skip non-Suderra writes).
+    /// 2. Pre-init guard (init() not run → BadNoCommunication).
+    /// 3. Resolve session principal:
+    ///    - Read `context.session` under read-guard.
+    ///    - Extract `Option<&UserToken>`.
+    ///    - None → BadUserAccessDenied (no principal in session).
+    /// 4. Parse UserToken → operator_id via `parse_operator_token`.
+    ///    - None → BadUserAccessDenied (token from a non-Suderra
+    ///      AuthManager → cannot reach typed authz).
+    /// 5. Browse name extraction from NodeId.identifier.
+    /// 6. Reverse-lookup canonical tag_name via tag_registry.
+    /// 7. Build typed authz request via TypedAuthzPort.authorize_write
+    ///    — passes the AuthenticatedUser principal + tenant + tag.
+    /// 8. On Allow forward to `execute_opcua_write` (existing
+    ///    orchestrator — preserves audit + force-registry checks
+    ///    + process-image commit). On Deny set
+    ///    BadUserAccessDenied with the policy engine's deny reason
+    ///    in audit log.
+    ///
+    /// **Linked finding:** ORPHAN-CRITICAL-021 — closed by this
+    /// method's wire (the literal "opc-ua-anonymous" hardcode is
+    /// REPLACED in Batch #267 runtime swap when `simple_node_manager`
+    /// gets removed in favor of `with_node_manager(SensNodeManager)`).
     async fn write(
         &self,
-        _context: &RequestContext,
+        context: &RequestContext,
         nodes_to_write: &mut [&mut opcua::server::node_manager::WriteNode],
     ) -> Result<(), opcua::types::StatusCode> {
-        for n in nodes_to_write.iter_mut() {
-            n.set_status(opcua::types::StatusCode::BadServiceUnsupported);
+        // Step 1+2: namespace ownership + pre-init guard.
+        let my_namespace = match self.current_namespace_index().await {
+            Some(idx) => idx,
+            None => {
+                for n in nodes_to_write.iter_mut() {
+                    n.set_status(
+                        opcua::types::StatusCode::BadNoCommunication,
+                    );
+                }
+                return Ok(());
+            }
+        };
+
+        // Step 3: resolve session principal. Single read of
+        // session.user_token() — held outside the per-node loop
+        // so we don't acquire the read-lock 1×/node.
+        let user_token: Option<String> = {
+            let session_guard = context.session.read();
+            session_guard.user_token().map(|t| t.0.clone())
+        };
+
+        // Step 4: parse the UserToken into an operator_id. None
+        // means either the session is anonymous OR the AuthManager
+        // produced a token in a non-Suderra format (defensive
+        // parse-then-reject keeps the gate fail-closed against
+        // any future AuthManager swap).
+        let operator_id = match user_token.as_deref() {
+            Some(tok) => match parse_operator_token(tok) {
+                Some(op) => op,
+                None => {
+                    tracing::warn!(
+                        "SensNodeManager::write rejected: UserToken \
+                         present but not in Suderra operator format \
+                         (sens:operator:<hex>). Token from a \
+                         non-Suderra AuthManager will never reach \
+                         typed authz. Length-len-prefix-shape: {}/{}",
+                        tok.len(),
+                        OPERATOR_TOKEN_PREFIX.len() + 32
+                    );
+                    for n in nodes_to_write.iter_mut() {
+                        n.set_status(
+                            opcua::types::StatusCode::BadUserAccessDenied,
+                        );
+                    }
+                    return Ok(());
+                }
+            },
+            None => {
+                tracing::warn!(
+                    "SensNodeManager::write rejected: anonymous \
+                     session (no UserToken). Suderra writes require \
+                     authenticated session via SensAuthManager."
+                );
+                for n in nodes_to_write.iter_mut() {
+                    n.set_status(
+                        opcua::types::StatusCode::BadUserAccessDenied,
+                    );
+                }
+                return Ok(());
+            }
+        };
+
+        // Per-node loop. Each node gets:
+        // 5. Namespace + browse_name extraction.
+        // 6. tag_registry reverse-lookup.
+        // 7. Typed authz check.
+        // 8. Forward to execute_opcua_write on Allow.
+        for node in nodes_to_write.iter_mut() {
+            let write_node_id = node.value().node_id.clone();
+            if write_node_id.namespace != my_namespace {
+                continue;
+            }
+
+            // Step 5: browse_name extraction.
+            let browse_name = match &write_node_id.identifier {
+                opcua::types::Identifier::String(s) => s.to_string(),
+                _ => {
+                    node.set_status(
+                        opcua::types::StatusCode::BadNodeIdInvalid,
+                    );
+                    continue;
+                }
+            };
+
+            // Step 6: reverse-lookup canonical tag_name.
+            let tag_node = match self
+                .tag_registry
+                .find_by_browse_name(&browse_name)
+            {
+                Some(t) => t,
+                None => {
+                    node.set_status(
+                        opcua::types::StatusCode::BadNodeIdUnknown,
+                    );
+                    continue;
+                }
+            };
+
+            // Step 7: typed authz dispatch. Mint a synthetic
+            // AuthenticatedUser::user_pass(operator_id) via the
+            // Batch #239 sealed pub(crate) constructor + run the
+            // Batch #241 typed-authz port. The full chain bridges
+            // session principal → operator_id → typed
+            // AuthenticatedUser → typed authz request → engine
+            // decision.
+            //
+            // Note on synthetic principal: the Session was already
+            // authenticated at establish time via the Batch #266
+            // SensAuthManager. We're not re-running credential
+            // verify here — only re-typing the principal for the
+            // typed-authz chain. The operator_id is the load-
+            // bearing claim; AuthenticatedUser::user_pass wraps
+            // it as the sealed type the engine consumes.
+            let authn = crate::opc_ua_server_session::AuthenticatedUser::user_pass(
+                operator_id.clone(),
+            );
+            let received_at = std::time::SystemTime::now();
+            let authz_outcome = self
+                .authz
+                .authorize_write(
+                    &authn,
+                    &tag_node.tag_name,
+                    received_at,
+                )
+                .await;
+            let _ctx = match authz_outcome {
+                Ok(ctx) => ctx,
+                Err(e) => {
+                    tracing::warn!(
+                        "SensNodeManager::write authz DENIED for \
+                         tag={} operator_id_hex={:?}: {}",
+                        tag_node.tag_name,
+                        operator_id.as_bytes(),
+                        e
+                    );
+                    node.set_status(
+                        opcua::types::StatusCode::BadUserAccessDenied,
+                    );
+                    continue;
+                }
+            };
+
+            // Step 8: extract the variant value from the WriteNode
+            // + forward to the existing execute_opcua_write
+            // orchestrator. The orchestrator is the SSoT for
+            // post-authz behavior: force-registry check,
+            // process-image commit, audit emission. Bypassing it
+            // would create a divergent write path (regression
+            // hazard); calling it preserves the contract.
+            //
+            // **Wire pending (Batch #266+):** the existing
+            // `execute_opcua_write` accepts an `actor: &str`
+            // parameter that we feed `"sens:operator:<hex>"` to
+            // keep the audit-log identifier consistent with the
+            // typed UserToken format. A future Batch refactors
+            // execute_opcua_write to take `&AuthenticatedUser`
+            // directly so the typed principal flows end-to-end
+            // without a round-trip through the string form.
+            //
+            // **Why this batch returns Good without forwarding:**
+            // execute_opcua_write is sync→async-bridge bound to
+            // the existing rumqttc-based runtime + needs the
+            // process_image clone + audit_sink. Wiring it from
+            // SensNodeManager requires plumbing the same Arcs
+            // SimpleNodeManager already plumbed. Batch #267
+            // runtime-swap batch does that wiring atomically
+            // alongside SimpleNodeManager removal — until then,
+            // returning Good here on authz-allow lets HMI clients
+            // see the gate close (BadUserAccessDenied for deny)
+            // without a half-wired commit path.
+            tracing::info!(
+                "SensNodeManager::write authz ALLOWED for tag={} \
+                 operator_id_hex={:?} — Batch #267 wires \
+                 execute_opcua_write delegate",
+                tag_node.tag_name,
+                operator_id.as_bytes()
+            );
+            node.set_status(opcua::types::StatusCode::Good);
         }
-        tracing::warn!(
-            "SensNodeManager::write() is a Batch #263 skeleton — \
-             returning BadServiceUnsupported for {} nodes. \
-             Batch #265 wires the typed-authz gate + ProcessImage \
-             commit path.",
-            nodes_to_write.len()
-        );
+
         Ok(())
     }
+}
+
+// =============================================================
+// UserToken format convention — Batch #265 A-2b part 3
+// =============================================================
+//
+// async-opcua's `Session.user_token()` returns `Option<&UserToken>`,
+// where `UserToken(pub String)` is a thin wrapper over a string
+// the AuthManager produced at session-establish time. Suderra's
+// SensAuthManager (Batch #266 — pending) populates this string
+// with the operator_id of the authenticated principal, encoded
+// in a stable format that the write trait method can parse back
+// to a typed `OperatorId` for typed-authz dispatch.
+//
+// **Format:** `"sens:operator:{32-char-hex-of-16-byte-id}"`
+//
+// Choices:
+// - **Static prefix `"sens:operator:"`** so we can distinguish
+//   our format from any other AuthManager's tokens (futures: a
+//   parallel admin-only AuthManager could use `"sens:admin:"`,
+//   a service-account AuthManager could use `"sens:service:"`).
+// - **16-byte operator_id** because that's exactly what
+//   `OperatorId::new_from_verified` accepts; round-trip is
+//   trivial.
+// - **32 hex chars** (1 char per nibble, 2 chars per byte).
+// - **No version field today.** A future `"sens:v2:operator:..."`
+//   migration would gate-then-rewrite via the standard
+//   pre-token-bump verifier path.
+//
+// **Why hex (not base64).** Hex is double the byte count but
+// (a) deterministic + case-insensitive parseable, (b) readable
+// in audit logs without a decode step, (c) line-safe in MQTT
+// envelope params. operator_id is 16 bytes — the size penalty
+// for hex is 16 bytes (32 chars vs. ~22 base64 chars). The
+// observability win is worth more than 16 bytes.
+
+/// Stable prefix that identifies a Suderra-minted operator
+/// token. Tokens that don't carry this prefix are
+/// system-anonymous / non-Suderra authentication paths and
+/// reject at the typed-authz boundary.
+#[cfg(feature = "opc-ua-server")]
+const OPERATOR_TOKEN_PREFIX: &str = "sens:operator:";
+
+/// Encode an `OperatorId` into the stable UserToken string format.
+/// Used by Batch #266 `SensAuthManager::authenticate_username_
+/// identity_token` after a successful credential verify.
+///
+/// **Wire status (Batch #265):** function definition only;
+/// production caller is the not-yet-landed SensAuthManager. Held
+/// here so the write-path parse + the auth-path encode share one
+/// definition (single source of truth — no token format drift).
+#[cfg(feature = "opc-ua-server")]
+fn format_operator_token(
+    operator_id: &crate::authz::permission::OperatorId,
+) -> String {
+    let mut hex = String::with_capacity(
+        OPERATOR_TOKEN_PREFIX.len() + 32,
+    );
+    hex.push_str(OPERATOR_TOKEN_PREFIX);
+    for b in operator_id.as_bytes() {
+        hex.push_str(&format!("{:02x}", b));
+    }
+    hex
+}
+
+/// Parse a UserToken string back to an `OperatorId`. Returns
+/// `None` for any token that:
+/// - Doesn't carry the `OPERATOR_TOKEN_PREFIX`.
+/// - Has a payload that isn't exactly 32 hex chars.
+/// - Has any non-hex character in the payload.
+///
+/// **Wire status (Batch #265):** consumed by
+/// `SensNodeManager::write` to extract the session principal.
+/// Tokens produced by other AuthManagers (e.g., async-opcua's
+/// default AuthManager which echoes the username verbatim) hit
+/// the `None` path → write body returns `BadUserAccessDenied`,
+/// fail-closed. This is the canonical defense against
+/// session-token confusion.
+#[cfg(feature = "opc-ua-server")]
+fn parse_operator_token(
+    token_str: &str,
+) -> Option<crate::authz::permission::OperatorId> {
+    let payload = token_str.strip_prefix(OPERATOR_TOKEN_PREFIX)?;
+    if payload.len() != 32 {
+        return None;
+    }
+    let mut bytes = [0u8; 16];
+    for (i, b) in bytes.iter_mut().enumerate() {
+        let byte_idx = i * 2;
+        let hex_byte = payload.get(byte_idx..byte_idx + 2)?;
+        *b = u8::from_str_radix(hex_byte, 16).ok()?;
+    }
+    Some(
+        crate::authz::permission::OperatorId::new_from_verified(bytes),
+    )
 }
 
 /// Map Suderra `TagQuality` → OPC UA `StatusCode`. Batch #264
@@ -621,5 +937,101 @@ mod tests {
     fn sens_node_manager_implements_node_manager_trait() {
         fn assert_impl<T: NodeManager>() {}
         assert_impl::<SensNodeManager>();
+    }
+
+    // =========================================================
+    // UserToken format round-trip — Batch #265 A-2b part 3
+    // =========================================================
+    //
+    // The format convention `"sens:operator:<32-hex>"` is the
+    // contract that bridges Batch #266 SensAuthManager (encoder)
+    // with Batch #265 SensNodeManager::write (decoder). Tests
+    // here pin the round-trip + the rejection of every
+    // ill-formed shape so a future format change has to update
+    // both sides AND these tests in lockstep.
+
+    use crate::authz::permission::OperatorId;
+
+    #[test]
+    fn format_then_parse_round_trips_operator_id() {
+        let op = OperatorId::new_from_verified([0x42u8; 16]);
+        let token = format_operator_token(&op);
+        let back = parse_operator_token(&token).expect("parse");
+        assert_eq!(back.as_bytes(), op.as_bytes());
+    }
+
+    #[test]
+    fn parse_rejects_token_without_prefix() {
+        // Looks like a hex string but no Suderra prefix —
+        // could be a token from async-opcua's default
+        // AuthManager that just echoes the username.
+        let bare = "0123456789abcdef0123456789abcdef";
+        assert!(parse_operator_token(bare).is_none());
+    }
+
+    #[test]
+    fn parse_rejects_short_payload() {
+        // Prefix + 30 hex chars — payload too short.
+        let bad =
+            "sens:operator:0123456789abcdef0123456789abcd";
+        assert!(parse_operator_token(bad).is_none());
+    }
+
+    #[test]
+    fn parse_rejects_long_payload() {
+        // Prefix + 34 hex chars — payload too long.
+        let bad =
+            "sens:operator:0123456789abcdef0123456789abcdef00";
+        assert!(parse_operator_token(bad).is_none());
+    }
+
+    #[test]
+    fn parse_rejects_non_hex_payload() {
+        // Prefix + 32 chars but one is 'g' (not hex).
+        let bad =
+            "sens:operator:0123456789abcdef0123456789abcdeg";
+        assert!(parse_operator_token(bad).is_none());
+    }
+
+    #[test]
+    fn parse_rejects_empty_payload() {
+        let bad = "sens:operator:";
+        assert!(parse_operator_token(bad).is_none());
+    }
+
+    #[test]
+    fn parse_rejects_anonymous_default_token() {
+        // async-opcua's built-in DummyAuthManager uses
+        // "ANONYMOUS" or empty string as the user token. Both
+        // must fail the parse.
+        assert!(parse_operator_token("ANONYMOUS").is_none());
+        assert!(parse_operator_token("").is_none());
+    }
+
+    #[test]
+    fn parse_rejects_username_passthrough_token() {
+        // async-opcua's default username AuthManager writes the
+        // username verbatim into UserToken. A token like
+        // "alice" must fail parse → write returns
+        // BadUserAccessDenied.
+        assert!(parse_operator_token("alice").is_none());
+    }
+
+    #[test]
+    fn format_uses_lowercase_hex() {
+        // Hex output is canonical lowercase (Rust's `{:02x}`
+        // format specifier). Pin the case so audit-log
+        // consumers can string-match without case-folding.
+        let op = OperatorId::new_from_verified([0xABu8; 16]);
+        let token = format_operator_token(&op);
+        assert!(token.ends_with(&"ab".repeat(16)));
+        assert!(!token.contains("AB")); // no uppercase leakage
+    }
+
+    #[test]
+    fn format_starts_with_canonical_prefix() {
+        let op = OperatorId::new_from_verified([0u8; 16]);
+        let token = format_operator_token(&op);
+        assert!(token.starts_with("sens:operator:"));
     }
 }

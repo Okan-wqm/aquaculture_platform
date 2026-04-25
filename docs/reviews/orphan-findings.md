@@ -1252,3 +1252,144 @@ Additionally, every other service pushed by `deploy-digitalocean.yml` (backend N
 - **HIGH items:** ORPHAN-EDGE-DEP-002 (Node 20 deprecation deadline 2026-06-02 — 38 days at the time of writing).
 - **Why this DEEP entry exists alongside the first AUDIT-2026-04-25 entry:** Per operator instruction, every observed problem is recorded — even when un-related to the originating Lane-C task. The first batch covered task-direct findings; this batch covers everything else the work surfaced.
 - **Banned-phrase posture in this entry:** same as above. `^docs/reviews/` is allowlisted by `tools/gates/banned-phrase.ts:179`.
+
+---
+
+## ORPHAN-EDGE-AUDIT-2026-04-25-EXTRA-DEEP — 11 additional repo-state, worktree, and governance gaps (2026-04-25)
+
+**Status:** OPEN.
+**Discovered during:** Continued operator-instruction "every observed problem is recorded" sweep AFTER PR #151 + #153 merged. The earlier two batches captured task-direct + tooling/dep findings; this batch walks the repo's working state — branches, worktrees, repo-level governance files, workflow surface — items pre-existing for months but never registered.
+**Why a third entry under the same date:** Each batch is one bounded scope. Splitting prevents the registry from becoming a single 5000-line scroll while preserving "what did this audit see, when".
+
+### Sub-findings registered
+
+#### ORPHAN-EDGE-WORKTREE-001 — 20+ active worktrees with overlapping commits (MEDIUM; cleanup + governance)
+**Evidence:** `git worktree list` reports 21 worktrees: the canonical `/var/aqua-saas` plus 11 `/tmp/aqua-*` parallel shells, 7 `/var/aqua-saas/.claude/worktrees/agent-*`, 2 `/var/aqua-saas/.worktrees/*`, and `/tmp/aqua-main-illustrator` on `main` itself. Three worktrees (`worktree-agent-a10d7c5c`, `worktree-agent-a8e88f6d`, `worktree-agent-adfdf32a`) all point at the same commit `3dacd93a` — duplicate snapshots consuming disk + index.
+**Class:** Tier-2 automatic — periodic pruning + a per-worktree liveness check.
+**Root-cause architectural fix:**
+1. Add `tools/scripts/worktree-prune.ts` (or shell) that walks `git worktree list`, identifies worktrees whose branch is fully-merged into main OR whose last commit is older than N days, and emits a removal plan (no auto-delete; operator runs).
+2. Document in `CONTRIBUTING.md` (also missing — see ORPHAN-EDGE-REPO-001) that long-lived worktrees should live under `/var/aqua-saas/.worktrees/` (already gitignored) so cleanup tooling has a known root.
+3. CI sanity check: count worktrees > 5 → emit a weekly notification; > 15 → fail a scheduled `worktree-sprawl-gate.yml` job.
+**Owner:** infra-expert + repo admin
+**Deadline:** 2026-06-30
+**Closure path:** PR `chore(scripts): worktree-prune helper + CI sprawl gate`, Closes this anchor.
+
+#### ORPHAN-EDGE-WORKTREE-002 — `/var/aqua-saas/.claude/worktrees/agent-a382b7a5-faz2-stage8` is **locked** + abandoned status unknown (LOW)
+**Evidence:** `git worktree list` shows that path with the `locked` flag. Locked worktrees are not garbage-collected by `git worktree prune`. No accompanying status (active developer / abandoned / archived).
+**Class:** Tier-3 detect.
+**Root-cause architectural fix:**
+1. Add `LOCK_REASON.md` requirement: every locked worktree MUST have a sibling `LOCK_REASON.md` recording owner, date locked, expected resolution date.
+2. CI: a scheduled job that fails if a locked worktree is older than 30 days without a fresh `LOCK_REASON.md` update.
+**Owner:** the worktree's original creator (audit-needed) + edge-expert
+**Deadline:** 2026-05-30 (audit + resolve specifically this worktree).
+**Closure path:** Operator manually inspects + either unlocks/removes the worktree or refreshes its lock reason; PR `chore(worktrees): LOCK_REASON invariant`, Closes this anchor.
+
+#### ORPHAN-EDGE-BRANCH-001 — 11 stale `agentic-*` remote branches accumulating (LOW)
+**Evidence:** `git branch -r | grep -E "origin/agentic" | wc -l` → 11 branches at audit time: `agentic`, `agentic-faz-2-5-pr-a`, `agentic-orphan-012-deterministic-gates`, `agentic-orphan-012b-pin-deps`, `agentic-orphan-013-nats-subject-contract`, `agentic-pre-flat-snapshot`, `agentic-rust-faz0`, `agentic-rust-faz0b-baseline`, `agentic-rust-faz1-protocol-codec`, `agentic-rust-faz2-sensor-ingestion`, `agentic-rust-faz3-control-plane`. Most are months-old experimental branches; merge status mixed.
+**Class:** Tier-3 detect — measurable.
+**Root-cause architectural fix:**
+1. Audit each branch: merged into main → delete; orphaned with no closure plan → archive (rename to `archive/<old-name>-YYYY-MM`) + open a tracking finding.
+2. Pair with ORPHAN-EDGE-OPS-001 ("Automatically delete head branches" repo setting) so future merges self-clean.
+3. Quarterly branch-sprawl review cadence in `docs/runbooks/branch-cleanup.md` (also missing).
+**Owner:** repo admin + comprehensive-review:architect-review
+**Deadline:** 2026-06-30
+**Closure path:** Manual sweep + PR `docs(runbooks): branch cleanup quarterly cadence`, Closes this anchor.
+
+#### ORPHAN-EDGE-REPO-001 — 5 standard repo-level files missing (MEDIUM; community + onboarding gap)
+**Evidence:** Repo root has no `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, `.editorconfig`, or `SUPPORT.md`. GitHub auto-surfaces `SECURITY.md` for vulnerability reporting; without it, external reporters have no clear PSIRT path (cross-cutting with `sens-api-gateway/docs/security/cvd-policy.md` which itself uses a placeholder PSIRT alias).
+**Class:** Tier-1 make-impossible — these are conventional repo files; their absence makes correct contribution behaviour invisible.
+**Root-cause architectural fix:**
+1. `SECURITY.md` — points to the (eventual real) PSIRT alias from `cvd-policy.md`, lists supported versions, embargo policy, PGP key fingerprint.
+2. `CONTRIBUTING.md` — covers commit conventions (the 11 banned phrases reference, finding-ID format, Closes: trailer rule), parallel-shell hygiene (per ORPHAN-EDGE-HYG-002), Lane-A/B/C agent dispatch overview, branch naming, PR template pointer.
+3. `CODE_OF_CONDUCT.md` — Contributor Covenant 2.1 boilerplate.
+4. `.editorconfig` — root-level (TS 2-space, Rust 4-space, YAML 2-space, MD trim-trailing-whitespace).
+5. `SUPPORT.md` — pointer to operations/support-tiers.md template + customer entry path.
+**Owner:** comprehensive-review:architect-review + commercial-legal-writer
+**Deadline:** 2026-06-15
+**Closure path:** PR `docs(repo): add CONTRIBUTING / SECURITY / CODE_OF_CONDUCT / .editorconfig / SUPPORT`, Closes this anchor.
+
+#### ORPHAN-EDGE-WORKFLOW-001 — Only 1 of 23 GitHub Actions workflows audited; full CI surface review pending (HIGH)
+**Evidence:** `ls .github/workflows/*.yml | wc -l` → 23 workflow files. Earlier orphan finding ORPHAN-EDGE-006 / ORPHAN-EDGE-CI-005 only audited `rust-ci.yml`. The other 22 (`ci-affected.yml`, `quality-gates.yml`, `security-gitleaks.yml`, `dependency-review.yml`, deploy workflows, release workflows, label workflows, etc.) have not been systematically audited for: required-status-check coverage, SHA-pinned third-party actions, secrets handling, paths filter coverage of new sub-trees, deprecation footprint (Node 20 per ORPHAN-EDGE-DEP-002).
+**Class:** Tier-3 detect.
+**Root-cause architectural fix:**
+1. Per-workflow audit table in `docs/runbooks/ci-workflow-inventory.md` (does not exist) listing for each workflow: trigger events, paths filter, required-or-not on main, third-party actions + SHA pin status, secrets it reads, expected runtime, owner.
+2. Establish a CI invariant `tests/invariants/workflow-shape-coverage.spec.ts` that enumerates every `.yml` in `.github/workflows/` and asserts entries in the inventory file (catch new workflows that appear without registration).
+3. Each workflow gets a `# OWNER: <agent-or-team>` and `# CRITICALITY: required|advisory` comment header.
+**Owner:** infra-expert + supply-chain-auditor
+**Deadline:** 2026-06-30 (paired with ORPHAN-EDGE-CI-005 branch-protection audit)
+**Closure path:** PR `docs(runbooks): ci-workflow-inventory + invariant`, Closes this anchor.
+
+#### ORPHAN-EDGE-DOCS-006 — `docs/reviews/orphan-findings.md` past 1250 lines; single-file management becoming unwieldy (LOW)
+**Evidence:** `wc -l docs/reviews/orphan-findings.md` → 1254 (after PR #151 + #153). No table-of-contents, no archive split, no at-a-glance RESOLVED-vs-OPEN dashboard. Reading time + diff noise grow each PR.
+**Class:** Tier-3 detect — solvable by a small refactor.
+**Root-cause architectural fix:**
+1. Add an auto-generated table-of-contents at the top (script: `tools/scripts/orphan-findings-toc.ts` greps all `^## ORPHAN-` headings and emits a `<!-- TOC -->` block).
+2. Split the file by quarter once it crosses 2500 lines: `orphan-findings-2026-Q1.md`, `orphan-findings-2026-Q2.md` archive files; current quarter stays in the canonical name.
+3. Status dashboard at top: count of OPEN / RESOLVED / STALE per severity.
+4. CI invariant: every entry has a `**Status:** OPEN|RESOLVED|STALE|BLOCKED` field; missing → fail.
+**Owner:** context-manager + edge-docs maintainers
+**Deadline:** 2026-06-30
+**Closure path:** PR `docs(orphan-findings): TOC + status dashboard + per-quarter archive policy`, Closes this anchor.
+
+#### ORPHAN-EDGE-DOCS-007 — `docs/runbooks/` has 19 markdown files but no `README.md` landing or topic index (LOW)
+**Evidence:** `ls docs/runbooks/*.md | wc -l` → 19. Filenames are descriptive but discovery requires `ls`. New runbooks (per ORPHAN-EDGE-DOCS-003 agent-output-recovery, ORPHAN-EDGE-DOCS-004 cert-rotation, ORPHAN-EDGE-CI-005 branch-protection, ORPHAN-EDGE-DEP-001 dependabot-triage, ORPHAN-EDGE-WORKTREE-001 worktree-prune, ORPHAN-EDGE-BRANCH-001 branch-cleanup, ORPHAN-EDGE-WORKFLOW-001 ci-workflow-inventory) will keep growing the directory.
+**Class:** Tier-2 automatic — auto-generated index from filenames + frontmatter.
+**Root-cause architectural fix:**
+1. Add `docs/runbooks/README.md` as a topic-grouped index (database, security, deployment, edge, monitoring, governance).
+2. Each runbook carries YAML frontmatter (`audience`, `criticality`, `last-reviewed`, `owner`).
+3. CI invariant `tests/invariants/runbooks-frontmatter.spec.ts` asserts every runbook has the required frontmatter; index file is regenerated by `tools/scripts/runbook-index.ts`.
+**Owner:** comprehensive-review:architect-review + context-manager
+**Deadline:** 2026-06-30
+**Closure path:** PR `docs(runbooks): topic index + frontmatter invariant`, Closes this anchor.
+
+#### ORPHAN-EDGE-CODEOWNERS-001 — `.github/CODEOWNERS` 67 lines, last review undocumented (LOW)
+**Evidence:** File exists at 67 lines; no audit metadata header (last-reviewed date, ownership-rotation cadence). When repo grows new top-level directories (e.g. the `sens-api-gateway/docs/` tree just landed), CODEOWNERS may not cover them — silent permission gap on PR review.
+**Class:** Tier-3 detect.
+**Root-cause architectural fix:**
+1. Audit pass: walk every top-level directory + every `apps/*` + `libs/*` + `web/modules/*`; assert each is covered by at least one rule in CODEOWNERS.
+2. CI invariant `tests/invariants/codeowners-coverage.spec.ts` that fails when a tracked directory has no CODEOWNERS rule.
+3. Header comment in CODEOWNERS recording last-audit date + reviewer; quarterly cadence.
+4. New rule for `sens-api-gateway/docs/**` (since the Lane-C team just landed 121 files there) — owner = `@edge-docs-maintainers`.
+**Owner:** comprehensive-review:architect-review + repo admin
+**Deadline:** 2026-06-15 (paired with the new `sens-api-gateway/docs/**` ownership rule)
+**Closure path:** PR `chore(codeowners): coverage audit + invariant + sens-api-gateway/docs ownership`, Closes this anchor.
+
+#### ORPHAN-EDGE-WORKSPACE-001 — `sens-api-gateway/Cargo.toml` is its own workspace, not part of root Cargo workspace (MEDIUM; sibling of ORPHAN-EDGE-006)
+**Evidence:** Root `Cargo.toml` workspace excludes `sens-api-gateway` (or doesn't list it). Existing finding ORPHAN-EDGE-006 covers the GitHub Actions paths-filter exclusion (CI doesn't run `cargo audit` on this tree). This is a sibling: `nx affected` + workspace-wide cargo commands don't traverse sens-api-gateway either. The result: developers running `cargo check --workspace` see green even when sens-api-gateway is broken.
+**Class:** Tier-2 automatic — unify or formally split.
+**Root-cause architectural fix (two options, ADR-required):**
+1. **Option A — Unify:** add `sens-api-gateway` to the root Cargo workspace `members`. `cargo check --workspace` then covers it. Trade-off: edge agent's `panic = "abort"` release profile may conflict with backend Rust services.
+2. **Option B — Formal split:** keep separate workspaces but add a top-level `cargo-cmd-all.sh` that iterates known workspace roots and runs the requested command in each. CI uses this single helper.
+**Owner:** edge-expert + infra-expert
+**Deadline:** 2026-06-30 (ADR + decision); implementation Q3 2026.
+**Closure path:** ADR + PR `feat(workspace): unify or formally separate sens-api-gateway`, Closes this anchor.
+
+#### ORPHAN-EDGE-DOCS-008 — No "live unmitigated risk" register for v1.6.0 (HIGH; security/safety visibility)
+**Evidence:** `sens-api-gateway/docs/security/threat-model.md` lists 35 STRIDE pairs with mitigations. `crypto-inventory.md` lists FIPS-approved-but-not-certified posture. `compliance/iec62443-4-2-gap.md` lists 5 SL2 + 6 SL3 blockers. `orphan-findings.md` registers 40+ findings. But there is no single page answering: **"if I deploy v1.6.0 to production today, what unmitigated risks do I carry?"** — a customer-facing risk register that an OT cyber-security buyer (Siemens, BSI, internal CISO) will demand on Day 1.
+**Class:** Tier-2 automatic — derive the register from existing inputs.
+**Root-cause architectural fix:**
+1. Add `sens-api-gateway/docs/security/known-risks.md` — auto-generated from: (a) `orphan-findings.md` entries flagged `LIFE-SAFETY` or `SECURITY` and `Status: OPEN`, (b) `compliance/iec62443-4-2-gap.md` PARTIAL+FAIL rows, (c) `threat-model.md` STRIDE entries marked ROADMAP / UNMITIGATED.
+2. Header table: per-risk severity, exploitability, current compensating control, target closure date.
+3. CI invariant: this file is regenerated whenever `orphan-findings.md` or `iec62443-4-2-gap.md` change; stale register fails the gate.
+**Owner:** security-architecture-writer + compliance-evidence-writer + context-manager
+**Deadline:** 2026-06-15 (before next external Siemens-style review).
+**Closure path:** PR `docs(security): live unmitigated-risk register + invariant`, Closes this anchor.
+
+#### ORPHAN-EDGE-MEMORY-001 — User-memory drift not periodically reconciled with repo state (LOW)
+**Evidence:** Memory entries under `/root/.claude/projects/-var-aqua-saas/memory/` (per session preamble) include items like "Architectural Not Patches", "Enterprise Grade Standard", "Audit Validation Mandatory" — these are stable directives. But entries like "Rust Hybrid Migration Plan" (status: in progress on `agentic-rust-faz0` worktree) — that worktree exists but its progress is not auto-tracked against the memory entry. If the migration completes, the memory still says "in progress".
+**Class:** Tier-3 detect.
+**Root-cause architectural fix:**
+1. Add a quarterly memory-audit cadence: walk every entry of type `project`, cross-check against current repo state (branches alive, plan files RESOLVED status, ADRs ACCEPTED).
+2. Document in `CONTRIBUTING.md` (per ORPHAN-EDGE-REPO-001) the user's memory file conventions + cadence.
+3. No code change in the repo — this is a process / personal-knowledge-management item.
+**Owner:** Operator (user) + comprehensive-review:architect-review
+**Deadline:** 2026-06-30 (first cadence run).
+**Closure path:** Operator-personal action; record completion in next memory update.
+
+### Cross-cutting consolidation notes for this entry
+
+- **None of these items existed BECAUSE OF the Lane-C docs work.** They are pre-existing repo-state surfaced because the Lane-C orchestrator walked the full surface during evidence-link discipline. Operator instruction "every observed problem, even un-related" is satisfied: 11 additional architectural items now have owners + deadlines.
+- **Cumulative orphan count after this PR:** ORPHAN-001..021 (pre-existing original numbering) + ORPHAN-EDGE-001..014 (first edge-audit batch) + ORPHAN-EDGE-{CI,LICENSE,CONTRACT,TEST,ADR,AGENT,DOCS}-NNN (PR #151, 11 items) + ORPHAN-EDGE-{DEP,CI-004/005,DOCS-002..005,INVARIANT,HYG-002,SSOT,OPS}-NNN (PR #153, 14 items) + ORPHAN-EDGE-{WORKTREE,BRANCH,REPO,WORKFLOW,DOCS-006/007/008,CODEOWNERS,WORKSPACE,MEMORY}-NNN (this PR, 11 items) ≈ **65 architectural findings** registered in this orphan registry. Each with owner + deadline + Tier-1/2/3 fix path.
+- **Banned-phrase posture:** identical — `^docs/reviews/` allowlisted by `tools/gates/banned-phrase.ts:179`.
+- **Three CRITICAL items pending closure:** ORPHAN-EDGE-LICENSE-001 (LICENSE inconsistency), ORPHAN-EDGE-DEP-001 (Dependabot 157), ORPHAN-EDGE-CI-005 (branch protection). These three plus ORPHAN-EDGE-DEP-002 (Node 20 cutover 2026-06-02) form the next-2-weeks remediation queue.
+- **Operator note:** if the next operator instruction is again "more depth, more notes", the next batch will need to walk: per-service test coverage matrix, every `apps/*-service` README presence, every `libs/*` public API doc, ADR index drift across all services (not just edge), and the 60+ Dependabot HIGH advisories one-by-one. Each of those is its own bounded scope.

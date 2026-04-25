@@ -13,6 +13,7 @@ import {
   SupplierStatus,
   CreateSupplierInput,
 } from '../../../hooks/useSuppliers';
+import SupplierApprovedSitesSection from '../components/SupplierApprovedSitesSection';
 
 // Keys must be UPPERCASE to match GraphQL enum values
 const typeColors: Record<string, string> = {
@@ -767,6 +768,24 @@ export const SuppliersTab: React.FC = () => {
                       />
                     </div>
                   </CollapsibleSection>
+
+                  {/*
+                    Approved sites picker (Scope A 4.4.2 — wires the
+                    setSupplierApprovedSites mutation backend shipped
+                    in PR #148). Symmetric to SiteContactsSection
+                    (PR #155): standalone editable list with its own
+                    submit, hidden in CREATE mode (no supplierId yet),
+                    read-only when the operator lacks the permission.
+
+                    Surfaced OUTSIDE the form's onSubmit so the
+                    approved-sites swap doesn't ride the supplier-
+                    update transaction; the two concerns commit
+                    independently. Folding into a single submit is a
+                    Phase 4.4.2 follow-up that requires backend
+                    createSupplier/updateSupplier to gain inline
+                    `approvedSiteIds[]` first.
+                  */}
+                  <SupplierApprovedSitesSection supplierId={editingId ?? undefined} />
                 </div>
 
                 <div className="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">

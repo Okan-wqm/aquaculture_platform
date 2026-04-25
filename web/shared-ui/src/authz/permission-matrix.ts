@@ -70,7 +70,9 @@ export type FrontendMutationName =
   | 'updateSubEquipment'
   | 'deleteSubEquipment'
   // Admin-only (Scope C PR-10)
-  | 'updateSentinelHubInstanceId';
+  | 'updateSentinelHubInstanceId'
+  // Scope A Phase 4.4.2 — supplier ↔ site approvals
+  | 'setSupplierApprovedSites';
 
 /**
  * Source-of-frontend-truth role matrix. Mirrors the backend's
@@ -112,4 +114,6 @@ export const FRONTEND_MUTATION_ROLES: Readonly<
   deleteSubEquipment: ['MODULE_MANAGER', 'TENANT_ADMIN'],
   // Admin-only
   updateSentinelHubInstanceId: ['TENANT_ADMIN'],
+  // Scope A Phase 4.4.2 — supplier ↔ site approvals
+  setSupplierApprovedSites: ['MODULE_MANAGER', 'TENANT_ADMIN'],
 });

@@ -287,6 +287,85 @@ already flagged as `FARM-HIGH-003` in the plan.
 
 ---
 
+## 15. sensor-service has 80 pre-existing TS errors in `__tests__/` files
+
+**File:** `apps/sensor-service/tsconfig.spec.json` scope
+**Context:** Discovered during PR-16 (Phase S1.2) tsc check.
+**Observation:** `tsc --noEmit -p tsconfig.spec.json` against
+sensor-service surfaces 80 errors across `edge-device/__tests__/`,
+`sensor/services/__tests__/data-quality.service.spec.ts`, and
+`vfd-programming/services/__tests__/vfd-change-set.service.spec.ts`.
+The app-side build (`tsconfig.app.json`) is clean — only the spec
+config has the drift. Sample shapes:
+
+- `mqtt-auth.service.spec.ts:36` — `Type 'undefined' is not assignable
+  to type 'string | null'`. A test fixture shape was tightened on the
+  prod side without test side updates.
+- `provisioning-config.spec.ts` — multiple `TS2554: Expected 2
+  arguments, but got 1`. A function gained a required parameter; tests
+  pass it the old shape.
+- `data-quality.service.spec.ts` — three TS errors at lines 54-90.
+
+**Severity:** MEDIUM. Tests COMPILE under jest's babel transform
+(`ts-jest` is more permissive than `tsc --strict`), so they likely
+RUN. But the spec tsconfig drift means refactors lose the type-check
+safety net at PR time.
+
+**Suggested fix path:** add `nx run sensor-service:type-check-spec`
+to CI as a hard gate; bring the spec files in line with current prod
+types. Same architectural posture as PR #146 was for farm-module.
+
+Sample one-line fixes likely needed:
+- mqtt-auth.service.spec.ts:36 — change `undefined` to explicit `null`
+  (or update the prod type to allow `undefined`)
+- provisioning-config.spec.ts — pass the missing 2nd argument to all
+  call sites (likely `tenantId` based on the surrounding test
+  setUp pattern)
+
+This is similar in shape to PR #146 (farm-module baseline cleanup) —
+single PR, surgical fixes, root-cause repair, no `@ts-ignore`.
+
+---
+
+## 16. SensorResolver already had `@ResolveReference` but no `@Directive('@key')` (RESOLVED in PR-16)
+
+**File:** `apps/sensor-service/src/database/entities/sensor.entity.ts`
+**Context:** Resolved in PR-16.
+**Observation:** Sensor entity had a working `@ResolveReference()` in
+SensorResolver since an earlier phase, but never had `@Directive('@key(fields: "id")')`
+on the entity. Without the `@key` directive, the supergraph never
+ANNOUNCED Sensor as a federated entity to the gateway — meaning the
+existing resolveReference was unreachable from cross-subgraph calls.
+A subgraph extension `extend type Sensor @key(fields: "id") { ... }`
+in farm-service would have failed composition with "type Sensor is
+not an entity".
+
+**Severity:** RESOLVED in PR-16.
+
+**Note for future federation work:** the rule is that `@key` directive
+on the entity declaration AND `@ResolveReference` on a resolver class
+must land in the same release. Either alone is dead weight —
+`@key` without resolver crashes at first reference; resolver without
+`@key` is silently uncalled.
+
+---
+
+## 17. SensorReading had no entity-level resolver class (RESOLVED in PR-16)
+
+**File:** `apps/sensor-service/src/sensor/resolvers/sensor.resolver.ts` (operation-level reads only)
+**Context:** Resolved in PR-16 with new `SensorReadingResolver` class.
+**Observation:** SensorResolver hosts query handlers like
+`latestReading`, `readings`, `latestReadingsBatch` — operation-level
+reads RETURNING `[SensorReading]`. There was no class-level
+`@Resolver(() => SensorReading)` so federation calls had nowhere to
+land. PR-16 introduces a dedicated SensorReadingResolver as the
+canonical type owner; future field resolvers on SensorReading land
+there.
+
+**Severity:** RESOLVED in PR-16.
+
+---
+
 ## Closing posture
 
 This file lives at:

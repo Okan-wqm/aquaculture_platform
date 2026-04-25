@@ -707,6 +707,130 @@ impl MqttClient {
         Ok(())
     }
 
+    /// Internal helper: convert u8 QoS to rumqttc::QoS.
+    /// Used by the [`crate::outbound_publisher::MqttPublishSink`]
+    /// impl below + by a future Batch #254+ migration of the
+    /// existing publish_* methods to a single canonical publish
+    /// path. Centralizes the u8 → enum conversion so adding QoS=2
+    /// support (currently no caller uses ExactlyOnce) is a one-
+    /// line change.
+    pub(crate) fn qos_from_u8(qos: u8) -> QoS {
+        match qos {
+            0 => QoS::AtMostOnce,
+            1 => QoS::AtLeastOnce,
+            2 => QoS::ExactlyOnce,
+            // Unknown value — treat as QoS 1 (the conservative
+            // default for "must be delivered"). Caller-supplied u8
+            // beyond {0,1,2} indicates a config or wire-format
+            // bug; we don't drop the message but we do log via the
+            // record_publish path.
+            _ => QoS::AtLeastOnce,
+        }
+    }
+}
+
+// =============================================================================
+// MqttPublishAdapter — Batch #253 ARC-002 part 3
+// =============================================================================
+//
+// Lightweight clone-able adapter that holds JUST the pieces of
+// `MqttClient` needed for the
+// `outbound_publisher::MqttPublishSink` trait: the rumqttc
+// `AsyncClient` (internally Arc-wrapped + Clone-able) + an
+// optional `HealthState` for the `record_publish` observability
+// hook.
+//
+// **Why a separate struct:** `MqttClient` itself is NOT Clone
+// because it owns a `mpsc::Receiver<IncomingMessage>` (single-
+// owner channel for inbound traffic). The OutboundPublisher
+// dispatcher needs an `Arc<S: MqttPublishSink>` for the publish-
+// path; wrapping MqttClient itself in an Arc would force every
+// existing `&mut MqttClient` consumer to thread the Arc — a much
+// larger refactor than this batch's scope. The lightweight
+// adapter keeps MqttClient's existing struct shape intact while
+// giving the outbound dispatcher exactly the surface it needs.
+//
+// The adapter is constructed via `MqttClient::publish_adapter()`
+// at boot, before the message-loop consumer takes ownership of
+// the inbound receiver. Production wires ONE adapter Arc shared
+// between OutboundPublisher (direct path) and DrainTask (replay
+// path) so both paths flow through identical record_publish
+// instrumentation.
+#[derive(Clone)]
+pub struct MqttPublishAdapter {
+    client: AsyncClient,
+    health_state: Option<crate::health::HealthState>,
+}
+
+impl MqttClient {
+    /// Extract a clone-able publish adapter that the
+    /// `outbound_publisher::OutboundPublisher` + `DrainTask` can
+    /// share. The returned adapter holds clones of the internal
+    /// rumqttc client + the optional health-state observer; the
+    /// `MqttClient` itself is unaffected by this call (no
+    /// ownership transfer).
+    pub fn publish_adapter(&self) -> MqttPublishAdapter {
+        MqttPublishAdapter {
+            client: self.client.clone(),
+            health_state: self.health_state.clone(),
+        }
+    }
+}
+
+impl MqttPublishAdapter {
+    #[inline]
+    fn record_publish(&self) {
+        if let Some(hs) = self.health_state.as_ref() {
+            hs.inc_mqtt_sent();
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl crate::outbound_publisher::MqttPublishSink for MqttPublishAdapter {
+    async fn publish_to_broker(
+        &self,
+        topic: &str,
+        payload: &[u8],
+        qos: u8,
+        retain: bool,
+    ) -> Result<(), crate::outbound_publisher::PublishSinkError> {
+        use crate::outbound_publisher::PublishSinkError;
+        let qos_enum = MqttClient::qos_from_u8(qos);
+
+        // rumqttc 0.24 ClientError variants don't expose a
+        // structured "broker disconnected" tag — every transport
+        // failure surfaces as a generic ClientError. The
+        // OutboundPublisher dispatcher treats `Transport(_)` as
+        // "do not enqueue, propagate error" and `Disconnected` as
+        // "fall through to enqueue". We deliberately classify ALL
+        // rumqttc errors as Transport here:
+        //
+        // - rumqttc owns reconnect logic internally; a transient
+        //   broker drop is invisible to the caller (publish()
+        //   future blocks on the reconnect-buffer until the
+        //   eventloop reconnects, then returns Ok).
+        // - The `is_connected` check in the dispatcher (read from
+        //   HealthState atomic) IS the canonical "broker down"
+        //   signal at the start of publish; rumqttc-side errors
+        //   AFTER that check are genuine transport faults
+        //   (payload too large, eventloop dropped, etc.) — those
+        //   should surface to caller, not silently get queued.
+        match self.client.publish(topic, qos_enum, retain, payload).await {
+            Ok(()) => {
+                self.record_publish();
+                Ok(())
+            }
+            Err(e) => Err(PublishSinkError::Transport(e.to_string())),
+        }
+    }
+}
+
+// Continuation of `impl MqttClient` (Batch #253 split — the
+// MqttPublishAdapter struct + its trait impl interleave between
+// MqttClient method blocks; Rust permits multiple `impl` blocks
+// for the same type).
+impl MqttClient {
     /// Private Batch 102 observability hook — called by every
     /// publish method after a successful `.client.publish()
     /// .await?`. Increments the MQTT sent counter on the

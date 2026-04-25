@@ -536,6 +536,42 @@ pub struct AppState {
     pub user_token_manifest_store:
         std::sync::Arc<crate::authz::user_token_manifest_runtime::UserTokenManifestStore>,
 
+    /// Broker-aware MQTT publish dispatcher (Batch #253 ARC-002
+    /// production wire). When `Some`, all MQTT publishes route
+    /// through `OutboundPublisher` which queues to disk on broker
+    /// outage + replays via `DrainTask` on reconnect. When `None`
+    /// (test paths, pre-init boot stage), publish call sites fall
+    /// back to the direct `MqttClient` path.
+    ///
+    /// Held as `Option<Arc<...>>` because:
+    /// - Pre-init boot stage (before `OfflineQueue` is opened)
+    ///   has no publisher yet.
+    /// - Some test harnesses skip the offline queue entirely.
+    /// - Future feature-flag (`offline_queue.enabled = false`)
+    ///   would deselect the publisher path.
+    ///
+    /// Generic params bound to `MqttClient` (sink) +
+    /// `HealthState` (connectivity) — the production wire pair.
+    pub outbound_publisher: Option<
+        std::sync::Arc<
+            crate::outbound_publisher::OutboundPublisher<
+                crate::mqtt::MqttPublishAdapter,
+                crate::health::HealthState,
+            >,
+        >,
+    >,
+
+    /// Drain-task shutdown signal (Batch #253 ARC-002 wire).
+    /// `init_outbound_publisher` spawns the drain task with an
+    /// oneshot receiver; the sender lives here so a future
+    /// graceful-shutdown hook can `take()` + send to stop the
+    /// task at the next tick boundary. Held as Option so the
+    /// shutdown handler can `take()` (oneshot Senders are not
+    /// reusable).
+    pub outbound_publisher_drain_shutdown: Option<
+        tokio::sync::oneshot::Sender<()>,
+    >,
+
     /// Audit sink for HMAC-chained event log (Batch 78
     /// Sprint 6.2 Phase 2).
     ///
@@ -872,6 +908,13 @@ impl AppState {
             user_token_manifest_store: std::sync::Arc::new(
                 crate::authz::user_token_manifest_runtime::UserTokenManifestStore::new(),
             ),
+            // Batch #253 ARC-002: None at struct-construction;
+            // `init_outbound_publisher()` populates AFTER the MQTT
+            // client + HealthState + OfflineQueue Arcs are ready.
+            // Until populated, publish call sites fall back to the
+            // direct MqttClient path (HC-1 backward compat).
+            outbound_publisher: None,
+            outbound_publisher_drain_shutdown: None,
             // Batch 78 Sprint 6.2 Phase 2: None-init;
             // `init_audit_sink()` below constructs AuditSink
             // iff audit.mode=Enabled. None → Batch 79
@@ -1665,6 +1708,75 @@ impl AppState {
 
         self.rbac_manifest_store
             .load_from_file(mode, pubkey_hex, path_override, &expected_tenant)
+    }
+
+    /// Initialize the broker-aware outbound publisher + spawn
+    /// the queue-drain background task (Batch #253 ARC-002 wire).
+    ///
+    /// MUST be called AFTER:
+    /// - `init_mqtt_client` (provides the `MqttPublishAdapter`)
+    /// - `init_health_server` (provides the connectivity
+    ///   `HealthState`)
+    /// - `init_offline_queue` (provides the `Arc<OfflineQueue>`)
+    ///
+    /// Pre-Batch-253 publish call sites (`publish_alarms`,
+    /// `publish_telemetry`, etc.) keep using the direct
+    /// `MqttClient::publish_*` path until they're migrated in
+    /// Batch #254+. This init function is the foundation that
+    /// makes those migrations a one-line swap.
+    ///
+    /// Spawns the drain task under `tokio::spawn` with an oneshot
+    /// shutdown channel. The shutdown sender is stored in
+    /// `outbound_publisher_drain_shutdown` so graceful-stop paths
+    /// can fire it.
+    ///
+    /// **Fail-closed:** if any prerequisite is missing, returns
+    /// Err and the boot sequence treats it as a fatal init
+    /// failure. Operating without a publisher would silently lose
+    /// messages on broker outage — no degraded-mode fallback.
+    pub fn init_outbound_publisher(&mut self) -> Result<(), String> {
+        use crate::outbound_publisher::{DrainTask, OutboundPublisher};
+
+        let mqtt = self.mqtt_client.as_ref().ok_or_else(|| {
+            "init_outbound_publisher: mqtt_client must be initialized first"
+                .to_string()
+        })?;
+        let hs = self.health_state.as_ref().ok_or_else(|| {
+            "init_outbound_publisher: health_state must be initialized first"
+                .to_string()
+        })?;
+        let queue_async = self.offline_queue.as_ref().ok_or_else(|| {
+            "init_outbound_publisher: offline_queue must be initialized first"
+                .to_string()
+        })?;
+
+        let adapter = std::sync::Arc::new(mqtt.publish_adapter());
+        let connectivity = std::sync::Arc::new(hs.clone());
+        let queue = queue_async.inner();
+
+        let publisher = std::sync::Arc::new(OutboundPublisher::new(
+            adapter.clone(),
+            connectivity.clone(),
+            queue.clone(),
+        ));
+        self.outbound_publisher = Some(publisher);
+
+        // Drain task: spawned under tokio::spawn; the shutdown
+        // sender is stored so the existing ShutdownCoordinator
+        // hook can fire it on graceful agent stop. Until that
+        // wire lands (follow-up batch), the task exits when the
+        // process exits — same observable behavior, just no
+        // mid-drain "stop after current message" semantic.
+        let (shutdown_tx, shutdown_rx) =
+            tokio::sync::oneshot::channel::<()>();
+        let drain = DrainTask::new(adapter, connectivity, queue);
+        tokio::spawn(drain.run(shutdown_rx));
+        self.outbound_publisher_drain_shutdown = Some(shutdown_tx);
+
+        info!(
+            "Outbound publisher initialized + drain task spawned (Batch #253 ARC-002)"
+        );
+        Ok(())
     }
 
     /// Initialize the user-token manifest store + attach the
@@ -4091,6 +4203,29 @@ async fn run_agent(
         state_guard.mqtt_client = Some(mqtt_client);
     }
     info!("MQTT connected successfully");
+
+    // Initialize the broker-aware outbound publisher + spawn the
+    // queue-drain background task (Batch #253 ARC-002 wire).
+    //
+    // MUST run AFTER mqtt_client init (provides
+    // MqttPublishAdapter), AFTER health_state init (provides
+    // connectivity flag), AFTER offline_queue init (provides the
+    // persistent queue Arc). All three prerequisites complete
+    // before this point in the boot sequence.
+    //
+    // FAIL-CLOSED: prerequisite missing → exit(1). Operating
+    // without a publisher would silently lose messages on broker
+    // outage — no degraded mode.
+    {
+        let mut state_guard = state.write().await;
+        if let Err(msg) = state_guard.init_outbound_publisher() {
+            error!(
+                "OutboundPublisher init failed (fail-closed boot): {}",
+                msg
+            );
+            std::process::exit(1);
+        }
+    }
 
     // Step 4: Initialize hardware interfaces
     info!("Initializing hardware interfaces...");

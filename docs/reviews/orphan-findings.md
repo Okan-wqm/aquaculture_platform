@@ -592,3 +592,53 @@ $ grep -l "sens-api-gateway\|cargo" .github/workflows/*.yml
 **Discovered by:** Batch #259 D-series wire-status audit. The blanket `#![allow(dead_code)]` on bytecode_compiler.rs hid the orphan; the audit-driven removal surfaced 28 specific compile-pipeline warnings that all trace back to this single missing wire.
 
 **Linked plan:** Ultra-plan D-1 (currently named "AST → bytecode compile primitive" but expanded by this finding to "D-1a primitive + D-1b production wire").
+
+---
+
+## ORPHAN-CRITICAL-021 — OPC UA write callback hard-codes anonymous actor; TypedAuthzPort gate non-functional for HMI write path (2026-04-25)
+
+**Status:** OPEN (security-critical; A-2b ultra-plan custom NodeManager wire required).
+
+**Scope:** `sens-api-gateway/src/opc_ua_server_runtime.rs:1026` — `actor: "opc-ua-anonymous"` literal passed into `execute_opcua_write`. Every OPC UA write from a 3rd-party HMI client (Ignition, UaExpert, Wonderware) flows through the same callback with the same hardcoded actor string.
+
+**Symptom (architectural):** The Batch #240 `OpcUaActorResolver` + Batch #241 `TypedAuthzPort` + Batch #245 `UserTokenValidator` chain (built across 9 batches in Gap A-3) was designed to bind the OPC UA session principal (`AuthenticatedUser` from session-establish) into the write authz check. The current write callback never reads the session principal — every write is checked under the anonymous identity, which the policy engine rejects unconditionally (anonymous has no permissions). Net effect: OPC UA write path is **fail-closed by accident** because the typed authz chain has no session-context bridge.
+
+**Symptom (functional):** Today no operator using an HMI can write a tag through OPC UA — every write returns `BadUserAccessDenied`. The Gap A-3 chain primitives are ready + tested but the consumer (write callback) doesn't reach them. Operators wanting OPC UA write must either (a) lower the policy engine to `DenyAll` mode + accept the security gap, or (b) use the MQTT command path which DOES bind the operator identity.
+
+**Root cause:** async-opcua 0.18 `SimpleNodeManager::add_write_callback` API takes `impl Fn(DataValue, &NumericRange) -> StatusCode + Send + Sync + 'static` — the callback signature carries NO session context (no `RequestContext`, no `AuthenticatedUser`). The session principal is reachable only inside the `NodeManager::write` trait method (full custom impl), which receives `&RequestContext` containing `session.user_id` + `session.identity_token`. SimpleNodeManager's per-node callback API is fundamentally incompatible with session-context-aware authz; it's designed for "all clients see the same value" use cases.
+
+**Architectural fix (5-7 batch ultra-plan A-2b):**
+
+1. Create `SensNodeManager` implementing the full `async_opcua::server::node_manager::NodeManager` trait directly (not through the `SimpleNodeManagerImpl` extension trait). This gives the write path access to `RequestContext::session` + the `AuthenticatedUser` principal we minted in Batch #245's `UserTokenValidator`.
+2. Inside `SensNodeManager::write`, resolve the session principal → `ActorIdentity` via the Batch #240 `OpcUaActorResolver`.
+3. Forward `ActorIdentity` (NOT the anonymous string) into `execute_opcua_write` → Batch #241 `TypedAuthzPort.authorize_write` → real `AuthorizedContext`.
+4. Wire `UserTokenValidator` into the server's `AuthManager` trait so session-establish (`ActivateSession`) consumes the user-pass / X.509 token through the Batch #245 typed validator.
+5. Replace the existing `simple_node_manager(...)` call in `opc_ua_server_runtime.rs:259` with the custom builder. The legacy SimpleNodeManager is REMOVED in the same batch (no parallel runtime — would create dual write paths with divergent authz).
+6. End-to-end integration test: 3rd-party HMI session-establish via UserName/Password → write tag → typed authz allow → ProcessImage update OK; second test: HMI session under unauthorized user → write tag → typed authz deny → `BadUserAccessDenied` (matched not by anonymous-default but by typed deny path).
+7. Address-space population: tags + their write callbacks moved from `add_write_callback` (callback API) to `SensNodeManager::write` per-tag dispatch. Batch #246 multi-stream version_store ON the same access path so all OPC UA writes audit through HMAC chain.
+
+**Severity: CRITICAL** — the Gap A-3 chain (Batches #239-#250, 9 batches, +95 tests) is functionally non-consumed in production. From an operator's perspective, "the OPC UA enrollment manifest you push doesn't change anything because no HMI can write" — the entire investment in Gap A-3 has zero observable production value until A-2b lands. Without A-2b, ULTRA-HIGH-006/007/008/009/010/011/012/013/014/015 (Gap A-3) are all "designed + tested but not consumed."
+
+**Discovered by:** session-end audit (this batch session). The orphan was implicit in the existing `actor: "opc-ua-anonymous"` literal but the architectural significance — that the entire Gap A-3 chain has no consumer — was not surfaced as a tracked finding before. Added to orphan-findings now to make the dependency explicit: A-3 is meaningful only with A-2b; A-2b unblocks A-3's production value.
+
+**Linked plan:** Ultra-plan A-2b, deadline implied by A-3 completion (currently shipping unwired).
+
+---
+
+## ORPHAN-MEDIUM-022 — `mqtt.rs` internal `publish_status` self-publishes bypass OutboundPublisher routing (2026-04-25)
+
+**Status:** OPEN (architectural; ARC-002 cleanup follow-up).
+
+**Scope:** `sens-api-gateway/src/mqtt.rs:331` (initial Online publish during connect), `:865` (Offline publish during graceful disconnect). Both are MqttClient internal `self.publish_status(...)` calls — they don't have AppState reference, so they can't route through `publish_helpers::publish_status`.
+
+**Symptom:** Two of the most operator-actionable status transitions (device-just-came-online + device-is-disconnecting) skip the queue-on-broker-outage protection. If the broker is intermittent during these moments, the status transition is lost — cloud sees stale device state.
+
+**Root cause:** MqttClient is constructed BEFORE AppState is fully populated (mqtt_client field gets the value AFTER `MqttClient::new`). The internal self-publishes happen during connect/disconnect, which is exactly the boundary where AppState isn't reliably accessible from inside MqttClient methods.
+
+**Architectural fix:** The "initial Online" publish can move to BOOT sequence (after `init_outbound_publisher` populates the publisher Arc — call `publish_helpers::publish_status(state, Online)` from main.rs post-init); the "graceful disconnect" publish IS the special case discussed in Batch #255 (queue path is intentionally skipped because drain task is also shutting down — direct broker delivery is the right semantic). So fix half the orphan: move `:331` Online publish to a post-init helper call; document `:865` Offline publish as intentionally direct.
+
+**Severity: MEDIUM** — operator visibility loss on transient outage during connect; not life-safety. Same priority as Batch #255's "telemetry envelope build needs MqttClient internal fields" deferred migration (which Batch #261 closed).
+
+**Discovered by:** Batch #255 commit message + this session's audit; not previously tracked because Batch #255 documented the skip but didn't promote it to an OPEN finding.
+
+**Fix target:** Future ARC-002 cleanup batch.

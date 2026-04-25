@@ -29,6 +29,7 @@ import {
 } from '../../hooks/useMaintenance';
 import GenerateWorkOrderButton from './components/GenerateWorkOrderButton';
 import CompleteMaintenanceModal from './components/CompleteMaintenanceModal';
+import ProcessAutoGenerateButton from './components/ProcessAutoGenerateButton';
 import { useCanMutate } from '@aquaculture/shared-ui';
 
 // Status colors
@@ -297,7 +298,10 @@ export const MaintenanceSchedulesPage: React.FC = () => {
             Önleyici bakım planlarını görüntüleyin ve yönetin
           </p>
         </div>
-        <Button onClick={handleOpenCreate}>Yeni Bakım Planı</Button>
+        <div className="flex items-center gap-2">
+          <ProcessAutoGenerateButton />
+          <Button onClick={handleOpenCreate}>Yeni Bakım Planı</Button>
+        </div>
       </div>
 
       {/* Filters */}

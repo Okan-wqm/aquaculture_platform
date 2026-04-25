@@ -1367,6 +1367,58 @@ export function useCompleteMaintenance() {
 }
 
 /**
+ * Sweep all ACTIVE schedules with `autoGenerateWorkOrder=true` and
+ * generate WorkOrders for any whose `nextDueDate` falls within each
+ * schedule's `generateDaysBefore` window AND don't already have an
+ * open WO for that due date.
+ *
+ * Backend resolver: `processAutoGenerateWorkOrders(): [WorkOrder!]!`
+ * (apps/farm-service/src/maintenance/resolvers/maintenance-schedule.resolver.ts:344).
+ * The service is idempotent — repeat calls within the same window
+ * won't create duplicates because it compares (scheduleId, dueDate)
+ * against existing work orders.
+ *
+ * Returns the array of NEWLY created work orders (possibly empty).
+ *
+ * Permission: TENANT_ADMIN only. The UI gates this behind a typed-
+ * confirmation modal because one click can fan out into dozens of
+ * work orders, each triggering assignments + alerts. The backend
+ * `@Roles` decorator is the authoritative gate; the typed-confirm is
+ * a UX guard against fat-finger clicks (the operator must literally
+ * type "OLUŞTUR" before the action fires).
+ */
+export function useProcessAutoGenerateWorkOrders() {
+  const queryClient = useQueryClient();
+  const { tenantId } = useAuth();
+
+  return useMutation({
+    mutationFn: async () => {
+      const mutation = `
+        mutation ProcessAutoGenerateWorkOrders {
+          processAutoGenerateWorkOrders {
+            ${WORK_ORDER_FIELDS}
+          }
+        }
+      `;
+      const result = await graphqlClient.request<{
+        processAutoGenerateWorkOrders: WorkOrder[];
+      }>(mutation, {});
+      return result.processAutoGenerateWorkOrders;
+    },
+    onSuccess: (data) => {
+      // Skip the cache invalidation if the sweep created nothing — no
+      // server-side state changed.
+      if (data.length === 0) return;
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrders') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'workOrderStatistics') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceSchedules') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'upcomingMaintenanceSchedules') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceAlerts') });
+    },
+  });
+}
+
+/**
  * Generate a one-off WorkOrder from an ACTIVE MaintenanceSchedule.
  *
  * Backend resolver: `generateWorkOrderFromSchedule(scheduleId: ID!): WorkOrder`

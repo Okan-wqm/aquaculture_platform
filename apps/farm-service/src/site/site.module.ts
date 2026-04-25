@@ -20,22 +20,26 @@ import { SiteResolver } from './site.resolver';
 import { CreateSiteHandler } from './handlers/create-site.handler';
 import { UpdateSiteHandler } from './handlers/update-site.handler';
 import { DeleteSiteHandler } from './handlers/delete-site.handler';
+import { UpsertSiteContactsHandler } from './handlers/upsert-site-contacts.handler';
 
 // Query Handlers
 import { GetSiteHandler } from './handlers/get-site.handler';
 import { ListSitesHandler } from './handlers/list-sites.handler';
 import { GetSiteDeletePreviewHandler } from './handlers/get-site-delete-preview.handler';
+import { ListSiteContactsHandler } from './handlers/list-site-contacts.handler';
 
 const CommandHandlers = [
   CreateSiteHandler,
   UpdateSiteHandler,
   DeleteSiteHandler,
+  UpsertSiteContactsHandler,
 ];
 
 const QueryHandlers = [
   GetSiteHandler,
   ListSitesHandler,
   GetSiteDeletePreviewHandler,
+  ListSiteContactsHandler,
 ];
 
 @Module({

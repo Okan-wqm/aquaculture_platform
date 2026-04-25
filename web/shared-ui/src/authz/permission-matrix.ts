@@ -72,7 +72,9 @@ export type FrontendMutationName =
   // Admin-only (Scope C PR-10)
   | 'updateSentinelHubInstanceId'
   // Scope A Phase 4.4.2 — supplier ↔ site approvals
-  | 'setSupplierApprovedSites';
+  | 'setSupplierApprovedSites'
+  // Scope A Phase 4.4.3 — per-site contact upsert
+  | 'upsertSiteContacts';
 
 /**
  * Source-of-frontend-truth role matrix. Mirrors the backend's
@@ -116,4 +118,6 @@ export const FRONTEND_MUTATION_ROLES: Readonly<
   updateSentinelHubInstanceId: ['TENANT_ADMIN'],
   // Scope A Phase 4.4.2 — supplier ↔ site approvals
   setSupplierApprovedSites: ['MODULE_MANAGER', 'TENANT_ADMIN'],
+  // Scope A Phase 4.4.3 — per-site contact upsert
+  upsertSiteContacts: ['MODULE_MANAGER', 'TENANT_ADMIN'],
 });

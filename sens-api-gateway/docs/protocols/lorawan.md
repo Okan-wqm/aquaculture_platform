@@ -163,7 +163,7 @@ lorawan:
   devices:
     - dev_eui: 00-01-02-03-04-05-06-07
       app_eui: 00-00-00-00-00-00-00-00
-      app_key: "0123456789ABCDEF0123456789ABCDEF"
+      app_key: "<16-byte-hex-AppKey>"   # 32 hex chars; provisioned per device
       activation: otaa                # otaa | abp
       device_class: A                 # A | B | C
       tag_prefix: "lora_flow1_"

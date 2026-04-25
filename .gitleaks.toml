@@ -69,6 +69,13 @@ paths = [
   '''^docs/reviews/''',
   '''^docs/security/''',
   '''^docs/audits/''',
+  # sens-api-gateway customer-facing documentation tree carries protocol-spec
+  # examples (LoRaWAN AppKey/NwkSKey, MQTT cred placeholders, OPC UA
+  # UserIdentityToken samples, HMAC seeds in audit-log examples) that are
+  # pedagogical, not committed secrets. Defense-in-depth: every example also
+  # uses obviously-fake placeholder syntax (`<16-byte-hex-...>`, `EXAMPLE-...`)
+  # so a future config drift cannot accidentally introduce real material.
+  '''^sens-api-gateway/docs/''',
   # Test fixtures frequently contain deliberately insecure values.
   '''__tests__/.*fixture''',
   '''__mocks__/''',

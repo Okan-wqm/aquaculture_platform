@@ -37,12 +37,21 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-// Matches `${VAR:?optional-message}` — the ADR-014/015 "required
-// secret" syntax. We deliberately DO NOT match `${VAR:-default}`
+// Matches both `${VAR:?msg}` and `${VAR?msg}` — the ADR-014/015 "required
+// secret" syntax in both forms accepted by docker-compose's interpolation.
+//
+// The two forms differ at runtime — `:?` errors on empty OR unset,
+// bare `?` errors only on unset (an explicit empty string is fine) —
+// but for compose-config validation the operational requirement is the
+// same: the variable name must have *some* value present in the env file
+// or interpolation aborts. Matching both forms ensures the dummy-env
+// file lists every variable compose treats as required.
+//
+// We deliberately DO NOT match `${VAR:-default}` / `${VAR-default}`
 // (optional with default) because those don't need a runtime value.
-const REQUIRED_VAR_PATTERN = /\$\{([A-Z_][A-Z0-9_]*):\?[^}]*\}/g;
+const REQUIRED_VAR_PATTERN = /\$\{([A-Z_][A-Z0-9_]*):?\?[^}]*\}/g;
 
-/** Returns the set of `${VAR:?...}` names referenced in the compose file. */
+/** Returns the set of `${VAR:?...}` / `${VAR?...}` names referenced in the compose file. */
 function extractRequiredVars(composePath: string): Set<string> {
   const text = readFileSync(composePath, 'utf8');
   const vars = new Set<string>();

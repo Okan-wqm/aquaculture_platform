@@ -73,6 +73,43 @@
 //! compiled but unreferenced — removing the allow would force dead-
 //! code pruning of code that's about to be invoked. Tracked as
 //! OBS-18-001 / OBS-18-002.
+//!
+//! ## Wire status (Batch #273 audit)
+//!
+//! **Plan classification:** ARC-009 WHITELIST-with-reason. Per
+//! the Plan §3.1 ARC-009 framework, every dead-code module
+//! must land in WIRE / REMOVE / WHITELIST-with-reason state.
+//! `backup.rs` is the canonical WHITELIST-with-reason module:
+//!
+//! - **Init wired (Batch 18):** `main.rs` calls
+//!   `init_backup_manager()` at boot via `state_guard.
+//!   init_backup_manager()`. The BackupManager struct is
+//!   constructed + the backup directory is mkdir'd when
+//!   `config.backup.enabled = true`. Fail-closed boot if
+//!   the mkdir fails (declared-enabled backup must be able
+//!   to write — operator-actionable).
+//! - **API surface compiled but unreferenced:** `create_backup`,
+//!   `restore_backup`, `validate_auth`, helper functions for
+//!   GDPR Art 20 edge portability + disaster-recovery
+//!   snapshot. Production callers — HTTP `/admin/backup` POST
+//!   endpoint + `suderra-agent backup-create` /
+//!   `backup-restore` CLI subcommands — are scheduled for
+//!   Sprint 6.x per ARC-009 plan.
+//! - **Why retained vs deleted:** the create/restore/validate
+//!   surface is GDPR Art 20 (right to data portability)
+//!   load-bearing for tenant offboarding flows — deleting the
+//!   compiled-but-unreferenced API would force a re-implementation
+//!   from scratch in Sprint 6.x with all the same security
+//!   properties (auth, encryption, ZIP-bomb defense). Holding
+//!   the WHITELIST allows the API to be reviewed + audited
+//!   today + invoked tomorrow without a regression cycle.
+//!
+//! **Cross-references:**
+//! - Plan §3 ARC-009 dead-code triage table.
+//! - OBS-18-001 (HTTP backup endpoint wire pending).
+//! - OBS-18-002 (CLI subcommand wire pending).
+//! - GDPR Art 20 right-to-data-portability for the tenant
+//!   offboarding flow that consumes `create_backup` output.
 #![allow(dead_code)]
 
 use serde::{Deserialize, Serialize};

@@ -6,6 +6,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 // Entity
 import { Site } from './entities/site.entity';
+import { SiteContact } from './entities/site-contact.entity';
 import { Department } from '../department/entities/department.entity';
 import { System } from '../system/entities/system.entity';
 import { Equipment } from '../equipment/entities/equipment.entity';
@@ -39,7 +40,7 @@ const QueryHandlers = [
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Site, Department, System, Equipment, EquipmentSystem, Tank]),
+    TypeOrmModule.forFeature([Site, SiteContact, Department, System, Equipment, EquipmentSystem, Tank]),
   ],
   providers: [
     SiteResolver,

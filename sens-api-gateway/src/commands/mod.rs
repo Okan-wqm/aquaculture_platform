@@ -704,11 +704,14 @@ impl CommandHandler {
             }
             self.executed_command_ids.push_back(command.command_id.clone());
 
-            // Publish response
+            // Publish response — Batch #255 ARC-002 migration:
+            // command responses persist on broker outage + replay
+            // on reconnect at High priority (cloud requests
+            // correlate via command_id; loss breaks the
+            // request-response loop until the cloud-side timeout
+            // fires retry).
             let state = self.state.read().await;
-            if let Some(ref mqtt) = state.mqtt_client {
-                mqtt.publish_response(response).await?;
-            }
+            crate::publish_helpers::publish_response(&state, &response).await;
         } else if message.topic == topics.config {
             debug!("Received config update");
             // Batch 25+31 plan D-14: retained-message rejection

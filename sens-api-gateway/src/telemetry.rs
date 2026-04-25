@@ -166,15 +166,34 @@ impl TelemetryCollector {
         Ok(())
     }
 
-    /// Publish device status
+    /// Publish device status — Batch #255 ARC-002 migration:
+    /// status transitions are operator-actionable (cloud
+    /// alerting on stale-device gauges), so route through
+    /// `OutboundPublisher` at High priority. Status persists
+    /// during broker outage + replays after alarms (Critical)
+    /// but before telemetry (Normal) on reconnect.
     async fn publish_status(&self) -> anyhow::Result<()> {
+        use crate::mqtt::DeviceStatus;
         let uptime = self.start_time.elapsed().as_secs();
 
+        // Build the same StatusMessage envelope the legacy
+        // `MqttClient::publish_status` emits — keeps the wire
+        // shape identical for cloud consumers.
         let state = self.state.read().await;
-        if let Some(ref mqtt) = state.mqtt_client {
-            mqtt.publish_status(DeviceStatus::Online, uptime).await?;
-            debug!("Status published");
-        }
+        let mqtt = match state.mqtt_client.as_ref() {
+            Some(m) => m,
+            None => return Ok(()),
+        };
+        let payload = serde_json::json!({
+            "device_id": mqtt.device_id(),
+            "device_code": mqtt.device_code(),
+            "status": DeviceStatus::Online,
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+            "agent_version": env!("CARGO_PKG_VERSION"),
+            "uptime_seconds": uptime,
+        });
+        crate::publish_helpers::publish_status(&state, &payload).await;
+        debug!("Status published");
 
         Ok(())
     }

@@ -885,6 +885,20 @@ impl MqttClient {
         &self.topics
     }
 
+    /// Device identifier accessor (Batch #255 ARC-002 wire).
+    /// Used by `publish_helpers` to populate the envelope shape
+    /// that the legacy `publish_status` / `publish_telemetry`
+    /// internal methods built. Returning `&str` keeps the call
+    /// site allocation-free.
+    pub fn device_id(&self) -> &str {
+        &self.device_id
+    }
+
+    /// Device code accessor (Batch #255 ARC-002 wire).
+    pub fn device_code(&self) -> &str {
+        &self.device_code
+    }
+
     /// Configure TLS transport (IEC 62443 SL2 FR4: Data Confidentiality)
     ///
     /// Supports:

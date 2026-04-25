@@ -233,11 +233,7 @@ impl CommandHandler {
                         error: None,
                     };
                     let s = state.read().await;
-                    if let Some(ref mqtt) = s.mqtt_client {
-                        if let Err(e) = mqtt.publish_response(response).await {
-                            error!("Failed to publish firmware update progress: {}", e);
-                        }
-                    }
+                    crate::publish_helpers::publish_response(&s, &response).await;
                 }
             };
 
@@ -256,11 +252,7 @@ impl CommandHandler {
                         error: Some(error_msg),
                     };
                     let s = state.read().await;
-                    if let Some(ref mqtt) = s.mqtt_client {
-                        if let Err(e) = mqtt.publish_response(response).await {
-                            error!("Failed to publish firmware update failure: {}", e);
-                        }
-                    }
+                    crate::publish_helpers::publish_response(&s, &response).await;
                 }
             };
 

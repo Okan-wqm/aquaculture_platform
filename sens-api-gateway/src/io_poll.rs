@@ -285,54 +285,19 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
 
         // Publish alarm events if any.
         //
-        // Batch #254 ARC-002 migration: route through
-        // `OutboundPublisher` when available so alarms persist on
-        // disk during broker outage + replay on reconnect.
-        // Life-safety hot path — losing an alarm during a network
-        // partition would defeat the regulatory monitoring
-        // contract (FDA 21 CFR 117.135, EU Machinery Directive).
-        // Priority::Critical so the drain-task replays alarms
-        // BEFORE telemetry/status/etc. on reconnect.
-        //
-        // HC-1 backward compat: when `outbound_publisher` is None
-        // (pre-Batch-253 boot, test paths, feature-disabled
-        // builds), fall through to the direct MqttClient path
-        // exactly as before.
+        // Batch #255 ARC-002: routes via `publish_helpers::
+        // publish_alarms` which encapsulates the Outbound-vs-
+        // direct decision. Alarms publish at
+        // MessagePriority::Critical so the drain task replays
+        // alarms BEFORE telemetry/status/etc. on reconnect —
+        // life-safety hot path (FDA 21 CFR 117.135, EU
+        // Machinery Directive alignment).
         if !alarm_events.is_empty() {
             let payload = serde_json::json!({
                 "timestamp": chrono::Utc::now().to_rfc3339(),
                 "alarms": alarm_events.iter().map(|e| serde_json::to_value(e).unwrap_or_default()).collect::<Vec<_>>(),
             });
-
-            if let Some(ref publisher) = s.outbound_publisher {
-                let topic = s
-                    .mqtt_client
-                    .as_ref()
-                    .map(|m| m.topics().alarms.clone());
-                if let Some(topic) = topic {
-                    let payload_bytes = serde_json::to_vec(&payload)
-                        .unwrap_or_default();
-                    if let Err(e) = publisher
-                        .publish(
-                            &topic,
-                            &payload_bytes,
-                            crate::offline_queue::MessagePriority::Critical,
-                            1, // QoS 1 — same as the legacy direct path
-                            false,
-                        )
-                        .await
-                    {
-                        warn!(
-                            "Failed to publish alarms via OutboundPublisher: {}",
-                            e
-                        );
-                    }
-                }
-            } else if let Some(ref mqtt) = s.mqtt_client {
-                if let Err(e) = mqtt.publish_alarms(&payload).await {
-                    warn!("Failed to publish alarms: {}", e);
-                }
-            }
+            crate::publish_helpers::publish_alarms(&s, &payload).await;
         }
     }
 
@@ -362,14 +327,9 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
             timestamp: chrono::Utc::now().to_rfc3339(),
             tags: io_tags,
         };
-
-        if let Some(ref mqtt) = s.mqtt_client {
-            if let Err(e) = mqtt.publish_io_data(&payload).await {
-                warn!("Failed to publish io_data: {}", e);
-            } else {
-                debug!("Published io_data ({} tags)", all_tags.len());
-            }
-        }
+        // Batch #255 migration to OutboundPublisher routing.
+        crate::publish_helpers::publish_io_data(&s, &payload).await;
+        debug!("Published io_data ({} tags)", all_tags.len());
     }
 
     // --- SCADA display broadcast (reuses all_tags snapshot) ---

@@ -7,6 +7,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 // Entities
 import { Supplier } from './entities/supplier.entity';
 import { SupplierType } from './entities/supplier-type.entity';
+import { SupplierSite } from './entities/supplier-site.entity';
 
 // Resolver
 import { SupplierResolver } from './supplier.resolver';
@@ -35,7 +36,7 @@ const QueryHandlers = [
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Supplier, SupplierType]),
+    TypeOrmModule.forFeature([Supplier, SupplierType, SupplierSite]),
     RestoreModule,
   ],
   providers: [

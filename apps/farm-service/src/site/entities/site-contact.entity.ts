@@ -4,10 +4,10 @@
  * Her site birden fazla sorumlu kişiye sahip olabilir.
  * Sadece bir kişi primary (ana irtibat) olabilir.
  *
- * TODO: Orphan entity - not registered in any module's forFeature().
- * The Site entity has a commented-out @OneToMany relation to this entity.
- * If this entity is needed, add it to SiteModule's TypeOrmModule.forFeature()
- * and uncomment the relation in site.entity.ts.
+ * Wired in Scope A Phase 4.4.1: the table is created per-tenant by
+ * migration `WireSupplierSitesAndSiteContacts1788100000000` and the
+ * entity is registered in `SiteModule.forFeature(...)`. The
+ * SiteFormModal contact-fields write surface lands with Phase 4.4.3.
  *
  * @module Farm
  */

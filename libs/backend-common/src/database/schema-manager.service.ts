@@ -253,21 +253,15 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       // Suppliers
       'supplier_types',
       'suppliers',
-
-      // INFRA-CRITICAL-019: `supplier_sites` and `site_contacts` are
-      // declared as @Entity() (apps/farm-service/src/supplier/entities
-      // /supplier-site.entity.ts and apps/farm-service/src/site/entities
-      // /site-contact.entity.ts) but BOTH are explicitly labelled
-      // "Orphan entity - not registered in any module's forFeature()".
-      // No migration creates them, no module loads them, no API uses them.
-      // Per ADR-011 schema ownership model, MODULE_SCHEMAS lists ACTIVE
-      // tables only — orphan @Entity() declarations are entity-side
-      // tech debt, not schema ownership claims. Listing them here would
-      // crash SourceSchemaBootstrapService on every farm-service boot
-      // (INFRA-CRITICAL-009 hard-fails on missing tables). When the
-      // architectural decision to use these entities is taken, write
-      // the corresponding migration AND re-add to this list in the
-      // SAME commit.
+      // Supplier ↔ Site junction + per-site contact people (Scope A
+      // Phase 4.4.1). These were declared as @Entity() in the source
+      // tree for some time but had no migration and were excluded
+      // from this list under INFRA-CRITICAL-019. Migration
+      // 1788100000000-WireSupplierSitesAndSiteContacts now creates
+      // them per tenant; SupplierModule + SiteModule register them
+      // in `forFeature(...)` (Phase 4.4.2 / 4.4.3 wiring).
+      'supplier_sites',
+      'site_contacts',
 
       // Supporting tables
       'code_sequences',

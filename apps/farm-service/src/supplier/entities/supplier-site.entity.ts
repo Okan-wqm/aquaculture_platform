@@ -4,10 +4,10 @@
  * Her tedarikçi birden fazla site'a hizmet verebilir.
  * Her site birden fazla tedarikçi kullanabilir.
  *
- * TODO: Orphan entity - not registered in any module's forFeature().
- * The Supplier entity has a commented-out @OneToMany relation to this entity.
- * If this entity is needed, add it to SupplierModule's TypeOrmModule.forFeature()
- * and uncomment the relation in supplier.entity.ts.
+ * Wired in Scope A Phase 4.4.1: the table is created per-tenant by
+ * migration `WireSupplierSitesAndSiteContacts1788100000000` and the
+ * entity is registered in `SupplierModule.forFeature(...)`. The
+ * `approvedSites[]` write surface lands with Phase 4.4.2.
  *
  * @module Farm
  */
@@ -79,6 +79,17 @@ export class SupplierSite {
   @Field()
   @Column({ default: false })
   isPreferred: boolean;                // Tercih edilen tedarikçi mi?
+
+  /**
+   * Free-text note about the supplier-site relationship — e.g. "uses
+   * weekend deliveries only", "primary fish-feed supplier per the
+   * 2025 procurement contract". Documented in
+   * `docs/illustrator/farm-modulu-sema-gorsel.md:1281` as part of the
+   * `supplier_sites` row schema.
+   */
+  @Field({ nullable: true })
+  @Column('text', { nullable: true })
+  notes?: string;
 
   // -------------------------------------------------------------------------
   // AUDIT FIELDS

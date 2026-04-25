@@ -666,3 +666,47 @@ The `mqtt.rs:865` Offline publish during graceful disconnect remains intentional
 **Discovered by:** Batch #255 commit message + this session's audit.
 
 **Resolved by:** Batch #268 (commit 517beeff content + 42506745 clarification — push gate sequence).
+
+---
+
+## ORPHAN-MEDIUM-023 — SensNodeManager::write Allow path returns Good without execute_opcua_write delegate (Batch #265 partial wire) (2026-04-25)
+
+**Status:** OPEN (architectural; Batch #267 runtime swap closes by wiring the delegate).
+
+**Scope:** `sens-api-gateway/src/opc_ua_sens_node_manager.rs` `async fn write` body, the post-typed-authz Allow branch. Specifically: after the typed-authz gate at `TypedAuthzPort.authorize_write` returns `Ok(AuthorizedContext)`, the Batch #265 implementation logs `info!` + sets `node.set_status(StatusCode::Good)` WITHOUT forwarding the verified write to the existing `crate::opc_ua_server::execute_opcua_write` orchestrator.
+
+**Symptom (architectural):** `execute_opcua_write` is the SSoT for the post-authz write pipeline:
+- `ForceRegistry` consultation (refuse writes to forced tags — Batch #194 Faz 6 invariant).
+- Process-image commit (the actual write that operators see post-write read-back).
+- Audit emission (HMAC-chained log entry per ADR-020 §1).
+- License-tier gate (max-concurrent-forces / write-rate per Batch #143 license enforcement).
+
+Bypassing it from `SensNodeManager::write` Allow path would create a **divergent write path** with NO audit, NO process-image commit, NO force-registry check — a regression hazard the moment Batch #267 wires SensNodeManager into the runtime.
+
+**Symptom (functional, post-Batch-267):** When the runtime swap lands and `SensNodeManager` replaces SimpleNodeManager, an Allow-path HMI write would:
+- Return `Good` to the HMI (so the operator believes the write succeeded).
+- NOT update the process image (so the next read-back returns the OLD value — operator confusion).
+- NOT emit an audit event (so the regulatory audit log misses the write — FDA 21 CFR 117.135 / SOC 2 CC4 violation potential).
+- NOT consult ForceRegistry (so a forced tag could be silently overwritten by HMI write — defeats the test-harness override invariant).
+
+**Root cause:** `execute_opcua_write` lives in `opc_ua_server.rs` and was designed against the SimpleNodeManager `add_write_callback` shape — it takes a different actor type (`&str`, currently `"opc-ua-anonymous"`) than the typed `AuthenticatedUser` Batch #265 produces. Wiring the delegate from SensNodeManager::write requires either:
+
+1. **Refactor `execute_opcua_write`** to take `&AuthenticatedUser` (or `&AuthorizedContext`) directly — preserves the typed principal across the call boundary. Existing SimpleNodeManager call site is rewritten to mint a synthetic AuthenticatedUser the same way SensNodeManager does (the SimpleNodeManager path is removed in Batch #267 anyway, so the refactor's other call site disappears).
+2. **Bridge via `format_operator_token(operator_id)`** — pass `&format!("sens:operator:{hex}")` as the actor string. Quick wire but introduces a string round-trip on every write. Acceptable for v1; refactor (1) is the future-correct shape.
+
+**Architectural fix:**
+
+Approach (1) — typed-principal end-to-end — is the correct architectural choice. The fix lands as part of Batch #267 because:
+- Batch #267 is the runtime-swap batch that DELETES the SimpleNodeManager path (the only other `execute_opcua_write` caller).
+- Without a parallel SimpleNodeManager call site, refactoring `execute_opcua_write`'s signature is a 1-call-site change.
+- The typed-principal flow is the architectural endpoint of the entire Gap A-3 + A-2b investment — bridging via string would be a step backward.
+
+Plus the `ForceRegistry` + `ProcessImage` + `AuditSink` Arcs needed by `execute_opcua_write` get plumbed into `SensNodeManager` at construction time in Batch #267 (alongside the runtime wire) — same boot sequence change, no parallel plumbing.
+
+**Severity: MEDIUM** — current Batch #265 wire is INERT in production (SensNodeManager not yet in ServerBuilder, so `write` body never executes). The orphan becomes CRITICAL the moment Batch #267 wires the runtime swap WITHOUT the delegate fix. Tracking now so Batch #267's checklist explicitly includes the delegate wire.
+
+**Discovered by:** Batch #265 commit message documented the deferral inline ("execute_opcua_write requires plumbing the same Arcs SimpleNodeManager already plumbs at runtime construction; Batch #267 does that wiring atomically alongside SimpleNodeManager removal — until then, returning Good here on authz-allow lets HMI clients see the gate close"). Promoting to OPEN finding + cross-link from orphan-findings doc so the dependency is auditable.
+
+**Fix target:** Batch #267 (A-2b part 5 runtime swap).
+
+**Linked plan:** Ultra-plan A-2b deadline; same as ORPHAN-CRITICAL-021 (the two findings close together).

@@ -156,6 +156,7 @@ mod opc_ua_server_session; // Batch #239 Faz 5 A-2a: typed session principal (se
 mod opc_ua_server_typed_authz; // Batch #241 Faz 5: typed authz port composing resolver + PolicyEngine
 mod opc_ua_server_user_tokens; // Batch #242 Faz 5 A-3a: UserTokenEnrollment primitive (UserName/Password + X.509)
 mod opc_ua_server_user_token_validator; // Batch #245 Faz 5 A-3b: hot-reload validator composing store + enrollment
+mod outbound_publisher; // Batch #251 ARC-002: broker-aware MQTT publish dispatcher (direct + queue-on-disk)
 #[cfg(feature = "opc-ua-server")]
 mod opc_ua_server_runtime; // Batch 216 Faz 5: async-opcua 0.18 ServerBuilder wire (feature-gated)
 

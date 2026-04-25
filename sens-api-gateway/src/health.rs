@@ -503,6 +503,19 @@ impl HealthState {
         }
     }
 
+    /// Read current MQTT connection state (Batch #251 ARC-002 wire).
+    ///
+    /// Used by [`crate::outbound_publisher::OutboundPublisher`] to
+    /// route publishes between direct-broker delivery and
+    /// queue-on-disk persistence. The atomic load uses Acquire
+    /// ordering so a `set_mqtt_connected(true)` from the event-loop
+    /// thread is observed by the publish-path before the
+    /// corresponding `publish_to_broker` call (load-bearing for the
+    /// connect-handshake → first-publish ordering).
+    pub fn is_mqtt_connected(&self) -> bool {
+        self.inner.mqtt_connected.load(Ordering::Acquire)
+    }
+
     /// Set device activated status
     pub fn set_device_activated(&self, activated: bool) {
         self.inner

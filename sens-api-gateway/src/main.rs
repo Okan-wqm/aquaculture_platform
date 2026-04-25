@@ -1666,6 +1666,68 @@ impl AppState {
             .load_from_file(mode, pubkey_hex, path_override, &expected_tenant)
     }
 
+    /// Initialize the user-token manifest store + attach the
+    /// per-stream persistent floor (Batch #250 Faz 5 A-3c boot
+    /// wire).
+    ///
+    /// Parallel to `init_rbac_manifest_store` but narrower:
+    /// - No mode gate. The user-token manifest does not have a
+    ///   staged-rollout semantic (Disabled / Permissive /
+    ///   Enforcing). Authentication is either enrolled (manifest
+    ///   ingested + signing pubkey configured) or NOT enrolled
+    ///   (`UserTokenValidator::validate_*` fails closed with
+    ///   `NoManifestLoaded`).
+    /// - No disk-load. The user-token manifest is MQTT-first;
+    ///   the cloud is the authoritative source. Boot opens the
+    ///   version store (so the floor survives reboots) but
+    ///   leaves the cached enrollment empty until the first
+    ///   `update_user_token_manifest` MQTT command lands.
+    ///
+    /// **Fail-closed:** version-store open failure returns Err.
+    /// The boot sequence calls `exit(1)` on Err. Unlike
+    /// RbacManifestStore's Permissive mode (which silently runs
+    /// with floor=0), no equivalent fallback exists here — a
+    /// reachable code path that silently runs without persistent
+    /// floor opens the cross-reboot replay window.
+    pub fn init_user_token_manifest_store(&mut self) -> Result<(), String> {
+        use crate::authz::manifest_version_store::{
+            ManifestVersionStore, STREAM_ID_USER_TOKEN,
+        };
+        use crate::authz::user_token_manifest_runtime::UserTokenManifestStore;
+
+        let version_store_path = self
+            .config
+            .user_token_manifest
+            .version_store_path
+            .clone()
+            .unwrap_or_else(|| {
+                std::path::PathBuf::from(
+                    "/var/lib/suderra/user_token_version.sqlite",
+                )
+            });
+
+        match ManifestVersionStore::open_for_stream(
+            &version_store_path,
+            STREAM_ID_USER_TOKEN,
+        ) {
+            Ok(vs) => {
+                info!(
+                    "User-token manifest version store opened: path={}",
+                    version_store_path.display()
+                );
+                self.user_token_manifest_store = std::sync::Arc::new(
+                    UserTokenManifestStore::new()
+                        .with_version_store(std::sync::Arc::new(vs)),
+                );
+                Ok(())
+            }
+            Err(e) => Err(format!(
+                "User-token manifest version store open failed (fail-closed): {}",
+                e
+            )),
+        }
+    }
+
     /// Initialize the audit sink (Batch 78 Sprint 6.2 Phase
     /// 2). When `audit.mode=Enabled`, opens the append-only
     /// audit log at the configured path with chain recovery
@@ -2931,6 +2993,40 @@ async fn async_main() -> Result<()> {
         if let Err(msg) = state_guard.init_rbac_manifest_store() {
             error!(
                 "RBAC manifest store init failed (fail-closed boot, mode=Enforcing): {}",
+                msg
+            );
+            std::process::exit(1);
+        }
+    }
+
+    // Initialize user-token manifest store + persistent floor
+    // (Batch #250 Faz 5 A-3c boot wire).
+    //
+    // WHY: Batch #249b wired the MQTT handler that ingests
+    // signed user-token manifests, but the AppState Arc was
+    // initialized empty (no version store attached) at struct-
+    // construction time. Without this boot-time init, every
+    // hot_reload_from_bytes call reads floor=0 → an attacker
+    // who captured an older signed manifest could replay it
+    // across a reboot. This call opens
+    // `ManifestVersionStore::open_for_stream(path,
+    // STREAM_ID_USER_TOKEN)` (Batch #246 multi-stream) +
+    // attaches it via `with_version_store` so the floor
+    // persists across reboots.
+    //
+    // FAIL-CLOSED DISCIPLINE: open failure exits boot.
+    // Unlike RbacManifestStore (which has Disabled / Permissive
+    // / Enforcing modes for staged rollout), the user-token
+    // manifest has no mode gate — the only legitimate states are
+    // "version store attached, awaiting MQTT enrollment" or
+    // "version store unavailable, fail-closed." A reachable code
+    // path that silently runs without persistent floor would
+    // open the cross-reboot replay window.
+    {
+        let mut state_guard = state.write().await;
+        if let Err(msg) = state_guard.init_user_token_manifest_store() {
+            error!(
+                "User-token manifest store init failed (fail-closed boot): {}",
                 msg
             );
             std::process::exit(1);

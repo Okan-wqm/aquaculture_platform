@@ -342,6 +342,26 @@ pub struct AppState {
     /// Configuration (immutable after init)
     pub config: AgentConfig,
 
+    /// Graceful-shutdown signal flag (Batch #258 C-7 fix).
+    ///
+    /// Atomically set to `true` by the shutdown initiator BEFORE
+    /// safe-state apply + MQTT disconnect. Every command-dispatch
+    /// path checks this flag at the top of `execute_command`; when
+    /// true, the dispatcher rejects with `ServiceShuttingDown`
+    /// response without invoking the handler. This prevents the
+    /// race where a command arrives between
+    /// `notify.send(shutdown)` and the actual MQTT disconnect:
+    /// pre-Batch-258 the command would race the safe-state
+    /// transition + potentially leave actuators in a half-modified
+    /// state.
+    ///
+    /// Held as `Arc<AtomicBool>` so the shutdown initiator (which
+    /// owns AppState write-guard at most once during shutdown) can
+    /// share the flag with the MQTT command-loop reader without
+    /// holding the AppState read-guard across each
+    /// `execute_command` call.
+    pub is_shutting_down: std::sync::Arc<std::sync::atomic::AtomicBool>,
+
     /// MQTT client
     pub mqtt_client: Option<MqttClient>,
 
@@ -839,6 +859,9 @@ impl AppState {
 
         Self {
             config,
+            is_shutting_down: std::sync::Arc::new(
+                std::sync::atomic::AtomicBool::new(false),
+            ),
             mqtt_client: None,
             modbus_handle: None,
             gpio_handle: None,
@@ -5163,6 +5186,21 @@ async fn run_agent(
         shutdown_timeout_secs,
         drain_timeout_ms
     );
+
+    // Batch #258 C-7 fix — flip the shutdown-race gate BEFORE
+    // signaling tasks. Every command-dispatch path checks
+    // `is_shutting_down` at the top of `execute_command`; flipping
+    // here guarantees that any command arriving AFTER this point
+    // gets the structured ServiceShuttingDown rejection rather
+    // than racing the in-progress safe-state transition.
+    {
+        let state_guard = state.read().await;
+        state_guard
+            .is_shutting_down
+            .store(true, std::sync::atomic::Ordering::Release);
+    }
+    info!("Shutdown race gate flipped: new commands will be rejected with ServiceShuttingDown");
+
     shutdown_coordinator
         .shutdown(Duration::from_secs(shutdown_timeout_secs))
         .await;

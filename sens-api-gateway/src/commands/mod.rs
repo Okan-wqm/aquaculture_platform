@@ -755,6 +755,50 @@ impl CommandHandler {
             !command.params.is_null()
         );
 
+        // Batch #258 C-7 fix — shutdown race gate.
+        //
+        // The agent's shutdown sequence flips
+        // `state.is_shutting_down` to true BEFORE applying safe-
+        // state + disconnecting MQTT. A command that arrives
+        // AFTER the flag flip but BEFORE MQTT disconnect would
+        // otherwise race the safe-state transition (e.g., a
+        // WriteTag handler firing concurrent to the actuator-
+        // class fail-safe rollback). Reject every such inflight
+        // command with a structured ServiceShuttingDown response;
+        // the cloud-side request-response loop will surface the
+        // explicit gate rather than appear to time out.
+        let is_shutting_down = {
+            let state = self.state.read().await;
+            state
+                .is_shutting_down
+                .load(std::sync::atomic::Ordering::Acquire)
+        };
+        if is_shutting_down {
+            warn!(
+                "Command '{}' rejected: agent is shutting down (id='{}')",
+                sanitize_for_log(&command.command),
+                command.command_id
+            );
+            return CommandResponse {
+                command_id: command.command_id.clone(),
+                device_id: {
+                    let state = self.state.read().await;
+                    state.config.device_id.clone()
+                },
+                success: false,
+                result: serde_json::json!({
+                    "rejected": "service_shutting_down"
+                }),
+                timestamp: chrono::Utc::now().to_rfc3339(),
+                error: Some(
+                    "Agent is shutting down — command rejected to avoid \
+                     racing the safe-state transition. Retry after the \
+                     agent has restarted."
+                        .to_string(),
+                ),
+            };
+        }
+
         // Batch 79 Sprint 6.2 Phase 2: snapshot the
         // device_id, audit sink Arc, and tenant bytes under
         // the read-guard so pre+post audit emit can run

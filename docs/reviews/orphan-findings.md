@@ -774,7 +774,25 @@ Mint registry entries with the EXACT IDs cited in the commit history (`ULTRA-HIG
 
 ## ORPHAN-MEDIUM-025 — `commit-msg-validator.ts` does not cross-check `Closes:` trailer IDs against finding-registry; format-only check leaks dangling pointers (2026-04-25)
 
-**Status:** OPEN (gate-tightening; spotted while resolving ORPHAN-HIGH-024).
+**Status:** RESOLVED in Batch #285 (2026-04-25, registry entry ULTRA-MEDIUM-026).
+
+**Resolution narrative:**
+
+When implementing the proposed fix in Batch #285, source inspection of `tools/gates/commit-msg-validator.ts` revealed a different architectural shape than this finding's original "no registry-existence check" claim:
+
+- **Line 223 of the validator ALREADY contains the registry-existence check** (`if (!registryIds.has(findingId)) { ... }`).
+- **The actual root cause** of ORPHAN-HIGH-024's 38-batch dangling pattern was that `REQUIRE_CLOSES_TYPES` regex `/^(fix|security|refactor\(agentic,phase-)/` did NOT match `feat()` subjects. Every dangling commit was `feat(edge,...): Batch #NNN — ...` shape, so the validator's `needsCloses` flag was `false` for those commits — the registry-existence check was bypassed entirely because the gate didn't even look for trailers.
+
+The architectural fix delivered in Batch #285:
+
+```text
+Before: const REQUIRE_CLOSES_TYPES = /^(fix|security|refactor\(agentic,phase-)/;
+After:  const REQUIRE_CLOSES_TYPES = /^(fix|security|refactor\(agentic,phase-|feat)/;
+```
+
+Every architectural change in this codebase (whether bug-fix, security hardening, refactor, or new feature) is now traced to a finding in the registry — the regex was historically narrow, Batch #285 widens it to match the universal `Review Finding Traceability` discipline (CLAUDE.md MANDATORY).
+
+**Original finding text (preserved for history; the OPEN claim was partially incorrect about the validator's behavior — see RESOLUTION above for the actual root cause):**
 
 **Scope:** `tools/gates/commit-msg-validator.ts` — the pre-commit / commit-msg gate validates the `Closes:` trailer's REGEX FORMAT (`{PREFIX}-{SEVERITY}-{NNN}`) but does NOT validate that the cited ID EXISTS in `docs/reviews/_registry/findings.jsonl`. This is the root cause of ORPHAN-HIGH-024's 38-batch dangling-trailer pattern: every trailer matched the regex, every commit landed, but 38 IDs pointed to registry rows that didn't exist.
 

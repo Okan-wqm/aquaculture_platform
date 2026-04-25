@@ -11,7 +11,6 @@
  */
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
-import { v4 as uuidv4 } from 'uuid';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card, Button, Input, Textarea, Alert, Switch, DatePicker, MultiSelect, MultiSelectOption, useAuth, createTenantQueryKey, graphqlClient } from '@aquaculture/shared-ui';
 import { useEquipmentList } from '../../hooks/useEquipment';
@@ -342,7 +341,7 @@ function transformProgramToFormData(
   }));
 
   const feedAssignments: FeedAssignment[] = (program.feedAssignments || []).map((fa, index) => ({
-    id: uuidv4(),
+    id: crypto.randomUUID(),
     minWeight: fa.minWeightG,
     maxWeight: fa.maxWeightG,
     feedId: fa.feedId,
@@ -1212,7 +1211,7 @@ const Step3FeedAssignments: React.FC<Step3Props> = ({ data, onChange, errors }) 
     const newMinWeight = lastAssignment ? lastAssignment.maxWeight : 0;
 
     const newAssignment: FeedAssignment = {
-      id: uuidv4(),
+      id: crypto.randomUUID(),
       minWeight: newMinWeight,
       maxWeight: 0,
       feedId: '',

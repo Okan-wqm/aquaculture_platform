@@ -12,8 +12,6 @@ import {
   BiomassReport,
   BiomassSpeciesBreakdown,
   StockingRecord,
-  MortalityDetail,
-  SlaughterRecord,
   TransferRecord,
   ReportStatus,
 } from '../types/reports.types';
@@ -40,6 +38,37 @@ interface StockingFormRecord {
   batchNumber: string;
 }
 
+/**
+ * Form-shaped mortality detail record. The canonical `MortalityDetail` from
+ * `reports.types.ts` is the SHAPE the backend regulatory mutation expects
+ * (count + cause + biomassKg). The form additionally collects `speciesName`
+ * (mapped to `speciesCode` in the submission payload) and a separate
+ * `biomassLossKg` field that's distinct from the canonical `biomassKg`
+ * (the latter is "current biomass at this date", the former is the
+ * delta lost). Mirrors the StockingFormRecord/TransferFormRecord pattern
+ * already in this file — a form-shaped local type is cleaner than
+ * polluting the canonical types with form-only fields.
+ */
+interface MortalityFormDetail {
+  id: string;
+  date: string;
+  cause: string;
+  speciesName: string;
+  count: number;
+  biomassLossKg?: number;
+  notes?: string;
+}
+
+interface SlaughterFormRecord {
+  id: string;
+  date: string;
+  speciesName: string;
+  quantity: number;
+  biomassKg: number;
+  buyer?: string;
+  notes?: string;
+}
+
 interface TransferFormRecord {
   id: string;
   direction: 'incoming' | 'outgoing';
@@ -63,12 +92,12 @@ interface BiomassFormData {
   mortality: {
     totalCount: number;
     byCause: { cause: string; count: number }[];
-    details: MortalityDetail[];
+    details: MortalityFormDetail[];
   };
   slaughter: {
     totalQuantity: number;
     totalBiomassKg: number;
-    records: SlaughterRecord[];
+    records: SlaughterFormRecord[];
   };
   transfers: TransferFormRecord[];
   feedConsumption: {
@@ -1472,13 +1501,45 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
 
   const handleOpenWizard = useCallback((report?: BiomassReport) => {
     if (report) {
+      // Canonical `MortalityDetail` / `SlaughterRecord` from the
+      // report types differ from the form-shaped variants that
+      // include the fields the regulatory submission DTO accepts
+      // (speciesCode, biomassLossKg, buyer). When loading an existing
+      // report for editing we map canonical → form, leaving the
+      // form-only fields blank for the operator to fill in.
+      const mortalityDetails: MortalityFormDetail[] = report.mortality.details.map((d) => ({
+        id: d.id,
+        date: d.date instanceof Date ? d.date.toISOString().slice(0, 10) : String(d.date),
+        cause: d.cause,
+        speciesName: '',
+        count: d.count,
+        biomassLossKg: d.biomassKg,
+        notes: d.notes,
+      }));
+      const slaughterRecords: SlaughterFormRecord[] = report.slaughter.records.map((r) => ({
+        id: r.id,
+        date: r.date instanceof Date ? r.date.toISOString().slice(0, 10) : String(r.date),
+        speciesName: '',
+        quantity: r.quantity,
+        biomassKg: r.biomassKg,
+        buyer: undefined,
+        notes: undefined,
+      }));
       setFormData({
         month: report.month,
         year: report.year,
         currentBiomass: { ...report.currentBiomass },
         stockings: [],
-        mortality: { ...report.mortality },
-        slaughter: { ...report.slaughter },
+        mortality: {
+          totalCount: report.mortality.totalCount,
+          byCause: report.mortality.byCause.map((c) => ({ cause: c.cause, count: c.count })),
+          details: mortalityDetails,
+        },
+        slaughter: {
+          totalQuantity: report.slaughter.totalQuantity,
+          totalBiomassKg: report.slaughter.totalBiomassKg,
+          records: slaughterRecords,
+        },
         transfers: [],
         feedConsumption: { ...report.feedConsumption },
         biomassLoadedFromSystem: false,

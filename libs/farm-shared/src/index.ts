@@ -28,4 +28,9 @@ export type {
 export { evaluateThreshold } from './utils/threshold-evaluator';
 
 // Components
-export { DynamicMeasurementForm } from './components/DynamicMeasurementForm';
+export {
+  DynamicMeasurementForm,
+  DynamicParameterFields,
+  collectDynamicValues,
+} from './components/DynamicMeasurementForm';
+export type { DynamicParameterFieldsProps } from './components/DynamicMeasurementForm';

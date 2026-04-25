@@ -249,6 +249,136 @@ const GroupSection: React.FC<GroupSectionProps> = ({ group, children, variant })
 };
 
 // ============================================================================
+// DYNAMIC PARAMETER FIELDS — controlled-mode field renderer
+// ============================================================================
+// Extracted so callers that compose multiple measurement rows in one form
+// (e.g. the farm-module BulkRecordTab calling
+// `createBatchWaterQualityMeasurements`) can drive the same
+// threshold-aware fields without inheriting `DynamicMeasurementForm`'s
+// internal state, submit button, notes/weather block, or single-row
+// `<form>` wrapper.
+//
+// The fields stay grouped + collapsible because the threshold colouring,
+// status icons, ARIA wiring, and group ordering are all shared concerns
+// — a parallel renderer would drift.
+
+export interface DynamicParameterFieldsProps {
+  variant: 'desktop' | 'mobile';
+  parameters: ParameterFieldConfig[];
+  rawValues: Record<string, string>;
+  boolValues: Record<string, boolean>;
+  onStringChange: (code: string, raw: string) => void;
+  onBoolChange: (code: string, checked: boolean) => void;
+  /** Override the empty-state copy (defaults to English). */
+  emptyMessage?: string;
+}
+
+export const DynamicParameterFields: React.FC<DynamicParameterFieldsProps> = ({
+  variant,
+  parameters,
+  rawValues,
+  boolValues,
+  onStringChange,
+  onBoolChange,
+  emptyMessage,
+}) => {
+  // Group parameters by their group, preserving displayOrder within each group
+  const grouped: GroupedParameters[] = useMemo(() => {
+    const sorted = [...parameters].sort((a, b) => a.displayOrder - b.displayOrder);
+    const map = new Map<string, ParameterFieldConfig[]>();
+    for (const param of sorted) {
+      const existing = map.get(param.group);
+      if (existing) {
+        existing.push(param);
+      } else {
+        map.set(param.group, [param]);
+      }
+    }
+    return Array.from(map.entries()).map(([group, items]) => ({ group, items }));
+  }, [parameters]);
+
+  if (parameters.length === 0) {
+    return (
+      <div className="text-center py-8 text-gray-500" role="status">
+        {emptyMessage ?? 'No parameters configured for this measurement point.'}
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {grouped.map(({ group, items }) => (
+        <GroupSection key={group} group={group} variant={variant}>
+          {items.map((config) => {
+            switch (config.dataType) {
+              case 'NUMBER':
+                return (
+                  <NumberField
+                    key={config.code}
+                    config={config}
+                    value={rawValues[config.code] ?? ''}
+                    onChange={onStringChange}
+                    variant={variant}
+                  />
+                );
+              case 'ENUM':
+                return (
+                  <EnumField
+                    key={config.code}
+                    config={config}
+                    value={rawValues[config.code] ?? ''}
+                    onChange={onStringChange}
+                    variant={variant}
+                  />
+                );
+              case 'BOOLEAN':
+                return (
+                  <BooleanField
+                    key={config.code}
+                    config={config}
+                    checked={boolValues[config.code] ?? false}
+                    onChange={onBoolChange}
+                    variant={variant}
+                  />
+                );
+              default:
+                return null;
+            }
+          })}
+        </GroupSection>
+      ))}
+    </>
+  );
+};
+
+/**
+ * Collect raw + bool values into the typed `Record<string, FieldValue>`
+ * payload that the backend mutation expects. Exported so non-form bulk
+ * callers (BulkRecordTab) get the same coercion DynamicMeasurementForm
+ * uses internally — no parallel implementations.
+ */
+export function collectDynamicValues(
+  parameters: ParameterFieldConfig[],
+  rawValues: Record<string, string>,
+  boolValues: Record<string, boolean>,
+): Record<string, FieldValue> {
+  const values: Record<string, FieldValue> = {};
+  for (const param of parameters) {
+    if (param.dataType === 'BOOLEAN') {
+      values[param.code] = boolValues[param.code] ?? false;
+    } else if (param.dataType === 'ENUM') {
+      values[param.code] = rawValues[param.code] ?? '';
+    } else {
+      const raw = rawValues[param.code];
+      if (raw != null && raw !== '') {
+        values[param.code] = Number(raw);
+      }
+    }
+  }
+  return values;
+}
+
+// ============================================================================
 // MAIN FORM COMPONENT
 // ============================================================================
 
@@ -275,21 +405,6 @@ export const DynamicMeasurementForm: React.FC<DynamicMeasurementFormProps> = ({
   const [notes, setNotes] = useState('');
   const [weather, setWeather] = useState('');
 
-  // Group parameters by their group, preserving displayOrder within each group
-  const grouped: GroupedParameters[] = useMemo(() => {
-    const sorted = [...parameters].sort((a, b) => a.displayOrder - b.displayOrder);
-    const map = new Map<string, ParameterFieldConfig[]>();
-    for (const param of sorted) {
-      const existing = map.get(param.group);
-      if (existing) {
-        existing.push(param);
-      } else {
-        map.set(param.group, [param]);
-      }
-    }
-    return Array.from(map.entries()).map(([group, items]) => ({ group, items }));
-  }, [parameters]);
-
   const handleStringChange = useCallback((code: string, raw: string) => {
     setRawValues((prev) => ({ ...prev, [code]: raw }));
   }, []);
@@ -301,21 +416,7 @@ export const DynamicMeasurementForm: React.FC<DynamicMeasurementFormProps> = ({
   const handleSubmit = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault();
-
-      const values: Record<string, FieldValue> = {};
-      for (const param of parameters) {
-        if (param.dataType === 'BOOLEAN') {
-          values[param.code] = boolValues[param.code] ?? false;
-        } else if (param.dataType === 'ENUM') {
-          values[param.code] = rawValues[param.code] ?? '';
-        } else {
-          const raw = rawValues[param.code];
-          if (raw != null && raw !== '') {
-            values[param.code] = Number(raw);
-          }
-        }
-      }
-
+      const values = collectDynamicValues(parameters, rawValues, boolValues);
       onSubmit(values, notes, showWeather ? weather : undefined);
     },
     [parameters, rawValues, boolValues, notes, weather, showWeather, onSubmit],
@@ -341,46 +442,15 @@ export const DynamicMeasurementForm: React.FC<DynamicMeasurementFormProps> = ({
       )}
 
       {/* Parameter Groups */}
-      {grouped.map(({ group, items }) => (
-        <GroupSection key={group} group={group} variant={variant}>
-          {items.map((config) => {
-            switch (config.dataType) {
-              case 'NUMBER':
-                return (
-                  <NumberField
-                    key={config.code}
-                    config={config}
-                    value={rawValues[config.code] ?? ''}
-                    onChange={handleStringChange}
-                    variant={variant}
-                  />
-                );
-              case 'ENUM':
-                return (
-                  <EnumField
-                    key={config.code}
-                    config={config}
-                    value={rawValues[config.code] ?? ''}
-                    onChange={handleStringChange}
-                    variant={variant}
-                  />
-                );
-              case 'BOOLEAN':
-                return (
-                  <BooleanField
-                    key={config.code}
-                    config={config}
-                    checked={boolValues[config.code] ?? false}
-                    onChange={handleBoolChange}
-                    variant={variant}
-                  />
-                );
-              default:
-                return null;
-            }
-          })}
-        </GroupSection>
-      ))}
+      <DynamicParameterFields
+        variant={variant}
+        parameters={parameters}
+        rawValues={rawValues}
+        boolValues={boolValues}
+        onStringChange={handleStringChange}
+        onBoolChange={handleBoolChange}
+        emptyMessage={t.noParameters}
+      />
 
       {/* Notes */}
       <div>

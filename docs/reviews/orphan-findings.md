@@ -567,3 +567,28 @@ $ grep -l "sens-api-gateway\|cargo" .github/workflows/*.yml
 **Fix target:** Ultra-plan has no explicit batch for this; filing it against the C-1b ADR-017/018 cross-reference, target Batch A-1 post-split (after #237). Proposed Batch #237.5 or splice into existing A-1b wire work. Deadline 2026-05-29 (W5) to align with D-4 mTLS rotation surface which also depends on envelope versioning.
 
 **Discovered by:** Batch #237 dispatcher primitive design. ORPHAN-MEDIUM-019 is net-new; previous sessions did not reach the dispatcher layer where the gap became visible.
+
+---
+
+## ORPHAN-HIGH-020 — D-1 ultra-plan ST source→bytecode compile path is partially orphan; production accepts pre-compiled artifacts only (2026-04-25)
+
+**Status:** OPEN (architectural; D-1 ultra-plan wire batch required).
+
+**Scope:** `sens-api-gateway/src/scripting/bytecode_compiler.rs` (132 KB) — every public type / function in the AST→bytecode compile pipeline is compiled but unreferenced. Specifically: `compile_expression`, `compile_statement`, `compile_program`, `compile_while/repeat/for/case`, `compile_binary_op`, `compile_stdlib_function_call`, `patch_jump`, `patch_jump_if_false`, `emit_placeholder_jump`, `emit_placeholder_jump_if_false`, `target_kind`, `data_type_to_st_type`, `resolve_stdlib_signature`. Plus the supporting `SymbolTable`, `SymbolEntry`, `SymbolKind`, `TagDescriptor`, `LoopContext`, `StdlibSignature`, `StdlibArgType`, `InferredType`, `CompileError` types.
+
+**Symptom:** Operators cannot deploy ST source via the `deploy_program` MQTT command — the runtime accepts pre-compiled `.stbc` artifacts only (boot-time `bytecode_runner` + scan-cycle task spawn from `program.json` / signed bytecode manifest, no source). Operator UI / cloud signer must run the compile pipeline OUT-OF-BAND (e.g., manual cloud-side toolchain) and ship pre-compiled artifacts. The whole "edge agent compiles ST in-place" promise of Plan §3 R-1 + Plan B Faz 3 is non-functional in production despite Batch 149-167 having landed the compiler primitives.
+
+**Root cause:** Batch 149-167 shipped the AST→bytecode compiler as primitive-first work (consistent with the codebase's primitive-first batching discipline). The companion D-1 wire batch — boot-time + MQTT-deploy paths invoke `compile_program(ast)` to produce a `Bytecode` artifact at runtime — was scheduled but has not landed. `bytecode_deploy.rs` consumes only pre-compiled artifacts; there is no production caller of `compile_program`.
+
+**Architectural fix:**
+
+1. New `cmd_deploy_st_source` MQTT command handler that takes ST source text + program metadata + ed25519 sig, runs `bytecode_compiler::compile_program(parse_st(source))`, signs the resulting `Bytecode` with the bytecode-signing key, then routes through `bytecode_deploy::ingest`.
+2. Boot-time path: when `program.json` carries `source: "..."` instead of (or alongside) `bytecode_b64`, the boot loader compiles the source before instantiating the runner.
+3. Audit emission: the compile result (success / `CompileError` variant) becomes a structured audit event class so operators can diagnose source-side syntax / type errors via the audit log.
+4. `tests/integration/d1_source_compile_roundtrip.rs` end-to-end test: source → compile → sign → deploy → run → expected output.
+
+**Severity: HIGH** — the "edge compiles ST" promise is the cornerstone of the D-1 plan and the differentiator vs. cloud-only PLC vendors. While operators have a workaround (cloud-side compile + signed-artifact ship), the plan claim "operators upload .st files to edge" is currently false. Plan §3 R-1 + Plan B Faz 3 deferred deadline 2026-W22 (D-team capacity).
+
+**Discovered by:** Batch #259 D-series wire-status audit. The blanket `#![allow(dead_code)]` on bytecode_compiler.rs hid the orphan; the audit-driven removal surfaced 28 specific compile-pipeline warnings that all trace back to this single missing wire.
+
+**Linked plan:** Ultra-plan D-1 (currently named "AST → bytecode compile primitive" but expanded by this finding to "D-1a primitive + D-1b production wire").

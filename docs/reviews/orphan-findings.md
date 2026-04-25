@@ -597,7 +597,27 @@ $ grep -l "sens-api-gateway\|cargo" .github/workflows/*.yml
 
 ## ORPHAN-CRITICAL-021 — OPC UA write callback hard-codes anonymous actor; TypedAuthzPort gate non-functional for HMI write path (2026-04-25)
 
-**Status:** OPEN (security-critical; A-2b ultra-plan custom NodeManager wire required).
+**Status:** PARTIALLY FIXED in Batches #263-#266 (4/5 architectural fix steps wired); FULL CLOSURE blocked by Batch #267 runtime swap.
+
+**Progress (2026-04-25 session):**
+
+- ✅ **Step 1** (Batch #263): `SensNodeManager` skeleton implementing the full `async_opcua::server::node_manager::NodeManager` trait directly. 4 mandatory methods + 2 trait-bound smoke tests. ULTRA-HIGH-026.
+- ✅ **Step 2 / 3** (Batch #265): `SensNodeManager::write` body resolves session principal from `Session.user_token()`, parses operator_id via the canonical `parse_operator_token` helper, mints a sealed `AuthenticatedUser::user_pass(operator_id)` via the Batch #239 sealed ctor, forwards through `TypedAuthzPort.authorize_write` (Batch #241). On Allow → set Good (full delegate to `execute_opcua_write` lands in step 5); on Deny → `BadUserAccessDenied`. ULTRA-HIGH-028. Stable UserToken format `"sens:operator:<32-hex>"` defined + 8 round-trip / rejection tests pin the format invariant.
+- ✅ **Step 4** (Batch #266): `SensAuthManager` implements async-opcua's `AuthManager` trait. UserName/Password authentication wires through the Batch #245 `UserTokenValidator.validate_user_pass` → encodes `OperatorId` into the canonical UserToken format via `format_operator_token`. Anonymous + IssuedToken paths reject. X.509 path stubbed (Batch #266b pending — Thumbprint→CN→trust-anchor resolution requires the runtime's `opcua_crypto` cert-store API). 3 trait-bound + policy-omits-anonymous smoke tests. ULTRA-HIGH-029.
+- 🟡 **Step 5** (Batch #267 — pending): runtime swap. `opc_ua_server_runtime.rs:259` `simple_node_manager(...)` call replaced with `with_node_manager(SensNodeManager)` builder + `with_authenticator(SensAuthManager)` Arc. `add_write_callback` per-tag registration loop DELETED in the same commit. `SensNodeManager::init()` body — currently a Batch #263 skeleton emitting a warn log — gets the address-space population wire that registers every tag config as a Variable node under the assigned namespace (deep async-opcua addrspace API: `DefaultTypeTree.add_node(...)` per-tag dispatch + namespace registration via `context.info.namespaces[lookup_by_uri]`).
+- 🟡 **Step 6** (post-#267 integration test): 3rd-party HMI session-establish via UserName/Password → write tag → typed authz allow → ProcessImage update OK + 2nd negative test for typed authz deny path.
+- 🟡 **Step 7** (post-#267): per-tag write callbacks moved from the deleted `add_write_callback` registration to `SensNodeManager::write` dispatch.
+
+**Why STEP 5 is blocked:** the address-space population needs the `DefaultTypeTree` mutation API + the per-tag-data-type→Variant mapping the existing `register_writable_tags` already encodes. Both are deep async-opcua addrspace knowledge surfaces. Wiring step 5 in a single batch alongside step 6 + 7 is the right architectural shape (no parallel paths during the swap), but requires the focused attention of a fresh session — running it half-wired in this session would risk an OPC UA address-space break that integration tests can't catch without a live HMI client.
+
+**Operator-visible state today (2026-04-25):**
+- HMI session-establish: STILL via async-opcua's default AuthManager (SensAuthManager not yet wired into ServerBuilder).
+- HMI writes: STILL flow through `add_write_callback` with the legacy hardcoded `actor: "opc-ua-anonymous"` (SensNodeManager not yet wired into ServerBuilder).
+- Net: ORPHAN-CRITICAL-021's user-visible behavior is UNCHANGED until Batch #267 lands.
+
+**Remaining deadline:** unchanged — Batch #267 was originally scoped as ultra-plan A-2b finalize. After the partial-fix progress this session, the remaining scope shrunk from "5-7 batch entire A-2b workstream" to "1 focused batch executing the runtime swap with init() body wire."
+
+**Original architectural fix (5-7 batch ultra-plan A-2b) — preserved verbatim for history:**
 
 **Scope:** `sens-api-gateway/src/opc_ua_server_runtime.rs:1026` — `actor: "opc-ua-anonymous"` literal passed into `execute_opcua_write`. Every OPC UA write from a 3rd-party HMI client (Ignition, UaExpert, Wonderware) flows through the same callback with the same hardcoded actor string.
 

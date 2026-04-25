@@ -821,7 +821,7 @@ impl NodeManager for SensNodeManager {
 /// system-anonymous / non-Suderra authentication paths and
 /// reject at the typed-authz boundary.
 #[cfg(feature = "opc-ua-server")]
-const OPERATOR_TOKEN_PREFIX: &str = "sens:operator:";
+pub(crate) const OPERATOR_TOKEN_PREFIX: &str = "sens:operator:";
 
 /// Encode an `OperatorId` into the stable UserToken string format.
 /// Used by Batch #266 `SensAuthManager::authenticate_username_
@@ -832,7 +832,7 @@ const OPERATOR_TOKEN_PREFIX: &str = "sens:operator:";
 /// here so the write-path parse + the auth-path encode share one
 /// definition (single source of truth — no token format drift).
 #[cfg(feature = "opc-ua-server")]
-fn format_operator_token(
+pub(crate) fn format_operator_token(
     operator_id: &crate::authz::permission::OperatorId,
 ) -> String {
     let mut hex = String::with_capacity(
@@ -859,7 +859,7 @@ fn format_operator_token(
 /// fail-closed. This is the canonical defense against
 /// session-token confusion.
 #[cfg(feature = "opc-ua-server")]
-fn parse_operator_token(
+pub(crate) fn parse_operator_token(
     token_str: &str,
 ) -> Option<crate::authz::permission::OperatorId> {
     let payload = token_str.strip_prefix(OPERATOR_TOKEN_PREFIX)?;

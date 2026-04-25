@@ -161,6 +161,8 @@ mod publish_helpers; // Batch #255 ARC-002: centralized publish-routing helpers 
 #[cfg(feature = "opc-ua-server")]
 mod opc_ua_sens_node_manager; // Batch #263 A-2b part 1: custom NodeManager skeleton (ORPHAN-CRITICAL-021 fix path)
 #[cfg(feature = "opc-ua-server")]
+mod opc_ua_sens_auth_manager; // Batch #266 A-2b part 4: AuthManager binding UserTokenValidator to session-establish
+#[cfg(feature = "opc-ua-server")]
 mod opc_ua_server_runtime; // Batch 216 Faz 5: async-opcua 0.18 ServerBuilder wire (feature-gated)
 
 use anyhow::{Context, Result};

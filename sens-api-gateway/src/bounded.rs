@@ -13,15 +13,32 @@
 //! placeholder consumer today → YAGNI violation. Keep the module,
 //! document the decision, let real consumers land naturally.
 //!
-//! **Re-evaluate:** Faz 3 Sprint ST VM stack — if `StVmStack` uses
-//! `heapless::Vec` directly, consider REMOVE. Otherwise WIRE.
-//!
-//! Plan ref: §5 Faz 1 Step 8 / ARC-009.
-#![allow(dead_code)]
-//!
 //! Provides stack-allocated, bounded collections using heapless crate.
 //! These prevent unbounded memory growth and are suitable for embedded
 //! environments where heap allocation should be minimized.
+//!
+//! **Re-evaluate:** Faz 3 Sprint ST VM stack — if `StVmStack` uses
+//! `heapless::Vec` directly, consider REMOVE. Otherwise WIRE.
+//!
+//! ## Wire status (Batch #276 audit)
+//!
+//! **Plan classification:** ARC-009 WHITELIST-with-reason —
+//! utility primitives compiled in place pending Faz 3 ST VM
+//! stack consumer. The Plan §3.1 ARC-009 framework lists
+//! `bounded.rs` under the "WHITELIST (utility, yeni kod
+//! tarafından kullanılacak)" category — explicitly held-for-
+//! future-consumer status.
+//!
+//! Pre-Batch-276 the docstring already named the Faz 3 ST VM
+//! stack consumer ("Re-evaluate: Faz 3 Sprint ST VM stack —
+//! if `StVmStack` uses `heapless::Vec` directly, consider
+//! REMOVE. Otherwise WIRE.") but didn't explicitly classify
+//! under the canonical 3-state vocabulary. This audit closes
+//! that classification gap.
+//!
+//! Plan ref: §5 Faz 1 Step 8 / ARC-009.
+
+#![allow(dead_code)]
 //!
 //! # IEC 62443 SL2 FR5: Resource Availability
 //! Bounded collections prevent memory exhaustion attacks by enforcing

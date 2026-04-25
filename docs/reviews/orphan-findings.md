@@ -710,3 +710,42 @@ Plus the `ForceRegistry` + `ProcessImage` + `AuditSink` Arcs needed by `execute_
 **Fix target:** Batch #267 (A-2b part 5 runtime swap).
 
 **Linked plan:** Ultra-plan A-2b deadline; same as ORPHAN-CRITICAL-021 (the two findings close together).
+
+---
+
+## ORPHAN-HIGH-024 — Batches #243-#280 dangling `Closes: ULTRA-HIGH-NNN` trailers; finding-registry hash chain not advanced (2026-04-25)
+
+**Status:** OPEN (process; tracked for batched registry-update).
+
+**Scope:** Every commit footer in this session (Batches #242-#280 except batches that closed pre-existing ORPHAN-* findings via the orphan-findings tracker doc) carries a `Closes: docs/reviews/edge-plan/2026-04-19-edge-hardening.md#ULTRA-HIGH-NNN` trailer where `NNN` ranges 006..038. The finding-registry at `docs/reviews/_registry/findings.jsonl` (the SHA-256 hash-chained append-only registry) ends at `ULTRA-HIGH-032` (entry: "G-6: Contract tests canonical hash + ed25519 + policy + license") + has not been advanced for any of this session's 38 batches.
+
+**Symptom (process):** The commit-msg validator (`tools/gates/commit-msg-validator.ts`) accepted the trailers because the regex format `{PREFIX}-{SEVERITY}-{NNN}` matched — but the validator does NOT cross-check against the registry. Net effect: every Closes trailer in this session points to a registry ID that doesn't exist; an audit running `finding-registry list --state RESOLVED` would not discover this session's work; the chain hash at the registry tail is unchanged from pre-session commit `0af50f8c...d2247276` (entry ULTRA-HIGH-032).
+
+**Symptom (collisions):** Some session batch IDs (e.g., Batch #270 cite of `ULTRA-HIGH-032`) COLLIDE with pre-existing registry entries (G-6 contract tests is registered as `ULTRA-HIGH-032`; this session also cited `ULTRA-HIGH-032` for the F-series scheduler audit). The Closes trailer regex doesn't catch the collision because it only checks format.
+
+**Symptom (tracking):** Operators running `finding-registry list --state OPEN` to triage open work would see ULTRA-HIGH-032 (G-6 contract tests) but not the architectural work this session landed (Gap A-3 closure via Batches #242-#250, ARC-002 OfflineQueue wire via Batches #251-#255, A-2b 4/5 part wire via Batches #263-#266, etc.). The session's progress is invisible to the registry-driven audit pipeline.
+
+**Root cause:** I (the assistant) chose new ID numbers (`ULTRA-HIGH-006` upward) for each batch without:
+1. Reading the registry to find the next available number (should have been `ULTRA-HIGH-033` onward).
+2. Adding registry entries via `npx ts-node tools/gates/finding-registry.ts add <stub.json>` to advance the hash chain.
+
+The chosen numbers OVERLAP with existing G-1 through G-6 ultra-plan reservations (`ULTRA-HIGH-027` through `ULTRA-HIGH-032` already exist for ultra-plan G-3a/G-3b/G-3c/G-3d/G-4a/G-6 entries) — so even renaming this session's batches to non-colliding IDs requires careful registry-state inspection.
+
+**Architectural fix (renumbering + registry advance):**
+
+1. Map this session's 38 batches to a non-colliding ID range starting at `ULTRA-HIGH-033` (the first free integer past the G-6 reservation).
+2. Mint registry stub JSON for each batch with the canonical schema (id / severity / state / title / evidence / rule_violated / owner_agent / raised_in_cycle / review_file / created_at / closing_commits / deadline / owner_user / notes / prev_hash / content_hash).
+3. Bulk-add each stub via `finding-registry add <stub.json>`, advancing the hash chain entry-by-entry.
+4. The PROBLEM: commit history's `Closes: ULTRA-HIGH-006..038` trailers are immutable (force-push forbidden per CLAUDE.md). The renumbered registry IDs would not match the in-history trailers; consumers parsing commit history would still see the old IDs.
+
+**Architectural fix (preferred — accept the in-history IDs as canonical):**
+
+Mint registry entries with the EXACT IDs cited in the commit history (`ULTRA-HIGH-006` upward), even though that overlaps with pre-existing reservations. The collision is not destructive (the registry is append-only; both the old G-3a entry under `ULTRA-HIGH-027` AND the new Batch #245 entry under `ULTRA-HIGH-027` would coexist as two entries with the same ID — undesirable but recoverable via a separate dedup batch). The commit history stays authoritative; the registry catches up.
+
+**Severity: HIGH** — process discipline gap; not a security or correctness gap. The architectural work IS landed + tested + push-canonical; the audit-pipeline visibility is the missing piece. Future operators running `finding-registry list` will see incorrect "OPEN" state on this session's work until the registry catches up.
+
+**Discovered by:** post-session audit (this finding registration). The dangling-Closes pattern is invisible in any single commit's pre-commit check + only surfaces when comparing the registry tail-hash to the commit log span.
+
+**Fix target:** dedicated registry-catchup batch session. Estimated 1-2 hours focused work to mint 38 stub JSON files + run `finding-registry add` for each + verify chain integrity via `finding-registry verify`. The renumbering vs. accept-collision question is itself an architectural decision the next session should make explicitly.
+
+**Linked plan:** ultra-plan ARC-009 + meta-tracking discipline. The orphan-findings doc + the finding-registry are TWO TRACKERS that should agree; this session's work was added to the orphan-findings doc but not to the registry — the divergence is the orphan.

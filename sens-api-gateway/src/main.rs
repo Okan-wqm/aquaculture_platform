@@ -159,6 +159,8 @@ mod opc_ua_server_user_token_validator; // Batch #245 Faz 5 A-3b: hot-reload val
 mod outbound_publisher; // Batch #251 ARC-002: broker-aware MQTT publish dispatcher (direct + queue-on-disk)
 mod publish_helpers; // Batch #255 ARC-002: centralized publish-routing helpers (Outbound vs. legacy direct)
 #[cfg(feature = "opc-ua-server")]
+mod opc_ua_sens_node_manager; // Batch #263 A-2b part 1: custom NodeManager skeleton (ORPHAN-CRITICAL-021 fix path)
+#[cfg(feature = "opc-ua-server")]
 mod opc_ua_server_runtime; // Batch 216 Faz 5: async-opcua 0.18 ServerBuilder wire (feature-gated)
 
 use anyhow::{Context, Result};

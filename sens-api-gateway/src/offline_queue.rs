@@ -16,9 +16,6 @@
 //! # v1.2.3 Improvements
 //! - Added mutex poison recovery for better resilience
 
-// v1.2.4: API reserved for offline message queuing - silence dead_code warnings
-#![allow(dead_code)]
-
 use anyhow::{Context, Result};
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
@@ -226,6 +223,17 @@ fn acquire_lock<T>(mutex: &Mutex<T>) -> Result<MutexGuard<'_, T>> {
 /// process. Without the flag, `SELECT 1` would run on every hot-path lock
 /// acquisition (enqueue, dequeue, stats) for the rest of the process lifetime,
 /// adding unnecessary SQLite overhead in scan-cycle mode (BUG-015).
+///
+/// ## Wire status (Batch #256 audit)
+///
+/// Currently NOT used — the 9+ hot-path callers (enqueue,
+/// dequeue, ack, peek, etc.) call the simpler `acquire_lock` that
+/// returns the raw poison Err without the SELECT-1 health probe.
+/// The poison-recovery fix is intentionally kept compiled +
+/// allow(dead_code) so a future migration of the hot-path callers
+/// can land as a single behavior-only change without bringing the
+/// fix back from a separate branch. Tracked as orphan finding.
+#[allow(dead_code)]
 fn acquire_sqlite_lock<'a>(
     mutex: &'a Mutex<Connection>,
     health_verified: &AtomicBool,
@@ -363,7 +371,9 @@ pub struct OfflineQueue {
     /// Tracks whether the SQLite connection health check has already passed after
     /// a mutex poison event. Prevents running SELECT 1 on every hot-path lock
     /// acquisition for the lifetime of the process once a panic has been recovered
-    /// (BUG-015 fix).
+    /// (BUG-015 fix). Paired with the pending `acquire_sqlite_lock` migration —
+    /// see that function's docstring for wire status.
+    #[allow(dead_code)]
     poison_health_verified: AtomicBool,
 }
 

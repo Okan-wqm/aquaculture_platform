@@ -16,9 +16,6 @@
 //! - FR6: Timely Response to Events (health monitoring)
 //! - FR7: Resource Availability (diagnostics for troubleshooting)
 
-// v1.2.4: API reserved for health feature - silence dead_code warnings
-#![allow(dead_code)]
-
 use serde::Serialize;
 use std::collections::VecDeque;
 use std::net::SocketAddr;

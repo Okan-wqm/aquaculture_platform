@@ -1524,7 +1524,8 @@ async fn handle_calibrate(
 
     let result = match action {
         "start" => {
-            // We need calibration config — for now use defaults
+            // We need calibration config — defaults are applied here until
+            // the future calibration package schema lands.
             // In a full implementation, config would come from the package
             let config = crate::calibration_engine::CalibSensorConfig {
                 tag: tag.to_string(),

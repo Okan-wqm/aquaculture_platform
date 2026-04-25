@@ -424,8 +424,9 @@ impl CodesysClient {
     /// Compile ST source to Codesys format
     fn compile_st_to_codesys(&self, program: &PlcProgram) -> Result<Vec<u8>> {
         // In a real implementation, this would use Codesys compiler or
-        // generate Codesys-compatible bytecode. For now, we send the ST
-        // source directly (Codesys V3 can compile on-device).
+        // generate Codesys-compatible bytecode. The current
+        // implementation sends the ST source directly (Codesys V3
+        // can compile on-device).
 
         let mut compiled = Vec::new();
 

@@ -340,35 +340,74 @@ impl NodeManager for SensNodeManager {
         }]
     }
 
-    /// **Wire status:** stub (Batch #263). Future Batch #264
-    /// populates the address space with all Suderra tags as
-    /// Variable nodes. The `init` method is called once by the
-    /// async-opcua runtime AFTER namespace registration; this
-    /// is where the manager:
-    /// 1. Reads its assigned namespace index from
-    ///    `context.info.namespaces` and stores it in
-    ///    `self.namespace_index`.
-    /// 2. Walks `process_image` tags and calls
-    ///    `type_tree.add_node(...)` for each one.
+    /// **Wire status:** namespace registration WIRED (Batch
+    /// #287); address-space population pending (Batch #288 step
+    /// 5b — VariableNode per-tag dispatch).
     ///
-    /// **Linked finding:** ORPHAN-CRITICAL-021 — until this
-    /// method populates the address space, HMI clients cannot
-    /// browse / read / write any Suderra tag through this
-    /// manager.
+    /// Batch #287 step 5a (ULTRA-HIGH-039 RESOLVED) registers
+    /// the Suderra namespace URI into the async-opcua server's
+    /// shared type-tree namespace map + stores the assigned u16
+    /// index in `self.namespace_index` so subsequent
+    /// `owns_node()` + `read()` + `write()` trait methods can
+    /// match incoming NodeIds.
+    ///
+    /// The pattern was discovered in async-opcua's own
+    /// `DiagnosticsNodeManager::new(context)` (registry source
+    /// `async-opcua-server-0.18.0/src/diagnostics/node_manager.rs`):
+    ///
+    /// ```ignore
+    /// let namespace_index = {
+    ///     let mut type_tree = context.type_tree.write();
+    ///     type_tree.namespaces_mut().add_namespace(<uri>)
+    /// };
+    /// ```
+    ///
+    /// Init signature gives us `&mut DefaultTypeTree` directly
+    /// (DiagnosticsNodeManager goes through `context.type_tree`
+    /// because it constructs at `NodeManagerBuilder::build` time
+    /// not at trait-method `init` time — different hook). We use
+    /// the trait-method's pre-locked `type_tree` parameter.
+    ///
+    /// **Idempotency note:** `add_namespace(uri)` returns the
+    /// existing index if the URI is already registered — calling
+    /// `init` more than once on the same NodeManager instance is
+    /// safe + returns the same index. The async-opcua runtime
+    /// does not re-call init in normal operation; this is
+    /// defense-in-depth against future runtime changes.
+    ///
+    /// **Linked finding:** ULTRA-HIGH-039 (RESOLVED — namespace
+    /// registration). ULTRA-HIGH-035 PARTIAL_FIX (overall A-2b
+    /// part 5 still has sub-steps 5b-5f pending). Address space
+    /// population (per-tag VariableNode dispatch) lands in
+    /// Batch #288 step 5b.
     async fn init(
         &self,
-        _type_tree: &mut DefaultTypeTree,
+        type_tree: &mut DefaultTypeTree,
         _context: ServerContext,
     ) {
-        // Skeleton: no-op. Batch #264 reads the assigned
-        // namespace index from `context.info.namespaces` (need
-        // to look up by `namespace_uri`) and populates address
-        // space from `self.process_image`.
-        tracing::warn!(
-            "SensNodeManager::init() is a Batch #263 skeleton — \
-             address space NOT populated; HMI browse/read/write \
-             will see an empty namespace until Batch #264 wires \
-             the populator. ORPHAN-CRITICAL-021 tracks this gap."
+        // Step 5a — namespace registration. The async-opcua
+        // runtime trait-method gives us `&mut DefaultTypeTree`
+        // directly; no inner lock needed here.
+        let assigned_index =
+            type_tree.namespaces_mut().add_namespace(&self.namespace_uri);
+
+        // Atomically store the assigned index. The trait method
+        // is `async`; using `tokio::RwLock` matches the
+        // service-method readers (`owns_node` uses `try_read`
+        // for sync-trait-method compatibility; `read` /
+        // `write` use `read().await`).
+        {
+            let mut guard = self.namespace_index.write().await;
+            *guard = Some(assigned_index);
+        }
+
+        tracing::info!(
+            "SensNodeManager::init() namespace registered: \
+             uri='{}' assigned_index={} — Batch #287 step 5a \
+             complete; address-space population (step 5b) \
+             pending Batch #288",
+            self.namespace_uri,
+            assigned_index
         );
     }
 

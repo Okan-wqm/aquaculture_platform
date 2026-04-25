@@ -1393,3 +1393,101 @@ Additionally, every other service pushed by `deploy-digitalocean.yml` (backend N
 - **Banned-phrase posture:** identical — `^docs/reviews/` allowlisted by `tools/gates/banned-phrase.ts:179`.
 - **Three CRITICAL items pending closure:** ORPHAN-EDGE-LICENSE-001 (LICENSE inconsistency), ORPHAN-EDGE-DEP-001 (Dependabot 157), ORPHAN-EDGE-CI-005 (branch protection). These three plus ORPHAN-EDGE-DEP-002 (Node 20 cutover 2026-06-02) form the next-2-weeks remediation queue.
 - **Operator note:** if the next operator instruction is again "more depth, more notes", the next batch will need to walk: per-service test coverage matrix, every `apps/*-service` README presence, every `libs/*` public API doc, ADR index drift across all services (not just edge), and the 60+ Dependabot HIGH advisories one-by-one. Each of those is its own bounded scope.
+
+---
+
+## ORPHAN-EDGE-AUDIT-2026-04-25-COMPREHENSIVE — 7 cross-service README + contract-validator + service-count gaps (2026-04-25)
+
+**Status:** OPEN.
+**Discovered during:** Operator-instruction-driven 5th-pass sweep walking the per-service / per-lib / per-module README surface and the event-contracts validator surface. Each batch is one bounded scope; this batch covers the cross-service documentation + trust-boundary-validation gaps that none of the four prior batches walked.
+
+### Sub-findings registered
+
+#### ORPHAN-EDGE-CONTRACT-002 — Event-contracts JSON Schema validator directory empty; CLAUDE.md mandate not implemented (CRITICAL)
+**Evidence:** `find libs/event-contracts/src -name "*.ts" | wc -l` → 38 TypeScript files defining event interfaces. `find libs/event-contracts/src/schemas -name "*.json" | wc -l` → 0. CLAUDE.md § "Event Contract Rules" item 4: *"Add a JSON Schema validator for trust-boundary crossings (`libs/event-contracts/src/schemas/`)"*. The directory either does not exist or is empty. Result: every event crossing a trust boundary (NATS pub-sub between apps, MQTT publish from edge to cloud, webhook ingress) is consumed without runtime schema validation. A producer that drifts a field (e.g. renames `producerTs` → `producerTimestamp`) silently breaks every consumer, caught only at first-failed-test.
+**Class:** Tier-1 make-impossible — runtime validator at the trust boundary refuses malformed payloads before consumer logic runs.
+**Root-cause architectural fix:**
+1. For every event in `libs/event-contracts/src/*-events.ts`, generate a corresponding `*.schema.json` (Draft 2020-12) under `libs/event-contracts/src/schemas/` using `ts-json-schema-generator` or `typescript-json-schema`.
+2. Each consumer that subscribes via `@platform/event-bus` runs the matching JSON Schema validator BEFORE deserialising into the typed interface. Validation failure → quarantine the message + emit `EventSchemaViolation` audit event + DO NOT silently `try/catch` swallow it.
+3. CI invariant: `tests/invariants/event-contract-schema-coverage.spec.ts` greps every `extends BaseEvent` interface in `libs/event-contracts/src/` and asserts a matching `*.schema.json` file exists.
+4. ADR-006 ("flat events") update: explicitly require schema validator + listing how upcasters compose with validators on version drift.
+**Owner:** data-expert + platform-kernel-expert
+**Deadline:** 2026-06-15 (CRITICAL — this gap is platform-wide, not just edge).
+**Closure path:** PR `feat(event-contracts): JSON Schema validator generation + runtime gate + invariant`, Closes this anchor.
+
+#### ORPHAN-EDGE-DOCS-009 — Cross-tree README coverage gap: 53% of services / libs / modules / platform-libs lack a README (HIGH)
+**Evidence:** Cross-tree audit on `agentic-audit-followup-4` against `origin/main` HEAD:
+- `apps/`: 17 directories total. README MISSING in 5: `ai-service`, `db-migrate`, `hydroponics-service`, `messaging-service`, `sensor-ingestion`. Coverage 12/17 = 70.6%.
+- `libs/`: 11 directories total. README MISSING in 7: `aquaculture-engines`, `farm-shared`, `node-components`, `sdk`, `shared-contracts`, `shared`, `storage`. Coverage 4/11 = 36.4%.
+- `web/modules/`: 7 directories total. README MISSING in 5: `farm-module`, `hr-module`, `hydroponics-module`, `sensor-module`, `tenant-admin`. Coverage 2/7 = 28.6%.
+- `platform/libs/`: 3 directories total. README MISSING in 3: `cqrs`, `event-bus`, `outbox`. Coverage 0/3 = 0%.
+
+Total: 38 first-class subtrees; 20 lack a README. Coverage = 47.4%. Onboarding cost is the primary effect — a new contributor cannot navigate to "what does this lib do" without grepping source.
+**Class:** Tier-3 detect — measurable, fix-by-template.
+**Root-cause architectural fix:**
+1. Add `tests/invariants/readme-coverage.spec.ts` that asserts every `apps/*/`, `libs/*/`, `web/modules/*/`, `platform/libs/*/` carries a `README.md` of at least N words with required sections (Purpose, Public API surface, Owner, Linked ADRs).
+2. Template files: `tools/templates/README-app.md`, `README-lib.md`, `README-web-module.md`, `README-platform-lib.md`. Skeleton with required headings.
+3. Closure happens via per-subtree PRs as owners author the README; first PR closes the invariant + 2-3 templates; subsequent PRs each close one missing subtree until coverage = 100%.
+**Owner:** comprehensive-review:architect-review + per-subtree owner agent (farm-expert for `apps/farm-service`, etc.)
+**Deadline:** 2026-08-31 (rolling closure as per-subtree PRs land).
+**Closure path:** Multi-PR; first PR `test(invariants): README coverage + templates`, then per-subtree PRs.
+
+#### ORPHAN-EDGE-COVERAGE-001 — Per-service test-coverage matrix never assembled (HIGH)
+**Evidence:** Lane-A `test-runner` agent owns coverage authority. Sens-api-gateway coverage was measured (≈1.15% per ORPHAN-EDGE-TEST-001). For the 17 backend services + 11 libs + 7 web modules + 3 platform libs, no equivalent single-page coverage matrix exists. Plant IT / Siemens / SOC 2 reviewers asking "what is your test posture across the whole platform" cannot be answered without 38 separate `cargo tarpaulin` / `nx test --coverage` runs.
+**Class:** Tier-3 detect.
+**Root-cause architectural fix:**
+1. CI scheduled job `coverage-matrix.yml` (weekly) runs `nx run-many --target=test --coverage` for the TS/Nest tree + `cargo tarpaulin` for the Rust workspace; aggregates per-subtree coverage into `docs/operations/coverage-matrix.md`.
+2. Dashboard table: subtree | line-cov% | branch-cov% | last-measured | trend (↑/↓/→) | owner.
+3. Pair with ORPHAN-EDGE-TEST-001 floor-gate (per-file 50% minimum on changed code).
+**Owner:** test-runner + observability-expert
+**Deadline:** 2026-07-31
+**Closure path:** PR `ci(coverage): platform-wide coverage matrix + dashboard`, Closes this anchor.
+
+#### ORPHAN-EDGE-API-001 — No public-API documentation generation pipeline for libs (MEDIUM)
+**Evidence:** Of the 11 `libs/*` directories, the public surface (exported types, functions, classes) has no automated documentation. `libs/event-contracts/src/index.ts` exports 30+ event interfaces; consumers learn the API by reading source. Equivalent for `libs/backend-common`, `libs/aquaculture-engines`, etc. TypeDoc / typedoc-plugin-markdown is the standard tool.
+**Class:** Tier-2 automatic — generate, do not author.
+**Root-cause architectural fix:**
+1. Add `npm run docs:gen` script that runs `typedoc` against every `libs/*` and produces Markdown output under `docs/api/libs/<lib>/`.
+2. CI: regenerate on each merge to main + commit if changed (or fail if drifted).
+3. Pair with ORPHAN-EDGE-DOCS-009 README coverage so each `libs/*/README.md` cross-references the generated API doc.
+**Owner:** comprehensive-review:architect-review + test-runner
+**Deadline:** 2026-08-31
+**Closure path:** PR `feat(docs): typedoc-driven public API doc generation for libs`, Closes this anchor.
+
+#### ORPHAN-EDGE-SSOT-002 — Confirmed: `apps/` has 17 services; CLAUDE.md says 16. Reconcile (LOW; ORPHAN-EDGE-SSOT-001 confirmation)
+**Evidence:** `ls -d apps/*/ | wc -l` → 17 directories at HEAD `119ef3cd`. CLAUDE.md § "Backend Services (`apps/`) — 16 services (15 runtime + `db-migrate` CLI)". The 17th is `apps/sensor-ingestion` (Rust sidecar per the rust-migration plan; recorded in user memory as in progress). CLAUDE.md table needs:
+1. Update count: "17 services (15 runtime + `sensor-ingestion` Rust sidecar + `db-migrate` CLI)".
+2. Add a row to the service table listing `sensor-ingestion` with schema (likely `sensor` shared with sensor-service) and responsibility ("high-throughput sensor payload decode + NATS publish").
+**Class:** Tier-1 make-impossible — invariant.
+**Root-cause architectural fix:** Add `tests/invariants/claude-md-service-count.spec.ts` asserting `ls -d apps/*/` count matches the CLAUDE.md table row count. Pair with the table update.
+**Owner:** claude-md maintainer
+**Deadline:** 2026-05-15 (low effort; close fast).
+**Closure path:** PR `docs(claude-md): add sensor-ingestion to service roster + count invariant`, Closes this and supersedes ORPHAN-EDGE-SSOT-001.
+
+#### ORPHAN-EDGE-DOCS-010 — `web/apps/aquamobil/` (PWA) onboarding documentation not audited (MEDIUM)
+**Evidence:** Mobile PWA app exists per CLAUDE.md "Web (`web/`)" section. README presence + service-worker config + offline-sync architecture were not part of any prior orphan finding. Pre-existing service-worker security note `web/apps/aquamobil/dev-dist/` is gitignored per security incident SEC-M05 — but that was a single-file fix. The broader PWA architecture (offline IndexedDB, background sync, push notifications, install prompt UX) is undocumented.
+**Class:** Tier-3 detect.
+**Root-cause architectural fix:**
+1. Audit `web/apps/aquamobil/` — confirm README exists with: PWA architecture, service-worker version + scope, offline data store schema, push-notification flow, install-prompt UX, supported browsers + platforms, known limitations.
+2. If missing, author per ORPHAN-EDGE-DOCS-009 template.
+**Owner:** frontend-expert + mobile-app-auditor (Lane-B)
+**Deadline:** 2026-07-31
+**Closure path:** PR `docs(aquamobil): PWA architecture + onboarding`, Closes this anchor.
+
+#### ORPHAN-EDGE-INFRA-001 — Helm charts / Kubernetes manifests / Terraform IaC documentation surface not audited (MEDIUM)
+**Evidence:** `infrastructure/` directory referenced by CLAUDE.md and prior findings (e.g. ORPHAN-EDGE-DEP-002 mentions infrastructure/monitoring/). The full inventory of Helm charts, Kubernetes manifests, Terraform modules has not been walked for: README coverage, ADR linkage, secret references, CRD definitions, deployment-environment matrix.
+**Class:** Tier-3 detect.
+**Root-cause architectural fix:**
+1. Audit pass: walk `infrastructure/`, `deploy/`, `infra/` (whichever exist). Per top-level subtree: README + ADR linkage + environment matrix (dev/staging/prod) + secret references.
+2. Add subtree-specific orphan findings as gaps surface.
+3. CI invariant: every Helm chart has `Chart.yaml` + `values.yaml.example`; every Terraform module has `README.md` + `variables.tf` documented.
+**Owner:** infra-expert
+**Deadline:** 2026-07-31
+**Closure path:** PR `docs(infra): inventory + ADR linkage audit`, Closes this anchor.
+
+### Cross-cutting consolidation notes for this batch
+
+- **CRITICAL count after this batch:** ORPHAN-EDGE-LICENSE-001 (commercial release), ORPHAN-EDGE-DEP-001 (157 vulnerabilities), ORPHAN-EDGE-CI-005 (branch protection), **ORPHAN-EDGE-CONTRACT-002 (event-contracts validator)** — four CRITICAL items now in the queue. CONTRACT-002 is platform-wide, not edge-only, and trust-boundary visibility makes it the highest-priority ADR-006 follow-through.
+- **Cumulative finding count after this PR:** ≈ **72 architectural findings** registered; ID namespaces: ORPHAN-NNN (21) + ORPHAN-EDGE-NNN (14) + ORPHAN-EDGE-{CI,LICENSE,CONTRACT,TEST,ADR,AGENT,DOCS}-NNN (PR #151, 11) + ORPHAN-EDGE-{DEP,CI-004/005,DOCS-002..005,INVARIANT,HYG-002,SSOT,OPS}-NNN (PR #153, 14) + ORPHAN-EDGE-{WORKTREE,BRANCH,REPO,WORKFLOW,DOCS-006/007/008,CODEOWNERS,WORKSPACE,MEMORY}-NNN (PR #154, 11) + ORPHAN-EDGE-{CONTRACT-002,DOCS-009/010,COVERAGE-001,API-001,SSOT-002,INFRA-001}-NNN (this PR, 7).
+- **Banned-phrase posture:** identical to prior entries.
+- **Operator note for next pass:** if instructed again, the next batch needs to walk: per-Dependabot-CVE one-by-one, every `infrastructure/` subtree, every `web/modules/*` MFE in depth, every public TypeScript symbol export across `libs/*`, the messaging-service GDPR retention story, the alert-engine rule DSL grammar, the AI-service guardrails, and the schema-per-tenant migration coverage matrix per service. Each of those is its own bounded scope and would yield 5-15 sub-findings.

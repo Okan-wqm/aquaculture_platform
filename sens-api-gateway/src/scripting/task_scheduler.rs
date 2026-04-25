@@ -44,6 +44,23 @@
 //!   stats struct stays a small fixed size regardless
 //!   of scan-cycle count (cardinality safe per Batch
 //!   164 observability baseline).
+//!
+//! ## Wire status (Batch #270 audit)
+//!
+//! Production wire confirmed via the F-series usage paths:
+//! - `config.rs:1114` registers `tasks: Vec<TaskConfig>` so
+//!   operators declare scheduler tasks in `config.yaml`.
+//! - `main.rs:4584` boots the runtime via
+//!   `TaskScheduler::new` + `run_scheduler_cadence_loop` +
+//!   `run_event_listener` per the per-tick + event-driven
+//!   dispatch model.
+//!
+//! Per-item dead-code allow audit pending — the blanket allow
+//! is retained until a future F-series cleanup batch surfaces
+//! every remaining unused helper one-by-one (mirrors the
+//! Batch #259 D-1 audit pattern: confirm wire, document the
+//! pending cleanup, retain the blanket allow as
+//! WHITELIST-with-reason).
 
 #![allow(dead_code)]
 

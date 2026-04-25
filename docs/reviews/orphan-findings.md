@@ -627,18 +627,22 @@ $ grep -l "sens-api-gateway\|cargo" .github/workflows/*.yml
 
 ## ORPHAN-MEDIUM-022 — `mqtt.rs` internal `publish_status` self-publishes bypass OutboundPublisher routing (2026-04-25)
 
-**Status:** OPEN (architectural; ARC-002 cleanup follow-up).
+**Status:** RESOLVED in Batch #268 (2026-04-25).
 
-**Scope:** `sens-api-gateway/src/mqtt.rs:331` (initial Online publish during connect), `:865` (Offline publish during graceful disconnect). Both are MqttClient internal `self.publish_status(...)` calls — they don't have AppState reference, so they can't route through `publish_helpers::publish_status`.
+**Resolution:** Initial Online publish removed from `MqttClient::new` (`mqtt.rs:331`) and relocated to `main.rs` boot sequence post-`init_outbound_publisher`, routing via `publish_helpers::publish_status` at High priority — the queue-aware path. A transient broker outage during the connect→publish window now queues the Online status transition to disk (Batch #251 OfflineQueue) + drains on reconnect (Batch #252 DrainTask) instead of silently losing the operator-actionable "device just came online" transition.
 
-**Symptom:** Two of the most operator-actionable status transitions (device-just-came-online + device-is-disconnecting) skip the queue-on-broker-outage protection. If the broker is intermittent during these moments, the status transition is lost — cloud sees stale device state.
+The `mqtt.rs:865` Offline publish during graceful disconnect remains intentionally on the legacy direct path — drain task is shutting down too, so queue-routed Offline would never deliver. Documented in Batch #255 commit + Batch #268 commit confirming the deliberate exception.
 
-**Root cause:** MqttClient is constructed BEFORE AppState is fully populated (mqtt_client field gets the value AFTER `MqttClient::new`). The internal self-publishes happen during connect/disconnect, which is exactly the boundary where AppState isn't reliably accessible from inside MqttClient methods.
+**Original scope (preserved for history):** `sens-api-gateway/src/mqtt.rs:331` (initial Online publish during connect), `:865` (Offline publish during graceful disconnect). Both are MqttClient internal `self.publish_status(...)` calls — they don't have AppState reference, so they can't route through `publish_helpers::publish_status`.
 
-**Architectural fix:** The "initial Online" publish can move to BOOT sequence (after `init_outbound_publisher` populates the publisher Arc — call `publish_helpers::publish_status(state, Online)` from main.rs post-init); the "graceful disconnect" publish IS the special case discussed in Batch #255 (queue path is intentionally skipped because drain task is also shutting down — direct broker delivery is the right semantic). So fix half the orphan: move `:331` Online publish to a post-init helper call; document `:865` Offline publish as intentionally direct.
+**Original symptom:** Two of the most operator-actionable status transitions (device-just-came-online + device-is-disconnecting) skip the queue-on-broker-outage protection. If the broker is intermittent during these moments, the status transition is lost — cloud sees stale device state.
+
+**Original root cause:** MqttClient is constructed BEFORE AppState is fully populated (mqtt_client field gets the value AFTER `MqttClient::new`). The internal self-publishes happen during connect/disconnect, which is exactly the boundary where AppState isn't reliably accessible from inside MqttClient methods.
+
+**Architectural fix applied (Batch #268):** "Initial Online" publish moved to BOOT sequence after `init_outbound_publisher` populates the publisher Arc — call `publish_helpers::publish_status(state, Online)` from main.rs post-init helper. "Graceful disconnect" publish KEPT direct (drain task is shutting down too).
 
 **Severity: MEDIUM** — operator visibility loss on transient outage during connect; not life-safety. Same priority as Batch #255's "telemetry envelope build needs MqttClient internal fields" deferred migration (which Batch #261 closed).
 
-**Discovered by:** Batch #255 commit message + this session's audit; not previously tracked because Batch #255 documented the skip but didn't promote it to an OPEN finding.
+**Discovered by:** Batch #255 commit message + this session's audit.
 
-**Fix target:** Future ARC-002 cleanup batch.
+**Resolved by:** Batch #268 (commit 517beeff content + 42506745 clarification — push gate sequence).

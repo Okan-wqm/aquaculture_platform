@@ -30,6 +30,27 @@
 //! later swap in a factory-issued cert + key via
 //! `certificate_path` + `private_key_path` overrides (those
 //! config surfaces land with the cert-lifecycle batch).
+//!
+//! ## Wire status (Batch #278 audit)
+//!
+//! Production wire confirmed:
+//! - `main.rs::init_opcua_runtime` (boot-time) — when
+//!   `feature = "opc-ua-server"` + `config.opc_ua_server.enabled
+//!   = true`, this module's `start_opcua_server(...)` spawns the
+//!   async-opcua server task under `tokio::spawn` + registers
+//!   with the ShutdownCoordinator.
+//! - SimpleNodeManager wire at line 259 + `add_write_callback`
+//!   loop at line 985 wires the legacy actor=`opc-ua-anonymous`
+//!   path. ORPHAN-CRITICAL-021 tracks the SensNodeManager
+//!   replacement; Batch #267 swap deletes this loop.
+//!
+//! Per-item dead-code allow audit pending — the blanket allow
+//! retains the alarm-server / event-server scaffolding that
+//! lands with the OPC UA Alarms & Conditions extension batch
+//! (ADR-019 §6 future). WHITELIST-with-reason classification.
+//!
+//! Linked: ORPHAN-CRITICAL-021 (this module's `simple_node_
+//! manager` wire is the legacy path that Batch #267 replaces).
 
 #![cfg(feature = "opc-ua-server")]
 #![allow(dead_code)]

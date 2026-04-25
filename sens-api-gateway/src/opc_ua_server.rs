@@ -27,6 +27,30 @@
 //! surfaced with the live quality so HMIs can display the
 //! force banner without inspecting the force registry
 //! directly.
+//!
+//! ## Wire status (Batch #278 audit)
+//!
+//! Production wire confirmed across multiple call sites:
+//! - `opc_ua_server_runtime.rs:1021,1026,1028-1031` —
+//!   `execute_opcua_write` orchestrator wired into the
+//!   SimpleNodeManager `add_write_callback` body. Receives
+//!   the typed-authz port, force registry, process image,
+//!   audit sink dependencies as Arc references.
+//! - `opc_ua_sens_node_manager.rs` (Batch #265) — references
+//!   `execute_opcua_write` as the future-Batch-#267 delegate
+//!   target (the typed-principal write completion path).
+//!   ORPHAN-MEDIUM-023 tracks the missing delegate wire +
+//!   names this orchestrator as the consumer that closes
+//!   the finding.
+//! - `opc_ua_server_runtime.rs:259` — `simple_node_manager(...)`
+//!   builder wiring with the `OpcUaTagRegistry::build(configs)`
+//!   address-space population at boot.
+//!
+//! Per-item dead-code allow audit pending — the blanket allow
+//! retains future extension surfaces (tag-data-type-aware
+//! Variant mapping per Batch #264 audit, future
+//! AuthorizedContext-passing refactor per ORPHAN-MEDIUM-023
+//! resolution). WHITELIST-with-reason per Plan §3.1 ARC-009.
 
 #![allow(dead_code)]
 

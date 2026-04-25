@@ -825,3 +825,63 @@ The check is O(N) on registry size + O(M) on trailer count per commit; both boun
 **Fix target:** dedicated commit-msg-validator gate-hardening batch. Estimated 1 batch (gate code + unit test against canned good-trailer + bad-trailer fixtures + integration test against current registry).
 
 **Linked plan:** Plan §3.1 ARC-009 review-finding traceability discipline + ORPHAN-HIGH-024 (the 38-batch dangling pattern this gate would have caught).
+
+---
+
+## ORPHAN-HIGH-027 — Ultra-plan A-2b step 5b spec ("address-space populate per-tag VariableNode") is architecturally wrong-shape vs canonical async-opcua NodeManager pattern (2026-04-25)
+
+**Status:** OPEN at filing time → re-spec landed in Batch #288 (registry entry ULTRA-HIGH-040 RESOLVED).
+
+**Scope:** `docs/reviews/_registry/findings.jsonl` ULTRA-HIGH-039 `notes` field + the historical ultra-plan A-2b step 5 sub-step taxonomy.
+
+**Pre-Batch-#288 spec (wrong-shape):** ULTRA-HIGH-039's `notes` enumerated the remaining A-2b part 5 sub-steps as:
+
+```text
+5b (SensNodeManager.init() address-space populate per-tag VariableNode)
+5c (opc_ua_server_runtime.rs:259 simple_node_manager → with_node_manager swap)
+5d (with_authenticator(SensAuthManager) wire)
+5e (add_write_callback loop DELETE)
+5f (execute_opcua_write actor: &str → &AuthenticatedUser refactor)
+```
+
+The 5b wording assumed that completing the SensNodeManager runtime swap requires a per-tag VariableNode population step against `DefaultTypeTree` (or against an internal AddressSpace). This is architecturally incorrect for the chosen NodeManager pattern.
+
+**Architectural fact (discovered via async-opcua source-of-truth read):**
+
+In async-opcua 0.18, `DefaultTypeTree` stores ONLY type-definitions (ObjectTypes, VariableTypes — the metaclasses of the OPC UA type system). Variable INSTANCE nodes (the actual data nodes that HMIs read) are NEVER stored in DefaultTypeTree. There are exactly two canonical patterns for a NodeManager to expose instance nodes:
+
+1. **In-memory AddressSpace pattern (SimpleNodeManager / InMemoryNodeManager):** the NodeManager owns a `RwLock<AddressSpace>`; nodes get `address_space.add_folder(...)` / `address_space.insert(...)` calls at boot; the trait's default browse/read service implementations look nodes up by NodeId. Trade-off: rigid (every node must exist before service calls) + per-node read/write callbacks LOSE `RequestContext` (the entire reason A-2b chose to abandon this pattern in Batch #225+).
+
+2. **Virtual nodes / dynamic resolution pattern (DiagnosticsNodeManager):** the NodeManager registers ONLY the namespace + carries no per-node storage; the trait methods `browse()` / `read()` / `write()` resolve the node FROM the NodeId at request time (via opaque NodeId encoding + per-namespace ownership filter). Trade-off: requires explicit per-method implementations; benefits include `RequestContext` access on every call (load-bearing for A-2b's session-aware authz gate) + zero state duplication between `tag_registry` (catalog) and address-space (which would also be a catalog).
+
+**SensNodeManager already chose pattern (2)** — Batch #263 skeleton + Batch #264 (read) + Batch #265 (write) all resolve nodes from the incoming `NodeId.identifier` against `OpcUaTagRegistry.find_by_browse_name(...)`. The catalog IS the address-space; populating an additional in-memory AddressSpace would create a second catalog that drifts from the first.
+
+**Therefore the original step 5b spec was internally inconsistent with the architectural choice of step 5a:** step 5a registered the namespace via `type_tree.namespaces_mut().add_namespace(...)` (canonical to pattern 2); step 5b's "address-space populate" assumed pattern 1's storage model. Either step 5a needed to be different (lock the type_tree and call address_space.insert), OR step 5b needed to be different (implement browse() per the canonical pattern-2 path). Step 5a is correct + canonical; step 5b is the side that needs re-specification.
+
+**Architectural re-spec (Batch #288):**
+
+```text
+5b (was): SensNodeManager.init() address-space populate per-tag VariableNode
+5b (now): SensNodeManager.browse() trait method implementation per canonical
+          DiagnosticsNodeManager pattern — virtual node resolution covering
+          the 4 entry points HMIs use:
+          (a) Browse from ObjectsFolder → add HasComponent ref to Suderra root
+          (b) Browse from Suderra root → add HasComponent ref to Tags folder
+          (c) Browse from Tags folder → add HasComponent ref per tag in registry
+          (d) Browse from a tag node → add HasTypeDefinition ref to BaseDataVariableType
+              + Inverse HasComponent ref back to Tags
+```
+
+The remaining sub-steps 5c / 5d / 5e / 5f are unaffected — they correctly target opc_ua_server_runtime.rs wiring + execute_opcua_write signature. Only step 5b's verb (`populate` → `implement browse`) and target (`type_tree` → trait method override) change.
+
+**Severity: HIGH** — without the architectural correction, completing 5b per the original wording would have either:
+(a) Forced a SensNodeManager refactor to pattern 1, throwing away Batches #263-#266's pattern 2 commitments (months of work re-architected for an internally inconsistent spec).
+(b) Surfaced a compilation error at first attempt (DefaultTypeTree has no `add_variable_node` method) and triggered a session-blocking architectural re-derivation under user-facing time pressure.
+
+**Discovered by:** Batch #288 implementation prep — read of `async-opcua-server-0.18.0/src/diagnostics/node_manager.rs` revealed the canonical pattern-2 shape; cross-checked against `async-opcua-nodes-0.18.0/src/type_tree.rs` (DefaultTypeTree only exposes `add_type_node` / `add_namespace` / `add_type_property`, no instance-node API).
+
+**Fix target:** Batch #288 (this batch) implements browse() trait method per re-spec. Subsequent batches (5c-5f) proceed unchanged.
+
+**Linked plan:** Ultra-plan §A-2b part 5 sub-step taxonomy. Linked findings: ULTRA-HIGH-039 RESOLVED (5a namespace registration), ULTRA-HIGH-035 PARTIAL_FIX (overall A-2b part 5), ORPHAN-CRITICAL-021 (anonymous-actor hardcode — closed by 5c+5f wiring), ORPHAN-MEDIUM-023 (Allow-path skips delegate — closed by 5f).
+
+**Architectural lesson:** When a multi-step plan is written, every step's choices must be internally consistent with every other step's. Step 5a's choice (namespace registration via DefaultTypeTree) IMPLIED pattern 2 commitment; step 5b should have followed the implication forward. Future ultra-plan steps should cite the canonical-pattern source explicitly (e.g., "5b: implement per DiagnosticsNodeManager.browse pattern at `async-opcua-server-0.18.0/src/diagnostics/node_manager.rs:619-667`") so a later reader can re-derive the full architectural trajectory from the spec alone.

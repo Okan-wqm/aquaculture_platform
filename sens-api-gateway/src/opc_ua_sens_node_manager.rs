@@ -105,6 +105,25 @@ use opcua::nodes::DefaultTypeTree;
 use opcua::server::node_manager::{NodeManager, RequestContext, ServerContext};
 #[cfg(feature = "opc-ua-server")]
 use opcua::types::NodeId;
+// Batch #288 step 5b — browse() trait method implementation requires:
+// - BrowseNode (the request/response shape for a single browse target)
+// - AddReferenceResult (Added vs Full vs Rejected discriminator)
+// - ReferenceDescription (the response payload added per reference)
+// - ReferenceTypeId (HasComponent + HasTypeDefinition reference types)
+// - ObjectId / VariableTypeId / ObjectTypeId (well-known node identifiers)
+// - QualifiedName / LocalizedText / ExpandedNodeId (reference description fields)
+// - StatusCode / NodeClass / BrowseDirection (response status + direction filter)
+// - VecDeque (continuation-point buffer when a browse exceeds max_references_per_node)
+#[cfg(feature = "opc-ua-server")]
+use opcua::server::node_manager::{AddReferenceResult, BrowseNode};
+#[cfg(feature = "opc-ua-server")]
+use opcua::types::{
+    BrowseDirection, ExpandedNodeId, LocalizedText, NodeClass, ObjectId,
+    ObjectTypeId, QualifiedName, ReferenceDescription, ReferenceTypeId,
+    StatusCode, VariableTypeId,
+};
+#[cfg(feature = "opc-ua-server")]
+use std::collections::VecDeque;
 
 // Project deps — Gap A-3 chain primitives this module is
 // designed to consume in subsequent batches. They're imported
@@ -819,6 +838,655 @@ impl NodeManager for SensNodeManager {
 
         Ok(())
     }
+
+    // ===========================================================
+    // browse() — Batch #288 A-2b part 5 step 5b (re-specified)
+    // ===========================================================
+    //
+    // Architectural shape (per ORPHAN-HIGH-027 correction note):
+    //
+    // The Suderra OPC UA address space is a 4-level hierarchy
+    // resolved virtually via tag_registry — NO AddressSpace storage
+    // (canonical pattern 2 per `async-opcua-server-0.18.0/src/
+    // diagnostics/node_manager.rs:DiagnosticsNodeManager.browse`):
+    //
+    //   Objects (NodeId(0, 85))           ← owned by core node manager
+    //     └─[HasComponent]─→ Suderra (Object, NodeId(ns_idx, "Suderra"))
+    //                            ↓ owns
+    //                          Suderra (NodeId(ns_idx, "Suderra"))
+    //                            └─[HasComponent]─→ Tags (Object,
+    //                                                NodeId(ns_idx, "Tags"))
+    //                            └─[HasTypeDefinition]─→ FolderType
+    //                                                ↓ owns
+    //                                              Tags (NodeId(ns_idx, "Tags"))
+    //                                                └─[HasComponent]─→ tag_a (Variable)
+    //                                                └─[HasComponent]─→ tag_b (Variable)
+    //                                                ...
+    //                                                └─[HasTypeDefinition]─→ FolderType
+    //                                                                  ↓ owns
+    //                                                                tag_n (Variable, NodeId(ns_idx, browse_name))
+    //                                                                  └─[HasTypeDefinition]─→ BaseDataVariableType
+    //                                                                  └─[HasComponent inverse]─→ Tags
+    //
+    // Cross-namespace contribution: SensNodeManager browse() is
+    // also invoked when the runtime fans out a Browse request
+    // against `ObjectId::ObjectsFolder` (namespace 0). The core
+    // node manager owns ObjectsFolder, but every registered
+    // NodeManager gets a chance to ADD references to a BrowseNode
+    // (canonical async-opcua dispatch — confirmed via
+    // `async-opcua-server-0.18.0/src/diagnostics/node_manager.rs:619-667`).
+    //
+    // Continuation points: when a single browse exceeds the
+    // session's `max_references_per_node` cap, the trait API
+    // requires us to (a) stop adding refs when `BrowseNode.add()`
+    // returns `Full(reference)`, (b) stash the unfinished refs
+    // in a `Box<dyn ContinuationPoint>` via
+    // `BrowseNode.set_next_continuation_point(...)`, (c) on
+    // BrowseNext resume by `BrowseNode.take_continuation_point()`.
+    // The DiagnosticsNodeManager pattern uses a private struct
+    // `BrowseContinuationPoint { nodes: VecDeque<ReferenceDescription> }`
+    // — we mirror that shape via `SuderraBrowseCp` below.
+    //
+    // **Linked finding:** ULTRA-HIGH-040 (RESOLVED — browse impl).
+    // Closes ORPHAN-HIGH-027 architectural-correction finding.
+
+    /// **Wire status:** real implementation (Batch #288 step 5b
+    /// re-specified per ORPHAN-HIGH-027). Replaces the trait
+    /// default's `BadServiceUnsupported`.
+    ///
+    /// Per `nodes_to_browse[i]` the body dispatches by NodeId:
+    ///
+    /// 1. **Continuation-point resume** — if the BrowseNode
+    ///    carries a stashed `SuderraBrowseCp`, drain it (drain
+    ///    until either `node.remaining() == 0` or the queue is
+    ///    empty; on overflow a fresh continuation point is
+    ///    re-stashed).
+    /// 2. **Browse from `ObjectsFolder` (ns=0)** — add
+    ///    HasComponent forward ref to NodeId(ns_idx, "Suderra").
+    ///    No inverse handling (the core manager owns the inverse
+    ///    side from Suderra→Objects).
+    /// 3. **Browse from `Suderra` root (ns=ns_idx, "Suderra")** —
+    ///    add HasComponent forward ref to NodeId(ns_idx, "Tags") +
+    ///    HasTypeDefinition forward ref to ObjectTypeId::FolderType.
+    ///    Inverse: HasComponent inverse ref to ObjectsFolder.
+    /// 4. **Browse from `Tags` folder (ns=ns_idx, "Tags")** — add
+    ///    HasComponent forward ref per tag in the registry +
+    ///    HasTypeDefinition forward ref to FolderType. Inverse:
+    ///    HasComponent inverse ref to Suderra root.
+    /// 5. **Browse from a tag node (ns=ns_idx, browse_name)** —
+    ///    add HasTypeDefinition forward ref to
+    ///    VariableTypeId::BaseDataVariableType. Inverse:
+    ///    HasComponent inverse ref to Tags.
+    /// 6. **Browse from any unknown ns_idx node** — set status
+    ///    `BadNodeIdUnknown` so HMIs see a stable rejection
+    ///    rather than empty.
+    ///
+    /// The `node.set_status(...)` calls are intentionally
+    /// scoped: we only set status on nodes WE own (ns=ns_idx).
+    /// Nodes in namespace 0 that we don't claim are silently
+    /// skipped — async-opcua's runtime fans out to every
+    /// manager; setting status here would clobber the core
+    /// manager's response.
+    async fn browse(
+        &self,
+        context: &RequestContext,
+        nodes_to_browse: &mut [BrowseNode],
+    ) -> Result<(), StatusCode> {
+        let my_namespace = match self.current_namespace_index().await {
+            Some(idx) => idx,
+            None => {
+                // init() not run yet — every browse request
+                // returns the same shape DiagnosticsNodeManager
+                // returns when its namespace is unmapped: the
+                // browse request is silently skipped (no refs
+                // added). HMIs see an empty browse response,
+                // which is the correct UX for a transient boot
+                // state (the runtime calls init before opening
+                // the listener, so this branch is defense-in-
+                // depth against future runtime changes).
+                return Ok(());
+            }
+        };
+
+        // Acquire a single read guard on the type tree for the
+        // duration of the browse loop — `BrowseNode.add()` calls
+        // `matches_filter` which queries the type tree for
+        // reference-type subtype validation. Holding one guard
+        // amortizes the lock cost across N browse nodes.
+        let type_tree_lock = context.type_tree.read();
+        let type_tree: &DefaultTypeTree = &*type_tree_lock;
+
+        for node in nodes_to_browse.iter_mut() {
+            // Step 1: continuation point resume.
+            if let Some(mut cp) =
+                node.take_continuation_point::<SuderraBrowseCp>()
+            {
+                while node.remaining() > 0 {
+                    let Some(ref_desc) = cp.refs.pop_front() else {
+                        break;
+                    };
+                    // Already-filtered references — call
+                    // `add_unchecked` to bypass the filter
+                    // re-validation (we filtered them at
+                    // initial-add time).
+                    node.add_unchecked(ref_desc);
+                }
+                if !cp.refs.is_empty() {
+                    node.set_next_continuation_point(Box::new(cp));
+                }
+                continue;
+            }
+
+            // Steps 2-6: dispatch by NodeId.
+            let target_id = node.node_id().clone();
+
+            // Step 2: ObjectsFolder (ns=0, opaque ObjectsFolder).
+            if target_id == NodeId::from(ObjectId::ObjectsFolder) {
+                self.browse_objects_folder_attach(
+                    node,
+                    type_tree,
+                    my_namespace,
+                );
+                continue;
+            }
+
+            // Steps 3-5: nodes in our namespace.
+            if target_id.namespace == my_namespace {
+                let identifier_str = match &target_id.identifier {
+                    opcua::types::Identifier::String(s) => s.to_string(),
+                    _ => {
+                        node.set_status(StatusCode::BadNodeIdInvalid);
+                        continue;
+                    }
+                };
+                match identifier_str.as_str() {
+                    SUDERRA_ROOT_BROWSE_NAME => {
+                        self.browse_suderra_root(
+                            node,
+                            type_tree,
+                            my_namespace,
+                        );
+                    }
+                    TAGS_FOLDER_BROWSE_NAME => {
+                        self.browse_tags_folder(
+                            node,
+                            type_tree,
+                            my_namespace,
+                        );
+                    }
+                    other => {
+                        // Per-tag node — registry lookup. None
+                        // means the NodeId carries an unknown
+                        // browse name (HMI cached a stale
+                        // address-space + the tag was removed
+                        // by config reload); fail closed.
+                        if let Some(tag) = self
+                            .tag_registry
+                            .find_by_browse_name(other)
+                        {
+                            self.browse_tag_node(
+                                node,
+                                type_tree,
+                                my_namespace,
+                                tag,
+                            );
+                        } else {
+                            node.set_status(
+                                StatusCode::BadNodeIdUnknown,
+                            );
+                        }
+                    }
+                }
+                continue;
+            }
+
+            // Step 6 fallthrough: not our namespace + not
+            // ObjectsFolder — silently skip (other managers
+            // handle it).
+        }
+
+        // Drop the type-tree read guard; the explicit `drop`
+        // is unnecessary (RAII) but documents the lifetime.
+        drop(type_tree_lock);
+        Ok(())
+    }
+}
+
+// =============================================================
+// browse() helpers — Batch #288
+// =============================================================
+
+/// Stable browse-name string for the Suderra root Object node.
+/// Single source of truth — used by both the browse() trait body
+/// (target lookup) AND the per-tag inverse HasComponent reference
+/// builder (parent identifier).
+#[cfg(feature = "opc-ua-server")]
+pub(crate) const SUDERRA_ROOT_BROWSE_NAME: &str = "Suderra";
+
+/// Stable browse-name string for the Tags container Object node.
+/// Same SSoT discipline as `SUDERRA_ROOT_BROWSE_NAME`.
+#[cfg(feature = "opc-ua-server")]
+pub(crate) const TAGS_FOLDER_BROWSE_NAME: &str = "Tags";
+
+/// Continuation-point payload for Suderra browse responses. The
+/// async-opcua trait API allows a NodeManager to stash unfinished
+/// references when `BrowseNode.add()` returns `Full(reference)`;
+/// on the next BrowseNext call the runtime re-invokes browse()
+/// with the same BrowseNode, where `take_continuation_point::<T>()`
+/// returns the previously-stashed `Box<T>` cast back to T.
+///
+/// Mirrors `BrowseContinuationPoint` from DiagnosticsNodeManager
+/// (`async-opcua-server-0.18.0/src/diagnostics/node_manager.rs:78-82`)
+/// for cross-pattern consistency.
+#[cfg(feature = "opc-ua-server")]
+#[derive(Default)]
+struct SuderraBrowseCp {
+    /// Pending references that didn't fit in the previous
+    /// browse response. Drained FIFO on resume.
+    refs: VecDeque<ReferenceDescription>,
+}
+
+#[cfg(feature = "opc-ua-server")]
+impl SensNodeManager {
+    /// Build the canonical `Suderra` root Object node's metadata.
+    /// Reused by browse() (when constructing the inverse
+    /// HasComponent ref from Tags → Suderra) AND
+    /// `resolve_external_references()` (Batch #289+ extension —
+    /// the core manager may ask us for metadata of nodes WE own).
+    fn suderra_root_metadata(
+        &self,
+        ns_idx: u16,
+    ) -> opcua::server::node_manager::NodeMetadata {
+        opcua::server::node_manager::NodeMetadata {
+            node_id: ExpandedNodeId::new(NodeId::new(
+                ns_idx,
+                SUDERRA_ROOT_BROWSE_NAME,
+            )),
+            type_definition: ExpandedNodeId::new(
+                ObjectTypeId::FolderType,
+            ),
+            browse_name: QualifiedName::new(
+                ns_idx,
+                SUDERRA_ROOT_BROWSE_NAME,
+            ),
+            display_name: LocalizedText::new(
+                "",
+                "Suderra Edge Agent",
+            ),
+            node_class: NodeClass::Object,
+        }
+    }
+
+    /// Build the canonical `Tags` container Object node's
+    /// metadata. Reused by browse() (parent inverse-HasComponent
+    /// ref construction) AND future external-reference resolution.
+    fn tags_folder_metadata(
+        &self,
+        ns_idx: u16,
+    ) -> opcua::server::node_manager::NodeMetadata {
+        opcua::server::node_manager::NodeMetadata {
+            node_id: ExpandedNodeId::new(NodeId::new(
+                ns_idx,
+                TAGS_FOLDER_BROWSE_NAME,
+            )),
+            type_definition: ExpandedNodeId::new(
+                ObjectTypeId::FolderType,
+            ),
+            browse_name: QualifiedName::new(
+                ns_idx,
+                TAGS_FOLDER_BROWSE_NAME,
+            ),
+            display_name: LocalizedText::new("", "Tags"),
+            node_class: NodeClass::Object,
+        }
+    }
+
+    /// Build a tag-node's metadata from its registry entry.
+    fn tag_node_metadata(
+        &self,
+        ns_idx: u16,
+        tag: &crate::opc_ua_server::OpcUaTagNode,
+    ) -> opcua::server::node_manager::NodeMetadata {
+        opcua::server::node_manager::NodeMetadata {
+            node_id: ExpandedNodeId::new(NodeId::new(
+                ns_idx,
+                tag.browse_name.as_str(),
+            )),
+            type_definition: ExpandedNodeId::new(
+                VariableTypeId::BaseDataVariableType,
+            ),
+            browse_name: QualifiedName::new(
+                ns_idx,
+                tag.browse_name.as_str(),
+            ),
+            display_name: LocalizedText::new("", &tag.tag_name),
+            node_class: NodeClass::Variable,
+        }
+    }
+
+    /// Step 2 — ObjectsFolder browse: contribute a forward
+    /// HasComponent reference to the Suderra root. Only forward
+    /// references; the core manager owns ObjectsFolder + handles
+    /// any inverse direction.
+    fn browse_objects_folder_attach(
+        &self,
+        node: &mut BrowseNode,
+        type_tree: &DefaultTypeTree,
+        ns_idx: u16,
+    ) {
+        if !matches!(
+            node.browse_direction(),
+            BrowseDirection::Forward | BrowseDirection::Both
+        ) {
+            return;
+        }
+        if !node.allows_reference_type(
+            &ReferenceTypeId::HasComponent.into(),
+            type_tree,
+        ) {
+            return;
+        }
+
+        let metadata = self.suderra_root_metadata(ns_idx);
+        let ref_desc = metadata.into_ref_desc(
+            true,
+            ReferenceTypeId::HasComponent,
+        );
+        // ObjectsFolder browse is one ref — no continuation
+        // point handling needed (max_references_per_node is
+        // bounded but always >= 1 in practice; if it's 0 the
+        // ref drops + the runtime treats that as the BrowseNode
+        // already-full case).
+        if let AddReferenceResult::Full(_) = node.add(type_tree, ref_desc)
+        {
+            // Defense-in-depth: stash even a single reference
+            // if the node is full from prior managers' adds.
+            let mut cp = SuderraBrowseCp::default();
+            cp.refs.push_back(self
+                .suderra_root_metadata(ns_idx)
+                .into_ref_desc(true, ReferenceTypeId::HasComponent));
+            node.set_next_continuation_point(Box::new(cp));
+        }
+    }
+
+    /// Step 3 — Suderra root browse: forward = HasComponent →
+    /// Tags + HasTypeDefinition → FolderType. Inverse =
+    /// HasComponent inverse → ObjectsFolder.
+    fn browse_suderra_root(
+        &self,
+        node: &mut BrowseNode,
+        type_tree: &DefaultTypeTree,
+        ns_idx: u16,
+    ) {
+        let mut cp = SuderraBrowseCp::default();
+
+        if matches!(
+            node.browse_direction(),
+            BrowseDirection::Forward | BrowseDirection::Both
+        ) {
+            // HasComponent → Tags
+            if node.allows_reference_type(
+                &ReferenceTypeId::HasComponent.into(),
+                type_tree,
+            ) && node.allows_node_class(NodeClass::Object)
+            {
+                let ref_desc = self
+                    .tags_folder_metadata(ns_idx)
+                    .into_ref_desc(
+                        true,
+                        ReferenceTypeId::HasComponent,
+                    );
+                if let AddReferenceResult::Full(c) =
+                    node.add(type_tree, ref_desc)
+                {
+                    cp.refs.push_back(c);
+                }
+            }
+
+            // HasTypeDefinition → FolderType
+            if node.allows_reference_type(
+                &ReferenceTypeId::HasTypeDefinition.into(),
+                type_tree,
+            ) {
+                let ref_desc = ReferenceDescription {
+                    reference_type_id:
+                        ReferenceTypeId::HasTypeDefinition.into(),
+                    is_forward: true,
+                    node_id: ExpandedNodeId::new(
+                        ObjectTypeId::FolderType,
+                    ),
+                    browse_name: QualifiedName::new(
+                        0,
+                        "FolderType",
+                    ),
+                    display_name: LocalizedText::new(
+                        "",
+                        "FolderType",
+                    ),
+                    node_class: NodeClass::ObjectType,
+                    type_definition: ExpandedNodeId::null(),
+                };
+                if let AddReferenceResult::Full(c) =
+                    node.add(type_tree, ref_desc)
+                {
+                    cp.refs.push_back(c);
+                }
+            }
+        }
+
+        if matches!(
+            node.browse_direction(),
+            BrowseDirection::Inverse | BrowseDirection::Both
+        ) {
+            // HasComponent inverse → ObjectsFolder
+            if node.allows_reference_type(
+                &ReferenceTypeId::HasComponent.into(),
+                type_tree,
+            ) {
+                let ref_desc = ReferenceDescription {
+                    reference_type_id:
+                        ReferenceTypeId::HasComponent.into(),
+                    is_forward: false,
+                    node_id: ExpandedNodeId::new(
+                        ObjectId::ObjectsFolder,
+                    ),
+                    browse_name: QualifiedName::new(0, "Objects"),
+                    display_name: LocalizedText::new(
+                        "",
+                        "Objects",
+                    ),
+                    node_class: NodeClass::Object,
+                    type_definition: ExpandedNodeId::new(
+                        ObjectTypeId::FolderType,
+                    ),
+                };
+                if let AddReferenceResult::Full(c) =
+                    node.add(type_tree, ref_desc)
+                {
+                    cp.refs.push_back(c);
+                }
+            }
+        }
+
+        if !cp.refs.is_empty() {
+            node.set_next_continuation_point(Box::new(cp));
+        }
+    }
+
+    /// Step 4 — Tags folder browse: forward = HasComponent → each
+    /// tag in registry + HasTypeDefinition → FolderType. Inverse
+    /// = HasComponent inverse → Suderra root.
+    fn browse_tags_folder(
+        &self,
+        node: &mut BrowseNode,
+        type_tree: &DefaultTypeTree,
+        ns_idx: u16,
+    ) {
+        let mut cp = SuderraBrowseCp::default();
+
+        if matches!(
+            node.browse_direction(),
+            BrowseDirection::Forward | BrowseDirection::Both
+        ) {
+            // HasComponent → each tag — iteration order is
+            // OpcUaTagRegistry's BTreeMap order (lexicographic
+            // by tag_name); this gives HMIs a deterministic
+            // browse response across reconnects.
+            if node.allows_reference_type(
+                &ReferenceTypeId::HasComponent.into(),
+                type_tree,
+            ) && node.allows_node_class(NodeClass::Variable)
+            {
+                for tag in self.tag_registry.iter() {
+                    let ref_desc = self
+                        .tag_node_metadata(ns_idx, tag)
+                        .into_ref_desc(
+                            true,
+                            ReferenceTypeId::HasComponent,
+                        );
+                    match node.add(type_tree, ref_desc) {
+                        AddReferenceResult::Added => {}
+                        AddReferenceResult::Full(c) => {
+                            cp.refs.push_back(c);
+                        }
+                        AddReferenceResult::Rejected => {}
+                    }
+                }
+            }
+
+            // HasTypeDefinition → FolderType
+            if node.allows_reference_type(
+                &ReferenceTypeId::HasTypeDefinition.into(),
+                type_tree,
+            ) {
+                let ref_desc = ReferenceDescription {
+                    reference_type_id:
+                        ReferenceTypeId::HasTypeDefinition.into(),
+                    is_forward: true,
+                    node_id: ExpandedNodeId::new(
+                        ObjectTypeId::FolderType,
+                    ),
+                    browse_name: QualifiedName::new(
+                        0,
+                        "FolderType",
+                    ),
+                    display_name: LocalizedText::new(
+                        "",
+                        "FolderType",
+                    ),
+                    node_class: NodeClass::ObjectType,
+                    type_definition: ExpandedNodeId::null(),
+                };
+                if let AddReferenceResult::Full(c) =
+                    node.add(type_tree, ref_desc)
+                {
+                    cp.refs.push_back(c);
+                }
+            }
+        }
+
+        if matches!(
+            node.browse_direction(),
+            BrowseDirection::Inverse | BrowseDirection::Both
+        ) {
+            if node.allows_reference_type(
+                &ReferenceTypeId::HasComponent.into(),
+                type_tree,
+            ) {
+                let ref_desc = self
+                    .suderra_root_metadata(ns_idx)
+                    .into_ref_desc(
+                        false,
+                        ReferenceTypeId::HasComponent,
+                    );
+                if let AddReferenceResult::Full(c) =
+                    node.add(type_tree, ref_desc)
+                {
+                    cp.refs.push_back(c);
+                }
+            }
+        }
+
+        if !cp.refs.is_empty() {
+            node.set_next_continuation_point(Box::new(cp));
+        }
+    }
+
+    /// Step 5 — per-tag node browse: forward = HasTypeDefinition
+    /// → BaseDataVariableType. Inverse = HasComponent inverse →
+    /// Tags. The tag's ATTRIBUTE values (Value, DataType,
+    /// AccessLevel, etc.) are reachable via Read service — NOT
+    /// via Browse — and live in `read()` (Batch #264) +
+    /// Batch #289b extension.
+    fn browse_tag_node(
+        &self,
+        node: &mut BrowseNode,
+        type_tree: &DefaultTypeTree,
+        ns_idx: u16,
+        _tag: &crate::opc_ua_server::OpcUaTagNode,
+    ) {
+        let mut cp = SuderraBrowseCp::default();
+
+        if matches!(
+            node.browse_direction(),
+            BrowseDirection::Forward | BrowseDirection::Both
+        ) {
+            if node.allows_reference_type(
+                &ReferenceTypeId::HasTypeDefinition.into(),
+                type_tree,
+            ) {
+                let ref_desc = ReferenceDescription {
+                    reference_type_id:
+                        ReferenceTypeId::HasTypeDefinition.into(),
+                    is_forward: true,
+                    node_id: ExpandedNodeId::new(
+                        VariableTypeId::BaseDataVariableType,
+                    ),
+                    browse_name: QualifiedName::new(
+                        0,
+                        "BaseDataVariableType",
+                    ),
+                    display_name: LocalizedText::new(
+                        "",
+                        "BaseDataVariableType",
+                    ),
+                    node_class: NodeClass::VariableType,
+                    type_definition: ExpandedNodeId::null(),
+                };
+                if let AddReferenceResult::Full(c) =
+                    node.add(type_tree, ref_desc)
+                {
+                    cp.refs.push_back(c);
+                }
+            }
+        }
+
+        if matches!(
+            node.browse_direction(),
+            BrowseDirection::Inverse | BrowseDirection::Both
+        ) {
+            if node.allows_reference_type(
+                &ReferenceTypeId::HasComponent.into(),
+                type_tree,
+            ) {
+                let ref_desc = self
+                    .tags_folder_metadata(ns_idx)
+                    .into_ref_desc(
+                        false,
+                        ReferenceTypeId::HasComponent,
+                    );
+                if let AddReferenceResult::Full(c) =
+                    node.add(type_tree, ref_desc)
+                {
+                    cp.refs.push_back(c);
+                }
+            }
+        }
+
+        if !cp.refs.is_empty() {
+            node.set_next_continuation_point(Box::new(cp));
+        }
+    }
 }
 
 // =============================================================
@@ -1072,5 +1740,209 @@ mod tests {
         let op = OperatorId::new_from_verified([0u8; 16]);
         let token = format_operator_token(&op);
         assert!(token.starts_with("sens:operator:"));
+    }
+
+    // =========================================================
+    // browse() helpers — Batch #288 A-2b part 5 step 5b
+    // (re-specified per ORPHAN-HIGH-027)
+    // =========================================================
+    //
+    // The canonical async-opcua trait-method `browse()` cannot
+    // be unit-tested in isolation — `BrowseNode` requires a full
+    // `BrowseDescription` envelope + a session-bound result mask
+    // + an active `RequestContext` (DefaultTypeTree must be wired
+    // through the server runtime). That's an integration test
+    // surface (Batch #289 paired with the runtime-swap landing).
+    //
+    // What we CAN unit-test is the metadata builders + the
+    // browse-name SSoT constants, which are the load-bearing
+    // primitives the trait-method body composes. A drift in any
+    // of these (e.g., a copy-paste typo `"Suderra"` →
+    // `"suderra"`) would fail every Browse roundtrip + every
+    // HMI's recursive node discovery — these tests pin the
+    // canonical shape so that drift fails at unit-test time
+    // instead of at the integration-test boundary.
+
+    use crate::authz::context::{
+        AuthorizationDenyReason, AuthorizedContext,
+    };
+    use crate::authz::user_token_manifest_runtime::UserTokenManifestStore;
+    use crate::opc_ua_server::OpcUaTagRegistry;
+    use crate::opc_ua_server_typed_authz::{
+        TypedAuthzError, TypedAuthzPort,
+    };
+    use crate::opc_ua_server_session::AuthenticatedUser;
+    use crate::process_image::{IoType, ProcessImage};
+
+    /// Build a SensNodeManager with empty tag_registry — used
+    /// by the metadata-builder tests to exercise the helper
+    /// methods without real tags. Mock authz/validator is OK
+    /// because the metadata builders never invoke them.
+    fn test_manager() -> SensNodeManager {
+        // Mock TypedAuthzPort that always denies. The metadata
+        // builders never call authorize_write, so the impl is
+        // unreachable from these tests.
+        struct MockAuthz;
+        #[async_trait]
+        impl TypedAuthzPort for MockAuthz {
+            async fn authorize_write(
+                &self,
+                _user: &AuthenticatedUser,
+                _tag_name: &str,
+                _received_at: std::time::SystemTime,
+            ) -> Result<AuthorizedContext, TypedAuthzError> {
+                // Mock returns a deny variant; the metadata
+                // helpers never reach this branch — the test
+                // only constructs the manager.
+                Err(TypedAuthzError::EngineDenied(
+                    AuthorizationDenyReason::PermissionNotGranted,
+                ))
+            }
+        }
+        let authz: Arc<dyn TypedAuthzPort> = Arc::new(MockAuthz);
+
+        // Build a minimal UserTokenValidator. The metadata
+        // helpers never invoke validator.with_enrollment; we
+        // just need a valid Arc to satisfy the field type.
+        let store = Arc::new(UserTokenManifestStore::new());
+        let validator = Arc::new(UserTokenValidator::new(store));
+
+        let process_image = Arc::new(ProcessImage::new());
+        let tag_registry = Arc::new(OpcUaTagRegistry::default());
+        let tenant = TenantId::new_from_verified([0u8; 16]);
+
+        SensNodeManager::new(
+            tenant,
+            authz,
+            validator,
+            process_image,
+            tag_registry,
+        )
+    }
+
+    #[test]
+    fn suderra_root_metadata_uses_canonical_browse_name() {
+        let mgr = test_manager();
+        let meta = mgr.suderra_root_metadata(7);
+        // NodeId.namespace must equal the assigned ns_idx
+        // (caller passes the namespace_index from init()).
+        assert_eq!(
+            meta.node_id.node_id.namespace,
+            7,
+            "Suderra root NodeId namespace must equal init-assigned ns_idx"
+        );
+        // browse_name canonicalized as "Suderra"
+        assert_eq!(
+            meta.browse_name.name.as_ref(),
+            SUDERRA_ROOT_BROWSE_NAME
+        );
+        // type_definition is FolderType (Suderra is an Object
+        // organizing its children — same shape as ObjectsFolder).
+        // PartialEq impl `NodeId == ObjectTypeId` is provided
+        // by opcua_types — pass the enum variant directly (no
+        // `.into()` to avoid impl ambiguity).
+        assert!(
+            meta.type_definition.node_id
+                == ObjectTypeId::FolderType
+        );
+        // node_class
+        assert_eq!(meta.node_class, NodeClass::Object);
+    }
+
+    #[test]
+    fn tags_folder_metadata_uses_canonical_browse_name() {
+        let mgr = test_manager();
+        let meta = mgr.tags_folder_metadata(13);
+        assert_eq!(meta.node_id.node_id.namespace, 13);
+        assert_eq!(
+            meta.browse_name.name.as_ref(),
+            TAGS_FOLDER_BROWSE_NAME
+        );
+        assert!(
+            meta.type_definition.node_id
+                == ObjectTypeId::FolderType
+        );
+        assert_eq!(meta.node_class, NodeClass::Object);
+    }
+
+    #[test]
+    fn tag_node_metadata_uses_browse_name_as_identifier() {
+        let mgr = test_manager();
+        let tag = crate::opc_ua_server::OpcUaTagNode {
+            tag_name: "tank/a:flow".to_string(),
+            browse_name: "tank_a_flow".to_string(),
+            io_type: IoType::AI,
+            data_type: "Real".to_string(),
+            eng_unit: Some("L/min".to_string()),
+            eng_min: Some(0.0),
+            eng_max: Some(100.0),
+        };
+        let meta = mgr.tag_node_metadata(5, &tag);
+        // NodeId.identifier carries browse_name (sanitized) —
+        // NOT tag_name (which may have characters HMIs can't
+        // round-trip).
+        let id_str = match &meta.node_id.node_id.identifier {
+            opcua::types::Identifier::String(s) => s.to_string(),
+            _ => panic!("tag node id must use String identifier"),
+        };
+        assert_eq!(id_str, "tank_a_flow");
+        // BrowseName carries the same browse_name.
+        assert_eq!(meta.browse_name.name.as_ref(), "tank_a_flow");
+        // DisplayName uses tag_name (the operator-facing name).
+        assert_eq!(
+            meta.display_name.text.as_ref(),
+            "tank/a:flow"
+        );
+        // type_definition: BaseDataVariableType (the canonical
+        // base for Variable instance nodes that don't fit a
+        // more specialized AnalogItemType / DataItemType).
+        assert!(
+            meta.type_definition.node_id
+                == VariableTypeId::BaseDataVariableType
+        );
+        assert_eq!(meta.node_class, NodeClass::Variable);
+    }
+
+    #[test]
+    fn browse_name_constants_are_immutable_ssot() {
+        // Pin the canonical strings — a future refactor that
+        // accidentally renames either constant without updating
+        // the populate_tag_nodes path in opc_ua_server_runtime.rs
+        // (which uses literal "Suderra" / "Tags" too) would
+        // diverge the SimpleNodeManager + SensNodeManager browse
+        // hierarchies. This test fails before that drift can ship.
+        assert_eq!(SUDERRA_ROOT_BROWSE_NAME, "Suderra");
+        assert_eq!(TAGS_FOLDER_BROWSE_NAME, "Tags");
+    }
+
+    #[test]
+    fn suderra_browse_continuation_point_is_fifo() {
+        // Continuation point drains in FIFO order — important
+        // for browse determinism (HMIs see refs in the same
+        // order across BrowseNext resumes). Mirror the pattern
+        // DiagnosticsNodeManager uses.
+        let mut cp = SuderraBrowseCp::default();
+        let make = |id: u32| ReferenceDescription {
+            reference_type_id: ReferenceTypeId::HasComponent
+                .into(),
+            is_forward: true,
+            node_id: ExpandedNodeId::new(NodeId::new(0, id)),
+            browse_name: QualifiedName::new(0, format!("n{}", id)),
+            display_name: LocalizedText::null(),
+            node_class: NodeClass::Variable,
+            type_definition: ExpandedNodeId::null(),
+        };
+        cp.refs.push_back(make(1));
+        cp.refs.push_back(make(2));
+        cp.refs.push_back(make(3));
+        // FIFO drain: pop_front yields 1, 2, 3 in order.
+        let drained: Vec<u32> = std::iter::from_fn(|| {
+            cp.refs.pop_front().map(|r| match r.node_id.node_id.identifier {
+                opcua::types::Identifier::Numeric(n) => n,
+                _ => 0,
+            })
+        })
+        .collect();
+        assert_eq!(drained, vec![1, 2, 3]);
     }
 }

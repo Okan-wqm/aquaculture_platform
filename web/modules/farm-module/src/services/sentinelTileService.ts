@@ -1355,18 +1355,37 @@ export async function getSentinelPointValue(
   // Use request queue to prevent rate limiting
   return requestQueue.enqueue(async () => {
     try {
-      const token = await getValidToken();
-      const requestBody = buildPointRequest(lat, lng, layer, date, maxCloudCoverage);
+      // SEC-C14: Use backend proxy instead of direct CDSE call. The
+      // proxy injects the OAuth token server-side; the browser never
+      // sees the bearer token. This call site previously referenced
+      // a removed `CDSE_PROCESS_URL` constant — broken since the
+      // SEC-C14 refactor renamed it to `_CDSE_PROCESS_URL_DEPRECATED`.
+      // Routing through the proxy is the same pattern as the bbox
+      // tile fetch above (line ~828).
+      const requestBody = buildPointRequest(lat, lng, layer, date, maxCloudCoverage) as {
+        input: {
+          bounds: { bbox: number[] };
+          data: Array<{ dataFilter: { timeRange: { from: string; to: string } } }>;
+        };
+      };
+      const bbox = requestBody.input.bounds.bbox.join(',');
+      const fromDate = requestBody.input.data[0]!.dataFilter.timeRange.from;
+      const toDate = requestBody.input.data[0]!.dataFilter.timeRange.to;
 
       const response = await fetchWithRetry(
-        CDSE_PROCESS_URL,
+        PROXY_PROCESS_URL + '?' + new URLSearchParams({
+          bbox,
+          fromDate,
+          toDate,
+          width: '1',
+          height: '1',
+          evalscript: encodeURIComponent(POINT_EVALSCRIPTS[layer]),
+        }),
         {
-          method: 'POST',
+          method: 'GET',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify(requestBody),
         },
         3
       );

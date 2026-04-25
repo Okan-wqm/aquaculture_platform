@@ -305,7 +305,7 @@ export const RecordStockMovementModal: React.FC<Props> = ({
         toast({
           title: 'Movement Recorded with Warnings',
           description: warningMessages,
-          variant: 'destructive',
+          variant: 'warning',
         });
       } else {
         toast({

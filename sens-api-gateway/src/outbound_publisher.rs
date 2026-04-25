@@ -249,6 +249,189 @@ where
     }
 }
 
+// =============================================================================
+// DrainTask — Batch #252 ARC-002 part 2
+// =============================================================================
+
+use std::time::Duration;
+
+/// Outcome of a single drain pass — used by tests to assert
+/// progress, by metrics observers (Batch #253+) to expose drain
+/// throughput.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DrainOutcome {
+    /// Queue was empty — no work done.
+    Empty,
+    /// `sent` messages were successfully replayed + acked.
+    /// `remaining` messages stayed in the queue (either because
+    /// the batch limit was reached or the broker dropped mid-drain).
+    Drained { sent: usize, remaining: usize },
+    /// `peek_batch` failed (DB lock poison, disk error). Drain
+    /// stops; next tick retries.
+    QueueError(String),
+    /// Connectivity was down at tick time — drain skipped.
+    Skipped,
+}
+
+/// Background task that replays queued messages back to the
+/// broker when the connection is up. Polls `BrokerConnectivity`
+/// at a configurable interval; on every tick where the broker is
+/// up, peeks a priority-ordered batch from the queue + publishes
+/// each via the same `MqttPublishSink` used for direct-path
+/// publishes.
+///
+/// **Stop conditions per drain pass:**
+/// - All messages in the batch were sent + acked (queue may have
+///   more — next tick continues).
+/// - Sink returned `PublishSinkError::Disconnected` mid-batch:
+///   stop, leave un-acked messages in the queue for the next
+///   reconnect cycle.
+/// - Sink returned `PublishSinkError::Transport(...)`: stop, leave
+///   un-acked messages in the queue. The error is warn-logged but
+///   not propagated — we never want a single broker-side rejection
+///   (e.g., topic ACL change) to block ALL future drains.
+///
+/// **Shutdown:** the `run` method takes a tokio oneshot receiver;
+/// when the sender drops or fires, the task exits at the next
+/// tick boundary. Production wires this to the existing
+/// `ShutdownCoordinator` to drain on graceful stop.
+pub struct DrainTask<S: MqttPublishSink, C: BrokerConnectivity> {
+    sink: Arc<S>,
+    connectivity: Arc<C>,
+    queue: Arc<OfflineQueue>,
+    /// Interval between drain ticks. 1 second is the production
+    /// default — fast enough to clear typical post-outage backlogs
+    /// in seconds, slow enough to avoid SQLite WAL contention with
+    /// the enqueue path.
+    interval: Duration,
+    /// Maximum messages to peek per tick. Bounds memory + the
+    /// "single-tick drain ack window" (a longer batch means more
+    /// messages stay in-flight before the SQLite delete commits).
+    /// 32 is the production default — covers typical fleet
+    /// telemetry batches without ballooning memory.
+    batch_size: usize,
+}
+
+impl<S, C> DrainTask<S, C>
+where
+    S: MqttPublishSink + 'static,
+    C: BrokerConnectivity + 'static,
+{
+    pub fn new(
+        sink: Arc<S>,
+        connectivity: Arc<C>,
+        queue: Arc<OfflineQueue>,
+    ) -> Self {
+        Self {
+            sink,
+            connectivity,
+            queue,
+            interval: Duration::from_secs(1),
+            batch_size: 32,
+        }
+    }
+
+    /// Configure the tick interval (test-only / specialized callers).
+    pub fn with_interval(mut self, interval: Duration) -> Self {
+        self.interval = interval;
+        self
+    }
+
+    /// Configure the per-tick batch size.
+    pub fn with_batch_size(mut self, batch_size: usize) -> Self {
+        self.batch_size = batch_size;
+        self
+    }
+
+    /// One drain pass. Public so tests + the production wire can
+    /// invoke a single drain without spinning up the background
+    /// loop. Returns the structured outcome.
+    pub async fn drain_once(&self) -> DrainOutcome {
+        if !self.connectivity.is_connected() {
+            return DrainOutcome::Skipped;
+        }
+
+        let batch = match self.queue.peek_batch(self.batch_size) {
+            Ok(b) => b,
+            Err(e) => return DrainOutcome::QueueError(e.to_string()),
+        };
+
+        if batch.is_empty() {
+            return DrainOutcome::Empty;
+        }
+
+        let total = batch.len();
+        let mut to_ack: Vec<i64> = Vec::with_capacity(total);
+
+        for msg in batch {
+            match self
+                .sink
+                .publish_to_broker(
+                    &msg.topic,
+                    msg.payload.as_bytes(),
+                    msg.qos,
+                    msg.retain,
+                )
+                .await
+            {
+                Ok(()) => to_ack.push(msg.id),
+                Err(PublishSinkError::Disconnected) => {
+                    // Broker dropped mid-drain. Stop here — un-acked
+                    // messages stay in the queue for the next
+                    // reconnect cycle.
+                    break;
+                }
+                Err(PublishSinkError::Transport(e)) => {
+                    tracing::warn!(
+                        "drain stopped: transport error replaying message {}: {}",
+                        msg.id,
+                        e
+                    );
+                    break;
+                }
+            }
+        }
+
+        let sent = to_ack.len();
+        if sent > 0 {
+            if let Err(e) = self.queue.ack_batch(&to_ack) {
+                // Ack failure is annoying but safe: messages stay
+                // in the queue and will be re-published next tick.
+                // Idempotent at the broker side (QoS-1 dedup) for
+                // typical brokers; QoS-0 sees a dup but no
+                // correctness issue.
+                tracing::warn!(
+                    "drain ack_batch failed for {} messages: {}",
+                    sent,
+                    e
+                );
+            }
+        }
+
+        DrainOutcome::Drained {
+            sent,
+            remaining: total - sent,
+        }
+    }
+
+    /// Run the drain loop until `shutdown` fires. Spawned by
+    /// production boot; tests call `drain_once` directly to avoid
+    /// the timing dependency.
+    pub async fn run(self, mut shutdown: tokio::sync::oneshot::Receiver<()>) {
+        loop {
+            tokio::select! {
+                _ = &mut shutdown => {
+                    tracing::info!("DrainTask received shutdown — exiting");
+                    return;
+                }
+                _ = tokio::time::sleep(self.interval) => {
+                    let _ = self.drain_once().await;
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -505,6 +688,295 @@ mod tests {
         // must be Send + Sync.
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<OutboundPublisher<MockSink, MockConnectivity>>();
+    }
+
+    // ========================================================
+    // DrainTask — Batch #252 ARC-002 part 2
+    // ========================================================
+
+    /// Mock sink that fails the Nth publish (1-indexed) with
+    /// `Disconnected`, succeeding for all earlier publishes. Used
+    /// to test mid-drain disconnect handling.
+    struct DropAfterNSink {
+        publishes: AtomicUsize,
+        drop_after: usize,
+    }
+
+    #[async_trait]
+    impl MqttPublishSink for DropAfterNSink {
+        async fn publish_to_broker(
+            &self,
+            _topic: &str,
+            _payload: &[u8],
+            _qos: u8,
+            _retain: bool,
+        ) -> Result<(), PublishSinkError> {
+            let n = self.publishes.fetch_add(1, Ordering::Release) + 1;
+            if n > self.drop_after {
+                return Err(PublishSinkError::Disconnected);
+            }
+            Ok(())
+        }
+    }
+
+    fn enqueue_n(
+        queue: &Arc<OfflineQueue>,
+        count: usize,
+        priority: MessagePriority,
+    ) {
+        for i in 0..count {
+            queue
+                .enqueue(
+                    &format!("topic/{}", i),
+                    &format!(r#"{{"i":{}}}"#, i),
+                    priority,
+                    1,
+                    false,
+                )
+                .expect("enqueue");
+        }
+    }
+
+    #[tokio::test]
+    async fn drain_once_empty_queue_returns_empty() {
+        let sink = Arc::new(MockSink::new());
+        let conn = Arc::new(MockConnectivity::new(true));
+        let queue = tmp_queue();
+        let task = DrainTask::new(sink, conn, queue);
+
+        match task.drain_once().await {
+            DrainOutcome::Empty => {}
+            other => panic!("wrong outcome: {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn drain_once_skips_when_broker_down() {
+        let sink = Arc::new(MockSink::new());
+        let conn = Arc::new(MockConnectivity::new(false));
+        let queue = tmp_queue();
+        enqueue_n(&queue, 3, MessagePriority::Normal);
+
+        let task = DrainTask::new(sink.clone(), conn, queue.clone());
+        match task.drain_once().await {
+            DrainOutcome::Skipped => {}
+            other => panic!("wrong outcome: {:?}", other),
+        }
+        // Sink not called, queue unchanged.
+        assert_eq!(sink.publish_count(), 0);
+        assert_eq!(queue.stats().unwrap().total_messages, 3);
+    }
+
+    #[tokio::test]
+    async fn drain_once_replays_and_acks_full_batch() {
+        let sink = Arc::new(MockSink::new());
+        let conn = Arc::new(MockConnectivity::new(true));
+        let queue = tmp_queue();
+        enqueue_n(&queue, 5, MessagePriority::Normal);
+
+        let task = DrainTask::new(sink.clone(), conn, queue.clone())
+            .with_batch_size(10);
+
+        match task.drain_once().await {
+            DrainOutcome::Drained { sent, remaining } => {
+                assert_eq!(sent, 5);
+                assert_eq!(remaining, 0);
+            }
+            other => panic!("wrong outcome: {:?}", other),
+        }
+        assert_eq!(sink.publish_count(), 5);
+        assert_eq!(queue.stats().unwrap().total_messages, 0);
+    }
+
+    #[tokio::test]
+    async fn drain_once_respects_batch_size_limit() {
+        let sink = Arc::new(MockSink::new());
+        let conn = Arc::new(MockConnectivity::new(true));
+        let queue = tmp_queue();
+        enqueue_n(&queue, 10, MessagePriority::Normal);
+
+        // Drain 3 at a time.
+        let task = DrainTask::new(sink.clone(), conn, queue.clone())
+            .with_batch_size(3);
+
+        match task.drain_once().await {
+            DrainOutcome::Drained { sent, remaining } => {
+                assert_eq!(sent, 3);
+                assert_eq!(remaining, 0); // remaining IN THIS BATCH
+            }
+            other => panic!("wrong outcome: {:?}", other),
+        }
+        // 7 still in queue, will be picked up next tick.
+        assert_eq!(queue.stats().unwrap().total_messages, 7);
+    }
+
+    #[tokio::test]
+    async fn drain_once_preserves_uncacked_on_mid_batch_disconnect() {
+        // Sink succeeds for first 2 publishes, then disconnects.
+        // Of the 5-message batch, 2 should be acked + removed; 3
+        // should remain in the queue for the next reconnect cycle.
+        let sink = Arc::new(DropAfterNSink {
+            publishes: AtomicUsize::new(0),
+            drop_after: 2,
+        });
+        let conn = Arc::new(MockConnectivity::new(true));
+        let queue = tmp_queue();
+        enqueue_n(&queue, 5, MessagePriority::Normal);
+
+        let task = DrainTask::new(sink, conn, queue.clone())
+            .with_batch_size(5);
+
+        match task.drain_once().await {
+            DrainOutcome::Drained { sent, remaining } => {
+                assert_eq!(sent, 2);
+                assert_eq!(remaining, 3);
+            }
+            other => panic!("wrong outcome: {:?}", other),
+        }
+        // 3 messages remain queued.
+        assert_eq!(queue.stats().unwrap().total_messages, 3);
+    }
+
+    #[tokio::test]
+    async fn drain_once_priority_order_critical_first() {
+        // Mix of priorities — drain order should be Critical
+        // first, then High, Normal, Low (per `peek_batch` SQL
+        // `ORDER BY priority DESC`).
+        let sink = Arc::new(MockSink::new());
+        let conn = Arc::new(MockConnectivity::new(true));
+        let queue = tmp_queue();
+
+        // Insert in NON-priority order to verify the SQL re-orders.
+        queue
+            .enqueue("low/1", "x", MessagePriority::Low, 1, false)
+            .unwrap();
+        queue
+            .enqueue("crit/1", "x", MessagePriority::Critical, 1, false)
+            .unwrap();
+        queue
+            .enqueue("normal/1", "x", MessagePriority::Normal, 1, false)
+            .unwrap();
+        queue
+            .enqueue("high/1", "x", MessagePriority::High, 1, false)
+            .unwrap();
+
+        // Drain only 2 (smallest batch that proves ordering).
+        let task = DrainTask::new(sink.clone(), conn, queue.clone())
+            .with_batch_size(2);
+
+        let _ = task.drain_once().await;
+
+        // After draining batch_size=2, the 2 highest-priority
+        // messages (Critical + High) should be acked. The Normal
+        // + Low ones remain.
+        assert_eq!(queue.stats().unwrap().total_messages, 2);
+        let remaining = queue.peek_batch(10).unwrap();
+        for msg in &remaining {
+            assert!(
+                matches!(
+                    msg.priority,
+                    MessagePriority::Normal | MessagePriority::Low
+                ),
+                "Expected Normal/Low to remain, got {:?}",
+                msg.priority
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn drain_run_exits_on_shutdown_signal() {
+        let sink = Arc::new(MockSink::new());
+        let conn = Arc::new(MockConnectivity::new(true));
+        let queue = tmp_queue();
+        let task = DrainTask::new(sink, conn, queue)
+            .with_interval(Duration::from_millis(50));
+
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let handle = tokio::spawn(task.run(rx));
+
+        // Let the loop tick a couple of times.
+        tokio::time::sleep(Duration::from_millis(120)).await;
+
+        // Send shutdown.
+        let _ = tx.send(());
+
+        // The task must exit promptly (within one tick interval).
+        match tokio::time::timeout(Duration::from_millis(200), handle).await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => panic!("task panicked: {:?}", e),
+            Err(_) => panic!("task did not exit within shutdown deadline"),
+        }
+    }
+
+    #[tokio::test]
+    async fn drain_run_drops_when_sender_dropped() {
+        // Same as the explicit shutdown signal but the channel is
+        // CLOSED via Sender drop, not fired. The receiver returns
+        // Err(_) which the task treats identically.
+        let sink = Arc::new(MockSink::new());
+        let conn = Arc::new(MockConnectivity::new(true));
+        let queue = tmp_queue();
+        let task = DrainTask::new(sink, conn, queue)
+            .with_interval(Duration::from_millis(50));
+
+        let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+        let handle = tokio::spawn(task.run(rx));
+
+        tokio::time::sleep(Duration::from_millis(120)).await;
+        drop(tx);
+
+        match tokio::time::timeout(Duration::from_millis(200), handle).await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => panic!("task panicked: {:?}", e),
+            Err(_) => panic!("task did not exit on sender drop"),
+        }
+    }
+
+    #[tokio::test]
+    async fn drain_round_trip_with_outbound_publisher() {
+        // Integration-style: simulate broker outage during enqueue,
+        // then come back up + drain. End-to-end: queue grows,
+        // drains, queue empties.
+        let sink = Arc::new(MockSink::new());
+        let conn = Arc::new(MockConnectivity::new(false)); // start down
+        let queue = tmp_queue();
+
+        let publisher =
+            OutboundPublisher::new(sink.clone(), conn.clone(), queue.clone());
+
+        // Publish 4 messages while broker is down — all queue.
+        for i in 0..4 {
+            publisher
+                .publish(
+                    &format!("t/{}", i),
+                    b"x",
+                    MessagePriority::Normal,
+                    1,
+                    false,
+                )
+                .await
+                .unwrap();
+        }
+        assert_eq!(queue.stats().unwrap().total_messages, 4);
+        assert_eq!(sink.publish_count(), 0);
+
+        // Broker comes back up.
+        conn.set(true);
+
+        // Drain.
+        let drain = DrainTask::new(sink.clone(), conn.clone(), queue.clone())
+            .with_batch_size(10);
+        match drain.drain_once().await {
+            DrainOutcome::Drained { sent, remaining } => {
+                assert_eq!(sent, 4);
+                assert_eq!(remaining, 0);
+            }
+            other => panic!("wrong outcome: {:?}", other),
+        }
+
+        // Sink saw all 4, queue is empty.
+        assert_eq!(sink.publish_count(), 4);
+        assert_eq!(queue.stats().unwrap().total_messages, 0);
     }
 
     #[tokio::test]

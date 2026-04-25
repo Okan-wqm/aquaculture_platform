@@ -102,7 +102,9 @@ use opcua::server::diagnostics::NamespaceMetadata;
 #[cfg(feature = "opc-ua-server")]
 use opcua::nodes::DefaultTypeTree;
 #[cfg(feature = "opc-ua-server")]
-use opcua::server::node_manager::{NodeManager, RequestContext, ServerContext};
+use opcua::server::node_manager::{
+    DynNodeManager, NodeManager, NodeManagerBuilder, RequestContext, ServerContext,
+};
 #[cfg(feature = "opc-ua-server")]
 use opcua::types::NodeId;
 // Batch #288 step 5b — browse() trait method implementation requires:
@@ -1490,6 +1492,189 @@ impl SensNodeManager {
 }
 
 // =============================================================
+// SensNodeManagerBuilder — Batch #289 A-2b part 5 step 5c prep
+// =============================================================
+//
+// ## Why a named builder type
+//
+// async-opcua's `ServerBuilder.with_node_manager(...)` accepts
+// `impl NodeManagerBuilder + 'static`. The trait's blanket impl
+// (`async-opcua-server-0.18.0/src/node_manager/build.rs:17-24`)
+// covers `FnOnce(ServerContext) -> R: NodeManager`, so a closure
+// would compile — but a closure carries an opaque type
+// signature that:
+//
+// 1. Hides the dependency surface from operators reading
+//    `opc_ua_server_runtime.rs` (the boot site that lands the
+//    swap in Batch #290).
+// 2. Cannot be unit-tested in isolation — closures synthesize
+//    a fresh anonymous type per definition site, so the
+//    "builder constructs SensNodeManager with the correct deps"
+//    invariant has no testable surface without going through
+//    the full ServerBuilder lifecycle.
+// 3. Cannot be stored in `Box<dyn NodeManagerBuilder>` for
+//    runtime composition (e.g., feature-flag-gated builder
+//    selection in Batch #290+ when SensAuthManager wires).
+//
+// `SensNodeManagerBuilder` is the named primitive that:
+// - Carries the dependency Arcs as struct fields (visible at
+//   construction site).
+// - Implements `NodeManagerBuilder` via the explicit trait impl
+//   (not the closure blanket) — discoverable + testable.
+// - Constructs `SensNodeManager` in `build()`, which is invoked
+//   by async-opcua's runtime AFTER the server's
+//   `ServerContext` is ready (i.e., after the type-tree +
+//   namespace registry are wired). This timing is load-bearing
+//   for the Batch #290 swap because `SensNodeManager.init()`
+//   needs a `&mut DefaultTypeTree` from the trait method
+//   parameter — registering the namespace EARLIER (e.g., from
+//   the builder constructor) would diverge from the canonical
+//   pattern.
+//
+// ## Wire status (Batch #289)
+//
+// **Primitive only.** This batch lands the named-type +
+// trait-impl + smoke tests; it does NOT replace the
+// `simple_node_manager(...)` call in
+// `opc_ua_server_runtime.rs:280`. That swap is Batch #290.
+// The reason for the split: replacing simple_node_manager
+// requires also gutting `populate_tag_nodes` (which depends
+// on `SimpleNodeManager.address_space()`) + threading the
+// dependency Arcs through `build_server` / `start_opcua_server`
+// — a 7-file refactor that benefits from having the builder
+// primitive ALREADY tested + landed before the call-site
+// migration begins.
+//
+// ## Linked findings
+//
+// - **ULTRA-HIGH-039 RESOLVED** (Batch #287, step 5a) —
+//   namespace registration. SensNodeManagerBuilder.build()
+//   eventually triggers SensNodeManager.init() which performs
+//   that registration.
+// - **ULTRA-HIGH-040 RESOLVED** (Batch #288, step 5b) —
+//   browse() implementation. Builder constructs the manager
+//   that holds the browse() body.
+// - **ULTRA-HIGH-035 PARTIAL_FIX** — overall A-2b part 5;
+//   sub-steps 5c-5f remain. 5c (this batch) lands the builder
+//   primitive; 5d-5f remain unchanged.
+
+/// Named builder type for `SensNodeManager`. Implements
+/// `async_opcua::server::node_manager::NodeManagerBuilder` so
+/// `ServerBuilder.with_node_manager(...)` accepts it directly.
+///
+/// **Construction model.** All dependency Arcs are passed at
+/// builder-construction time (i.e., at boot, in
+/// `start_opcua_server`). The builder is then handed off to
+/// async-opcua's `ServerBuilder`, which calls `build()` exactly
+/// once during server-construction — the consumed `Box<Self>`
+/// (per `NodeManagerBuilder` trait signature) means duplicate
+/// builder reuse fails at compile time (Tier-1
+/// "make-it-impossible" against accidental double-registration).
+///
+/// **Invariant: the dependency Arcs survive the move.** Cargo's
+/// `Arc::clone` is cheap (atomic refcount bump) but here we
+/// MOVE the original Arcs into the builder; the manager
+/// constructed from them inherits ownership. No clones happen
+/// in the build path itself — the caller has already cloned
+/// when threading from `AppState` to the builder constructor.
+#[cfg(feature = "opc-ua-server")]
+pub struct SensNodeManagerBuilder {
+    /// Tenant binding — load-bearing for cross-tenant authz
+    /// rejection. SensNodeManager.write() consumes this via
+    /// `TypedAuthzPort::authorize_write`'s implicit tenant
+    /// gate.
+    tenant_id: TenantId,
+
+    /// Typed authz port. Composes the policy engine + the
+    /// session-actor resolver into one trait object. Held as
+    /// `Arc<dyn ...>` so the production composition (e.g.,
+    /// `ManifestBackedTypedAuthz`) and test mocks satisfy the
+    /// same construction signature.
+    authz: Arc<dyn TypedAuthzPort>,
+
+    /// User-token validator (Batch #245). Bridges the
+    /// AuthManager (Batch #266) session-establish path to the
+    /// per-write defense-in-depth re-validation path.
+    validator: Arc<UserTokenValidator>,
+
+    /// In-memory tag-value store. SensNodeManager.read() takes
+    /// snapshots from here; SensNodeManager.write() commits to
+    /// here (Batch #292 wire pending — currently sets Good
+    /// without commit).
+    process_image: Arc<ProcessImage>,
+
+    /// OPC UA address-space tag catalog. SensNodeManager.read()
+    /// + SensNodeManager.write() + SensNodeManager.browse() all
+    /// resolve incoming NodeIds against this catalog.
+    tag_registry: Arc<OpcUaTagRegistry>,
+}
+
+#[cfg(feature = "opc-ua-server")]
+impl SensNodeManagerBuilder {
+    /// Construct a new builder with all dependency Arcs.
+    ///
+    /// **Caller contract.** The Arcs supplied here are
+    /// long-lived (clone count >= 2 — the caller's copy + the
+    /// builder's copy). The builder consumes its copy when
+    /// `build()` is called, transferring ownership to the
+    /// `SensNodeManager` instance.
+    ///
+    /// **Why a constructor (vs. struct-literal access).**
+    /// The struct's fields are `pub(crate)` (NOT `pub`) so
+    /// downstream crates cannot construct an
+    /// `SensNodeManagerBuilder` without going through this
+    /// function. Tier-1 "make-it-impossible" against
+    /// half-initialized builders that omit a load-bearing
+    /// dependency.
+    pub fn new(
+        tenant_id: TenantId,
+        authz: Arc<dyn TypedAuthzPort>,
+        validator: Arc<UserTokenValidator>,
+        process_image: Arc<ProcessImage>,
+        tag_registry: Arc<OpcUaTagRegistry>,
+    ) -> Self {
+        Self {
+            tenant_id,
+            authz,
+            validator,
+            process_image,
+            tag_registry,
+        }
+    }
+}
+
+#[cfg(feature = "opc-ua-server")]
+impl NodeManagerBuilder for SensNodeManagerBuilder {
+    /// Construct the manager. async-opcua's runtime calls this
+    /// once during `ServerBuilder.build()`. The returned
+    /// `Arc<DynNodeManager>` is what the runtime stores in its
+    /// per-server NodeManager registry.
+    ///
+    /// **The `_context: ServerContext` is intentionally
+    /// ignored.** SensNodeManager owns its own
+    /// `Arc<RwLock<Option<u16>>>` for the namespace_index +
+    /// receives the type_tree via the trait method `init`
+    /// parameter (per the canonical async-opcua pattern). We
+    /// don't store anything from `context` here because doing
+    /// so would race with `init` for the namespace registration
+    /// call — keeping init as the sole writer is load-bearing
+    /// for the Tier-1 "make-it-impossible" property of the
+    /// `current_namespace_index().await` reader.
+    fn build(
+        self: Box<Self>,
+        _context: ServerContext,
+    ) -> Arc<DynNodeManager> {
+        Arc::new(SensNodeManager::new(
+            self.tenant_id,
+            self.authz,
+            self.validator,
+            self.process_image,
+            self.tag_registry,
+        ))
+    }
+}
+
+// =============================================================
 // UserToken format convention — Batch #265 A-2b part 3
 // =============================================================
 //
@@ -1913,6 +2098,96 @@ mod tests {
         // hierarchies. This test fails before that drift can ship.
         assert_eq!(SUDERRA_ROOT_BROWSE_NAME, "Suderra");
         assert_eq!(TAGS_FOLDER_BROWSE_NAME, "Tags");
+    }
+
+    // =========================================================
+    // SensNodeManagerBuilder primitive — Batch #289 A-2b 5c prep
+    // =========================================================
+
+    /// Compile-time assertion: `SensNodeManagerBuilder` is
+    /// `Send + Sync + 'static` — required by async-opcua's
+    /// `ServerBuilder.with_node_manager(impl NodeManagerBuilder
+    /// + 'static)` bound. A regression here (e.g., adding a
+    /// non-Send field to the struct) breaks compilation of
+    /// THIS test before it can break the runtime swap in
+    /// Batch #290.
+    #[test]
+    fn sens_node_manager_builder_is_send_sync_static() {
+        fn assert_bounds<T: Send + Sync + 'static>() {}
+        assert_bounds::<SensNodeManagerBuilder>();
+    }
+
+    /// Compile-time assertion: `SensNodeManagerBuilder`
+    /// implements `NodeManagerBuilder`. async-opcua's
+    /// `with_node_manager(...)` requires this — the assertion
+    /// catches a future signature drift in the trait (e.g., an
+    /// async-opcua upgrade that adds a mandatory builder
+    /// method) at TEST COMPILE TIME instead of at boot time.
+    #[test]
+    fn sens_node_manager_builder_implements_trait() {
+        fn assert_impl<T: NodeManagerBuilder>() {}
+        assert_impl::<SensNodeManagerBuilder>();
+    }
+
+    /// Smoke test: builder constructor accepts the dependency
+    /// Arcs in the documented order + the resulting struct
+    /// retains them. We assert the retention via
+    /// `Arc::strong_count` — every Arc passed in becomes the
+    /// 2nd reference (1st is the caller's copy left in the
+    /// test harness; 2nd is the builder's copy).
+    #[test]
+    fn builder_new_retains_each_dependency_arc() {
+        struct MockAuthz;
+        #[async_trait]
+        impl TypedAuthzPort for MockAuthz {
+            async fn authorize_write(
+                &self,
+                _user: &AuthenticatedUser,
+                _tag_name: &str,
+                _received_at: std::time::SystemTime,
+            ) -> Result<AuthorizedContext, TypedAuthzError> {
+                Err(TypedAuthzError::EngineDenied(
+                    AuthorizationDenyReason::PermissionNotGranted,
+                ))
+            }
+        }
+        let authz: Arc<dyn TypedAuthzPort> = Arc::new(MockAuthz);
+        let store = Arc::new(UserTokenManifestStore::new());
+        let validator = Arc::new(UserTokenValidator::new(store));
+        let process_image = Arc::new(ProcessImage::new());
+        let tag_registry = Arc::new(OpcUaTagRegistry::default());
+        let tenant = TenantId::new_from_verified([0u8; 16]);
+
+        // Pre-construction strong counts: each Arc has 1 ref
+        // (the local binding).
+        assert_eq!(Arc::strong_count(&authz), 1);
+        assert_eq!(Arc::strong_count(&validator), 1);
+        assert_eq!(Arc::strong_count(&process_image), 1);
+        assert_eq!(Arc::strong_count(&tag_registry), 1);
+
+        let builder = SensNodeManagerBuilder::new(
+            tenant,
+            authz.clone(),
+            validator.clone(),
+            process_image.clone(),
+            tag_registry.clone(),
+        );
+
+        // Post-construction strong counts: builder holds a 2nd
+        // ref. This proves the constructor stored each Arc
+        // (a missing field assignment would leave the count
+        // at 1).
+        assert_eq!(Arc::strong_count(&authz), 2);
+        assert_eq!(Arc::strong_count(&validator), 2);
+        assert_eq!(Arc::strong_count(&process_image), 2);
+        assert_eq!(Arc::strong_count(&tag_registry), 2);
+
+        // Drop the builder — strong counts return to 1.
+        drop(builder);
+        assert_eq!(Arc::strong_count(&authz), 1);
+        assert_eq!(Arc::strong_count(&validator), 1);
+        assert_eq!(Arc::strong_count(&process_image), 1);
+        assert_eq!(Arc::strong_count(&tag_registry), 1);
     }
 
     #[test]

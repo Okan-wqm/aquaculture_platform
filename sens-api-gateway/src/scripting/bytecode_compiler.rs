@@ -39,9 +39,25 @@
 //! `Program.var_blocks`.
 //!
 //! Primitive-first batch (Batch 111 / 140 / 148
-//! precedent). `#![allow(dead_code)]` removed when
-//! Batch 150 VM + statement compiler consume these
-//! types end-to-end.
+//! precedent).
+//!
+//! ## Wire status (Batch #259 audit)
+//!
+//! AST → bytecode compile path is ORPHAN as of this audit:
+//! `compile_expression`, `compile_statement`, `compile_while`,
+//! `compile_repeat`, `compile_for`, `compile_case`, `patch_*`
+//! helpers + the `SymbolTable` / `StdlibSignature` infrastructure
+//! all exist as compiled-but-unreferenced primitives. Production
+//! ST runtime currently consumes pre-compiled `.stbc` artifacts
+//! via `bytecode_runner` + `bytecode_vm`; the source→bytecode
+//! pipeline is the ultra-plan D-1 work item that has not yet
+//! landed a production caller (boot-time deploy + MQTT
+//! `deploy_bytecode_program` skip the AST compile and accept
+//! pre-compiled artifacts directly).
+//!
+//! Blanket `#![allow(dead_code)]` retained until D-1 wire batch
+//! consumes the compiler primitives end-to-end. Tracking finding:
+//! ULTRA-HIGH-024.
 #![allow(dead_code)]
 
 use std::collections::HashMap;

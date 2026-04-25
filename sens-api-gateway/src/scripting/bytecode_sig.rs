@@ -46,6 +46,12 @@
 //!   match + monotonic policy_version) lands in the deploy-
 //!   command batch.
 
+// Batch #259 wire-audit: D-1 ultra-plan compile/registry
+// path is partially orphan (Batch 149-167 primitives wired
+// for runtime + scan-cycle, but several stdlib/compile/
+// debug helpers wait on the D-1 production wire). Blanket
+// allow retained + tracked as ULTRA-HIGH-024; remove
+// per-item as the D-1 batch consumes each helper.
 #![allow(dead_code)]
 
 // Bytecode IR types. `StValueType` is only referenced

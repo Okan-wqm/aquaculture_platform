@@ -57,10 +57,12 @@
 //! - Safe-state pinned-tag write rejection. Future
 //!   batch — requires ProcessImage integration.
 //!
-//! Primitive-first batch (Batch 111 / 140 precedent).
-//! `#![allow(dead_code)]` removed when Batch 149
-//! compiler lands + consumes these types.
-#![allow(dead_code)]
+//! Primitive-first batch (Batch 111 / 140 precedent). Batch
+//! #259 (Faz 3 wire audit) verified Batch 149 compiler + Batch
+//! 151 VM + scan-cycle task wire consume these types
+//! end-to-end; the blanket dead-code allow is dropped + per-
+//! item allow added below where genuinely-orphan helpers
+//! remain (documented case-by-case).
 
 use serde::{Deserialize, Serialize};
 

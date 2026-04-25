@@ -38,6 +38,12 @@
 //!   `init_license_cache` precedent). This module only
 //!   provides the primitives.
 
+// Batch #259 wire-audit: D-1 ultra-plan compile/registry
+// path is partially orphan (Batch 149-167 primitives wired
+// for runtime + scan-cycle, but several stdlib/compile/
+// debug helpers wait on the D-1 production wire). Blanket
+// allow retained + tracked as ULTRA-HIGH-024; remove
+// per-item as the D-1 batch consumes each helper.
 #![allow(dead_code)]
 
 use std::path::Path;

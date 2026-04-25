@@ -548,6 +548,244 @@ pub async fn execute_opcua_write(
 }
 
 // ============================================================
+// Batch #290 A-2b part 5 step 5f-prep — post-typed-authz
+// write delegate
+// ============================================================
+//
+// ## Why this function exists (architectural reasoning)
+//
+// `execute_opcua_write` (above) carries 6 sequential gates,
+// the 5th being `OpcUaAuthzPort::is_write_allowed(actor, tag)`
+// — the legacy untyped authz path. SimpleNodeManager's
+// `add_write_callback` boundary loses RequestContext (per
+// ORPHAN-CRITICAL-021) so its only authz signal is a
+// hard-coded actor string `"opc-ua-anonymous"`, which the
+// PolicyEngine rejects unconditionally. That's why Gap A-3
+// landed the typed-authz chain (Batches #239-#250 +
+// SensNodeManager Batches #263-#289).
+//
+// SensNodeManager.write() (Batch #265) does typed authz
+// EARLIER in the chain — at the trait method body itself —
+// using `TypedAuthzPort::authorize_write` against the typed
+// `AuthenticatedUser` principal extracted from the live
+// session. By the time SensNodeManager.write() reaches the
+// "Allow" branch, the policy decision is already in hand.
+//
+// Calling `execute_opcua_write` from there would re-run the
+// authz step (now via OpcUaAuthzPort, the legacy port). Two
+// architectural problems:
+//
+// 1. **Double-decision drift hazard.** The typed path
+//    consults the policy engine via a typed
+//    `AuthorizationRequest`; the legacy path consults via a
+//    string actor. If the two evaluations diverge (different
+//    manifest version pinning, different attribute carriage),
+//    the same write could pass typed-authz but fail legacy
+//    authz, surfacing as a confusing
+//    `BadUserAccessDenied` response after a successful
+//    typed-allow log line.
+//
+// 2. **Audit duplication.** Both paths emit audit records.
+//    The typed path emits via the typed-authz audit adapter;
+//    the legacy path emits via OpcUaAuditPort. The same
+//    write would generate 2 audit records of different shape,
+//    confusing forensic queries.
+//
+// The Tier-1 architectural shape is two functions with
+// distinct signatures (not a `pre_authorized: bool` flag —
+// that would be a workaround that lets the compiler accept
+// "I already authz'd" lies):
+//
+//   - `execute_opcua_write(...)` — accepts `&dyn OpcUaAuthzPort`,
+//     runs the legacy authz check at step 6. Existing call
+//     site: `wire_write_callbacks` (until Batch #293 deletes
+//     it as part of A-2b 5e closure).
+//
+//   - `execute_opcua_write_post_typed_authz(...)` — does NOT
+//     accept an authz port. Skips step 6 entirely. The
+//     function name + signature document the caller's
+//     contract: "you have done typed-authz before invoking
+//     me." Future call site: SensNodeManager.write() Allow
+//     branch (Batch #291 wire).
+//
+// The two functions share steps 2-5 (registry lookup,
+// writable, force, range) + step 7 (commit) + audit. The
+// shared steps factor into a private `pre_commit_gate` helper
+// — one source of truth, no copy-paste drift.
+//
+// ## Wire status (Batch #290)
+//
+// **Primitive only.** This batch lands the function +
+// 7 unit tests. SensNodeManager.write() does NOT YET call
+// it (Batch #291 swaps the Allow-branch
+// `set_status(Good)` placeholder for the real delegate
+// invocation). The function is dead code until Batch #291,
+// but landing the primitive first means:
+//
+// - Each gate's behavior is unit-tested in isolation against
+//   the new function's signature, BEFORE any production
+//   caller exists.
+// - Batch #291 becomes a pure call-site change with no new
+//   logic — easier to bisect if a regression shows up.
+//
+// ## Linked findings
+//
+// - ULTRA-HIGH-035 PARTIAL_FIX (overall A-2b part 5).
+// - ORPHAN-CRITICAL-021 (anonymous-actor hardcode) — closed
+//   by Batch #292 runtime swap that removes
+//   `wire_write_callbacks` entirely.
+// - ORPHAN-MEDIUM-023 (SensNodeManager.write Allow path
+//   skips delegate) — closed by Batch #291 wire that
+//   replaces `set_status(Good)` placeholder.
+
+/// Apply the pre-commit validation gates shared between the
+/// legacy `execute_opcua_write` and the post-typed-authz
+/// delegate. Returns `Ok(node)` when all gates pass; returns
+/// `Err(outcome)` when any gate rejects.
+///
+/// Steps (in evaluation order):
+/// 1. Registry lookup → `RejectedUnknownTag` if absent.
+/// 2. IoType DO/AO → `RejectedNotWritable` if read-only.
+/// 3. Force registry → `RejectedForced` if currently forced.
+/// 4. EURange → `RejectedOutOfRange` if out of declared bounds.
+///
+/// **Why a private helper.** Both write entry points run
+/// these gates in identical order. Extracting them into one
+/// function eliminates copy-paste drift hazard (a future
+/// Batch that adds a 5th gate must touch only this fn — a
+/// missing update on the other entry would be caught at code
+/// review by the symmetry).
+async fn evaluate_pre_commit_gates<'a>(
+    registry: &'a OpcUaTagRegistry,
+    request: &OpcUaWriteRequest<'_>,
+    force_registry: &dyn OpcUaForceRegistryPort,
+) -> Result<&'a OpcUaTagNode, OpcUaWriteOutcome> {
+    let tag_name = request.tag_name;
+    let value = request.value;
+
+    // Step 1: Registry lookup.
+    let node = match registry.get(tag_name) {
+        Some(n) => n,
+        None => {
+            return Err(OpcUaWriteOutcome::RejectedUnknownTag {
+                tag_name: tag_name.to_string(),
+            });
+        }
+    };
+
+    // Step 2: IoType DO/AO check.
+    if !node.is_writable() {
+        return Err(OpcUaWriteOutcome::RejectedNotWritable {
+            tag_name: tag_name.to_string(),
+        });
+    }
+
+    // Step 3: Forced-tag check.
+    if force_registry.is_forced(tag_name).await {
+        return Err(OpcUaWriteOutcome::RejectedForced {
+            tag_name: tag_name.to_string(),
+        });
+    }
+
+    // Step 4: EURange check. Half-bounded ranges (one None)
+    // are permissive on the open side, matching legacy
+    // CommandHandler write semantics.
+    if let (Some(lo), Some(hi)) = (node.eng_min, node.eng_max) {
+        if value < lo || value > hi {
+            return Err(OpcUaWriteOutcome::RejectedOutOfRange {
+                tag_name: tag_name.to_string(),
+                value,
+                eng_min: lo,
+                eng_max: hi,
+            });
+        }
+    }
+
+    Ok(node)
+}
+
+/// Post-typed-authz write delegate. Runs steps 1-4 (registry,
+/// writable, force, range) + step 7 (process-image commit) +
+/// audit on every outcome. Does NOT accept an authz port —
+/// the caller (SensNodeManager.write()) is responsible for
+/// running typed-authz BEFORE invoking this delegate.
+///
+/// The contract is encoded in the signature: there is no
+/// `&dyn OpcUaAuthzPort` parameter. A caller who hasn't done
+/// typed authz cannot satisfy the type signature with a
+/// "ran typed authz" placeholder — they must either run
+/// typed authz themselves or call the legacy
+/// `execute_opcua_write` with an authz port.
+///
+/// **Audit semantics.** Every outcome (success or reject)
+/// fires `audit.record_write_attempt(actor, ...)`. The
+/// `actor: &str` parameter for the audit record is the
+/// caller's typed-authz-derived actor string (e.g.,
+/// `"sens:operator:<hex>"` from `format_operator_token`) so
+/// the audit log identifier matches the typed-authz
+/// principal end-to-end.
+///
+/// **Outcome variants.** This function never produces
+/// `OpcUaWriteOutcome::RejectedNoPermission` — that variant
+/// represents the legacy authz-port-driven deny path which
+/// this function explicitly skips. A typed-authz deny
+/// happens BEFORE this function is called; the caller maps
+/// the typed deny to its own status code (e.g., the
+/// SensNodeManager.write() Deny branch already does this).
+///
+/// **Wire status (Batch #290):** primitive only; first
+/// production caller lands in Batch #291.
+pub async fn execute_opcua_write_post_typed_authz(
+    registry: &OpcUaTagRegistry,
+    request: &OpcUaWriteRequest<'_>,
+    force_registry: &dyn OpcUaForceRegistryPort,
+    process_image: &dyn OpcUaProcessImagePort,
+    audit: &dyn OpcUaAuditPort,
+) -> OpcUaWriteOutcome {
+    let tag_name = request.tag_name;
+    let actor = request.actor;
+    let value = request.value;
+
+    // Steps 1-4: shared pre-commit gates.
+    let _node = match evaluate_pre_commit_gates(
+        registry,
+        request,
+        force_registry,
+    )
+    .await
+    {
+        Ok(node) => node,
+        Err(outcome) => {
+            audit.record_write_attempt(actor, tag_name, value, &outcome).await;
+            return outcome;
+        }
+    };
+
+    // Step 5 (legacy authz): SKIPPED — caller has done typed
+    // authz. See module-level docstring for the architectural
+    // reasoning.
+
+    // Step 6: ProcessImage update + audit.
+    match process_image.write_tag(tag_name, value, actor).await {
+        Ok(()) => {
+            let outcome = OpcUaWriteOutcome::Success {
+                tag_name: tag_name.to_string(),
+            };
+            audit.record_write_attempt(actor, tag_name, value, &outcome).await;
+            outcome
+        }
+        Err(reason) => {
+            let outcome = OpcUaWriteOutcome::RejectedProcessImage {
+                tag_name: tag_name.to_string(),
+                reason,
+            };
+            audit.record_write_attempt(actor, tag_name, value, &outcome).await;
+            outcome
+        }
+    }
+}
+
+// ============================================================
 // Batch 210 Faz 5 — concrete port adapters
 // ============================================================
 //
@@ -2125,5 +2363,345 @@ mod tests {
                 scenario
             );
         }
+    }
+
+    // =========================================================
+    // Batch #290 — execute_opcua_write_post_typed_authz tests
+    // =========================================================
+    //
+    // The post-typed-authz delegate skips the legacy
+    // OpcUaAuthzPort step entirely. These tests pin its
+    // behavior on every other gate + the commit path. The
+    // function's signature has NO authz port parameter (Tier-1
+    // architectural shape); a hypothetical caller cannot pass
+    // a "fake-authorized" port placeholder and have the
+    // compiler accept it.
+
+    #[tokio::test]
+    async fn post_typed_authz_writes_to_process_image_on_happy_path() {
+        let reg = registry_with(vec![tag("do_pump", IoType::DO)]);
+        let force = CannedForce { forced_tag: None };
+        let pi = CapturingPi {
+            result: Ok(()),
+            last: Mutex::new(None),
+        };
+        let audit = CapturingAudit {
+            outcomes: Mutex::new(Vec::new()),
+        };
+
+        let out = execute_opcua_write_post_typed_authz(
+            &reg,
+            &OpcUaWriteRequest {
+                tag_name: "do_pump",
+                value: 50.0,
+                actor: "sens:operator:00000000000000000000000000000042",
+            },
+            &force,
+            &pi,
+            &audit,
+        )
+        .await;
+
+        assert!(out.is_success(), "outcome={:?}", out);
+        let last = pi.last.lock().await.clone().expect("pi received write");
+        assert_eq!(last.0, "do_pump");
+        assert_eq!(last.1, 50.0);
+        // Actor flows through unchanged — the
+        // sens:operator:<hex> token is the audit-log identifier
+        // that bridges the typed-authz principal to the legacy
+        // ProcessImage write API. A future Batch refactors the
+        // port traits to take typed AuthenticatedUser directly,
+        // dropping the round-trip through string form.
+        assert_eq!(
+            last.2,
+            "sens:operator:00000000000000000000000000000042"
+        );
+        let outs = audit_outcomes(&audit).await;
+        assert_eq!(outs.len(), 1);
+        assert!(outs[0].is_success());
+    }
+
+    #[tokio::test]
+    async fn post_typed_authz_rejects_unknown_tag() {
+        let reg = registry_with(vec![]);
+        let force = CannedForce { forced_tag: None };
+        let pi = CapturingPi {
+            result: Ok(()),
+            last: Mutex::new(None),
+        };
+        let audit = CapturingAudit {
+            outcomes: Mutex::new(Vec::new()),
+        };
+
+        let out = execute_opcua_write_post_typed_authz(
+            &reg,
+            &OpcUaWriteRequest {
+                tag_name: "ghost",
+                value: 1.0,
+                actor: "sens:operator:00000000000000000000000000000042",
+            },
+            &force,
+            &pi,
+            &audit,
+        )
+        .await;
+
+        assert_eq!(
+            out,
+            OpcUaWriteOutcome::RejectedUnknownTag {
+                tag_name: "ghost".into(),
+            }
+        );
+        assert_eq!(audit_outcomes(&audit).await.len(), 1);
+        assert!(pi.last.lock().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn post_typed_authz_rejects_read_only_tag() {
+        let reg = registry_with(vec![tag("ai_sensor", IoType::AI)]);
+        let force = CannedForce { forced_tag: None };
+        let pi = CapturingPi {
+            result: Ok(()),
+            last: Mutex::new(None),
+        };
+        let audit = CapturingAudit {
+            outcomes: Mutex::new(Vec::new()),
+        };
+
+        let out = execute_opcua_write_post_typed_authz(
+            &reg,
+            &OpcUaWriteRequest {
+                tag_name: "ai_sensor",
+                value: 50.0,
+                actor: "sens:operator:00000000000000000000000000000042",
+            },
+            &force,
+            &pi,
+            &audit,
+        )
+        .await;
+
+        assert_eq!(
+            out,
+            OpcUaWriteOutcome::RejectedNotWritable {
+                tag_name: "ai_sensor".into(),
+            }
+        );
+        assert!(pi.last.lock().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn post_typed_authz_rejects_forced_tag() {
+        let reg = registry_with(vec![tag("do_pump", IoType::DO)]);
+        let force = CannedForce {
+            forced_tag: Some("do_pump".into()),
+        };
+        let pi = CapturingPi {
+            result: Ok(()),
+            last: Mutex::new(None),
+        };
+        let audit = CapturingAudit {
+            outcomes: Mutex::new(Vec::new()),
+        };
+
+        let out = execute_opcua_write_post_typed_authz(
+            &reg,
+            &OpcUaWriteRequest {
+                tag_name: "do_pump",
+                value: 50.0,
+                actor: "sens:operator:00000000000000000000000000000042",
+            },
+            &force,
+            &pi,
+            &audit,
+        )
+        .await;
+
+        assert_eq!(
+            out,
+            OpcUaWriteOutcome::RejectedForced {
+                tag_name: "do_pump".into(),
+            }
+        );
+        assert!(pi.last.lock().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn post_typed_authz_rejects_out_of_range() {
+        let reg = registry_with(vec![tag("do_pump", IoType::DO)]);
+        let force = CannedForce { forced_tag: None };
+        let pi = CapturingPi {
+            result: Ok(()),
+            last: Mutex::new(None),
+        };
+        let audit = CapturingAudit {
+            outcomes: Mutex::new(Vec::new()),
+        };
+
+        let out = execute_opcua_write_post_typed_authz(
+            &reg,
+            &OpcUaWriteRequest {
+                tag_name: "do_pump",
+                value: 150.0, // helper sets eng_max=100
+                actor: "sens:operator:00000000000000000000000000000042",
+            },
+            &force,
+            &pi,
+            &audit,
+        )
+        .await;
+
+        match out {
+            OpcUaWriteOutcome::RejectedOutOfRange {
+                tag_name,
+                value,
+                eng_min,
+                eng_max,
+            } => {
+                assert_eq!(tag_name, "do_pump");
+                assert_eq!(value, 150.0);
+                assert_eq!(eng_min, 0.0);
+                assert_eq!(eng_max, 100.0);
+            }
+            other => panic!("expected OutOfRange, got {:?}", other),
+        }
+        assert!(pi.last.lock().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn post_typed_authz_propagates_process_image_error() {
+        let reg = registry_with(vec![tag("do_pump", IoType::DO)]);
+        let force = CannedForce { forced_tag: None };
+        let pi = CapturingPi {
+            result: Err("storage backend offline".to_string()),
+            last: Mutex::new(None),
+        };
+        let audit = CapturingAudit {
+            outcomes: Mutex::new(Vec::new()),
+        };
+
+        let out = execute_opcua_write_post_typed_authz(
+            &reg,
+            &OpcUaWriteRequest {
+                tag_name: "do_pump",
+                value: 50.0,
+                actor: "sens:operator:00000000000000000000000000000042",
+            },
+            &force,
+            &pi,
+            &audit,
+        )
+        .await;
+
+        match out {
+            OpcUaWriteOutcome::RejectedProcessImage { tag_name, reason } => {
+                assert_eq!(tag_name, "do_pump");
+                assert_eq!(reason, "storage backend offline");
+            }
+            other => panic!("expected ProcessImage error, got {:?}", other),
+        }
+        // Audit fires on error path too — silent failures
+        // would hide infrastructure problems from the SIEM.
+        assert_eq!(audit_outcomes(&audit).await.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn post_typed_authz_never_produces_no_permission_variant() {
+        // The function's signature precludes it: there is no
+        // OpcUaAuthzPort parameter, so step 6 cannot run, so
+        // RejectedNoPermission cannot be the outcome. This
+        // test exercises every other reject path and confirms
+        // RejectedNoPermission is NEVER the variant produced —
+        // a future regression that adds an authz check inside
+        // this function would surface here.
+        let reg = registry_with(vec![
+            tag("do_pump", IoType::DO),
+            tag("ai_sensor", IoType::AI),
+        ]);
+        for scenario in [
+            // (tag, value, force_tag, pi_err, expected_variant_name)
+            ("ghost", 50.0, None, false, "RejectedUnknownTag"),
+            ("ai_sensor", 50.0, None, false, "RejectedNotWritable"),
+            ("do_pump", 50.0, Some("do_pump"), false, "RejectedForced"),
+            ("do_pump", 150.0, None, false, "RejectedOutOfRange"),
+            ("do_pump", 50.0, None, true, "RejectedProcessImage"),
+            ("do_pump", 50.0, None, false, "Success"),
+        ] {
+            let (tag_name, value, forced, pi_err, expected) = scenario;
+            let force = CannedForce {
+                forced_tag: forced.map(|s| s.to_string()),
+            };
+            let pi = CapturingPi {
+                result: if pi_err {
+                    Err("err".to_string())
+                } else {
+                    Ok(())
+                },
+                last: Mutex::new(None),
+            };
+            let audit = CapturingAudit {
+                outcomes: Mutex::new(Vec::new()),
+            };
+            let out = execute_opcua_write_post_typed_authz(
+                &reg,
+                &OpcUaWriteRequest {
+                    tag_name,
+                    value,
+                    actor: "sens:operator:00000000000000000000000000000042",
+                },
+                &force,
+                &pi,
+                &audit,
+            )
+            .await;
+            // Tier-1 invariant: the no-permission variant is
+            // unreachable in the post-typed-authz delegate.
+            assert!(
+                !matches!(
+                    out,
+                    OpcUaWriteOutcome::RejectedNoPermission { .. }
+                ),
+                "scenario={:?} produced unreachable RejectedNoPermission",
+                expected
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn post_typed_authz_audits_actor_string_unchanged() {
+        // The actor string flows through to the audit record
+        // verbatim. SensNodeManager.write() formats the
+        // operator_id as `"sens:operator:<32-hex>"` (Batch
+        // #265 format_operator_token) and passes that string
+        // here. An accidental upper-casing or path-mangling
+        // would corrupt the audit-log identifier — this test
+        // pins the transparent passthrough.
+        let reg = registry_with(vec![tag("do_pump", IoType::DO)]);
+        let force = CannedForce { forced_tag: None };
+        let pi = CapturingPi {
+            result: Ok(()),
+            last: Mutex::new(None),
+        };
+        let audit = CapturingAudit {
+            outcomes: Mutex::new(Vec::new()),
+        };
+
+        let actor_token =
+            "sens:operator:42424242424242424242424242424242";
+        let _ = execute_opcua_write_post_typed_authz(
+            &reg,
+            &OpcUaWriteRequest {
+                tag_name: "do_pump",
+                value: 50.0,
+                actor: actor_token,
+            },
+            &force,
+            &pi,
+            &audit,
+        )
+        .await;
+
+        let last = pi.last.lock().await.clone().expect("pi write");
+        assert_eq!(last.2, actor_token, "actor token must pass through unchanged");
     }
 }

@@ -32,6 +32,26 @@
 //!   clone, thread-safe, reader-many + writer-one.
 //! - UUID `force_id` per entry so audit can cite the
 //!   specific force even after expiry + replacement.
+//!
+//! ## Wire status (Batch #271 audit)
+//!
+//! Production wire confirmed via the F-series usage paths:
+//! - `main.rs:823` — AppState carries `Arc<ForceRegistry>`.
+//! - `io_poll.rs:371,394` — io-poll cycle consults the
+//!   ForceRegistry before applying a sensor read; forced
+//!   tags bypass the live-sensor path so HMI / test
+//!   harness writes survive the read-back.
+//! - `opc_ua_server.rs:44` + `opc_ua_server_runtime.rs:64` —
+//!   OPC UA write path consults the ForceRegistry to refuse
+//!   writes to forced tags (preserves the test-harness
+//!   override invariant against external write-races).
+//!
+//! Per-item dead-code allow audit pending — blanket allow
+//! retained as WHITELIST-with-reason while the persistence
+//! path (`persist_across_reboot=true`) + shutdown-drain
+//! integration land in a focused follow-up batch (mirror
+//! of the Batch #259 D-1 + Batch #270 task_scheduler
+//! audit pattern).
 
 #![allow(dead_code)]
 

@@ -1,14 +1,31 @@
 //! Function Block Registry
 //!
-//! NOTE: Complete registry API. Some stats and query methods are for
-//! future monitoring and introspection features.
-#![allow(dead_code)]
-//!
 //! Manages function block instances for IEC 61131-3 compliance:
 //! - Instance lifecycle (create, destroy)
 //! - State persistence via SQLite
 //! - Unified execution in scan cycle
 //! - Input/Output wiring
+//!
+//! NOTE: Complete registry API. Some stats and query methods
+//! are for future monitoring and introspection features.
+//!
+//! ## Wire status (Batch #271 audit)
+//!
+//! Production wire confirmed via `scripting::mod.rs:130`
+//! `pub use fb_registry::{FBDefinition, FBParams, FBRegistry,
+//! FBRegistryError}` — the registry types are re-exported as
+//! the canonical public surface for the scripting module
+//! consumers (bytecode_runner FB instance dispatch, scan-cycle
+//! task FB tick).
+//!
+//! Per-item dead-code allow audit pending — the blanket allow
+//! retains the future-monitoring / future-introspection
+//! method surface compiled in place. Each future call site
+//! (cmd_get_fb_stats, web/admin FB browse, etc.) consumes one
+//! more method off the surface; a focused cleanup batch
+//! surfaces residual orphans individually.
+
+#![allow(dead_code)]
 
 use std::collections::HashMap;
 use std::sync::Arc;

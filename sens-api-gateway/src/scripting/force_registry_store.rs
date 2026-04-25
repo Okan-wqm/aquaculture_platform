@@ -38,6 +38,21 @@
 //!   values. Rows whose `expires_at_unix` has
 //!   already passed are silently dropped (a sweep
 //!   cycle would have removed them anyway).
+//!
+//! ## Wire status (Batch #271 audit)
+//!
+//! Production wire confirmed:
+//! - `main.rs:2527` — `ForceRegistryStore::new(&path)` opens
+//!   the SQLCipher store at boot.
+//! - `main.rs:2542` — `load_into_registry(...)` rehydrates
+//!   `persist_across_reboot=true` forces from disk into the
+//!   in-memory `ForceRegistry` so a graceful agent restart
+//!   preserves operator forcings without HMI re-issuance.
+//!
+//! Per-item dead-code allow audit pending — blanket allow
+//! retained as WHITELIST-with-reason while a focused F-series
+//! cleanup batch surfaces helper functions individually
+//! (mirror of Batch #259 / #270 / #271 audit pattern).
 
 #![allow(dead_code)]
 

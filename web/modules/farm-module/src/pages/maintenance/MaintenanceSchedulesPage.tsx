@@ -28,6 +28,8 @@ import {
   CreateMaintenanceScheduleInput,
 } from '../../hooks/useMaintenance';
 import GenerateWorkOrderButton from './components/GenerateWorkOrderButton';
+import CompleteMaintenanceModal from './components/CompleteMaintenanceModal';
+import { useCanMutate } from '@aquaculture/shared-ui';
 
 // Status colors
 const statusColors: Record<MaintenanceScheduleStatus, string> = {
@@ -116,6 +118,12 @@ export const MaintenanceSchedulesPage: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [formData, setFormData] = useState<ScheduleFormData>(defaultFormData);
   const [editingId, setEditingId] = useState<string | null>(null);
+
+  // Bakım Kapanışı (completeMaintenance) modal state — separate from the
+  // edit modal because the surfaces don't overlap in semantics.
+  const [completingSchedule, setCompletingSchedule] =
+    useState<MaintenanceSchedule | null>(null);
+  const canCompleteMaintenance = useCanMutate('completeMaintenance');
 
   // API hooks
   const { data, isLoading, error, refetch } = useMaintenanceSchedules(filter, page, 20);
@@ -424,6 +432,15 @@ export const MaintenanceSchedulesPage: React.FC = () => {
                             </button>
                           )}
                           <GenerateWorkOrderButton schedule={item} />
+                          {canCompleteMaintenance && item.status === 'ACTIVE' && (
+                            <button
+                              onClick={() => setCompletingSchedule(item)}
+                              className="text-emerald-700 hover:text-emerald-900"
+                              title="Bu plan döngüsünü kapat (sayaç + notlar)"
+                            >
+                              Bakımı Kapat
+                            </button>
+                          )}
                           <button
                             onClick={() => handleDelete(item.id)}
                             className="text-red-600 hover:text-red-900"
@@ -602,6 +619,15 @@ export const MaintenanceSchedulesPage: React.FC = () => {
           </div>
         </form>
       </Modal>
+
+      {completingSchedule && (
+        <CompleteMaintenanceModal
+          isOpen={!!completingSchedule}
+          onClose={() => setCompletingSchedule(null)}
+          schedule={completingSchedule}
+          onSuccess={() => refetch()}
+        />
+      )}
     </div>
   );
 };

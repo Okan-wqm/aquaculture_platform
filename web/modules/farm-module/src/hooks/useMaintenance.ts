@@ -1122,6 +1122,22 @@ export interface CreateMaintenanceScheduleInput {
   notes?: string;
 }
 
+/**
+ * Input for `completeMaintenance` — closes a maintenance schedule cycle
+ * (sets lastExecutedDate, increments executionCount, recomputes nextDueDate
+ * via markCompleted on the entity). `workOrderId` is optional — pass it
+ * when the close was triggered from the context of an open work order so
+ * the audit trail can correlate, even though this mutation does NOT close
+ * the work order itself (use `completeWorkOrder` for that, but never
+ * both — it would double-count).
+ */
+export interface CompleteMaintenanceInput {
+  scheduleId: string;
+  workOrderId?: string;
+  meterReading?: number;
+  notes?: string;
+}
+
 export interface UpdateMaintenanceScheduleInput {
   id: string;
   name?: string;
@@ -1299,6 +1315,53 @@ export function useResumeMaintenanceSchedule() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceSchedules') });
       queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceSchedule', data.id) });
+    },
+  });
+}
+
+/**
+ * Mark a maintenance schedule cycle as completed (without going through a
+ * WorkOrder). Use cases:
+ *   - Operator closed the cycle off-system (paper inspection, ad-hoc check)
+ *     and wants the schedule's lastExecutedDate / executionCount /
+ *     nextDueDate to reflect reality.
+ *   - METER_BASED schedules where a fresh meter reading needs to land on
+ *     the schedule alongside completion.
+ *
+ * Backend resolver: `completeMaintenance(input: CompleteMaintenanceInput!): MaintenanceSchedule`
+ * (apps/farm-service/src/maintenance/resolvers/maintenance-schedule.resolver.ts:304).
+ *
+ * IMPORTANT: do NOT chain this with `useCompleteWorkOrder` for the same
+ * cycle — `completeWorkOrder` already calls `schedule.markCompleted()` in
+ * a transaction, so calling both would double-count `executionCount` and
+ * `metrics.totalExecutions`. This hook is for the schedule-only path.
+ */
+export function useCompleteMaintenance() {
+  const queryClient = useQueryClient();
+  const { tenantId } = useAuth();
+
+  return useMutation({
+    mutationFn: async (input: CompleteMaintenanceInput) => {
+      const mutation = `
+        mutation CompleteMaintenance($input: CompleteMaintenanceInput!) {
+          completeMaintenance(input: $input) {
+            ${MAINTENANCE_SCHEDULE_FIELDS}
+          }
+        }
+      `;
+
+      const result = await graphqlClient.request<{ completeMaintenance: MaintenanceSchedule }>(
+        mutation,
+        { input }
+      );
+
+      return result.completeMaintenance;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceSchedules') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceSchedule', data.id) });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'upcomingMaintenanceSchedules') });
+      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'maintenanceAlerts') });
     },
   });
 }

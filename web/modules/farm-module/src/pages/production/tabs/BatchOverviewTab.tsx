@@ -17,6 +17,7 @@ import { useCanMutate } from '@aquaculture/shared-ui';
 
 import type { Batch } from '../../../hooks/useBatches';
 import CloseBatchModal from '../components/CloseBatchModal';
+import UpdateBatchModal from '../components/UpdateBatchModal';
 import UpdateBatchStatusModal from '../components/UpdateBatchStatusModal';
 
 interface BatchOverviewTabProps {
@@ -26,7 +27,9 @@ interface BatchOverviewTabProps {
 const BatchOverviewTab: React.FC<BatchOverviewTabProps> = ({ batch }) => {
   const [showCloseModal, setShowCloseModal] = useState(false);
   const [showStatusModal, setShowStatusModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
 
+  const canUpdate = useCanMutate('updateBatch');
   const canUpdateStatus = useCanMutate('updateBatchStatus');
   const canClose = useCanMutate('closeBatch');
 
@@ -43,6 +46,15 @@ const BatchOverviewTab: React.FC<BatchOverviewTabProps> = ({ batch }) => {
     <div className="space-y-6">
       {/* Action row */}
       <div className="flex flex-wrap gap-2">
+        {canUpdate && (
+          <button
+            type="button"
+            onClick={() => setShowEditModal(true)}
+            className="px-3 py-1.5 text-sm bg-gray-600 text-white rounded hover:bg-gray-700"
+          >
+            Düzenle
+          </button>
+        )}
         {canUpdateStatus && (
           <button
             type="button"
@@ -152,6 +164,11 @@ const BatchOverviewTab: React.FC<BatchOverviewTabProps> = ({ batch }) => {
       )}
 
       {/* Modals — each renders only when its `isOpen` prop is true */}
+      <UpdateBatchModal
+        isOpen={showEditModal}
+        onClose={() => setShowEditModal(false)}
+        batch={batch}
+      />
       <UpdateBatchStatusModal
         isOpen={showStatusModal}
         onClose={() => setShowStatusModal(false)}

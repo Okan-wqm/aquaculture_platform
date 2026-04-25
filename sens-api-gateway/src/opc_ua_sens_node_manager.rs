@@ -136,7 +136,11 @@ use std::collections::VecDeque;
 #[cfg(feature = "opc-ua-server")]
 use crate::authz::permission::TenantId;
 #[cfg(feature = "opc-ua-server")]
-use crate::opc_ua_server::OpcUaTagRegistry;
+use crate::opc_ua_server::{
+    OpcUaAuditPort, OpcUaForceRegistryPort, OpcUaProcessImagePort,
+    OpcUaTagRegistry, OpcUaWriteOutcome, OpcUaWriteRequest,
+    execute_opcua_write_post_typed_authz,
+};
 #[cfg(feature = "opc-ua-server")]
 use crate::opc_ua_server_typed_authz::TypedAuthzPort;
 #[cfg(feature = "opc-ua-server")]
@@ -252,6 +256,42 @@ pub struct SensNodeManager {
     /// post-construction).
     tag_registry: Arc<OpcUaTagRegistry>,
 
+    /// **Batch #291 5f-wire field.** Force-registry port. Used
+    /// by `write()` Allow-path delegate to reject writes
+    /// against currently-forced tags (operator-held actuator
+    /// state). Trait object, not concrete `ForceRegistry`,
+    /// because (a) test mocks substitute against the trait,
+    /// (b) the production adapter
+    /// `ForceRegistryOpcUaAdapter` already wraps the concrete
+    /// type — same Arc that the legacy
+    /// `wire_write_callbacks` path consumed (Batch #292
+    /// runtime-swap reuses the same construction).
+    write_force: Arc<dyn OpcUaForceRegistryPort>,
+
+    /// **Batch #291 5f-wire field.** Process-image port for
+    /// the write-commit step. Distinct from `process_image:
+    /// Arc<ProcessImage>` (above) because the read path uses
+    /// the concrete API (`get_tag(...)`) which is not on the
+    /// `OpcUaProcessImagePort` trait, while the write path
+    /// uses the trait method `write_tag(tag, value, actor)`
+    /// which carries actor-string for audit. Both fields
+    /// reference the same in-memory store via Arc — no state
+    /// duplication, just two abstraction layers (concrete for
+    /// read, trait for write).
+    write_process_image: Arc<dyn OpcUaProcessImagePort>,
+
+    /// **Batch #291 5f-wire field.** Audit port. Every write
+    /// outcome (Allow + commit; Allow + rejected by
+    /// pre-commit gate; Allow + commit failed) fires
+    /// `audit.record_write_attempt(...)` via the delegate.
+    /// The Deny path (typed-authz refused) is currently
+    /// audited only via the typed-authz adapter — the Deny
+    /// branch in `write()` does NOT call this audit port to
+    /// avoid double-emission against `OpcUaAuditPort`. A
+    /// future Batch may unify the audit shapes; today the
+    /// split matches the typed-authz vs legacy-write boundary.
+    write_audit: Arc<dyn OpcUaAuditPort>,
+
     /// Debug name returned by `name()`. Static literal because
     /// we instantiate exactly one custom manager per agent.
     manager_name: &'static str,
@@ -285,6 +325,9 @@ impl SensNodeManager {
         validator: Arc<UserTokenValidator>,
         process_image: Arc<ProcessImage>,
         tag_registry: Arc<OpcUaTagRegistry>,
+        write_force: Arc<dyn OpcUaForceRegistryPort>,
+        write_process_image: Arc<dyn OpcUaProcessImagePort>,
+        write_audit: Arc<dyn OpcUaAuditPort>,
     ) -> Self {
         Self {
             namespace_uri: Self::NAMESPACE_URI.to_string(),
@@ -294,6 +337,9 @@ impl SensNodeManager {
             validator,
             process_image,
             tag_registry,
+            write_force,
+            write_process_image,
+            write_audit,
             manager_name: Self::NAME,
         }
     }
@@ -800,42 +846,123 @@ impl NodeManager for SensNodeManager {
                 }
             };
 
-            // Step 8: extract the variant value from the WriteNode
-            // + forward to the existing execute_opcua_write
-            // orchestrator. The orchestrator is the SSoT for
-            // post-authz behavior: force-registry check,
-            // process-image commit, audit emission. Bypassing it
-            // would create a divergent write path (regression
-            // hazard); calling it preserves the contract.
+            // Step 8 (Batch #291 5f-wire): forward to
+            // `execute_opcua_write_post_typed_authz` (Batch
+            // #290 primitive). The delegate runs the
+            // post-authz half of the legacy write chain:
+            // pre-commit gates (registry / writable / force /
+            // range) + ProcessImage commit + audit on every
+            // outcome. The Tier-1 architectural shape: the
+            // delegate's signature has NO authz port — there
+            // is no way to accidentally re-run authz here +
+            // produce a double-decision drift hazard.
             //
-            // **Wire pending (Batch #266+):** the existing
-            // `execute_opcua_write` accepts an `actor: &str`
-            // parameter that we feed `"sens:operator:<hex>"` to
-            // keep the audit-log identifier consistent with the
-            // typed UserToken format. A future Batch refactors
-            // execute_opcua_write to take `&AuthenticatedUser`
-            // directly so the typed principal flows end-to-end
-            // without a round-trip through the string form.
+            // The actor string is the canonical
+            // `"sens:operator:<32-hex>"` from
+            // `format_operator_token` — same shape that
+            // `parse_operator_token` round-trips, so the audit
+            // log identifier matches the session-establish
+            // identifier end-to-end (no string churn between
+            // typed-authz allow + audit-record actor field).
             //
-            // **Why this batch returns Good without forwarding:**
-            // execute_opcua_write is sync→async-bridge bound to
-            // the existing rumqttc-based runtime + needs the
-            // process_image clone + audit_sink. Wiring it from
-            // SensNodeManager requires plumbing the same Arcs
-            // SimpleNodeManager already plumbed. Batch #267
-            // runtime-swap batch does that wiring atomically
-            // alongside SimpleNodeManager removal — until then,
-            // returning Good here on authz-allow lets HMI clients
-            // see the gate close (BadUserAccessDenied for deny)
-            // without a half-wired commit path.
-            tracing::info!(
-                "SensNodeManager::write authz ALLOWED for tag={} \
-                 operator_id_hex={:?} — Batch #267 wires \
-                 execute_opcua_write delegate",
-                tag_node.tag_name,
-                operator_id.as_bytes()
-            );
-            node.set_status(opcua::types::StatusCode::Good);
+            // **f64 extraction.** OPC UA Variants carry many
+            // numeric types; SensNodeManager today maps every
+            // tag to f64 (Batch #264 Step 6 read body emits
+            // `Variant::Double` regardless of the declared
+            // tag DataType). The write side reverses this:
+            // every incoming Variant is coerced to f64 via
+            // `cast_variant_to_f64`. Loss-precision shapes
+            // (Variant::Int64 above 2^53, Variant::String) are
+            // rejected with BadTypeMismatch — a future Batch
+            // routes Boolean DOs through a dedicated DI/DO
+            // value path, but today the f64-canonical
+            // ProcessImage is the SSoT.
+            // node.value() returns &ParsedWriteValue;
+            // its .value field is a DataValue whose .value is
+            // Option<Variant>. None means the HMI sent a
+            // DataValue without a payload — fail-closed with
+            // BadNothingToDo per spec.
+            let write_value = match node.value().value.value.as_ref() {
+                Some(variant) => match cast_variant_to_f64(variant) {
+                    Some(v) => v,
+                    None => {
+                        tracing::warn!(
+                            "SensNodeManager::write rejected: tag={} \
+                             value type cannot coerce to f64",
+                            tag_node.tag_name
+                        );
+                        node.set_status(
+                            opcua::types::StatusCode::BadTypeMismatch,
+                        );
+                        continue;
+                    }
+                },
+                None => {
+                    tracing::warn!(
+                        "SensNodeManager::write rejected: tag={} \
+                         DataValue carried no Variant payload",
+                        tag_node.tag_name
+                    );
+                    node.set_status(
+                        opcua::types::StatusCode::BadNothingToDo,
+                    );
+                    continue;
+                }
+            };
+
+            let actor_token = format_operator_token(&operator_id);
+            let request = OpcUaWriteRequest {
+                tag_name: &tag_node.tag_name,
+                value: write_value,
+                actor: &actor_token,
+            };
+
+            let outcome = execute_opcua_write_post_typed_authz(
+                &self.tag_registry,
+                &request,
+                self.write_force.as_ref(),
+                self.write_process_image.as_ref(),
+                self.write_audit.as_ref(),
+            )
+            .await;
+
+            // Map the OpcUaWriteOutcome to the OPC UA
+            // StatusCode the HMI sees. The mapping mirrors
+            // the legacy `wire_write_callbacks` shape so
+            // existing HMI dashboards (which check for these
+            // specific status codes) remain compatible.
+            let status = match outcome {
+                OpcUaWriteOutcome::Success { .. } => {
+                    opcua::types::StatusCode::Good
+                }
+                OpcUaWriteOutcome::RejectedUnknownTag { .. } => {
+                    opcua::types::StatusCode::BadNodeIdUnknown
+                }
+                OpcUaWriteOutcome::RejectedNotWritable { .. } => {
+                    opcua::types::StatusCode::BadNotWritable
+                }
+                OpcUaWriteOutcome::RejectedForced { .. } => {
+                    // Distinct audit reason already emitted
+                    // by the delegate; HMI sees BadNotWritable
+                    // (the OPC UA spec doesn't carry "blocked
+                    // by force" in StatusCode taxonomy).
+                    opcua::types::StatusCode::BadNotWritable
+                }
+                OpcUaWriteOutcome::RejectedOutOfRange { .. } => {
+                    opcua::types::StatusCode::BadOutOfRange
+                }
+                OpcUaWriteOutcome::RejectedNoPermission { .. } => {
+                    // Tier-1 invariant: the delegate's
+                    // signature precludes this variant. We
+                    // map it defensively in case a future
+                    // refactor adds it back.
+                    opcua::types::StatusCode::BadUserAccessDenied
+                }
+                OpcUaWriteOutcome::RejectedProcessImage { .. } => {
+                    opcua::types::StatusCode::BadInternalError
+                }
+            };
+            node.set_status(status);
         }
 
         Ok(())
@@ -1607,6 +1734,25 @@ pub struct SensNodeManagerBuilder {
     /// + SensNodeManager.write() + SensNodeManager.browse() all
     /// resolve incoming NodeIds against this catalog.
     tag_registry: Arc<OpcUaTagRegistry>,
+
+    /// **Batch #291 5f-wire field.** Force-registry port for
+    /// the SensNodeManager.write() Allow-path delegate. The
+    /// production adapter is `ForceRegistryOpcUaAdapter`;
+    /// tests substitute mocks.
+    write_force: Arc<dyn OpcUaForceRegistryPort>,
+
+    /// **Batch #291 5f-wire field.** Process-image port for
+    /// write-commit. Distinct from `process_image` above
+    /// because the read path uses concrete ProcessImage
+    /// (get_tag) while write path uses trait
+    /// (write_tag with actor for audit).
+    write_process_image: Arc<dyn OpcUaProcessImagePort>,
+
+    /// **Batch #291 5f-wire field.** Audit port. Every Allow
+    /// outcome (commit success or pre-commit reject or
+    /// commit error) fires `record_write_attempt` via the
+    /// delegate.
+    write_audit: Arc<dyn OpcUaAuditPort>,
 }
 
 #[cfg(feature = "opc-ua-server")]
@@ -1632,6 +1778,9 @@ impl SensNodeManagerBuilder {
         validator: Arc<UserTokenValidator>,
         process_image: Arc<ProcessImage>,
         tag_registry: Arc<OpcUaTagRegistry>,
+        write_force: Arc<dyn OpcUaForceRegistryPort>,
+        write_process_image: Arc<dyn OpcUaProcessImagePort>,
+        write_audit: Arc<dyn OpcUaAuditPort>,
     ) -> Self {
         Self {
             tenant_id,
@@ -1639,6 +1788,9 @@ impl SensNodeManagerBuilder {
             validator,
             process_image,
             tag_registry,
+            write_force,
+            write_process_image,
+            write_audit,
         }
     }
 }
@@ -1670,6 +1822,9 @@ impl NodeManagerBuilder for SensNodeManagerBuilder {
             self.validator,
             self.process_image,
             self.tag_registry,
+            self.write_force,
+            self.write_process_image,
+            self.write_audit,
         ))
     }
 }
@@ -1767,6 +1922,73 @@ pub(crate) fn parse_operator_token(
     Some(
         crate::authz::permission::OperatorId::new_from_verified(bytes),
     )
+}
+
+/// **Batch #291 5f-wire helper.** Coerce an incoming OPC UA
+/// `Variant` to the canonical f64 SensNodeManager + ProcessImage
+/// store every tag in.
+///
+/// Suderra's process image stores every tag as f64 (Batch #264
+/// architectural decision — single numeric representation for
+/// the bytecode VM + audit + SCADA UI). HMIs may write any
+/// numeric Variant; we accept the lossless conversions
+/// (Boolean/u8/i8/u16/i16/u32/i32/f32 all fit in f64 without
+/// rounding) and the lossy-but-bounded conversions (i64/u64
+/// outside ±2^53 lose precision; we reject those defensively).
+/// String / non-numeric Variants reject with `None` →
+/// caller maps to `BadTypeMismatch`.
+///
+/// **Boolean handling.** OPC UA spec encodes Boolean as a
+/// distinct Variant variant (not 0/1 numeric). Suderra's
+/// canonical representation: false=0.0, true=1.0. ProcessImage
+/// readers (bytecode VM, alarm engine, SCADA polling) interpret
+/// f64 with that convention.
+///
+/// **Wire status (Batch #291):** consumed by SensNodeManager.
+/// write() Allow path. Helper kept module-private until a
+/// second consumer needs it.
+#[cfg(feature = "opc-ua-server")]
+fn cast_variant_to_f64(
+    variant: &opcua::types::Variant,
+) -> Option<f64> {
+    use opcua::types::Variant;
+    match variant {
+        Variant::Boolean(b) => Some(if *b { 1.0 } else { 0.0 }),
+        Variant::SByte(v) => Some(*v as f64),
+        Variant::Byte(v) => Some(*v as f64),
+        Variant::Int16(v) => Some(*v as f64),
+        Variant::UInt16(v) => Some(*v as f64),
+        Variant::Int32(v) => Some(*v as f64),
+        Variant::UInt32(v) => Some(*v as f64),
+        Variant::Int64(v) => {
+            // Reject silently-lossy conversion. f64 can
+            // exactly represent integers in ±2^53; outside
+            // that the cast loses precision. A future Batch
+            // may widen ProcessImage to carry i64 alongside
+            // f64; today we fail-closed.
+            const MAX_EXACT: i64 = 1i64 << 53;
+            if *v >= -MAX_EXACT && *v <= MAX_EXACT {
+                Some(*v as f64)
+            } else {
+                None
+            }
+        }
+        Variant::UInt64(v) => {
+            const MAX_EXACT: u64 = 1u64 << 53;
+            if *v <= MAX_EXACT {
+                Some(*v as f64)
+            } else {
+                None
+            }
+        }
+        Variant::Float(v) => Some(*v as f64),
+        Variant::Double(v) => Some(*v),
+        // String / NodeId / DataValue / ExtensionObject /
+        // arrays / etc — non-numeric. Reject so HMI clients
+        // get an explicit BadTypeMismatch rather than a
+        // silent cast to NaN/0.0.
+        _ => None,
+    }
 }
 
 /// Map Suderra `TagQuality` → OPC UA `StatusCode`. Batch #264
@@ -1952,7 +2174,11 @@ mod tests {
         AuthorizationDenyReason, AuthorizedContext,
     };
     use crate::authz::user_token_manifest_runtime::UserTokenManifestStore;
-    use crate::opc_ua_server::OpcUaTagRegistry;
+    use crate::opc_ua_server::{
+        OpcUaAuditPort, OpcUaForceRegistryPort,
+        OpcUaProcessImagePort, OpcUaTagRegistry,
+        OpcUaWriteOutcome,
+    };
     use crate::opc_ua_server_typed_authz::{
         TypedAuthzError, TypedAuthzPort,
     };
@@ -1996,12 +2222,55 @@ mod tests {
         let tag_registry = Arc::new(OpcUaTagRegistry::default());
         let tenant = TenantId::new_from_verified([0u8; 16]);
 
+        // Mock 3 write ports — only Send+Sync matters for the
+        // metadata-builder tests (they never call write()).
+        struct MockForce;
+        #[async_trait]
+        impl OpcUaForceRegistryPort for MockForce {
+            async fn is_forced(&self, _tag_name: &str) -> bool {
+                false
+            }
+        }
+        struct MockPi;
+        #[async_trait]
+        impl OpcUaProcessImagePort for MockPi {
+            async fn write_tag(
+                &self,
+                _tag_name: &str,
+                _value: f64,
+                _actor: &str,
+            ) -> Result<(), String> {
+                Ok(())
+            }
+        }
+        struct MockAudit;
+        #[async_trait]
+        impl OpcUaAuditPort for MockAudit {
+            async fn record_write_attempt(
+                &self,
+                _actor: &str,
+                _tag_name: &str,
+                _value: f64,
+                _outcome: &OpcUaWriteOutcome,
+            ) {
+            }
+        }
+        let write_force: Arc<dyn OpcUaForceRegistryPort> =
+            Arc::new(MockForce);
+        let write_process_image: Arc<dyn OpcUaProcessImagePort> =
+            Arc::new(MockPi);
+        let write_audit: Arc<dyn OpcUaAuditPort> =
+            Arc::new(MockAudit);
+
         SensNodeManager::new(
             tenant,
             authz,
             validator,
             process_image,
             tag_registry,
+            write_force,
+            write_process_image,
+            write_audit,
         )
     }
 
@@ -2158,12 +2427,54 @@ mod tests {
         let tag_registry = Arc::new(OpcUaTagRegistry::default());
         let tenant = TenantId::new_from_verified([0u8; 16]);
 
+        // 3 new write-port mocks (Batch #291 5f-wire fields).
+        struct MockForce2;
+        #[async_trait]
+        impl OpcUaForceRegistryPort for MockForce2 {
+            async fn is_forced(&self, _tag_name: &str) -> bool {
+                false
+            }
+        }
+        struct MockPi2;
+        #[async_trait]
+        impl OpcUaProcessImagePort for MockPi2 {
+            async fn write_tag(
+                &self,
+                _tag_name: &str,
+                _value: f64,
+                _actor: &str,
+            ) -> Result<(), String> {
+                Ok(())
+            }
+        }
+        struct MockAudit2;
+        #[async_trait]
+        impl OpcUaAuditPort for MockAudit2 {
+            async fn record_write_attempt(
+                &self,
+                _actor: &str,
+                _tag_name: &str,
+                _value: f64,
+                _outcome: &OpcUaWriteOutcome,
+            ) {
+            }
+        }
+        let write_force: Arc<dyn OpcUaForceRegistryPort> =
+            Arc::new(MockForce2);
+        let write_process_image: Arc<dyn OpcUaProcessImagePort> =
+            Arc::new(MockPi2);
+        let write_audit: Arc<dyn OpcUaAuditPort> =
+            Arc::new(MockAudit2);
+
         // Pre-construction strong counts: each Arc has 1 ref
         // (the local binding).
         assert_eq!(Arc::strong_count(&authz), 1);
         assert_eq!(Arc::strong_count(&validator), 1);
         assert_eq!(Arc::strong_count(&process_image), 1);
         assert_eq!(Arc::strong_count(&tag_registry), 1);
+        assert_eq!(Arc::strong_count(&write_force), 1);
+        assert_eq!(Arc::strong_count(&write_process_image), 1);
+        assert_eq!(Arc::strong_count(&write_audit), 1);
 
         let builder = SensNodeManagerBuilder::new(
             tenant,
@@ -2171,16 +2482,22 @@ mod tests {
             validator.clone(),
             process_image.clone(),
             tag_registry.clone(),
+            write_force.clone(),
+            write_process_image.clone(),
+            write_audit.clone(),
         );
 
         // Post-construction strong counts: builder holds a 2nd
-        // ref. This proves the constructor stored each Arc
-        // (a missing field assignment would leave the count
-        // at 1).
+        // ref. This proves the constructor stored each of the
+        // 7 Arc fields (a missing field assignment would
+        // leave the count at 1).
         assert_eq!(Arc::strong_count(&authz), 2);
         assert_eq!(Arc::strong_count(&validator), 2);
         assert_eq!(Arc::strong_count(&process_image), 2);
         assert_eq!(Arc::strong_count(&tag_registry), 2);
+        assert_eq!(Arc::strong_count(&write_force), 2);
+        assert_eq!(Arc::strong_count(&write_process_image), 2);
+        assert_eq!(Arc::strong_count(&write_audit), 2);
 
         // Drop the builder — strong counts return to 1.
         drop(builder);
@@ -2188,6 +2505,99 @@ mod tests {
         assert_eq!(Arc::strong_count(&validator), 1);
         assert_eq!(Arc::strong_count(&process_image), 1);
         assert_eq!(Arc::strong_count(&tag_registry), 1);
+        assert_eq!(Arc::strong_count(&write_force), 1);
+        assert_eq!(Arc::strong_count(&write_process_image), 1);
+        assert_eq!(Arc::strong_count(&write_audit), 1);
+    }
+
+    // =========================================================
+    // cast_variant_to_f64 tests — Batch #291 5f-wire helper
+    // =========================================================
+
+    #[test]
+    fn cast_variant_boolean_maps_to_zero_one() {
+        use opcua::types::Variant;
+        assert_eq!(cast_variant_to_f64(&Variant::Boolean(false)), Some(0.0));
+        assert_eq!(cast_variant_to_f64(&Variant::Boolean(true)), Some(1.0));
+    }
+
+    #[test]
+    fn cast_variant_lossless_integers_round_trip() {
+        use opcua::types::Variant;
+        // SByte/Byte/Int16/UInt16/Int32/UInt32/Float all
+        // fit in f64 exactly.
+        assert_eq!(cast_variant_to_f64(&Variant::SByte(-42)), Some(-42.0));
+        assert_eq!(cast_variant_to_f64(&Variant::Byte(200)), Some(200.0));
+        assert_eq!(cast_variant_to_f64(&Variant::Int16(-1000)), Some(-1000.0));
+        assert_eq!(cast_variant_to_f64(&Variant::UInt16(60000)), Some(60000.0));
+        assert_eq!(
+            cast_variant_to_f64(&Variant::Int32(-1_000_000)),
+            Some(-1_000_000.0)
+        );
+        assert_eq!(
+            cast_variant_to_f64(&Variant::UInt32(4_000_000_000)),
+            Some(4_000_000_000.0)
+        );
+        assert_eq!(cast_variant_to_f64(&Variant::Float(3.14)), Some(3.14_f32 as f64));
+        assert_eq!(cast_variant_to_f64(&Variant::Double(2.71828)), Some(2.71828));
+    }
+
+    #[test]
+    fn cast_variant_rejects_lossy_int64() {
+        use opcua::types::Variant;
+        // Boundary: 2^53 fits exactly.
+        let max_exact = 1i64 << 53;
+        assert_eq!(
+            cast_variant_to_f64(&Variant::Int64(max_exact)),
+            Some(max_exact as f64)
+        );
+        assert_eq!(
+            cast_variant_to_f64(&Variant::Int64(-max_exact)),
+            Some(-max_exact as f64)
+        );
+        // Beyond ±2^53: reject (silent precision loss).
+        assert_eq!(
+            cast_variant_to_f64(&Variant::Int64(max_exact + 1)),
+            None
+        );
+        assert_eq!(
+            cast_variant_to_f64(&Variant::Int64(i64::MAX)),
+            None
+        );
+        assert_eq!(
+            cast_variant_to_f64(&Variant::Int64(i64::MIN)),
+            None
+        );
+    }
+
+    #[test]
+    fn cast_variant_rejects_lossy_uint64() {
+        use opcua::types::Variant;
+        let max_exact = 1u64 << 53;
+        assert_eq!(
+            cast_variant_to_f64(&Variant::UInt64(max_exact)),
+            Some(max_exact as f64)
+        );
+        assert_eq!(
+            cast_variant_to_f64(&Variant::UInt64(max_exact + 1)),
+            None
+        );
+        assert_eq!(
+            cast_variant_to_f64(&Variant::UInt64(u64::MAX)),
+            None
+        );
+    }
+
+    #[test]
+    fn cast_variant_rejects_string_and_non_numeric() {
+        use opcua::types::Variant;
+        // Strings reject — HMI must not write a string into
+        // a numeric tag and have it silently coerce.
+        assert_eq!(
+            cast_variant_to_f64(&Variant::String("42".into())),
+            None
+        );
+        assert_eq!(cast_variant_to_f64(&Variant::Empty), None);
     }
 
     #[test]

@@ -156,12 +156,28 @@ impl TelemetryCollector {
         // Collect hardware data (Modbus, GPIO)
         self.collect_hardware_data(&mut metrics).await;
 
-        // Publish via MQTT
+        // Publish via MQTT — Batch #261 ARC-002 migration.
+        // Telemetry observability data — Normal priority. Drains
+        // AFTER alarms (Critical) + status (High) on reconnect.
+        // Pre-Batch-261 the legacy `MqttClient::publish_telemetry`
+        // built the TelemetryMessage envelope internally (needed
+        // private access to device_id + device_code). Batch #255
+        // added public accessors for those fields, unblocking the
+        // helper-based migration done here.
         let state = self.state.read().await;
-        if let Some(ref mqtt) = state.mqtt_client {
-            mqtt.publish_telemetry(metrics).await?;
-            debug!("Telemetry published");
-        }
+        let mqtt = match state.mqtt_client.as_ref() {
+            Some(m) => m,
+            None => return Ok(()),
+        };
+        let payload = serde_json::json!({
+            "device_id": mqtt.device_id(),
+            "device_code": mqtt.device_code(),
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+            "agent_version": env!("CARGO_PKG_VERSION"),
+            "metrics": metrics,
+        });
+        crate::publish_helpers::publish_telemetry(&state, &payload).await;
+        debug!("Telemetry published");
 
         Ok(())
     }

@@ -267,7 +267,7 @@ impl std::error::Error for OpcUaServerStartError {}
 /// Batch #293's `init_opc_ua_server` migration.
 pub fn build_server(
     config: &OpcUaServerConfig,
-    sens_builder: Option<crate::opc_ua_sens_node_manager::SensNodeManagerBuilder>,
+    sens_bundle: Option<crate::opc_ua_sens_node_manager::SensRuntimeBundle>,
 ) -> Result<ServerBuilder, OpcUaServerStartError> {
     config
         .validate()
@@ -299,16 +299,32 @@ pub fn build_server(
         .add_endpoint("default", endpoint)
         .discovery_urls(vec![discovery_url]);
 
-    // Batch #292 manager-selection switch.
-    builder = match sens_builder {
-        Some(sens) => {
+    // Batch #292 manager-selection switch + Batch #293
+    // SensAuthManager wire. The bundle carries BOTH the
+    // node-manager builder AND the auth manager so the
+    // typed-authz runtime contract is wired atomically (per
+    // SensRuntimeBundle docstring: missing the auth manager
+    // half would leave session-establish producing
+    // non-Suderra UserTokens that SensNodeManager.write()
+    // can't parse → silent fail-closed).
+    builder = match sens_bundle {
+        Some(bundle) => {
             // New typed-authz path — SensNodeManager handles
             // all 6 trait methods (init/owns_node/
             // namespaces_for_user/read/write/browse) per
             // Batches #263-#291. Namespace registration
             // happens inside SensNodeManager.init() via
             // `type_tree.namespaces_mut().add_namespace(...)`.
-            builder.with_node_manager(sens)
+            //
+            // SensAuthManager (Batch #266 primitive) handles
+            // the session-establish path — produces UserToken
+            // in `sens:operator:<32-hex>` format that
+            // SensNodeManager.write() parses via
+            // `parse_operator_token` to extract the typed
+            // AuthenticatedUser principal.
+            builder
+                .with_node_manager(bundle.node_manager_builder)
+                .with_authenticator(bundle.auth_manager)
         }
         None => {
             // Legacy SimpleNodeManager path — kept for
@@ -641,6 +657,15 @@ pub struct OpcUaInitDeps<'a> {
     /// loaded, authorized operators with the correct
     /// OpcUaWrite permission get Allow.
     pub rbac_manifest_store: Arc<RbacManifestStore>,
+    /// Batch #293 A-2b 5d field. UserTokenManifestStore that
+    /// the SensNodeManager typed-authz path needs in two
+    /// places: (a) UserTokenValidator wraps it to validate
+    /// session principals at every write, (b) SensAuthManager
+    /// consumes the validator to populate UserToken at
+    /// session-establish time. Held as Arc so the cloned
+    /// references stay cheap.
+    pub user_token_manifest_store:
+        Arc<crate::authz::user_token_manifest_runtime::UserTokenManifestStore>,
     pub license: &'a EdgeLicenseLimits,
 }
 
@@ -692,6 +717,7 @@ pub async fn init_opc_ua_server(
         audit_sink,
         tenant,
         rbac_manifest_store,
+        user_token_manifest_store,
         license,
     } = deps;
     // Gate 1: operator off-switch.
@@ -735,26 +761,157 @@ pub async fn init_opc_ua_server(
         tag_count
     );
 
-    // Start the server — internal pre-spawn population
-    // uses `registry` to populate the Suderra address space.
-    //
-    // Batch #292 A-2b 5c runtime swap path: this call site
-    // currently passes `None` for sens_builder, leaving the
-    // legacy SimpleNodeManager path active. Batch #293
-    // migrates this to construct + pass a real
-    // SensNodeManagerBuilder once the SensAuthManager dep
-    // is wired (the typed-authz chain needs a session-layer
-    // hook from SensAuthManager to populate UserToken). The
-    // structural switch landed in Batch #292 (this file's
-    // build_server + start_opcua_server signatures); the
-    // dependency-construction migration is a separate batch
-    // because it touches the OpcUaInitDeps schema +
-    // requires the auth manager primitive that Batch #266
-    // landed but has not yet been wired into the runtime.
+    // Build the tag registry Arc so it can be shared between
+    // the SensNodeManagerBuilder construction (typed-authz
+    // path) and the legacy bridge_deps construction (legacy
+    // wire_write_callbacks path).
     let registry_arc = Arc::new(registry);
-    let handle_opt = start_opcua_server(config, &*registry_arc, None)
-        .await
-        .map_err(|e| format!("opc_ua_server start failed: {}", e))?;
+
+    // Batch #293 A-2b 5d runtime-swap completion: when
+    // tenant + audit_sink are both present, construct the
+    // production SensRuntimeBundle (SensNodeManagerBuilder +
+    // SensAuthManager) + pass Some(bundle) to
+    // start_opcua_server. SensNodeManager.write() Allow
+    // path (Batch #291) handles writes via typed authz +
+    // post-typed-authz delegate; no legacy
+    // wire_write_callbacks call needed in this branch.
+    //
+    // When tenant or audit_sink is missing (degraded boot —
+    // pre-provisioning OR audit pipe disabled), pass None
+    // → legacy SimpleNodeManager + no-op write callbacks.
+    // This preserves the read-only safe-mode behavior the
+    // pre-Batch-#293 code provided when production
+    // deps were unavailable. Batch #294 deletes the legacy
+    // None branch once provisioning is mandatory at boot.
+    //
+    // Adapter port construction is shared between the two
+    // paths: both paths build the same Force / ProcessImage /
+    // Audit / Authz adapters (the SensNodeManagerBuilder
+    // consumes them; the legacy bridge_deps also consumes
+    // them). Construction lives BEFORE start_opcua_server
+    // so the bundle build can move the Arcs into the
+    // builder; the legacy path's bridge_deps still uses
+    // clone() copies after start_opcua_server.
+    let sens_bundle_opt: Option<
+        crate::opc_ua_sens_node_manager::SensRuntimeBundle,
+    > = match (tenant.as_ref(), audit_sink.as_ref()) {
+        (Some(tenant_id), Some(audit_arc)) => {
+            // Build the trait-port adapters that the typed
+            // path needs.
+            let pi_arc = Arc::new(process_image.clone());
+            let force_port: Arc<dyn crate::opc_ua_server::OpcUaForceRegistryPort> =
+                Arc::new(ForceRegistryOpcUaAdapter::new(
+                    force_registry.clone(),
+                ));
+            let pi_port: Arc<dyn crate::opc_ua_server::OpcUaProcessImagePort> =
+                Arc::new(ProcessImageOpcUaAdapter::new(
+                    pi_arc.clone(),
+                ));
+
+            // Audit port — placeholder pv_fn returns 0
+            // until a future Batch threads the engine's
+            // current_policy_version closure (same shape as
+            // the legacy branch below).
+            let pv_fn: PolicyVersionFn = Arc::new(|| 0u64);
+            let audit_port: Arc<dyn OpcUaAuditPort> =
+                Arc::new(AuditSinkOpcUaAdapter::new(
+                    audit_arc.clone(),
+                    tenant_id.clone(),
+                    pv_fn.clone(),
+                ));
+
+            // Typed authz: ManifestBackedTypedAuthz composes
+            // the resolver + InMemoryPolicyEngine + tenant +
+            // policy-version closure. Batch #240/#241
+            // primitive lands the type; Batch #293 wires it.
+            let resolver = crate::opc_ua_server_session
+                ::OpcUaActorResolver::new(rbac_manifest_store.clone());
+            let engine: Arc<dyn crate::authz::policy::PolicyEngine> =
+                Arc::new(InMemoryPolicyEngine::new(
+                    rbac_manifest_store.clone(),
+                ));
+            let typed_authz: Arc<dyn crate::opc_ua_server_typed_authz::TypedAuthzPort> =
+                Arc::new(crate::opc_ua_server_typed_authz
+                    ::ManifestBackedTypedAuthz::new(
+                        resolver,
+                        engine,
+                        tenant_id.clone(),
+                        pv_fn,
+                    ));
+
+            // UserTokenValidator wraps the manifest store —
+            // shared between SensNodeManager.write() defense-
+            // in-depth re-validation + SensAuthManager
+            // session-establish path.
+            let validator = Arc::new(
+                crate::opc_ua_server_user_token_validator
+                    ::UserTokenValidator::new(
+                        user_token_manifest_store.clone(),
+                    ),
+            );
+
+            let node_manager_builder =
+                crate::opc_ua_sens_node_manager::SensNodeManagerBuilder::new(
+                    tenant_id.clone(),
+                    typed_authz,
+                    validator.clone(),
+                    pi_arc,
+                    registry_arc.clone(),
+                    force_port,
+                    pi_port,
+                    audit_port,
+                );
+
+            let auth_manager = Arc::new(
+                crate::opc_ua_sens_auth_manager
+                    ::SensAuthManager::new(validator),
+            );
+
+            Some(
+                crate::opc_ua_sens_node_manager
+                    ::SensRuntimeBundle::new(
+                        node_manager_builder,
+                        auth_manager,
+                    ),
+            )
+        }
+        (None, _) => {
+            warn!(
+                "opc_ua_server: started without tenant — typed-authz path unavailable; falling back to legacy SimpleNodeManager (read-only safe-mode)"
+            );
+            None
+        }
+        (Some(_), None) => {
+            warn!(
+                "opc_ua_server: started without AuditSink — typed-authz path unavailable (HC-3 fail-closed: audit is load-bearing, writes without HMAC chain are not production shape); falling back to legacy SimpleNodeManager. Configure audit.mode != Disabled + audit_sink to activate typed path."
+            );
+            None
+        }
+    };
+
+    let sens_bundle_was_some = sens_bundle_opt.is_some();
+    let handle_opt = start_opcua_server(
+        config,
+        &*registry_arc,
+        sens_bundle_opt,
+    )
+    .await
+    .map_err(|e| format!("opc_ua_server start failed: {}", e))?;
+
+    // Batch #293 5d/5e closure (partial): when the typed-authz
+    // path is active (sens_bundle_was_some), SensNodeManager.
+    // write() handles writes via the post-typed-authz delegate
+    // (Batch #291 wire). The legacy wire_write_callbacks block
+    // below is for the SimpleNodeManager fallback ONLY — it
+    // skips when the typed path is live. Batch #294 will
+    // delete this block entirely once the legacy fallback is
+    // retired.
+    if sens_bundle_was_some {
+        info!(
+            "opc_ua_server: typed-authz path active (SensNodeManager + SensAuthManager); legacy wire_write_callbacks skipped (Batch #293 5d/5e closure)"
+        );
+        return Ok(handle_opt);
+    }
 
     // Batch 222 + Batch 226 E-2 closure: wire write callbacks
     // only when BOTH tenant AND AuditSink are present.
@@ -1201,27 +1358,26 @@ fn insert_tag_variable(
 pub async fn start_opcua_server(
     config: &OpcUaServerConfig,
     registry: &OpcUaTagRegistry,
-    sens_builder: Option<crate::opc_ua_sens_node_manager::SensNodeManagerBuilder>,
+    sens_bundle: Option<crate::opc_ua_sens_node_manager::SensRuntimeBundle>,
 ) -> Result<Option<Arc<SuderraOpcUaHandle>>, OpcUaServerStartError> {
     if !config.enabled {
         info!("opc_ua_server.enabled=false — server NOT started (operator off-switch)");
         return Ok(None);
     }
 
-    // Batch #292 A-2b 5c runtime swap path: track which
-    // manager is active for boot-log clarity. Some(...) means
-    // the new SensNodeManager handles browse/read/write
-    // virtually (Batches #263-#291 typed-authz path); None
-    // means the legacy SimpleNodeManager + populate_tag_nodes
-    // path runs. Operators reading boot logs need to know
-    // which manager surfaced the address space.
-    let manager_kind = if sens_builder.is_some() {
-        "SensNodeManager (typed-authz, virtual nodes)"
+    // Batch #292 + Batch #293 manager-kind boot-log marker.
+    // Some(bundle) means SensNodeManager + SensAuthManager
+    // are both wired — typed-authz path with virtual nodes.
+    // None means legacy SimpleNodeManager + default
+    // anonymous AuthManager. Operators reading boot logs see
+    // immediately which production shape is active.
+    let manager_kind = if sens_bundle.is_some() {
+        "SensNodeManager+SensAuthManager (typed-authz, virtual nodes)"
     } else {
-        "SimpleNodeManager (legacy populate_tag_nodes)"
+        "SimpleNodeManager+default-auth (legacy populate_tag_nodes)"
     };
 
-    let builder = build_server(config, sens_builder)?;
+    let builder = build_server(config, sens_bundle)?;
     let (server, handle) = builder
         .build()
         .map_err(OpcUaServerStartError::BuilderFailed)?;
@@ -1386,7 +1542,10 @@ mod tests {
     /// known-valid config.
     #[test]
     fn build_server_accepts_sens_builder_path() {
-        use crate::opc_ua_sens_node_manager::SensNodeManagerBuilder;
+        use crate::opc_ua_sens_node_manager::{
+            SensNodeManagerBuilder, SensRuntimeBundle,
+        };
+        use crate::opc_ua_sens_auth_manager::SensAuthManager;
         use crate::opc_ua_server::{
             OpcUaAuditPort, OpcUaForceRegistryPort,
             OpcUaProcessImagePort, OpcUaTagRegistry,
@@ -1462,17 +1621,24 @@ mod tests {
         let builder = SensNodeManagerBuilder::new(
             TenantId::new_from_verified([0u8; 16]),
             Arc::new(DenyAllAuthz),
-            validator,
+            validator.clone(),
             Arc::new(ProcessImage::new()),
             Arc::new(OpcUaTagRegistry::default()),
             Arc::new(NoForce),
             Arc::new(NoCommitPi),
             Arc::new(NoAudit),
         );
+        // Batch #293 5d: bundle the node-manager builder
+        // with a SensAuthManager so the typed-authz
+        // session-establish + write-extraction halves are
+        // wired atomically (per SensRuntimeBundle docstring).
+        let auth_manager =
+            Arc::new(SensAuthManager::new(validator));
+        let bundle = SensRuntimeBundle::new(builder, auth_manager);
         let cfg = minimal_enabled_config();
-        if build_server(&cfg, Some(builder)).is_err() {
+        if build_server(&cfg, Some(bundle)).is_err() {
             panic!(
-                "build_server rejected a valid config + SensNodeManagerBuilder"
+                "build_server rejected a valid config + SensRuntimeBundle"
             );
         }
     }
@@ -1703,6 +1869,17 @@ mod tests {
             // 223's in_memory_engine tests cover the
             // manifest-loaded paths.
             rbac_manifest_store: Arc::new(RbacManifestStore::new()),
+            // Batch #293 5d: empty UserTokenManifestStore →
+            // SensAuthManager rejects every session-establish
+            // (fail-closed). Test fixtures use empty stores
+            // because the boot + cancel contract this helper
+            // exercises does not require a loaded manifest;
+            // separate tests in the typed-authz chain cover
+            // the loaded-store paths.
+            user_token_manifest_store: Arc::new(
+                crate::authz::user_token_manifest_runtime
+                    ::UserTokenManifestStore::new(),
+            ),
             license,
         }
     }

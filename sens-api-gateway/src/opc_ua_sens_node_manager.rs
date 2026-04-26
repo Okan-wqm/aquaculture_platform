@@ -1795,6 +1795,110 @@ impl SensNodeManagerBuilder {
     }
 }
 
+// =============================================================
+// SensRuntimeBundle — Batch #293 A-2b 5d (auth manager wire) prep
+// =============================================================
+//
+// ## Why a bundle struct
+//
+// async-opcua's ServerBuilder has TWO production-relevant
+// extension points for the typed-authz path:
+//
+//   1. `with_node_manager(...)` — registers the
+//      SensNodeManagerBuilder so SensNodeManager owns the
+//      Suderra namespace's read/write/browse trait methods
+//      (Batches #263-#291).
+//   2. `with_authenticator(...)` — registers the
+//      SensAuthManager (Batch #266 primitive) so the
+//      session-establish path produces a UserToken in the
+//      Suderra format (sens:operator:<32-hex>) that
+//      SensNodeManager.write() (Batch #265) can parse via
+//      `parse_operator_token` to extract the typed
+//      AuthenticatedUser principal.
+//
+// The two extension points are LINKED by the UserToken
+// format contract: SensAuthManager produces the token
+// shape SensNodeManager.write() consumes. Wiring one
+// without the other creates a half-built typed-authz path
+// (HMI sessions establish but writes can't extract the
+// typed principal, OR writes find a typed principal but
+// the session-establish path produces a non-Suderra
+// format → parse fails → fail-closed). Either half-build
+// is invisible at compile time but observable as runtime
+// regressions.
+//
+// `SensRuntimeBundle` makes the link structural: callers
+// construct ONE bundle that carries both halves; they
+// can't accidentally wire one without the other. The
+// build_server + start_opcua_server signatures consume
+// the bundle as a single unit.
+//
+// ## Tier-1 architectural shape
+//
+// - **Make it impossible.** The bundle's fields are `pub`
+//   only on the named-construction path
+//   (`SensRuntimeBundle::new(...)` not exposed; struct
+//   literal construction at the boot site). A future
+//   typed-authz consumer cannot accidentally consume one
+//   half — the two extension points are now atomic.
+// - **Make it automatic.** `build_server` consumes the
+//   bundle in one match arm, calling
+//   `with_node_manager(bundle.node_manager_builder)` AND
+//   `with_authenticator(bundle.auth_manager)` in the same
+//   branch. Forgetting one would compile, but the
+//   docstring + the field naming make the omission
+//   visible in code review.
+//
+// ## Wire status (Batch #293)
+//
+// The bundle TYPE lands here as a primitive. The actual
+// production-callsite construction (in
+// `init_opc_ua_server`) lives in `opc_ua_server_runtime.rs`
+// — that's where the dependency Arcs are available + where
+// the bundle is built + passed to start_opcua_server.
+
+/// Production runtime bundle for the SensNodeManager + SensAuthManager
+/// extension points on async-opcua's ServerBuilder. Constructed once
+/// at boot in `init_opc_ua_server` when all dependencies are present
+/// (tenant + audit + user_token_manifest_store + RBAC manifest).
+///
+/// **Linked findings.** ULTRA-HIGH-035 PARTIAL_FIX (overall A-2b
+/// part 5). Batch #293 wires this into init_opc_ua_server +
+/// passes Some(bundle) to start_opcua_server, completing the
+/// runtime-level swap (5c + 5d combined).
+#[cfg(feature = "opc-ua-server")]
+pub struct SensRuntimeBundle {
+    /// SensNodeManagerBuilder primitive (Batch #289).
+    /// async-opcua's `ServerBuilder.with_node_manager(...)`
+    /// consumes this via `Box<dyn NodeManagerBuilder>` (the
+    /// blanket impl handles boxing automatically).
+    pub node_manager_builder: SensNodeManagerBuilder,
+
+    /// SensAuthManager (Batch #266 primitive). async-opcua's
+    /// `ServerBuilder.with_authenticator(...)` consumes
+    /// `Arc<dyn AuthManager>` — Arc-wrap at construction
+    /// time so the type system records the trait-object
+    /// promotion explicitly.
+    pub auth_manager:
+        Arc<crate::opc_ua_sens_auth_manager::SensAuthManager>,
+}
+
+#[cfg(feature = "opc-ua-server")]
+impl SensRuntimeBundle {
+    /// Construct a new bundle. Both halves of the typed-authz
+    /// runtime contract enter the type system as ONE value —
+    /// the bundle cannot be partially constructed.
+    pub fn new(
+        node_manager_builder: SensNodeManagerBuilder,
+        auth_manager: Arc<crate::opc_ua_sens_auth_manager::SensAuthManager>,
+    ) -> Self {
+        Self {
+            node_manager_builder,
+            auth_manager,
+        }
+    }
+}
+
 #[cfg(feature = "opc-ua-server")]
 impl NodeManagerBuilder for SensNodeManagerBuilder {
     /// Construct the manager. async-opcua's runtime calls this

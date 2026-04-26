@@ -4740,6 +4740,7 @@ async fn run_agent(
             force_registry_for_opcua,
             audit_sink_for_opcua,
             rbac_store_for_opcua,
+            user_token_store_for_opcua,
             tenant_id_str,
         ) = {
             let s = state.read().await;
@@ -4750,6 +4751,7 @@ async fn run_agent(
                 s.force_registry.clone(),
                 s.audit_sink.clone(),
                 s.rbac_manifest_store.clone(),
+                s.user_token_manifest_store.clone(),
                 s.tenant_id.clone(),
             )
         };
@@ -4770,6 +4772,7 @@ async fn run_agent(
                 audit_sink: audit_sink_for_opcua,
                 tenant: tenant_opt,
                 rbac_manifest_store: rbac_store_for_opcua,
+                user_token_manifest_store: user_token_store_for_opcua,
                 license: &license_for_opcua,
             },
         )

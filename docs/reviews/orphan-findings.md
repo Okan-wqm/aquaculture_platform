@@ -546,7 +546,7 @@ $ grep -l "sens-api-gateway\|cargo" .github/workflows/*.yml
 
 ## ORPHAN-MEDIUM-019 — `CommandEnvelope` wire format lacks `claimed_policy_version` field; rollback-defense gate degraded (2026-04-24)
 
-**Status:** OPEN (architectural; envelope schema extension required).
+**Status:** RESOLVED in Batch #295 (commit df67d81e, registry entry ULTRA-MEDIUM-044). Field added with `#[serde(default)]` for v1 wire backward-compat; bound into envelope_canonical_bytes v2 encoding; domain separator tag bumped to `command-envelope-sig-v2`; CommandDispatcher::run reads `env.claimed_policy_version` directly with debug_assert against the legacy parameter for callsite-drift detection. Rollback-replay defense now enforced end-to-end: an attacker that mutates `env.claimed_policy_version` post-signature will FAIL signature verify; the engine compares the trusted claim against `highest_seen` per ADR-018 §9.
 
 **Scope:** `sens-api-gateway/src/command_envelope/envelope.rs:86` `CommandEnvelope` struct. Canonical plan §3 R-5 + `authz::policy::AuthorizationRequest::claimed_policy_version` (monotonic rollback defense per ADR-018 §9) expect every command to claim the policy version the operator signed against. The current wire format carries `{cmd, params, actor, tenant_id, iat, exp, jti, nonce, cmd_hash, signature}` — `claimed_policy_version` absent.
 

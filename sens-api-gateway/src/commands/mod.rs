@@ -52,6 +52,14 @@ mod verify_signed_manifest;
 mod apply_signed_manifest;
 mod refresh_license;
 mod deploy_bytecode_program;
+// Batch #299 ORPHAN-HIGH-020 closure: cmd_deploy_st_source —
+// operator-signed ST source MQTT command handler. Parallel to
+// deploy_bytecode_program but takes raw .st source via
+// SignedStSource envelope (Batch #297 primitive), runs through
+// compile_and_deploy_signed_source (Batch #298 adapter) which
+// internally orchestrates verify+parse+compile+deploy. Same
+// AppState read-guard discipline as deploy_bytecode_program.
+mod deploy_st_source;
 mod bytecode_ops;
 mod force_commands;
 mod watch_commands;

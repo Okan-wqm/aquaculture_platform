@@ -135,6 +135,15 @@ pub(crate) fn permission_for_command(cmd: &str, params: &Value) -> Option<Permis
         // -----------------------------------------------------------------
         "deploy_script"
         | "deploy_program"
+        | "deploy_bytecode_program"
+        // Batch #299 ORPHAN-HIGH-020 closure: deploy_st_source
+        // (operator-signed ST source path) requires the same
+        // DeployProgram permission as the bytecode + script
+        // paths — all three are functionally equivalent
+        // "operator pushes a runnable program to the edge",
+        // distinguished only by the wire-format / pre-compile
+        // boundary. Same RBAC class.
+        | "deploy_st_source"
         | "deploy_to_codesys"
         | "deploy_auto"
         | "plc_upload" => Some(Permission::DeployProgram),

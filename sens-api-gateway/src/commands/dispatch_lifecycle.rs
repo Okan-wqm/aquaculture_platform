@@ -282,6 +282,12 @@ impl super::CommandHandler {
             "refresh_license" => self.cmd_refresh_license(&command.params).await,
             // ST bytecode program deploy (Batch 167 Faz 3)
             "deploy_bytecode_program" => self.cmd_deploy_bytecode_program(&command.params).await,
+            // Batch #299 ORPHAN-HIGH-020 closure: ST source
+            // deploy. Parallel entry point to
+            // deploy_bytecode_program — operators ship raw .st
+            // source via SignedStSource envelope; edge runs
+            // verify+parse+compile+deploy internally.
+            "deploy_st_source" => self.cmd_deploy_st_source(&command.params).await,
             // ST bytecode program operator commands (Batch 173 Faz 3)
             "list_bytecode_programs" => self.cmd_list_bytecode_programs(&command.params).await,
             "enable_bytecode_program" => self.cmd_enable_bytecode_program(&command.params).await,

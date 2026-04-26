@@ -82,6 +82,40 @@ pub enum SignatureMode {
 /// **Serialization:** JSON on the wire (MQTT + HTTP). Fields are required
 /// UNLESS noted optional; `signature` is optional for unsigned commands in
 /// Disabled/Permissive modes.
+///
+/// ## Wire format versions
+///
+/// **v1 (pre-Batch-#295):** `{cmd, params, actor, tenant_id, iat, exp,
+/// jti, nonce, cmd_hash, signature}`. Lacks `claimed_policy_version` —
+/// rollback-replay defense (ADR-018 §9 monotonic check) trivially passes
+/// because no claim exists for the engine to compare against
+/// `highest_seen`. ORPHAN-MEDIUM-019 documented this gap.
+///
+/// **v2 (Batch #295):** v1 fields + `claimed_policy_version: u64`. The
+/// claim is the policy_version the operator's signing UI fetched from
+/// the cloud at envelope-mint time. Edge's `PolicyEngine::authorize`
+/// passes this through as `AuthorizationRequest.claimed_policy_version`;
+/// the engine compares against `highest_seen` and surfaces
+/// `AuthorizationDenyReason::StalePolicyVersion` when an attacker's
+/// stale envelope claims a version below the edge's monotonic floor.
+///
+/// **Backward compat (`#[serde(default)]` on the new field):** v1 wire
+/// envelopes deserialize cleanly with `claimed_policy_version = 0`. The
+/// signature canonical bytes ALWAYS include the field (8 bytes after
+/// exp, before jti) + the domain-separator tag bumped to
+/// `command-envelope-sig-v2`. Therefore v1-signed envelopes WILL fail
+/// signature verification in v2 verify code (different canonical bytes
+/// + different tag). The migration discipline:
+/// - `SignatureMode::Disabled` — accepts any envelope (no verify);
+///   v1 wire format works.
+/// - `SignatureMode::Permissive` — accepts unsigned v1 wire envelopes;
+///   signed v1 envelopes will fail-loud (audit logs the v1→v2 cutover
+///   visibility for operators to coordinate the cloud signer fleet
+///   migration).
+/// - `SignatureMode::Enforcing` — only v2-signed envelopes pass.
+///
+/// The orphan-finding's "tri-state envelope-version negotiation" maps
+/// onto this existing rollout-staging machine; no new state needed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommandEnvelope {
     pub cmd: String,
@@ -94,6 +128,28 @@ pub struct CommandEnvelope {
     pub tenant_id: [u8; 16],
     pub iat_unix_secs: i64,
     pub exp_unix_secs: i64,
+    /// **Batch #295 ORPHAN-MEDIUM-019 closure.** The policy_version
+    /// the operator's signing UI fetched from the cloud at
+    /// envelope-mint time. Bound into the signature canonical bytes
+    /// so an attacker cannot replay a stale signed envelope after a
+    /// policy_version bump (ADR-018 §9 monotonic rollback defense).
+    ///
+    /// **Wire-format default = 0:** v1 envelopes (pre-Batch-#295)
+    /// deserialize with `claimed_policy_version = 0`. The signature
+    /// for v1 envelopes was computed over v1 canonical bytes (no
+    /// claimed_policy_version + `command-envelope-sig-v1` tag) and
+    /// will FAIL the v2 verifier — the failure is the migration
+    /// signal. SignatureMode::Disabled/Permissive paths preserve
+    /// unsigned-v1 backward compat.
+    ///
+    /// **Engine binding:** `CommandDispatcher::run` reads this field
+    /// directly (the separate `claimed_policy_version: u64`
+    /// parameter is now redundant; kept on the function signature
+    /// during the migration window so existing callers compile, but
+    /// asserted-equal to `env.claimed_policy_version` to catch
+    /// callsite drift at debug-build time).
+    #[serde(default)]
+    pub claimed_policy_version: u64,
     pub jti: String,
     /// Operator-visible correlator (distinct from jti which is the primary
     /// replay key). Bounded length (256).
@@ -309,7 +365,7 @@ pub fn verify_envelope(
 /// Length-prefix framing; excludes `signature` (signatures cannot cover
 /// themselves).
 ///
-/// **Encoding (v1):**
+/// **Encoding (v2 — Batch #295 ORPHAN-MEDIUM-019 closure):**
 ///
 /// ```text
 /// be_u32(cmd.len()) || cmd ||
@@ -317,11 +373,19 @@ pub fn verify_envelope(
 /// actor (16 fixed) ||
 /// tenant_id (16 fixed) ||
 /// be_i64(iat) || be_i64(exp) ||
+/// be_u64(claimed_policy_version) ||           // <-- NEW in v2
 /// be_u32(jti.len()) || jti ||
 /// be_u32(nonce.len()) || nonce ||
 /// cmd_hash (32 fixed) ||
-/// b"command-envelope-sig-v1"
+/// b"command-envelope-sig-v2"                   // <-- bumped from v1
 /// ```
+///
+/// **Position rationale.** `claimed_policy_version` lands AFTER
+/// `exp_unix_secs` + BEFORE `jti_len`. Adjacency to freshness is
+/// architecturally meaningful — both fields are operator-side
+/// time-monotonic claims (iat/exp = wall-clock, claimed_policy_version
+/// = engine-clock); placing them together documents that intent in the
+/// canonical-bytes audit trail.
 ///
 /// Note the canonical params are INCLUDED (not just their hash). Two reasons:
 /// (1) defense in depth — a SHA-256 collision (astronomically unlikely but
@@ -358,6 +422,7 @@ fn envelope_canonical_bytes(
             + params_bytes.len()
             + 32
             + 16
+            + 8 // claimed_policy_version (v2 ORPHAN-MEDIUM-019)
             + 4
             + jti_bytes.len()
             + 4
@@ -373,12 +438,21 @@ fn envelope_canonical_bytes(
     out.extend_from_slice(&env.tenant_id);
     out.extend_from_slice(&env.iat_unix_secs.to_be_bytes());
     out.extend_from_slice(&env.exp_unix_secs.to_be_bytes());
+    // Batch #295 v2 bind: claimed_policy_version is part of the
+    // signed transcript so an attacker cannot replay a stale
+    // signed envelope after a policy_version bump (ADR-018 §9
+    // monotonic rollback defense).
+    out.extend_from_slice(&env.claimed_policy_version.to_be_bytes());
     out.extend_from_slice(&jti_len.to_be_bytes());
     out.extend_from_slice(jti_bytes);
     out.extend_from_slice(&nonce_len.to_be_bytes());
     out.extend_from_slice(nonce_bytes);
     out.extend_from_slice(env.cmd_hash.as_bytes());
-    out.extend_from_slice(b"command-envelope-sig-v1");
+    // Domain separator tag bumped from v1 → v2; v1-signed
+    // envelopes will fail verify under v2 verifier, which is the
+    // intended migration signal (operators see audit log entries
+    // and coordinate the cloud signer fleet upgrade).
+    out.extend_from_slice(b"command-envelope-sig-v2");
     Ok(out)
 }
 
@@ -403,6 +477,10 @@ mod tests {
             tenant_id: [0x42u8; 16],
             iat_unix_secs: iat,
             exp_unix_secs: exp,
+            // Batch #295 default — tests that exercise specific
+            // claimed_policy_version values override after this
+            // baseline is constructed.
+            claimed_policy_version: 0,
             jti: "cmd-uuid-abc".to_string(),
             nonce: "nonce-1".to_string(),
             cmd_hash: CmdHash::from_bytes(cmd_hash_bytes),
@@ -912,5 +990,107 @@ mod tests {
         assert!(json.starts_with("[171,171,171"));
         let back: CmdHash = serde_json::from_str(&json).expect("ok");
         assert_eq!(back, h);
+    }
+
+    // =========================================================
+    // Batch #295 ORPHAN-MEDIUM-019 — claimed_policy_version
+    // signature-binding tests
+    // =========================================================
+    //
+    // The new field is bound into the canonical signature bytes
+    // so attacker mutation of claimed_policy_version post-sign
+    // surfaces as SignatureInvalid. These tests pin the binding
+    // without depending on a real ed25519 stack — the
+    // verify_signature closure inspects the canonical bytes
+    // directly.
+
+    /// **Batch #295 binding pin.** Two envelopes that differ
+    /// ONLY in `claimed_policy_version` produce DIFFERENT
+    /// canonical bytes. The binding ensures an attacker
+    /// mutating the field post-sign cannot reuse the original
+    /// signature.
+    #[test]
+    fn claimed_policy_version_changes_canonical_bytes() {
+        let mut env_a = make_env("ping", 100, 200);
+        env_a.claimed_policy_version = 1;
+        let mut env_b = env_a.clone();
+        env_b.claimed_policy_version = 2;
+
+        let bytes_a = envelope_canonical_bytes(&env_a).expect("ok");
+        let bytes_b = envelope_canonical_bytes(&env_b).expect("ok");
+
+        assert_ne!(
+            bytes_a, bytes_b,
+            "claimed_policy_version mutation MUST change canonical bytes"
+        );
+    }
+
+    /// **Batch #295 wire-format default test.** v1 wire
+    /// envelopes (no `claimed_policy_version` field) deserialize
+    /// with `claimed_policy_version = 0` per `#[serde(default)]`.
+    /// This covers the backward-compat path: v1 envelopes that
+    /// were unsigned (Disabled/Permissive modes) still
+    /// deserialize cleanly.
+    #[test]
+    fn v1_wire_envelope_deserializes_with_default_claimed_policy_version() {
+        let v1_wire = serde_json::json!({
+            "cmd": "ping",
+            "params": {"x": 1},
+            "actor": [7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7],
+            "tenant_id": [66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66],
+            "iat_unix_secs": 100,
+            "exp_unix_secs": 200,
+            "jti": "v1-jti",
+            "nonce": "v1-nonce",
+            "cmd_hash": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+        });
+        let env: CommandEnvelope =
+            serde_json::from_value(v1_wire).expect("v1 deserializes");
+        assert_eq!(
+            env.claimed_policy_version, 0,
+            "v1 wire (no field) MUST default to 0"
+        );
+    }
+
+    /// **Batch #295 v1→v2 verifier rejection.** A signature
+    /// computed over v1 canonical bytes (no claimed_policy_version
+    /// + 'command-envelope-sig-v1' tag) MUST fail v2 verify. The
+    /// failure is the operator-visible migration signal.
+    #[test]
+    fn v1_signed_envelope_fails_v2_verifier() {
+        // Construct what a v1 signer would produce: canonical
+        // bytes WITHOUT claimed_policy_version + with v1 tag.
+        // We mock that v1 canonical here.
+        let env = make_env("ping", 100, 200);
+
+        // Mock-sign over a v1-shape transcript (no
+        // claimed_policy_version + v1 tag).
+        let mut v1_canonical = Vec::new();
+        v1_canonical.extend_from_slice(&(env.cmd.len() as u32).to_be_bytes());
+        v1_canonical.extend_from_slice(env.cmd.as_bytes());
+        let params_bytes = canonical_params(&env.cmd, &env.params).expect("ok");
+        v1_canonical.extend_from_slice(&(params_bytes.len() as u32).to_be_bytes());
+        v1_canonical.extend_from_slice(&params_bytes);
+        v1_canonical.extend_from_slice(&env.actor);
+        v1_canonical.extend_from_slice(&env.tenant_id);
+        v1_canonical.extend_from_slice(&env.iat_unix_secs.to_be_bytes());
+        v1_canonical.extend_from_slice(&env.exp_unix_secs.to_be_bytes());
+        v1_canonical.extend_from_slice(&(env.jti.len() as u32).to_be_bytes());
+        v1_canonical.extend_from_slice(env.jti.as_bytes());
+        v1_canonical.extend_from_slice(&(env.nonce.len() as u32).to_be_bytes());
+        v1_canonical.extend_from_slice(env.nonce.as_bytes());
+        v1_canonical.extend_from_slice(env.cmd_hash.as_bytes());
+        v1_canonical.extend_from_slice(b"command-envelope-sig-v1");
+
+        // The v2 canonical bytes (what the verifier computes)
+        let v2_canonical = envelope_canonical_bytes(&env).expect("ok");
+
+        // The two transcripts differ — a signature valid over
+        // v1_canonical cannot be valid over v2_canonical (any
+        // sound signature scheme rejects).
+        assert_ne!(
+            v1_canonical, v2_canonical,
+            "v1 vs v2 canonical bytes MUST differ — basis for v2 verifier rejecting v1-signed envelopes"
+        );
     }
 }

@@ -312,12 +312,22 @@ impl CommandDispatcher {
     /// - `jti` — validated JTI from envelope.
     /// - `actor` — resolved from `env.actor` (UUID → RBAC manifest
     ///   operator_id lookup); caller owns the resolver.
-    /// - `claimed_policy_version` — see module doc. Today the caller
-    ///   passes `engine.current_policy_version()` because the wire
-    ///   format lacks a claim field; ORPHAN-MEDIUM-019 tracks the
-    ///   envelope extension.
+    /// - `claimed_policy_version` — DEPRECATED parameter; kept on the
+    ///   signature during the migration window so existing callers
+    ///   compile, but ASSERTED equal to `env.claimed_policy_version`
+    ///   at debug-build time to catch callsite drift. Production
+    ///   reads `env.claimed_policy_version` directly (Batch #295
+    ///   ORPHAN-MEDIUM-019 closure). A future Batch deletes this
+    ///   parameter once all callers have been migrated.
     /// - `received_at` — monotonic-safe clock read at envelope
     ///   ingress (pre-dispatch).
+    ///
+    /// **Wire status (Batch #295):** the envelope's
+    /// `claimed_policy_version` field is now bound into the signed
+    /// canonical bytes (envelope.rs `envelope_canonical_bytes` v2
+    /// encoding). An attacker that mutates `env.claimed_policy_version`
+    /// post-signature will FAIL signature verify; consumers can trust
+    /// `env.claimed_policy_version` after `verify_envelope` returns Ok.
     pub async fn run(
         &self,
         env: &CommandEnvelope,
@@ -326,6 +336,18 @@ impl CommandDispatcher {
         claimed_policy_version: u64,
         received_at: SystemTime,
     ) -> Result<HandlerResponse, DispatchError> {
+        // Batch #295 migration safety: catch callsites that pass a
+        // claimed_policy_version diverging from the envelope's bound
+        // claim. Once all callers thread `env.claimed_policy_version`
+        // explicitly, the separate parameter can be deleted.
+        debug_assert_eq!(
+            claimed_policy_version,
+            env.claimed_policy_version,
+            "Batch #295 ORPHAN-MEDIUM-019 invariant: caller's \
+             claimed_policy_version must equal env.claimed_policy_version \
+             (the envelope claim is signature-bound; the separate \
+             parameter is a transition-window legacy)"
+        );
         let handler = self
             .handlers
             .get(env.cmd.as_str())
@@ -337,7 +359,7 @@ impl CommandDispatcher {
                 meta,
                 actor,
                 self.tenant.clone(),
-                claimed_policy_version,
+                env.claimed_policy_version,
                 received_at,
                 &*self.engine,
             )
@@ -372,6 +394,7 @@ mod tests {
             tenant_id: [0x42u8; 16],
             iat_unix_secs: 1_700_000_000,
             exp_unix_secs: 1_700_001_000,
+            claimed_policy_version: 0,
             jti: "01HZAAAAAAAAAAAAAAAAAAAAAA".to_string(),
             nonce: "test-nonce".to_string(),
             cmd_hash: CmdHash::from_bytes([0u8; 32]),
@@ -495,7 +518,7 @@ mod tests {
         let env = canned_envelope("ghost_cmd", serde_json::json!({}));
         let jti = Jti::try_new(env.jti.clone()).unwrap();
         let result = d
-            .run(&env, jti, canned_actor(), 10, UNIX_EPOCH)
+            .run(&env, jti, canned_actor(), env.claimed_policy_version, UNIX_EPOCH)
             .await;
         match result {
             Err(DispatchError::UnknownCommand(cmd)) => {
@@ -516,7 +539,7 @@ mod tests {
         let env = canned_envelope("read_tag", serde_json::json!({"typo": "x"}));
         let jti = Jti::try_new(env.jti.clone()).unwrap();
         let result = d
-            .run(&env, jti, canned_actor(), 10, UNIX_EPOCH)
+            .run(&env, jti, canned_actor(), env.claimed_policy_version, UNIX_EPOCH)
             .await;
         match result {
             Err(DispatchError::PayloadInvalid(_)) => {}
@@ -537,7 +560,7 @@ mod tests {
         let env = canned_envelope("read_tag", serde_json::json!({"tag": "do_pump"}));
         let jti = Jti::try_new(env.jti.clone()).unwrap();
         let result = d
-            .run(&env, jti, canned_actor(), 10, UNIX_EPOCH)
+            .run(&env, jti, canned_actor(), env.claimed_policy_version, UNIX_EPOCH)
             .await;
         match result {
             Err(DispatchError::Denied(AuthorizationDenyReason::PermissionNotGranted)) => {}
@@ -558,7 +581,7 @@ mod tests {
         let env = canned_envelope("read_tag", serde_json::json!({"tag": "do_pump"}));
         let jti = Jti::try_new(env.jti.clone()).unwrap();
         let result = d
-            .run(&env, jti, canned_actor(), 10, UNIX_EPOCH)
+            .run(&env, jti, canned_actor(), env.claimed_policy_version, UNIX_EPOCH)
             .await;
         match result {
             Err(DispatchError::EngineError(PolicyEngineError::ManifestUnavailable)) => {}
@@ -577,7 +600,7 @@ mod tests {
         let env = canned_envelope("read_tag", serde_json::json!({"tag": "do_pump"}));
         let jti = Jti::try_new(env.jti.clone()).unwrap();
         let resp = d
-            .run(&env, jti, canned_actor(), 10, UNIX_EPOCH)
+            .run(&env, jti, canned_actor(), env.claimed_policy_version, UNIX_EPOCH)
             .await
             .expect("allow path");
         assert_eq!(resp.payload["tag"], "do_pump");
@@ -626,7 +649,7 @@ mod tests {
         let env = canned_envelope("write_tag", serde_json::json!({"tag": "pond3_aerator"}));
         let jti = Jti::try_new(env.jti.clone()).unwrap();
         let _ = d
-            .run(&env, jti, canned_actor(), 10, UNIX_EPOCH)
+            .run(&env, jti, canned_actor(), env.claimed_policy_version, UNIX_EPOCH)
             .await
             .unwrap();
         let perm = captured.lock().unwrap().clone().unwrap();
@@ -669,7 +692,7 @@ mod tests {
         let env = canned_envelope("always_fail", serde_json::json!({"_tag": "x"}));
         let jti = Jti::try_new(env.jti.clone()).unwrap();
         let result = d
-            .run(&env, jti, canned_actor(), 10, UNIX_EPOCH)
+            .run(&env, jti, canned_actor(), env.claimed_policy_version, UNIX_EPOCH)
             .await;
         match result {
             Err(DispatchError::Handler(HandlerError::SideEffectFailed { reason })) => {

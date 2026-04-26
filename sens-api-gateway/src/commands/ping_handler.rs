@@ -206,6 +206,12 @@ mod tests {
             tenant_id: [0x42u8; 16],
             iat_unix_secs: 1_500_000_000,
             exp_unix_secs: 1_500_001_000,
+            // Batch #295 ORPHAN-MEDIUM-019 closure: tests use the
+            // canned engine version (10) so the rollback-defense
+            // gate (claimed >= highest_seen) passes. Tests that
+            // exercise the StalePolicyVersion deny path override
+            // this baseline to a value < highest_seen.
+            claimed_policy_version: 10,
             jti: "01HZAAAAAAAAAAAAAAAAAAAAAA".into(),
             nonce: "ping-test".into(),
             cmd_hash: CmdHash::from_bytes([0u8; 32]),
@@ -278,7 +284,7 @@ mod tests {
                 &env,
                 jti,
                 ActorIdentity::Operator(canned_operator()),
-                10,
+                env.claimed_policy_version,
                 UNIX_EPOCH + Duration::from_secs(1_500_000_000),
             )
             .await
@@ -302,7 +308,7 @@ mod tests {
                 &env,
                 jti,
                 ActorIdentity::Operator(canned_operator()),
-                10,
+                env.claimed_policy_version,
                 UNIX_EPOCH + Duration::from_secs(1_500_000_000),
             )
             .await;
@@ -328,7 +334,7 @@ mod tests {
                 &env,
                 jti,
                 ActorIdentity::Operator(stranger),
-                10,
+                env.claimed_policy_version,
                 UNIX_EPOCH + Duration::from_secs(1_500_000_000),
             )
             .await;
@@ -360,7 +366,7 @@ mod tests {
                 &env,
                 jti,
                 ActorIdentity::Operator(canned_operator()),
-                10,
+                env.claimed_policy_version,
                 UNIX_EPOCH + Duration::from_secs(1_500_000_000),
             )
             .await;

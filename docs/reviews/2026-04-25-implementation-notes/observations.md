@@ -507,6 +507,54 @@ next drift surfaces at PR time, not at the next baseline-cleanup PR.
 
 ---
 
+## 23. gateway-api spec config has 115 pre-existing TS errors
+
+**File:** `apps/gateway-api/tsconfig.spec.json` scope
+**Context:** Discovered during PR-22 (Phase S1.4 composition guard).
+**Observation:** Same pattern as sensor-service §15 / pre-#146
+farm-module. The new `supergraph-composition.spec.ts` from PR-22
+itself produces 0 errors; this is the residual baseline.
+
+**Severity:** MEDIUM. Tests RUN today (ts-jest passes), but type-
+side regressions don't surface at PR time.
+
+**Suggested fix path:** mirror PR #146 / PR #162 — each error a
+root-cause repair, no silencer escapes. Architectural cross-service
+recommendation reaches its third surface here: the monorepo needs
+ONE `nx run-many --target=type-check-spec` CI gate that runs
+across every service so this drift can't accumulate silently in
+the next service either.
+
+---
+
+## 24. PR-22 ships in-process composition guard (RESOLVED)
+
+**File:** `apps/gateway-api/src/__tests__/e2e/supergraph-composition.spec.ts`
+**Context:** Phase S1.4 (PR-22).
+**Observation:** Composition guard test pins federation invariants
+introduced by PR #150 (event v3) + PR #152 (`@key` directives):
+
+- `Sensor` carries `@key(fields: "id")`
+- `SensorReading` carries `@key(fields: "id")`
+- `Tank` carries `@key(fields: "id")` (pre-existing baseline)
+- Two-subgraph supergraph composes without errors
+
+5 tests: 4 positive-path + 1 negative-path. The negative-path test
+pins what "accidentally removed @key" looks like to CI so a future
+regression triggers a clear narrative, not a generic "composition
+failed".
+
+**SDL fixture posture:** minimal stub SDL (federation invariants
+only, not the full schema). Full-schema runtime composition is
+the nightly C1 e2e job's concern. Two-layer defence — C2 (this
+test) catches schema-shape regressions at PR time, C1 catches
+resolver-runtime issues nightly.
+
+**Severity:** RESOLVED in PR-22. Closes the safety-net half of
+INFRA-MEDIUM-016.
+
+---
+
 ## Closing posture
 
 This file lives at:

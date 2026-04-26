@@ -57,29 +57,29 @@
 
 use std::sync::Arc;
 
-use opcua::nodes::{AccessLevel, VariableBuilder};
-use opcua::server::diagnostics::NamespaceMetadata;
-use opcua::server::node_manager::memory::{simple_node_manager, SimpleNodeManager};
+// Batch #294 A-2b 5e FULL closure: simple_node_manager +
+// SimpleNodeManager + AccessLevel + VariableBuilder +
+// NamespaceMetadata + LocalizedText/NodeId/ObjectId/
+// QualifiedName/StatusCode/ActorIdentity/OperatorId/
+// OpcUaTagNode/OpcUaWriteOutcome/PolicyEngineOpcUaAdapter
+// imports retired. SensNodeManager is the sole production
+// NodeManager; legacy fallback path deleted.
 use opcua::server::{
     ServerBuilder, ServerEndpoint, ServerHandle, ANONYMOUS_USER_TOKEN_ID,
 };
-use opcua::types::{
-    DataTypeId, LocalizedText, NodeId, ObjectId, QualifiedName, StatusCode, Variant,
-};
+use opcua::types::{DataTypeId, Variant};
 use tokio::task::JoinHandle;
 use tracing::{info, warn};
 
 use crate::audit::sink::AuditSink;
-use crate::authz::context::ActorIdentity;
 use crate::authz::in_memory_engine::InMemoryPolicyEngine;
 use crate::authz::manifest_runtime::RbacManifestStore;
-use crate::authz::permission::{OperatorId, TenantId};
+use crate::authz::permission::TenantId;
 use crate::config::OpcUaServerConfig;
 use crate::license::{check_opc_ua_server_gate, EdgeLicenseLimits, OpcUaServerGate};
 use crate::opc_ua_server::{
     AuditSinkOpcUaAdapter, ForceRegistryOpcUaAdapter, OpcUaAuditPort,
-    OpcUaTagNode, OpcUaTagRegistry, OpcUaWriteOutcome,
-    PolicyEngineOpcUaAdapter, PolicyVersionFn, ProcessImageOpcUaAdapter,
+    OpcUaTagRegistry, PolicyVersionFn, ProcessImageOpcUaAdapter,
 };
 use crate::process_image::ProcessImage;
 use crate::scripting::force_registry::ForceRegistry;
@@ -90,12 +90,11 @@ use crate::scripting::force_registry::ForceRegistry;
 /// coordinated client reconfiguration.
 pub const SUDERRA_NAMESPACE_URI: &str = "urn:suderra:edge";
 
-/// The async-opcua node-manager name used for the Suderra
-/// SimpleNodeManager. Multiple managers can coexist
-/// (core + diagnostics + ours); this name is the lookup
-/// key used by `get_of_type::<SimpleNodeManager>()` tiebreak
-/// logic when there's more than one.
-const SUDERRA_NODE_MANAGER_NAME: &str = "suderra-tags";
+// Batch #294 A-2b 5e FULL closure: SUDERRA_NODE_MANAGER_NAME
+// retired. The constant was the lookup key for
+// `get_of_type::<SimpleNodeManager>()` in the legacy
+// populate_tag_nodes path; with SimpleNodeManager removed,
+// the lookup-by-name machinery is dead code.
 
 /// Details of a single failed tag-node insertion. Batch
 /// 227 (E-3 closure) structures the previous `warn!`-only
@@ -236,38 +235,28 @@ impl std::error::Error for OpcUaServerStartError {}
 /// only reads-through pki_dir at server.build()/run() time,
 /// not at builder-construction time.
 ///
-/// **Batch #292 A-2b 5c runtime swap path.** The
-/// `sens_builder` parameter selects which NodeManager owns
-/// the Suderra namespace:
+/// **Batch #294 A-2b 5e FULL closure.** The legacy
+/// SimpleNodeManager fallback is RETIRED. `build_server` now
+/// takes a mandatory `SensRuntimeBundle` — there is no longer
+/// any path through this function that produces an
+/// anonymous-write-capable server. The Option type from
+/// Batch #292 was a migration phase; with `init_opc_ua_server`
+/// (post-Batch-#293) always supplying the bundle, the `None`
+/// branch became dead code + this batch deletes it.
 ///
-/// - `Some(builder)` → the new SensNodeManagerBuilder is
-///   registered (Batches #263-#291). Address-space population
-///   is automatic (virtual nodes via tag_registry); no
-///   `populate_tag_nodes` work required. Production callers
-///   that have all 8 dependency Arcs available
-///   (`init_opc_ua_server` in the post-Batch-#293 world)
-///   pass Some.
-/// - `None` → the legacy `simple_node_manager` path is
-///   registered. Tests + transitional callers (the current
-///   `init_opc_ua_server` body until Batch #293 wires the
-///   SensAuthManager) pass None. `populate_tag_nodes` then
-///   runs against the SimpleNodeManager.
+/// Tier-1 architectural shape: no Option, no fallback — the
+/// type signature literally cannot represent a missing-bundle
+/// boot. Callers that don't have a bundle (degraded boot
+/// state, tests of disabled paths) MUST fail-fast BEFORE
+/// reaching this function (see `init_opc_ua_server` for the
+/// fail-fast match arms).
 ///
-/// **Why an Option (not two functions).** Both paths emit
-/// identical `ServerBuilder` outputs that downstream callers
-/// (the `build()` consumer) drive uniformly. The switch is at
-/// `with_node_manager(...)` — one line. Splitting into two
-/// functions would duplicate the validation + builder
-/// configuration body. The Option encodes the migration
-/// phase explicitly: Batch #294 deletes the `None` branch
-/// once `init_opc_ua_server` always supplies the builder.
-///
-/// **Linked finding:** ULTRA-HIGH-035 PARTIAL_FIX (overall
-/// A-2b part 5). Closes the structural-prerequisite for
-/// Batch #293's `init_opc_ua_server` migration.
+/// **Linked findings:** ULTRA-HIGH-035 RESOLVED via this
+/// batch (A-2b part 5 closure). Production wire is now end-
+/// to-end typed-authz with no anonymous-write surface.
 pub fn build_server(
     config: &OpcUaServerConfig,
-    sens_bundle: Option<crate::opc_ua_sens_node_manager::SensRuntimeBundle>,
+    sens_bundle: crate::opc_ua_sens_node_manager::SensRuntimeBundle,
 ) -> Result<ServerBuilder, OpcUaServerStartError> {
     config
         .validate()
@@ -287,6 +276,13 @@ pub fn build_server(
 
     let discovery_url = format!("opc.tcp://{}:{}/", config.bind, config.port);
 
+    // Build the server with the SensNodeManager + SensAuthManager
+    // typed-authz extension points. Both halves of the bundle
+    // wire atomically — SensAuthManager produces UserToken in
+    // `sens:operator:<32-hex>` format that SensNodeManager.write()
+    // parses via `parse_operator_token`. Pre-Batch-#294 had a
+    // None branch falling back to `simple_node_manager` —
+    // retired in this batch.
     let mut builder = ServerBuilder::new()
         .application_name("suderra-edge")
         .application_uri(SUDERRA_NAMESPACE_URI)
@@ -297,56 +293,9 @@ pub fn build_server(
         .trust_client_certs(true)
         .pki_dir(&config.own_pki_dir)
         .add_endpoint("default", endpoint)
-        .discovery_urls(vec![discovery_url]);
-
-    // Batch #292 manager-selection switch + Batch #293
-    // SensAuthManager wire. The bundle carries BOTH the
-    // node-manager builder AND the auth manager so the
-    // typed-authz runtime contract is wired atomically (per
-    // SensRuntimeBundle docstring: missing the auth manager
-    // half would leave session-establish producing
-    // non-Suderra UserTokens that SensNodeManager.write()
-    // can't parse → silent fail-closed).
-    builder = match sens_bundle {
-        Some(bundle) => {
-            // New typed-authz path — SensNodeManager handles
-            // all 6 trait methods (init/owns_node/
-            // namespaces_for_user/read/write/browse) per
-            // Batches #263-#291. Namespace registration
-            // happens inside SensNodeManager.init() via
-            // `type_tree.namespaces_mut().add_namespace(...)`.
-            //
-            // SensAuthManager (Batch #266 primitive) handles
-            // the session-establish path — produces UserToken
-            // in `sens:operator:<32-hex>` format that
-            // SensNodeManager.write() parses via
-            // `parse_operator_token` to extract the typed
-            // AuthenticatedUser principal.
-            builder
-                .with_node_manager(bundle.node_manager_builder)
-                .with_authenticator(bundle.auth_manager)
-        }
-        None => {
-            // Legacy SimpleNodeManager path — kept for
-            // tests + transitional callers. Batch #294
-            // deletes this branch once init_opc_ua_server
-            // always supplies the SensNodeManagerBuilder.
-            //
-            // The simple-node-manager registers the Suderra
-            // namespace via NamespaceMetadata at
-            // construction time (NOT via init()) so
-            // populate_tag_nodes can resolve the index
-            // immediately after server.build().
-            let namespace_meta = NamespaceMetadata {
-                namespace_uri: SUDERRA_NAMESPACE_URI.to_owned(),
-                ..Default::default()
-            };
-            builder.with_node_manager(simple_node_manager(
-                namespace_meta,
-                SUDERRA_NODE_MANAGER_NAME,
-            ))
-        }
-    };
+        .discovery_urls(vec![discovery_url])
+        .with_node_manager(sens_bundle.node_manager_builder)
+        .with_authenticator(sens_bundle.auth_manager);
 
     // Batch 228 B-3 closure (partial): wire
     // config.max_sessions into the server-level Limits. The
@@ -424,9 +373,24 @@ pub(crate) fn map_suderra_data_type(
 /// once the sync→async escape (block_in_place) is wired; for
 /// Batch 217 writes land against the address-space cache but
 /// do not propagate to ProcessImage.
+/// **Batch #294 A-2b 5e FULL closure.** With the legacy
+/// SimpleNodeManager fallback retired, this function is no
+/// longer responsible for in-memory AddressSpace mutation —
+/// SensNodeManager (Batches #263-#291) resolves tags
+/// virtually via `tag_registry` (browse() / read() / write()
+/// trait methods). The function is kept as a thin shape
+/// preserving the public API (SuderraOpcUaHandle.population
+/// still surfaces `Option<AddressSpacePopulationSummary>` for
+/// boot-log clarity) but now returns an empty-summary that
+/// reports the assigned namespace_index + 0 nodes added.
+///
+/// A future Batch may delete this function entirely + change
+/// SuderraOpcUaHandle.population to None unconditionally;
+/// today it stays in-tree as the operator-visible signal that
+/// the namespace registration succeeded.
 pub fn populate_tag_nodes(
     handle: &ServerHandle,
-    registry: &OpcUaTagRegistry,
+    _registry: &OpcUaTagRegistry,
 ) -> Result<AddressSpacePopulationSummary, String> {
     let namespace_index = handle
         .get_namespace_index(SUDERRA_NAMESPACE_URI)
@@ -436,105 +400,14 @@ pub fn populate_tag_nodes(
                 SUDERRA_NAMESPACE_URI
             )
         })?;
-
-    // Batch #292 A-2b 5c runtime swap path: when
-    // SensNodeManagerBuilder is the active manager (Batches
-    // #263-#291 typed-authz path), there is no
-    // SimpleNodeManager + no in-memory AddressSpace to
-    // populate. SensNodeManager.browse() resolves tags
-    // virtually from tag_registry (Batch #288), so
-    // populate_tag_nodes has nothing to do. We detect this
-    // by querying the NodeManagers registry for a
-    // SimpleNodeManager + return an empty summary with the
-    // assigned namespace_index when none is present.
-    //
-    // The "0 variable_nodes_added" reported here does NOT
-    // mean tags are missing from HMI browse responses — it
-    // means SensNodeManager exposes them virtually instead.
-    // The boot-log message in init_opc_ua_server documents
-    // this.
-    let node_manager = match handle
-        .node_managers()
-        .get_of_type::<SimpleNodeManager>()
-    {
-        Some(nm) => nm,
-        None => {
-            // SensNodeManager active — virtual nodes path.
-            return Ok(AddressSpacePopulationSummary {
-                namespace_index,
-                variable_nodes_added: 0,
-                writable_nodes: 0,
-                insertion_failures: Vec::new(),
-            });
-        }
-    };
-
-    let address_space_arc = node_manager.address_space().clone();
-    let mut address_space = address_space_arc.write();
-
-    // Top-level Suderra folder under Objects. The OPC UA
-    // ObjectsFolder is the well-known root every HMI
-    // browses under at session start.
-    let suderra_folder_id = NodeId::new(namespace_index, "Suderra");
-    let suderra_added = address_space.add_folder(
-        &suderra_folder_id,
-        QualifiedName::new(namespace_index, "Suderra"),
-        LocalizedText::from("Suderra Edge Agent"),
-        &ObjectId::ObjectsFolder.into(),
-    );
-    if !suderra_added {
-        return Err("failed to insert Objects/Suderra folder".to_string());
-    }
-
-    // Objects/Suderra/Tags subfolder — plan §5 Faz 5 step 2
-    // canonical path.
-    let tags_folder_id = NodeId::new(namespace_index, "Tags");
-    let tags_added = address_space.add_folder(
-        &tags_folder_id,
-        QualifiedName::new(namespace_index, "Tags"),
-        LocalizedText::from("Tags"),
-        &suderra_folder_id,
-    );
-    if !tags_added {
-        return Err("failed to insert Objects/Suderra/Tags folder".to_string());
-    }
-
-    let mut variable_nodes_added = 0usize;
-    let mut writable_nodes = 0usize;
-    let mut insertion_failures: Vec<TagInsertionFailure> = Vec::new();
-
-    for node in registry.iter() {
-        match insert_tag_variable(
-            &mut *address_space,
-            namespace_index,
-            &tags_folder_id,
-            node,
-        ) {
-            TagInsertOutcome::Inserted { writable } => {
-                variable_nodes_added += 1;
-                if writable {
-                    writable_nodes += 1;
-                }
-            }
-            TagInsertOutcome::Failed => {
-                warn!(
-                    "opc_ua populate: failed to insert tag `{}` (BrowseName `{}`) — NodeId collision?",
-                    node.tag_name, node.browse_name
-                );
-                insertion_failures.push(TagInsertionFailure {
-                    tag_name: node.tag_name.clone(),
-                    browse_name: node.browse_name.clone(),
-                    reason: "address_space_insert_rejected",
-                });
-            }
-        }
-    }
-
+    // SensNodeManager surfaces tags via browse(), not via
+    // an in-memory AddressSpace. Empty summary == correct
+    // shape for the typed-authz runtime.
     Ok(AddressSpacePopulationSummary {
         namespace_index,
-        variable_nodes_added,
-        writable_nodes,
-        insertion_failures,
+        variable_nodes_added: 0,
+        writable_nodes: 0,
+        insertion_failures: Vec::new(),
     })
 }
 
@@ -542,101 +415,17 @@ pub fn populate_tag_nodes(
 // Batch 218 Faz 5 — AppState boot-path init helper
 // ============================================================
 
-/// Parse an OPC UA session-layer actor string into the
-/// `authz::ActorIdentity` the PolicyEngine consumes. Batch
-/// 224 (partial closure of gap A-2): the session-context
-/// threading for SimpleNodeManager callbacks still forces
-/// every actor to the literal `"opc-ua-anonymous"` string
-/// (plan-specified anonymous-only-first-release). This
-/// parser anticipates the Batch 225+ custom NodeManager
-/// that will pass through U/P + X509 session identity.
-///
-/// Conventions:
-/// - `"opc-ua-anonymous"` → `None` (unresolvable; fail-
-///   closed at adapter boundary → write denied)
-/// - `"op:<hex32>"` → `ActorIdentity::Operator(OperatorId)`
-///   with the 32-hex-char blob decoded to `[u8; 16]`
-/// - `"svc:<cn>"` → `ActorIdentity::MachineIssuer {
-///   subject_cn: cn }`. Note: machine issuers are NOT in
-///   the RBAC manifest's operator_bindings (they
-///   authenticate via mTLS); InMemoryPolicyEngine denies
-///   them per plan R-5 (Batch 223 Gate 6) so this branch
-///   is documentation-complete but currently yields a
-///   silent deny in practice.
-/// - anything else → `None`
-pub(crate) fn parse_opc_ua_session_actor(
-    actor: &str,
-) -> Option<ActorIdentity> {
-    if actor == "opc-ua-anonymous" {
-        return None;
-    }
-    if let Some(hex) = actor.strip_prefix("op:") {
-        if hex.len() != 32 {
-            return None;
-        }
-        let mut out = [0u8; 16];
-        for (i, pair) in hex.as_bytes().chunks_exact(2).enumerate() {
-            let hi = hex_nibble(pair[0])?;
-            let lo = hex_nibble(pair[1])?;
-            out[i] = (hi << 4) | lo;
-        }
-        return Some(ActorIdentity::Operator(OperatorId::new_from_verified(
-            out,
-        )));
-    }
-    if let Some(cn) = actor.strip_prefix("svc:") {
-        if cn.is_empty() {
-            return None;
-        }
-        return Some(ActorIdentity::MachineIssuer {
-            subject_cn: cn.to_string(),
-        });
-    }
-    None
-}
-
-fn hex_nibble(b: u8) -> Option<u8> {
-    match b {
-        b'0'..=b'9' => Some(b - b'0'),
-        b'a'..=b'f' => Some(b - b'a' + 10),
-        b'A'..=b'F' => Some(b - b'A' + 10),
-        _ => None,
-    }
-}
-
-/// Tracing-only audit port — test fixture + pre-prod smoke
-/// observation ONLY. Batch 226 removed this from the
-/// production init path after the plan HC-3 fail-closed
-/// contract ruled out tracing-only audit as production
-/// shape (HMAC-chained on-disk audit is load-bearing). The
-/// type stays in-tree as a drop-in mock for unit tests that
-/// exercise the OpcUaAuditPort trait without provisioning
-/// a full AuditSink + tempdir.
-///
-/// Calling this in a production code path is a CRITICAL
-/// review finding — the init helper now refuses to wire
-/// write callbacks when AuditSink is None instead of
-/// falling through to this port.
-pub struct TracingLogAuditPort;
-
-#[async_trait::async_trait]
-impl OpcUaAuditPort for TracingLogAuditPort {
-    async fn record_write_attempt(
-        &self,
-        actor: &str,
-        tag_name: &str,
-        value: f64,
-        outcome: &OpcUaWriteOutcome,
-    ) {
-        tracing::info!(
-            actor = %actor,
-            tag = %tag_name,
-            value,
-            outcome = ?outcome,
-            "opc_ua audit (tracing-only, no sink configured)"
-        );
-    }
-}
+// Batch #294 A-2b 5e FULL closure: parse_opc_ua_session_actor
+// + hex_nibble + TracingLogAuditPort retired. The actor parser
+// was only consumed by `wire_write_callbacks`'s
+// PolicyEngineOpcUaAdapter actor_resolver; with the
+// SimpleNodeManager fallback removed, no caller produces an
+// `actor: &str` string for the parser to consume — every actor
+// arrives as a typed `AuthenticatedUser` via SensNodeManager's
+// trait method bodies. The TracingLogAuditPort was a Batch
+// 226-deprecated fallback (production HC-3 rejected
+// tracing-only audit); with the bundle-mandatory init path,
+// callers cannot reach a code branch that would consume it.
 
 /// Bundle of AppState fields the OPC UA init helper needs.
 /// Grouped into a struct because the parameter list grew
@@ -767,582 +556,142 @@ pub async fn init_opc_ua_server(
     // wire_write_callbacks path).
     let registry_arc = Arc::new(registry);
 
-    // Batch #293 A-2b 5d runtime-swap completion: when
-    // tenant + audit_sink are both present, construct the
-    // production SensRuntimeBundle (SensNodeManagerBuilder +
-    // SensAuthManager) + pass Some(bundle) to
-    // start_opcua_server. SensNodeManager.write() Allow
-    // path (Batch #291) handles writes via typed authz +
-    // post-typed-authz delegate; no legacy
-    // wire_write_callbacks call needed in this branch.
+    // Batch #294 A-2b 5e FULL closure: typed-authz path is
+    // the ONLY production path. When tenant/audit_sink are
+    // missing, the OPC UA server does NOT start (Tier-1
+    // make-it-impossible against any anonymous-write shape
+    // ever existing in production). Operator-visible boot
+    // log explains the missing dep + the agent itself
+    // continues running (other services boot independently);
+    // OPC UA can come up later via config reload + new
+    // provisioning state.
     //
-    // When tenant or audit_sink is missing (degraded boot —
-    // pre-provisioning OR audit pipe disabled), pass None
-    // → legacy SimpleNodeManager + no-op write callbacks.
-    // This preserves the read-only safe-mode behavior the
-    // pre-Batch-#293 code provided when production
-    // deps were unavailable. Batch #294 deletes the legacy
-    // None branch once provisioning is mandatory at boot.
-    //
-    // Adapter port construction is shared between the two
-    // paths: both paths build the same Force / ProcessImage /
-    // Audit / Authz adapters (the SensNodeManagerBuilder
-    // consumes them; the legacy bridge_deps also consumes
-    // them). Construction lives BEFORE start_opcua_server
-    // so the bundle build can move the Arcs into the
-    // builder; the legacy path's bridge_deps still uses
-    // clone() copies after start_opcua_server.
-    let sens_bundle_opt: Option<
-        crate::opc_ua_sens_node_manager::SensRuntimeBundle,
-    > = match (tenant.as_ref(), audit_sink.as_ref()) {
-        (Some(tenant_id), Some(audit_arc)) => {
-            // Build the trait-port adapters that the typed
-            // path needs.
-            let pi_arc = Arc::new(process_image.clone());
-            let force_port: Arc<dyn crate::opc_ua_server::OpcUaForceRegistryPort> =
-                Arc::new(ForceRegistryOpcUaAdapter::new(
-                    force_registry.clone(),
-                ));
-            let pi_port: Arc<dyn crate::opc_ua_server::OpcUaProcessImagePort> =
-                Arc::new(ProcessImageOpcUaAdapter::new(
-                    pi_arc.clone(),
-                ));
-
-            // Audit port — placeholder pv_fn returns 0
-            // until a future Batch threads the engine's
-            // current_policy_version closure (same shape as
-            // the legacy branch below).
-            let pv_fn: PolicyVersionFn = Arc::new(|| 0u64);
-            let audit_port: Arc<dyn OpcUaAuditPort> =
-                Arc::new(AuditSinkOpcUaAdapter::new(
-                    audit_arc.clone(),
-                    tenant_id.clone(),
-                    pv_fn.clone(),
-                ));
-
-            // Typed authz: ManifestBackedTypedAuthz composes
-            // the resolver + InMemoryPolicyEngine + tenant +
-            // policy-version closure. Batch #240/#241
-            // primitive lands the type; Batch #293 wires it.
-            let resolver = crate::opc_ua_server_session
-                ::OpcUaActorResolver::new(rbac_manifest_store.clone());
-            let engine: Arc<dyn crate::authz::policy::PolicyEngine> =
-                Arc::new(InMemoryPolicyEngine::new(
-                    rbac_manifest_store.clone(),
-                ));
-            let typed_authz: Arc<dyn crate::opc_ua_server_typed_authz::TypedAuthzPort> =
-                Arc::new(crate::opc_ua_server_typed_authz
-                    ::ManifestBackedTypedAuthz::new(
-                        resolver,
-                        engine,
-                        tenant_id.clone(),
-                        pv_fn,
-                    ));
-
-            // UserTokenValidator wraps the manifest store —
-            // shared between SensNodeManager.write() defense-
-            // in-depth re-validation + SensAuthManager
-            // session-establish path.
-            let validator = Arc::new(
-                crate::opc_ua_server_user_token_validator
-                    ::UserTokenValidator::new(
-                        user_token_manifest_store.clone(),
-                    ),
-            );
-
-            let node_manager_builder =
-                crate::opc_ua_sens_node_manager::SensNodeManagerBuilder::new(
-                    tenant_id.clone(),
-                    typed_authz,
-                    validator.clone(),
-                    pi_arc,
-                    registry_arc.clone(),
-                    force_port,
-                    pi_port,
-                    audit_port,
-                );
-
-            let auth_manager = Arc::new(
-                crate::opc_ua_sens_auth_manager
-                    ::SensAuthManager::new(validator),
-            );
-
-            Some(
-                crate::opc_ua_sens_node_manager
-                    ::SensRuntimeBundle::new(
-                        node_manager_builder,
-                        auth_manager,
-                    ),
-            )
-        }
+    // The pre-Batch-#294 fallback (legacy SimpleNodeManager
+    // + wire_write_callbacks with a hardcoded
+    // "opc-ua-anonymous" actor that the policy engine always
+    // rejected) was architecturally a footgun: it produced a
+    // running server with a gate that always denied + a
+    // tracing-only audit + no operator-visible signal that
+    // the production typed path was inactive. Replacing it
+    // with explicit fail-fast lets operators discover +
+    // resolve provisioning issues immediately.
+    let (tenant_id, audit_arc) = match (tenant.as_ref(), audit_sink.as_ref()) {
+        (Some(t), Some(s)) => (t.clone(), s.clone()),
         (None, _) => {
             warn!(
-                "opc_ua_server: started without tenant — typed-authz path unavailable; falling back to legacy SimpleNodeManager (read-only safe-mode)"
+                "opc_ua_server NOT started: tenant_id missing — typed-authz path requires provisioning. Agent continues running; OPC UA can come up after self_register completes + config reload."
             );
-            None
+            return Ok(None);
         }
         (Some(_), None) => {
             warn!(
-                "opc_ua_server: started without AuditSink — typed-authz path unavailable (HC-3 fail-closed: audit is load-bearing, writes without HMAC chain are not production shape); falling back to legacy SimpleNodeManager. Configure audit.mode != Disabled + audit_sink to activate typed path."
+                "opc_ua_server NOT started: AuditSink missing — typed-authz path requires HMAC-chained audit (HC-3 fail-closed: writes without forensic records are not production shape). Configure audit.mode != Disabled + audit_sink to enable OPC UA."
             );
-            None
+            return Ok(None);
         }
     };
 
-    let sens_bundle_was_some = sens_bundle_opt.is_some();
-    let handle_opt = start_opcua_server(
-        config,
-        &*registry_arc,
-        sens_bundle_opt,
-    )
-    .await
-    .map_err(|e| format!("opc_ua_server start failed: {}", e))?;
+    // Build the trait-port adapters + typed-authz chain +
+    // SensRuntimeBundle. With the legacy fallback retired,
+    // this is the SOLE construction path; no Option/None
+    // shape remains.
+    let pi_arc = Arc::new(process_image.clone());
+    let force_port: Arc<dyn crate::opc_ua_server::OpcUaForceRegistryPort> =
+        Arc::new(ForceRegistryOpcUaAdapter::new(
+            force_registry,
+        ));
+    let pi_port: Arc<dyn crate::opc_ua_server::OpcUaProcessImagePort> =
+        Arc::new(ProcessImageOpcUaAdapter::new(pi_arc.clone()));
 
-    // Batch #293 5d/5e closure (partial): when the typed-authz
-    // path is active (sens_bundle_was_some), SensNodeManager.
-    // write() handles writes via the post-typed-authz delegate
-    // (Batch #291 wire). The legacy wire_write_callbacks block
-    // below is for the SimpleNodeManager fallback ONLY — it
-    // skips when the typed path is live. Batch #294 will
-    // delete this block entirely once the legacy fallback is
-    // retired.
-    if sens_bundle_was_some {
-        info!(
-            "opc_ua_server: typed-authz path active (SensNodeManager + SensAuthManager); legacy wire_write_callbacks skipped (Batch #293 5d/5e closure)"
-        );
-        return Ok(handle_opt);
-    }
+    // Placeholder pv_fn returns 0 until a future Batch
+    // threads the engine's current_policy_version closure
+    // so the audit record tags every write with the exact
+    // policy version the decision used.
+    let pv_fn: PolicyVersionFn = Arc::new(|| 0u64);
+    let audit_port: Arc<dyn OpcUaAuditPort> =
+        Arc::new(AuditSinkOpcUaAdapter::new(
+            audit_arc,
+            tenant_id.clone(),
+            pv_fn.clone(),
+        ));
 
-    // Batch 222 + Batch 226 E-2 closure: wire write callbacks
-    // only when BOTH tenant AND AuditSink are present.
-    // Missing either means the write chain cannot satisfy the
-    // plan's HC-3 fail-closed + audit-load-bearing contract
-    // (writes without HMAC-chained forensic records are not
-    // production shape). Degraded paths:
-    //   - tenant=None  → pre-provisioning boot; writes stay
-    //                    on the default SimpleNodeManager
-    //                    handler (address-space cache only).
-    //   - audit_sink=None → dev/pre-prod without audit pipe;
-    //                       writes stay on default handler.
-    // Real production has both Some and the wire activates.
-    let tenant_and_audit = match (&handle_opt, tenant.as_ref(), audit_sink.as_ref()) {
-        (Some(h), Some(t), Some(s)) => {
-            Some((h.clone(), t.clone(), s.clone()))
-        }
-        (Some(_), None, _) => {
-            warn!(
-                "opc_ua_server: started without tenant — write callbacks NOT wired (authz + audit need tenant binding)"
-            );
-            None
-        }
-        (Some(_), Some(_), None) => {
-            warn!(
-                "opc_ua_server: started without AuditSink — write callbacks NOT wired (HC-3 fail-closed: audit is load-bearing, writes without HMAC chain are not production shape). Configure audit.mode != Disabled + audit_sink to activate write path."
-            );
-            None
-        }
-        _ => None,
-    };
-    if let Some((handle, tenant_id, audit_sink_arc)) = tenant_and_audit {
-        let handle = &handle;
-        let ns_index = handle.namespace_index().ok_or_else(|| {
-            "opc_ua_server: namespace index missing after populate".to_string()
-        })?;
-
-        // Port adapters — each one bridges an AppState
-        // subsystem into the write-orchestrator's abstract
-        // port trait. Arcs are cheap to clone into the
-        // closure.
-        let pi_adapter: Arc<dyn crate::opc_ua_server::OpcUaProcessImagePort> =
-            Arc::new(ProcessImageOpcUaAdapter::new(Arc::new(
-                process_image.clone(),
-            )));
-        let force_adapter: Arc<dyn crate::opc_ua_server::OpcUaForceRegistryPort> =
-            Arc::new(ForceRegistryOpcUaAdapter::new(force_registry));
-
-        // Batch 226: AuditSink is REQUIRED for this branch —
-        // the tenant_and_audit guard above already ensured it.
-        // Placeholder policy_version_fn — Batch 224 routes to
-        // InMemoryPolicyEngine whose current_policy_version
-        // reflects the manifest store; a future batch threads
-        // the engine's closure here so the audit record tags
-        // every write with the exact policy version the
-        // engine used for the decision.
-        let pv_fn: PolicyVersionFn = Arc::new(|| 0u64);
-        let audit_adapter: Arc<dyn OpcUaAuditPort> =
-            Arc::new(AuditSinkOpcUaAdapter::new(
-                audit_sink_arc,
+    // Typed authz: ManifestBackedTypedAuthz composes the
+    // resolver + InMemoryPolicyEngine + tenant +
+    // policy-version closure (Batch #240/#241 primitives).
+    let resolver = crate::opc_ua_server_session
+        ::OpcUaActorResolver::new(rbac_manifest_store.clone());
+    let engine: Arc<dyn crate::authz::policy::PolicyEngine> =
+        Arc::new(InMemoryPolicyEngine::new(
+            rbac_manifest_store,
+        ));
+    let typed_authz: Arc<dyn crate::opc_ua_server_typed_authz::TypedAuthzPort> =
+        Arc::new(crate::opc_ua_server_typed_authz
+            ::ManifestBackedTypedAuthz::new(
+                resolver,
+                engine,
                 tenant_id.clone(),
                 pv_fn,
             ));
 
-        // Batch 224: swap DenyAll for InMemoryPolicyEngine.
-        // When the manifest store has a verified manifest
-        // loaded, authorized operators with the correct
-        // OpcUaWrite{tag_id} permission now get Allow. When
-        // the store is empty, the engine returns
-        // ManifestUnavailable → the adapter collapses that
-        // to Err → OpcUaAuthzPort::is_write_allowed returns
-        // false (fail-closed per plan HC-3). Either way the
-        // audit port records the attempt.
-        //
-        // Actor resolver: parses the session-layer actor
-        // string back into an ActorIdentity. For operator
-        // sessions (username/password or X509 CN) the
-        // string is a hex-encoded OperatorId. For anonymous
-        // sessions the literal "anonymous" surfaces →
-        // resolver returns None → adapter denies. This is
-        // the Batch 222 fail-closed contract extended with
-        // a real parse path.
-        let engine: Arc<dyn crate::authz::policy::PolicyEngine> =
-            Arc::new(InMemoryPolicyEngine::new(rbac_manifest_store));
-        let actor_resolver: crate::opc_ua_server::ActorResolverFn =
-            Arc::new(parse_opc_ua_session_actor);
-        let authz_adapter: Arc<dyn crate::opc_ua_server::OpcUaAuthzPort> =
-            Arc::new(PolicyEngineOpcUaAdapter::new(
-                engine,
-                tenant_id,
-                actor_resolver,
-            ));
+    // UserTokenValidator — shared between SensNodeManager
+    // (defense-in-depth re-validation) + SensAuthManager
+    // (session-establish path).
+    let validator = Arc::new(
+        crate::opc_ua_server_user_token_validator
+            ::UserTokenValidator::new(user_token_manifest_store),
+    );
 
-        let bridge_deps = Arc::new(OpcUaWriteBridgeDeps {
-            registry: registry_arc,
-            authz: authz_adapter,
-            force: force_adapter,
-            process_image: pi_adapter,
-            audit: audit_adapter,
-        });
+    let node_manager_builder =
+        crate::opc_ua_sens_node_manager::SensNodeManagerBuilder::new(
+            tenant_id,
+            typed_authz,
+            validator.clone(),
+            pi_arc,
+            registry_arc.clone(),
+            force_port,
+            pi_port,
+            audit_port,
+        );
 
-        match wire_write_callbacks(handle.server_handle_ref(), ns_index, bridge_deps) {
-            Ok(count) => {
-                info!(
-                    "opc_ua_server: write callbacks wired for {} writable tag(s)",
-                    count
-                );
-            }
-            Err(e) => {
-                // Not fatal — the server is already live +
-                // read paths still work. Operator sees the
-                // reason to fix.
-                warn!(
-                    "opc_ua_server: write callback wire failed, writes will hit the default SimpleNodeManager handler: {}",
-                    e
-                );
-            }
-        }
-    }
+    let auth_manager = Arc::new(
+        crate::opc_ua_sens_auth_manager::SensAuthManager::new(
+            validator,
+        ),
+    );
+
+    let bundle = crate::opc_ua_sens_node_manager
+        ::SensRuntimeBundle::new(
+            node_manager_builder,
+            auth_manager,
+        );
+
+    let handle_opt = start_opcua_server(
+        config,
+        &*registry_arc,
+        bundle,
+    )
+    .await
+    .map_err(|e| format!("opc_ua_server start failed: {}", e))?;
 
     Ok(handle_opt)
 }
 
-// ============================================================
-// Batch 220 Faz 5 — write-callback bridge primitives
-// ============================================================
-//
-// The `async-opcua` SimpleNodeManager callbacks are sync
-// (`Fn(DataValue, &NumericRange) -> StatusCode`). The Batch
-// 209 OpcUa write-orchestrator is async (port traits use
-// `async fn`). The bridge primitives here — value extraction
-// + outcome → StatusCode mapping — are pure sync functions
-// so they're unit-tested without any tokio runtime + reused
-// by the sync→async escape-hatch (`tokio::task::block_in_place
-// + Handle::current().block_on(..)`) wire in a future batch.
+// Batch #294 A-2b 5e FULL closure: write-callback bridge
+// primitives (VariantToF64Error / variant_to_f64 /
+// outcome_to_status_code / variant_error_to_status_code /
+// OpcUaWriteBridgeDeps / wire_write_callbacks /
+// opcua_write_callback / TagInsertOutcome /
+// insert_tag_variable) all retired. They were the
+// SimpleNodeManager-bound sync->async bridge for the
+// per-tag add_write_callback path; with SensNodeManager
+// owning all 6 trait methods (read/write/browse/...)
+// directly via &RequestContext, no sync->async bridge
+// is needed. SensNodeManager.write() (Batch #265 + Batch
+// #291 wire) parses the typed UserToken + delegates to
+// execute_opcua_write_post_typed_authz (Batch #290) which
+// does the same orchestration the legacy bridge did,
+// without losing RequestContext.
 
-/// Errors converting an incoming `Variant` into the `f64`
-/// the OPC UA write-orchestrator expects.
-#[derive(Debug, Clone, PartialEq)]
-pub enum VariantToF64Error {
-    /// Variant carried a type the orchestrator cannot
-    /// represent as `f64` without loss (Array, ByteString,
-    /// ExtensionObject, etc). Maps to OPC UA
-    /// `BadTypeMismatch`.
-    UnsupportedType { got: &'static str },
-    /// Variant was Empty / null — operator-visible reject
-    /// with OPC UA `BadTypeMismatch` matches the empty-value
-    /// rejection semantics in the async-opcua spec.
-    EmptyVariant,
-}
-
-impl std::fmt::Display for VariantToF64Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::UnsupportedType { got } => {
-                write!(f, "unsupported Variant type for f64 write: {}", got)
-            }
-            Self::EmptyVariant => f.write_str("Variant is Empty / null"),
-        }
-    }
-}
-
-impl std::error::Error for VariantToF64Error {}
-
-/// Extract a numeric value from an incoming Variant for
-/// passing to the write-orchestrator. Boolean → 0/1;
-/// every integer variant → f64; Float/Double → f64; anything
-/// else → `UnsupportedType`.
-///
-/// Lossy conversion is accepted: int64 values outside f64's
-/// 53-bit exact range silently round. This matches Suderra's
-/// tag scan-cycle convention (tags carry f64 representations
-/// regardless of declared data_type). Operators who care
-/// about exact integer fidelity configure the tag as Int32
-/// rather than Int64.
-pub fn variant_to_f64(value: &Variant) -> Result<f64, VariantToF64Error> {
-    match value {
-        Variant::Empty => Err(VariantToF64Error::EmptyVariant),
-        Variant::Boolean(b) => Ok(if *b { 1.0 } else { 0.0 }),
-        Variant::SByte(n) => Ok(*n as f64),
-        Variant::Byte(n) => Ok(*n as f64),
-        Variant::Int16(n) => Ok(*n as f64),
-        Variant::UInt16(n) => Ok(*n as f64),
-        Variant::Int32(n) => Ok(*n as f64),
-        Variant::UInt32(n) => Ok(*n as f64),
-        Variant::Int64(n) => Ok(*n as f64),
-        Variant::UInt64(n) => Ok(*n as f64),
-        Variant::Float(f) => Ok(*f as f64),
-        Variant::Double(f) => Ok(*f),
-        Variant::String(_) => Err(VariantToF64Error::UnsupportedType { got: "String" }),
-        Variant::DateTime(_) => Err(VariantToF64Error::UnsupportedType { got: "DateTime" }),
-        Variant::Guid(_) => Err(VariantToF64Error::UnsupportedType { got: "Guid" }),
-        Variant::ByteString(_) => {
-            Err(VariantToF64Error::UnsupportedType { got: "ByteString" })
-        }
-        Variant::XmlElement(_) => {
-            Err(VariantToF64Error::UnsupportedType { got: "XmlElement" })
-        }
-        Variant::NodeId(_) => Err(VariantToF64Error::UnsupportedType { got: "NodeId" }),
-        Variant::ExpandedNodeId(_) => {
-            Err(VariantToF64Error::UnsupportedType { got: "ExpandedNodeId" })
-        }
-        Variant::StatusCode(_) => {
-            Err(VariantToF64Error::UnsupportedType { got: "StatusCode" })
-        }
-        Variant::QualifiedName(_) => {
-            Err(VariantToF64Error::UnsupportedType { got: "QualifiedName" })
-        }
-        Variant::LocalizedText(_) => {
-            Err(VariantToF64Error::UnsupportedType { got: "LocalizedText" })
-        }
-        Variant::ExtensionObject(_) => {
-            Err(VariantToF64Error::UnsupportedType { got: "ExtensionObject" })
-        }
-        // Catch-all — `Variant` is marked `#[non_exhaustive]`
-        // in newer async-opcua revisions; fall-through stays
-        // in lockstep without a breaking match arm list.
-        _ => Err(VariantToF64Error::UnsupportedType {
-            got: "UnknownOrArray",
-        }),
-    }
-}
-
-/// Map an `OpcUaWriteOutcome` (from the Batch 209 write-
-/// orchestrator) to the `opcua::types::StatusCode` that the
-/// async-opcua session returns to the HMI.
-///
-/// Mapping follows plan §5 Faz 5 step 4 sub-step 13: reject
-/// reasons surface as distinct OPC UA status codes so HMIs
-/// display the correct error in their UI.
-pub fn outcome_to_status_code(
-    outcome: &crate::opc_ua_server::OpcUaWriteOutcome,
-) -> StatusCode {
-    use crate::opc_ua_server::OpcUaWriteOutcome as O;
-    match outcome {
-        O::Success { .. } => StatusCode::Good,
-        O::RejectedUnknownTag { .. } => StatusCode::BadNodeIdUnknown,
-        O::RejectedNotWritable { .. } => StatusCode::BadNotWritable,
-        // Force-blocked writes surface as BadNotWritable too —
-        // HMI sees "tag not writable" which matches the
-        // operator-facing "tag is currently forced" semantic
-        // when combined with the force banner the UI already
-        // renders. Audit record carries the distinct reason.
-        O::RejectedForced { .. } => StatusCode::BadNotWritable,
-        O::RejectedOutOfRange { .. } => StatusCode::BadOutOfRange,
-        O::RejectedNoPermission { .. } => StatusCode::BadUserAccessDenied,
-        O::RejectedProcessImage { .. } => StatusCode::BadInternalError,
-    }
-}
-
-/// Convert a Variant-extraction failure directly to the
-/// OPC UA status code the session returns. Saves the caller
-/// a match when they only care about the status.
-pub fn variant_error_to_status_code(err: &VariantToF64Error) -> StatusCode {
-    match err {
-        VariantToF64Error::UnsupportedType { .. }
-        | VariantToF64Error::EmptyVariant => StatusCode::BadTypeMismatch,
-    }
-}
-
-// ============================================================
-// Batch 221 Faz 5 — write-callback bridge
-// ============================================================
-//
-// Composes the Batch 220 primitives (variant_to_f64 +
-// outcome_to_status_code) with the Batch 209 write-
-// orchestrator + Batches 210-212 adapter quartet to register
-// sync write callbacks on the SimpleNodeManager.
-//
-// Sync→async escape: `tokio::task::block_in_place +
-// Handle::current().block_on(async)`. This is the documented
-// load-bearing pattern for calling async code from inside a
-// sync callback that the tokio multi-thread runtime invokes.
-// Panics on a current-thread runtime — the production server
-// always runs on the multi-thread flavor, so this is safe.
-
-/// Bundle of the four ports the write-orchestrator needs,
-/// captured by the closure in each write callback. Arc-wrapped
-/// because the closure needs to be `Fn + Send + Sync +
-/// 'static` (multiple writes may fire concurrently across
-/// different sessions; each one fires on whichever tokio
-/// worker the session is running on).
-pub struct OpcUaWriteBridgeDeps {
-    pub registry: Arc<crate::opc_ua_server::OpcUaTagRegistry>,
-    pub authz: Arc<dyn crate::opc_ua_server::OpcUaAuthzPort>,
-    pub force: Arc<dyn crate::opc_ua_server::OpcUaForceRegistryPort>,
-    pub process_image: Arc<dyn crate::opc_ua_server::OpcUaProcessImagePort>,
-    pub audit: Arc<dyn crate::opc_ua_server::OpcUaAuditPort>,
-}
-
-/// Wire a sync write callback for every writable tag in the
-/// registry. Called immediately after
-/// `populate_tag_nodes` so each Variable node has a
-/// callback before the server starts accepting HMI sessions.
-///
-/// Returns the count of callbacks registered. Non-writable
-/// tags are skipped (their address-space entries carry
-/// read-only AccessLevel already, so writes hit
-/// `BadNotWritable` at the protocol layer before reaching
-/// the callback).
-///
-/// NOTE on actor plumbing: async-opcua's SimpleNodeManager
-/// write callback does NOT pass session context. For Batch
-/// 221 every write runs with actor = "opc-ua-anonymous"
-/// (plan Batch 216 ships anonymous-only auth). Session-actor
-/// resolution requires a custom NodeManager impl that gets
-/// the ServerContext threaded in; that's a subsequent batch.
-/// Consequence: until the actor-resolver lands, EVERY HMI
-/// write gets RejectedNoPermission from the DenyAll authz
-/// port — which is safe (plan's fail-closed anonymous-only
-/// constraint) + the audit record still fires.
-pub fn wire_write_callbacks(
-    handle: &ServerHandle,
-    namespace_index: u16,
-    deps: Arc<OpcUaWriteBridgeDeps>,
-) -> Result<usize, String> {
-    let node_manager = handle
-        .node_managers()
-        .get_of_type::<SimpleNodeManager>()
-        .ok_or_else(|| {
-            "SimpleNodeManager not present — populate_tag_nodes must run first".to_string()
-        })?;
-
-    let mut registered = 0usize;
-    let writable_snapshot: Vec<_> = deps
-        .registry
-        .iter()
-        .filter(|n| n.is_writable())
-        .map(|n| (n.tag_name.clone(), n.browse_name.clone()))
-        .collect();
-
-    for (tag_name, browse_name) in writable_snapshot {
-        let node_id = NodeId::new(namespace_index, browse_name.clone());
-        let deps = deps.clone();
-        let captured_tag_name = tag_name.clone();
-        // SimpleNodeManager wraps SimpleNodeManagerImpl via
-        // `InMemoryNodeManager<Impl>`. The callback API lives
-        // on the impl — reach it through `.inner()`.
-        node_manager
-            .inner()
-            .add_write_callback(node_id, move |data_value, _range| {
-                write_callback_body(data_value, &captured_tag_name, &deps)
-            });
-        registered += 1;
-    }
-
-    Ok(registered)
-}
-
-/// Body of the sync write callback. Factored out so it's
-/// independently grep-able + easier to unit-test the pieces
-/// below that don't need block_in_place (variant extraction
-/// + status-code mapping).
-fn write_callback_body(
-    data_value: opcua::types::DataValue,
-    tag_name: &str,
-    deps: &Arc<OpcUaWriteBridgeDeps>,
-) -> StatusCode {
-    let variant = match data_value.value.as_ref() {
-        Some(v) => v.clone(),
-        None => return variant_error_to_status_code(&VariantToF64Error::EmptyVariant),
-    };
-    let value = match variant_to_f64(&variant) {
-        Ok(v) => v,
-        Err(e) => return variant_error_to_status_code(&e),
-    };
-    let deps_captured = deps.clone();
-    let tag_name_owned = tag_name.to_string();
-    // Sync→async bridge. block_in_place tells the
-    // tokio multi-thread scheduler "this worker is about to
-    // block; keep the runtime responsive" and then we
-    // block_on the orchestrator future on the current
-    // thread. Requires the multi-thread runtime — server's
-    // tokio runtime is multi-thread by construction.
-    tokio::task::block_in_place(move || {
-        tokio::runtime::Handle::current().block_on(async move {
-            let outcome = crate::opc_ua_server::execute_opcua_write(
-                &*deps_captured.registry,
-                &crate::opc_ua_server::OpcUaWriteRequest {
-                    tag_name: &tag_name_owned,
-                    value,
-                    actor: "opc-ua-anonymous",
-                },
-                &*deps_captured.authz,
-                &*deps_captured.force,
-                &*deps_captured.process_image,
-                &*deps_captured.audit,
-            )
-            .await;
-            outcome_to_status_code(&outcome)
-        })
-    })
-}
-
-enum TagInsertOutcome {
-    Inserted { writable: bool },
-    Failed,
-}
-
-fn insert_tag_variable(
-    address_space: &mut opcua::server::address_space::AddressSpace,
-    namespace_index: u16,
-    tags_folder_id: &NodeId,
-    node: &OpcUaTagNode,
-) -> TagInsertOutcome {
-    let (data_type, initial_value) = map_suderra_data_type(&node.data_type);
-    let node_id = NodeId::new(namespace_index, node.browse_name.clone());
-
-    let mut access = AccessLevel::CURRENT_READ;
-    let writable = node.is_writable();
-    if writable {
-        access |= AccessLevel::CURRENT_WRITE;
-    }
-
-    let builder = VariableBuilder::new(
-        &node_id,
-        QualifiedName::new(namespace_index, node.browse_name.clone()),
-        LocalizedText::from(node.tag_name.clone()),
-    )
-    .data_type(data_type)
-    .value(initial_value)
-    .access_level(access)
-    .user_access_level(access)
-    .organized_by(tags_folder_id.clone());
-
-    if builder.insert(address_space) {
-        TagInsertOutcome::Inserted { writable }
-    } else {
-        TagInsertOutcome::Failed
-    }
-}
 
 /// Start the OPC UA server. Returns `Ok(None)` when
 /// `config.enabled == false` (operator config off-switch
@@ -1358,24 +707,22 @@ fn insert_tag_variable(
 pub async fn start_opcua_server(
     config: &OpcUaServerConfig,
     registry: &OpcUaTagRegistry,
-    sens_bundle: Option<crate::opc_ua_sens_node_manager::SensRuntimeBundle>,
+    sens_bundle: crate::opc_ua_sens_node_manager::SensRuntimeBundle,
 ) -> Result<Option<Arc<SuderraOpcUaHandle>>, OpcUaServerStartError> {
     if !config.enabled {
         info!("opc_ua_server.enabled=false — server NOT started (operator off-switch)");
         return Ok(None);
     }
 
-    // Batch #292 + Batch #293 manager-kind boot-log marker.
-    // Some(bundle) means SensNodeManager + SensAuthManager
-    // are both wired — typed-authz path with virtual nodes.
-    // None means legacy SimpleNodeManager + default
-    // anonymous AuthManager. Operators reading boot logs see
-    // immediately which production shape is active.
-    let manager_kind = if sens_bundle.is_some() {
-        "SensNodeManager+SensAuthManager (typed-authz, virtual nodes)"
-    } else {
-        "SimpleNodeManager+default-auth (legacy populate_tag_nodes)"
-    };
+    // Batch #294 closure: only one production manager kind
+    // remains (SensNodeManager + SensAuthManager). Legacy
+    // SimpleNodeManager fallback retired. Boot log retains
+    // the marker line for forensic clarity even though only
+    // one shape is now possible — future runtime shape
+    // changes (e.g., per-tenant manager partitioning) would
+    // surface here.
+    let manager_kind =
+        "SensNodeManager+SensAuthManager (typed-authz, virtual nodes)";
 
     let builder = build_server(config, sens_bundle)?;
     let (server, handle) = builder
@@ -1485,7 +832,7 @@ mod tests {
     async fn start_returns_none_when_disabled() {
         let mut cfg = minimal_enabled_config();
         cfg.enabled = false;
-        let result = start_opcua_server(&cfg, &OpcUaTagRegistry::default(), None).await;
+        let result = start_opcua_server(&cfg, &OpcUaTagRegistry::default(), deny_all_test_bundle()).await;
         match result {
             Ok(None) => {}
             Ok(Some(_)) => panic!("disabled config MUST NOT start a server"),
@@ -1497,7 +844,7 @@ mod tests {
     async fn start_errors_on_invalid_config() {
         let mut cfg = minimal_enabled_config();
         cfg.bind = "not an ip".to_string();
-        let result = start_opcua_server(&cfg, &OpcUaTagRegistry::default(), None).await;
+        let result = start_opcua_server(&cfg, &OpcUaTagRegistry::default(), deny_all_test_bundle()).await;
         match result {
             Err(OpcUaServerStartError::ConfigInvalid(_)) => {}
             Err(other) => panic!("expected ConfigInvalid, got {:?}", other),
@@ -1512,7 +859,7 @@ mod tests {
         // any network touch.
         let mut cfg = minimal_enabled_config();
         cfg.subscription_polling_interval_ms = 1;
-        match build_server(&cfg, None) {
+        match build_server(&cfg, deny_all_test_bundle()) {
             Err(OpcUaServerStartError::ConfigInvalid(msg)) => {
                 assert!(msg.contains("10ms floor"), "msg={}", msg);
             }
@@ -1526,22 +873,21 @@ mod tests {
         let cfg = minimal_enabled_config();
         // ServerBuilder is opaque (no Debug, no PartialEq) so
         // the only assertion available is that Ok arrives.
-        if build_server(&cfg, None).is_err() {
+        if build_server(&cfg, deny_all_test_bundle()).is_err() {
             panic!("build_server rejected a valid config");
         }
     }
 
-    /// **Batch #292 A-2b 5c switch test.** build_server
-    /// accepts both `None` (legacy SimpleNodeManager) and
-    /// `Some(SensNodeManagerBuilder)` (new typed-authz
-    /// path) without rejecting valid configs. The switch
-    /// itself is structural at the trait-method dispatch
-    /// level (no runtime branching beyond the manager
-    /// registration) — this test pins that the structural
-    /// switch compiles + accepts both shapes against a
-    /// known-valid config.
-    #[test]
-    fn build_server_accepts_sens_builder_path() {
+    /// **Batch #294 A-2b 5e FULL closure test helper.**
+    /// Constructs a deny-all `SensRuntimeBundle` for tests
+    /// that need to reach `build_server` / `start_opcua_server`
+    /// without provisioning the full production typed-authz
+    /// chain. All trait-port mocks are deny-all/no-op; tests
+    /// that need a specific behavior should construct their
+    /// own bundle.
+    fn deny_all_test_bundle()
+        -> crate::opc_ua_sens_node_manager::SensRuntimeBundle
+    {
         use crate::opc_ua_sens_node_manager::{
             SensNodeManagerBuilder, SensRuntimeBundle,
         };
@@ -1566,10 +912,6 @@ mod tests {
         use crate::process_image::ProcessImage;
         use async_trait::async_trait;
 
-        // Mock implementations — only need to satisfy
-        // the trait bounds; bodies are unreachable from
-        // build_server (which only registers the builder,
-        // never invokes its methods).
         struct DenyAllAuthz;
         #[async_trait]
         impl TypedAuthzPort for DenyAllAuthz {
@@ -1628,15 +970,21 @@ mod tests {
             Arc::new(NoCommitPi),
             Arc::new(NoAudit),
         );
-        // Batch #293 5d: bundle the node-manager builder
-        // with a SensAuthManager so the typed-authz
-        // session-establish + write-extraction halves are
-        // wired atomically (per SensRuntimeBundle docstring).
         let auth_manager =
             Arc::new(SensAuthManager::new(validator));
-        let bundle = SensRuntimeBundle::new(builder, auth_manager);
+        SensRuntimeBundle::new(builder, auth_manager)
+    }
+
+    /// **Batch #294 invariant test.** `build_server` accepts
+    /// any valid config + a properly-constructed
+    /// `SensRuntimeBundle`. The post-#294 signature mandates
+    /// the bundle (no Option) — this test pins that the
+    /// mandatory shape compiles + accepts the canonical
+    /// bundle construction path.
+    #[test]
+    fn build_server_accepts_sens_builder_path() {
         let cfg = minimal_enabled_config();
-        if build_server(&cfg, Some(bundle)).is_err() {
+        if build_server(&cfg, deny_all_test_bundle()).is_err() {
             panic!(
                 "build_server rejected a valid config + SensRuntimeBundle"
             );
@@ -1652,7 +1000,7 @@ mod tests {
         // every run to a unique path.
         let cfg = minimal_enabled_config();
         let pki_dir = cfg.own_pki_dir.clone();
-        let handle = match start_opcua_server(&cfg, &OpcUaTagRegistry::default(), None).await {
+        let handle = match start_opcua_server(&cfg, &OpcUaTagRegistry::default(), deny_all_test_bundle()).await {
             Ok(Some(h)) => h,
             Ok(None) => panic!("enabled config returned None"),
             Err(e) => panic!("start failed: {}", e),
@@ -1786,6 +1134,18 @@ mod tests {
 
     #[tokio::test]
     async fn start_populates_multi_tag_registry() {
+        // Batch #294 A-2b 5e FULL closure: with SensNodeManager
+        // active (virtual nodes via tag_registry), the
+        // populate_tag_nodes summary always reports 0 nodes
+        // added — tags are exposed via SensNodeManager.browse(),
+        // not via in-memory AddressSpace mutation. The test
+        // pins this new semantics: the boot still succeeds, the
+        // namespace index is valid, the summary shape is
+        // returned, and any HMI browse against the returned
+        // server would resolve the 4 tags via SensNodeManager.
+        // The invariant "tags reach HMIs" now lives in
+        // SensNodeManager.browse() unit tests
+        // (opc_ua_sens_node_manager.rs Batch #288 tests).
         let cfg = minimal_enabled_config();
         let pki_dir = cfg.own_pki_dir.clone();
 
@@ -1796,16 +1156,17 @@ mod tests {
             mk_node("di_limit", IoType::DI, "Bool"),
         ]);
 
-        let handle = match start_opcua_server(&cfg, &registry, None).await {
+        let handle = match start_opcua_server(&cfg, &registry, deny_all_test_bundle()).await {
             Ok(Some(h)) => h,
             Ok(None) => panic!("enabled config returned None"),
             Err(e) => panic!("start failed: {}", e),
         };
 
         let summary = handle.population().expect("population ran");
-        assert_eq!(summary.variable_nodes_added, 4);
-        // DO + AO are writable; AI + DI are read-only.
-        assert_eq!(summary.writable_nodes, 2);
+        // Virtual-nodes path: 0 in-memory nodes; tags surface
+        // via SensNodeManager.browse() at request time.
+        assert_eq!(summary.variable_nodes_added, 0);
+        assert_eq!(summary.writable_nodes, 0);
         assert!(summary.insertion_failures.is_empty());
         assert!(summary.namespace_index > 0, "Suderra NS gets an index > core 0");
         assert_eq!(handle.namespace_index(), Some(summary.namespace_index));
@@ -1850,6 +1211,36 @@ mod tests {
         TenantId::new_from_verified([0x42u8; 16])
     }
 
+    /// **Batch #294 A-2b 5e FULL closure helper.** Construct
+    /// a working AuditSink for tests. With the legacy
+    /// fallback retired, init_opc_ua_server fail-fasts when
+    /// audit_sink is None — tests that need to reach a live
+    /// server boot now require a real (test-scoped) audit
+    /// sink. The returned Arc lives for the life of the test;
+    /// the underlying file is in `std::env::temp_dir()` keyed
+    /// by pid + a random nonce so parallel test runs don't
+    /// collide.
+    fn test_audit_sink() -> Arc<AuditSink> {
+        let path = std::env::temp_dir().join(format!(
+            "suderra-opcua-test-audit-{}-{}.log",
+            std::process::id(),
+            rand::random::<u32>(),
+        ));
+        // AuditSink::open requires an AuditHmacKey; the
+        // pub(crate) from_bytes helper accepts any [u8; 32]
+        // and the test doesn't exercise chain verification,
+        // so a constant zero key is correct here.
+        Arc::new(
+            AuditSink::open(
+                &path,
+                crate::audit::sink::AuditHmacKey::from_bytes(
+                    [0u8; 32],
+                ),
+            )
+            .expect("test audit sink"),
+        )
+    }
+
     fn init_deps<'a>(
         cfg: &'a OpcUaServerConfig,
         pi: &'a ProcessImage,
@@ -1859,7 +1250,7 @@ mod tests {
             config: cfg,
             process_image: pi,
             force_registry: Arc::new(ForceRegistry::new()),
-            audit_sink: None,
+            audit_sink: Some(test_audit_sink()),
             tenant: Some(test_tenant_id()),
             // Batch 224: empty store = InMemoryPolicyEngine
             // returns ManifestUnavailable → authz adapter
@@ -1999,10 +1390,15 @@ mod tests {
             .expect("ok")
             .expect("some");
         let summary = handle.population().expect("ran");
-        // Both tags reach the address space.
-        assert_eq!(summary.variable_nodes_added, 2);
-        // Only the DO tag is writable.
-        assert_eq!(summary.writable_nodes, 1);
+        // Batch #294 virtual-nodes path: tags surface via
+        // SensNodeManager.browse() at request time, not via
+        // in-memory AddressSpace mutation. Summary reports 0
+        // nodes added (the legacy invariant — "tags reach the
+        // address space" — is now exercised by SensNodeManager
+        // tag-registry roundtrip tests in
+        // opc_ua_sens_node_manager.rs Batch #288).
+        assert_eq!(summary.variable_nodes_added, 0);
+        assert_eq!(summary.writable_nodes, 0);
         handle.cancel();
         let inner = Arc::try_unwrap(handle).map_err(|_| "Arc").unwrap();
         let _ = tokio::time::timeout(
@@ -2017,394 +1413,16 @@ mod tests {
     // Batch 220 Faz 5 — bridge primitive tests
     // ============================================================
 
-    #[test]
-    fn variant_to_f64_covers_numeric_variants() {
-        use opcua::types::Variant;
-        assert_eq!(variant_to_f64(&Variant::Boolean(true)).unwrap(), 1.0);
-        assert_eq!(variant_to_f64(&Variant::Boolean(false)).unwrap(), 0.0);
-        assert_eq!(variant_to_f64(&Variant::SByte(-5)).unwrap(), -5.0);
-        assert_eq!(variant_to_f64(&Variant::Byte(200)).unwrap(), 200.0);
-        assert_eq!(variant_to_f64(&Variant::Int16(-12345)).unwrap(), -12345.0);
-        assert_eq!(variant_to_f64(&Variant::UInt16(54321)).unwrap(), 54321.0);
-        assert_eq!(variant_to_f64(&Variant::Int32(-2_000_000)).unwrap(), -2_000_000.0);
-        assert_eq!(variant_to_f64(&Variant::UInt32(4_000_000_000)).unwrap(), 4_000_000_000.0);
-        assert_eq!(variant_to_f64(&Variant::Int64(42)).unwrap(), 42.0);
-        assert_eq!(variant_to_f64(&Variant::UInt64(100)).unwrap(), 100.0);
-        assert_eq!(variant_to_f64(&Variant::Float(1.5)).unwrap(), 1.5);
-        assert_eq!(variant_to_f64(&Variant::Double(std::f64::consts::PI)).unwrap(), std::f64::consts::PI);
-    }
-
-    #[test]
-    fn variant_to_f64_rejects_empty() {
-        use opcua::types::Variant;
-        match variant_to_f64(&Variant::Empty) {
-            Err(VariantToF64Error::EmptyVariant) => {}
-            other => panic!("expected EmptyVariant, got {:?}", other),
-        }
-    }
-
-    #[test]
-    fn variant_to_f64_rejects_string() {
-        use opcua::types::Variant;
-        let err = variant_to_f64(&Variant::String("hello".into())).unwrap_err();
-        match err {
-            VariantToF64Error::UnsupportedType { got } => {
-                assert_eq!(got, "String");
-            }
-            other => panic!("expected UnsupportedType, got {:?}", other),
-        }
-    }
-
-    #[test]
-    fn outcome_to_status_code_maps_every_variant() {
-        use crate::opc_ua_server::OpcUaWriteOutcome as O;
-        assert_eq!(
-            outcome_to_status_code(&O::Success {
-                tag_name: "x".into()
-            }),
-            StatusCode::Good
-        );
-        assert_eq!(
-            outcome_to_status_code(&O::RejectedUnknownTag {
-                tag_name: "ghost".into()
-            }),
-            StatusCode::BadNodeIdUnknown
-        );
-        assert_eq!(
-            outcome_to_status_code(&O::RejectedNotWritable {
-                tag_name: "ai".into()
-            }),
-            StatusCode::BadNotWritable
-        );
-        assert_eq!(
-            outcome_to_status_code(&O::RejectedForced {
-                tag_name: "do".into()
-            }),
-            StatusCode::BadNotWritable
-        );
-        assert_eq!(
-            outcome_to_status_code(&O::RejectedOutOfRange {
-                tag_name: "do".into(),
-                value: 200.0,
-                eng_min: 0.0,
-                eng_max: 100.0
-            }),
-            StatusCode::BadOutOfRange
-        );
-        assert_eq!(
-            outcome_to_status_code(&O::RejectedNoPermission {
-                tag_name: "do".into(),
-                actor: "a".into()
-            }),
-            StatusCode::BadUserAccessDenied
-        );
-        assert_eq!(
-            outcome_to_status_code(&O::RejectedProcessImage {
-                tag_name: "do".into(),
-                reason: "timeout".into()
-            }),
-            StatusCode::BadInternalError
-        );
-    }
-
-    // ============================================================
-    // Batch 221 Faz 5 — write-callback body tests
-    // ============================================================
-
-    use crate::opc_ua_server::{
-        OpcUaAuditPort, OpcUaAuthzPort, OpcUaForceRegistryPort,
-        OpcUaProcessImagePort, OpcUaWriteOutcome,
-    };
-
-    fn deps_for_body(
-        registry: OpcUaTagRegistry,
-        authz: impl OpcUaAuthzPort + 'static,
-        force: impl OpcUaForceRegistryPort + 'static,
-        pi: impl OpcUaProcessImagePort + 'static,
-        audit: impl OpcUaAuditPort + 'static,
-    ) -> Arc<OpcUaWriteBridgeDeps> {
-        Arc::new(OpcUaWriteBridgeDeps {
-            registry: Arc::new(registry),
-            authz: Arc::new(authz),
-            force: Arc::new(force),
-            process_image: Arc::new(pi),
-            audit: Arc::new(audit),
-        })
-    }
-
-    struct AlwaysAllow;
-    #[async_trait::async_trait]
-    impl OpcUaAuthzPort for AlwaysAllow {
-        async fn is_write_allowed(&self, _a: &str, _t: &str) -> bool {
-            true
-        }
-    }
-    struct AlwaysDeny;
-    #[async_trait::async_trait]
-    impl OpcUaAuthzPort for AlwaysDeny {
-        async fn is_write_allowed(&self, _a: &str, _t: &str) -> bool {
-            false
-        }
-    }
-
-    struct NeverForced;
-    #[async_trait::async_trait]
-    impl OpcUaForceRegistryPort for NeverForced {
-        async fn is_forced(&self, _t: &str) -> bool {
-            false
-        }
-    }
-
-    struct CapturingPi2 {
-        captured: tokio::sync::Mutex<Option<(String, f64)>>,
-    }
-    #[async_trait::async_trait]
-    impl OpcUaProcessImagePort for CapturingPi2 {
-        async fn write_tag(
-            &self,
-            tag_name: &str,
-            value: f64,
-            _actor: &str,
-        ) -> Result<(), String> {
-            *self.captured.lock().await = Some((tag_name.to_string(), value));
-            Ok(())
-        }
-    }
-
-    struct NoopAudit;
-    #[async_trait::async_trait]
-    impl OpcUaAuditPort for NoopAudit {
-        async fn record_write_attempt(
-            &self,
-            _actor: &str,
-            _tag_name: &str,
-            _value: f64,
-            _outcome: &OpcUaWriteOutcome,
-        ) {
-        }
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn write_body_happy_path_allow_returns_good() {
-        use opcua::types::{DataValue, Variant};
-        let reg = registry_from(vec![mk_node("do_pump", IoType::DO, "Real")]);
-        let pi = CapturingPi2 {
-            captured: tokio::sync::Mutex::new(None),
-        };
-        let deps = deps_for_body(reg, AlwaysAllow, NeverForced, pi, NoopAudit);
-        let dv = DataValue {
-            value: Some(Variant::Double(42.0)),
-            ..Default::default()
-        };
-        let status = write_callback_body(dv, "do_pump", &deps);
-        assert_eq!(status, StatusCode::Good);
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn write_body_deny_returns_user_access_denied() {
-        use opcua::types::{DataValue, Variant};
-        let reg = registry_from(vec![mk_node("do_pump", IoType::DO, "Real")]);
-        let pi = CapturingPi2 {
-            captured: tokio::sync::Mutex::new(None),
-        };
-        let deps = deps_for_body(reg, AlwaysDeny, NeverForced, pi, NoopAudit);
-        let dv = DataValue {
-            value: Some(Variant::Double(42.0)),
-            ..Default::default()
-        };
-        let status = write_callback_body(dv, "do_pump", &deps);
-        assert_eq!(status, StatusCode::BadUserAccessDenied);
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn write_body_empty_variant_returns_type_mismatch() {
-        use opcua::types::DataValue;
-        let reg = registry_from(vec![mk_node("do_pump", IoType::DO, "Real")]);
-        let pi = CapturingPi2 {
-            captured: tokio::sync::Mutex::new(None),
-        };
-        let deps = deps_for_body(reg, AlwaysAllow, NeverForced, pi, NoopAudit);
-        let dv = DataValue {
-            value: None,
-            ..Default::default()
-        };
-        let status = write_callback_body(dv, "do_pump", &deps);
-        assert_eq!(status, StatusCode::BadTypeMismatch);
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn write_body_string_variant_returns_type_mismatch() {
-        use opcua::types::{DataValue, Variant};
-        let reg = registry_from(vec![mk_node("do_pump", IoType::DO, "Real")]);
-        let pi = CapturingPi2 {
-            captured: tokio::sync::Mutex::new(None),
-        };
-        let deps = deps_for_body(reg, AlwaysAllow, NeverForced, pi, NoopAudit);
-        let dv = DataValue {
-            value: Some(Variant::String("hello".into())),
-            ..Default::default()
-        };
-        let status = write_callback_body(dv, "do_pump", &deps);
-        assert_eq!(status, StatusCode::BadTypeMismatch);
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn write_body_unknown_tag_returns_node_id_unknown() {
-        use opcua::types::{DataValue, Variant};
-        // Registry empty → orchestrator sees unknown tag.
-        let reg = OpcUaTagRegistry::default();
-        let pi = CapturingPi2 {
-            captured: tokio::sync::Mutex::new(None),
-        };
-        let deps = deps_for_body(reg, AlwaysAllow, NeverForced, pi, NoopAudit);
-        let dv = DataValue {
-            value: Some(Variant::Double(1.0)),
-            ..Default::default()
-        };
-        let status = write_callback_body(dv, "ghost", &deps);
-        assert_eq!(status, StatusCode::BadNodeIdUnknown);
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn write_body_pi_write_reaches_process_image_adapter_on_allow() {
-        use opcua::types::{DataValue, Variant};
-        let reg = registry_from(vec![mk_node("do_pump", IoType::DO, "Real")]);
-        let pi = CapturingPi2 {
-            captured: tokio::sync::Mutex::new(None),
-        };
-        let pi_arc_cell = Arc::new(pi);
-        let deps = Arc::new(OpcUaWriteBridgeDeps {
-            registry: Arc::new(reg),
-            authz: Arc::new(AlwaysAllow),
-            force: Arc::new(NeverForced),
-            process_image: pi_arc_cell.clone(),
-            audit: Arc::new(NoopAudit),
-        });
-        let dv = DataValue {
-            value: Some(Variant::Double(73.5)),
-            ..Default::default()
-        };
-        let status = write_callback_body(dv, "do_pump", &deps);
-        assert_eq!(status, StatusCode::Good);
-        let captured = pi_arc_cell.captured.lock().await.clone();
-        let (t, v) = captured.expect("process-image write captured");
-        assert_eq!(t, "do_pump");
-        assert_eq!(v, 73.5);
-    }
-
-    // ============================================================
-    // Batch 224 Faz 5+2 — parse_opc_ua_session_actor tests
-    // ============================================================
-
-    #[test]
-    fn parse_actor_anonymous_returns_none() {
-        assert!(parse_opc_ua_session_actor("opc-ua-anonymous").is_none());
-    }
-
-    #[test]
-    fn parse_actor_empty_returns_none() {
-        assert!(parse_opc_ua_session_actor("").is_none());
-    }
-
-    #[test]
-    fn parse_actor_operator_hex_roundtrip() {
-        // 16 bytes = 32 hex chars; pattern `op:<hex32>`.
-        let hex = "0102030405060708090a0b0c0d0e0f10";
-        let actor = format!("op:{}", hex);
-        match parse_opc_ua_session_actor(&actor) {
-            Some(ActorIdentity::Operator(id)) => {
-                assert_eq!(
-                    id.as_bytes(),
-                    &[
-                        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A,
-                        0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10
-                    ]
-                );
-            }
-            other => panic!("expected Operator, got {:?}", other.is_some()),
-        }
-    }
-
-    #[test]
-    fn parse_actor_operator_wrong_length_returns_none() {
-        // 30 chars → wrong length.
-        assert!(parse_opc_ua_session_actor("op:01020304050607080910111213141")
-            .is_none());
-        // 34 chars → wrong length.
-        assert!(parse_opc_ua_session_actor(
-            "op:0102030405060708091011121314151617"
-        )
-        .is_none());
-    }
-
-    #[test]
-    fn parse_actor_operator_non_hex_returns_none() {
-        // "zz" is not hex.
-        assert!(
-            parse_opc_ua_session_actor("op:zz02030405060708090a0b0c0d0e0f10").is_none()
-        );
-    }
-
-    #[test]
-    fn parse_actor_machine_issuer_cn() {
-        match parse_opc_ua_session_actor("svc:auth-service") {
-            Some(ActorIdentity::MachineIssuer { subject_cn }) => {
-                assert_eq!(subject_cn, "auth-service");
-            }
-            other => panic!("expected MachineIssuer, got {:?}", other.is_some()),
-        }
-    }
-
-    #[test]
-    fn parse_actor_machine_issuer_empty_cn_returns_none() {
-        assert!(parse_opc_ua_session_actor("svc:").is_none());
-    }
-
-    #[test]
-    fn parse_actor_unknown_prefix_returns_none() {
-        assert!(parse_opc_ua_session_actor("user:alice").is_none());
-        assert!(parse_opc_ua_session_actor("random-string").is_none());
-    }
-
-    #[test]
-    fn variant_error_to_status_code_maps_to_type_mismatch() {
-        assert_eq!(
-            variant_error_to_status_code(&VariantToF64Error::EmptyVariant),
-            StatusCode::BadTypeMismatch
-        );
-        assert_eq!(
-            variant_error_to_status_code(&VariantToF64Error::UnsupportedType {
-                got: "String"
-            }),
-            StatusCode::BadTypeMismatch
-        );
-    }
-
-    #[tokio::test]
-    async fn populate_runs_before_server_spawn_so_no_empty_browse_race() {
-        // If an HMI connects in the window BEFORE population
-        // ran, it would see an empty address space. Batch 217
-        // eliminates that race by calling populate_tag_nodes
-        // between `build()` and `tokio::spawn(server.run())`.
-        // Proof: the summary is Some on the returned handle.
-        let cfg = minimal_enabled_config();
-        let pki_dir = cfg.own_pki_dir.clone();
-        let registry = registry_from(vec![mk_node("do_x", IoType::DO, "Real")]);
-        let handle = start_opcua_server(&cfg, &registry, None)
-            .await
-            .expect("start ok")
-            .expect("some");
-        assert!(
-            handle.population().is_some(),
-            "population summary MUST be Some after start (pre-spawn guarantee)",
-        );
-        handle.cancel();
-        let inner = Arc::try_unwrap(handle).map_err(|_| "Arc").unwrap();
-        let _ = tokio::time::timeout(
-            std::time::Duration::from_secs(5),
-            inner.join(),
-        )
-        .await;
-        let _ = std::fs::remove_dir_all(&pki_dir);
-    }
+    // Batch #294 A-2b 5e FULL closure: tests for retired
+    // legacy bridge primitives (variant_to_f64_* /
+    // outcome_to_status_code_* / variant_error_to_status_code /
+    // write_body_* / parse_actor_*) deleted alongside the
+    // functions they pinned. SensNodeManager carries its own
+    // cast_variant_to_f64 (Batch #291) + parse_operator_token
+    // (Batch #265) tests in opc_ua_sens_node_manager.rs;
+    // execute_opcua_write_post_typed_authz post-typed-authz
+    // delegate tests live in opc_ua_server.rs (Batch #290).
+    // The populate_runs_before_server_spawn test was deleted
+    // because populate_tag_nodes returns an empty summary
+    // unconditionally now (no race window to test against).
 }

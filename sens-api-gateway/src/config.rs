@@ -774,6 +774,16 @@ pub struct MqttTopics {
     /// LoRa events topic pattern (v1.5.0: publish LoRaWAN uplink/join events)
     #[serde(default = "default_lora_events_topic")]
     pub lora_events: String,
+
+    /// **Batch #302 Faz 4 step 5.** Per-task scheduler stats
+    /// telemetry topic pattern. The task_stats publisher loop
+    /// emits a JSON snapshot of every task's TaskStats
+    /// (cycle_ms_min/max/avg, jitter_ms_*, overrun_count,
+    /// watchdog_kill_count) at a configurable interval (default
+    /// 30s) so operators see scheduler health without parsing
+    /// agent internals. Plan §5 Faz 4 step 5 canonical path.
+    #[serde(default = "default_task_stats_topic")]
+    pub task_stats: String,
 }
 
 impl Default for MqttTopics {
@@ -788,6 +798,7 @@ impl Default for MqttTopics {
             io_data: default_io_data_topic(),
             alarms: default_alarms_topic(),
             lora_events: default_lora_events_topic(),
+            task_stats: default_task_stats_topic(),
         }
     }
 }
@@ -834,6 +845,11 @@ impl MqttTopics {
                 .lora_events
                 .replace("{tenant_id}", tenant_id)
                 .replace("{device_id}", device_id),
+            // Batch #302 Faz 4 step 5: task_stats topic resolve
+            task_stats: self
+                .task_stats
+                .replace("{tenant_id}", tenant_id)
+                .replace("{device_id}", device_id),
         };
 
         // v1.2.3: Validate that all placeholders were resolved
@@ -859,6 +875,10 @@ pub struct ResolvedTopics {
     pub alarms: String,
     /// LoRa events topic (v1.5.0)
     pub lora_events: String,
+    /// **Batch #302 Faz 4 step 5.** Per-task scheduler stats
+    /// telemetry topic — populated by the task_stats publisher
+    /// loop on a configurable interval (default 30s).
+    pub task_stats: String,
 }
 
 impl ResolvedTopics {
@@ -882,6 +902,11 @@ impl ResolvedTopics {
             ("io_data", &self.io_data),
             ("alarms", &self.alarms),
             ("lora_events", &self.lora_events),
+            // Batch #302 Faz 4 step 5: include task_stats in
+            // the validation sweep so an unresolved placeholder
+            // there surfaces with the same operator-visible
+            // warning as the other topics.
+            ("task_stats", &self.task_stats),
         ];
 
         for (name, topic) in topics {
@@ -1129,6 +1154,19 @@ pub struct ScriptingConfig {
     /// diagnostics.
     #[serde(default)]
     pub force_store_path: String,
+
+    /// **Batch #302 Faz 4 step 5 closure.** Per-task
+    /// scheduler stats publish interval (seconds). Plan §5
+    /// Faz 4 step 5 default 30s. Validated bounds: 5..=3600.
+    /// Below 5s would saturate the broker queue with
+    /// observability traffic; above 3600s would lose too
+    /// much visibility for operators monitoring SLO tier
+    /// compliance. The publisher loop spawns ONLY when
+    /// `tasks: [...]` is non-empty (single-cadence legacy
+    /// path doesn't have per-task stats so doesn't need the
+    /// publisher).
+    #[serde(default = "default_task_stats_interval_secs")]
+    pub task_stats_publish_interval_secs: u64,
 }
 
 impl Default for ScriptingConfig {
@@ -1145,6 +1183,7 @@ impl Default for ScriptingConfig {
             bytecode_store_path: String::new(),
             tasks: Vec::new(),
             force_store_path: String::new(),
+            task_stats_publish_interval_secs: default_task_stats_interval_secs(),
         }
     }
 }
@@ -2775,6 +2814,11 @@ fn default_cb_half_open_permits() -> u32 {
 }
 
 // Scripting defaults
+/// Batch #302 Faz 4 step 5: default 30s task_stats publish interval.
+fn default_task_stats_interval_secs() -> u64 {
+    30
+}
+
 fn default_scan_cycle_ms() -> u64 {
     100
 }
@@ -2909,6 +2953,11 @@ fn default_alarms_topic() -> String {
 
 fn default_lora_events_topic() -> String {
     "tenants/{tenant_id}/devices/{device_id}/lora_events".to_string()
+}
+
+/// Batch #302 Faz 4 step 5: per-task scheduler stats topic.
+fn default_task_stats_topic() -> String {
+    "tenants/{tenant_id}/devices/{device_id}/task_stats".to_string()
 }
 
 // ============================================================================

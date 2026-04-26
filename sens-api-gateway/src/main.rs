@@ -4637,12 +4637,15 @@ async fn run_agent(
                             tokio::sync::Mutex::new(scheduler),
                         );
 
-                        // Shared shutdown watch for both
-                        // the cadence loop + the event
-                        // listener.
+                        // Shared shutdown watch for the
+                        // cadence loop + the event listener +
+                        // the Batch #302 task_stats publisher
+                        // (subscribe BEFORE the watch_tx is
+                        // moved into the bridge spawn below).
                         let (watch_tx, _) = tokio::sync::watch::channel(false);
                         let cadence_rx = watch_tx.subscribe();
                         let listener_rx = watch_tx.subscribe();
+                        let stats_rx = watch_tx.subscribe();
                         let mut broadcast_rx = shutdown_coordinator.subscribe();
                         tokio::spawn(async move {
                             let _ = broadcast_rx.recv().await;
@@ -4650,8 +4653,13 @@ async fn run_agent(
                         });
 
                         // Spawn event listener bridge.
+                        // Batch #302: clone the scheduler Arc
+                        // for the task_stats publisher BEFORE
+                        // sched_listener is moved into the
+                        // event listener spawn.
                         let pi_listener = pi.clone();
                         let sched_listener = scheduler_arc.clone();
+                        let sched_stats = scheduler_arc.clone();
                         let listener_handle = tokio::spawn(async move {
                             let summary =
                                 crate::scripting::task_scheduler::run_event_listener(
@@ -4700,9 +4708,38 @@ async fn run_agent(
                         shutdown_coordinator
                             .register_task("scheduler_cadence", cadence_handle);
 
+                        // Batch #302 Faz 4 step 5: per-task
+                        // stats MQTT publisher loop. Spawns
+                        // alongside the cadence + event-listener
+                        // loops in the multi-task scheduler
+                        // branch (single-cadence legacy doesn't
+                        // have per-task stats). Publishes to
+                        // `tenants/{tid}/devices/{did}/task_stats`
+                        // at the configured interval (default 30s).
+                        // sched_stats + stats_rx were cloned/
+                        // subscribed earlier (above the moves).
+                        let stats_interval = {
+                            let s = state.read().await;
+                            s.config.scripting.task_stats_publish_interval_secs
+                        };
+                        let stats_interval = stats_interval.clamp(5, 3600);
+                        let stats_state = state.clone();
+                        let stats_handle = tokio::spawn(async move {
+                            crate::scripting::task_stats_publisher
+                                ::run_task_stats_publisher_loop(
+                                    stats_state,
+                                    sched_stats,
+                                    stats_interval,
+                                    stats_rx,
+                                )
+                                .await;
+                        });
+                        shutdown_coordinator
+                            .register_task("task_stats_publisher", stats_handle);
+
                         info!(
-                            "Bytecode multi-task scheduler spawned (tasks={}, quantum_ms={})",
-                            task_count, quantum_ms
+                            "Bytecode multi-task scheduler spawned (tasks={}, quantum_ms={}, task_stats_interval={}s)",
+                            task_count, quantum_ms, stats_interval
                         );
                     }
                     Err(e) => {

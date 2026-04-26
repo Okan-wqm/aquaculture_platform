@@ -91,6 +91,13 @@ pub mod bytecode_scan_cycle_task;
 // TaskConfig / TaskStats. The runtime that dispatches
 // tasks according to these configs lands in Batch 185+.
 pub mod task_scheduler;
+
+// Batch #302 Faz 4 step 5 closure: per-task scheduler stats
+// MQTT publisher loop. Plan §5 Faz 4 step 5 canonical path
+// `tenants/{tid}/devices/{did}/task_stats` 30s default
+// interval. Spawns alongside run_scheduler_cadence_loop +
+// run_event_listener in the multi-task scheduler boot block.
+pub mod task_stats_publisher;
 // Batch 194 Faz 6 (plan R-9): live-debug force
 // registry — per-tag ForceEntry with TTL + rate
 // limit + concurrent count cap + persist opt-in.

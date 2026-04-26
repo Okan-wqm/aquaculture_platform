@@ -226,6 +226,40 @@ pub async fn publish_io_data<P: Serialize>(
     .await;
 }
 
+/// **Batch #302 Faz 4 step 5 closure.** Publish per-task
+/// scheduler stats at [`MessagePriority::Normal`] —
+/// observability-class telemetry, drains in normal priority
+/// order on broker reconnect. Loss during broker outage is
+/// acceptable (the next interval republishes); the queue-
+/// aware path retains historical snapshots for cloud-side
+/// time-series correlation.
+///
+/// QoS=0 — same as io_data telemetry. The 30s interval (plan
+/// §5 Faz 4 step 5 default) means a lost message becomes
+/// stale within one interval, so QoS=1 retry overhead is
+/// unwarranted. Operators tolerating lower fidelity for the
+/// scheduler-stats stream is the canonical observability
+/// trade-off.
+pub async fn publish_task_stats<P: Serialize>(
+    state: &crate::AppState,
+    payload: &P,
+) {
+    let topic = match state.mqtt_client.as_ref() {
+        Some(m) => m.topics().task_stats.clone(),
+        None => return,
+    };
+    publish_routed(
+        state,
+        &topic,
+        payload,
+        MessagePriority::Normal,
+        0,
+        false,
+        "task_stats",
+    )
+    .await;
+}
+
 /// Publish a LoRaWAN event (uplink / join / downlink ack) at
 /// [`MessagePriority::Normal`].
 pub async fn publish_lora_event<P: Serialize>(

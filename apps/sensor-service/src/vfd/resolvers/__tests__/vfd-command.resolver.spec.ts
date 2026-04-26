@@ -17,7 +17,6 @@ describe('VfdCommandResolver', () => {
   let registerMappingService: jest.Mocked<VfdRegisterMappingService>;
 
   const tenantId = 'tenant-123';
-  const mockContext = { tenantId };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -70,7 +69,7 @@ describe('VfdCommandResolver', () => {
         const result = await resolver.sendCommand(
           'device-123',
           { command: VfdCommandType.START },
-          mockContext
+          tenantId
         );
 
         expect(result.success).toBe(true);
@@ -84,7 +83,7 @@ describe('VfdCommandResolver', () => {
 
     describe('startVfd', () => {
       it('should send START command', async () => {
-        const result = await resolver.startVfd('device-123', mockContext);
+        const result = await resolver.startVfd('device-123', tenantId);
 
         expect(result.success).toBe(true);
         expect(commandService.executeCommand).toHaveBeenCalledWith(
@@ -97,7 +96,7 @@ describe('VfdCommandResolver', () => {
 
     describe('stopVfd', () => {
       it('should send STOP command', async () => {
-        const result = await resolver.stopVfd('device-123', mockContext);
+        const result = await resolver.stopVfd('device-123', tenantId);
 
         expect(result.success).toBe(true);
         expect(commandService.executeCommand).toHaveBeenCalledWith(
@@ -110,7 +109,7 @@ describe('VfdCommandResolver', () => {
 
     describe('setFrequency', () => {
       it('should send SET_FREQUENCY command with value', async () => {
-        const result = await resolver.setFrequency('device-123', 45.0, mockContext);
+        const result = await resolver.setFrequency('device-123', 45.0, tenantId);
 
         expect(result.success).toBe(true);
         expect(commandService.executeCommand).toHaveBeenCalledWith(
@@ -123,7 +122,7 @@ describe('VfdCommandResolver', () => {
 
     describe('setSpeed', () => {
       it('should send SET_SPEED command with percentage', async () => {
-        const result = await resolver.setSpeed('device-123', 75.0, mockContext);
+        const result = await resolver.setSpeed('device-123', 75.0, tenantId);
 
         expect(result.success).toBe(true);
         expect(commandService.executeCommand).toHaveBeenCalledWith(
@@ -136,7 +135,7 @@ describe('VfdCommandResolver', () => {
 
     describe('resetFault', () => {
       it('should send FAULT_RESET command', async () => {
-        const result = await resolver.resetFault('device-123', mockContext);
+        const result = await resolver.resetFault('device-123', tenantId);
 
         expect(result.success).toBe(true);
         expect(commandService.executeCommand).toHaveBeenCalledWith(
@@ -149,7 +148,7 @@ describe('VfdCommandResolver', () => {
 
     describe('emergencyStop', () => {
       it('should send EMERGENCY_STOP command', async () => {
-        const result = await resolver.emergencyStop('device-123', mockContext);
+        const result = await resolver.emergencyStop('device-123', tenantId);
 
         expect(result.success).toBe(true);
         expect(commandService.executeCommand).toHaveBeenCalledWith(
@@ -167,7 +166,12 @@ describe('VfdCommandResolver', () => {
         const result = await resolver.getVfdBrands();
 
         expect(result).toHaveLength(1);
-        expect(result[0].code).toBe('danfoss');
+        // The resolver's GraphQL Object type produces an `unknown[]`
+        // shape under TS-compiled jest specs because `getBrandsSummary`
+        // is mocked with a free-form return shape. Cast at the
+        // assertion boundary so the test reads cleanly without the
+        // `result[0]` being inferred as `unknown`.
+        expect(((result as unknown[])[0] as { code: string }).code).toBe('danfoss');
         expect(registerMappingService.getBrandsSummary).toHaveBeenCalled();
       });
     });
@@ -197,7 +201,7 @@ describe('VfdCommandResolver', () => {
         const result = await resolver.getProtocolDefaultConfig(VfdProtocol.MODBUS_TCP);
 
         expect(result).toBeDefined();
-        expect(result.port).toBe(502);
+        expect((result as { port: number }).port).toBe(502);
       });
     });
 

@@ -235,7 +235,40 @@ impl std::error::Error for OpcUaServerStartError {}
 /// Pure fn modulo PKI dir touch — `create_sample_keypair`
 /// only reads-through pki_dir at server.build()/run() time,
 /// not at builder-construction time.
-pub fn build_server(config: &OpcUaServerConfig) -> Result<ServerBuilder, OpcUaServerStartError> {
+///
+/// **Batch #292 A-2b 5c runtime swap path.** The
+/// `sens_builder` parameter selects which NodeManager owns
+/// the Suderra namespace:
+///
+/// - `Some(builder)` → the new SensNodeManagerBuilder is
+///   registered (Batches #263-#291). Address-space population
+///   is automatic (virtual nodes via tag_registry); no
+///   `populate_tag_nodes` work required. Production callers
+///   that have all 8 dependency Arcs available
+///   (`init_opc_ua_server` in the post-Batch-#293 world)
+///   pass Some.
+/// - `None` → the legacy `simple_node_manager` path is
+///   registered. Tests + transitional callers (the current
+///   `init_opc_ua_server` body until Batch #293 wires the
+///   SensAuthManager) pass None. `populate_tag_nodes` then
+///   runs against the SimpleNodeManager.
+///
+/// **Why an Option (not two functions).** Both paths emit
+/// identical `ServerBuilder` outputs that downstream callers
+/// (the `build()` consumer) drive uniformly. The switch is at
+/// `with_node_manager(...)` — one line. Splitting into two
+/// functions would duplicate the validation + builder
+/// configuration body. The Option encodes the migration
+/// phase explicitly: Batch #294 deletes the `None` branch
+/// once `init_opc_ua_server` always supplies the builder.
+///
+/// **Linked finding:** ULTRA-HIGH-035 PARTIAL_FIX (overall
+/// A-2b part 5). Closes the structural-prerequisite for
+/// Batch #293's `init_opc_ua_server` migration.
+pub fn build_server(
+    config: &OpcUaServerConfig,
+    sens_builder: Option<crate::opc_ua_sens_node_manager::SensNodeManagerBuilder>,
+) -> Result<ServerBuilder, OpcUaServerStartError> {
     config
         .validate()
         .map_err(OpcUaServerStartError::ConfigInvalid)?;
@@ -254,18 +287,6 @@ pub fn build_server(config: &OpcUaServerConfig) -> Result<ServerBuilder, OpcUaSe
 
     let discovery_url = format!("opc.tcp://{}:{}/", config.bind, config.port);
 
-    // Batch 217: register the Suderra SimpleNodeManager so
-    // the server builds with our namespace + empty address
-    // space ready for tag-node population immediately after
-    // build(). The simple-node-manager pattern keeps the
-    // server hot path sync (read/write callbacks are plain
-    // Fn) — Batch 218+ wires async bridges for the OPC UA
-    // write-orchestrator.
-    let namespace_meta = NamespaceMetadata {
-        namespace_uri: SUDERRA_NAMESPACE_URI.to_owned(),
-        ..Default::default()
-    };
-
     let mut builder = ServerBuilder::new()
         .application_name("suderra-edge")
         .application_uri(SUDERRA_NAMESPACE_URI)
@@ -276,8 +297,40 @@ pub fn build_server(config: &OpcUaServerConfig) -> Result<ServerBuilder, OpcUaSe
         .trust_client_certs(true)
         .pki_dir(&config.own_pki_dir)
         .add_endpoint("default", endpoint)
-        .discovery_urls(vec![discovery_url])
-        .with_node_manager(simple_node_manager(namespace_meta, SUDERRA_NODE_MANAGER_NAME));
+        .discovery_urls(vec![discovery_url]);
+
+    // Batch #292 manager-selection switch.
+    builder = match sens_builder {
+        Some(sens) => {
+            // New typed-authz path — SensNodeManager handles
+            // all 6 trait methods (init/owns_node/
+            // namespaces_for_user/read/write/browse) per
+            // Batches #263-#291. Namespace registration
+            // happens inside SensNodeManager.init() via
+            // `type_tree.namespaces_mut().add_namespace(...)`.
+            builder.with_node_manager(sens)
+        }
+        None => {
+            // Legacy SimpleNodeManager path — kept for
+            // tests + transitional callers. Batch #294
+            // deletes this branch once init_opc_ua_server
+            // always supplies the SensNodeManagerBuilder.
+            //
+            // The simple-node-manager registers the Suderra
+            // namespace via NamespaceMetadata at
+            // construction time (NOT via init()) so
+            // populate_tag_nodes can resolve the index
+            // immediately after server.build().
+            let namespace_meta = NamespaceMetadata {
+                namespace_uri: SUDERRA_NAMESPACE_URI.to_owned(),
+                ..Default::default()
+            };
+            builder.with_node_manager(simple_node_manager(
+                namespace_meta,
+                SUDERRA_NODE_MANAGER_NAME,
+            ))
+        }
+    };
 
     // Batch 228 B-3 closure (partial): wire
     // config.max_sessions into the server-level Limits. The
@@ -368,12 +421,37 @@ pub fn populate_tag_nodes(
             )
         })?;
 
-    let node_manager = handle
+    // Batch #292 A-2b 5c runtime swap path: when
+    // SensNodeManagerBuilder is the active manager (Batches
+    // #263-#291 typed-authz path), there is no
+    // SimpleNodeManager + no in-memory AddressSpace to
+    // populate. SensNodeManager.browse() resolves tags
+    // virtually from tag_registry (Batch #288), so
+    // populate_tag_nodes has nothing to do. We detect this
+    // by querying the NodeManagers registry for a
+    // SimpleNodeManager + return an empty summary with the
+    // assigned namespace_index when none is present.
+    //
+    // The "0 variable_nodes_added" reported here does NOT
+    // mean tags are missing from HMI browse responses — it
+    // means SensNodeManager exposes them virtually instead.
+    // The boot-log message in init_opc_ua_server documents
+    // this.
+    let node_manager = match handle
         .node_managers()
         .get_of_type::<SimpleNodeManager>()
-        .ok_or_else(|| {
-            "SimpleNodeManager not present — Batch 216 build_server must register it".to_string()
-        })?;
+    {
+        Some(nm) => nm,
+        None => {
+            // SensNodeManager active — virtual nodes path.
+            return Ok(AddressSpacePopulationSummary {
+                namespace_index,
+                variable_nodes_added: 0,
+                writable_nodes: 0,
+                insertion_failures: Vec::new(),
+            });
+        }
+    };
 
     let address_space_arc = node_manager.address_space().clone();
     let mut address_space = address_space_arc.write();
@@ -659,8 +737,22 @@ pub async fn init_opc_ua_server(
 
     // Start the server — internal pre-spawn population
     // uses `registry` to populate the Suderra address space.
+    //
+    // Batch #292 A-2b 5c runtime swap path: this call site
+    // currently passes `None` for sens_builder, leaving the
+    // legacy SimpleNodeManager path active. Batch #293
+    // migrates this to construct + pass a real
+    // SensNodeManagerBuilder once the SensAuthManager dep
+    // is wired (the typed-authz chain needs a session-layer
+    // hook from SensAuthManager to populate UserToken). The
+    // structural switch landed in Batch #292 (this file's
+    // build_server + start_opcua_server signatures); the
+    // dependency-construction migration is a separate batch
+    // because it touches the OpcUaInitDeps schema +
+    // requires the auth manager primitive that Batch #266
+    // landed but has not yet been wired into the runtime.
     let registry_arc = Arc::new(registry);
-    let handle_opt = start_opcua_server(config, &*registry_arc)
+    let handle_opt = start_opcua_server(config, &*registry_arc, None)
         .await
         .map_err(|e| format!("opc_ua_server start failed: {}", e))?;
 
@@ -1109,32 +1201,49 @@ fn insert_tag_variable(
 pub async fn start_opcua_server(
     config: &OpcUaServerConfig,
     registry: &OpcUaTagRegistry,
+    sens_builder: Option<crate::opc_ua_sens_node_manager::SensNodeManagerBuilder>,
 ) -> Result<Option<Arc<SuderraOpcUaHandle>>, OpcUaServerStartError> {
     if !config.enabled {
         info!("opc_ua_server.enabled=false — server NOT started (operator off-switch)");
         return Ok(None);
     }
 
-    let builder = build_server(config)?;
+    // Batch #292 A-2b 5c runtime swap path: track which
+    // manager is active for boot-log clarity. Some(...) means
+    // the new SensNodeManager handles browse/read/write
+    // virtually (Batches #263-#291 typed-authz path); None
+    // means the legacy SimpleNodeManager + populate_tag_nodes
+    // path runs. Operators reading boot logs need to know
+    // which manager surfaced the address space.
+    let manager_kind = if sens_builder.is_some() {
+        "SensNodeManager (typed-authz, virtual nodes)"
+    } else {
+        "SimpleNodeManager (legacy populate_tag_nodes)"
+    };
+
+    let builder = build_server(config, sens_builder)?;
     let (server, handle) = builder
         .build()
         .map_err(OpcUaServerStartError::BuilderFailed)?;
 
-    // Batch 217: populate the Suderra namespace BEFORE
-    // spawning the run loop. Population is synchronous
-    // (lock-guarded AddressSpace mutation); running it here
-    // means the first HMI session that lands after
-    // server.run() sees the full tag catalog on its initial
-    // browse — no race-window where a client connects to an
-    // empty address space.
+    // Batch 217 + Batch #292: populate the Suderra namespace
+    // when the legacy SimpleNodeManager is active. With the
+    // new SensNodeManager (sens_builder = Some), the
+    // populate_tag_nodes call no-ops gracefully (returns an
+    // empty summary) because tags surface virtually via
+    // SensNodeManager.browse(). Either way the call site
+    // shape is uniform so downstream consumers
+    // (SuderraOpcUaHandle.population) see the same Option
+    // type.
     let population_summary = populate_tag_nodes(&handle, registry)
         .map_err(OpcUaServerStartError::BuilderFailed)?;
     info!(
-        "opc_ua address-space populated: ns={} variables_added={} writable={} failures={}",
+        "opc_ua address-space populated: ns={} variables_added={} writable={} failures={} manager_kind=\"{}\"",
         population_summary.namespace_index,
         population_summary.variable_nodes_added,
         population_summary.writable_nodes,
         population_summary.insertion_failures.len(),
+        manager_kind,
     );
     // Batch 227 E-3 closure: forensic warn per structured
     // failure so an operator-facing audit can inspect the
@@ -1220,7 +1329,7 @@ mod tests {
     async fn start_returns_none_when_disabled() {
         let mut cfg = minimal_enabled_config();
         cfg.enabled = false;
-        let result = start_opcua_server(&cfg, &OpcUaTagRegistry::default()).await;
+        let result = start_opcua_server(&cfg, &OpcUaTagRegistry::default(), None).await;
         match result {
             Ok(None) => {}
             Ok(Some(_)) => panic!("disabled config MUST NOT start a server"),
@@ -1232,7 +1341,7 @@ mod tests {
     async fn start_errors_on_invalid_config() {
         let mut cfg = minimal_enabled_config();
         cfg.bind = "not an ip".to_string();
-        let result = start_opcua_server(&cfg, &OpcUaTagRegistry::default()).await;
+        let result = start_opcua_server(&cfg, &OpcUaTagRegistry::default(), None).await;
         match result {
             Err(OpcUaServerStartError::ConfigInvalid(_)) => {}
             Err(other) => panic!("expected ConfigInvalid, got {:?}", other),
@@ -1247,7 +1356,7 @@ mod tests {
         // any network touch.
         let mut cfg = minimal_enabled_config();
         cfg.subscription_polling_interval_ms = 1;
-        match build_server(&cfg) {
+        match build_server(&cfg, None) {
             Err(OpcUaServerStartError::ConfigInvalid(msg)) => {
                 assert!(msg.contains("10ms floor"), "msg={}", msg);
             }
@@ -1261,8 +1370,110 @@ mod tests {
         let cfg = minimal_enabled_config();
         // ServerBuilder is opaque (no Debug, no PartialEq) so
         // the only assertion available is that Ok arrives.
-        if build_server(&cfg).is_err() {
+        if build_server(&cfg, None).is_err() {
             panic!("build_server rejected a valid config");
+        }
+    }
+
+    /// **Batch #292 A-2b 5c switch test.** build_server
+    /// accepts both `None` (legacy SimpleNodeManager) and
+    /// `Some(SensNodeManagerBuilder)` (new typed-authz
+    /// path) without rejecting valid configs. The switch
+    /// itself is structural at the trait-method dispatch
+    /// level (no runtime branching beyond the manager
+    /// registration) — this test pins that the structural
+    /// switch compiles + accepts both shapes against a
+    /// known-valid config.
+    #[test]
+    fn build_server_accepts_sens_builder_path() {
+        use crate::opc_ua_sens_node_manager::SensNodeManagerBuilder;
+        use crate::opc_ua_server::{
+            OpcUaAuditPort, OpcUaForceRegistryPort,
+            OpcUaProcessImagePort, OpcUaTagRegistry,
+            OpcUaWriteOutcome,
+        };
+        use crate::opc_ua_server_typed_authz::{
+            TypedAuthzError, TypedAuthzPort,
+        };
+        use crate::opc_ua_server_session::AuthenticatedUser;
+        use crate::authz::context::{
+            AuthorizationDenyReason, AuthorizedContext,
+        };
+        use crate::authz::user_token_manifest_runtime
+            ::UserTokenManifestStore;
+        use crate::authz::permission::TenantId;
+        use crate::opc_ua_server_user_token_validator
+            ::UserTokenValidator;
+        use crate::process_image::ProcessImage;
+        use async_trait::async_trait;
+
+        // Mock implementations — only need to satisfy
+        // the trait bounds; bodies are unreachable from
+        // build_server (which only registers the builder,
+        // never invokes its methods).
+        struct DenyAllAuthz;
+        #[async_trait]
+        impl TypedAuthzPort for DenyAllAuthz {
+            async fn authorize_write(
+                &self,
+                _user: &AuthenticatedUser,
+                _tag_name: &str,
+                _received_at: std::time::SystemTime,
+            ) -> Result<AuthorizedContext, TypedAuthzError> {
+                Err(TypedAuthzError::EngineDenied(
+                    AuthorizationDenyReason::PermissionNotGranted,
+                ))
+            }
+        }
+        struct NoForce;
+        #[async_trait]
+        impl OpcUaForceRegistryPort for NoForce {
+            async fn is_forced(&self, _tag_name: &str) -> bool {
+                false
+            }
+        }
+        struct NoCommitPi;
+        #[async_trait]
+        impl OpcUaProcessImagePort for NoCommitPi {
+            async fn write_tag(
+                &self,
+                _tag_name: &str,
+                _value: f64,
+                _actor: &str,
+            ) -> Result<(), String> {
+                Err("test mock — write disabled".to_string())
+            }
+        }
+        struct NoAudit;
+        #[async_trait]
+        impl OpcUaAuditPort for NoAudit {
+            async fn record_write_attempt(
+                &self,
+                _actor: &str,
+                _tag_name: &str,
+                _value: f64,
+                _outcome: &OpcUaWriteOutcome,
+            ) {
+            }
+        }
+
+        let store = Arc::new(UserTokenManifestStore::new());
+        let validator = Arc::new(UserTokenValidator::new(store));
+        let builder = SensNodeManagerBuilder::new(
+            TenantId::new_from_verified([0u8; 16]),
+            Arc::new(DenyAllAuthz),
+            validator,
+            Arc::new(ProcessImage::new()),
+            Arc::new(OpcUaTagRegistry::default()),
+            Arc::new(NoForce),
+            Arc::new(NoCommitPi),
+            Arc::new(NoAudit),
+        );
+        let cfg = minimal_enabled_config();
+        if build_server(&cfg, Some(builder)).is_err() {
+            panic!(
+                "build_server rejected a valid config + SensNodeManagerBuilder"
+            );
         }
     }
 
@@ -1275,7 +1486,7 @@ mod tests {
         // every run to a unique path.
         let cfg = minimal_enabled_config();
         let pki_dir = cfg.own_pki_dir.clone();
-        let handle = match start_opcua_server(&cfg, &OpcUaTagRegistry::default()).await {
+        let handle = match start_opcua_server(&cfg, &OpcUaTagRegistry::default(), None).await {
             Ok(Some(h)) => h,
             Ok(None) => panic!("enabled config returned None"),
             Err(e) => panic!("start failed: {}", e),
@@ -1419,7 +1630,7 @@ mod tests {
             mk_node("di_limit", IoType::DI, "Bool"),
         ]);
 
-        let handle = match start_opcua_server(&cfg, &registry).await {
+        let handle = match start_opcua_server(&cfg, &registry, None).await {
             Ok(Some(h)) => h,
             Ok(None) => panic!("enabled config returned None"),
             Err(e) => panic!("start failed: {}", e),
@@ -2002,7 +2213,7 @@ mod tests {
         let cfg = minimal_enabled_config();
         let pki_dir = cfg.own_pki_dir.clone();
         let registry = registry_from(vec![mk_node("do_x", IoType::DO, "Real")]);
-        let handle = start_opcua_server(&cfg, &registry)
+        let handle = start_opcua_server(&cfg, &registry, None)
             .await
             .expect("start ok")
             .expect("some");

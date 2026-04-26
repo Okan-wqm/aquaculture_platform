@@ -366,6 +366,58 @@ there.
 
 ---
 
+## 18. UploadController still imports MinioClientService directly (PARTIAL)
+
+**File:** `apps/gateway-api/src/upload/upload.controller.ts:39`
+**Context:** Phase V0 (PR-19).
+**Observation:** PR-19 routes the WRITE path (uploadFile) through
+`FileUploadSecurityService.uploadSecure()`. The controller still
+imports `MinioClientService` directly because the READ / DELETE /
+PRESIGN paths (`fileExists`, `deleteFile`, `getPresignedUrl`,
+`generateFilePath`) bypass the security wrapper — they manipulate
+storage paths, they don't process bytes, so the V0-scope policies
+don't apply.
+
+The plan §3.2 V0 Recommendation B was:
+> Lint rule: banned-import from outside `libs/storage` for `MinioClientService`.
+
+That can't land while the controller has legitimate non-upload uses
+of MinioClientService. Two paths forward (Phase V0.5 follow-up):
+
+- **A**: introduce a thin `MinioReadOnlyService` wrapper that
+  exposes JUST the read/delete/presign methods; lint forbids
+  `MinioClientService` outside libs/storage; the upload controller
+  then injects only `FileUploadSecurityService` (writes) and
+  `MinioReadOnlyService` (other paths).
+- **B**: leave `MinioClientService` exported but add an ESLint
+  custom rule enforcing "no `.uploadFile(` call outside libs/storage"
+  — narrower constraint on the actual security-sensitive method.
+
+**Severity:** LOW (MEDIUM if a new caller accidentally calls
+`uploadFile` directly to bypass policies — no automated check yet).
+
+**Suggested fix path:** Phase V0.5 PR. Plan call before deciding A
+vs B; current code passes the V0 architectural intent (every byte
+through the security wrapper at the upload write path).
+
+---
+
+## 19. orphan-cleanup.service mirror — read-side audit gap
+
+**File:** `libs/storage/src/orphan-cleanup.service.ts`
+**Context:** Discovered while inspecting storage module for PR-19.
+**Observation:** `StorageOrphanCleanupService` deletes objects that
+have no DB reference older than 30 days. It calls `MinioClientService`
+directly (correct — internal to libs/storage). But it doesn't yet
+check the upload-time `x-amz-meta-uploaded-by` metadata against an
+audit log, which would let operators investigate "who uploaded the
+deleted file" post-hoc. Out of scope for V0 (cleanup discipline);
+flagging as a Phase V0.7 consideration.
+
+**Severity:** LOW (operational nice-to-have, not a security gap).
+
+---
+
 ## Closing posture
 
 This file lives at:

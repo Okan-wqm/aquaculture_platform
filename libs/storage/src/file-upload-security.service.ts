@@ -115,6 +115,75 @@ const DEFAULT_POLICIES: readonly UploadPolicy[] = [
     maxBytes: 10 * 1024 * 1024,
     allowedMime: ['application/pdf'],
   },
+
+  // ----------------------------------------------------------------
+  // Chemical document policies (Scope B Phase V0 migration).
+  //
+  // The gateway-api `/upload/chemical-document` endpoint accepts a
+  // `documentType` from the `ChemicalDocumentType` enum (lowercase
+  // string literals at the GraphQL boundary: 'msds' | 'label' |
+  // 'protocol' | 'certificate' | 'other'). The controller upper-
+  // cases that to look up policies here. A real chemical SDS is
+  // a PDF; labels are often phone photos; protocols and
+  // certificates are PDF.
+  //
+  // 'CHEMICAL_OTHER' is intentionally distinct from the generic
+  // 'OTHER' below — chemical documents have a tighter mime
+  // whitelist (no DOC/DOCX, only PDF + common images) because
+  // chemical documentation is the primary regulatory artefact for
+  // Mattilsynet inspections; loose document types open the door to
+  // operator workflow drift.
+  // ----------------------------------------------------------------
+  {
+    documentType: 'MSDS',
+    maxBytes: 10 * 1024 * 1024, // 10 MB — multi-page bilingual SDS
+    allowedMime: ['application/pdf'],
+  },
+  {
+    documentType: 'LABEL',
+    maxBytes: 10 * 1024 * 1024,
+    allowedMime: ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'],
+  },
+  {
+    documentType: 'PROTOCOL',
+    maxBytes: 5 * 1024 * 1024,
+    allowedMime: ['application/pdf'],
+  },
+  {
+    documentType: 'CERTIFICATE',
+    maxBytes: 5 * 1024 * 1024,
+    allowedMime: ['application/pdf'],
+  },
+  {
+    documentType: 'CHEMICAL_OTHER',
+    maxBytes: 5 * 1024 * 1024,
+    allowedMime: ['application/pdf', 'image/jpeg', 'image/png'],
+  },
+
+  // ----------------------------------------------------------------
+  // Batch document policies (Scope B Phase V0 migration).
+  //
+  // Most categories already exist above (HEALTH_CERTIFICATE,
+  // IMPORT_DOCUMENT, ORIGIN_CERTIFICATE, VETERINARY_CERTIFICATE,
+  // TRANSPORT_DOCUMENT). Two new policies cover the remaining
+  // BatchDocumentCategory enum members.
+  // ----------------------------------------------------------------
+  {
+    documentType: 'QUARANTINE_PERMIT',
+    maxBytes: 5 * 1024 * 1024,
+    allowedMime: ['application/pdf'],
+  },
+  {
+    documentType: 'CUSTOMS_DECLARATION',
+    maxBytes: 5 * 1024 * 1024,
+    allowedMime: ['application/pdf'],
+  },
+  {
+    documentType: 'BATCH_OTHER',
+    maxBytes: 5 * 1024 * 1024,
+    allowedMime: ['application/pdf', 'image/jpeg', 'image/png'],
+  },
+
   {
     documentType: 'OTHER',
     maxBytes: 5 * 1024 * 1024,

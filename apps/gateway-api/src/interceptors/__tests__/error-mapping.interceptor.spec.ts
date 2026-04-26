@@ -254,75 +254,99 @@ describe('ErrorMappingInterceptor', () => {
 
   describe('Error Code Mapping', () => {
     describe('Authentication Errors', () => {
-      it.each([
+      // jest's `it.each` callback type is fixed to the row tuple
+      // shape — the legacy 4th `done` param doesn't fit. Migrated
+      // to an async/Promise wrapping of the rxjs subscription so
+      // the type narrows cleanly without losing the test's intent
+      // (the body still asserts the same error mapping; jest's
+      // promise-style wait replaces the done callback).
+      it.each<[string, number, string]>([
         ['AUTH_INVALID_CREDENTIALS', 401, 'Invalid credentials'],
         ['AUTH_TOKEN_EXPIRED', 401, 'Token has expired'],
         ['AUTH_TOKEN_INVALID', 401, 'Invalid token'],
         ['AUTH_INSUFFICIENT_PERMISSIONS', 403, 'Insufficient permissions'],
         ['AUTH_ACCOUNT_LOCKED', 403, 'Account is locked'],
         ['AUTH_ACCOUNT_DISABLED', 403, 'Account is disabled'],
-      ])('should map %s to status %d', (code, expectedStatus, expectedMessage, done) => {
+      ])('should map %s to status %d', async (code, expectedStatus, expectedMessage) => {
         const context = createMockExecutionContext();
-        const error = createErrorWithCode('Internal error', code as string);
+        const error = createErrorWithCode('Internal error', code);
         const handler = createErrorCallHandler(error);
 
-        interceptor.intercept(context, handler).subscribe({
-          next: () => failTest(done as jest.DoneCallback, 'Should have thrown'),
-          error: (err: unknown) => {
-            const httpError = err as HttpException;
-            expect(httpError.getStatus()).toBe(expectedStatus);
-            const response = httpError.getResponse() as MappedErrorResponse;
-            expect(response.error.code).toBe(code);
-            expect(response.error.message).toBe(expectedMessage);
-            (done as jest.DoneCallback)();
-          },
+        await new Promise<void>((resolve, reject) => {
+          interceptor.intercept(context, handler).subscribe({
+            next: () => reject(new Error('Should have thrown')),
+            error: (err: unknown) => {
+              try {
+                const httpError = err as HttpException;
+                expect(httpError.getStatus()).toBe(expectedStatus);
+                const response = httpError.getResponse() as MappedErrorResponse;
+                expect(response.error.code).toBe(code);
+                expect(response.error.message).toBe(expectedMessage);
+                resolve();
+              } catch (assertion) {
+                reject(assertion as Error);
+              }
+            },
+          });
         });
       });
     });
 
     describe('Resource Errors', () => {
-      it.each([
+      it.each<[string, number, string]>([
         ['RESOURCE_NOT_FOUND', 404, 'Resource not found'],
         ['RESOURCE_ALREADY_EXISTS', 409, 'Resource already exists'],
         ['RESOURCE_CONFLICT', 409, 'Resource conflict'],
         ['RESOURCE_GONE', 410, 'Resource no longer available'],
-      ])('should map %s to status %d', (code, expectedStatus, expectedMessage, done) => {
+      ])('should map %s to status %d', async (code, expectedStatus, expectedMessage) => {
         const context = createMockExecutionContext();
-        const error = createErrorWithCode('Internal error', code as string);
+        const error = createErrorWithCode('Internal error', code);
         const handler = createErrorCallHandler(error);
 
-        interceptor.intercept(context, handler).subscribe({
-          next: () => failTest(done as jest.DoneCallback, 'Should have thrown'),
-          error: (err: unknown) => {
-            const httpError = err as HttpException;
-            expect(httpError.getStatus()).toBe(expectedStatus);
-            const response = httpError.getResponse() as MappedErrorResponse;
-            expect(response.error.message).toBe(expectedMessage);
-            (done as jest.DoneCallback)();
-          },
+        await new Promise<void>((resolve, reject) => {
+          interceptor.intercept(context, handler).subscribe({
+            next: () => reject(new Error('Should have thrown')),
+            error: (err: unknown) => {
+              try {
+                const httpError = err as HttpException;
+                expect(httpError.getStatus()).toBe(expectedStatus);
+                const response = httpError.getResponse() as MappedErrorResponse;
+                expect(response.error.message).toBe(expectedMessage);
+                resolve();
+              } catch (assertion) {
+                reject(assertion as Error);
+              }
+            },
+          });
         });
       });
     });
 
     describe('Validation Errors', () => {
-      it.each([
+      it.each<[string, number, string]>([
         ['VALIDATION_FAILED', 422, 'Validation failed'],
         ['INVALID_INPUT', 400, 'Invalid input'],
         ['MISSING_REQUIRED_FIELD', 400, 'Missing required field'],
-      ])('should map %s to status %d', (code, expectedStatus, expectedMessage, done) => {
+      ])('should map %s to status %d', async (code, expectedStatus, expectedMessage) => {
         const context = createMockExecutionContext();
-        const error = createErrorWithCode('Internal error', code as string);
+        const error = createErrorWithCode('Internal error', code);
         const handler = createErrorCallHandler(error);
 
-        interceptor.intercept(context, handler).subscribe({
-          next: () => failTest(done as jest.DoneCallback, 'Should have thrown'),
-          error: (err: unknown) => {
-            const httpError = err as HttpException;
-            expect(httpError.getStatus()).toBe(expectedStatus);
-            const response = httpError.getResponse() as MappedErrorResponse;
-            expect(response.error.message).toBe(expectedMessage);
-            (done as jest.DoneCallback)();
-          },
+        await new Promise<void>((resolve, reject) => {
+          interceptor.intercept(context, handler).subscribe({
+            next: () => reject(new Error('Should have thrown')),
+            error: (err: unknown) => {
+              try {
+                const httpError = err as HttpException;
+                expect(httpError.getStatus()).toBe(expectedStatus);
+                const response = httpError.getResponse() as MappedErrorResponse;
+                expect(response.error.message).toBe(expectedMessage);
+                resolve();
+              } catch (assertion) {
+                reject(assertion as Error);
+              }
+            },
+          });
         });
       });
     });
@@ -362,47 +386,59 @@ describe('ErrorMappingInterceptor', () => {
     });
 
     describe('Tenant Errors', () => {
-      it.each([
+      it.each<[string, number, string]>([
         ['TENANT_NOT_FOUND', 404, 'Tenant not found'],
         ['TENANT_SUSPENDED', 403, 'Tenant is suspended'],
         ['TENANT_LIMIT_EXCEEDED', 429, 'Tenant limit exceeded'],
-      ])('should map %s to status %d', (code, expectedStatus, expectedMessage, done) => {
+      ])('should map %s to status %d', async (code, expectedStatus, expectedMessage) => {
         const context = createMockExecutionContext();
-        const error = createErrorWithCode('Internal error', code as string);
+        const error = createErrorWithCode('Internal error', code);
         const handler = createErrorCallHandler(error);
 
-        interceptor.intercept(context, handler).subscribe({
-          next: () => failTest(done as jest.DoneCallback, 'Should have thrown'),
-          error: (err: unknown) => {
-            const httpError = err as HttpException;
-            expect(httpError.getStatus()).toBe(expectedStatus);
-            const response = httpError.getResponse() as MappedErrorResponse;
-            expect(response.error.message).toBe(expectedMessage);
-            (done as jest.DoneCallback)();
-          },
+        await new Promise<void>((resolve, reject) => {
+          interceptor.intercept(context, handler).subscribe({
+            next: () => reject(new Error('Should have thrown')),
+            error: (err: unknown) => {
+              try {
+                const httpError = err as HttpException;
+                expect(httpError.getStatus()).toBe(expectedStatus);
+                const response = httpError.getResponse() as MappedErrorResponse;
+                expect(response.error.message).toBe(expectedMessage);
+                resolve();
+              } catch (assertion) {
+                reject(assertion as Error);
+              }
+            },
+          });
         });
       });
     });
 
     describe('External Service Errors', () => {
-      it.each([
+      it.each<[string, number, string]>([
         ['EXTERNAL_SERVICE_ERROR', 502, 'External service error'],
         ['EXTERNAL_SERVICE_TIMEOUT', 504, 'External service timeout'],
         ['EXTERNAL_SERVICE_UNAVAILABLE', 503, 'External service unavailable'],
-      ])('should map %s to status %d', (code, expectedStatus, expectedMessage, done) => {
+      ])('should map %s to status %d', async (code, expectedStatus, expectedMessage) => {
         const context = createMockExecutionContext();
-        const error = createErrorWithCode('Internal error', code as string);
+        const error = createErrorWithCode('Internal error', code);
         const handler = createErrorCallHandler(error);
 
-        interceptor.intercept(context, handler).subscribe({
-          next: () => failTest(done as jest.DoneCallback, 'Should have thrown'),
-          error: (err: unknown) => {
-            const httpError = err as HttpException;
-            expect(httpError.getStatus()).toBe(expectedStatus);
-            const response = httpError.getResponse() as MappedErrorResponse;
-            expect(response.error.message).toBe(expectedMessage);
-            (done as jest.DoneCallback)();
-          },
+        await new Promise<void>((resolve, reject) => {
+          interceptor.intercept(context, handler).subscribe({
+            next: () => reject(new Error('Should have thrown')),
+            error: (err: unknown) => {
+              try {
+                const httpError = err as HttpException;
+                expect(httpError.getStatus()).toBe(expectedStatus);
+                const response = httpError.getResponse() as MappedErrorResponse;
+                expect(response.error.message).toBe(expectedMessage);
+                resolve();
+              } catch (assertion) {
+                reject(assertion as Error);
+              }
+            },
+          });
         });
       });
     });

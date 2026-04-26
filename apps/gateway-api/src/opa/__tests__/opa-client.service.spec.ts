@@ -60,7 +60,11 @@ describe('OpaClientService', () => {
     blob: jest.fn(),
     formData: jest.fn(),
     text: jest.fn(),
-  } as Response);
+    // The lib's `Response` shape now includes `bytes` (web spec
+    // addition); test mock omits it. `unknown` cast fans out the
+    // structural mismatch at the test boundary — the prod path
+    // never calls `.bytes()` on an OPA response.
+  } as unknown as Response);
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -248,9 +252,9 @@ describe('OpaClientService', () => {
       ]);
 
       expect(results).toHaveLength(3);
-      expect(results[0].result).toBe(true);
-      expect(results[1].result).toBe(false);
-      expect((results[2].result as { allow: boolean }).allow).toBe(true);
+      expect(results[0]!.result).toBe(true);
+      expect(results[1]!.result).toBe(false);
+      expect((results[2]!.result as { allow: boolean }).allow).toBe(true);
     });
   });
 

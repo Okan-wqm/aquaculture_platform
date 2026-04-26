@@ -266,7 +266,12 @@ describe('DeviceFingerprintMiddleware', () => {
 
     it('should fallback to req.ip', () => {
       const req = createMockRequest();
-      req.ip = '192.168.1.50';
+      // express's `Request.ip` is `readonly` in @types/express. The
+      // mock factory builds a plain object whose readonly property
+      // we want to override for the test scenario. `Object.defineProperty`
+      // is the canonical TS-compatible way to update a readonly
+      // contract at the test boundary.
+      Object.defineProperty(req, 'ip', { value: '192.168.1.50', writable: true });
       const res = createMockResponse();
       const next = jest.fn();
 
@@ -278,7 +283,7 @@ describe('DeviceFingerprintMiddleware', () => {
 
     it('should fallback to socket.remoteAddress', () => {
       const req = createMockRequest({}, { remoteAddress: '172.16.0.1' });
-      req.ip = undefined as unknown as string;
+      Object.defineProperty(req, 'ip', { value: undefined, writable: true });
       const res = createMockResponse();
       const next = jest.fn();
 
@@ -348,7 +353,7 @@ describe('DeviceFingerprintMiddleware', () => {
           timezone: 'UTC',
           platform: 'Windows',
           ip: '192.168.1.1',
-          timestamp: new Date(),
+          timestamp: new Date().toISOString(),
         };
 
         const fp2: DeviceFingerprint = { ...fp1 };
@@ -370,7 +375,7 @@ describe('DeviceFingerprintMiddleware', () => {
           timezone: 'UTC',
           platform: 'Windows',
           ip: '192.168.1.1',
-          timestamp: new Date(),
+          timestamp: new Date().toISOString(),
         };
 
         const fp2: DeviceFingerprint = {
@@ -382,7 +387,7 @@ describe('DeviceFingerprintMiddleware', () => {
           timezone: 'CET',
           platform: 'macOS',
           ip: '192.168.1.2',
-          timestamp: new Date(),
+          timestamp: new Date().toISOString(),
         };
 
         const result = DeviceFingerprintMiddleware.compareFingerprints(fp1, fp2);
@@ -402,7 +407,7 @@ describe('DeviceFingerprintMiddleware', () => {
           timezone: 'UTC',
           platform: 'Windows',
           ip: '192.168.1.1',
-          timestamp: new Date(),
+          timestamp: new Date().toISOString(),
         };
 
         const fp2: DeviceFingerprint = {
@@ -414,7 +419,7 @@ describe('DeviceFingerprintMiddleware', () => {
           timezone: 'CET', // Different
           platform: 'Windows', // Same
           ip: '192.168.1.2',
-          timestamp: new Date(),
+          timestamp: new Date().toISOString(),
         };
 
         const result = DeviceFingerprintMiddleware.compareFingerprints(fp1, fp2);
@@ -433,7 +438,7 @@ describe('DeviceFingerprintMiddleware', () => {
           timezone: 'A',
           platform: 'A',
           ip: 'A',
-          timestamp: new Date(),
+          timestamp: new Date().toISOString(),
         };
 
         const fp2: DeviceFingerprint = {
@@ -445,7 +450,7 @@ describe('DeviceFingerprintMiddleware', () => {
           timezone: 'B',
           platform: 'B',
           ip: 'B',
-          timestamp: new Date(),
+          timestamp: new Date().toISOString(),
         };
 
         const result = DeviceFingerprintMiddleware.compareFingerprints(fp1, fp2);
@@ -466,7 +471,7 @@ describe('DeviceFingerprintMiddleware', () => {
           acceptLanguage: 'en-US',
           acceptEncoding: 'gzip',
           ip: '192.168.1.1',
-          timestamp: new Date(),
+          timestamp: new Date().toISOString(),
         };
 
         const storedFingerprints: DeviceFingerprint[] = [
@@ -490,7 +495,7 @@ describe('DeviceFingerprintMiddleware', () => {
           acceptLanguage: 'en-US',
           acceptEncoding: 'gzip',
           ip: '192.168.1.1',
-          timestamp: new Date(),
+          timestamp: new Date().toISOString(),
         };
 
         const storedFingerprints: DeviceFingerprint[] = [
@@ -513,7 +518,7 @@ describe('DeviceFingerprintMiddleware', () => {
           acceptLanguage: 'en-US',
           acceptEncoding: 'gzip',
           ip: '192.168.1.1',
-          timestamp: new Date(),
+          timestamp: new Date().toISOString(),
         };
 
         const result = DeviceFingerprintMiddleware.isKnownDevice(

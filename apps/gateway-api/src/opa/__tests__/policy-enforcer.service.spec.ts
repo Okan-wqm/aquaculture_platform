@@ -158,7 +158,7 @@ describe('PolicyEnforcerService', () => {
       const decision = await service.isAuthorized(createContext());
 
       expect(decision.obligations).toHaveLength(2);
-      expect(decision.obligations?.[0].type).toBe('log');
+      expect(decision.obligations?.[0]!.type).toBe('log');
     });
   });
 

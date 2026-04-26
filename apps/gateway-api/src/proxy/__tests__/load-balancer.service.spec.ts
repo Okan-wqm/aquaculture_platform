@@ -95,9 +95,9 @@ describe('LoadBalancerService', () => {
       service.registerService(config);
 
       const instances = service.getInstances('stats-service');
-      expect(instances[0].health).toBe(InstanceHealth.UNKNOWN);
-      expect(instances[0].activeConnections).toBe(0);
-      expect(instances[0].totalRequests).toBe(0);
+      expect(instances[0]!.health).toBe(InstanceHealth.UNKNOWN);
+      expect(instances[0]!.activeConnections).toBe(0);
+      expect(instances[0]!.totalRequests).toBe(0);
     });
 
     it('should unregister a service', () => {
@@ -697,7 +697,7 @@ describe('LoadBalancerService', () => {
       await jest.advanceTimersByTimeAsync(100);
 
       const instances = service.getInstances('health-fail-service');
-      expect(instances[0].health).toBe(InstanceHealth.UNHEALTHY);
+      expect(instances[0]!.health).toBe(InstanceHealth.UNHEALTHY);
     });
 
     it('should emit healthCheck event', async () => {

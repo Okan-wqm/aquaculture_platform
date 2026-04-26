@@ -300,6 +300,19 @@ impl CommandHandler {
                         expected, got
                     ),
                     DeployError::Registry(inner) => inner.to_string(),
+                    // Batch #298 ORPHAN-HIGH-020 closure variants —
+                    // unreachable from cmd_deploy_bytecode_program
+                    // (which only delegates to verify_and_deploy,
+                    // never compile_and_deploy_signed_source). Keep
+                    // an exhaustive match so a future variant addition
+                    // surfaces here at compile time rather than
+                    // silently routing through a `_` catch-all.
+                    DeployError::StSourceSignatureInvalid
+                    | DeployError::StSourceCanonicalEncoding { .. }
+                    | DeployError::StSourceParseFailed { .. }
+                    | DeployError::StSourceCompileFailed { .. } => {
+                        format!("unexpected st-source variant in bytecode deploy path: {}", e)
+                    }
                 };
                 (false, json!(null), Some(format!("deploy_bytecode_program: {}", reason)))
             }

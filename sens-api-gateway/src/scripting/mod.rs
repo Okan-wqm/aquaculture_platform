@@ -36,6 +36,20 @@ pub mod bytecode_vm;
 // deploy-command batch consumes this to gate bytecode
 // ingestion on signature match.
 pub mod bytecode_sig;
+
+// Batch #297 ORPHAN-HIGH-020 closure (D-1b prep): operator-
+// signed ST source envelope. Wire shape parallel to
+// SignedBytecode but signs source bytes (not bytecode bytes)
+// + uses domain tag `st-source-v1` (vs `st-bytecode-v3`) so
+// cross-format signature confusion is structurally
+// impossible. Edge verifies the source signature, then runs
+// parse_st + compile_program internally to produce the
+// runnable Bytecode (Batch #298 wire). This is the
+// architectural shape that lets operators push raw .st
+// source files to the edge without giving the edge a private
+// signing key — trust transfer happens via source signature,
+// not bytecode signature.
+pub mod st_source_sig;
 // Batch 160 Faz 3 (plan R-1): ProcessImage ↔ TagIo
 // adapter. `SnapshotTagIo` buffers reads from a scan-
 // cycle-start snapshot + collects writes into a pending

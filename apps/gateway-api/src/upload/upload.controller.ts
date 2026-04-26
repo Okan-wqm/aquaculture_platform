@@ -36,7 +36,7 @@ import {
   ApiOkResponse,
   ApiCreatedResponse,
 } from '@nestjs/swagger';
-import { MinioClientService } from '@platform/storage';
+import { FileUploadSecurityService, MinioClientService } from '@platform/storage';
 import { Request } from 'express';
 import {
   ApiStandardErrors,
@@ -149,7 +149,23 @@ interface BatchDocumentUploadResponse {
 export class UploadController {
   private readonly logger = new Logger(UploadController.name);
 
-  constructor(@Inject(MinioClientService) private readonly minioClient: MinioClientService) {}
+  /**
+   * Upload write paths route through `FileUploadSecurityService`
+   * (Scope B Phase V0 — closes FARM-HIGH-003). The security wrapper
+   * runs size + mime + magic-byte gates and (when sharp is available)
+   * strips EXIF metadata from image uploads BEFORE bytes reach MinIO.
+   *
+   * Read / delete / presign paths still call `MinioClientService`
+   * directly because they don't process bytes — they manipulate
+   * storage paths. A future Phase V0.5 may introduce a similar
+   * wrapper for read-side audit (presigned URL request logging) but
+   * that's a separate architectural concern from the upload-time
+   * gates Scope B Phase V0 closes.
+   */
+  constructor(
+    @Inject(MinioClientService) private readonly minioClient: MinioClientService,
+    @Inject(FileUploadSecurityService) private readonly fileUploadSecurity: FileUploadSecurityService,
+  ) {}
 
   /**
    * Upload a document for a chemical
@@ -237,14 +253,26 @@ export class UploadController {
     const filename = `${documentId}_${safeDocName}.${fileExtension}`;
 
     try {
-      // Upload to MinIO
-      const uploadResult = await this.minioClient.uploadFile(
+      // Phase V0 — every byte goes through FileUploadSecurityService
+      // so the size/mime/magic-byte/EXIF policies live in ONE place.
+      // The chemical document type comes off the wire lowercased
+      // (msds | label | protocol | certificate | other); the policy
+      // registry uses uppercase keys with a 'CHEMICAL_'-prefixed
+      // 'OTHER' to keep chemical mime whitelists tighter than the
+      // generic 'OTHER' policy.
+      const policyKey =
+        body.documentType.toUpperCase() === 'OTHER'
+          ? 'CHEMICAL_OTHER'
+          : body.documentType.toUpperCase();
+      const uploadResult = await this.fileUploadSecurity.uploadSecure({
+        documentType: policyKey,
         tenantId,
-        'chemicals',
-        body.chemicalId,
+        entityType: 'chemicals',
+        entityId: body.chemicalId,
         filename,
-        file.buffer,
-        {
+        buffer: file.buffer,
+        declaredMime: file.mimetype,
+        options: {
           contentType: file.mimetype,
           metadata: {
             'x-amz-meta-document-id': documentId,
@@ -254,7 +282,7 @@ export class UploadController {
             'x-amz-meta-uploaded-by': userId,
           },
         },
-      );
+      });
 
       const now = new Date().toISOString();
 
@@ -274,6 +302,13 @@ export class UploadController {
         uploadedBy: userId,
       };
     } catch (error) {
+      // BadRequestException flows through unmodified so the operator
+      // sees the policy violation message (size limit, mime mismatch,
+      // magic-byte conflict). Other failures map to a generic 500 to
+      // avoid leaking storage-backend details.
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
       this.logger.error(
         `Failed to upload document for chemical ${body.chemicalId}: ${error instanceof Error ? error.message : String(error)}`,
       );
@@ -454,14 +489,31 @@ export class UploadController {
     const entityId = body.batchId || `temp_${documentId}`;
 
     try {
-      // Upload to MinIO
-      const uploadResult = await this.minioClient.uploadFile(
+      // Phase V0 — route through FileUploadSecurityService. The
+      // BatchDocumentCategory enum on the wire is lowercase + snake
+      // case (e.g. 'health_certificate'); the policy registry uses
+      // SCREAMING_SNAKE_CASE keys (HEALTH_CERTIFICATE), so a
+      // toUpperCase() on the wire value is sufficient to look up
+      // the policy.
+      //
+      // 'other' maps to 'BATCH_OTHER' rather than the generic
+      // 'OTHER' policy so the batch document path keeps a tighter
+      // mime whitelist than the catch-all (PDF + JPEG + PNG only,
+      // no DOC/DOCX) — distinct from the chemical 'OTHER' for the
+      // same operator-workflow-drift reason.
+      const policyKey =
+        body.documentCategory.toUpperCase() === 'OTHER'
+          ? 'BATCH_OTHER'
+          : body.documentCategory.toUpperCase();
+      const uploadResult = await this.fileUploadSecurity.uploadSecure({
+        documentType: policyKey,
         tenantId,
-        'batch-documents',
+        entityType: 'batch-documents',
         entityId,
         filename,
-        file.buffer,
-        {
+        buffer: file.buffer,
+        declaredMime: file.mimetype,
+        options: {
           contentType: file.mimetype,
           metadata: {
             'x-amz-meta-document-id': documentId,
@@ -472,7 +524,7 @@ export class UploadController {
             'x-amz-meta-uploaded-by': userId,
           },
         },
-      );
+      });
 
       const now = new Date().toISOString();
 
@@ -493,6 +545,15 @@ export class UploadController {
         uploadedBy: userId,
       };
     } catch (error) {
+      // Same passthrough pattern as the chemical-document path:
+      // FileUploadSecurityService policy violations are
+      // BadRequestException with structured messages (size limit,
+      // mime mismatch, magic-byte conflict). Let those flow back to
+      // the operator unmodified; only mask actual server failures
+      // behind the generic 500.
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
       this.logger.error(
         `Failed to upload batch document: ${error instanceof Error ? error.message : String(error)}`,
       );

@@ -9,240 +9,74 @@
 //! v1.2.2 Security:
 //! - Log sanitization to prevent log injection attacks
 
-// Batch 20b ARC-008 god-file split: internal helpers moved to
-// `commands/helpers.rs`. Re-imported here for CommandHandler
-// consumption — all helpers are `pub(super)` so they remain
-// invisible outside the `commands` module tree.
+// Module declarations — each submodule's own doc comment
+// describes its scope; this list is the at-a-glance index.
+// Architectural narrative (which Batch landed each split) lives
+// in commit history; per-handler audit notes live inline in the
+// destination files.
+//
+// Cross-cutting consumers:
+//   - `required_permission` — pub(crate) so command_envelope's
+//     verify path can call permission_for_command without
+//     duplicating the SSoT table.
+//   - `ping_handler` — pub mod for in-tree tests of
+//     PingHandler EnvelopeHandler shape.
+//   - `program_def` — pub use re-exports ProgramDefinition +
+//     ProgramState (cloud wire-shape types).
+//
+// Per-domain handler submodules (each adds an
+// `impl CommandHandler { ... cmd_X ... }` block):
 mod helpers;
-
-// Batch #238 ULTRA-HIGH-002 (A-1b): first `impl EnvelopeHandler`
-// migration. `PingHandler` demonstrates the full dispatcher chain
-// (verify → InMemoryPolicyEngine.authorize → handler.dispatch) end-
-// to-end. Existing inherent `CommandHandler::cmd_ping` method at
-// `diagnostic.rs:40` stays the production dispatch target until a
-// subsequent batch flips the MQTT subscriber match-arm and deletes
-// the legacy inherent method. `pub mod` so tests in this crate can
-// exercise `PingHandler` directly.
 pub mod ping_handler;
-
-// Batch 28+47 Sprint 6.1/6.4 foundation: command →
-// authz::Permission mapping table. `permission_for_command(
-// cmd, params) -> Option<Permission>` is the canonical SSoT
-// table for RBAC gate decisions.
-//
-// Batch 28 introduced the function with `pub(super)` visibility
-// (only commands/ sub-modules could call it).
-// Batch 47 promotes it to `pub(crate)` via `pub mod` + the fn
-// signature below — Sprint 6.4 envelope verify path in
-// `command_envelope::*` needs to call it without duplicating
-// the table, and requiring that duplication would drift the
-// RBAC surface across modules.
-//
-// Consumers today (Batch 33 RBAC-gate-preview, Batch 35
-// is_safety_critical SSoT, Batch 37 two-person-integrity
-// preview) all route through this function in execute_command.
 pub(crate) mod required_permission;
-
-// Batch 63 Sprint 6.4 partial: CommandEnvelope parse-and-
-// verify adapter. Centralizes the envelope-parse + Batch 7
-// verify_envelope invocation + SignatureMode-aware routing.
-// Falls back to legacy CommandMessage parse on non-envelope
-// payloads.
 mod envelope_adapter;
-
-// Batch 20c ARC-008 god-file split: diagnostic handlers
-// (cmd_ping, cmd_get_info, cmd_get_config, cmd_set_log_level)
-// extracted to `commands/diagnostic.rs` as a separate `impl
-// CommandHandler` block. Dispatch remains in `execute_command`
-// below; the sub-module adds only the method implementations.
 mod diagnostic;
-
-// Batch 20d ARC-008 god-file split: MQTT failover handlers
-// (cmd_failover_status, cmd_failover_force, cmd_failover_recover)
-// extracted to `commands/failover.rs`. Surfaces the
-// FailoverManager dependency; future Sprint 6.7 ShutdownCoordinator
-// integration (OBS-13-001) lands in that sub-module without
-// churning unrelated handlers.
 mod failover;
-
-// Batch 20e ARC-008 god-file split: script CRUD handlers
-// (cmd_list_scripts, cmd_get_script, cmd_deploy_script,
-// cmd_delete_script, cmd_enable_script, cmd_disable_script)
-// extracted to `commands/script.rs`. All 6 route through the
-// v2.2 AppState-shared `ScriptStorage` singleton; sanitize_for_log
-// applied to every operator-visible script_id path.
 mod script;
-
-// Batch 20f ARC-008 god-file split: hardware READ + discovery
-// handlers (cmd_get_hardware, cmd_scan_hardware, cmd_read_modbus,
-// cmd_read_gpio) extracted to `commands/read.rs`. All 4 take
-// `&self` — proving at the type level that no state mutation
-// occurs on the read path.
 mod read;
-
-// Batch 20g ARC-008 god-file split: device-level system control
-// handlers (cmd_reboot, cmd_restart_agent) + SCADA display
-// lifecycle (cmd_deploy_process, cmd_deploy_scada_package,
-// cmd_display_on, cmd_display_off, cmd_get_display_status)
-// extracted to `commands/system.rs`. SCADA-display handlers are
-// cfg-gated on `feature = "scada-display"`. Fire-and-forget
-// tokio::spawn pattern documented for reboot/restart.
 mod system;
-
-// Batch 20h ARC-008 god-file split: protocol-write handlers
-// (cmd_write_modbus, cmd_write_gpio, cmd_write_opcua, cmd_write_s7)
-// extracted to `commands/write.rs`. OPC UA + S7 are honest stubs;
-// Sprint 6.x fills them in per plan §5 Faz 5.
 mod write;
-
-// Batch 20i ARC-008 god-file split: I/O config + output-value
-// lifecycle handlers (cmd_update_io_config, cmd_set_output) +
-// the parse_io_config_to_tags / persist_io_config private
-// helpers extracted to `commands/io_config.rs`. These require
-// access to AlarmManager (alarm registration fan-out per HH/H/
-// L/LL threshold) and fieldbus handles (GPIO/Modbus/I2C).
 mod io_config;
-
-// Batch 20j ARC-008 god-file split: LoRaWAN handlers
-// (cmd_update_lora_devices, cmd_lora_downlink) extracted to
-// `commands/lora.rs`. The sub-module is feature-gated on
-// `lorawan` at the module level — default builds shed the
-// code without per-handler cfg noise.
 #[cfg(feature = "lorawan")]
 mod lora;
-
-// Batch 20k ARC-008 god-file split: firmware OTA pipeline
-// (cmd_update_firmware + 6 module-private helpers:
-// is_valid_github_repo, is_valid_version_string,
-// resolve_firmware_version, fetch_latest_agent_tag,
-// download_file, compute_sha256, read_checksum_file) extracted
-// to `commands/firmware.rs`. Security-critical 5-stage state
-// machine (resolve → download → verify → install → restart) now
-// lives as a reviewable domain unit.
 mod firmware;
-
-// Batch 20l ARC-008 god-file split: IEC 61131-3 program
-// lifecycle + ST validator (cmd_deploy_program, cmd_get_program,
-// cmd_rollback_program, cmd_validate_st) + load/save
-// program_state helpers extracted to `commands/program.rs`.
-// Deploy-lock + atomic-persist + rollback-on-failure contract
-// documented inline.
 mod program;
-
-// Batch 20m ARC-008 god-file split: external-PLC programming
-// (cmd_plc_upload, cmd_plc_status, cmd_plc_start, cmd_plc_stop,
-// cmd_plc_list, cmd_plc_download, cmd_plc_delete + 4 generic
-// helpers parameterized over PlcProgrammer) extracted to
-// `commands/plc.rs`. Address-safety guards (reject loopback /
-// link-local / broadcast / unspecified) live in each handler.
 mod plc;
-
-// Batch 20n ARC-008 god-file split: deploy orchestrator handlers
-// (cmd_deploy_to_codesys, cmd_deploy_auto) extracted to
-// `commands/ide_deploy.rs`. Direct ST → PLC deploy surface
-// (Codesys + auto-detect protocol selector) uses the same
-// deploy_lock as cmd_deploy_program for mutual exclusion.
 mod ide_deploy;
-
-// Batch 72 Sprint 6.1 follow-up: RBAC manifest hot-reload
-// command handler (cmd_update_policy). Operator-driven MQTT
-// path to rotate manifests without an agent restart;
-// delegates to RbacManifestStore::hot_reload_from_bytes for
-// the full verify + floor + atomic swap chain.
 mod rbac;
-
-// Batch #249b Faz 5 A-3c: OPC UA user-token manifest hot-reload
-// command handler (cmd_update_user_token_manifest). Parallel to
-// `rbac` but for the credential-enrollment side; delegates to
-// UserTokenManifestStore::hot_reload_from_bytes (Batch #249a) for
-// the full verify + floor + atomic swap chain against the
-// user_token_manifest_signing_pubkey_hex + STREAM_ID_USER_TOKEN
-// persistent floor. Closes Gap A-3 live-enrollment data path.
 mod user_token;
-
-// Batch 79 Sprint 6.2 Phase 2: audit emission helpers —
-// action_for_command mapping + build_entry constructor +
-// emit_pre/post_event wrappers around AuditSink. Thin glue
-// between the commands dispatch + audit sink subsystem.
 mod audit_emit;
-
-// Batch 100 Sprint 6.3 final: master-key rotation
-// orchestrator. Composes keystore.rotate_master_from_files
-// + audit_sink.reload_hmac_key into one MQTT command.
 mod rotate_master;
-
-// Batch 109 Sprint 6.5 Phase 2: confirm_slot command —
-// operator-driven PartitionRoll::Confirm transition.
-// Counterpart to the Batch 107 watchdog Rollback; closes
-// the happy-path of the A/B firmware lifecycle.
 mod confirm_slot;
-
-// Batch 115 Sprint 6.5 Phase 2: verify_signed_manifest
-// command — verification-only preview MQTT command that
-// runs the Batch 8 `verify_firmware_manifest` gate against
-// the AppState-cached VerifyingKey (Batch 114). Dry-run
-// primitive the future Batch 116 cmd_apply_signed_manifest
-// orchestrator builds on top of.
 mod verify_signed_manifest;
-
-// Batch 116 Sprint 6.5 Phase 2: apply_signed_manifest
-// orchestrator — verify + apply_roll_with_version_bump +
-// bootloader.set_next_boot_slot. Software-layer truth for
-// the SignedFirmwareManifest deploy pipeline. File
-// streaming to standby + TOCTOU re-verify land with the
-// Tryboot hardware-layer batch.
 mod apply_signed_manifest;
-
-// Batch 143 Faz 7: refresh_license — cloud-pushed signed
-// license manifest verify + hot-swap into AppState.license.
-// Consumes Batch 141 verify_license_manifest primitive;
-// Batch 144 (cache) adds cross-boot persistence.
 mod refresh_license;
-
-// Batch 167 Faz 3: deploy_bytecode_program — operator pushes
-// signed ST bytecode via MQTT; edge verifies ed25519
-// signature + tenant binding + monotonic policy_version,
-// inserts into AppState.bytecode_registry. Named distinctly
-// from the legacy `deploy_program` (which installs JSON
-// scripts via ScriptStorage) so the two deploy paths stay
-// independent. Thin adapter over
-// scripting::bytecode_deploy::verify_and_deploy (Batch 166).
 mod deploy_bytecode_program;
-
-// Batch 173 Faz 3: bytecode program operator commands —
-// list_bytecode_programs, enable/disable_bytecode_program,
-// delete_bytecode_program. All tenant-gated; enable/disable
-// flows through registry.set_enabled + store save-back;
-// delete removes from both in-memory + SQLCipher.
 mod bytecode_ops;
-
-// Batch 197 Faz 6: live-debug force commands —
-// force_value / unforce_value / unforce_all /
-// list_forces. Thin adapters over the Batch 194
-// ForceRegistry primitive; signature + authz gates
-// handled by the envelope_adapter layer.
 mod force_commands;
-
-// Batch 205 Faz 6: watch-session commands —
-// watch_subscribe / watch_unsubscribe /
-// list_watch_sessions. Thin adapters over the
-// Batch 203 WatchSessionRegistry primitive.
 mod watch_commands;
 
-use chrono::Utc;
-use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+// Batch #296 ULTRA-HIGH-013 closure: types + dispatch lifecycle
+// extracted from inline mod.rs to keep this file under the
+// 500-line ceiling. Types remain `pub` re-exported at the
+// commands module boundary so external callers compile unchanged.
+mod program_def;
+pub use program_def::{ProgramDefinition, ProgramState};
+mod mqtt_dispatch;
+mod dispatch_lifecycle;
+mod config_dispatch;
+
+// Imports for the post-extraction mod.rs body
+// (CommandHandler struct + new() + tests).
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{Mutex, RwLock};
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 
 use crate::AppState;
-use crate::mqtt::{CommandMessage, CommandResponse, IncomingMessage};
-use crate::scripting::{ExecutionMode, FBDefinition, ScriptDefinition, ScriptStorage};
-use crate::security::sanitize_for_log;
+use crate::scripting::ScriptStorage;
 
 use self::helpers::RateLimiter;
 #[allow(unused_imports)] // param helpers: not all handlers use every extractor; imported at module scope for uniform call syntax across moved sub-modules (Batches 20c+).
@@ -255,62 +89,10 @@ const DEFAULT_REBOOT_DELAY_SECS: u64 = 5;
 const DEFAULT_RESTART_DELAY_SECS: u64 = 2;
 
 // ============================================================================
-// IEC 61131-3 Program Definition (v2.1)
-// ============================================================================
-
-/// IEC 61131-3 Program definition received from cloud
-/// Contains everything needed to run a program on the edge device
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProgramDefinition {
-    /// Unique program ID
-    pub id: String,
-    /// Program name
-    pub name: String,
-    /// Program version
-    #[serde(default = "default_version")]
-    pub version: u32,
-    /// Description
-    #[serde(default)]
-    pub description: String,
-    /// Execution mode
-    #[serde(default)]
-    pub execution_mode: ExecutionMode,
-    /// Scan cycle time in milliseconds (for ScanCycle mode)
-    #[serde(default = "default_scan_cycle")]
-    pub scan_cycle_ms: u64,
-    /// Function block definitions
-    #[serde(default)]
-    pub function_blocks: Vec<FBDefinition>,
-    /// Script definition (triggers, conditions, actions)
-    pub script: ScriptDefinition,
-    /// Whether to replace existing program with same ID
-    #[serde(default)]
-    pub replace_existing: bool,
-}
-
-fn default_version() -> u32 {
-    1
-}
-
-fn default_scan_cycle() -> u64 {
-    100 // 100ms default
-}
-
-/// Persisted program state (for reload after restart)
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ProgramState {
-    /// Currently deployed program
-    pub program: Option<ProgramDefinition>,
-    /// Deployment timestamp
-    pub deployed_at: Option<String>,
-    /// Previous version (for rollback)
-    pub previous_version: Option<Box<ProgramDefinition>>,
-}
-
-// ============================================================================
 // Command Handler
 // ============================================================================
+// Batch #296 ULTRA-HIGH-013 closure: ProgramDefinition + ProgramState
+// types moved to commands/program_def.rs (re-exported above).
 
 /// Command handler
 ///
@@ -449,801 +231,49 @@ impl CommandHandler {
         }
     }
 
-    /// Handle incoming message
-    async fn handle_message(&mut self, message: IncomingMessage) -> anyhow::Result<()> {
-        let state = self.state.read().await;
-        let topics = state.mqtt_client.as_ref().map(|m| m.topics().clone());
-        drop(state);
+    // Batch #296 ULTRA-HIGH-013 closure: handle_message body
+    // (~292 lines) moved to commands/mqtt_dispatch.rs as an
+    // `impl super::CommandHandler` block. Method visibility
+    // remains pub(super) — only the run-loop callsite above
+    // can invoke it; rate-limiter cannot be bypassed.
 
-        let topics = match topics {
-            Some(t) => t,
-            None => return Ok(()),
-        };
+    // Batch #296 ULTRA-HIGH-013 closure: execute_command body
+    // (~345 lines including the 54+ command-name dispatch
+    // table) moved to commands/dispatch_lifecycle.rs as an
+    // `impl super::CommandHandler` block. Method visibility
+    // remains pub(super) — the only caller is handle_message
+    // in the sibling mqtt_dispatch.rs module.
 
-        // Check if this is a command message
-        if message.topic == topics.commands {
-            debug!("Received command message");
 
-            // Batch 25+31 plan D-14 retained-message rejection
-            // (tier-1 fail-fast). Batch 25 added the inline
-            // boolean check; Batch 31 routes it through the
-            // canonical `runtime_safety::retained_msg::
-            // is_retained_command_rejected` predicate so the
-            // rejection decision + reason is a single typed
-            // value. Sprint 6.2 audit-sink wire will consume
-            // `RetainedMsgRejectionReason` as the structured
-            // audit event payload.
-            //
-            // Topic-matcher: comparing against `topics.commands`
-            // directly (exact match). Sprint 6.7 may widen to
-            // regex-based tenant-scoped command-topic family.
-            let commands_topic = topics.commands.clone();
-            let rejection = crate::runtime_safety::retained_msg::is_retained_command_rejected(
-                message.retain,
-                &message.topic,
-                |t| t == commands_topic,
-            );
-            if !matches!(
-                rejection,
-                crate::runtime_safety::retained_msg::RetainedMsgRejectionReason::NotRejected
-            ) {
-                warn!(
-                    "Rejecting retained MQTT command: reason={}, topic='{}', {} bytes payload. \
-                     Attacker-controlled broker replay vector; audit sink wires in Sprint 6.2.",
-                    rejection,
-                    message.topic,
-                    message.payload.len()
-                );
-                return Ok(());
-            }
-
-            // Batch 63 Sprint 6.4 partial: envelope-first
-            // parse. The adapter tries CommandEnvelope format;
-            // falls back to legacy CommandMessage on non-
-            // envelope payloads. Envelope payloads run
-            // through verify_envelope's 7 gates (cmd bounds,
-            // jti format, nonce bounds, freshness window,
-            // tenant binding, cmd_hash match, signature-mode
-            // rule) BEFORE reaching the legacy dispatch path.
-            //
-            // Architectural upgrade (not patch): both formats
-            // continue to work; signed envelopes get stronger
-            // gates while legacy CommandMessage retains HC-1
-            // backward compat.
-            let (signature_mode, tenant_bytes, rbac_store) = {
-                let state = self.state.read().await;
-                let tenant_bytes = envelope_adapter::tenant_id_bytes_or_none(
-                    state.tenant_id.as_deref(),
-                );
-                // Batch 68 Sprint 6.1 full wire: clone Arc so
-                // the adapter can run verify_signature via
-                // RbacManifestStore::lookup_operator_pubkey
-                // without holding the AppState read-guard.
-                (
-                    state.config.signature_mode,
-                    tenant_bytes,
-                    state.rbac_manifest_store.clone(),
-                )
-            };
-
-            let command: CommandMessage = if let Some(tenant_bytes) = tenant_bytes {
-                match envelope_adapter::try_parse_and_verify(
-                    &message.payload,
-                    tenant_bytes,
-                    signature_mode,
-                    &rbac_store,
-                ) {
-                    envelope_adapter::AdapterOutcome::NotEnvelopeFormat => {
-                        // Legacy path — CommandMessage parse.
-                        match serde_json::from_slice(&message.payload) {
-                            Ok(cmd) => cmd,
-                            Err(e) => {
-                                warn!("Failed to parse command (neither envelope nor legacy): {}", e);
-                                return Ok(());
-                            }
-                        }
-                    }
-                    envelope_adapter::AdapterOutcome::Verified(adapted) => {
-                        // Envelope parsed + all 7 gates
-                        // passed. Project into CommandMessage
-                        // shape so the existing execute_command
-                        // dispatch path stays unchanged.
-                        CommandMessage {
-                            command_id: adapted.command_id,
-                            command: adapted.command,
-                            params: adapted.params,
-                            timestamp: adapted.timestamp,
-                        }
-                    }
-                    envelope_adapter::AdapterOutcome::VerifyFailed(err) => {
-                        warn!(
-                            "Rejecting CommandEnvelope: verify_envelope Err={:?}",
-                            err
-                        );
-                        return Ok(());
-                    }
-                }
-            } else {
-                // tenant_id unavailable (provisioning
-                // incomplete) — envelope verify can't run
-                // (Gate 5 tenant binding requires it). Fall
-                // back to legacy parse unconditionally until
-                // provisioning completes. This matches pre-
-                // Batch-63 behavior for pre-provisioning
-                // bootstrap commands.
-                match serde_json::from_slice(&message.payload) {
-                    Ok(cmd) => cmd,
-                    Err(e) => {
-                        warn!("Failed to parse command: {}", e);
-                        return Ok(());
-                    }
-                }
-            };
-
-            info!(
-                "Executing command: {} (id: {})",
-                command.command, command.command_id
-            );
-
-            // IEC 62443 SL-2 FR-7: Command replay protection.
-            // MQTT QoS 1 can re-deliver the same message. Reject:
-            //   (1) Commands already seen (dedup by command_id)
-            //   (2) Commands with stale timestamps (> max_command_age_secs)
-            // Retained-flag rejection moved UP to pre-parse per
-            // Batch 25 D-14.
-            //
-            // Batch 34: replay-window + skew-tolerance are NOW
-            // config-driven via config.runtime.max_command_age_secs
-            // + max_command_skew_secs. Pre-Batch-34 both were
-            // hardcoded (300s / 60s).
-            let (max_age_secs, max_skew_secs) = {
-                let state_guard = self.state.read().await;
-                (
-                    state_guard.config.runtime.max_command_age_secs as i64,
-                    state_guard.config.runtime.max_command_skew_secs as i64,
-                )
-            };
-            if let Ok(cmd_time) = chrono::DateTime::parse_from_rfc3339(&command.timestamp) {
-                let age = chrono::Utc::now().signed_duration_since(cmd_time);
-                if age.num_seconds() > max_age_secs || age.num_seconds() < -max_skew_secs {
-                    warn!(
-                        "Rejecting stale/future command: {} age={}s (id: {}, max_age={}s, max_skew={}s)",
-                        command.command, age.num_seconds(), command.command_id,
-                        max_age_secs, max_skew_secs
-                    );
-                    return Ok(());
-                }
-            }
-            // Batch 60 Sprint 6.4 foundation: command_id dedup
-            // UPGRADED to use MokaJtiDedupTable when available
-            // (signature_mode != Disabled). Legacy path (the
-            // in-memory VecDeque) continues to work when Moka
-            // is not allocated (Disabled mode + HC-1 backward
-            // compat).
-            //
-            // ARCHITECTURAL UPGRADE (not patch):
-            // - Pre-Batch-60 the VecDeque<String> was the SOLE
-            //   dedup mechanism, O(n) contains + FIFO eviction
-            //   at 1000 entries, no TTL.
-            // - Post-Batch-60 when Moka is active: O(1) lookup,
-            //   config-tunable capacity (default 100k), TTL-
-            //   bounded (default 60s), metric-visible via
-            //   live_entry_count(). VecDeque is bypassed.
-            // - When Moka is not active (Disabled mode): falls
-            //   through to the VecDeque — no behavior change.
-            //
-            // The command_id value IS semantically a jti — a
-            // per-command unique identifier used for replay
-            // detection. Reusing the existing field avoids a
-            // wire-format change (pre-Batch-60 senders already
-            // mint unique command_ids).
-            let is_duplicate = if let Some(ref dedup) = {
-                let state = self.state.read().await;
-                state.jti_dedup_table.clone()
-            } {
-                // Moka path — config-driven capacity + TTL.
-                // Construct a Jti from command_id; expires_at
-                // is "now + moka_ttl" derived from the dedup
-                // table's own bounds, approximated via a
-                // generous 3600s ceiling (Moka's internal TTL
-                // evicts earlier).
-                match crate::command_envelope::Jti::try_new(
-                    command.command_id.clone(),
-                ) {
-                    Ok(jti) => {
-                        let expires_at = std::time::SystemTime::now()
-                            + std::time::Duration::from_secs(3600);
-                        match dedup.check_and_mark(&jti, expires_at).await {
-                            Ok(crate::command_envelope::DedupResult::Fresh) => false,
-                            Ok(crate::command_envelope::DedupResult::Duplicate) => true,
-                            Err(e) => {
-                                warn!(
-                                    "JTI dedup check failed (treating as duplicate fail-closed): {:?}",
-                                    e
-                                );
-                                true
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        // command_id doesn't meet jti bounds
-                        // (empty / too long / non-ASCII). Fall
-                        // back to VecDeque path — Moka rejects
-                        // ill-formed jti, legacy path still
-                        // accepts anything.
-                        warn!(
-                            "command_id rejected as jti ({:?}); falling back to VecDeque dedup",
-                            e
-                        );
-                        self.executed_command_ids.contains(&command.command_id)
-                    }
-                }
-            } else {
-                // Legacy path — VecDeque FIFO dedup.
-                self.executed_command_ids.contains(&command.command_id)
-            };
-
-            if is_duplicate {
-                warn!(
-                    "Rejecting duplicate command: {} (id: {})",
-                    command.command, command.command_id
-                );
-                return Ok(());
-            }
-
-            // Execute command
-            let response = self.execute_command(&command).await;
-
-            // Track executed command ID for dedup (VecDeque
-            // bounded set, evicts oldest). Still maintained
-            // even when Moka is active so the legacy-fallback
-            // path (for ill-formed command_ids that Moka
-            // rejects) has recent history.
-            if self.executed_command_ids.len() >= 1000 {
-                self.executed_command_ids.pop_front();
-            }
-            self.executed_command_ids.push_back(command.command_id.clone());
-
-            // Publish response — Batch #255 ARC-002 migration:
-            // command responses persist on broker outage + replay
-            // on reconnect at High priority (cloud requests
-            // correlate via command_id; loss breaks the
-            // request-response loop until the cloud-side timeout
-            // fires retry).
-            let state = self.state.read().await;
-            crate::publish_helpers::publish_response(&state, &response).await;
-        } else if message.topic == topics.config {
-            debug!("Received config update");
-            // Batch 25+31 plan D-14: retained-message rejection
-            // for config updates. Routed through the canonical
-            // `runtime_safety::retained_msg` predicate. Same
-            // replay-attack vector as command topic — retained
-            // config would re-apply on every reconnect.
-            let config_topic = topics.config.clone();
-            let rejection = crate::runtime_safety::retained_msg::is_retained_command_rejected(
-                message.retain,
-                &message.topic,
-                |t| t == config_topic,
-            );
-            if !matches!(
-                rejection,
-                crate::runtime_safety::retained_msg::RetainedMsgRejectionReason::NotRejected
-            ) {
-                warn!(
-                    "Rejecting retained MQTT config-update: reason={}, topic='{}', {} bytes. \
-                     Broker-replay poisoning vector.",
-                    rejection,
-                    message.topic,
-                    message.payload.len()
-                );
-                return Ok(());
-            }
-            self.handle_config_update(&message.payload).await?;
-        }
-
-        Ok(())
-    }
-
-    /// Execute a command and return response
-    async fn execute_command(&mut self, command: &CommandMessage) -> CommandResponse {
-        // v1.2.6: Track command execution time for observability
-        let start_time = std::time::Instant::now();
-        info!(
-            "⚡ Command received: id='{}', command='{}', has_params={}",
-            command.command_id,
-            sanitize_for_log(&command.command),
-            !command.params.is_null()
-        );
-
-        // Batch #258 C-7 fix — shutdown race gate.
-        //
-        // The agent's shutdown sequence flips
-        // `state.is_shutting_down` to true BEFORE applying safe-
-        // state + disconnecting MQTT. A command that arrives
-        // AFTER the flag flip but BEFORE MQTT disconnect would
-        // otherwise race the safe-state transition (e.g., a
-        // WriteTag handler firing concurrent to the actuator-
-        // class fail-safe rollback). Reject every such inflight
-        // command with a structured ServiceShuttingDown response;
-        // the cloud-side request-response loop will surface the
-        // explicit gate rather than appear to time out.
-        let is_shutting_down = {
-            let state = self.state.read().await;
-            state
-                .is_shutting_down
-                .load(std::sync::atomic::Ordering::Acquire)
-        };
-        if is_shutting_down {
-            warn!(
-                "Command '{}' rejected: agent is shutting down (id='{}')",
-                sanitize_for_log(&command.command),
-                command.command_id
-            );
-            return CommandResponse {
-                command_id: command.command_id.clone(),
-                device_id: {
-                    let state = self.state.read().await;
-                    state.config.device_id.clone()
-                },
-                success: false,
-                result: serde_json::json!({
-                    "rejected": "service_shutting_down"
-                }),
-                timestamp: chrono::Utc::now().to_rfc3339(),
-                error: Some(
-                    "Agent is shutting down — command rejected to avoid \
-                     racing the safe-state transition. Retry after the \
-                     agent has restarted."
-                        .to_string(),
-                ),
-            };
-        }
-
-        // Batch 79 Sprint 6.2 Phase 2: snapshot the
-        // device_id, audit sink Arc, and tenant bytes under
-        // the read-guard so pre+post audit emit can run
-        // without re-acquiring the state lock.
-        let (device_id, audit_sink, tenant_bytes) = {
-            let state = self.state.read().await;
-            let tid = state
-                .tenant_id
-                .as_deref()
-                .and_then(|s| uuid::Uuid::parse_str(s).ok())
-                .map(|u| *u.as_bytes())
-                .unwrap_or([0u8; 16]);
-            (
-                state.config.device_id.clone(),
-                state.audit_sink.clone(),
-                tid,
-            )
-        };
-        let tenant = crate::authz::permission::TenantId::new_from_verified(tenant_bytes);
-
-        // Batch 79: emit PRE-exec audit event. No-op when
-        // audit_sink is None (audit.mode=Disabled).
-        audit_emit::emit_pre_event(
-            audit_sink.as_ref(),
-            &command.command,
-            &command.command_id,
-            &device_id,
-            tenant,
-        );
-
-        // Batch 33+35 Sprint 6.1 partial: compute required-
-        // permission ONCE and reuse for:
-        //   (a) the IEC 62443 SL-2 safety-critical audit log
-        //       (was a hardcoded command-name list; now derived
-        //       from the canonical Permission::is_mutating()
-        //       classifier — eliminates the 3rd parallel
-        //       commands list after MUTATING_COMMANDS +
-        //       required_permission_for_command).
-        //   (b) the RBAC-gate-preview debug log.
-        //
-        // Pre-Batch-35 is_safety_critical was a bespoke match
-        // that drifted from the Permission enum — a new
-        // mutating command could be added to the enum without
-        // being added to the audit list, silently suppressing
-        // audit emission. Batch 35 ties both to the same SSoT.
-        let required_perm =
-            required_permission::permission_for_command(&command.command, &command.params);
-        let is_safety_critical = required_perm
-            .as_ref()
-            .map(|p| p.is_mutating())
-            .unwrap_or(false);
-        if is_safety_critical {
-            warn!(
-                "AUDIT: Safety-critical command initiated: command='{}', id='{}', device_id='{}', timestamp='{}', required_permission={:?}",
-                sanitize_for_log(&command.command),
-                command.command_id,
-                device_id,
-                Utc::now().to_rfc3339(),
-                required_perm
-            );
-        }
-
-        // RBAC-gate-preview log (Sprint 6.4 gate activates here).
-        debug!(
-            "RBAC-gate-preview: command='{}' required_permission={:?} is_safety_critical={} (gate activates Sprint 6.4)",
-            sanitize_for_log(&command.command),
-            required_perm,
-            is_safety_critical
-        );
-
-        // Batch 37 Sprint 6.4 partial: two-person-integrity
-        // preview. ADR-018 §7 mandates a SECOND signature
-        // (co-approval) for the `UpdateFirmware / DeployProgram
-        // / ForceValue / SafeStateTrigger / Reboot` subset.
-        // Pre-Sprint-6.4 we don't have an envelope carrying a
-        // co-approver field; this warn-log surfaces the
-        // pending requirement so operators planning rollout
-        // know which commands will tighten:
-        //
-        // - Rollout sequencing: cloud signer adds co-approval
-        //   field BEFORE edge enforcement flips on.
-        // - Training anchor: operators running firmware
-        //   updates or force commands get visible notice that
-        //   the workflow will require a second operator.
-        // - Audit-entry anchor: Sprint 6.2 sink records this
-        //   field as `two_person_integrity_pending` until
-        //   Sprint 6.4 switches it to `required` /
-        //   `verified` / `rejected_co_approval`.
-        let requires_two_person = required_perm
-            .as_ref()
-            .map(|p| p.requires_two_person_integrity())
-            .unwrap_or(false);
-        if requires_two_person {
-            warn!(
-                "TWO-PERSON-INTEGRITY preview: command='{}' requires Sprint 6.4 co-approval (ADR-018 §7). \
-                 Pre-Sprint-6.4 accepted without second signature; plan rollout to update cloud signer first.",
-                sanitize_for_log(&command.command)
-            );
-        }
-
-        let (success, result, error) = match command.command.as_str() {
-            "ping" => self.cmd_ping().await,
-            "get_info" => self.cmd_get_info().await,
-            "get_config" => self.cmd_get_config().await,
-            "get_hardware" => self.cmd_get_hardware().await,
-            "scan_hardware" => self.cmd_scan_hardware().await,
-            "read_modbus" => self.cmd_read_modbus(&command.params).await,
-            "write_modbus" => self.cmd_write_modbus(&command.params).await,
-            "read_gpio" => self.cmd_read_gpio().await,
-            "write_gpio" => self.cmd_write_gpio(&command.params).await,
-            // Script commands
-            "list_scripts" => self.cmd_list_scripts().await,
-            "get_script" => self.cmd_get_script(&command.params).await,
-            "deploy_script" => self.cmd_deploy_script(&command.params).await,
-            "delete_script" => self.cmd_delete_script(&command.params).await,
-            "enable_script" => self.cmd_enable_script(&command.params).await,
-            "disable_script" => self.cmd_disable_script(&command.params).await,
-            // IEC 61131-3 Program commands (v2.1)
-            "deploy_program" => self.cmd_deploy_program(&command.params).await,
-            "get_program" => self.cmd_get_program().await,
-            "rollback_program" => self.cmd_rollback_program().await,
-            // PLC Programming commands (v1.3.0)
-            "plc_upload" => self.cmd_plc_upload(&command.params).await,
-            "plc_status" => self.cmd_plc_status(&command.params).await,
-            "plc_start" => self.cmd_plc_start(&command.params).await,
-            "plc_stop" => self.cmd_plc_stop(&command.params).await,
-            "plc_list" => self.cmd_plc_list(&command.params).await,
-            "plc_download" => self.cmd_plc_download(&command.params).await,
-            "plc_delete" => self.cmd_plc_delete(&command.params).await,
-            // Deploy orchestrator commands (v2.2)
-            "deploy_to_codesys" => self.cmd_deploy_to_codesys(&command.params).await,
-            "deploy_auto" => self.cmd_deploy_auto(&command.params).await,
-            "validate_st" => self.cmd_validate_st(&command.params).await,
-            // System commands
-            "reboot" => self.cmd_reboot(&command.params).await,
-            "restart_agent" => self.cmd_restart_agent().await,
-            "update_firmware" => self.cmd_update_firmware(command).await,
-            "set_log_level" => self.cmd_set_log_level(&command.params).await,
-            // Failover commands (v1.3.4)
-            "failover_status" => self.cmd_failover_status().await,
-            "failover_force" => self.cmd_failover_force().await,
-            "failover_recover" => self.cmd_failover_recover().await,
-            // I/O config and output commands
-            "update_io_config" => self.cmd_update_io_config(&command.params).await,
-            "set_output" => self.cmd_set_output(&command.params).await,
-            // SCADA display commands (v1.6.0)
-            #[cfg(feature = "scada-display")]
-            "deploy_process" => self.cmd_deploy_process(&command.params).await,
-            #[cfg(feature = "scada-display")]
-            "deploy_scada_package" => self.cmd_deploy_scada_package(&command.params).await,
-            #[cfg(feature = "scada-display")]
-            "display_on" => self.cmd_display_on().await,
-            #[cfg(feature = "scada-display")]
-            "display_off" => self.cmd_display_off().await,
-            #[cfg(feature = "scada-display")]
-            "get_display_status" => self.cmd_get_display_status().await,
-            // LoRaWAN commands (v1.5.0)
-            #[cfg(feature = "lorawan")]
-            "update_lora_devices" => self.cmd_update_lora_devices(&command.params).await,
-            #[cfg(feature = "lorawan")]
-            "lora_downlink" => self.cmd_lora_downlink(&command.params).await,
-            // RBAC manifest hot-reload (Batch 72 Sprint 6.1)
-            "update_policy" => self.cmd_update_policy(&command.params).await,
-            // OPC UA user-token manifest hot-reload (Batch #249b Faz 5 A-3c)
-            "update_user_token_manifest" => {
-                self.cmd_update_user_token_manifest(&command.params).await
-            }
-            // Master-key rotation orchestrator (Batch 100 Sprint 6.3)
-            "rotate_master" => self.cmd_rotate_master(&command.params).await,
-            // Firmware A/B slot confirmation (Batch 109 Sprint 6.5)
-            "confirm_slot" => self.cmd_confirm_slot(&command.params).await,
-            // Signed firmware manifest verification preview (Batch 115 Sprint 6.5)
-            "verify_signed_manifest" => self.cmd_verify_signed_manifest(&command.params).await,
-            // Signed firmware manifest apply orchestrator (Batch 116 Sprint 6.5)
-            "apply_signed_manifest" => self.cmd_apply_signed_manifest(&command.params).await,
-            // License tier refresh (Batch 143 Faz 7)
-            "refresh_license" => self.cmd_refresh_license(&command.params).await,
-            // ST bytecode program deploy (Batch 167 Faz 3)
-            "deploy_bytecode_program" => self.cmd_deploy_bytecode_program(&command.params).await,
-            // ST bytecode program operator commands (Batch 173 Faz 3)
-            "list_bytecode_programs" => self.cmd_list_bytecode_programs(&command.params).await,
-            "enable_bytecode_program" => self.cmd_enable_bytecode_program(&command.params).await,
-            "disable_bytecode_program" => self.cmd_disable_bytecode_program(&command.params).await,
-            "delete_bytecode_program" => self.cmd_delete_bytecode_program(&command.params).await,
-            // Live-debug force commands (Batch 197 Faz 6)
-            "force_value" => self.cmd_force_value(&command.params).await,
-            "unforce_value" => self.cmd_unforce_value(&command.params).await,
-            "unforce_all" => self.cmd_unforce_all(&command.params).await,
-            "list_forces" => self.cmd_list_forces(&command.params).await,
-            // Watch-session commands (Batch 205 Faz 6)
-            "watch_subscribe" => self.cmd_watch_subscribe(&command.params).await,
-            "watch_unsubscribe" => self.cmd_watch_unsubscribe(&command.params).await,
-            "list_watch_sessions" => self.cmd_list_watch_sessions(&command.params).await,
-            _ => {
-                // v1.2.2: Sanitize user-provided command name to prevent log injection
-                warn!("Unknown command: {}", sanitize_for_log(&command.command));
-                (
-                    false,
-                    json!(null),
-                    Some(format!(
-                        "Unknown command: {}",
-                        sanitize_for_log(&command.command)
-                    )),
-                )
-            }
-        };
-
-        // v1.2.6: Log command completion with timing
-        let elapsed = start_time.elapsed();
-        if success {
-            info!(
-                "Command completed: id='{}', command='{}', success=true, duration={:?}",
-                command.command_id,
-                sanitize_for_log(&command.command),
-                elapsed
-            );
-        } else {
-            warn!(
-                "Command failed: id='{}', command='{}', error={:?}, duration={:?}",
-                command.command_id,
-                sanitize_for_log(&command.command),
-                error,
-                elapsed
-            );
-        }
-
-        // IEC 62443 SL-2: Audit log outcome of safety-critical commands
-        if is_safety_critical {
-            warn!(
-                "AUDIT: Safety-critical command completed: command='{}', id='{}', device_id='{}', success={}, duration={:?}, timestamp='{}'",
-                sanitize_for_log(&command.command),
-                command.command_id,
-                device_id,
-                success,
-                elapsed,
-                Utc::now().to_rfc3339()
-            );
-        }
-
-        // Batch 79 Sprint 6.2 Phase 2: emit POST-exec audit
-        // event to the HMAC-chained sink (when
-        // audit.mode=Enabled). No-op when sink is None.
-        //
-        // Batch 118 Sprint 6.5: enrich detail with per-command
-        // result summary via `summarize_result`. Closes the
-        // audit-detail gap flagged in Batch 113/115/116
-        // observations — command-specific fields (which gate
-        // rejected, which slot confirmed, which bootloader
-        // backend fired) now flow into the audit chain
-        // alongside the base elapsed_ms + err.
-        let post_outcome = if success {
-            crate::audit::AuditOutcome::Success
-        } else {
-            crate::audit::AuditOutcome::Failure
-        };
-        let result_summary = audit_emit::summarize_result(&command.command, &result);
-        let post_detail = match (&error, result_summary.is_empty()) {
-            (Some(e), true) => {
-                format!("elapsed_ms={} err={}", elapsed.as_millis(), e)
-            }
-            (Some(e), false) => format!(
-                "elapsed_ms={} err={} {}",
-                elapsed.as_millis(),
-                e,
-                result_summary
-            ),
-            (None, true) => format!("elapsed_ms={}", elapsed.as_millis()),
-            (None, false) => format!(
-                "elapsed_ms={} {}",
-                elapsed.as_millis(),
-                result_summary
-            ),
-        };
-        audit_emit::emit_post_event(
-            audit_sink.as_ref(),
-            &command.command,
-            &command.command_id,
-            &device_id,
-            tenant,
-            post_outcome,
-            &post_detail,
-        );
-
-        CommandResponse {
-            command_id: command.command_id.clone(),
-            device_id,
-            success,
-            result,
-            timestamp: Utc::now().to_rfc3339(),
-            error,
-        }
-    }
-
-    // Batch 20c ARC-008 god-file split: cmd_ping, cmd_get_info,
-    // cmd_get_config moved to `commands/diagnostic.rs`. Dispatch
-    // unchanged — the method calls in `execute_command` resolve to
-    // the sub-module's `impl CommandHandler` block.
-
-    // Batch 20g ARC-008 god-file split: cmd_reboot,
-    // cmd_restart_agent moved to `commands/system.rs`.
-
-    // Batch 20k ARC-008 god-file split: cmd_update_firmware
-    // (5-stage OTA pipeline — resolve → download → verify →
-    // install → restart) moved to commands/firmware.rs.
-
-    // Batch 20c ARC-008 god-file split: cmd_set_log_level moved
-    // to `commands/diagnostic.rs`. Dispatch unchanged.
-
-    // Batch 20f ARC-008 god-file split: cmd_get_hardware,
-    // cmd_scan_hardware, cmd_read_modbus moved to
-    // `commands/read.rs`.
-
-    // Batch 20h ARC-008 god-file split: cmd_write_modbus,
-    // cmd_write_gpio moved to `commands/write.rs`.
-    // Batch 20f ARC-008 god-file split: cmd_read_gpio moved to
-    // `commands/read.rs`.
-
-    // Batch 20e ARC-008 god-file split: cmd_list_scripts,
-    // cmd_get_script, cmd_deploy_script, cmd_delete_script,
-    // cmd_enable_script, cmd_disable_script moved to
-    // `commands/script.rs`. Dispatch unchanged.
-
-    // Batch 20l ARC-008 god-file split: cmd_deploy_program,
-    // cmd_get_program, cmd_rollback_program moved to
-    // commands/program.rs. Deploy-lock + atomic-persist +
-    // rollback-on-failure contract documented inline.
-    // Batch 20m ARC-008 god-file split: PLC programming
-    // handlers (cmd_plc_upload, cmd_plc_status, cmd_plc_start,
-    // cmd_plc_stop, cmd_plc_list, cmd_plc_download,
-    // cmd_plc_delete) + 4 generic helpers
-    // (upload_with_client, get_status_with_client,
-    // start_with_client, plc_run_stop_helper) moved to
-    // commands/plc.rs.
-
-    // Batch 20n ARC-008 god-file split: deploy orchestrator
-    // handlers (cmd_deploy_to_codesys, cmd_deploy_auto)
-    // moved to commands/ide_deploy.rs.
-
-    // Batch 20h ARC-008 god-file split: cmd_write_opcua,
-    // cmd_write_s7 moved to `commands/write.rs` (both are honest
-    // stubs; Sprint 6.x fills them in per plan §5 Faz 5).
-
-    // Batch 20l ARC-008 god-file split: cmd_validate_st
-    // moved to commands/program.rs.
-
-    // Batch 20l ARC-008 god-file split: load_program_state,
-    // save_program_state moved to commands/program.rs.
-
-    /// Handle config update from cloud
-    async fn handle_config_update(&self, payload: &[u8]) -> anyhow::Result<()> {
-        let config_update: Value = serde_json::from_slice(payload)?;
-        info!("Received config update: {:?}", config_update);
-
-        let mut state = self.state.write().await;
-        let mut config_changed = false;
-
-        // Update telemetry interval if provided
-        if let Some(telemetry) = config_update.get("telemetry") {
-            if let Some(interval) = telemetry.get("interval_seconds").and_then(|v| v.as_u64()) {
-                // Validate: minimum 5 seconds, maximum 3600 seconds (1 hour)
-                if (5..=3600).contains(&interval) {
-                    state.config.telemetry.interval_seconds = interval;
-                    config_changed = true;
-                    info!("Updated telemetry interval to {} seconds", interval);
-                } else {
-                    warn!(
-                        "Invalid telemetry interval {}: must be between 5 and 3600 seconds",
-                        interval
-                    );
-                }
-            }
-
-            // Update telemetry include flags
-            if let Some(include_system) = telemetry.get("include_system").and_then(|v| v.as_bool())
-            {
-                state.config.telemetry.include_system = include_system;
-                config_changed = true;
-            }
-            if let Some(include_modbus) = telemetry.get("include_modbus").and_then(|v| v.as_bool())
-            {
-                state.config.telemetry.include_modbus = include_modbus;
-                config_changed = true;
-            }
-            if let Some(include_gpio) = telemetry.get("include_gpio").and_then(|v| v.as_bool()) {
-                state.config.telemetry.include_gpio = include_gpio;
-                config_changed = true;
-            }
-        }
-
-        // Update scripting enabled flag if provided
-        if let Some(scripting) = config_update.get("scripting") {
-            if let Some(enabled) = scripting.get("enabled").and_then(|v| v.as_bool()) {
-                state.config.scripting.enabled = enabled;
-                config_changed = true;
-                info!("Updated scripting enabled to {}", enabled);
-            }
-        }
-
-        // Save config to disk if changed
-        if config_changed {
-            if let Err(e) = state.config.save() {
-                error!("Failed to save config after update: {}", e);
-                return Err(anyhow::anyhow!("Failed to persist config changes: {}", e));
-            }
-            info!("Config update applied and saved successfully");
-        } else {
-            info!("No applicable config changes found in update");
-        }
-
-        Ok(())
-    }
-
-    // Batch 20d ARC-008 god-file split: cmd_failover_status,
-    // cmd_failover_force, cmd_failover_recover moved to
-    // `commands/failover.rs`. Dispatch unchanged.
-
-    // Batch 20i ARC-008 god-file split: I/O config +
-    // output-value handlers (cmd_update_io_config,
-    // cmd_set_output) + parse_io_config_to_tags /
-    // persist_io_config helpers moved to
-    // commands/io_config.rs.
-
-    // Batch 20j ARC-008 god-file split: LoRaWAN handlers
-    // (cmd_update_lora_devices, cmd_lora_downlink) moved to
-    // commands/lora.rs (feature-gated on lorawan).
-
-    // Batch 20g ARC-008 god-file split: SCADA display
-    // lifecycle handlers (cmd_deploy_process,
-    // cmd_deploy_scada_package, cmd_display_on,
-    // cmd_display_off, cmd_get_display_status) + the
-    // convert_cloud_deploy_payload helper moved to
-    // commands/system.rs (cfg-gated on feature
-    // "scada-display").
+    // Per-command handlers (cmd_*) are defined as
+    // `impl super::CommandHandler { ... }` blocks across the
+    // domain submodules declared near the top of this file
+    // (diagnostic.rs / failover.rs / script.rs / read.rs /
+    // write.rs / system.rs / io_config.rs / lora.rs /
+    // firmware.rs / program.rs / plc.rs / ide_deploy.rs /
+    // rbac.rs / user_token.rs / rotate_master.rs /
+    // confirm_slot.rs / verify_signed_manifest.rs /
+    // apply_signed_manifest.rs / refresh_license.rs /
+    // deploy_bytecode_program.rs / bytecode_ops.rs /
+    // force_commands.rs / watch_commands.rs).
+    //
+    // Dispatch table → handler binding lives in
+    // dispatch_lifecycle.rs's `match command.command.as_str()`.
+    // Adding a new command requires (1) adding the cmd_X method
+    // in the appropriate submodule, (2) adding the match arm in
+    // dispatch_lifecycle.rs, (3) adding the
+    // command-name → permission entry in
+    // required_permission.rs.
 }
-
-// Batch 20k ARC-008 god-file split: firmware helper free
-// functions (is_valid_github_repo, is_valid_version_string,
-// resolve_firmware_version, fetch_latest_agent_tag,
-// download_file, compute_sha256, read_checksum_file) moved
-// to commands/firmware.rs as pub(super) module-private
-// helpers.
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    // Test-scoped imports: CommandResponse + json! were used by
+    // pre-Batch-#296 mod.rs body but the production imports
+    // were trimmed during the extraction; tests still need them.
+    use crate::mqtt::CommandResponse;
+    use serde_json::json;
 
     #[test]
     fn test_command_response_serialization() {

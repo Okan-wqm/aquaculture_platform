@@ -600,6 +600,88 @@ PR-24 candidate.
 
 ---
 
+## 26. type-check-spec gate landed (RESOLVED in PR-24 / #165)
+
+**File:** `tools/gates/type-check-spec.ts`,
+`tools/gates/type-check-spec-baseline.json`,
+`.github/workflows/ci-affected.yml`,
+`.github/workflows/ci-full.yml`
+
+**Closes:** the §15, §22, §23, §25 escalation chain.
+
+**Architecture:**
+
+- Baseline-aware ratchet gate: per-project `errors` count at
+  `tools/gates/type-check-spec-baseline.json`. Gate FAILS on any
+  project whose live count exceeds its baseline. Gate WARNS when a
+  project improves below baseline (suggest tighten via
+  `--update-baseline`).
+- Runs in BOTH `ci-affected.yml` (every PR, not affected-filtered —
+  shared-lib spec drift surfaces in services that didn't change
+  source) and `ci-full.yml` (weekly).
+- Direct invocation of `node_modules/.bin/tsc` rather than `npx
+  tsc` after a wrong `npx --no` flag silently ran zero work and
+  reported every project as 0 errors. Recorded as the gate's first
+  bug-pre-prod self-discovery.
+- Finding registered: `TYPE-CHECK-SPEC-RATCHET-001` (state OPEN,
+  closes when every project baseline reaches 0).
+
+**State of the monorepo at gate-introduction:**
+
+| Project | Baseline |
+|---------|----------|
+| apps/alert-engine | 124 |
+| apps/farm-service | 84 |
+| apps/hr-service | 46 |
+| apps/billing-service | 40 |
+| libs/migration-harness | 27 |
+| apps/auth-service | 26 |
+| apps/admin-api-service | 14 |
+| apps/messaging-service | 9 |
+| libs/backend-common | 9 |
+| apps/event-store-service | 4 |
+| apps/hydroponics-service | 3 |
+| apps/ai-service | 1 |
+| **8 others** | **0 (locked)** |
+
+The 8 zeros are: `apps/gateway-api`, `apps/sensor-service`,
+`apps/notification-service`, `apps/db-migrate`,
+`apps/observability-service`, `apps/config-service`,
+`libs/event-contracts`, `libs/storage`.
+
+**Self-correction at gate-introduction:** my pre-gate
+assumption was that `apps/farm-service` was already at 0
+(carried from memory of "farm-service cleaned by PR #146"). The
+gate itself surfaced 84 real errors there — PR #146 had cleaned
+`web/modules/farm-module` (frontend), NOT `apps/farm-service`
+(backend). This is the FIRST regression the gate caught and it
+was caught BEFORE anything was pushed: the gate working as
+designed, against my own incorrect prior. Baseline updated to 84
+and finding evidence broadened.
+
+Concrete drift in farm-service: `BatchStatus.STOCKED` removed
+(renamed?), `Species`/`Batch` `DeepPartial[]` vs full entity[]
+mismatch in integration spec helpers, `NatsEventBus` → `Outbox-
+Publisher` type narrowing, `weight` property restructuring.
+Cleanup tracked under TYPE-CHECK-SPEC-RATCHET-001.
+
+**What this gate prevents:** the next `farm-module #146 / sensor-
+service #162 / gateway-api #164` cleanup cycle. New drift is now
+caught in the PR that introduces it, not 6 months later when 80–
+115 errors have piled up.
+
+**Follow-up work:** drive each non-zero project to 0 in a
+dedicated PR (target ~3-5 PRs, smallest first: ai-service → hydro
+→ event-store → messaging → libs/backend-common → admin-api →
+auth → migration-harness → billing → hr → alert-engine). Each PR
+should run `npm run gates:type-check-spec -- --update-baseline`
+after fixes and commit the ratcheted baseline.
+
+**Severity:** RESOLVED (gate landed) for the architectural gap.
+Drift cleanup itself remains OPEN as `TYPE-CHECK-SPEC-RATCHET-001`.
+
+---
+
 ## Closing posture
 
 This file lives at:

@@ -275,6 +275,28 @@ jobs:
           NX_NO_CLOUD: 'true'
           NODE_OPTIONS: '--max-old-space-size=4096'
 
+      # type-check-spec gate (PR #165 / TYPE-CHECK-SPEC-RATCHET-001):
+      # ts-jest's permissive transform was hiding accumulated contract drift in
+      # spec files; cleanups for farm-module (#146), sensor-service (#162) and
+      # gateway-api (#164) closed 80–115 errors EACH, all of which had been
+      # silently merging because no CI step ran the strict spec compile.
+      #
+      # The gate runs `tsc -p <project>/tsconfig.spec.json --noEmit` for every
+      # project with a tsconfig.spec.json and compares the count to a per-project
+      # baseline at tools/gates/type-check-spec-baseline.json. PRs that REGRESS
+      # ANY project above its baseline FAIL here. Projects pinned at 0 cannot
+      # regress without a CI failure — the architectural lock that prevents the
+      # next sensor-service / gateway-api / farm-module style backlog.
+      #
+      # Runs on every PR (not affected-only) because spec drift in a shared lib
+      # surfaces in services that didn't change source — the affected graph
+      # would miss it.
+      - name: Run type-check-spec gate (baseline-aware)
+        run: npm run gates:type-check-spec
+        timeout-minutes: 25
+        env:
+          NODE_OPTIONS: '--max-old-space-size=4096'
+
   test:
     needs: [install, detect-changes]
     # agentic-rust-unified cut-over PR temporarily skips lint/type-check/test/build

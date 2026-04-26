@@ -33,7 +33,11 @@ function makeDevice(overrides: Partial<EdgeDevice> = {}): EdgeDevice {
   d.deviceName = 'Test Device';
   d.lifecycleState = DeviceLifecycleState.ACTIVE;
   d.mqttClientId = MQTT_CLIENT;
-  d.mqttPasswordHash = undefined;
+  // The prod entity column is `string | null` (nullable column).
+  // `undefined` is the historical default but TS rejects it; using
+  // `null` matches the entity contract exactly and survives a
+  // hypothetical future `noImplicitOverride` toggle.
+  d.mqttPasswordHash = null;
   d.isOnline = true;
   Object.assign(d, overrides);
   return d;

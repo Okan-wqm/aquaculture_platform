@@ -167,7 +167,7 @@ describe('ProvisioningService - Config Management', () => {
       deviceRepo.findOne.mockResolvedValueOnce(device);
 
       // generateInstallerScript calls getProvisioningConfig internally
-      const script = await service.generateInstallerScript(device.deviceCode);
+      const script = await service.generateInstallerScript(device.deviceCode, device.provisioningToken!);
 
       expect(mockFetch).toHaveBeenCalledTimes(1);
       expect(mockFetch).toHaveBeenCalledWith('http://admin-api:3010/system/settings/provisioning-config', expect.anything());
@@ -195,11 +195,11 @@ describe('ProvisioningService - Config Management', () => {
       deviceRepo.findOne.mockResolvedValue(device);
 
       // First call - fetches from admin API
-      await service.generateInstallerScript(device.deviceCode);
+      await service.generateInstallerScript(device.deviceCode, device.provisioningToken!);
       expect(mockFetch).toHaveBeenCalledTimes(1);
 
       // Second call - should use cache, no additional fetch
-      await service.generateInstallerScript(device.deviceCode);
+      await service.generateInstallerScript(device.deviceCode, device.provisioningToken!);
       expect(mockFetch).toHaveBeenCalledTimes(1);
     });
 
@@ -221,14 +221,14 @@ describe('ProvisioningService - Config Management', () => {
       deviceRepo.findOne.mockResolvedValue(device);
 
       // First call
-      await service.generateInstallerScript(device.deviceCode);
+      await service.generateInstallerScript(device.deviceCode, device.provisioningToken!);
       expect(mockFetch).toHaveBeenCalledTimes(1);
 
       // Manually expire the cache on InstallerScriptService
       (installerScriptService as any).configCacheExpiry = new Date(0);
 
       // Third call - cache expired, should fetch again
-      await service.generateInstallerScript(device.deviceCode);
+      await service.generateInstallerScript(device.deviceCode, device.provisioningToken!);
       expect(mockFetch).toHaveBeenCalledTimes(2);
     });
 
@@ -238,7 +238,7 @@ describe('ProvisioningService - Config Management', () => {
       const device = buildMockDevice();
       deviceRepo.findOne.mockResolvedValueOnce(device);
 
-      const script = await service.generateInstallerScript(device.deviceCode);
+      const script = await service.generateInstallerScript(device.deviceCode, device.provisioningToken!);
 
       // Should contain env var values from ConfigService mock
       expect(script).toContain('http://env-api.example.com');
@@ -255,7 +255,7 @@ describe('ProvisioningService - Config Management', () => {
       const device = buildMockDevice();
       deviceRepo.findOne.mockResolvedValueOnce(device);
 
-      const script = await service.generateInstallerScript(device.deviceCode);
+      const script = await service.generateInstallerScript(device.deviceCode, device.provisioningToken!);
 
       // Should contain env var fallback values
       expect(script).toContain('http://env-api.example.com');
@@ -286,20 +286,20 @@ describe('ProvisioningService - Config Management', () => {
       const device = buildMockDevice();
       deviceRepo.findOne.mockResolvedValueOnce(device);
 
-      const script = await service.generateInstallerScript(device.deviceCode);
+      const script = await service.generateInstallerScript(device.deviceCode, device.provisioningToken!);
 
       expect(script).toContain('https://api.test.com');
       expect(script).toContain('4.0.0');
       expect(script).toContain('TestOrg/edge-agent');
       expect(script).toContain(device.deviceCode);
-      expect(script).toContain(device.provisioningToken);
+      expect(script).toContain(device.provisioningToken!);
     });
 
     it('should include SHA256 checksum verification in script', async () => {
       const device = buildMockDevice();
       deviceRepo.findOne.mockResolvedValueOnce(device);
 
-      const script = await service.generateInstallerScript(device.deviceCode);
+      const script = await service.generateInstallerScript(device.deviceCode, device.provisioningToken!);
 
       expect(script).toContain('sha256sum');
       expect(script).toContain('.sha256');
@@ -310,7 +310,7 @@ describe('ProvisioningService - Config Management', () => {
       const device = buildMockDevice();
       deviceRepo.findOne.mockResolvedValueOnce(device);
 
-      const script = await service.generateInstallerScript(device.deviceCode);
+      const script = await service.generateInstallerScript(device.deviceCode, device.provisioningToken!);
 
       expect(script).toContain('suderra-agent-x86_64-linux');
       expect(script).toContain('suderra-agent-aarch64-linux');
@@ -324,7 +324,7 @@ describe('ProvisioningService - Config Management', () => {
       deviceRepo.findOne.mockResolvedValueOnce(expiredDevice);
 
       await expect(
-        service.generateInstallerScript(expiredDevice.deviceCode),
+        service.generateInstallerScript(expiredDevice.deviceCode, expiredDevice.provisioningToken!),
       ).rejects.toThrow(UnauthorizedException);
     });
 
@@ -335,7 +335,7 @@ describe('ProvisioningService - Config Management', () => {
       deviceRepo.findOne.mockResolvedValueOnce(usedDevice);
 
       await expect(
-        service.generateInstallerScript(usedDevice.deviceCode),
+        service.generateInstallerScript(usedDevice.deviceCode, usedDevice.provisioningToken!),
       ).rejects.toThrow(ConflictException);
     });
   });

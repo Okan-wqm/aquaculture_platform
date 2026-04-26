@@ -461,6 +461,52 @@ PR-20 picked `028` to avoid adding a new collision.
 
 ---
 
+## 22. sensor-service spec baseline 80 → 0 (RESOLVED in PR-21)
+
+**File:** `apps/sensor-service/tsconfig.spec.json` scope
+**Context:** PR-21 closed all 80 errors §15 had flagged.
+**Categories of drift fixed:**
+
+1. **Mock-context drift (20 errors)** — `mockContext = { tenantId }`
+   was the historical shape when resolvers took `@Context()`; resolvers
+   now use `@Tenant()` decorator extracting the bare string. Mass-rename
+   to `tenantId`.
+2. **Missing-arg drift (14 errors)** — `generateInstallerScript`
+   gained a security-relevant `provisioningToken` second arg.
+3. **strictNullChecks array index (~10 errors)** — `result[0]!` at
+   test boundaries with comments documenting why `!` is safe after
+   `toHaveLength` assertions.
+4. **Override-signature drift (5 errors)** — `TestVfdAdapter`
+   overrides aligned to base-class signatures.
+5. **Protocol-config fixture drift (4 errors)** —
+   `ModbusTcpConfiguration` requires `connectionTimeout` +
+   `responseTimeout`; fixtures updated.
+6. **VfdRegistrationResultDto flattening (5 errors)** — `{ device,
+   connectionTest }` → `{ vfdDevice, connectionTestPassed,
+   latencyMs, error }`. Tests adjusted.
+7. **VfdRegisterMappingService.getCommandValue removed (2 errors)** —
+   replaced by `getControlWordMapping(brand)` calls.
+8. **getVfdDeviceCountByStatus return type (2 errors)** — resolver
+   now returns JSON-stringified `Promise<string>`; tests `JSON.parse`.
+9. **testVfdConnection unification (3 errors)** — three variants
+   collapsed into one `testVfdConnection(input: TestVfdConnectionInputDto)`.
+10. **VfdPaginationDto class type (2 errors)** — plain object literals
+    cast to the DTO class type at call boundary.
+11. **`mqttPasswordHash` undefined → null** — aligned with entity
+    nullable-column contract.
+
+**Severity:** RESOLVED in PR-21.
+
+**Key architectural recommendation:** the spec-side TS drift was
+hiding 80 real contract drifts between prod code and tests. CI ran
+tests under ts-jest's permissive transform but never gated on
+`tsc --strict` for the spec config, so drift accumulated silently.
+Same recommendation as PR #146 made for farm-module: add
+`nx run sensor-service:type-check-spec` as a hard CI gate so the
+next drift surfaces at PR time, not at the next baseline-cleanup PR.
+
+---
+
 ## Closing posture
 
 This file lives at:

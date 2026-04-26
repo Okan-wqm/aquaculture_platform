@@ -567,6 +567,15 @@ path = "tests/invariants/mtls_config.rs"
 name = "required_permission_mapping"
 path = "tests/invariants/required_permission_mapping.rs"
 
+# Batch #300 ORPHAN-HIGH-020 closure FINAL — D-1 ST source compile
+# production wire integration invariants. Contract-marker file
+# (the bin is `[[bin]]` not `[lib]` so external tests can't
+# import internal types); executable counterparts live in
+# scripting::bytecode_deploy::tests as d1_source_compile_roundtrip_*.
+[[test]]
+name = "d1_source_compile_roundtrip"
+path = "tests/invariants/d1_source_compile_roundtrip.rs"
+
 # Batch 40 plan Faz 2 coherence — validate_faz2_security_coherence rules.
 [[test]]
 name = "config_coherence"

@@ -908,4 +908,215 @@ mod tests {
         assert_eq!(&bc_canonical[0..4], b"STBC");
         assert_eq!(&src_canonical[0..4], b"SSRC");
     }
+
+    // =========================================================
+    // Batch #300 ORPHAN-HIGH-020 closure FINAL —
+    // d1_source_compile_roundtrip integration roundtrip
+    // =========================================================
+    //
+    // ## Architectural intent
+    //
+    // The orphan finding's deliverable list specified
+    // `tests/integration/d1_source_compile_roundtrip.rs`. That
+    // path is a contract-marker test (the bin is `[[bin]]`,
+    // not `[lib]`, so external test crates can't import
+    // internal types — the project's pattern is to have
+    // tests/invariants/*.rs files document the architectural
+    // contract via prose-level assertions, while the real
+    // executable tests live in `#[cfg(test)] mod` inside the
+    // bin source files).
+    //
+    // This test is the EXECUTABLE D-1 roundtrip. It exercises:
+    //
+    //   1. Real ed25519 SigningKey (not closure mock).
+    //   2. A NON-TRIVIAL ST source — VAR block + assignment +
+    //      tag-write — that produces meaningful opcodes.
+    //   3. Tag descriptor catalog with one writable + one
+    //      read-only tag, so the compile gate's
+    //      target_kind discipline runs (write to a read-only
+    //      tag would CompileError).
+    //   4. Real verify_signed_st_source via real ed25519
+    //      verify in the closure.
+    //   5. Real parse_st on the meaningful source.
+    //   6. Real compile_program with the tag descriptors.
+    //   7. Tagging Bytecode with body claims (tenant_id +
+    //      policy_version).
+    //   8. Real registry insert.
+    //   9. Post-deploy assertions:
+    //      - registry contains the entry
+    //      - bytecode.opcodes is NOT just [Return] (proves
+    //        the source semantically compiled to instructions)
+    //      - bytecode.allowed_write_tags contains the tag
+    //        the source actually wrote to (proves the
+    //        WriteTag opcode allowlist derivation worked
+    //        end-to-end)
+    //      - bytecode.tenant_id matches the body's claim
+    //      - bytecode.policy_version matches the body's claim
+    //
+    // ## Why this single test covers the D-1 contract
+    //
+    // The 6 prior gate-coverage tests (compile_and_deploy_*)
+    // already pin each individual gate. This test is the
+    // CROSS-GATE SEMANTIC roundtrip — it proves the full
+    // sign→verify→parse→compile→deploy→inspect chain works on
+    // a meaningful program, NOT just on the minimal
+    // syntactically-valid PROGRAM body the gate-coverage tests
+    // used. A regression that breaks parse-AST→opcodes
+    // semantic translation would NOT be caught by the prior
+    // tests (they use empty bodies → only [Return] opcode);
+    // this test catches it.
+
+    /// Non-trivial ST source. Exercises:
+    ///   - VAR block with INT + REAL declarations
+    ///   - Assignment to a local variable
+    ///   - Tag write (the operator's actuator command — the
+    ///     entire point of the deploy pipeline)
+    ///
+    /// Tag references resolved against the test's
+    /// TagDescriptor catalog: `setpoint` (REAL, writable) +
+    /// `sensor_temp` (REAL, read-only).
+    const ROUNDTRIP_SOURCE: &str = "PROGRAM Roundtrip\n\
+        VAR\n\
+          x : REAL;\n\
+        END_VAR\n\
+        x := 42.5;\n\
+        setpoint := x;\n\
+        END_PROGRAM\n";
+
+    fn roundtrip_tags() -> Vec<super::super::bytecode_compiler::TagDescriptor> {
+        use super::super::bytecode::StValueType;
+        use super::super::bytecode_compiler::TagDescriptor;
+        vec![
+            TagDescriptor {
+                name: "setpoint".to_string(),
+                data_type: StValueType::Real,
+                writable: true,
+            },
+            TagDescriptor {
+                name: "sensor_temp".to_string(),
+                data_type: StValueType::Real,
+                writable: false,
+            },
+        ]
+    }
+
+    #[tokio::test]
+    async fn d1_source_compile_roundtrip_meaningful_program() {
+        let reg = BytecodeProgramRegistry::new();
+        let key = key_a();
+        let body = mk_st_body("p-roundtrip", Some("tenant-prod"), 5, ROUNDTRIP_SOURCE);
+        let signed = sign_source(&body, &key);
+
+        // End-to-end deploy.
+        let report = compile_and_deploy_signed_source(
+            &reg,
+            &signed,
+            Some("tenant-prod"),
+            &roundtrip_tags(),
+            verify_with(key.verifying_key()),
+        )
+        .await
+        .expect("happy roundtrip");
+
+        // Report-level assertions.
+        assert_eq!(report.program_id, "p-roundtrip");
+        assert_eq!(report.tenant_id.as_deref(), Some("tenant-prod"));
+        assert_eq!(report.policy_version, 5);
+        assert!(!report.replaced_existing);
+
+        // Inspect the registry entry — the ARCHITECTURAL
+        // proof that semantic compilation happened (not just
+        // syntax-pass + empty body).
+        let entry = reg.get("p-roundtrip").await.expect("registry entry");
+
+        // Body claims flowed through to the compiled bytecode.
+        assert_eq!(entry.bytecode.tenant_id.as_deref(), Some("tenant-prod"));
+        assert_eq!(entry.bytecode.policy_version, 5);
+
+        // Bytecode is NOT just [Return]. Empty PROGRAM bodies
+        // produce a single Return opcode; this source has a
+        // local assignment + a tag write so the opcode count
+        // MUST exceed 1.
+        assert!(
+            entry.bytecode.opcodes.len() > 1,
+            "expected non-trivial opcode list (proves semantic compile); got {} opcodes",
+            entry.bytecode.opcodes.len()
+        );
+
+        // Allowed write tags MUST include `setpoint` (the
+        // tag the source actually writes to). This proves
+        // the WriteTag opcode allowlist derivation worked
+        // end-to-end — compile_program collects every
+        // Opcode::WriteTag.name into allowed_write_tags + the
+        // VM gate at scan-cycle time uses this list as the
+        // SSoT for write authorization.
+        assert!(
+            entry.bytecode.allowed_write_tags.contains(&"setpoint".to_string()),
+            "expected `setpoint` in allowed_write_tags; got {:?}",
+            entry.bytecode.allowed_write_tags
+        );
+
+        // sensor_temp is read-only in the catalog AND the
+        // source never writes to it; allowed_write_tags MUST
+        // NOT contain it.
+        assert!(
+            !entry.bytecode.allowed_write_tags.contains(&"sensor_temp".to_string()),
+            "sensor_temp MUST NOT be in allowed_write_tags (source never writes it; catalog marks it read-only)",
+        );
+
+        // Local count must be at least 1 (`x` declared in VAR).
+        assert!(
+            entry.bytecode.local_count >= 1,
+            "expected >=1 local from VAR block; got {}",
+            entry.bytecode.local_count
+        );
+
+        // max_gas_per_tick from the body claim flowed through.
+        assert_eq!(entry.bytecode.max_gas_per_tick, 1000);
+
+        // Default-enabled at registry insert (matches the
+        // SignedBytecode path's enabled-true default).
+        assert!(entry.enabled);
+    }
+
+    /// **Cross-gate negative roundtrip.** Same source as the
+    /// happy path, but the tag catalog OMITS `setpoint` — the
+    /// compile gate's tag-resolution step MUST surface a
+    /// CompileError (StSourceCompileFailed) because the source
+    /// references an unresolved tag.
+    ///
+    /// This proves the tag descriptor catalog is actually
+    /// consumed by compile_program — a regression that
+    /// silently ignored unresolved tags would deploy a broken
+    /// program; this test catches that class of regression.
+    #[tokio::test]
+    async fn d1_source_compile_roundtrip_rejects_unresolved_tag() {
+        let reg = BytecodeProgramRegistry::new();
+        let key = key_a();
+        let body = mk_st_body("p-bad-tag", Some("tenant-prod"), 1, ROUNDTRIP_SOURCE);
+        let signed = sign_source(&body, &key);
+
+        // Empty tag catalog — `setpoint` is unresolved.
+        let err = compile_and_deploy_signed_source(
+            &reg,
+            &signed,
+            Some("tenant-prod"),
+            &[],
+            verify_with(key.verifying_key()),
+        )
+        .await
+        .expect_err("must fail on unresolved tag");
+
+        match err {
+            DeployError::StSourceCompileFailed { reason: _ } => {}
+            other => panic!(
+                "expected StSourceCompileFailed for unresolved tag, got {:?}",
+                other
+            ),
+        }
+
+        // Registry untouched — failed deploy MUST NOT leave a
+        // partial entry behind.
+        assert!(reg.get("p-bad-tag").await.is_none());
+    }
 }

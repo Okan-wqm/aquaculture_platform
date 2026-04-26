@@ -35,7 +35,9 @@ export class UpdateConfigurationHandler
     await queryRunner.startTransaction('READ COMMITTED');
 
     try {
+      // eslint-disable-next-line no-restricted-syntax -- AUDIT-MEDIUM-014 (config-service): Phase B tenantManagerRepo migration backlog — Configuration writes inside transaction
       const configRepo = queryRunner.manager.getRepository(Configuration);
+      // eslint-disable-next-line no-restricted-syntax -- AUDIT-MEDIUM-014 (config-service): Phase B tenantManagerRepo migration backlog — ConfigurationHistory audit row
       const historyRepo = queryRunner.manager.getRepository(ConfigurationHistory);
 
       const configuration = await configRepo.findOne({

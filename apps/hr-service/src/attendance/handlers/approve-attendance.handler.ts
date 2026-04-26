@@ -20,6 +20,7 @@ export class ApproveAttendanceHandler implements ICommandHandler<ApproveAttendan
     await queryRunner.startTransaction();
 
     try {
+      // eslint-disable-next-line no-restricted-syntax -- AUDIT-MEDIUM-014 (hr-service): Phase B tenantManagerRepo migration backlog
       const attendanceRepo = queryRunner.manager.getRepository(AttendanceRecord);
 
       const attendanceRecord = await attendanceRepo.findOne({

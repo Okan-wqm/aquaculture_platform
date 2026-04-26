@@ -50,6 +50,7 @@ export class RetentionPolicyService {
     userId: string,
     manager?: EntityManager,
   ): Promise<RetentionPolicy> {
+    // eslint-disable-next-line no-restricted-syntax -- AUDIT-MEDIUM-014 (messaging-service): Phase B tenantManagerRepo migration backlog — conditional pattern
     const repo = manager ? manager.getRepository(RetentionPolicy) : this.policyRepo;
 
     const existing = await repo.findOne({

@@ -26,6 +26,7 @@ export class ApprovePayrollHandler implements ICommandHandler<ApprovePayrollComm
     await queryRunner.startTransaction();
 
     try {
+      // eslint-disable-next-line no-restricted-syntax -- AUDIT-MEDIUM-014 (hr-service): Phase B tenantManagerRepo migration backlog — Payroll write inside SERIALIZABLE transaction
       const payrollRepo = queryRunner.manager.getRepository(Payroll);
 
       // Pessimistic write lock — prevents concurrent double-approval of the same payroll.

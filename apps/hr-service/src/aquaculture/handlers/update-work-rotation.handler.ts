@@ -27,6 +27,7 @@ export class UpdateWorkRotationHandler implements ICommandHandler<UpdateWorkRota
     await queryRunner.startTransaction();
 
     try {
+      // eslint-disable-next-line no-restricted-syntax -- AUDIT-MEDIUM-014 (hr-service): Phase B tenantManagerRepo migration backlog
       const repo = queryRunner.manager.getRepository(WorkRotation);
 
       const rotation = await repo.findOne({

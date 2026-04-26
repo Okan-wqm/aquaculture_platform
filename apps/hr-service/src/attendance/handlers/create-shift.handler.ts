@@ -71,6 +71,7 @@ export class CreateShiftHandler implements ICommandHandler<CreateShiftCommand> {
     await queryRunner.startTransaction();
 
     try {
+      // eslint-disable-next-line no-restricted-syntax -- AUDIT-MEDIUM-014 (hr-service): Phase B tenantManagerRepo migration backlog
       const shiftRepo = queryRunner.manager.getRepository(Shift);
 
       // Check for duplicate code within transaction to prevent race condition

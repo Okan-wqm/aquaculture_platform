@@ -20,6 +20,7 @@ export class UpdateWorkAreaHandler implements ICommandHandler<UpdateWorkAreaComm
     await queryRunner.startTransaction();
 
     try {
+      // eslint-disable-next-line no-restricted-syntax -- AUDIT-MEDIUM-014 (hr-service): Phase B tenantManagerRepo migration backlog
       const repo = queryRunner.manager.getRepository(WorkArea);
 
       const workArea = await repo.findOne({

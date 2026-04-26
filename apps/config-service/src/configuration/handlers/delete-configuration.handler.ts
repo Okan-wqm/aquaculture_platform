@@ -30,6 +30,7 @@ export class DeleteConfigurationHandler
     await queryRunner.startTransaction('READ COMMITTED');
 
     try {
+      // eslint-disable-next-line no-restricted-syntax -- AUDIT-MEDIUM-014 (config-service): Phase B tenantManagerRepo migration backlog
       const configRepo = queryRunner.manager.getRepository(Configuration);
 
       const configuration = await configRepo.findOne({

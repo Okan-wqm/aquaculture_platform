@@ -19,7 +19,9 @@ export class CreatePerformanceReviewHandler implements ICommandHandler<CreatePer
     await queryRunner.startTransaction();
 
     try {
+      // eslint-disable-next-line no-restricted-syntax -- AUDIT-MEDIUM-014 (hr-service): Phase B tenantManagerRepo migration backlog — Employee read
       const employeeRepo = queryRunner.manager.getRepository(Employee);
+      // eslint-disable-next-line no-restricted-syntax -- AUDIT-MEDIUM-014 (hr-service): Phase B tenantManagerRepo migration backlog — PerformanceReview write
       const reviewRepo = queryRunner.manager.getRepository(PerformanceReview);
 
       // Validate employee exists

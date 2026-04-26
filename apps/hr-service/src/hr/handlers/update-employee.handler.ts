@@ -26,6 +26,7 @@ export class UpdateEmployeeHandler implements ICommandHandler<UpdateEmployeeComm
     await queryRunner.startTransaction('SERIALIZABLE');
 
     try {
+      // eslint-disable-next-line no-restricted-syntax -- AUDIT-MEDIUM-014 (hr-service): Phase B tenantManagerRepo migration backlog
       const employeeRepo = queryRunner.manager.getRepository(Employee);
 
       const employee = await employeeRepo.findOne({

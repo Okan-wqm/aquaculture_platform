@@ -90,6 +90,7 @@ export class CreateChannelHandler
       // ---------------------------------------------------------------
       // Check for existing DM (return it instead of creating duplicate)
       // ---------------------------------------------------------------
+      // eslint-disable-next-line no-restricted-syntax -- AUDIT-MEDIUM-014 (messaging-service): Phase B tenantManagerRepo migration backlog
       const existingDm = await this.dataSource
         .getRepository(Channel)
         .findOne({ where: { dmPairKey }, relations: ['members'] });

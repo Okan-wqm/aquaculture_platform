@@ -21,6 +21,7 @@ export class UpdateDepartmentHandler implements ICommandHandler<UpdateDepartment
     await queryRunner.startTransaction();
 
     try {
+      // eslint-disable-next-line no-restricted-syntax -- AUDIT-MEDIUM-014 (hr-service): Phase B tenantManagerRepo migration backlog
       const repo = queryRunner.manager.getRepository(DepartmentHR);
 
       const department = await repo.findOne({

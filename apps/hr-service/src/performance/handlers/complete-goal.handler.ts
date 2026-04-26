@@ -18,6 +18,7 @@ export class CompleteGoalHandler implements ICommandHandler<CompleteGoalCommand>
     await queryRunner.startTransaction();
 
     try {
+      // eslint-disable-next-line no-restricted-syntax -- AUDIT-MEDIUM-014 (hr-service): Phase B tenantManagerRepo migration backlog
       const goalRepo = queryRunner.manager.getRepository(Goal);
 
       const goal = await goalRepo.findOne({

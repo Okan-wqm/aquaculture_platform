@@ -33,7 +33,9 @@ export class CreateGoalHandler implements ICommandHandler<CreateGoalCommand> {
     await queryRunner.startTransaction();
 
     try {
+      // eslint-disable-next-line no-restricted-syntax -- AUDIT-MEDIUM-014 (hr-service): Phase B tenantManagerRepo migration backlog — Employee read
       const employeeRepo = queryRunner.manager.getRepository(Employee);
+      // eslint-disable-next-line no-restricted-syntax -- AUDIT-MEDIUM-014 (hr-service): Phase B tenantManagerRepo migration backlog — Goal write
       const goalRepo = queryRunner.manager.getRepository(Goal);
 
       // Validate employee exists

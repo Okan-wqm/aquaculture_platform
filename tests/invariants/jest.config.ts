@@ -104,6 +104,7 @@ export default {
         '<rootDir>/admin-api-schema-boundaries.spec.ts',
         '<rootDir>/eslint-rule-presence.spec.ts',
         '<rootDir>/eslint-disable-annotation-positional-binding.spec.ts',
+        '<rootDir>/no-direct-getrepository-call.spec.ts',
       ],
     },
     {

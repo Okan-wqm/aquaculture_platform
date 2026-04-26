@@ -69,6 +69,7 @@ export class LegalHoldService {
     }
 
     // Use caller's transaction manager if provided, fall back to injected repo
+    // eslint-disable-next-line no-restricted-syntax -- AUDIT-MEDIUM-014 (messaging-service): Phase B tenantManagerRepo migration backlog — conditional pattern
     const repo = manager ? manager.getRepository(LegalHold) : this.holdRepo;
 
     // Check for existing active hold on same scope
@@ -117,6 +118,7 @@ export class LegalHoldService {
    * @param manager Optional EntityManager for transactional callers (same rationale as activate).
    */
   async release(holdId: string, userId: string, manager?: EntityManager): Promise<LegalHold> {
+    // eslint-disable-next-line no-restricted-syntax -- AUDIT-MEDIUM-014 (messaging-service): Phase B tenantManagerRepo migration backlog — conditional pattern
     const repo = manager ? manager.getRepository(LegalHold) : this.holdRepo;
 
     const hold = await repo.findOne({ where: { id: holdId } });

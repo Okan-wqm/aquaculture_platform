@@ -73,6 +73,7 @@ export class TenantAwareRepository<T extends TenantEntity> {
     }
 
     // Create repository (will be used with tenant filtering)
+    // eslint-disable-next-line no-restricted-syntax -- TenantAwareRepository is the LIBRARY-LEVEL implementation that other code uses INSTEAD of raw getRepository(). The tenant-filtering wrapper lives in this constructor; raw access here is the foundation everyone else's safe alternative is built on.
     this.repository = this.dataSource.getRepository(entity);
   }
 

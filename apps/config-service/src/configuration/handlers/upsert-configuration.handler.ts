@@ -27,6 +27,7 @@ export class UpsertConfigurationHandler
     const { tenantId, service, key, value, environment, userId, isSecret } = command;
 
     try {
+      // eslint-disable-next-line no-restricted-syntax -- AUDIT-MEDIUM-014 (config-service): Phase B tenantManagerRepo migration backlog
       const repo = this.dataSource.getRepository(Configuration);
 
       // Fetch existing config before upsert (for history tracking)
@@ -79,6 +80,7 @@ export class UpsertConfigurationHandler
       // Record history if value changed (update case, not insert)
       if (existingConfig && existingConfig.value !== valueToStore) {
         try {
+          // eslint-disable-next-line no-restricted-syntax -- AUDIT-MEDIUM-014 (config-service): Phase B tenantManagerRepo migration backlog — ConfigurationHistory audit row
           const historyRepo = this.dataSource.getRepository(ConfigurationHistory);
 
           // SECURITY: Redact secret values in history records

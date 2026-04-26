@@ -26,6 +26,7 @@ export class CancelRotationHandler implements ICommandHandler<CancelRotationComm
     await queryRunner.startTransaction();
 
     try {
+      // eslint-disable-next-line no-restricted-syntax -- AUDIT-MEDIUM-014 (hr-service): Phase B tenantManagerRepo migration backlog
       const repo = queryRunner.manager.getRepository(WorkRotation);
 
       const rotation = await repo.findOne({

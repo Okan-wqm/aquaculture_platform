@@ -97,6 +97,7 @@ export class TenantScopedRepository<T extends TenantEntity> {
     entity: EntityTarget<E>,
     explicitTenantId?: string,
   ): TenantScopedRepository<E> {
+    // eslint-disable-next-line no-restricted-syntax -- LIBRARY-LEVEL: this static factory is the canonical entry point that wraps a TypeORM Repository in TenantScopedRepository — every downstream caller goes THROUGH this point of contact precisely so application code does not.
     const repository = dataSource.getRepository(entity);
     return new TenantScopedRepository<E>(repository, explicitTenantId);
   }

@@ -25,6 +25,7 @@ export class CreateEmployeeHandler implements ICommandHandler<CreateEmployeeComm
     await queryRunner.startTransaction('SERIALIZABLE');
 
     try {
+      // eslint-disable-next-line no-restricted-syntax -- AUDIT-MEDIUM-014 (hr-service): Phase B tenantManagerRepo migration backlog
       const employeeRepo = queryRunner.manager.getRepository(Employee);
 
       // Check for existing employee with same email (within transaction)

@@ -41,6 +41,7 @@ export class CreateConfigurationHandler
     await queryRunner.startTransaction('READ COMMITTED');
 
     try {
+      // eslint-disable-next-line no-restricted-syntax -- AUDIT-MEDIUM-014 (config-service): Phase B tenantManagerRepo migration backlog — Configuration writes inside transaction
       const configRepo = queryRunner.manager.getRepository(Configuration);
 
       const existing = await configRepo.findOne({

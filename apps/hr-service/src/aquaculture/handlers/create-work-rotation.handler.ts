@@ -45,7 +45,9 @@ export class CreateWorkRotationHandler implements ICommandHandler<CreateWorkRota
     await queryRunner.startTransaction('SERIALIZABLE');
 
     try {
+      // eslint-disable-next-line no-restricted-syntax -- AUDIT-MEDIUM-014 (hr-service): Phase B tenantManagerRepo migration backlog — WorkRotation write inside transaction
       const rotationRepo = queryRunner.manager.getRepository(WorkRotation);
+      // eslint-disable-next-line no-restricted-syntax -- AUDIT-MEDIUM-014 (hr-service): Phase B tenantManagerRepo migration backlog — WorkArea read inside transaction
       const workAreaRepo = queryRunner.manager.getRepository(WorkArea);
 
       // Verify work area exists and belongs to tenant

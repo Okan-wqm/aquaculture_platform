@@ -27,6 +27,7 @@ export class ConfirmSafetyTrainingAttendanceHandler
     await queryRunner.startTransaction();
 
     try {
+      // eslint-disable-next-line no-restricted-syntax -- AUDIT-MEDIUM-014 (hr-service): Phase B tenantManagerRepo migration backlog
       const repo = queryRunner.manager.getRepository(SafetyTrainingRecord);
 
       const record = await repo.findOne({

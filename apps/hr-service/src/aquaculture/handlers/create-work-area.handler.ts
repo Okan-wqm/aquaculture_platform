@@ -19,6 +19,7 @@ export class CreateWorkAreaHandler implements ICommandHandler<CreateWorkAreaComm
     await queryRunner.startTransaction('SERIALIZABLE');
 
     try {
+      // eslint-disable-next-line no-restricted-syntax -- AUDIT-MEDIUM-014 (hr-service): Phase B tenantManagerRepo migration backlog
       const repo = queryRunner.manager.getRepository(WorkArea);
 
       // Check for duplicate code within tenant

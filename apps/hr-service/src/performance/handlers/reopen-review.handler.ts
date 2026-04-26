@@ -18,6 +18,7 @@ export class ReopenReviewHandler implements ICommandHandler<ReopenReviewCommand>
     await queryRunner.startTransaction();
 
     try {
+      // eslint-disable-next-line no-restricted-syntax -- AUDIT-MEDIUM-014 (hr-service): Phase B tenantManagerRepo migration backlog
       const reviewRepo = queryRunner.manager.getRepository(PerformanceReview);
 
       const review = await reviewRepo.findOne({

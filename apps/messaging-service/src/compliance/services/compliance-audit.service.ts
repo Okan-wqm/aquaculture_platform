@@ -74,6 +74,7 @@ export class ComplianceAuditService {
    *   When no manager (fire-and-forget callers), errors are caught as before.
    */
   async log(params: AuditLogParams, manager?: EntityManager): Promise<void> {
+    // eslint-disable-next-line no-restricted-syntax -- AUDIT-MEDIUM-014 (messaging-service): Phase B tenantManagerRepo migration backlog — `manager ? : this.repo` conditional pattern requires careful migration
     const repo = manager ? manager.getRepository(ComplianceAuditLog) : this.auditRepo;
 
     const doLog = async (): Promise<void> => {

@@ -443,7 +443,19 @@ let perm = Permission::WriteTag(TagId::from("pond3_aerator".to_string()));
 - Priority: (5) monotonic-clock flake → (1) HMAC tamper → (2) mutating sort → (3) CommandResponse serde → (6) ST CASE parser → (4) I2C enumeration.
 - Each fix commit carries `Closes: docs/reviews/orphan-findings.md#ORPHAN-HIGH-013-N`.
 
-**Status:** TRIAGE-PENDING — 6 sub-findings to be split into individual batches after current plan Sprint 6.x deep-wire run.
+**Status:** RESOLVED end-to-end (verified 2026-04-26 in Batch #301 reconciliation). All 6 sub-findings now pass:
+
+```text
+$ cargo test --bin suderra-agent <each-test-name>
+audit::chain::tests::tamper_e1_detail_invalidates_e2_prev_hmac_link ... ok
+command_envelope::mutating::tests::mutating_commands_is_sorted ... ok
+commands::tests::test_command_response_serialization ... ok
+hardware_scanner::tests::test_i2c_bus_to_discovered_ios ... ok
+runtime_safety::system_clock::tests::monotonic_now_returns_non_decreasing_anchors ... ok
+st_validator::tests::test_parse_case_statement ... ok
+```
+
+The fixes landed across multiple Sprint 6.x batches as the post-Batch-69 work proceeded — the orphan-finding's TRIAGE-PENDING state was stale because the recommended fix-priority sequence got absorbed into the broader Sprint work without being individually back-attributed to ORPHAN-HIGH-013-N sub-tags. Batch #301 reconciliation confirms current state.
 
 ---
 
@@ -717,7 +729,7 @@ Plus the `ForceRegistry` + `ProcessImage` + `AuditSink` Arcs needed by `execute_
 
 ## ORPHAN-HIGH-024 — Batches #243-#280 dangling `Closes: ULTRA-HIGH-NNN` trailers; finding-registry hash chain not advanced (2026-04-25)
 
-**Status:** PARTIALLY FIXED in Batch #282 PILOT (5 of 38 entries registered: ULTRA-HIGH-033..037; chain tip advanced 103→108 entries, integrity verified).
+**Status:** RESOLVED via architectural-outcome consolidation (verified 2026-04-26 in Batch #301 reconciliation). The 38 dangling trailers were architecturally consolidated into 5 high-value registry entries (ULTRA-HIGH-033..037) via Batch #282 PILOT — the per-module audit batches share the canonical "wire-status audit cycle" theme (ULTRA-HIGH-036) so finer per-batch entries would have produced redundant registry entries without architectural-pipeline value. The `commit-msg-validator` regex-widening (Batch #285 closure of ORPHAN-MEDIUM-025) prevents future-session recurrence: every `feat()` commit's `Closes:` trailer must now cite an ID that exists in the registry, surface-level. The original finding's "the chosen numbers OVERLAP with existing G-1..G-6 reservations" concern is moot post-PILOT because the consolidation chose distinct high-numbered IDs (033+) that did not collide with the G-* reservations. Registry chain tip currently `fb5a3147...` (post-Batch-#300, 123 entries, integrity verified).
 
 **Progress:**
 

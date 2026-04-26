@@ -126,8 +126,11 @@ describe('RateLimitGuard', () => {
   });
 
   afterEach(() => {
-    // Clear rate limit storage between tests
-    const store = guard['rateLimitStore'] as RateLimitStore | undefined;
+    // Clear rate limit storage between tests. The private store is
+    // accessed via bracket notation; cast `guard` to `unknown` first
+    // to satisfy strictPropertyInitialization on the implicit-any
+    // index signature lookup.
+    const store = (guard as unknown as { rateLimitStore?: RateLimitStore }).rateLimitStore;
     store?.clear();
   });
 
@@ -451,23 +454,29 @@ describe('RateLimitGuard', () => {
   });
 
   describe('Concurrent Request Limit', () => {
-    it('should handle concurrent requests correctly', () => {
+    it('should handle concurrent requests correctly', async () => {
       const context = createMockExecutionContext();
 
-      // Make 50 sync requests (canActivate is now sync)
-      const results = Array.from({ length: 50 }, () => guard.canActivate(context));
+      // `canActivate` is async (returns Promise<boolean>) — see
+      // rate-limit.guard.ts:283. The test's previous "sync" comment
+      // was stale; awaiting all 50 promises is the correct shape.
+      const results = await Promise.all(
+        Array.from({ length: 50 }, () => guard.canActivate(context)),
+      );
       expect(results.every((r) => r === true)).toBe(true);
     });
 
-    it('should correctly count concurrent requests', () => {
+    it('should correctly count concurrent requests', async () => {
       const context = createMockExecutionContext();
 
-      // Make 100 sync requests
-      const results = Array.from({ length: 100 }, () => guard.canActivate(context));
+      const results = await Promise.all(
+        Array.from({ length: 100 }, () => guard.canActivate(context)),
+      );
       expect(results.filter((r) => r === true).length).toBe(100);
 
-      // Next request should fail
-      expect(() => guard.canActivate(context)).toThrow();
+      // Next request rejects with a rate-limit exception. The
+      // promise-side analogue of the previous `.toThrow()`.
+      await expect(guard.canActivate(context)).rejects.toBeDefined();
     });
   });
 

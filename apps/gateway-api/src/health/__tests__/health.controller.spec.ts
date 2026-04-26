@@ -42,7 +42,9 @@ const createMockHealthStatus = (
   overrides: Partial<HealthStatus> = {},
 ): HealthStatus => ({
   status: 'healthy',
-  timestamp: new Date(),
+  // HealthStatus.timestamp was widened to ISO 8601 string (see
+  // health.service.ts:22). ServiceHealth.lastChecked stays Date.
+  timestamp: new Date().toISOString(),
   uptime: 123456,
   version: '1.0.0',
   services: [

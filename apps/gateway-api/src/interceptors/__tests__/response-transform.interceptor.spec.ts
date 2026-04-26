@@ -23,12 +23,12 @@ import { of } from 'rxjs';
 
 import {
   ResponseTransformInterceptor,
-  StandardApiResponse,
+  ApiResponse,
 } from '../response-transform.interceptor';
 
 describe('ResponseTransformInterceptor', () => {
   // Using definite assignment assertion - assigned in beforeEach
-  let interceptor!: ResponseTransformInterceptor;
+  let interceptor!: ResponseTransformInterceptor<unknown>;
   let reflector!: Reflector;
 
   /**
@@ -82,7 +82,7 @@ describe('ResponseTransformInterceptor', () => {
       ],
     }).compile();
 
-    interceptor = module.get<ResponseTransformInterceptor>(ResponseTransformInterceptor);
+    interceptor = module.get<ResponseTransformInterceptor<unknown>>(ResponseTransformInterceptor);
     reflector = module.get<Reflector>(Reflector);
   });
 
@@ -92,8 +92,8 @@ describe('ResponseTransformInterceptor', () => {
       const handler = createMockCallHandler({ name: 'test' });
 
       interceptor.intercept(context, handler).subscribe({
-        next: (result) => {
-          const response = result as StandardApiResponse<unknown>;
+        next: (result: unknown) => {
+          const response = result as ApiResponse<unknown>;
           expect(response.success).toBe(true);
           expect(response.data).toEqual({ name: 'test' });
           expect(response.meta).toBeDefined();
@@ -107,8 +107,8 @@ describe('ResponseTransformInterceptor', () => {
       const handler = createMockCallHandler({ data: 'test' });
 
       interceptor.intercept(context, handler).subscribe({
-        next: (result) => {
-          const response = result as StandardApiResponse<unknown>;
+        next: (result: unknown) => {
+          const response = result as ApiResponse<unknown>;
           expect(response.success).toBe(true);
           done();
         },
@@ -121,62 +121,50 @@ describe('ResponseTransformInterceptor', () => {
       const handler = createMockCallHandler(testData);
 
       interceptor.intercept(context, handler).subscribe({
-        next: (result) => {
-          const response = result as StandardApiResponse<unknown>;
+        next: (result: unknown) => {
+          const response = result as ApiResponse<unknown>;
           expect(response.data).toEqual(testData);
           done();
         },
       });
     });
 
-    it('should include meta with timestamp', (done) => {
+    // The ApiResponse shape places `timestamp` and `path` at the
+    // ROOT of the response, not inside `meta` — see
+    // response-transform.interceptor.ts:25 (ApiResponse interface)
+    // and :38 (ResponseMeta interface). `meta` is reserved for
+    // pagination + processing-time fields. The previous test shape
+    // `response.meta.timestamp` etc. was a stale assertion against
+    // an older contract; tests aligned to the current API.
+    //
+    // The previous `method` and `statusCode` test cases asserted
+    // fields that exist NOWHERE on ApiResponse — they were runtime
+    // metadata that the original contract evidently exposed but the
+    // current contract doesn't. Removed because asserting non-
+    // existent fields is dead-code in test form. If a future API
+    // change re-exposes them, that PR adds the assertions.
+    it('should include timestamp at the response root', (done) => {
       const context = createMockExecutionContext();
       const handler = createMockCallHandler({});
 
       interceptor.intercept(context, handler).subscribe({
-        next: (result) => {
-          const response = result as StandardApiResponse<unknown>;
-          expect(response.meta.timestamp).toBeDefined();
-          expect(new Date(response.meta.timestamp).getTime()).not.toBeNaN();
+        next: (result: unknown) => {
+          const response = result as ApiResponse<unknown>;
+          expect(response.timestamp).toBeDefined();
+          expect(new Date(response.timestamp).getTime()).not.toBeNaN();
           done();
         },
       });
     });
 
-    it('should include meta with path', (done) => {
+    it('should include path at the response root', (done) => {
       const context = createMockExecutionContext({ path: '/api/v1/users' });
       const handler = createMockCallHandler({});
 
       interceptor.intercept(context, handler).subscribe({
-        next: (result) => {
-          const response = result as StandardApiResponse<unknown>;
-          expect(response.meta.path).toBe('/api/v1/users');
-          done();
-        },
-      });
-    });
-
-    it('should include meta with method', (done) => {
-      const context = createMockExecutionContext({ method: 'POST' });
-      const handler = createMockCallHandler({});
-
-      interceptor.intercept(context, handler).subscribe({
-        next: (result) => {
-          const response = result as StandardApiResponse<unknown>;
-          expect(response.meta.method).toBe('POST');
-          done();
-        },
-      });
-    });
-
-    it('should include meta with statusCode', (done) => {
-      const context = createMockExecutionContext({ statusCode: 201 });
-      const handler = createMockCallHandler({});
-
-      interceptor.intercept(context, handler).subscribe({
-        next: (result) => {
-          const response = result as StandardApiResponse<unknown>;
-          expect(response.meta.statusCode).toBe(201);
+        next: (result: unknown) => {
+          const response = result as ApiResponse<unknown>;
+          expect(response.path).toBe('/api/v1/users');
           done();
         },
       });
@@ -192,9 +180,9 @@ describe('ResponseTransformInterceptor', () => {
       const handler = createMockCallHandler(rawData);
 
       interceptor.intercept(context, handler).subscribe({
-        next: (result) => {
+        next: (result: unknown) => {
           expect(result).toEqual(rawData);
-          expect((result).success).toBeUndefined();
+          expect((result as { success?: boolean }).success).toBeUndefined();
           done();
         },
       });
@@ -207,8 +195,8 @@ describe('ResponseTransformInterceptor', () => {
       const handler = createMockCallHandler({ data: 'test' });
 
       interceptor.intercept(context, handler).subscribe({
-        next: (result) => {
-          expect((result).success).toBe(true);
+        next: (result: unknown) => {
+          expect((result as { success?: boolean }).success).toBe(true);
           done();
         },
       });
@@ -222,8 +210,8 @@ describe('ResponseTransformInterceptor', () => {
       const handler = createMockCallHandler(arrayData);
 
       interceptor.intercept(context, handler).subscribe({
-        next: (result) => {
-          const response = result as StandardApiResponse<unknown>;
+        next: (result: unknown) => {
+          const response = result as ApiResponse<unknown>;
           expect(response.data).toEqual(arrayData);
           done();
         },
@@ -235,8 +223,8 @@ describe('ResponseTransformInterceptor', () => {
       const handler = createMockCallHandler([]);
 
       interceptor.intercept(context, handler).subscribe({
-        next: (result) => {
-          const response = result as StandardApiResponse<unknown>;
+        next: (result: unknown) => {
+          const response = result as ApiResponse<unknown>;
           expect(response.data).toEqual([]);
           done();
         },
@@ -250,8 +238,8 @@ describe('ResponseTransformInterceptor', () => {
       const handler = createMockCallHandler('string response');
 
       interceptor.intercept(context, handler).subscribe({
-        next: (result) => {
-          const response = result as StandardApiResponse<unknown>;
+        next: (result: unknown) => {
+          const response = result as ApiResponse<unknown>;
           expect(response.data).toBe('string response');
           done();
         },
@@ -263,8 +251,8 @@ describe('ResponseTransformInterceptor', () => {
       const handler = createMockCallHandler(42);
 
       interceptor.intercept(context, handler).subscribe({
-        next: (result) => {
-          const response = result as StandardApiResponse<unknown>;
+        next: (result: unknown) => {
+          const response = result as ApiResponse<unknown>;
           expect(response.data).toBe(42);
           done();
         },
@@ -276,8 +264,8 @@ describe('ResponseTransformInterceptor', () => {
       const handler = createMockCallHandler(true);
 
       interceptor.intercept(context, handler).subscribe({
-        next: (result) => {
-          const response = result as StandardApiResponse<unknown>;
+        next: (result: unknown) => {
+          const response = result as ApiResponse<unknown>;
           expect(response.data).toBe(true);
           done();
         },
@@ -289,8 +277,8 @@ describe('ResponseTransformInterceptor', () => {
       const handler = createMockCallHandler(null);
 
       interceptor.intercept(context, handler).subscribe({
-        next: (result) => {
-          const response = result as StandardApiResponse<unknown>;
+        next: (result: unknown) => {
+          const response = result as ApiResponse<unknown>;
           expect(response.data).toBeNull();
           done();
         },
@@ -302,8 +290,8 @@ describe('ResponseTransformInterceptor', () => {
       const handler = createMockCallHandler(undefined);
 
       interceptor.intercept(context, handler).subscribe({
-        next: (result) => {
-          const response = result as StandardApiResponse<unknown>;
+        next: (result: unknown) => {
+          const response = result as ApiResponse<unknown>;
           expect(response.data).toBeUndefined();
           done();
         },
@@ -326,8 +314,8 @@ describe('ResponseTransformInterceptor', () => {
       const handler = createMockCallHandler(nestedData);
 
       interceptor.intercept(context, handler).subscribe({
-        next: (result) => {
-          const response = result as StandardApiResponse<unknown>;
+        next: (result: unknown) => {
+          const response = result as ApiResponse<unknown>;
           expect(response.data).toEqual(nestedData);
           done();
         },
@@ -347,8 +335,8 @@ describe('ResponseTransformInterceptor', () => {
       const handler = createMockCallHandler(paginatedData);
 
       interceptor.intercept(context, handler).subscribe({
-        next: (result) => {
-          const response = result as StandardApiResponse<unknown>;
+        next: (result: unknown) => {
+          const response = result as ApiResponse<unknown>;
           expect((response.data as any).items).toEqual([{ id: 1 }, { id: 2 }]);
           expect((response.data as any).total).toBe(100);
           expect((response.data as any).page).toBe(1);
@@ -360,36 +348,64 @@ describe('ResponseTransformInterceptor', () => {
   });
 
   describe('HTTP Methods', () => {
-    it.each(['GET', 'POST', 'PUT', 'PATCH', 'DELETE'])(
-      'should handle %s requests',
-      (method, done) => {
+    // ApiResponse no longer carries `method` — it was a runtime
+    // metadata field on an older contract. The current interceptor
+    // doesn't echo the request method on the response (clients
+    // already know their own method). The HTTP-method-handling
+    // tests collapse to "GET / POST / PUT / PATCH / DELETE all
+    // produce a successful wrapped response" — the assertion
+    // becomes `response.success === true` without per-method
+    // payload assertion.
+    it.each<[string]>([
+      ['GET'], ['POST'], ['PUT'], ['PATCH'], ['DELETE'],
+    ])(
+      'should produce a wrapped response for %s requests',
+      async (method) => {
         const context = createMockExecutionContext({ method });
         const handler = createMockCallHandler({ data: 'test' });
 
-        interceptor.intercept(context, handler).subscribe({
-          next: (result) => {
-            const response = result as StandardApiResponse<unknown>;
-            expect(response.meta.method).toBe(method);
-            (done)();
-          },
+        await new Promise<void>((resolve, reject) => {
+          interceptor.intercept(context, handler).subscribe({
+            next: (result: unknown) => {
+              try {
+                const response = result as ApiResponse<unknown>;
+                expect(response.success).toBe(true);
+                resolve();
+              } catch (e) {
+                reject(e as Error);
+              }
+            },
+          });
         });
       },
     );
   });
 
   describe('Status Codes', () => {
-    it.each([200, 201, 204, 400, 401, 403, 404, 500])(
-      'should include status code %d in meta',
-      (statusCode, done) => {
+    // Same as `HTTP Methods` above — `statusCode` is not on the
+    // response payload (HTTP layer handles it). The status-code
+    // tests collapse to "all status codes round-trip a wrapped
+    // success response without throwing".
+    it.each<[number]>([
+      [200], [201], [204], [400], [401], [403], [404], [500],
+    ])(
+      'should produce a wrapped response when status code is %d',
+      async (statusCode) => {
         const context = createMockExecutionContext({ statusCode });
         const handler = createMockCallHandler({});
 
-        interceptor.intercept(context, handler).subscribe({
-          next: (result) => {
-            const response = result as StandardApiResponse<unknown>;
-            expect(response.meta.statusCode).toBe(statusCode);
-            (done)();
-          },
+        await new Promise<void>((resolve, reject) => {
+          interceptor.intercept(context, handler).subscribe({
+            next: (result: unknown) => {
+              try {
+                const response = result as ApiResponse<unknown>;
+                expect(response.success).toBe(true);
+                resolve();
+              } catch (e) {
+                reject(e as Error);
+              }
+            },
+          });
         });
       },
     );
@@ -397,23 +413,26 @@ describe('ResponseTransformInterceptor', () => {
 
   describe('Already Transformed Response', () => {
     it('should not double-wrap already transformed response', (done) => {
-      const alreadyTransformed: StandardApiResponse<unknown> = {
+      // `ResponseMeta` is now a NARROW pagination/meta shape (see
+      // response-transform.interceptor.ts:38). The previous
+      // fixture leaked `timestamp/path/method/statusCode` into
+      // meta from a stale contract. Removed those — ApiResponse's
+      // root-level `timestamp` + `path` are the canonical home for
+      // the temporal/path metadata.
+      const alreadyTransformed: ApiResponse<unknown> = {
         success: true,
         data: { name: 'test' },
-        meta: {
-          timestamp: new Date().toISOString(),
-          path: '/api/v1/test',
-          method: 'GET',
-          statusCode: 200,
-        },
+        meta: {},
+        timestamp: new Date().toISOString(),
+        path: '/api/v1/test',
       };
 
       const context = createMockExecutionContext();
       const handler = createMockCallHandler(alreadyTransformed);
 
       interceptor.intercept(context, handler).subscribe({
-        next: (result) => {
-          const response = result as StandardApiResponse<unknown>;
+        next: (result: unknown) => {
+          const response = result as ApiResponse<unknown>;
           // Should still wrap it (interceptor doesn't check for existing structure)
           expect(response.success).toBe(true);
           done();
@@ -429,8 +448,8 @@ describe('ResponseTransformInterceptor', () => {
       const handler = createMockCallHandler({ createdAt: date });
 
       interceptor.intercept(context, handler).subscribe({
-        next: (result) => {
-          const response = result as StandardApiResponse<unknown>;
+        next: (result: unknown) => {
+          const response = result as ApiResponse<unknown>;
           expect((response.data as any).createdAt).toEqual(date);
           done();
         },
@@ -443,8 +462,8 @@ describe('ResponseTransformInterceptor', () => {
       const handler = createMockCallHandler(buffer);
 
       interceptor.intercept(context, handler).subscribe({
-        next: (result) => {
-          const response = result as StandardApiResponse<unknown>;
+        next: (result: unknown) => {
+          const response = result as ApiResponse<unknown>;
           expect(response.data).toEqual(buffer);
           done();
         },
@@ -456,8 +475,8 @@ describe('ResponseTransformInterceptor', () => {
       const handler = createMockCallHandler({});
 
       interceptor.intercept(context, handler).subscribe({
-        next: (result) => {
-          const response = result as StandardApiResponse<unknown>;
+        next: (result: unknown) => {
+          const response = result as ApiResponse<unknown>;
           expect(response.data).toEqual({});
           done();
         },
@@ -472,8 +491,8 @@ describe('ResponseTransformInterceptor', () => {
       const handler = createMockCallHandler(largeArray);
 
       interceptor.intercept(context, handler).subscribe({
-        next: (result) => {
-          const response = result as StandardApiResponse<unknown>;
+        next: (result: unknown) => {
+          const response = result as ApiResponse<unknown>;
           expect((response.data as any[]).length).toBe(1000);
           done();
         },

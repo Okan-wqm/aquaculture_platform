@@ -52,7 +52,14 @@ describe('TenantContextInterceptor', () => {
       user?: Record<string, unknown>;
     } = {},
   ): ExecutionContext => {
-    const mockRequest: Partial<TenantAwareRequest> = {
+    // The interceptor reads `request.user` via an explicit
+    // intersection cast at tenant-context.interceptor.ts:190 — the
+    // `user` field is intentionally NOT on `TenantAwareRequest` to
+    // keep the auth concern separate from the tenant concern. The
+    // test fixture mirrors that intersection so the `user` property
+    // is recognised at the type level without polluting the
+    // production interface.
+    const mockRequest: Partial<TenantAwareRequest> & { user?: Record<string, unknown> } = {
       headers: {
         host: 'api.example.com',
         ...options.headers,
@@ -91,7 +98,14 @@ describe('TenantContextInterceptor', () => {
       user?: Record<string, unknown>;
     } = {},
   ): ExecutionContext => {
-    const mockRequest: Partial<TenantAwareRequest> = {
+    // The interceptor reads `request.user` via an explicit
+    // intersection cast at tenant-context.interceptor.ts:190 — the
+    // `user` field is intentionally NOT on `TenantAwareRequest` to
+    // keep the auth concern separate from the tenant concern. The
+    // test fixture mirrors that intersection so the `user` property
+    // is recognised at the type level without polluting the
+    // production interface.
+    const mockRequest: Partial<TenantAwareRequest> & { user?: Record<string, unknown> } = {
       headers: {
         host: 'api.example.com',
         ...options.headers,
@@ -809,7 +823,14 @@ describe('TenantContextInterceptor', () => {
     });
 
     it('should handle missing host header', (done) => {
-      const mockRequest: Partial<TenantAwareRequest> = {
+      // The interceptor reads `request.user` via an explicit
+    // intersection cast at tenant-context.interceptor.ts:190 — the
+    // `user` field is intentionally NOT on `TenantAwareRequest` to
+    // keep the auth concern separate from the tenant concern. The
+    // test fixture mirrors that intersection so the `user` property
+    // is recognised at the type level without polluting the
+    // production interface.
+    const mockRequest: Partial<TenantAwareRequest> & { user?: Record<string, unknown> } = {
         headers: { 'x-tenant-id': 'no-host-tenant' },
         path: '/api/v1/test',
         method: 'GET',
@@ -844,7 +865,14 @@ describe('TenantContextInterceptor', () => {
     });
 
     it('should handle response without setHeader method', (done) => {
-      const mockRequest: Partial<TenantAwareRequest> = {
+      // The interceptor reads `request.user` via an explicit
+    // intersection cast at tenant-context.interceptor.ts:190 — the
+    // `user` field is intentionally NOT on `TenantAwareRequest` to
+    // keep the auth concern separate from the tenant concern. The
+    // test fixture mirrors that intersection so the `user` property
+    // is recognised at the type level without polluting the
+    // production interface.
+    const mockRequest: Partial<TenantAwareRequest> & { user?: Record<string, unknown> } = {
         headers: { 'x-tenant-id': 'no-setheader-tenant' },
         path: '/api/v1/test',
         method: 'GET',

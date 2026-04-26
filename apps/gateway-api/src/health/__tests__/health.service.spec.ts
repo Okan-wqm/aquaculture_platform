@@ -234,8 +234,12 @@ describe('HealthService', () => {
       const afterTime = new Date();
 
       expect(result.timestamp).toBeDefined();
-      expect(result.timestamp.getTime()).toBeGreaterThanOrEqual(beforeTime.getTime());
-      expect(result.timestamp.getTime()).toBeLessThanOrEqual(afterTime.getTime());
+      // HealthStatus.timestamp was widened from `Date` to ISO 8601
+      // `string` (health.service.ts:22). Convert to a Date at the
+      // test boundary for the temporal-window assertion.
+      const resultTime = new Date(result.timestamp).getTime();
+      expect(resultTime).toBeGreaterThanOrEqual(beforeTime.getTime());
+      expect(resultTime).toBeLessThanOrEqual(afterTime.getTime());
     });
 
     it('should include uptime', async () => {

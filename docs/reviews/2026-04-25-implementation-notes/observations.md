@@ -555,6 +555,51 @@ INFRA-MEDIUM-016.
 
 ---
 
+## 25. gateway-api spec baseline 115 → 0 (RESOLVED in PR-23)
+
+**File:** `apps/gateway-api/tsconfig.spec.json` scope (PR-23)
+**Context:** Resolved in PR-23 — closes observation §23.
+**Drift categories closed (14):**
+
+1. `StandardApiResponse` → `ApiResponse` rename + generic
+   type-arg additions
+2. `it.each` callback shape — 4 blocks migrated to async/Promise
+   pattern wrapping rxjs subscriptions (jest's row-tuple type
+   doesn't accommodate the legacy 4th `done` param)
+3. `logSpy.mock.calls[0][0]` undefined — optional chaining
+   `[0]?.[0]` for strictNullChecks narrowing
+4. `request.user` possibly undefined — `!` non-null at test
+   boundary with rationale comments
+5. `canActivate` async migration — Promise<boolean> assertions,
+   `rejects.toBeDefined()` for throws
+6. `HealthStatus.timestamp` widened to ISO string — fixtures
+   updated, Date conversion at temporal-window assertion boundary
+7. `Request.ip` readonly — `Object.defineProperty(req, 'ip', { writable: true })`
+8. `DeviceFingerprint.timestamp` Date → string
+9. `ResponseMeta` shape narrowed — removed stale `timestamp/path/
+   method/statusCode` assertions; HTTP-method and status-code
+   tests collapsed to "produces wrapped response"
+10. `TenantAwareRequest` doesn't carry `user` — test mock mirrors
+    interceptor's intersection cast
+11. `rateLimitStore` private access — `(guard as unknown as { rateLimitStore?: ... })`
+12. `Response` mock missing `bytes` — `as unknown as Response` cast
+13. Array index undefined on `results[N]` — `!` after length assertions
+14. `ProxyRequestConfig.tenantId` required — empty string for
+    non-tenant paths per service-proxy docstring
+
+**Severity:** RESOLVED in PR-23.
+
+**Cross-service architectural escalation (THIRD surface):** spec
+drift now closed in farm-module (#146), sensor-service (#162), and
+gateway-api (PR-23). Same root cause every time: ts-jest's
+permissive transform hides drift between prod refactors and test
+fixtures. **Incremental cleanup is not the answer** — the answer
+is a monorepo-wide `nx run-many --target=type-check-spec` CI gate
+that fails when ANY service's `tsconfig.spec.json` reports errors.
+PR-24 candidate.
+
+---
+
 ## Closing posture
 
 This file lives at:

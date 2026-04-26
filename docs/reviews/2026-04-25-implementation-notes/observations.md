@@ -418,6 +418,49 @@ flagging as a Phase V0.7 consideration.
 
 ---
 
+## 20. ClamAV topology decision captured in ADR-028
+
+**File:** `docs/adr/028-clamav-topology.md` (PR-20)
+**Context:** Scope B Phase V1.
+**Observation:** ADR landed documenting the shared-Deployment topology
+choice over per-pod sidecars + Lambda alternatives. Three implementation
+risks captured at the bottom of the ADR worth tracking here too:
+
+1. **PVC RWX requirement** — the shared signature DB needs a CSI
+   driver that supports ReadWriteMany. AWS EBS clusters need EFS or
+   a sibling provisioner. Phase V2's runbook MUST surface this; a
+   deploy attempt without RWX produces an unhelpful error.
+2. **`clamav/clamav:stable` image is ~600 MB** — pre-pull DaemonSet
+   recommended for cold-start mitigation; documented in V2 runbook.
+3. **`isHealthy()` seam exists** — `FileUploadSecurityService.preflight()`
+   is the right insertion point for Phase V4's fail-closed probe; no
+   architectural rewiring needed.
+
+**Severity:** N/A (decision recorded; impl follows in PR-21+).
+
+---
+
+## 21. ADR numbering collision risk
+
+**File:** `docs/adr/`
+**Context:** While selecting ADR-028 as the next number for PR-20,
+noticed several existing ADRs share numbers
+(`023-encrypted-column-schema-contract.md` + `023-sl3-upgrade-path.md`;
+`024-compliance-retention-matrix.md` +
+`024-edge-hardware-adapter-inventory.md`). The directory has 32 files
+but numbering goes only to 027 because 022/023/024 each have two
+ADRs with the same numeric prefix.
+
+**Severity:** LOW (operational hygiene; doesn't block correctness but
+makes "which ADR-024?" ambiguous in cross-references).
+
+**Suggested fix path:** rename one half of each colliding pair, OR
+split the namespace by domain prefix (e.g. `024-COMP-…` vs `024-EDGE-…`).
+Out of scope for any current PR; flagging for future ADR-cleanup work.
+PR-20 picked `028` to avoid adding a new collision.
+
+---
+
 ## Closing posture
 
 This file lives at:

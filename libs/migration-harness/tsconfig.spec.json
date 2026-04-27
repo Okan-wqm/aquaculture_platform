@@ -5,7 +5,22 @@
     "module": "commonjs",
     "moduleResolution": "node10",
     "types": ["jest", "node"],
-    "isolatedModules": true
+    // The spec compile traverses cross-lib imports
+    // (libs/backend-common, libs/event-contracts,
+    // platform/libs/event-bus). Those projects compile their own
+    // sources cleanly under tsconfig.base.json strictness, but NOT
+    // under the two extra rules tsconfig.json adds at this lib:
+    //   - noPropertyAccessFromIndexSignature (process.env.X access)
+    //   - isolatedModules (export type vs export for re-exports)
+    // Overriding both here aligns spec strictness with the peer
+    // libs' own compile contracts. Surfaced by PR-32 of the
+    // PROC-MEDIUM-007 ratchet — without these overrides the
+    // strict-tsc gate would block on 26 violations in code this
+    // project doesn't own. Tightening those settings monorepo-wide
+    // is captured as PROC-MEDIUM-011 candidate (see observations.md
+    // §34) and tracked separately.
+    "noPropertyAccessFromIndexSignature": false,
+    "isolatedModules": false
   },
   "include": [
     "jest.config.ts",

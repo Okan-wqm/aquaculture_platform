@@ -1016,6 +1016,65 @@ auth-service locked at 0.
 
 ---
 
+## 34. libs/migration-harness ratchet 27 → 0 + monorepo strictness divergence (RESOLVED in PR-32)
+
+**File:** `libs/migration-harness/tsconfig.spec.json` (config) +
+`libs/migration-harness/src/__tests__/add-missing-columns.integration.spec.ts` (1 real error)
+
+**Architectural finding:** of the 27 errors, **26 lived in code
+this project doesn't own** — `libs/backend-common`,
+`libs/event-contracts`, `platform/libs/event-bus`. The
+migration-harness spec compile was failing on those because:
+
+- `migration-harness/tsconfig.json` inherits from
+  `tsconfig.base.json` AND adds **`noPropertyAccessFromIndexSignature: true`**
+  (rejects `process.env.NODE_ENV`, requires `process.env['NODE_ENV']`).
+- `migration-harness/tsconfig.spec.json` extends that AND adds
+  **`isolatedModules: true`** (rejects `export { Type } from './x'`,
+  requires `export type`).
+- Peer libs' own `tsconfig.spec.json` files extend
+  `tsconfig.base.json` directly, WITHOUT either setting.
+
+So when migration-harness's spec compile traverses cross-lib
+imports, it strict-checks peer-lib source files under stricter
+rules than those libs use themselves. 26 violations surface in
+code that compiles cleanly under the peer libs' own contracts.
+
+**Three architectural responses possible:**
+
+1. Bring peer libs up to migration-harness's strictness (huge
+   scope: 26 violations across `process.env.X` patterns,
+   `export type` re-export rewrites, etc.).
+2. Drop migration-harness's strictness to match peer libs.
+3. Override the two settings in migration-harness's tsconfig.spec.json
+   only, leaving its lib config strict — peer libs stay at their
+   own contracts.
+
+**Choice: option 3.** Overriding the two settings in the spec
+config aligns spec-compile strictness with peer-lib reality
+without weakening migration-harness's own production contracts.
+The strict settings remain on `tsconfig.lib.json` for
+production code; only the cross-cutting spec compile relaxes.
+
+**Captured as PROC-MEDIUM-011 candidate:** the strictness
+divergence is a real monorepo issue. Either ALL libs should adopt
+`noPropertyAccessFromIndexSignature` + `isolatedModules`, OR none
+should. The current half-state means strict-tsc results vary by
+which project does the compile. A future cycle should pick a
+direction (likely tighten everywhere) and apply it monorepo-wide,
+including the 26 surfaced violations as the work-list.
+
+**Other root cause (1 real spec error):**
+
+`result.added` is `readonly string[]`. The spec called
+`result.added.sort()` — but `.sort()` mutates and is unavailable
+on readonly arrays. Fix: `[...result.added].sort()` copy.
+
+**PROC-MEDIUM-007 progress:** 5 → 4 dirty projects.
+libs/migration-harness locked at 0.
+
+---
+
 ## Closing posture
 
 This file lives at:

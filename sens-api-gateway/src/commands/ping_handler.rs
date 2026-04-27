@@ -212,6 +212,9 @@ mod tests {
             // exercise the StalePolicyVersion deny path override
             // this baseline to a value < highest_seen.
             claimed_policy_version: 10,
+            // Batch #305 default — tests don't exercise two-person integrity.
+            co_approver_actor: None,
+            co_approver_signature: None,
             jti: "01HZAAAAAAAAAAAAAAAAAAAAAA".into(),
             nonce: "ping-test".into(),
             cmd_hash: CmdHash::from_bytes([0u8; 32]),

@@ -128,6 +128,46 @@ pub struct CommandEnvelope {
     pub tenant_id: [u8; 16],
     pub iat_unix_secs: i64,
     pub exp_unix_secs: i64,
+    /// **Batch #305 Faz 6 two-person integrity primitive.** Optional
+    /// co-approver actor UUID bytes (16) for commands that require
+    /// two-person integrity per ADR-017 §8 (`Permission::ForceValue`,
+    /// `Permission::DeployProgram`, `Permission::SafeStateTrigger`,
+    /// `Permission::UpdateFirmware`, `Permission::Reboot`). The
+    /// primary actor's signature appears in the envelope's
+    /// `signature` field; the co-approver's signature appears in
+    /// `co_approver_signature` below. Both fields are bound into
+    /// the canonical bytes (v3 schema tag).
+    ///
+    /// Wire-format default = `None`: v2 envelopes deserialize with
+    /// no co-approver. The engine's two-person-integrity gate
+    /// (`AuthorizationRequest.co_approver`) rejects commands that
+    /// REQUIRE co-approval but carry None — the absence is the
+    /// rejection trigger, not a missing-field parse error.
+    ///
+    /// Per the two-person integrity architectural requirement: the
+    /// co-approver MUST be a different operator than the primary
+    /// (engine enforces actor inequality), MUST be bound to the
+    /// same tenant (engine enforces via the manifest binding), and
+    /// MUST hold the `ForceValueCoApprove`-class permission
+    /// (engine enforces via the manifest's role/permission graph).
+    #[serde(default)]
+    #[serde(with = "uuid_bytes_opt_serde")]
+    pub co_approver_actor: Option<[u8; 16]>,
+
+    /// **Batch #305 Faz 6 two-person integrity primitive.**
+    /// Optional ed25519 signature from the co-approver over the
+    /// SAME canonical bytes as the primary `signature` field. The
+    /// engine recomputes those bytes + verifies BOTH signatures
+    /// against their respective operator pubkeys from the manifest.
+    ///
+    /// Architectural shape: signing the SAME canonical bytes (not
+    /// a co-approver-specific subset) means a co-approver who
+    /// signs at time T cannot subsequently mutate the underlying
+    /// command without invalidating BOTH signatures. There is no
+    /// way to swap params + re-use either signature.
+    #[serde(default)]
+    pub co_approver_signature: Option<Ed25519SignatureBytes>,
+
     /// **Batch #295 ORPHAN-MEDIUM-019 closure.** The policy_version
     /// the operator's signing UI fetched from the cloud at
     /// envelope-mint time. Bound into the signature canonical bytes
@@ -178,6 +218,30 @@ mod uuid_bytes_serde {
 
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<[u8; 16], D::Error> {
         <[u8; 16]>::deserialize(d)
+    }
+}
+
+/// Serde helper — `Option<[u8; 16]>` as JSON array of ints OR null.
+/// Batch #305 Faz 6 two-person integrity wire field
+/// `co_approver_actor` uses this so the default
+/// `#[serde(deserialize_with = "...")]` invocation can route through
+/// the same array-of-ints serialization shape as the required
+/// `actor` / `tenant_id` fields without panicking on `null` /
+/// missing input.
+mod uuid_bytes_opt_serde {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S: Serializer>(
+        b: &Option<[u8; 16]>,
+        s: S,
+    ) -> Result<S::Ok, S::Error> {
+        b.serialize(s)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        d: D,
+    ) -> Result<Option<[u8; 16]>, D::Error> {
+        Option::<[u8; 16]>::deserialize(d)
     }
 }
 
@@ -362,10 +426,11 @@ pub fn verify_envelope(
 }
 
 /// Canonical bytes over the envelope fields that the signature covers.
-/// Length-prefix framing; excludes `signature` (signatures cannot cover
-/// themselves).
+/// Length-prefix framing; excludes `signature` + `co_approver_signature`
+/// (signatures cannot cover themselves; both signers cover the same
+/// canonical bytes).
 ///
-/// **Encoding (v2 — Batch #295 ORPHAN-MEDIUM-019 closure):**
+/// **Encoding (v3 — Batch #305 Faz 6 two-person integrity):**
 ///
 /// ```text
 /// be_u32(cmd.len()) || cmd ||
@@ -373,12 +438,30 @@ pub fn verify_envelope(
 /// actor (16 fixed) ||
 /// tenant_id (16 fixed) ||
 /// be_i64(iat) || be_i64(exp) ||
-/// be_u64(claimed_policy_version) ||           // <-- NEW in v2
+/// be_u64(claimed_policy_version) ||           // v2 (Batch #295)
+/// u8 co_approver_presence (0 = None, 1 = Some) ||  // <-- NEW in v3
+/// co_approver_actor (16 fixed when presence=1, omitted when 0) ||
 /// be_u32(jti.len()) || jti ||
 /// be_u32(nonce.len()) || nonce ||
 /// cmd_hash (32 fixed) ||
-/// b"command-envelope-sig-v2"                   // <-- bumped from v1
+/// b"command-envelope-sig-v3"                   // <-- bumped from v2
 /// ```
+///
+/// **Position rationale for the v3 addition.** The presence byte +
+/// optional 16-byte actor land BETWEEN `claimed_policy_version`
+/// (v2) and `jti_len` (v1) — adjacent to the operator-side
+/// monotonic claim. Architectural meaning: both fields are
+/// operator-attestation claims (one about engine version, one
+/// about the second operator's identity); placing them together
+/// documents that intent in the canonical-bytes audit trail.
+///
+/// **Co-approver signature binds the SAME bytes.** The
+/// `co_approver_signature` field (when Some) signs the SAME
+/// canonical-bytes transcript as the primary `signature`. Two
+/// signatures over one transcript means an attacker cannot
+/// mutate any field post-co-approval without invalidating BOTH
+/// signatures. There is no way to swap params + re-use either
+/// signature.
 ///
 /// **Position rationale.** `claimed_policy_version` lands AFTER
 /// `exp_unix_secs` + BEFORE `jti_len`. Adjacency to freshness is
@@ -423,6 +506,8 @@ fn envelope_canonical_bytes(
             + 32
             + 16
             + 8 // claimed_policy_version (v2 ORPHAN-MEDIUM-019)
+            + 1 // co_approver_presence (v3 Batch #305)
+            + 16 // co_approver_actor (when presence=1)
             + 4
             + jti_bytes.len()
             + 4
@@ -443,16 +528,41 @@ fn envelope_canonical_bytes(
     // signed envelope after a policy_version bump (ADR-018 §9
     // monotonic rollback defense).
     out.extend_from_slice(&env.claimed_policy_version.to_be_bytes());
+    // Batch #305 v3 bind: co_approver_actor presence + bytes.
+    // u8 presence byte (0 = None, 1 = Some) + 16-byte actor
+    // when presence=1. Length-prefix-equivalent shape: presence
+    // byte distinguishes None from Some(zero-actor) so an
+    // operator who genuinely co-approves with an all-zeros
+    // actor UUID does NOT collide with a no-co-approver
+    // envelope at the canonical-bytes layer. The two-person
+    // integrity gate at the engine layer rejects all-zeros as
+    // a separate validation, but the wire format keeps the
+    // shapes structurally distinct.
+    match &env.co_approver_actor {
+        Some(actor) => {
+            out.push(1u8);
+            out.extend_from_slice(actor);
+        }
+        None => {
+            out.push(0u8);
+            // No actor bytes when presence=0. The verifier
+            // re-encodes the same way; presence byte alone
+            // suffices for transcript distinction.
+        }
+    }
     out.extend_from_slice(&jti_len.to_be_bytes());
     out.extend_from_slice(jti_bytes);
     out.extend_from_slice(&nonce_len.to_be_bytes());
     out.extend_from_slice(nonce_bytes);
     out.extend_from_slice(env.cmd_hash.as_bytes());
-    // Domain separator tag bumped from v1 → v2; v1-signed
-    // envelopes will fail verify under v2 verifier, which is the
-    // intended migration signal (operators see audit log entries
-    // and coordinate the cloud signer fleet upgrade).
-    out.extend_from_slice(b"command-envelope-sig-v2");
+    // Domain separator tag bumped from v2 → v3; v2-signed
+    // envelopes will fail verify under v3 verifier, which is
+    // the intended migration signal (operators see audit log
+    // entries + coordinate the cloud signer fleet upgrade).
+    // Same SignatureMode rollout staging as the v1 → v2
+    // migration handles backward compat for unsigned/disabled
+    // paths.
+    out.extend_from_slice(b"command-envelope-sig-v3");
     Ok(out)
 }
 
@@ -481,6 +591,11 @@ mod tests {
             // claimed_policy_version values override after this
             // baseline is constructed.
             claimed_policy_version: 0,
+            // Batch #305 default — co-approver fields default to
+            // None (most tests don't exercise two-person integrity).
+            // Tests that DO exercise it override these explicitly.
+            co_approver_actor: None,
+            co_approver_signature: None,
             jti: "cmd-uuid-abc".to_string(),
             nonce: "nonce-1".to_string(),
             cmd_hash: CmdHash::from_bytes(cmd_hash_bytes),
@@ -1052,7 +1167,114 @@ mod tests {
         );
     }
 
-    /// **Batch #295 v1→v2 verifier rejection.** A signature
+    // =========================================================
+    // Batch #305 Faz 6 two-person integrity — v3 co_approver
+    // canonical-bytes binding tests
+    // =========================================================
+    //
+    // The v3 wire-format extension adds optional
+    // co_approver_actor + co_approver_signature fields. Both
+    // are bound into canonical bytes (presence byte + 16-byte
+    // actor when Some) so an attacker mutating either post-sign
+    // surfaces as SignatureInvalid at the verifier. These
+    // tests pin the binding shapes:
+
+    /// **Batch #305 binding pin.** Two envelopes that differ
+    /// ONLY in `co_approver_actor` produce DIFFERENT canonical
+    /// bytes. None vs Some([same_actor]) MUST also produce
+    /// different bytes (presence byte distinguishes the
+    /// shapes).
+    #[test]
+    fn co_approver_actor_change_changes_canonical_bytes() {
+        let mut env_none = make_env("ping", 100, 200);
+        env_none.co_approver_actor = None;
+        let mut env_some = env_none.clone();
+        env_some.co_approver_actor = Some([0x99u8; 16]);
+        let mut env_other = env_none.clone();
+        env_other.co_approver_actor = Some([0xaau8; 16]);
+
+        let bytes_none = envelope_canonical_bytes(&env_none).expect("ok");
+        let bytes_some = envelope_canonical_bytes(&env_some).expect("ok");
+        let bytes_other = envelope_canonical_bytes(&env_other).expect("ok");
+
+        assert_ne!(bytes_none, bytes_some, "None vs Some MUST differ");
+        assert_ne!(bytes_some, bytes_other, "Different actors MUST differ");
+    }
+
+    /// **Batch #305 v3 tag pin.** Canonical bytes end with
+    /// the v3 domain separator tag. v2-signed envelopes will
+    /// fail v3 verify — the migration signal.
+    #[test]
+    fn canonical_bytes_end_with_v3_tag() {
+        let env = make_env("ping", 100, 200);
+        let bytes = envelope_canonical_bytes(&env).expect("ok");
+        let tail = &bytes[bytes.len() - 23..];
+        assert_eq!(tail, b"command-envelope-sig-v3");
+    }
+
+    /// **Batch #305 v3 forward-compat path.** v2 wire envelopes
+    /// (no co_approver_* fields) deserialize cleanly with
+    /// `co_approver_actor = None` + `co_approver_signature =
+    /// None` per `#[serde(default)]`. Backward compat path:
+    /// SignatureMode::Disabled / Permissive still accept these
+    /// (no signature verify); Enforcing mode rejects them on
+    /// the v3 verifier (canonical bytes differ).
+    #[test]
+    fn v2_wire_envelope_deserializes_with_default_co_approver() {
+        let v2_wire = serde_json::json!({
+            "cmd": "ping",
+            "params": {"x": 1},
+            "actor": [7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7],
+            "tenant_id": [66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66],
+            "iat_unix_secs": 100,
+            "exp_unix_secs": 200,
+            "claimed_policy_version": 5,
+            "jti": "v2-jti",
+            "nonce": "v2-nonce",
+            "cmd_hash": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+        });
+        let env: CommandEnvelope =
+            serde_json::from_value(v2_wire).expect("v2 deserializes");
+        assert_eq!(
+            env.co_approver_actor, None,
+            "v2 wire (no co_approver field) MUST default to None"
+        );
+        assert_eq!(
+            env.co_approver_signature, None,
+            "v2 wire (no co_approver_signature field) MUST default to None"
+        );
+        assert_eq!(env.claimed_policy_version, 5);
+    }
+
+    /// **Batch #305 cross-format pin.** v3 canonical bytes
+    /// with co_approver=Some are STRUCTURALLY DISTINCT from
+    /// v3 canonical bytes with co_approver=None — the presence
+    /// byte alone makes the byte sequences inequal AND a
+    /// transcript without the 16-byte actor cannot match a
+    /// transcript with one. Architectural property: even an
+    /// attacker who guesses the operator's identity bytes
+    /// cannot pivot a no-co-approver signature into a
+    /// has-co-approver signature.
+    #[test]
+    fn co_approver_presence_byte_changes_byte_length() {
+        let mut env_none = make_env("ping", 100, 200);
+        env_none.co_approver_actor = None;
+        let mut env_some = env_none.clone();
+        env_some.co_approver_actor = Some([0u8; 16]);
+
+        let bytes_none = envelope_canonical_bytes(&env_none).expect("ok");
+        let bytes_some = envelope_canonical_bytes(&env_some).expect("ok");
+
+        // Some adds 16 bytes (the actor) on top of the
+        // presence byte that None already includes.
+        assert_eq!(
+            bytes_some.len(),
+            bytes_none.len() + 16,
+            "Some MUST add exactly 16 bytes (actor) over None"
+        );
+    }
+
+    /// **Batch #305 v1→v2 verifier rejection.** A signature
     /// computed over v1 canonical bytes (no claimed_policy_version
     /// + 'command-envelope-sig-v1' tag) MUST fail v2 verify. The
     /// failure is the operator-visible migration signal.

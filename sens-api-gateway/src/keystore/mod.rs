@@ -74,6 +74,15 @@ pub mod selector;
 // arc continuation toward UH ULTRA-MEDIUM-007 closure.
 pub mod rotation_deadline;
 
+// Batch #316 D-1b persistence: atomic-write JSON marker
+// store ($SUDERRA_DATA_DIR/keystore_rotation_marker.json)
+// for cross-restart `last_rotation_at` tracking. read_or_init
+// on first boot mints + persists; record_rotation_now is
+// the post-rotation update entry. Pure persistence module
+// — FileBackedKeystore consumer wiring lands in the D-1b
+// arc continuation.
+pub mod rotation_marker_store;
+
 pub use acceptance::{AcceptanceToken, FileBackedAcceptance, FileBackedAcceptanceError};
 pub use error::{KeyDerivationError, KeystoreError, KeystoreErrorKind};
 pub use file_backed::{Argon2idParams, FileBackedKeystore};
@@ -101,6 +110,14 @@ pub use selector::{
 pub use rotation_deadline::{
     KeystoreRotationDeadline, RotationDeadlineError, RotationStatus,
     DEFAULT_ALARM_LEAD_TIME_DAYS, DEFAULT_ROTATION_PERIOD_DAYS,
+};
+
+// Batch #316 re-exports — rotation marker persistence.
+// FileBackedKeystore consumer wiring (next arc batch)
+// imports these.
+pub use rotation_marker_store::{
+    read_marker, read_or_init, record_rotation_now, write_marker,
+    MarkerStoreError, ROTATION_MARKER_FILENAME,
 };
 // RotationSource is defined in this module above + already
 // pub, so consumers can `use crate::keystore::RotationSource`

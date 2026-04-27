@@ -71,7 +71,7 @@ describe('DatabaseExplorerController Security', () => {
   });
 
   afterEach(() => {
-    delete process.env.NODE_ENV;
+    delete process.env['NODE_ENV'];
   });
 
   // ========================================================================

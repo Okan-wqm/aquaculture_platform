@@ -50,8 +50,8 @@ export class DeviceEventService {
     limit = 20,
   ): Promise<{ items: DeviceEvent[]; total: number; page: number; limit: number }> {
     const where: Record<string, unknown> = { tenantId };
-    if (deviceId) where.deviceId = deviceId;
-    if (eventType) where.eventType = eventType;
+    if (deviceId) where['deviceId'] = deviceId;
+    if (eventType) where['eventType'] = eventType;
 
     const [items, total] = await this.deviceEventRepository.findAndCount({
       where,

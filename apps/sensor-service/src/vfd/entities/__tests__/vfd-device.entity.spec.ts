@@ -252,8 +252,8 @@ describe('VfdDevice Entity', () => {
         technician: 'John Doe',
       };
 
-      expect(device.metadata.installDate).toBe('2024-01-15');
-      expect(device.metadata.technician).toBe('John Doe');
+      expect(device.metadata['installDate']).toBe('2024-01-15');
+      expect(device.metadata['technician']).toBe('John Doe');
     });
   });
 

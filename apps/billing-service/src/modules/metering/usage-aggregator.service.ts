@@ -379,10 +379,10 @@ export class UsageAggregatorService implements OnModuleInit, OnModuleDestroy {
    * Handle usage recorded event
    */
   private handleUsageRecorded(data: Record<string, unknown>): void {
-    const tenantId = data.tenantId as string;
-    const meterType = data.meterType as MeterType;
-    const quantity = data.quantity as number;
-    const timestamp = data.timestamp as Date;
+    const tenantId = data['tenantId'] as string;
+    const meterType = data['meterType'] as MeterType;
+    const quantity = data['quantity'] as number;
+    const timestamp = data['timestamp'] as Date;
 
     // Update hourly aggregation
     this.updateAggregation(tenantId, meterType, quantity, AggregationPeriod.HOURLY, timestamp);

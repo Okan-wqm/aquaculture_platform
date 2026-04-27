@@ -429,7 +429,7 @@ export class VfdDeviceService {
 
     switch (protocol) {
       case VfdProtocol.MODBUS_RTU:
-        if (!config.serialPort || !config.slaveId) {
+        if (!config['serialPort'] || !config['slaveId']) {
           throw new BadRequestException(
             'Modbus RTU requires serialPort and slaveId'
           );
@@ -437,19 +437,19 @@ export class VfdDeviceService {
         break;
 
       case VfdProtocol.MODBUS_TCP:
-        if (!config.host) {
+        if (!config['host']) {
           throw new BadRequestException('Modbus TCP requires host');
         }
         break;
 
       case VfdProtocol.PROFIBUS_DP:
-        if (!config.slaveAddress) {
+        if (!config['slaveAddress']) {
           throw new BadRequestException('PROFIBUS DP requires slaveAddress');
         }
         break;
 
       case VfdProtocol.PROFINET:
-        if (!config.deviceName || !config.ipAddress) {
+        if (!config['deviceName'] || !config['ipAddress']) {
           throw new BadRequestException(
             'PROFINET requires deviceName and ipAddress'
           );
@@ -457,20 +457,20 @@ export class VfdDeviceService {
         break;
 
       case VfdProtocol.ETHERNET_IP:
-        if (!config.host) {
+        if (!config['host']) {
           throw new BadRequestException('EtherNet/IP requires host');
         }
         break;
 
       case VfdProtocol.CANOPEN:
-        if (!config.interface || config.nodeId === undefined) {
+        if (!config['interface'] || config['nodeId'] === undefined) {
           throw new BadRequestException('CANopen requires interface and nodeId');
         }
         break;
 
       case VfdProtocol.BACNET_IP:
       case VfdProtocol.BACNET_MSTP:
-        if (config.deviceInstance === undefined) {
+        if (config['deviceInstance'] === undefined) {
           throw new BadRequestException('BACnet requires deviceInstance');
         }
         break;

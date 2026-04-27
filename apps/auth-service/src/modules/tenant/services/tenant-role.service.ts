@@ -1026,28 +1026,28 @@ export class TenantRoleService {
 
   private mapRowToRole(row: Record<string, unknown>): TenantRoleWithDetails {
     return {
-      id: row.id as string,
-      name: row.name as string,
-      description: row.description as string | null,
-      color: row.color as string,
-      icon: row.icon as string,
-      level: row.level as number,
-      isSystem: row.is_system as boolean,
-      isDefault: row.is_default as boolean,
-      userCount: (row.user_count as number) || 0,
-      permissions: row.permission_id
+      id: row['id'] as string,
+      name: row['name'] as string,
+      description: row['description'] as string | null,
+      color: row['color'] as string,
+      icon: row['icon'] as string,
+      level: row['level'] as number,
+      isSystem: row['is_system'] as boolean,
+      isDefault: row['is_default'] as boolean,
+      userCount: (row['user_count'] as number) || 0,
+      permissions: row['permission_id']
         ? {
-            id: row.permission_id as string,
-            roleId: row.id as string,
+            id: row['permission_id'] as string,
+            roleId: row['id'] as string,
             panelPermissions:
-              typeof row.panel_permissions === 'string'
-                ? JSON.parse(row.panel_permissions)
-                : (row.panel_permissions as Record<string, Record<string, Record<string, boolean>>>) || {},
-            resourcePermissions: (row.resource_permissions as string[]) || [],
+              typeof row['panel_permissions'] === 'string'
+                ? JSON.parse(row['panel_permissions'])
+                : (row['panel_permissions'] as Record<string, Record<string, Record<string, boolean>>>) || {},
+            resourcePermissions: (row['resource_permissions'] as string[]) || [],
           }
         : null,
-      createdAt: row.created_at as Date,
-      updatedAt: row.updated_at as Date,
+      createdAt: row['created_at'] as Date,
+      updatedAt: row['updated_at'] as Date,
     };
   }
 }

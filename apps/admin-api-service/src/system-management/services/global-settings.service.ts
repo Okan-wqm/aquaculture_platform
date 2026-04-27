@@ -345,7 +345,7 @@ export class GlobalSettingsService implements OnModuleInit {
       region: 'region',
     };
     const key = mapping[type] || type;
-    return context[key] || (context.custom as Record<string, unknown>)?.[type];
+    return context[key] || (context['custom'] as Record<string, unknown>)?.[type];
   }
 
   private calculateBucket(key: string, identifier: string): number {
@@ -1115,7 +1115,7 @@ export class GlobalSettingsService implements OnModuleInit {
     return {
       version: currentVersion?.version || 'unknown',
       uptime: process.uptime(),
-      environment: process.env.NODE_ENV || 'development',
+      environment: process.env['NODE_ENV'] || 'development',
       maintenanceMode: maintenanceCheck.isInMaintenance,
       featureToggles: toggleCount,
       activeConfigs: configCount,

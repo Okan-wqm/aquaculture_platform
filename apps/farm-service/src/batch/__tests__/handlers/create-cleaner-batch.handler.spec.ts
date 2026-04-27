@@ -121,17 +121,17 @@ describe('CreateCleanerBatchHandler — transactional outbox', () => {
     expect(managerSave).toHaveBeenCalledTimes(1);
     expect(enqueue).toHaveBeenCalledTimes(1);
     const event = enqueue.mock.calls[0]![0] as Record<string, unknown>;
-    expect(event.eventType).toBe('CleanerFishBatchCreated');
-    expect(event.tenantId).toBe('tenant-1');
-    expect(event.cleanerBatchId).toBe('generated-batch-id');
-    expect(event.batchNumber).toBe('CFB-2026-001');
-    expect(event.speciesId).toBe('species-lumpfish');
-    expect(event.speciesName).toBe('Lumpfish');
-    expect(event.sourceType).toBe('farmed');
-    expect(event.initialQuantity).toBe(1000);
-    expect(event.initialAvgWeightG).toBe(20);
+    expect(event['eventType']).toBe('CleanerFishBatchCreated');
+    expect(event['tenantId']).toBe('tenant-1');
+    expect(event['cleanerBatchId']).toBe('generated-batch-id');
+    expect(event['batchNumber']).toBe('CFB-2026-001');
+    expect(event['speciesId']).toBe('species-lumpfish');
+    expect(event['speciesName']).toBe('Lumpfish');
+    expect(event['sourceType']).toBe('farmed');
+    expect(event['initialQuantity']).toBe(1000);
+    expect(event['initialAvgWeightG']).toBe(20);
     // 1000 * 20 / 1000 = 20 kg
-    expect(event.initialBiomassKg).toBeCloseTo(20, 5);
+    expect(event['initialBiomassKg']).toBeCloseTo(20, 5);
 
     expect(commit).toHaveBeenCalledTimes(1);
     expect(result.id).toBe('generated-batch-id');
@@ -143,7 +143,7 @@ describe('CreateCleanerBatchHandler — transactional outbox', () => {
     await handler.execute(makeCommand({ sourceType: 'wild_caught' }));
 
     const event = enqueue.mock.calls[0]![0] as Record<string, unknown>;
-    expect(event.sourceType).toBe('wild_caught');
+    expect(event['sourceType']).toBe('wild_caught');
   });
 
   it('outbox enqueue failure rolls back the batch insert', async () => {
@@ -188,6 +188,6 @@ describe('CreateCleanerBatchHandler — transactional outbox', () => {
     expect(enqueue).toHaveBeenCalledTimes(1);
     const event = enqueue.mock.calls[0]![0] as Record<string, unknown>;
     // Fallback format is `CFB-${year}-${timestamp}` — just assert prefix.
-    expect(String(event.batchNumber).startsWith('CFB-')).toBe(true);
+    expect(String(event['batchNumber']).startsWith('CFB-')).toBe(true);
   });
 });

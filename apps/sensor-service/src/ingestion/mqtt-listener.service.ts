@@ -1014,7 +1014,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
 
     // 2. Payload yapı doğrulaması — "tags" alanı object olmalı
     //    Edge agent'ın beklenen formatı: { tags: { tagName: { value, quality } } }
-    const tags = payload.tags;
+    const tags = payload['tags'];
     if (!tags || typeof tags !== 'object' || Array.isArray(tags)) {
       this.logger.warn(
         `I/O data from ${deviceCode} has invalid structure — expected { tags: {...} }, got: ${payloadStr.substring(0, 100)}`,
@@ -1218,7 +1218,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     payload: Record<string, unknown>,
   ): Promise<void> {
     try {
-      const alarms = (payload.alarms ?? []) as Array<Record<string, unknown>>;
+      const alarms = (payload['alarms'] ?? []) as Array<Record<string, unknown>>;
 
       // Publish to EventBus for WebSocket bridge
       if (this.eventBus) {
@@ -1240,16 +1240,16 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         event.tenantId = tenantId;
         event.deviceId = device.id;
         event.eventType = DeviceEventType.ALARM;
-        event.severity = this.mapAlarmPriorityToSeverity(alarm.priority as string);
-        event.message = (alarm.message as string) ||
-          `Alarm ${alarm.type} on ${alarm.tag}: value=${alarm.value}, setpoint=${alarm.setpoint}`;
+        event.severity = this.mapAlarmPriorityToSeverity(alarm['priority'] as string);
+        event.message = (alarm['message'] as string) ||
+          `Alarm ${alarm['type']} on ${alarm['tag']}: value=${alarm['value']}, setpoint=${alarm['setpoint']}`;
         event.metadata = {
-          tagName: alarm.tag,
-          alarmType: alarm.type,
-          priority: alarm.priority,
-          state: alarm.state,
-          value: alarm.value,
-          setpoint: alarm.setpoint,
+          tagName: alarm['tag'],
+          alarmType: alarm['type'],
+          priority: alarm['priority'],
+          state: alarm['state'],
+          value: alarm['value'],
+          setpoint: alarm['setpoint'],
         };
         return event;
       });
@@ -1297,16 +1297,16 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     if (!this.edgeDeviceService) return;
 
     this.logger.log(
-      `Hardware capabilities from ${deviceCode}: platform=${payload.platform}, ` +
-      `gpio_chips=${payload.gpio_chip_count}, gpio_lines=${payload.total_gpio_lines}`,
+      `Hardware capabilities from ${deviceCode}: platform=${payload['platform']}, ` +
+      `gpio_chips=${payload['gpio_chip_count']}, gpio_lines=${payload['total_gpio_lines']}`,
     );
 
     // Build capabilities object for the JSONB column
     const capabilities: Record<string, boolean> = {
-      hasGpio: Number(payload.total_gpio_lines ?? 0) > 0,
-      hasPicontrol: !!payload.has_picontrol,
-      hasRppal: !!payload.rppal_available,
-      hasModbus: !!payload.modbus_configured,
+      hasGpio: Number(payload['total_gpio_lines'] ?? 0) > 0,
+      hasPicontrol: !!payload['has_picontrol'],
+      hasRppal: !!payload['rppal_available'],
+      hasModbus: !!payload['modbus_configured'],
       autoDetectAvailable: true, // Agent supports scan_hardware command
     };
 
@@ -1358,8 +1358,8 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     if (!this.edgeDeviceService) return;
 
     // Hem eski hem yeni alan adlarını kabul et (backward compat)
-    const eventType = (payload.event_type ?? payload.type) as string;
-    const devEui = payload.dev_eui as string;
+    const eventType = (payload['event_type'] ?? payload['type']) as string;
+    const devEui = payload['dev_eui'] as string;
 
     if (!eventType || !devEui) {
       this.logger.warn(`Invalid lora_events payload from ${deviceCode}: missing event_type or dev_eui`);
@@ -1370,11 +1370,11 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       switch (eventType) {
         case 'join_accept': {
           // Cihaz OTAA ile ağa katıldı — isJoined ve devAddr güncelle
-          this.logger.log(`LoRa join_accept: DevEUI=${devEui}, DevAddr=${payload.dev_addr} via ${deviceCode}`);
+          this.logger.log(`LoRa join_accept: DevEUI=${devEui}, DevAddr=${payload['dev_addr']} via ${deviceCode}`);
           await this.edgeDeviceService.updateLoRaDeviceStatus(devEui, {
             isJoined: true,
             joinedAt: new Date(),
-            devAddr: (payload.dev_addr as string) ?? undefined,
+            devAddr: (payload['dev_addr'] as string) ?? undefined,
           });
           break;
         }
@@ -1382,14 +1382,14 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         case 'uplink_summary': {
           // Uplink alındı — radio metrics güncelle
           // Hem eski hem yeni alan adlarını kabul et (backward compat)
-          const frameCountUp = payload.frame_count_up ?? payload.f_cnt;
+          const frameCountUp = payload['frame_count_up'] ?? payload['f_cnt'];
           this.logger.debug(
-            `LoRa uplink: DevEUI=${devEui}, RSSI=${payload.rssi}, SNR=${payload.snr}, FCntUp=${frameCountUp}`,
+            `LoRa uplink: DevEUI=${devEui}, RSSI=${payload['rssi']}, SNR=${payload['snr']}, FCntUp=${frameCountUp}`,
           );
           await this.edgeDeviceService.updateLoRaDeviceStatus(devEui, {
             lastSeenAt: new Date(),
-            lastRssi: payload.rssi != null ? Number(payload.rssi) : undefined,
-            lastSnr: payload.snr != null ? Number(payload.snr) : undefined,
+            lastRssi: payload['rssi'] != null ? Number(payload['rssi']) : undefined,
+            lastSnr: payload['snr'] != null ? Number(payload['snr']) : undefined,
             frameCountUp: frameCountUp != null ? Number(frameCountUp) : undefined,
           });
           break;
@@ -1406,10 +1406,10 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
           deviceCode,
           loraEventType: eventType,
           devEui,
-          rssi: payload.rssi,
-          snr: payload.snr,
-          frameCountUp: payload.frame_count_up,
-          devAddr: payload.dev_addr,
+          rssi: payload['rssi'],
+          snr: payload['snr'],
+          frameCountUp: payload['frame_count_up'],
+          devAddr: payload['dev_addr'],
         });
       }
     } catch (error) {
@@ -1601,7 +1601,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
             .getMany();
 
           for (const sensor of sensorsWithWildcard) {
-            const configTopic = sensor.protocolConfiguration?.topic as string;
+            const configTopic = sensor.protocolConfiguration?.['topic'] as string;
             if (configTopic && this.topicMatches(configTopic, topic)) {
               this.logger.debug(`Found sensor ${sensor.id} in schema ${schema_name} via wildcard for topic ${topic}`);
               return sensor;
@@ -1672,7 +1672,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
    * Parse message payload
    */
   private parsePayload(payload: string, sensor: Sensor): Record<string, unknown> | null {
-    const format = sensor.protocolConfiguration?.payloadFormat || 'json';
+    const format = sensor.protocolConfiguration?.['payloadFormat'] || 'json';
 
     switch (format) {
       case 'json':

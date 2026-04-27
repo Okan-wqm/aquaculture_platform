@@ -141,8 +141,8 @@ describe('TenantExportService.exportTenant', () => {
       { table: 'sites', tenantId: TENANT },
     ]);
     expect(bundle.tenantId).toBe(TENANT);
-    expect(bundle.tables.batches_v2).toEqual([{ id: 'b1' }, { id: 'b2' }]);
-    expect(bundle.tables.sites).toEqual([{ id: 's1' }]);
+    expect(bundle.tables['batches_v2']).toEqual([{ id: 'b1' }, { id: 'b2' }]);
+    expect(bundle.tables['sites']).toEqual([{ id: 's1' }]);
     expect(bundle.summary.tableCount).toBe(2);
     expect(bundle.summary.totalRows).toBe(3);
     expect(bundle.summary.skippedTables).toEqual([]);
@@ -169,7 +169,7 @@ describe('TenantExportService.exportTenant', () => {
     );
 
     const bundle = await service.exportTenant(TENANT);
-    expect(bundle.tables.batches_v2).toEqual([]);
+    expect(bundle.tables['batches_v2']).toEqual([]);
     expect(bundle.summary.totalRows).toBe(0);
     expect(bundle.summary.tableCount).toBe(1);
     expect(bundle.summary.skippedTables).toEqual([]);
@@ -213,14 +213,14 @@ describe('TenantExportService.exportTenant', () => {
     );
 
     const bundle = await service.exportTenant(TENANT);
-    const rows = bundle.tables.farm_audit_logs as Array<Record<string, unknown>>;
+    const rows = bundle.tables['farm_audit_logs'] as Array<Record<string, unknown>>;
     const first = rows[0]!;
     const second = rows[1]!;
-    expect(first.changes).toEqual({ reChanged: { before: { email: 'x@y.z' } } });
-    expect(first.metadata).toEqual({ reMeta: { ipAddress: '1.2.3.4' } });
+    expect(first['changes']).toEqual({ reChanged: { before: { email: 'x@y.z' } } });
+    expect(first['metadata']).toEqual({ reMeta: { ipAddress: '1.2.3.4' } });
     // Null/undefined passed through untouched — redaction skipped.
-    expect(second.changes).toBeNull();
-    expect(second.metadata).toBeUndefined();
+    expect(second['changes']).toBeNull();
+    expect(second['metadata']).toBeUndefined();
     expect(redactChanges).toHaveBeenCalledTimes(1);
     expect(redactMetadata).toHaveBeenCalledTimes(1);
   });
@@ -248,7 +248,7 @@ describe('TenantExportService.exportTenant', () => {
     );
 
     const bundle = await service.exportTenant(TENANT);
-    expect(bundle.tables.batches_v2).toEqual([
+    expect(bundle.tables['batches_v2']).toEqual([
       { id: 'b1', changes: { shouldNotTouch: true } },
     ]);
     expect(redactChanges).not.toHaveBeenCalled();

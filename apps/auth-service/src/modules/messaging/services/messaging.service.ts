@@ -272,7 +272,7 @@ export class MessagingService {
       lastMessageBy: userId,
     };
     if (!input.isInternal) {
-      updateData.lastMessage = input.content;
+      updateData['lastMessage'] = input.content;
     }
     await this.threadRepository.update(thread.id, updateData as Parameters<typeof this.threadRepository.update>[1]);
 

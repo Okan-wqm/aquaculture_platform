@@ -299,18 +299,18 @@ export class VfdCanopenAdapter extends BaseVfdAdapter {
 
     const cfg = config as Record<string, unknown>;
 
-    if (!cfg.interface || typeof cfg.interface !== 'string') {
+    if (!cfg['interface'] || typeof cfg['interface'] !== 'string') {
       errors.push('interface is required and must be a string');
     }
 
-    if (cfg.nodeId === undefined || typeof cfg.nodeId !== 'number') {
+    if (cfg['nodeId'] === undefined || typeof cfg['nodeId'] !== 'number') {
       errors.push('nodeId is required and must be a number');
-    } else if (cfg.nodeId < 1 || cfg.nodeId > 127) {
+    } else if (cfg['nodeId'] < 1 || cfg['nodeId'] > 127) {
       errors.push('nodeId must be between 1 and 127');
     }
 
     const validBaudRates = [10000, 20000, 50000, 125000, 250000, 500000, 800000, 1000000];
-    if (cfg.baudRate !== undefined && !validBaudRates.includes(cfg.baudRate as number)) {
+    if (cfg['baudRate'] !== undefined && !validBaudRates.includes(cfg['baudRate'] as number)) {
       errors.push(`baudRate must be one of: ${validBaudRates.join(', ')}`);
     }
 
@@ -378,12 +378,12 @@ export class VfdCanopenAdapter extends BaseVfdAdapter {
     }
 
     return {
-      interface: config.interface as string,
-      nodeId: config.nodeId as number,
-      baudRate: (config.baudRate as CanopenConfig['baudRate']) || 250000,
-      heartbeatInterval: (config.heartbeatInterval as number) || 1000,
-      pdoMapping: config.pdoMapping as CanopenConfig['pdoMapping'],
-      edsFile: config.edsFile as string,
+      interface: config['interface'] as string,
+      nodeId: config['nodeId'] as number,
+      baudRate: (config['baudRate'] as CanopenConfig['baudRate']) || 250000,
+      heartbeatInterval: (config['heartbeatInterval'] as number) || 1000,
+      pdoMapping: config['pdoMapping'] as CanopenConfig['pdoMapping'],
+      edsFile: config['edsFile'] as string,
     };
   }
 

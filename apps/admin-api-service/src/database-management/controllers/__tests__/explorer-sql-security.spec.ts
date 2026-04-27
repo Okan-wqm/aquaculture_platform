@@ -79,7 +79,7 @@ describe('Explorer SQL Security', () => {
    */
   function postQuery(sql: string, params?: unknown[]) {
     const body: Record<string, unknown> = { sql };
-    if (params) body.params = params;
+    if (params) body['params'] = params;
     return request(app.getHttpServer())
       .post('/database/explorer/query')
       .send(body);

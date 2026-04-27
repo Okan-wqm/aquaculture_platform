@@ -172,7 +172,7 @@ export class VfdCommandService {
     }
 
     const brandCommands = VFD_BRAND_COMMANDS[device.brand];
-    const startCommand = brandCommands?.RUN_FORWARD || brandCommands?.START || 0x000f;
+    const startCommand = brandCommands?.['RUN_FORWARD'] || brandCommands?.['START'] || 0x000f;
 
     return adapter.writeControlWord(handle, startCommand, controlWordMapping.registerAddress);
   }
@@ -191,7 +191,7 @@ export class VfdCommandService {
     }
 
     const brandCommands = VFD_BRAND_COMMANDS[device.brand];
-    const stopCommand = brandCommands?.STOP || brandCommands?.SHUTDOWN || 0x0006;
+    const stopCommand = brandCommands?.['STOP'] || brandCommands?.['SHUTDOWN'] || 0x0006;
 
     return adapter.writeControlWord(handle, stopCommand, controlWordMapping.registerAddress);
   }
@@ -210,7 +210,7 @@ export class VfdCommandService {
     }
 
     const brandCommands = VFD_BRAND_COMMANDS[device.brand];
-    const reverseCommand = brandCommands?.RUN_REVERSE || 0x080f;
+    const reverseCommand = brandCommands?.['RUN_REVERSE'] || 0x080f;
 
     return adapter.writeControlWord(handle, reverseCommand, controlWordMapping.registerAddress);
   }
@@ -304,7 +304,7 @@ export class VfdCommandService {
     }
 
     const brandCommands = VFD_BRAND_COMMANDS[device.brand];
-    const resetCommand = brandCommands?.FAULT_RESET || brandCommands?.RESET || 0x0080;
+    const resetCommand = brandCommands?.['FAULT_RESET'] || brandCommands?.['RESET'] || 0x0080;
 
     return adapter.writeControlWord(handle, resetCommand, controlWordMapping.registerAddress);
   }
@@ -324,7 +324,7 @@ export class VfdCommandService {
 
     const brandCommands = VFD_BRAND_COMMANDS[device.brand];
     // Emergency stop typically uses QUICK_STOP or OFF2 (coast stop)
-    const emergencyCommand = brandCommands?.QUICK_STOP || brandCommands?.COAST || 0x0002;
+    const emergencyCommand = brandCommands?.['QUICK_STOP'] || brandCommands?.['COAST'] || 0x0002;
 
     return adapter.writeControlWord(handle, emergencyCommand, controlWordMapping.registerAddress);
   }
@@ -345,8 +345,8 @@ export class VfdCommandService {
 
     const brandCommands = VFD_BRAND_COMMANDS[device.brand];
     const jogCommand = direction === 'forward'
-      ? (brandCommands?.JOG_FORWARD || brandCommands?.JOG || 0x057f)
-      : (brandCommands?.JOG_REVERSE || 0x0d7f);
+      ? (brandCommands?.['JOG_FORWARD'] || brandCommands?.['JOG'] || 0x057f)
+      : (brandCommands?.['JOG_REVERSE'] || 0x0d7f);
 
     return adapter.writeControlWord(handle, jogCommand, controlWordMapping.registerAddress);
   }

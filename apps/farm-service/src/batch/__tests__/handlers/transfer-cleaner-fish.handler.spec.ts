@@ -214,20 +214,20 @@ describe('TransferCleanerFishHandler — transactional outbox', () => {
 
     expect(enqueue).toHaveBeenCalledTimes(1);
     const event = enqueue.mock.calls[0]![0] as Record<string, unknown>;
-    expect(event.eventType).toBe('CleanerFishTransferred');
-    expect(event.cleanerBatchId).toBe('cleaner-batch-1');
-    expect(event.sourceTankId).toBe('tank-src');
-    expect(event.destinationTankId).toBe('tank-dst');
-    expect(event.tenantId).toBe('tenant-1');
-    expect(event.speciesName).toBe('Lumpfish');
-    expect(event.quantity).toBe(15);
-    expect(event.reason).toBe('rebalance');
+    expect(event['eventType']).toBe('CleanerFishTransferred');
+    expect(event['cleanerBatchId']).toBe('cleaner-batch-1');
+    expect(event['sourceTankId']).toBe('tank-src');
+    expect(event['destinationTankId']).toBe('tank-dst');
+    expect(event['tenantId']).toBe('tenant-1');
+    expect(event['speciesName']).toBe('Lumpfish');
+    expect(event['quantity']).toBe(15);
+    expect(event['reason']).toBe('rebalance');
     // 15 * 50 g / 1000 = 0.75 kg
-    expect(event.biomassKg).toBeCloseTo(0.75, 5);
+    expect(event['biomassKg']).toBeCloseTo(0.75, 5);
     // Source had 40, transferred out 15 → 25 left
-    expect(event.newSourceTankCleanerFishQuantity).toBe(25);
+    expect(event['newSourceTankCleanerFishQuantity']).toBe(25);
     // Destination starts fresh (null tankBatch → created with 0 → +15 = 15)
-    expect(event.newDestinationTankCleanerFishQuantity).toBe(15);
+    expect(event['newDestinationTankCleanerFishQuantity']).toBe(15);
 
     expect(commit).toHaveBeenCalledTimes(1);
   });

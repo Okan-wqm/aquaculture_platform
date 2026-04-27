@@ -157,13 +157,13 @@ describe('DeleteHarvestRecordHandler — transactional outbox', () => {
     expect(result).toBe(true);
     expect(enqueue).toHaveBeenCalledTimes(1);
     const event = enqueue.mock.calls[0]![0] as Record<string, unknown>;
-    expect(event.eventType).toBe('HarvestRecordCancelled');
-    expect(event.harvestRecordId).toBe('hr-1');
-    expect(event.batchId).toBe('batch-1');
-    expect(event.tankId).toBe('tank-1');
-    expect(event.reversedQuantity).toBe(100);
-    expect(event.reversedBiomassKg).toBe(350);
-    expect(event.cancelledAt).toBeInstanceOf(Date);
+    expect(event['eventType']).toBe('HarvestRecordCancelled');
+    expect(event['harvestRecordId']).toBe('hr-1');
+    expect(event['batchId']).toBe('batch-1');
+    expect(event['tankId']).toBe('tank-1');
+    expect(event['reversedQuantity']).toBe(100);
+    expect(event['reversedBiomassKg']).toBe(350);
+    expect(event['cancelledAt']).toBeInstanceOf(Date);
 
     expect(commit).toHaveBeenCalledTimes(1);
   });
@@ -230,7 +230,7 @@ describe('DeleteHarvestRecordHandler — transactional outbox', () => {
 
     expect(enqueue).toHaveBeenCalledTimes(1);
     const event = enqueue.mock.calls[0]![0] as Record<string, unknown>;
-    expect(event.tankId).toBeUndefined();
-    expect(event.reversedQuantity).toBe(50);
+    expect(event['tankId']).toBeUndefined();
+    expect(event['reversedQuantity']).toBe(50);
   });
 });

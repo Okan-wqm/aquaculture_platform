@@ -152,8 +152,8 @@ export class PaymentManagementService {
     return {
       payments: payments.map((p: Record<string, unknown>) => ({
         ...p,
-        amount: typeof p.amount === 'string' ? parseFloat(p.amount) : p.amount,
-        refundedAmount: typeof p.refundedAmount === 'string' ? parseFloat(p.refundedAmount as string) : (p.refundedAmount || 0),
+        amount: typeof p['amount'] === 'string' ? parseFloat(p['amount']) : p['amount'],
+        refundedAmount: typeof p['refundedAmount'] === 'string' ? parseFloat(p['refundedAmount'] as string) : (p['refundedAmount'] || 0),
       })),
       total,
     };

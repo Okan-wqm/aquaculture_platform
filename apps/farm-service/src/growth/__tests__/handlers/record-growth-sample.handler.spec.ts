@@ -204,14 +204,14 @@ describe('RecordGrowthSampleHandler — transactional outbox', () => {
     // Outbox enqueue exactly once, with the queryRunner.manager
     expect(enqueue).toHaveBeenCalledTimes(1);
     const enqueuedEvent = enqueue.mock.calls[0]![0] as Record<string, unknown>;
-    expect(enqueuedEvent.eventType).toBe('GrowthSampleRecorded');
-    expect(enqueuedEvent.batchId).toBe('batch-1');
-    expect(enqueuedEvent.tenantId).toBe('tenant-1');
-    expect(enqueuedEvent.sampleSize).toBe(3);
-    expect(enqueuedEvent.averageWeightG).toBe(250);
-    expect(enqueuedEvent.weightCV).toBe(8);
-    expect(enqueuedEvent.performance).toBe('good');
-    expect(enqueuedEvent.measurementDate).toBeInstanceOf(Date);
+    expect(enqueuedEvent['eventType']).toBe('GrowthSampleRecorded');
+    expect(enqueuedEvent['batchId']).toBe('batch-1');
+    expect(enqueuedEvent['tenantId']).toBe('tenant-1');
+    expect(enqueuedEvent['sampleSize']).toBe(3);
+    expect(enqueuedEvent['averageWeightG']).toBe(250);
+    expect(enqueuedEvent['weightCV']).toBe(8);
+    expect(enqueuedEvent['performance']).toBe('good');
+    expect(enqueuedEvent['measurementDate']).toBeInstanceOf(Date);
 
     expect(commit).toHaveBeenCalledTimes(1);
     expect(rollback).not.toHaveBeenCalled();

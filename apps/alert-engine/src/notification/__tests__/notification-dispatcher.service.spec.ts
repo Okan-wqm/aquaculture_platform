@@ -509,8 +509,8 @@ describe('NotificationDispatcherService', () => {
 
       const stats = service.getStatistics();
 
-      expect(stats.registeredHandlers).toBe(1);
-      expect(stats.queuedNotifications).toBe(1);
+      expect(stats['registeredHandlers']).toBe(1);
+      expect(stats['queuedNotifications']).toBe(1);
     });
   });
 

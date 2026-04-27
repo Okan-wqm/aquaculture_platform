@@ -84,7 +84,7 @@ describe('RequestLoggingInterceptor', () => {
 
   beforeEach(async () => {
     // Reset environment
-    delete process.env.SLOW_REQUEST_THRESHOLD_MS;
+    delete process.env['SLOW_REQUEST_THRESHOLD_MS'];
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [RequestLoggingInterceptor],
@@ -176,7 +176,7 @@ describe('RequestLoggingInterceptor', () => {
       interceptor.intercept(context, handler).subscribe({
         complete: () => {
           const logContext = logSpy.mock.calls[0]?.[1] as Record<string, unknown>;
-          expect(logContext.tenantId).toBe('tenant-456');
+          expect(logContext['tenantId']).toBe('tenant-456');
           done();
         },
       });
@@ -192,7 +192,7 @@ describe('RequestLoggingInterceptor', () => {
       interceptor.intercept(context, handler).subscribe({
         complete: () => {
           const logContext = logSpy.mock.calls[0]?.[1] as Record<string, unknown>;
-          expect(logContext.userId).toBe('user-789');
+          expect(logContext['userId']).toBe('user-789');
           done();
         },
       });
@@ -208,7 +208,7 @@ describe('RequestLoggingInterceptor', () => {
       interceptor.intercept(context, handler).subscribe({
         complete: () => {
           const logContext = logSpy.mock.calls[0]?.[1] as Record<string, unknown>;
-          expect(logContext.ip).toBe('192.168.1.100');
+          expect(logContext['ip']).toBe('192.168.1.100');
           done();
         },
       });
@@ -239,7 +239,7 @@ describe('RequestLoggingInterceptor', () => {
       interceptor.intercept(context, handler).subscribe({
         error: () => {
           const logContext = errorSpy.mock.calls[0]?.[2] as Record<string, unknown>;
-          const loggedError = logContext.error as LoggedError;
+          const loggedError = logContext['error'] as LoggedError;
           expect(loggedError.message).toBe('Something went wrong');
           done();
         },
@@ -363,8 +363,8 @@ describe('RequestLoggingInterceptor', () => {
       interceptor.intercept(context, handler).subscribe({
         complete: () => {
           const logContext = logSpy.mock.calls[0]?.[1] as Record<string, unknown>;
-          expect(logContext.responseSize).toBeDefined();
-          expect(logContext.responseSize).toBeGreaterThan(0);
+          expect(logContext['responseSize']).toBeDefined();
+          expect(logContext['responseSize']).toBeGreaterThan(0);
           done();
         },
       });
@@ -376,7 +376,7 @@ describe('RequestLoggingInterceptor', () => {
 
       // Create circular reference
       const circular: Record<string, unknown> = {};
-      circular.self = circular;
+      circular['self'] = circular;
 
       const handler = createMockCallHandler(circular);
 
@@ -422,7 +422,7 @@ describe('RequestLoggingInterceptor', () => {
       interceptor.intercept(context, handler).subscribe({
         complete: () => {
           const logContext = logSpy.mock.calls[0]?.[1] as Record<string, unknown>;
-          expect(logContext.type).toBe('http');
+          expect(logContext['type']).toBe('http');
           done();
         },
       });
@@ -436,7 +436,7 @@ describe('RequestLoggingInterceptor', () => {
       interceptor.intercept(context, handler).subscribe({
         complete: () => {
           const logContext = logSpy.mock.calls[0]?.[1] as Record<string, unknown>;
-          expect(logContext.method).toBe('DELETE');
+          expect(logContext['method']).toBe('DELETE');
           done();
         },
       });
@@ -450,7 +450,7 @@ describe('RequestLoggingInterceptor', () => {
       interceptor.intercept(context, handler).subscribe({
         complete: () => {
           const logContext = logSpy.mock.calls[0]?.[1] as Record<string, unknown>;
-          expect(logContext.path).toBe('/api/v1/sensors');
+          expect(logContext['path']).toBe('/api/v1/sensors');
           done();
         },
       });
@@ -464,7 +464,7 @@ describe('RequestLoggingInterceptor', () => {
       interceptor.intercept(context, handler).subscribe({
         complete: () => {
           const logContext = logSpy.mock.calls[0]?.[1] as Record<string, unknown>;
-          expect(typeof logContext.duration).toBe('number');
+          expect(typeof logContext['duration']).toBe('number');
           done();
         },
       });
@@ -478,7 +478,7 @@ describe('RequestLoggingInterceptor', () => {
       interceptor.intercept(context, handler).subscribe({
         complete: () => {
           const logContext = logSpy.mock.calls[0]?.[1] as Record<string, unknown>;
-          expect(logContext.success).toBe(true);
+          expect(logContext['success']).toBe(true);
           done();
         },
       });
@@ -496,7 +496,7 @@ describe('RequestLoggingInterceptor', () => {
       interceptor.intercept(context, handler).subscribe({
         complete: () => {
           const logContext = logSpy.mock.calls[0]?.[1] as Record<string, unknown>;
-          expect(logContext.ip).toBe('10.0.0.1');
+          expect(logContext['ip']).toBe('10.0.0.1');
           done();
         },
       });
@@ -510,7 +510,7 @@ describe('RequestLoggingInterceptor', () => {
       interceptor.intercept(context, handler).subscribe({
         complete: () => {
           const logContext = logSpy.mock.calls[0]?.[1] as Record<string, unknown>;
-          expect(logContext.ip).toBe('192.168.1.50');
+          expect(logContext['ip']).toBe('192.168.1.50');
           done();
         },
       });
@@ -538,7 +538,7 @@ describe('RequestLoggingInterceptor', () => {
       interceptor.intercept(context, handler).subscribe({
         complete: () => {
           const logContext = logSpy.mock.calls[0]?.[1] as Record<string, unknown>;
-          expect(logContext.userId).toBeUndefined();
+          expect(logContext['userId']).toBeUndefined();
           done();
         },
       });

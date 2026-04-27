@@ -181,7 +181,7 @@ export class TenantAwareRepository<T extends TenantEntity> {
 
     // Prevent changing tenant ID - strip it from the update payload
     const updateData = { ...updates } as Record<string, unknown>;
-    delete updateData.tenantId;
+    delete updateData['tenantId'];
 
     await this.repository
       .createQueryBuilder()

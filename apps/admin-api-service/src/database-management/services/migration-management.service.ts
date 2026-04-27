@@ -802,8 +802,8 @@ export class MigrationManagementService {
     const { page = 1, limit = 20, status, version } = options;
 
     const where: Record<string, unknown> = {};
-    if (status) where.status = status;
-    if (version) where.version = version;
+    if (status) where['status'] = status;
+    if (version) where['version'] = version;
 
     const [data, total] = await this.migrationRepository.findAndCount({
       where,

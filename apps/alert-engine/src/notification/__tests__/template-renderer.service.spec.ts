@@ -97,8 +97,8 @@ describe('TemplateRendererService', () => {
       const result = service.render(NotificationChannel.EMAIL, baseContext);
 
       expect(result.metadata).toBeDefined();
-      expect(result.metadata?.templateId).toBeDefined();
-      expect(result.metadata?.channel).toBe(NotificationChannel.EMAIL);
+      expect(result.metadata?.['templateId']).toBeDefined();
+      expect(result.metadata?.['channel']).toBe(NotificationChannel.EMAIL);
     });
 
     it('should use custom template when specified', () => {

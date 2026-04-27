@@ -116,14 +116,14 @@ describe('ConsumeFeedInventoryHandler — transactional outbox', () => {
 
     expect(enqueue).toHaveBeenCalledTimes(1);
     const event = enqueue.mock.calls[0]![0] as Record<string, unknown>;
-    expect(event.eventType).toBe('FeedInventoryConsumed');
-    expect(event.tenantId).toBe('tenant-1');
-    expect(event.inventoryId).toBe('inv-1');
-    expect(event.quantityKg).toBe(50);
+    expect(event['eventType']).toBe('FeedInventoryConsumed');
+    expect(event['tenantId']).toBe('tenant-1');
+    expect(event['inventoryId']).toBe('inv-1');
+    expect(event['quantityKg']).toBe(50);
     // 500 - 50 = 450
-    expect(event.newQuantityKg).toBe(450);
-    expect(event.reason).toBe('feeding');
-    expect(event.newStatus).toBe(InventoryStatus.AVAILABLE);
+    expect(event['newQuantityKg']).toBe(450);
+    expect(event['reason']).toBe('feeding');
+    expect(event['newStatus']).toBe(InventoryStatus.AVAILABLE);
 
     expect(commit).toHaveBeenCalledTimes(1);
   });
@@ -135,13 +135,13 @@ describe('ConsumeFeedInventoryHandler — transactional outbox', () => {
 
     expect(enqueue).toHaveBeenCalledTimes(2);
     const eventTypes = enqueue.mock.calls.map(
-      (c) => (c[0] as Record<string, unknown>).eventType,
+      (c) => (c[0] as Record<string, unknown>)['eventType'],
     );
     expect(eventTypes).toEqual(['FeedInventoryConsumed', 'FeedInventoryLow']);
     const lowEvent = enqueue.mock.calls[1]![0] as Record<string, unknown>;
-    expect(lowEvent.status).toBe('low_stock');
-    expect(lowEvent.currentQuantityKg).toBe(450);
-    expect(lowEvent.reorderPointKg).toBe(100);
+    expect(lowEvent['status']).toBe('low_stock');
+    expect(lowEvent['currentQuantityKg']).toBe(450);
+    expect(lowEvent['reorderPointKg']).toBe(100);
   });
 
   it('requests a pessimistic_write lock on the inventory read', async () => {

@@ -95,8 +95,8 @@ describe('ExportObservabilityTenantDataHandler', () => {
     const call = (repo.find as jest.Mock).mock.calls[0]![0] as {
       where: Record<string, unknown>;
     };
-    expect(call.where.tenantIdHash).toBeDefined();
-    expect(call.where.occurredAt).toBeDefined();
+    expect(call.where['tenantIdHash']).toBeDefined();
+    expect(call.where['occurredAt']).toBeDefined();
   });
 
   it('rejects non-string tenantSchema', async () => {

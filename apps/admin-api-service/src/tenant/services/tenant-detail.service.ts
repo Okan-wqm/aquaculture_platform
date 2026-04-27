@@ -186,11 +186,11 @@ export class TenantDetailService {
       );
 
       return result.map((row: Record<string, unknown>) => ({
-        moduleId: row.moduleId as string,
-        moduleCode: row.moduleCode as string,
-        moduleName: row.moduleName as string,
-        isActive: row.isActive as boolean,
-        assignedAt: row.assignedAt as Date,
+        moduleId: row['moduleId'] as string,
+        moduleCode: row['moduleCode'] as string,
+        moduleName: row['moduleName'] as string,
+        isActive: row['isActive'] as boolean,
+        assignedAt: row['assignedAt'] as Date,
       }));
     } catch (error) {
       this.logger.warn(`Could not fetch module usage for tenant ${tenantId}`);

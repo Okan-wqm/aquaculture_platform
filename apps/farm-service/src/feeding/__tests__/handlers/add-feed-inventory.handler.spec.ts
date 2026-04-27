@@ -133,15 +133,15 @@ describe('AddFeedInventoryHandler — transactional outbox', () => {
 
     expect(enqueue).toHaveBeenCalledTimes(1);
     const event = enqueue.mock.calls[0]![0] as Record<string, unknown>;
-    expect(event.eventType).toBe('FeedInventoryReceived');
-    expect(event.tenantId).toBe('tenant-1');
-    expect(event.feedId).toBe('feed-1');
-    expect(event.siteId).toBe('site-1');
-    expect(event.lotNumber).toBe('LOT-A-001');
-    expect(event.quantityKg).toBe(500);
-    expect(event.newTotalQuantityKg).toBe(500);
-    expect(event.isNewLotRow).toBe(true);
-    expect(event.currency).toBe('NOK');
+    expect(event['eventType']).toBe('FeedInventoryReceived');
+    expect(event['tenantId']).toBe('tenant-1');
+    expect(event['feedId']).toBe('feed-1');
+    expect(event['siteId']).toBe('site-1');
+    expect(event['lotNumber']).toBe('LOT-A-001');
+    expect(event['quantityKg']).toBe(500);
+    expect(event['newTotalQuantityKg']).toBe(500);
+    expect(event['isNewLotRow']).toBe(true);
+    expect(event['currency']).toBe('NOK');
 
     expect(commit).toHaveBeenCalledTimes(1);
   });
@@ -162,11 +162,11 @@ describe('AddFeedInventoryHandler — transactional outbox', () => {
     await handler.execute(makeCommand({ quantityKg: 500 }));
 
     const event = enqueue.mock.calls[0]![0] as Record<string, unknown>;
-    expect(event.isNewLotRow).toBe(false);
+    expect(event['isNewLotRow']).toBe(false);
     // Previous 200 + new 500 = 700
-    expect(event.newTotalQuantityKg).toBe(700);
+    expect(event['newTotalQuantityKg']).toBe(700);
     // Receipt quantity (THIS arrival) stays 500
-    expect(event.quantityKg).toBe(500);
+    expect(event['quantityKg']).toBe(500);
   });
 
   it('outbox enqueue failure rolls back the feed_inventory write', async () => {
@@ -207,6 +207,6 @@ describe('AddFeedInventoryHandler — transactional outbox', () => {
     await handler.execute(makeCommand({ receivedDate: undefined }));
 
     const event = enqueue.mock.calls[0]![0] as Record<string, unknown>;
-    expect(event.receivedDate).toBeInstanceOf(Date);
+    expect(event['receivedDate']).toBeInstanceOf(Date);
   });
 });

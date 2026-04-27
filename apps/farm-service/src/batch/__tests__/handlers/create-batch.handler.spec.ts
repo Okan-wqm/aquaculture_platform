@@ -192,7 +192,7 @@ describe('CreateBatchHandler', () => {
     expect(BatchStatus.GROWING).toBeDefined();
     expect(BatchStatus.CLOSED).toBeDefined();
     expect(
-      (BatchStatus as unknown as Record<string, string>).STOCKED,
+      (BatchStatus as unknown as Record<string, string>)['STOCKED'],
     ).toBeUndefined();
   });
 

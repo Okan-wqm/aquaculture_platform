@@ -182,28 +182,28 @@ export class CreatePlcConnectionDto {
   @IsOptional()
   @IsString()
   @MaxLength(500)
-  @Matches(/^(ns=\d+;)?[sib]=/, { message: 'parametersNodeId must be a valid OPC UA Node ID (e.g. ns=2;s=MyNode)' })
+  @Matches(/^(ns=\d+;)?.[sib]=/, { message: 'parametersNodeId must be a valid OPC UA Node ID (e.g. ns=2;s=MyNode)' })
   parametersNodeId?: string;
 
   @Field({ nullable: true })
   @IsOptional()
   @IsString()
   @MaxLength(500)
-  @Matches(/^(ns=\d+;)?[sib]=/, { message: 'telemetryNodeId must be a valid OPC UA Node ID (e.g. ns=2;s=MyNode)' })
+  @Matches(/^(ns=\d+;)?.[sib]=/, { message: 'telemetryNodeId must be a valid OPC UA Node ID (e.g. ns=2;s=MyNode)' })
   telemetryNodeId?: string;
 
   @Field({ nullable: true })
   @IsOptional()
   @IsString()
   @MaxLength(500)
-  @Matches(/^(ns=\d+;)?[sib]=/, { message: 'alarmsNodeId must be a valid OPC UA Node ID (e.g. ns=2;s=MyNode)' })
+  @Matches(/^(ns=\d+;)?.[sib]=/, { message: 'alarmsNodeId must be a valid OPC UA Node ID (e.g. ns=2;s=MyNode)' })
   alarmsNodeId?: string;
 
   @Field({ nullable: true })
   @IsOptional()
   @IsString()
   @MaxLength(500)
-  @Matches(/^(ns=\d+;)?[sib]=/, { message: 'statusNodeId must be a valid OPC UA Node ID (e.g. ns=2;s=MyNode)' })
+  @Matches(/^(ns=\d+;)?.[sib]=/, { message: 'statusNodeId must be a valid OPC UA Node ID (e.g. ns=2;s=MyNode)' })
   statusNodeId?: string;
 }
 
@@ -362,28 +362,28 @@ export class UpdatePlcConnectionDto {
   @IsOptional()
   @IsString()
   @MaxLength(500)
-  @Matches(/^(ns=\d+;)?[sib]=/, { message: 'parametersNodeId must be a valid OPC UA Node ID (e.g. ns=2;s=MyNode)' })
+  @Matches(/^(ns=\d+;)?.[sib]=/, { message: 'parametersNodeId must be a valid OPC UA Node ID (e.g. ns=2;s=MyNode)' })
   parametersNodeId?: string;
 
   @Field({ nullable: true })
   @IsOptional()
   @IsString()
   @MaxLength(500)
-  @Matches(/^(ns=\d+;)?[sib]=/, { message: 'telemetryNodeId must be a valid OPC UA Node ID (e.g. ns=2;s=MyNode)' })
+  @Matches(/^(ns=\d+;)?.[sib]=/, { message: 'telemetryNodeId must be a valid OPC UA Node ID (e.g. ns=2;s=MyNode)' })
   telemetryNodeId?: string;
 
   @Field({ nullable: true })
   @IsOptional()
   @IsString()
   @MaxLength(500)
-  @Matches(/^(ns=\d+;)?[sib]=/, { message: 'alarmsNodeId must be a valid OPC UA Node ID (e.g. ns=2;s=MyNode)' })
+  @Matches(/^(ns=\d+;)?.[sib]=/, { message: 'alarmsNodeId must be a valid OPC UA Node ID (e.g. ns=2;s=MyNode)' })
   alarmsNodeId?: string;
 
   @Field({ nullable: true })
   @IsOptional()
   @IsString()
   @MaxLength(500)
-  @Matches(/^(ns=\d+;)?[sib]=/, { message: 'statusNodeId must be a valid OPC UA Node ID (e.g. ns=2;s=MyNode)' })
+  @Matches(/^(ns=\d+;)?.[sib]=/, { message: 'statusNodeId must be a valid OPC UA Node ID (e.g. ns=2;s=MyNode)' })
   statusNodeId?: string;
 
   @Field({ nullable: true })

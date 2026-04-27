@@ -79,7 +79,7 @@ const PII_PATTERNS: PiiPattern[] = [
   // Matches: +1-555-123-4567, (555) 123-4567, +90 532 123 45 67, etc.
   {
     type: 'phone',
-    regex: /(?:\+\d{1,3}[\s.-]?)?\(?\d{2,4}\)?[\s.-]?\d{2,4}[\s.-]?\d{2,4}(?:[\s.-]?\d{2,4})?/g,
+    regex: /(?:\+\d{1,3}[\s.-]?)?\(?\d{2,4}\)?.[\s.-]?\d{2,4}[\s.-]?\d{2,4}(?:[\s.-]?\d{2,4})?/g,
     // WHY: Post-validation filters out numbers that are too short to be phones
     validate: (match: string): boolean => {
       const digitsOnly = match.replace(/\D/g, '');

@@ -103,7 +103,8 @@
         "libs/migration-harness/src/index.ts"
       ]
     },
-    "isolatedModules": true
+    "isolatedModules": true,
+    "noPropertyAccessFromIndexSignature": true
   },
   "exclude": [
     "node_modules",

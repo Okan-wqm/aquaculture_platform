@@ -89,7 +89,7 @@ describe('TenantContextMiddleware - subdomain hardening', () => {
         ...originalEnv,
         NODE_ENV: 'production',
       };
-      delete process.env.ALLOWED_BASE_DOMAINS;
+      delete process.env['ALLOWED_BASE_DOMAINS'];
 
       const prodMiddleware = new TenantContextMiddleware();
       const req = createRequest({

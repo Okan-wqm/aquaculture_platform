@@ -574,9 +574,9 @@ describe('ChannelRouterService', () => {
 
       const stats = service.getStatistics();
 
-      expect(stats.usersWithPreferences).toBe(1);
-      expect(stats.routingRules).toBe(1);
-      expect((stats.totalChannels as number)).toBeGreaterThan(0);
+      expect(stats['usersWithPreferences']).toBe(1);
+      expect(stats['routingRules']).toBe(1);
+      expect((stats['totalChannels'] as number)).toBeGreaterThan(0);
     });
   });
 });

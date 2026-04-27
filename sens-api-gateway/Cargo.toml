@@ -623,6 +623,20 @@ path = "tests/invariants/d9_clock_authority_wired.rs"
 name = "mtls_rotation_stage_monotonic"
 path = "tests/invariants/mtls_rotation_stage_monotonic.rs"
 
+# Batch #326 Faz 2 D-9 final invariant — Tier-3
+# baseline-drift detector for SystemTime::now() in
+# TTL-critical files. Per-file baseline counters
+# capture the migrated-state SystemTime::now()
+# occurrence count; refactor that ADDS new TTL-class
+# usage fails the gate. Closes UH-021 D-9 parent
+# finding (the wire-status pin from #322 + the 4
+# consumer migrations from #313/#314/#324/#325 +
+# this baseline-drift detector together close D-9
+# fully).
+[[test]]
+name = "no_system_time_for_ttl"
+path = "tests/invariants/no_system_time_for_ttl.rs"
+
 # Batch 40 plan Faz 2 coherence — validate_faz2_security_coherence rules.
 [[test]]
 name = "config_coherence"

@@ -69,9 +69,8 @@
       "notes": "Cleaned by PR #162 (chore/sensor-service-spec-baseline-cleanup-pr21). Locked at 0."
     },
     "libs/backend-common": {
-      "errors": 9,
-      "finding": "PROC-MEDIUM-007",
-      "notes": "Drift to be cleaned in a follow-up PR. Shared library contract drift — fixing here unblocks downstream services."
+      "errors": 0,
+      "notes": "Cleaned by PR-29 (chore/backend-common-spec-baseline-cleanup-pr29). Three root causes: (1) WatchdogViolation.timestamp typed as string but spec passed `new Date()` — fixed to `.toISOString()`; (2) two gate specs (gha-sha-pin, npm-audit) had no import/export, making them script-mode files with conflicting global `runCheck` declarations — added `export {}` to both; (3) FakeRedis mock declared `implements RedisLike = Pick<Redis, 'set'|'eval'|...>` but ioredis's set/eval have 16+ overloads no test double can narrow to — dropped the implements clause; the downstream `as unknown as Redis` cast at the service-construction site is the typed boundary. Locked at 0."
     },
     "libs/event-contracts": {
       "errors": 0

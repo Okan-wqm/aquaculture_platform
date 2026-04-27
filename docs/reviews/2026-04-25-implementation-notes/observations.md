@@ -868,6 +868,60 @@ messaging-service locked at 0.
 
 ---
 
+## 31. libs/backend-common ratchet 9 → 0 (RESOLVED in PR-29)
+
+**Files:**
+- `libs/backend-common/src/database/__tests__/watchdog.integration.spec.ts`
+- `libs/backend-common/src/database/schema-drift/__tests__/gha-sha-pin-gate.spec.ts`
+- `libs/backend-common/src/database/schema-drift/__tests__/npm-audit-gate.spec.ts`
+- `libs/backend-common/src/orchestrator-leader-election/leader-election.service.spec.ts`
+
+**Three architectural root causes:**
+
+1. **WatchdogViolation.timestamp typed as string** (ISO 8601 per
+   the JSDoc on the interface) but the integration spec passed
+   `new Date()`. ts-jest let the Date-vs-string mismatch through.
+   Fix: `.toISOString()` at the call site.
+
+2. **Two gate specs were script-mode, not module-mode.** Neither
+   `gha-sha-pin-gate.spec.ts` nor `npm-audit-gate.spec.ts` had
+   an `import` or `export` statement. TypeScript treats files
+   with no import/export as **scripts**, putting all top-level
+   declarations into the **global scope**. Both files declared
+   `const runCheck = require(...)` at the top — collision,
+   strict-tsc rejected the redeclaration. Even worse, the
+   `runCheck` from one file SHADOWED the other's at type-check
+   time, so npm-audit's `runCheck(report, args)` tests were
+   strict-checked against gha-sha-pin's `runCheck(): Array<…>`
+   signature, producing the cascade of "Expected 0 arguments,
+   but got 2" + "Property 'exitCode' does not exist on Array"
+   errors. Fix: `export {};` at the top of each — single line,
+   makes the file a proper ESModule, isolates module scope.
+   **5 errors collapsed to 0 from one fix.**
+
+3. **FakeRedis mock declared `implements RedisLike`** where
+   `RedisLike = Pick<Redis, 'set' | 'get' | 'pttl' | 'eval'>`.
+   ioredis declares `set` and `eval` with 16+ overloaded
+   signatures, none of which a simple in-memory test mock can
+   structurally satisfy. The downstream `r as unknown as Redis`
+   cast at service-construction is the typed boundary — the
+   class itself is a duck-typed test double. Fix: dropped the
+   `implements RedisLike` clause; kept the cast.
+
+**Why the script-mode bug matters beyond this PR:**
+The script-vs-module distinction is invisible at the eslint /
+test-runner level — only strict-tsc surfaces it. ANY new spec
+file that uses `require()` without ever using `import` /
+`export` will silently leak into global scope. Worth a
+`tests/invariants/` rule that asserts every
+`__tests__/**/*.spec.ts` carries at least one `import` or
+`export {}`. Captured as PROC-MEDIUM-010 candidate.
+
+**PROC-MEDIUM-007 progress:** 8 → 7 dirty projects.
+libs/backend-common locked at 0.
+
+---
+
 ## Closing posture
 
 This file lives at:

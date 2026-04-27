@@ -255,7 +255,7 @@ describe('SupportService', () => {
     it('should allow TenantAdmin to add public comment', async () => {
       const tenantAdmin = createMockUser({ tenantId: 'tenant-1' });
       const ticket = createMockTicket({ tenantId: 'tenant-1' });
-      const input = { ticketId: ticket.id, content: 'My comment' };
+      const input = { ticketId: ticket.id, content: 'My comment', isInternal: false };
 
       userRepository.findOne.mockResolvedValue(tenantAdmin);
       ticketRepository.findOne.mockResolvedValue(ticket);
@@ -320,6 +320,7 @@ describe('SupportService', () => {
       await service.addComment(superAdmin.id, {
         ticketId: ticket.id,
         content: 'Response',
+        isInternal: false,
       });
 
       expect(ticketRepository.save).toHaveBeenCalledWith(
@@ -337,7 +338,7 @@ describe('SupportService', () => {
       ticketRepository.findOne.mockResolvedValue(ticket);
 
       await expect(
-        service.addComment(user.id, { ticketId: ticket.id, content: 'Comment' }),
+        service.addComment(user.id, { ticketId: ticket.id, content: 'Comment', isInternal: false }),
       ).rejects.toThrow(BadRequestException);
     });
   });
@@ -384,7 +385,13 @@ describe('SupportService', () => {
 
       userRepository.findOne.mockResolvedValue(superAdmin);
       ticketRepository.findOne.mockResolvedValue(ticket);
-      ticketRepository.save.mockResolvedValue({ ...ticket, status: TicketStatus.IN_PROGRESS });
+      // The spread loses the SupportTicket prototype methods
+      // (generateTicketNumber, isResponseSLABreached,
+      // isResolutionSLABreached); cast back so DeepPartial<T> & T
+      // is satisfied without recreating the entity instance.
+      ticketRepository.save.mockResolvedValue(
+        { ...ticket, status: TicketStatus.IN_PROGRESS } as SupportTicket,
+      );
 
       await service.updateStatus(superAdmin.id, {
         ticketId: ticket.id,
@@ -651,7 +658,7 @@ describe('SuperAdmin-TenantAdmin Support Ticket Integration', () => {
         .mockResolvedValueOnce(superAdmin)
         .mockResolvedValueOnce(superAdmin);
       ticketRepository.findOne.mockResolvedValueOnce(newTicket);
-      ticketRepository.save.mockImplementation((t) => Promise.resolve(t));
+      ticketRepository.save.mockImplementation((t: unknown) => Promise.resolve(t as SupportTicket));
 
       await service.assignTicket(superAdmin.id, {
         ticketId: newTicket.id,
@@ -672,7 +679,7 @@ describe('SuperAdmin-TenantAdmin Support Ticket Integration', () => {
         status: TicketStatus.IN_PROGRESS,
         firstResponseAt: undefined,
       });
-      ticketRepository.save.mockImplementation((t) => Promise.resolve(t));
+      ticketRepository.save.mockImplementation((t: unknown) => Promise.resolve(t as SupportTicket));
       commentRepository.save.mockResolvedValue(createMockComment({
         authorType: CommentAuthorType.SUPER_ADMIN,
       }));
@@ -680,6 +687,7 @@ describe('SuperAdmin-TenantAdmin Support Ticket Integration', () => {
       await service.addComment(superAdmin.id, {
         ticketId: newTicket.id,
         content: 'Looking into this issue...',
+        isInternal: false,
       });
 
       expect(ticketRepository.save).toHaveBeenCalledWith(
@@ -694,7 +702,7 @@ describe('SuperAdmin-TenantAdmin Support Ticket Integration', () => {
         ...newTicket,
         status: TicketStatus.IN_PROGRESS,
       });
-      ticketRepository.save.mockImplementation((t) => Promise.resolve(t));
+      ticketRepository.save.mockImplementation((t: unknown) => Promise.resolve(t as SupportTicket));
       commentRepository.save.mockResolvedValue(createMockComment({ isInternal: true }));
 
       await service.addComment(superAdmin.id, {
@@ -731,7 +739,7 @@ describe('SuperAdmin-TenantAdmin Support Ticket Integration', () => {
         ...newTicket,
         status: TicketStatus.IN_PROGRESS,
       });
-      ticketRepository.save.mockImplementation((t) => Promise.resolve(t));
+      ticketRepository.save.mockImplementation((t: unknown) => Promise.resolve(t as SupportTicket));
 
       await service.updateStatus(superAdmin.id, {
         ticketId: newTicket.id,
@@ -752,7 +760,7 @@ describe('SuperAdmin-TenantAdmin Support Ticket Integration', () => {
         tenantId: 'tenant-1',
         status: TicketStatus.RESOLVED,
       });
-      ticketRepository.save.mockImplementation((t) => Promise.resolve(t));
+      ticketRepository.save.mockImplementation((t: unknown) => Promise.resolve(t as SupportTicket));
 
       await service.rateTicket(tenantAdmin.id, {
         ticketId: newTicket.id,

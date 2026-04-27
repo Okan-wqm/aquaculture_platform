@@ -7,7 +7,7 @@ import { WeeklyPlan, WeeklyPlanStatus } from '../entities/weekly-plan.entity';
 import { WeeklyPlanEntry, WeeklyPlanEntryType } from '../entities/weekly-plan-entry.entity';
 import { SchedulingSettings } from '../entities/scheduling-settings.entity';
 import { Employee } from '../../hr/entities/employee.entity';
-import { Shift } from '../../attendance/entities/shift.entity';
+import { Shift, WeekDay } from '../../attendance/entities/shift.entity';
 
 describe('ScheduleNotificationService', () => {
   let service: ScheduleNotificationService;
@@ -35,7 +35,7 @@ describe('ScheduleNotificationService', () => {
     plannedTotalMinutes: 2400,
     plannedWorkDays: 5,
     isDeleted: false,
-    notifiedAt: null,
+    notifiedAt: undefined,
     employee: mockEmployee as Employee,
     entries: [],
   };
@@ -179,7 +179,7 @@ describe('ScheduleNotificationService', () => {
         {
           id: 'e1',
           date: new Date('2026-01-12'), // Monday
-          dayOfWeek: 'monday',
+          dayOfWeek: WeekDay.MONDAY,
           entryType: WeeklyPlanEntryType.WORK,
           plannedMinutes: 480,
           displayOrder: 0,
@@ -187,7 +187,7 @@ describe('ScheduleNotificationService', () => {
         {
           id: 'e2',
           date: new Date('2026-01-17'), // Saturday
-          dayOfWeek: 'saturday',
+          dayOfWeek: WeekDay.SATURDAY,
           entryType: WeeklyPlanEntryType.OFF,
           plannedMinutes: 0,
           displayOrder: 5,
@@ -279,7 +279,7 @@ describe('ScheduleNotificationService - Edge Cases', () => {
       plannedTotalMinutes: 0,
       plannedWorkDays: 0,
       isDeleted: false,
-      notifiedAt: null,
+      notifiedAt: undefined,
       employee: {
         id: 'emp-1',
         firstName: 'Test',
@@ -305,7 +305,7 @@ describe('ScheduleNotificationService - Edge Cases', () => {
       weekStartDate: new Date('2026-01-12'),
       weekEndDate: new Date('2026-01-18'),
       isDeleted: false,
-      notifiedAt: null,
+      notifiedAt: undefined,
       employee: {
         id: 'emp-1',
         firstName: 'No',

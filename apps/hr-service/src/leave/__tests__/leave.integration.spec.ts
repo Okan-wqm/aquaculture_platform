@@ -21,12 +21,16 @@ import { RejectLeaveRequestCommand } from '../commands/reject-leave-request.comm
 import { CancelLeaveRequestCommand } from '../commands/cancel-leave-request.command';
 import { LeaveRequest, LeaveRequestStatus } from '../entities/leave-request.entity';
 import { LeaveBalance } from '../entities/leave-balance.entity';
-import {
+// The event TYPES live in @platform/event-contracts; ../events/leave.events
+// only exports the createX FACTORY functions that build them. This spec
+// asserted on the type identities so it has to import from the contract
+// package directly. Surfaced by PR-34 of the PROC-MEDIUM-007 ratchet.
+import type {
   LeaveRequestSubmittedEvent,
   LeaveApprovedEvent,
   LeaveRejectedEvent,
   LeaveCancelledEvent,
-} from '../events/leave.events';
+} from '@platform/event-contracts';
 
 // ============================================================================
 // Mock Factories
@@ -109,8 +113,11 @@ describe('Leave Management Integration Tests', () => {
   const managerId = 'manager-uuid-111';
 
   beforeEach(async () => {
-    leaveRequestRepository = createMockRepository<LeaveRequest>() as jest.Mocked<Repository<LeaveRequest>>;
-    leaveBalanceRepository = createMockRepository<LeaveBalance>() as jest.Mocked<Repository<LeaveBalance>>;
+    // The bare mock is a small subset of Repository<T> (5 methods);
+    // strict-tsc requires `as unknown as Mocked<Repository<T>>` to
+    // bridge the structural gap rather than the direct cast it had.
+    leaveRequestRepository = createMockRepository<LeaveRequest>() as unknown as jest.Mocked<Repository<LeaveRequest>>;
+    leaveBalanceRepository = createMockRepository<LeaveBalance>() as unknown as jest.Mocked<Repository<LeaveBalance>>;
     eventBus = {
       publish: jest.fn(),
     } as unknown as jest.Mocked<EventBus>;
@@ -157,17 +164,17 @@ describe('Leave Management Integration Tests', () => {
 
       leaveRequestRepository.findOne.mockResolvedValue(draftRequest);
       leaveBalanceRepository.findOne.mockResolvedValue(balance);
-      leaveRequestRepository.save.mockImplementation((entity) =>
-        Promise.resolve({ ...entity, status: LeaveRequestStatus.PENDING } as LeaveRequest)
+      (leaveRequestRepository.save as jest.Mock).mockImplementation((entity: Record<string, unknown>) =>
+        Promise.resolve({ ...entity, status: LeaveRequestStatus.PENDING } as unknown as LeaveRequest)
       );
-      leaveBalanceRepository.save.mockImplementation((entity) => Promise.resolve(entity));
+      (leaveBalanceRepository.save as jest.Mock).mockImplementation((entity: Record<string, unknown>) => Promise.resolve(entity));
 
       const command = new SubmitLeaveRequestCommand(tenantId, employeeId, draftRequest.id);
       const result = await submitHandler.execute(command);
 
       expect(result.status).toBe(LeaveRequestStatus.PENDING);
       expect(leaveBalanceRepository.save).toHaveBeenCalled();
-      expect(eventBus.publish).toHaveBeenCalledWith(expect.any(LeaveRequestSubmittedEvent));
+      expect(eventBus.publish).toHaveBeenCalledWith(expect.objectContaining({ eventType: 'LeaveRequestSubmitted' }));
     });
 
     it('should update pending balance when submitting', async () => {
@@ -181,8 +188,8 @@ describe('Leave Management Integration Tests', () => {
       leaveBalanceRepository.findOne.mockResolvedValue(balance);
 
       let savedBalance: LeaveBalance | null = null;
-      leaveBalanceRepository.save.mockImplementation((entity) => {
-        savedBalance = entity as LeaveBalance;
+      (leaveBalanceRepository.save as jest.Mock).mockImplementation((entity: Record<string, unknown>) => {
+        savedBalance = entity as unknown as LeaveBalance;
         return Promise.resolve(entity);
       });
 
@@ -232,8 +239,8 @@ describe('Leave Management Integration Tests', () => {
       leaveBalanceRepository.findOne.mockResolvedValue(balance);
 
       let savedRequest: LeaveRequest | null = null;
-      leaveRequestRepository.save.mockImplementation((entity) => {
-        savedRequest = entity as LeaveRequest;
+      (leaveRequestRepository.save as jest.Mock).mockImplementation((entity: Record<string, unknown>) => {
+        savedRequest = entity as unknown as LeaveRequest;
         return Promise.resolve(entity);
       });
 
@@ -242,8 +249,8 @@ describe('Leave Management Integration Tests', () => {
 
       expect(savedRequest).not.toBeNull();
       expect(savedRequest!.approvalHistory).toHaveLength(1);
-      expect(savedRequest!.approvalHistory![0].action).toBe('submitted');
-      expect(savedRequest!.approvalHistory![0].actorId).toBe(employeeId);
+      expect(savedRequest!.approvalHistory![0]!.action).toBe('submitted');
+      expect(savedRequest!.approvalHistory![0]!.actorId).toBe(employeeId);
     });
   });
 
@@ -273,7 +280,7 @@ describe('Leave Management Integration Tests', () => {
       expect(result.status).toBe(LeaveRequestStatus.APPROVED);
       expect(result.approvedBy).toBe(managerId);
       expect(result.approvedAt).toBeDefined();
-      expect(eventBus.publish).toHaveBeenCalledWith(expect.any(LeaveApprovedEvent));
+      expect(eventBus.publish).toHaveBeenCalledWith(expect.objectContaining({ eventType: 'LeaveApproved' }));
     });
 
     it('should move pending balance to used on approval', async () => {
@@ -287,8 +294,8 @@ describe('Leave Management Integration Tests', () => {
       leaveBalanceRepository.findOne.mockResolvedValue(balance);
 
       let savedBalance: LeaveBalance | null = null;
-      leaveBalanceRepository.save.mockImplementation((entity) => {
-        savedBalance = entity as LeaveBalance;
+      (leaveBalanceRepository.save as jest.Mock).mockImplementation((entity: Record<string, unknown>) => {
+        savedBalance = entity as unknown as LeaveBalance;
         return Promise.resolve(entity);
       });
 
@@ -338,8 +345,8 @@ describe('Leave Management Integration Tests', () => {
       leaveBalanceRepository.findOne.mockResolvedValue(balance);
 
       let savedRequest: LeaveRequest | null = null;
-      leaveRequestRepository.save.mockImplementation((entity) => {
-        savedRequest = entity as LeaveRequest;
+      (leaveRequestRepository.save as jest.Mock).mockImplementation((entity: Record<string, unknown>) => {
+        savedRequest = entity as unknown as LeaveRequest;
         return Promise.resolve(entity);
       });
 
@@ -353,8 +360,8 @@ describe('Leave Management Integration Tests', () => {
 
       expect(savedRequest).not.toBeNull();
       expect(savedRequest!.approvalHistory).toHaveLength(2);
-      expect(savedRequest!.approvalHistory![1].action).toBe('approved');
-      expect(savedRequest!.approvalHistory![1].notes).toBe('Approved with conditions');
+      expect(savedRequest!.approvalHistory![1]!.action).toBe('approved');
+      expect(savedRequest!.approvalHistory![1]!.notes).toBe('Approved with conditions');
     });
   });
 
@@ -385,7 +392,7 @@ describe('Leave Management Integration Tests', () => {
       expect(result.rejectedBy).toBe(managerId);
       expect(result.rejectedAt).toBeDefined();
       expect(result.rejectionReason).toBe('Insufficient staffing during this period');
-      expect(eventBus.publish).toHaveBeenCalledWith(expect.any(LeaveRejectedEvent));
+      expect(eventBus.publish).toHaveBeenCalledWith(expect.objectContaining({ eventType: 'LeaveRejected' }));
     });
 
     it('should restore pending balance on rejection', async () => {
@@ -399,8 +406,8 @@ describe('Leave Management Integration Tests', () => {
       leaveBalanceRepository.findOne.mockResolvedValue(balance);
 
       let savedBalance: LeaveBalance | null = null;
-      leaveBalanceRepository.save.mockImplementation((entity) => {
-        savedBalance = entity as LeaveBalance;
+      (leaveBalanceRepository.save as jest.Mock).mockImplementation((entity: Record<string, unknown>) => {
+        savedBalance = entity as unknown as LeaveBalance;
         return Promise.resolve(entity);
       });
 
@@ -464,7 +471,7 @@ describe('Leave Management Integration Tests', () => {
       expect(result.cancelledBy).toBe(employeeId);
       expect(result.cancelledAt).toBeDefined();
       expect(result.cancellationReason).toBe('Plans changed');
-      expect(eventBus.publish).toHaveBeenCalledWith(expect.any(LeaveCancelledEvent));
+      expect(eventBus.publish).toHaveBeenCalledWith(expect.objectContaining({ eventType: 'LeaveCancelled' }));
     });
 
     it('should cancel an approved leave request before start date', async () => {
@@ -504,8 +511,8 @@ describe('Leave Management Integration Tests', () => {
       leaveBalanceRepository.findOne.mockResolvedValue(balance);
 
       let savedBalance: LeaveBalance | null = null;
-      leaveBalanceRepository.save.mockImplementation((entity) => {
-        savedBalance = entity as LeaveBalance;
+      (leaveBalanceRepository.save as jest.Mock).mockImplementation((entity: Record<string, unknown>) => {
+        savedBalance = entity as unknown as LeaveBalance;
         return Promise.resolve(entity);
       });
 
@@ -565,13 +572,13 @@ describe('Leave Management Integration Tests', () => {
       leaveBalanceRepository.findOne.mockResolvedValue(balance);
 
       let currentRequest = draftRequest;
-      leaveRequestRepository.save.mockImplementation((entity) => {
+      (leaveRequestRepository.save as jest.Mock).mockImplementation((entity: Record<string, unknown>) => {
         currentRequest = { ...currentRequest, ...entity } as LeaveRequest;
         return Promise.resolve(currentRequest);
       });
 
       let currentBalance = balance;
-      leaveBalanceRepository.save.mockImplementation((entity) => {
+      (leaveBalanceRepository.save as jest.Mock).mockImplementation((entity: Record<string, unknown>) => {
         currentBalance = { ...currentBalance, ...entity } as LeaveBalance;
         return Promise.resolve(currentBalance);
       });
@@ -582,7 +589,7 @@ describe('Leave Management Integration Tests', () => {
 
       expect(currentRequest.status).toBe(LeaveRequestStatus.PENDING);
       expect(currentBalance.pending).toBe(5);
-      expect(eventBus.publish).toHaveBeenCalledWith(expect.any(LeaveRequestSubmittedEvent));
+      expect(eventBus.publish).toHaveBeenCalledWith(expect.objectContaining({ eventType: 'LeaveRequestSubmitted' }));
 
       // Step 2: Approve the request
       leaveRequestRepository.findOne.mockResolvedValue(currentRequest);
@@ -599,7 +606,7 @@ describe('Leave Management Integration Tests', () => {
       expect(currentRequest.status).toBe(LeaveRequestStatus.APPROVED);
       expect(currentBalance.pending).toBe(0);
       expect(currentBalance.used).toBe(5);
-      expect(eventBus.publish).toHaveBeenCalledWith(expect.any(LeaveApprovedEvent));
+      expect(eventBus.publish).toHaveBeenCalledWith(expect.objectContaining({ eventType: 'LeaveApproved' }));
     });
 
     it('should handle rejection path: draft -> submit -> reject', async () => {
@@ -613,13 +620,13 @@ describe('Leave Management Integration Tests', () => {
       leaveBalanceRepository.findOne.mockResolvedValue(balance);
 
       let currentRequest = draftRequest;
-      leaveRequestRepository.save.mockImplementation((entity) => {
+      (leaveRequestRepository.save as jest.Mock).mockImplementation((entity: Record<string, unknown>) => {
         currentRequest = { ...currentRequest, ...entity } as LeaveRequest;
         return Promise.resolve(currentRequest);
       });
 
       let currentBalance = balance;
-      leaveBalanceRepository.save.mockImplementation((entity) => {
+      (leaveBalanceRepository.save as jest.Mock).mockImplementation((entity: Record<string, unknown>) => {
         currentBalance = { ...currentBalance, ...entity } as LeaveBalance;
         return Promise.resolve(currentBalance);
       });
@@ -661,7 +668,7 @@ describe('Leave Management Integration Tests', () => {
       leaveBalanceRepository.findOne.mockResolvedValue(balance);
 
       let currentBalance = balance;
-      leaveBalanceRepository.save.mockImplementation((entity) => {
+      (leaveBalanceRepository.save as jest.Mock).mockImplementation((entity: Record<string, unknown>) => {
         currentBalance = { ...currentBalance, ...entity } as LeaveBalance;
         return Promise.resolve(currentBalance);
       });
@@ -695,7 +702,12 @@ describe('Leave Management Integration Tests', () => {
       expect(eventBus.publish).toHaveBeenCalledTimes(1);
       const publishedEvent = (eventBus.publish as jest.Mock).mock.calls[0][0];
 
-      expect(publishedEvent).toBeInstanceOf(LeaveRequestSubmittedEvent);
+      // LeaveRequestSubmittedEvent migrated from class to interface;
+      // assert by discriminating eventType + structural fields
+      // instead of `instanceof`. The interface contract is captured
+      // in @platform/event-contracts; the producer side returns
+      // plain objects via createLeaveRequestSubmittedEvent().
+      expect(publishedEvent.eventType).toBe('LeaveRequestSubmitted');
       expect(publishedEvent.tenantId).toBe(tenantId);
       expect(publishedEvent.employeeId).toBe(employeeId);
       expect(publishedEvent.requestId).toBe(draftRequest.id);
@@ -714,7 +726,9 @@ describe('Leave Management Integration Tests', () => {
 
       const publishedEvent = (eventBus.publish as jest.Mock).mock.calls[0][0] as LeaveApprovedEvent;
 
-      expect(publishedEvent).toBeInstanceOf(LeaveApprovedEvent);
+      // LeaveApprovedEvent migrated from class to interface; assert by
+      // discriminating eventType + structural fields instead of `instanceof`.
+      expect(publishedEvent.eventType).toBe('LeaveApproved');
       expect(publishedEvent.approvedBy).toBe(managerId);
     });
 
@@ -732,8 +746,12 @@ describe('Leave Management Integration Tests', () => {
 
       const publishedEvent = (eventBus.publish as jest.Mock).mock.calls[0][0] as LeaveRejectedEvent;
 
-      expect(publishedEvent).toBeInstanceOf(LeaveRejectedEvent);
-      expect(publishedEvent.rejectionReason).toBe(reason);
+      // LeaveRejectedEvent migrated from class to interface; assert by
+      // discriminating eventType + structural fields instead of `instanceof`.
+      // The contract field is `reason` (not `rejectionReason`); rename
+      // happened during the BaseEvent normalization (see hr-events.ts).
+      expect(publishedEvent.eventType).toBe('LeaveRejected');
+      expect(publishedEvent.reason).toBe(reason);
     });
   });
 

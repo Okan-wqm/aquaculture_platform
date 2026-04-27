@@ -43,9 +43,8 @@
       "notes": "Cleaned by PR #164 (chore/gateway-api-spec-baseline-cleanup-pr23). Locked at 0."
     },
     "apps/hr-service": {
-      "errors": 46,
-      "finding": "PROC-MEDIUM-007",
-      "notes": "Drift to be cleaned in a follow-up PR. HR domain contract types most likely root cause."
+      "errors": 0,
+      "notes": "Cleaned by PR-34 (chore/hr-service-spec-baseline-cleanup-pr34). Five root causes: (1) ApprovePayroll + CreateEmployee handlers migrated from EventBus.publish() (post-commit fire-and-forget) to OutboxPublisher.enqueue() (transactional outbox INSERT) per CRITICAL-002 — 12 spec sites updated. (2) CreateEmployeeInput grew required contactInfo/address/nationalId/baseSalary; spec validInput literal extended to satisfy. (3) leave.events module re-exported only createX FACTORY functions; the spec was importing TYPE identities — fixed import to @platform/event-contracts directly AND migrated assertions from `expect.any(LeaveX)` (class identity) to `expect.objectContaining({ eventType: 'LeaveX' })` (interface discriminator), since the events were migrated class→interface. Field rename `rejectionReason` → `reason`. (4) save.mockImplementation overload mismatch — cast through `(repo.save as jest.Mock).mockImplementation((entity: Record<string, unknown>) => Promise.resolve(entity as unknown as T))` to bypass typeorm's 16+ save overloads. (5) WeeklyPlanEntry.plannedStart/EndTime narrowed string→Date; WeekDay enum literal-string violations; nullable cleanup; TrainingCourse.durationHours→durationMinutes and CertificationType.validityPeriodMonths→validityMonths field renames. Locked at 0."
     },
     "apps/hydroponics-service": {
       "errors": 0,

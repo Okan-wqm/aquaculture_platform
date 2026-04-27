@@ -1,4 +1,11 @@
 {
+  // PROC-MEDIUM-013 closed by PR-43 — the exclude block (added in
+  // PR-36 to keep the integration/performance/security suites out
+  // of the unit-test gate while their domain-model drift was
+  // unaddressed) has been removed now that all three suites are
+  // re-derived against the current rules-engine + alert-rule
+  // contracts. The auxiliary suites are back in the strict-tsc gate
+  // along with the rest of the alert-engine spec sources.
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "outDir": "../../dist/out-tsc",
@@ -10,27 +17,5 @@
     "src/**/*.test.ts",
     "src/**/*.spec.ts",
     "src/**/*.d.ts"
-  ],
-  "exclude": [
-    // Auxiliary test suites (integration/performance/security) at the
-    // src/__tests__/ root carry test-suite-wide drift against the
-    // current alert-engine domain model: AlertCondition.field →
-    // .parameter, RuleEvaluationContext → EvaluationContext,
-    // RuleMatch.matchedRules removed, ChannelConfig requires all 7
-    // NotificationChannel keys, BatchNotificationResult.failedCount →
-    // failureCount, and more.
-    //
-    // These suites have separate execution targets (performance + load
-    // tests run on cron, security tests run pre-release) and are NOT
-    // executed by the current unit-test CI. Strict-tsc was creating a
-    // false signal that it was vouching for them.
-    //
-    // Mirrors the farm-service split (PR-35) — production-code surfaces
-    // (services, handlers, resolvers, entities) still go through the
-    // gate. Suite-wide re-derivation captured as PROC-MEDIUM-013
-    // candidate. Surfaced by PR-36 of the PROC-MEDIUM-007 ratchet.
-    "src/__tests__/alert-engine.integration.spec.ts",
-    "src/__tests__/alert-engine.performance.spec.ts",
-    "src/__tests__/alert-engine.security.spec.ts"
   ]
 }

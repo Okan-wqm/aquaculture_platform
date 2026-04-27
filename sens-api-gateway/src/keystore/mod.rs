@@ -65,6 +65,15 @@ pub mod tpm_backed;
 // (allowed downgrade) from "TPM tamper signal" (hard-fail).
 pub mod selector;
 
+// Batch #315 D-1b primitive: KeystoreRotationDeadline
+// tracks the 180-day rotation cadence per ADR-018 §6 +
+// surfaces a 3-state status (WithinPolicy /
+// LeadTimeExceeded / Overdue) to the alarm runner. Pure
+// type + evaluate function in this batch; persistence +
+// FileBackedKeystore wiring + alarm task land in the D-1b
+// arc continuation toward UH ULTRA-MEDIUM-007 closure.
+pub mod rotation_deadline;
+
 pub use acceptance::{AcceptanceToken, FileBackedAcceptance, FileBackedAcceptanceError};
 pub use error::{KeyDerivationError, KeystoreError, KeystoreErrorKind};
 pub use file_backed::{Argon2idParams, FileBackedKeystore};
@@ -84,6 +93,14 @@ pub use tpm_backed::{
 pub use selector::{
     FallbackPolicy, KeystoreSelector, KeystoreSelectorConfig,
     NullTpmDeviceFactory, TpmDeviceFactory,
+};
+
+// Batch #315 re-exports — rotation deadline primitive.
+// The alarm runner + future FileBackedKeystore consumer
+// import these names directly.
+pub use rotation_deadline::{
+    KeystoreRotationDeadline, RotationDeadlineError, RotationStatus,
+    DEFAULT_ALARM_LEAD_TIME_DAYS, DEFAULT_ROTATION_PERIOD_DAYS,
 };
 // RotationSource is defined in this module above + already
 // pub, so consumers can `use crate::keystore::RotationSource`

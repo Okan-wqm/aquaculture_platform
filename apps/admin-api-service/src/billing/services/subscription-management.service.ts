@@ -18,9 +18,11 @@ import {
   CreateSubscriptionResult,
 } from './subscription-types';
 
-// Re-export types for backward compatibility
-export {
-  SubscriptionStatus,
+// Re-export types for backward compatibility. SubscriptionStatus is an
+// enum (runtime value); the rest are interfaces (compile-time only).
+// Split under isolatedModules so type-only re-exports drop at compile.
+export { SubscriptionStatus } from './subscription-types';
+export type {
   SubscriptionOverview,
   PlanChangeRequest,
   PlanChangeResult,

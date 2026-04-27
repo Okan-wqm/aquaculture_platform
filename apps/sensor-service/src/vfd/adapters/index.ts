@@ -3,9 +3,10 @@
  * Exports all VFD protocol adapters and related types
  */
 
-// Base adapter and types
-export {
-  BaseVfdAdapter,
+// Base adapter (class — value re-export) + companion types
+// (interfaces — type-only re-exports under isolatedModules).
+export { BaseVfdAdapter } from './base-vfd.adapter';
+export type {
   VfdConnectionHandle,
   VfdReadResult,
   VfdCommandResult,
@@ -14,14 +15,21 @@ export {
   BatchReadRequest,
 } from './base-vfd.adapter';
 
-// Protocol adapters
-export { VfdModbusRtuAdapter, ModbusRtuConfig } from './vfd-modbus-rtu.adapter';
-export { VfdModbusTcpAdapter, ModbusTcpConfig } from './vfd-modbus-tcp.adapter';
-export { VfdProfibusAdapter, ProfibusConfig } from './vfd-profibus-dp.adapter';
-export { VfdProfinetAdapter, ProfinetConfig } from './vfd-profinet.adapter';
-export { VfdEthernetIpAdapter, EthernetIpConfig } from './vfd-ethernet-ip.adapter';
-export { VfdCanopenAdapter, CanopenConfig } from './vfd-canopen.adapter';
-export { VfdBacnetAdapter, BacnetConfig } from './vfd-bacnet.adapter';
+// Protocol adapters — class + config interface from each module.
+export { VfdModbusRtuAdapter } from './vfd-modbus-rtu.adapter';
+export type { ModbusRtuConfig } from './vfd-modbus-rtu.adapter';
+export { VfdModbusTcpAdapter } from './vfd-modbus-tcp.adapter';
+export type { ModbusTcpConfig } from './vfd-modbus-tcp.adapter';
+export { VfdProfibusAdapter } from './vfd-profibus-dp.adapter';
+export type { ProfibusConfig } from './vfd-profibus-dp.adapter';
+export { VfdProfinetAdapter } from './vfd-profinet.adapter';
+export type { ProfinetConfig } from './vfd-profinet.adapter';
+export { VfdEthernetIpAdapter } from './vfd-ethernet-ip.adapter';
+export type { EthernetIpConfig } from './vfd-ethernet-ip.adapter';
+export { VfdCanopenAdapter } from './vfd-canopen.adapter';
+export type { CanopenConfig } from './vfd-canopen.adapter';
+export { VfdBacnetAdapter } from './vfd-bacnet.adapter';
+export type { BacnetConfig } from './vfd-bacnet.adapter';
 
 import { VfdProtocol } from '../entities/vfd.enums';
 

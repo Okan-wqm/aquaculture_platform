@@ -59,7 +59,8 @@ export const BasicAuth = (): ReturnType<typeof SetMetadata> => SetMetadata(BASIC
 
 // Re-export key types from types/index.ts for backward compatibility during transition.
 // Existing consumers that import from auth.guard.ts will continue to work.
-export { JwtPayload, AuthenticatedRequest, GqlContext } from '../types/index';
+// Type-only re-export under isolatedModules.
+export type { JwtPayload, AuthenticatedRequest, GqlContext } from '../types/index';
 export { getUserFromRequest, getTenantIdFromRequest } from '../types/index';
 
 /**

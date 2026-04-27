@@ -1,4 +1,6 @@
-export { EventUpcaster, EventUpcasterRegistry } from './event-upcaster';
+export { EventUpcasterRegistry } from './event-upcaster';
+// EventUpcaster is an interface — `export type` under isolatedModules.
+export type { EventUpcaster } from './event-upcaster';
 export { sensorReadingUpcaster } from './sensor-reading.upcaster';
 export { sensorReadingV2ToV3Upcaster } from './sensor-reading-v2-to-v3.upcaster';
 export { alertTriggeredUpcaster } from './alert-triggered.upcaster';

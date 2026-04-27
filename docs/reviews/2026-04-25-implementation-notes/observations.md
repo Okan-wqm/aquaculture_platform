@@ -623,7 +623,7 @@ PR-24 candidate.
   tsc` after a wrong `npx --no` flag silently ran zero work and
   reported every project as 0 errors. Recorded as the gate's first
   bug-pre-prod self-discovery.
-- Finding registered: `TYPE-CHECK-SPEC-RATCHET-001` (state OPEN,
+- Finding registered: `PROC-MEDIUM-007` (state OPEN,
   closes when every project baseline reaches 0).
 
 **State of the monorepo at gate-introduction:**
@@ -663,7 +663,7 @@ Concrete drift in farm-service: `BatchStatus.STOCKED` removed
 (renamed?), `Species`/`Batch` `DeepPartial[]` vs full entity[]
 mismatch in integration spec helpers, `NatsEventBus` → `Outbox-
 Publisher` type narrowing, `weight` property restructuring.
-Cleanup tracked under TYPE-CHECK-SPEC-RATCHET-001.
+Cleanup tracked under PROC-MEDIUM-007.
 
 **What this gate prevents:** the next `farm-module #146 / sensor-
 service #162 / gateway-api #164` cleanup cycle. New drift is now
@@ -678,7 +678,40 @@ should run `npm run gates:type-check-spec -- --update-baseline`
 after fixes and commit the ratcheted baseline.
 
 **Severity:** RESOLVED (gate landed) for the architectural gap.
-Drift cleanup itself remains OPEN as `TYPE-CHECK-SPEC-RATCHET-001`.
+Drift cleanup itself remains OPEN as `PROC-MEDIUM-007`.
+
+---
+
+## 27. ai-service ratchet 1 → 0 (RESOLVED in PR-25)
+
+**File:** `apps/ai-service/src/tools/sensor-config/suggest-channels.tool.ts`
+
+**Root cause #1 (the strict-tsc error):** `DetectedFieldInput`
+TS interface marked `suggestedUnit`, `suggestedLabel`,
+`suggestedWidgetType` as required, but the JSON schema (the
+runtime contract validated at the tool boundary) only required
+`key`, `dataType`, `sampleCount`. Spec test passed minimal fields
+per the schema and tripped strict-tsc on the over-strict
+interface. Fixed by aligning interface optionals to schema.
+
+**Root cause #2 (the production bug exposed by removing root-
+cause #1):** with strict-tsc no longer blocking the spec, jest
+ran 18 tests instead of 0 — and surfaced a real bug in
+`toChannelKey()`: the regex `/([a-z])([A-Z])/g` split single-
+letter lowercase prefixes ("pH" → "p_H"), so the test input "pH
+Level" produced `p_h_level` instead of the expected `ph_level`.
+Fixed by tightening the regex to `[a-z]{2,}([A-Z])` so single-
+letter acronyms stay together.
+
+**Why this is significant:** ts-jest's permissive transform was
+hiding NOT just type errors but a REAL production bug. Operators
+typing a sensor channel called "pH Level" would have gotten an
+incorrectly snake-cased key (`p_h_level`), creating ambiguity
+between any two sensors that both had `pHLevel` and `phLevel`-
+spelled fields. The strict-spec gate caught both.
+
+**PROC-MEDIUM-007 progress:** 12 → 11 dirty
+projects. ai-service locked at 0.
 
 ---
 

@@ -11,9 +11,9 @@ interface DetectedFieldInput {
   min?: number;
   max?: number;
   mean?: number;
-  suggestedUnit: string;
-  suggestedLabel: string;
-  suggestedWidgetType: string;
+  suggestedUnit?: string;
+  suggestedLabel?: string;
+  suggestedWidgetType?: string;
 }
 
 interface SuggestChannelsInput {
@@ -136,8 +136,14 @@ export class SuggestChannelsTool extends BaseTool<
   }
 
   private toChannelKey(key: string): string {
+    // Insert `_` between a lowercase RUN of >= 2 letters and the next
+    // uppercase letter. Single-letter lowercase prefixes (e.g. "pH",
+    // "uV") are domain-specific acronyms that should NOT split — that
+    // matches operator intent on the sensor-channel form, where a
+    // typed "pH Level" is one logical channel keyed `ph_level`, not
+    // `p_h_level`. The test for `pH Level` pinned this contract.
     return key
-      .replace(/([a-z])([A-Z])/g, '$1_$2')
+      .replace(/([a-z]{2,})([A-Z])/g, '$1_$2')
       .replace(/[\s-]+/g, '_')
       .toLowerCase();
   }

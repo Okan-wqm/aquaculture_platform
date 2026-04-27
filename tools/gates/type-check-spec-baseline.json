@@ -4,27 +4,26 @@
   "projects": {
     "apps/admin-api-service": {
       "errors": 14,
-      "finding": "TYPE-CHECK-SPEC-RATCHET-001",
+      "finding": "PROC-MEDIUM-007",
       "notes": "Drift to be cleaned in a follow-up PR. Most likely contract drift in admin endpoints; same pattern as gateway-api #164."
     },
     "apps/ai-service": {
-      "errors": 1,
-      "finding": "TYPE-CHECK-SPEC-RATCHET-001",
-      "notes": "Single error — close-out candidate."
+      "errors": 0,
+      "notes": "Cleaned by PR-25 (chore/ai-service-spec-baseline-cleanup-pr25). Root cause: DetectedFieldInput TS interface marked suggestedUnit/suggestedLabel/suggestedWidgetType as required, but the JSON schema (runtime contract) only required key/dataType/sampleCount. Spec test passed minimal fields per the schema and tripped strict-tsc on the over-strict interface. Fix: aligned interface optionals to schema. Locked at 0."
     },
     "apps/alert-engine": {
       "errors": 124,
-      "finding": "TYPE-CHECK-SPEC-RATCHET-001",
+      "finding": "PROC-MEDIUM-007",
       "notes": "Largest drift in the monorepo. Alert-rule + escalation handler tests likely lag the rule schema."
     },
     "apps/auth-service": {
       "errors": 26,
-      "finding": "TYPE-CHECK-SPEC-RATCHET-001",
+      "finding": "PROC-MEDIUM-007",
       "notes": "Drift to be cleaned in a follow-up PR. JWT / session / RBAC contract types most likely root cause."
     },
     "apps/billing-service": {
       "errors": 40,
-      "finding": "TYPE-CHECK-SPEC-RATCHET-001",
+      "finding": "PROC-MEDIUM-007",
       "notes": "Drift to be cleaned in a follow-up PR. Subscription / invoice contract types most likely root cause."
     },
     "apps/config-service": {
@@ -35,13 +34,13 @@
     },
     "apps/event-store-service": {
       "errors": 4,
-      "finding": "TYPE-CHECK-SPEC-RATCHET-001",
+      "finding": "PROC-MEDIUM-007",
       "notes": "Small drift — close-out candidate."
     },
     "apps/farm-service": {
       "errors": 84,
-      "finding": "TYPE-CHECK-SPEC-RATCHET-001",
-      "notes": "Real drift discovered when this gate ran for the first time. Common contract drift: BatchStatus.STOCKED removed (renamed?), Species/Batch DeepPartial[] vs full entity[] mismatch, NatsEventBus → OutboxPublisher type narrowing, weight property restructuring. Cleanup tracked under TYPE-CHECK-SPEC-RATCHET-001."
+      "finding": "PROC-MEDIUM-007",
+      "notes": "Real drift discovered when this gate ran for the first time. Common contract drift: BatchStatus.STOCKED removed (renamed?), Species/Batch DeepPartial[] vs full entity[] mismatch, NatsEventBus → OutboxPublisher type narrowing, weight property restructuring. Cleanup tracked under PROC-MEDIUM-007."
     },
     "apps/gateway-api": {
       "errors": 0,
@@ -49,17 +48,17 @@
     },
     "apps/hr-service": {
       "errors": 46,
-      "finding": "TYPE-CHECK-SPEC-RATCHET-001",
+      "finding": "PROC-MEDIUM-007",
       "notes": "Drift to be cleaned in a follow-up PR. HR domain contract types most likely root cause."
     },
     "apps/hydroponics-service": {
       "errors": 3,
-      "finding": "TYPE-CHECK-SPEC-RATCHET-001",
+      "finding": "PROC-MEDIUM-007",
       "notes": "Small drift — close-out candidate."
     },
     "apps/messaging-service": {
       "errors": 9,
-      "finding": "TYPE-CHECK-SPEC-RATCHET-001",
+      "finding": "PROC-MEDIUM-007",
       "notes": "Drift to be cleaned in a follow-up PR. NATS / outbox handler types most likely root cause."
     },
     "apps/notification-service": {
@@ -74,7 +73,7 @@
     },
     "libs/backend-common": {
       "errors": 9,
-      "finding": "TYPE-CHECK-SPEC-RATCHET-001",
+      "finding": "PROC-MEDIUM-007",
       "notes": "Drift to be cleaned in a follow-up PR. Shared library contract drift — fixing here unblocks downstream services."
     },
     "libs/event-contracts": {
@@ -82,7 +81,7 @@
     },
     "libs/migration-harness": {
       "errors": 27,
-      "finding": "TYPE-CHECK-SPEC-RATCHET-001",
+      "finding": "PROC-MEDIUM-007",
       "notes": "Drift to be cleaned in a follow-up PR. Migration test harness contract drift."
     },
     "libs/storage": {

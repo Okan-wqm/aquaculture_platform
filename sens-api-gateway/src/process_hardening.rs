@@ -494,8 +494,6 @@ pub mod mlock {
         }
 
         /// MlockState can be constructed + compared by value.
-        /// Pin the field shape so audit consumers don't see
-        /// silent breakage.
         #[test]
         fn mlock_state_field_shape_pinned() {
             let s = MlockState {
@@ -524,30 +522,16 @@ pub mod mlock {
         /// On Linux: `mlock_all_pages` returns either Ok
         /// (running as root or with CAP_IPC_LOCK / sufficient
         /// RLIMIT_MEMLOCK) OR a structured Err. NEVER panics.
-        /// CI runners typically don't have the cap so we
-        /// accept either outcome — what matters is the
-        /// shape contract, not the env-dependent verdict.
         #[cfg(target_os = "linux")]
         #[test]
         fn mlock_all_pages_returns_structured_result_no_panic() {
             let result = mlock_all_pages();
-            // Either branch is acceptable; the test asserts
-            // the function does not panic + returns the
-            // expected shape.
             match result {
                 Ok(state) => {
-                    // When mlockall succeeds, both flags are
-                    // active per our hard-coded MCL_CURRENT |
-                    // MCL_FUTURE.
                     assert!(state.locked_current);
                     assert!(state.locked_future);
                 }
                 Err(e) => {
-                    // Acceptable error classes in CI: NotPermitted
-                    // (no CAP_IPC_LOCK), InsufficientLimit
-                    // (RLIMIT_MEMLOCK too small), or UnknownErrno
-                    // (unusual env). The unsupported-platform
-                    // class is impossible on Linux.
                     assert!(
                         !matches!(e, MlockError::UnsupportedPlatform),
                         "Linux should never return UnsupportedPlatform, got {:?}",
@@ -566,22 +550,15 @@ pub mod mlock {
         }
 
         /// `proc_self_vm_locked_bytes` parses the kernel's
-        /// VmLck format. On Linux, the call returns Some(n) —
-        /// the value depends on env (running as root with
-        /// mlockall succeeded vs CI without). What matters is
-        /// the parser returns Some when the file exists +
-        /// has the expected line shape.
+        /// VmLck format. On Linux it returns Some(n).
         #[cfg(target_os = "linux")]
         #[test]
         fn proc_vm_locked_bytes_returns_some_on_linux() {
-            // /proc/self/status always has VmLck on Linux ≥ 2.6.
             let result = proc_self_vm_locked_bytes();
             assert!(
                 result.is_some(),
                 "expected Some(_) from /proc/self/status VmLck on Linux"
             );
-            // Value is always >= 0 (u64); we don't assert >0
-            // because non-root CI runs typically have VmLck=0.
         }
 
         /// `proc_self_vm_locked_bytes` returns None on
@@ -590,6 +567,455 @@ pub mod mlock {
         #[test]
         fn proc_vm_locked_bytes_none_on_non_linux() {
             assert_eq!(proc_self_vm_locked_bytes(), None);
+        }
+    }
+}
+
+// ===================================================================
+// Batch #310 D-2 memfd_secret primitive — strongest in-process secret
+// container. Pages cannot be mapped into other processes (even root
+// cannot read /proc/<pid>/mem on a memfd_secret region per the
+// Linux 5.14+ kernel implementation).
+// ===================================================================
+
+/// `memfd_secret` submodule — Linux 5.14+ syscall providing a
+/// memory file descriptor whose pages are HARDWARE-ISOLATED from
+/// every other process.
+///
+/// ## Why memfd_secret over mlock+plain-mmap
+///
+/// `mlock` (Batch #309) keeps pages OFF SWAP. `prctl(PR_SET_DUMPABLE,
+/// 0)` stops coredumps. But neither prevents:
+///
+/// 1. `/proc/<pid>/mem` reads from a privileged process (root-as-
+///    attacker, post-compromise reconnaissance) — the kernel
+///    happily serves these for ordinary anonymous mmap regions.
+/// 2. Hibernation image inclusion — `swsusp` writes ALL non-zero
+///    user pages to disk on suspend-to-disk; mlock pages are
+///    included.
+/// 3. Live-migration / VM snapshot inclusion — KVM exposes the
+///    full guest RAM to the host; mlock pages are visible.
+///
+/// `memfd_secret(2)` pages are excluded from ALL of the above:
+/// the kernel uses `set_direct_map_invalid_noflush()` to remove
+/// the kernel direct-map of those pages, so even the kernel
+/// itself cannot reach them outside the owning process.
+///
+/// ## Why a fallback path
+///
+/// Linux 5.14 (Aug 2021) is the minimum. Older kernels (5.10
+/// LTS still supported on some embedded distros) do not have
+/// the syscall. The constructor returns `Err(NotSupported)`
+/// and the caller falls back to the mlock+anonymous-mmap path
+/// (Batch #309). The architectural property "secrets in
+/// memfd_secret OR mlock-pinned" is the contract; the
+/// caller's job is to pick the strongest available.
+pub mod memfd_secret {
+
+    use std::ptr::NonNull;
+
+    /// Errors specific to the `memfd_secret(2)` syscall + the
+    /// followup ftruncate / mmap calls.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum MemfdSecretError {
+        /// Kernel does not support memfd_secret (Linux < 5.14
+        /// or built without `CONFIG_SECRETMEM`). Caller falls
+        /// back to mlock + anonymous-mmap.
+        NotSupported,
+        /// `len == 0` is not a useful allocation; rejected at
+        /// constructor time with this distinct variant so
+        /// callers can pin the contract in a unit test.
+        ZeroLength,
+        /// `ftruncate` failed on the memfd_secret fd.
+        TruncateFailed { errno: i32, label: String },
+        /// `mmap` failed on the memfd_secret fd.
+        MmapFailed { errno: i32, label: String },
+        /// memfd_secret syscall returned an unexpected errno.
+        UnexpectedErrno { errno: i32, label: String },
+    }
+
+    impl std::fmt::Display for MemfdSecretError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                Self::NotSupported => f.write_str("memfd_secret_not_supported"),
+                Self::ZeroLength => f.write_str("memfd_secret_zero_length"),
+                Self::TruncateFailed { errno, label } => {
+                    write!(f, "memfd_secret_truncate_failed_errno_{}: {}", errno, label)
+                }
+                Self::MmapFailed { errno, label } => {
+                    write!(f, "memfd_secret_mmap_failed_errno_{}: {}", errno, label)
+                }
+                Self::UnexpectedErrno { errno, label } => {
+                    write!(f, "memfd_secret_unexpected_errno_{}: {}", errno, label)
+                }
+            }
+        }
+    }
+
+    impl std::error::Error for MemfdSecretError {}
+
+    /// Owned memfd_secret region. Drops via munmap + close.
+    /// Kernel automatically zeroes the pages on release.
+    ///
+    /// **Why `Send` (manual unsafe impl):** the struct owns
+    /// `(fd, ptr, len)` exclusively — no aliasing, no shared
+    /// state, the destructor releases the kernel resources.
+    /// Moving across threads is safe.
+    ///
+    /// **Why NOT `Sync`:** the `as_mut_slice` API requires
+    /// `&mut self` exclusivity; callers needing shared access
+    /// must wrap in `Mutex<MemfdSecretRegion>`. This matches
+    /// `Vec<u8>`'s shape — same exclusivity model.
+    pub struct MemfdSecretRegion {
+        fd: i32,
+        ptr: NonNull<u8>,
+        len: usize,
+    }
+
+    // SAFETY: the struct owns its (fd, ptr, len) tuple
+    // exclusively. There is no shared state between threads.
+    // The Drop impl releases the kernel resources.
+    unsafe impl Send for MemfdSecretRegion {}
+
+    impl std::fmt::Debug for MemfdSecretRegion {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("MemfdSecretRegion")
+                .field("fd", &self.fd)
+                .field("len", &self.len)
+                .field("contents", &"<REDACTED memfd_secret region>")
+                .finish()
+        }
+    }
+
+    /// Probe whether the running kernel supports memfd_secret.
+    /// Cheap (one syscall returning -1/ENOSYS or a fd we
+    /// immediately close).
+    #[cfg(target_os = "linux")]
+    pub fn is_supported() -> bool {
+        // Linux syscall number 447 on x86_64 + arm64.
+        // libc 0.2 exposes the wrapper as `libc::SYS_memfd_secret`
+        // on supported targets; not all targets carry the
+        // constant, so we fall back to the raw syscall number.
+        // Calling with flags=0 is documented stable.
+
+        // SAFETY: syscall number 447 with flags=0 is the
+        // documented memfd_secret signature. Returns a non-
+        // negative fd on success or -1 with errno set. No
+        // user-memory access.
+        let rc = unsafe { libc::syscall(libc::SYS_memfd_secret, 0u32) };
+        if rc < 0 {
+            return false;
+        }
+        // SAFETY: rc is a valid file descriptor we just got
+        // from the kernel; closing it releases the secret
+        // region (which has zero length).
+        unsafe {
+            libc::close(rc as i32);
+        }
+        true
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    pub fn is_supported() -> bool {
+        false
+    }
+
+    impl MemfdSecretRegion {
+        /// Allocate a fresh `len`-byte memfd_secret region.
+        /// Bytes are kernel-zeroed before return.
+        ///
+        /// FAILURE MODES:
+        /// - `len == 0` → `ZeroLength` (architecturally
+        ///   pointless allocation; fail-closed at the type
+        ///   boundary).
+        /// - kernel ENOSYS → `NotSupported` (Linux < 5.14 or
+        ///   missing `CONFIG_SECRETMEM`).
+        /// - ftruncate / mmap errors → structured variants.
+        ///
+        /// SAFETY DISCIPLINE: every unsafe operation here is
+        /// documented inline. The owning struct's Drop impl
+        /// is the SOLE site that munmaps + closes; no other
+        /// path may release the resources.
+        #[cfg(target_os = "linux")]
+        pub fn allocate(len: usize) -> Result<Self, MemfdSecretError> {
+            if len == 0 {
+                return Err(MemfdSecretError::ZeroLength);
+            }
+
+            // 1. Create the secret memfd. flags=0 (no
+            //    cloexec needed; we do not exec; we never
+            //    leak the fd).
+            // SAFETY: SYS_memfd_secret with flags=0 is the
+            // documented call. Returns -1/errno on failure.
+            let fd = unsafe { libc::syscall(libc::SYS_memfd_secret, 0u32) } as i32;
+            if fd < 0 {
+                let err = std::io::Error::last_os_error();
+                let errno = err.raw_os_error().unwrap_or(0);
+                if errno == libc::ENOSYS {
+                    return Err(MemfdSecretError::NotSupported);
+                }
+                return Err(MemfdSecretError::UnexpectedErrno {
+                    errno,
+                    label: err.to_string(),
+                });
+            }
+
+            // 2. Set the region size with ftruncate.
+            // SAFETY: ftruncate on an owned fd is
+            // documented stable; len is a valid positive
+            // off_t. On failure we close the fd before
+            // returning to avoid leaking it.
+            let rc = unsafe { libc::ftruncate(fd, len as libc::off_t) };
+            if rc != 0 {
+                let err = std::io::Error::last_os_error();
+                let errno = err.raw_os_error().unwrap_or(0);
+                let label = err.to_string();
+                // SAFETY: closing the fd we just opened.
+                unsafe { libc::close(fd) };
+                return Err(MemfdSecretError::TruncateFailed { errno, label });
+            }
+
+            // 3. mmap PROT_READ|PROT_WRITE MAP_SHARED.
+            //    MAP_SHARED is required for memfd_secret —
+            //    MAP_PRIVATE is rejected with EINVAL by
+            //    the kernel.
+            // SAFETY: addr=NULL lets the kernel choose;
+            // len matches ftruncate; fd is the valid memfd.
+            let ptr = unsafe {
+                libc::mmap(
+                    std::ptr::null_mut(),
+                    len,
+                    libc::PROT_READ | libc::PROT_WRITE,
+                    libc::MAP_SHARED,
+                    fd,
+                    0,
+                )
+            };
+            if ptr == libc::MAP_FAILED {
+                let err = std::io::Error::last_os_error();
+                let errno = err.raw_os_error().unwrap_or(0);
+                let label = err.to_string();
+                // SAFETY: closing the fd we just opened.
+                unsafe { libc::close(fd) };
+                return Err(MemfdSecretError::MmapFailed { errno, label });
+            }
+
+            // SAFETY: kernel returned a non-MAP_FAILED ptr
+            // so it is non-null + page-aligned + len bytes
+            // long.
+            let nn = NonNull::new(ptr as *mut u8)
+                .expect("mmap returned non-MAP_FAILED ptr that is null");
+
+            Ok(Self { fd, ptr: nn, len })
+        }
+
+        /// Non-Linux fallback: never supported.
+        #[cfg(not(target_os = "linux"))]
+        pub fn allocate(_len: usize) -> Result<Self, MemfdSecretError> {
+            Err(MemfdSecretError::NotSupported)
+        }
+
+        /// Read-only slice view of the region. Lifetime tied
+        /// to `&self`.
+        pub fn as_slice(&self) -> &[u8] {
+            // SAFETY: ptr is a valid len-byte mmap'd region
+            // owned by self for the lifetime of the borrow.
+            // No mutation through this borrow (Rust's
+            // borrow checker enforces).
+            unsafe { std::slice::from_raw_parts(self.ptr.as_ptr(), self.len) }
+        }
+
+        /// Mutable slice view. Exclusive access via &mut self.
+        pub fn as_mut_slice(&mut self) -> &mut [u8] {
+            // SAFETY: ptr is a valid len-byte mmap'd region
+            // owned by self with exclusive access guaranteed
+            // by &mut self.
+            unsafe { std::slice::from_raw_parts_mut(self.ptr.as_ptr(), self.len) }
+        }
+
+        /// Region length in bytes.
+        pub fn len(&self) -> usize {
+            self.len
+        }
+
+        /// True when the region holds zero bytes (only
+        /// reachable via constructors that allow it; the
+        /// public allocate() rejects zero-length).
+        pub fn is_empty(&self) -> bool {
+            self.len == 0
+        }
+    }
+
+    impl Drop for MemfdSecretRegion {
+        fn drop(&mut self) {
+            #[cfg(target_os = "linux")]
+            {
+                // SAFETY: ptr + len match the mmap call;
+                // fd is the original memfd. Both calls
+                // release kernel resources owned by self.
+                // Kernel zeroes the pages on release per
+                // memfd_secret semantics.
+                unsafe {
+                    libc::munmap(self.ptr.as_ptr() as *mut libc::c_void, self.len);
+                    libc::close(self.fd);
+                }
+            }
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn memfd_secret_error_display_strings_pinned() {
+            assert_eq!(
+                format!("{}", MemfdSecretError::NotSupported),
+                "memfd_secret_not_supported",
+            );
+            assert_eq!(
+                format!("{}", MemfdSecretError::ZeroLength),
+                "memfd_secret_zero_length",
+            );
+            assert_eq!(
+                format!(
+                    "{}",
+                    MemfdSecretError::TruncateFailed {
+                        errno: 22,
+                        label: "Invalid argument".into()
+                    }
+                ),
+                "memfd_secret_truncate_failed_errno_22: Invalid argument",
+            );
+            assert_eq!(
+                format!(
+                    "{}",
+                    MemfdSecretError::MmapFailed {
+                        errno: 12,
+                        label: "Cannot allocate memory".into()
+                    }
+                ),
+                "memfd_secret_mmap_failed_errno_12: Cannot allocate memory",
+            );
+        }
+
+        #[test]
+        fn memfd_secret_error_implements_std_error() {
+            fn assert_err<E: std::error::Error>() {}
+            assert_err::<MemfdSecretError>();
+        }
+
+        #[test]
+        fn memfd_secret_zero_length_rejected() {
+            let result = MemfdSecretRegion::allocate(0);
+            assert_eq!(result.err(), Some(MemfdSecretError::ZeroLength));
+        }
+
+        /// is_supported probe never panics + returns bool.
+        /// Kernel ≥ 5.14 returns true; older kernels +
+        /// non-Linux return false.
+        #[test]
+        fn is_supported_returns_bool_no_panic() {
+            let _supported: bool = is_supported();
+            // No assertion on value — env-dependent. Test
+            // pins the contract that the probe is callable
+            // and the return type is bool.
+        }
+
+        /// On supported kernels (this dev env is 6.8),
+        /// allocate succeeds + the region round-trips writes.
+        /// On unsupported kernels the test gets `Err(NotSupported)`
+        /// and exits cleanly.
+        #[cfg(target_os = "linux")]
+        #[test]
+        fn memfd_secret_allocate_round_trip_when_supported() {
+            if !is_supported() {
+                eprintln!(
+                    "memfd_secret not supported on this kernel — \
+                     test skipped (Err(NotSupported) is the \
+                     expected path; allocate() would also reject)"
+                );
+                return;
+            }
+            let mut region = match MemfdSecretRegion::allocate(64) {
+                Ok(r) => r,
+                Err(MemfdSecretError::NotSupported) => return,
+                Err(e) => panic!("unexpected allocate error: {:?}", e),
+            };
+
+            assert_eq!(region.len(), 64);
+            assert!(!region.is_empty());
+
+            // Kernel zeroes pages on allocate per
+            // memfd_secret semantics.
+            assert_eq!(region.as_slice(), &[0u8; 64]);
+
+            // Write + read round-trip.
+            for (i, b) in region.as_mut_slice().iter_mut().enumerate() {
+                *b = (i as u8).wrapping_mul(3);
+            }
+            for (i, b) in region.as_slice().iter().enumerate() {
+                assert_eq!(*b, (i as u8).wrapping_mul(3));
+            }
+            // Drop releases munmap + close; kernel zeroes
+            // pages on release.
+        }
+
+        /// Multiple regions can coexist + each has its own
+        /// independent storage.
+        #[cfg(target_os = "linux")]
+        #[test]
+        fn memfd_secret_multiple_regions_isolated() {
+            if !is_supported() {
+                return;
+            }
+            let mut a = match MemfdSecretRegion::allocate(16) {
+                Ok(r) => r,
+                Err(MemfdSecretError::NotSupported) => return,
+                Err(e) => panic!("a: {:?}", e),
+            };
+            let mut b = match MemfdSecretRegion::allocate(16) {
+                Ok(r) => r,
+                Err(MemfdSecretError::NotSupported) => return,
+                Err(e) => panic!("b: {:?}", e),
+            };
+            a.as_mut_slice().fill(0xaa);
+            b.as_mut_slice().fill(0xbb);
+            assert_eq!(a.as_slice()[0], 0xaa);
+            assert_eq!(b.as_slice()[0], 0xbb);
+            assert_ne!(a.as_slice()[0], b.as_slice()[0]);
+        }
+
+        /// Send is implemented (compile-time check).
+        #[test]
+        fn memfd_secret_region_is_send() {
+            fn assert_send<T: Send>() {}
+            assert_send::<MemfdSecretRegion>();
+        }
+
+        /// Debug impl REDACTS contents (no byte hex in the
+        /// formatted string).
+        #[cfg(target_os = "linux")]
+        #[test]
+        fn memfd_secret_debug_redacts_contents() {
+            if !is_supported() {
+                return;
+            }
+            let mut region = match MemfdSecretRegion::allocate(8) {
+                Ok(r) => r,
+                Err(MemfdSecretError::NotSupported) => return,
+                Err(e) => panic!("alloc: {:?}", e),
+            };
+            // Fill with a recognizable byte.
+            region.as_mut_slice().fill(0xde);
+            let debug = format!("{:?}", region);
+            assert!(debug.contains("REDACTED"));
+            // Should NOT leak the byte hex.
+            assert!(
+                !debug.to_lowercase().contains("de de de"),
+                "debug must not include byte hex: {}",
+                debug
+            );
         }
     }
 }

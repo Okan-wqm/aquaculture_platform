@@ -8,6 +8,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import Decimal from 'decimal.js';
 import { Invoice, InvoiceStatus, InvoiceLineItem, TaxInfo, BillingAddress } from '../entities/invoice.entity';
 import { Subscription, SubscriptionStatus, BillingCycle, PlanTier } from '../entities/subscription.entity';
 
@@ -122,8 +123,8 @@ describe('Invoice Service', () => {
           status: InvoiceStatus.DRAFT,
           lineItems: mockLineItems,
           billingAddress: mockBillingAddress,
-          subtotal: 149.00,
-          total: 149.00,
+          subtotal: new Decimal('149.00'),
+          total: new Decimal('149.00'),
           currency: 'USD',
         };
 
@@ -400,7 +401,7 @@ describe('Invoice Service', () => {
 
       const invoice: Partial<Invoice> = {
         lineItems: [],
-        subtotal: 100,
+        subtotal: new Decimal(100),
       };
 
       const adjustment = addAdjustment(invoice, -20, 'Service credit');
@@ -485,8 +486,8 @@ describe('Invoice Service', () => {
               amount: -creditAmount,
             },
           ],
-          subtotal: -creditAmount,
-          total: -creditAmount,
+          subtotal: new Decimal(-creditAmount),
+          total: new Decimal(-creditAmount),
           isCreditMemo: true,
         };
       };
@@ -494,7 +495,7 @@ describe('Invoice Service', () => {
       const originalInvoice: Partial<Invoice> = {
         id: 'inv-123',
         invoiceNumber: 'INV-2024-0001',
-        total: 500,
+        total: new Decimal(500),
       };
 
       const creditMemo = createCreditMemo(originalInvoice, 100, 'Billing error');
@@ -629,7 +630,7 @@ describe('Invoice Service', () => {
 
       const invoice: Partial<Invoice> = {
         invoiceNumber: 'INV-2024-0001',
-        total: 199.00,
+        total: new Decimal('199.00'),
       };
 
       const pdf = await generatePdf(invoice);

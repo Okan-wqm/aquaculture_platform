@@ -20,9 +20,8 @@
       "notes": "Cleaned by PR-31 (chore/auth-service-spec-baseline-cleanup-pr31). Five root causes: (1) authentication.service.spec.ts imported 'bcrypt' (no @types) but PRODUCTION uses 'bcryptjs' — the spies were patching the wrong module entirely, leaving real bcryptjs.compare calls un-mocked AND triggering the no-types error; aligned to bcryptjs (a real bug, not just a type fix). (2) Same spec used string 'suspended' literal instead of TenantStatus.SUSPENDED enum value. (3) mockRefreshTokenRepository missing findOne; per-test reassignments tripped strict-tsc — declared in literal. (4) SendMessageInput / AddTicketCommentInput grew required isInternal; 11 spec inputs missing it — added isInternal: false where the test wasn't testing internal-note behaviour. (5) Various noUncheckedIndexedAccess + implicit-any callbacks fixed with `!` and `(t: unknown)` annotations + cast. Locked at 0."
     },
     "apps/billing-service": {
-      "errors": 40,
-      "finding": "PROC-MEDIUM-007",
-      "notes": "Drift to be cleaned in a follow-up PR. Subscription / invoice contract types most likely root cause."
+      "errors": 0,
+      "notes": "Cleaned by PR-33 (chore/billing-service-spec-baseline-cleanup-pr33). Root cause: monetary fields on Invoice/Payment entities were narrowed from `number` to `Decimal` (decimal.js) for lossless precision via @MoneyColumn transformer. 36 specs hardcoded plain numeric literals (subtotal: 149.00, amount: 199, etc.) — strict-tsc rejected. Fixed by importing Decimal in 3 specs and wrapping each literal with `new Decimal(N)`; arithmetic helpers updated to call `.toNumber()` at boundaries (test-only helpers; production allocators stay Decimal end-to-end). Plus: BillingSchedulerService gained a DataSource constructor param (only 3 of 4 args were being passed); UsageEvent.timestamp narrowed to ISO string but spec called `.getTime()` (now `new Date(event.timestamp).getTime()`). Locked at 0."
     },
     "apps/config-service": {
       "errors": 0

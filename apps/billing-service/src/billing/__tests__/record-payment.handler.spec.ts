@@ -10,6 +10,7 @@
  * - Invoice status gating (only payable statuses accepted)
  */
 
+import Decimal from 'decimal.js';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
 import { RecordPaymentHandler } from '../../billing/handlers/record-payment.handler';
@@ -193,8 +194,8 @@ describe('RecordPaymentHandler', () => {
 
     it('should accept payment on PARTIALLY_PAID invoice', async () => {
       defaultInvoice.status = InvoiceStatus.PARTIALLY_PAID;
-      defaultInvoice.amountPaid = 100;
-      defaultInvoice.amountDue = 100;
+      defaultInvoice.amountPaid = new Decimal(100);
+      defaultInvoice.amountDue = new Decimal(100);
 
       const result = await handler.execute(buildCommand({ amount: 100 }));
 

@@ -957,6 +957,65 @@ admin-api-service locked at 0.
 
 ---
 
+## 33. auth-service ratchet 26 → 0 + bcrypt-vs-bcryptjs production-mock divergence (RESOLVED in PR-31)
+
+**Files:**
+- `apps/auth-service/src/modules/announcement/__tests__/announcement.service.spec.ts`
+- `apps/auth-service/src/modules/authentication/__tests__/authentication.service.spec.ts`
+- `apps/auth-service/src/modules/messaging/__tests__/messaging.service.spec.ts`
+- `apps/auth-service/src/modules/support/__tests__/support.service.spec.ts`
+
+**Critical finding (NOT just type drift — REAL test correctness bug):**
+
+`authentication.service.spec.ts` imported `bcrypt`, but production
+code (`authentication.service.ts:2`, `token.service.ts:2`,
+`seed.service.ts:4`) imports **`bcryptjs`**. The spec called
+`jest.spyOn(bcrypt, 'compare').mockResolvedValue(false as never)`
+expecting to make password validation fail — but the SUT was
+calling `bcryptjs.compare()` (a different module instance), which
+was NOT mocked. Every "should reject password X" assertion was
+passing for the wrong reason: bcryptjs runs against a placeholder
+test password and returns whatever the random hash compare yields
+— effectively non-deterministic, and silently masking real auth
+regressions.
+
+**Fix:** aligned the spec's import to `bcryptjs`. The spies now
+intercept the real call path AND the missing-types error
+disappears (bcryptjs ships its own types). This is the kind of
+silent-correctness-bug the gate is designed to surface — the type
+error was the SYMPTOM, the wrong-module mock was the DISEASE.
+
+**Other root causes in this PR:**
+
+- **TenantStatus enum:** `createMockTenant({ status: 'suspended' })`
+  used a string literal where the enum was required. Imported
+  `TenantStatus` and used `.SUSPENDED`.
+- **mockRefreshTokenRepository.findOne missing:** same pattern as
+  PR-30's `extendSession` — added to the literal so per-test
+  reassignments work.
+- **SendMessageInput / AddTicketCommentInput grew `isInternal`:**
+  11 spec inputs at messaging + support specs were missing the
+  field. Added `isInternal: false` (the default per the GraphQL
+  schema's `defaultValue: false`).
+- **SupportTicket prototype-method drift on spread:** `{ ...ticket,
+  status: ... }` loses `generateTicketNumber` /
+  `isResponseSLABreached` / `isResolutionSLABreached` instance
+  methods. Cast back to `SupportTicket` at the literal site.
+- **Implicit-any callbacks:** 5× `mockImplementation((t) =>
+  Promise.resolve(t))` on `ticketRepository.save` typed as
+  `(t: unknown) => Promise.resolve(t as SupportTicket)`.
+
+**Severity reflection:** the bcryptjs/bcrypt finding alone
+justifies the gate. This is the second hidden production-
+correctness bug surfaced by the ratchet (after the
+`pH Level → p_h_level` snake-case bug in PR-25). The gate has
+paid for itself twice over in this session.
+
+**PROC-MEDIUM-007 progress:** 6 → 5 dirty projects.
+auth-service locked at 0.
+
+---
+
 ## Closing posture
 
 This file lives at:

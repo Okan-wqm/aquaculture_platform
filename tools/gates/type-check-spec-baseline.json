@@ -16,9 +16,8 @@
       "notes": "Largest drift in the monorepo. Alert-rule + escalation handler tests likely lag the rule schema."
     },
     "apps/auth-service": {
-      "errors": 26,
-      "finding": "PROC-MEDIUM-007",
-      "notes": "Drift to be cleaned in a follow-up PR. JWT / session / RBAC contract types most likely root cause."
+      "errors": 0,
+      "notes": "Cleaned by PR-31 (chore/auth-service-spec-baseline-cleanup-pr31). Five root causes: (1) authentication.service.spec.ts imported 'bcrypt' (no @types) but PRODUCTION uses 'bcryptjs' — the spies were patching the wrong module entirely, leaving real bcryptjs.compare calls un-mocked AND triggering the no-types error; aligned to bcryptjs (a real bug, not just a type fix). (2) Same spec used string 'suspended' literal instead of TenantStatus.SUSPENDED enum value. (3) mockRefreshTokenRepository missing findOne; per-test reassignments tripped strict-tsc — declared in literal. (4) SendMessageInput / AddTicketCommentInput grew required isInternal; 11 spec inputs missing it — added isInternal: false where the test wasn't testing internal-note behaviour. (5) Various noUncheckedIndexedAccess + implicit-any callbacks fixed with `!` and `(t: unknown)` annotations + cast. Locked at 0."
     },
     "apps/billing-service": {
       "errors": 40,

@@ -598,6 +598,18 @@ path = "tests/invariants/two_person_integrity_gate.rs"
 name = "faz1_architectural_primitives"
 path = "tests/invariants/faz1_architectural_primitives.rs"
 
+# Batch #322 Faz 2 D-9 clock-authority wire-status arc —
+# Tier-3 detection seams pinning the init_clock_authority
+# wire + config-driven impl selection (SystemClockAuthority
+# vs ChronyNtsClockAuthority) + Arc<dyn ClockAuthority>
+# AppState field shape + MonotonicDeadline primitive
+# presence. Partial UH-021 closure (the per-consumer
+# SystemTime::now migration backlog stays under
+# ORPHAN-MEDIUM-030).
+[[test]]
+name = "d9_clock_authority_wired"
+path = "tests/invariants/d9_clock_authority_wired.rs"
+
 # Batch 40 plan Faz 2 coherence — validate_faz2_security_coherence rules.
 [[test]]
 name = "config_coherence"

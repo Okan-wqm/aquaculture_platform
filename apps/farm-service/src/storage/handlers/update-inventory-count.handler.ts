@@ -13,7 +13,7 @@ import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, In } from 'typeorm';
 import { Logger, NotFoundException, BadRequestException } from '@nestjs/common';
-import { tenantManagerRepo } from '@aquaculture/backend-common';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { UpdateInventoryCountCommand } from '../commands/update-inventory-count.command';
 import { InventoryCount, InventoryCountStatus } from '../entities/inventory-count.entity';
 import { InventoryCountItem } from '../entities/inventory-count-item.entity';

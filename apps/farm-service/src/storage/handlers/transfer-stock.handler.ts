@@ -2,7 +2,7 @@ import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { NotFoundException, Logger, BadRequestException } from '@nestjs/common';
-import { tenantManagerRepo } from '@aquaculture/backend-common';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { TransferStockCommand } from '../commands/transfer-stock.command';
 import { StorageLocation } from '../entities/storage-location.entity';
 import { StorageInventory, StorageItemType } from '../entities/storage-inventory.entity';

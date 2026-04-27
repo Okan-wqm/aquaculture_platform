@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { DataSource, FindOptionsWhere, MoreThanOrEqual, LessThanOrEqual, Between } from 'typeorm';
 import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
-import { TenantScopedRepository } from '@aquaculture/backend-common';
+import { TenantScopedRepository } from '@aquaculture/backend-common/database';
 import { GetPaymentsQuery } from '../queries/get-payments.query';
 import { Payment } from '../entities/payment.entity';
 

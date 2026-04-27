@@ -3,7 +3,7 @@ import { EventsHandler, IEventHandler, CommandBus } from '@nestjs/cqrs';
 import { DataSource } from 'typeorm';
 import { Cron } from '@nestjs/schedule';
 import { NatsEventBus } from '@platform/event-bus';
-import { TenantScopedRepository } from '@aquaculture/backend-common';
+import { TenantScopedRepository } from '@aquaculture/backend-common/database';
 import { createBaseEvent, SubscriptionProvisioningFailedEvent } from '@platform/event-contracts';
 import { CreateSubscriptionCommand } from '../commands/create-subscription.command';
 import { SubscriptionStatus, BillingCycle, PlanTier } from '../entities/subscription.entity';

@@ -5,7 +5,7 @@ import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConflictException, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
-import { tenantManagerRepo } from '@aquaculture/backend-common';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { CreateChemicalCommand } from '../commands/create-chemical.command';
 import { Chemical, ChemicalStatus } from '../entities/chemical.entity';
 import { ChemicalSite } from '../entities/chemical-site.entity';

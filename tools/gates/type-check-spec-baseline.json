@@ -3,9 +3,8 @@
   "description": "Per-project baseline error counts for tsc -p <project>/tsconfig.spec.json --noEmit. The gate fails on any regression above these numbers; PRs that drive a count down should also update this file (via tools/gates/type-check-spec.ts --update-baseline). Projects pinned at 0 cannot regress without a CI failure.",
   "projects": {
     "apps/admin-api-service": {
-      "errors": 14,
-      "finding": "PROC-MEDIUM-007",
-      "notes": "Drift to be cleaned in a follow-up PR. Most likely contract drift in admin endpoints; same pattern as gateway-api #164."
+      "errors": 0,
+      "notes": "Cleaned by PR-30 (chore/admin-api-service-spec-baseline-cleanup-pr30). Two root causes: (1) ImpersonationService grew an extendSession() method (line ~589) but the controller spec mock literal didn't track it; tests at line 680/690/698/708 then assigned `mock.extendSession = jest.fn()` which strict-tsc rejects because the mock literal is the type anchor. Added extendSession to the mock declaration. (2) provisioning-saga.service.spec.ts has 10 array-index access errors (`result.steps[N].name`) that strict-tsc rejects under noUncheckedIndexedAccess — added `!` non-null assertions after the toHaveLength matchers prove bounds. Locked at 0."
     },
     "apps/ai-service": {
       "errors": 0,

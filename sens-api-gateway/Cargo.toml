@@ -637,6 +637,17 @@ path = "tests/invariants/mtls_rotation_stage_monotonic.rs"
 name = "no_system_time_for_ttl"
 path = "tests/invariants/no_system_time_for_ttl.rs"
 
+# Batch #328 Faz 2 D-6 mTLS unified assembly
+# wire-status arc — Tier-3 detection seams pinning
+# build_suderra_verifier as the SSoT for verifier
+# construction + wiring decision matrix +
+# StrictModeRequiresPins fail-closed gate + mqtt.rs
+# consumer wiring + mod.rs re-exports + matrix doc
+# table. Closes UH-020.
+[[test]]
+name = "mtls_unified_assembly"
+path = "tests/invariants/mtls_unified_assembly.rs"
+
 # Batch 40 plan Faz 2 coherence — validate_faz2_security_coherence rules.
 [[test]]
 name = "config_coherence"

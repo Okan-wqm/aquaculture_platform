@@ -334,6 +334,15 @@ impl ForceRegistryStore {
                 applied_at,
                 expires_at_unix,
                 persist_across_reboot: persist_int != 0,
+                // Batch #314 D-9 migration: persisted entries
+                // arrive with None deadline. load_into_registry
+                // re-applies them through registry.apply() which
+                // mints a fresh MonotonicDeadline using the
+                // current clock; sweep_expired_with_clock has a
+                // belt-and-braces rehydration pass that also
+                // mints the deadline if the entry somehow lands
+                // in the registry without one.
+                monotonic_deadline: None,
             });
         }
         Ok(entries)
@@ -373,6 +382,13 @@ impl ForceRegistryStore {
 pub async fn load_into_registry(
     store: &ForceRegistryStore,
     registry: &ForceRegistry,
+    // Batch #314 D-9 migration: clock injection so the
+    // restored entries pick up MonotonicDeadline anchors
+    // through the standard apply() gate. Failing-closed on
+    // an unhealthy clock at load time is the conservative
+    // posture — operator must resolve the clock before
+    // forces can be restored.
+    clock: &dyn crate::runtime_safety::ClockAuthority,
 ) -> Vec<Result<String, (String, String)>> {
     let entries = match store.load_all() {
         Ok(e) => e,
@@ -408,6 +424,7 @@ pub async fn load_into_registry(
                 entry.reason,
                 remaining_ttl,
                 entry.persist_across_reboot,
+                clock,
             )
             .await
         {
@@ -434,6 +451,11 @@ mod tests {
             applied_at: Utc::now(),
             expires_at_unix: Utc::now().timestamp() + ttl_secs_offset,
             persist_across_reboot: persist,
+            // Batch #314 D-9 migration: persisted entries have
+            // None deadline at construction; the load-into-
+            // registry path mints the MonotonicDeadline at
+            // load time using the injected ClockAuthority.
+            monotonic_deadline: None,
         }
     }
 
@@ -504,7 +526,8 @@ mod tests {
         store.save(&mk_entry("tag_b", true, 600)).expect("ok");
 
         let registry = ForceRegistry::new();
-        let results = load_into_registry(&store, &registry).await;
+        let clock = crate::runtime_safety::SystemClockAuthority::new();
+        let results = load_into_registry(&store, &registry, &clock).await;
         assert_eq!(results.len(), 2);
         assert!(results.iter().all(|r| r.is_ok()));
         assert_eq!(registry.active_count().await, 2);
@@ -521,7 +544,8 @@ mod tests {
         store.save(&mk_entry("tag_live", true, 300)).expect("ok");
 
         let registry = ForceRegistry::new();
-        let results = load_into_registry(&store, &registry).await;
+        let clock = crate::runtime_safety::SystemClockAuthority::new();
+        let results = load_into_registry(&store, &registry, &clock).await;
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].as_ref().unwrap(), "tag_live");
         assert_eq!(registry.active_count().await, 1);
@@ -536,7 +560,8 @@ mod tests {
     async fn load_into_registry_empty_store_yields_empty_results() {
         let store = ForceRegistryStore::in_memory().expect("ok");
         let registry = ForceRegistry::new();
-        let results = load_into_registry(&store, &registry).await;
+        let clock = crate::runtime_safety::SystemClockAuthority::new();
+        let results = load_into_registry(&store, &registry, &clock).await;
         assert!(results.is_empty());
     }
 }

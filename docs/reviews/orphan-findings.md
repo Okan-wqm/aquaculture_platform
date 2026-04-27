@@ -1150,6 +1150,42 @@ This entry serves as the architectural decision record. Future reviewers asking 
 
 The recommendation is closed-without-implementation because re-running the same assertion through a slower test surface adds latency to CI without adding signal. Re-opening this finding would require a NEW failure class that none of layers 1-6 catch.
 
+## 2026-04-27 ORPHAN-LINT-SCOPE-002 — `no-restricted-imports` (root-barrel ban) shares the same affected-vs-all CI gap as `no-restricted-syntax`
+
+**Status:** OPEN — same architectural class as ORPHAN-CI-PROVISIONING-001 / AUDIT-MEDIUM-014, scoped to a different ESLint rule.
+
+**Scope:** `.eslintrc.json:86-99` (`no-restricted-imports` rule banning `@aquaculture/backend-common` + `@platform/backend-common` root paths). 13 unmigrated files surfaced in PR #159 commit `fce98510` were the visible symptom; the invisible class is "any future commit can re-introduce the root-path import without ci-affected catching it."
+
+**Why this is plan-independent:**
+
+The AUDIT-MEDIUM-005 codemod (`810eae97`) migrated then-existing root-barrel users into per-subtree imports + added the lint rule. CI's `nx affected -t lint` only ran on projects whose dependency graph the diff touched, so 13 unmigrated files outside that scope were missed. The 2026-04-27 cleanup commit fixed the 13 files but did NOT add a Tier-3 detector that would have caught them at PR-time.
+
+**Architectural fix (Tier-3 invariant — mirrors the no-direct-getrepository pattern):**
+
+Add `tests/invariants/no-root-barrel-import.spec.ts` that walks every tracked .ts file via `git ls-files` and asserts no `import ... from '@aquaculture/backend-common'` (root) AND no `import ... from '@platform/backend-common'` (root) appears. The exemption set is the per-subtree `/<name>` form (`/database`, `/auth`, `/audit`, etc.).
+
+The pattern mirrors `no-direct-getrepository-call.spec.ts` exactly:
+- Walks tracked source via `git ls-files`
+- Skips test/__tests__/__mocks__/migrations
+- Runs in `invariants:fast` (the always-on PR gate per AUDIT-CRITICAL-003)
+- Bypasses Nx affected scope entirely
+
+**Why I am NOT shipping this in PR #159:**
+
+Adding a 3rd Tier-3 detector inflates the suite's surface area. Two are enough to close the immediate cold-audit class (`no-direct-getrepository-call` for `getRepository`, plus this orphan record for the next iteration). A separate small PR scoped just to "add no-root-barrel-import invariant + zero violations" is the cleaner architectural shape — the invariant lands AFTER the cleanup commit (`fce98510`) so its first run is green.
+
+**Closure path:**
+
+1. Open a follow-up PR `feat(invariants): no-root-barrel-import Tier-3 detector`.
+2. Add `tests/invariants/no-root-barrel-import.spec.ts` modelled on `no-direct-getrepository-call.spec.ts`.
+3. Wire into `tests/invariants/jest.config.ts` layer-1 `testMatch`.
+4. CI's invariants:fast gate fires — confirms green at landing time.
+5. Commit carries `Closes: docs/reviews/orphan-findings.md#ORPHAN-LINT-SCOPE-002`.
+
+**Why a parallel-pattern detector matters:**
+
+The `nx affected -t lint` scope class will keep producing instances of "rule fires correctly on a clean PR but silently accumulates violations in unrelated services." Each orphan we surface (AUDIT-MEDIUM-014 for `no-restricted-syntax`, this entry for `no-restricted-imports`) is one more case where the always-on invariants:fast shard catches what affected-lint misses. Until the platform either (a) provisions Nx Cloud + flips ci-affected to ci-all on every PR, OR (b) builds an invariants-shard equivalent for every gating ESLint rule, this class will keep producing surface area.
+
 ## 2026-04-23 ORPHAN-COMMIT-TRAILER-001 — `SEC-REVIEW-NNN` IDs not registrable; `Closes:` trailers are decorative on `test()` subjects
 
 **Status:** OPEN — informational; documents an existing pattern, no action required.

@@ -16,6 +16,10 @@
  *   - makeIdempotent fails to inject IF NOT EXISTS into ADD COLUMN
  *   - makeIdempotent corrupts schema-qualified table names
  */
+
+// `export {}` keeps strict-tsc treating this file as a MODULE so its
+// top-level declarations stay file-scoped (PROC-MEDIUM-010 invariant).
+export {};
 describe('SyncHrEntitiesToDb1786800000000 — Phase L whitelist + idempotency', () => {
   // Mirrors apps/hr-service/src/database/migrations/1786800000000-SyncHrEntitiesToDb.ts
   // §6 isValidatorRelevant. Update BOTH if either changes.

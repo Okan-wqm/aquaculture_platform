@@ -7,7 +7,8 @@ import {
   PaymentFailedEvent,
   SubscriptionCancelledEvent,
 } from '@platform/event-contracts';
-import { RedisService, Money } from '@aquaculture/backend-common';
+import { Money } from '@aquaculture/backend-common/monetary';
+import { RedisService } from '@aquaculture/backend-common/redis';
 import Decimal from 'decimal.js';
 import { Payment, PaymentStatus, PaymentMethod } from '../entities/payment.entity';
 import { Invoice, InvoiceStatus } from '../entities/invoice.entity';

@@ -1,0 +1,30 @@
+error[E0521]: borrowed data escapes outside of closure
+  --> tests/compile_fail/escape_through_into_inner_into_other_brand.rs:31:32
+   |
+25 |         let scoped_a = ctx_a.scope(7_i32);
+   |             -------- `scoped_a` declared here, outside of the closure body
+26 |
+27 |         with_tenant(b, |ctx_b: &TenantCtx<'_>| {
+   |                         ----- `ctx_b` is a reference that is only valid in the closure body
+...
+31 |             let _leaked: i32 = ctx_b.unwrap_scoped(scoped_a);
+   |                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `ctx_b` escapes the closure body here
+   |
+   = note: requirement occurs because of the type `Scoped<'_, i32>`, which makes the generic argument `'_` invariant
+   = note: the struct `Scoped<'brand, T>` is invariant over the parameter `'brand`
+   = help: see <https://doc.rust-lang.org/nomicon/subtyping.html> for more information about variance
+
+error[E0521]: borrowed data escapes outside of closure
+  --> tests/compile_fail/escape_through_into_inner_into_other_brand.rs:31:32
+   |
+23 |     with_tenant(a, |ctx_a: &TenantCtx<'_>| {
+   |                     -----
+   |                     |
+   |                     `ctx_a` is a reference that is only valid in the closure body
+   |                     has type `&TenantCtx<'1>`
+...
+31 |             let _leaked: i32 = ctx_b.unwrap_scoped(scoped_a);
+   |                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |                                |
+   |                                `ctx_a` escapes the closure body here
+   |                                argument requires that `'1` must outlive `'static`

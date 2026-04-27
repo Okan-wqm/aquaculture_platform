@@ -1,0 +1,11 @@
+{
+  "name": "tcp_mbap_basic",
+  "description": "MBAP header for FC 0x03 read-holding request: txn=1, unit=1, length=6 (covers unit + 5-byte PDU). Tail bytes (the PDU) are ignored by the MBAP-only decoder.",
+  "decoder": "parse_mbap_header",
+  "wire_hex": "0001000000060103000000 0a",
+  "expected_ok": {
+    "transaction_id": 1,
+    "unit_id": 1,
+    "pdu_length": 5
+  }
+}

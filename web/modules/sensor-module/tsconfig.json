@@ -19,7 +19,16 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["src/*"],
-      "@aquaculture/shared-ui": ["../../shared-ui/src"]
+      "@aquaculture/shared-ui": ["../../shared-ui/src"],
+      "@aquaculture/node-components": [
+        "../../../libs/node-components/src/index.ts"
+      ],
+      "@aquaculture/node-components/edges": [
+        "../../../libs/node-components/src/edges/index.ts"
+      ],
+      "@platform/sensor-automation-types": [
+        "../../../libs/sensor-automation-types/src/index.ts"
+      ]
     }
   },
   "include": ["src"],

@@ -23,6 +23,9 @@ import { TankOperation } from '../batch/entities/tank-operation.entity';
 import { Batch } from '../batch/entities/batch.entity';
 import { Species } from '../species/entities/species.entity';
 
+// Services
+import { TankCapacityService } from './services/tank-capacity.service';
+
 // Handlers
 import { TankHandlers } from './handlers';
 
@@ -41,11 +44,16 @@ import { TankResolver } from './resolvers/tank.resolver';
     ]),
   ],
   providers: [
+    TankCapacityService,
     ...TankHandlers,
     TankResolver,
   ],
   exports: [
     TypeOrmModule,
+    // Exported so batch handlers (deploy-cleaner-fish, allocate-to-tank,
+    // transfer-batch, create-batch) can consume the density check
+    // without re-declaring the calculation.
+    TankCapacityService,
   ],
 })
 export class TankModule {}

@@ -15,6 +15,7 @@
  * @module Harvest
  */
 import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 // Entities
@@ -29,6 +30,7 @@ import { TankOperation } from '../batch/entities/tank-operation.entity';
 
 // Services
 import { HarvestPlanService } from './services/harvest-plan.service';
+import { HarvestPolicyService } from './services/harvest-policy.service';
 
 // Command Handlers
 import { CreateHarvestRecordHandler } from './handlers/create-harvest-record.handler';
@@ -44,6 +46,15 @@ import { GetHarvestStatisticsHandler } from './handlers/get-harvest-statistics.h
 import { HarvestResolver } from './resolvers/harvest.resolver';
 import { HarvestPlanResolver } from './resolvers/harvest-plan.resolver';
 
+// Cross-module: withdrawal-period / harvest-eligibility enforcement lives
+// in the fish-health module and is shared here so createHarvestRecord can
+// block harvests that would violate an active medicine withdrawal window.
+import { FishHealthModule } from '../fish-health/fish-health.module';
+
+// Cross-cutting: backdate policy for harvest records
+// (HARVEST_BACKDATE_LIMIT_DAYS, default 7).
+import { BackdatePolicyModule } from '../common/services/backdate-policy.module';
+
 @Module({
   imports: [
     TypeOrmModule.forFeature([
@@ -54,10 +65,14 @@ import { HarvestPlanResolver } from './resolvers/harvest-plan.resolver';
       TankBatch,
       TankOperation,
     ]),
+    FishHealthModule,
+    BackdatePolicyModule,
+    ConfigModule,
   ],
   providers: [
     // Services
     HarvestPlanService,
+    HarvestPolicyService,
     // Command Handlers
     CreateHarvestRecordHandler,
     UpdateHarvestRecordHandler,
@@ -73,6 +88,7 @@ import { HarvestPlanResolver } from './resolvers/harvest-plan.resolver';
   exports: [
     TypeOrmModule,
     HarvestPlanService,
+    HarvestPolicyService,
   ],
 })
 export class HarvestModule {}

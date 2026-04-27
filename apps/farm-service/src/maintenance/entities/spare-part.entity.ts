@@ -13,7 +13,7 @@ import {
   JoinColumn,
   VersionColumn,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import {
   ObjectType,
   Field,
@@ -49,7 +49,7 @@ export interface StorageLocation {
 }
 
 @ObjectType()
-@Entity('spare_parts')
+@Entity('spare_parts', { schema: 'farm' })
 @Index(['tenantId', 'partNumber'], { unique: true })
 @Index(['tenantId', 'code'], { unique: true })
 @Index(['tenantId', 'status'])

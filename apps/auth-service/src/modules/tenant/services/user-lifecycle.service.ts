@@ -10,7 +10,8 @@ import {
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import * as crypto from 'crypto';
 import { Repository, DataSource } from 'typeorm';
-import { SchemaManagerService, Role } from '@platform/backend-common';
+import { SchemaManagerService, tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { Role } from '@aquaculture/backend-common/decorators';
 import { IEventBus } from '@platform/event-bus';
 import { UserInvitedEvent, createBaseEvent } from '@platform/event-contracts';
 
@@ -677,9 +678,12 @@ export class UserLifecycleService {
     //    EntityManager guarantees that a User without an Invitation row
     //    (or vice versa) cannot exist if any single insert fails.
     const result = await this.dataSource.transaction(async (manager) => {
-      const userRepo = manager.getRepository(User);
-      const invitationRepo = manager.getRepository(Invitation);
-      const umaRepo = manager.getRepository(UserModuleAssignment);
+      const userRepo = tenantManagerRepo(manager, User, input.tenantId);
+      const invitationRepo = tenantManagerRepo(manager, Invitation, input.tenantId);
+      const umaRepo = tenantManagerRepo(manager, UserModuleAssignment, input.tenantId);
+      // Tenant IS the tenant identity — the row's id is the tenant id;
+      // there is no tenantId column to scope on. Cross-tenant by design.
+      // eslint-disable-next-line no-restricted-syntax -- Tenant-entity is the tenant itself
       const tenantRepo = manager.getRepository(Tenant);
 
       const newUser = userRepo.create({
@@ -737,7 +741,7 @@ export class UserLifecycleService {
             assignedBy: input.invitedBy,
           }),
         );
-        await umaRepo.save(assignments);
+        await umaRepo.saveMany(assignments);
       }
 
       // Atomic counter increment via SQL expression, not a read-modify-write

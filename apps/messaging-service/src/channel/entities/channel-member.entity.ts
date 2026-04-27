@@ -29,8 +29,56 @@ export enum NotificationPreference {
   NONE = 'none',
 }
 
-registerEnumType(ChannelMemberRole, { name: 'ChannelMemberRole' });
-registerEnumType(NotificationPreference, { name: 'NotificationPreference' });
+// INFRA-CRITICAL-013: explicit valuesMap for both registerEnumType calls.
+//
+// Both TypeScript enums are value-mapped string enums (key !== value):
+//   ChannelMemberRole.MEMBER === 'member'    (key 'MEMBER', value 'member')
+//   NotificationPreference.ALL === 'all'     (key 'ALL', value 'all')
+//
+// Without an explicit valuesMap, NestJS GraphQL exposes the enum NAMES as
+// GraphQL values but on input deserialization the raw NAME (e.g. 'MEMBER')
+// can leak through to the resolver param → command handler → SQL parameter,
+// where the CHECK constraint chk_member_role rejects it ('owner','admin',
+// 'member' are the only legal values). Per CI run 24637240275:
+//
+//   new row for relation "channel_members" violates check constraint
+//   "chk_member_role" — failing row contains MEMBER, all, ...
+//
+// Architectural fix (T1, canonical input boundary normalization): the
+// valuesMap pins each GraphQL enum NAME to the TypeScript enum VALUE so
+// every coercion path lands on the lowercase form before the value reaches
+// any DB write. This is the single point of truth — handlers, resolvers,
+// and direct DB writes all see the canonical lowercase value.
+// INFRA-CRITICAL-014: NestJS `EnumMetadataValuesMapOptions` only accepts
+// `description?` and `deprecationReason?` — `value` is NOT in the type
+// signature (verified at node_modules/@nestjs/graphql/dist/schema-builder
+// /metadata/enum.metadata.d.ts). Attempting to override the value mapping
+// here was wrong API; NestJS coerces enum values automatically via the
+// TypeScript enum's own key→value map (Object.entries(enum)).
+//
+// The actual GraphQL-name → TS-value boundary normalization for
+// ChannelMemberRole lives in channel.resolver.ts:227 — that's the
+// architectural T1 fix. The valuesMap here is metadata-only (schema
+// docs) and must conform to the strict shape.
+registerEnumType(ChannelMemberRole, {
+  name: 'ChannelMemberRole',
+  description: 'Channel membership role hierarchy: OWNER > ADMIN > MEMBER',
+  valuesMap: {
+    OWNER: { description: 'Channel owner — full administrative + delete' },
+    ADMIN: { description: 'Channel admin — manage members + content' },
+    MEMBER: { description: 'Regular channel member' },
+  },
+});
+
+registerEnumType(NotificationPreference, {
+  name: 'NotificationPreference',
+  description: 'Channel notification preference: ALL > MENTIONS > NONE',
+  valuesMap: {
+    ALL: { description: 'Notify on every message' },
+    MENTIONS: { description: 'Notify only on @mentions' },
+    NONE: { description: 'No notifications' },
+  },
+});
 
 @ObjectType()
 @Entity('channel_members', { schema: 'messaging' })

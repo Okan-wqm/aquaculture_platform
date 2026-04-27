@@ -1,8 +1,4 @@
-import {
-  calculateHasMore,
-  createPaginatedResult,
-  IPaginatedResult,
-} from '@aquaculture/backend-common';
+import { calculateHasMore, createPaginatedResult, IPaginatedResult } from '@aquaculture/backend-common/pagination';
 
 describe('Pagination Helpers', () => {
   // ---------------------------------------------------------------------------

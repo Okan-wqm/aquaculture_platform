@@ -16,7 +16,7 @@ import {
   OneToMany,
   VersionColumn,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import {
   ObjectType,
   Field,
@@ -128,7 +128,7 @@ export interface SiteSettings {
 // ============================================================================
 
 @ObjectType()
-@Entity('sites')
+@Entity('sites', { schema: 'farm' })
 @Index(['tenantId', 'code'], { unique: true })
 @Index(['tenantId', 'name'], { unique: true })
 @Index(['tenantId', 'status'])

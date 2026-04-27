@@ -19,7 +19,9 @@ import { UseGuards, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
-import { TenantGuard, CurrentTenant, CurrentUser, Roles, Role, StandardPaginatedResponse, fromCqrsPaginated, IStandardPaginatedResult } from '@aquaculture/backend-common';
+import { CurrentTenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
+import { TenantGuard } from '@aquaculture/backend-common/guards';
+import { StandardPaginatedResponse, fromCqrsPaginated, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import { Tank } from '../entities/tank.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { Department } from '../../department/entities/department.entity';
@@ -177,6 +179,7 @@ export class TankResolver {
   /**
    * Get a single tank by ID
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => Tank, { name: 'tank' })
   async getTank(
     @Args('id', { type: () => ID }) id: string,
@@ -189,6 +192,7 @@ export class TankResolver {
   /**
    * List tanks with filtering and pagination
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => TankListResponse, { name: 'tanks' })
   async listTanks(
     @CurrentTenant() tenantId: string,
@@ -203,6 +207,7 @@ export class TankResolver {
   /**
    * Get tanks by department
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [Tank], { name: 'tanksByDepartment' })
   async getTanksByDepartment(
     @Args('departmentId', { type: () => ID }) departmentId: string,
@@ -217,6 +222,7 @@ export class TankResolver {
   /**
    * Get tanks with available capacity
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [Tank], { name: 'availableTanks' })
   async getAvailableTanks(
     @CurrentTenant() tenantId: string,

@@ -8,7 +8,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 
 import { PlanDefinition, PlanTier, BillingCycle } from './plan-definition.entity';
 
@@ -71,7 +71,7 @@ export interface CustomPlanLineItem {
  * 4. Admin approves (status: approved)
  * 5. Plan is activated with subscription (status: active)
  */
-@Entity('custom_plans')
+@Entity('custom_plans', { schema: 'admin' })
 @Index(['tenantId'])
 @Index(['status'])
 @Index(['validFrom'])

@@ -1,7 +1,7 @@
 import * as crypto from 'crypto';
 
 import { ObjectType, Field, ID, registerEnumType, Int } from '@nestjs/graphql';
-import { Role } from '@aquaculture/backend-common';
+import { Role } from '@aquaculture/backend-common/decorators';
 import {
   Entity,
   Column,
@@ -40,7 +40,7 @@ registerEnumType(InvitationStatus, {
  * 4. User clicks link → Sets password → Invitation marked ACCEPTED
  */
 @ObjectType()
-@Entity('invitations')
+@Entity('invitations', { schema: 'auth' })
 @Index('IDX_invitations_token', ['token'], { unique: true })
 @Index('IDX_invitations_email', ['email'])
 @Index('IDX_invitations_tenant', ['tenantId'])

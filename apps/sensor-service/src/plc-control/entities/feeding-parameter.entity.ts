@@ -1,6 +1,6 @@
 import { ObjectType, Field, ID, Float, Int, registerEnumType } from '@nestjs/graphql';
 import { GraphQLJSON } from 'graphql-scalars';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -95,7 +95,7 @@ export class VfdSettings {
 
 @Auditable()
 @ObjectType()
-@Entity('feeding_parameters')
+@Entity('feeding_parameters', { schema: 'sensor' })
 @Index(['tenantId', 'plcConnectionId'])
 @Index(['tenantId', 'status'])
 export class FeedingParameter {

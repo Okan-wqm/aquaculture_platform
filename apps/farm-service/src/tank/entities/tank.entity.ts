@@ -26,7 +26,7 @@ import {
   BeforeInsert,
   BeforeUpdate,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import {
   ObjectType,
   Field,
@@ -190,7 +190,7 @@ export interface AerationInfo {
 
 @ObjectType()
 @Directive('@key(fields: "id")')
-@Entity('tanks')
+@Entity('tanks', { schema: 'farm' })
 @Index(['tenantId', 'code'], { unique: true })
 @Index(['tenantId', 'departmentId'])
 @Index(['tenantId', 'status'])

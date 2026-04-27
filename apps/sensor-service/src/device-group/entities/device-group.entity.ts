@@ -31,7 +31,7 @@ registerEnumType(DeviceGroupType, {
 });
 
 @ObjectType()
-@Entity('device_groups')
+@Entity('device_groups', { schema: 'sensor' })
 @Index(['tenantId'])
 export class DeviceGroup {
   @Field(() => ID)

@@ -8,7 +8,8 @@
  *
  * @module WaterQuality/Services
  */
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ParameterConfigCacheService } from './parameter-config-cache.service';
@@ -38,11 +39,45 @@ export interface ValidationResult {
 export class WaterQualityValidationService {
   private readonly logger = new Logger(WaterQualityValidationService.name);
 
+  /**
+   * Strict mode — when true, a measurement submission against a
+   * tenant with ZERO active parameter configs is REJECTED rather
+   * than silently accepted. Before phase 6.5 this was the default
+   * behaviour: any typo like "temeperature" went through without
+   * complaint because the service had nothing to check against.
+   * Operators were unaware the tenant had no configs and shipped
+   * incoherent data for weeks.
+   *
+   * Default: strict. Set `WQ_STRICT_VALIDATION=false` to restore
+   * the pre-6.5 pass-through behaviour for tenants still onboarding
+   * — the env switch is deliberately opt-OUT so new deployments
+   * get the safer default. Phase 7.5 tenant onboarding seeds a
+   * default config set so brand-new tenants never hit strict-mode
+   * rejection in the normal onboarding flow.
+   *
+   * Phase 6.5 of the "Farm modülü kalan kör noktalar" plan —
+   * closes Girdi 15-B5.
+   */
+  private readonly strictMode: boolean;
+
   constructor(
     private readonly configCache: ParameterConfigCacheService,
     @InjectRepository(WaterQualityParamEquipment)
     private readonly mappingRepository: Repository<WaterQualityParamEquipment>,
-  ) {}
+    @Optional()
+    configService?: ConfigService,
+  ) {
+    const raw = configService?.get<string | boolean>(
+      'WQ_STRICT_VALIDATION',
+    );
+    this.strictMode = this.parseStrictFlag(raw);
+  }
+
+  private parseStrictFlag(raw: string | boolean | undefined): boolean {
+    if (raw === undefined || raw === null || raw === '') return true;
+    if (typeof raw === 'boolean') return raw;
+    return !['false', '0', 'no', 'off'].includes(String(raw).toLowerCase());
+  }
 
   /**
    * Validates dynamic parameters against tenant-specific configurations.
@@ -61,8 +96,41 @@ export class WaterQualityValidationService {
     const configs = await this.configCache.getActiveConfigs(tenantId);
 
     if (configs.length === 0) {
-      // No configs - skip validation (backward compat)
-      this.logger.debug(`No active configs for tenant ${tenantId}, skipping dynamic parameter validation`);
+      // Phase 6.5 — strict-mode gate. Before this phase we silently
+      // passed any submitted parameters through when a tenant had
+      // zero active configs, which meant a typo ("temeperature"
+      // with 3 m/s) was recorded as valid data. Strict mode
+      // rejects such submissions so the operator finds out
+      // immediately; the env var lets opt-out for legacy tenants
+      // still onboarding their parameter catalogue.
+      const submittedKeys = Object.keys(dynamicParameters ?? {});
+      if (this.strictMode && submittedKeys.length > 0) {
+        this.logger.warn(
+          `Strict mode rejection: tenant ${tenantId.slice(0, 8)}... has no ` +
+            `active parameter configs but is submitting ${submittedKeys.length} ` +
+            `parameter(s). Seed a config set via WaterQualityParameterConfig ` +
+            `mutations or set WQ_STRICT_VALIDATION=false to opt out.`,
+        );
+        return {
+          valid: false,
+          errors: [
+            {
+              field: '__tenant__',
+              code: 'NO_ACTIVE_PARAMETER_CONFIGS',
+              message:
+                `Tenant has no active water-quality parameter configurations. ` +
+                `Seed a config set before recording measurements (or set ` +
+                `WQ_STRICT_VALIDATION=false to restore legacy pass-through behaviour).`,
+            },
+          ],
+        };
+      }
+      // No configs AND nothing submitted, or strict mode disabled —
+      // fall through as valid so existing tests and tenants that
+      // send empty measurements keep working.
+      this.logger.debug(
+        `No active configs for tenant ${tenantId}, skipping dynamic parameter validation`,
+      );
       return { valid: true, errors: [] };
     }
 

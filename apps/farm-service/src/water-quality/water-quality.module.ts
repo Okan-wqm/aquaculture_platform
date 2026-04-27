@@ -53,6 +53,17 @@ import { WaterQualityQueryHandlers } from './query-handlers';
 import { ParameterConfigCacheService } from './services/parameter-config-cache.service';
 import { WaterQualityEvaluationService } from './services/water-quality-evaluation.service';
 import { WaterQualityValidationService } from './services/water-quality-validation.service';
+import { WaterQualityParameterConfigSeederService } from './services/water-quality-parameter-config-seeder.service';
+
+// Phase 7.5 — event handler that auto-seeds default WQ parameter
+// configs when a new tenant is provisioned. The handler also runs
+// sibling seeders (species, feeding protocols, etc.) so each
+// onboarding-owning module gets pulled in via a module import.
+import { TenantOnboardingEventHandler } from './event-handlers/tenant-onboarding.event-handler';
+import { SpeciesModule } from '../species/species.module';
+import { FeedModule } from '../feed/feed.module';
+import { RegulatoryModule } from '../regulatory/regulatory.module';
+import { EquipmentModule } from '../equipment/equipment.module';
 
 const CommandHandlers = [
   CreateParameterConfigHandler,
@@ -75,12 +86,22 @@ const CommandHandlers = [
       Tank,
       Equipment,
     ]),
+    // Onboarding handler fans out to sibling seeders. Each source
+    // module re-exports its seeder service so the handler can
+    // inject across module boundaries without the seeders leaking
+    // into unrelated consumer surfaces.
+    SpeciesModule,
+    FeedModule,
+    RegulatoryModule,
+    EquipmentModule,
   ],
   providers: [
     WaterQualityService,
     ParameterConfigCacheService,
     WaterQualityEvaluationService,
     WaterQualityValidationService,
+    WaterQualityParameterConfigSeederService,
+    TenantOnboardingEventHandler,
     WaterQualityResolver,
     WaterQualityParameterConfigResolver,
     ...CommandHandlers,
@@ -92,6 +113,7 @@ const CommandHandlers = [
     ParameterConfigCacheService,
     WaterQualityEvaluationService,
     WaterQualityValidationService,
+    WaterQualityParameterConfigSeederService,
   ],
 })
 export class WaterQualityModule {}

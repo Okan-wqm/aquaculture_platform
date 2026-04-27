@@ -1,0 +1,10 @@
+{
+  "name": "pdu_exception_unknown_code",
+  "description": "Modbus exception response with an unknown exception_code (0x42) — must surface verbatim via Other(byte) so audit can flag a non-standard slave.",
+  "decoder": "decode_exception_response",
+  "wire_hex": "8642",
+  "expected_ok": {
+    "original_function_code": 6,
+    "exception": { "Other": 66 }
+  }
+}

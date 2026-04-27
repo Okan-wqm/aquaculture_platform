@@ -1,6 +1,6 @@
 import { ObjectType, Field, ID, Float, Int, registerEnumType } from '@nestjs/graphql';
 import { GraphQLJSON } from 'graphql-scalars';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -47,7 +47,7 @@ export class ApprovalChainEntry {
 }
 
 @ObjectType()
-@Entity('plc_alarms')
+@Entity('plc_alarms', { schema: 'sensor' })
 @Index(['tenantId', 'plcConnectionId', 'timestamp'])
 @Index(['tenantId', 'acknowledged'])
 export class PlcAlarm {

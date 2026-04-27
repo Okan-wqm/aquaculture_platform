@@ -123,6 +123,7 @@ export class OutboxWorkerService implements OnApplicationBootstrap {
   }
 
   async onApplicationBootstrap(): Promise<void> {
+    // eslint-disable-next-line no-restricted-syntax -- LIBRARY-LEVEL outbox worker: the worker drains pending outbox rows ACROSS ALL TENANTS — that is its whole purpose (ADR-006: cross-tenant fan-out worker). Wrapping with tenantManagerRepo would scope the drain to a single tenant context (the worker's own boot context), causing the worker to silently skip every other tenant's queued events. The outbox row itself carries the tenantId field that downstream NATS publishing reads.
     this.repo = this.dataSource.getRepository(this.entityClass);
 
     if (!this.eventBus.isConnected()) {

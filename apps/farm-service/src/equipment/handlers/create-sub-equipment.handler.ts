@@ -4,7 +4,7 @@
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { ConflictException, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { ConflictException, InternalServerErrorException, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { CreateSubEquipmentCommand } from '../commands/create-sub-equipment.command';
 import { SubEquipment } from '../entities/sub-equipment.entity';
 import { SubEquipmentType } from '../entities/sub-equipment-type.entity';
@@ -113,11 +113,22 @@ export class CreateSubEquipmentHandler implements ICommandHandler<CreateSubEquip
 
     this.logger.log(`Sub-equipment "${savedSubEquipment.name}" created with ID ${savedSubEquipment.id}`);
 
-    // Load relations for return
-    return this.subEquipmentRepository.findOne({
-      where: { id: savedSubEquipment.id },
+    // Load relations for return — scope by tenantId (see the
+    // matching comment in UpdateSubEquipmentHandler). UUID-only
+    // filtering is technically safe because we just wrote the row
+    // under this tenant, but the discipline is "every findOne
+    // scopes by tenantId" so a future refactor can't silently
+    // weaken the isolation boundary.
+    const reloaded = await this.subEquipmentRepository.findOne({
+      where: { id: savedSubEquipment.id, tenantId },
       relations: ['subEquipmentType', 'parentEquipment'],
-    }) as Promise<SubEquipment>;
+    });
+    if (!reloaded) {
+      throw new InternalServerErrorException(
+        `Sub-equipment ${savedSubEquipment.id} vanished between save and reload`,
+      );
+    }
+    return reloaded;
   }
 
   private validateSpecifications(

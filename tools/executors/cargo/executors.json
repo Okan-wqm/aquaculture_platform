@@ -1,0 +1,10 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nrwl/nx/master/packages/nx/schemas/executors.json",
+  "executors": {
+    "run": {
+      "implementation": "./dist/run/executor",
+      "schema": "./src/run/schema.json",
+      "description": "Run a cargo subcommand for a single workspace package. Streams output to stdout/stderr and returns success based on the exit code."
+    }
+  }
+}

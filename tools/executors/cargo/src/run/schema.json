@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/schema",
+  "version": 2,
+  "title": "Cargo Run Executor",
+  "description": "Run a cargo subcommand against a single workspace member.",
+  "type": "object",
+  "properties": {
+    "command": {
+      "type": "string",
+      "description": "The cargo subcommand: build | test | clippy | fmt | check | bench | run.",
+      "enum": ["build", "test", "clippy", "fmt", "check", "bench", "run"]
+    },
+    "package": {
+      "type": "string",
+      "description": "Cargo package name (matches [package] name in the crate's Cargo.toml). Forwarded as `cargo <command> -p <package>`."
+    },
+    "release": {
+      "type": "boolean",
+      "default": false,
+      "description": "Add --release to the cargo invocation. Ignored for fmt/clippy."
+    },
+    "allFeatures": {
+      "type": "boolean",
+      "default": false,
+      "description": "Add --all-features to the cargo invocation."
+    },
+    "noDefaultFeatures": {
+      "type": "boolean",
+      "default": false,
+      "description": "Add --no-default-features."
+    },
+    "features": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Crate features to enable; forwarded as `--features a,b,c`."
+    },
+    "args": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Additional positional arguments appended verbatim after the cargo flags."
+    },
+    "env": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "description": "Extra environment variables to set on the spawned cargo process."
+    }
+  },
+  "required": ["command", "package"]
+}

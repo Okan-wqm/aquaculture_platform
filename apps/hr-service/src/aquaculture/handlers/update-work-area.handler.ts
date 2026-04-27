@@ -3,6 +3,7 @@ import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { DataSource, QueryRunner } from 'typeorm';
 import { UpdateWorkAreaCommand } from '../commands/update-work-area.command';
 import { WorkArea } from '../entities/work-area.entity';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 
 @Injectable()
 @CommandHandler(UpdateWorkAreaCommand)
@@ -20,7 +21,7 @@ export class UpdateWorkAreaHandler implements ICommandHandler<UpdateWorkAreaComm
     await queryRunner.startTransaction();
 
     try {
-      const repo = queryRunner.manager.getRepository(WorkArea);
+      const repo = tenantManagerRepo(queryRunner.manager, WorkArea, tenantId);
 
       const workArea = await repo.findOne({
         where: { id, tenantId, isDeleted: false },

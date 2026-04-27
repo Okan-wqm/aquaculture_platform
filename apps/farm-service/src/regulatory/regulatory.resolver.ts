@@ -12,7 +12,7 @@
 import { Resolver, Mutation, Query, Args, Context } from '@nestjs/graphql';
 import { Logger, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
-import { Roles, Role } from '@aquaculture/backend-common';
+import { Roles, Role } from '@aquaculture/backend-common/decorators';
 import {
   MattilsynetApiService,
   SeaLicePayload,
@@ -186,6 +186,7 @@ export class RegulatoryResolver {
   /**
    * Get regulatory settings for current tenant
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Query(() => RegulatorySettingsOutput, {
     description: 'Get regulatory settings for the current tenant',
   })
@@ -198,6 +199,7 @@ export class RegulatoryResolver {
   /**
    * Get regulatory configuration status for current tenant
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Query(() => RegulatoryConfigurationStatus, {
     description: 'Get regulatory configuration status for the current tenant',
   })
@@ -335,6 +337,7 @@ export class RegulatoryResolver {
   /**
    * Get Maskinporten configuration status
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Query(() => MaskinportenStatus, { description: 'Get Maskinporten configuration status' })
   async maskinportenStatus(): Promise<MaskinportenStatus> {
     return this.maskinporten.getStatus();
@@ -343,6 +346,7 @@ export class RegulatoryResolver {
   /**
    * Get Mattilsynet API configuration status
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Query(() => MattilsynetStatus, { description: 'Get Mattilsynet API configuration status' })
   async mattilsynetStatus(@Context() ctx: GraphQLContext): Promise<MattilsynetStatus> {
     const tenantId = this.getTenantId(ctx);
@@ -352,6 +356,7 @@ export class RegulatoryResolver {
   /**
    * Check regulatory services health
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Query(() => RegulatoryHealthStatus, { description: 'Check regulatory services health' })
   async regulatoryHealth(@Context() ctx: GraphQLContext): Promise<RegulatoryHealthStatus> {
     const tenantId = this.getTenantId(ctx);

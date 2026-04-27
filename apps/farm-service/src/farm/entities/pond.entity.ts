@@ -16,7 +16,7 @@ import {
   Float,
   registerEnumType,
 } from '@nestjs/graphql';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 // Note: Farm and Batch are referenced via string to avoid circular dependency
 // Type-only imports for TypeScript type checking
 import type { Farm } from './farm.entity';
@@ -55,7 +55,7 @@ registerEnumType(PondStatus, {
  * Pond entity - represents a water body within a farm
  */
 @ObjectType()
-@Entity('ponds')
+@Entity('ponds', { schema: 'farm' })
 @Index(['farmId', 'name'], { unique: true })
 @Index(['tenantId', 'status'])
 export class Pond {

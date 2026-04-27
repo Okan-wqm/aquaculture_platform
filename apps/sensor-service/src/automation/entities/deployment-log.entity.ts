@@ -28,7 +28,7 @@ registerEnumType(DeploymentStatus, {
 });
 
 @ObjectType()
-@Entity('deployment_logs')
+@Entity('deployment_logs', { schema: 'sensor' })
 @Index(['tenantId', 'deviceId'])
 @Index(['tenantId', 'programId'])
 @Index(['commandId'], { unique: true })

@@ -8,14 +8,43 @@
  * - Pessimistic write lock prevents concurrent last-write-wins corruption
  * - updatedBy written to entity for regulatory audit trail
  *
+ * Outbox (this PR):
+ * - `HarvestRecordUpdatedEvent` enqueued INSIDE the transaction so
+ *   downstream Slakterapport projection / customer-traceability
+ *   timelines can patch without re-reading the harvest record.
+ * - `changedFields[]` list narrows consumer re-projection scope:
+ *   a notes-only edit should not trigger a regulatory re-submission.
+ *
  * @module Harvest/Handlers
  */
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
+import { OutboxPublisher } from '@platform/outbox';
+import {
+  createBaseEvent,
+  type HarvestRecordUpdatedEvent,
+} from '@platform/event-contracts';
 import { UpdateHarvestRecordCommand } from '../commands/update-harvest-record.command';
 import { HarvestRecord } from '../entities/harvest-record.entity';
+
+const UPDATABLE_FIELDS = [
+  'status',
+  'quantityHarvested',
+  'totalBiomass',
+  'averageWeight',
+  'qualityGrade',
+  'method',
+  'productForm',
+  'totalRevenue',
+  'harvestCost',
+  'currency',
+  'mortalityDuringHarvest',
+  'rejectedQuantity',
+  'rejectionReason',
+  'notes',
+] as const;
 
 @Injectable()
 @CommandHandler(UpdateHarvestRecordCommand)
@@ -25,6 +54,7 @@ export class UpdateHarvestRecordHandler implements ICommandHandler<UpdateHarvest
     private readonly dataSource: DataSource,
     @InjectRepository(HarvestRecord)
     private readonly harvestRepository: Repository<HarvestRecord>,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   async execute(command: UpdateHarvestRecordCommand): Promise<HarvestRecord> {
@@ -51,23 +81,32 @@ export class UpdateHarvestRecordHandler implements ICommandHandler<UpdateHarvest
         harvestRecord.updatedBy = updatedBy;
       }
 
-      // Update fields if provided
-      if (data.status !== undefined) harvestRecord.status = data.status;
-      if (data.quantityHarvested !== undefined) harvestRecord.quantityHarvested = data.quantityHarvested;
-      if (data.totalBiomass !== undefined) harvestRecord.totalBiomass = data.totalBiomass;
-      if (data.averageWeight !== undefined) harvestRecord.averageWeight = data.averageWeight;
-      if (data.qualityGrade !== undefined) harvestRecord.qualityGrade = data.qualityGrade;
-      if (data.method !== undefined) harvestRecord.method = data.method;
-      if (data.productForm !== undefined) harvestRecord.productForm = data.productForm;
-      if (data.totalRevenue !== undefined) harvestRecord.totalRevenue = data.totalRevenue;
-      if (data.harvestCost !== undefined) harvestRecord.harvestCost = data.harvestCost;
-      if (data.currency !== undefined) harvestRecord.currency = data.currency;
-      if (data.mortalityDuringHarvest !== undefined) harvestRecord.mortalityDuringHarvest = data.mortalityDuringHarvest;
-      if (data.rejectedQuantity !== undefined) harvestRecord.rejectedQuantity = data.rejectedQuantity;
-      if (data.rejectionReason !== undefined) harvestRecord.rejectionReason = data.rejectionReason;
-      if (data.notes !== undefined) harvestRecord.notes = data.notes;
+      const changedFields: string[] = [];
+      for (const field of UPDATABLE_FIELDS) {
+        const incoming = (data as Record<string, unknown>)[field];
+        if (incoming !== undefined) {
+          changedFields.push(field);
+          (harvestRecord as unknown as Record<string, unknown>)[field] = incoming;
+        }
+      }
 
       const saved = await queryRunner.manager.save(HarvestRecord, harvestRecord);
+
+      const event: HarvestRecordUpdatedEvent = {
+        ...createBaseEvent<HarvestRecordUpdatedEvent>('HarvestRecordUpdated', tenantId, {
+          aggregateId: saved.id,
+          aggregateType: 'HarvestRecord',
+        }),
+        harvestRecordId: saved.id,
+        batchId: saved.batchId,
+        changedFields,
+        newQuantityHarvested: saved.quantityHarvested,
+        newTotalBiomass: Number(saved.totalBiomass),
+        newStatus: saved.status,
+        updatedAt: new Date(),
+      };
+      await this.outboxPublisher.enqueue(event, queryRunner.manager);
+
       await queryRunner.commitTransaction();
       return saved;
     } catch (error) {

@@ -8,7 +8,7 @@ import {
   CreateDateColumn,
   Index,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import { registerEnumType } from '@nestjs/graphql';
 
 export enum MovementType {
@@ -25,7 +25,7 @@ registerEnumType(MovementType, {
   description: 'Type of stock movement',
 });
 
-@Entity('stock_movements')
+@Entity('stock_movements', { schema: 'farm' })
 @Index(['tenantId', 'movementType'])
 @Index(['itemType', 'itemId'])
 @Index(['performedAt'])

@@ -13,6 +13,7 @@ import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, In } from 'typeorm';
 import { Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { UpdateInventoryCountCommand } from '../commands/update-inventory-count.command';
 import { InventoryCount, InventoryCountStatus } from '../entities/inventory-count.entity';
 import { InventoryCountItem } from '../entities/inventory-count-item.entity';
@@ -31,8 +32,8 @@ export class UpdateInventoryCountHandler implements ICommandHandler<UpdateInvent
     const { input, tenantId } = command;
 
     return this.dataSource.transaction(async (manager) => {
-      const countRepo = manager.getRepository(InventoryCount);
-      const itemRepo = manager.getRepository(InventoryCountItem);
+      const countRepo = tenantManagerRepo(manager, InventoryCount, tenantId);
+      const itemRepo = tenantManagerRepo(manager, InventoryCountItem, tenantId);
 
       // Load the count with optimistic lock check
       const count = await countRepo.findOne({
@@ -78,7 +79,7 @@ export class UpdateInventoryCountHandler implements ICommandHandler<UpdateInvent
       // Persist updated items
       const updatedItemIds = input.items.map(i => i.itemId);
       const itemsToSave = count.items.filter(i => updatedItemIds.includes(i.id));
-      await itemRepo.save(itemsToSave);
+      await itemRepo.saveMany(itemsToSave);
 
       // Recalculate aggregate totalVariance from ALL items (not just updated ones).
       // Items without actualQuantity (not yet counted) are excluded from the sum.

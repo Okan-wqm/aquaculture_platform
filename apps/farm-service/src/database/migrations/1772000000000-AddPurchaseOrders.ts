@@ -1,6 +1,6 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-import { MigrationLogger, assertSafeSchemaName } from '@aquaculture/backend-common';
+import { MigrationLogger, assertSafeSchemaName } from '@aquaculture/backend-common/database';
 
 export class AddPurchaseOrders1772000000000 implements MigrationInterface {
   private readonly logger = new MigrationLogger('AddPurchaseOrders1772000000000');

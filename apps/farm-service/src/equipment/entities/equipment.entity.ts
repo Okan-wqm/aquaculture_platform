@@ -27,7 +27,7 @@ import {
   BeforeInsert,
   BeforeUpdate,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 // Note: Department, SubSystem, EquipmentSystem are referenced via string in decorator to avoid circular dependency
 // Type-only imports for TypeScript type checking
 import type { Department } from '../../department/entities/department.entity';
@@ -114,7 +114,7 @@ export interface TankSpecifications {
   };
 }
 
-@Entity('equipment')
+@Entity('equipment', { schema: 'farm' })
 @Index(['tenantId', 'code'], { unique: true })
 @Index(['tenantId', 'departmentId'])
 @Index(['tenantId', 'subSystemId'])
@@ -371,7 +371,15 @@ export class Equipment {
   }
 
   /**
-   * Kapasiteyi kontrol eder
+   * Kapasiteyi kontrol eder.
+   *
+   * @deprecated Use TankCapacityService.enforce() instead.
+   * The entity method cannot enforce admin overrides, cannot cooperate
+   * with the audit log interceptor, and duplicates the status/biomass/
+   * density invariant. Kept for backward compatibility with callers
+   * that have not been migrated; new code must go through
+   * `apps/farm-service/src/tank/services/tank-capacity.service.ts`.
+   * To be removed in a follow-up commit once all callers are migrated.
    */
   hasCapacityFor(biomassToAdd: number): boolean {
     if (!this.canHoldFish()) return false;

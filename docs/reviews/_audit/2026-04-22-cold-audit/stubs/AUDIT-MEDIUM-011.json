@@ -1,0 +1,17 @@
+{
+  "id": "AUDIT-MEDIUM-011",
+  "severity": "MEDIUM",
+  "state": "OPEN",
+  "title": "web/modules/admin-panel AdminSidebar is a 255-line fork of shared-ui Sidebar",
+  "layer": 2,
+  "evidence": [
+    "web/modules/admin-panel/src/components/AdminSidebar.tsx:1",
+    "web/shared-ui/src/components/Layout/Sidebar.tsx:1"
+  ],
+  "rule_violated": "DRY / shared-ui contract — parameterize the shared component (logo, nav, footer props); delete the fork.",
+  "owner_agent": "frontend-expert",
+  "raised_in_cycle": "2026-04-22-cold-audit",
+  "review_file": "docs/reviews/_audit/2026-04-22-cold-audit/03-explore-findings.md",
+  "created_at": "2026-04-22T19:00:00Z",
+  "notes": "Shared Sidebar must accept nav config + branding props. Admin fork likely added custom-admin items; move those into nav config parameter."
+}

@@ -39,7 +39,7 @@ registerEnumType(ThreadStatus, {
  * conflict with messaging-service types.
  * DB table name remains 'message_threads' (auth schema).
  */
-@Entity('message_threads')
+@Entity('message_threads', { schema: 'auth' })
 @ObjectType('SupportMessageThread')
 @Index(['tenantId', 'status'])
 @Index(['tenantId', 'updatedAt'])

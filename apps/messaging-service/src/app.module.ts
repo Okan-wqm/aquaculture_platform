@@ -15,7 +15,7 @@ import { CqrsModule } from '@nestjs/cqrs';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { EventBusModule } from '@platform/event-bus';
-import { buildNatsTransportOptions } from '@aquaculture/backend-common';
+import { buildNatsTransportOptions } from '@aquaculture/backend-common/nats';
 import { APP_GUARD, Reflector } from '@nestjs/core';
 import {
   ApolloFederationDriver,
@@ -28,28 +28,12 @@ import {
   getComplexity,
   simpleEstimator,
 } from 'graphql-query-complexity';
-import {
-  TenantContextMiddleware,
-  CorrelationIdMiddleware,
-  RequestContextMiddleware,
-  UserContextMiddleware,
-  RolesGuard,
-  TenantGuard,
-  ThrottlerModule,
-  ThrottlerGuard,
-  SlidingWindowStrategy,
-  ServiceIdentityGuard,
-  SourceSchemaBootstrapService,
-  createTenantSchemaMiddleware,
-  createTenantConnectionBootstrap,
-  createMigrationRunnerService,
-  TenantSchemaSyncService,
-  SourceSchemaWriteGuardService,
-  RlsModule,
-  SchemaDriftModule,
-  PlatformJwtModule,
-  createServiceTypeOrmConfig,
-} from '@aquaculture/backend-common';
+import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
+import { SourceSchemaBootstrapService, createTenantConnectionBootstrap, createMigrationRunnerService, TenantSchemaSyncService, SourceSchemaWriteGuardService, RlsModule, SchemaDriftModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common/database';
+import { RolesGuard, TenantGuard, ServiceIdentityGuard } from '@aquaculture/backend-common/guards';
+import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
+import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware, createTenantSchemaMiddleware } from '@aquaculture/backend-common/middleware';
+import { ThrottlerModule, ThrottlerGuard, SlidingWindowStrategy } from '@aquaculture/backend-common/security';
 
 // Tenant infrastructure — 'messaging' source schema for template tables
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('messaging');
@@ -156,6 +140,14 @@ const complexityCache = new Map<string, number>();
         createServiceTypeOrmConfig(configService, {
           serviceName: 'messaging',
           schema: 'messaging',
+          // INFRA-CRITICAL-020: env-aware migrationsRun timing.
+          // Test E2E (DATABASE_MIGRATIONS_RUN=true) → TypeORM applies
+          // migrations at DataSource init, BEFORE NestJS lifecycle hooks
+          // fire → SourceSchemaBootstrapService finds tables → no false-fail.
+          // Production (DATABASE_MIGRATIONS_RUN=false) → unchanged; aqua-db-migrate
+          // runs as a separate container BEFORE service containers start.
+          migrationsRunFromEnv: (cs) =>
+            cs.get<string>('DATABASE_MIGRATIONS_RUN', 'false') === 'true',
           entities: [
             Channel,
             ChannelMember,

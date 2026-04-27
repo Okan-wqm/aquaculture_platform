@@ -20,7 +20,7 @@ import type {
   BinaryOperator,
   UnaryOperator,
   CaseLabel,
-} from './st-ast-types';
+} from '@platform/sensor-automation-types';
 
 // ────────────────────────────────────────────────────────────────────────────
 // Public types

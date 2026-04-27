@@ -22,7 +22,7 @@ import { Logger, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
 import { IsUUID, IsNotEmpty, IsInt, Min, IsOptional, IsNumber, IsString, IsEnum, IsDateString } from 'class-validator';
 import { CommandBus, QueryBus } from '@platform/cqrs';
-import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common';
+import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Batch, BatchStatus, BatchType } from '../entities/batch.entity';
@@ -362,53 +362,12 @@ export class CleanerFishDetailResponse {
   deployedAt: Date;
 }
 
-@ObjectType()
-export class CleanerFishReportRow {
-  @Field()
-  speciesName: string;
-
-  @Field(() => Int)
-  openingStock: number;
-
-  @Field(() => Int)
-  added: number;
-
-  @Field(() => Int)
-  removed: number;
-
-  @Field(() => Int)
-  mortality: number;
-
-  @Field(() => Int)
-  transferred: number;
-
-  @Field(() => Int)
-  closingStock: number;
-}
-
-@ObjectType()
-export class CleanerFishReport {
-  @Field(() => ID)
-  siteId: string;
-
-  @Field()
-  siteName: string;
-
-  @Field(() => Int)
-  month: number;
-
-  @Field(() => Int)
-  year: number;
-
-  @Field(() => [CleanerFishReportRow])
-  rows: CleanerFishReportRow[];
-
-  @Field(() => Int)
-  totalOpeningStock: number;
-
-  @Field(() => Int)
-  totalClosingStock: number;
-}
+// Cleaner-fish monthly stock-movement report types USED TO LIVE HERE
+// (`CleanerFishReportRow`, `CleanerFishReport`). Removed along with the
+// `getCleanerFishReport` resolver stub that always returned zeros — see
+// the resolver block below for the full rationale. When a real monthly
+// aggregate is needed it will be built as a service method with the
+// appropriate history reconstruction; this file is not the right home.
 
 // ============================================================================
 // RESOLVER
@@ -436,6 +395,7 @@ export class CleanerFishResolver {
   // QUERIES
   // -------------------------------------------------------------------------
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [CleanerFishSpeciesInfo], { name: 'cleanerFishSpecies' })
   async getCleanerFishSpecies(
     @Tenant() tenantId: string,
@@ -457,6 +417,7 @@ export class CleanerFishResolver {
     }));
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [Batch], { name: 'cleanerFishBatches' })
   async getCleanerFishBatches(
     @Tenant() tenantId: string,
@@ -481,6 +442,7 @@ export class CleanerFishResolver {
     });
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => TankCleanerFishInfo, { name: 'tankCleanerFish', nullable: true })
   async getTankCleanerFish(
     @Tenant() tenantId: string,
@@ -517,29 +479,18 @@ export class CleanerFishResolver {
     };
   }
 
-  @Query(() => CleanerFishReport, { name: 'cleanerFishReport', nullable: true })
-  async getCleanerFishReport(
-    @Tenant() tenantId: string,
-    @Args('siteId', { type: () => ID }) siteId: string,
-    @Args('month', { type: () => Int }) month: number,
-    @Args('year', { type: () => Int }) year: number,
-  ): Promise<CleanerFishReport> {
-    this.logger.debug(`Generating cleaner fish report for site: ${siteId}, ${month}/${year}`);
-
-    // TODO: Implement full report logic with tank operations aggregation
-    // This is a placeholder implementation
-    const rows: CleanerFishReportRow[] = [];
-
-    return {
-      siteId,
-      siteName: 'Site', // Would be fetched from Site entity
-      month,
-      year,
-      rows,
-      totalOpeningStock: 0,
-      totalClosingStock: 0,
-    };
-  }
+  // `cleanerFishReport` GraphQL query was removed — it was a zero-
+  // returning stub with a `// TODO: Implement full report logic with
+  // tank operations aggregation` comment on the only code branch. No
+  // frontend called it (the Mattilsynet submission path runs through
+  // `submitCleanerFishReport` in `regulatory.resolver.ts` against mock
+  // aggregates). Keeping the stub meant any third-party SDK user
+  // discovering the query in the federated schema would silently see
+  // zeros and draw wrong conclusions about the site's cleaner-fish
+  // inventory — strictly worse than the query not existing. The real
+  // monthly aggregate, when it lands, belongs in a dedicated service
+  // method (history reconstruction for opening/closing stock is
+  // non-trivial and must not hide behind a resolver body).
 
   // -------------------------------------------------------------------------
   // MUTATIONS

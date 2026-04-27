@@ -4,9 +4,12 @@
 import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
-import { TenantGuard, CurrentTenant, CurrentUser, Roles, Role, fromCqrsPaginated } from '@aquaculture/backend-common';
+import { CurrentTenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
+import { TenantGuard } from '@aquaculture/backend-common/guards';
+import { fromCqrsPaginated, CursorPaginationInput } from '@aquaculture/backend-common/pagination';
 import { StorageLocationResponse, PaginatedStorageLocationsResponse } from './dto/storage-location.response';
 import { StorageInventoryResponse } from './dto/storage-inventory.response';
+import { StorageInventoryCursorConnection } from './dto/storage-inventory-cursor.response';
 import { StockMovementResponse, PaginatedStockMovementsResponse } from './dto/stock-movement.response';
 import { StorageOverviewResponse } from './dto/storage-overview.response';
 import { CreateStorageLocationInput } from './dto/create-storage-location.input';
@@ -25,6 +28,7 @@ import { TransferStockCommand } from './commands/transfer-stock.command';
 import { GetStorageLocationQuery } from './queries/get-storage-location.query';
 import { ListStorageLocationsQuery } from './queries/list-storage-locations.query';
 import { GetStorageInventoryQuery } from './queries/get-storage-inventory.query';
+import { ListStorageInventoryByCursorQuery } from './queries/list-storage-inventory-by-cursor.query';
 import { ListStockMovementsQuery } from './queries/list-stock-movements.query';
 import { GetStorageOverviewQuery } from './queries/get-storage-overview.query';
 import { TraceLotQuery } from './queries/trace-lot.query';
@@ -129,6 +133,7 @@ export class StorageResolver {
     return this.commandBus.execute(command);
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => StorageLocationResponse, { nullable: true })
   async storageLocation(
     @Args('id', { type: () => ID }) id: string,
@@ -138,6 +143,7 @@ export class StorageResolver {
     return this.queryBus.execute(query);
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => PaginatedStorageLocationsResponse)
   async storageLocations(
     @Args('filter', { type: () => StorageLocationFilterInput, nullable: true }) filter: StorageLocationFilterInput | undefined,
@@ -151,6 +157,7 @@ export class StorageResolver {
 
   // === Storage Inventory ===
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [StorageInventoryResponse])
   async storageInventory(
     @Args('locationId', { type: () => ID, nullable: true }) locationId: string | undefined,
@@ -161,6 +168,46 @@ export class StorageResolver {
   ): Promise<StorageInventoryResponse[]> {
     const query = new GetStorageInventoryQuery(tenantId, locationId, itemType, limit, offset);
     return this.queryBus.execute(query);
+  }
+
+  /**
+   * Cursor-paginated variant of `storageInventory` — phase 5.1 first
+   * adoption. The offset/limit entry above stays in place for the 6-
+   * month deprecation window; new UI surfaces (and the mobile app
+   * once it updates) request this query for deterministic traversal
+   * against concurrent inserts. Large warehouses are the primary
+   * beneficiary — offset/limit walked every intervening row under
+   * the hood.
+   */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  @Query(() => StorageInventoryCursorConnection)
+  async storageInventoryByCursor(
+    @Args('locationId', { type: () => ID, nullable: true }) locationId: string | undefined,
+    @Args('itemType', { type: () => StorageItemType, nullable: true }) itemType: StorageItemType | undefined,
+    @Args('input', { nullable: true }) input: CursorPaginationInput | undefined,
+    @CurrentTenant() tenantId: string,
+  ): Promise<StorageInventoryCursorConnection> {
+    const response = await this.queryBus.execute<
+      ListStorageInventoryByCursorQuery,
+      { edges: Array<{ cursor: string; node: unknown }>; pageInfo: { endCursor: string | null; hasNextPage: boolean } }
+    >(
+      new ListStorageInventoryByCursorQuery(
+        tenantId,
+        locationId,
+        itemType,
+        input ?? null,
+      ),
+    );
+    return {
+      edges: response.edges.map((edge) => ({
+        cursor: edge.cursor,
+        node: edge.node as StorageInventoryResponse,
+      })),
+      pageInfo: {
+        ...(response.pageInfo.endCursor !== null && { endCursor: response.pageInfo.endCursor }),
+        hasNextPage: response.pageInfo.hasNextPage,
+      },
+    };
   }
 
   // === Stock Movements ===
@@ -191,6 +238,7 @@ export class StorageResolver {
     return this.commandBus.execute(command);
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => PaginatedStockMovementsResponse)
   async stockMovements(
     @Args('filter', { type: () => StockMovementFilterInput, nullable: true }) filter: StockMovementFilterInput | undefined,
@@ -204,6 +252,7 @@ export class StorageResolver {
 
   // === Overview ===
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => StorageOverviewResponse)
   async storageOverview(
     @CurrentTenant() tenantId: string,
@@ -223,6 +272,7 @@ export class StorageResolver {
    * - Backward: "Where did the feed in Tank A come from?" (supplier, delivery)
    * - Recall: "Find all consumption points for recalled lot X"
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [StockMovementResponse], {
     description: 'Trace all stock movements for a lot number (regulatory traceability)',
   })
@@ -236,6 +286,7 @@ export class StorageResolver {
 
   // === Purchase Orders ===
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => PaginatedPurchaseOrdersResponse)
   async purchaseOrders(
     @Args('filter', { type: () => PurchaseOrderFilterInput, nullable: true }) filter: PurchaseOrderFilterInput | undefined,
@@ -252,6 +303,7 @@ export class StorageResolver {
     return fromCqrsPaginated(result);
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => PurchaseOrderResponse, { nullable: true })
   async purchaseOrder(
     @Args('id', { type: () => ID }) id: string,
@@ -261,6 +313,7 @@ export class StorageResolver {
     return this.queryBus.execute(query);
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [PurchaseOrderResponse])
   async pendingDeliveries(
     @CurrentTenant() tenantId: string,
@@ -316,6 +369,7 @@ export class StorageResolver {
 
   // === Inventory Counts ===
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => PaginatedInventoryCountsResponse)
   async inventoryCounts(
     @Args('filter', { type: () => InventoryCountFilterInput, nullable: true }) filter: InventoryCountFilterInput | undefined,
@@ -332,6 +386,7 @@ export class StorageResolver {
     return fromCqrsPaginated(result);
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => InventoryCountResponse, { nullable: true })
   async inventoryCount(
     @Args('id', { type: () => ID }) id: string,

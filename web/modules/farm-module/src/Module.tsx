@@ -9,8 +9,6 @@ import './styles.css';
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useFarmRealtimeStream } from './hooks/useFarmRealtimeStream';
-import FarmDetailPage from './pages/FarmDetailPage';
-import FarmFormPage from './pages/FarmFormPage';
 import SensorDashboardPage from './pages/SensorDashboardPage';
 import MapViewPage from './pages/MapViewPage';
 import SetupPage from './pages/setup/SetupPage';
@@ -48,14 +46,16 @@ const FarmModule: React.FC = () => {
       {/* Site Harita Görünümü (Ana Sayfa) */}
       <Route path="map" element={<MapViewPage />} />
 
-      {/* Site Detayı */}
-      <Route path=":siteId" element={<FarmDetailPage />} />
+      {/* Site Detayı — FarmDetailPage removed (was mock data, not connected to API).
+          Real site detail lives under Setup > Sites tab; redirect users there. */}
+      <Route path=":siteId" element={<Navigate to="/sites/setup/sites" replace />} />
 
-      {/* Yeni Site */}
-      <Route path="new" element={<FarmFormPage />} />
+      {/* Yeni Site — FarmFormPage removed (was a stub that discarded user input).
+          Site creation happens inside SetupPage > SitesTab via SiteFormModal. */}
+      <Route path="new" element={<Navigate to="/sites/setup/sites" replace />} />
 
-      {/* Site Düzenleme */}
-      <Route path=":siteId/edit" element={<FarmFormPage />} />
+      {/* Site Düzenleme — same cleanup as above */}
+      <Route path=":siteId/edit" element={<Navigate to="/sites/setup/sites" replace />} />
 
       {/* Sensör Dashboard */}
       <Route path="sensors" element={<SensorDashboardPage />} />

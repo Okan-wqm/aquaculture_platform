@@ -7,7 +7,7 @@ import {
   VersionColumn,
   Index,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import { ObjectType, Field, ID, Int, Float, registerEnumType } from '@nestjs/graphql';
 
 export enum TrainingType {
@@ -29,7 +29,7 @@ registerEnumType(TrainingType, { name: 'TrainingType' });
 registerEnumType(TrainingLevel, { name: 'TrainingLevel' });
 
 @ObjectType()
-@Entity('training_courses')
+@Entity('training_courses', { schema: 'hr' })
 @Index(['tenantId', 'code'], { unique: true })
 @Index(['tenantId', 'isMandatory'])
 @Index(['tenantId', 'isActive'])

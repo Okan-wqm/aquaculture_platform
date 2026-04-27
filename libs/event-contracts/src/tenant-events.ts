@@ -66,6 +66,37 @@ export interface TenantArchivedEvent extends BaseEvent {
 }
 
 /**
+ * Tenant Erased Event
+ *
+ * Published by farm-service (and any other service implementing
+ * local GDPR Article 17 erasure) when a `confirmTenantErasure`
+ * mutation completes. The event signals cross-service listeners
+ * (messaging / auth / billing / sensor) to run their own
+ * tenant-data cleanup jobs so the platform as a whole honours the
+ * right-to-erasure within a bounded window.
+ *
+ * Phase 6.3.1 of the "Farm modülü kalan kör noktalar" plan.
+ * Counterpart to `TenantErasureService` in farm-service (phase 6.3).
+ *
+ * Consumers should be idempotent — the event is at-least-once.
+ * `tenantId` is the only field required to drive cleanup; the
+ * aggregate counters are there for audit dashboards.
+ */
+export interface TenantErasedEvent extends BaseEvent {
+  eventType: 'TenantErased';
+  /** ISO timestamp of the confirm-step completion (UTC). */
+  confirmedAt: string;
+  /** User UUID that confirmed the erasure (already validated against the ticket). */
+  requestedBy: string;
+  /** Sum of affected rows across all tenant-scoped tables in the emitting service. */
+  totalDeleted: number;
+  /** Audit-log rows where `userId` was SHA-256-anonymised instead of deleted. */
+  auditRowsAnonymised: number;
+  /** Count of distinct tables with at least one affected row. */
+  tableCount: number;
+}
+
+/**
  * Snapshot of a provisioning step for failure diagnostics.
  * Captures which step failed and which succeeded during tenant provisioning.
  */
@@ -198,6 +229,7 @@ export type TenantEvent =
   | TenantSuspendedEvent
   | TenantActivatedEvent
   | TenantArchivedEvent
+  | TenantErasedEvent
   | TenantProvisioningFailedEvent
   | TenantSubscriptionChangedEvent
   | TenantSubscriptionRequestedEvent

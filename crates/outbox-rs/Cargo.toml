@@ -1,0 +1,57 @@
+[package]
+name = "outbox-rs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+description = "Transactional Outbox primitive for Rust services. OutboxRepository trait + PgOutboxRepository impl + OutboxDispatcher task + OutboxMaintenance retention. Mirrors @platform/outbox TS pattern (ADR-029) — at-least-once NATS publish tied to the same PG transaction that persists the business row."
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+# Tenant + id types (branded UUID). Every outbox record binds a tenant.
+tenant-context = { path = "../tenant-context", version = "0.1.0" }
+
+# Async runtime + traits. tokio features pulled down to the minimum this
+# crate actually needs — the binary's Cargo.toml keeps `tokio = "full"`.
+tokio = { workspace = true, features = ["sync", "time", "macros", "rt"] }
+async-trait = { workspace = true }
+# `futures::stream::iter(...).buffer_unordered(...)` is the claim-batch
+# publish primitive — N-way parallel publish with back-pressure.
+futures = { workspace = true }
+
+# Serde for payload envelope + error log surfaces.
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Identity + time.
+uuid = { workspace = true }
+chrono = { workspace = true }
+
+# Error + tracing.
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+# Metrics facade — emitter-side only (exporter lives in the binary).
+metrics = { workspace = true }
+
+# PostgreSQL-backed repository impl (PgOutboxRepository). tokio-postgres
+# drives the raw SQL; deadpool-postgres hands out connections from the
+# shared pool the sensor-ingestion binary already maintains. The `pg`
+# module is always compiled — outbox-rs is specifically for Rust
+# services that persist to PG, and carrying a feature gate just to
+# drop the PG types would be dead complexity.
+tokio-postgres = { version = "0.7", features = ["with-uuid-1", "with-chrono-0_4", "with-serde_json-1"] }
+deadpool-postgres = { version = "0.14", features = ["rt_tokio_1"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "test-util"] }
+# DebuggingRecorder for asserting metric emission in repository + dispatcher tests.
+metrics-util = { version = "0.19", features = ["debugging"] }
+
+[lints]
+workspace = true

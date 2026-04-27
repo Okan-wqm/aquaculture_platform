@@ -6,7 +6,7 @@ import {
   UpdateDateColumn,
   Index,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 
 /**
  * Discount type
@@ -40,7 +40,7 @@ export enum DiscountDuration {
 /**
  * Discount Code / Coupon Entity
  */
-@Entity('discount_codes')
+@Entity('discount_codes', { schema: 'admin' })
 @Index(['code'], { unique: true })
 @Index(['isActive'])
 @Index(['validFrom', 'validUntil'])
@@ -139,7 +139,7 @@ export class DiscountCode {
 /**
  * Track discount code redemptions
  */
-@Entity('discount_redemptions')
+@Entity('discount_redemptions', { schema: 'admin' })
 @Index(['discountCodeId'])
 @Index(['tenantId'])
 @Index(['redeemedAt'])

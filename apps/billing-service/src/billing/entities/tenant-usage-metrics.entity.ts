@@ -8,7 +8,7 @@ import {
   Unique,
 } from 'typeorm';
 import { ObjectType, Field, ID, Float, registerEnumType } from '@nestjs/graphql';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 
 /**
  * Usage tracking period type
@@ -94,7 +94,7 @@ export class ModuleUsageMetrics {
  * - API Calls: total=125000
  */
 @ObjectType()
-@Entity('tenant_usage_metrics')
+@Entity('tenant_usage_metrics', { schema: 'billing' })
 @Index(['tenantId'])
 @Index(['moduleId'])
 @Index(['periodStart'])

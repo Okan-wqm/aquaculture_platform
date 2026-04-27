@@ -11,8 +11,8 @@
  * - Paginated*
  */
 
-const fs = require('fs');
-const path = require('path');
+import fs from 'node:fs';
+import path from 'node:path';
 
 const REQUIRED_FIELDS = ['items', 'total', 'page', 'limit', 'totalPages', 'hasNextPage', 'hasPreviousPage'];
 const PAGINATED_TYPE_PATTERNS = [/Connection$/, /ListResponse$/, /PaginatedResponse$/, /^Paginated/];

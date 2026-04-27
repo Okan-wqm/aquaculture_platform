@@ -1,0 +1,49 @@
+[package]
+name = "nats-client"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+description = "async-nats factory wired for ADR-014/015 mTLS-only auth. Cert CN is the sole identity. user/pass auth is structurally absent (cannot be configured)."
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+async-nats = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt", "time", "fs"] }
+serde = { workspace = true }
+# Typed request-reply (ADR-031 foundation) encodes/decodes payloads
+# via serde_json. Direct dep — dev-dep only would not cover the
+# prod call path.
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+bytes = { workspace = true }
+futures = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "test-util"] }
+tempfile = "3.10"
+serde_json = { workspace = true }
+trybuild = "1.0"
+
+[features]
+# `test-utils` — opens a plaintext, non-TLS connect path for
+# integration tests that exercise the typed request-reply + publish/
+# subscribe surfaces against a live NATS broker. ADR-015 requires
+# mTLS in production; this feature is OFF by default and exists
+# ONLY so tests can spin up a short-lived plaintext broker via
+# testcontainers without the complexity of generating + mounting
+# TLS material per test run.
+#
+# Wire invariant: every `Cargo.toml` that enables this feature MUST
+# do so in `[dev-dependencies]` only. A production dependency that
+# enables `test-utils` would violate ADR-015.
+test-utils = []
+
+[lints]
+workspace = true

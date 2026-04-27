@@ -33,7 +33,7 @@ registerEnumType(ScheduleType, { name: 'ScheduleType' });
 registerEnumType(ScheduleStatus, { name: 'ScheduleStatus' });
 
 @ObjectType()
-@Entity('schedules')
+@Entity('schedules', { schema: 'hr' })
 @Index(['tenantId', 'employeeId', 'startDate', 'endDate'])
 @Index(['tenantId', 'status'])
 @Index(['tenantId', 'departmentId', 'startDate'])

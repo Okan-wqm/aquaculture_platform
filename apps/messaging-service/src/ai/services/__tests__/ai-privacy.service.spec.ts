@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import type { Repository } from 'typeorm';
-import { BypassRlsService } from '@aquaculture/backend-common';
+import { BypassRlsService } from '@aquaculture/backend-common/database';
 import { REDIS_CLIENT } from '../../../shared/redis.provider';
 import { AiPrivacyService } from '../ai-privacy.service';
 import { TenantAiSetting } from '../../entities/tenant-ai-setting.entity';

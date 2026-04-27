@@ -21,7 +21,9 @@ import {
 import { UseGuards, Logger } from '@nestjs/common';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
-import { Tenant, CurrentUser, Roles, Role, fromCqrsPaginated } from '@aquaculture/backend-common';
+import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
+import { fromCqrsPaginated } from '@aquaculture/backend-common/pagination';
+import { Cacheable } from '../../common/cache/cacheable.decorator';
 import { Batch, BatchStatus, BatchInputType } from '../entities/batch.entity';
 
 /**
@@ -124,6 +126,7 @@ export class BatchResolver {
   // QUERIES
   // -------------------------------------------------------------------------
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => Batch, { name: 'batch' })
   async getBatch(
     @Args('id', { type: () => ID }) id: string,
@@ -133,6 +136,7 @@ export class BatchResolver {
     return this.queryBus.execute(new GetBatchQuery(tenantId, id));
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => BatchListResponse, { name: 'batches' })
   async listBatches(
     @Tenant() tenantId: string,
@@ -150,6 +154,15 @@ export class BatchResolver {
     return fromCqrsPaginated(result);
   }
 
+  /**
+   * Phase 7.3.1 — cache batch performance for 1 hour. The calculator
+   * fan-outs across batch + health_events + work_orders and used to
+   * do its own Redis caching inside the query handler. The cache
+   * logic now lives at the resolver boundary (one pattern for the
+   * whole service) and the handler body is pure compute.
+   */
+  @Cacheable({ prefix: 'batch:performance', ttlSeconds: 3600 })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Query(() => BatchPerformanceResponse, { name: 'batchPerformance' })
   async getBatchPerformance(
     @Args('id', { type: () => ID }) id: string,
@@ -159,6 +172,7 @@ export class BatchResolver {
     return this.queryBus.execute(new GetBatchPerformanceQuery(tenantId, id));
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [BatchHistoryEntryResponse], { name: 'batchHistory' })
   async getBatchHistory(
     @Args('id', { type: () => ID }) id: string,
@@ -174,6 +188,7 @@ export class BatchResolver {
     );
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [AvailableTankResponse], { name: 'availableTanks' })
   async listAvailableTanks(
     @Tenant() tenantId: string,
@@ -187,6 +202,7 @@ export class BatchResolver {
     );
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => String, { name: 'generateBatchNumber' })
   async generateBatchNumber(
     @Tenant() tenantId: string,
@@ -345,6 +361,16 @@ export class BatchResolver {
     @Tenant() tenantId: string,
     @CurrentUser() user: UserContext,
     @Args('notes', { nullable: true }) notes?: string,
+    @Args('acknowledgeActiveTreatments', {
+      nullable: true,
+      defaultValue: false,
+      description:
+        'Explicit override for closing a batch that still has an open ' +
+        'medicine withdrawal period. Defaults to false — the close will ' +
+        'be rejected with the list of blocking events if the flag is not ' +
+        'set. When true, the override is written to the audit log.',
+    })
+    acknowledgeActiveTreatments?: boolean,
   ): Promise<Batch> {
     this.logger.log(`Closing batch: ${id} with reason: ${reason}`);
     // WHY: Using typed options object prevents argument transposition.
@@ -357,6 +383,7 @@ export class BatchResolver {
         closedBy: user.sub,
         userRoles: user.roles,
         notes,
+        acknowledgeActiveTreatments: acknowledgeActiveTreatments ?? false,
       }),
     );
   }

@@ -7,7 +7,7 @@ import {
   VersionColumn,
   Index,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import { ObjectType, Field, ID, Int, Float, registerEnumType } from '@nestjs/graphql';
 
 export enum LeaveCategory {
@@ -29,7 +29,7 @@ export enum LeaveCategory {
 registerEnumType(LeaveCategory, { name: 'LeaveCategory' });
 
 @ObjectType()
-@Entity('leave_types')
+@Entity('leave_types', { schema: 'hr' })
 @Index(['tenantId', 'code'], { unique: true })
 @Index(['tenantId', 'category'])
 @Index(['tenantId', 'isActive'])

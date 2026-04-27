@@ -3,6 +3,7 @@ import { DataSource, QueryRunner } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { UpdateDepartmentCommand } from '../commands/update-department.command';
 import { DepartmentHR } from '../entities/department.entity';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 
 @Injectable()
 @CommandHandler(UpdateDepartmentCommand)
@@ -21,7 +22,7 @@ export class UpdateDepartmentHandler implements ICommandHandler<UpdateDepartment
     await queryRunner.startTransaction();
 
     try {
-      const repo = queryRunner.manager.getRepository(DepartmentHR);
+      const repo = tenantManagerRepo(queryRunner.manager, DepartmentHR, tenantId);
 
       const department = await repo.findOne({
         where: { tenantId, id: input.id },

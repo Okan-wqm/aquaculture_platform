@@ -19,7 +19,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import {
   ObjectType,
   Field,
@@ -111,7 +111,7 @@ export interface MortalityDocument {
 // ============================================================================
 
 @ObjectType()
-@Entity('mortality_records')
+@Entity('mortality_records', { schema: 'farm' })
 @Index(['tenantId', 'batchId', 'recordDate'])
 @Index(['tenantId', 'cause'])
 @Index(['tenantId', 'severity'])

@@ -150,19 +150,25 @@ describe('LegalHoldService', () => {
     holdRepo.findOne.mockResolvedValue(activeHold);
 
     const releaserId = fakeUuid('usr');
-    const result = await service.release(holdId, releaserId);
+    const result = await service.release(holdId, TENANT_A, releaserId);
 
     expect(result.isActive).toBe(false);
     expect(result.releasedBy).toBe(releaserId);
     expect(result.releasedAt).toBeInstanceOf(Date);
     expect(holdRepo.save).toHaveBeenCalled();
+    // Verify the new tenantId scope is honoured: lookup must be by
+    // (id + tenantId), not by id alone — this is the ID-knowing
+    // cross-tenant fix added in PR #159.
+    expect(holdRepo.findOne).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: holdId, tenantId: TENANT_A } }),
+    );
   });
 
   it('throws ForbiddenException when releasing a non-existent hold', async () => {
     holdRepo.findOne.mockResolvedValue(null);
 
     await expect(
-      service.release(fakeUuid('lh'), adminUserId),
+      service.release(fakeUuid('lh'), TENANT_A, adminUserId),
     ).rejects.toThrow(ForbiddenException);
   });
 
@@ -171,7 +177,31 @@ describe('LegalHoldService', () => {
     holdRepo.findOne.mockResolvedValue(releasedHold);
 
     await expect(
-      service.release(releasedHold.id, adminUserId),
+      service.release(releasedHold.id, TENANT_A, adminUserId),
     ).rejects.toThrow(ForbiddenException);
+  });
+
+  // -----------------------------------------------------------------------
+  // Tenant scope on release: a holdId from Tenant B must NOT release a
+  // hold even if the hold ID is known to a Tenant A user. This is the
+  // SEC bug fixed in PR #159's legal-hold migration.
+  // -----------------------------------------------------------------------
+  it('refuses to release a hold whose tenantId does not match the caller (cross-tenant ID-knowing attack)', async () => {
+    // The repo's findOne MUST treat tenantId as part of the lookup key.
+    // Mock it to return null when a wrong tenantId is supplied — this
+    // models the post-fix behaviour where the WHERE clause carries
+    // tenantId.
+    holdRepo.findOne.mockResolvedValue(null);
+
+    const holdId = fakeUuid('lh');
+    const wrongTenant = fakeUuid('tn');
+
+    await expect(
+      service.release(holdId, wrongTenant, adminUserId),
+    ).rejects.toThrow(ForbiddenException);
+    expect(holdRepo.findOne).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: holdId, tenantId: wrongTenant } }),
+    );
+    expect(holdRepo.save).not.toHaveBeenCalled();
   });
 });

@@ -1,6 +1,7 @@
 import { UseGuards } from '@nestjs/common';
 import { Resolver, Query, Mutation, Args, ID, Int } from '@nestjs/graphql';
-import { TenantGuard, Tenant } from '@aquaculture/backend-common';
+import { Tenant } from '@aquaculture/backend-common/decorators';
+import { TenantGuard } from '@aquaculture/backend-common/guards';
 
 import { VfdReading } from '../entities/vfd-reading.entity';
 import { VfdReadResultDto } from '../dto/vfd-read-result.dto';

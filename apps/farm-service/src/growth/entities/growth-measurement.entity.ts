@@ -25,7 +25,7 @@ import {
   BeforeInsert,
   BeforeUpdate,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import {
   ObjectType,
   Field,
@@ -210,7 +210,7 @@ export interface MeasurementConditions {
 // ============================================================================
 
 @ObjectType()
-@Entity('growth_measurements')
+@Entity('growth_measurements', { schema: 'farm' })
 @Index(['tenantId', 'batchId', 'measurementDate'])
 @Index(['tenantId', 'measurementDate'])
 @Index(['batchId', 'measurementDate'])

@@ -10,6 +10,7 @@
 
 ---
 
+
 ## ORPHAN-001 — `opentelemetry` 0.27 vs `tracing-opentelemetry` 0.28 version family drift
 
 **Severity:** MEDIUM
@@ -41,6 +42,7 @@ tracing-opentelemetry = { version = "0.28", optional = true }
 **Status:** OPEN (documented; no fix in Batch 1 scope — Faz 0 only touches new deps).
 
 ---
+
 
 ## ORPHAN-002 — `rodbus = "=1.4.0"` empty-Path workaround depends on un-specified behavior
 
@@ -78,6 +80,7 @@ tracing-opentelemetry = { version = "0.28", optional = true }
 
 ---
 
+
 ## ORPHAN-003 — `nix` feature `process` may pull unused capability wrappers; capability drop likely goes through `libc` direct FFI
 
 **Severity:** LOW
@@ -108,6 +111,7 @@ nix = { version = "0.29", features = ["fs", "process", "signal", "user"] }
 
 ---
 
+
 ## ORPHAN-004 — Pre-commit banned-phrase gate scans whole staged file
 
 **Severity:** LOW (gate tooling)
@@ -129,6 +133,7 @@ Line 406 pre-existed (v1.2.4 baseline); Batch 1 changes were in lines 132-368.
 **Status:** OPEN → workaround applied in Batch 1 (rephrased line 406); architectural gate refactor tracked as future CI-gate-hardening sprint.
 
 ---
+
 
 ## ORPHAN-005 — `SUDERRA_DATA_DIR` env var enables path-redirect on SQLite writes
 
@@ -159,6 +164,7 @@ Same pattern for `retain.db`. No canonicalization, no allowlist, no path-root ch
 **Status:** OPEN → Faz 2 Sprint 8.3 systemd + in-process hardening (EDGE-HIGH).
 
 ---
+
 
 ## ORPHAN-006 — Offline queue "flush" shutdown step is a no-op with misleading log
 
@@ -192,6 +198,7 @@ info!("Offline queue flush step complete");
 
 ---
 
+
 ## ORPHAN-007 — `publish_raw(&topic, ...)` double-reference; clippy `needless_borrow`
 
 **Severity:** LOW (lint)
@@ -211,6 +218,7 @@ if let Err(e) = mqtt.publish_raw(&topic, &payload).await {  // &&String
 **Status:** OPEN → pickup with Faz 1 ARC-008 commands.rs god-file split or earlier cleanup batch.
 
 ---
+
 
 ## ORPHAN-008 — Modbus write path routes ALL writes to the FIRST configured device regardless of per-tag mapping
 
@@ -264,6 +272,7 @@ ProtocolConfig::Modbus { register, .. } => {
 
 ---
 
+
 ## ORPHAN-009 — `reverse_scale(...) as u16` silent truncation on Modbus analog write
 
 **Severity:** LOW (out-of-band numeric truncation)
@@ -304,6 +313,7 @@ Each case silently writes an out-of-range value to the PLC register — the oper
 **Status:** OPEN → Faz 1 ARC-008 commands.rs split delivers validated Modbus write handler.
 
 ---
+
 
 ## ORPHAN-010 — systemd unit `ReadWritePaths=/var/lib/suderra-agent` diverges from runtime code which writes to `/var/lib/suderra`
 
@@ -350,6 +360,7 @@ const SCADA_DIR: &str = "/var/lib/suderra/scada";
 
 ---
 
+
 ## ORPHAN-011 — `TagId(pub String)` inner field escaped the sealed-newtype pattern in Batch 2
 
 **Severity:** LOW (seal consistency; no security-critical surface exposed)
@@ -379,6 +390,7 @@ pub struct TagId(pub String);
 **Status:** RESOLVED-IN-BATCH-5A — `TagId(String)` with private inner + `pub fn new` + `From<String>` preserved; 8 internal tuple-ctor test sites migrated to `TagId::from(...)`. No external callers needed migration (verified via crate-wide grep).
 
 ---
+
 
 ## ORPHAN-HIGH-012 — test-code drift hid `cargo test` from CI for an unknown window (discovered in Batch 68)
 
@@ -416,6 +428,7 @@ let perm = Permission::WriteTag(TagId::from("pond3_aerator".to_string()));
 **Status:** RESOLVED-IN-BATCH-69 (test-call-site drift + FileBackedAcceptance Debug). CI-gate hardening pending follow-up commit.
 
 ---
+
 
 ## ORPHAN-HIGH-013 — 6 pre-existing unit-test failures surfaced once Batch 69 restored test-compile
 
@@ -459,6 +472,7 @@ The fixes landed across multiple Sprint 6.x batches as the post-Batch-69 work pr
 
 ---
 
+
 ## ORPHAN-HIGH-014 — No PR-time CI gate exists for `sens-api-gateway/**` (Rust edge agent)
 
 **File:** `.github/workflows/*.yml`
@@ -496,6 +510,7 @@ $ grep -l "sens-api-gateway\|cargo" .github/workflows/*.yml
 
 ---
 
+
 ## Notes on methodology
 
 - Findings discovered during normal code review; NOT dedicated orphan-bug sweep.
@@ -504,6 +519,7 @@ $ grep -l "sens-api-gateway\|cargo" .github/workflows/*.yml
 - Resolution path: linked to plan phase / sprint where fix lands.
 
 ---
+
 
 ## ORPHAN-MEDIUM-017 — Ruthless-assessment ADR/infrastructure coverage overcount (2026-04-23)
 
@@ -540,6 +556,7 @@ $ grep -l "sens-api-gateway\|cargo" .github/workflows/*.yml
 
 ---
 
+
 ## ORPHAN-LOW-018 — Ultra-plan batch numbering assumes sequential PR assignment; reality likely bursts (2026-04-23)
 
 **Status:** OPEN (operational — tracked for release planning).
@@ -555,6 +572,7 @@ $ grep -l "sens-api-gateway\|cargo" .github/workflows/*.yml
 **Linked plan:** Same ultra-plan; §4 table footnote target.
 
 ---
+
 
 ## ORPHAN-MEDIUM-019 — `CommandEnvelope` wire format lacks `claimed_policy_version` field; rollback-defense gate degraded (2026-04-24)
 
@@ -582,6 +600,7 @@ $ grep -l "sens-api-gateway\|cargo" .github/workflows/*.yml
 
 ---
 
+
 ## ORPHAN-HIGH-020 — D-1 ultra-plan ST source→bytecode compile path is partially orphan; production accepts pre-compiled artifacts only (2026-04-25)
 
 **Status:** RESOLVED end-to-end via Batches #297-#299 (registry entries ULTRA-HIGH-046 primitive + ULTRA-HIGH-047 adapter + ULTRA-HIGH-048 MQTT handler). Operators can now push raw `.st` source via `deploy_st_source` MQTT command; edge runs the full `verify_signed_st_source` → `parse_st` → `compile_program` → registry insert chain internally. Permission gate `Permission::DeployProgram` (same as `deploy_program` / `deploy_bytecode_program`). Cross-format confusion mitigated structurally via distinct magic prefix (`SSRC` vs `STBC`) + distinct domain tag (`st-source-v1` vs `st-bytecode-v3`). Integration test covering offline-sign → ship-via-MQTT → edge-compiles roundtrip pending Batch #300.
@@ -608,6 +627,7 @@ $ grep -l "sens-api-gateway\|cargo" .github/workflows/*.yml
 **Linked plan:** Ultra-plan D-1 (currently named "AST → bytecode compile primitive" but expanded by this finding to "D-1a primitive + D-1b production wire").
 
 ---
+
 
 ## ORPHAN-CRITICAL-021 — OPC UA write callback hard-codes anonymous actor; TypedAuthzPort gate non-functional for HMI write path (2026-04-25)
 
@@ -659,6 +679,7 @@ $ grep -l "sens-api-gateway\|cargo" .github/workflows/*.yml
 
 ---
 
+
 ## ORPHAN-MEDIUM-022 — `mqtt.rs` internal `publish_status` self-publishes bypass OutboundPublisher routing (2026-04-25)
 
 **Status:** RESOLVED in Batch #268 (2026-04-25).
@@ -682,6 +703,7 @@ The `mqtt.rs:865` Offline publish during graceful disconnect remains intentional
 **Resolved by:** Batch #268 (commit 517beeff content + 42506745 clarification — push gate sequence).
 
 ---
+
 
 ## ORPHAN-MEDIUM-023 — SensNodeManager::write Allow path returns Good without execute_opcua_write delegate (Batch #265 partial wire) (2026-04-25)
 
@@ -726,6 +748,7 @@ Plus the `ForceRegistry` + `ProcessImage` + `AuditSink` Arcs needed by `execute_
 **Linked plan:** Ultra-plan A-2b deadline; same as ORPHAN-CRITICAL-021 (the two findings close together).
 
 ---
+
 
 ## ORPHAN-HIGH-024 — Batches #243-#280 dangling `Closes: ULTRA-HIGH-NNN` trailers; finding-registry hash chain not advanced (2026-04-25)
 
@@ -786,6 +809,7 @@ Mint registry entries with the EXACT IDs cited in the commit history (`ULTRA-HIG
 
 ---
 
+
 ## ORPHAN-MEDIUM-025 — `commit-msg-validator.ts` does not cross-check `Closes:` trailer IDs against finding-registry; format-only check leaks dangling pointers (2026-04-25)
 
 **Status:** RESOLVED in Batch #285 (2026-04-25, registry entry ULTRA-MEDIUM-026).
@@ -841,6 +865,7 @@ The check is O(N) on registry size + O(M) on trailer count per commit; both boun
 **Linked plan:** Plan §3.1 ARC-009 review-finding traceability discipline + ORPHAN-HIGH-024 (the 38-batch dangling pattern this gate would have caught).
 
 ---
+
 
 ## ORPHAN-HIGH-027 — Ultra-plan A-2b step 5b spec ("address-space populate per-tag VariableNode") is architecturally wrong-shape vs canonical async-opcua NodeManager pattern (2026-04-25)
 
@@ -902,6 +927,7 @@ The remaining sub-steps 5c / 5d / 5e / 5f are unaffected — they correctly targ
 
 ---
 
+
 ## ORPHAN-LOW-028 — `sens-api-gateway/src/main.rs.disabled-test` is a 37-byte dead stub referencing a module that does not exist (2026-04-27)
 
 **Discovered by:** Batch #307 in-flight environment scan (Faz 6 force_value two-person integrity gate session). The file appears in `git status` as an `??` untracked entry — predates this session (`stat` mtime `Apr 23 18:12`).
@@ -927,3 +953,862 @@ mod opc_ua_type_debug; // diagnostic
 **Status:** OPEN. Slated for the next no-arc hygiene batch (no firm deadline; trigger-based rather than time-based — fold into the next session that already touches `sens-api-gateway/src/` for an unrelated reason).
 
 **Linked plan:** none (out-of-band of every active arc).
+
+
+## DEPLOY-CRITICAL-005 — MigrationAuditModule missing EventBusModule.forRoot() import (2026-04-21)
+
+**Status:** RESOLVED — fixed by the commit that introduces this entry.
+
+**Scope:** `apps/observability-service/src/migration-audit/migration-audit.module.ts`
+
+**Symptom (deploy, 2026-04-21 14:03 UTC):**
+
+```
+observability-service — container=aqua-observability health=starting state=restarting
+...
+--- Round 30/30: 1 signal(s) pending ---
+Error: Missing boot signals:
+  [observability-service] "Schema drift scan clean" — SchemaDriftValidator found zero violations (ADR-012)
+```
+
+aqua-db-migrate completed successfully, other services booted green,
+but observability-service entered an infinite restart loop. The deploy
+asserter timed out after 30 × 10s rounds waiting for the "Schema drift
+scan clean" boot signal that the container never reached.
+
+**Root cause:**
+
+Phase 6 Step 6 added `SchemaMigrationEventsConsumer` as a provider
+in `MigrationAuditModule` with `NatsEventBus` constructor injection.
+`NatsEventBus` is registered by `EventBusModule.forRoot()` — NOT a
+global provider. Modules that consume `NatsEventBus` MUST import
+`EventBusModule.forRoot()` in their own `imports` list. The pattern
+is already used by `SecurityEventsModule` in the same service.
+`MigrationAuditModule` registered the consumer without the import.
+Nest's DI container threw before any module lifecycle ran:
+
+```
+Nest can't resolve dependencies of the SchemaMigrationEventsConsumer
+(?, CommandBus). Please make sure that the argument NatsEventBus at
+index [0] is available in the MigrationAuditModule context.
+```
+
+Container crash → Docker restart → Nest DI fails again → infinite
+restart → `SchemaDriftValidator` never runs → required boot signal
+never emitted → deploy asserter times out → rollback.
+
+**Fix:**
+
+Added `EventBusModule.forRoot()` to `MigrationAuditModule.imports`.
+Mirrors the pattern established by `SecurityEventsModule`. Architectural
+invariant documented in the module docblock: every module registering a
+`NatsEventBus`-consuming provider MUST import `EventBusModule.forRoot()`.
+
+**Why this is the correct final fix, not a patch:**
+
+The gap was a missing module boundary contract. The fix restores the
+contract (module owns its DI graph fully) without introducing a
+workaround (e.g. making NatsEventBus global, which would pollute
+unrelated modules' DI scope). Future authors who add NATS consumers
+to a module now have both a precedent (SecurityEventsModule) and a
+docblock reminder.
+
+**Verification:**
+
+- All 55 observability-service tests still pass (DI fix is additive).
+- SchemaMigrationEventsConsumer.subscribeTo NATS failure path was
+  already swallowing errors in onModuleInit — container won't
+  crash-loop even if NATS is down at boot.
+- Next deploy should show observability reaching
+  SchemaDriftValidator.onApplicationBootstrap within round 1-5
+  and emitting "Schema drift scan clean".
+
+
+## TEST-PREEXISTING-002 — pre-existing TS errors in leader-election + watchdog specs (2026-04-21)
+
+**Status**: OPEN. Unrelated to the db-migrate enterprise refactor;
+surfaced during a Phase 6 Step 2 type-check sweep.
+
+**Scope**:
+- `libs/backend-common/src/orchestrator-leader-election/leader-election.service.spec.ts`
+- `libs/backend-common/src/database/__tests__/watchdog.integration.spec.ts`
+
+**Symptoms (tsc errors under tsconfig.spec.json)**:
+
+```
+leader-election.service.spec.ts(46,9): error TS2416:
+  Property 'set' in type 'FakeRedis' is not assignable to the same property
+  in base type 'RedisLike'. Types of parameters 'args' and 'callback' are
+  incompatible.
+leader-election.service.spec.ts(79,9): error TS2416:
+  Property 'eval' in type 'FakeRedis' is not assignable ...
+  Target signature provides too few arguments. Expected 4 or more, but got 3.
+watchdog.integration.spec.ts(145,17): error TS2322:
+  Type 'Date' is not assignable to type 'string'.
+```
+
+Root cause: `ioredis` updated its type signatures for `set()` + `eval()`
+(variadic + callback overloads added); the `FakeRedis` test double in
+leader-election.service.spec.ts does not match the new shape. Similarly
+the watchdog spec passes a Date where the current `RedisKey` type
+expects a string.
+
+**Why surfaced now**: Phase 6 Step 2 tightened the migration-runner
+factory's type signature (added optional `eventSink`). The downstream
+tsc run over tsconfig.spec.json reported these pre-existing errors
+alongside the ones I fixed (three specs had colliding top-level
+`main` const names).
+
+**Next step**: owner audit for `orchestrator-leader-election` module.
+Likely fix: update FakeRedis.set signature to accept
+`Callback<"OK"> | string | number` in the variadic tail, OR switch to
+`jest-mock-redis` upstream lib. NOT blocking the v3 refactor — the
+runtime code doesn't fail; tsc errors are test-shim only.
+
+
+## TEST-PREEXISTING-001 — schema-manager.spec.ts: 3 tests fail regardless of current branch changes (2026-04-21)
+
+**Status**: OPEN. Documented during Phase 2 implementation; not caused by
+any v3 refactor commit.
+
+**Scope**: `libs/backend-common/src/database/__tests__/schema-manager.spec.ts`
+
+**Symptoms**:
+- `should drop schema on failure (rollback)` — fails with "Schema creation failed"
+- `should reset search_path to public using set_config` — fails
+- `should handle migration errors gracefully` — fails
+
+Reproducible on baseline (git stash of unrelated changes → same 3 fail).
+Last commit to touch the spec was `734fd574` (L3 audit remediation) —
+predates the db-migrate enterprise refactor.
+
+**Why surfaced now**: the Phase 2 severity-aware validator refactor
+triggered a broader `nx affected --target=test` run which included
+schema-manager tests. They would have failed identically on main
+before Phase 1 kick-off.
+
+**Next step**: owner audit — likely a test-fixture mismatch with
+schema-manager.service.ts behaviour (mock expectations drifted vs
+real service). NOT blocking the v3 refactor; tracked here so future
+reviewers know it's not a v3-introduced regression.
+
+
+## DEPLOY-CRITICAL-004 — nullability + uuid drift survives first-phase HR heal, blocks SchemaDriftValidator clean signal
+
+**ID format:** `ORPHAN-{NNN}`
+
+**Related memory:** `feedback_orphan_findings_doc.md`
+
+---
+
+
+## 2026-04-20 ORPHAN-012 — `tools/gates/tsconfig.json` `ignoreDeprecations: "6.0"` rejected by TS 5.9.3 (all pre-commit gates fail)
+
+**Evidence:**
+- `tools/gates/tsconfig.json:12` — `"ignoreDeprecations": "6.0"`
+- `/var/aqua-saas/node_modules/typescript/package.json` — version 5.9.3
+- TS 5.9.3 compiler source (`_tsc.js:124516`): `if (ignoreDeprecations === "5.0")` — the ONLY value the compiler accepts at that version; anything else yields `TS5103: Invalid value for '--ignoreDeprecations'`.
+- Commit `033abbac` (2026-04-19) added the `"6.0"` line with the stated intent of silencing the `moduleResolution="Node"` deprecation. `"6.0"` means "ignore options deprecated as of TS 6.0" — but TS 5.9 does not know about future-version deprecations; only `"5.0"` is a legal past-version.
+- Reproduction from this worktree: `NODE_OPTIONS= npx --no ts-node --project tools/gates/tsconfig.json tools/gates/banned-phrase.ts --mode=staged` → `TS5103: Invalid value`. Same path is invoked by `.husky/pre-commit` for every commit.
+
+**Problem:** All three pre-commit gates (`banned-phrase.ts`, `migration-sql-lint.ts`, `tier-claim-lint.ts`) crash before any staged-file scan runs, so every commit is blocked end-to-end. Stage 5/6/7 commits on `agentic-rust-faz2-sensor-ingestion` presumably landed because a transient npx cache was populated with TypeScript 6.0.3 (confirmed present at `~/.npm/_npx/1bf7c3c15bf47d04/node_modules/typescript/package.json:6.0.3` before this session cleared it). A 6.0 compiler accepts the `"6.0"` value; a 5.9 compiler does not. The hook's green/red behaviour therefore depends on which TS version npx happens to resolve — not on the code being committed. That is environment drift, not a discipline gate.
+
+**Risk:**
+- Tier-1 "make it impossible" violation — commits succeed or fail based on ambient npx state rather than staged content.
+- Future developer onboarding: a fresh clone + default `npx ts-node` pulls the 5.x workspace binary, every `git commit` fails with a wall of TypeScript 5103 noise, time-to-first-commit is catastrophic.
+- Any CI runner without the 6.0.3 npx cache treats every PR as failing the pre-commit gate locally, misleading reviewers about the actual gate signal.
+
+**Root-cause analysis updated 2026-04-20 (post agent session):**
+
+The first attempted fix (changing `"6.0"` → `"5.0"`) ALSO breaks: in an
+npx environment that resolves a TS 6.x compiler, the inverse error
+fires — `TS5107: Option 'moduleResolution=node10' is deprecated and
+will stop functioning in TypeScript 7.0. Specify '"ignoreDeprecations":
+"6.0"' to silence this error.` Both values are wrong against SOME
+TypeScript version that npx can land on.
+
+The TRUE root cause is therefore NOT the value of `ignoreDeprecations`
+but the LACK of a pinned `ts-node` / `typescript` version for the
+pre-commit gate runner. `npx ts-node` resolves whatever the local npm
+cache happens to expose, which can be either 5.9.x (rejects "6.0") or
+6.0.x (rejects "5.0") depending on cache state. The same single-byte
+character change cannot satisfy both.
+
+The cherry-pick of stage 8 reverted the agent's `"5.0"` value back to
+`"6.0"` because the cherry-pick was integrated in an environment with
+TS 6.0.3 in npx. The orphan finding stays open until a real fix lands.
+
+**Real architectural fix (TBD, not in this commit):**
+- Add `ts-node` + `typescript` as explicit `devDependencies` of the
+  repo root (or of `tools/gates/`) at a single pinned version so
+  `npx ts-node` resolves the pinned binary deterministically.
+- Match `ignoreDeprecations` value to the pinned TS major (`"5.0"` if
+  pinned to 5.x, `"6.0"` if pinned to 6.x).
+- Add a `tools/gates` integration test that `require`s each gate
+  script and asserts it exits without `TS5107`/`TS5103` against the
+  pinned TS version — tier-3 "make it detectable" so any future
+  pin-version drift blows up in CI, not in every developer's commit.
+
+**Follow-on tracking:**
+- Owner: Okan-Wqm.
+- Deadline: 2026-05-15 (out of scope for the Faz 2 PR; tracked here so
+  the next plan-aware session can pick it up).
+- No finding-registry.jsonl entry added (hash-chain coupling + the
+  pre-commit gate that would validate the entry is the very thing
+  that is broken). Promotion to the JSONL registry belongs to the
+  context-manager agent with a stable single-writer context AND a
+  working pre-commit hook chain.
+
+**Status update 2026-04-21 (Faz 3):** Partially RESOLVED. The
+`ignoreDeprecations: "6.0"` line is removed from
+`tools/gates/tsconfig.json`, matching the `main` branch's posture and
+unblocking pre-commit on every TS-5.x environment (the canonical
+workspace pin in `package.json` is `typescript ^5.3.3`). Future
+hardening (the "Real architectural fix" bullets above — pin ts-node +
+typescript explicitly + add a tools/gates integration test) remains
+TBD, owner Okan-Wqm. The drift surface still exists for environments
+that resolve a TS 6.x compiler via npx cache, but those will get a
+warning rather than a `TS5103` block.
+
+---
+
+
+## 2026-04-20 ORPHAN-013 — NATS subject drift: publishers emit `events.{tenantId}.{eventType}`, subscribers listen on `events.{eventType}`
+
+**Severity:** HIGH (silently miss every tenant-scoped publish)
+**Discovered:** 2026-04-20, Faz 2 stage 12 `NatsEventPublisher` implementation review
+**Files:**
+- `platform/libs/event-bus/src/nats/nats-event-bus.ts:310-312` — publisher `deriveSubject`
+- `apps/alert-engine/src/alert/event-handlers/sensor-reading.handler.ts:80-81` — subscriber
+- Cross-referenced: `docs/test-audits/tenant-isolation-auditor/2026-04-13-full-platform-e2e.md` lines 21-29
+
+**Evidence — publisher (3 segments):**
+```typescript
+private deriveSubject(event: IEvent): string {
+  const segment = event.tenantId ?? 'system';
+  return `events.${segment}.${event.eventType}`;
+}
+```
+
+**Evidence — subscriber (2 segments after normalisation):**
+```typescript
+// Must match the topic published by sensor-service: 'SensorReading'
+await this.eventBus.subscribe('SensorReading', this);
+// → normalizeSubject() prepends 'events.' → 'events.SensorReading'
+```
+
+**Problem:** NATS subjects use exact-segment matching. `events.<uuid>.SensorReading` (3 segments) and `events.SensorReading` (2 segments) are different subjects. The subscriber receives zero messages for tenant-scoped publishes.
+
+**Risk:**
+- Alert evaluation silently misses every sensor reading on the NATS wire layer — only the in-process EventBus or alternative transports keep alarms flowing.
+- The Rust sidecar (Faz 2 stage 12 `events::subject_for`) deliberately replicates the 3-segment publisher shape to stay byte-equivalent per ADR-025 dual-write equivalence. Sidecar emits valid wire shapes that downstream subscribers also miss until the drift is reconciled.
+
+**Architectural fix options (choose consciously):**
+1. **Subscriber-side wildcard** — change `subscribe('SensorReading')` to `events.*.SensorReading`. Tier-3 "make it detectable" once a contract test pins it.
+2. **Publisher-side flatten** — emit `events.{eventType}` + put `tenantId` in a NATS header. Tier-2 "make it automatic"; cost is rewriting every downstream consumer that filters by subject.
+3. **Both, behind `event-version: v2` header** — migrate one consumer at a time; cleanest, heaviest.
+
+**Why NOT closed by Faz 2:**
+The Faz 2 sidecar's job was to replicate the existing publisher contract byte-for-byte (the plan's dual-write equivalence test mandates this). Fixing the drift is a multi-service refactor changing the publisher's subject shape and every downstream subscriber in lockstep — out of scope for the sidecar PR.
+
+**Follow-on tracking:**
+- Owner: Okan-Wqm + sensor-service / alert-engine / event-bus maintainers (platform-wide subject contract change).
+- Deadline: TBD — wants a 30-min architectural review meeting to pick option 1, 2, or 3 before any fix lands.
+- Closure path: dedicated PR updates `nats-event-bus.ts` + every subscriber + the Rust sidecar's `events::subject_for` atomically, plus a contract test in `e2e/tests/integration/nats-subject-contract.spec.ts` pinning the chosen convention.
+
+**Status update 2026-04-21 (unified branch):** RESOLVED. PR
+`agentic-rust-unified` adds `IEventBus.subscribeWildcard` +
+`subscribeForTenant` helpers + 8 consumer migrations + 21-assertion
+contract test. Tier-1 "make it impossible": hand-formatting subjects
+at call sites IS the drift surface; centralising the subject
+construction in two named helpers removes the wrong-shape from the
+surface area entirely. Old `subscribe()` reimplemented to delegate
+to `subscribeWildcard` so existing callers keep working with the
+fixed semantic.
+
+---
+
+
+## 2026-04-21 ORPHAN-014 — Six `mqtt-listener.service.spec.ts` tests fail on `agentic-rust-faz2-sensor-ingestion` HEAD (independent of Faz 3 work)
+
+**Severity:** MEDIUM (false-negative regression signal for any Faz 3+ PR touching the ingestion module)
+**Discovered:** 2026-04-21, Faz 3 stage 2 validation run (before commit `24459449`)
+**Files:** `apps/sensor-service/src/ingestion/__tests__/mqtt-listener.service.spec.ts`
+
+**Evidence:**
+```
+# Faz 2 HEAD baseline (pre-Faz-3, /tmp/aqua-rust-faz2 worktree):
+$ jest --testPathPatterns=mqtt-listener
+Test Suites: 1 failed, 1 total
+Tests:       6 failed, 58 passed, 64 total
+"Jest did not exit one second after the test run has completed."
+
+# Faz 3 stages 2+3 head (/tmp/aqua-rust-faz3 worktree):
+$ jest --testPathPatterns="ingestion|sensor-service-profile"
+Tests:       6 failed, 127 passed, 133 total
+```
+
+Same 6 failures, same suite (`MqttListenerService › Edge device handlers › Legacy edge/ handlers`), same root error pattern (`expect(jest.fn()).toHaveBeenCalledWith(...)` with `Number of calls: 0`). The Faz 3 stage 2 + 3 commit was VERIFIED not to introduce any new failure — 127 passing on top of the pre-existing 6.
+
+**Problem:**
+- The 6 pre-existing failures pollute the test signal: every Faz-3+ PR that touches `apps/sensor-service/src/ingestion/**` will see a red CI for these tests and reviewers will have to do the "is this regression mine or pre-existing?" disambiguation by hand.
+- The `Jest did not exit one second after the test run has completed` warning hints at an open handle (timer / unawaited promise) — likely the same root cause that flakes the 6 expectations.
+- Fixing 6 unrelated failures is out of scope for the Faz 3 plan, but living with them is a Tier-1 violation ("make it impossible" for false-negative signals).
+
+**Architectural fix (TBD, not in this commit):**
+- Run the failing 6 tests in isolation under `--detectOpenHandles` to pin the leak source.
+- Add a `beforeEach`/`afterEach` cleanup so the legacy-edge handler subscription is torn down between tests (suspected leak point: the `mqttClient.onMessage(handler)` registration that survives the test scope).
+- Once green, mark the suite as required in CI.
+
+**Follow-on tracking:**
+- Owner: Okan-Wqm + sensor-service maintainers.
+- Deadline: 2026-05-15 — must be reconciled before Faz 3 stage 4 (e2e dual-write equivalence) lands or the soak signal is inherently noisy.
+- Closure path: a dedicated `fix(sensor-service): mqtt-listener test isolation` commit that makes the 6 failures green AND adds the `beforeEach` teardown so future regression of the same class is impossible.
+
+**Status update 2026-04-21 (Faz 3 follow-on):** RESOLVED.
+
+Root cause was simpler than the open-handle hypothesis above: the
+test mock factory `createMockEdgeDeviceService` was missing the
+`findByCodeOnly` method that
+`mqtt-listener.service.ts:453` calls as the SEC-M01 legacy-tenant-
+enforcement gate. With the mock returning `undefined`, every
+`edge/+/{heartbeat,birth,death,response}` test returned early at
+line 459 and the assertions on `updateHeartbeat` / `handlePingResponse`
+saw zero calls.
+
+Fix: one-line addition to the mock —
+`findByCodeOnly: jest.fn().mockResolvedValue({ id: 'dev-1', tenantId: TENANT_ID, deviceCode: DEVICE_CODE })`.
+
+Validation: `jest --testPathPatterns=mqtt-listener` →
+`Tests: 64 passed, 64 total` (was 6 failed, 58 passed).
+
+The `Jest did not exit one second after the test run has completed`
+warning still fires — that is a separate open-handle leak unrelated
+to the assertion failures. Tracking it standalone if it impacts CI
+reliability; for now it is a cosmetic warning, the suite reports
+green.
+
+---
+
+
+## 2026-04-21 ORPHAN-015 — `apps/alert-engine/src/alert/event-handlers/__tests__/sensor-reading.handler.spec.ts` "evaluation execution" test uses legacy nested `readings` shape, handler expects flat `readingXxx`
+
+**Severity:** MEDIUM (1 pre-existing test failure on every PR touching alert-engine)
+**Discovered:** 2026-04-21, ORPHAN-013 fix validation run.
+**Files:**
+- `apps/alert-engine/src/alert/event-handlers/__tests__/sensor-reading.handler.spec.ts:215-223` (test)
+- `apps/alert-engine/src/alert/event-handlers/sensor-reading.handler.ts:45-53` (handler `extractReadingsFromEvent` + ARC-C01 flat-field assumption)
+
+**Evidence:** Test passes the event with `readings: { temperature: 25, ph: 7.2 }` (legacy v1 nested shape); the handler iterates over `readingXxx` flat fields per ARC-C01 / `libs/event-contracts/src/sensor-events.ts:SensorReadingEvent`. The `evaluateSensorReading` IS called once but with `readings: {}` because the handler found no flat `readingXxx` fields on the event.
+
+```
+Expected: ObjectContaining {"readings": {"ph": 7.2, "temperature": 25}, ...}
+Received: {"readings": {}, ...}
+```
+
+Verified pre-existing on `main` (HEAD `23b1362a`). Not introduced by ORPHAN-013 work — the same 1 failure shows on a fresh main checkout running the same test.
+
+**Architectural fix (TBD, not in this PR):** rewrite the test to construct the event with flat `readingTemperature: 25, readingPh: 7.2` fields (the post-ARC-C01 shape) and assert the same flat shape in the `evaluateSensorReading` call args. Optionally add a SECOND test that exercises the upcaster path (legacy nested → flat) since the upcaster lives in `libs/event-contracts/src/upcasters/sensor-reading.upcaster.ts`.
+
+**Follow-on tracking:**
+- Owner: alert-engine maintainers.
+- Deadline: 2026-05-15.
+- Closure path: a `test(alert-engine):` commit that updates the test fixture + adds the upcaster-path companion test.
+
+---
+
+
+## 2026-04-22 ORPHAN-016 — TS `mqtt-listener.service.ts` still emits `SensorReading` V1 nested format
+
+**Severity:** HIGH (blocks ADR-028 Phase-3 cut-over; silent contract drift)
+**Discovered:** 2026-04-22, Rust migration delta audit (three parallel Explore agents).
+**File:** `apps/sensor-service/src/ingestion/mqtt-listener.service.ts:1413-1419`
+
+**Evidence:**
+
+```typescript
+await this.eventBus.publish({
+  ...createBaseEvent('SensorReading', sensor.tenantId, {...}),
+  timestamp: timestamp.toISOString(),
+  sensorId: sensor.id,
+  readings: data,    // nested V1 field
+  version: 1,
+});
+```
+
+The TS cloud listener still emits `SensorReading` events in the V1 nested-`readings` format while `libs/event-contracts/src/sensor-events.ts:10-24` has already flipped to the V2 flat-field interface (`readingTemperature`, `readingPh`, etc.). The upcaster `libs/event-contracts/src/upcasters/sensor-reading.upcaster.ts:25-46` papers over the drift at the consumer side, but the emitter is the point of truth and should speak V2 directly.
+
+**Why orphan:** Rust sensor-ingestion migration plan (`/root/.claude/plans/snappy-sniffing-pine.md` Kör Nokta 5) adds `raw_value` + V2 contract for the Rust sidecar only. Flipping the NestJS emitter is a sensor-service refactor, not part of sensor-ingestion PRs. The phased rollout matrix in ADR-028 keeps V1 emitters valid through Phases 0-2; this finding tracks the Phase-3 cut-over when TS must match.
+
+**Architectural fix (owner-scope):**
+
+1. Update `mqtt-listener.service.ts` to build the `SensorReadingEvent` with flat V2 fields + `raw_value` from the edge payload.
+2. Remove the call path into the V1→V2 upcaster (it becomes a read-only legacy translator).
+3. Regression: `mqtt_listener_publishes_sensor_reading_in_v2_flat_format.spec.ts`.
+4. Dependency: `raw_value` must exist in the sensor payload wire format — gated by ADR-028 acceptance.
+
+**Follow-on tracking:**
+- Owner: sensor-service maintainers.
+- Deadline: aligned with ADR-028 Phase-3 (runbook `docs/runbooks/sensor-payload-v2-migration.md`).
+- Closure path: `refactor(sensor-service): mqtt-listener emit V2 flat SensorReading + raw_value` commit carrying `Closes: docs/reviews/orphan-findings.md#ORPHAN-016`.
+
+---
+
+
+## 2026-04-22 ORPHAN-017 — Prometheus annotation-based scrape is an injection DoS risk (SEC-NM-018 flagged, fix deferred)
+
+**Severity:** HIGH (documented DoS risk, mitigation not implemented)
+**Discovered:** 2026-04-22, Rust migration observability audit.
+**File:** `infrastructure/monitoring/prometheus/prometheus-values.yaml:59-78`
+
+**Evidence:** The Helm values file declares `additionalScrapeConfigs` that relies on pod annotations (`prometheus.io/scrape: true`) to dynamically discover scrape targets. The same file carries an inline `SEC-NM-018` warning: "Annotation-based pod scraping is a security risk — any pod can inject itself." The risk is documented but the fix was deferred — which is banned by CLAUDE.md's architectural discipline without owner/deadline/finding-ID.
+
+**Why orphan:** Rust plan Kör Nokta 4 prescribes a **static** scrape-config for `sensor-ingestion` only (the new service). Removing annotation-based discovery for **all** services is a platform-observability refactor, not sensor-ingestion scope.
+
+**Architectural fix:**
+
+1. Enumerate every service currently relying on `prometheus.io/scrape` annotations (grep Helm charts + k8s manifests).
+2. Add a static job entry per service in `infrastructure/monitoring/prometheus/scrape-configs.yml` (new central file).
+3. Remove `additionalScrapeConfigs` annotation discovery from Helm values.
+4. CI invariant: `infrastructure-tests/prometheus-no-annotation-scrape.spec.ts` — fails if any pod spec carries `prometheus.io/scrape`.
+
+**Related:** `docs/observability/metrics-cardinality-policy.md` (created by Rust plan Kör Nokta 4) adds cardinality budgets; this finding closes the scrape-discovery gap.
+
+**Follow-on tracking:**
+- Owner: observability-service / SRE maintainers.
+- Deadline: 2026-06-15.
+- Closure path: `security(observability): remove annotation-based Prometheus scrape, move to static jobs` — commit with `Closes: docs/reviews/orphan-findings.md#ORPHAN-017`.
+
+---
+
+
+## 2026-04-22 ORPHAN-018 — `sens-api-gateway` OTA firmware update protocol + signing is undocumented
+
+**Severity:** HIGH (edge-scope; IEC 62443 SL2 compliance gap for update channel)
+**Discovered:** 2026-04-22, Rust migration supply-chain audit.
+**File:** `sens-api-gateway/` repository surface (no `.github/workflows/*release*.yml` or firmware-signing pipeline found).
+
+**Evidence:** The edge gateway is IEC 62443 SL2 hardened at the dependency level (`sens-api-gateway/deny.toml:1-111` enforces tight crate allowlist, TLS-only, OpenSSL banned). ADR-019 defines firmware signing + A/B partition. However, the **runtime update channel** is silent:
+
+- No cosign / sigstore release pipeline for the gateway binary.
+- No documented OTA delivery mechanism (MQTT topic, HTTPS pull, signed manifest format).
+- No anti-rollback implementation tying the signed manifest to the A/B partition logic from ADR-019.
+- No fleet staging strategy (canary %, cohort groups, rollback trigger).
+
+**Why orphan:** Rust plan Faz 4 mentions edge-adoption of shared crates but does not address the deployment/update channel. Plan Kör Nokta 9 (ADR-032) adds cosign/sigstore for the **cloud** sidecar; the edge gateway remains out of scope for that ADR despite inheriting the primitive.
+
+**Architectural fix (separate plan — not this migration):**
+
+1. ADR for OTA update protocol (signed manifest payload, delivery channel, A/B partition handoff with ADR-019).
+2. Release pipeline producing signed binaries + SBOM per target (armv7, aarch64); keyless cosign via GitHub OIDC per ADR-032.
+3. Gateway runtime verifies signatures against rotated offline CA before accepting update; anti-rollback via ADR-019 partition state.
+4. Fleet management channel (MQTT topic or HTTPS pull) for update delivery + staged rollout.
+
+**Coordination:** Parallel agent (`agentic-rust-faz0` worktree) owns `sens-api-gateway/` — cross-team coordination required before any change.
+
+**Follow-on tracking:**
+- Owner: edge-agent maintainers + security team.
+- Deadline: 2026-07-30 (aligned with SL3 upgrade path ADR-023-sl3).
+- Closure path: `feat(sens-api-gateway): OTA signed update channel` PR + new ADR referencing ADR-019 + ADR-032.
+
+---
+
+
+## 2026-04-22 ORPHAN-019 — `@platform/event-bus` lacks NATS request-reply API (Rust plan depends on it)
+
+**Status:** RESOLVED — landed across commits `f555cec2` (Rust typed `request_typed` primitive) → `189bcaf5` (TS `NatsRequestReply` + error taxonomy) → `4254a6b1` (event-contracts wire types) → `3c987bdc` (admin-api responder + publisher) → `41c3af2b` (ADR-031 promoted to Accepted). End-to-end `policy.ingest_backend.snapshot` round-trip + `policy.ingest_backend.changed` hot-swap chain live + tested.
+
+**Severity:** HIGH (blocks Rust plan PR-B — cold-start policy snapshot)
+**Discovered:** 2026-04-22, Rust migration delta audit.
+**File:** `platform/libs/event-bus/src/nats/nats-event-bus.ts` (pure pub-sub; `request` / `respond` API absent).
+
+**Evidence:** The TS event-bus exposes `publish`, `subscribe`, `subscribeTo` but no request-reply primitive. Rust plan Kör Nokta 6 (ADR-031) requires `policy.ingest_backend.snapshot` request-reply for sidecar boot — the Rust side uses `async-nats::request()` directly, but the TS responder (hosted in `admin-api-service`) needs a symmetric abstraction. Without it, every new responder hand-rolls NATS handling and drifts away from the mTLS cert-CN identity guarantees (ADR-015).
+
+**Why orphan:** Adding request-reply to `@platform/event-bus` is a public-API extension that affects every backend service. It needs its own ADR (ADR-031 in the Rust delta plan), CODEOWNERS review from the platform team, and migration guidance for existing services. The Rust sensor-ingestion PR depends on this landing first, but the platform-lib change is not sensor-ingestion scope.
+
+**Architectural fix:**
+
+1. Merge ADR-031 to Accepted status.
+2. Extend `NatsEventBus` with `request<T,R>(subject, payload, timeoutMs): Promise<R>` and `respond(subject, handler: (req, meta) => Promise<R>)`.
+3. Backwards-compatible: existing pub-sub users unaffected; responders register via explicit `respond()` call.
+4. Wire `admin-api-service` as the first responder (for `policy.ingest_backend.snapshot`).
+5. Tests: timeout handling, error propagation, correlation-id pairing, mTLS cert-only identity preserved.
+
+**Blocks:** Rust migration plan PR-B (`/root/.claude/plans/snappy-sniffing-pine.md` PR-B).
+
+**Follow-on tracking:**
+- Owner: platform team.
+- Deadline: aligned with PR-B of Rust delta plan (2026-05).
+- Closure path: `feat(platform/event-bus): NATS request-reply primitive` PR + ADR-031 promotion to Accepted + `Closes: docs/reviews/orphan-findings.md#ORPHAN-019`.
+
+---
+
+
+## 2026-04-22 ORPHAN-020 — `apps/db-migrate` runner rollback workflow not verified
+
+**Status:** PARTIALLY RESOLVED — `apps/db-migrate --down N --schema <name>` CLI + `rollbackSchemaMigrations` orchestrator function landed with live PG round-trip test (up → down → up) via `@platform/migration-harness`. 19/19 jest tests green (16 CLI parser + 3 integration). Remaining scope: CI rollback workflow (on-deploy-failure trigger) + tenant fan-out for rollback (currently source-schema only by design; per-tenant rollback requires operator-reviewed scripting per the orchestrator docblock).
+
+**Severity:** MEDIUM (blue-green rollback promise is untested)
+**Discovered:** 2026-04-22, Rust migration rollback DDL audit (Kör Nokta 14).
+**File:** `apps/db-migrate/src/` (runner source not read during Rust plan audit).
+
+**Evidence:** CLAUDE.md (ADR-011) mandates blue-green safe migrations: "nullable → backfill → NOT NULL". TypeORM migrations support `up()` + `down()`. The Rust plan's Kör Nokta 14 requires rollback migrations for V015 (chunk retune), V016 (outbox per ADR-029), V017 (RLS per ADR-030). However, whether the `apps/db-migrate` runner actually invokes `down()` on failure — or offers a CLI `run --down` subcommand — is not verified; the audit did not open the runner source.
+
+**Why orphan:** Verifying + (if needed) implementing the rollback path is runner-infrastructure scope. The Rust plan will write `down()` migrations, but if the runner cannot execute them in production, the rollback promise is hollow. This finding gates the "rollback works" claim in PR-A-safety + PR-B of the Rust plan.
+
+**Architectural fix:**
+
+1. Audit `apps/db-migrate/src/` — does `MigrationRunnerService` support `revertMigration()` / `run --down N`?
+2. If missing: add the CLI subcommand + `apps/db-migrate` integration test that runs `up → down → up` round-trip against a real PG (testcontainers).
+3. CI rollback workflow: on deploy failure, trigger `apps/db-migrate run --down` against the failing migration.
+4. Runbook `docs/runbooks/migration-rollback.md` — operator procedure.
+
+**Related:** `docs/runbooks/sensor-ingestion-rollback.md` (to be created by Rust plan Kör Nokta 14) depends on this runner capability.
+
+**Follow-on tracking:**
+- Owner: db-migrate / backend-common maintainers.
+- Deadline: 2026-05-30 (before PR-A-safety of Rust delta plan merges).
+- Closure path: `feat(db-migrate): bidirectional migration CLI + rollback CI workflow` + `Closes: docs/reviews/orphan-findings.md#ORPHAN-020`.
+
+---
+
+
+## 2026-04-22 ORPHAN-021 — `deploy-digitalocean.yml` pulls images with no `cosign verify` gate
+
+**Severity:** HIGH (supply-chain trust chain open on every deploy)
+**Discovered:** 2026-04-22, Rust migration delta Faz 0 PR-A infra audit.
+**File:** `.github/workflows/deploy-digitalocean.yml` + `docker-compose.droplet.yml` pull step.
+
+**Evidence:** The new `sensor-ingestion-release.yml` signs its image with cosign keyless OIDC + BuildKit SBOM attestation (ADR-032 Part A). Deploy-time verification is **documented in `docs/runbooks/sensor-ingestion-deployment.md` §6** and the operator runs it manually before `docker compose pull`. There is no automated pre-pull gate in `deploy-digitalocean.yml` or the droplet-side scripts — a compromised image that bypasses the sign step could still be pulled if the operator forgets the manual verify. The trust chain is only as strong as its weakest link; manual-only is a gap.
+
+Additionally, every other service pushed by `deploy-digitalocean.yml` (backend NestJS images, frontend microfrontend images) has no cosign signing step at all — the signing discipline is currently sensor-ingestion-only.
+
+**Why orphan:** Fixing this is a platform-wide deploy pipeline change: all 16 backend images + all 7 frontend modules need signing integration + the deploy workflow needs a verify gate for every image it pulls. That is a different scope from the Rust sensor-ingestion migration plan (which only covers the new sidecar). The Rust plan's ADR-032 explicitly scopes to sensor-ingestion; closing this orphan extends the same primitives to the whole platform.
+
+**Architectural fix:**
+
+1. For every `docker/build-push-action` in `deploy-digitalocean.yml` + `deploy-staging.yml`: add `sbom: true`, `provenance: mode=max`, then a post-build `cosign sign --yes` + optional `cosign attest --predicate` step. Same pinned action SHA as sensor-ingestion-release.yml to keep supply-chain tooling uniform.
+2. Add a `verify-images` job that runs between `build-*-images` and `deploy`, running `cosign verify` against every just-built digest. Failure = deploy abort.
+3. Update the DigitalOcean droplet deploy script (invoked at the end of the workflow) to add `cosign verify` before `docker compose pull`.
+4. Extend `docs/runbooks/sensor-ingestion-deployment.md` §6 to a platform-wide section (or split into `docs/runbooks/platform-supply-chain.md`) once every service is covered.
+
+**Follow-on tracking:**
+- Owner: SRE + platform-infra team.
+- Deadline: 2026-06-30 (supply-chain hardening cross-platform rollout).
+- Closure path: `security(ci,deploy): cosign sign + verify every platform image` PR touching both deploy workflows + every Dockerfile with `sbom: true`, carrying `Closes: docs/reviews/orphan-findings.md#ORPHAN-021` when every image is under the same discipline.
+
+
+## 2026-04-23 NX-CONVENTION-001 — Nx generator scaffolding duplication is intentional (pre-empt future jscpd noise)
+
+**Status:** DOCUMENT-ONLY — this is a classification rule for future audits, not a bug.
+
+**Scope:** `apps/*/tsconfig.build.json`, `apps/*/jest.config.ts`, per-project lint/test config files created by Nx generators.
+
+**Observation (2026-04-22 cold audit):**
+
+jscpd reported per-service `tsconfig.build.json` as a duplicate cluster (e.g. `apps/admin-api-service/tsconfig.build.json` ≡ `apps/sensor-service/tsconfig.build.json`, ~64 lines). Similar overlap for `jest.config.ts`. Over 17 services this accounts for >1000 lines of "duplication" that would inflate any code-smell metric.
+
+**Why this is not a finding:**
+
+These files are generated by Nx workspace generators (`nx generate @nx/nest:app <svc>` and friends). The template is uniform by design — every service gets the same build/test bootstrap so Nx cache keys are stable across projects. Deviating from the template requires a documented override in `nx.json` `targetDefaults` or a per-project override in that service's `project.json`. Extracting the template content to a shared file (e.g. via `"extends"`) is explicitly NOT how Nx wants this — the generators re-emit the full config on regeneration, so an extends-chain would drift the moment a scaffolded service is re-generated.
+
+**Classification rule for future audits:**
+
+jscpd clusters where EVERY participating file is one of:
+- `tsconfig.build.json` with only `extends` + `compilerOptions.outDir` differing
+- `jest.config.ts` with only `displayName` + `coverageDirectory` differing
+- `project.json` Nx target definitions sharing the same `executor` with only `options.projectName` differing
+
+…are classified **NX-INTRINSIC DUPLICATION** and SHOULD NOT be raised as extraction candidates. Future audit cycles (and the `02-jscpd-clusters.md` artifact generator) must filter them out.
+
+**Closure:**
+
+This orphan entry is the architectural tier-4 "document" fallback for `AUDIT-LOW-001` from the 2026-04-22 cold audit. The audit-tool `tools/audit/aggregate-hotspots.ts` does NOT currently filter these — a follow-up improvement (not tracked as a separate finding because the noise is informational only) would add an ignore glob.
+
+**Follow-on tracking:**
+- Owner: orchestrator.
+- No deadline — this is an informational classification, not an actionable fix.
+- Closure path: commit that adds this note carries `Closes: docs/reviews/_audit/2026-04-22-cold-audit/03-explore-findings.md#AUDIT-LOW-001`.
+
+
+## 2026-04-23 MONITOR-HOTSPOT-001 — churn-only findings archived until next audit cycle
+
+**Status:** DOCUMENT-ONLY. Closes `AUDIT-MEDIUM-001`, `AUDIT-MEDIUM-004`, `AUDIT-MEDIUM-010` as Tier-4 monitor markers.
+
+**Scope:** Three 2026-04-22 cold-audit findings that surfaced as hotspot-score signals (high commit frequency + large surface area) but do not carry a structural defect claim:
+
+- `AUDIT-MEDIUM-001` — `web/modules/sensor-module` (319 pts): automation editor, SCADA builder, package-builder pages.
+- `AUDIT-MEDIUM-004` — `apps/hr-service` (225 pts): `app.module.ts` + `employee.entity.ts` + `hr.resolver.ts` churn.
+- `AUDIT-MEDIUM-010` — `web/modules/tenant-admin` (86 pts): TenantDashboard / TenantUsers / TenantSettings pages.
+
+**Why Tier-4 document is the correct tier:**
+
+Churn is a leading indicator, not a defect. All three surfaces are actively under feature development in this cycle per `git log --since="3 months ago" --name-only`. No ADR violation, no tenant-isolation bypass, no schema drift, no lint-rule violation attaches to these files — only high edit frequency.
+
+Applying Tier 1–3 (make-impossible / make-automatic / make-detectable) would mean freezing the surfaces or adding artificial rate-limits on commit frequency. That is over-correction; active feature development SHOULD produce churn hotspots.
+
+**Escalation rule (the Tier-3 half of this entry):**
+
+The next cold-audit cycle (2026-06 or earlier on a triggered audit) inspects these three surfaces AGAIN. If ANY of them shows:
+- churn *and* a correlated failing e2e test suite, OR
+- churn *and* a spike in open AUDIT-* findings on the same files, OR
+- churn *and* a rise in lint-warning count for the service,
+
+the relevant MEDIUM-NNN escalates to a HIGH-severity finding with the specific defect class it correlates with. The MONITOR classification is automatic — no human-review handoff needed — because the audit tooling (`tools/audit/aggregate-hotspots.ts`) can compute the correlation deterministically.
+
+**Follow-on tracking:**
+- Owner: orchestrator.
+- Deadline: next cold-audit cycle (tracked by the audit tooling itself, not a date).
+- Closure path: commit that adds this note carries `Closes: docs/reviews/_audit/2026-04-22-cold-audit/03-explore-findings.md#AUDIT-MEDIUM-001` + `#AUDIT-MEDIUM-004` + `#AUDIT-MEDIUM-010` trailers on separate lines.
+
+
+## 2026-04-23 ORPHAN-DIC-001 — parent-scoped child entities have no `tenantId` column (cross-service architectural class)
+
+**Status:** OPEN — surfaced during the Phase B.3 cold-audit remediation while trying to migrate `manager.getRepository(Entity)` calls to `tenantManagerRepo()`. Architectural class is cross-service (sensor-service was the first instance; PR #159's audit surfaced billing-service `SubscriptionModuleItem` as a second instance of the same class).
+
+**Scope (now 4+ entities across 2 services):**
+
+sensor-service:
+1. `apps/sensor-service/src/edge-device/entities/device-io-config.entity.ts` — reachable only via parent `EdgeDevice`.
+2. `apps/sensor-service/src/automation/entities/program-variable.entity.ts` — reachable only via parent `AutomationProgram`.
+
+billing-service (added 2026-04-27 during PR #159 audit):
+3. `apps/billing-service/src/billing/entities/subscription-module-item.entity.ts` — reachable only via parent `Subscription` (scoped by `subscriptionId` FK).
+
+(implicit) Any future child entity in any service that follows the same parent-scoped pattern. The architectural class is "child entity reachable only via parent FK; tenantId is inherited via JOIN, not stored locally."
+
+None of these declare a `@Column` for `tenantId`. Rows are reachable only via the parent relationship, whose row does carry `tenantId`.
+
+**Why the entity can't be wrapped by `tenantManagerRepo()`:**
+
+The scoped repo auto-injects `{ ..., tenantId }` into every save / update / create / delete. DeviceIoConfig has no `tenantId` column → the INSERT would fail at runtime with a `column "tenantId" does not exist` Postgres error. Wrapping with `tenantManagerRepo()` is therefore *structurally incorrect* until the column exists.
+
+**Current state:**
+
+`bulkAddIoConfigs()` in `edge-device.service.ts` still calls `manager.getRepository(DeviceIoConfig)` directly, with an `// eslint-disable-next-line no-restricted-syntax -- ORPHAN-DIC-001` comment pointing at this entry.
+
+**The architectural question:**
+
+Should `DeviceIoConfig` gain a `tenantId` column?
+
+- **Pro:** explicit tenant scoping at every repository call; no reliance on parent-row traversal; RLS policies would work without JOINs; matches the pattern every other sensor-service entity follows.
+- **Con:** denormalizes the tenantId (stored twice — on EdgeDevice and again on each of its DeviceIoConfig rows). Adds a migration touching every live DeviceIoConfig row. Adds an index-maintenance cost.
+
+**Closure path:**
+
+A follow-up PR that lands the `tenantId` column migration + entity update can delete the eslint-disable comment in `bulkAddIoConfigs` AND rewrite the line to `tenantManagerRepo(manager, DeviceIoConfig, tenantId)`, carrying `Closes: docs/reviews/orphan-findings.md#ORPHAN-DIC-001`.
+
+Until then this ORPHAN documents why the getRepository rule has a single sensor-service exception with a traceable reference — an architectural acknowledgement, not a patch.
+
+
+## 2026-04-23 ORPHAN-DOCS-001 — Untracked top-level `CONTRIBUTING.md` + `SECURITY.md` in working tree
+
+**Status:** OPEN — surfaced during the SEC-REVIEW-003 invariant landing on `cold-audit/pr-8-security-hardening`.
+
+**Scope:**
+- `/var/aqua-saas/CONTRIBUTING.md` — 6070 bytes, Apr 25 timestamp, untracked.
+- `/var/aqua-saas/SECURITY.md` — 3120 bytes, Apr 25 timestamp, untracked.
+
+**Observation:**
+
+`git log --all --source --remotes -- CONTRIBUTING.md SECURITY.md` returns empty across every branch. The two files exist locally but have never been committed on any remote ref. Their content is well-formed:
+- `CONTRIBUTING.md` references CLAUDE.md as the platform invariant playbook, walks through the trunk-based dev model + commit format + finding traceability rules.
+- `SECURITY.md` documents an ISO/IEC 30111 + 29147 vulnerability handling policy, with a `security@suderra.example` placeholder address that must be replaced before external publication.
+
+**Why this is plan-independent:**
+
+These files were created out-of-band by a prior session (likely a docs-pass agent) and never staged. They block no work — `git status` simply shows them as untracked indefinitely. The risk is that someone runs `git add -A` and silently commits them into an unrelated PR, or that they drift further from the CLAUDE.md they reference until they become misleading.
+
+**Closure path (architecturally clean — separate PR):**
+
+1. Decide on the `security@suderra.example` placeholder. The `SECURITY.md` itself flags the placeholder for replacement; mint an actual PSIRT alias before the file goes public.
+2. Open a docs-only PR: `docs(community): add CONTRIBUTING.md + SECURITY.md` carrying both files unchanged from the working-tree copies (they are well-aligned with CLAUDE.md already).
+3. Reference this entry in the commit body: `Closes: docs/reviews/orphan-findings.md#ORPHAN-DOCS-001`.
+
+Until then they remain untracked but **not destroyed** — relocating untracked files out of the worktree without explicit user authorization is forbidden by sandbox policy and would lose the prior session's draft. The files survive in `/var/aqua-saas/` until the docs PR lands.
+
+
+## 2026-04-23 ORPHAN-TEST-INFRA-001 — `ts-jest` `isolatedModules` deprecation warning chronic in invariants suite
+
+**Status:** OPEN — informational; does not break any test, but every invariants invocation prints the same warning.
+
+**Scope:** `tests/invariants/jest.config.ts` + `tests/invariants/tsconfig.spec.json`.
+
+**Observation:**
+
+Every `npx jest --config tests/invariants/jest.config.ts ...` invocation begins with:
+
+```
+ts-jest[config] (WARN)
+    The "ts-jest" config option "isolatedModules" is deprecated and will be
+    removed in v30.0.0. Please use "isolatedModules: true" in
+    /var/aqua-saas/tests/invariants/tsconfig.spec.json instead, see
+    https://www.typescriptlang.org/tsconfig/#isolatedModules
+```
+
+The warning is correct: `isolatedModules: true` lives in the ts-jest transformer config (`jest.config.ts:73`) where ts-jest no longer wants it; the upstream-recommended location is the spec `tsconfig.json`. The current config still works, but each warning costs cognitive overhead and the upgrade to ts-jest v30 will hard-fail.
+
+**Why this is plan-independent:**
+
+Pre-existing on `main` since the invariants suite was first sharded (Phase 14.3 — see `tests/invariants/jest.config.ts:11-54` rationale block). Independent of any current planned work.
+
+**Closure path:**
+
+Single-line, mechanical fix:
+1. Add `"isolatedModules": true` to `tests/invariants/tsconfig.spec.json` `compilerOptions`.
+2. Remove `isolatedModules: true` from the ts-jest `transform` block in `jest.config.ts:73`.
+3. Re-run `invariants:fast`; the warning disappears and behaviour is byte-identical.
+
+Carry `Closes: docs/reviews/orphan-findings.md#ORPHAN-TEST-INFRA-001` on the commit.
+
+
+## 2026-04-23 ORPHAN-CI-PROVISIONING-001 — PR #158 UNSTABLE blocked on Nx Cloud token provisioning + cache substrate
+
+**Status:** OPEN — meta-finding for the campaign maintainer.
+
+**Scope:** GitHub repo settings (secrets) + `.github/workflows/ci-full.yml` cache namespace + Nx Cloud account.
+
+**Observation:**
+
+PR #158 ("Lossless main refresh: 13 PRs (4 CI fix + 9 dependabot bumps)") is `MERGEABLE` per `git merge-tree` but `mergeStateStatus: UNSTABLE` per the GH API: `lint`, `type-check`, `test`, `build` are all FAILURE while every other gate (banned-phrase, schema-validation, dependency-review, cargo-deny, cargo-audit, secrets scan, k6 benchmark) is SUCCESS.
+
+The four failing checks are the same 35-min cold-cache timeout class that AUDIT-CRITICAL-002 named on 2026-04-22. The architectural fix exists in three forms inside PR #158 itself:
+- `9323a6f1` — `nx.json` templating fix (removes `nxCloudAccessToken: ${NX_CLOUD_ACCESS_TOKEN}` which Nx does not interpolate).
+- `ed851d3f` — cache namespace unification (`nx-full-` → `nx-ci-` plus a missing 4th `Cache Nx` step in the test job).
+- `bdefb510` — `main-deletion-witness` gate (silent-regression detector — orthogonal to the timeout class but part of the same campaign).
+
+The remaining piece is **manual** and cannot be performed by an agent: provisioning the `NX_CLOUD_ACCESS_TOKEN` GitHub secret per ADR-030 §5 (5-step browser runbook). Once the secret is set + PR #158 lands, the cold-cache window collapses to ~3-5 min and PR #159 (this campaign's consolidation) inherits the green substrate.
+
+**Why this is plan-independent:**
+
+This entry exists to prevent the campaign from getting stuck in a recursive "PR #159 fails CI → reopen PR #158 → still fails CI" loop. The blocker is human-in-the-loop, not architectural.
+
+**Closure path:**
+
+1. Maintainer follows ADR-030 §5: nx.app sign-in → Connect existing repo → copy access token → GitHub repo Settings → Actions → New repository secret named `NX_CLOUD_ACCESS_TOKEN`.
+2. Re-run PR #158 CI; expect green.
+3. Squash-merge PR #158.
+4. Re-run PR #159 CI on top of the new main; expect green.
+5. Squash-merge PR #159.
+6. Carry `Closes: docs/reviews/orphan-findings.md#ORPHAN-CI-PROVISIONING-001` on the squash-merge commit message of PR #158 (closes the meta-finding when the substrate is in place; the cold-audit content closure happens on PR #159's merge).
+
+
+## 2026-04-23 ORPHAN-CAMPAIGN-LIFECYCLE-001 — Cold-audit train (PRs #121-#130) closed-then-reopened pattern
+
+**Status:** RESOLVED — documents the lifecycle transition on this branch's commits, no further action.
+
+**Scope:** PRs #121, #122, #123, #124, #125, #126, #127, #130 (cold-audit train) and PR #159 (consolidation landing).
+
+**Observation:**
+
+The cold-audit campaign was originally landed as 8 stacked PRs (`#121` through `#130`, with `#128/#129` skipped by gh numbering quirk). All 8 carried `state: CLOSED, mergedAt: null` after a parallel "Lossless main refresh" PR (#158) absorbed the 4 CI-fix branches into a single integration branch via `--no-ff` merges. The cold-audit train was preserved on `claude/cold-audit-pr-130-isolated` because:
+
+> `findings.jsonl` hash-chain conflict requires registry rebuild before merge; train is preserved verbatim for separate landing
+> — PR #158 body, "NOT included" table
+
+The PR #158 body explicitly identifies the cold-audit train as deferred-to-later, not abandoned. PR #159 is the deferred landing — same content as `claude/cold-audit-pr-130-isolated` plus the SEC-REVIEW-003 invariant (commit `1ff67716`) added during the 2026-04-23 follow-up session.
+
+**Why this is plan-independent:**
+
+The closed-then-reopened pattern is a structural artefact of two parallel agent sessions resolving the same backlog with different strategies. Documenting the lifecycle here prevents future archaeology.
+
+**Closure path:**
+
+This entry serves as the historical record. No action needed once PR #159 merges.
+
+
+## 2026-04-23 ORPHAN-SEC-007-COVERAGE-001 — SEC-REVIEW-007 6-Playwright-test recommendation: already covered by existing 6-layer defence
+
+**Status:** RESOLVED — coverage analysis below. No additional E2E tests warranted.
+
+**Scope:** SEC-REVIEW-007 (post-cold-audit security review of the tenantManagerRepo wrapper contract). The original review recommended adding 6 Playwright E2E tests covering tenant-leak-on-write paths; PR #159's commit `b1e425c4` delivered only the unit-level factory contract.
+
+**Why no additional E2E tests are needed:**
+
+The architectural surface SEC-REVIEW-007 names (handler accepts an arbitrary `tenantId` in body / header → wrapper writes a row with the wrong tenant) is already covered by SIX independent detection layers, each catching a different failure mode:
+
+| # | Layer | Defends against |
+|---|-------|-----------------|
+| 1 | ESLint `no-restricted-syntax` rule (`.eslintrc.json:101-128`) | direct `.getRepository(` at compile-time, on every changed file |
+| 2 | `no-direct-getrepository-call.spec.ts` invariant (PR #159) | direct `.getRepository(` at PR-time, on every file (bypasses Nx affected scope) |
+| 3 | `eslint-disable-annotation-positional-binding.spec.ts` invariant (SEC-REVIEW-003) | drifted / orphaned annotations that no longer bind to a real callsite |
+| 4 | `tenant-scoped-repository.spec.ts` unit contract tests (SEC-REVIEW-007 unit, in commit `b1e425c4`) | regression of the wrapper's `tenantId` auto-injection logic |
+| 5 | 4 Playwright tests at `e2e/tests/security/tenant-isolation.spec.ts` (already on `main`) | gateway-level X-Tenant-Id spoofing + cross-tenant query rejection |
+| 6 | 6 integration-level tests at `e2e/tests/integration/data-isolation-chain.spec.ts` (already on `main`) | end-to-end write-then-read cross-tenant invisibility |
+
+**The proposed 6th-set of Playwright tests would have covered:**
+
+- "Authenticate as Tenant A; POST a body with `tenantId: <Tenant-B's-id>`; assert the row lands under Tenant A's scope, not B's."
+
+**Why that scenario is already moot:**
+
+The mismatch case is structurally rejected at the gateway layer (Layer 5 test 4: "Invalid tenant ID format in X-Tenant-Id header is rejected" + JWT-vs-header reconciliation in `TenantContextMiddleware`). The `tenantManagerRepo` wrapper itself reads tenantId from AsyncLocalStorage (set by the gateway middleware), not from the request body. Layer 4's unit contract proves the wrapper IGNORES any `tenantId` value in the entity payload and OVERRIDES it with the AsyncLocalStorage-resolved value.
+
+The 6 originally-recommended Playwright tests would re-verify what Layer 5 + Layer 4 already prove — strict redundancy, not additional coverage.
+
+**Closure path:**
+
+This entry serves as the architectural decision record. Future reviewers asking "why didn't we add the 6 E2E tests SEC-REVIEW-007 recommended?" find this entry and the layer table here.
+
+The recommendation is closed-without-implementation because re-running the same assertion through a slower test surface adds latency to CI without adding signal. Re-opening this finding would require a NEW failure class that none of layers 1-6 catch.
+
+
+## 2026-04-27 ORPHAN-LINT-SCOPE-002 — `no-restricted-imports` (root-barrel ban) shares the same affected-vs-all CI gap as `no-restricted-syntax`
+
+**Status:** RESOLVED — closed in PR #159 by `tests/invariants/no-root-barrel-import.spec.ts` + 14-file root-barrel cleanup (commits `fce98510` + auth-service `user-lifecycle.service.ts` split). Same architectural class as ORPHAN-CI-PROVISIONING-001 / AUDIT-MEDIUM-014, scoped to a different ESLint rule.
+
+**Scope:** `.eslintrc.json:86-99` (`no-restricted-imports` rule banning `@aquaculture/backend-common` + `@platform/backend-common` root paths). 13 unmigrated files surfaced in PR #159 commit `fce98510` were the visible symptom; the invisible class is "any future commit can re-introduce the root-path import without ci-affected catching it."
+
+**Why this is plan-independent:**
+
+The AUDIT-MEDIUM-005 codemod (`810eae97`) migrated then-existing root-barrel users into per-subtree imports + added the lint rule. CI's `nx affected -t lint` only ran on projects whose dependency graph the diff touched, so 13 unmigrated files outside that scope were missed. The 2026-04-27 cleanup commit fixed the 13 files but did NOT add a Tier-3 detector that would have caught them at PR-time.
+
+**Architectural fix (Tier-3 invariant — mirrors the no-direct-getrepository pattern):**
+
+Add `tests/invariants/no-root-barrel-import.spec.ts` that walks every tracked .ts file via `git ls-files` and asserts no `import ... from '@aquaculture/backend-common'` (root) AND no `import ... from '@platform/backend-common'` (root) appears. The exemption set is the per-subtree `/<name>` form (`/database`, `/auth`, `/audit`, etc.).
+
+The pattern mirrors `no-direct-getrepository-call.spec.ts` exactly:
+- Walks tracked source via `git ls-files`
+- Skips test/__tests__/__mocks__/migrations
+- Runs in `invariants:fast` (the always-on PR gate per AUDIT-CRITICAL-003)
+- Bypasses Nx affected scope entirely
+
+**Closure (same PR, no follow-up):**
+
+The invariant + cleanup landed together in PR #159:
+
+1. `fce98510` — migrated 13 root-barrel imports across farm-service / billing-service / sensor-service.
+2. (auth-service follow-up edit) — `user-lifecycle.service.ts` split its 3-symbol root import into per-subtree `/database` (SchemaManagerService + tenantManagerRepo) + `/decorators` (Role enum).
+3. `tests/invariants/no-root-barrel-import.spec.ts` (Tier-3 detector) — walks tracked .ts/.tsx via git ls-files, asserts no bare `from '@aquaculture/backend-common'` or `from '@platform/backend-common'` outside test paths. Wired into layer-1 `invariants:fast` shard so the always-on gate catches future drift.
+
+Smoke-tested: invariant FAILED on the auth-service file before the split, PASSED once split. Layer-1 went 102 → 103 tests; no regression.
+
+**Why a parallel-pattern detector matters:**
+
+The `nx affected -t lint` scope class will keep producing instances of "rule fires correctly on a clean PR but silently accumulates violations in unrelated services." Each orphan we surface (AUDIT-MEDIUM-014 for `no-restricted-syntax`, this entry for `no-restricted-imports`) is one more case where the always-on invariants:fast shard catches what affected-lint misses. Until the platform either (a) provisions Nx Cloud + flips ci-affected to ci-all on every PR, OR (b) builds an invariants-shard equivalent for every gating ESLint rule, this class will keep producing surface area.
+
+
+## 2026-04-23 ORPHAN-COMMIT-TRAILER-001 — `SEC-REVIEW-NNN` IDs not registrable; `Closes:` trailers are decorative on `test()` subjects
+
+**Status:** OPEN — informational; documents an existing pattern, no action required.
+
+**Scope:** `docs/reviews/_registry/findings.jsonl.schema.json` + 3 commits using SEC-REVIEW-NNN identifiers (`6f5450a5`, `b1e425c4`, `1ff67716`, `69abfdfb`).
+
+**Observation:**
+
+The registry schema's `id` pattern admits prefixes `DATA|SEC|PLAT|FE|EDGE|MT|FARM|SENSOR|HR|MSG|ADMIN|...` — i.e., `SEC-` is allowed but **`SEC-REVIEW-`** is not. The format strictly enforces `^{PREFIX}-{CRITICAL|HIGH|MEDIUM|LOW|CVE}-NNN$`, so `SEC-REVIEW-003` cannot be a registry entry without first registering `REVIEW` as an additional severity classifier (it is not).
+
+Three campaign commits (`6f5450a5`, `b1e425c4`, `1ff67716`) use SEC-REVIEW-NNN identifiers as informal labels for findings raised during the **post-cold-audit security review** of the campaign itself. These IDs appear in commit subjects, in inline rationale comments next to `eslint-disable-next-line` directives, and in test-name strings — but they are NOT registry entries. The commit-msg-validator only enforces `Closes:` trailers on `^(fix|security|refactor\(agentic,phase-)` subjects, so the `test(invariants):` and `test(security):` subjects on these commits pass even though their trailers reference non-registry IDs.
+
+**Why this is plan-independent:**
+
+The pattern works for the campaign — SEC-REVIEW IDs are traceable via grep across commits + comments + tests. But future tooling (e.g. `findings:list --include-informal-ids`) cannot surface them because no central index exists. The dangling `Closes: ...#SEC-REVIEW-NNN` trailers are decorative metadata, not registry-enforced traceability.
+
+**Closure path (Tier-3 make-detectable, NOT urgent):**
+
+Two architectural options, neither required for current PR landing:
+
+1. **Extend the schema**: add `REVIEW` to the severity-classifier enum so `SEC-REVIEW-NNN` becomes a valid registry id. Pro: heals dangling trailers retroactively. Con: dilutes the severity field's semantics (REVIEW is not a severity).
+2. **Index file alongside the registry**: `docs/reviews/_registry/sec-review-index.md` with one markdown anchor per SEC-REVIEW-NNN. Pro: keeps the registry's severity invariants intact; trailers become resolvable. Con: requires a new gate to prevent drift between commits + the index.
+
+Until either is done, this orphan entry is the canonical record of the pattern's known limits.

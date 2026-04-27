@@ -1,5 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
-import { MigrationLogger } from '@aquaculture/backend-common';
+import { MigrationLogger } from '@aquaculture/backend-common/database';
 
 /**
  * AddSensorProtocolTopicIndex1781400000000
@@ -92,8 +92,8 @@ import { MigrationLogger } from '@aquaculture/backend-common';
  *    overwhelming majority of MQTT messages.
  *
  * A trigram index (`pg_trgm`) could accelerate the LIKE scan but adds
- * a dependency without clear evidence of need; deferred to a future
- * phase if MQTT throughput profiling shows the wildcard path as hot.
+ * a dependency without clear evidence of need; revisit when MQTT
+ * throughput profiling shows the wildcard path as hot.
  *
  * # Idempotency
  *

@@ -19,7 +19,7 @@ import { getEdgeStyle, ConnectionType } from '../config/connectionTypes';
 /* -------------------------------------------------- */
 type ControlPoint = { x: number; y: number };
 
-interface DraggableEdgeData {
+export interface DraggableEdgeData {
   controlPoint?: ControlPoint;
   controlPoint2?: ControlPoint; // For cubic bezier
   curveType?: 'quadratic' | 'cubic';
@@ -60,7 +60,14 @@ const renderArrow = (
 /* -------------------------------------------------- */
 /*  Component                                         */
 /* -------------------------------------------------- */
-export default function DraggableEdge(props: EdgeProps<DraggableEdgeData>) {
+import type { EdgeDataUpdater } from './OrthogonalEdge';
+
+export interface DraggableEdgeProps extends EdgeProps<DraggableEdgeData> {
+  /** See `EdgeDataUpdater` — optional consumer-supplied persistence override. */
+  updateEdgeData?: EdgeDataUpdater<DraggableEdgeData>;
+}
+
+export default function DraggableEdge(props: DraggableEdgeProps) {
   const {
     id,
     sourceX,
@@ -72,6 +79,7 @@ export default function DraggableEdge(props: EdgeProps<DraggableEdgeData>) {
     style = {},
     data,
     selected,
+    updateEdgeData: externalUpdater,
   } = props;
 
   const { setEdges } = useReactFlow();
@@ -138,21 +146,20 @@ export default function DraggableEdge(props: EdgeProps<DraggableEdgeData>) {
 
   /* ---------- Persist changes ------------------- */
   useEffect(() => {
+    const nextData: Partial<DraggableEdgeData> = {
+      controlPoint,
+      ...(curveType === 'cubic' ? { controlPoint2 } : {}),
+    };
+    if (externalUpdater) {
+      externalUpdater(id, nextData);
+      return;
+    }
     setEdges(edges =>
       edges.map(e =>
-        e.id === id
-          ? {
-              ...e,
-              data: {
-                ...e.data,
-                controlPoint,
-                ...(curveType === 'cubic' ? { controlPoint2 } : {}),
-              },
-            }
-          : e
-      )
+        e.id === id ? { ...e, data: { ...e.data, ...nextData } } : e,
+      ),
     );
-  }, [controlPoint, controlPoint2, id, curveType, setEdges]);
+  }, [controlPoint, controlPoint2, id, curveType, setEdges, externalUpdater]);
 
   /* ---------- Drag handling --------------------- */
   const handleMouseDown = useCallback(

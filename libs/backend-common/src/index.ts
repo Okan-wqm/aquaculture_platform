@@ -1,138 +1,74 @@
-// Types - Canonical shared interfaces
-export * from './types/tenant-request.interface';
+/**
+ * backend-common root barrel — aggregates every sub-barrel for
+ * back-compat with existing consumers (449 files import from this path
+ * as of AUDIT-MEDIUM-005).
+ *
+ * NEW CODE should import from a specific subtree path instead:
+ *   import { hashPassword } from '@aquaculture/backend-common/auth';
+ *   import { TenantGuard } from '@aquaculture/backend-common/guards';
+ *   import { maskPii } from '@aquaculture/backend-common/utils';
+ *
+ * Rationale: the root barrel re-exports ~20 subtrees, so every change in
+ * any one of them invalidates every consumer of the root barrel, even
+ * consumers that only use an unrelated subtree. Sub-barrel imports limit
+ * TypeScript + bundler invalidation to the consumers that actually pull
+ * from the changed subtree. See AUDIT-MEDIUM-005 + ADR-028 lib-creation
+ * rubric.
+ *
+ * The two deliberately-NOT-re-exported subtrees remain deep-import-only:
+ *   @aquaculture/backend-common/audit
+ *   @aquaculture/backend-common/finding-registry
+ *   @aquaculture/backend-common/ai-safety
+ *   @aquaculture/backend-common/gdpr
+ * These carry @Entity() decorators whose side-effect registers tables in
+ * TypeORM's global metadata storage; re-exporting them from the root
+ * barrel would pollute every backend-common consumer (DEFECT-1,
+ * INFRA-CRITICAL-021). Consumers that need them import via the deep path.
+ */
 
-// Tenant - Shared tenant-scoped constants (GLOBAL_TENANT_UUID, etc.)
-export * from './tenant/constants';
-
-// Decorators
-export * from './decorators/tenant.decorator';
-export * from './decorators/current-user.decorator';
-export * from './decorators/roles.decorator';
-export * from './decorators/cacheable.decorator';
-export * from './decorators/require-permission.decorator';
-
-// Guards
-export * from './guards/roles.guard';
-export * from './guards/tenant.guard';
-export * from './guards/tenant-permission.guard';
-export * from './guards/service-identity.guard';
-export * from './guards/token-revocation.service';
-
-// Utils - Inter-service authentication
-export * from './utils/service-identity.util';
-
-// HTTP - Signed internal HTTP client (HMAC-signed + tenant-bound headers)
-export * from './http/signed-http-client';
-export * from './http/resolve-tenant-id.util';
-
-// Config - Secret provider (Docker Secrets / file-backed env resolution)
-export { readSecret, bootstrapSecrets } from './config/secrets.provider';
-
-// Auth - Centralised JWT verification options + strict token type enforcement
-// All guards MUST use getJwtVerifyOptions() and enforceAccessTokenType().
-export { getJwtVerifyOptions, enforceAccessTokenType } from './auth/jwt-verification.utils';
-export type { JwtVerifyConfig } from './auth/jwt-verification.utils';
-
-// Auth - Shared RS256 JwtModule wiring for all token-CONSUMER services.
-// Token ISSUER (auth-service) keeps its own JwtModule block; every other
-// service must import PlatformJwtModule and never hand-roll JwtModule.
-export { PlatformJwtModule } from './auth/platform-jwt.module';
-
-// Auth - Password hashing with HMAC pepper + legacy lazy-migration path.
-export { hashPassword, verifyPassword, PEPPERED_PREFIX_V1 } from './auth/password.util';
-export type { VerifyPasswordResult } from './auth/password.util';
-
-// Utils - PII masking for GDPR-compliant logging
-export { maskEmail, logSafeUserId, maskPhone, maskPii, maskPiiDeep } from './utils/pii-mask.util';
-
-// Filters
-export * from './filters/http-exception.filter';
-
-// Middleware - includes TenantContextMiddleware, CorrelationIdMiddleware, RequestLoggingMiddleware
-// Note: TenantRequest is excluded here; the canonical TenantRequest is exported from
-// './types/tenant-request.interface' above. The middleware's extended TenantRequest
-// (which adds tenantContext) is available by importing directly from the middleware file.
-export {
-  UserPayload,
-  TenantContext,
-  UserContextMiddleware,
-  TenantContextMiddleware,
-  TraceContext,
-  TracedRequest,
-  CorrelationIdMiddleware,
-  RequestLoggingMiddleware,
-} from './middleware/tenant-context.middleware';
-
-// Tenant Schema Middleware (centralized factory)
-export { createTenantSchemaMiddleware } from './middleware/tenant-schema.middleware';
-
-// Database - Schema Manager and Tenant-Aware Repository
+export * from './types';
+export * from './tenant';
+export * from './decorators';
+export * from './guards';
+export * from './utils';
+export * from './http';
+export { readSecret, bootstrapSecrets } from './config';
+export * from './auth';
+export * from './filters';
+export * from './middleware';
 export * from './database';
-
-// Redis
 export * from './redis';
-
-// Context - Tenant context for non-HTTP paths (MQTT, cron, NATS handlers)
-export { withTenantContext } from './context/with-tenant-context';
-
-// Logging - Structured JSON logger, request context, and middleware
+export * from './context';
 export * from './logging';
-
-// Telemetry
 export * from './telemetry';
-
-// Metrics - Per-service Prometheus metrics (module, middleware, controller)
 export * from './metrics';
-
-// Finding registry - NestJS wrapper over event_store.findings (Phase 12.1b)
-export * from './finding-registry';
-
-// Orchestrator leader election - Redis Redlock-lite (Phase 12.2)
 export * from './orchestrator-leader-election';
-
-// Orchestrator rate limit - Claude API token budget + 429 breaker (Phase 12.4)
 export * from './orchestrator-rate-limit';
-
-// Security - Rate Limiting, Token Blacklist, Session Management, GDPR, etc.
 export * from './security';
-
-// Pagination - Standard pagination types and utilities
 export * from './pagination';
-
-// Health - Standard K8s health check controller and module
 export * from './health';
 
-// Audit - Shared audit trail infrastructure (interceptor, service, entity, module)
-export * from './audit';
-
-// NATS - Shared connection factory with SEC-H01 authentication support
-export { buildNatsConnectionOptions, buildNatsTransportOptions } from './nats/nats-connection.factory';
-export type { NatsAuthMode } from './nats/nats-connection.factory';
-
-// NATS - Tenant-validating consumer base class for cross-tenant isolation
-export { TenantValidatingConsumer, TenantValidationResult } from './nats/tenant-validating-consumer';
-
-// Constants - Shared NATS patterns and validation regexes
-export { NATS_PATTERNS } from './constants/nats-patterns';
+// Audit — DI-token-level exports only (see audit/audit-log.tokens);
+// entity-touching classes remain deep-import-only to avoid TypeORM
+// metadata pollution in unrelated services.
 export {
-  DEVICE_CODE_REGEX,
-  TENANT_ID_REGEX,
-  UUID_REGEX,
-  VALIDATION_PATTERNS,
-} from './constants/validation-patterns';
+  AUDIT_LOG_SERVICE,
+  AuditSeverity,
+} from './audit/audit-log.tokens';
+export type {
+  IAuditLogService,
+  CreateAuditEntryDto,
+} from './audit/audit-log.tokens';
+export {
+  AuditedOperation,
+  AUDITED_OPERATION_KEY,
+  AuditedOperationStatus,
+} from './audit/audited-operation.decorator';
+export type { AuditedOperationOptions } from './audit/audited-operation.decorator';
 
-// Decorators - Audit logging
-export * from './decorators/audit-log.decorator';
-
-// Bootstrap - Shared NestJS application factory (eliminates main.ts duplication)
+export * from './nats';
+export * from './constants';
 export * from './bootstrap';
-
-// Monitoring - Legacy token metrics for JWT sunset tracking
 export * from './monitoring';
-
-// WebSocket - Shared CORS config helper with production fail-closed policy
 export * from './websocket';
-
-// Monetary - Immutable Money value object with Decimal.js precision
-// Replaces parseFloat()-based DecimalTransformer for all financial arithmetic
 export * from './monetary';

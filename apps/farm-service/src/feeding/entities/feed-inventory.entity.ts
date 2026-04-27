@@ -22,7 +22,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import {
   ObjectType,
   Field,
@@ -80,7 +80,7 @@ registerEnumType(InventoryStatus, {
 // ============================================================================
 
 @ObjectType()
-@Entity('feed_inventory')
+@Entity('feed_inventory', { schema: 'farm' })
 @Index(['tenantId', 'feedId', 'siteId'])
 @Index(['tenantId', 'siteId', 'status'])
 @Index(['tenantId', 'lotNumber'])

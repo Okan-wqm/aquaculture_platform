@@ -13,7 +13,7 @@ import {
   JoinColumn,
   VersionColumn,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import { registerEnumType } from '@nestjs/graphql';
 import type { Supplier } from '../../supplier/entities/supplier.entity';
 
@@ -48,7 +48,7 @@ registerEnumType(ConsumableStatus, {
   description: 'Status of the consumable',
 });
 
-@Entity('consumables')
+@Entity('consumables', { schema: 'farm' })
 @Index(['tenantId', 'code'], { unique: true })
 @Index(['tenantId', 'category'])
 @Index(['tenantId', 'status'])
@@ -177,5 +177,17 @@ export class Consumable {
     this.deletedAt = new Date();
     this.deletedBy = deletedBy;
     this.isActive = false;
+  }
+
+  /**
+   * Undo a soft delete. Counterpart to `softDelete` so the
+   * generic RestoreService can operate on Consumable like every
+   * other restorable entity in the service. Phase 4.2.
+   */
+  restore(): void {
+    this.isDeleted = false;
+    this.deletedAt = undefined;
+    this.deletedBy = undefined;
+    this.isActive = true;
   }
 }

@@ -9,7 +9,7 @@ import {
   JoinColumn,
   Unique,
 } from 'typeorm';
-import { MoneyColumn } from '@aquaculture/backend-common';
+import { MoneyColumn } from '@aquaculture/backend-common/monetary';
 import Decimal from 'decimal.js';
 import { ObjectType, Field, ID, Float, Int, registerEnumType } from '@nestjs/graphql';
 // forwardRef removed - not needed with string-based lazy loading
@@ -106,7 +106,7 @@ export class ModuleLineItem {
  *   - Subtotal: $355
  */
 @ObjectType()
-@Entity('subscription_module_items')
+@Entity('subscription_module_items', { schema: 'billing' })
 @Index(['subscriptionId'])
 @Index(['moduleId'])
 @Index(['status'])

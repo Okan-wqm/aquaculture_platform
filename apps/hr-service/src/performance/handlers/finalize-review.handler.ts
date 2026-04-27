@@ -3,6 +3,7 @@ import { DataSource } from 'typeorm';
 import { NotFoundException, BadRequestException, Logger, InternalServerErrorException } from '@nestjs/common';
 import { FinalizeReviewCommand } from '../commands/finalize-review.command';
 import { PerformanceReview, ReviewStatus } from '../entities/performance-review.entity';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 
 @CommandHandler(FinalizeReviewCommand)
 export class FinalizeReviewHandler implements ICommandHandler<FinalizeReviewCommand> {
@@ -18,7 +19,7 @@ export class FinalizeReviewHandler implements ICommandHandler<FinalizeReviewComm
     await queryRunner.startTransaction();
 
     try {
-      const reviewRepo = queryRunner.manager.getRepository(PerformanceReview);
+      const reviewRepo = tenantManagerRepo(queryRunner.manager, PerformanceReview, tenantId);
 
       const review = await reviewRepo.findOne({
         where: { id: reviewId, tenantId, isDeleted: false },

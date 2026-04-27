@@ -22,12 +22,9 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import {
-  Role,
-  TimingSafeService,
-  SESSION_MANAGER,
-  TOKEN_BLACKLIST,
-} from '@aquaculture/backend-common';
+import { BypassRlsService } from '@aquaculture/backend-common/database';
+import { Role } from '@aquaculture/backend-common/decorators';
+import { TimingSafeService, SESSION_MANAGER, TOKEN_BLACKLIST } from '@aquaculture/backend-common/security';
 import { DataSource } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
@@ -188,6 +185,20 @@ describe('AuthenticationService', () => {
         { provide: TimingSafeService, useValue: mockTimingSafe },
         { provide: SESSION_MANAGER, useValue: mockSessionManager },
         { provide: TOKEN_BLACKLIST, useValue: mockTokenBlacklist },
+        // DEPLOY-CRITICAL-007: AuthenticationService injects BypassRlsService
+        // so the SUPER_ADMIN login path can create refresh tokens on a
+        // tenantId=NULL row (which cannot satisfy tenant_isolation_policy
+        // regardless of app.current_tenant). The mock forwards through
+        // withBypass so the unit test exercises the SAME call chain as
+        // production — just without the audit WARN log.
+        {
+          provide: BypassRlsService,
+          useValue: {
+            withBypass: async <T>(_op: string, cb: () => Promise<T> | T): Promise<T> =>
+              cb(),
+            withBypassSync: <T>(_op: string, cb: () => T): T => cb(),
+          },
+        },
       ],
     }).compile();
 

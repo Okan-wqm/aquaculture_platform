@@ -12,6 +12,7 @@ import { DataSource, QueryRunner } from 'typeorm';
 import { EndRotationCommand } from '../commands/end-rotation.command';
 import { WorkRotation, RotationStatus } from '../entities/work-rotation.entity';
 import { Employee } from '../../hr/entities/employee.entity';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 
 @Injectable()
 @CommandHandler(EndRotationCommand)
@@ -31,7 +32,7 @@ export class EndRotationHandler implements ICommandHandler<EndRotationCommand, W
     await queryRunner.startTransaction();
 
     try {
-      const repo = queryRunner.manager.getRepository(WorkRotation);
+      const repo = tenantManagerRepo(queryRunner.manager, WorkRotation, tenantId);
 
       const rotation = await repo.findOne({
         where: { id: rotationId, tenantId, isDeleted: false },

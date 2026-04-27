@@ -18,7 +18,7 @@ import {
   Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn,
   Index, OneToMany, VersionColumn,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import { registerEnumType } from '@nestjs/graphql';
 import { InventoryCountItem } from './inventory-count-item.entity';
 
@@ -34,7 +34,7 @@ registerEnumType(InventoryCountStatus, {
   description: 'Workflow status of an inventory count session',
 });
 
-@Entity('inventory_counts')
+@Entity('inventory_counts', { schema: 'farm' })
 @Index(['tenantId', 'countNumber'], { unique: true })
 @Index(['tenantId', 'status'])
 @Index(['tenantId', 'storageLocationId'])

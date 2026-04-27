@@ -10,9 +10,56 @@
  * @module Batch/QueryHandlers
  */
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
-import { DataSource } from 'typeorm';
+import { DataSource, QueryRunner } from 'typeorm';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import { ListAvailableTanksQuery, AvailableTank } from '../queries/list-available-tanks.query';
+
+/**
+ * Shape of a row returned by `queryEquipmentRaw`. Mirrors the SELECT
+ * column list below exactly — a column removed from the query OR a
+ * new column added requires updating this interface so the mappers
+ * don't silently read undefined.
+ *
+ * `specifications` comes back as either the parsed JSONB object
+ * (when TypeORM's jsonb type detection kicks in) or the raw string
+ * (when the driver hands the row through without parsing). The
+ * mapper handles both.
+ */
+interface EquipmentRawRow {
+  id: string;
+  name: string;
+  code: string;
+  status: string;
+  volume: string | number | null;
+  currentBiomass: string | number | null;
+  currentCount: number | null;
+  specifications: string | Record<string, unknown> | null;
+  departmentId: string | null;
+  departmentName: string | null;
+  siteId: string | null;
+  siteName: string | null;
+  category: string;
+}
+
+/** Shape of a row returned by `queryTanksRaw`. See EquipmentRawRow for the comment. */
+interface TankRawRow {
+  id: string;
+  name: string;
+  code: string;
+  status: string;
+  volume: string | number | null;
+  maxBiomass: string | number | null;
+  currentBiomass: string | number | null;
+  maxDensity: string | number | null;
+  currentCount: number | null;
+  departmentId: string | null;
+  departmentName: string | null;
+  siteId: string | null;
+  siteName: string | null;
+}
+
+/** Raw-SQL query parameter — always a string or a string array for `ANY($n)` matches. */
+type RawQueryParam = string | string[];
 
 /** UUID v4 format validation */
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -72,10 +119,10 @@ export class ListAvailableTanksHandler implements IQueryHandler<ListAvailableTan
       this.logger.debug(`Results: equipment=${equipmentRows.length}, tanks=${tankRows.length}`);
 
       // Merge and deduplicate (equipment takes precedence)
-      const seenIds = new Set(equipmentRows.map((r: any) => r.id));
+      const seenIds = new Set(equipmentRows.map((r) => r.id));
       const merged: AvailableTank[] = [
-        ...equipmentRows.map((r: any) => this.mapEquipmentRow(r)),
-        ...tankRows.filter((r: any) => !seenIds.has(r.id)).map((r: any) => this.mapTankRow(r)),
+        ...equipmentRows.map((r) => this.mapEquipmentRow(r)),
+        ...tankRows.filter((r) => !seenIds.has(r.id)).map((r) => this.mapTankRow(r)),
       ];
 
       merged.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
@@ -92,12 +139,12 @@ export class ListAvailableTanksHandler implements IQueryHandler<ListAvailableTan
   }
 
   private async queryEquipmentRaw(
-    queryRunner: any,
+    queryRunner: QueryRunner,
     tenantId: string,
     siteId?: string,
     departmentId?: string,
-  ): Promise<any[]> {
-    const params: any[] = [tenantId, FISH_HOLDING_CATEGORIES];
+  ): Promise<EquipmentRawRow[]> {
+    const params: RawQueryParam[] = [tenantId, FISH_HOLDING_CATEGORIES];
     let paramIdx = 3;
 
     let sql = `
@@ -139,12 +186,12 @@ export class ListAvailableTanksHandler implements IQueryHandler<ListAvailableTan
   }
 
   private async queryTanksRaw(
-    queryRunner: any,
+    queryRunner: QueryRunner,
     tenantId: string,
     siteId?: string,
     departmentId?: string,
-  ): Promise<any[]> {
-    const params: any[] = [tenantId, OPERATIONAL_TANK_STATUSES];
+  ): Promise<TankRawRow[]> {
+    const params: RawQueryParam[] = [tenantId, OPERATIONAL_TANK_STATUSES];
     let paramIdx = 3;
 
     let sql = `
@@ -179,10 +226,11 @@ export class ListAvailableTanksHandler implements IQueryHandler<ListAvailableTan
     return queryRunner.query(sql, params);
   }
 
-  private mapEquipmentRow(row: any): AvailableTank {
-    const specs = typeof row.specifications === 'string'
-      ? JSON.parse(row.specifications)
-      : row.specifications || {};
+  private mapEquipmentRow(row: EquipmentRawRow): AvailableTank {
+    const specs: Record<string, unknown> =
+      typeof row.specifications === 'string'
+        ? (JSON.parse(row.specifications) as Record<string, unknown>)
+        : row.specifications ?? {};
 
     const volume = Number(row.volume) || Number(specs.volume) || 0;
     const maxBiomass = Number(specs.maxBiomass) || 0;
@@ -210,7 +258,7 @@ export class ListAvailableTanksHandler implements IQueryHandler<ListAvailableTan
     };
   }
 
-  private mapTankRow(row: any): AvailableTank {
+  private mapTankRow(row: TankRawRow): AvailableTank {
     const volume = Number(row.volume) || 0;
     const maxBiomass = Number(row.maxBiomass) || 0;
     const currentBiomass = Number(row.currentBiomass) || 0;

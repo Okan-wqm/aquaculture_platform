@@ -83,7 +83,7 @@ export class AnnouncementTarget {
  * Platform-wide announcements (by SuperAdmin) or
  * Tenant-level announcements (by TenantAdmin for their users).
  */
-@Entity('announcements')
+@Entity('announcements', { schema: 'auth' })
 @ObjectType()
 @Index(['scope', 'status'])
 @Index(['tenantId', 'status'])

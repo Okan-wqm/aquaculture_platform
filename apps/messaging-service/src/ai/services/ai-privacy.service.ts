@@ -41,7 +41,7 @@ import { Injectable, Logger, Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import Redis from 'ioredis';
-import { BypassRlsService } from '@aquaculture/backend-common';
+import { BypassRlsService } from '@aquaculture/backend-common/database';
 import { REDIS_CLIENT } from '../../shared/redis.provider';
 import { TenantAiSetting } from '../entities/tenant-ai-setting.entity';
 import { UserAiConsent } from '../entities/user-ai-consent.entity';

@@ -8,7 +8,8 @@ import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { TenantGuard, CurrentTenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common';
+import { CurrentTenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
+import { TenantGuard } from '@aquaculture/backend-common/guards';
 import { getTenantSchemaName } from '../../common/utils/schema-sanitizer';
 import { BatchFeedAssignment, FeedAssignmentEntry } from '../entities/batch-feed-assignment.entity';
 import { Batch } from '../entities/batch.entity';
@@ -49,6 +50,7 @@ export class BatchFeedAssignmentResolver {
   /**
    * Get feed assignment for a batch
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => BatchFeedAssignmentResponse, { nullable: true })
   async batchFeedAssignment(
     @Args('batchId', { type: () => ID }) batchId: string,

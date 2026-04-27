@@ -5,7 +5,7 @@
  * - Lumpfish (0-50g): 4 feed alternatives
  * - Halibut (0-10g): 4 feed alternatives
  */
-const http = require('http');
+import http from 'node:http';
 
 const GRAPHQL_URL = 'http://localhost:3000/graphql';
 const TENANT_ID = 'ad6ca8fd-cdf7-4e6b-b68e-f17ad6484490';

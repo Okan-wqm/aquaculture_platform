@@ -9,7 +9,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import { ObjectType, Field, ID, Int, Float, registerEnumType } from '@nestjs/graphql';
 import { Employee } from '../../hr/entities/employee.entity';
 
@@ -55,7 +55,7 @@ export class CompetencyRating {
 }
 
 @ObjectType()
-@Entity('performance_reviews')
+@Entity('performance_reviews', { schema: 'hr' })
 @Index('idx_perf_review_tenant_employee', ['tenantId', 'employeeId'])
 @Index('idx_perf_review_tenant_reviewer', ['tenantId', 'reviewerId'])
 @Index('idx_perf_review_tenant_status', ['tenantId', 'status'])

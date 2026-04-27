@@ -24,9 +24,11 @@ import { Message, MessageContentType } from '../../message/entities/message.enti
 import { Channel, ChannelType } from '../../channel/entities/channel.entity';
 import { ChannelMember } from '../../channel/entities/channel-member.entity';
 import { sanitizeContent } from '../../shared/sanitize';
-import { InputFilterService } from '../safety/input-filter.service';
-import { OutputPiiScannerService } from '../safety/output-pii-scanner.service';
-import { SsrfValidatorService } from '../safety/ssrf-validator.service';
+import {
+  InputFilterService,
+  OutputPiiScannerService,
+  SsrfValidatorService,
+} from '@aquaculture/backend-common/ai-safety';
 import { InstructionHierarchyService } from '../safety/instruction-hierarchy.service';
 import { ToolSchemaValidatorService } from '../safety/tool-schema-validator.service';
 import { AiPersonasRegistryService } from './ai-personas-registry.service';

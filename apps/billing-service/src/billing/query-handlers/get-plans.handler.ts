@@ -12,6 +12,8 @@ export class GetPlansHandler
   constructor(private readonly dataSource: DataSource) {}
 
   async execute(query: GetPlansQuery): Promise<Plan[]> {
+    // Plan is the cross-tenant platform catalog — no tenantId scoping.
+    // eslint-disable-next-line no-restricted-syntax -- cross-tenant catalog
     const planRepo = this.dataSource.getRepository(Plan);
 
     const where: FindOptionsWhere<Plan> = {};

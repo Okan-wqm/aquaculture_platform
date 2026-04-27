@@ -1,5 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
-import { MigrationLogger } from '@aquaculture/backend-common';
+import { MigrationLogger } from '@aquaculture/backend-common/database';
 
 /**
  * Migration: Create Continuous Aggregates for Sensor Readings

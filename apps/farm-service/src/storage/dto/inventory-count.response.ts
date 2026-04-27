@@ -1,5 +1,5 @@
 import { ObjectType, Field, Float, ID } from '@nestjs/graphql';
-import { StandardPaginatedResponse } from '@aquaculture/backend-common';
+import { StandardPaginatedResponse } from '@aquaculture/backend-common/pagination';
 import { InventoryCountStatus } from '../entities/inventory-count.entity';
 import { StorageItemType } from '../entities/storage-inventory.entity';
 

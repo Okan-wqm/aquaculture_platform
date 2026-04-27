@@ -40,7 +40,7 @@ export enum SettingValueType {
  * System-wide settings entity
  * Persisted to database with caching support
  */
-@Entity('system_settings')
+@Entity('system_settings', { schema: 'admin' })
 @Index(['key'], { unique: true })
 @Index(['category'])
 export class SystemSetting {
@@ -99,7 +99,7 @@ export class SystemSetting {
 /**
  * Email template entity
  */
-@Entity('email_templates')
+@Entity('email_templates', { schema: 'admin' })
 @Index(['code'], { unique: true })
 @Index(['category'])
 export class EmailTemplate {
@@ -159,7 +159,7 @@ export interface EmailTemplateVariable {
 /**
  * IP Access Rule entity for whitelist/blacklist
  */
-@Entity('ip_access_rules')
+@Entity('ip_access_rules', { schema: 'admin' })
 @Index(['ipAddress'])
 @Index(['tenantId'])
 @Index(['ruleType'])

@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { Resolver, Query, Mutation, Args, ID, Context } from '@nestjs/graphql';
-import { CurrentUser, TenantAdminOrHigher, Roles, Role } from '@aquaculture/backend-common';
+import { CurrentUser, TenantAdminOrHigher, Roles, Role } from '@aquaculture/backend-common/decorators';
 import GraphQLJSON from 'graphql-type-json';
 
 import { User } from '../../authentication/entities/user.entity';

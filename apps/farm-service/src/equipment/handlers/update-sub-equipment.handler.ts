@@ -4,7 +4,7 @@
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { ConflictException, NotFoundException, Logger } from '@nestjs/common';
+import { ConflictException, InternalServerErrorException, NotFoundException, Logger } from '@nestjs/common';
 import { UpdateSubEquipmentCommand } from '../commands/update-sub-equipment.command';
 import { SubEquipment } from '../entities/sub-equipment.entity';
 
@@ -71,10 +71,25 @@ export class UpdateSubEquipmentHandler implements ICommandHandler<UpdateSubEquip
 
     this.logger.log(`Sub-equipment ${id} updated successfully`);
 
-    // Return with relations
-    return this.subEquipmentRepository.findOne({
-      where: { id: updatedSubEquipment.id },
+    // Return with relations — ALWAYS scope post-write re-reads by
+    // tenantId. UUIDs are globally unique so filtering by id alone
+    // would work for the happy path, but the discipline keeps this
+    // line correct even if an upstream refactor weakens the
+    // initial tenant check; a crafted ID from another tenant would
+    // otherwise be served back through this handler.
+    const reloaded = await this.subEquipmentRepository.findOne({
+      where: { id: updatedSubEquipment.id, tenantId },
       relations: ['subEquipmentType', 'parentEquipment'],
-    }) as Promise<SubEquipment>;
+    });
+    if (!reloaded) {
+      // Should not happen — we just saved the row — but a disappearing
+      // row mid-request is a real (albeit rare) concurrency case,
+      // and silently returning an `as Promise<SubEquipment>` lie
+      // would crash consumers downstream with a less-useful trace.
+      throw new InternalServerErrorException(
+        `Sub-equipment ${updatedSubEquipment.id} vanished between save and reload`,
+      );
+    }
+    return reloaded;
   }
 }

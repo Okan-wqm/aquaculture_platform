@@ -4,7 +4,7 @@ import { Repository } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { IEventBus } from '@platform/event-bus';
 import { createBaseEvent } from '@platform/event-contracts';
-import { RedisService } from '@aquaculture/backend-common';
+import { RedisService } from '@aquaculture/backend-common/redis';
 import {
   EscalationPolicy,
   EscalationLevel,

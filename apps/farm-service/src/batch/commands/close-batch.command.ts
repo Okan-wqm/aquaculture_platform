@@ -10,7 +10,7 @@
  * @module Batch/Commands
  */
 import { ITenantCommand } from '@platform/cqrs';
-import { Role } from '@aquaculture/backend-common';
+import { Role } from '@aquaculture/backend-common/decorators';
 
 export enum BatchCloseReason {
   HARVEST_COMPLETED = 'harvest_completed',   // Hasat tamamlandi
@@ -28,6 +28,24 @@ export interface CloseBatchOptions {
   readonly closedBy: string;
   readonly userRoles: Role[];
   readonly notes?: string;
+  /**
+   * Explicit user acknowledgement that closing the batch while a
+   * medicine withdrawal period is still active is intentional.
+   *
+   * When the batch has active HealthEvent rows whose
+   * `earliestHarvestDate` is still in the future, the handler refuses
+   * to close unless this flag is `true`. The acknowledgement is
+   * persisted to the audit log so the operator who accepted the
+   * override is traceable. Default false — a close attempt without
+   * the flag surfaces the list of blocking events in the error body
+   * so the UI can render them.
+   *
+   * This is independent of the OTHER-reason admin override: a
+   * TENANT_ADMIN closing a batch for `OTHER` reasons still needs to
+   * acknowledge if there are open treatments. Food-safety compliance
+   * (Mattilsynet / EU Reg 37/2010) is not bypassable by role.
+   */
+  readonly acknowledgeActiveTreatments?: boolean;
 }
 
 export class CloseBatchCommand implements ITenantCommand {
@@ -37,6 +55,7 @@ export class CloseBatchCommand implements ITenantCommand {
   public readonly closedBy: string;
   public readonly userRoles: Role[];
   public readonly notes?: string;
+  public readonly acknowledgeActiveTreatments: boolean;
 
   constructor(opts: CloseBatchOptions) {
     this.tenantId = opts.tenantId;
@@ -45,5 +64,6 @@ export class CloseBatchCommand implements ITenantCommand {
     this.closedBy = opts.closedBy;
     this.userRoles = opts.userRoles;
     this.notes = opts.notes;
+    this.acknowledgeActiveTreatments = opts.acknowledgeActiveTreatments ?? false;
   }
 }

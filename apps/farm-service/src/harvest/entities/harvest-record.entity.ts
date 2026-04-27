@@ -23,7 +23,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import {
   ObjectType,
   Field,
@@ -231,7 +231,7 @@ export interface YieldCalculation {
 // ============================================================================
 
 @ObjectType()
-@Entity('harvest_records')
+@Entity('harvest_records', { schema: 'farm' })
 @Index(['tenantId', 'batchId', 'harvestDate'])
 @Index(['tenantId', 'recordCode'], { unique: true })
 @Index(['tenantId', 'lotNumber'], { unique: true })

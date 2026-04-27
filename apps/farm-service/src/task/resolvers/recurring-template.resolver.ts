@@ -29,9 +29,9 @@ import {
 } from 'class-validator';
 import GraphQLJSON from 'graphql-type-json';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
-import { CurrentTenant, CurrentUser } from '@aquaculture/backend-common';
+import { CurrentTenant, CurrentUser, Role, Roles } from '@aquaculture/backend-common/decorators';
 import { RecurringTemplate, RecurrenceFrequency } from '../entities/recurring-template.entity';
-import { TaskCategory, TaskPriority } from '../entities/task.entity';
+import { TaskCategory, TaskChecklistItem, TaskPriority } from '../entities/task.entity';
 import { RecurringTaskService } from '../services/recurring-task.service';
 
 // ============================================================================
@@ -105,7 +105,7 @@ class CreateRecurringTemplateInput {
 
   @Field(() => GraphQLJSON, { nullable: true })
   @IsOptional()
-  checklistItems?: any;
+  checklistItems?: TaskChecklistItem[];
 
   @Field(() => [String], { nullable: true })
   @IsOptional()
@@ -175,7 +175,7 @@ class UpdateRecurringTemplateInput {
 
   @Field(() => GraphQLJSON, { nullable: true })
   @IsOptional()
-  checklistItems?: any;
+  checklistItems?: TaskChecklistItem[];
 
   @Field(() => [String], { nullable: true })
   @IsOptional()
@@ -199,6 +199,7 @@ export class RecurringTemplateResolver {
   // QUERIES
   // -------------------------------------------------------------------------
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [RecurringTemplate], { name: 'recurringTemplates' })
   async getRecurringTemplates(
     @CurrentTenant() tenantId: string,
@@ -207,6 +208,7 @@ export class RecurringTemplateResolver {
     return this.recurringTaskService.findAll(tenantId);
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => RecurringTemplate, { name: 'recurringTemplate' })
   async getRecurringTemplate(
     @Args('id', { type: () => ID }) id: string,
@@ -220,6 +222,7 @@ export class RecurringTemplateResolver {
   // MUTATIONS
   // -------------------------------------------------------------------------
 
+  @Roles(Role.MODULE_MANAGER, Role.TENANT_ADMIN)
   @Mutation(() => RecurringTemplate)
   async createRecurringTemplate(
     @Args('input') input: CreateRecurringTemplateInput,
@@ -229,6 +232,7 @@ export class RecurringTemplateResolver {
     return this.recurringTaskService.create(tenantId, input);
   }
 
+  @Roles(Role.MODULE_MANAGER, Role.TENANT_ADMIN)
   @Mutation(() => RecurringTemplate)
   async updateRecurringTemplate(
     @Args('input') input: UpdateRecurringTemplateInput,
@@ -239,6 +243,7 @@ export class RecurringTemplateResolver {
     return this.recurringTaskService.update(tenantId, id, data);
   }
 
+  @Roles(Role.TENANT_ADMIN)
   @Mutation(() => Boolean)
   async deleteRecurringTemplate(
     @Args('id', { type: () => ID }) id: string,
@@ -248,6 +253,7 @@ export class RecurringTemplateResolver {
     return this.recurringTaskService.delete(tenantId, id);
   }
 
+  @Roles(Role.MODULE_MANAGER, Role.TENANT_ADMIN)
   @Mutation(() => RecurringTemplate)
   async toggleRecurringTemplateActive(
     @Args('id', { type: () => ID }) id: string,

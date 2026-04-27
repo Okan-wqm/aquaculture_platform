@@ -20,5 +20,20 @@ jobs:
         uses: actions/dependency-review-action@3b139cfc5fae8b618d3eae3675e383bb1769c019 # v4.5.0
         with:
           fail-on-severity: moderate
-          allow-ghsas: |
-            GHSA-xxxx-xxxx-xxxx  # Example: Allow specific CVEs with justified exceptions
+          # Allowlisted advisories — every entry MUST have a matching tracked
+          # finding in docs/reviews/_registry/findings.jsonl and mirror the
+          # ignore entries in deny.toml [advisories] + .cargo/audit.toml. Drift
+          # between these three lists is a review-blocker. Full rationale +
+          # threat-model justification lives in deny.toml.
+          # allow-ghsas expects a COMMA-separated list. Prior `|` multi-line form
+          # produced a single blob string that the action could not parse.
+          #
+          # Inventory:
+          #   GHSA-xgp8-3hg3-c2mh  rustls-webpki wildcard name-constraint     (RUST-CVE-001 / RUSTSEC-2026-0098)
+          #   GHSA-965h-392x-2mh5  rustls-webpki URI name-constraint          (RUST-CVE-001 / RUSTSEC-2026-0099)
+          #   GHSA-pwjx-qhcg-rvj4  rustls-webpki CRL DP matching              (RUST-CVE-001 / RUSTSEC-2026-0049)
+          #   GHSA-h395-gr6q-cpjc  jsonwebtoken < 10.3.0 Type Confusion       (RUST-CVE-002)
+          # All four advisories live under edge-agent's parallel supply chain
+          # (sens-api-gateway is owned by the edge agent; cross-crate bump
+          # blocked upstream). Full rationale in deny.toml + .cargo/audit.toml.
+          allow-ghsas: GHSA-xgp8-3hg3-c2mh,GHSA-965h-392x-2mh5,GHSA-pwjx-qhcg-rvj4,GHSA-h395-gr6q-cpjc

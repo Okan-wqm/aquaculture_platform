@@ -12,6 +12,8 @@ export class GetPlanByIdHandler
   constructor(private readonly dataSource: DataSource) {}
 
   async execute(query: GetPlanByIdQuery): Promise<Plan | null> {
+    // Plan is the cross-tenant platform catalog — no tenantId scoping.
+    // eslint-disable-next-line no-restricted-syntax -- cross-tenant catalog
     const planRepo = this.dataSource.getRepository(Plan);
 
     return planRepo.findOne({

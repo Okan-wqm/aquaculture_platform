@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { EventBus } from '@nestjs/cqrs';
 import { DataSource, EntityManager, Not, In, LessThan } from 'typeorm';
-import { listTenantSchemas } from '@aquaculture/backend-common';
+import { listTenantSchemas } from '@aquaculture/backend-common/database';
 import { createBaseEvent } from '@platform/event-contracts';
 import type { CertificationExpiredEvent, CertificationExpiringSoonEvent } from '@platform/event-contracts';
 import { EmployeeCertification, CertificationStatus } from './entities/employee-certification.entity';

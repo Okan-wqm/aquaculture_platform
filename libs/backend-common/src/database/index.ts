@@ -23,10 +23,33 @@ export * from './tenant-schema.utils';
 // Migration Logger (structured logging for TypeORM migrations outside DI)
 export { MigrationLogger } from './migration-logger';
 
-// Migration helpers (pinSearchPath, dropPartialTables) — shared by
-// migration authors so search_path boilerplate + partial-state cleanup
-// live in one place. See base-migration.ts for rationale.
-export { pinSearchPath, dropPartialTables } from './base-migration';
+// SQL fragments — compile-time SQL injection prevention. Branded SqlIdent
+// + SqlFragment types make raw-string interpolation a TypeScript compile
+// error. Prereq for Phase 3 primitives rewrite (plan v3 R2 CRITICAL).
+// See sql-fragments.ts docblock.
+export { sql, sqlGuards, executeSqlFragment } from './sql-fragments';
+export type { SqlIdent, SqlValue, SqlFragment } from './sql-fragments';
+
+// Migration helpers (pinSearchPath, dropPartialTables,
+// parseAlterColumnTypeTargets, dropDependentPartialIndexes) — shared by
+// migration authors so search_path boilerplate, partial-state cleanup,
+// and ALTER-COLUMN-TYPE dependency resolution live in one place.
+// See base-migration.ts for rationale.
+export {
+  pinSearchPath,
+  dropPartialTables,
+  parseAlterColumnTypeTargets,
+  dropDependentPartialIndexes,
+  withDdlSafety,
+} from './base-migration';
+export type {
+  AlterColumnTypeTarget,
+  BlockingDependency,
+  BlockingDependencyKind,
+  /** @deprecated alias for {@link BlockingDependency} */
+  BlockingPartialIndex,
+  DdlSafetyOptions,
+} from './base-migration';
 
 // TENANT_AWARE_SCHEMAS — SSoT for schema-per-tenant services. Imported
 // by migration-runner.service.ts (boot-time fan-out), aqua-db-migrate
@@ -77,6 +100,30 @@ export * from './rls';
 // event-store); each calls the factory with its own source schema name.
 export * from './migration-runner';
 
+// MigrationRunnerModule — Phase 6 platform wiring wrapper. Services
+// import `MigrationRunnerModule.forRoot({schema: 'hr'})` instead of
+// pasting the factory providers block. Auto-threads the MigrationEventSink
+// + ConfigService through Nest DI.
+export { MigrationRunnerModule } from './migration-runner/migration-runner.module';
+export type { MigrationRunnerModuleOptions } from './migration-runner/migration-runner.module';
+
+// Retention — single-enforcer-many-policies pattern (plan v3 R17).
+// Tables with SOC2 / KVKK retention windows register a policy at
+// module-init; RetentionEnforcementService iterates all on a daily
+// cron. See retention/retention-policy.ts docblock.
+export * from './retention';
+
+// assertExpandContractDependency — R6 runtime gate. Called by
+// MigrationRunnerService before executing each migration; contract-phase
+// classes MUST have their dependsOn expand migration recorded in
+// observability.migration_backfill_progress for the environment.
+// See assert-expand-contract-dependency.ts docblock.
+export { assertExpandContractDependency } from './assert-expand-contract-dependency';
+export type {
+  AssertDependencyOptions,
+  AssertDependencyResult,
+} from './assert-expand-contract-dependency';
+
 // Schema drift validator — OnApplicationBootstrap provider factory that
 // compares entity metadata against information_schema on every boot and
 // fails fast on divergence (uuid→text drift, wrong schema, nullability
@@ -88,6 +135,201 @@ export * from './migration-runner';
 export { createSchemaDriftValidator } from './schema-drift-validator.service';
 export { SchemaDriftModule } from './schema-drift/schema-drift.module';
 export type { SchemaDriftModuleOptions } from './schema-drift/schema-drift.module';
+
+// Drift-class registry — single source of truth for validator ↔ primitive
+// parity. See docs/plans/2026-04-21-db-migrate-enterprise-refactor.md §R11
+// + libs/backend-common/src/database/schema-drift/drift-classes.ts docblock.
+export {
+  DRIFT_CLASSES,
+  DRIFT_CLASS_LIST,
+  isDriftClassId,
+} from './schema-drift/drift-classes';
+export type {
+  DriftClassId,
+  DriftClassSpec,
+  DriftSeverity,
+} from './schema-drift/drift-classes';
+
+// pg_catalog introspector — normalized ORM-agnostic snapshot of a PG
+// schema. Consumed by SchemaDriftValidator + Phase 4 PR gate. Replaces
+// TypeORM's createSchemaBuilder().log() which is known to miss
+// partial-index predicates, EXCLUDE operator classes, GIN opclass.
+export { introspectSchema } from './schema-drift/pg-catalog-introspector';
+export type {
+  IntrospectedCheckConstraint,
+  IntrospectedColumn,
+  IntrospectedEnum,
+  IntrospectedTable,
+  IntrospectedPartialIndex,
+  IntrospectedExcludeConstraint,
+  IntrospectedForeignKeyAction,
+  IntrospectedGeneratedColumn,
+  IntrospectedHypertable,
+  IntrospectedRlsPolicy,
+  SchemaSnapshot,
+} from './schema-drift/pg-catalog-introspector';
+
+// Phase 4 PR-gate foundation — pairwise snapshot diff + severity
+// partitioning. Pure, side-effect-free; consumed by the CI diff
+// script that compares pre-merge vs post-migrate shadow snapshots.
+export {
+  diffSnapshots,
+  partitionBySeverity,
+} from './schema-drift/diff-snapshots';
+export type {
+  SnapshotChange,
+  SnapshotChangeKind,
+  SnapshotChangeSeverity,
+} from './schema-drift/diff-snapshots';
+
+// Phase 7 R14 — snapshot PII scrubber. Produces a redacted copy of a
+// SchemaSnapshot suitable for cross-region upload or public channels.
+export {
+  scrubSnapshot,
+  DEFAULT_PII_COLUMN_NAMES,
+} from './schema-drift/snapshot-scrubber';
+export type {
+  ScrubbedSnapshot,
+  ScrubOptions,
+} from './schema-drift/snapshot-scrubber';
+
+// Phase 3 primitives — declarative schema healers for drift classes
+// A-G. Each primitive composes over withDdlSafety and sql.* branded
+// fragments; raw-string SQL is a compile error at the call site.
+// addMissingColumns heals Class D (entity declares column, DB lacks).
+// alignColumnNullability heals Class C (entity NOT NULL, DB nullable).
+export { addMissingColumns } from './schema-primitives/add-missing-columns';
+export type {
+  AddMissingColumnSpec,
+  AddMissingColumnsOptions,
+  AddMissingColumnsResult,
+} from './schema-primitives/add-missing-columns';
+export { alignColumnNullability } from './schema-primitives/align-column-nullability';
+export type {
+  AlignColumnNullabilitySpec,
+  AlignColumnNullabilityOptions,
+  AlignColumnNullabilityResult,
+} from './schema-primitives/align-column-nullability';
+export { alignEnumLabels } from './schema-primitives/align-enum-labels';
+export type {
+  AlignEnumLabelsTarget,
+  AlignEnumLabelsOptions,
+  AlignEnumLabelsResult,
+} from './schema-primitives/align-enum-labels';
+export { dropOrphanedColumns } from './schema-primitives/drop-orphaned-columns';
+export type {
+  DropOrphanedColumnsOptions,
+  DropOrphanedColumnsResult,
+} from './schema-primitives/drop-orphaned-columns';
+export { alignCheckConstraints } from './schema-primitives/align-check-constraints';
+export type {
+  CheckConstraintSpec,
+  AlignCheckConstraintsOptions,
+  AlignCheckConstraintsResult,
+} from './schema-primitives/align-check-constraints';
+export { alignColumnType } from './schema-primitives/align-column-type';
+export type {
+  AlignColumnTypeSpec,
+  AlignColumnTypeOptions,
+  AlignColumnTypeResult,
+} from './schema-primitives/align-column-type';
+// Phase 3.5 — chunked Class H backfill primitive (large-table safe).
+export { backfillColumn } from './schema-primitives/backfill-column';
+export type {
+  BackfillColumnOptions,
+  BackfillColumnResult,
+  BackfillProgress,
+} from './schema-primitives/backfill-column';
+
+// Emergency override runtime read — aqua-ctl + validator integration
+// point. Lookups observability.emergency_overrides for ACTIVE rows
+// matching (service, kind, environment). Fail-safe: lookup errors
+// never grant bypass. See emergency-override-check.ts docblock.
+export { lookupEmergencyOverride } from './emergency-override-check';
+export type {
+  EmergencyOverrideKind,
+  EmergencyOverrideRow,
+  EmergencyOverrideLookupResult,
+  EmergencyOverrideLookupOptions,
+} from './emergency-override-check';
+
+// MigrationEventSink — decoupled hook for lifecycle-event emission from
+// the per-service MigrationRunnerService. Phase 6 integration layer.
+// See migration-event-sink.ts for the three provided implementations
+// (NoopMigrationEventSink, InMemoryMigrationEventSink for tests,
+// LoggerMigrationEventSink for dev/staging).
+export {
+  NoopMigrationEventSink,
+  InMemoryMigrationEventSink,
+  LoggerMigrationEventSink,
+} from './migration-event-sink';
+export type {
+  MigrationEventSink,
+  MigrationSinkEvent,
+  MigrationSinkEventType,
+} from './migration-event-sink';
+// NATS bridge publisher — Phase 6 Step 5. Translates lifecycle events
+// into SchemaMigrationEvent wire shape + publishes under
+// SCHEMA_MIGRATION_SUBJECT_PREFIX. Observability-service consumer
+// subscribes in Step 6.
+export { NatsMigrationEventSink } from './nats-migration-event-sink';
+export type {
+  MigrationEventPublisher,
+  NatsMigrationEventSinkOptions,
+} from './nats-migration-event-sink';
+
+// @TenantFanOut + @AllowTenantDelta — Phase 6 R21/R24 migration-class
+// metadata. Orchestrator reads fan-out policy; Class I drift check
+// reads tenant delta allowlist. See tenant-fanout.decorator.ts.
+export {
+  TenantFanOut,
+  AllowTenantDelta,
+  TENANT_FANOUT_META_KEY,
+  ALLOW_TENANT_DELTA_META_KEY,
+  getTenantFanOutMetadata,
+  getAllowedTenantDeltaPrefixes,
+  isTenantDeltaAllowed,
+} from './tenant-fanout.decorator';
+export type {
+  TenantLockClass,
+  TenantFanOutOptions,
+  TenantFanOutMetadata,
+  AllowTenantDeltaOptions,
+  AllowTenantDeltaMetadata,
+} from './tenant-fanout.decorator';
+
+// @ExpandContract — declarative marker for blue-green migration phases.
+// Phase 4 PR-gate reads this metadata to authorize breaking diffs on
+// contract-phase migrations. See expand-contract.decorator.ts.
+export {
+  ExpandContract,
+  EXPAND_CONTRACT_META_KEY,
+  getExpandContractMetadata,
+  authorizesBreaking,
+  classifyMigrationsForBreaking,
+} from './expand-contract.decorator';
+export type {
+  ExpandContractPhase,
+  ExpandContractOptions,
+  ExpandContractMetadata,
+  MigrationClassification,
+  BatchClassificationResult,
+} from './expand-contract.decorator';
+
+// @EncryptedAtRest — declarative marker for cryptographically-encrypted
+// columns. Drift validator Class J enforces bytea storage; Phase 3
+// primitives refuse DDL against decorated columns. See ADR-023.
+export {
+  EncryptedAtRest,
+  ENCRYPTED_AT_REST_META_KEY,
+  getEncryptedAtRestMetadata,
+  getEncryptedAtRestForProperty,
+} from './encrypted-at-rest.decorator';
+export type {
+  EncryptionAlgorithm,
+  EncryptedAtRestOptions,
+  EncryptedAtRestMetadata,
+} from './encrypted-at-rest.decorator';
 
 // Audit-column TIMESTAMP → TIMESTAMPTZ conversion (NEW-H1).
 // `convertAuditColumnsToTimestamptz` and `revertAuditColumnsToTimestamp`

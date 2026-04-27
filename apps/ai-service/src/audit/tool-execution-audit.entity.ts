@@ -6,7 +6,7 @@ import {
   Index,
 } from 'typeorm';
 
-@Entity('tool_execution_audit')
+@Entity('tool_execution_audit', { schema: 'ai' })
 @Index(['tenantId', 'executedAt'])
 @Index(['toolName', 'executedAt'])
 export class ToolExecutionAudit {

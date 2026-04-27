@@ -1,0 +1,16 @@
+{
+  "id": "AUDIT-LOW-001",
+  "severity": "LOW",
+  "state": "OPEN",
+  "title": "Nx-intrinsic duplication in tsconfig.build.json / jest.config files across services (no action)",
+  "layer": 1,
+  "evidence": [
+    "apps/admin-api-service/tsconfig.build.json:4-68"
+  ],
+  "rule_violated": "No violation — Nx workspace generators produce identical per-service scaffolding by design.",
+  "owner_agent": "orchestrator",
+  "raised_in_cycle": "2026-04-22-cold-audit",
+  "review_file": "docs/reviews/_audit/2026-04-22-cold-audit/03-explore-findings.md",
+  "created_at": "2026-04-22T19:00:00Z",
+  "notes": "Tier 4 document: explicitly call out that this class of duplication is noise, to avoid future audit cycles re-raising it."
+}

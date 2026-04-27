@@ -1,5 +1,5 @@
 import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
-import { CurrentUser, TenantAdminOrHigher } from '@aquaculture/backend-common';
+import { CurrentUser, TenantAdminOrHigher } from '@aquaculture/backend-common/decorators';
 import { MobileUserSettings } from '../entities/mobile-user-settings.entity';
 import { MobileSettingsService } from '../services/mobile-settings.service';
 import { UpdateMobileUserSettingsInput, BulkUpdateMobileSettingsInput } from '../dto/mobile-settings.dto';

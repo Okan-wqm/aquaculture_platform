@@ -1,7 +1,8 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Inject } from '@nestjs/common';
 import { IEventBus, IEventHandler, IEvent } from '@platform/event-bus';
-import { requestContextStorage, RequestContext, getTenantSchemaName, isValidUUID } from '@aquaculture/backend-common';
+import { getTenantSchemaName, isValidUUID } from '@aquaculture/backend-common/database';
+import { requestContextStorage, RequestContext } from '@aquaculture/backend-common/logging';
 import { AlertEvaluationService } from '../services/alert-evaluation.service';
 
 // UUID validation imported from @aquaculture/backend-common (isValidUUID)
@@ -76,10 +77,21 @@ export class SensorReadingEventHandler
   ) {}
 
   async onModuleInit(): Promise<void> {
-    // Subscribe to sensor reading events
-    // Must match the topic published by sensor-service: 'SensorReading'
-    await this.eventBus.subscribe('SensorReading', this);
-    this.logger.log('Subscribed to SensorReading events');
+    // Subscribe to SensorReading events ACROSS EVERY TENANT.
+    //
+    // WHAT — `subscribeWildcard` builds `events.*.SensorReading` (3 segments),
+    // matching the publisher's `events.{tenantId}.SensorReading` for every
+    // tenant + the platform `events.system.SensorReading` channel.
+    //
+    // WHY explicit `subscribeWildcard` over the legacy `subscribe` helper —
+    // `subscribe` also wildcards under the hood, but its name does not
+    // express intent; that ambiguity is what ORPHAN-013 documented. Using
+    // `subscribeWildcard` here makes the cross-tenant fan-out unambiguous at
+    // the call site, and a future refactor that switches the alert engine to
+    // per-tenant routing only has to flip this single line to
+    // `subscribeForTenant(eventType, tenantId, this)`.
+    await this.eventBus.subscribeWildcard('SensorReading', this);
+    this.logger.log('Subscribed to SensorReading events (cross-tenant wildcard)');
   }
 
   getEventType(): string {

@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CqrsModule } from '@nestjs/cqrs';
 import { ClientsModule, Transport } from '@nestjs/microservices';
-import { buildNatsTransportOptions } from '@aquaculture/backend-common';
+import { buildNatsTransportOptions } from '@aquaculture/backend-common/nats';
 
 // Entities
 import { Message } from './entities/message.entity';

@@ -1,12 +1,6 @@
 // WHY: MUST be first import — see apps/admin-api-service/src/main.ts for full explanation.
 import 'reflect-metadata';
-/**
- * Billing Service — Subscription management, metered billing, invoicing.
- *
- * Migrated to shared bootstrap factory (ADR-013 Phase 3).
- * Custom config: rawBody enabled for Stripe webhook signature verification.
- */
-import { bootstrapService } from '@aquaculture/backend-common';
+import { bootstrapService } from '@aquaculture/backend-common/bootstrap';
 import { AppModule } from './app.module';
 
 bootstrapService(AppModule, {

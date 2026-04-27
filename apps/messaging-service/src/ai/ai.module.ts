@@ -16,7 +16,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CqrsModule } from '@nestjs/cqrs';
 import { ClientsModule, Transport } from '@nestjs/microservices';
-import { buildNatsTransportOptions } from '@aquaculture/backend-common';
+import { buildNatsTransportOptions } from '@aquaculture/backend-common/nats';
 
 // Feature module dependencies
 import { ChannelModule } from '../channel/channel.module';
@@ -40,10 +40,11 @@ import { KnowledgeExtractionService } from './services/knowledge-extraction.serv
 import { AiChatBridgeService } from './services/ai-chat-bridge.service';
 import { AiPersonasRegistryService } from './services/ai-personas-registry.service';
 
-// AI Safety Services (MSG-CRITICAL-029, MSG-CRITICAL-030, MSG-HIGH-031, MSG-HIGH-033)
-import { InputFilterService } from './safety/input-filter.service';
-import { OutputPiiScannerService } from './safety/output-pii-scanner.service';
-import { SsrfValidatorService } from './safety/ssrf-validator.service';
+// AI Safety — SSRF / input filter / output PII scanner now come from the
+// shared core module (libs/backend-common/src/ai-safety) extracted under
+// AUDIT-HIGH-007. Instruction-hierarchy and tool-schema-validator remain
+// service-local because they carry messaging-specific config.
+import { AiSafetyCoreModule } from '@aquaculture/backend-common/ai-safety';
 import { InstructionHierarchyService } from './safety/instruction-hierarchy.service';
 import { ToolSchemaValidatorService } from './safety/tool-schema-validator.service';
 
@@ -75,10 +76,8 @@ const services = [
   KnowledgeExtractionService,
   AiChatBridgeService,
   AiPersonasRegistryService,
-  // AI Safety Services (MSG-CRITICAL-029, MSG-CRITICAL-030, MSG-HIGH-031, MSG-HIGH-033, MSG-HIGH-034)
-  InputFilterService,
-  OutputPiiScannerService,
-  SsrfValidatorService,
+  // messaging-local AI safety extensions (SSRF / input filter / output PII
+  // scanner now come from AiSafetyCoreModule imported below).
   InstructionHierarchyService,
   ToolSchemaValidatorService,
 ];
@@ -111,6 +110,8 @@ const services = [
     PresenceModule,
     ChannelModule,
     MessageModule,
+    // AI safety primitives extracted under AUDIT-HIGH-007.
+    AiSafetyCoreModule,
   ],
   providers: [
     ...commandHandlers,

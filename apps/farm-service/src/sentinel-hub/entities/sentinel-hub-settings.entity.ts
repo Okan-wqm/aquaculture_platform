@@ -15,7 +15,7 @@ import {
 import { ObjectType, Field, ID, Int, HideField } from '@nestjs/graphql';
 
 @ObjectType()
-@Entity('sentinel_hub_settings')
+@Entity('sentinel_hub_settings', { schema: 'farm' })
 @Index(['tenantId'], { unique: true })
 export class SentinelHubSettings {
   @Field(() => ID)

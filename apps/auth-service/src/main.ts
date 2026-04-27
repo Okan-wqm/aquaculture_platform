@@ -1,6 +1,6 @@
 // WHY: MUST be first import — see apps/admin-api-service/src/main.ts for full explanation.
 import 'reflect-metadata';
-import { bootstrapService } from '@aquaculture/backend-common';
+import { bootstrapService } from '@aquaculture/backend-common/bootstrap';
 import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 

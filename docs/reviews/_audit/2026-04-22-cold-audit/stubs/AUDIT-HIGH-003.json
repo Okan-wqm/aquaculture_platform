@@ -1,0 +1,19 @@
+{
+  "id": "AUDIT-HIGH-003",
+  "severity": "HIGH",
+  "state": "OPEN",
+  "title": "apps/sensor-service uses getRepository() in ingestion/automation/edge-device — tenant isolation bypass",
+  "layer": 2,
+  "evidence": [
+    "apps/sensor-service/src/ingestion/mqtt-listener.service.ts:1",
+    "apps/sensor-service/src/automation/automation.service.ts:1",
+    "apps/sensor-service/src/edge-device/edge-device.service.ts:1",
+    "apps/sensor-service/src/sensor-type/channel-detection.service.ts:1"
+  ],
+  "rule_violated": "CLAUDE.md \"getRepository() is FORBIDDEN → use getScopedRepository() (tenant isolation)\"",
+  "owner_agent": "data-expert",
+  "raised_in_cycle": "2026-04-22-cold-audit",
+  "review_file": "docs/reviews/_audit/2026-04-22-cold-audit/03-explore-findings.md",
+  "created_at": "2026-04-22T19:00:00Z",
+  "notes": "Sensor ingestion path is edge-device originated — tenant binding must come from device cert CN (ADR-015 NATS identity pattern) or signed payload, not ambient context. Review each call site."
+}

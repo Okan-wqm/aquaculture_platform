@@ -31,7 +31,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, QueryRunner } from 'typeorm';
 import { NatsEventBus, IEventHandler } from '@platform/event-bus';
 import { createBaseEvent } from '@platform/event-contracts';
-import { listTenantSchemas, getTenantSchemaName, isValidUUID } from '@aquaculture/backend-common';
+import { listTenantSchemas, getTenantSchemaName, isValidUUID } from '@aquaculture/backend-common/database';
 import { AutoRule, AutoRuleTrigger } from '../entities/auto-rule.entity';
 import { Task, TaskStatus } from '../entities/task.entity';
 

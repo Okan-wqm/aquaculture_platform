@@ -49,7 +49,7 @@ export interface JobRetryPolicy {
   maxDelay?: number;
 }
 
-@Entity('background_jobs')
+@Entity('background_jobs', { schema: 'admin' })
 @Index(['status', 'priority', 'scheduledAt'])
 @Index(['queueName', 'status'])
 @Index(['jobType', 'status'])
@@ -158,7 +158,7 @@ export class BackgroundJob {
   updatedAt!: Date;
 }
 
-@Entity('job_execution_logs')
+@Entity('job_execution_logs', { schema: 'admin' })
 @Index(['jobId', 'timestamp'])
 @Index(['timestamp'])
 export class JobExecutionLog {
@@ -216,7 +216,7 @@ export class JobExecutionLog {
   createdAt!: Date;
 }
 
-@Entity('job_queues')
+@Entity('job_queues', { schema: 'admin' })
 @Index(['name'], { unique: true })
 export class JobQueue {
   @PrimaryGeneratedColumn('uuid')

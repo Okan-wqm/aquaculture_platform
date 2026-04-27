@@ -1,0 +1,26 @@
+{
+  "name": "migration-harness",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/migration-harness/src",
+  "projectType": "library",
+  "tags": ["scope:devOnly"],
+  "targets": {
+    "build": {
+      "executor": "@nx/js:tsc",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "dist/libs/migration-harness",
+        "main": "libs/migration-harness/src/index.ts",
+        "tsConfig": "libs/migration-harness/tsconfig.lib.json",
+        "assets": ["libs/migration-harness/*.md"]
+      }
+    },
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+      "options": {
+        "jestConfig": "libs/migration-harness/jest.config.cts"
+      }
+    }
+  }
+}

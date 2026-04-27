@@ -1,0 +1,9 @@
+{
+  "name": "rtu_bad_crc",
+  "description": "Modbus RTU frame with a deliberately tampered CRC — flipped one bit of the master-request frame.",
+  "decoder": "parse_rtu_frame",
+  "wire_hex": "01030000000AC5CC",
+  "expected_err": {
+    "kind": "BadChecksum"
+  }
+}

@@ -1,5 +1,5 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
-import { RedisService } from '@aquaculture/backend-common';
+import { RedisService } from '@aquaculture/backend-common/redis';
 import { RateLimitStore } from './rate-limit.guard';
 
 /**

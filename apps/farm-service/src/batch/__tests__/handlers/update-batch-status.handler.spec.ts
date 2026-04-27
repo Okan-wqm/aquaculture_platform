@@ -12,14 +12,21 @@ import { createMockDataSource } from '@aquaculture/testing';
 describe('UpdateBatchStatusHandler', () => {
   let handler: UpdateBatchStatusHandler;
   const { mockDataSource, mockQueryRunner, mockManager } = createMockDataSource();
-  const mockEventPublisher = { publish: jest.fn().mockResolvedValue(undefined) };
+  // Handler was migrated from DomainEventPublisher to OutboxPublisher
+  // in phase D — the transactional outbox enqueues the event inside
+  // the same tx as the domain write. Mock surfaces `enqueue(event,
+  // manager)` and succeeds silently; assertions below verify the
+  // event is emitted exactly once per status change.
+  const mockOutboxPublisher = {
+    enqueue: jest.fn().mockResolvedValue(undefined),
+  };
 
   beforeEach(() => {
     jest.clearAllMocks();
     handler = new UpdateBatchStatusHandler(
       mockDataSource as any,
       {} as any, // batchRepository (not used directly — handler uses queryRunner.manager)
-      mockEventPublisher as any,
+      mockOutboxPublisher as any,
     );
   });
 

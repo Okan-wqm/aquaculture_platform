@@ -29,7 +29,21 @@ export * from './ip-validation';
 export * from './validators';
 
 // GDPR Compliance (Consent Management, Data Subject Rights)
-export * from './gdpr';
+//
+// IMPORTANT (DEFECT-1, INFRA-CRITICAL-021): the GdprModule + service +
+// entities (UserConsent, GdprDataRequest) are NOT re-exported from the
+// security barrel because their import chain reaches `entities/*.entity.ts`,
+// whose @Entity decorators would otherwise register `shared.user_consents`
+// + `shared.gdpr_data_requests` in TypeORM's global metadata storage on
+// every backend-common consumer — surfacing as cross-service drift on
+// services that have nothing to do with GDPR.
+//
+// Interface tokens (IGdprService, IConsentManager, GDPR_SERVICE,
+// CONSENT_MANAGER) live in `./interfaces` and are exported above.
+//
+// Concrete consumers deep-import:
+//   import { GdprModule } from '@aquaculture/backend-common/gdpr';
+// (Path alias defined in tsconfig.base.json.)
 
 // Encryption - AES-256-GCM column-level encryption for PII at rest
 export * from './encryption';

@@ -9,6 +9,7 @@ import { Site } from './entities/site.entity';
 import { Department } from '../department/entities/department.entity';
 import { System } from '../system/entities/system.entity';
 import { Equipment } from '../equipment/entities/equipment.entity';
+import { EquipmentSystem } from '../equipment/entities/equipment-system.entity';
 import { Tank } from '../tank/entities/tank.entity';
 
 // Resolver
@@ -38,7 +39,7 @@ const QueryHandlers = [
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Site, Department, System, Equipment, Tank]),
+    TypeOrmModule.forFeature([Site, Department, System, Equipment, EquipmentSystem, Tank]),
   ],
   providers: [
     SiteResolver,

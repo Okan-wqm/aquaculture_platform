@@ -35,6 +35,7 @@ import { Tank } from '../../tank/entities/tank.entity';
 import { EquipmentType } from '../../equipment/entities/equipment-type.entity';
 import { findTankOrEquipmentWithManager, TankLookupResult } from '../utils/tank-lookup.util';
 import { toMortalityReasonCode } from '../../common/utils/reason-codecs';
+import { BackdatePolicyService } from '../../common/services/backdate-policy.service';
 
 @Injectable()
 @CommandHandler(RecordMortalityCommand)
@@ -58,10 +59,25 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
     @InjectRepository(EquipmentType)
     private readonly equipmentTypeRepository: Repository<EquipmentType>,
     private readonly outboxPublisher: OutboxPublisher,
+    private readonly backdatePolicy: BackdatePolicyService,
   ) {}
 
   async execute(command: RecordMortalityCommand): Promise<Batch> {
     const { tenantId, batchId, payload, recordedBy } = command;
+
+    // Backdate policy: mortality observations may land up to
+    // MORTALITY_BACKDATE_LIMIT_DAYS (default 14) in the past —
+    // operators sometimes batch-record a week's findings. Future
+    // dates remain rejected unconditionally.
+    const proposedDate: Date =
+      payload.observedAt instanceof Date
+        ? payload.observedAt
+        : new Date(payload.observedAt);
+    this.backdatePolicy.validate({
+      context: 'mortality',
+      proposedDate,
+      subjectLabel: `batch ${batchId}`,
+    });
 
     // All reads and writes inside a single transaction with pessimistic locks
     const queryRunner = this.dataSource.createQueryRunner();

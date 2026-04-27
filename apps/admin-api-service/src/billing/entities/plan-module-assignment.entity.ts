@@ -38,7 +38,7 @@ export interface IncludedQuantities {
  * - Sensor Module: 50 sensors, 10GB storage
  * - Alert Module: 1000 alerts
  */
-@Entity('plan_module_assignments')
+@Entity('plan_module_assignments', { schema: 'admin' })
 @Index(['planId'])
 @Index(['moduleId'])
 @Unique(['planId', 'moduleId'])

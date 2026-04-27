@@ -3,6 +3,7 @@ import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { DataSource, QueryRunner } from 'typeorm';
 import { CreateWorkAreaCommand } from '../commands/create-work-area.command';
 import { WorkArea } from '../entities/work-area.entity';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 
 @Injectable()
 @CommandHandler(CreateWorkAreaCommand)
@@ -19,7 +20,7 @@ export class CreateWorkAreaHandler implements ICommandHandler<CreateWorkAreaComm
     await queryRunner.startTransaction('SERIALIZABLE');
 
     try {
-      const repo = queryRunner.manager.getRepository(WorkArea);
+      const repo = tenantManagerRepo(queryRunner.manager, WorkArea, tenantId);
 
       // Check for duplicate code within tenant
       const existing = await repo.findOne({

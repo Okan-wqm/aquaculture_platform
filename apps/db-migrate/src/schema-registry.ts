@@ -112,6 +112,38 @@ export interface SchemaRegistryEntry {
    */
   migrationsGlob: string[];
   /**
+   * Optional entity file glob(s). When present, the orchestrator loads
+   * these entities into the per-slot DataSource so migrations can derive
+   * DDL from canonical @Entity / @Column metadata (e.g. via
+   * `RdbmsSchemaBuilder.log()` for catch-up sync migrations).
+   *
+   * # Why opt-in
+   *
+   * Default behaviour (undefined) loads NO entities — the DataSource is
+   * migration-only, identical to the pre-Phase-H runtime. Loading entities
+   * adds bundle weight + cold-start cost per slot, so each slot opts in
+   * only when its migrations need entity metadata.
+   *
+   * # Foreign-schema contamination defense
+   *
+   * After load, the orchestrator filters `dataSource.entityMetadatas`
+   * down to entities whose declared `schema` matches this slot's
+   * `schema` field. This rejects cross-schema entities (e.g. admin-api's
+   * read-only billing entities) that would otherwise pollute the
+   * metadata graph and break entity-driven schema-builder migrations.
+   * The rejected list is logged with a warn record so misconfigured
+   * opt-ins are visible in deploy output.
+   *
+   * # tsconfig coupling
+   *
+   * Adding a slot's entitiesGlob ALSO requires extending
+   * `apps/db-migrate/tsconfig.build.json` to include the entity files in
+   * the compiled bundle. The orchestrator imports the compiled `.js`
+   * paths at runtime — if the build doesn't emit them, the dynamic
+   * require fails with MODULE_NOT_FOUND.
+   */
+  entitiesGlob?: string[];
+  /**
    * Human-readable rationale for the ordering slot. Logged on first pass
    * so operators reading deploy output see the reasoning without having
    * to open this source file.
@@ -170,6 +202,16 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
     role: 'hr_service',
     migrationsGlob: [
       'apps/hr-service/src/database/migrations/*{.ts,.js}',
+    ],
+    // Phase H opt-in: hr's catch-up migration `SyncHrEntitiesToDb` derives
+    // DDL from `connection.entityMetadatas` via RdbmsSchemaBuilder.log().
+    // Without entitiesGlob the orchestrator's DataSource has zero entity
+    // metadata and the migration aborts (INFRA-CRITICAL-031, root cause
+    // of the 9ff64feb→c1bb0864 revert). Loading hr's entity tree closes
+    // the gap; the post-init filter rejects any non-hr entity to keep
+    // the metadata graph clean.
+    entitiesGlob: [
+      'apps/hr-service/src/**/*.entity.{ts,js}',
     ],
     reason:
       'Schema-per-tenant service. Source-schema migrations clone into ' +

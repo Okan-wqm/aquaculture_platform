@@ -21,7 +21,7 @@ import {
   UpdateDateColumn,
   Index,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import {
   ObjectType,
   Field,
@@ -169,7 +169,7 @@ export interface ScheduleMetrics {
 // ============================================================================
 
 @ObjectType()
-@Entity('maintenance_schedules')
+@Entity('maintenance_schedules', { schema: 'farm' })
 @Index(['tenantId', 'status'])
 @Index(['tenantId', 'scheduleCode'], { unique: true })
 @Index(['tenantId', 'assetType', 'assetId'])

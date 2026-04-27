@@ -1,14 +1,23 @@
-import { useState, useEffect, useCallback, ChangeEvent } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
-import { List, ListInput, BlockTitle } from 'konsta/react';
-import { ArrowLeft, Package, AlertCircle, ChevronRight } from 'lucide-react';
-import { useTanks } from '@/hooks/useTanks';
-import { useOfflineQueue } from '@/hooks/useOfflineQueue';
-import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
-import type { QualityGrade } from '@/types';
+import { type ChangeEvent, useCallback, useEffect, useState } from 'react';
+import { ChevronRight, Package } from 'lucide-react';
+import { useParams } from 'react-router-dom';
+import { BlockTitle, List, ListInput } from 'konsta/react';
 import { clsx } from 'clsx';
+import { useTanks } from '@/hooks/useTanks';
+import type { HarvestInput, QualityGrade } from '@/types';
+import {
+  RecordEntityPage,
+  type RecordEntityTheme,
+  SummaryDivider,
+  SummaryRow,
+  type BaseFormErrors,
+} from '../_shared/RecordEntityPage';
 
-const QUALITY_GRADES: { value: QualityGrade; label: string; color: string }[] = [
+interface HarvestFormErrors extends BaseFormErrors {
+  avgWeight?: string;
+}
+
+const QUALITY_GRADES: ReadonlyArray<{ value: QualityGrade; label: string; color: string }> = [
   { value: 'PREMIUM', label: 'Premium', color: 'bg-amber-400' },
   { value: 'GRADE_A', label: 'Grade A', color: 'bg-sea-500' },
   { value: 'GRADE_B', label: 'Grade B', color: 'bg-ocean-500' },
@@ -16,18 +25,23 @@ const QUALITY_GRADES: { value: QualityGrade; label: string; color: string }[] = 
   { value: 'REJECT', label: 'Reject', color: 'bg-mortality' },
 ];
 
-interface FormErrors {
-  tank?: string;
-  quantity?: string;
-  avgWeight?: string;
-  general?: string;
-}
+const HARVEST_THEME: RecordEntityTheme = {
+  headerGradient: 'bg-gradient-to-r from-violet-700 to-harvest',
+  accentText: 'text-harvest',
+  summaryHeaderBg: 'bg-purple-50 dark:bg-purple-900/20 border-purple-100 dark:border-purple-800/50',
+  summaryHeaderText: 'text-purple-700 dark:text-purple-300',
+  iconBubbleBg: 'bg-purple-50 dark:bg-purple-900/20',
+  surfaceSoftBg: 'bg-purple-50 dark:bg-purple-900/20',
+  surfaceBorder: 'border-purple-100 dark:border-purple-800',
+  ctaGradient: 'bg-gradient-to-r from-violet-700 to-harvest',
+  ctaShadow: 'shadow-purple-500/25',
+  selectionBorder: 'border-harvest',
+  selectionGlow: 'shadow-glow-purple',
+};
 
-export function RecordHarvestPage() {
-  const navigate = useNavigate();
+export function RecordHarvestPage(): JSX.Element {
   const { tankId } = useParams<{ tankId?: string }>();
   const { data: tanks } = useTanks();
-  const { addToQueue, isOnline } = useOfflineQueue();
 
   const [selectedTankId, setSelectedTankId] = useState(tankId || '');
   const [quantity, setQuantity] = useState('');
@@ -36,14 +50,7 @@ export function RecordHarvestPage() {
   const [pricePerKg, setPricePerKg] = useState('');
   const [buyerName, setBuyerName] = useState('');
   const [notes, setNotes] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showSuccess, setShowSuccess] = useState(false);
-  // C7: Track the operationId for two-phase success UX
-  const [queuedOperationId, setQueuedOperationId] = useState('');
-  const [errors, setErrors] = useState<FormErrors>({});
-  // WHY: Confirmation step prevents accidental harvest records — harvesting is the highest-value
-  // operation in aquaculture and directly impacts financial reporting.
-  const [step, setStep] = useState<'entry' | 'confirm'>('entry');
+  const [errors, setErrors] = useState<HarvestFormErrors>({});
 
   const selectedTank = tanks?.find((t) => t.id === selectedTankId);
   const metrics = selectedTank?.batchMetrics;
@@ -56,291 +63,87 @@ export function RecordHarvestPage() {
   const estimatedValue = priceNum > 0 ? totalBiomass * priceNum : 0;
 
   useEffect(() => {
-    if (tankId) setSelectedTankId(tankId);
-  }, [tankId]);
-
-  useEffect(() => {
     if (metrics?.avgWeight != null && !avgWeight) {
       setAvgWeight(metrics.avgWeight.toFixed(0));
     }
   }, [metrics, avgWeight]);
 
-  const validateForm = useCallback((): boolean => {
-    const newErrors: FormErrors = {};
-    if (!selectedTankId) newErrors.tank = 'Please select a tank';
-    if (!metrics) newErrors.tank = 'Selected tank has no active batch';
-    if (quantityNum < 1) newErrors.quantity = 'Quantity must be at least 1';
-    if (quantityNum > maxQuantity) newErrors.quantity = `Cannot exceed ${maxQuantity}`;
-    if (!Number.isInteger(quantityNum)) newErrors.quantity = 'Must be a whole number';
-    if (avgWeightNum <= 0) newErrors.avgWeight = 'Average weight must be greater than 0';
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+  const validate = useCallback((): boolean => {
+    const next: HarvestFormErrors = {};
+    if (!selectedTankId) next.tank = 'Please select a tank';
+    if (!metrics) next.tank = 'Selected tank has no active batch';
+    if (quantityNum < 1) next.quantity = 'Quantity must be at least 1';
+    if (quantityNum > maxQuantity) next.quantity = `Cannot exceed ${maxQuantity}`;
+    if (!Number.isInteger(quantityNum)) next.quantity = 'Must be a whole number';
+    if (avgWeightNum <= 0) next.avgWeight = 'Average weight must be greater than 0';
+    setErrors(next);
+    return Object.keys(next).length === 0;
   }, [selectedTankId, metrics, quantityNum, avgWeightNum, maxQuantity]);
 
-  const handleReview = () => {
-    if (!validateForm()) return;
-    setStep('confirm');
-  };
+  const buildPayload = (): HarvestInput => ({
+    batchId: metrics!.batchId!,
+    tankId: selectedTankId,
+    quantityHarvested: quantityNum,
+    averageWeight: avgWeightNum,
+    totalBiomass,
+    qualityGrade,
+    harvestDate: new Date().toISOString().split('T')[0],
+    pricePerKg: priceNum > 0 ? priceNum : undefined,
+    buyerName: buyerName.trim() || undefined,
+    notes: notes.trim() || undefined,
+  });
 
-  const handleSubmit = async () => {
-    if (!validateForm() || !metrics?.batchId) return;
-
-    setIsSubmitting(true);
-    setErrors({});
-
-    try {
-      const opId = await addToQueue('createHarvestRecord', {
-        batchId: metrics.batchId,
-        tankId: selectedTankId,
-        quantityHarvested: quantityNum,
-        averageWeight: avgWeightNum,
-        totalBiomass,
-        qualityGrade,
-        harvestDate: new Date().toISOString().split('T')[0],
-        pricePerKg: priceNum > 0 ? priceNum : undefined,
-        buyerName: buyerName.trim() || undefined,
-        notes: notes.trim() || undefined,
-      });
-
-      // C7: Store operationId for QueuedStatusBadge tracking
-      setQueuedOperationId(opId);
-      setShowSuccess(true);
-      setTimeout(() => navigate('/'), 2000);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to record harvest';
-      setErrors({ general: message });
-      setStep('entry');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const handleTankChange = (e: ChangeEvent<HTMLSelectElement>) => {
-    setSelectedTankId(e.target.value);
-    setErrors((prev) => ({ ...prev, tank: undefined }));
-  };
-
-  const handleQuantityInput = (e: ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value.replace(/[^0-9]/g, '');
-    const num = parseInt(val, 10) || 0;
-    setQuantity(Math.min(num, maxQuantity).toString());
-    setErrors((prev) => ({ ...prev, quantity: undefined }));
-  };
-
-  const handleAvgWeightInput = (e: ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value.replace(/[^0-9.]/g, '');
-    setAvgWeight(val);
-    setErrors((prev) => ({ ...prev, avgWeight: undefined }));
-  };
-
-  const handlePriceInput = (e: ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value.replace(/[^0-9.]/g, '');
-    setPricePerKg(val);
-  };
-
-  const handleBuyerInput = (e: ChangeEvent<HTMLInputElement>) => {
-    setBuyerName(e.target.value);
-  };
-
-  const handleNotesInput = (e: ChangeEvent<HTMLTextAreaElement>) => {
-    setNotes(e.target.value);
-  };
-
-  // C7: Two-phase success UX -- show honest sync status via QueuedStatusBadge
-  // instead of premature "Success!" green checkmark.
-  if (showSuccess) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-amber-50 dark:bg-amber-900/10">
-        <QueuedStatusBadge operationId={queuedOperationId} />
-      </div>
-    );
-  }
-
-  // WHY: Harvest confirmation step — harvest is the most financially significant operation,
-  // so users must review quantity, weight, grade, and estimated value before submitting.
-  if (step === 'confirm') {
-    const gradeLabel = QUALITY_GRADES.find((g) => g.value === qualityGrade)?.label ?? qualityGrade;
-    return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-        <div className="bg-gradient-to-r from-violet-700 to-harvest text-white">
-          <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-            <button onClick={() => setStep('entry')} className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
-              <ArrowLeft size={22} />
-            </button>
-            <div className="flex items-center gap-2.5">
-              <Package size={22} />
-              <h1 className="text-lg font-bold">Confirm Harvest</h1>
-            </div>
-          </div>
-        </div>
-
-        <div className="px-4 mt-5">
-          <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-lg border border-gray-100 dark:border-gray-800 overflow-hidden">
-            <div className="bg-purple-50 dark:bg-purple-900/20 p-4 border-b border-purple-100 dark:border-purple-800/50">
-              <h3 className="text-sm font-bold text-purple-700 dark:text-purple-300 uppercase tracking-wider">Harvest Summary</h3>
-            </div>
-            <div className="p-4 space-y-4">
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-500">Tank</span>
-                <span className="font-semibold text-gray-900 dark:text-white">{selectedTank?.name}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-500">Batch</span>
-                <span className="font-semibold text-gray-900 dark:text-white">{metrics?.batchNumber ?? '--'}</span>
-              </div>
-              <div className="h-px bg-gray-100 dark:bg-gray-800" />
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-500">Quantity</span>
-                <span className="text-xl font-bold text-harvest">{quantityNum.toLocaleString()} fish</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-500">Avg Weight</span>
-                <span className="font-semibold text-gray-900 dark:text-white">{avgWeightNum}g</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-500">Total Biomass</span>
-                <span className="font-semibold text-gray-900 dark:text-white">{totalBiomass.toFixed(1)} kg</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-500">Quality</span>
-                <span className="font-semibold text-gray-900 dark:text-white">{gradeLabel}</span>
-              </div>
-              {estimatedValue > 0 && (
-                <>
-                  <div className="h-px bg-gray-100 dark:bg-gray-800" />
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-gray-500">Est. Value</span>
-                    <span className="text-xl font-bold text-sea-600">
-                      {estimatedValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
-                    </span>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {errors.general && (
-          <div className="mx-4 mt-3 bg-red-50 dark:bg-red-900/20 rounded-xl p-3 flex items-center gap-2 border border-red-200 dark:border-red-800">
-            <AlertCircle size={18} className="text-red-500 flex-shrink-0" />
-            <span className="text-red-600 dark:text-red-300 text-sm">{errors.general}</span>
-          </div>
-        )}
-
-        <div className="px-4 mt-6 space-y-3 pb-28">
-          <button
-            onClick={handleSubmit}
-            disabled={isSubmitting}
-            className="w-full py-4 bg-gradient-to-r from-violet-700 to-harvest text-white font-bold rounded-2xl shadow-lg shadow-purple-500/25 disabled:opacity-50 disabled:cursor-not-allowed touch-feedback transition-all flex items-center justify-center gap-2"
-          >
-            {isSubmitting ? (
-              <>
-                <span className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
-                Recording...
-              </>
-            ) : (
-              <>
-                <Package size={20} />
-                Confirm & Record Harvest
-              </>
-            )}
-          </button>
-          <button
-            onClick={() => setStep('entry')}
-            disabled={isSubmitting}
-            className="w-full py-3 text-gray-500 font-semibold rounded-2xl border border-gray-200 dark:border-gray-700 touch-feedback transition-all"
-          >
-            Go Back & Edit
-          </button>
-          {!isOnline && (
-            <p className="text-center text-amber-500 text-sm font-medium">
-              Offline -- will sync when connected
-            </p>
-          )}
-        </div>
-      </div>
-    );
-  }
+  const gradeLabel = QUALITY_GRADES.find((g) => g.value === qualityGrade)?.label ?? qualityGrade;
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-      {/* Header */}
-      <div className="bg-gradient-to-r from-violet-700 to-harvest text-white">
-        <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-          <button onClick={() => navigate(-1)} className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
-            <ArrowLeft size={22} />
-          </button>
-          <div className="flex items-center gap-2.5">
-            <Package size={22} />
-            <h1 className="text-lg font-bold">Record Harvest</h1>
-          </div>
-        </div>
-      </div>
-
-      {/* Tank/Batch Info */}
-      {selectedTank && metrics && (
-        <div className="mx-4 mt-4 bg-white dark:bg-gray-900 rounded-2xl shadow-card p-4 border border-gray-100 dark:border-gray-800">
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 bg-purple-50 dark:bg-purple-900/20 rounded-xl flex items-center justify-center">
-              <Package className="text-harvest" size={22} />
-            </div>
-            <div>
-              <h3 className="font-semibold text-gray-900 dark:text-white">{selectedTank.name}</h3>
-              <p className="text-sm text-gray-500">
-                {metrics.batchNumber ?? '--'} &middot; {(metrics.pieces ?? 0).toLocaleString()} fish
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Error Banner */}
-      {errors.general && (
-        <div className="mx-4 mt-3 bg-red-50 dark:bg-red-900/20 rounded-xl p-3 flex items-center gap-2 border border-red-200 dark:border-red-800">
-          <AlertCircle size={18} className="text-red-500 flex-shrink-0" />
-          <span className="text-red-600 dark:text-red-300 text-sm">{errors.general}</span>
-        </div>
-      )}
-
-      {/* Tank Selector */}
-      {/* WHY: Only tanks with active batches are selectable — you can only harvest fish from a batch */}
-      {!tankId && (
+    <RecordEntityPage<HarvestInput, HarvestFormErrors>
+      theme={HARVEST_THEME}
+      entryTitle="Record Harvest"
+      confirmTitle="Confirm Harvest"
+      icon={Package}
+      summaryHeading="Harvest Summary"
+      operationName="createHarvestRecord"
+      tankEmptyActionWord="harvest"
+      selectedTankId={selectedTankId}
+      onTankChange={setSelectedTankId}
+      errors={errors}
+      setErrors={setErrors}
+      validate={validate}
+      buildPayload={buildPayload}
+      canReview={!!selectedTankId && !!metrics?.batchId && quantityNum >= 1 && avgWeightNum >= 1}
+      reviewLabel={
         <>
-          <BlockTitle>Select Tank</BlockTitle>
-          <List strongIos insetIos>
-            <ListInput type="select" value={selectedTankId} onChange={handleTankChange} error={errors.tank}>
-              <option value="">-- Select Tank --</option>
-              {tanks?.filter((t) => t.batchMetrics).map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name} - {t.batchMetrics?.batchNumber ?? '--'}
-                </option>
-              ))}
-              {/* WHY: Show batchless tanks as disabled options with their real ID so users know
-                  the tank exists but cannot record against it. Using the actual tank ID (not
-                  empty string) prevents the browser from treating disabled selection as valid. */}
-              {tanks?.filter((t) => !t.batchMetrics).map((t) => (
-                <option key={t.id} value={t.id} disabled>
-                  {t.name} (No active batch)
-                </option>
-              ))}
-            </ListInput>
-          </List>
-          {errors.tank && <p className="text-red-500 text-sm px-4 -mt-2">{errors.tank}</p>}
-          {/* FIX: Inform user when all tanks lack active batches — prevents confusion when
-              every dropdown option is disabled and no selection is possible. */}
-          {tanks && tanks.length > 0 && tanks.every((t) => !t.batchMetrics) && (
-            <div className="mx-4 mt-2 bg-amber-50 dark:bg-amber-900/20 rounded-xl p-3 border border-amber-200 dark:border-amber-800">
-              <p className="text-amber-700 dark:text-amber-300 text-sm font-medium">
-                All tanks currently have no active batches.
-              </p>
-              <p className="text-amber-600 dark:text-amber-400 text-xs mt-1">
-                Stock fish into a tank before recording harvest.
-              </p>
-            </div>
+          Review Harvest
+          <ChevronRight size={18} className="ml-1" />
+        </>
+      }
+      submitLabel="Confirm & Record Harvest"
+      confirmSummary={
+        <>
+          <SummaryRow label="Tank" value={selectedTank?.name} />
+          <SummaryRow label="Batch" value={metrics?.batchNumber ?? '--'} />
+          <SummaryDivider />
+          <SummaryRow
+            label="Quantity"
+            value={`${quantityNum.toLocaleString()} fish`}
+            valueClass="text-xl font-bold text-harvest"
+          />
+          <SummaryRow label="Avg Weight" value={`${avgWeightNum}g`} />
+          <SummaryRow label="Total Biomass" value={`${totalBiomass.toFixed(1)} kg`} />
+          <SummaryRow label="Quality" value={gradeLabel} />
+          {estimatedValue > 0 && (
+            <>
+              <SummaryDivider />
+              <SummaryRow
+                label="Est. Value"
+                value={`${estimatedValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD`}
+                valueClass="text-xl font-bold text-sea-600"
+              />
+            </>
           )}
         </>
-      )}
-
+      }
+    >
       {/* Harvest Details */}
       <BlockTitle>Harvest Details</BlockTitle>
       <List strongIos insetIos>
@@ -349,7 +152,12 @@ export function RecordHarvestPage() {
           type="number"
           placeholder="Enter fish count"
           value={quantity}
-          onInput={handleQuantityInput}
+          onInput={(e: ChangeEvent<HTMLInputElement>) => {
+            const val = e.target.value.replace(/[^0-9]/g, '');
+            const num = parseInt(val, 10) || 0;
+            setQuantity(Math.min(num, maxQuantity).toString());
+            setErrors((prev) => ({ ...prev, quantity: undefined }));
+          }}
           error={errors.quantity}
         />
         <ListInput
@@ -357,85 +165,98 @@ export function RecordHarvestPage() {
           type="number"
           placeholder="Average weight in grams"
           value={avgWeight}
-          onInput={handleAvgWeightInput}
+          onInput={(e: ChangeEvent<HTMLInputElement>) => {
+            const val = e.target.value.replace(/[^0-9.]/g, '');
+            setAvgWeight(val);
+            setErrors((prev) => ({ ...prev, avgWeight: undefined }));
+          }}
           error={errors.avgWeight}
         />
       </List>
-      {/* BUG-10: Removed duplicate error paragraphs. ListInput's error prop already
-          displays inline errors; these duplicate <p> elements created double display. */}
 
-      {/* Biomass Display */}
+      {/* Biomass readout */}
       {quantityNum > 0 && avgWeightNum > 0 && (
         <div className="px-4 mt-3">
           <div className="bg-gradient-to-r from-harvest/10 to-violet-600/10 dark:from-harvest/20 dark:to-violet-600/20 rounded-2xl p-4 text-center border border-harvest/20">
             <div className="text-3xl font-bold text-harvest dark:text-violet-300">
               {totalBiomass.toFixed(1)} kg
             </div>
-            <div className="text-sm text-harvest/70 dark:text-violet-400 font-medium">Total Biomass</div>
+            <div className="text-sm text-harvest/70 dark:text-violet-400 font-medium">
+              Total Biomass
+            </div>
           </div>
         </div>
       )}
 
-      {/* Quality Grade */}
+      {/* Quality Grade — uses horizontal scroll + color dots, distinct from cull/mortality 4-col emoji grid */}
       <div className="px-4 mt-5">
         <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Quality Grade</h3>
         <div className="flex gap-2 overflow-x-auto pb-1">
-          {QUALITY_GRADES.map((g) => (
-            <button
-              key={g.value}
-              onClick={() => setQualityGrade(g.value)}
-              className={clsx(
-                'flex-shrink-0 px-4 py-3 rounded-2xl border-2 transition-all touch-feedback bg-white dark:bg-gray-900',
-                qualityGrade === g.value
-                  ? 'border-harvest bg-purple-50 dark:bg-purple-900/20 shadow-glow-purple'
-                  : 'border-gray-100 dark:border-gray-800'
-              )}
-            >
-              <div className={clsx('w-4 h-4 rounded-full mx-auto mb-1.5', g.color)} />
-              <span className="text-xs font-semibold">{g.label}</span>
-            </button>
-          ))}
+          {QUALITY_GRADES.map((g) => {
+            const selected = qualityGrade === g.value;
+            return (
+              <button
+                key={g.value}
+                onClick={() => setQualityGrade(g.value)}
+                className={clsx(
+                  'flex-shrink-0 px-4 py-3 rounded-2xl border-2 transition-all touch-feedback bg-white dark:bg-gray-900',
+                  selected
+                    ? 'border-harvest bg-purple-50 dark:bg-purple-900/20 shadow-glow-purple'
+                    : 'border-gray-100 dark:border-gray-800',
+                )}
+              >
+                <div className={clsx('w-4 h-4 rounded-full mx-auto mb-1.5', g.color)} />
+                <span className="text-xs font-semibold">{g.label}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
       {/* Optional Fields */}
       <BlockTitle>Additional Info (Optional)</BlockTitle>
       <List strongIos insetIos>
-        <ListInput label="Price per kg" type="number" placeholder="0.00" value={pricePerKg} onInput={handlePriceInput} />
-        <ListInput label="Buyer Name" type="text" placeholder="Enter buyer name" value={buyerName} onInput={handleBuyerInput} />
-        <ListInput label="Notes" type="textarea" placeholder="Additional notes..." value={notes} onInput={handleNotesInput} />
+        <ListInput
+          label="Price per kg"
+          type="number"
+          placeholder="0.00"
+          value={pricePerKg}
+          onInput={(e: ChangeEvent<HTMLInputElement>) => {
+            const val = e.target.value.replace(/[^0-9.]/g, '');
+            setPricePerKg(val);
+          }}
+        />
+        <ListInput
+          label="Buyer Name"
+          type="text"
+          placeholder="Enter buyer name"
+          value={buyerName}
+          onInput={(e: ChangeEvent<HTMLInputElement>) => setBuyerName(e.target.value)}
+        />
+        <ListInput
+          label="Notes"
+          type="textarea"
+          placeholder="Additional notes..."
+          value={notes}
+          onInput={(e: ChangeEvent<HTMLTextAreaElement>) => setNotes(e.target.value)}
+        />
       </List>
 
-      {/* Estimated Value */}
+      {/* Estimated value readout — second display (summary has its own) */}
       {estimatedValue > 0 && (
         <div className="px-4 mt-1">
           <div className="bg-gradient-to-r from-sea-500/10 to-sea-600/10 dark:from-sea-500/20 dark:to-sea-600/20 rounded-2xl p-4 text-center border border-sea-500/20">
             <div className="text-2xl font-bold text-sea-700 dark:text-sea-300">
-              {estimatedValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+              {estimatedValue.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}{' '}
+              USD
             </div>
             <div className="text-sm text-sea-600/70 dark:text-sea-400 font-medium">Estimated Value</div>
           </div>
         </div>
       )}
-
-      {/* WHY: "Review" button instead of direct submit — harvest is the most valuable operation and
-          needs confirmation of quantity, weight, grade, and estimated value before committing. */}
-      <div className="px-4 pt-5 pb-28">
-        <button
-          onClick={handleReview}
-          disabled={!selectedTankId || !metrics?.batchId || quantityNum < 1 || avgWeightNum < 1}
-          className="w-full py-4 bg-gradient-to-r from-violet-700 to-harvest text-white font-bold rounded-2xl shadow-lg shadow-purple-500/25 disabled:opacity-50 disabled:cursor-not-allowed touch-feedback transition-all flex items-center justify-center gap-2"
-        >
-          <Package size={20} />
-          Review Harvest
-          <ChevronRight size={18} className="ml-1" />
-        </button>
-        {!isOnline && (
-          <p className="text-center text-amber-500 text-sm mt-3 font-medium">
-            Offline -- will sync when connected
-          </p>
-        )}
-      </div>
-    </div>
+    </RecordEntityPage>
   );
 }

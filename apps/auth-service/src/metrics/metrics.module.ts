@@ -1,5 +1,5 @@
 import { Module, Global } from '@nestjs/common';
-import { ServiceMetricsService } from '@aquaculture/backend-common';
+import { ServiceMetricsService } from '@aquaculture/backend-common/metrics';
 
 import { AuthMetricsController } from './metrics.controller';
 

@@ -4,7 +4,11 @@
 import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
-import { TenantGuard, CurrentTenant, CurrentUser, Roles, Role, fromCqrsPaginated } from '@aquaculture/backend-common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { CurrentTenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
+import { TenantGuard } from '@aquaculture/backend-common/guards';
+import { fromCqrsPaginated } from '@aquaculture/backend-common/pagination';
 import { ConsumableResponse, PaginatedConsumablesResponse } from './dto/consumable.response';
 import { CreateConsumableInput } from './dto/create-consumable.input';
 import { UpdateConsumableInput } from './dto/update-consumable.input';
@@ -15,6 +19,8 @@ import { UpdateConsumableCommand } from './commands/update-consumable.command';
 import { DeleteConsumableCommand } from './commands/delete-consumable.command';
 import { GetConsumableQuery } from './queries/get-consumable.query';
 import { ListConsumablesQuery } from './queries/list-consumables.query';
+import { Consumable } from './entities/consumable.entity';
+import { RestoreService } from '../common/services/restore.service';
 
 @Resolver(() => ConsumableResponse)
 @UseGuards(TenantGuard)
@@ -24,6 +30,9 @@ export class ConsumableResolver {
   constructor(
     private readonly commandBus: CommandBus,
     private readonly queryBus: QueryBus,
+    @InjectRepository(Consumable)
+    private readonly consumableRepository: Repository<Consumable>,
+    private readonly restoreService: RestoreService,
   ) {}
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
@@ -62,6 +71,29 @@ export class ConsumableResolver {
     return this.commandBus.execute(command);
   }
 
+  /**
+   * Restore a soft-deleted consumable. TENANT_ADMIN only. Phase 4.2
+   * of the "Farm modülü kalan kör noktalar" plan. Closes Girdi 6
+   * on the consumable surface.
+   */
+  @Roles(Role.TENANT_ADMIN)
+  @Mutation(() => ConsumableResponse)
+  async restoreConsumable(
+    @Args('id', { type: () => ID }) id: string,
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: { sub: string; name?: string },
+  ): Promise<Consumable> {
+    this.logger.log(`Restoring consumable ${id} for tenant ${tenantId}`);
+    return this.restoreService.restore(
+      this.consumableRepository,
+      Consumable,
+      id,
+      { tenantId, userId: user.sub, userName: user.name },
+      { uniqueKeys: [['code']] },
+    );
+  }
+
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => ConsumableResponse, { nullable: true })
   async consumable(
     @Args('id', { type: () => ID }) id: string,
@@ -71,6 +103,7 @@ export class ConsumableResolver {
     return this.queryBus.execute(query);
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => PaginatedConsumablesResponse)
   async consumables(
     @Args('filter', { type: () => ConsumableFilterInput, nullable: true }) filter: ConsumableFilterInput | undefined,

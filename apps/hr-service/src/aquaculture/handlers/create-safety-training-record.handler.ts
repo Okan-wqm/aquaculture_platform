@@ -7,6 +7,7 @@ import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { DataSource, QueryRunner } from 'typeorm';
 import { CreateSafetyTrainingRecordCommand } from '../commands/create-safety-training-record.command';
 import { SafetyTrainingRecord, SafetyTrainingStatus } from '../entities/safety-training-record.entity';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 
 @Injectable()
 @CommandHandler(CreateSafetyTrainingRecordCommand)
@@ -25,7 +26,7 @@ export class CreateSafetyTrainingRecordHandler
     await queryRunner.startTransaction();
 
     try {
-      const repo = queryRunner.manager.getRepository(SafetyTrainingRecord);
+      const repo = tenantManagerRepo(queryRunner.manager, SafetyTrainingRecord, tenantId);
 
       const status = input.completedDate
         ? SafetyTrainingStatus.COMPLETED

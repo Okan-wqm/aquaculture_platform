@@ -13,7 +13,8 @@ import {
   BeforeUpdate,
 } from 'typeorm';
 import { ObjectType, Field, HideField, ID, Int, registerEnumType } from '@nestjs/graphql';
-import { DecimalTransformer, createEncryptedColumnTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
+import { createEncryptedColumnTransformer } from '@aquaculture/backend-common/security';
 import { Payroll } from './payroll.entity';
 import { DepartmentHR } from './department.entity';
 

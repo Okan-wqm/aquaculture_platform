@@ -1,0 +1,19 @@
+{
+  "id": "AUDIT-HIGH-002",
+  "severity": "HIGH",
+  "state": "OPEN",
+  "title": "apps/farm-service uses getRepository() in multiple handlers — bypasses tenant isolation",
+  "layer": 2,
+  "evidence": [
+    "apps/farm-service/src/storage/handlers/record-stock-movement.handler.ts:1",
+    "apps/farm-service/src/scheduler/feeding-scheduler.service.ts:1",
+    "apps/farm-service/src/storage/handlers/receive-delivery.handler.ts:1",
+    "apps/farm-service/src/storage/handlers/approve-inventory-count.handler.ts:1"
+  ],
+  "rule_violated": "CLAUDE.md \"getRepository() is FORBIDDEN → use getScopedRepository() (tenant isolation)\"",
+  "owner_agent": "data-expert",
+  "raised_in_cycle": "2026-04-22-cold-audit",
+  "review_file": "docs/reviews/_audit/2026-04-22-cold-audit/03-explore-findings.md",
+  "created_at": "2026-04-22T19:00:00Z",
+  "notes": "record-stock-movement.handler alone has 12 getRepository calls. Tier 1 solution: eslint rule no-direct-get-repository across apps/** + inject scoped repo via module provider."
+}

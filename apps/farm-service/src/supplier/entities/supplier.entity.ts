@@ -16,7 +16,7 @@ import {
   VersionColumn,
   OneToMany,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import {
   ObjectType,
   Field,
@@ -79,7 +79,7 @@ export interface SupplierAddress {
 // ============================================================================
 
 @ObjectType()
-@Entity('suppliers')
+@Entity('suppliers', { schema: 'farm' })
 @Index(['tenantId', 'code'], { unique: true })
 @Index(['tenantId', 'type'])
 @Index(['tenantId', 'status'])

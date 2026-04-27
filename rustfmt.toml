@@ -1,0 +1,14 @@
+edition = "2024"
+max_width = 100
+hard_tabs = false
+tab_spaces = 4
+newline_style = "Unix"
+use_field_init_shorthand = true
+use_try_shorthand = true
+reorder_imports = true
+reorder_modules = true
+# imports_granularity / group_imports are nightly-only rustfmt options.
+# Stable rustc 1.88 emits a warning and silently drops them, which makes
+# CI noisy. Re-enable them once the toolchain pins a stable channel that
+# ships them — tracked in docs/plans/sensor-rust-migration/PROGRESS.md
+# decision log under "rustfmt nightly options".

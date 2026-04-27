@@ -11,7 +11,7 @@ import {
   UpdateDateColumn,
   Index,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 
 @Entity('feeder_calibrations', { schema: 'farm' })
 @Index(['tenantId', 'equipmentId', 'feedSizeMm'], { unique: true })

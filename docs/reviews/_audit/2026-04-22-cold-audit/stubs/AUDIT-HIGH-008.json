@@ -1,0 +1,20 @@
+{
+  "id": "AUDIT-HIGH-008",
+  "severity": "HIGH",
+  "state": "OPEN",
+  "title": "apps/billing-service uses getRepository() in usage-aggregator, create-invoice, subscription handlers — tenant isolation bypass in financial code",
+  "layer": 2,
+  "evidence": [
+    "apps/billing-service/src/modules/metering/usage-aggregator.service.ts:1",
+    "apps/billing-service/src/billing/handlers/create-invoice.handler.ts:1",
+    "apps/billing-service/src/billing/handlers/change-subscription-plan.handler.ts:1",
+    "apps/billing-service/src/billing/query-handlers/get-tenant-billing.handler.ts:1",
+    "apps/billing-service/src/billing/event-handlers/tenant-subscription-requested.handler.ts:1"
+  ],
+  "rule_violated": "CLAUDE.md \"getRepository() is FORBIDDEN → use getScopedRepository()\" — especially severe in billing because cross-tenant leakage = wrong invoice to wrong tenant.",
+  "owner_agent": "billing-expert",
+  "raised_in_cycle": "2026-04-22-cold-audit",
+  "review_file": "docs/reviews/_audit/2026-04-22-cold-audit/03-explore-findings.md",
+  "created_at": "2026-04-22T19:00:00Z",
+  "notes": "Financial correctness depends on tenant scoping. Audit each callsite against billing.subscriptions / billing.invoices schema (ADR-011)."
+}

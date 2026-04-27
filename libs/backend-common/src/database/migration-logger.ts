@@ -12,7 +12,7 @@
  * All migrations MUST use this instead of console.log/warn/error.
  *
  * Usage:
- *   import { MigrationLogger } from '@aquaculture/backend-common';
+ *   import { MigrationLogger } from '@aquaculture/backend-common/database';
  *
  *   export class MyMigration1234 implements MigrationInterface {
  *     private readonly logger = new MigrationLogger('MyMigration1234');

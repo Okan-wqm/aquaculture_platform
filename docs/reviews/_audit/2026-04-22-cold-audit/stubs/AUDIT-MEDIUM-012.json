@@ -1,0 +1,18 @@
+{
+  "id": "AUDIT-MEDIUM-012",
+  "severity": "MEDIUM",
+  "state": "OPEN",
+  "title": "web/apps/aquamobil record pages duplicate ~600 lines of form scaffolding across cull/mortality/harvest",
+  "layer": 1,
+  "evidence": [
+    "web/apps/aquamobil/src/pages/cull/RecordCullPage.tsx:1",
+    "web/apps/aquamobil/src/pages/mortality/RecordMortalityPage.tsx:1",
+    "web/apps/aquamobil/src/pages/harvest/RecordHarvestPage.tsx:1"
+  ],
+  "rule_violated": "DRY / domain-local — generic RecordEntityPage<T> scaffold, then each page passes entity config.",
+  "owner_agent": "frontend-expert",
+  "raised_in_cycle": "2026-04-22-cold-audit",
+  "review_file": "docs/reviews/_audit/2026-04-22-cold-audit/03-explore-findings.md",
+  "created_at": "2026-04-22T19:00:00Z",
+  "notes": "Domain-local extraction: web/apps/aquamobil/src/pages/_shared/RecordEntityPage.tsx. No new lib (only aquamobil consumes)."
+}

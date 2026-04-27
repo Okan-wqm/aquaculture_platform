@@ -1,0 +1,17 @@
+{
+  "id": "AUDIT-MEDIUM-006",
+  "severity": "MEDIUM",
+  "state": "OPEN",
+  "title": "apps/messaging-service entity-relation hotspot — channel-member/message-attachment joins with 6 open findings",
+  "layer": 2,
+  "evidence": [
+    "apps/messaging-service/src/channel/entities/channel-member.entity.ts:1",
+    "apps/messaging-service/src/message/entities/message-attachment.entity.ts:1"
+  ],
+  "rule_violated": "ADR-013 messaging isolation + ADR-011 schema ownership — joined tables across schema boundaries risk convergence bugs.",
+  "owner_agent": "messaging-expert",
+  "raised_in_cycle": "2026-04-22-cold-audit",
+  "review_file": "docs/reviews/_audit/2026-04-22-cold-audit/03-explore-findings.md",
+  "created_at": "2026-04-22T19:00:00Z",
+  "notes": "Tier 3 fix: integration test enforcing no-orphan-query invariant on messaging entities. Every JOIN must have a corresponding foreign key + tenant scoping test."
+}

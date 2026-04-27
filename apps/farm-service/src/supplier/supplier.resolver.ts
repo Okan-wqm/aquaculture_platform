@@ -6,7 +6,9 @@ import { UseGuards, Logger } from '@nestjs/common';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { TenantGuard, CurrentTenant, CurrentUser, SkipTenantGuard, Roles, Role, fromCqrsPaginated } from '@aquaculture/backend-common';
+import { CurrentTenant, CurrentUser, SkipTenantGuard, Roles, Role } from '@aquaculture/backend-common/decorators';
+import { TenantGuard } from '@aquaculture/backend-common/guards';
+import { fromCqrsPaginated } from '@aquaculture/backend-common/pagination';
 import { SupplierResponse, PaginatedSuppliersResponse, SupplierTypeResponse } from './dto/supplier.response';
 import { CreateSupplierInput } from './dto/create-supplier.input';
 import { UpdateSupplierInput } from './dto/update-supplier.input';
@@ -17,8 +19,9 @@ import { UpdateSupplierCommand } from './commands/update-supplier.command';
 import { DeleteSupplierCommand } from './commands/delete-supplier.command';
 import { GetSupplierQuery } from './queries/get-supplier.query';
 import { ListSuppliersQuery } from './queries/list-suppliers.query';
-import { SupplierType } from './entities/supplier.entity';
+import { Supplier, SupplierType } from './entities/supplier.entity';
 import { SupplierType as SupplierTypeEntity } from './entities/supplier-type.entity';
+import { RestoreService } from '../common/services/restore.service';
 
 @Resolver(() => SupplierResponse)
 @UseGuards(TenantGuard)
@@ -30,6 +33,9 @@ export class SupplierResolver {
     private readonly queryBus: QueryBus,
     @InjectRepository(SupplierTypeEntity)
     private readonly supplierTypeRepository: Repository<SupplierTypeEntity>,
+    @InjectRepository(Supplier)
+    private readonly supplierRepository: Repository<Supplier>,
+    private readonly restoreService: RestoreService,
   ) {}
 
   /**
@@ -78,8 +84,31 @@ export class SupplierResolver {
   }
 
   /**
+   * Restore a soft-deleted supplier. TENANT_ADMIN only. Phase 4.2
+   * of the "Farm modülü kalan kör noktalar" plan. Closes Girdi 6
+   * on the supplier surface.
+   */
+  @Roles(Role.TENANT_ADMIN)
+  @Mutation(() => SupplierResponse)
+  async restoreSupplier(
+    @Args('id', { type: () => ID }) id: string,
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: { sub: string; name?: string },
+  ): Promise<Supplier> {
+    this.logger.log(`Restoring supplier ${id} for tenant ${tenantId}`);
+    return this.restoreService.restore(
+      this.supplierRepository,
+      Supplier,
+      id,
+      { tenantId, userId: user.sub, userName: user.name },
+      { uniqueKeys: [['code']] },
+    );
+  }
+
+  /**
    * Get a single supplier by ID
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => SupplierResponse, { nullable: true })
   async supplier(
     @Args('id', { type: () => ID }) id: string,
@@ -92,6 +121,7 @@ export class SupplierResolver {
   /**
    * List suppliers with pagination and filtering
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => PaginatedSuppliersResponse)
   async suppliers(
     @Args('filter', { type: () => SupplierFilterInput, nullable: true }) filter: SupplierFilterInput | undefined,
@@ -106,6 +136,7 @@ export class SupplierResolver {
   /**
    * Get suppliers by type for dropdowns
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [SupplierResponse])
   async suppliersByType(
     @Args('type', { type: () => SupplierType }) type: SupplierType,
@@ -119,6 +150,7 @@ export class SupplierResolver {
   /**
    * Get equipment suppliers for dropdowns
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [SupplierResponse])
   async equipmentSuppliers(
     @CurrentTenant() tenantId: string,
@@ -131,6 +163,7 @@ export class SupplierResolver {
   /**
    * Get feed suppliers for dropdowns
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [SupplierResponse])
   async feedSuppliers(
     @CurrentTenant() tenantId: string,
@@ -143,6 +176,7 @@ export class SupplierResolver {
   /**
    * Get chemical suppliers for dropdowns
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [SupplierResponse])
   async chemicalSuppliers(
     @CurrentTenant() tenantId: string,
@@ -156,6 +190,7 @@ export class SupplierResolver {
    * Get all supplier types (global, not tenant-specific)
    */
   @SkipTenantGuard()
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [SupplierTypeResponse])
   async supplierTypes(): Promise<SupplierTypeResponse[]> {
     return this.supplierTypeRepository.find({

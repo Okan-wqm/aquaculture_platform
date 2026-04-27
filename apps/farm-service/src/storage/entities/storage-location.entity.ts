@@ -10,7 +10,7 @@ import {
   Index,
   VersionColumn,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import { registerEnumType } from '@nestjs/graphql';
 
 export enum StorageLocationType {
@@ -27,7 +27,7 @@ registerEnumType(StorageLocationType, {
   description: 'Type of storage location',
 });
 
-@Entity('storage_locations')
+@Entity('storage_locations', { schema: 'farm' })
 @Index(['tenantId', 'code'], { unique: true })
 @Index(['tenantId', 'type'])
 export class StorageLocation {

@@ -63,7 +63,7 @@ import { BypassRlsService } from './bypass-rls.service';
  * @example
  * ```ts
  * // admin-api-service AppModule
- * import { AdminBypassRlsInterceptor, RlsModule } from '@aquaculture/backend-common';
+ * import { AdminBypassRlsInterceptor, RlsModule } from '@aquaculture/backend-common/rls';
  *
  * @Module({
  *   imports: [

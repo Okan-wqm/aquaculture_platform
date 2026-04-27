@@ -32,7 +32,7 @@ export type OnboardingStatus = 'not_started' | 'in_progress' | 'completed' | 'sk
 // Message Thread Entity
 // ============================================================================
 
-@Entity('message_threads')
+@Entity('message_threads', { schema: 'admin' })
 @Index(['tenantId'])
 @Index(['lastMessageAt'])
 export class MessageThread {
@@ -83,7 +83,7 @@ export class MessageThread {
 // Message Entity
 // ============================================================================
 
-@Entity('messages')
+@Entity('messages', { schema: 'admin' })
 @Index(['threadId'])
 @Index(['senderId'])
 @Index(['createdAt'])
@@ -133,7 +133,7 @@ export class Message {
 // Announcement Entity
 // ============================================================================
 
-@Entity('announcements')
+@Entity('announcements', { schema: 'admin' })
 @Index(['status'])
 @Index(['type'])
 @Index(['publishAt'])
@@ -198,7 +198,7 @@ export class Announcement {
 // Announcement Acknowledgment Entity
 // ============================================================================
 
-@Entity('announcement_acknowledgments')
+@Entity('announcement_acknowledgments', { schema: 'admin' })
 @Index(['announcementId'])
 @Index(['tenantId'])
 @Index(['userId'])
@@ -236,7 +236,7 @@ export class AnnouncementAcknowledgment {
 // Support Ticket Entity
 // ============================================================================
 
-@Entity('support_tickets')
+@Entity('support_tickets', { schema: 'admin' })
 @Index(['tenantId'])
 @Index(['status'])
 @Index(['priority'])
@@ -333,7 +333,7 @@ export class SupportTicket {
 // Ticket Comment Entity
 // ============================================================================
 
-@Entity('ticket_comments')
+@Entity('ticket_comments', { schema: 'admin' })
 @Index(['ticketId'])
 @Index(['authorId'])
 @Index(['createdAt'])
@@ -377,7 +377,7 @@ export class TicketComment {
 // Onboarding Progress Entity
 // ============================================================================
 
-@Entity('onboarding_progress')
+@Entity('onboarding_progress', { schema: 'admin' })
 @Index(['tenantId'])
 @Index(['status'])
 export class OnboardingProgress {

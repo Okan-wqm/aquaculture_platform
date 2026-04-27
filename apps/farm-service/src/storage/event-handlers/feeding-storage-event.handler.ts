@@ -64,8 +64,15 @@ export class FeedingStorageEventHandler
       return;
     }
 
-    await this.eventBus.subscribe('FeedingRecorded', this);
-    this.logger.log('Subscribed to FeedingRecorded events for automatic storage deduction');
+    // WHAT — `subscribeWildcard` builds the 3-segment subject
+    // `events.*.FeedingRecorded`, matching the publisher's
+    // `events.{tenantId}.FeedingRecorded` for every tenant.
+    // WHY explicit wildcard — storage auto-deduction is a cross-tenant
+    // platform feature; making the wildcard explicit at the call site
+    // matches the ORPHAN-013 contract that publisher and subscriber agree
+    // on segment count by construction (Tier-1 "make it impossible").
+    await this.eventBus.subscribeWildcard('FeedingRecorded', this);
+    this.logger.log('Subscribed to FeedingRecorded events for automatic storage deduction (cross-tenant wildcard)');
   }
 
   getEventType(): string {
@@ -107,16 +114,46 @@ export class FeedingStorageEventHandler
 
     try {
       // Find a storage location that has this feed in inventory.
-      // Uses FEFO ordering (earliest expiry first) to select the location.
-      // This query does NOT lock — the RecordStockMovementHandler will apply
-      // pessimistic locking within its own transaction for correctness.
+      // FEFO lot selection for the OUT movement, with the same three
+      // compliance guarantees enforced by RecordStockMovementHandler:
+      //
+      //   1. Deterministic tiebreak (expiryDate, receivedDate, lotNumber)
+      //   2. Expired-lot exclusion (picking an expired feed for a
+      //      fish-feeding event is a welfare risk)
+      //   3. As-of scoping — the event's `occurredAt` scopes the query
+      //      to lots that were actually in inventory at the feeding
+      //      instant, not lots that arrived afterwards. This is what
+      //      makes retroactively-logged feeding events (user enters
+      //      yesterday's meal today) pick from the correct lot rather
+      //      than a fresher arrival.
+      //
+      // This query does NOT lock — the RecordStockMovementHandler below
+      // applies pessimistic_write inside its own transaction to guard
+      // the actual decrement.
+      // `feedingDate` is the authoritative operational event date on
+      // FeedingRecordedEvent (defined in libs/event-contracts/src/farm-events.ts).
+      // When the feeding record was logged retroactively, feedingDate
+      // is in the past and lots received after that date must NOT be
+      // consumed. Fallback to BaseEvent.timestamp, then to now, so the
+      // handler still works for legacy events that might lack the field.
+      const asOf = event.feedingDate
+        ? new Date(event.feedingDate)
+        : event.timestamp
+          ? new Date(event.timestamp)
+          : new Date();
+      const today = new Date();
+
       const inventory = await this.inventoryRepository
         .createQueryBuilder('inv')
         .where('inv.tenantId = :tenantId', { tenantId: event.tenantId })
         .andWhere('inv.itemType = :itemType', { itemType: StorageItemType.FEED })
         .andWhere('inv.itemId = :itemId', { itemId: event.feedId })
         .andWhere('inv.quantity > 0')
+        .andWhere('(inv.expiryDate IS NULL OR inv.expiryDate > :today)', { today })
+        .andWhere('(inv.receivedDate IS NULL OR inv.receivedDate <= :asOf)', { asOf })
         .orderBy('inv.expiryDate', 'ASC', 'NULLS LAST')
+        .addOrderBy('inv.receivedDate', 'ASC', 'NULLS LAST')
+        .addOrderBy('inv.lotNumber', 'ASC')
         .getOne();
 
       if (!inventory) {
@@ -148,6 +185,10 @@ export class FeedingStorageEventHandler
           // Idempotency: use the feeding event ID to prevent duplicate deductions
           // in case the event is redelivered (NATS at-least-once semantics).
           idempotencyKey: `feeding-deduct-${event.eventId}`,
+          // Carry the event timestamp so the RecordStockMovementHandler's
+          // own FEFO query (if it re-scopes for any reason) also uses
+          // as-of semantics matching the event instant.
+          movementDate: asOf,
         },
       );
 

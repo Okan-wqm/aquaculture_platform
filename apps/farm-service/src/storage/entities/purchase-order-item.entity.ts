@@ -2,10 +2,10 @@ import {
   Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn,
   Index, ManyToOne, JoinColumn,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import { PurchaseOrder } from './purchase-order.entity';
 
-@Entity('purchase_order_items')
+@Entity('purchase_order_items', { schema: 'farm' })
 @Index(['tenantId', 'purchaseOrderId'])
 export class PurchaseOrderItem {
   @PrimaryGeneratedColumn('uuid')

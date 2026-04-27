@@ -4,7 +4,7 @@
 import { InputType, Field } from '@nestjs/graphql';
 import { IsOptional, IsString, IsBoolean, IsEnum } from 'class-validator';
 import { SiteStatus } from '../entities/site.entity';
-import { StandardPaginationInput } from '@aquaculture/backend-common';
+import { StandardPaginationInput } from '@aquaculture/backend-common/pagination';
 
 @InputType()
 export class SiteFilterInput {

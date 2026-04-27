@@ -169,6 +169,221 @@ export interface CullRecordedEvent extends BaseEvent {
 }
 
 /**
+ * Feed Inventory Received Event
+ *
+ * Emitted when a feed lot lands in a site's inventory — either a
+ * brand-new `feed_inventory` row is created or an existing row for
+ * the same `(feedId, siteId, lotNumber)` has additional quantity
+ * folded in.
+ *
+ * This is the primary lot-traceability anchor. Food-safety audits
+ * (FDA 21 CFR 507 / EU 183/2005 Art 5) require the ability to
+ * reconstruct "which lot arrived at which site on which date from
+ * which supplier" — without an always-fire receive event, the
+ * trail lives only in the DB row and becomes invisible to every
+ * downstream consumer (regulatory reporting, supplier-performance
+ * analytics, AI inventory projections).
+ */
+export interface FeedInventoryReceivedEvent extends BaseEvent {
+  eventType: 'FeedInventoryReceived';
+  inventoryId: string;
+  feedId: string;
+  siteId: string;
+  departmentId?: string;
+  lotNumber?: string;
+  quantityKg: number;
+  /** Running total AFTER this receipt (for lot-roll-up projections). */
+  newTotalQuantityKg: number;
+  manufacturingDate?: Date;
+  expiryDate?: Date;
+  receivedDate: Date;
+  unitPricePerKg?: number;
+  currency?: string;
+  /** True when a new row was created; false when an existing row absorbed the receipt. */
+  isNewLotRow: boolean;
+}
+
+/**
+ * Cleaner Fish Batch Created Event
+ *
+ * Lifecycle-start partner to `CleanerFishDeployed` / `…Mortality` /
+ * `…Transferred` / `…Removed`. Emitted when a new cleaner-fish
+ * batch is registered in the system — a batch lives BEFORE any
+ * deploy happens (the fish exist in the batch pool awaiting
+ * deployment). Making this moment an event lets AI / analytics
+ * services build the full lifecycle timeline from the first row.
+ *
+ * Carries the `sourceType` discriminator (farmed vs wild_caught)
+ * because regulatory exports (Mattilsynet Cleaner Fish Report)
+ * split the two sources at report-level; downstream consumers
+ * that project per-source summaries don't have to re-read the
+ * Batch aggregate.
+ */
+export interface CleanerFishBatchCreatedEvent extends BaseEvent {
+  eventType: 'CleanerFishBatchCreated';
+  cleanerBatchId: string;
+  batchNumber: string;
+  speciesId: string;
+  speciesName: string;
+  sourceType: 'farmed' | 'wild_caught';
+  sourceLocation?: string;
+  supplierId?: string;
+  initialQuantity: number;
+  initialAvgWeightG: number;
+  initialBiomassKg: number;
+  stockedAt: Date;
+}
+
+/**
+ * Cleaner Fish Transferred Event
+ *
+ * Emitted when cleaner fish move from one tank to another within the
+ * same cleaner-fish batch. Completes the cleaner-fish lifecycle event
+ * quartet (deploy → transfer → mortality → remove).
+ *
+ * Distinct from `BatchTransferredEvent` (salmon-side) because the
+ * cleaner-fish-in-tank state is tracked on `TankBatch.cleanerFishDetails`
+ * JSONB and on `Batch.cleanerFishDetails` rather than on the main
+ * batch-location table. Downstream consumers projecting a cleaner-
+ * fish per-tank timeline need both `source` and `destination`
+ * post-operation snapshots to patch state atomically.
+ */
+export interface CleanerFishTransferredEvent extends BaseEvent {
+  eventType: 'CleanerFishTransferred';
+  cleanerBatchId: string;
+  sourceTankId: string;
+  destinationTankId: string;
+  speciesName: string;
+  quantity: number;
+  avgWeightG: number;
+  biomassKg: number;
+  reason?: string;
+  transferredAt: Date;
+  /** Source tank-batch cleaner-fish stock AFTER the transfer. */
+  newSourceTankCleanerFishQuantity: number;
+  newSourceTankCleanerFishBiomassKg: number;
+  /** Destination tank-batch cleaner-fish stock AFTER the transfer. */
+  newDestinationTankCleanerFishQuantity: number;
+  newDestinationTankCleanerFishBiomassKg: number;
+  newDestinationTankDensityKgM3: number;
+}
+
+/**
+ * Cleaner Fish Mortality Recorded Event
+ *
+ * Emitted when cleaner fish (lumpfish / wrasse) die in a tank. The
+ * salmon-side analogue is `MortalityRecordedEvent`; these are
+ * published as a SEPARATE event type so welfare dashboards and
+ * Mattilsynet compliance tooling can filter cleaner-fish mortality
+ * without walking every mortality row's associated batch to check
+ * `batchType`.
+ *
+ * Downstream consumers use the `newCleanerBatchTotalMortality` /
+ * `newCleanerBatchMortalityRate` fields to patch dashboards without
+ * re-reading the Batch aggregate. Welfare-alert engines watch
+ * `newCleanerBatchMortalityRate` against the species-specific
+ * threshold (lumpfish: 5% / wrasse: 8%) and trigger operator
+ * review when crossed.
+ */
+export interface CleanerFishMortalityRecordedEvent extends BaseEvent {
+  eventType: 'CleanerFishMortalityRecorded';
+  cleanerBatchId: string;
+  tankId: string;
+  speciesName: string;
+  quantity: number;
+  biomassKg: number;
+  /** Uppercase normalised reason — matches `MortalityReasonCode`. */
+  reason: MortalityReasonCode;
+  detail?: string;
+  observedAt: Date;
+  /** Tank-batch cleaner-fish stock AFTER the mortality is applied. */
+  newTankCleanerFishQuantity: number;
+  newTankCleanerFishBiomassKg: number;
+  /** Cleaner-batch cumulative totals AFTER this death. */
+  newCleanerBatchTotalMortality: number;
+  newCleanerBatchMortalityRate: number;
+}
+
+/**
+ * Cleaner Fish Deployed Event
+ *
+ * Emitted when cleaner fish (lumpfish / wrasse) are placed into a
+ * tank from a cleaner-fish batch. Mirror event of
+ * `CleanerFishRemoved`; together they form the deploy / remove life-
+ * cycle pair that sea-lice-control dashboards project against a
+ * tank timeline.
+ *
+ * Downstream consumers (welfare dashboards, tank-density alerting,
+ * AI insights, stock-movement read models) use the post-operation
+ * snapshot fields to patch their projections without re-reading the
+ * TankBatch + Batch aggregates. `isOverCapacity` reflects the
+ * TankCapacityService decision at deploy time — a true flag signals
+ * a welfare-regulation edge (stocking above `maxDensity`) that
+ * historically triggered an operator override or an audit-review
+ * workflow downstream.
+ */
+export interface CleanerFishDeployedEvent extends BaseEvent {
+  eventType: 'CleanerFishDeployed';
+  cleanerBatchId: string;
+  targetTankId: string;
+  speciesName: string;
+  quantity: number;
+  avgWeightG: number;
+  biomassKg: number;
+  deployedAt: Date;
+  /** Tank-batch cleaner-fish stock AFTER the deploy is applied. */
+  newTankCleanerFishQuantity: number;
+  newTankCleanerFishBiomassKg: number;
+  newTankDensityKgM3: number;
+  /** Cleaner-batch running stock AFTER the deploy (decremented by quantity). */
+  newCleanerBatchCurrentQuantity: number;
+  /** True when the deploy pushed total tank biomass past the welfare density gate. */
+  isOverCapacity: boolean;
+}
+
+/**
+ * Cleaner Fish Removed Event
+ *
+ * Emitted when cleaner fish (lumpfish / wrasse) are taken out of a
+ * tank — at end of cycle, as part of a harvest, or relocated to
+ * another deployment. Separate from `CullRecorded` because cleaner
+ * fish are tracked as their OWN batch with its own `currentQuantity`
+ * (they live alongside salmon but count independently); a `relocation`
+ * removal actually returns quantity to the cleaner-batch stock
+ * (the fish move, they are not destroyed).
+ *
+ * `CleanerFishRemovalReasonCode` mirrors
+ * `apps/farm-service/src/batch/commands/remove-cleaner-fish.command.ts`
+ * exactly — the command-layer enum is this contract's vocabulary so
+ * consumers don't have to know about server-side representation
+ * choices. Adding a new enum value is a backwards-compatible change
+ * (consumers with narrowing on the existing values keep working).
+ */
+export type CleanerFishRemovalReasonCode =
+  | 'end_of_cycle'
+  | 'harvest'
+  | 'relocation'
+  | 'other';
+
+export interface CleanerFishRemovedEvent extends BaseEvent {
+  eventType: 'CleanerFishRemoved';
+  cleanerBatchId: string;
+  tankId: string;
+  speciesName: string;
+  quantity: number;
+  avgWeightG: number;
+  biomassKg: number;
+  reason: CleanerFishRemovalReasonCode;
+  detail?: string;
+  removedAt: Date;
+  /** Tank-batch cleaner-fish stock AFTER the removal is applied. */
+  newTankCleanerFishQuantity: number;
+  newTankCleanerFishBiomassKg: number;
+  /** Cleaner-batch running stock AFTER the removal (only changes on `relocation`). */
+  newCleanerBatchCurrentQuantity: number;
+}
+
+/**
  * Batch Transferred Event
  *
  * Represents an atomic transfer of fish between tanks.
@@ -442,6 +657,181 @@ export interface EquipmentDeletedEvent extends BaseEvent {
 // ==================== Feed Inventory Events ====================
 
 /**
+ * Batch Metadata Updated Event
+ *
+ * Emitted when batch descriptive / target fields (name, description,
+ * strain, targetFCR, expectedHarvestDate, notes) are edited. Separate
+ * from `BatchStatusChangedEvent` because status transitions have
+ * their own event with its own semantics (active → harvesting → etc.).
+ *
+ * Carries `changedFields[]` so downstream consumers can narrow
+ * re-projection scope. A notes-only edit doesn't warrant a dashboard
+ * re-render; a `targetFCR` edit does trigger FCR-drift recalculation.
+ */
+export interface BatchMetadataUpdatedEvent extends BaseEvent {
+  eventType: 'BatchMetadataUpdated';
+  batchId: string;
+  /** List of changed top-level field names — audit-grade. */
+  changedFields: string[];
+  /** Carried for convenience on the hottest consumer path (FCR projections). */
+  newTargetFCR?: number;
+  newExpectedHarvestDate?: Date;
+  updatedAt: Date;
+}
+
+/**
+ * Harvest Record Cancelled Event
+ *
+ * Emitted when a harvest record is soft-deleted (status flipped to
+ * `CANCELLED`). NOT called "deleted" because the row persists for
+ * audit — the status is the source of truth, and the cascade
+ * reverses batch + tank-batch + tank biomass/quantity projections.
+ *
+ * The event carries the reversed quantities so downstream consumers
+ * know the exact numerical delta to apply to their projections
+ * without re-reading the aggregates (the harvest record has the
+ * pre-reversal values; consumers patching after the event need the
+ * delta direction).
+ *
+ * Not emitted on dispatched / delivered records — those cannot be
+ * cancelled (enforced at the handler level).
+ */
+export interface HarvestRecordCancelledEvent extends BaseEvent {
+  eventType: 'HarvestRecordCancelled';
+  harvestRecordId: string;
+  batchId: string;
+  tankId?: string;
+  /** Quantity that was reversed on the batch (added back to currentQuantity). */
+  reversedQuantity: number;
+  /** Biomass (kg) that was reversed on the tank + tank-batch. */
+  reversedBiomassKg: number;
+  cancelledAt: Date;
+}
+
+/**
+ * Harvest Record Updated Event
+ *
+ * Emitted when an existing harvest record's regulatory / financial /
+ * quantity fields are corrected post-hoc. Harvest records feed the
+ * Mattilsynet Slakterapport and downstream customer traceability —
+ * any edit must be audit-visible so the regulatory export reconciles
+ * to the same numbers the live dashboard shows.
+ *
+ * Carries the list of field paths that changed so downstream
+ * consumers can narrow their re-projection scope (a notes-only edit
+ * doesn't require re-sending the Slakterapport).
+ */
+export interface HarvestRecordUpdatedEvent extends BaseEvent {
+  eventType: 'HarvestRecordUpdated';
+  harvestRecordId: string;
+  batchId: string;
+  /** List of field names that changed on this update — audit-grade. */
+  changedFields: string[];
+  /** New `quantityHarvested` — carried for convenience of the hottest projection path. */
+  newQuantityHarvested: number;
+  newTotalBiomass: number;
+  newStatus: string;
+  updatedAt: Date;
+}
+
+/**
+ * Feeding Record Updated Event
+ *
+ * Emitted when an existing feeding record's actual / waste / cost /
+ * behaviour / environment fields are corrected post-hoc. Critical
+ * because FCR (Feed Conversion Ratio) and batch running feed-cost
+ * totals project off these values — an untracked correction would
+ * leave downstream aggregates out of sync with the source of truth.
+ *
+ * The `amountDiffKg` and `costDiff` fields let consumers patch
+ * their rolling aggregates without fetching the pre/post rows and
+ * recomputing the delta locally.
+ */
+export interface FeedingRecordUpdatedEvent extends BaseEvent {
+  eventType: 'FeedingRecordUpdated';
+  feedingRecordId: string;
+  batchId: string;
+  /** Previous `actualAmount` (kg) BEFORE the edit. */
+  previousActualAmountKg: number;
+  /** New `actualAmount` (kg) AFTER the edit. */
+  newActualAmountKg: number;
+  /** New minus previous. Positive = over-reported last time, negative = under-reported. */
+  amountDiffKg: number;
+  previousFeedCost: number;
+  newFeedCost: number;
+  costDiff: number;
+  updatedAt: Date;
+}
+
+/**
+ * Feed Inventory Adjusted Event
+ *
+ * Emitted on every manual correction of a feed lot's running
+ * quantity — whether an operator increases (found extra bags),
+ * decreases (damage / theft write-off), or sets a new absolute
+ * quantity (reconciliation against a physical count). This is the
+ * audit-trail-critical event; without it, lot discrepancies between
+ * expected and physical inventory leave no wire-visible record.
+ *
+ * Downstream consumers (audit / reconciliation dashboards, AI
+ * inventory-variance detection) use `adjustmentType` + `reason` to
+ * categorise the adjustment and the post-op `newQuantityKg` to
+ * patch projections.
+ */
+export interface FeedInventoryAdjustedEvent extends BaseEvent {
+  eventType: 'FeedInventoryAdjusted';
+  inventoryId: string;
+  feedId: string;
+  siteId: string;
+  /**
+   * Mirror of the command-layer `AdjustmentType` enum:
+   * `increase | decrease | set_quantity`. Lower-snake on the wire.
+   */
+  adjustmentType: string;
+  /** THIS operation's input magnitude — positive regardless of direction. */
+  adjustmentQuantityKg: number;
+  /** Stock BEFORE the adjustment. */
+  previousQuantityKg: number;
+  /** Stock AFTER the adjustment. */
+  newQuantityKg: number;
+  /** Operator-supplied reason for the adjustment (free text, audit-grade). */
+  reason: string;
+  notes?: string;
+  adjustedAt: Date;
+}
+
+/**
+ * Feed Inventory Consumed Event
+ *
+ * Always-fire partner to `FeedInventoryReceived`. Every withdrawal
+ * from a feed lot — whether used for feeding, spilled, or written
+ * off as expired — emits this event. Food-safety traceability
+ * demands a complete input/output ledger per lot; without an
+ * always-fire consumption event, `FeedInventoryLow` (the alert-
+ * derivative) was the only signal and it only fired on the edge
+ * where running stock dropped into the LOW_STOCK band. Every other
+ * withdrawal was invisible.
+ */
+export interface FeedInventoryConsumedEvent extends BaseEvent {
+  eventType: 'FeedInventoryConsumed';
+  inventoryId: string;
+  feedId: string;
+  siteId: string;
+  /**
+   * Reason code — mirrors the command-layer `ConsumptionReason` enum
+   * (FEEDING / WASTE / SPILLAGE / EXPIRED / OTHER). Lower-snake on
+   * the wire so downstream consumers don't need to know server-side
+   * enum representation.
+   */
+  reason: string;
+  quantityKg: number;
+  /** Running stock AFTER this consumption (for lot-depletion projections). */
+  newQuantityKg: number;
+  newStatus: string;
+  consumedAt: Date;
+}
+
+/**
  * Feed Inventory Low Event
  *
  * Location hierarchy: Farm > Site > Department > System > Equipment.
@@ -473,6 +863,18 @@ export type FarmEvent =
   | BatchStatusChangedEvent
   | MortalityRecordedEvent
   | CullRecordedEvent
+  | CleanerFishDeployedEvent
+  | CleanerFishRemovedEvent
+  | CleanerFishMortalityRecordedEvent
+  | CleanerFishTransferredEvent
+  | CleanerFishBatchCreatedEvent
+  | FeedInventoryReceivedEvent
+  | FeedInventoryConsumedEvent
+  | FeedInventoryAdjustedEvent
+  | FeedingRecordUpdatedEvent
+  | HarvestRecordUpdatedEvent
+  | HarvestRecordCancelledEvent
+  | BatchMetadataUpdatedEvent
   | BatchTransferredEvent
   | BatchAllocatedToTankEvent
   | GrowthSampleRecordedEvent

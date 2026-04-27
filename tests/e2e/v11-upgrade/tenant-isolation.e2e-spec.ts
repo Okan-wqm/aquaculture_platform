@@ -37,11 +37,7 @@ import {
 import request from 'supertest';
 import { Request, Response, NextFunction } from 'express';
 import type { Server } from 'http';
-import {
-  TenantContextMiddleware,
-  UserContextMiddleware,
-  CorrelationIdMiddleware,
-} from '@aquaculture/backend-common';
+import { TenantContextMiddleware, UserContextMiddleware, CorrelationIdMiddleware } from '@aquaculture/backend-common/middleware';
 
 // ---------------------------------------------------------------------------
 // Interfaces -- typed request shape matching production code

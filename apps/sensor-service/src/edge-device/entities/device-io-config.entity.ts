@@ -6,7 +6,7 @@ import {
   Float,
   registerEnumType,
 } from '@nestjs/graphql';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import {
   Entity,
   Column,
@@ -57,7 +57,7 @@ registerEnumType(IoDataType, {
  * DeviceIoConfig entity - represents an I/O point configuration on an edge device
  */
 @ObjectType()
-@Entity('device_io_configs')
+@Entity('device_io_configs', { schema: 'sensor' })
 @Index(['deviceId', 'tagName'], { unique: true })
 @Index(['deviceId', 'moduleAddress', 'channel'])
 export class DeviceIoConfig {

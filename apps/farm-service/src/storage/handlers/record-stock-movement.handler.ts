@@ -5,6 +5,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, EntityManager } from 'typeorm';
 import { NotFoundException, Logger, BadRequestException, Optional, Inject } from '@nestjs/common';
 import { NatsEventBus } from '@platform/event-bus';
+import { tenantManagerRepo, TenantScopedRepository } from '@aquaculture/backend-common/database';
 import type { StockMovementRecordedEvent, LowStockDetectedEvent } from '@platform/event-contracts';
 import { createBaseEvent } from '@platform/event-contracts';
 import { RecordStockMovementCommand } from '../commands/record-stock-movement.command';
@@ -15,6 +16,7 @@ import { Feed, FeedStatus } from '../../feed/entities/feed.entity';
 import { Chemical } from '../../chemical/entities/chemical.entity';
 import { Consumable } from '../../consumable/entities/consumable.entity';
 import { ConditionWarning } from '../dto/stock-movement.response';
+import { LotMixService } from '../services/lot-mix.service';
 
 @CommandHandler(RecordStockMovementCommand)
 export class RecordStockMovementHandler implements ICommandHandler<RecordStockMovementCommand, StockMovement> {
@@ -34,6 +36,7 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
     @InjectRepository(Consumable)
     private readonly consumableRepository: Repository<Consumable>,
     private readonly dataSource: DataSource,
+    private readonly lotMixService: LotMixService,
     // EVENT_BUS is provided globally by EventBusModule (@Global).
     // @Optional() ensures the handler still works in test environments
     // or when NATS is unavailable — event emission is best-effort, not mandatory.
@@ -127,16 +130,54 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
     // Outbox Pattern principle: only publish events for data that is confirmed
     // persisted. NATS JetStream handles retry/DLQ for delivery failures.
     const { saved, currentTotal } = await this.dataSource.transaction(async (manager) => {
-      const inventoryRepo = manager.getRepository(StorageInventory);
-      const movementRepo = manager.getRepository(StockMovement);
+      const inventoryRepo = tenantManagerRepo(manager, StorageInventory, tenantId);
+      const movementRepo = tenantManagerRepo(manager, StockMovement, tenantId);
 
-      // Update inventory based on movement type
+      // Update inventory based on movement type.
+      // asOfDate carries the operational event timestamp so FEFO picks
+      // from lots that were ALREADY in inventory at that instant — a
+      // retroactively-logged feeding event cannot deduct from a lot
+      // that arrived after the event occurred. `movementDate` on the
+      // input is the authoritative event moment (default: now) for
+      // manual movements; for event-driven flows the caller sets
+      // `input.movementDate` to the domain event's occurredAt.
+      const asOfDate =
+        input.movementDate instanceof Date
+          ? input.movementDate
+          : input.movementDate
+            ? new Date(input.movementDate)
+            : undefined;
+
       if (fromLocation) {
         await this.decreaseInventory(
           inventoryRepo, tenantId, fromLocation.id,
           itemType as StorageItemType, itemId, quantity, itemDetails.unit,
-          input.lotNumber, userId,
+          input.lotNumber, userId, asOfDate,
         );
+      }
+
+      // Lot-mix detection — must run BEFORE increaseInventory so the
+      // service sees the resident lots as "other" and not yet summed
+      // with the incoming quantity. The detector no-ops when the
+      // incoming lot is the first lot in the location. When it does
+      // fire, the returned `effectiveLotNumber` is stamped on the
+      // movement record below so downstream trace queries surface the
+      // composite identifier from the moment the mix occurred.
+      let effectiveLotNumber: string | null = null;
+      if (toLocation && input.lotNumber) {
+        const mixOutcome = await this.lotMixService.detect({
+          tenantId,
+          storageLocationId: toLocation.id,
+          itemType: itemType as StorageItemType,
+          itemId,
+          incomingLotNumber: input.lotNumber,
+          incomingQuantityKg: quantity,
+          manufacturer: itemDetails.manufacturer ?? null,
+          incomingExpiryDate: input.expiryDate ?? null,
+          userId,
+          manager,
+        });
+        effectiveLotNumber = mixOutcome.effectiveLotNumber;
       }
 
       if (toLocation) {
@@ -166,7 +207,10 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
         // Capture lot and expiry on the movement record for full audit trail.
         // This enables lot traceability queries: "Which lots were consumed from
         // location X between dates Y and Z?" — required for EU 178/2002.
-        lotNumber: input.lotNumber,
+        // When a lot mix was detected the effectiveLotNumber (composite
+        // "MIX-<lot1>-<lot2>-..." identifier) is recorded on the movement
+        // so the ledger reflects the physical reality of the mixed container.
+        lotNumber: effectiveLotNumber ?? input.lotNumber,
         expiryDate: input.expiryDate,
         // Idempotency key for at-most-once delivery guarantee on retries.
         idempotencyKey: input.idempotencyKey,
@@ -181,12 +225,11 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
       // to read the post-update state before commit).
       let txCurrentTotal = 0;
       if (fromLocation && (movementType === MovementType.OUT || movementType === MovementType.WASTE)) {
-        const stockResult = await manager.getRepository(StorageInventory)
+        const stockResult = await tenantManagerRepo(manager, StorageInventory, tenantId)
           .createQueryBuilder('inv')
           .select('COALESCE(SUM(inv.quantity), 0)', 'total')
           .where('inv.itemType = :itemType', { itemType })
           .andWhere('inv.itemId = :itemId', { itemId })
-          .andWhere('inv.tenantId = :tenantId', { tenantId })
           .getRawOne();
         txCurrentTotal = parseFloat(stockResult?.total || '0');
       }
@@ -270,11 +313,11 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
 
   private async getItemDetails(
     itemType: StorageItemType, itemId: string, tenantId: string,
-  ): Promise<{ name: string; unit: string; storageTempMin?: number; storageTempMax?: number; storageHumidityMin?: number; storageHumidityMax?: number } | null> {
+  ): Promise<{ name: string; unit: string; manufacturer?: string; storageTempMin?: number; storageTempMax?: number; storageHumidityMin?: number; storageHumidityMax?: number } | null> {
     switch (itemType) {
       case StorageItemType.FEED: {
         const feed = await this.feedRepository.findOne({ where: { id: itemId, tenantId } });
-        return feed ? { name: feed.name, unit: feed.unit, storageTempMin: feed.storageTempMin, storageTempMax: feed.storageTempMax, storageHumidityMin: feed.storageHumidityMin, storageHumidityMax: feed.storageHumidityMax } : null;
+        return feed ? { name: feed.name, unit: feed.unit, manufacturer: feed.manufacturer, storageTempMin: feed.storageTempMin, storageTempMax: feed.storageTempMax, storageHumidityMin: feed.storageHumidityMin, storageHumidityMax: feed.storageHumidityMax } : null;
       }
       case StorageItemType.CHEMICAL: {
         const chem = await this.chemicalRepository.findOne({ where: { id: itemId, tenantId } });
@@ -368,11 +411,12 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
   }
 
   private async decreaseInventory(
-    repo: Repository<StorageInventory>,
+    repo: TenantScopedRepository<StorageInventory>,
     tenantId: string, locationId: string,
     itemType: StorageItemType, itemId: string,
     quantity: number, unit: string,
     lotNumber: string | undefined, userId: string,
+    asOfDate?: Date,
   ): Promise<void> {
     // FEFO (First Expired First Out) picking strategy for aquaculture compliance.
     // When no specific lot is requested, we consume from the earliest-expiring
@@ -403,9 +447,31 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
         lock: { mode: 'pessimistic_write' },
       });
     } else {
-      // No lot specified — FEFO: pick from earliest expiry date first.
-      // Items with NULL expiry date are picked last (NULLS LAST) because
-      // they are assumed to have no expiry concern (e.g., non-perishable consumables).
+      // No lot specified — FEFO (First-Expiring-First-Out) with three
+      // compliance-driven guarantees that earlier single-column ordering
+      // did not provide:
+      //
+      //   1. Deterministic tiebreak. Two lots with the exact same
+      //      expiryDate (common when a bulk receipt gets split into
+      //      parallel bin positions) used to produce implementation-
+      //      defined ordering. Now the chain is
+      //        expiryDate ASC NULLS LAST, receivedDate ASC, lotNumber ASC
+      //      so the oldest received lot wins, and if receivedDate also
+      //      matches, lot_number lexicographic wins. Two runs against
+      //      the same table see identical picks.
+      //
+      //   2. Expired-lot exclusion. A lot whose expiryDate is in
+      //      the past MUST NOT be picked. Consuming expired feed is a
+      //      fish-health risk; consuming expired medicine is a legal
+      //      violation. NULL expiryDate is acceptable (non-perishable
+      //      consumables).
+      //
+      //   3. As-of scoping (backdating safety). `asOfDate` scopes the
+      //      query to lots received ON OR BEFORE the operational event
+      //      date. Feeding events logged retroactively therefore cannot
+      //      deduct from a lot that arrived after the event occurred.
+      //      Defaults to "now" for real-time movements.
+      const effectiveAsOf = asOfDate ?? new Date();
       inventory = await repo
         .createQueryBuilder('inv')
         .where('inv.tenantId = :tenantId', { tenantId })
@@ -413,7 +479,15 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
         .andWhere('inv.itemType = :itemType', { itemType })
         .andWhere('inv.itemId = :itemId', { itemId })
         .andWhere('inv.quantity > 0')
+        .andWhere('(inv.expiryDate IS NULL OR inv.expiryDate > :today)', {
+          today: new Date(),
+        })
+        .andWhere('(inv.receivedDate IS NULL OR inv.receivedDate <= :asOf)', {
+          asOf: effectiveAsOf,
+        })
         .orderBy('inv.expiryDate', 'ASC', 'NULLS LAST')
+        .addOrderBy('inv.receivedDate', 'ASC', 'NULLS LAST')
+        .addOrderBy('inv.lotNumber', 'ASC')
         .setLock('pessimistic_write')
         .getOne();
     }
@@ -439,7 +513,7 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
   }
 
   private async increaseInventory(
-    repo: Repository<StorageInventory>,
+    repo: TenantScopedRepository<StorageInventory>,
     tenantId: string, locationId: string,
     itemType: StorageItemType, itemId: string,
     quantity: number, unit: string,
@@ -460,6 +534,9 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
       inventory.quantity = Number(inventory.quantity) + quantity;
       inventory.updatedBy = userId;
       if (expiryDate) inventory.expiryDate = expiryDate;
+      // Do NOT refresh `receivedDate` on restock — the original
+      // arrival date is the FEFO tiebreaker and must stay stable
+      // across top-ups of the same lot.
       await repo.save(inventory);
     } else {
       inventory = repo.create({
@@ -471,6 +548,11 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
         unit,
         lotNumber,
         expiryDate,
+        // Stamp `receivedDate` on the initial insert so the FEFO
+        // ORDER BY (expiryDate, receivedDate, lotNumber) has a real
+        // timestamp to compare. Older rows that predate the
+        // 1787100000000 migration get a default from the DB.
+        receivedDate: new Date(),
         createdBy: userId,
         updatedBy: userId,
       });
@@ -483,19 +565,19 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
     itemType: StorageItemType, itemId: string, tenantId: string,
   ): Promise<void> {
     // Sum all inventory for this item
-    const result = await manager.getRepository(StorageInventory)
+    const result = await tenantManagerRepo(manager, StorageInventory, tenantId)
       .createQueryBuilder('inv')
       .select('COALESCE(SUM(inv.quantity), 0)', 'total')
       .where('inv.itemType = :itemType', { itemType })
       .andWhere('inv.itemId = :itemId', { itemId })
-      .andWhere('inv.tenantId = :tenantId', { tenantId })
       .getRawOne();
 
     const totalQuantity = parseFloat(result?.total || '0');
 
     switch (itemType) {
       case StorageItemType.FEED: {
-        const feed = await manager.getRepository(Feed).findOne({ where: { id: itemId, tenantId } });
+        const feedRepo = tenantManagerRepo(manager, Feed, tenantId);
+        const feed = await feedRepo.findOne({ where: { id: itemId, tenantId } });
         if (feed) {
           feed.quantity = totalQuantity;
           // Use the FeedStatus enum to ensure type-safe status assignment.
@@ -503,25 +585,27 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
           if (totalQuantity <= 0) feed.status = FeedStatus.OUT_OF_STOCK;
           else if (totalQuantity <= Number(feed.minStock)) feed.status = FeedStatus.LOW_STOCK;
           else feed.status = FeedStatus.AVAILABLE;
-          await manager.getRepository(Feed).save(feed);
+          await feedRepo.save(feed);
         }
         break;
       }
       case StorageItemType.CHEMICAL: {
-        const chem = await manager.getRepository(Chemical).findOne({ where: { id: itemId, tenantId } });
+        const chemRepo = tenantManagerRepo(manager, Chemical, tenantId);
+        const chem = await chemRepo.findOne({ where: { id: itemId, tenantId } });
         if (chem) {
           chem.quantity = totalQuantity;
           chem.updateStockStatus();
-          await manager.getRepository(Chemical).save(chem);
+          await chemRepo.save(chem);
         }
         break;
       }
       case StorageItemType.CONSUMABLE: {
-        const cons = await manager.getRepository(Consumable).findOne({ where: { id: itemId, tenantId } });
+        const consRepo = tenantManagerRepo(manager, Consumable, tenantId);
+        const cons = await consRepo.findOne({ where: { id: itemId, tenantId } });
         if (cons) {
           cons.quantity = totalQuantity;
           cons.updateStockStatus();
-          await manager.getRepository(Consumable).save(cons);
+          await consRepo.save(cons);
         }
         break;
       }
@@ -529,13 +613,14 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
         // Healthcare products share the consumable entity table. Updating the
         // total quantity and stock status ensures the consumable record reflects
         // the aggregate across all storage locations, just like feeds and chemicals.
-        const healthcare = await manager.getRepository(Consumable).findOne({
+        const healthcareRepo = tenantManagerRepo(manager, Consumable, tenantId);
+        const healthcare = await healthcareRepo.findOne({
           where: { id: itemId, tenantId },
         });
         if (healthcare) {
           healthcare.quantity = totalQuantity;
           healthcare.updateStockStatus();
-          await manager.getRepository(Consumable).save(healthcare);
+          await healthcareRepo.save(healthcare);
         }
         break;
       }

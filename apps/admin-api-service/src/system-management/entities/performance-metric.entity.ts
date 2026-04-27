@@ -60,7 +60,7 @@ export interface MetricDimensions {
   [key: string]: string | undefined;
 }
 
-@Entity('performance_metrics')
+@Entity('performance_metrics', { schema: 'admin' })
 @Index(['metricType', 'timestamp'])
 @Index(['service', 'timestamp'])
 @Index(['timestamp'])
@@ -125,7 +125,7 @@ export class PerformanceMetric {
   createdAt!: Date;
 }
 
-@Entity('performance_snapshots')
+@Entity('performance_snapshots', { schema: 'admin' })
 @Index(['timestamp'])
 @Index(['service'])
 export class PerformanceSnapshot {

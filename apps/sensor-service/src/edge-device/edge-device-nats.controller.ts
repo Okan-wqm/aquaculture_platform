@@ -1,11 +1,7 @@
 import { Controller, Logger } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 
-import {
-  NATS_PATTERNS,
-  DEVICE_CODE_REGEX,
-  TENANT_ID_REGEX,
-} from '@aquaculture/backend-common';
+import { NATS_PATTERNS, DEVICE_CODE_REGEX, TENANT_ID_REGEX } from '@aquaculture/backend-common/constants';
 
 import { EdgeDeviceService } from './edge-device.service';
 

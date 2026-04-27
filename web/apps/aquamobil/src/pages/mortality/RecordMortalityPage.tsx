@@ -1,16 +1,24 @@
-import { useState, useEffect, useCallback, ChangeEvent } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
-import { List, ListInput, BlockTitle } from 'konsta/react';
-import { ArrowLeft, Skull, AlertCircle, Minus, Plus, ChevronRight } from 'lucide-react';
+import { useCallback, useState } from 'react';
+import { ChevronRight, Skull } from 'lucide-react';
+import { useParams } from 'react-router-dom';
 import { useTanks } from '@/hooks/useTanks';
-import { useOfflineQueue } from '@/hooks/useOfflineQueue';
-import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
-import type { MortalityReason } from '@/types';
-import { clsx } from 'clsx';
+import type { MortalityReason, MortalityInput } from '@/types';
+import {
+  NotesInput,
+  QuantityStepper,
+  ReasonGrid,
+  RecordEntityPage,
+  type RecordEntityTheme,
+  SummaryDivider,
+  SummaryNotesBlock,
+  SummaryRow,
+  type BaseFormErrors,
+} from '../_shared/RecordEntityPage';
 
-// BUG-14: All 13 MortalityReason enum values from the backend schema are included.
-// Previously AMMONIA, PREDATION, CANNIBALISM, STARVATION, GENETIC were missing.
-const MORTALITY_REASONS: { value: MortalityReason; label: string; emoji: string }[] = [
+// WHY: All 13 MortalityReason enum values from the backend schema are present
+// (BUG-14 regression guard — AMMONIA/PREDATION/CANNIBALISM/STARVATION/GENETIC
+// were missing from an earlier revision).
+const MORTALITY_REASONS: ReadonlyArray<{ value: MortalityReason; label: string; emoji: string }> = [
   { value: 'DISEASE', label: 'Disease', emoji: '🦠' },
   { value: 'WATER_QUALITY', label: 'Water Quality', emoji: '💧' },
   { value: 'STRESS', label: 'Stress', emoji: '😰' },
@@ -26,374 +34,120 @@ const MORTALITY_REASONS: { value: MortalityReason; label: string; emoji: string 
   { value: 'OTHER', label: 'Other', emoji: '📝' },
 ];
 
-interface FormErrors {
-  tank?: string;
-  quantity?: string;
-  general?: string;
-}
+const MORTALITY_THEME: RecordEntityTheme = {
+  headerGradient: 'bg-gradient-to-r from-red-600 to-red-500',
+  accentText: 'text-mortality',
+  summaryHeaderBg: 'bg-red-50 dark:bg-red-900/20 border-red-100 dark:border-red-800/50',
+  summaryHeaderText: 'text-red-700 dark:text-red-300',
+  iconBubbleBg: 'bg-red-50 dark:bg-red-900/20',
+  surfaceSoftBg: 'bg-red-50 dark:bg-red-900/20',
+  surfaceBorder: 'border-red-100 dark:border-red-800',
+  ctaGradient: 'bg-gradient-to-r from-red-600 to-red-500',
+  ctaShadow: 'shadow-red-500/25',
+  selectionBorder: 'border-mortality',
+  selectionGlow: 'shadow-glow-red',
+};
 
-// WHY: Multi-step form with confirmation — prevents accidental submissions of mortality records,
-// which directly affect inventory counts and cannot be easily undone in aquaculture operations.
-type FormStep = 'entry' | 'confirm';
-
-export function RecordMortalityPage() {
-  const navigate = useNavigate();
+export function RecordMortalityPage(): JSX.Element {
   const { tankId } = useParams<{ tankId?: string }>();
   const { data: tanks } = useTanks();
-  const { addToQueue, isOnline } = useOfflineQueue();
 
   const [selectedTankId, setSelectedTankId] = useState(tankId || '');
   const [quantity, setQuantity] = useState(1);
   const [reason, setReason] = useState<MortalityReason>('UNKNOWN');
   const [notes, setNotes] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showSuccess, setShowSuccess] = useState(false);
-  // C7: Track the operationId for two-phase success UX
-  const [queuedOperationId, setQueuedOperationId] = useState('');
-  const [errors, setErrors] = useState<FormErrors>({});
-  const [step, setStep] = useState<FormStep>('entry');
+  const [errors, setErrors] = useState<BaseFormErrors>({});
 
   const selectedTank = tanks?.find((t) => t.id === selectedTankId);
   const metrics = selectedTank?.batchMetrics;
   const maxQuantity = metrics?.pieces || 1000;
   const selectedReason = MORTALITY_REASONS.find((r) => r.value === reason);
 
-  useEffect(() => {
-    if (tankId) setSelectedTankId(tankId);
-  }, [tankId]);
-
-  const validateForm = useCallback((): boolean => {
-    const newErrors: FormErrors = {};
-    if (!selectedTankId) newErrors.tank = 'Please select a tank';
-    if (!metrics) newErrors.tank = 'Selected tank has no active batch';
-    if (quantity < 1) newErrors.quantity = 'Quantity must be at least 1';
-    if (quantity > maxQuantity) newErrors.quantity = `Quantity cannot exceed ${maxQuantity}`;
-    if (!Number.isInteger(quantity)) newErrors.quantity = 'Quantity must be a whole number';
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+  const validate = useCallback((): boolean => {
+    const next: BaseFormErrors = {};
+    if (!selectedTankId) next.tank = 'Please select a tank';
+    if (!metrics) next.tank = 'Selected tank has no active batch';
+    if (quantity < 1) next.quantity = 'Quantity must be at least 1';
+    if (quantity > maxQuantity) next.quantity = `Quantity cannot exceed ${maxQuantity}`;
+    if (!Number.isInteger(quantity)) next.quantity = 'Quantity must be a whole number';
+    setErrors(next);
+    return Object.keys(next).length === 0;
   }, [selectedTankId, metrics, quantity, maxQuantity]);
 
-  const handleReview = () => {
-    if (!validateForm()) return;
-    setStep('confirm');
-  };
-
-  const handleSubmit = async () => {
-    if (!validateForm()) return;
-    if (!metrics?.batchId) return;
-
-    setIsSubmitting(true);
-    setErrors({});
-
-    try {
-      const opId = await addToQueue('recordMortality', {
-        batchId: metrics.batchId,
-        tankId: selectedTankId,
-        quantity,
-        reason,
-        notes: notes.trim() || undefined,
-        observedAt: new Date().toISOString(),
-      });
-
-      // C7: Store operationId for QueuedStatusBadge tracking
-      setQueuedOperationId(opId);
-      setShowSuccess(true);
-      setTimeout(() => navigate('/'), 2000);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to record mortality';
-      setErrors({ general: message });
-      setStep('entry');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const handleTankChange = (e: ChangeEvent<HTMLSelectElement>) => {
-    setSelectedTankId(e.target.value);
-    setErrors((prev) => ({ ...prev, tank: undefined }));
-  };
-
-  const handleQuantityChange = (val: number) => {
-    setQuantity(Math.floor(Math.max(1, Math.min(val, maxQuantity))));
-    setErrors((prev) => ({ ...prev, quantity: undefined }));
-  };
-
-  const handleNotesChange = (e: ChangeEvent<HTMLTextAreaElement>) => {
-    setNotes(e.target.value);
-  };
-
-  // C7: Two-phase success UX -- show honest sync status via QueuedStatusBadge
-  // instead of premature "Success!" green checkmark.
-  if (showSuccess) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-amber-50 dark:bg-amber-900/10">
-        <QueuedStatusBadge operationId={queuedOperationId} />
-      </div>
-    );
-  }
-
-  // WHY: Confirmation step — shows a summary card of the mortality record before final submission.
-  // Prevents accidental double-taps and lets users verify the data before it hits the queue.
-  if (step === 'confirm') {
-    return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-        <div className="bg-gradient-to-r from-red-600 to-red-500 text-white">
-          <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-            <button onClick={() => setStep('entry')} className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
-              <ArrowLeft size={22} />
-            </button>
-            <div className="flex items-center gap-2.5">
-              <Skull size={22} />
-              <h1 className="text-lg font-bold">Confirm Record</h1>
-            </div>
-          </div>
-        </div>
-
-        <div className="px-4 mt-5">
-          <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-lg border border-gray-100 dark:border-gray-800 overflow-hidden">
-            <div className="bg-red-50 dark:bg-red-900/20 p-4 border-b border-red-100 dark:border-red-800/50">
-              <h3 className="text-sm font-bold text-red-700 dark:text-red-300 uppercase tracking-wider">Mortality Summary</h3>
-            </div>
-            <div className="p-4 space-y-4">
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-500">Tank</span>
-                <span className="font-semibold text-gray-900 dark:text-white">{selectedTank?.name}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-500">Batch</span>
-                <span className="font-semibold text-gray-900 dark:text-white">{metrics?.batchNumber ?? '--'}</span>
-              </div>
-              <div className="h-px bg-gray-100 dark:bg-gray-800" />
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-500">Dead Fish</span>
-                <span className="text-2xl font-bold text-red-600">{quantity}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-500">Reason</span>
-                <span className="font-semibold text-gray-900 dark:text-white">
-                  {selectedReason?.emoji} {selectedReason?.label}
-                </span>
-              </div>
-              {notes.trim() && (
-                <>
-                  <div className="h-px bg-gray-100 dark:bg-gray-800" />
-                  <div>
-                    <span className="text-sm text-gray-500">Notes</span>
-                    <p className="text-sm text-gray-700 dark:text-gray-300 mt-1">{notes}</p>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {errors.general && (
-          <div className="mx-4 mt-3 bg-red-50 dark:bg-red-900/20 rounded-xl p-3 flex items-center gap-2 border border-red-200 dark:border-red-800">
-            <AlertCircle size={18} className="text-red-500 flex-shrink-0" />
-            <span className="text-red-600 dark:text-red-300 text-sm">{errors.general}</span>
-          </div>
-        )}
-
-        <div className="px-4 mt-6 space-y-3 pb-28">
-          <button
-            onClick={handleSubmit}
-            disabled={isSubmitting}
-            className="w-full py-4 bg-gradient-to-r from-red-600 to-red-500 text-white font-bold rounded-2xl shadow-lg shadow-red-500/25 disabled:opacity-50 disabled:cursor-not-allowed touch-feedback transition-all flex items-center justify-center gap-2"
-          >
-            {isSubmitting ? (
-              <>
-                <span className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
-                Recording...
-              </>
-            ) : (
-              <>
-                <Skull size={20} />
-                Confirm & Record
-              </>
-            )}
-          </button>
-          <button
-            onClick={() => setStep('entry')}
-            disabled={isSubmitting}
-            className="w-full py-3 text-gray-500 font-semibold rounded-2xl border border-gray-200 dark:border-gray-700 touch-feedback transition-all"
-          >
-            Go Back & Edit
-          </button>
-          {!isOnline && (
-            <p className="text-center text-amber-500 text-sm font-medium">
-              Offline -- will sync when connected
-            </p>
-          )}
-        </div>
-      </div>
-    );
-  }
+  const buildPayload = (): MortalityInput => ({
+    batchId: metrics!.batchId!,
+    tankId: selectedTankId,
+    quantity,
+    reason,
+    notes: notes.trim() || undefined,
+    observedAt: new Date().toISOString(),
+  });
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-      {/* Header */}
-      <div className="bg-gradient-to-r from-red-600 to-red-500 text-white">
-        <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-          <button onClick={() => navigate(-1)} className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
-            <ArrowLeft size={22} />
-          </button>
-          <div className="flex items-center gap-2.5">
-            <Skull size={22} />
-            <h1 className="text-lg font-bold">Record Mortality</h1>
-          </div>
-        </div>
-      </div>
-
-      {/* Tank/Batch Info */}
-      {selectedTank && metrics && (
-        <div className="mx-4 mt-4 bg-white dark:bg-gray-900 rounded-2xl shadow-card p-4 border border-gray-100 dark:border-gray-800">
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 bg-red-50 dark:bg-red-900/20 rounded-xl flex items-center justify-center">
-              <Skull className="text-mortality" size={22} />
-            </div>
-            <div className="flex-1">
-              <h3 className="font-semibold text-gray-900 dark:text-white">{selectedTank.name}</h3>
-              <p className="text-sm text-gray-500">
-                {metrics.batchNumber ?? '--'} &middot; {(metrics.pieces ?? 0).toLocaleString()} fish
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Error Banner */}
-      {errors.general && (
-        <div className="mx-4 mt-3 bg-red-50 dark:bg-red-900/20 rounded-xl p-3 flex items-center gap-2 border border-red-200 dark:border-red-800">
-          <AlertCircle size={18} className="text-red-500 flex-shrink-0" />
-          <span className="text-red-600 dark:text-red-300 text-sm">{errors.general}</span>
-        </div>
-      )}
-
-      {/* Tank Selector */}
-      {!tankId && (
+    <RecordEntityPage<MortalityInput>
+      theme={MORTALITY_THEME}
+      entryTitle="Record Mortality"
+      confirmTitle="Confirm Record"
+      icon={Skull}
+      summaryHeading="Mortality Summary"
+      operationName="recordMortality"
+      tankEmptyActionWord="mortality"
+      selectedTankId={selectedTankId}
+      onTankChange={setSelectedTankId}
+      errors={errors}
+      setErrors={setErrors}
+      validate={validate}
+      buildPayload={buildPayload}
+      canReview={!!selectedTankId && !!metrics?.batchId && quantity >= 1}
+      reviewLabel={
         <>
-          <BlockTitle>Select Tank</BlockTitle>
-          {/* WHY: Only tanks with active batches are selectable — mortality records require a batch context.
-              Tanks without batches are shown as disabled so users understand why they cannot be selected. */}
-          <List strongIos insetIos>
-            <ListInput type="select" value={selectedTankId} onChange={handleTankChange} error={errors.tank}>
-              <option value="">-- Select Tank --</option>
-              {tanks?.filter((t) => t.batchMetrics).map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name} - {t.batchMetrics?.batchNumber ?? '--'}
-                </option>
-              ))}
-              {/* WHY: Show batchless tanks as disabled options with their real ID so users know
-                  the tank exists but cannot record against it. Using the actual tank ID (not
-                  empty string) prevents the browser from treating disabled selection as valid. */}
-              {tanks?.filter((t) => !t.batchMetrics).map((t) => (
-                <option key={t.id} value={t.id} disabled>
-                  {t.name} (No active batch)
-                </option>
-              ))}
-            </ListInput>
-          </List>
-          {errors.tank && <p className="text-red-500 text-sm px-4 -mt-2">{errors.tank}</p>}
-          {/* FIX: Inform user when all tanks lack active batches — prevents confusion when
-              every dropdown option is disabled and no selection is possible. */}
-          {tanks && tanks.length > 0 && tanks.every((t) => !t.batchMetrics) && (
-            <div className="mx-4 mt-2 bg-amber-50 dark:bg-amber-900/20 rounded-xl p-3 border border-amber-200 dark:border-amber-800">
-              <p className="text-amber-700 dark:text-amber-300 text-sm font-medium">
-                All tanks currently have no active batches.
-              </p>
-              <p className="text-amber-600 dark:text-amber-400 text-xs mt-1">
-                Stock fish into a tank before recording mortality.
-              </p>
-            </div>
-          )}
-        </>
-      )}
-
-      {/* WHY: Large touch-friendly quantity stepper — field workers use this with wet/gloved hands.
-          The 56px hit target exceeds WCAG 2.2 minimum of 44px for touch targets. */}
-      <div className="px-4 mt-5">
-        <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Dead Fish Count</h3>
-        <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card p-5 border border-gray-100 dark:border-gray-800">
-          <div className="flex items-center justify-center gap-5">
-            <button
-              type="button"
-              onClick={() => handleQuantityChange(quantity - 1)}
-              disabled={quantity <= 1}
-              className="w-14 h-14 rounded-2xl bg-red-50 dark:bg-red-900/20 flex items-center justify-center disabled:opacity-30 touch-feedback border border-red-100 dark:border-red-800"
-            >
-              <Minus size={22} className="text-mortality" />
-            </button>
-            <div className="text-5xl font-bold text-gray-900 dark:text-white min-w-[90px] text-center tabular-nums">
-              {quantity}
-            </div>
-            <button
-              type="button"
-              onClick={() => handleQuantityChange(quantity + 1)}
-              disabled={quantity >= maxQuantity}
-              className="w-14 h-14 rounded-2xl bg-red-50 dark:bg-red-900/20 flex items-center justify-center disabled:opacity-30 touch-feedback border border-red-100 dark:border-red-800"
-            >
-              <Plus size={22} className="text-mortality" />
-            </button>
-          </div>
-          <p className="text-center text-xs text-gray-400 mt-3 font-medium">
-            Max: {maxQuantity.toLocaleString()} fish in tank
-          </p>
-          {errors.quantity && <p className="text-red-500 text-sm text-center mt-2">{errors.quantity}</p>}
-        </div>
-      </div>
-
-      {/* Reason Selector */}
-      <div className="px-4 mt-5">
-        <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Cause of Death</h3>
-        <div className="grid grid-cols-4 gap-2">
-          {MORTALITY_REASONS.map((r) => (
-            <button
-              key={r.value}
-              onClick={() => setReason(r.value)}
-              className={clsx(
-                'flex flex-col items-center p-3 rounded-2xl border-2 transition-all duration-150 ease-out touch-feedback bg-white dark:bg-gray-900',
-                reason === r.value
-                  ? 'border-mortality bg-red-50 dark:bg-red-900/20 shadow-glow-red scale-[1.02]'
-                  : 'border-gray-100 dark:border-gray-800'
-              )}
-            >
-              <span className="text-xl mb-1">{r.emoji}</span>
-              <span className="text-[10px] font-semibold text-center leading-tight">{r.label}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Notes */}
-      <BlockTitle>Notes (Optional)</BlockTitle>
-      <List strongIos insetIos>
-        <ListInput
-          type="textarea"
-          placeholder="Additional observations..."
-          value={notes}
-          onInput={handleNotesChange}
-          inputClassName="!h-24"
-        />
-      </List>
-
-      {/* WHY: "Review" button instead of direct submit — adds a confirmation step to prevent
-          accidental mortality records that would corrupt batch inventory data. */}
-      <div className="px-4 pb-28">
-        <button
-          onClick={handleReview}
-          disabled={!selectedTankId || !metrics?.batchId || quantity < 1}
-          className="w-full py-4 bg-gradient-to-r from-red-600 to-red-500 text-white font-bold rounded-2xl shadow-lg shadow-red-500/25 disabled:opacity-50 disabled:cursor-not-allowed touch-feedback transition-all flex items-center justify-center gap-2"
-        >
-          <Skull size={20} />
           Review {quantity} Dead Fish
           <ChevronRight size={18} className="ml-1" />
-        </button>
-        {!isOnline && (
-          <p className="text-center text-amber-500 text-sm mt-3 font-medium">
-            Offline -- will sync when connected
-          </p>
-        )}
-      </div>
-    </div>
+        </>
+      }
+      submitLabel="Confirm & Record"
+      confirmSummary={
+        <>
+          <SummaryRow label="Tank" value={selectedTank?.name} />
+          <SummaryRow label="Batch" value={metrics?.batchNumber ?? '--'} />
+          <SummaryDivider />
+          <SummaryRow
+            label="Dead Fish"
+            value={quantity}
+            valueClass="text-2xl font-bold text-red-600"
+          />
+          <SummaryRow
+            label="Reason"
+            value={`${selectedReason?.emoji ?? ''} ${selectedReason?.label ?? ''}`}
+          />
+          {notes.trim() && (
+            <>
+              <SummaryDivider />
+              <SummaryNotesBlock notes={notes} />
+            </>
+          )}
+        </>
+      }
+    >
+      <QuantityStepper
+        label="Dead Fish Count"
+        value={quantity}
+        onChange={(next) => {
+          setQuantity(next);
+          setErrors((prev) => ({ ...prev, quantity: undefined }));
+        }}
+        max={maxQuantity}
+        error={errors.quantity}
+        theme={MORTALITY_THEME}
+      />
+      <ReasonGrid
+        label="Cause of Death"
+        value={reason}
+        onChange={setReason}
+        options={MORTALITY_REASONS}
+        theme={MORTALITY_THEME}
+      />
+      <NotesInput value={notes} onChange={setNotes} />
+    </RecordEntityPage>
   );
 }

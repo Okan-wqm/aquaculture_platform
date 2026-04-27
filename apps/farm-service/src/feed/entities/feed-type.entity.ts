@@ -10,7 +10,7 @@ import {
   Index,
 } from 'typeorm';
 
-@Entity('feed_types')
+@Entity('feed_types', { schema: 'farm' })
 @Index(['code'], { unique: true })
 @Index(['isActive'])
 export class FeedTypeEntity {

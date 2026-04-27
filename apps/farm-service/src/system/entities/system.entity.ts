@@ -18,7 +18,7 @@ import {
   JoinColumn,
   VersionColumn,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import {
   ObjectType,
   Field,
@@ -76,7 +76,7 @@ registerEnumType(SystemStatus, {
 // ============================================================================
 
 @ObjectType()
-@Entity('systems')
+@Entity('systems', { schema: 'farm' })
 @Index(['tenantId', 'siteId', 'code'], { unique: true })
 @Index(['tenantId', 'siteId'])
 @Index(['tenantId', 'type'])

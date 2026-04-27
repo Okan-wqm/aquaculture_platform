@@ -1,0 +1,6 @@
+# cargo-fuzz runtime state — never committed.
+target/
+corpus/
+artifacts/
+coverage/
+Cargo.lock

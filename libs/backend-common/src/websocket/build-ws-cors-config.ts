@@ -78,7 +78,7 @@ export interface WsCorsConfig {
  * # Usage
  *
  * ```ts
- * import { buildWsCorsConfig } from '@aquaculture/backend-common';
+ * import { buildWsCorsConfig } from '@aquaculture/backend-common/build-ws-cors-config.ts';
  *
  * @WebSocketGateway({
  *   cors: buildWsCorsConfig('FarmGateway'),

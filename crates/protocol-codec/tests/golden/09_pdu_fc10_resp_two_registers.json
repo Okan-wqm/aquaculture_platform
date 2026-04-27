@@ -1,0 +1,10 @@
+{
+  "name": "pdu_fc10_resp_two_registers",
+  "description": "FC 0x10 Write Multiple Registers response: starting_address=0x0001, quantity=2.",
+  "decoder": "decode_write_multiple_registers_response",
+  "wire_hex": "1000 010002",
+  "expected_ok": {
+    "starting_address": 1,
+    "quantity": 2
+  }
+}

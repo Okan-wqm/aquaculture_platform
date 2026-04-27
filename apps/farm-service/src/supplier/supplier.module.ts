@@ -11,6 +11,8 @@ import { SupplierType } from './entities/supplier-type.entity';
 // Resolver
 import { SupplierResolver } from './supplier.resolver';
 
+import { RestoreModule } from '../common/services/restore.module';
+
 // Command Handlers
 import { CreateSupplierHandler } from './handlers/create-supplier.handler';
 import { UpdateSupplierHandler } from './handlers/update-supplier.handler';
@@ -34,6 +36,7 @@ const QueryHandlers = [
 @Module({
   imports: [
     TypeOrmModule.forFeature([Supplier, SupplierType]),
+    RestoreModule,
   ],
   providers: [
     SupplierResolver,

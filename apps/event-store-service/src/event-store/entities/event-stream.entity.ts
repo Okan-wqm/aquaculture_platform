@@ -12,7 +12,7 @@ import { BigIntTransformer } from '../transformers/bigint.transformer';
  * Event stream metadata entity
  * Tracks stream information and current position
  */
-@Entity('event_streams')
+@Entity('event_streams', { schema: 'event_store' })
 @Index(['tenantId', 'streamName'], { unique: true })
 @Index(['tenantId'])
 @Index(['aggregateType'])

@@ -225,3 +225,59 @@ export const SUBMIT_EXECUTED_SLAUGHTER_REPORT_MUTATION = `
     }
   }
 `;
+
+// ============================================================================
+// BIOMASS REPORT (phase 2.1)
+// ============================================================================
+
+/**
+ * Create or update a monthly biomass report for a site. Pass
+ * `input.submit = true` to finalise — a SUBMITTED period becomes
+ * immutable. The mutation is idempotent per
+ * (siteId, reportMonth, reportYear) so re-saving a DRAFT overwrites in
+ * place instead of duplicating.
+ */
+export const CREATE_BIOMASS_REPORT_MUTATION = `
+  mutation CreateBiomassReport($input: CreateBiomassReportInput!) {
+    createBiomassReport(input: $input) {
+      id
+      siteId
+      reportMonth
+      reportYear
+      status
+      totalBiomassKg
+      submittedAt
+      updatedAt
+    }
+  }
+`;
+
+/** Single-period lookup — drives the tab's pre-fill when returning to a drafted month. */
+export const BIOMASS_REPORT_QUERY = `
+  query BiomassReport($siteId: ID!, $reportMonth: Int!, $reportYear: Int!) {
+    biomassReport(siteId: $siteId, reportMonth: $reportMonth, reportYear: $reportYear) {
+      id
+      status
+      totalBiomassKg
+      reportData
+      submittedAt
+      generatedBy
+      updatedAt
+    }
+  }
+`;
+
+/** Period history — feeds the "recent reports" list on the tab. */
+export const BIOMASS_REPORTS_QUERY = `
+  query BiomassReports($siteId: ID!, $limit: Int) {
+    biomassReports(siteId: $siteId, limit: $limit) {
+      id
+      reportMonth
+      reportYear
+      status
+      totalBiomassKg
+      submittedAt
+      updatedAt
+    }
+  }
+`;

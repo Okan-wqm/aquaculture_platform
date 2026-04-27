@@ -1,0 +1,15 @@
+{
+  "name": "@aqua/cargo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Workspace-local Nx executor that wraps cargo for the Rust crates under crates/. Registered as '@aqua/cargo:run' in each crate's project.json. Lets `nx affected` and the Nx cache treat Rust crates as first-class projects, sharing the same task graph as TypeScript apps. Plan: docs/plans/sensor-rust-migration/PLAN.md (Faz 0 PR-A).",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "executors": "./executors.json",
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

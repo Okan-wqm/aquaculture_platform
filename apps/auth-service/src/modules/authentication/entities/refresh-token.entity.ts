@@ -10,7 +10,7 @@ import {
 
 import { User } from './user.entity';
 
-@Entity('refresh_tokens')
+@Entity('refresh_tokens', { schema: 'auth' })
 @Index('IDX_refresh_tokens_user_revoked', ['userId', 'isRevoked'])
 @Index('IDX_refresh_tokens_token', ['token'], { unique: true })
 @Index('IDX_refresh_tokens_expires', ['expiresAt'])

@@ -3,6 +3,7 @@ import { DataSource } from 'typeorm';
 import { ConflictException, BadRequestException, Logger, InternalServerErrorException } from '@nestjs/common';
 import { CreateShiftCommand } from '../commands/create-shift.command';
 import { Shift, WeekDay } from '../entities/shift.entity';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 
 /**
  * Parse time string in HH:mm format with validation
@@ -71,7 +72,7 @@ export class CreateShiftHandler implements ICommandHandler<CreateShiftCommand> {
     await queryRunner.startTransaction();
 
     try {
-      const shiftRepo = queryRunner.manager.getRepository(Shift);
+      const shiftRepo = tenantManagerRepo(queryRunner.manager, Shift, tenantId);
 
       // Check for duplicate code within transaction to prevent race condition
       const existingShift = await shiftRepo.findOne({

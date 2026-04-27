@@ -307,7 +307,7 @@ export interface BreedingInfo {
 
 @ObjectType()
 @Directive('@key(fields: "id")')
-@Entity('species')
+@Entity('species', { schema: 'farm' })
 @Index(['tenantId', 'code'], { unique: true })
 @Index(['tenantId', 'scientificName'], { unique: true })
 @Index(['tenantId', 'category'])

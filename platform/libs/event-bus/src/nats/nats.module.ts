@@ -2,6 +2,7 @@ import { Module, DynamicModule, Global, Provider, Logger } from '@nestjs/common'
 import { ConfigModule } from '@nestjs/config';
 import { DiscoveryModule, DiscoveryService, MetadataScanner } from '@nestjs/core';
 import { NatsEventBus } from './nats-event-bus';
+import { NatsRequestReply } from './nats-request-reply';
 import {
   EVENT_HANDLER_METADATA,
   EVENT_SUBSCRIPTION_METADATA,
@@ -72,13 +73,21 @@ export class EventBusModule {
         useClass: NatsEventBus,
       },
       NatsEventBus,
+      // ADR-031: NatsRequestReply depends on NatsEventBus for the
+      // raw connection so ONE mTLS handshake covers every caller.
+      NatsRequestReply,
     ];
 
     return {
       module: EventBusModule,
       imports: [ConfigModule, DiscoveryModule],
       providers,
-      exports: ['EVENT_BUS', 'EVENT_UPCASTER_REGISTRY', NatsEventBus],
+      exports: [
+        'EVENT_BUS',
+        'EVENT_UPCASTER_REGISTRY',
+        NatsEventBus,
+        NatsRequestReply,
+      ],
     };
   }
 
@@ -107,13 +116,20 @@ export class EventBusModule {
         useClass: NatsEventBus,
       },
       NatsEventBus,
+      // ADR-031 — see forRoot for the shared-connection rationale.
+      NatsRequestReply,
     ];
 
     return {
       module: EventBusModule,
       imports: [ConfigModule, DiscoveryModule, ...(options.imports ?? [])],
       providers,
-      exports: ['EVENT_BUS', 'EVENT_UPCASTER_REGISTRY', NatsEventBus],
+      exports: [
+        'EVENT_BUS',
+        'EVENT_UPCASTER_REGISTRY',
+        NatsEventBus,
+        NatsRequestReply,
+      ],
     };
   }
 }

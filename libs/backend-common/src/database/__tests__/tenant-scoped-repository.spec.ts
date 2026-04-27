@@ -422,3 +422,149 @@ describe('TenantScopedRepository', () => {
     });
   });
 });
+
+// ============================================================================
+// tenantManagerRepo() — the canonical helper used by Phase B migrations.
+// ============================================================================
+//
+// tenantManagerRepo(manager, entity, explicitTenantId?) is the factory every
+// transaction-scoped handler uses post-AUDIT-HIGH-002/003/008 / MEDIUM-007.
+// It wraps `manager.getRepository(entity)` into a TenantScopedRepository so
+// the tenant-id auto-injection discipline carries into the transaction path.
+//
+// These tests cover the ARCHITECTURAL contract the helper is expected to
+// provide for Phase B consumers (SEC-REVIEW-007 unit-level complement):
+//
+//   1. Returns a TenantScopedRepository bound to the right entity.
+//   2. Explicit tenantId wins over AsyncLocalStorage context.
+//   3. Falls back to AsyncLocalStorage when no explicit tenantId.
+//   4. Throws when neither explicit nor context-provided tenantId is
+//      available — NO silent tenant-less repo inside a transaction.
+//   5. find / findOne / update / delete all carry tenantId in the WHERE
+//      (inherited from the TenantScopedRepository contract, verified here
+//      through the factory to prove the wiring is intact).
+
+import { tenantManagerRepo } from '../tenant-scoped-repository';
+
+interface MockManager {
+  getRepository: jest.Mock;
+}
+
+describe('tenantManagerRepo() — factory contract', () => {
+  let mockInnerRepo: jest.Mocked<Repository<TestEntity>>;
+  let mockQB: jest.Mocked<SelectQueryBuilder<TestEntity>>;
+  let mockManager: MockManager;
+
+  const explicitTenantId = '550e8400-e29b-41d4-a716-446655440001';
+  const contextTenantId = '550e8400-e29b-41d4-a716-446655440002';
+
+  beforeEach(() => {
+    mockQB = {
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      getOne: jest.fn(),
+      getMany: jest.fn(),
+    } as unknown as jest.Mocked<SelectQueryBuilder<TestEntity>>;
+
+    mockInnerRepo = {
+      find: jest.fn().mockResolvedValue([]),
+      findOne: jest.fn().mockResolvedValue(null),
+      save: jest.fn().mockImplementation((e) => Promise.resolve(e)),
+      create: jest.fn().mockImplementation((e) => e),
+      update: jest.fn().mockResolvedValue({ affected: 1, raw: [], generatedMaps: [] }),
+      delete: jest.fn().mockResolvedValue({ affected: 1, raw: [] }),
+      createQueryBuilder: jest.fn().mockReturnValue(mockQB),
+    } as unknown as jest.Mocked<Repository<TestEntity>>;
+
+    mockManager = {
+      getRepository: jest.fn().mockReturnValue(mockInnerRepo),
+    };
+  });
+
+  const callFactory = (
+    tid?: string,
+  ): TenantScopedRepository<TestEntity> =>
+    tenantManagerRepo(mockManager as unknown as Parameters<typeof tenantManagerRepo>[0], {} as EntityTarget<TestEntity>, tid);
+
+  it('returns a TenantScopedRepository instance', () => {
+    const repo = callFactory(explicitTenantId);
+    expect(repo).toBeInstanceOf(TenantScopedRepository);
+  });
+
+  it('calls manager.getRepository(entity) exactly once per invocation', () => {
+    callFactory(explicitTenantId);
+    expect(mockManager.getRepository).toHaveBeenCalledTimes(1);
+  });
+
+  it('explicit tenantId wins over AsyncLocalStorage context', async () => {
+    const context: RequestContext = {
+      tenantId: contextTenantId,
+      userId: 'user-1',
+      requestId: 'req-1',
+    };
+    await requestContextStorage.run(context, async () => {
+      const repo = callFactory(explicitTenantId);
+      await repo.find();
+      expect(mockInnerRepo.find).toHaveBeenCalledWith({
+        where: { tenantId: explicitTenantId },
+      });
+    });
+  });
+
+  it('falls back to AsyncLocalStorage when no explicit tenantId', async () => {
+    const context: RequestContext = {
+      tenantId: contextTenantId,
+      userId: 'user-1',
+      requestId: 'req-1',
+    };
+    await requestContextStorage.run(context, async () => {
+      const repo = callFactory(); // no explicit
+      await repo.find();
+      expect(mockInnerRepo.find).toHaveBeenCalledWith({
+        where: { tenantId: contextTenantId },
+      });
+    });
+  });
+
+  it('throws when neither explicit nor context tenantId is available', async () => {
+    // Outside any requestContextStorage.run — no context present.
+    const repo = callFactory();
+    await expect(repo.find()).rejects.toThrow('No tenant context available');
+  });
+
+  it('save() auto-injects tenantId into persisted entity', async () => {
+    const repo = callFactory(explicitTenantId);
+    const entity = { id: 'e1', name: 'test' } as TestEntity;
+    await repo.save(entity);
+    expect(mockInnerRepo.save).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'e1', tenantId: explicitTenantId }),
+    );
+  });
+
+  it('update() carries tenantId in the WHERE clause', async () => {
+    const repo = callFactory(explicitTenantId);
+    await repo.update({ id: 'e1' }, { name: 'renamed' });
+    expect(mockInnerRepo.update).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'e1', tenantId: explicitTenantId }),
+      expect.anything(),
+    );
+  });
+
+  it('delete() carries tenantId in the WHERE clause (cross-tenant DELETE is impossible by construction)', async () => {
+    const repo = callFactory(explicitTenantId);
+    await repo.delete({ id: 'e1' });
+    expect(mockInnerRepo.delete).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'e1', tenantId: explicitTenantId }),
+    );
+  });
+
+  it('findOne() carries tenantId in the WHERE clause', async () => {
+    const repo = callFactory(explicitTenantId);
+    await repo.findOne({ where: { id: 'e1' } });
+    expect(mockInnerRepo.findOne).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: 'e1', tenantId: explicitTenantId }),
+      }),
+    );
+  });
+});

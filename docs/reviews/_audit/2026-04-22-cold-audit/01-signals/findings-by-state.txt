@@ -1,0 +1,6 @@
+     60 IN-PROGRESS
+     45 RESOLVED
+     27 OPEN
+      3 
+      1 state
+      1 BLOCKED

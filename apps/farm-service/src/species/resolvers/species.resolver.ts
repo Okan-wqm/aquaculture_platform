@@ -15,7 +15,9 @@ import {
 } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
-import { TenantGuard, CurrentTenant, CurrentUser, Roles, Role, StandardPaginatedResponse, fromCqrsPaginated, IStandardPaginatedResult } from '@aquaculture/backend-common';
+import { CurrentTenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
+import { TenantGuard } from '@aquaculture/backend-common/guards';
+import { StandardPaginatedResponse, fromCqrsPaginated, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Species } from '../entities/species.entity';
@@ -28,6 +30,7 @@ import { DeleteSpeciesCommand } from '../commands/delete-species.command';
 import { GetSpeciesQuery } from '../queries/get-species.query';
 import { ListSpeciesQuery } from '../queries/list-species.query';
 import { GetSpeciesByCodeQuery } from '../queries/get-species-by-code.query';
+import { RestoreService } from '../../common/services/restore.service';
 
 // ============================================================================
 // RESPONSE TYPES
@@ -77,6 +80,7 @@ export class SpeciesResolver {
     private readonly queryBus: QueryBus,
     @InjectRepository(Species)
     private readonly speciesRepository: Repository<Species>,
+    private readonly restoreService: RestoreService,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -86,6 +90,7 @@ export class SpeciesResolver {
   /**
    * Get a single species by ID
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => Species, { name: 'species' })
   async getSpecies(
     @Args('id', { type: () => ID }) id: string,
@@ -98,6 +103,7 @@ export class SpeciesResolver {
   /**
    * Get a species by code
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => Species, { name: 'speciesByCode' })
   async getSpeciesByCode(
     @Args('code') code: string,
@@ -110,6 +116,7 @@ export class SpeciesResolver {
   /**
    * List species with filtering and pagination
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => SpeciesListResponse, { name: 'speciesList' })
   async listSpecies(
     @CurrentTenant() tenantId: string,
@@ -124,6 +131,7 @@ export class SpeciesResolver {
   /**
    * Get all active species (shorthand query)
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [Species], { name: 'activeSpecies' })
   async getActiveSpecies(
     @CurrentTenant() tenantId: string,
@@ -138,6 +146,7 @@ export class SpeciesResolver {
    * Get all unique tags used by species in the tenant
    * Returns both predefined tags and custom tags
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [String], { name: 'speciesTags' })
   async getSpeciesTags(
     @CurrentTenant() tenantId: string,
@@ -166,6 +175,7 @@ export class SpeciesResolver {
   /**
    * Get predefined species tags (static list)
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [String], { name: 'predefinedSpeciesTags' })
   async getPredefinedSpeciesTags(): Promise<string[]> {
     return [...PREDEFINED_SPECIES_TAGS];
@@ -226,5 +236,27 @@ export class SpeciesResolver {
       id,
       message: success ? 'Species deleted successfully' : 'Failed to delete species',
     };
+  }
+
+  /**
+   * Restore a soft-deleted species. TENANT_ADMIN only. Closes
+   * Girdi 6 on the species surface. Phase 4.2 of the "Farm modülü
+   * kalan kör noktalar" plan.
+   */
+  @Roles(Role.TENANT_ADMIN)
+  @Mutation(() => Species)
+  async restoreSpecies(
+    @Args('id', { type: () => ID }) id: string,
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: { sub: string; name?: string },
+  ): Promise<Species> {
+    this.logger.log(`Restoring species: ${id}`);
+    return this.restoreService.restore(
+      this.speciesRepository,
+      Species,
+      id,
+      { tenantId, userId: user.sub, userName: user.name },
+      { uniqueKeys: [['code']] },
+    );
   }
 }

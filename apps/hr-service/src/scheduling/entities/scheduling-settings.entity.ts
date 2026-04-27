@@ -10,7 +10,7 @@ import { ObjectType, Field, ID, Int, registerEnumType } from '@nestjs/graphql';
 import { WeekDay } from '../../attendance/entities/shift.entity';
 
 @ObjectType()
-@Entity('scheduling_settings')
+@Entity('scheduling_settings', { schema: 'hr' })
 export class SchedulingSettings {
   @Field(() => ID)
   @PrimaryColumn('uuid')

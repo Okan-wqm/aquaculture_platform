@@ -17,7 +17,7 @@ import {
   JoinColumn,
   VersionColumn,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import {
   ObjectType,
   Field,
@@ -121,7 +121,7 @@ export interface ChemicalDocument {
 // ============================================================================
 
 @ObjectType()
-@Entity('chemicals')
+@Entity('chemicals', { schema: 'farm' })
 @Index(['tenantId', 'code'], { unique: true })
 @Index(['tenantId', 'name'], { unique: true })
 @Index(['tenantId', 'type'])

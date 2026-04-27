@@ -22,12 +22,24 @@
 export const EMAIL_REGEX = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
 
 /**
- * UUID v4 validation - ReDoS safe
+ * UUID v4 validation - ReDoS safe.
+ *
+ * WHY `UUID_V4_REGEX` (not `UUID_REGEX`): the constants barrel exports
+ * `UUID_REGEX` that accepts UUID v1-v5 (`[1-5]`), while this pattern is
+ * strictly v4 (`4`). Previously the root backend-common barrel exposed
+ * both under the same name and the explicit re-export from constants
+ * shadowed this one by accident. The semantic distinction (v4-only vs
+ * any-version) is load-bearing — a v1 UUID would pass the constants
+ * check but fail this one — so making the names reflect it prevents the
+ * caller from picking the wrong one silently. See AUDIT-MEDIUM-005.
  */
-export const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+export const UUID_V4_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /**
- * UUID any version - ReDoS safe
+ * UUID any version - ReDoS safe. Kept for API parity with the v1-v5
+ * `UUID_REGEX` in `constants/validation-patterns.ts`; the two differ
+ * only in case-sensitivity/version range and both are loose enough for
+ * cross-boundary ID checks.
  */
 export const UUID_ANY_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

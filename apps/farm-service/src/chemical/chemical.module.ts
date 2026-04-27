@@ -14,6 +14,8 @@ import { Site } from '../site/entities/site.entity';
 // Resolver
 import { ChemicalResolver } from './chemical.resolver';
 
+import { RestoreModule } from '../common/services/restore.module';
+
 // Command Handlers
 import { CreateChemicalHandler } from './handlers/create-chemical.handler';
 import { UpdateChemicalHandler } from './handlers/update-chemical.handler';
@@ -41,6 +43,7 @@ const QueryHandlers = [
 @Module({
   imports: [
     TypeOrmModule.forFeature([Chemical, ChemicalType, ChemicalSite, Supplier, Site]),
+    RestoreModule,
   ],
   providers: [
     ChemicalResolver,

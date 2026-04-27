@@ -16,5 +16,5 @@ import { OutboxEntityBase } from '@platform/outbox';
  * @see OutboxModule.forFeature(HrOutbox) in app.module.ts
  * @see OutboxPublisher.enqueue() for the write-side API
  */
-@Entity('hr_outbox')
+@Entity('hr_outbox', { schema: 'hr' })
 export class HrOutbox extends OutboxEntityBase {}

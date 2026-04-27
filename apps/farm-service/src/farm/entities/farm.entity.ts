@@ -9,7 +9,7 @@ import {
   VersionColumn,
 } from 'typeorm';
 import { ObjectType, Field, ID, Float, Directive } from '@nestjs/graphql';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 // Note: Pond is referenced via string to avoid circular dependency
 // Type-only import for TypeScript type checking
 import type { Pond } from './pond.entity';
@@ -32,7 +32,7 @@ export class Location {
  */
 @ObjectType()
 @Directive('@key(fields: "id")')
-@Entity('farms')
+@Entity('farms', { schema: 'farm' })
 @Index(['tenantId', 'name'], { unique: true })
 @Index(['tenantId', 'isActive'])
 export class Farm {
@@ -77,8 +77,16 @@ export class Farm {
   @Column('decimal', { precision: 10, scale: 2, nullable: true })
   totalArea?: number; // in hectares
 
-  // Note: ponds relation available via TypeORM but not exposed in GraphQL
-  // Use farm.ponds query in resolver instead to avoid circular type issues
+  // READ-ONLY LEGACY — the OneToMany relation stays for the GraphQL
+  // `pond` query that read legacy data. Writes on this surface are
+  // disabled: `createPond` / `createFarm` mutations are @deprecated and
+  // throw BadRequestException (see farm.resolver.ts), and the
+  // corresponding command handlers were removed in phase 1.2 of the
+  // "kalan kör noktalar" plan.
+  //
+  // Intentionally not exposed as a GraphQL field to avoid the circular
+  // type issue between Farm and Pond; clients use the top-level `pond`
+  // query to resolve individual ponds.
   @OneToMany('Pond', 'farm', { cascade: true })
   ponds?: Pond[];
 

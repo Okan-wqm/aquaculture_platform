@@ -49,7 +49,7 @@ registerEnumType(TenantStatus, {
  * - Isolated data in all microservices
  */
 @ObjectType()
-@Entity('tenants')
+@Entity('tenants', { schema: 'auth' })
 @Index('IDX_tenants_slug', ['slug'], { unique: true })
 @Index('IDX_tenants_status', ['status'])
 export class Tenant {

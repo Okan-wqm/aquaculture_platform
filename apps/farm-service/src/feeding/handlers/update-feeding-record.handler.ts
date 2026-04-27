@@ -9,6 +9,11 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, EntityManager } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
+import { OutboxPublisher } from '@platform/outbox';
+import {
+  createBaseEvent,
+  type FeedingRecordUpdatedEvent,
+} from '@platform/event-contracts';
 import { UpdateFeedingRecordCommand } from '../commands/update-feeding-record.command';
 import { FeedingRecord } from '../entities/feeding-record.entity';
 import { Batch } from '../../batch/entities/batch.entity';
@@ -22,6 +27,7 @@ export class UpdateFeedingRecordHandler implements ICommandHandler<UpdateFeeding
     @InjectRepository(Batch)
     private readonly batchRepository: Repository<Batch>,
     private readonly dataSource: DataSource,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   async execute(command: UpdateFeedingRecordCommand): Promise<FeedingRecord> {
@@ -77,21 +83,41 @@ export class UpdateFeedingRecordHandler implements ICommandHandler<UpdateFeeding
     await queryRunner.startTransaction();
 
     try {
-      // Kaydet (transaction içinde)
       const saved = await queryRunner.manager.save(feedingRecord);
 
+      const newActualAmount = Number(saved.actualAmount);
+      const newFeedCost = Number(saved.feedCost || 0);
+      const amountDiff = newActualAmount - oldActualAmount;
+      const costDiff = newFeedCost - oldFeedCost;
+
       // Batch'in yem tüketimini güncelle (eğer miktar değiştiyse)
-      if (payload.actualAmount !== undefined || payload.feedCost !== undefined) {
-        const newActualAmount = Number(saved.actualAmount);
-        const newFeedCost = Number(saved.feedCost || 0);
-
-        const amountDiff = newActualAmount - oldActualAmount;
-        const costDiff = newFeedCost - oldFeedCost;
-
-        if (amountDiff !== 0 || costDiff !== 0) {
-          await this.updateBatchFeedConsumption(queryRunner.manager, saved.batchId, tenantId, amountDiff, costDiff);
-        }
+      if (
+        (payload.actualAmount !== undefined || payload.feedCost !== undefined) &&
+        (amountDiff !== 0 || costDiff !== 0)
+      ) {
+        await this.updateBatchFeedConsumption(queryRunner.manager, saved.batchId, tenantId, amountDiff, costDiff);
       }
+
+      // Always-fire event: downstream FCR / feed-cost projections
+      // need to know EVERY correction to stay in sync. We emit even
+      // when amountDiff/costDiff are zero because behaviour /
+      // environment / notes corrections still matter to AI insights.
+      const event: FeedingRecordUpdatedEvent = {
+        ...createBaseEvent<FeedingRecordUpdatedEvent>('FeedingRecordUpdated', tenantId, {
+          aggregateId: saved.id,
+          aggregateType: 'FeedingRecord',
+        }),
+        feedingRecordId: saved.id,
+        batchId: saved.batchId,
+        previousActualAmountKg: oldActualAmount,
+        newActualAmountKg: newActualAmount,
+        amountDiffKg: amountDiff,
+        previousFeedCost: oldFeedCost,
+        newFeedCost: newFeedCost,
+        costDiff,
+        updatedAt: new Date(),
+      };
+      await this.outboxPublisher.enqueue(event, queryRunner.manager);
 
       await queryRunner.commitTransaction();
 

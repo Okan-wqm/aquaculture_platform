@@ -5,7 +5,8 @@ import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThanOrEqual, MoreThanOrEqual, Between } from 'typeorm';
-import { TenantGuard, CurrentTenant, Roles, Role } from '@aquaculture/backend-common';
+import { CurrentTenant, Roles, Role } from '@aquaculture/backend-common/decorators';
+import { TenantGuard } from '@aquaculture/backend-common/guards';
 import { WeatherObservation, WeatherDataType } from './entities/weather-observation.entity';
 import { MarineObservation } from './entities/marine-observation.entity';
 import { WeatherSettings } from './entities/weather-settings.entity';
@@ -31,6 +32,7 @@ export class WeatherResolver {
   // Queries
   // =========================================================================
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [WeatherObservation])
   async weatherObservations(
     @Args('siteId', { type: () => ID }) siteId: string,
@@ -55,6 +57,7 @@ export class WeatherResolver {
     });
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [MarineObservation])
   async marineObservations(
     @Args('siteId', { type: () => ID }) siteId: string,
@@ -79,6 +82,7 @@ export class WeatherResolver {
     });
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => CurrentWeatherResponse, { nullable: true })
   async currentWeather(
     @Args('siteId', { type: () => ID }) siteId: string,
@@ -120,6 +124,7 @@ export class WeatherResolver {
     };
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [WeatherObservation])
   async weatherForecast(
     @Args('siteId', { type: () => ID }) siteId: string,
@@ -140,6 +145,7 @@ export class WeatherResolver {
     });
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Query(() => WeatherSettings)
   async weatherSettings(
     @CurrentTenant() tenantId: string,

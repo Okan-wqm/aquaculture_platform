@@ -5,7 +5,7 @@ import {
   registerEnumType,
 } from '@nestjs/graphql';
 import { GraphQLJSON } from 'graphql-scalars';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import {
   Entity,
   Column,
@@ -115,7 +115,7 @@ export interface SensorConnectionStatus {
  */
 @Auditable()
 @ObjectType()
-@Entity('sensors')
+@Entity('sensors', { schema: 'sensor' })
 @Index(['tenantId', 'status'])
 @Index('IDX_sensors_serial_number', ['serialNumber'], { unique: true })
 @Index(['tenantId', 'siteId'])

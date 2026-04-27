@@ -8,12 +8,17 @@ services:
   # Database
   # ===========================================================================
   postgres:
-    image: timescale/timescaledb:2.17.2-pg16
+    # INFRA-CRITICAL-010: HA edition with pgvector (uniform across CI + dev + droplet + prod)
+    image: timescale/timescaledb-ha:pg16@sha256:b3d038d0a0757df8a5ec0a94ba68d9ad57b0e16100a024cf4b370c77ad5645f7
     container_name: aqua-postgres
     environment:
       POSTGRES_USER: aquaculture
       POSTGRES_PASSWORD: ${DB_PASSWORD:-devpassword}
       POSTGRES_DB: aquaculture
+      # INFRA-CRITICAL-018: pin PGDATA to legacy path so the HA image
+      # (which defaults to /home/postgres/pgdata/data) reads existing
+      # volume data at /var/lib/postgresql/data uniformly across env.
+      PGDATA: /var/lib/postgresql/data
       # Removed POSTGRES_HOST_AUTH_METHOD: trust — password auth is required.
       # The dev password is set via DB_PASSWORD env var (defaults to 'devpassword').
       # SEC-015: Per-service DB passwords (passed to 00-init-schemas.sh)

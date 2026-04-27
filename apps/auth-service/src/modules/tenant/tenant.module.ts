@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { SchemaManagerService } from '@aquaculture/backend-common';
+import { SchemaManagerService } from '@aquaculture/backend-common/database';
 import { EventBusModule } from '@platform/event-bus';
 
 import { Invitation } from '../authentication/entities/invitation.entity';

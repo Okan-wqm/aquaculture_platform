@@ -23,7 +23,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import {
   ObjectType,
   Field,
@@ -106,7 +106,7 @@ export interface FishBehavior {
 // ============================================================================
 
 @ObjectType()
-@Entity('feeding_records')
+@Entity('feeding_records', { schema: 'farm' })
 @Index(['tenantId', 'batchId', 'feedingDate'])
 @Index(['tenantId', 'tankId', 'feedingDate'])
 @Index(['tenantId', 'feedingDate'])

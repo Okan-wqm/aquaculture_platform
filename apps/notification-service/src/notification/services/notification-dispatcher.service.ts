@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, DataSource } from 'typeorm';
 import { createCipheriv, createDecipheriv, randomBytes, createHash } from 'crypto';
-import { RedisService } from '@aquaculture/backend-common';
+import { RedisService } from '@aquaculture/backend-common/redis';
 import {
   NotificationLog,
   NotificationStatus,
@@ -12,7 +12,7 @@ import {
 import { EmailService, AlertEmailData } from './email.service';
 import { SmsService } from './sms.service';
 import { PushService } from './push.service';
-import { SsrfValidatorService } from './ssrf-validator.service';
+import { SsrfValidatorService } from '@aquaculture/backend-common/ai-safety';
 
 /**
  * Redact sensitive parts from webhook URL for safe logging/storage

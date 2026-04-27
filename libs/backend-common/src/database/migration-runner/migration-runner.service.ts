@@ -58,7 +58,7 @@ import { DataSource, MigrationExecutor, QueryRunner } from 'typeorm';
  *
  * ```ts
  * // apps/farm-service/src/database/database.module.ts
- * import { createMigrationRunnerService } from '@aquaculture/backend-common';
+ * import { createMigrationRunnerService } from '@aquaculture/backend-common/migration-runner';
  *
  * const FarmMigrationRunnerService = createMigrationRunnerService('farm');
  * //                                                                ^^^^
@@ -91,6 +91,12 @@ import {
   TENANT_AWARE_SCHEMAS,
   TENANT_SCHEMA_NAME_RE as TENANT_SCHEMA_RE,
 } from '../tenant-aware-schemas';
+import {
+  NoopMigrationEventSink,
+  type MigrationEventSink,
+  type MigrationSinkEventType,
+} from '../migration-event-sink';
+import { assertExpandContractDependency } from '../assert-expand-contract-dependency';
 
 export interface MigrationRunnerOptions {
   /**
@@ -100,6 +106,17 @@ export interface MigrationRunnerOptions {
   tenantAware?: boolean;
   /** Advisory-lock acquisition timeout per schema. Default 300 s. */
   lockTimeoutSeconds?: number;
+  /**
+   * Optional lifecycle-event sink (Phase 6). When supplied, the
+   * runner emits start/applied/failed events per migration to enable
+   * observability-service's durable audit trail.
+   *
+   * Defaults to `NoopMigrationEventSink` when omitted — every
+   * existing caller's behaviour is preserved. Callers MUST NOT pass
+   * a sink that throws; see MigrationEventSink docblock for the
+   * fire-and-forget contract.
+   */
+  eventSink?: MigrationEventSink;
 }
 
 export function createMigrationRunnerService(
@@ -119,6 +136,8 @@ export function createMigrationRunnerService(
   const tenantAware =
     options?.tenantAware ?? TENANT_AWARE_SCHEMAS.has(sourceSchema);
   const lockTimeoutSeconds = options?.lockTimeoutSeconds ?? 300;
+  const eventSink: MigrationEventSink =
+    options?.eventSink ?? new NoopMigrationEventSink();
 
   @Injectable()
   class MigrationRunnerService implements OnApplicationBootstrap {
@@ -158,31 +177,79 @@ export function createMigrationRunnerService(
       await this.runForSchema(sourceSchema);
 
       // ── Phase 2 — tenant schemas (only for tenant-aware services) ──
-      if (!tenantAware) {
-        return;
-      }
-
-      const tenantSchemas = await this.listTenantSchemas();
-      if (tenantSchemas.length === 0) {
-        this.logger.log(
-          'Phase 2: no tenant schemas present — skipping tenant fan-out',
-        );
-        return;
-      }
-
-      this.logger.log(
-        `Phase 2: fanning out to ${tenantSchemas.length} tenant schema(s)`,
-      );
-      for (const tenantSchema of tenantSchemas) {
-        // Defense-in-depth: listTenantSchemas already filters via regex,
-        // but we re-assert before SQL interpolation.
-        if (!TENANT_SCHEMA_RE.test(tenantSchema)) {
-          throw new Error(
-            `[MigrationRunner:${sourceSchema}] Refusing unsafe tenant ` +
-              `schema name "${tenantSchema}" — expected /${TENANT_SCHEMA_RE.source}/.`,
+      let tenantCount = 0;
+      if (tenantAware) {
+        const tenantSchemas = await this.listTenantSchemas();
+        tenantCount = tenantSchemas.length;
+        if (tenantSchemas.length === 0) {
+          this.logger.log(
+            'Phase 2: no tenant schemas present — skipping tenant fan-out',
           );
+        } else {
+          this.logger.log(
+            `Phase 2: fanning out to ${tenantSchemas.length} tenant schema(s)`,
+          );
+          for (const tenantSchema of tenantSchemas) {
+            // Defense-in-depth: listTenantSchemas already filters via regex,
+            // but we re-assert before SQL interpolation.
+            if (!TENANT_SCHEMA_RE.test(tenantSchema)) {
+              throw new Error(
+                `[MigrationRunner:${sourceSchema}] Refusing unsafe tenant ` +
+                  `schema name "${tenantSchema}" — expected /${TENANT_SCHEMA_RE.source}/.`,
+              );
+            }
+            await this.runForSchema(tenantSchema);
+          }
         }
-        await this.runForSchema(tenantSchema);
+      }
+
+      // Canonical end-of-run signal (WS7 / required-signals.yaml contract).
+      // Fires on EVERY successful runner completion regardless of whether
+      // any migration was actually applied — a warm-start path where
+      // db-migrate already applied every pending DDL still emits this.
+      // The pre-existing "Applied N migration(s)" / "No pending migrations"
+      // logs only fire on the per-schema hot path; they don't represent
+      // the runner-as-a-whole completing, which is what the deploy-time
+      // boot signal is asserting. Pattern matched by required-signals.yaml
+      // signal_library.migration_runner_applied (substring).
+      this.logger.log(
+        `Migration runner complete for schema "${sourceSchema}": tenants=${tenantCount}`,
+      );
+    }
+
+    /**
+     * Thin wrapper around eventSink.emit — swallows sink errors so a
+     * broken sink never propagates to the runner. Tenant fan-out sets
+     * tenantSchema only when schema !== sourceSchema (the per-tenant
+     * clone case); source-schema lifecycle events carry no tenantSchema.
+     */
+    private emit(
+      schema: string,
+      migrationName: string,
+      eventType: MigrationSinkEventType,
+      durationMs?: number,
+      error?: unknown,
+    ): void {
+      try {
+        const ev = {
+          serviceName: sourceSchema,
+          migrationName,
+          eventType,
+          occurredAt: new Date(),
+          ...(schema !== sourceSchema ? { tenantSchema: schema } : {}),
+          ...(durationMs !== undefined ? { durationMs } : {}),
+          ...(error !== undefined ? { error } : {}),
+        };
+        const maybePromise = eventSink.emit(ev);
+        if (maybePromise !== undefined && typeof maybePromise.then === 'function') {
+          // Sink returns a Promise — fire-and-forget; swallow rejections
+          // so they don't surface as unhandled-promise-rejection crashes.
+          void maybePromise.catch(() => {
+            // Swallow — sink failure MUST NOT impact the runner.
+          });
+        }
+      } catch {
+        // Synchronous sink throw — swallow, never propagate.
       }
     }
 
@@ -285,6 +352,33 @@ export function createMigrationRunnerService(
               `SET search_path TO "${schema}", public`,
             );
 
+            const migrationStartedAt = Date.now();
+            this.emit(schema, migration.name, 'start');
+
+            // R6 runtime gate — contract-phase @ExpandContract
+            // migrations MUST NOT run until their dependsOn expand-phase
+            // migration has been applied in this environment. The
+            // assertion lives at the runner layer so authors don't
+            // have to remember to call it in every contract-phase
+            // up() body. Fail-safe: bootstrap environments (pre-
+            // Phase-0 observability schema) skip cleanly without
+            // blocking.
+            const migrationCtor =
+              typeof migration.instance === 'object' &&
+              migration.instance !== null
+                ? (migration.instance as { constructor: Function }).constructor
+                : undefined;
+            if (migrationCtor !== undefined) {
+              const env =
+                this.configService.get<string>('AQUA_ENV') ??
+                this.configService.get<string>('NODE_ENV', 'development')!;
+              await assertExpandContractDependency({
+                dataSource: this.dataSource,
+                migrationClass: migrationCtor,
+                environment: env,
+              });
+            }
+
             // Per-migration transaction so a partial failure in migration
             // N does not leak uncommitted DDL into migration N+1.
             await queryRunner.startTransaction();
@@ -294,6 +388,12 @@ export function createMigrationRunnerService(
               appliedNames.push(migration.name);
               this.logger.log(
                 `Migration "${migration.name}" applied on "${schema}"`,
+              );
+              this.emit(
+                schema,
+                migration.name,
+                'applied',
+                Date.now() - migrationStartedAt,
               );
             } catch (migrationErr) {
               await queryRunner.rollbackTransaction();
@@ -306,6 +406,13 @@ export function createMigrationRunnerService(
                 migrationErr instanceof Error
                   ? migrationErr.stack
                   : undefined,
+              );
+              this.emit(
+                schema,
+                migration.name,
+                'failed',
+                Date.now() - migrationStartedAt,
+                migrationErr,
               );
               throw migrationErr;
             }

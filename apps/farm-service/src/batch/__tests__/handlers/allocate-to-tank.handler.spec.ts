@@ -13,14 +13,30 @@ describe('AllocateToTankHandler', () => {
   let handler: AllocateToTankHandler;
   const { mockDataSource, mockQueryRunner, mockManager } = createMockDataSource();
 
+  // Mocks for the two services the handler depends on. The
+  // outbox publisher is invoked inside the cascade's transaction;
+  // the capacity service guards the tank-allocation invariant
+  // (density + biomass) that phase 1.1 made hard-enforcing.
+  const mockOutboxPublisher = {
+    enqueue: jest.fn().mockResolvedValue(undefined),
+  };
+  const mockTankCapacityService = {
+    enforce: jest.fn().mockResolvedValue(undefined),
+  };
+
   beforeEach(() => {
     jest.clearAllMocks();
+    // Handler constructor order (phase-D + phase-1.1 final):
+    //   batchRepo, allocationRepo, tankBatchRepo, equipmentRepo,
+    //   dataSource, outboxPublisher, tankCapacityService
     handler = new AllocateToTankHandler(
+      createMockRepository() as any, // batchRepository
+      createMockRepository() as any, // allocationRepository
+      createMockRepository() as any, // tankBatchRepository
+      createMockRepository() as any, // equipmentRepository
       mockDataSource as any,
-      createMockRepository() as any,
-      createMockRepository() as any,
-      createMockRepository() as any,
-      createMockRepository() as any,
+      mockOutboxPublisher as any,
+      mockTankCapacityService as any,
     );
   });
 

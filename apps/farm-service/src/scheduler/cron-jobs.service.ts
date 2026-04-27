@@ -12,11 +12,12 @@
  *
  * @module Scheduler
  */
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Optional } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression, SchedulerRegistry } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, DataSource } from 'typeorm';
-import { listTenantSchemas } from '@aquaculture/backend-common';
+import { listTenantSchemas } from '@aquaculture/backend-common/database';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
 // Entities
@@ -30,6 +31,7 @@ import { SparePart, SparePartStatus } from '../maintenance/entities/spare-part.e
 // Services
 import { MaintenanceScheduleService } from '../maintenance/services/maintenance-schedule.service';
 import { SparePartService } from '../maintenance/services/spare-part.service';
+import { FarmOrphanCleanupService } from '../common/file-cleanup/farm-orphan-cleanup.service';
 
 /**
  * Cron job execution result
@@ -79,6 +81,15 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
     private readonly schedulerRegistry: SchedulerRegistry,
     private readonly eventEmitter: EventEmitter2,
     private readonly dataSource: DataSource,
+    private readonly configService: ConfigService,
+    /**
+     * `@Optional` so farm-service still boots in environments
+     * that haven't wired StorageModule yet (dev harnesses, unit
+     * tests of sibling crons). When absent, the orphan-cleanup
+     * cron logs a one-time warning and no-ops — a separate
+     * concern from the maintenance / analytics crons.
+     */
+    @Optional() private readonly orphanCleanup?: FarmOrphanCleanupService,
   ) {}
 
   async onModuleInit() {
@@ -681,16 +692,252 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Her gece saat 02:00'da çalışır - Eski verilerin temizliği
+   * Nightly data cleanup — runs 02:00 Europe/Istanbul.
+   *
+   * Currently invokes the `cleanup_old_audit_logs(p_retention_days int)`
+   * PL/pgSQL function (defined in
+   * apps/farm-service/src/database/migrations/003_create_audit_logs_table.sql)
+   * for every tenant schema. The function was already shipped with the
+   * audit_logs migration but was never scheduled — the farm_audit_logs
+   * table was growing unbounded in practice. Tracked as Girdi 14b /
+   * 15-B18 in docs/illustrator/farm-modulu-kor-noktalar-dogrulama.md.
+   *
+   * Retention window is read from the AUDIT_RETENTION_DAYS env var so
+   * operators can raise it to satisfy stricter audit-trail requirements
+   * (e.g. 365 days for some compliance regimes). Default 90 matches the
+   * original SQL default and the existing audit-log.entity.ts docstring.
+   *
+   * Per-tenant iteration mirrors the pattern used by other cron jobs in
+   * this file: each schema gets its own QueryRunner so a failure in one
+   * tenant cannot block the rest.
    */
   @Cron(CronExpression.EVERY_DAY_AT_2AM, {
     name: 'cleanupOldData',
     timeZone: 'Europe/Istanbul',
   })
   async cleanupOldData(): Promise<void> {
-    this.logger.log('Starting data cleanup job');
-    // Cleanup logic would go here
-    this.logger.log('Data cleanup completed');
+    const retentionPlan: Array<{
+      label: string;
+      fn: string;
+      envVar: string;
+      defaultDays: number;
+    }> = [
+      {
+        label: 'farm_audit_logs',
+        fn: 'cleanup_old_audit_logs',
+        envVar: 'AUDIT_RETENTION_DAYS',
+        defaultDays: 90,
+      },
+      {
+        label: 'feeding_records',
+        fn: 'cleanup_old_feeding_records',
+        envVar: 'FEEDING_RECORD_RETENTION_DAYS',
+        defaultDays: 800,
+      },
+      {
+        label: 'growth_measurements',
+        fn: 'cleanup_old_growth_measurements',
+        envVar: 'GROWTH_MEASUREMENT_RETENTION_DAYS',
+        defaultDays: 1825,
+      },
+      {
+        label: 'water_quality_measurements',
+        fn: 'cleanup_old_water_quality_measurements',
+        envVar: 'WATER_QUALITY_RETENTION_DAYS',
+        defaultDays: 1095,
+      },
+      {
+        label: 'tank_operations',
+        fn: 'cleanup_old_tank_operations',
+        envVar: 'TANK_OPERATION_RETENTION_DAYS',
+        defaultDays: 2555,
+      },
+      {
+        label: 'harvest_records',
+        fn: 'cleanup_old_harvest_records',
+        envVar: 'HARVEST_RECORD_RETENTION_DAYS',
+        defaultDays: 3650,
+      },
+    ];
+
+    this.logger.log(
+      `Starting nightly retention cleanup across ${retentionPlan.length} table(s)`,
+    );
+
+    let tenantSchemas: string[];
+    try {
+      tenantSchemas = await listTenantSchemas(this.dataSource);
+    } catch (err) {
+      this.logger.error(
+        `Failed to list tenant schemas for retention cleanup: ${(err as Error).message}`,
+      );
+      return;
+    }
+
+    const summary: Record<string, number> = {};
+    for (const schema of tenantSchemas) {
+      const queryRunner = this.dataSource.createQueryRunner();
+      await queryRunner.connect();
+      try {
+        await queryRunner.query(
+          `SET search_path TO "${schema}", farm, public`,
+        );
+
+        for (const plan of retentionPlan) {
+          const retentionDays = Number(
+            this.configService.get<number | string>(
+              plan.envVar,
+              plan.defaultDays,
+            ),
+          );
+          const effective = Number.isFinite(retentionDays) && retentionDays > 0
+            ? retentionDays
+            : plan.defaultDays;
+
+          try {
+            const rows = (await queryRunner.query(
+              `SELECT ${plan.fn}($1) AS deleted_count`,
+              [effective],
+            )) as Array<{ deleted_count: number | string | null }>;
+
+            const deleted = Number(rows?.[0]?.deleted_count ?? 0);
+            summary[plan.label] = (summary[plan.label] ?? 0) + deleted;
+            if (deleted > 0) {
+              this.logger.log(
+                `Tenant ${schema}: deleted ${deleted} ${plan.label} row(s) older than ${effective} days`,
+              );
+            }
+          } catch (err) {
+            // Retention functions may be missing on tenants whose
+            // schema has not yet received the 1787000000000
+            // migration. Log and continue so one missing function
+            // does not abort the rest of the plan for this tenant.
+            this.logger.warn(
+              `Retention cleanup skipped for ${plan.label} on tenant ${schema}: ${(err as Error).message}`,
+            );
+          }
+        }
+      } finally {
+        await queryRunner.release();
+      }
+    }
+
+    const totalDeleted = Object.values(summary).reduce((a, b) => a + b, 0);
+    const breakdown = Object.entries(summary)
+      .filter(([, n]) => n > 0)
+      .map(([label, n]) => `${label}=${n}`)
+      .join(', ');
+    this.logger.log(
+      `Retention cleanup completed — ${totalDeleted} row(s) deleted across ${tenantSchemas.length} tenant schema(s)${breakdown ? `; ${breakdown}` : ''}`,
+    );
+  }
+
+  /**
+   * Nightly materialized-view refresh — runs 03:00 Europe/Istanbul.
+   *
+   * Phase 7.2: farm analytics dashboards read from
+   * `farm.mv_daily_batch_feeding` (migration 1787400000000) instead
+   * of scanning `feeding_records` row-by-row. The view is refreshed
+   * CONCURRENTLY so dashboard reads never block during the refresh.
+   * Per-tenant iteration uses a dedicated QueryRunner per schema
+   * so a single tenant's failure does not stall the rest.
+   *
+   * Worst-case staleness is one day — acceptable because the
+   * batch-performance dashboards drive weekly operational reviews,
+   * not real-time control loops. Ops can trigger a manual refresh
+   * via `triggerJob('refreshAnalyticsViews')` for urgent cases.
+   */
+  @Cron(CronExpression.EVERY_DAY_AT_3AM, {
+    name: 'refreshAnalyticsViews',
+    timeZone: 'Europe/Istanbul',
+  })
+  async refreshAnalyticsViews(): Promise<void> {
+    const viewsToRefresh = [
+      'farm.mv_daily_batch_feeding',
+      'farm.mv_daily_tank_water_quality',
+    ];
+
+    this.logger.log(
+      `Refreshing ${viewsToRefresh.length} analytics materialized view(s) across tenant schemas`,
+    );
+
+    let tenantSchemas: string[];
+    try {
+      tenantSchemas = await listTenantSchemas(this.dataSource);
+    } catch (err) {
+      this.logger.error(
+        `Failed to list tenant schemas for analytics refresh: ${(err as Error).message}`,
+      );
+      return;
+    }
+
+    for (const schema of tenantSchemas) {
+      const queryRunner = this.dataSource.createQueryRunner();
+      await queryRunner.connect();
+      try {
+        await queryRunner.query(
+          `SET search_path TO "${schema}", farm, public`,
+        );
+        for (const view of viewsToRefresh) {
+          try {
+            await queryRunner.query(
+              `REFRESH MATERIALIZED VIEW CONCURRENTLY ${view}`,
+            );
+            this.logger.log(
+              `Tenant ${schema}: refreshed ${view}`,
+            );
+          } catch (err) {
+            // View may not exist on a legacy tenant schema; log
+            // and continue so the rest of the views still refresh
+            // for the other tenants.
+            this.logger.warn(
+              `Tenant ${schema}: ${view} refresh skipped — ${(err as Error).message}`,
+            );
+          }
+        }
+      } finally {
+        await queryRunner.release();
+      }
+    }
+  }
+
+  /**
+   * Nightly MinIO orphan cleanup (phase 6.2.3). Deletes objects
+   * in the configured bucket that no longer have a live
+   * database reference AND are older than the safety threshold
+   * (default 24 hours). Runs at 04:00 Europe/Istanbul — after
+   * the 03:00 analytics view refresh completes but well before
+   * the morning operator shift.
+   *
+   * The cron is a no-op when FarmOrphanCleanupService isn't DI-
+   * registered (dev harnesses without StorageModule). This is
+   * deliberate: the cron must be configurable to stay
+   * independent of the rest of the scheduler's hot paths.
+   */
+  @Cron(CronExpression.EVERY_DAY_AT_4AM, {
+    name: 'minioOrphanCleanup',
+    timeZone: 'Europe/Istanbul',
+  })
+  async minioOrphanCleanup(): Promise<void> {
+    if (!this.orphanCleanup) {
+      this.logger.warn(
+        'FarmOrphanCleanupService not available — minioOrphanCleanup ' +
+          'cron is a no-op. Register StorageModule + FarmFileCleanupModule ' +
+          'in app.module.ts to enable nightly MinIO orphan sweeps.',
+      );
+      return;
+    }
+    try {
+      await this.orphanCleanup.run();
+    } catch (err) {
+      // FarmOrphanCleanupService's contract is non-throwing, but
+      // a catastrophic MinIO client failure could still leak out.
+      // Log + continue — the next nightly run retries.
+      this.logger.error(
+        `minioOrphanCleanup cron failed: ${(err as Error).message}`,
+        err instanceof Error ? err.stack : undefined,
+      );
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -718,6 +965,12 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
         break;
       case 'monthlyComplianceReport':
         await this.monthlyComplianceReport();
+        break;
+      case 'refreshAnalyticsViews':
+        await this.refreshAnalyticsViews();
+        break;
+      case 'minioOrphanCleanup':
+        await this.minioOrphanCleanup();
         break;
       default:
         throw new Error(`Unknown job: ${jobName}`);

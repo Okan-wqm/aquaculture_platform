@@ -2,7 +2,7 @@ import {
   Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn,
   Index, OneToMany, VersionColumn,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import { registerEnumType } from '@nestjs/graphql';
 import { PurchaseOrderItem } from './purchase-order-item.entity';
 
@@ -31,7 +31,7 @@ registerEnumType(PurchaseOrderStatus, {
   description: 'Status of purchase order',
 });
 
-@Entity('purchase_orders')
+@Entity('purchase_orders', { schema: 'farm' })
 @Index(['tenantId', 'orderNumber'], { unique: true })
 @Index(['tenantId', 'status'])
 @Index(['tenantId', 'category'])

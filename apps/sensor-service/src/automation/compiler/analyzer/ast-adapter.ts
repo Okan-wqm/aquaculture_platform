@@ -21,7 +21,7 @@ import type {
   CaseBranch,
   CaseLabel,
   NamedArgument,
-} from '../parser/st-ast';
+} from '@platform/sensor-automation-types';
 
 import type {
   ASTNode as AnalyzerASTNode,

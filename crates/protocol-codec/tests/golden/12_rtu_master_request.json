@@ -1,0 +1,10 @@
+{
+  "name": "rtu_master_request",
+  "description": "Modbus RTU frame: master asks unit 1 for 10 holding registers starting at 0x0000. CRC-16-Modbus = 0xCDC5, written little-endian on the wire as C5 CD. Every Modbus tutorial uses this frame.",
+  "decoder": "parse_rtu_frame",
+  "wire_hex": "01030000000AC5CD",
+  "expected_ok": {
+    "address": 1,
+    "pdu_hex": "030000000A"
+  }
+}

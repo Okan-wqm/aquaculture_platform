@@ -20,7 +20,8 @@ import {
 } from '@nestjs/graphql';
 import { Logger, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
-import { Tenant, CurrentUser, StandardPaginatedResponse, IStandardPaginatedResult } from '@aquaculture/backend-common';
+import { Tenant, CurrentUser, Role, Roles } from '@aquaculture/backend-common/decorators';
+import { StandardPaginatedResponse, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import {
   WorkOrder,
   WorkOrderStatus,
@@ -149,6 +150,7 @@ export class WorkOrderResolver {
   // QUERIES
   // -------------------------------------------------------------------------
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => WorkOrder, { name: 'workOrder' })
   async getWorkOrder(
     @Args('id', { type: () => ID }) id: string,
@@ -158,6 +160,7 @@ export class WorkOrderResolver {
     return this.workOrderService.findById(tenantId, id);
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => WorkOrder, { name: 'workOrderByCode' })
   async getWorkOrderByCode(
     @Args('code') code: string,
@@ -167,6 +170,7 @@ export class WorkOrderResolver {
     return this.workOrderService.findByCode(tenantId, code);
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => WorkOrderListResponse, { name: 'workOrders' })
   async listWorkOrders(
     @Tenant() tenantId: string,
@@ -192,6 +196,7 @@ export class WorkOrderResolver {
     );
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [WorkOrder], { name: 'overdueWorkOrders' })
   async getOverdueWorkOrders(
     @Tenant() tenantId: string,
@@ -200,6 +205,7 @@ export class WorkOrderResolver {
     return this.workOrderService.findOverdue(tenantId);
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [WorkOrder], { name: 'myWorkOrders' })
   async getMyWorkOrders(
     @Tenant() tenantId: string,
@@ -211,6 +217,7 @@ export class WorkOrderResolver {
     return this.workOrderService.findByAssignee(tenantId, user.sub, activeOnly);
   }
 
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => WorkOrderStatisticsResponse, { name: 'workOrderStatistics' })
   async getWorkOrderStatistics(
     @Tenant() tenantId: string,
@@ -246,6 +253,7 @@ export class WorkOrderResolver {
   // MUTATIONS
   // -------------------------------------------------------------------------
 
+  @Roles(Role.MODULE_MANAGER, Role.TENANT_ADMIN)
   @Mutation(() => WorkOrder)
   async createWorkOrder(
     @Args('input') input: CreateWorkOrderInput,
@@ -256,6 +264,7 @@ export class WorkOrderResolver {
     return this.workOrderService.create(tenantId, input, user.sub);
   }
 
+  @Roles(Role.MODULE_MANAGER, Role.TENANT_ADMIN)
   @Mutation(() => WorkOrder)
   async updateWorkOrder(
     @Args('input') input: UpdateWorkOrderInput,
@@ -266,6 +275,7 @@ export class WorkOrderResolver {
     return this.workOrderService.update(tenantId, input, user.sub);
   }
 
+  @Roles(Role.TENANT_ADMIN)
   @Mutation(() => DeleteWorkOrderResponse)
   async deleteWorkOrder(
     @Args('id', { type: () => ID }) id: string,
@@ -280,6 +290,7 @@ export class WorkOrderResolver {
     };
   }
 
+  @Roles(Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN)
   @Mutation(() => WorkOrder)
   async submitWorkOrderForApproval(
     @Args('id', { type: () => ID }) id: string,
@@ -289,6 +300,7 @@ export class WorkOrderResolver {
     return this.workOrderService.submitForApproval(tenantId, id);
   }
 
+  @Roles(Role.MODULE_MANAGER, Role.TENANT_ADMIN)
   @Mutation(() => WorkOrder)
   async approveWorkOrder(
     @Args('input') input: ApproveWorkOrderInput,
@@ -299,6 +311,7 @@ export class WorkOrderResolver {
     return this.workOrderService.approve(tenantId, input, user.sub);
   }
 
+  @Roles(Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN)
   @Mutation(() => WorkOrder)
   async startWorkOrder(
     @Args('input') input: StartWorkOrderInput,
@@ -309,6 +322,7 @@ export class WorkOrderResolver {
     return this.workOrderService.start(tenantId, input, user.sub);
   }
 
+  @Roles(Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN)
   @Mutation(() => WorkOrder)
   async completeWorkOrder(
     @Args('input') input: CompleteWorkOrderInput,
@@ -319,6 +333,7 @@ export class WorkOrderResolver {
     return this.workOrderService.complete(tenantId, input, user.sub);
   }
 
+  @Roles(Role.MODULE_MANAGER, Role.TENANT_ADMIN)
   @Mutation(() => WorkOrder)
   async verifyWorkOrder(
     @Args('input') input: VerifyWorkOrderInput,
@@ -329,6 +344,7 @@ export class WorkOrderResolver {
     return this.workOrderService.verify(tenantId, input, user.sub);
   }
 
+  @Roles(Role.MODULE_MANAGER, Role.TENANT_ADMIN)
   @Mutation(() => WorkOrder)
   async cancelWorkOrder(
     @Args('id', { type: () => ID }) id: string,
@@ -339,6 +355,7 @@ export class WorkOrderResolver {
     return this.workOrderService.cancel(tenantId, id, reason);
   }
 
+  @Roles(Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN)
   @Mutation(() => WorkOrder)
   async putWorkOrderOnHold(
     @Args('id', { type: () => ID }) id: string,
@@ -349,6 +366,7 @@ export class WorkOrderResolver {
     return this.workOrderService.putOnHold(tenantId, id, reason);
   }
 
+  @Roles(Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN)
   @Mutation(() => WorkOrder)
   async resumeWorkOrder(
     @Args('id', { type: () => ID }) id: string,

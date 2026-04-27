@@ -10,7 +10,7 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { ObjectType, Field, ID, Int, registerEnumType, Float } from '@nestjs/graphql';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import { Employee } from './employee.entity';
 
 export enum PayrollStatus {
@@ -93,7 +93,7 @@ export class WorkHours {
 }
 
 @ObjectType()
-@Entity('payrolls')
+@Entity('payrolls', { schema: 'hr' })
 @Index(['tenantId', 'employeeId', 'payPeriodStart', 'payPeriodEnd'], { unique: true })
 @Index(['tenantId', 'payrollNumber'], { unique: true })
 @Index(['tenantId', 'status'])

@@ -230,6 +230,7 @@ export class FindingRegistryService {
    * supersedesId.
    */
   async findLatestById(id: string): Promise<FindingEntity | null> {
+    // eslint-disable-next-line no-restricted-syntax -- FindingEntity is the platform-wide finding registry (cross-tenant by design — the registry serves PSIRT + compliance + the audit pipeline). It has no tenantId column and no business owner; tenantManagerRepo would auto-inject a tenantId column the schema does not contain. The finding registry table is the canonical example of a non-tenant-scoped operational store (ADR-016 class).
     const repo = this.dataSource.getRepository(FindingEntity);
     const exact = await repo.findOne({
       where: { id },
@@ -250,6 +251,7 @@ export class FindingRegistryService {
    * tests/invariants/finding-registry-integrity.spec.ts exactly.
    */
   async verify(): Promise<VerifyResult> {
+    // eslint-disable-next-line no-restricted-syntax -- Same rationale as findLatestById above: FindingEntity is platform-wide cross-tenant by design; verify() walks every chain entry regardless of tenant.
     const entries = await this.dataSource.getRepository(FindingEntity).find({
       order: { chainSeq: 'ASC' },
     });

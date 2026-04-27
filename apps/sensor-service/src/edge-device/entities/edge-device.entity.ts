@@ -7,7 +7,7 @@ import {
   registerEnumType,
 } from '@nestjs/graphql';
 import { GraphQLJSON } from 'graphql-scalars';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import {
   Entity,
   Column,
@@ -93,7 +93,7 @@ export interface DeviceHealthMetrics {
  */
 @Auditable()
 @ObjectType()
-@Entity('edge_devices')
+@Entity('edge_devices', { schema: 'sensor' })
 @Index(['tenantId', 'lifecycleState'])
 @Index(['tenantId', 'siteId'])
 @Index(['deviceCode'], { unique: true })

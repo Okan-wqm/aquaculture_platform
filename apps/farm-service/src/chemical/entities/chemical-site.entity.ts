@@ -27,7 +27,7 @@ import { Chemical } from './chemical.entity';
 import type { Site } from '../../site/entities/site.entity';
 
 @ObjectType()
-@Entity('chemical_sites')
+@Entity('chemical_sites', { schema: 'farm' })
 @Unique(['chemicalId', 'siteId'])
 @Index(['tenantId', 'chemicalId'])
 @Index(['tenantId', 'siteId'])

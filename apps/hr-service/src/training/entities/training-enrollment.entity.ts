@@ -9,7 +9,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import { ObjectType, Field, ID, Int, Float, registerEnumType } from '@nestjs/graphql';
 import { Employee } from '../../hr/entities/employee.entity';
 import { TrainingCourse } from './training-course.entity';
@@ -45,7 +45,7 @@ export class AssessmentAttempt {
 }
 
 @ObjectType()
-@Entity('training_enrollments')
+@Entity('training_enrollments', { schema: 'hr' })
 // Composite indexes for common query patterns
 @Index('idx_enrollment_tenant_employee', ['tenantId', 'employeeId'])
 @Index('idx_enrollment_tenant_status', ['tenantId', 'status'])

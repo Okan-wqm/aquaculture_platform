@@ -99,6 +99,13 @@ export default {
         '<rootDir>/knowledge-ssot.spec.ts',
         '<rootDir>/finding-registry-integrity.spec.ts',
         '<rootDir>/upcaster-chain.spec.ts',
+        '<rootDir>/lib-creation-rubric.spec.ts',
+        '<rootDir>/messaging-joins.spec.ts',
+        '<rootDir>/admin-api-schema-boundaries.spec.ts',
+        '<rootDir>/eslint-rule-presence.spec.ts',
+        '<rootDir>/eslint-disable-annotation-positional-binding.spec.ts',
+        '<rootDir>/no-direct-getrepository-call.spec.ts',
+        '<rootDir>/no-root-barrel-import.spec.ts',
       ],
     },
     {
@@ -116,6 +123,7 @@ export default {
         '<rootDir>/doc-cardinality.spec.ts',
         '<rootDir>/skills-catalog.spec.ts',
         '<rootDir>/boundary-allowlist-invariants.spec.ts',
+        '<rootDir>/farm-service-tenant-isolation.spec.ts',
       ],
     },
     {

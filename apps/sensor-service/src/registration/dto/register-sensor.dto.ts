@@ -4,7 +4,7 @@ import { IsOptional, IsInt, IsString, IsEnum, IsUUID, IsBoolean, IsNumber, IsNot
 import { GraphQLJSON } from 'graphql-scalars';
 
 import { SensorType, SensorRegistrationStatus, SensorRole } from '../../database/entities/sensor.entity';
-import { StandardPaginationInput, StandardPaginatedResponse } from '@aquaculture/backend-common';
+import { StandardPaginationInput, StandardPaginatedResponse } from '@aquaculture/backend-common/pagination';
 
 import { CreateDataChannelInput, DataChannelType } from './data-channel.dto';
 

@@ -32,7 +32,7 @@ registerEnumType(ScadaDeployStatus, {
 });
 
 @ObjectType()
-@Entity('scada_deploy_logs')
+@Entity('scada_deploy_logs', { schema: 'sensor' })
 @Index(['tenantId', 'deviceId'])
 @Index(['tenantId', 'packageId'])
 @Index(['tenantId', 'commandId'], { unique: true })

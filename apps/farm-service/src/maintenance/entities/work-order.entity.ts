@@ -23,7 +23,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import {
   ObjectType,
   Field,
@@ -186,7 +186,7 @@ export interface RelatedAsset {
 // ============================================================================
 
 @ObjectType()
-@Entity('work_orders')
+@Entity('work_orders', { schema: 'farm' })
 @Index(['tenantId', 'status', 'priority'])
 @Index(['tenantId', 'workOrderCode'], { unique: true })
 @Index(['tenantId', 'assignedTo', 'status'])

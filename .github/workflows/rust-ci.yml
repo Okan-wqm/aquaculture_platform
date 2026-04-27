@@ -1,0 +1,258 @@
+name: Rust CI
+
+on:
+  push:
+    branches: [main, agentic]
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - "rustfmt.toml"
+      - "deny.toml"
+      - ".cargo/config.toml"
+      - "crates/**"
+      - "apps/sensor-ingestion/**"
+      - "tools/scripts/check-codec-drift.ts"
+      - ".github/workflows/rust-ci.yml"
+  pull_request:
+    branches: [main, agentic]
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - "rustfmt.toml"
+      - "deny.toml"
+      - ".cargo/config.toml"
+      - "crates/**"
+      - "apps/sensor-ingestion/**"
+      - "tools/scripts/check-codec-drift.ts"
+      - ".github/workflows/rust-ci.yml"
+  workflow_dispatch: {}
+
+concurrency:
+  group: rust-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUSTFLAGS: "-D warnings"
+  RUST_BACKTRACE: 1
+
+jobs:
+  fmt:
+    name: cargo fmt --check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install Rust toolchain (rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # stable
+        with:
+          toolchain: 1.88.0
+          components: rustfmt
+      - name: cargo fmt --all -- --check
+        run: cargo fmt --all -- --check
+
+  clippy:
+    name: cargo clippy -D warnings
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # stable
+        with:
+          toolchain: 1.88.0
+          components: clippy
+      - name: Cache cargo registry + target
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          shared-key: rust-ci
+          save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/agentic' }}
+      - name: cargo clippy --workspace --all-targets --all-features -- -D warnings
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+  test:
+    name: cargo test --workspace
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # stable
+        with:
+          toolchain: 1.88.0
+      - name: Cache cargo registry + target
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          shared-key: rust-ci
+          save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/agentic' }}
+      - name: cargo test --workspace --all-features --no-fail-fast
+        run: cargo test --workspace --all-features --no-fail-fast
+
+  deny:
+    name: cargo-deny check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: cargo-deny check (advisories, bans, licenses, sources)
+        uses: EmbarkStudios/cargo-deny-action@91bf2b620e09e18d6eb78b92e7861937469acedb # v2.0.17
+        with:
+          command: check advisories bans licenses sources
+          rust-version: "1.88.0"
+
+  audit:
+    name: cargo-audit (RustSec)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      # rustsec/audit-check installs cargo-audit from source, which currently
+      # requires rustc >= 1.89 (smol_str 0.3.6 transitive). taiki-e/install-action
+      # ships precompiled binaries — no MSRV treadmill, no source build, ~5s.
+      - name: Install cargo-audit (precompiled)
+        uses: taiki-e/install-action@055f5df8c3f65ea01cd41e9dc855becd88953486 # v2.75.18
+        with:
+          tool: cargo-audit
+      # Advisory ignores live in .cargo/audit.toml (mirrors deny.toml [advisories]).
+      # Passing --ignore here guarantees cargo-audit picks them up regardless of
+      # its config-file discovery behaviour in the taiki-e prebuilt binary.
+      # Each ignore MUST appear in BOTH deny.toml and .cargo/audit.toml —
+      # keep them in lock-step; full rationale lives in deny.toml.
+      - name: cargo audit
+        run: |
+          cargo audit --deny warnings \
+            --ignore RUSTSEC-2026-0098 \
+            --ignore RUSTSEC-2026-0099 \
+            --ignore RUSTSEC-2026-0049 \
+            --ignore RUSTSEC-2025-0134
+
+  drift:
+    name: codec-drift
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # stable
+        with:
+          toolchain: 1.88.0
+      - name: Cache cargo registry + target
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          shared-key: rust-ci
+          save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/agentic' }}
+      - name: Setup Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+      - name: codec-drift script (validates fixtures + runs Rust golden test)
+        run: node --experimental-strip-types tools/scripts/check-codec-drift.ts
+
+  doc:
+    # cargo doc with RUSTDOCFLAGS=-D warnings turns any broken intra-doc
+    # link or missing-docs violation into a CI failure. Without this job
+    # the Rust workspace's rustdoc output can silently rot — identifiers
+    # rename, links 404, private-item summaries drift away from code.
+    # `--document-private-items` enforces the internal API surface too
+    # (sensor-ingestion publishes public-API rustdoc via separate job
+    # when Faz 4 ships). ADR-032 supply-chain hardening references this
+    # job as the "documentation attestation" anchor.
+    name: cargo doc -D warnings
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # -D warnings promotes every rustdoc lint (broken link, missing
+      # section, untracked feature gate) to a hard fail. Note this is
+      # a per-job override — the top-level RUSTFLAGS stays -D warnings
+      # for compiler lints, RUSTDOCFLAGS is the rustdoc equivalent.
+      RUSTDOCFLAGS: "-D warnings"
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # stable
+        with:
+          toolchain: 1.88.0
+      - name: Cache cargo registry + target
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          shared-key: rust-ci
+          save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/agentic' }}
+      - name: cargo doc --no-deps --workspace --document-private-items
+        run: cargo doc --no-deps --workspace --document-private-items
+
+  cross-build:
+    name: cross-build (musl)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    # Both x86_64 and aarch64 musl targets build on every push. Both go
+    # through `cross` (cross-rs/cross) — cross runs the compiler inside a
+    # target-specific Docker image that ships the musl-cross toolchain,
+    # so the workflow does not depend on apt-get musl packages or
+    # per-arch linker downloads. Uniform tooling for every target =
+    # one code path to reason about. ADR-032 supply-chain hardening
+    # pins the primitive; aarch64 is mandatory from Faz 0 per the
+    # Rust migration delta plan (Kör Nokta 15 — enterprise-grade
+    # cross-compile discipline even while sensor-ingestion targets
+    # cloud x86_64, so edge-adoption in Faz 4 inherits a green ARM
+    # build that has always been built and tested).
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-unknown-linux-musl
+          - aarch64-unknown-linux-musl
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install Rust toolchain (with target)
+        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # stable
+        with:
+          toolchain: 1.88.0
+          targets: ${{ matrix.target }}
+      - name: Install cross (precompiled)
+        # taiki-e/install-action installs cross as a prebuilt binary —
+        # no cargo install from source, no MSRV surprises, ~5s. The
+        # pinned SHA matches the one the audit job uses so every binary
+        # we pull is from the same verified release chain.
+        uses: taiki-e/install-action@055f5df8c3f65ea01cd41e9dc855becd88953486 # v2.75.18
+        with:
+          tool: cross
+      - name: Cache cargo registry + target
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          shared-key: rust-cross-${{ matrix.target }}
+          save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/agentic' }}
+      - name: cross build --workspace --release --target ${{ matrix.target }}
+        # cross wraps cargo, running the compiler inside a target-specific
+        # Docker image. Same invocation for both x86_64 and aarch64 —
+        # the image per target handles the musl toolchain and linker
+        # automatically. Docker pull is cached by GHA runner's Docker
+        # layer cache on warm runners.
+        run: cross build --workspace --release --target ${{ matrix.target }}
+
+  summary:
+    name: Rust CI summary
+    if: always()
+    needs: [fmt, clippy, test, deny, audit, drift, doc, cross-build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - name: Fail if any required job failed
+        run: |
+          if [ "${{ needs.fmt.result }}" != "success" ] \
+             || [ "${{ needs.clippy.result }}" != "success" ] \
+             || [ "${{ needs.test.result }}" != "success" ] \
+             || [ "${{ needs.deny.result }}" != "success" ] \
+             || [ "${{ needs.audit.result }}" != "success" ] \
+             || [ "${{ needs.drift.result }}" != "success" ] \
+             || [ "${{ needs.doc.result }}" != "success" ] \
+             || [ "${{ needs.cross-build.result }}" != "success" ]; then
+            echo "One or more required Rust CI jobs failed."
+            exit 1
+          fi
+          echo "All Rust CI jobs succeeded."

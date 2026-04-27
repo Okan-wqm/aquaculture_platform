@@ -20,7 +20,7 @@ import { getEdgeStyle, ConnectionType } from '../config/connectionTypes';
 /* -------------------------------------------------- */
 type Point = { x: number; y: number; locked: boolean };
 
-interface MultiHandleEdgeData {
+export interface MultiHandleEdgeData {
   points?: Point[];
   label?: string;
   connectionType?: ConnectionType;
@@ -100,7 +100,14 @@ const findSegmentIndex = (pts: Point[], clickX: number, clickY: number): number 
 /* -------------------------------------------------- */
 /*  Component                                         */
 /* -------------------------------------------------- */
-export default function MultiHandleEdge(props: EdgeProps<MultiHandleEdgeData>) {
+import type { EdgeDataUpdater } from './OrthogonalEdge';
+
+export interface MultiHandleEdgeProps extends EdgeProps<MultiHandleEdgeData> {
+  /** See `EdgeDataUpdater` — optional consumer-supplied persistence override. */
+  updateEdgeData?: EdgeDataUpdater<MultiHandleEdgeData>;
+}
+
+export default function MultiHandleEdge(props: MultiHandleEdgeProps) {
   const {
     id,
     sourceX,
@@ -110,6 +117,7 @@ export default function MultiHandleEdge(props: EdgeProps<MultiHandleEdgeData>) {
     style = {},
     data,
     selected,
+    updateEdgeData: externalUpdater,
   } = props;
 
   const { setEdges } = useReactFlow();
@@ -148,7 +156,12 @@ export default function MultiHandleEdge(props: EdgeProps<MultiHandleEdgeData>) {
   useEffect(() => {
     setEdgePath(buildPath(points));
 
-    // Persist points to edge data via setEdges
+    // Persist via consumer override OR ReactFlow native. Same
+    // dual-mode pattern as OrthogonalEdge.
+    if (externalUpdater) {
+      externalUpdater(id, { points });
+      return;
+    }
     setEdges(edges =>
       edges.map(e =>
         e.id === id
@@ -156,7 +169,7 @@ export default function MultiHandleEdge(props: EdgeProps<MultiHandleEdgeData>) {
           : e
       )
     );
-  }, [points, id, setEdges]);
+  }, [points, id, setEdges, externalUpdater]);
 
   /* ---------- Drag handling ------------------------ */
   const handleMouseDown = useCallback((e: ReactMouseEvent<SVGCircleElement>, idx: number) => {

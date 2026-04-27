@@ -3,6 +3,7 @@ import { DataSource } from 'typeorm';
 import { NotFoundException, BadRequestException, Logger, InternalServerErrorException } from '@nestjs/common';
 import { UpdateKeyResultCommand } from '../commands/update-key-result.command';
 import { Goal, GoalStatus } from '../entities/goal.entity';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 
 @CommandHandler(UpdateKeyResultCommand)
 export class UpdateKeyResultHandler implements ICommandHandler<UpdateKeyResultCommand> {
@@ -18,7 +19,7 @@ export class UpdateKeyResultHandler implements ICommandHandler<UpdateKeyResultCo
     await queryRunner.startTransaction();
 
     try {
-      const goalRepo = queryRunner.manager.getRepository(Goal);
+      const goalRepo = tenantManagerRepo(queryRunner.manager, Goal, tenantId);
 
       const goal = await goalRepo.findOne({
         where: { id: goalId, tenantId, isDeleted: false },

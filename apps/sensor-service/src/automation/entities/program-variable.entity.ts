@@ -6,7 +6,7 @@ import {
   registerEnumType,
 } from '@nestjs/graphql';
 import { GraphQLJSON } from 'graphql-scalars';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import {
   Entity,
   Column,
@@ -60,7 +60,7 @@ registerEnumType(VariableScope, {
  * ProgramVariable entity - IEC 61131-3 program variables with I/O mapping
  */
 @ObjectType()
-@Entity('program_variables')
+@Entity('program_variables', { schema: 'sensor' })
 @Index(['programId', 'varName'], { unique: true })
 @Index(['programId', 'scope'])
 @Index(['ioConfigId'])

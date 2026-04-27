@@ -19,7 +19,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import {
   ObjectType,
   Field,
@@ -59,7 +59,7 @@ registerEnumType(AllocationType, {
 // ============================================================================
 
 @ObjectType()
-@Entity('tank_allocations')
+@Entity('tank_allocations', { schema: 'farm' })
 @Index(['tenantId', 'batchId', 'allocationDate'])
 @Index(['tenantId', 'tankId', 'allocationDate'])
 @Index(['batchId', 'tankId'])

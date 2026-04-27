@@ -44,6 +44,7 @@
  * workflow greps this output for "Schema migration complete".
  */
 import { DataSource, MigrationExecutor, QueryRunner } from 'typeorm';
+import type { EntityMetadata } from 'typeorm';
 
 /**
  * Safe SQL identifier regex — must match the regex used by
@@ -52,15 +53,7 @@ import { DataSource, MigrationExecutor, QueryRunner } from 'typeorm';
  */
 const SAFE_IDENT_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 
-// TENANT_AWARE_SCHEMAS + tenant-schema regex come from the SSoT module
-// in backend-common (MA6). Previously this orchestrator and
-// MigrationRunnerService each maintained a local copy of the same
-// 7-element Set — the SSoT export makes drift between the two
-// impossible.
-import {
-  TENANT_AWARE_SCHEMAS,
-  TENANT_SCHEMA_NAME_RE as TENANT_SCHEMA_RE,
-} from '@aquaculture/backend-common';
+import { TENANT_AWARE_SCHEMAS, TENANT_SCHEMA_NAME_RE as TENANT_SCHEMA_RE } from '@aquaculture/backend-common/database';
 
 /** Hash used for pg_try_advisory_lock keys (one 64-bit int per schema). */
 function advisoryLockKey(schema: string): string {
@@ -83,6 +76,29 @@ export interface RunSchemaOptions {
   role?: string;
   /** TypeORM migrations path(s) or class list. */
   migrations: string[];
+  /**
+   * Optional entity glob path(s) loaded into the per-slot DataSource.
+   *
+   * When supplied, TypeORM resolves the glob, dynamic-requires each
+   * file, and registers every exported class as an entity. The slot's
+   * migrations can then introspect `connection.entityMetadatas` (e.g.
+   * RdbmsSchemaBuilder.log() for catch-up sync migrations).
+   *
+   * When omitted, the DataSource has zero entity metadata — preserves
+   * the pre-Phase-H runtime behaviour.
+   *
+   * Loaded entities are filtered post-init: any entity whose declared
+   * @Entity({ schema }) does not match `opts.schema` is rejected with
+   * a warn log and removed from `entityMetadatas`. This stops cross-
+   * schema entities (e.g. admin-api's read-only billing entities) from
+   * polluting the metadata graph and breaking entity-driven migrations.
+   *
+   * Caller MUST resolve relative globs to absolute paths against the
+   * bundle root — TypeORM's `entities` glob loader is invoked from its
+   * own cwd, not the caller's, so a relative path would silently match
+   * zero files. main.ts performs the resolve.
+   */
+  entities?: string[];
   /** Database connection parameters. */
   database: {
     host: string;
@@ -117,6 +133,39 @@ export interface RunSchemaResult {
   durationMs: number;
   /** Per-tenant fan-out results, populated when tenantAware is true. */
   tenantResults?: TenantMigrationResult[];
+}
+
+/**
+ * Rollback knobs for {@link rollbackSchemaMigrations}.
+ *
+ * `count` — number of applied migrations to revert from the
+ * `typeorm_migrations` HEAD, newest-first. `1` undoes only the most
+ * recent migration. Must be ≥ 1; the orchestrator refuses to run
+ * with 0 (would be a confusing no-op) or a negative number (would
+ * be a type-system bypass).
+ *
+ * Advisory-lock + search_path semantics mirror
+ * {@link runSchemaMigrations} byte-for-byte. The tenant-fan-out
+ * path is INTENTIONALLY NOT invoked on rollback — reverting a
+ * tenant-scoped migration requires per-tenant operator review
+ * (some tenants may have business-critical data on the new schema
+ * shape), and a blind fan-out reversal is the kind of destructive
+ * side-effect ADR-011 forbids without explicit intent. Operators
+ * roll back per-tenant by scripting {@link rollbackSchemaMigrations}
+ * against each tenant schema by name.
+ */
+export interface RollbackSchemaOptions {
+  /** Number of migrations to undo, newest-first. Must be ≥ 1. */
+  count: number;
+}
+
+export interface RollbackSchemaResult {
+  schema: string;
+  /** Number of migrations requested. */
+  requested: number;
+  /** Names of migrations actually reverted, newest-first. */
+  reverted: string[];
+  durationMs: number;
 }
 
 /**
@@ -160,6 +209,11 @@ export async function runSchemaMigrations(
     database: database.database,
     schema,
     migrations,
+    // Phase H: opt-in entity loading per slot. Undefined when the slot
+    // has no entitiesGlob — preserves the pre-Phase-H entity-less
+    // DataSource. See docblock on RunSchemaOptions.entities for the
+    // foreign-schema filter that runs immediately after initialize().
+    entities: opts.entities,
     migrationsRun: false,
     synchronize: false,
     logging: false,
@@ -171,6 +225,61 @@ export async function runSchemaMigrations(
   });
 
   await dataSource.initialize();
+
+  // ── Phase H post-init filter — reject foreign-schema entities ──
+  //
+  // When the slot opted in to entity loading, walk the resulting
+  // entityMetadatas and remove any entity whose declared @Entity({ schema })
+  // does not match this slot's schema. The defense matters because:
+  //   1. A glob like `apps/admin-api-service/src/**/*.entity.ts` would
+  //      otherwise pull in entities declaring `schema: 'billing'` /
+  //      `schema: 'auth'` / `schema: 'shared'` (admin-api owns 4 of these
+  //      cross-schema read views), polluting the metadata graph.
+  //   2. RdbmsSchemaBuilder.log() inspects EVERY metadata entry. With
+  //      foreign-schema entities present it would emit DDL targeting
+  //      schemas the slot has no business mutating.
+  //   3. The filter logs every rejection with a warn record so
+  //      misconfigured opt-ins are visible in deploy output instead
+  //      of silently producing wrong DDL.
+  //
+  // EntityMetadata.schema is undefined when an entity declares no
+  // explicit schema (defaults to public). Such entities are also
+  // rejected unless the slot itself targets `public`.
+  if (opts.entities && opts.entities.length > 0) {
+    const beforeCount = dataSource.entityMetadatas.length;
+    const foreignEntities = dataSource.entityMetadatas.filter(
+      (m) => (m.schema ?? 'public') !== schema,
+    );
+    if (foreignEntities.length > 0) {
+      log({
+        level: 'warn',
+        message:
+          `[${schema}] rejecting ${foreignEntities.length} foreign-schema ` +
+          `entities loaded by entitiesGlob (declared schema does not match slot)`,
+        context: 'DbMigrate',
+        schema,
+        rejected: foreignEntities.map(
+          (m) => `${m.tableName}(declared schema='${m.schema ?? 'public'}')`,
+        ),
+      });
+      // Mutate in place: TypeORM's MigrationExecutor + RdbmsSchemaBuilder
+      // both read from this exact array reference. Replacing it with a
+      // filtered copy is the cheapest way to constrain downstream work.
+      (dataSource as unknown as { entityMetadatas: EntityMetadata[] })
+        .entityMetadatas = dataSource.entityMetadatas.filter(
+        (m) => (m.schema ?? 'public') === schema,
+      );
+    }
+    log({
+      level: 'info',
+      message:
+        `[${schema}] loaded ${dataSource.entityMetadatas.length}/${beforeCount} ` +
+        `schema-matched entities for entity-aware migrations`,
+      context: 'DbMigrate',
+      schema,
+    });
+  }
+
   const queryRunner = dataSource.createQueryRunner();
 
   try {
@@ -295,6 +404,191 @@ export async function runSchemaMigrations(
       tenantResults: tenantAware ? tenantResults : undefined,
     };
   } finally {
+    await queryRunner.release();
+    await dataSource.destroy();
+  }
+}
+
+/**
+ * Revert the N most recent applied migrations on a schema, newest-
+ * first (ORPHAN-020 — apps/db-migrate CLI `--down N`).
+ *
+ * Each `undoLastMigration()` call wraps in its own transaction;
+ * advisory lock is held for the whole session so no concurrent
+ * runner can race a half-rolled-back schema.
+ *
+ * # Semantics mirror runSchemaMigrations
+ *
+ *   - Same `SAFE_IDENT_RE` identifier validation.
+ *   - Same advisory-lock key namespace — NO concurrent up + down on
+ *     the same schema.
+ *   - Same session-level search_path pin.
+ *   - Per-migration transaction via TypeORM's `MigrationExecutor`
+ *     (it wraps `down()` in a transaction automatically when
+ *     `transaction = 'each'`).
+ *
+ * # Tenant fan-out is INTENTIONALLY NOT invoked here
+ *
+ * Reverting a tenant-scoped migration requires per-tenant operator
+ * review — some tenants may have business-critical data on the new
+ * schema shape. A blind fan-out reversal is the kind of destructive
+ * side-effect ADR-011 forbids without explicit intent. Operators
+ * roll back per-tenant by scripting this function against each
+ * tenant schema by name via the CLI `--schema <name>` flag.
+ *
+ * @throws when `count < 1` (no-op / typo guard) or when there are
+ *   fewer than `count` applied migrations to revert.
+ */
+export async function rollbackSchemaMigrations(
+  opts: RunSchemaOptions,
+  rollback: RollbackSchemaOptions,
+): Promise<RollbackSchemaResult> {
+  const { schema, migrations, database, log, lockTimeoutSeconds = 300 } = opts;
+  const { count } = rollback;
+
+  if (!SAFE_IDENT_RE.test(schema)) {
+    throw new Error(
+      `[db-migrate] Unsafe schema identifier: "${schema}". ` +
+        `Must match /^[a-zA-Z_][a-zA-Z0-9_]*$/.`,
+    );
+  }
+  if (!Number.isInteger(count) || count < 1) {
+    throw new Error(
+      `[db-migrate] rollback count must be a positive integer; got ${count}.`,
+    );
+  }
+
+  const started = Date.now();
+  log({
+    level: 'info',
+    message: 'Schema rollback starting',
+    context: 'DbMigrate',
+    schema,
+    count,
+  });
+
+  const dataSource = new DataSource({
+    type: 'postgres',
+    host: database.host,
+    port: database.port,
+    username: database.username,
+    password: database.password,
+    database: database.database,
+    schema,
+    migrations,
+    entities: opts.entities,
+    migrationsRun: false,
+    synchronize: false,
+    logging: false,
+    ssl: database.ssl,
+    extra: { max: 3 },
+  });
+  await dataSource.initialize();
+
+  const queryRunner = dataSource.createQueryRunner();
+  const lockKey = advisoryLockKey(schema);
+  const lockDeadline = Date.now() + lockTimeoutSeconds * 1000;
+  let locked = false;
+
+  try {
+    while (Date.now() < lockDeadline) {
+      const rows: Array<{ locked: boolean }> = await queryRunner.query(
+        `SELECT pg_try_advisory_lock(${lockKey}) AS locked`,
+      );
+      if (rows[0]?.locked) {
+        locked = true;
+        break;
+      }
+      log({
+        level: 'warn',
+        message: 'Waiting for advisory lock',
+        context: 'DbMigrate',
+        schema,
+      });
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+    if (!locked) {
+      throw new Error(
+        `[db-migrate] Could not acquire advisory lock for "${schema}" ` +
+          `within ${lockTimeoutSeconds}s. Another migration runner may be ` +
+          `active — resolve before retrying.`,
+      );
+    }
+
+    await queryRunner.query(`SET search_path TO "${schema}", public`);
+
+    const executor = new MigrationExecutor(dataSource, queryRunner);
+    executor.transaction = 'each';
+    // Use the executor's public accessor so the count of currently-
+    // applied migrations is authoritative (vs a raw SELECT from the
+    // typeorm_migrations table that could drift from TypeORM's view).
+    const applied = await executor.getExecutedMigrations();
+    if (applied.length < count) {
+      throw new Error(
+        `[db-migrate] Schema "${schema}" has ${applied.length} applied ` +
+          `migration(s); cannot roll back ${count}. Reduce --down N or ` +
+          `verify the schema's typeorm_migrations table.`,
+      );
+    }
+
+    const reverted: string[] = [];
+    for (let i = 0; i < count; i += 1) {
+      // Re-assert search_path before EVERY down() — same invariant
+      // the up() loop enforces; a down() that drops the pin loses
+      // its per-schema isolation.
+      await queryRunner.query(`SET search_path TO "${schema}", public`);
+      // `undoLastMigration` reads the `typeorm_migrations` HEAD and
+      // calls down() on the newest applied entry. It auto-wraps in
+      // a transaction when `executor.transaction === 'each'`.
+      try {
+        await executor.undoLastMigration();
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        log({
+          level: 'error',
+          message: 'Rollback failed',
+          context: 'DbMigrate',
+          schema,
+          stepsCompleted: reverted,
+          error: msg,
+        });
+        throw err;
+      }
+      // The name of the migration we just reverted is the last entry
+      // of the pre-rollback `applied` list minus the number of
+      // rollbacks already performed.
+      const revertedName = applied[applied.length - 1 - i]?.name ?? '<unknown>';
+      reverted.push(revertedName);
+      log({
+        level: 'info',
+        message: 'Migration reverted',
+        context: 'DbMigrate',
+        schema,
+        migration: revertedName,
+      });
+    }
+
+    log({
+      level: 'info',
+      message: 'Schema rollback complete',
+      context: 'DbMigrate',
+      schema,
+      reverted,
+    });
+
+    return {
+      schema,
+      requested: count,
+      reverted,
+      durationMs: Date.now() - started,
+    };
+  } finally {
+    try {
+      await queryRunner.query(`SELECT pg_advisory_unlock(${lockKey})`);
+    } catch {
+      // Unlock failure is non-fatal — session closes below and
+      // advisory locks are session-scoped.
+    }
     await queryRunner.release();
     await dataSource.destroy();
   }

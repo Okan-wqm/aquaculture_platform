@@ -17,7 +17,7 @@ import type {
   VarBlockKind,
   VarDeclarationNode,
   TypeNode,
-} from '../simulation/st-ast-types';
+} from '@platform/sensor-automation-types';
 
 // ────────────────────────────────────────────────────────────────────────────
 // Public Types

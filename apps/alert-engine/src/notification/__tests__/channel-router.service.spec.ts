@@ -6,7 +6,7 @@ import {
 } from '../channel-router.service';
 import { NotificationChannel } from '../../database/entities/escalation-policy.entity';
 import { AlertSeverity } from '../../database/entities/alert-rule.entity';
-import { RedisService } from '@aquaculture/backend-common';
+import { RedisService } from '@aquaculture/backend-common/redis';
 
 const mockRedisService = {
   get: jest.fn().mockResolvedValue(null),

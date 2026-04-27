@@ -20,7 +20,7 @@ import { randomUUID } from 'crypto';
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, Between, FindOptionsWhere, LessThanOrEqual, MoreThanOrEqual, In } from 'typeorm';
-import { IStandardPaginatedResult, createStandardPaginatedResult } from '@aquaculture/backend-common';
+import { IStandardPaginatedResult, createStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import { OutboxPublisher } from '@platform/outbox';
 import { WaterQualityMeasurementCreatedEvent, WaterQualityCriticalEvent , createBaseEvent } from '@platform/event-contracts';
 import { WaterQualityMeasurement, WaterQualityStatus, MeasurementSource, ParameterStatus } from './entities/water-quality-measurement.entity';

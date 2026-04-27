@@ -7,12 +7,11 @@
  * - Retention policy uygula (90 gün)
  * - Bulk cleanup işlemi
  */
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
-/** SEC-L15: Use shared SENSITIVE_FIELDS_SET for consistent PII redaction across all services. */
-import { SENSITIVE_FIELDS_SET } from '@aquaculture/backend-common';
 import { AuditLog, AuditAction, AuditChanges, AuditMetadata } from '../entities/audit-log.entity';
+import { AuditRedactionService } from './audit-redaction.service';
 
 export interface LogAuditParams {
   tenantId: string;
@@ -43,16 +42,35 @@ export interface AuditLogQuery {
 export class AuditLogService {
   private readonly logger = new Logger(AuditLogService.name);
   private readonly DEFAULT_RETENTION_DAYS = 90;
+  private readonly redactionService: AuditRedactionService;
 
   constructor(
     @InjectRepository(AuditLog)
     private readonly auditLogRepository: Repository<AuditLog>,
-  ) {}
+    // @Optional() keeps the service drop-in for unit tests that
+    // construct AuditLogService with only the repository argument.
+    // When DI is unavailable we fall back to a zero-config
+    // AuditRedactionService instance so the redaction path is
+    // NEVER bypassed — losing redaction would leak PII into the
+    // audit table and defeat the GDPR posture this phase sets up.
+    @Optional()
+    redactionService?: AuditRedactionService,
+  ) {
+    this.redactionService = redactionService ?? new AuditRedactionService();
+  }
 
   /**
    * Audit log kaydı oluştur
+   *
+   * Phase 2.5: changes + metadata are passed through
+   * `AuditRedactionService` before the row is persisted so that
+   * secrets, PII partial-masks, and oversized JSONB payloads never
+   * land in `farm.farm_audit_logs`.
    */
   async log(params: LogAuditParams): Promise<AuditLog> {
+    const redactedChanges = this.redactionService.redactChanges(params.changes);
+    const redactedMetadata = this.redactionService.redactMetadata(params.metadata);
+
     const auditLog = this.auditLogRepository.create({
       tenantId: params.tenantId,
       entityType: params.entityType,
@@ -60,8 +78,8 @@ export class AuditLogService {
       action: params.action,
       userId: params.userId,
       userName: params.userName,
-      changes: params.changes,
-      metadata: params.metadata,
+      changes: redactedChanges,
+      metadata: redactedMetadata,
       entityVersion: params.entityVersion,
       summary: params.summary || this.generateSummary(params),
     });
@@ -103,7 +121,7 @@ export class AuditLogService {
       userId,
       userName,
       changes: {
-        after: this.sanitizeEntity(entity),
+        after: entity,
       },
       metadata,
       entityVersion: (entity as { version?: number }).version,
@@ -138,8 +156,8 @@ export class AuditLogService {
       userId,
       userName,
       changes: {
-        before: this.sanitizeEntity(before),
-        after: this.sanitizeEntity(after),
+        before,
+        after,
         changedFields,
       },
       metadata,
@@ -168,7 +186,7 @@ export class AuditLogService {
       userId,
       userName,
       changes: {
-        before: this.sanitizeEntity(entity),
+        before: entity,
       },
       metadata,
       entityVersion: (entity as { version?: number }).version,
@@ -195,7 +213,7 @@ export class AuditLogService {
       userId,
       userName,
       changes: {
-        after: this.sanitizeEntity(entity),
+        after: entity,
       },
       metadata,
       entityVersion: (entity as { version?: number }).version,
@@ -319,25 +337,6 @@ export class AuditLogService {
     }
 
     return changedFields;
-  }
-
-  /**
-   * Entity'yi loglanabilir hale getir (hassas alanları temizle)
-   */
-  /**
-   * SEC-L15: Sanitize entity for audit logging using shared SENSITIVE_FIELDS_SET.
-   * Replaces sensitive field values with '[REDACTED]' to prevent PII leakage in logs.
-   */
-  private sanitizeEntity(entity: Record<string, unknown>): Record<string, unknown> {
-    const sanitized = { ...entity };
-
-    for (const field of Object.keys(sanitized)) {
-      if (SENSITIVE_FIELDS_SET.has(field)) {
-        sanitized[field] = '[REDACTED]';
-      }
-    }
-
-    return sanitized;
   }
 
   /**

@@ -253,10 +253,21 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       // Suppliers
       'supplier_types',
       'suppliers',
-      'supplier_sites',
 
-      // Site contacts
-      'site_contacts',
+      // INFRA-CRITICAL-019: `supplier_sites` and `site_contacts` are
+      // declared as @Entity() (apps/farm-service/src/supplier/entities
+      // /supplier-site.entity.ts and apps/farm-service/src/site/entities
+      // /site-contact.entity.ts) but BOTH are explicitly labelled
+      // "Orphan entity - not registered in any module's forFeature()".
+      // No migration creates them, no module loads them, no API uses them.
+      // Per ADR-011 schema ownership model, MODULE_SCHEMAS lists ACTIVE
+      // tables only — orphan @Entity() declarations are entity-side
+      // tech debt, not schema ownership claims. Listing them here would
+      // crash SourceSchemaBootstrapService on every farm-service boot
+      // (INFRA-CRITICAL-009 hard-fails on missing tables). When the
+      // architectural decision to use these entities is taken, write
+      // the corresponding migration AND re-add to this list in the
+      // SAME commit.
 
       // Supporting tables
       'code_sequences',
@@ -447,7 +458,7 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
  * Derived from MODULE_SCHEMAS to prevent drift when new modules are added.
  *
  * Usage:
- *   import { DEFAULT_TENANT_MODULES } from '@aquaculture/backend-common';
+ *   import { DEFAULT_TENANT_MODULES } from '@aquaculture/backend-common/database';
  *   await schemaManager.createTenantSchema(tenantId, DEFAULT_TENANT_MODULES);
  */
 export const DEFAULT_TENANT_MODULES: string[] = MODULE_SCHEMAS.map(m => m.moduleName);

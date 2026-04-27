@@ -28,7 +28,7 @@ export enum DepartmentType {
 registerEnumType(DepartmentType, { name: 'HRDepartmentType' });
 
 @ObjectType()
-@Entity('departments_hr')
+@Entity('departments_hr', { schema: 'hr' })
 @Index(['tenantId', 'code'], { unique: true })
 @Index(['tenantId', 'isDeleted'])
 @Index(['tenantId', 'siteId'])

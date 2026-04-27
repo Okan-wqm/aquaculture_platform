@@ -32,7 +32,7 @@ export enum PayrollAuditAction {
 }
 
 @ObjectType()
-@Entity('payroll_audit')
+@Entity('payroll_audit', { schema: 'hr' })
 @Index(['tenantId', 'payrollId'])
 @Index(['tenantId', 'employeeId'])
 @Index(['tenantId', 'action', 'createdAt'])

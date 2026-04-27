@@ -8,7 +8,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ClientsModule, Transport } from '@nestjs/microservices';
-import { buildNatsTransportOptions } from '@aquaculture/backend-common';
+import { buildNatsTransportOptions } from '@aquaculture/backend-common/nats';
 import { ChannelMember } from '../channel/entities/channel-member.entity';
 import { PresenceModule } from '../presence/presence.module';
 import { MessageModule } from '../message/message.module';

@@ -14,6 +14,7 @@ import { StartRotationCommand } from '../commands/start-rotation.command';
 import { WorkRotation, RotationStatus } from '../entities/work-rotation.entity';
 import { Employee, PersonnelCategory } from '../../hr/entities/employee.entity';
 import { CertificationValidationService } from '../certification-validation.service';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 
 @Injectable()
 @CommandHandler(StartRotationCommand)
@@ -34,7 +35,7 @@ export class StartRotationHandler implements ICommandHandler<StartRotationComman
     await queryRunner.startTransaction();
 
     try {
-      const repo = queryRunner.manager.getRepository(WorkRotation);
+      const repo = tenantManagerRepo(queryRunner.manager, WorkRotation, tenantId);
 
       const rotation = await repo.findOne({
         where: { id: rotationId, tenantId, isDeleted: false },

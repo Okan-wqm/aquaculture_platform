@@ -7,7 +7,11 @@ import { join } from 'path';
 import { CqrsModule } from '@nestjs/cqrs';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
 import depthLimit from 'graphql-depth-limit';
-import { TenantGuard, RolesGuard, LoggingModule, ServiceIdentityGuard, AuditLogModule, AuditLogInterceptor, RlsModule, AuditColumnsModule, createMigrationRunnerService, SchemaDriftModule, PlatformJwtModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common';
+import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
+import { RlsModule, AuditColumnsModule, createMigrationRunnerService, SchemaDriftModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common/database';
+import { TenantGuard, RolesGuard, ServiceIdentityGuard } from '@aquaculture/backend-common/guards';
+import { LoggingModule } from '@aquaculture/backend-common/logging';
+import { AuditLogModule, AuditLogInterceptor } from '@aquaculture/backend-common/audit';
 
 /**
  * ConfigMigrationRunnerService — runs pending TypeORM migrations in the
@@ -49,6 +53,19 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
           serviceName: 'config',
           schema: 'public',
           migrations: [__dirname + '/database/migrations/*.{js,ts}'],
+          // INFRA-CRITICAL-020 contract: env-aware migration timing.
+          // - Production: DATABASE_MIGRATIONS_RUN=false (default). The
+          //   aqua-db-migrate container runs migrations BEFORE service
+          //   containers start, so this service's TypeORM does NOT touch
+          //   the migration table at boot — MigrationRunnerService below
+          //   verifies the schema is healthy and proceeds.
+          // - E2E tests: harness sets DATABASE_MIGRATIONS_RUN=true so
+          //   TypeORM runs migrations at DataSource init — BEFORE the
+          //   SourceSchemaBootstrapService onApplicationBootstrap hook
+          //   fires, which would otherwise hard-fail on an empty source
+          //   schema (INFRA-CRITICAL-009, INFRA-CRITICAL-020).
+          migrationsRunFromEnv: (cs) =>
+            cs.get<string>('DATABASE_MIGRATIONS_RUN', 'false') === 'true',
         }),
     }),
 

@@ -10,7 +10,7 @@ import {
   BeforeUpdate,
 } from 'typeorm';
 import { ObjectType, Field, ID, registerEnumType, Float, Int } from '@nestjs/graphql';
-import { MoneyColumn } from '@aquaculture/backend-common';
+import { MoneyColumn } from '@aquaculture/backend-common/monetary';
 import Decimal from 'decimal.js';
 import { BillingCycle, PlanTier, PlanLimits, PlanPricing } from './subscription.entity';
 
@@ -23,7 +23,7 @@ import { BillingCycle, PlanTier, PlanLimits, PlanPricing } from './subscription.
  * current plan pricing.
  */
 @ObjectType()
-@Entity('plans')
+@Entity('plans', { schema: 'billing' })
 @Index(['tier'])
 @Index(['isActive'])
 @Index(['isPublic'])

@@ -2,5 +2,5 @@
  * Admin Panel Components Export
  */
 
-export { AdminSidebar } from './AdminSidebar';
 export { AdminLayout } from './AdminLayout';
+export { adminNavItems, adminNavIcons } from './admin-nav-items';

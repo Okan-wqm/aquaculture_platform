@@ -23,7 +23,7 @@ import {
   UpdateDateColumn,
   Index,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import {
   ObjectType,
   Field,
@@ -95,7 +95,7 @@ export type SpeciesLimits = Record<string, SpeciesLimitEntry>;
 // ============================================================================
 
 @ObjectType()
-@Entity('water_quality_parameter_configs')
+@Entity('water_quality_parameter_configs', { schema: 'farm' })
 @Index(['tenantId', 'code'], { unique: true })
 @Index(['tenantId', 'isActive', 'displayOrder'])
 @Index(['tenantId', 'group'])

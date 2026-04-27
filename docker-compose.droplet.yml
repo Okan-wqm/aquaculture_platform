@@ -114,6 +114,21 @@ x-nats-hydroponics-env: &nats-hydroponics-env
   NATS_TLS_KEY: /etc/ssl/nats-clients/hydroponics_service-key.pem
   NATS_TLS_ENABLED: "true"
 
+# observability-service connects as a CONSUMER to NATS (migration audit sink +
+# security events sink). Phase 6 Step 6 added SchemaMigrationEventsConsumer
+# which subscribes to `events.platform.schema-migration.>`; the existing
+# SecurityEventsConsumerService subscribes to `events.security.events.>`. Both
+# require a cert-CN-authenticated NATS identity per ADR-015. Registered in
+# infrastructure/nats/services.yaml as `observability_service` so the cert
+# generator mints clients/observability_service-{cert,key}.pem and
+# generate-nats-conf.py emits the matching `CN=observability_service` user.
+x-nats-observability-env: &nats-observability-env
+  NATS_URL: tls://nats:4222
+  NATS_TLS_CA: /etc/ssl/nats-ca.pem
+  NATS_TLS_CERT: /etc/ssl/nats-clients/observability_service-cert.pem
+  NATS_TLS_KEY: /etc/ssl/nats-clients/observability_service-key.pem
+  NATS_TLS_ENABLED: "true"
+
 x-nats-ca-mount: &nats-ca-mount ./certs/nats/ca-cert.pem:/etc/ssl/nats-ca.pem:ro
 # SECURITY (HIGH-002 / V4): per-service mTLS client certs.
 # NATS runs `verify_and_map: true` — cert CN maps directly to NATS user.
@@ -152,7 +167,14 @@ services:
     # NEVER change this to a lower version — PostgreSQL will refuse to start
     # if the data was created with a newer TimescaleDB version.
     # To upgrade: pg_dump → destroy volume → start with new image → restore.
-    image: timescale/timescaledb:2.25.1-pg16
+    #
+    # INFRA-CRITICAL-010: switched 2026-04-19 from timescale/timescaledb:2.25.1-pg16
+    # (no pgvector) to timescale/timescaledb-ha:pg16 (TimescaleDB + pgvector + Toolkit).
+    # Required for messaging-service AI tables migration that creates HNSW index using
+    # vector_cosine_ops (apps/messaging-service/src/migrations/1711800000001-CreateAITables.ts:178).
+    # Single source of truth — same digest across CI workflows + every compose file.
+    # Operator action: docker compose pull && docker compose up -d after this lands.
+    image: timescale/timescaledb-ha:pg16@sha256:b3d038d0a0757df8a5ec0a94ba68d9ad57b0e16100a024cf4b370c77ad5645f7
     container_name: aqua-postgres
     restart: unless-stopped
     environment:
@@ -179,6 +201,16 @@ services:
       # IP-1: PostgreSQL SSL — entrypoint wrapper copies certs to $PGDATA
       # with correct postgres:postgres ownership + chmod 600 on key.
       POSTGRES_SSL: "on"
+      # INFRA-CRITICAL-018: image-family default-PGDATA divergence.
+      # Old image (timescale/timescaledb:Alpine): PGDATA=/var/lib/postgresql/data
+      # HA image (timescale/timescaledb-ha:Ubuntu): PGDATA=/home/postgres/pgdata/data
+      # Existing data volume `postgres_data` was created at the legacy path —
+      # we must explicitly pin PGDATA to /var/lib/postgresql/data so the HA
+      # image reads the existing cluster instead of trying to initdb a
+      # different (mostly-empty image-baked) directory and failing.
+      # Single source of truth: this is the canonical PGDATA across every
+      # compose file regardless of which image variant is in use.
+      PGDATA: /var/lib/postgresql/data
     entrypoint: ["/usr/local/bin/postgres-ssl-entrypoint.sh"]
     command: >
       postgres
@@ -212,7 +244,8 @@ services:
   # restart: no — intentional, this is a one-shot init container.
   # ---------------------------------------------------------------------------
   db-init:
-    image: timescale/timescaledb:2.25.1-pg16
+    # INFRA-CRITICAL-010: same image as postgres above (single source of truth)
+    image: timescale/timescaledb-ha:pg16@sha256:b3d038d0a0757df8a5ec0a94ba68d9ad57b0e16100a024cf4b370c77ad5645f7
     container_name: aqua-db-init
     restart: "no"
     depends_on:
@@ -662,6 +695,17 @@ services:
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
       SUPER_ADMIN_EMAIL: ${SUPER_ADMIN_EMAIL:-admin@localhost.dev}
       SUPER_ADMIN_PASSWORD: ${SUPER_ADMIN_PASSWORD:?SUPER_ADMIN_PASSWORD is required}
+      # SECURITY (HIGH-006): HMAC password pepper.
+      # Defense-in-depth against offline attack on a stolen password DB —
+      # even with the full hash set, the attacker must ALSO compromise the
+      # droplet filesystem (where .env lives at mode 600, separate blast
+      # radius from PostgreSQL) before attempting any of the bcrypt hashes.
+      # Generate on a new environment with: `openssl rand -base64 48` and
+      # persist to .env on the droplet (NEVER commit .env — deny-listed in
+      # .claude/settings.json and .gitignore).
+      # Full architectural rationale + lazy-migration flow from legacy
+      # unpeppered hashes: libs/backend-common/src/auth/password.util.ts.
+      PASSWORD_PEPPER: "${PASSWORD_PEPPER:?PASSWORD_PEPPER is required in production — generate with openssl rand -base64 48 and store in .env on droplet}"
       # MFA & WebAuthn (optional -- MFA disabled if not set)
       MFA_ENCRYPTION_KEY: ${MFA_ENCRYPTION_KEY:-}
       WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-app.suderra.com}
@@ -794,6 +838,14 @@ services:
       EDGE_AGENT_GITHUB_REPO: Okan-wqm/aquaculture_platform
       PROVISIONING_API_BASE_URL: ${PROVISIONING_API_BASE_URL:-https://app.suderra.com}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?INTERNAL_SERVICE_SECRET required}
+      # ADR-022 control / data plane separation. Default `legacy`
+      # keeps the existing NestJS MQTT subscriber + per-sensor data
+      # collection running. Set to `control-plane` once the Rust
+      # ingestion sidecar (ADR-025) is live for every tenant — at
+      # which point this service becomes pure control plane and the
+      # operator can tighten the resource limits below to the budget
+      # in ADR-022 § Bütçe (192 MB / 0.2 vCPU).
+      SENSOR_SERVICE_PROFILE: ${SENSOR_SERVICE_PROFILE:-legacy}
     depends_on:
       postgres:
         condition: service_healthy
@@ -815,14 +867,59 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
-          cpus: '0.5'
+          # legacy profile envelope: 512 MB / 0.5 vCPU.
+          # control-plane profile (ADR-022): tighten to 192 MB /
+          # 0.2 vCPU once SENSOR_SERVICE_PROFILE=control-plane is live
+          # for every tenant. Override per deploy via the
+          # SENSOR_SERVICE_MEMORY / SENSOR_SERVICE_CPUS env so the
+          # numbers travel with the operator's runbook, not this file.
+          memory: ${SENSOR_SERVICE_MEMORY:-512M}
+          cpus: '${SENSOR_SERVICE_CPUS:-0.5}'
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:3000/health/live"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 90s
+
+  # Rust ingestion sidecar — ADR-025 / ADR-027 strangler-fig rollout.
+  # Co-equal producer of `events.{tenantId}.SensorReading` alongside the
+  # NestJS sensor-service. Per-tenant feature flag (`[ingest_backend]`
+  # in config.toml) gates which tenants the sidecar processes.
+  sensor-ingestion:
+    image: ghcr.io/okan-wqm/aquaculture_platform/sensor-ingestion:${TAG:-latest}
+    container_name: aqua-sensor-ingestion
+    restart: unless-stopped
+    user: "65532:65532"
+    environment:
+      # tracing-subscriber filter — overrides via env var without
+      # rebuilding the config file.
+      RUST_LOG: ${SENSOR_INGESTION_LOG:-info}
+      SENSOR_INGESTION_CONFIG: /etc/sensor-ingestion/config.toml
+    volumes:
+      # Operator-rotated config + cert bind-mounts. NEVER baked into
+      # the image (ADR-014/015): the secrets-rotation job updates files
+      # on disk, sidecar restart picks them up.
+      - ./infrastructure/sensor-ingestion/config.toml:/etc/sensor-ingestion/config.toml:ro
+      - ./certs/sensor-ingestion:/etc/sensor-ingestion/certs:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mosquitto:
+        condition: service_healthy
+    networks:
+      - aqua-internal
+    deploy:
+      resources:
+        limits:
+          # Plan § Faz 2 — Deployment + Strangler Fig. Sidecar cap is
+          # 256 MB / 0.35 vCPU; reservations match the steady-state
+          # baseline measured at the planning stage.
+          memory: 256M
+          cpus: '0.35'
+        reservations:
+          memory: 192M
+          cpus: '0.25'
 
   admin-api-service:
     image: ghcr.io/okan-wqm/aquaculture_platform/admin-api-service:${TAG:-latest}
@@ -1199,12 +1296,31 @@ services:
       # Observability reads cross-service metrics from the main aquaculture DB
       # (sensor, auth, alert, farm schemas). No own entities — schema-based isolation.
       DATABASE_NAME: aquaculture
+      # Phase 6 Step 6 + SecurityEventsModule both import EventBusModule.forRoot();
+      # NatsEventBus.onModuleInit connects to NATS at bootstrap. Under NODE_ENV=production
+      # the nats-connection.factory hard-fails if no auth is configured — cert CN is the
+      # NATS identity (ADR-015). Previously MISSING here, which aborted Nest bootstrap
+      # before SchemaDriftValidator emitted its "Schema drift scan clean" signal and put
+      # the container in a restart loop. Cert identity registered in
+      # infrastructure/nats/services.yaml → observability_service.
+      <<: *nats-observability-env
     depends_on:
       postgres:
+        condition: service_healthy
+      # NATS MUST be healthy before observability starts — NatsEventBus.onModuleInit
+      # throws (and crashes the process) if the broker isn't accepting TLS handshakes.
+      # Adding the healthy-gate prevents a restart-loop race where observability boots
+      # seconds before nats finishes loading certs.
+      nats:
         condition: service_healthy
       # WS10: ADR-016 Phase E Phase 1 — schema pre-applied by aqua-db-migrate.
       db-migrate:
         condition: service_completed_successfully
+    volumes:
+      # Per-service mTLS client cert + CA bundle — cert CN `observability_service`
+      # is the NATS user identity (verify_and_map in nats.conf).
+      - *nats-ca-mount
+      - *nats-clients-mount
     # Attached to aqua-internal only — no published ports, not reachable from external network
     networks:
       - aqua-internal

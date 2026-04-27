@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common';
+import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 
 import {
   PlcConnection,
@@ -454,8 +454,9 @@ export class PlcConnectionService {
   /**
    * Validate OPC UA endpoint URL.
    * Blocks private/loopback IP addresses to prevent SSRF.
-   * Note: only numeric IPs are blocked here; hostname-to-IP resolution
-   * would require async DNS lookup and is deferred to network policy.
+   * Note: only numeric IPs are blocked at this layer; hostname-to-IP
+   * resolution is enforced at the network policy / egress-firewall
+   * layer (keeps this validator synchronous).
    */
   private validateEndpointUrl(url: string): void {
     if (!url.startsWith('opc.tcp://')) {

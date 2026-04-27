@@ -22,7 +22,7 @@ import {
   OneToMany,
   JoinColumn,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import {
   ObjectType,
   Field,
@@ -73,7 +73,7 @@ export type {
 
 @ObjectType()
 @Directive('@key(fields: "id")')
-@Entity('batches_v2')
+@Entity('batches_v2', { schema: 'farm' })
 @Index(['tenantId', 'batchNumber'], { unique: true })
 @Index(['tenantId', 'speciesId'])
 @Index(['tenantId', 'status'])

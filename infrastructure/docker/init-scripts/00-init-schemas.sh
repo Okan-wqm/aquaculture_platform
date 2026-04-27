@@ -248,6 +248,108 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
   ALTER DEFAULT PRIVILEGES IN SCHEMA admin GRANT ALL ON SEQUENCES TO ${POSTGRES_USER};
   ALTER DEFAULT PRIVILEGES IN SCHEMA observability GRANT ALL ON SEQUENCES TO ${POSTGRES_USER};
   ALTER DEFAULT PRIVILEGES IN SCHEMA event_store GRANT ALL ON SEQUENCES TO ${POSTGRES_USER};
+
+  -- Shared schema grants (cross-service write surface, ADR-011)
+  -- Source-of-truth: SHARED_SCHEMA_TABLES in this codegen + spec
+  CREATE SCHEMA IF NOT EXISTS shared AUTHORIZATION ${POSTGRES_USER};
+
+  GRANT USAGE ON SCHEMA shared TO auth_service;
+  GRANT USAGE ON SCHEMA shared TO farm_service;
+  GRANT USAGE ON SCHEMA shared TO sensor_service;
+  GRANT USAGE ON SCHEMA shared TO hr_service;
+  GRANT USAGE ON SCHEMA shared TO messaging_service;
+  GRANT USAGE ON SCHEMA shared TO hydroponics_service;
+  GRANT USAGE ON SCHEMA shared TO alert_service;
+  GRANT USAGE ON SCHEMA shared TO billing_service;
+  GRANT USAGE ON SCHEMA shared TO notification_service;
+  GRANT USAGE ON SCHEMA shared TO ai_service;
+  GRANT USAGE ON SCHEMA shared TO admin_service;
+  GRANT USAGE ON SCHEMA shared TO observability_service;
+  GRANT USAGE ON SCHEMA shared TO event_store_service;
+
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.audit_logs TO auth_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.audit_logs TO farm_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.audit_logs TO sensor_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.audit_logs TO hr_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.audit_logs TO messaging_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.audit_logs TO hydroponics_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.audit_logs TO alert_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.audit_logs TO billing_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.audit_logs TO notification_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.audit_logs TO ai_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.audit_logs TO admin_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.audit_logs TO observability_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.audit_logs TO event_store_service;
+
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.gdpr_data_requests TO auth_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.gdpr_data_requests TO farm_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.gdpr_data_requests TO sensor_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.gdpr_data_requests TO hr_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.gdpr_data_requests TO messaging_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.gdpr_data_requests TO hydroponics_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.gdpr_data_requests TO alert_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.gdpr_data_requests TO billing_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.gdpr_data_requests TO notification_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.gdpr_data_requests TO ai_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.gdpr_data_requests TO admin_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.gdpr_data_requests TO observability_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.gdpr_data_requests TO event_store_service;
+
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_consents TO auth_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_consents TO farm_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_consents TO sensor_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_consents TO hr_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_consents TO messaging_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_consents TO hydroponics_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_consents TO alert_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_consents TO billing_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_consents TO notification_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_consents TO ai_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_consents TO admin_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_consents TO observability_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_consents TO event_store_service;
+
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_permissions TO auth_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_permissions TO farm_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_permissions TO sensor_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_permissions TO hr_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_permissions TO messaging_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_permissions TO hydroponics_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_permissions TO alert_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_permissions TO billing_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_permissions TO notification_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_permissions TO ai_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_permissions TO admin_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_permissions TO observability_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON shared.user_permissions TO event_store_service;
+
+  ALTER DEFAULT PRIVILEGES IN SCHEMA shared GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO auth_service;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA shared GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO farm_service;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA shared GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO sensor_service;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA shared GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO hr_service;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA shared GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO messaging_service;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA shared GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO hydroponics_service;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA shared GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO alert_service;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA shared GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO billing_service;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA shared GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO notification_service;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA shared GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ai_service;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA shared GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO admin_service;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA shared GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO observability_service;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA shared GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO event_store_service;
+
+  ALTER DEFAULT PRIVILEGES IN SCHEMA shared GRANT USAGE, SELECT ON SEQUENCES TO auth_service;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA shared GRANT USAGE, SELECT ON SEQUENCES TO farm_service;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA shared GRANT USAGE, SELECT ON SEQUENCES TO sensor_service;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA shared GRANT USAGE, SELECT ON SEQUENCES TO hr_service;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA shared GRANT USAGE, SELECT ON SEQUENCES TO messaging_service;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA shared GRANT USAGE, SELECT ON SEQUENCES TO hydroponics_service;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA shared GRANT USAGE, SELECT ON SEQUENCES TO alert_service;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA shared GRANT USAGE, SELECT ON SEQUENCES TO billing_service;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA shared GRANT USAGE, SELECT ON SEQUENCES TO notification_service;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA shared GRANT USAGE, SELECT ON SEQUENCES TO ai_service;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA shared GRANT USAGE, SELECT ON SEQUENCES TO admin_service;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA shared GRANT USAGE, SELECT ON SEQUENCES TO observability_service;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA shared GRANT USAGE, SELECT ON SEQUENCES TO event_store_service;
   # END GENERATED — schema-registry
 
   -- gateway-api is stateless today but reserves a `gateway` schema for

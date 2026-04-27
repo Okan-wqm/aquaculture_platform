@@ -21,17 +21,39 @@ import {
   ReferenceDot,
   ComposedChart,
 } from 'recharts';
-// Engine imports
-import { alkMgToMeq, CalculatedOutputs } from './engine/types';
-import { calcDicOfAlk, calcCo2OfDic, co2MmToMg } from './engine/water-quality';
+// Engine imports — consolidated from libs/aquaculture-engines/water-chemistry
+// per ADR-028 (lib-creation rubric): this is a pure-algorithm module with a
+// backend consumer (ai-service) + web consumer (farm-module), so the canonical
+// home is the shared lib. The `./engine/*` copies were removed under
+// AUDIT-HIGH-004 of the 2026-04-22 cold audit.
 import {
-  generateH2SvsPHData, generateUIAvsPHData,
-  criticalPHforNH3, percentNH3, calcNH3, calcSafeTAN, uiaStatus,
-  criticalPHforH2S, calcH2S, calcTotalSulfide, calcSafeTotalSulfide, h2sStatus,
-} from './engine/ammonia-calc';
-import { criticalPHforCO2, generateCarbonateVsPHData, generateSaturationVsPHData } from './engine/co2-calc';
-import { generateDeffeyesChartData } from './engine/deffeyes-data';
-import { calculateDosingRecipes, reagentDirectionLine, calcDosingVisualization, REAGENTS, calcForwardDosing } from './engine/reagents';
+  alkMgToMeq,
+  CalculatedOutputs,
+  calcDicOfAlk,
+  calcCo2OfDic,
+  co2MmToMg,
+  generateH2SvsPHData,
+  generateUIAvsPHData,
+  criticalPHforNH3,
+  percentNH3,
+  calcNH3,
+  calcSafeTAN,
+  uiaStatus,
+  criticalPHforH2S,
+  calcH2S,
+  calcTotalSulfide,
+  calcSafeTotalSulfide,
+  h2sStatus,
+  criticalPHforCO2,
+  generateCarbonateVsPHData,
+  generateSaturationVsPHData,
+  generateDeffeyesChartData,
+  calculateDosingRecipes,
+  reagentDirectionLine,
+  calcDosingVisualization,
+  REAGENTS,
+  calcForwardDosing,
+} from '@platform/aquaculture-engines';
 
 // Component imports
 import InputPanel, { WaterChemistryInputs } from './components/InputPanel';

@@ -5,6 +5,7 @@ import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConflictException, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { CreateChemicalCommand } from '../commands/create-chemical.command';
 import { Chemical, ChemicalStatus } from '../entities/chemical.entity';
 import { ChemicalSite } from '../entities/chemical-site.entity';
@@ -62,8 +63,8 @@ export class CreateChemicalHandler implements ICommandHandler<CreateChemicalComm
     }
 
     const savedChemical = await this.chemicalRepository.manager.transaction(async (manager) => {
-      const chemicalRepo = manager.getRepository(Chemical);
-      const chemicalSiteRepo = manager.getRepository(ChemicalSite);
+      const chemicalRepo = tenantManagerRepo(manager, Chemical, tenantId);
+      const chemicalSiteRepo = tenantManagerRepo(manager, ChemicalSite, tenantId);
 
       // Create chemical entity - aligned with Chemical entity and CreateChemicalInput
       const chemical = chemicalRepo.create({

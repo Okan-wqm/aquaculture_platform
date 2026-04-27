@@ -247,6 +247,7 @@ export class AuditedOperationInterceptor implements NestInterceptor {
     } else {
       // No transaction available — write directly but AWAIT the result.
       // This is still better than fire-and-forget because failures propagate.
+      // eslint-disable-next-line no-restricted-syntax -- AuditLogEntity lives in the cross-tenant `shared` schema (one of the 4 canonical SHARED_SCHEMA_TABLES per ADR-011 / W1 audit). Every audit row carries its own tenantId scoped from the request context BEFORE this interceptor runs (see auditEntry construction above). Wrapping with tenantManagerRepo would inject the request's tenantId AGAIN onto a row that already carries the correctly-resolved one — redundant at best, wrong if the request scope differs from the audit row's intended scope (cross-tenant admin paths).
       await this.dataSource.getRepository(AuditLogEntity).save(auditEntry);
     }
   }

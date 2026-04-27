@@ -10,7 +10,7 @@ import {
   Index,
   VersionColumn,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import { registerEnumType } from '@nestjs/graphql';
 
 export enum StorageItemType {
@@ -25,7 +25,7 @@ registerEnumType(StorageItemType, {
   description: 'Type of item in storage',
 });
 
-@Entity('storage_inventory')
+@Entity('storage_inventory', { schema: 'farm' })
 @Index(['tenantId', 'storageLocationId', 'itemType', 'itemId', 'lotNumber'], { unique: true })
 @Index(['itemType', 'itemId'])
 export class StorageInventory {
@@ -57,6 +57,20 @@ export class StorageInventory {
 
   @Column({ type: 'date', nullable: true, name: 'expiry_date' })
   expiryDate?: Date;
+
+  /**
+   * Wall-clock moment this specific lot landed in this location.
+   * Phase 1.3 FEFO hardening ordered picks by
+   *   (expiryDate ASC, receivedDate ASC, lotNumber ASC)
+   * to produce a deterministic pick even when two lots share an
+   * expiry date. The handler and event-bus FEFO path both reference
+   * this column, so an unset value would break the order-by even if
+   * it parsed. Defaults to NOW() at the database level so rows that
+   * predate this migration still sort stably (older rows → older
+   * timestamps = preferred first, matching FEFO's intent).
+   */
+  @Column({ type: 'timestamptz', nullable: true, name: 'received_date' })
+  receivedDate?: Date;
 
   @Column({ type: 'text', nullable: true })
   notes?: string;

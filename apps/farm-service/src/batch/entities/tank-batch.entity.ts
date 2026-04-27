@@ -21,7 +21,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import {
   ObjectType,
   Field,
@@ -75,7 +75,7 @@ export interface CleanerFishDetail {
 // ============================================================================
 
 @ObjectType()
-@Entity('tank_batches')
+@Entity('tank_batches', { schema: 'farm' })
 @Index(['tenantId', 'tankId'], { unique: true })
 @Index(['tenantId', 'primaryBatchId'])
 export class TankBatch {

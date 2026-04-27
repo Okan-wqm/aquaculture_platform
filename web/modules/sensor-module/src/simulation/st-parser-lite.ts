@@ -42,7 +42,7 @@ import type {
   UnaryOperator,
   SourceLocation,
   NamedArgument,
-} from './st-ast-types';
+} from '@platform/sensor-automation-types';
 
 // ════════════════════════════════════════════════════════════════════════════
 // Public API

@@ -9,19 +9,19 @@ import {
 import { APP_FILTER, APP_GUARD, Reflector } from '@nestjs/core';
 import { join } from 'path';
 import { Request } from 'express';
+import { GraphQLError } from 'graphql';
 import depthLimit from 'graphql-depth-limit';
 import {
-  TenantContextMiddleware,
-  CorrelationIdMiddleware,
-  RequestContextMiddleware,
-  TenantGuard,
-  RolesGuard,
-  UserContextMiddleware,
-  SourceSchemaBootstrapService,
-  ServiceIdentityGuard,
-  ThrottlerModule,
-  PlatformJwtModule,
-} from '@aquaculture/backend-common';
+  fieldExtensionsEstimator,
+  getComplexity,
+  simpleEstimator,
+} from 'graphql-query-complexity';
+import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
+import { SourceSchemaBootstrapService } from '@aquaculture/backend-common/database';
+import { TenantGuard, RolesGuard, ServiceIdentityGuard } from '@aquaculture/backend-common/guards';
+import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
+import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware } from '@aquaculture/backend-common/middleware';
+import { ThrottlerModule } from '@aquaculture/backend-common/security';
 
 /**
  * Extended request interface for GraphQL context
@@ -32,7 +32,8 @@ interface GraphQLContextRequest extends Request {
     roles: string[];
   };
 }
-import { createTenantSchemaMiddleware, createTenantConnectionBootstrap, TenantSchemaSyncService, SourceSchemaWriteGuardService, RlsModule, SchemaDriftModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common';
+import { createTenantConnectionBootstrap, TenantSchemaSyncService, SourceSchemaWriteGuardService, RlsModule, SchemaDriftModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common/database';
+import { createTenantSchemaMiddleware } from '@aquaculture/backend-common/middleware';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('farm');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('farm');
 import { WatchdogCronService } from './infrastructure/watchdog-cron.service';
@@ -41,6 +42,14 @@ import { EventEmitterModule } from '@nestjs/event-emitter';
 import { CqrsModule } from '@platform/cqrs';
 import { EventBusModule } from '@platform/event-bus';
 import { DatabaseModule } from './database/database.module';
+import { FarmMetricsModule } from './common/metrics/farm-metrics.module';
+import { FarmAppErrorFilter } from './common/errors/farm-app-error.filter';
+import { CacheableModule } from './common/cache/cacheable.module';
+import { JsonbPatchModule } from './common/jsonb/jsonb-patch.module';
+import { ComplianceModule } from './compliance/compliance.module';
+import { StorageModule } from '@platform/storage';
+import type { StorageConfig } from '@platform/storage';
+import { PermissionMatrixGuard } from './common/authz/permission-matrix.guard';
 import { FarmOutboxModule } from './outbox/farm-outbox.module';
 import { FarmModule } from './farm/farm.module';
 import { HealthModule } from './health/health.module';
@@ -151,6 +160,7 @@ import { AddFarmOutboxLeaseColumns1782000000000 } from './database/migrations/17
 // row. Drops median enqueue-to-publish latency from ~500ms (cron
 // cadence) to ~5ms.
 import { AddFarmOutboxNotifyTrigger1782100000000 } from './database/migrations/1782100000000-AddFarmOutboxNotifyTrigger';
+import { AddFarmOutboxModernColumns1786200000000 } from './database/migrations/1786200000000-AddFarmOutboxModernColumns';
 
 @Module({
   imports: [
@@ -200,7 +210,21 @@ import { AddFarmOutboxNotifyTrigger1782100000000 } from './database/migrations/1
             ConvertAuditColumnsToTimestamptz1781900000000,
             AddFarmOutboxLeaseColumns1782000000000,
             AddFarmOutboxNotifyTrigger1782100000000,
+            AddFarmOutboxModernColumns1786200000000,
           ],
+          // INFRA-CRITICAL-020 contract: env-aware migration timing.
+          // - Production: DATABASE_MIGRATIONS_RUN=false (default). The
+          //   aqua-db-migrate container runs migrations BEFORE service
+          //   containers start, so this service's TypeORM does NOT touch
+          //   the migration table at boot — MigrationRunnerService below
+          //   verifies the schema is healthy and proceeds.
+          // - E2E tests: harness sets DATABASE_MIGRATIONS_RUN=true so
+          //   TypeORM runs migrations at DataSource init — BEFORE the
+          //   SourceSchemaBootstrapService onApplicationBootstrap hook
+          //   fires, which would otherwise hard-fail on an empty source
+          //   schema (INFRA-CRITICAL-009, INFRA-CRITICAL-020).
+          migrationsRunFromEnv: (cs) =>
+            cs.get<string>('DATABASE_MIGRATIONS_RUN', 'false') === 'true',
         }),
     }),
 
@@ -221,6 +245,69 @@ import { AddFarmOutboxNotifyTrigger1782100000000 } from './database/migrations/1
          * that causes exponential resource consumption on the server.
          */
         validationRules: [depthLimit(10)],
+        /**
+         * Phase 5.4 of the "Farm modülü kalan kör noktalar" plan.
+         * depthLimit rejects queries that NEST too deeply but does
+         * nothing against wide queries: a single-level selection with
+         * 200 fields or a paginated list with `first: 10000` slips
+         * through depth 1 and still exhausts the server.
+         *
+         * graphql-query-complexity adds a per-field cost model and
+         * rejects queries whose total cost exceeds the threshold.
+         *   - `simpleEstimator` assigns every field a cost of 1.
+         *   - `fieldExtensionsEstimator` lets individual resolvers
+         *     override their cost via `@ComplexityField({ value: N })`
+         *     or similar — paginated list resolvers should multiply
+         *     by the caller's `first` argument so a 1000-item page
+         *     costs roughly 1000 even when the row shape is flat.
+         *
+         * Threshold is env-configurable via
+         * `FARM_GRAPHQL_MAX_COMPLEXITY` (default 1000 — matches the
+         * pattern used in hr-service / messaging-service / sensor-
+         * service / hydroponics-service / ai-service). A rejected
+         * query returns a `QUERY_TOO_COMPLEX` error with the
+         * computed cost surfaced in `extensions.cost` so operators
+         * can tune their queries rather than guess.
+         */
+        plugins: [
+          {
+            requestDidStart: async () => ({
+              async didResolveOperation({ request, document, schema }) {
+                const rawLimit = configService.get<number | string>(
+                  'FARM_GRAPHQL_MAX_COMPLEXITY',
+                  1000,
+                );
+                const parsed = typeof rawLimit === 'string' ? Number(rawLimit) : rawLimit;
+                const maxComplexity =
+                  typeof parsed === 'number' && Number.isFinite(parsed) && parsed > 0
+                    ? parsed
+                    : 1000;
+                const complexity = getComplexity({
+                  schema,
+                  operationName: request.operationName,
+                  query: document,
+                  variables: request.variables,
+                  estimators: [
+                    fieldExtensionsEstimator(),
+                    simpleEstimator({ defaultComplexity: 1 }),
+                  ],
+                });
+                if (complexity > maxComplexity) {
+                  throw new GraphQLError(
+                    `Query too complex: ${complexity}. Maximum allowed: ${maxComplexity}`,
+                    {
+                      extensions: {
+                        code: 'QUERY_TOO_COMPLEX',
+                        cost: complexity,
+                        maxCost: maxComplexity,
+                      },
+                    },
+                  );
+                }
+              },
+            }),
+          },
+        ],
         playground: configService.get('NODE_ENV') !== 'production',
         // SECURITY: Disable introspection in production
         introspection: configService.get('NODE_ENV') !== 'production',
@@ -313,6 +400,67 @@ import { AddFarmOutboxNotifyTrigger1782100000000 } from './database/migrations/1
     // Database module (audit, code generation, migration runner)
     DatabaseModule,
 
+    // Domain Prometheus metrics — phase 5.3. Registers
+    // FarmDomainMetricsService (counters + histograms) and the
+    // APP_INTERCEPTOR that auto-records every GraphQL resolver call.
+    FarmMetricsModule,
+
+    // Systematic @Cacheable interceptor — phase 7.3. Read-through
+    // Redis caching for any resolver/service method decorated with
+    // @Cacheable. Tenant-scoped keys by default; operators tune
+    // TTL per call site.
+    CacheableModule,
+
+    // Targeted jsonb_set UPDATE helper — phase 5.7. Lets
+    // concurrent handlers patch DIFFERENT keys of the same JSONB
+    // column without tripping each other's @VersionColumn.
+    JsonbPatchModule,
+
+    // GDPR primitives — phase 6.3. Tenant export (right-of-access)
+    // and two-step erasure (right-to-erasure) with audit-row
+    // anonymisation. Platform-wide fan-out + event emission live
+    // in admin-api + libs/event-contracts (phase 6.3.1).
+    ComplianceModule,
+
+    // @platform/storage — MinIO/S3 client + file upload security
+    // + orphan cleanup service. Farm-service owns the domain
+    // references (BatchDocument.storagePath, Chemical.documents[].url)
+    // so the nightly cleanup cron lives here too. Fail-fast on
+    // missing credentials in production; dev defaults in non-prod.
+    StorageModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService): StorageConfig => {
+        const nodeEnv = configService.get<string>('NODE_ENV', 'development');
+        const isProduction = nodeEnv === 'production';
+        const accessKey = configService.get<string>('MINIO_ACCESS_KEY', '');
+        const secretKey = configService.get<string>('MINIO_SECRET_KEY', '');
+        if (isProduction && (!accessKey || !secretKey)) {
+          throw new Error(
+            'CRITICAL: MINIO_ACCESS_KEY and MINIO_SECRET_KEY must be ' +
+              'explicitly configured in production. Farm-service startup ' +
+              'aborted to prevent use of default credentials.',
+          );
+        }
+        const rawPort = configService.get<string | number>('MINIO_PORT');
+        const port =
+          typeof rawPort === 'string' && rawPort.length > 0
+            ? Number(rawPort)
+            : typeof rawPort === 'number'
+              ? rawPort
+              : undefined;
+        return {
+          endpoint: configService.get<string>('MINIO_ENDPOINT', 'localhost'),
+          port,
+          useSSL: configService.get<string>('MINIO_USE_SSL', 'false') === 'true',
+          accessKey: accessKey || 'minioadmin',
+          secretKey: secretKey || 'minioadmin',
+          bucket: configService.get<string>('MINIO_BUCKET', 'farm-uploads'),
+          region: configService.get<string>('MINIO_REGION', 'us-east-1'),
+        };
+      },
+    }),
+
     // Transactional outbox for reliable event publishing
     // (handlers enqueue → OutboxWorkerService polls → NATS publish)
     FarmOutboxModule,
@@ -379,10 +527,19 @@ import { AddFarmOutboxNotifyTrigger1782100000000 } from './database/migrations/1
     SchemaDriftModule.forRoot({ serviceName: 'farm' }),
   ],
   providers: [
-    // Global exception filter
+    // Phase 6.4 — domain error filter runs BEFORE the generic
+    // GlobalExceptionFilter. NestJS invokes filters in reverse
+    // registration order so the FarmAppErrorFilter needs to come
+    // AFTER GlobalExceptionFilter in the array to be picked first
+    // for FarmAppError subclasses. Non-FarmAppError exceptions
+    // fall through untouched to the generic filter.
     {
       provide: APP_FILTER,
       useClass: GlobalExceptionFilter,
+    },
+    {
+      provide: APP_FILTER,
+      useClass: FarmAppErrorFilter,
     },
     // SECURITY: Service identity guard - validates HMAC-signed service identity headers
     // Must be FIRST guard (before tenant/roles) to verify request origin
@@ -406,6 +563,17 @@ import { AddFarmOutboxNotifyTrigger1782100000000 } from './database/migrations/1
       useFactory: (reflector: Reflector): RolesGuard =>
         new RolesGuard(reflector),
       inject: [Reflector],
+    },
+    // Phase 6.1.2 — fail-closed permission-matrix guard. Rejects
+    // any GraphQL @Mutation / @Query whose operation name is not
+    // present in permission-matrix.ts. Grandfathered operations
+    // (UNGATED_OPERATIONS) pass; unknown ones return 403. This is
+    // the runtime counterpart to the build-time invariant test —
+    // together they make "new mutation without matrix entry" a
+    // zero-time-to-detect regression.
+    {
+      provide: APP_GUARD,
+      useClass: PermissionMatrixGuard,
     },
     // Bootstrap source schema tables on startup (creates template tables if missing)
     SourceSchemaBootstrapService,

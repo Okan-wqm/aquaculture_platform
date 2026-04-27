@@ -34,6 +34,7 @@ import { Equipment, EquipmentStatus } from '../../equipment/entities/equipment.e
 import { Tank, TankStatus } from '../../tank/entities/tank.entity';
 import { EquipmentType } from '../../equipment/entities/equipment-type.entity';
 import { findTankOrEquipmentWithManager, TankLookupResult } from '../utils/tank-lookup.util';
+import { TankCapacityService } from '../../tank/services/tank-capacity.service';
 
 // Note: TransferResult interface kept for internal tracking but handler returns Batch for GraphQL compatibility
 export interface TransferResult {
@@ -65,6 +66,7 @@ export class TransferBatchHandler implements ICommandHandler<TransferBatchComman
     @InjectRepository(EquipmentType)
     private readonly equipmentTypeRepository: Repository<EquipmentType>,
     private readonly outboxPublisher: OutboxPublisher,
+    private readonly tankCapacityService: TankCapacityService,
   ) {}
 
   async execute(command: TransferBatchCommand): Promise<Batch> {
@@ -141,10 +143,28 @@ export class TransferBatchHandler implements ICommandHandler<TransferBatchComman
 
       const biomassKg = (payload.quantity * avgWeightG) / 1000;
 
-      if (!payload.skipCapacityCheck && !destinationTank.hasCapacityFor(biomassKg)) {
-        throw new BadRequestException(
-          `Hedef tank ${destinationTank.code} kapasitesi yetersiz`
-        );
+      // LIFE-SAFETY: destination tank capacity check.
+      // Centralised in TankCapacityService — the status/biomass/density
+      // invariant is enforced from a single implementation across
+      // allocate / transfer / deploy. Hard mode: transferring into a
+      // stocked tank must not breach welfare limits, period (no admin
+      // override path on transfer because the caller has an obvious
+      // alternative: split the transfer or use the GRADING/HARVEST
+      // flow). skipCapacityCheck is honoured for the pre-existing
+      // escape hatch used by internal reconciliation jobs.
+      if (!payload.skipCapacityCheck) {
+        const destTankBatch = await queryRunner.manager.findOne(TankBatch, {
+          where: { tenantId, tankId: payload.destinationTankId },
+        });
+        this.tankCapacityService.enforce({
+          mode: 'hard',
+          equipment: destinationTank,
+          existing: {
+            salmonBiomassKg: Number(destinationTank.currentBiomass || 0),
+            cleanerBiomassKg: Number(destTankBatch?.cleanerFishBiomassKg || 0),
+          },
+          incomingBiomassKg: biomassKg,
+        });
       }
 
       const transferDate = payload.transferredAt || new Date();
@@ -374,7 +394,13 @@ export class TransferBatchHandler implements ICommandHandler<TransferBatchComman
       where: { tenantId, tankId },
     });
 
-    const equipment = await manager.findOne(Equipment, { where: { id: tankId } });
+    // Scope by tenantId on every lookup — `tankId` arrived from a
+    // tenant-scoped caller but the discipline is that every findOne
+    // carries its tenant filter so a future caller refactor can't
+    // silently strip the isolation boundary.
+    const equipment = await manager.findOne(Equipment, {
+      where: { id: tankId, tenantId },
+    });
     const effectiveVolume = equipment?.volume || 0;
 
     if (!tankBatch && quantityDelta > 0) {

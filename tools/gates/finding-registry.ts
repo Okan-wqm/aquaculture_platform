@@ -52,10 +52,37 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+// ESM module with .js extension — ts-node in this CLI runs in ESM
+// mode (finding-registry.ts uses import.meta.url above), so the
+// specifier needs the explicit file extension. The Jest invariant
+// test uses the same module via ts-jest with different interop and
+// omits the extension there.
+import Ajv2020Mod, { type ValidateFunction } from 'ajv/dist/2020.js';
+const Ajv2020 = (Ajv2020Mod as unknown as { default?: typeof Ajv2020Mod }).default ?? Ajv2020Mod;
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const REGISTRY_PATH = resolve(REPO_ROOT, 'docs', 'reviews', '_registry', 'findings.jsonl');
+const SCHEMA_PATH = resolve(REPO_ROOT, 'docs', 'reviews', '_registry', 'findings.jsonl.schema.json');
 const ZERO_HASH = '0'.repeat(64);
+
+/**
+ * Ajv-compiled validator for the finding schema. Compiled once at
+ * first-use; exits 1 if the stub fails validation. This is the
+ * add-time half of the Tier-1 defence (companion to the
+ * finding-registry-integrity Jest invariant that validates the whole
+ * ledger in CI). Before this existed, historical seed scripts wrote
+ * entries with free-text evidence and over-long titles that violated
+ * the schema; those entries survived until the invariant ran post-hoc.
+ * Now every append is schema-checked before the hash chain advances.
+ */
+let cachedValidator: ValidateFunction | null = null;
+function loadStubValidator(): ValidateFunction {
+  if (cachedValidator) return cachedValidator;
+  const schema = JSON.parse(readFileSync(SCHEMA_PATH, 'utf8')) as object;
+  const ajv = new Ajv2020({ allErrors: true, strict: false });
+  cachedValidator = ajv.compile(schema);
+  return cachedValidator;
+}
 
 /**
  * Finding schema mirror — narrow to what the CLI touches. The canonical
@@ -241,9 +268,25 @@ function cmdAdd(stubPath: string): number {
     owner_user: stub.owner_user ?? null,
     override_of: stub.override_of ?? null,
     notes: stub.notes ?? '',
+    ...(stub.narrative ? { narrative: stub.narrative } : {}),
     prev_hash: ZERO_HASH, // fixed by rechain
     content_hash: ZERO_HASH, // fixed by rechain
   };
+
+  // Schema validation BEFORE rechain: reject malformed stubs at the
+  // earliest point. The prev_hash/content_hash placeholders match the
+  // schema's pattern rule (64-hex OR 64-zero), so validation can run
+  // pre-rechain. This guarantees no schema-violating entry ever hits
+  // the JSONL — the invariant test becomes a belt-and-suspenders
+  // check rather than the primary defence.
+  const validate = loadStubValidator();
+  if (!validate(newEntry)) {
+    console.error('Stub failed schema validation:');
+    for (const err of validate.errors ?? []) {
+      console.error(`  ${err.instancePath || '<root>'}: ${err.message} (${err.keyword})`);
+    }
+    return 1;
+  }
 
   entries.push(newEntry);
   rechain(entries, entries.length - 1);
@@ -553,16 +596,178 @@ function cmdList(args: readonly string[]): number {
   return 0;
 }
 
+function cmdRechainFrom(startIdxRaw: string | undefined): number {
+  // Merge-commit helper: after a 3-way merge of `findings.jsonl`
+  // concatenates two branches' additions, the first entry of the
+  // latter branch carries a `prev_hash` pointing at an entry that
+  // is no longer its predecessor in the merged file. This
+  // subcommand re-hashes from the named index to EOF, restoring
+  // the integrity chain.
+  //
+  // Discovery path for the index: run `verify` first — on failure
+  // it prints `chain break at entry N (<id>)`. Pass N here.
+  if (!startIdxRaw) {
+    console.error(
+      'rechain-from requires a start index: finding-registry rechain-from <N>',
+    );
+    return 2;
+  }
+  const startIndex = Number.parseInt(startIdxRaw, 10);
+  if (!Number.isInteger(startIndex) || startIndex < 0) {
+    console.error(
+      `rechain-from: <N> must be a non-negative integer; got "${startIdxRaw}".`,
+    );
+    return 2;
+  }
+  const entries = loadRegistry();
+  if (startIndex >= entries.length) {
+    console.error(
+      `rechain-from: index ${startIndex} is out of range (entries=${entries.length}).`,
+    );
+    return 2;
+  }
+  rechain(entries, startIndex);
+  writeRegistry(entries);
+  const result = verify(entries);
+  if (!result.ok) {
+    console.error(
+      `rechain-from: registry is STILL invalid post-rechain: ${result.reason}`,
+    );
+    return 1;
+  }
+  console.log(
+    `rechain-from: registry integrity restored from entry ${startIndex} (total entries=${entries.length}).`,
+  );
+  return 0;
+}
+
+/**
+ * cmdDedupe — one-time cleanup of duplicate ids introduced before the
+ * add CLI's uniqueness gate existed. For every id appearing more than
+ * once, keeps the entry with the earliest created_at (tie-break: first
+ * position) and drops the rest. Rechains from the earliest dropped
+ * index; verifies post-rechain.
+ *
+ * Safety:
+ *   - Refuses to drop a duplicate whose content fields differ semantically
+ *     from its counterpart (content fields = all fields except prev_hash
+ *     and content_hash). Semantic-drift duplicates must be reconciled
+ *     by a human editor — automatic-drop would silently lose work.
+ *   - --dry-run prints what would change without touching disk.
+ *
+ * Usage:
+ *   finding-registry dedupe [--dry-run]
+ */
+function cmdDedupe(args: string[]): number {
+  const dryRun = args.includes('--dry-run');
+  const entries = loadRegistry();
+  if (entries.length === 0) {
+    console.log('dedupe: registry is empty, nothing to do.');
+    return 0;
+  }
+
+  // Group indices by id.
+  const byId = new Map<string, number[]>();
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    if (!entry) continue;
+    const list = byId.get(entry.id) ?? [];
+    list.push(i);
+    byId.set(entry.id, list);
+  }
+
+  // Collect indices to drop (sorted descending so splice works without shifting).
+  const toDrop: number[] = [];
+  const semanticConflicts: { id: string; indices: number[] }[] = [];
+  let firstDropIndex = entries.length;
+
+  for (const [id, indices] of byId) {
+    if (indices.length < 2) continue;
+
+    const keepers = indices.map((i) => entries[i]!);
+    // Detect semantic drift: compare content fields (strip prev_hash + content_hash).
+    const canonicals = keepers.map((e) => {
+      const { prev_hash: _p, content_hash: _c, ...rest } = e;
+      return canonicalJson(rest);
+    });
+    const allIdentical = canonicals.every((c) => c === canonicals[0]);
+    if (!allIdentical) {
+      semanticConflicts.push({ id, indices });
+      continue;
+    }
+
+    // Pick the winner: earliest created_at, tie-break on first index.
+    let winnerIdx = indices[0]!;
+    let winner = entries[winnerIdx]!;
+    for (const i of indices.slice(1)) {
+      const candidate = entries[i]!;
+      if (candidate.created_at < winner.created_at) {
+        winner = candidate;
+        winnerIdx = i;
+      }
+    }
+    for (const i of indices) {
+      if (i !== winnerIdx) {
+        toDrop.push(i);
+        if (i < firstDropIndex) firstDropIndex = i;
+      }
+    }
+  }
+
+  if (semanticConflicts.length > 0) {
+    console.error(
+      `dedupe: ${semanticConflicts.length} duplicate id(s) have semantic drift and CANNOT be auto-dropped:`,
+    );
+    for (const c of semanticConflicts) {
+      console.error(
+        `  - ${c.id}: indices [${c.indices.join(', ')}] differ in content; manual reconcile required.`,
+      );
+    }
+    return 1;
+  }
+
+  if (toDrop.length === 0) {
+    console.log('dedupe: no duplicates found; registry is already clean.');
+    return 0;
+  }
+
+  console.log(`dedupe: ${toDrop.length} duplicate row(s) will be removed.`);
+  console.log(`dedupe: affected ids: ${[...byId.entries()].filter(([, v]) => v.length > 1).map(([k]) => k).join(', ')}`);
+  console.log(`dedupe: earliest removal position: ${firstDropIndex}`);
+
+  if (dryRun) {
+    console.log('dedupe: --dry-run mode, not writing.');
+    return 0;
+  }
+
+  // Splice highest-index first so earlier indices stay stable.
+  toDrop.sort((a, b) => b - a);
+  for (const i of toDrop) entries.splice(i, 1);
+
+  rechain(entries, firstDropIndex);
+  const result = verify(entries);
+  if (!result.ok) {
+    console.error(`dedupe: post-rechain verify FAILED: ${result.reason}`);
+    return 1;
+  }
+  writeRegistry(entries);
+  console.log(`dedupe: done. Registry is now ${entries.length} entries, chain tip:`);
+  console.log(entries[entries.length - 1]?.content_hash ?? '(empty)');
+  return 0;
+}
+
 function main(): void {
   const [, , sub, ...args] = process.argv;
   if (!sub) {
-    console.error('Usage: finding-registry <verify|add|close|sweep|export|list> [args]');
+    console.error('Usage: finding-registry <verify|add|close|sweep|export|list|rechain-from|dedupe> [args]');
     console.error('  verify');
     console.error('  add <stub.json>');
     console.error('  close <finding-id> <short-sha>');
     console.error('  sweep [--dry-run] [--stale-after=<days>]');
     console.error('  export <json-array|csv>');
     console.error('  list [--state <CSV>] [--severity <CSV>] [--owner <name>] [--format table|id-only|json]');
+    console.error('  rechain-from <N>   — post-merge integrity repair (see docblock)');
+    console.error('  dedupe [--dry-run] — one-time duplicate-id cleanup (see docblock)');
     process.exit(2);
   }
 
@@ -595,6 +800,10 @@ function main(): void {
     exitCode = cmdSweep(args);
   } else if (sub === 'list') {
     exitCode = cmdList(args);
+  } else if (sub === 'rechain-from') {
+    exitCode = cmdRechainFrom(args[0]);
+  } else if (sub === 'dedupe') {
+    exitCode = cmdDedupe(args);
   } else {
     console.error(`Unknown subcommand: ${sub}`);
     process.exit(2);

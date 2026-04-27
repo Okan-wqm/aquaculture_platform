@@ -14,7 +14,8 @@ import { ConfigService } from '@nestjs/config';
 import { Interval } from '@nestjs/schedule';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, FindOptionsWhere, ILike } from 'typeorm';
-import { createStandardPaginatedResult, IStandardPaginatedResult, getTenantSchemaName } from '@aquaculture/backend-common';
+import { getTenantSchemaName } from '@aquaculture/backend-common/database';
+import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 
 import { MqttClientService } from '../shared-mqtt/mqtt-client.service';
 
@@ -1835,6 +1836,13 @@ export class EdgeDeviceService implements OnModuleDestroy {
 
     // Use transaction for atomicity — all or nothing
     const created = await this.dataSource.transaction(async (manager) => {
+      // DeviceIoConfig has NO tenantId column — its tenant scoping is
+      // inherited from the parent EdgeDevice row (authenticated via
+      // device.id above). Wrapping with tenantManagerRepo() would
+      // inject a nonexistent tenantId column and fail at INSERT time.
+      // See orphan finding ORPHAN-DIC-001 for the architectural
+      // question (should DeviceIoConfig gain a tenantId column?).
+      // eslint-disable-next-line no-restricted-syntax -- ORPHAN-DIC-001
       const ioConfigRepo = manager.getRepository(DeviceIoConfig);
       const results: DeviceIoConfig[] = [];
 

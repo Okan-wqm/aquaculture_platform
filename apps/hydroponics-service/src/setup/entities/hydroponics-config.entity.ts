@@ -11,7 +11,7 @@ import {
 } from 'typeorm';
 
 @ObjectType()
-@Entity('hydroponics_config')
+@Entity('hydroponics_config', { schema: 'hydroponics' })
 @Unique(['tenantId', 'configName'])
 export class HydroponicsConfig {
   @Field(() => ID)

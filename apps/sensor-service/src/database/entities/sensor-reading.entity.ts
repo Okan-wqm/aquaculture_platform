@@ -6,7 +6,7 @@ import {
   Index,
   CreateDateColumn,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 
 /**
  * Sensor readings JSONB structure
@@ -47,7 +47,7 @@ export class SensorReadings {
  * Optimized for ingestion rates of 10K+ readings per second across all tenants
  */
 @ObjectType()
-@Entity('sensor_readings')
+@Entity('sensor_readings', { schema: 'sensor' })
 @Index(['sensorId', 'timestamp'])
 @Index(['tenantId', 'timestamp'])
 @Index(['pondId', 'timestamp'])

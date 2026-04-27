@@ -12,6 +12,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 // Modules
 import { MaintenanceModule } from '../maintenance/maintenance.module';
+import { FileCleanupModule } from '../common/file-cleanup/file-cleanup.module';
 
 // Feeding Entities
 import { FeedingRecord } from '../feeding/entities/feeding-record.entity';
@@ -32,6 +33,8 @@ import { FeedingSchedulerService } from './feeding-scheduler.service';
     ScheduleModule,
     // Import MaintenanceModule to access MaintenanceScheduleService and SparePartService
     MaintenanceModule,
+    // Phase 6.2.3 — MinIO orphan cleanup cron
+    FileCleanupModule,
     // TypeORM repositories
     TypeOrmModule.forFeature([
       // Feeding entities

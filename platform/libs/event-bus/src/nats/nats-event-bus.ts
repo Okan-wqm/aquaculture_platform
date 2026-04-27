@@ -23,11 +23,7 @@ import {
   ConnectionOptions,
 } from 'nats';
 import * as os from 'os';
-// ADR-015: centralize NATS connection option building in the shared factory.
-// This class previously duplicated all the TLS + auth + production-warning
-// logic inline, which was the exact drift vector that the cert-is-identity
-// refactor exists to eliminate. One factory, one auth model, one code path.
-import { buildNatsConnectionOptions } from '@aquaculture/backend-common';
+import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
 import {
   IEventBus,
   IEvent,
@@ -282,6 +278,72 @@ export class NatsEventBus
     return this.connectionState === 'connected' && this.connection !== null;
   }
 
+  /**
+   * Internal accessor used by {@link NatsRequestReply} to reach the
+   * raw core-NATS connection for request-reply (which is NOT a
+   * JetStream concern — it uses the core pub/sub path).
+   *
+   * WHY this accessor exists rather than the request-reply class
+   * holding its own connection: ADR-015 mandates ONE mTLS handshake
+   * per service process. Sharing through a narrow accessor keeps
+   * the connection lifecycle owned by a single class (NatsEventBus)
+   * while letting request-reply be a peer concern in a separate
+   * file. Marked `@internal` so library consumers do not reach past
+   * the abstraction.
+   *
+   * @internal
+   */
+  getRawConnection(): NatsConnection | null {
+    return this.connection;
+  }
+
+  /**
+   * Publish via core NATS (NOT JetStream) to a subject OUTSIDE the
+   * stream filter list. Used for control-plane signals that live
+   * deliberately outside the event namespace:
+   *
+   *   - ADR-031 `policy.ingest_backend.changed` — admin-api
+   *     publishes each rollout decision change; the Rust sidecar's
+   *     `policy.ingest_backend.>` subscriber consumes via core
+   *     subscribe. Not a JetStream concern because the downstream
+   *     durability guarantee is ALREADY satisfied by the sidecar's
+   *     disk-fallback file + cold-start snapshot request-reply
+   *     against admin-api.
+   *
+   * WHY a dedicated method rather than `publishTo` + a
+   * `normalizeSubject` change — `publishTo` is JetStream-backed
+   * and adds msgID dedup + the stream's duplicate_window. A
+   * non-event subject would either fail ("no stream matches
+   * subject") or quietly escape into a sibling stream if one is
+   * added later. Segregating core-NATS publishes on their own
+   * method makes the "this is NOT a durable event" invariant
+   * load-bearing — impossible to downgrade by a refactor that
+   * renamed the subject.
+   *
+   * Core-NATS publish semantics: at-most-once delivery with no
+   * ack, no dedup, no replay. The caller is responsible for
+   * idempotency at the consumer (the sidecar's apply_change is
+   * structurally idempotent under duplicate delivery).
+   *
+   * @throws {Error} when the connection is not established — a
+   *   misconfigured boot surfaces the problem at publish rather
+   *   than silently dropping the payload.
+   */
+  async publishCore(subject: string, payload: Uint8Array): Promise<void> {
+    if (this.connection === null) {
+      throw new Error(
+        `NATS core publish to "${subject}" failed: connection not established`,
+      );
+    }
+    this.connection.publish(subject, payload);
+    // `publish` on a core NATS connection returns void synchronously
+    // — the write lands in the connection's send buffer and flushes
+    // on the next tick. Await `flush()` so the returned Promise
+    // resolves only after the broker has acknowledged receipt of
+    // the bytes (equivalent to the publish guarantee tests rely on).
+    await this.connection.flush();
+  }
+
   async getHealth(): Promise<EventBusHealth> {
     return {
       isHealthy: this.isConnected(),
@@ -366,16 +428,109 @@ export class NatsEventBus
    * events published to `events.{anyTenantId}.{eventType}` and
    * `events.system.{eventType}`.
    *
-   * Handlers that need only a single tenant's events should call
-   * `subscribeTo('events.{tenantId}.{eventType}', handler)` directly.
+   * NOTE: kept on the class so existing callers keep compiling. New consumers
+   * should call `subscribeWildcard` (semantically identical here, but the
+   * name asserts intent) or `subscribeForTenant` (per-tenant subscription).
    */
   async subscribe<TEvent extends IEvent>(
     eventType: string,
     handler: IEventHandler<TEvent>,
   ): Promise<void> {
-    // Wildcard '*' matches any single segment — all tenants and 'system'
-    const topic = `events.*.${eventType}`;
-    await this.subscribeTo(topic, handler);
+    // Wildcard '*' matches any single segment — all tenants and 'system'.
+    // Delegates through the explicit helper so there is exactly one place
+    // that constructs `events.*.{eventType}` (no string-format drift).
+    await this.subscribeWildcard(eventType, handler);
+  }
+
+  /**
+   * Subscribe to an event type ACROSS EVERY TENANT.
+   *
+   * WHAT — Builds `events.*.{eventType}` and delegates to `subscribeTo`.
+   * The wildcard `*` matches a single segment, so every per-tenant publish
+   * (`events.{tenantId}.{eventType}`) and the platform-level publish
+   * (`events.system.{eventType}`) are both captured by this one subscription.
+   *
+   * WHY explicit helper instead of letting consumers format the subject —
+   * the publisher emits exactly 3 dot-separated segments. Hand-formatting
+   * at the call site is the drift surface ORPHAN-013 documented (a 2-segment
+   * subscriber silently misses every publish; NATS matching is segment-exact,
+   * not "starts with"). Centralising the format string here makes the wrong
+   * shape impossible to write accidentally — Tier-1 "make it impossible".
+   */
+  async subscribeWildcard<TEvent extends IEvent>(
+    eventType: string,
+    handler: IEventHandler<TEvent>,
+  ): Promise<void> {
+    const subject = `events.*.${eventType}`;
+    await this.subscribeTo(subject, handler);
+  }
+
+  /**
+   * Subscribe to an event type FOR A SPECIFIC TENANT only.
+   *
+   * WHAT — Builds `events.{tenantId}.{eventType}` (literal segments, no
+   * wildcards) and delegates to `subscribeTo`. Receives ONLY that tenant's
+   * publishes — never `events.system.*` and never any other tenant's events.
+   *
+   * WHY validate tenantId at this boundary instead of trusting the caller —
+   * the subject IS the routing key. NATS `.` is the segment delimiter, `*`
+   * is the single-segment wildcard, `>` is the tail wildcard. A tenantId
+   * containing any of those metacharacters silently expands the subject to
+   * a different shape (e.g. `tenantId = "foo.bar"` → 4 segments) or matches
+   * across tenants (subject-injection). Reject obviously malformed values
+   * here so the wrong shape can never reach the broker — Tier-1 boundary
+   * defence. Full UUID validation is the caller's concern; this helper only
+   * enforces the structural invariant that the segment is a single, literal,
+   * non-empty token.
+   *
+   * @throws {TypeError} If tenantId contains NATS subject metacharacters,
+   *   whitespace, or is empty. The bad value is masked to the first 8 chars
+   *   in the error message so an attacker cannot exfiltrate the value via
+   *   error logs.
+   */
+  async subscribeForTenant<TEvent extends IEvent>(
+    eventType: string,
+    tenantId: string,
+    handler: IEventHandler<TEvent>,
+  ): Promise<void> {
+    this.assertSafeTenantSegment(tenantId);
+    const subject = `events.${tenantId}.${eventType}`;
+    await this.subscribeTo(subject, handler);
+  }
+
+  /**
+   * Reject any tenantId value that would corrupt the NATS subject shape.
+   *
+   * WHAT rejected — empty string, anything containing `.` (segment delimiter),
+   * `*` (single-segment wildcard), `>` (tail wildcard), or any whitespace
+   * (CR / LF / tab / space). These are the characters that change subject
+   * routing semantics; everything else (including hyphens, the canonical UUID
+   * form) passes through untouched.
+   *
+   * WHY mask the value in the error — error messages are forwarded to log
+   * aggregation; surfacing the full attacker-controlled string would let it
+   * exfiltrate by injecting log noise. First 8 chars is enough for a human
+   * operator to correlate with the offending caller without echoing the full
+   * payload.
+   */
+  private assertSafeTenantSegment(tenantId: string): void {
+    if (typeof tenantId !== 'string' || tenantId.length === 0) {
+      throw new TypeError(
+        `subscribeForTenant: tenantId must be a non-empty string`,
+      );
+    }
+    // /[\s.*>]/ — whitespace OR any NATS subject metacharacter
+    if (/[\s.*>]/.test(tenantId)) {
+      const masked =
+        tenantId.length > 8
+          ? `${tenantId.substring(0, 8)}…`
+          : tenantId.substring(0, 8);
+      throw new TypeError(
+        `subscribeForTenant: tenantId contains forbidden characters ` +
+          `(NATS subject metacharacters or whitespace). ` +
+          `Value (masked, first 8 chars): "${masked}"`,
+      );
+    }
   }
 
   async subscribeTo<TEvent extends IEvent>(

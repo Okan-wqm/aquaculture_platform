@@ -1,0 +1,3 @@
+libs/node-components/src/registry/NodeRegistry.ts:52:      console.warn(`NodeRegistry: Overwriting existing node type "${config.id}"`);
+libs/backend-common/src/bootstrap/safe-error-logger.ts:85:  console.error(JSON.stringify({
+libs/backend-common/src/database/nats-migration-event-sink.ts:91:        console.error(

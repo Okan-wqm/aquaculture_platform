@@ -11,9 +11,10 @@ import {
   VersionColumn,
   Index,
 } from 'typeorm';
-import { DecimalTransformer, createEncryptedColumnTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
+import { createEncryptedColumnTransformer } from '@aquaculture/backend-common/security';
 
-@Entity('farm_workers')
+@Entity('farm_workers', { schema: 'farm' })
 @Index(['tenantId', 'email'], { unique: true })
 @Index(['tenantId', 'department'])
 export class Worker {

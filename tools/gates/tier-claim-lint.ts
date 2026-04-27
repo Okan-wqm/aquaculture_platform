@@ -338,10 +338,12 @@ function report(violations: readonly Violation[]): void {
 }
 
 function main(): void {
-  const [, , modeFlag, ...args] = process.argv;
-  if (!modeFlag) {
-    console.error('Usage: ts-node tools/gates/tier-claim-lint.ts --mode=<staged|range|file> [args]');
-    process.exit(2);
+  const [, , rawModeFlag, ...args] = process.argv;
+  // Default mode for `npm run gates:all` / bare-shell invocations.
+  // CI always supplies --mode=range explicitly.
+  const modeFlag = rawModeFlag ?? '--mode=staged';
+  if (!rawModeFlag) {
+    console.error('[tier-claim-lint] no --mode supplied; defaulting to --mode=staged.');
   }
 
   const allowlist = loadAllowlistPaths();

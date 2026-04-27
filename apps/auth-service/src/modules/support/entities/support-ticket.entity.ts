@@ -68,7 +68,7 @@ registerEnumType(TicketCategory, {
  * Support tickets created by tenant admins.
  * Managed by super admins with SLA tracking.
  */
-@Entity('support_tickets')
+@Entity('support_tickets', { schema: 'auth' })
 @ObjectType()
 @Index(['tenantId', 'status'])
 @Index(['assignedTo', 'status'])

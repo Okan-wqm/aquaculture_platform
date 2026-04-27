@@ -23,7 +23,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import {
   ObjectType,
   Field,
@@ -235,7 +235,7 @@ export interface WaterQualitySnapshot {
 // ============================================================================
 
 @ObjectType()
-@Entity('health_events')
+@Entity('health_events', { schema: 'farm' })
 @Index(['tenantId', 'batchId', 'eventDate'])
 @Index(['tenantId', 'eventType', 'status'])
 @Index(['tenantId', 'eventDate'])

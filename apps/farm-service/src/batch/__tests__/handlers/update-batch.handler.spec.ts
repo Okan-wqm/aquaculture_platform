@@ -1,80 +1,175 @@
 /**
- * UpdateBatchHandler Unit Tests
+ * UpdateBatchHandler — Transactional Outbox Unit Tests
  *
- * IP-3: CQRS handler test coverage — batch field updates.
+ * Closes the final farm-service outbox gap. The handler previously
+ * did a single non-transactional save with no event. This spec
+ * pins the new architecture:
+ *
+ *   - DataSource transaction wraps findOne + save + outbox enqueue.
+ *   - `BatchMetadataUpdatedEvent` fires inside the tx with
+ *     `changedFields[]` narrowed to the touched fields.
+ *
+ * Tests (superset of the pre-existing IP-3 coverage):
+ *   1. Name change → batch name updated on save, event carries
+ *      changedFields=['name'].
+ *   2. Untouched fields preserved — notes update doesn't clobber
+ *      name.
+ *   3. NotFoundException on missing batch — no tx commit.
+ *   4. updatedBy stamped on save.
+ *   5. Target FCR change — event's newTargetFCR matches payload.
+ *   6. Empty payload — changedFields=[], event still fires (audit).
+ *   7. Outbox enqueue failure → rollback, no save committed.
  */
 import { NotFoundException } from '@nestjs/common';
+import type { DataSource, EntityManager, QueryRunner, Repository } from 'typeorm';
+
 import { UpdateBatchHandler } from '../../handlers/update-batch.handler';
 import { UpdateBatchCommand } from '../../commands/update-batch.command';
 import { Batch, BatchStatus } from '../../entities/batch.entity';
-import { createMockRepository } from '@aquaculture/testing';
+import type { OutboxPublisher } from '@platform/outbox';
 
-describe('UpdateBatchHandler', () => {
-  let handler: UpdateBatchHandler;
-  const mockBatchRepo = createMockRepository<Batch>();
+interface HarnessOpts {
+  batch?: Partial<Batch> | null;
+  enqueueImpl?: (event: unknown, em: EntityManager) => Promise<void>;
+}
 
-  beforeEach(() => {
-    jest.clearAllMocks();
-    handler = new UpdateBatchHandler(mockBatchRepo as any);
+function makeHarness(opts: HarnessOpts = {}) {
+  const batch: Partial<Batch> | null =
+    opts.batch === null
+      ? null
+      : ({
+          id: 'batch-1',
+          tenantId: 'tenant-1',
+          name: 'Old Name',
+          notes: 'Keep These Notes',
+          status: BatchStatus.GROWING,
+          fcr: { target: 1.2, isUserOverride: false, lastUpdatedAt: new Date() },
+          growthMetrics: { projections: {} },
+          isActive: true,
+          ...(opts.batch ?? {}),
+        } as unknown as Batch);
+
+  const managerFindOne = jest.fn().mockResolvedValue(batch);
+  const managerSave = jest.fn(async (_: unknown, entity: unknown) => entity);
+  const commit = jest.fn().mockResolvedValue(undefined);
+  const rollback = jest.fn().mockResolvedValue(undefined);
+  const release = jest.fn().mockResolvedValue(undefined);
+  const queryRunner: Partial<QueryRunner> = {
+    connect: jest.fn().mockResolvedValue(undefined),
+    startTransaction: jest.fn().mockResolvedValue(undefined),
+    commitTransaction: commit,
+    rollbackTransaction: rollback,
+    release,
+    manager: {
+      findOne: managerFindOne,
+      save: managerSave,
+    } as unknown as EntityManager,
+  };
+  const dataSource: Partial<DataSource> = {
+    createQueryRunner: jest.fn().mockReturnValue(queryRunner),
+  };
+
+  const enqueue = jest.fn(async (event: unknown, em: EntityManager) => {
+    if (opts.enqueueImpl) return opts.enqueueImpl(event, em);
+    return undefined;
   });
+  const outboxPublisher = { enqueue } as unknown as OutboxPublisher;
 
-  const TENANT = 'tenant-1';
-  const USER = 'user-1';
+  const batchRepository = {} as unknown as Repository<Batch>;
 
-  it('should update batch name', async () => {
-    const batch = {
-      id: 'batch-1', tenantId: TENANT, name: 'Old Name',
-      status: BatchStatus.GROWING, isActive: true,
-    } as Batch;
+  const handler = new UpdateBatchHandler(
+    batchRepository,
+    dataSource as DataSource,
+    outboxPublisher,
+  );
 
-    mockBatchRepo.findOne.mockResolvedValueOnce(batch);
-    mockBatchRepo.save.mockImplementation((b) => Promise.resolve(b as Batch));
+  return { handler, enqueue, commit, rollback, managerSave };
+}
 
-    const result = await handler.execute(
-      new UpdateBatchCommand(TENANT, 'batch-1', { name: 'New Name' }, USER),
-    );
+const TENANT = 'tenant-1';
+const USER = 'user-1';
+
+function makeCommand(
+  payload: ConstructorParameters<typeof UpdateBatchCommand>[2],
+) {
+  return new UpdateBatchCommand(TENANT, 'batch-1', payload, USER);
+}
+
+describe('UpdateBatchHandler — transactional outbox', () => {
+  it('updates the batch name and emits BatchMetadataUpdated with changedFields=[name]', async () => {
+    const { handler, enqueue, managerSave } = makeHarness();
+
+    const result = await handler.execute(makeCommand({ name: 'New Name' }));
 
     expect(result.name).toBe('New Name');
+    expect(managerSave).toHaveBeenCalledTimes(1);
+    const event = enqueue.mock.calls[0]![0] as Record<string, unknown>;
+    expect(event.eventType).toBe('BatchMetadataUpdated');
+    expect(event.changedFields).toEqual(['name']);
   });
 
-  it('should not overwrite fields that are not in payload', async () => {
-    const batch = {
-      id: 'batch-1', tenantId: TENANT, name: 'Keep This',
-      notes: 'Keep These Notes', status: BatchStatus.GROWING, isActive: true,
-    } as Batch;
-
-    mockBatchRepo.findOne.mockResolvedValueOnce(batch);
-    mockBatchRepo.save.mockImplementation((b) => Promise.resolve(b as Batch));
+  it('does not overwrite fields not in payload (notes-only edit preserves name)', async () => {
+    const { handler, enqueue } = makeHarness();
 
     const result = await handler.execute(
-      new UpdateBatchCommand(TENANT, 'batch-1', { notes: 'Updated Notes' }, USER),
+      makeCommand({ notes: 'Updated Notes' }),
     );
 
-    expect(result.name).toBe('Keep This');
+    expect(result.name).toBe('Old Name');
     expect(result.notes).toBe('Updated Notes');
+    const event = enqueue.mock.calls[0]![0] as Record<string, unknown>;
+    expect(event.changedFields).toEqual(['notes']);
   });
 
-  it('should throw NotFoundException when batch not found', async () => {
-    mockBatchRepo.findOne.mockResolvedValueOnce(null);
+  it('throws NotFoundException when batch is missing — no tx commit, no event', async () => {
+    const { handler, enqueue, commit } = makeHarness({ batch: null });
 
     await expect(
-      handler.execute(new UpdateBatchCommand(TENANT, 'nonexistent', { name: 'X' }, USER)),
+      handler.execute(makeCommand({ name: 'X' })),
     ).rejects.toThrow(NotFoundException);
+    expect(enqueue).not.toHaveBeenCalled();
+    expect(commit).not.toHaveBeenCalled();
   });
 
-  it('should set updatedBy on save', async () => {
-    const batch = {
-      id: 'batch-1', tenantId: TENANT, name: 'Name',
-      status: BatchStatus.GROWING, isActive: true,
-    } as Batch;
+  it('stamps updatedBy on save', async () => {
+    const { handler } = makeHarness();
 
-    mockBatchRepo.findOne.mockResolvedValueOnce(batch);
-    mockBatchRepo.save.mockImplementation((b) => Promise.resolve(b as Batch));
-
-    const result = await handler.execute(
-      new UpdateBatchCommand(TENANT, 'batch-1', { name: 'Updated' }, USER),
-    );
+    const result = await handler.execute(makeCommand({ name: 'Updated' }));
 
     expect(result.updatedBy).toBe(USER);
+  });
+
+  it('targetFCR change: event newTargetFCR reflects the payload', async () => {
+    const { handler, enqueue } = makeHarness();
+
+    await handler.execute(makeCommand({ targetFCR: 1.4 }));
+
+    const event = enqueue.mock.calls[0]![0] as Record<string, unknown>;
+    expect(event.changedFields).toEqual(['targetFCR']);
+    expect(event.newTargetFCR).toBe(1.4);
+  });
+
+  it('empty payload: changedFields=[], event still fires (audit)', async () => {
+    const { handler, enqueue } = makeHarness();
+
+    await handler.execute(makeCommand({}));
+
+    expect(enqueue).toHaveBeenCalledTimes(1);
+    const event = enqueue.mock.calls[0]![0] as Record<string, unknown>;
+    expect(event.changedFields).toEqual([]);
+  });
+
+  it('outbox enqueue failure rolls back the batch save', async () => {
+    const { handler, rollback, commit } = makeHarness({
+      enqueueImpl: async () => {
+        throw new Error('outbox-enqueue-failed');
+      },
+    });
+
+    await expect(
+      handler.execute(makeCommand({ notes: 'x' })),
+    ).rejects.toThrow('outbox-enqueue-failed');
+    expect(rollback).toHaveBeenCalledTimes(1);
+    expect(commit).not.toHaveBeenCalled();
   });
 });

@@ -3,6 +3,7 @@ import { DataSource } from 'typeorm';
 import { NotFoundException, BadRequestException, Logger, InternalServerErrorException } from '@nestjs/common';
 import { ApproveAttendanceCommand } from '../commands/approve-attendance.command';
 import { AttendanceRecord, ApprovalStatus } from '../entities/attendance-record.entity';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 
 @CommandHandler(ApproveAttendanceCommand)
 export class ApproveAttendanceHandler implements ICommandHandler<ApproveAttendanceCommand> {
@@ -20,7 +21,7 @@ export class ApproveAttendanceHandler implements ICommandHandler<ApproveAttendan
     await queryRunner.startTransaction();
 
     try {
-      const attendanceRepo = queryRunner.manager.getRepository(AttendanceRecord);
+      const attendanceRepo = tenantManagerRepo(queryRunner.manager, AttendanceRecord, tenantId);
 
       const attendanceRecord = await attendanceRepo.findOne({
         where: { id: attendanceRecordId, tenantId, isDeleted: false },

@@ -4,7 +4,9 @@
 import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
 import { UseGuards, Logger } from '@nestjs/common';
-import { TenantGuard, CurrentTenant, CurrentUser, Roles, Role, fromCqrsPaginated } from '@aquaculture/backend-common';
+import { CurrentTenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
+import { TenantGuard } from '@aquaculture/backend-common/guards';
+import { fromCqrsPaginated } from '@aquaculture/backend-common/pagination';
 import { SiteResponse, PaginatedSitesResponse } from './dto/site.response';
 import { SiteDeletePreviewResponse } from './dto/site-delete-preview.response';
 import { CreateSiteInput } from './dto/create-site.input';
@@ -60,6 +62,7 @@ export class SiteResolver {
    * Get delete preview for a site
    * Returns what will be deleted when the site is cascade soft deleted
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   @Query(() => SiteDeletePreviewResponse)
   async siteDeletePreview(
     @Args('id', { type: () => ID }) id: string,
@@ -90,6 +93,7 @@ export class SiteResolver {
   /**
    * Get a single site by ID
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => SiteResponse, { nullable: true })
   async site(
     @Args('id', { type: () => ID }) id: string,
@@ -103,6 +107,7 @@ export class SiteResolver {
   /**
    * List sites with pagination and filtering
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => PaginatedSitesResponse)
   async sites(
     @Args('filter', { type: () => SiteFilterInput, nullable: true }) filter?: SiteFilterInput,
@@ -120,6 +125,7 @@ export class SiteResolver {
   /**
    * Get active sites for dropdowns
    */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [SiteResponse])
   async activeSites(
     @CurrentTenant() tenantId: string,

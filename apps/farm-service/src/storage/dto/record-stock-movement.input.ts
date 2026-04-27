@@ -1,5 +1,6 @@
 import { InputType, Field, Float, ID } from '@nestjs/graphql';
-import { IsNotEmpty, IsString, IsOptional, IsNumber, MaxLength, IsEnum, IsUUID, Min, Max } from 'class-validator';
+import { IsNotEmpty, IsString, IsOptional, IsNumber, MaxLength, IsEnum, IsUUID, Min, Max, IsDate, MaxDate } from 'class-validator';
+import { Type } from 'class-transformer';
 import { MovementType } from '../entities/stock-movement.entity';
 import { StorageItemType } from '../entities/storage-inventory.entity';
 
@@ -69,4 +70,29 @@ export class RecordStockMovementInput {
   @IsString()
   @MaxLength(64)
   idempotencyKey?: string;
+
+  /**
+   * Authoritative timestamp of the underlying operational event.
+   *
+   * For manual movements the server default (now) is fine. For
+   * event-driven flows (e.g. a FeedingRecordedEvent that logs yesterday's
+   * meal today), the caller MUST pass the event's occurredAt here so
+   * FEFO picks from lots that were actually in inventory AT the event
+   * time — not lots that arrived afterwards.
+   *
+   * Future dates are rejected (cannot consume from lots that have not
+   * yet arrived). Backdating beyond a hard policy limit is enforced at
+   * the event-handler layer; this DTO only guards the obvious "cannot
+   * be in the future" axis.
+   */
+  @Field({
+    nullable: true,
+    description:
+      'Authoritative event date for FEFO as-of scoping. Defaults to now when omitted.',
+  })
+  @IsOptional()
+  @Type(() => Date)
+  @IsDate()
+  @MaxDate(() => new Date())
+  movementDate?: Date;
 }

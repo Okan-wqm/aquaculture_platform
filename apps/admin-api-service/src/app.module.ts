@@ -1,4 +1,8 @@
-import { ThrottlerModule, RedisModule, LoggingModule, RlsModule, AdminBypassRlsInterceptor, SchemaDriftModule, PlatformJwtModule, createServiceTypeOrmConfig, buildDatabaseSslConfig } from '@aquaculture/backend-common';
+import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
+import { RlsModule, AdminBypassRlsInterceptor, SchemaDriftModule, createServiceTypeOrmConfig, buildDatabaseSslConfig } from '@aquaculture/backend-common/database';
+import { LoggingModule } from '@aquaculture/backend-common/logging';
+import { RedisModule } from '@aquaculture/backend-common/redis';
+import { ThrottlerModule } from '@aquaculture/backend-common/security';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
@@ -13,6 +17,12 @@ import { EventBusModule } from '@platform/event-bus';
 
 import { ConvertTimestampToTimestamptz1781500000000 } from './migrations/1781500000000-ConvertTimestampToTimestamptz';
 import { AddMfaCompletedToImpersonationSessions1782100000000 } from './migrations/1782100000000-AddMfaCompletedToImpersonationSessions';
+import { MoveSharedTablesFromAdminToShared1782200000000 } from './migrations/1782200000000-MoveSharedTablesFromAdminToShared';
+import { MoveUserPermissionsToShared1786900000000 } from './migrations/1786900000000-MoveUserPermissionsToShared';
+import { GrantSharedSchemaPrivileges1787000000000 } from './migrations/1787000000000-GrantSharedSchemaPrivileges';
+import { CreateAdminAuditLogsTable1787100000000 } from './migrations/1787100000000-CreateAdminAuditLogsTable';
+import { RealignSharedAuditLogsSchema1787200000000 } from './migrations/1787200000000-RealignSharedAuditLogsSchema';
+import { CreateIngestBackendPolicyState1787300000000 } from './migrations/1787300000000-CreateIngestBackendPolicyState';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AuditLogModule } from './audit/audit.module';
 import { PasswordResetModule } from './auth/password-reset.module';
@@ -30,6 +40,7 @@ import { ResponseInterceptor } from './shared/response.interceptor';
 import { SystemMetricsModule } from './metrics/system-metrics.module';
 import { SystemModulesModule } from './modules/modules.module';
 import { SecurityModule } from './security/security.module';
+import { IngestBackendPolicyModule } from './policy/policy.module';
 import { SettingsModule } from './settings/settings.module';
 import { SupportModule } from './support/support.module';
 import { SystemManagementModule } from './system-management/system-management.module';
@@ -66,6 +77,12 @@ import { UsersModule } from './users/users.module';
           migrations: [
             ConvertTimestampToTimestamptz1781500000000,
             AddMfaCompletedToImpersonationSessions1782100000000,
+            MoveSharedTablesFromAdminToShared1782200000000,
+            MoveUserPermissionsToShared1786900000000,
+            GrantSharedSchemaPrivileges1787000000000,
+            CreateAdminAuditLogsTable1787100000000,
+            RealignSharedAuditLogsSchema1787200000000,
+            CreateIngestBackendPolicyState1787300000000,
           ],
           // admin-api opts in to TypeORM's built-in migration runner via the
           // legacy DATABASE_MIGRATIONS_RUN env var (default true). All other
@@ -154,6 +171,10 @@ import { UsersModule } from './users/users.module';
     UsersModule,
     SystemModulesModule,
     SettingsModule,
+    // ADR-031 ingest-backend policy: admin-api owns the SoT +
+    // publishes `policy.ingest_backend.changed` + responds to
+    // `policy.ingest_backend.snapshot`.
+    IngestBackendPolicyModule,
     BillingModule,
     AnalyticsModule,
     DatabaseManagementModule,

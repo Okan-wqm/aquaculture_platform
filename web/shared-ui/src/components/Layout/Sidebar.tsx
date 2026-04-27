@@ -37,6 +37,17 @@ export interface SidebarProps {
   footer?: React.ReactNode;
   /** Theme (admin=indigo, tenant=emerald, default=blue) */
   theme?: SidebarTheme;
+  /**
+   * Consumer-supplied icon map. Keys override / extend the built-in
+   * `defaultIcons` set so admin-panel, tenant-admin, and other
+   * consumers can inject module-specific icons (analytics, billing,
+   * security, …) without forking this component or pushing every
+   * custom icon back into shared-ui.
+   *
+   * Resolution order: if an `item.icon` key exists in `customIcons`
+   * it wins; otherwise the built-in `defaultIcons` is consulted.
+   */
+  customIcons?: Record<string, React.ReactNode>;
   className?: string;
 }
 
@@ -193,10 +204,19 @@ const defaultIcons: Record<string, React.ReactNode> = {
 };
 
 /**
- * Resolve an icon name string to a React node
+ * Resolve an icon name string to a React node. A consumer-supplied
+ * icon map takes precedence over the built-in `defaultIcons` so
+ * admin-panel and similar surfaces can inject their own SVGs without
+ * forking the Sidebar component.
  */
-const getIcon = (icon?: string): React.ReactNode => {
+const resolveIcon = (
+  icon: string | undefined,
+  customIcons: Record<string, React.ReactNode> | undefined,
+): React.ReactNode => {
   if (!icon) return null;
+  if (customIcons && icon in customIcons) {
+    return customIcons[icon] ?? null;
+  }
   return defaultIcons[icon] || null;
 };
 
@@ -236,7 +256,8 @@ const MenuItem: React.FC<{
   onNavigate: (path: string) => void;
   userRoles?: UserRole[];
   theme?: SidebarTheme;
-}> = ({ item, activePath, collapsed, depth = 0, onNavigate, userRoles = [], theme = 'default' }) => {
+  customIcons?: Record<string, React.ReactNode>;
+}> = ({ item, activePath, collapsed, depth = 0, onNavigate, userRoles = [], theme = 'default', customIcons }) => {
   const hasChildren = item.children && item.children.length > 0;
 
   // Access check — computed as a boolean (no useCallback overhead for a sync value)
@@ -294,7 +315,7 @@ const MenuItem: React.FC<{
         {/* Icon */}
         {item.icon && (
           <span className={`flex-shrink-0 ${!collapsed ? 'mr-3' : ''}`}>
-            {getIcon(item.icon)}
+            {resolveIcon(item.icon, customIcons)}
           </span>
         )}
         {/* Label */}
@@ -355,6 +376,7 @@ const MenuItem: React.FC<{
               onNavigate={onNavigate}
               userRoles={userRoles}
               theme={theme}
+              customIcons={customIcons}
             />
           ))}
         </div>
@@ -410,6 +432,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onCollapsedChange,
   footer,
   theme = 'default',
+  customIcons,
   className = '',
 }) => {
   const themeStyle = sidebarThemeStyles[theme];
@@ -458,6 +481,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             onNavigate={onNavigate}
             userRoles={userRoles}
             theme={theme}
+            customIcons={customIcons}
           />
         ))}
       </nav>

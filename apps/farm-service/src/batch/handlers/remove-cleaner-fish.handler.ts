@@ -10,6 +10,11 @@ import { Injectable, BadRequestException, NotFoundException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
+import { OutboxPublisher } from '@platform/outbox';
+import {
+  createBaseEvent,
+  type CleanerFishRemovedEvent,
+} from '@platform/event-contracts';
 import { RemoveCleanerFishCommand } from '../commands/remove-cleaner-fish.command';
 import { Batch, BatchType } from '../entities/batch.entity';
 import { TankBatch } from '../entities/tank-batch.entity';
@@ -32,6 +37,7 @@ export class RemoveCleanerFishHandler implements ICommandHandler<RemoveCleanerFi
     @InjectRepository(Species)
     private readonly speciesRepository: Repository<Species>,
     private readonly dataSource: DataSource,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   async execute(command: RemoveCleanerFishCommand): Promise<Batch> {
@@ -167,7 +173,10 @@ export class RemoveCleanerFishHandler implements ICommandHandler<RemoveCleanerFi
       isDeleted: false,
     });
 
-    // All saves in a single transaction for data consistency
+    // All saves + outbox enqueue in a single transaction so the event
+    // never fires without the domain write landing, and the domain
+    // write never commits without its event enqueued. OutboxWorker
+    // publishes to NATS asynchronously with retry + dead-letter.
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
@@ -175,6 +184,27 @@ export class RemoveCleanerFishHandler implements ICommandHandler<RemoveCleanerFi
       await queryRunner.manager.save(TankBatch, tankBatch);
       await queryRunner.manager.save(Batch, cleanerBatch);
       await queryRunner.manager.save(TankOperation, operation);
+
+      const event: CleanerFishRemovedEvent = {
+        ...createBaseEvent<CleanerFishRemovedEvent>('CleanerFishRemoved', tenantId, {
+          aggregateId: cleanerBatch.id,
+          aggregateType: 'Batch',
+        }),
+        cleanerBatchId: cleanerBatch.id,
+        tankId: payload.tankId,
+        speciesName,
+        quantity: payload.quantity,
+        avgWeightG,
+        biomassKg,
+        reason: payload.reason,
+        detail: payload.notes,
+        removedAt: payload.removedAt,
+        newTankCleanerFishQuantity: tankBatch.cleanerFishQuantity ?? 0,
+        newTankCleanerFishBiomassKg: Number(tankBatch.cleanerFishBiomassKg ?? 0),
+        newCleanerBatchCurrentQuantity: cleanerBatch.currentQuantity,
+      };
+      await this.outboxPublisher.enqueue(event, queryRunner.manager);
+
       await queryRunner.commitTransaction();
     } catch (error) {
       await queryRunner.rollbackTransaction();

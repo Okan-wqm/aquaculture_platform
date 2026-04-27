@@ -27,6 +27,7 @@ import { FeedingRecord, FeedingMethod } from '../entities/feeding-record.entity'
 import { FeedInventory, InventoryStatus } from '../entities/feed-inventory.entity';
 import { Batch } from '../../batch/entities/batch.entity';
 import { Feed } from '../../feed/entities/feed.entity';
+import { BackdatePolicyService } from '../../common/services/backdate-policy.service';
 
 @Injectable()
 @CommandHandler(CreateFeedingRecordCommand)
@@ -44,10 +45,26 @@ export class CreateFeedingRecordHandler implements ICommandHandler<CreateFeeding
     private readonly inventoryRepository: Repository<FeedInventory>,
     private readonly dataSource: DataSource,
     private readonly outboxPublisher: OutboxPublisher,
+    private readonly backdatePolicy: BackdatePolicyService,
   ) {}
 
   async execute(command: CreateFeedingRecordCommand): Promise<FeedingRecord> {
     const { tenantId, payload, userId } = command;
+
+    // ── Backdate policy: reject future feedingDates unconditionally and
+    // reject historical dates that fall beyond the configured feeding
+    // limit (FEEDING_BACKDATE_LIMIT_DAYS env var, default 7). See
+    // docs/illustrator/ Girdi 8 — unbounded backdating corrupts
+    // downstream FCR / SGR derivations that assume time-ordered events.
+    const proposedDate: Date =
+      payload.feedingDate instanceof Date
+        ? payload.feedingDate
+        : new Date(payload.feedingDate);
+    this.backdatePolicy.validate({
+      context: 'feeding',
+      proposedDate,
+      subjectLabel: `batch ${payload.batchId}`,
+    });
 
     // All reads + writes inside a single transaction. TOCTOU fix: batch/feed
     // lookups now run with pessimistic locks so a concurrent CloseBatch or

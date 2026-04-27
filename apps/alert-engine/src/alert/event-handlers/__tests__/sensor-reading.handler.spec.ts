@@ -49,8 +49,14 @@ const mockEvaluationService = {
   evaluateSensorReading: jest.fn().mockResolvedValue(undefined),
 };
 
+// WHY both `subscribe` and `subscribeWildcard` — handler.onModuleInit (after
+// ORPHAN-013 migration) calls `subscribeWildcard`. `subscribe` is kept on the
+// mock so the legacy code path stays exercisable if a downstream test ever
+// instantiates this stub through a different code path.
 const mockEventBus = {
   subscribe: jest.fn().mockResolvedValue(undefined),
+  subscribeWildcard: jest.fn().mockResolvedValue(undefined),
+  subscribeForTenant: jest.fn().mockResolvedValue(undefined),
   publish: jest.fn().mockResolvedValue(undefined),
 };
 

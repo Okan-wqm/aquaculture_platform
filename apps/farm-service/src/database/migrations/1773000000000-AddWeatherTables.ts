@@ -1,9 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
-import {
-  MigrationLogger,
-  assertSafeSchemaName,
-  pinSearchPath,
-} from '@aquaculture/backend-common';
+import { MigrationLogger, assertSafeSchemaName, pinSearchPath } from '@aquaculture/backend-common/database';
 
 /**
  * Migration: Add Weather & Marine Observation Tables

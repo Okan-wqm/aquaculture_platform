@@ -6,7 +6,7 @@ import {
   UpdateDateColumn,
   Index,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 
 export enum ActivityType {
   CREATED = 'created',
@@ -28,7 +28,7 @@ export enum ActivityType {
   DOMAIN_CHANGED = 'domain_changed',
 }
 
-@Entity('tenant_activities')
+@Entity('tenant_activities', { schema: 'admin' })
 @Index(['tenantId', 'createdAt'])
 @Index(['activityType'])
 export class TenantActivity {
@@ -67,7 +67,7 @@ export class TenantActivity {
 }
 
 // Tenant Notes Entity
-@Entity('tenant_notes')
+@Entity('tenant_notes', { schema: 'admin' })
 @Index(['tenantId', 'createdAt'])
 export class TenantNote {
   @PrimaryGeneratedColumn('uuid')
@@ -100,7 +100,7 @@ export class TenantNote {
 }
 
 // Tenant Billing Info (simplified - full billing would be in billing-service)
-@Entity('tenant_billing_info')
+@Entity('tenant_billing_info', { schema: 'admin' })
 @Index(['tenantId'])
 export class TenantBillingInfo {
   @PrimaryGeneratedColumn('uuid')

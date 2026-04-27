@@ -16,7 +16,7 @@ import {
   TokenBlacklistStore,
   TOKEN_BLACKLIST_STORE,
 } from '../guards/redis-token-blacklist.store';
-import { enforceAccessTokenType, getJwtVerifyOptions } from '@aquaculture/backend-common';
+import { enforceAccessTokenType, getJwtVerifyOptions } from '@aquaculture/backend-common/auth';
 
 @Injectable()
 export class JwtMiddleware implements NestMiddleware {

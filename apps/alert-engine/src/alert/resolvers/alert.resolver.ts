@@ -7,7 +7,7 @@ import {
   ID,
 } from '@nestjs/graphql';
 import { Logger } from '@nestjs/common';
-import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common';
+import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
 import { AlertRule, AlertSeverity } from '../../database/entities/alert-rule.entity';
 import { AlertHistory } from '../entities/alert-history.entity';
 import { AlertRuleService } from '../services/alert-rule.service';

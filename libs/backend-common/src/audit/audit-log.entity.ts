@@ -6,15 +6,13 @@ import {
   Index,
 } from 'typeorm';
 
-/**
- * Severity level for audit log entries
- */
-export enum AuditSeverity {
-  INFO = 'info',
-  WARNING = 'warning',
-  ERROR = 'error',
-  CRITICAL = 'critical',
-}
+// Canonical declaration moved to `./audit-log.tokens` so cross-cutting
+// consumers (TenantGuard et al) can use the enum without loading the
+// `@Entity()` decorator as a side effect. Imported here for use in the
+// @Column metadata below AND re-exported (back-compat for existing
+// consumers that still import `AuditSeverity` from `audit-log.entity`).
+import { AuditSeverity } from './audit-log.tokens';
+export { AuditSeverity };
 
 /**
  * AuditLogEntity - Immutable audit trail record

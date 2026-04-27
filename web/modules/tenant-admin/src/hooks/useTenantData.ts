@@ -326,6 +326,7 @@ export function useDeviceEvents(deviceId: string, enabled = true, limit = 20) {
  */
 export function useDeviceAction() {
   const queryClient = useQueryClient();
+  const { tenantId } = useAuth();
   return useMutation({
     mutationFn: ({ mutation, variables }: { mutation: string; variables: Record<string, unknown> }) =>
       graphqlRequest(mutation, variables),

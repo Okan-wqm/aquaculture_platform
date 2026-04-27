@@ -7,7 +7,7 @@ import {
   registerEnumType,
 } from '@nestjs/graphql';
 import { GraphQLJSON } from 'graphql-scalars';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import {
   Entity,
   Column,
@@ -171,7 +171,7 @@ export class DisplaySettings {
  * and display settings.
  */
 @ObjectType()
-@Entity('sensor_data_channels')
+@Entity('sensor_data_channels', { schema: 'sensor' })
 @Index(['sensorId', 'isEnabled'])
 @Index(['tenantId', 'channelKey'])
 // Unique constraint must include tenantId: without it, two tenants cannot have sensors

@@ -10,7 +10,7 @@ import {
 export type AgentRole = 'operator' | 'manager' | 'expert' | 'supervisor';
 export type ActuationPolicy = 'blocked' | 'confirm_required' | 'allowed';
 
-@Entity('tenant_agent_configs')
+@Entity('tenant_agent_configs', { schema: 'ai' })
 @Index(['tenantId'], { unique: true })
 export class TenantAgentConfig {
   @PrimaryGeneratedColumn('uuid')

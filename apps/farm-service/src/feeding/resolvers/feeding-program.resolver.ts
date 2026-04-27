@@ -30,7 +30,12 @@ import GraphQLJSON from 'graphql-type-json';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, DataSource } from 'typeorm';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
-import { Tenant, CurrentUser, Roles, Role, RolesGuard, StandardPaginatedResponse } from '@aquaculture/backend-common';
+import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
+import { RolesGuard } from '@aquaculture/backend-common/guards';
+import { StandardPaginatedResponse } from '@aquaculture/backend-common/pagination';
+import { TenantScopedRepository } from '@aquaculture/backend-common/database';
+import { Feed } from '../../feed/entities/feed.entity';
+import { SubEquipment } from '../../equipment/entities/sub-equipment.entity';
 
 // DTOs - Import from proper DTO directory
 import {
@@ -1067,13 +1072,20 @@ export class FeedingProgramResolver {
           feederUpdate.feederEquipmentId = input.feederEquipmentId;
           // Lookup feeder name from SubEquipment for denormalization
           try {
-            const subEquipmentRepo = this.dataSource.getRepository('SubEquipment');
+            // tenantId auto-injected by TenantScopedRepository.create; the
+            // entity class gives us full type safety vs. the prior string
+            // lookup which returned Repository<ObjectLiteral>.
+            const subEquipmentRepo = TenantScopedRepository.create(
+              this.dataSource,
+              SubEquipment,
+              tenantId,
+            );
             const feeder = await subEquipmentRepo.findOne({
-              where: { id: input.feederEquipmentId, tenantId },
+              where: { id: input.feederEquipmentId },
               select: ['id', 'name'],
             });
             if (feeder) {
-              feederUpdate.feederName = (feeder as { name: string }).name;
+              feederUpdate.feederName = feeder.name;
             }
           } catch {
             // SubEquipment lookup failed - continue without feederName
@@ -1716,11 +1728,11 @@ export class FeedingProgramResolver {
       };
 
       try {
-        const feedRepo = this.dataSource.getRepository('Feed');
-        const feed = await feedRepo.findOne({ where: { id: assignment.feedId, tenantId }, select: ['id', 'code', 'name'] });
+        const feedRepo = TenantScopedRepository.create(this.dataSource, Feed, tenantId);
+        const feed = await feedRepo.findOne({ where: { id: assignment.feedId }, select: ['id', 'code', 'name'] });
         if (feed) {
-          newAssignment.feedCode = (feed as { code: string }).code;
-          newAssignment.feedName = (feed as { name: string }).name;
+          newAssignment.feedCode = feed.code;
+          newAssignment.feedName = feed.name;
         }
       } catch { /* Feed lookup failed */ }
 
@@ -1785,11 +1797,11 @@ export class FeedingProgramResolver {
       let feedName = existingAssignment.feedName;
       if (assignment.feedId !== feedId) {
         try {
-          const feedRepo = this.dataSource.getRepository('Feed');
-          const feed = await feedRepo.findOne({ where: { id: assignment.feedId, tenantId }, select: ['id', 'code', 'name'] });
+          const feedRepo = TenantScopedRepository.create(this.dataSource, Feed, tenantId);
+          const feed = await feedRepo.findOne({ where: { id: assignment.feedId }, select: ['id', 'code', 'name'] });
           if (feed) {
-            feedCode = (feed as { code: string }).code;
-            feedName = (feed as { name: string }).name;
+            feedCode = feed.code;
+            feedName = feed.name;
           }
         } catch { /* Feed lookup failed */ }
       }

@@ -10,7 +10,7 @@ import {
   JoinColumn,
   BeforeInsert,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import { ObjectType, Field, ID, Int, Float, registerEnumType } from '@nestjs/graphql';
 import { Employee } from '../../hr/entities/employee.entity';
 import { LeaveType } from './leave-type.entity';
@@ -60,7 +60,7 @@ export class LeaveAttachment {
 }
 
 @ObjectType()
-@Entity('leave_requests')
+@Entity('leave_requests', { schema: 'hr' })
 // Unique index
 @Index('idx_leave_request_number', ['tenantId', 'requestNumber'], { unique: true })
 // Composite indexes for common query patterns

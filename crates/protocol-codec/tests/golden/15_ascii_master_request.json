@@ -1,0 +1,10 @@
+{
+  "name": "ascii_master_request",
+  "description": "Modbus ASCII frame: master asks unit 1 for 10 holding registers (FC 0x03, start 0x0000, count 0x000A). LRC = -(sum) mod 256 = 0xF2. Wire bytes are ASCII-hex characters wrapped with ':' and CRLF.",
+  "decoder": "parse_ascii_frame",
+  "wire_hex": "3A30313033303030303030304146320D0A",
+  "expected_ok": {
+    "address": 1,
+    "pdu_hex": "030000000A"
+  }
+}

@@ -1,7 +1,8 @@
 import { Controller, Get, HttpCode, HttpException, HttpStatus, Res, UseGuards } from '@nestjs/common';
 import { Response } from 'express';
 
-import { RolesGuard, Role, Roles } from '@aquaculture/backend-common';
+import { Role, Roles } from '@aquaculture/backend-common/decorators';
+import { RolesGuard } from '@aquaculture/backend-common/guards';
 import { Public } from '../guards/auth.guard';
 
 import { HealthService, HealthStatus } from './health.service';

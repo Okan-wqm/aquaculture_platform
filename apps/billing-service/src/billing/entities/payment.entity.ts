@@ -10,7 +10,7 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { ObjectType, Field, HideField, ID, Int, registerEnumType, Float } from '@nestjs/graphql';
-import { MoneyColumn } from '@aquaculture/backend-common';
+import { MoneyColumn } from '@aquaculture/backend-common/monetary';
 import Decimal from 'decimal.js';
 
 export enum PaymentStatus {
@@ -79,7 +79,7 @@ export class RefundInfo {
 }
 
 @ObjectType()
-@Entity('payments')
+@Entity('payments', { schema: 'billing' })
 @Index(['tenantId', 'transactionId'], { unique: true })
 @Index(['tenantId', 'status'])
 @Index(['tenantId', 'paymentDate'])

@@ -1,0 +1,5 @@
+error[E0599]: no function or associated item named `connect_unauthenticated` found for struct `NatsClient` in the current scope
+ --> tests/auth_surface_compile_fail/no_unauthenticated.rs:7:25
+  |
+7 |     let _ = NatsClient::connect_unauthenticated("nats://localhost:4222");
+  |                         ^^^^^^^^^^^^^^^^^^^^^^^ function or associated item not found in `NatsClient`

@@ -7,7 +7,13 @@ import { JwtModule, JwtService } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { join } from 'path';
 import depthLimit from 'graphql-depth-limit';
-import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware, RequestLoggingMiddleware, RequestContextMiddleware, MetricsMiddleware, TenantGuard, RolesGuard, ServiceIdentityGuard, RedisModule, TOKEN_BLACKLIST, ITokenBlacklist, RlsModule, SchemaDriftModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common';
+import { RlsModule, SchemaDriftModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common/database';
+import { TenantGuard, RolesGuard, ServiceIdentityGuard } from '@aquaculture/backend-common/guards';
+import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
+import { MetricsMiddleware } from '@aquaculture/backend-common/metrics';
+import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware, RequestLoggingMiddleware } from '@aquaculture/backend-common/middleware';
+import { RedisModule } from '@aquaculture/backend-common/redis';
+import { TOKEN_BLACKLIST, ITokenBlacklist } from '@aquaculture/backend-common/security';
 import { EventBusModule } from '@platform/event-bus';
 
 import { AuthSchemaBootstrapModule } from './database/auth-schema-bootstrap.module';
@@ -229,17 +235,60 @@ import { TenantModule } from './modules/tenant/tenant.module';
     AuthMetricsModule,
 
     /**
-     * SECURITY (HIGH-004): Tenant Row-Level Security.
-     * auth-service uses the global `auth` schema with tenantId columns on
-     * User/Tenant/Invitation/ActionToken tables. autoApply installs the
-     * canonical tenant_isolation_policy at OnApplicationBootstrap so
-     * defence-in-depth kicks in without a separate migration.
-     * excludeTables: audit logs and outbox are cross-tenant by design.
+     * SECURITY (HIGH-004): Tenant Row-Level Security — AUTH IDENTITY SPECIAL CASE
+     * ============================================================================
+     * auth-service's `auth` schema holds per-tenant data (invitations,
+     * refresh_tokens, user_consents, announcements, etc.) that MUST be RLS-
+     * gated. `autoApply: true` installs the canonical tenant_isolation_policy
+     * on every discovered tenantId-bearing table at OnApplicationBootstrap.
+     *
+     * # Why `users` is excluded (architectural invariant, not workaround)
+     *
+     * `auth.users` is the platform's IDENTITY-PRIMITIVE table. By definition,
+     * it is queried during the **pre-authentication discovery phase** — the
+     * login flow does:
+     *
+     *   findOne({ where: { email } })   ← no tenant context exists yet
+     *
+     * because the tenant is DETERMINED from the user row (the JWT is only
+     * minted after a successful match). Applying `tenant_isolation_policy`
+     * to `auth.users` is a category error: the policy's USING clause
+     * (`tenantId = current_tenant OR bypass='on'`) evaluates to UNKNOWN
+     * when no tenant GUC is set, so findOne returns 0 rows — breaking every
+     * login across the platform (DEPLOY-CRITICAL-006, 2026-04-21 incident).
+     *
+     * A second, even stronger reason: SUPER_ADMIN users have `tenantId = NULL`
+     * by design. `NULL = <any uuid>` is never TRUE, so SUPER_ADMIN identities
+     * can NEVER be visible under the policy regardless of GUC state. This
+     * alone makes RLS structurally incompatible with auth.users — acknowledged
+     * in tenant-rls-sync.service.ts:106-108 ("auth-service — can't support
+     * RLS because of nullable tenantId on SUPER_ADMIN rows").
+     *
+     * # Defense-in-depth is preserved without RLS on users
+     *
+     *   1. Schema-role isolation: only the `auth_service` PG role can touch
+     *      `auth.*` tables (see 00-init-schemas.sh + per-service DB roles).
+     *   2. Application-layer tenant scoping: every tenant-admin-facing query
+     *      against users (e.g. TenantAdminService.listTenantUsers) explicitly
+     *      adds `WHERE tenantId = ?` — verified by controller-level tenant
+     *      guards + e2e tests.
+     *   3. JWT-authenticated handlers: all non-login users queries run
+     *      post-authentication, with tenant context from JwtAuthGuard → an
+     *      authenticated caller cannot pivot to another tenant's rows.
+     *
+     * Runtime enforcement of this invariant lives in apply-tenant-rls.helper.ts
+     * (DEFAULT_IDENTITY_TABLES auto-skip) — this exclude list is the audit-
+     * visible declaration at the AppModule call site.
+     *
+     * # Other excludeTables
+     *   - `auth_outbox`, `audit_log`, `audit_logs`: cross-tenant infrastructure
+     *     (audit logs span tenants by design; outbox rows are enqueued by
+     *     owners and consumed by the outbox worker without tenant context).
      */
     RlsModule.forPoolService({
       serviceName: 'auth',
       autoApply: true,
-      excludeTables: ['auth_outbox', 'audit_log', 'audit_logs'],
+      excludeTables: ['auth_outbox', 'audit_log', 'audit_logs', 'users', 'tenants'],
     }),
     /** P11 of 2026-04-14 teardown — runtime schema-drift validator. */
     SchemaDriftModule.forRoot({ serviceName: 'auth' }),

@@ -10,7 +10,7 @@ import {
   Index,
 } from 'typeorm';
 
-@Entity('supplier_types')
+@Entity('supplier_types', { schema: 'farm' })
 @Index(['code'], { unique: true })
 @Index(['isActive'])
 export class SupplierType {

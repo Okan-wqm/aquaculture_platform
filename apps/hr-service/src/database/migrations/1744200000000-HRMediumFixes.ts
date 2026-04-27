@@ -1,5 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
-import { pinSearchPath } from '@aquaculture/backend-common';
+import { pinSearchPath } from '@aquaculture/backend-common/database';
 
 /**
  * Migration: HR MEDIUM Fixes

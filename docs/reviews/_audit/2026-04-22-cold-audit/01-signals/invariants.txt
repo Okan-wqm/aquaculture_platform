@@ -1,0 +1,564 @@
+
+> aquaculture-platform@1.0.0 invariants:fast
+> jest --config tests/invariants/jest.config.ts --maxWorkers=3 --selectProjects layer-1 layer-3
+
+Running 2 projects:
+- layer-1
+- layer-3
+ts-jest[config] (WARN) 
+    The "ts-jest" config option "isolatedModules" is deprecated and will be removed in v30.0.0. Please use "isolatedModules: true" in /var/aqua-saas/tests/invariants/tsconfig.spec.json instead, see https://www.typescriptlang.org/tsconfig/#isolatedModules
+  
+ts-jest[config] (WARN) 
+    The "ts-jest" config option "isolatedModules" is deprecated and will be removed in v30.0.0. Please use "isolatedModules: true" in /var/aqua-saas/tests/invariants/tsconfig.spec.json instead, see https://www.typescriptlang.org/tsconfig/#isolatedModules
+  
+ts-jest[config] (WARN) 
+    The "ts-jest" config option "isolatedModules" is deprecated and will be removed in v30.0.0. Please use "isolatedModules: true" in /var/aqua-saas/tests/invariants/tsconfig.spec.json instead, see https://www.typescriptlang.org/tsconfig/#isolatedModules
+  
+PASS layer-3 tests/invariants/agent-ownership-uniqueness.spec.ts
+PASS layer-3 tests/invariants/orchestrator-routing-coverage.spec.ts
+PASS layer-3 tests/invariants/skills-catalog.spec.ts
+ts-jest[config] (WARN) 
+    The "ts-jest" config option "isolatedModules" is deprecated and will be removed in v30.0.0. Please use "isolatedModules: true" in /var/aqua-saas/tests/invariants/tsconfig.spec.json instead, see https://www.typescriptlang.org/tsconfig/#isolatedModules
+  
+ts-jest[config] (WARN) 
+    The "ts-jest" config option "isolatedModules" is deprecated and will be removed in v30.0.0. Please use "isolatedModules: true" in /var/aqua-saas/tests/invariants/tsconfig.spec.json instead, see https://www.typescriptlang.org/tsconfig/#isolatedModules
+  
+PASS layer-1 tests/invariants/upcaster-chain.spec.ts
+PASS layer-3 tests/invariants/active-path-hygiene.spec.ts
+FAIL layer-1 tests/invariants/knowledge-ssot.spec.ts
+  ● knowledge SSoT invariant › CLAUDE.md backend service count matches apps/ directory › claimed service count matches real apps/ subdirectory count
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: 17
+    Received: 16
+
+      179 |       }
+      180 |       const [, countStr] = claimMatch;
+    > 181 |       expect(parseInt(countStr ?? '0', 10)).toBe(realCount);
+          |                                             ^
+      182 |     });
+      183 |   });
+      184 | });
+
+      at Object.<anonymous> (knowledge-ssot.spec.ts:181:45)
+
+PASS layer-3 tests/invariants/doc-cardinality.spec.ts
+PASS layer-3 tests/invariants/agent-name-uniqueness.spec.ts
+PASS layer-3 tests/invariants/agent-frontmatter-schema.spec.ts
+PASS layer-3 tests/invariants/agent-size-limit.spec.ts
+PASS layer-3 tests/invariants/boundary-allowlist-invariants.spec.ts
+PASS layer-3 tests/invariants/maintenance-isolation.spec.ts
+FAIL layer-1 tests/invariants/finding-registry-integrity.spec.ts
+  ● Console
+
+    console.warn
+      unknown format "date-time" ignored in schema at path "#/properties/created_at"
+
+      90 |   const schema = JSON.parse(fs.readFileSync(SCHEMA_PATH, 'utf8'));
+      91 |   const ajv = new Ajv2020({ allErrors: true, strict: false });
+    > 92 |   return ajv.compile(schema);
+         |              ^
+      93 | }
+      94 |
+      95 | describe('finding registry integrity invariant', () => {
+
+      at unknownFormat (../../node_modules/ajv/lib/vocabularies/format/format.ts:84:23)
+      at validateFormat (../../node_modules/ajv/lib/vocabularies/format/format.ts:75:9)
+      at Object.code (../../node_modules/ajv/lib/vocabularies/format/format.ts:40:10)
+      at keywordCode (../../node_modules/ajv/lib/compile/validate/index.ts:532:9)
+      at ../../node_modules/ajv/lib/compile/validate/index.ts:265:9
+      at CodeGen.code (../../node_modules/ajv/lib/compile/codegen/index.ts:545:33)
+      at CodeGen.block (../../node_modules/ajv/lib/compile/codegen/index.ts:700:20)
+      at iterateKeywords (../../node_modules/ajv/lib/compile/validate/index.ts:262:7)
+      at groupKeywords (../../node_modules/ajv/lib/compile/validate/index.ts:241:7)
+      at ../../node_modules/ajv/lib/compile/validate/index.ts:233:38
+      at CodeGen.code (../../node_modules/ajv/lib/compile/codegen/index.ts:545:33)
+      at CodeGen.block (../../node_modules/ajv/lib/compile/codegen/index.ts:700:20)
+      at schemaKeywords (../../node_modules/ajv/lib/compile/validate/index.ts:232:7)
+      at typeAndKeywords (../../node_modules/ajv/lib/compile/validate/index.ts:161:3)
+      at subSchemaObjCode (../../node_modules/ajv/lib/compile/validate/index.ts:147:3)
+      at subschemaCode (../../node_modules/ajv/lib/compile/validate/index.ts:124:7)
+      at KeywordCxt.subschema (../../node_modules/ajv/lib/compile/validate/index.ts:500:5)
+      at applyPropertySchema (../../node_modules/ajv/lib/vocabularies/applicator/properties.ts:45:11)
+      at Object.code (../../node_modules/ajv/lib/vocabularies/applicator/properties.ts:32:9)
+      at keywordCode (../../node_modules/ajv/lib/compile/validate/index.ts:532:9)
+      at ../../node_modules/ajv/lib/compile/validate/index.ts:265:9
+      at CodeGen.code (../../node_modules/ajv/lib/compile/codegen/index.ts:545:33)
+      at CodeGen.block (../../node_modules/ajv/lib/compile/codegen/index.ts:700:20)
+      at iterateKeywords (../../node_modules/ajv/lib/compile/validate/index.ts:262:7)
+      at groupKeywords (../../node_modules/ajv/lib/compile/validate/index.ts:241:7)
+      at ../../node_modules/ajv/lib/compile/validate/index.ts:233:38
+      at CodeGen.code (../../node_modules/ajv/lib/compile/codegen/index.ts:545:33)
+      at CodeGen.block (../../node_modules/ajv/lib/compile/codegen/index.ts:700:20)
+      at schemaKeywords (../../node_modules/ajv/lib/compile/validate/index.ts:232:7)
+      at typeAndKeywords (../../node_modules/ajv/lib/compile/validate/index.ts:161:3)
+      at ../../node_modules/ajv/lib/compile/validate/index.ts:100:5
+      at CodeGen.code (../../node_modules/ajv/lib/compile/codegen/index.ts:545:33)
+      at ../../node_modules/ajv/lib/compile/validate/index.ts:61:45
+      at CodeGen.code (../../node_modules/ajv/lib/compile/codegen/index.ts:545:33)
+      at CodeGen.func (../../node_modules/ajv/lib/compile/codegen/index.ts:719:24)
+      at validateFunction (../../node_modules/ajv/lib/compile/validate/index.ts:60:9)
+      at topSchemaObjCode (../../node_modules/ajv/lib/compile/validate/index.ts:94:3)
+      at validateFunctionCode (../../node_modules/ajv/lib/compile/validate/index.ts:42:7)
+      at Ajv2020.compileSchema (../../node_modules/ajv/lib/compile/index.ts:163:25)
+      at Ajv2020._compileSchemaEnv (../../node_modules/ajv/lib/core.ts:737:24)
+      at Ajv2020.compile (../../node_modules/ajv/lib/core.ts:389:34)
+      at loadValidator (finding-registry-integrity.spec.ts:92:14)
+      at finding-registry-integrity.spec.ts:97:20
+      at Object.<anonymous> (finding-registry-integrity.spec.ts:95:1)
+
+    console.warn
+      unknown format "date-time" ignored in schema at path "#/properties/created_at"
+
+      90 |   const schema = JSON.parse(fs.readFileSync(SCHEMA_PATH, 'utf8'));
+      91 |   const ajv = new Ajv2020({ allErrors: true, strict: false });
+    > 92 |   return ajv.compile(schema);
+         |              ^
+      93 | }
+      94 |
+      95 | describe('finding registry integrity invariant', () => {
+
+      at unknownFormat (../../node_modules/ajv/lib/vocabularies/format/format.ts:84:23)
+      at validateFormat (../../node_modules/ajv/lib/vocabularies/format/format.ts:75:9)
+      at Object.code (../../node_modules/ajv/lib/vocabularies/format/format.ts:40:10)
+      at keywordCode (../../node_modules/ajv/lib/compile/validate/index.ts:532:9)
+      at ../../node_modules/ajv/lib/compile/validate/index.ts:265:9
+      at CodeGen.code (../../node_modules/ajv/lib/compile/codegen/index.ts:545:33)
+      at CodeGen.block (../../node_modules/ajv/lib/compile/codegen/index.ts:700:20)
+      at iterateKeywords (../../node_modules/ajv/lib/compile/validate/index.ts:262:7)
+      at groupKeywords (../../node_modules/ajv/lib/compile/validate/index.ts:241:7)
+      at ../../node_modules/ajv/lib/compile/validate/index.ts:233:38
+      at CodeGen.code (../../node_modules/ajv/lib/compile/codegen/index.ts:545:33)
+      at CodeGen.block (../../node_modules/ajv/lib/compile/codegen/index.ts:700:20)
+      at schemaKeywords (../../node_modules/ajv/lib/compile/validate/index.ts:232:7)
+      at typeAndKeywords (../../node_modules/ajv/lib/compile/validate/index.ts:161:3)
+      at subSchemaObjCode (../../node_modules/ajv/lib/compile/validate/index.ts:147:3)
+      at subschemaCode (../../node_modules/ajv/lib/compile/validate/index.ts:124:7)
+      at KeywordCxt.subschema (../../node_modules/ajv/lib/compile/validate/index.ts:500:5)
+      at applyPropertySchema (../../node_modules/ajv/lib/vocabularies/applicator/properties.ts:45:11)
+      at Object.code (../../node_modules/ajv/lib/vocabularies/applicator/properties.ts:32:9)
+      at keywordCode (../../node_modules/ajv/lib/compile/validate/index.ts:532:9)
+      at ../../node_modules/ajv/lib/compile/validate/index.ts:265:9
+      at CodeGen.code (../../node_modules/ajv/lib/compile/codegen/index.ts:545:33)
+      at CodeGen.block (../../node_modules/ajv/lib/compile/codegen/index.ts:700:20)
+      at iterateKeywords (../../node_modules/ajv/lib/compile/validate/index.ts:262:7)
+      at groupKeywords (../../node_modules/ajv/lib/compile/validate/index.ts:241:7)
+      at ../../node_modules/ajv/lib/compile/validate/index.ts:233:38
+      at CodeGen.code (../../node_modules/ajv/lib/compile/codegen/index.ts:545:33)
+      at CodeGen.block (../../node_modules/ajv/lib/compile/codegen/index.ts:700:20)
+      at schemaKeywords (../../node_modules/ajv/lib/compile/validate/index.ts:232:7)
+      at typeAndKeywords (../../node_modules/ajv/lib/compile/validate/index.ts:161:3)
+      at ../../node_modules/ajv/lib/compile/validate/index.ts:100:5
+      at CodeGen.code (../../node_modules/ajv/lib/compile/codegen/index.ts:545:33)
+      at ../../node_modules/ajv/lib/compile/validate/index.ts:61:45
+      at CodeGen.code (../../node_modules/ajv/lib/compile/codegen/index.ts:545:33)
+      at CodeGen.func (../../node_modules/ajv/lib/compile/codegen/index.ts:719:24)
+      at validateFunction (../../node_modules/ajv/lib/compile/validate/index.ts:60:9)
+      at topSchemaObjCode (../../node_modules/ajv/lib/compile/validate/index.ts:94:3)
+      at validateFunctionCode (../../node_modules/ajv/lib/compile/validate/index.ts:42:7)
+      at Ajv2020.compileSchema (../../node_modules/ajv/lib/compile/index.ts:163:25)
+      at Ajv2020._compileSchemaEnv (../../node_modules/ajv/lib/core.ts:737:24)
+      at Ajv2020.compile (../../node_modules/ajv/lib/core.ts:389:34)
+      at loadValidator (finding-registry-integrity.spec.ts:92:14)
+      at finding-registry-integrity.spec.ts:97:20
+      at Object.<anonymous> (finding-registry-integrity.spec.ts:95:1)
+
+    console.warn
+      unknown format "date-time" ignored in schema at path "#/properties/closed_at"
+
+      90 |   const schema = JSON.parse(fs.readFileSync(SCHEMA_PATH, 'utf8'));
+      91 |   const ajv = new Ajv2020({ allErrors: true, strict: false });
+    > 92 |   return ajv.compile(schema);
+         |              ^
+      93 | }
+      94 |
+      95 | describe('finding registry integrity invariant', () => {
+
+      at unknownFormat (../../node_modules/ajv/lib/vocabularies/format/format.ts:84:23)
+      at validateFormat (../../node_modules/ajv/lib/vocabularies/format/format.ts:75:9)
+      at Object.code (../../node_modules/ajv/lib/vocabularies/format/format.ts:40:10)
+      at keywordCode (../../node_modules/ajv/lib/compile/validate/index.ts:532:9)
+      at ../../node_modules/ajv/lib/compile/validate/index.ts:265:9
+      at CodeGen.code (../../node_modules/ajv/lib/compile/codegen/index.ts:545:33)
+      at CodeGen.block (../../node_modules/ajv/lib/compile/codegen/index.ts:700:20)
+      at iterateKeywords (../../node_modules/ajv/lib/compile/validate/index.ts:262:7)
+      at groupKeywords (../../node_modules/ajv/lib/compile/validate/index.ts:241:7)
+      at ../../node_modules/ajv/lib/compile/validate/index.ts:233:38
+      at CodeGen.code (../../node_modules/ajv/lib/compile/codegen/index.ts:545:33)
+      at CodeGen.block (../../node_modules/ajv/lib/compile/codegen/index.ts:700:20)
+      at schemaKeywords (../../node_modules/ajv/lib/compile/validate/index.ts:232:7)
+      at typeAndKeywords (../../node_modules/ajv/lib/compile/validate/index.ts:161:3)
+      at subSchemaObjCode (../../node_modules/ajv/lib/compile/validate/index.ts:147:3)
+      at subschemaCode (../../node_modules/ajv/lib/compile/validate/index.ts:124:7)
+      at KeywordCxt.subschema (../../node_modules/ajv/lib/compile/validate/index.ts:500:5)
+      at applyPropertySchema (../../node_modules/ajv/lib/vocabularies/applicator/properties.ts:45:11)
+      at Object.code (../../node_modules/ajv/lib/vocabularies/applicator/properties.ts:32:9)
+      at keywordCode (../../node_modules/ajv/lib/compile/validate/index.ts:532:9)
+      at ../../node_modules/ajv/lib/compile/validate/index.ts:265:9
+      at CodeGen.code (../../node_modules/ajv/lib/compile/codegen/index.ts:545:33)
+      at CodeGen.block (../../node_modules/ajv/lib/compile/codegen/index.ts:700:20)
+      at iterateKeywords (../../node_modules/ajv/lib/compile/validate/index.ts:262:7)
+      at groupKeywords (../../node_modules/ajv/lib/compile/validate/index.ts:241:7)
+      at ../../node_modules/ajv/lib/compile/validate/index.ts:233:38
+      at CodeGen.code (../../node_modules/ajv/lib/compile/codegen/index.ts:545:33)
+      at CodeGen.block (../../node_modules/ajv/lib/compile/codegen/index.ts:700:20)
+      at schemaKeywords (../../node_modules/ajv/lib/compile/validate/index.ts:232:7)
+      at typeAndKeywords (../../node_modules/ajv/lib/compile/validate/index.ts:161:3)
+      at ../../node_modules/ajv/lib/compile/validate/index.ts:100:5
+      at CodeGen.code (../../node_modules/ajv/lib/compile/codegen/index.ts:545:33)
+      at ../../node_modules/ajv/lib/compile/validate/index.ts:61:45
+      at CodeGen.code (../../node_modules/ajv/lib/compile/codegen/index.ts:545:33)
+      at CodeGen.func (../../node_modules/ajv/lib/compile/codegen/index.ts:719:24)
+      at validateFunction (../../node_modules/ajv/lib/compile/validate/index.ts:60:9)
+      at topSchemaObjCode (../../node_modules/ajv/lib/compile/validate/index.ts:94:3)
+      at validateFunctionCode (../../node_modules/ajv/lib/compile/validate/index.ts:42:7)
+      at Ajv2020.compileSchema (../../node_modules/ajv/lib/compile/index.ts:163:25)
+      at Ajv2020._compileSchemaEnv (../../node_modules/ajv/lib/core.ts:737:24)
+      at Ajv2020.compile (../../node_modules/ajv/lib/core.ts:389:34)
+      at loadValidator (finding-registry-integrity.spec.ts:92:14)
+      at finding-registry-integrity.spec.ts:97:20
+      at Object.<anonymous> (finding-registry-integrity.spec.ts:95:1)
+
+    console.warn
+      unknown format "date-time" ignored in schema at path "#/properties/closed_at"
+
+      90 |   const schema = JSON.parse(fs.readFileSync(SCHEMA_PATH, 'utf8'));
+      91 |   const ajv = new Ajv2020({ allErrors: true, strict: false });
+    > 92 |   return ajv.compile(schema);
+         |              ^
+      93 | }
+      94 |
+      95 | describe('finding registry integrity invariant', () => {
+
+      at unknownFormat (../../node_modules/ajv/lib/vocabularies/format/format.ts:84:23)
+      at validateFormat (../../node_modules/ajv/lib/vocabularies/format/format.ts:75:9)
+      at Object.code (../../node_modules/ajv/lib/vocabularies/format/format.ts:40:10)
+      at keywordCode (../../node_modules/ajv/lib/compile/validate/index.ts:532:9)
+      at ../../node_modules/ajv/lib/compile/validate/index.ts:265:9
+      at CodeGen.code (../../node_modules/ajv/lib/compile/codegen/index.ts:545:33)
+      at CodeGen.block (../../node_modules/ajv/lib/compile/codegen/index.ts:700:20)
+      at iterateKeywords (../../node_modules/ajv/lib/compile/validate/index.ts:262:7)
+      at groupKeywords (../../node_modules/ajv/lib/compile/validate/index.ts:241:7)
+      at ../../node_modules/ajv/lib/compile/validate/index.ts:233:38
+      at CodeGen.code (../../node_modules/ajv/lib/compile/codegen/index.ts:545:33)
+      at CodeGen.block (../../node_modules/ajv/lib/compile/codegen/index.ts:700:20)
+      at schemaKeywords (../../node_modules/ajv/lib/compile/validate/index.ts:232:7)
+      at typeAndKeywords (../../node_modules/ajv/lib/compile/validate/index.ts:161:3)
+      at subSchemaObjCode (../../node_modules/ajv/lib/compile/validate/index.ts:147:3)
+      at subschemaCode (../../node_modules/ajv/lib/compile/validate/index.ts:124:7)
+      at KeywordCxt.subschema (../../node_modules/ajv/lib/compile/validate/index.ts:500:5)
+      at applyPropertySchema (../../node_modules/ajv/lib/vocabularies/applicator/properties.ts:45:11)
+      at Object.code (../../node_modules/ajv/lib/vocabularies/applicator/properties.ts:32:9)
+      at keywordCode (../../node_modules/ajv/lib/compile/validate/index.ts:532:9)
+      at ../../node_modules/ajv/lib/compile/validate/index.ts:265:9
+      at CodeGen.code (../../node_modules/ajv/lib/compile/codegen/index.ts:545:33)
+      at CodeGen.block (../../node_modules/ajv/lib/compile/codegen/index.ts:700:20)
+      at iterateKeywords (../../node_modules/ajv/lib/compile/validate/index.ts:262:7)
+      at groupKeywords (../../node_modules/ajv/lib/compile/validate/index.ts:241:7)
+      at ../../node_modules/ajv/lib/compile/validate/index.ts:233:38
+      at CodeGen.code (../../node_modules/ajv/lib/compile/codegen/index.ts:545:33)
+      at CodeGen.block (../../node_modules/ajv/lib/compile/codegen/index.ts:700:20)
+      at schemaKeywords (../../node_modules/ajv/lib/compile/validate/index.ts:232:7)
+      at typeAndKeywords (../../node_modules/ajv/lib/compile/validate/index.ts:161:3)
+      at ../../node_modules/ajv/lib/compile/validate/index.ts:100:5
+      at CodeGen.code (../../node_modules/ajv/lib/compile/codegen/index.ts:545:33)
+      at ../../node_modules/ajv/lib/compile/validate/index.ts:61:45
+      at CodeGen.code (../../node_modules/ajv/lib/compile/codegen/index.ts:545:33)
+      at CodeGen.func (../../node_modules/ajv/lib/compile/codegen/index.ts:719:24)
+      at validateFunction (../../node_modules/ajv/lib/compile/validate/index.ts:60:9)
+      at topSchemaObjCode (../../node_modules/ajv/lib/compile/validate/index.ts:94:3)
+      at validateFunctionCode (../../node_modules/ajv/lib/compile/validate/index.ts:42:7)
+      at Ajv2020.compileSchema (../../node_modules/ajv/lib/compile/index.ts:163:25)
+      at Ajv2020._compileSchemaEnv (../../node_modules/ajv/lib/core.ts:737:24)
+      at Ajv2020.compile (../../node_modules/ajv/lib/core.ts:389:34)
+      at loadValidator (finding-registry-integrity.spec.ts:92:14)
+      at finding-registry-integrity.spec.ts:97:20
+      at Object.<anonymous> (finding-registry-integrity.spec.ts:95:1)
+
+    console.warn
+      unknown format "date" ignored in schema at path "#/properties/deadline"
+
+      90 |   const schema = JSON.parse(fs.readFileSync(SCHEMA_PATH, 'utf8'));
+      91 |   const ajv = new Ajv2020({ allErrors: true, strict: false });
+    > 92 |   return ajv.compile(schema);
+         |              ^
+      93 | }
+      94 |
+      95 | describe('finding registry integrity invariant', () => {
+
+      at unknownFormat (../../node_modules/ajv/lib/vocabularies/format/format.ts:84:23)
+      at validateFormat (../../node_modules/ajv/lib/vocabularies/format/format.ts:75:9)
+      at Object.code (../../node_modules/ajv/lib/vocabularies/format/format.ts:40:10)
+      at keywordCode (../../node_modules/ajv/lib/compile/validate/index.ts:532:9)
+      at ../../node_modules/ajv/lib/compile/validate/index.ts:265:9
+      at CodeGen.code (../../node_modules/ajv/lib/compile/codegen/index.ts:545:33)
+      at CodeGen.block (../../node_modules/ajv/lib/compile/codegen/index.ts:700:20)
+      at iterateKeywords (../../node_modules/ajv/lib/compile/validate/index.ts:262:7)
+      at groupKeywords (../../node_modules/ajv/lib/compile/validate/index.ts:241:7)
+      at ../../node_modules/ajv/lib/compile/validate/index.ts:233:38
+      at CodeGen.code (../../node_modules/ajv/lib/compile/codegen/index.ts:545:33)
+      at CodeGen.block (../../node_modules/ajv/lib/compile/codegen/index.ts:700:20)
+      at schemaKeywords (../../node_modules/ajv/lib/compile/validate/index.ts:232:7)
+      at typeAndKeywords (../../node_modules/ajv/lib/compile/validate/index.ts:161:3)
+      at subSchemaObjCode (../../node_modules/ajv/lib/compile/validate/index.ts:147:3)
+      at subschemaCode (../../node_modules/ajv/lib/compile/validate/index.ts:124:7)
+      at KeywordCxt.subschema (../../node_modules/ajv/lib/compile/validate/index.ts:500:5)
+      at applyPropertySchema (../../node_modules/ajv/lib/vocabularies/applicator/properties.ts:45:11)
+      at Object.code (../../node_modules/ajv/lib/vocabularies/applicator/properties.ts:32:9)
+      at keywordCode (../../node_modules/ajv/lib/compile/validate/index.ts:532:9)
+      at ../../node_modules/ajv/lib/compile/validate/index.ts:265:9
+      at CodeGen.code (../../node_modules/ajv/lib/compile/codegen/index.ts:545:33)
+      at CodeGen.block (../../node_modules/ajv/lib/compile/codegen/index.ts:700:20)
+      at iterateKeywords (../../node_modules/ajv/lib/compile/validate/index.ts:262:7)
+      at groupKeywords (../../node_modules/ajv/lib/compile/validate/index.ts:241:7)
+      at ../../node_modules/ajv/lib/compile/validate/index.ts:233:38
+      at CodeGen.code (../../node_modules/ajv/lib/compile/codegen/index.ts:545:33)
+      at CodeGen.block (../../node_modules/ajv/lib/compile/codegen/index.ts:700:20)
+      at schemaKeywords (../../node_modules/ajv/lib/compile/validate/index.ts:232:7)
+      at typeAndKeywords (../../node_modules/ajv/lib/compile/validate/index.ts:161:3)
+      at ../../node_modules/ajv/lib/compile/validate/index.ts:100:5
+      at CodeGen.code (../../node_modules/ajv/lib/compile/codegen/index.ts:545:33)
+      at ../../node_modules/ajv/lib/compile/validate/index.ts:61:45
+      at CodeGen.code (../../node_modules/ajv/lib/compile/codegen/index.ts:545:33)
+      at CodeGen.func (../../node_modules/ajv/lib/compile/codegen/index.ts:719:24)
+      at validateFunction (../../node_modules/ajv/lib/compile/validate/index.ts:60:9)
+      at topSchemaObjCode (../../node_modules/ajv/lib/compile/validate/index.ts:94:3)
+      at validateFunctionCode (../../node_modules/ajv/lib/compile/validate/index.ts:42:7)
+      at Ajv2020.compileSchema (../../node_modules/ajv/lib/compile/index.ts:163:25)
+      at Ajv2020._compileSchemaEnv (../../node_modules/ajv/lib/core.ts:737:24)
+      at Ajv2020.compile (../../node_modules/ajv/lib/core.ts:389:34)
+      at loadValidator (finding-registry-integrity.spec.ts:92:14)
+      at finding-registry-integrity.spec.ts:97:20
+      at Object.<anonymous> (finding-registry-integrity.spec.ts:95:1)
+
+    console.warn
+      unknown format "date" ignored in schema at path "#/properties/deadline"
+
+      90 |   const schema = JSON.parse(fs.readFileSync(SCHEMA_PATH, 'utf8'));
+      91 |   const ajv = new Ajv2020({ allErrors: true, strict: false });
+    > 92 |   return ajv.compile(schema);
+         |              ^
+      93 | }
+      94 |
+      95 | describe('finding registry integrity invariant', () => {
+
+      at unknownFormat (../../node_modules/ajv/lib/vocabularies/format/format.ts:84:23)
+      at validateFormat (../../node_modules/ajv/lib/vocabularies/format/format.ts:75:9)
+      at Object.code (../../node_modules/ajv/lib/vocabularies/format/format.ts:40:10)
+      at keywordCode (../../node_modules/ajv/lib/compile/validate/index.ts:532:9)
+      at ../../node_modules/ajv/lib/compile/validate/index.ts:265:9
+      at CodeGen.code (../../node_modules/ajv/lib/compile/codegen/index.ts:545:33)
+      at CodeGen.block (../../node_modules/ajv/lib/compile/codegen/index.ts:700:20)
+      at iterateKeywords (../../node_modules/ajv/lib/compile/validate/index.ts:262:7)
+      at groupKeywords (../../node_modules/ajv/lib/compile/validate/index.ts:241:7)
+      at ../../node_modules/ajv/lib/compile/validate/index.ts:233:38
+      at CodeGen.code (../../node_modules/ajv/lib/compile/codegen/index.ts:545:33)
+      at CodeGen.block (../../node_modules/ajv/lib/compile/codegen/index.ts:700:20)
+      at schemaKeywords (../../node_modules/ajv/lib/compile/validate/index.ts:232:7)
+      at typeAndKeywords (../../node_modules/ajv/lib/compile/validate/index.ts:161:3)
+      at subSchemaObjCode (../../node_modules/ajv/lib/compile/validate/index.ts:147:3)
+      at subschemaCode (../../node_modules/ajv/lib/compile/validate/index.ts:124:7)
+      at KeywordCxt.subschema (../../node_modules/ajv/lib/compile/validate/index.ts:500:5)
+      at applyPropertySchema (../../node_modules/ajv/lib/vocabularies/applicator/properties.ts:45:11)
+      at Object.code (../../node_modules/ajv/lib/vocabularies/applicator/properties.ts:32:9)
+      at keywordCode (../../node_modules/ajv/lib/compile/validate/index.ts:532:9)
+      at ../../node_modules/ajv/lib/compile/validate/index.ts:265:9
+      at CodeGen.code (../../node_modules/ajv/lib/compile/codegen/index.ts:545:33)
+      at CodeGen.block (../../node_modules/ajv/lib/compile/codegen/index.ts:700:20)
+      at iterateKeywords (../../node_modules/ajv/lib/compile/validate/index.ts:262:7)
+      at groupKeywords (../../node_modules/ajv/lib/compile/validate/index.ts:241:7)
+      at ../../node_modules/ajv/lib/compile/validate/index.ts:233:38
+      at CodeGen.code (../../node_modules/ajv/lib/compile/codegen/index.ts:545:33)
+      at CodeGen.block (../../node_modules/ajv/lib/compile/codegen/index.ts:700:20)
+      at schemaKeywords (../../node_modules/ajv/lib/compile/validate/index.ts:232:7)
+      at typeAndKeywords (../../node_modules/ajv/lib/compile/validate/index.ts:161:3)
+      at ../../node_modules/ajv/lib/compile/validate/index.ts:100:5
+      at CodeGen.code (../../node_modules/ajv/lib/compile/codegen/index.ts:545:33)
+      at ../../node_modules/ajv/lib/compile/validate/index.ts:61:45
+      at CodeGen.code (../../node_modules/ajv/lib/compile/codegen/index.ts:545:33)
+      at CodeGen.func (../../node_modules/ajv/lib/compile/codegen/index.ts:719:24)
+      at validateFunction (../../node_modules/ajv/lib/compile/validate/index.ts:60:9)
+      at topSchemaObjCode (../../node_modules/ajv/lib/compile/validate/index.ts:94:3)
+      at validateFunctionCode (../../node_modules/ajv/lib/compile/validate/index.ts:42:7)
+      at Ajv2020.compileSchema (../../node_modules/ajv/lib/compile/index.ts:163:25)
+      at Ajv2020._compileSchemaEnv (../../node_modules/ajv/lib/core.ts:737:24)
+      at Ajv2020.compile (../../node_modules/ajv/lib/core.ts:389:34)
+      at loadValidator (finding-registry-integrity.spec.ts:92:14)
+      at finding-registry-integrity.spec.ts:97:20
+      at Object.<anonymous> (finding-registry-integrity.spec.ts:95:1)
+
+  ● finding registry integrity invariant › every entry conforms to findings.jsonl.schema.json
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  -  1
+    + Received  + 84
+
+    - Array []
+    + Array [
+    +   "FE-CRITICAL-001: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "PROC-MEDIUM-005: [{\"instancePath\":\"/layer\",\"schemaPath\":\"#/properties/layer/enum\",\"keyword\":\"enum\",\"params\":{\"allowedValues\":[1,2,3]},\"message\":\"must be equal to one of the allowed values\"},{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/closing_commits/0\",\"schemaPath\":\"#/properties/closing_commits/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[0-9a-f]{7,40}$\"},\"message\":\"must match pattern \\\"^[0-9a-f]{7,40}$\\\"\"}]",
+    +   "INFRA-CRITICAL-001: [{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-HIGH-002: [{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-HIGH-003: [{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-HIGH-004: [{\"instancePath\":\"/layer\",\"schemaPath\":\"#/properties/layer/enum\",\"keyword\":\"enum\",\"params\":{\"allowedValues\":[1,2,3]},\"message\":\"must be equal to one of the allowed values\"},{\"instancePath\":\"/evidence/3\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/4\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/5\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/6\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-MEDIUM-005: [{\"instancePath\":\"/evidence/3\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/4\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-006: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-007: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-008: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-010: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/3\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-011: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/3\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/4\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/5\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/6\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-012: [{\"instancePath\":\"/layer\",\"schemaPath\":\"#/properties/layer/enum\",\"keyword\":\"enum\",\"params\":{\"allowedValues\":[1,2,3]},\"message\":\"must be equal to one of the allowed values\"},{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-013: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/3\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-009: [{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-MEDIUM-014: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-014: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/3\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-015: [{\"instancePath\":\"/layer\",\"schemaPath\":\"#/properties/layer/enum\",\"keyword\":\"enum\",\"params\":{\"allowedValues\":[1,2,3]},\"message\":\"must be equal to one of the allowed values\"},{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/3\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/4\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/5\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-016: [{\"instancePath\":\"/layer\",\"schemaPath\":\"#/properties/layer/enum\",\"keyword\":\"enum\",\"params\":{\"allowedValues\":[1,2,3]},\"message\":\"must be equal to one of the allowed values\"},{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-017: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/3\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-018: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/3\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-019: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/3\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-020: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-021: [{\"instancePath\":\"/title\",\"schemaPath\":\"#/properties/title/maxLength\",\"keyword\":\"maxLength\",\"params\":{\"limit\":200},\"message\":\"must NOT have more than 200 characters\"},{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/3\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-023: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-024: [{\"instancePath\":\"/title\",\"schemaPath\":\"#/properties/title/maxLength\",\"keyword\":\"maxLength\",\"params\":{\"limit\":200},\"message\":\"must NOT have more than 200 characters\"},{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-025: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-026: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "RUST-CVE-001: [{\"instancePath\":\"/id\",\"schemaPath\":\"#/properties/id/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^(DATA|SEC|PLAT|FE|EDGE|MT|FARM|SENSOR|HR|MSG|ADMIN|ANTI|ADR|AUDIT|CTX|INFRA|PROC|P0|COMPLIANCE|PERF|OBS|SUPPLY|CONTRACT|CIRCUIT|MEM|CLAUDE|BILLING|ALERT|LEGAL|AUDITTRAIL|TENANTCOST|AISAFETY|PRODUCT|DEPLOY)-(CRITICAL|HIGH|MEDIUM|LOW)-[0-9]{3}$\"},\"message\":\"must match pattern \\\"^(DATA|SEC|PLAT|FE|EDGE|MT|FARM|SENSOR|HR|MSG|ADMIN|ANTI|ADR|AUDIT|CTX|INFRA|PROC|P0|COMPLIANCE|PERF|OBS|SUPPLY|CONTRACT|CIRCUIT|MEM|CLAUDE|BILLING|ALERT|LEGAL|AUDITTRAIL|TENANTCOST|AISAFETY|PRODUCT|DEPLOY)-(CRITICAL|HIGH|MEDIUM|LOW)-[0-9]{3}$\\\"\"},{\"instancePath\":\"/layer\",\"schemaPath\":\"#/properties/layer/enum\",\"keyword\":\"enum\",\"params\":{\"allowedValues\":[1,2,3]},\"message\":\"must be equal to one of the allowed values\"},{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/3\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-027: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-028: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/3\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-029: [{\"instancePath\":\"/title\",\"schemaPath\":\"#/properties/title/maxLength\",\"keyword\":\"maxLength\",\"params\":{\"limit\":200},\"message\":\"must NOT have more than 200 characters\"},{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-030: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/3\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-031: [{\"instancePath\":\"/title\",\"schemaPath\":\"#/properties/title/maxLength\",\"keyword\":\"maxLength\",\"params\":{\"limit\":200},\"message\":\"must NOT have more than 200 characters\"},{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/3\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-032: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-033: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/3\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-034: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/3\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-035: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/3\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "DEPLOY-CRITICAL-003: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "DEPLOY-CRITICAL-004: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/3\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "DEPLOY-CRITICAL-005: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "DEPLOY-CRITICAL-006: [{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/3\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-001: [{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-HIGH-002: [{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-HIGH-003: [{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-HIGH-004: [{\"instancePath\":\"/layer\",\"schemaPath\":\"#/properties/layer/enum\",\"keyword\":\"enum\",\"params\":{\"allowedValues\":[1,2,3]},\"message\":\"must be equal to one of the allowed values\"},{\"instancePath\":\"/evidence/3\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/4\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/5\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/6\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-MEDIUM-005: [{\"instancePath\":\"/evidence/3\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/4\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-006: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-007: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-008: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-010: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/3\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-011: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/3\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/4\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/5\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/6\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-012: [{\"instancePath\":\"/layer\",\"schemaPath\":\"#/properties/layer/enum\",\"keyword\":\"enum\",\"params\":{\"allowedValues\":[1,2,3]},\"message\":\"must be equal to one of the allowed values\"},{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-013: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/3\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-009: [{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-MEDIUM-014: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-014: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/3\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-015: [{\"instancePath\":\"/layer\",\"schemaPath\":\"#/properties/layer/enum\",\"keyword\":\"enum\",\"params\":{\"allowedValues\":[1,2,3]},\"message\":\"must be equal to one of the allowed values\"},{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/3\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/4\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/5\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-016: [{\"instancePath\":\"/layer\",\"schemaPath\":\"#/properties/layer/enum\",\"keyword\":\"enum\",\"params\":{\"allowedValues\":[1,2,3]},\"message\":\"must be equal to one of the allowed values\"},{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-017: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/3\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-019: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/3\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-018: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/3\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-020: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-021: [{\"instancePath\":\"/title\",\"schemaPath\":\"#/properties/title/maxLength\",\"keyword\":\"maxLength\",\"params\":{\"limit\":200},\"message\":\"must NOT have more than 200 characters\"},{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/3\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-023: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-024: [{\"instancePath\":\"/title\",\"schemaPath\":\"#/properties/title/maxLength\",\"keyword\":\"maxLength\",\"params\":{\"limit\":200},\"message\":\"must NOT have more than 200 characters\"},{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-025: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-026: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-027: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-028: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/3\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-029: [{\"instancePath\":\"/title\",\"schemaPath\":\"#/properties/title/maxLength\",\"keyword\":\"maxLength\",\"params\":{\"limit\":200},\"message\":\"must NOT have more than 200 characters\"},{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-030: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/3\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-031: [{\"instancePath\":\"/title\",\"schemaPath\":\"#/properties/title/maxLength\",\"keyword\":\"maxLength\",\"params\":{\"limit\":200},\"message\":\"must NOT have more than 200 characters\"},{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/3\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-032: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-033: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/3\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-034: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/3\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "INFRA-CRITICAL-035: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/3\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "DEPLOY-CRITICAL-003: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "DEPLOY-CRITICAL-004: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/3\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "DEPLOY-CRITICAL-005: [{\"instancePath\":\"/evidence/0\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/2\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "DEPLOY-CRITICAL-006: [{\"instancePath\":\"/evidence/1\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/3\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    +   "DEPLOY-CRITICAL-007: [{\"instancePath\":\"/title\",\"schemaPath\":\"#/properties/title/maxLength\",\"keyword\":\"maxLength\",\"params\":{\"limit\":200},\"message\":\"must NOT have more than 200 characters\"},{\"instancePath\":\"/evidence/3\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"},{\"instancePath\":\"/evidence/4\",\"schemaPath\":\"#/properties/evidence/items/pattern\",\"keyword\":\"pattern\",\"params\":{\"pattern\":\"^[^:]+:[0-9]+(-[0-9]+)?$\"},\"message\":\"must match pattern \\\"^[^:]+:[0-9]+(-[0-9]+)?$\\\"\"}]",
+    + ]
+
+      111 |       }
+      112 |     }
+    > 113 |     expect(errors).toEqual([]);
+          |                    ^
+      114 |   });
+      115 |
+      116 |   it('first entry has prev_hash = 64 zeros', () => {
+
+      at Object.<anonymous> (finding-registry-integrity.spec.ts:113:20)
+
+  ● finding registry integrity invariant › every finding ID is unique
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  -  1
+    + Received  + 41
+
+    - Array []
+    + Array [
+    +   "INFRA-CRITICAL-001",
+    +   "INFRA-HIGH-002",
+    +   "INFRA-HIGH-003",
+    +   "INFRA-HIGH-004",
+    +   "INFRA-MEDIUM-005",
+    +   "INFRA-CRITICAL-006",
+    +   "INFRA-CRITICAL-007",
+    +   "INFRA-CRITICAL-008",
+    +   "INFRA-CRITICAL-010",
+    +   "INFRA-CRITICAL-011",
+    +   "INFRA-CRITICAL-012",
+    +   "INFRA-CRITICAL-013",
+    +   "INFRA-CRITICAL-009",
+    +   "INFRA-MEDIUM-014",
+    +   "INFRA-CRITICAL-014",
+    +   "INFRA-CRITICAL-015",
+    +   "INFRA-CRITICAL-016",
+    +   "INFRA-CRITICAL-017",
+    +   "INFRA-CRITICAL-019",
+    +   "INFRA-CRITICAL-018",
+    +   "INFRA-CRITICAL-020",
+    +   "INFRA-CRITICAL-021",
+    +   "INFRA-CRITICAL-023",
+    +   "INFRA-CRITICAL-024",
+    +   "INFRA-CRITICAL-025",
+    +   "INFRA-CRITICAL-026",
+    +   "INFRA-CRITICAL-027",
+    +   "INFRA-CRITICAL-028",
+    +   "INFRA-CRITICAL-029",
+    +   "INFRA-CRITICAL-030",
+    +   "INFRA-CRITICAL-031",
+    +   "INFRA-CRITICAL-032",
+    +   "INFRA-CRITICAL-033",
+    +   "INFRA-CRITICAL-034",
+    +   "INFRA-CRITICAL-035",
+    +   "DEPLOY-CRITICAL-003",
+    +   "DEPLOY-CRITICAL-004",
+    +   "DEPLOY-CRITICAL-005",
+    +   "DEPLOY-CRITICAL-006",
+    + ]
+
+      142 |     const ids = entries.map((e) => e.id);
+      143 |     const duplicates = ids.filter((id, i) => ids.indexOf(id) !== i);
+    > 144 |     expect(duplicates).toEqual([]);
+          |                        ^
+      145 |   });
+      146 |
+      147 |   /**
+
+      at Object.<anonymous> (finding-registry-integrity.spec.ts:144:24)
+
+PASS layer-3 tests/invariants/settings-hook-coverage.spec.ts
+
+Test Suites: 2 failed, 12 passed, 14 total
+Tests:       3 failed, 472 passed, 475 total
+Snapshots:   0 total
+Time:        10.454 s
+Ran all test suites in 2 projects.
+
+real	0m13.199s
+user	0m11.988s
+sys	0m1.474s

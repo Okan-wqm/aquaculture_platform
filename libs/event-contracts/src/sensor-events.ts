@@ -24,6 +24,73 @@ export interface SensorReadingEvent extends BaseEvent {
 }
 
 /**
+ * Sensor Metric Ingested Event (Faz 3 — Rust sidecar → sensor-service edge)
+ *
+ * WHY this event exists separately from `SensorReadingEvent`:
+ *   The Rust ingestion sidecar (`apps/sensor-ingestion`, ADR-025) sees
+ *   raw per-channel metric tuples — it does NOT have the sensor-meta
+ *   cache that maps channel UUID → typed water-quality field
+ *   (`readingTemperature`, `readingPh`, ...). Forcing the sidecar to
+ *   publish typed `SensorReadingEvent`s would couple the ingestion hot
+ *   path to a control-plane lookup that lives in sensor-service.
+ *
+ *   Architectural cut (ADR-022 control / data plane separation):
+ *     - Rust sidecar publishes the raw shape it OWNS.
+ *     - sensor-service NATS consumer enriches with sensor-meta from its
+ *       in-process cache, calls `BatchProcessorService.enqueue()`, then
+ *       emits the existing typed `SensorReadingEvent` to the in-process
+ *       EventBus for downstream consumers (alert-engine).
+ *
+ *   Result: no breakage of the typed `SensorReadingEvent` contract,
+ *   sidecar does what it can with what it has, mapping concern lives
+ *   exactly once in the service that owns the metadata.
+ *
+ * Wire shape:
+ *   `tenantId` is the BaseEvent.tenantId (subject routing).
+ *   `producerTs` is ms-epoch UTC (matches the Rust sidecar's
+ *   `validate()` post-condition; same numeric type + range as the
+ *   `[2024-01-01, 2100-01-01)` window the validator enforces).
+ */
+export interface SensorMetricIngestedEvent extends BaseEvent {
+  eventType: 'SensorMetricIngested';
+  sensorId: string;
+  channelId: string;
+  rawValue: number;
+  value: number;
+  qualityCode: number;
+  producerTs: number;
+  /**
+   * Optional farm scope, populated by the Rust sidecar's drain when the
+   * `(tenant, sensor)` pair was present in the warm `TopicCache`.
+   *
+   * WHAT this field carries:
+   *   The sidecar's resolved `sensor.farmId` at the moment the event
+   *   was minted. The NestJS `NatsIngestionConsumerService` prefers
+   *   this value (event-side) over its own `metaCache.getSensor()`
+   *   result so the per-event DB roundtrip is skipped on the warm-
+   *   cache happy path. When the sidecar's cache was cold the field
+   *   is absent and the consumer falls back to its own cache (defence
+   *   in depth + fresher-cache-wins on staleness).
+   *
+   * WHY optional:
+   *   Cache-miss path on the sidecar leaves this absent — making it
+   *   required would couple every cold-start ingest to a synchronous
+   *   responder roundtrip, which is exactly the architectural cut the
+   *   sidecar's cache exists to avoid.
+   *
+   * Wire shape: absent (key omitted) when the sidecar had no farm
+   * binding, never `null`. Mirrors the Rust struct's
+   * `skip_serializing_if = "Option::is_none"`.
+   */
+  farmId?: string;
+  /**
+   * Optional pond scope. Mirrors `farmId` semantics — populated when
+   * the sidecar's cache was warm at publish time, absent otherwise.
+   */
+  pondId?: string;
+}
+
+/**
  * Sensor Registered Event
  */
 export interface SensorRegisteredEvent extends BaseEvent {
@@ -231,6 +298,7 @@ export interface ScadaDeployFailedEvent extends BaseEvent {
  */
 export type SensorEvent =
   | SensorReadingEvent
+  | SensorMetricIngestedEvent
   | SensorRegisteredEvent
   | SensorCalibratedEvent
   | SensorOfflineEvent

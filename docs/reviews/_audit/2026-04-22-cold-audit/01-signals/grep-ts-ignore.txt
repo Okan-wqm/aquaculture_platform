@@ -1,0 +1,3 @@
+apps/sensor-service/src/automation/compiler/worker/st-worker-pool.service.ts:33:// when not installed. We use a minimal interface instead of @ts-ignore.
+libs/migration-harness/src/expect-no-drift.ts:506:// `expect(...).toHaveNoDrift()` without @ts-ignore.
+web/modules/sensor-module/src/components/automation/st-language.ts:4:// @ts-ignore — monaco-editor types provided at runtime by @monaco-editor/react

@@ -9,12 +9,12 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import { ObjectType, Field, ID, Int, Float } from '@nestjs/graphql';
 import { Employee } from '../../hr/entities/employee.entity';
 
 @ObjectType()
-@Entity('employee_kpis')
+@Entity('employee_kpis', { schema: 'hr' })
 @Index('idx_kpi_tenant_employee', ['tenantId', 'employeeId'])
 @Index('idx_kpi_tenant_category', ['tenantId', 'category'])
 @Index('idx_kpi_tenant_period', ['tenantId', 'periodStart', 'periodEnd'])

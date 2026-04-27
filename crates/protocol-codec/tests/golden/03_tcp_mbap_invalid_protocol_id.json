@@ -1,0 +1,9 @@
+{
+  "name": "tcp_mbap_invalid_protocol_id",
+  "description": "MBAP header with non-zero protocol_id (0xBEEF) — not Modbus, parser must reject before length validation.",
+  "decoder": "parse_mbap_header",
+  "wire_hex": "0001BEEF000601",
+  "expected_err": {
+    "kind": "InvalidProtocolId"
+  }
+}

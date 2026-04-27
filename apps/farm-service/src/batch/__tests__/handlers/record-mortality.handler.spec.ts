@@ -12,16 +12,26 @@
  */
 import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { DataSource, Repository, EntityManager } from 'typeorm';
-import { RecordMortalityHandler } from '../handlers/record-mortality.handler';
-import { RecordMortalityCommand, MortalityReason } from '../commands/record-mortality.command';
-import { Batch, BatchStatus } from '../entities/batch.entity';
-import { MortalityRecord } from '../entities/mortality-record.entity';
-import { TankOperation } from '../entities/tank-operation.entity';
-import { TankBatch } from '../entities/tank-batch.entity';
-import { Equipment } from '../../equipment/entities/equipment.entity';
-import { Tank } from '../../tank/entities/tank.entity';
-import { EquipmentType } from '../../equipment/entities/equipment-type.entity';
-import { DomainEventPublisher } from '../../common/services/domain-event-publisher.service';
+// Spec lives at src/batch/__tests__/handlers/ — one level deeper
+// than when these imports were first written. All relative paths
+// walk up one extra `../` to reach the batch module root.
+import { RecordMortalityHandler } from '../../handlers/record-mortality.handler';
+import { RecordMortalityCommand, MortalityReason } from '../../commands/record-mortality.command';
+import { Batch, BatchStatus } from '../../entities/batch.entity';
+import { MortalityRecord } from '../../entities/mortality-record.entity';
+import { TankOperation } from '../../entities/tank-operation.entity';
+import { TankBatch } from '../../entities/tank-batch.entity';
+import { Equipment } from '../../../equipment/entities/equipment.entity';
+import { Tank } from '../../../tank/entities/tank.entity';
+import { EquipmentType } from '../../../equipment/entities/equipment-type.entity';
+// Handler migrated from DomainEventPublisher → OutboxPublisher
+// (phase D — transactional outbox, at-least-once delivery).
+import { OutboxPublisher } from '@platform/outbox';
+// Phase 1.5 backdating policy — mortality events backdated
+// beyond the context-specific window are rejected. A default
+// mock passes everything through; tests that want to exercise
+// the gate inject a rejecting stub.
+import { BackdatePolicyService } from '../../../common/services/backdate-policy.service';
 
 // ============================================================================
 // Mock helpers (shared with race-conditions.spec.ts pattern)
@@ -58,8 +68,27 @@ function createMockDataSource(queryRunner: ReturnType<typeof createMockQueryRunn
   } as unknown as DataSource;
 }
 
-function createMockEventPublisher(): DomainEventPublisher {
-  return { publish: jest.fn().mockResolvedValue(undefined) } as unknown as DomainEventPublisher;
+function createMockOutboxPublisher(): OutboxPublisher {
+  // Handler's outbox call is `enqueue(event, manager)`; resolve
+  // silently for tests that don't assert the emitted event shape.
+  return {
+    enqueue: jest.fn().mockResolvedValue(undefined),
+  } as unknown as OutboxPublisher;
+}
+
+function createMockBackdatePolicy(): BackdatePolicyService {
+  // Default stub: validate() returns an allow-decision with zero
+  // backdated days. Tests that want to exercise the rejection
+  // path pass their own stub.
+  return {
+    getLimitForContext: jest.fn().mockReturnValue(14),
+    validate: jest.fn().mockReturnValue({
+      allowed: true,
+      backdatedDays: 0,
+      limitDays: 14,
+      context: 'mortality',
+    }),
+  } as unknown as BackdatePolicyService;
 }
 
 // ============================================================================
@@ -79,6 +108,15 @@ describe('RecordMortalityHandler', () => {
       currentQuantity: 10_000,
       totalMortality: 0,
       status: BatchStatus.ACTIVE,
+      // Handler writes into `batch.mortalitySummary` JSONB fields
+      // after decrementing currentQuantity. Initialise so the
+      // property assignments land.
+      mortalitySummary: {
+        totalMortality: 0,
+        mortalityRate: 0,
+        lastMortalityAt: undefined,
+        mainCause: undefined,
+      },
       getCurrentAvgWeight: jest.fn().mockReturnValue(200),
       getMortalityRate: jest.fn().mockReturnValue(0),
       getRetentionRate: jest.fn().mockReturnValue(100),
@@ -125,12 +163,12 @@ describe('RecordMortalityHandler', () => {
 
   function buildHandler(
     managerOverride?: Partial<MockManager>,
-    eventPublisherOverride?: DomainEventPublisher,
+    outboxPublisherOverride?: OutboxPublisher,
   ) {
     const manager = { ...createMockManager(), ...managerOverride };
     const queryRunner = createMockQueryRunner(manager);
     const dataSource = createMockDataSource(queryRunner);
-    const eventPublisher = eventPublisherOverride ?? createMockEventPublisher();
+    const outboxPublisher = outboxPublisherOverride ?? createMockOutboxPublisher();
 
     const handler = new RecordMortalityHandler(
       dataSource,
@@ -141,10 +179,11 @@ describe('RecordMortalityHandler', () => {
       {} as Repository<Equipment>,
       {} as Repository<Tank>,
       {} as Repository<EquipmentType>,
-      eventPublisher,
+      outboxPublisher,
+      createMockBackdatePolicy(),
     );
 
-    return { handler, manager, queryRunner, eventPublisher };
+    return { handler, manager, queryRunner, outboxPublisher };
   }
 
   describe('validation', () => {
@@ -236,10 +275,10 @@ describe('RecordMortalityHandler', () => {
     });
   });
 
-  describe('domain event publishing', () => {
-    it('publishes MortalityRecorded event after commit', async () => {
-      const mockEventPublisher = createMockEventPublisher();
-      const { handler, manager } = buildHandler({}, mockEventPublisher);
+  describe('transactional outbox publishing', () => {
+    it('enqueues MortalityRecorded event via the outbox inside the tx', async () => {
+      const mockOutboxPublisher = createMockOutboxPublisher();
+      const { handler, manager } = buildHandler({}, mockOutboxPublisher);
       manager.findOne.mockImplementation((entity: unknown) => {
         if (entity === Batch) return Promise.resolve(makeBatch());
         if (entity === Equipment) return Promise.resolve(makeEquipment());
@@ -249,31 +288,46 @@ describe('RecordMortalityHandler', () => {
 
       await handler.execute(makeCommand(50));
 
-      expect(mockEventPublisher.publish).toHaveBeenCalledWith(
+      // OutboxPublisher signature is `enqueue(event, manager)` —
+      // the manager argument is the tx-scoped EntityManager so the
+      // outbox row commits atomically with the domain write.
+      expect(mockOutboxPublisher.enqueue).toHaveBeenCalledWith(
         expect.objectContaining({
           eventType: 'MortalityRecorded',
           tenantId,
           batchId,
           quantity: 50,
         }),
-        expect.objectContaining({ handler: 'RecordMortalityHandler', tenantId }),
+        expect.anything(),
       );
     });
 
-    it('does NOT fail the command if event publishing throws', async () => {
+    it('propagates publish errors — outbox enqueue is inside the tx so rollback is correct', async () => {
+      // Unlike the removed DomainEventPublisher which swallowed
+      // publish errors on a best-effort basis, the OutboxPublisher
+      // writes to a local DB row and runs inside the transaction.
+      // If the enqueue throws, the handler's tx must roll back so
+      // the domain write and the outbox row stay consistent.
       const failingPublisher = {
-        publish: jest.fn().mockRejectedValue(new Error('NATS down')),
-      } as unknown as DomainEventPublisher;
+        enqueue: jest.fn().mockRejectedValue(new Error('outbox write failed')),
+      } as unknown as OutboxPublisher;
 
-      const { handler, manager } = buildHandler({}, failingPublisher);
+      const { handler, manager, queryRunner } = buildHandler(
+        {},
+        failingPublisher,
+      );
       manager.findOne.mockImplementation((entity: unknown) => {
         if (entity === Batch) return Promise.resolve(makeBatch());
         if (entity === Equipment) return Promise.resolve(makeEquipment());
+        if (entity === TankBatch) return Promise.resolve(makeTankBatch());
         return Promise.resolve(null);
       });
 
-      // Should resolve — DomainEventPublisher swallows publish errors
-      await expect(handler.execute(makeCommand())).resolves.toBeDefined();
+      await expect(handler.execute(makeCommand())).rejects.toThrow(
+        'outbox write failed',
+      );
+      expect(queryRunner.rollbackTransaction).toHaveBeenCalledTimes(1);
+      expect(queryRunner.release).toHaveBeenCalledTimes(1);
     });
   });
 });

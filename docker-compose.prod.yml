@@ -36,14 +36,20 @@ services:
 
   # PostgreSQL with TimescaleDB
   postgres:
-    # Pinned 2026-04-05. To update: verify changelog at https://github.com/timescale/timescaledb/releases, test in staging first.
-    image: timescale/timescaledb:2.17.2-pg16
+    # INFRA-CRITICAL-010: HA edition with pgvector (uniform across CI + dev + droplet + prod).
+    # Pinned 2026-04-19. To update: verify changelog at https://github.com/timescale/timescaledb/releases AND
+    # https://hub.docker.com/r/timescale/timescaledb-ha for the new digest, test in staging first.
+    image: timescale/timescaledb-ha:pg16@sha256:b3d038d0a0757df8a5ec0a94ba68d9ad57b0e16100a024cf4b370c77ad5645f7
     container_name: aqua-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-aquaculture}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
       POSTGRES_DB: ${POSTGRES_DB:-aquaculture}
+      # INFRA-CRITICAL-018: pin PGDATA to legacy path so the HA image
+      # (which defaults to /home/postgres/pgdata/data) reads existing
+      # volume data at /var/lib/postgresql/data uniformly across env.
+      PGDATA: /var/lib/postgresql/data
       POSTGRES_SSL: "on"
     command: >
       postgres
@@ -311,6 +317,11 @@ services:
       # SECURITY (HIGH-001): sensor-service NATS account with sensor-scoped subject ACLs.
               # SECURITY (CRITICAL-001): RS256 public-key verification (consumer only).
       JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
+      # ADR-022 — production stays on `legacy` until the staging soak
+      # (24h) on control-plane is green. Flip to `control-plane` via
+      # the prod .env once the equivalence test passes for every
+      # tenant in the per-tenant IngestBackend rollout (ADR-027).
+      SENSOR_SERVICE_PROFILE: ${SENSOR_SERVICE_PROFILE:-legacy}
     volumes:
       - ./certs/jwt/public.pem:/var/run/jwt/public.pem:ro
       # SECURITY (HIGH-002): NATS mTLS — CA cert, shared client cert, and client key.
@@ -330,6 +341,39 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+
+  # Rust ingestion sidecar — ADR-025 / ADR-027. Co-equal producer of
+  # `events.{tenantId}.SensorReading`. Per-tenant feature-flag rollout
+  # via `[ingest_backend]` in config.toml; default Node so existing
+  # tenants stay on the NestJS path until explicit opt-in.
+  sensor-ingestion:
+    image: ghcr.io/okan-wqm/aquaculture_platform/sensor-ingestion:${TAG:-latest}
+    container_name: aqua-sensor-ingestion
+    restart: unless-stopped
+    user: "65532:65532"
+    environment:
+      RUST_LOG: ${SENSOR_INGESTION_LOG:-info}
+      SENSOR_INGESTION_CONFIG: /etc/sensor-ingestion/config.toml
+    volumes:
+      # Operator-rotated config + cert bind-mounts. ADR-014/015: certs
+      # NEVER baked into the image; the secrets-rotation job updates
+      # files on disk, sidecar restart picks them up.
+      - ./infrastructure/sensor-ingestion/config.toml:/etc/sensor-ingestion/config.toml:ro
+      - ./certs/sensor-ingestion:/etc/sensor-ingestion/certs:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - aqua-internal
+    deploy:
+      resources:
+        limits:
+          # Plan § Faz 2 — Deployment + Strangler Fig. 256MB / 0.35vCPU.
+          memory: 256M
+          cpus: '0.35'
+        reservations:
+          memory: 192M
+          cpus: '0.25'
 
   hr-service:
     image: ghcr.io/okan-wqm/aquaculture_platform/hr-service:${TAG:-latest}

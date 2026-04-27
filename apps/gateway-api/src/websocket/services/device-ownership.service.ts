@@ -23,7 +23,7 @@ import { ConfigService } from '@nestjs/config';
 import { ClientProxy } from '@nestjs/microservices';
 import { firstValueFrom, timeout } from 'rxjs';
 
-import { NATS_PATTERNS } from '@aquaculture/backend-common';
+import { NATS_PATTERNS } from '@aquaculture/backend-common/constants';
 
 /** Shape of a single cache entry. */
 interface CacheEntry {

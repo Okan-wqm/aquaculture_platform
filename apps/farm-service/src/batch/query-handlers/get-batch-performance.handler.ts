@@ -3,11 +3,17 @@
  *
  * GetBatchPerformanceQuery'yi işler ve batch performans metriklerini hesaplar.
  *
- * OPTIMIZED: Redis caching with 1 hour TTL for expensive calculations.
+ * Phase 7.3.1: Redis caching moved from this handler to the
+ * @Cacheable decorator on the `batchPerformance` resolver method.
+ * The handler body is now pure compute — one caching pattern for
+ * the whole service (CacheableInterceptor at the resolver layer)
+ * instead of four bespoke read-through blocks. The handler
+ * signature stays stable so callers (tests, other services) are
+ * unaffected.
  *
  * @module Batch/QueryHandlers
  */
-import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
@@ -15,7 +21,7 @@ import { GetBatchPerformanceQuery, BatchPerformanceResult } from '../queries/get
 import { Batch } from '../entities/batch.entity';
 import { TankOperation, OperationType } from '../entities/tank-operation.entity';
 import { Species } from '../../species/entities/species.entity';
-import { RedisService } from '@aquaculture/backend-common';
+import { BatchCostCalculatorService } from '../services/batch-cost-calculator.service';
 
 @Injectable()
 @QueryHandler(GetBatchPerformanceQuery)
@@ -29,25 +35,11 @@ export class GetBatchPerformanceHandler implements IQueryHandler<GetBatchPerform
     private readonly operationRepository: Repository<TankOperation>,
     @InjectRepository(Species)
     private readonly speciesRepository: Repository<Species>,
-    @Optional()
-    private readonly redisService?: RedisService,
+    private readonly costCalculator: BatchCostCalculatorService,
   ) {}
 
   async execute(query: GetBatchPerformanceQuery): Promise<BatchPerformanceResult> {
     const { tenantId, batchId } = query;
-
-    // OPTIMIZED: Check Redis cache first (TTL: 1 hour)
-    const cacheKey = `batch:performance:${tenantId}:${batchId}`;
-    if (this.redisService) {
-      try {
-        const cached = await this.redisService.getJson<BatchPerformanceResult>(cacheKey);
-        if (cached) {
-          return cached;
-        }
-      } catch {
-        // Cache miss or error, continue to compute
-      }
-    }
 
     // Batch bul
     const batch = await this.batchRepository.findOne({
@@ -107,11 +99,17 @@ export class GetBatchPerformanceHandler implements IQueryHandler<GetBatchPerform
     const totalFeedCost = Number(batch.totalFeedCost);
     const avgDailyFeedKg = daysInProduction > 0 ? totalFeedConsumedKg / daysInProduction : 0;
 
-    // Cost calculations
-    const purchaseCost = Number(batch.purchaseCost || 0);
-    const totalCost = purchaseCost + totalFeedCost;
-    const costPerKg = currentBiomassKg > 0 ? totalCost / currentBiomassKg : 0;
-    const costPerFish = batch.currentQuantity > 0 ? totalCost / batch.currentQuantity : 0;
+    // Cost calculations — full breakdown via BatchCostCalculatorService
+    // (phase 2.3). Previous implementation was
+    //   totalCost = purchaseCost + totalFeedCost
+    // which understated treatment, labour, and equipment amortization
+    // axes entirely. The service fan-outs to health_events + work_orders
+    // and exposes a `warnings` array so the UI can flag partial data.
+    const costBreakdown = await this.costCalculator.compute(batch);
+    const purchaseCost = costBreakdown.purchaseCost;
+    const totalCost = costBreakdown.totalCost;
+    const costPerKg = costBreakdown.costPerKg;
+    const costPerFish = costBreakdown.costPerFish;
 
     // Projections
     const projectedHarvestDate = batch.expectedHarvestDate;
@@ -181,13 +179,6 @@ export class GetBatchPerformanceHandler implements IQueryHandler<GetBatchPerform
       performanceIndex,
       performanceStatus,
     };
-
-    // Cache the result (TTL: 1 hour = 3600 seconds)
-    if (this.redisService) {
-      this.redisService.setJson(cacheKey, result, 3600).catch((err) => {
-        this.logger.warn(`Failed to cache batch performance result: ${err instanceof Error ? err.message : String(err)}`);
-      });
-    }
 
     return result;
   }

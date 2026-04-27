@@ -10,11 +10,8 @@ import {
   SubscribeMessage,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
-import {
-  buildWsCorsConfig,
-  enforceAccessTokenType,
-  getJwtVerifyOptions,
-} from '@aquaculture/backend-common';
+import { enforceAccessTokenType, getJwtVerifyOptions } from '@aquaculture/backend-common/auth';
+import { buildWsCorsConfig } from '@aquaculture/backend-common/websocket';
 
 // ---------------------------------------------------------------------------
 // Types

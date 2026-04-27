@@ -11,7 +11,7 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThanOrEqual, In, DataSource } from 'typeorm';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { RedisService } from '@aquaculture/backend-common';
+import { RedisService } from '@aquaculture/backend-common/redis';
 
 import { AuditLogService } from '../../audit/audit.service';
 import {
@@ -484,7 +484,7 @@ export class AnalyticsService {
     const revenueGrowthRate = await this.calculateGrowthRate('financial', 'mrr', mrr);
 
     // Group by currency
-    const byCurrency: Record<string, number> = { USD: mrr }; // Assuming all USD for now
+    const byCurrency: Record<string, number> = { USD: mrr }; // Single-currency tenancy (USD); multi-currency breakdown tracked separately.
 
     this.logger.debug(`Financial metrics: MRR=${mrr}, totalRevenue=${totalRevenue}, payingTenants=${payingTenants}`);
 
@@ -573,7 +573,7 @@ export class AnalyticsService {
     this.logger.debug('Calculating system metrics...');
 
     // These would ideally come from Prometheus/CloudWatch/etc.
-    // For now, we calculate what we can from the database
+    // Until observability-service wires those sources, we calculate what we can from the database.
 
     // Count database connections (approximate from pool)
     const activeConnections = 10; // Would need DB pool stats
@@ -662,8 +662,8 @@ export class AnalyticsService {
       // Non-critical — leave as 0
     }
 
-    // Module usage - would need audit logs for real data
-    // For now, return zeros with warning
+    // Module usage — wiring requires audit-log analysis pipeline; returns
+    // zeros with an explicit warning until that pipeline lands.
     this.logger.warn('Detailed module usage metrics require audit log analysis');
 
     return {

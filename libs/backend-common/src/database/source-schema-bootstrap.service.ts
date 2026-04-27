@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 
 /**
@@ -8,31 +8,67 @@ import { DataSource } from 'typeorm';
  * that holds the template table structures. Tenant provisioning copies tables from these source
  * schemas into per-tenant schemas via `CREATE TABLE ... (LIKE source.table ...)`.
  *
- * Problem: With DATABASE_SYNC=false in production and no migrations for base tables, source schemas
- * remain empty after init SQL creates them. This service detects empty source schemas and runs
- * TypeORM synchronize() to create the tables.
+ * # Architectural contract (post INFRA-CRITICAL-009)
  *
- * Behavior:
- * - Idempotent: skips if source schema already has tables
- * - Non-fatal: logs errors but does not crash the service
- * - Runs once at startup via OnModuleInit
+ * Migrations are the SINGLE SOURCE OF TRUTH for source-schema DDL. Per CLAUDE.md,
+ * `dataSource.synchronize()` is FORBIDDEN at runtime. This service VERIFIES that
+ * the source schema is healthy after migrations have run, and enforces strict
+ * module-ownership (drops cross-module orphan tables). It NEVER creates tables.
+ *
+ * # Lifecycle ordering
+ *
+ * Hook: `onApplicationBootstrap` (NOT `onModuleInit`). The bootstrap hook fires
+ * AFTER all `onModuleInit` callbacks have completed, which is where service-side
+ * `MigrationRunnerService` instances live. Combined with provider-array ordering
+ * that declares migration runners BEFORE this service, migrations land first;
+ * by the time this service runs, every declared table MUST already exist in the
+ * source schema. If any do not, this is a configuration error — not a recoverable
+ * condition — and we fail loudly with a remediation message.
+ *
+ * # Why no synchronize() fallback
+ *
+ * Three concrete defects from the legacy synchronize-on-empty path:
+ *   1. NestJS onModuleInit fires BEFORE onApplicationBootstrap, so synchronize
+ *      ran before MigrationRunnerService applied DDL. The fresh DB had no
+ *      tables → synchronize created them with shapes derived from current
+ *      entity metadata, BYPASSING the migration history. Subsequent migrations
+ *      then re-encountered the same tables and either no-op'd (IF NOT EXISTS)
+ *      or crashed (no IF NOT EXISTS).
+ *   2. TypeORM 0.3.x cannot generate composite-key FK to partitioned tables.
+ *      The messaging service's `messages` table is partitioned by
+ *      `(id, createdAt)`, but synchronize attempts a single-column FK
+ *      `REFERENCES messages(id)` which has no unique constraint to satisfy →
+ *      `there is no unique constraint matching given keys for referenced table
+ *      "messages"` (CI run 24637240275, INFRA-CRITICAL-009).
+ *   3. Synchronize creates columns from entity metadata as-of the running
+ *      build, with WRONG nullability when the migration history would have
+ *      arrived at NOT NULL via a backfill step. The schema-drift validator
+ *      reports the resulting state as drift; operators chase drift that is
+ *      synchronize's fault rather than missing migrations.
+ *
+ * Removing synchronize closes all three classes at once.
  */
 @Injectable()
-export class SourceSchemaBootstrapService implements OnModuleInit {
+export class SourceSchemaBootstrapService implements OnApplicationBootstrap {
   private readonly logger = new Logger(SourceSchemaBootstrapService.name);
 
   constructor(private readonly dataSource: DataSource) {}
 
-  async onModuleInit(): Promise<void> {
+  async onApplicationBootstrap(): Promise<void> {
     try {
       await this.bootstrapSourceSchema();
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       const stack = error instanceof Error ? error.stack : undefined;
       this.logger.error(
-        `Failed to bootstrap source schema — service will continue but tenant provisioning may fail: ${msg}`,
+        `Source schema bootstrap failed — service WILL crash so the deploy gate catches the regression: ${msg}`,
         stack,
       );
+      // Re-throw: a missing-table or orphan-drop failure is a deploy-blocking
+      // signal, not a "log and continue" condition. The legacy try/catch
+      // swallowed the error and let downstream tenant provisioning fail
+      // mysteriously; that contract is reversed here.
+      throw error;
     }
   }
 
@@ -56,7 +92,7 @@ export class SourceSchemaBootstrapService implements OnModuleInit {
     }
 
     const sourceSchema = schemas[0] as string;
-    this.logger.log(`Checking source schema "${sourceSchema}" for existing tables...`);
+    this.logger.log(`Verifying source schema "${sourceSchema}" post-migration state...`);
 
     // ── Phase 14: strict module ownership enforcement ──────────────────
     // Before any sync, drop any table in this source schema that is
@@ -68,86 +104,92 @@ export class SourceSchemaBootstrapService implements OnModuleInit {
     // into farm schema via transitive imports) are detected and
     // removed deterministically on every startup.
     //
-    // Runs BEFORE the sync-missing-tables path so orphans with FK
-    // references are gone before any ALTER TABLE or RLS discovery
-    // query ever runs against this schema.
+    // Runs BEFORE the missing-table verification path so orphans with
+    // FK references are gone before any RLS discovery query ever runs.
     await this.dropOrphanTables(sourceSchema);
 
-    // Check if the source schema already has tables
+    // Check the post-migration table set
     const tables = await this.dataSource.query(
       `SELECT table_name FROM information_schema.tables WHERE table_schema = $1 AND table_type = 'BASE TABLE'`,
       [sourceSchema],
     );
 
-    if (tables.length > 0) {
-      // Schema has tables — check for missing ones (incremental sync)
-      await this.syncMissingTables(sourceSchema, tables);
-      return;
+    if (tables.length === 0) {
+      // Empty source schema after migrations have run = configuration error.
+      // Either MigrationRunnerService never executed (lifecycle ordering bug)
+      // or the migration set is empty (the service has no DDL — declared
+      // intent missing in the migrations directory). Both are deploy-blocking.
+      const remediation = this.formatEmptySchemaRemediation(sourceSchema);
+      throw new Error(
+        `Source schema "${sourceSchema}" is empty AFTER application bootstrap — ` +
+          `migrations did not run, did not create any tables, or ran against a ` +
+          `different schema. Refusing to fall back to runtime synchronize() per ` +
+          `INFRA-CRITICAL-009. ${remediation}`,
+      );
     }
 
-    this.logger.warn(
-      `Source schema "${sourceSchema}" is empty — running synchronize to create template tables...`,
-    );
-
-    // Ensure the schema exists
-    await this.dataSource.query(`CREATE SCHEMA IF NOT EXISTS "${sourceSchema}"`);
-
-    // Drop orphaned indexes left by previous failed sync attempts.
-    // TypeORM sync can fail mid-way leaving indexes without their tables,
-    // then subsequent sync attempts crash with "relation IDX_xxx already exists".
-    await this.dropOrphanedIndexes(sourceSchema);
-
-    // Run synchronize which will create tables in the source schema
-    // (because the connection's search_path is set to source_schema,public)
-    await this.dataSource.synchronize();
-
-    // Verify tables were created
-    const tablesAfter = await this.dataSource.query(
-      `SELECT table_name FROM information_schema.tables WHERE table_schema = $1 AND table_type = 'BASE TABLE'`,
-      [sourceSchema],
-    );
-
-    this.logger.log(
-      `Source schema "${sourceSchema}" bootstrap complete — created ${tablesAfter.length} tables`,
-    );
+    // Schema has tables — verify every declared table is present
+    await this.assertNoMissingTables(sourceSchema, tables);
   }
 
   /**
-   * Check if MODULE_SCHEMAS defines tables not yet present in the source schema.
-   * If so, run TypeORM synchronize() to create them.
+   * Verify the live table set covers every table declared in MODULE_SCHEMAS.
+   * Missing tables = declared-but-unmigrated entities. Hard-fail with the
+   * exact list so the operator can identify the responsible migration package.
    */
-  private async syncMissingTables(
+  private async assertNoMissingTables(
     sourceSchema: string,
     existingTables: Array<{ table_name: string }>,
   ): Promise<void> {
     // Dynamic import to avoid circular dependency
     const { MODULE_SCHEMAS } = await import('./schema-manager.service');
     const mod = MODULE_SCHEMAS.find(m => m.sourceSchema === sourceSchema);
-    if (!mod) return;
+    if (!mod) {
+      this.logger.debug(
+        `No MODULE_SCHEMAS entry for source schema "${sourceSchema}" — ` +
+          `skipping declared-vs-actual table reconciliation.`,
+      );
+      return;
+    }
 
     const existingSet = new Set(existingTables.map(t => t.table_name));
     const missing = mod.tables.filter(t => !existingSet.has(t));
 
     if (missing.length === 0) {
       this.logger.log(
-        `Source schema "${sourceSchema}" has all ${mod.tables.length} expected tables`,
+        `Source schema "${sourceSchema}" verified — all ${mod.tables.length} declared tables present.`,
       );
       return;
     }
 
-    this.logger.warn(
-      `Source schema "${sourceSchema}" missing ${missing.length}/${mod.tables.length} tables — running synchronize: ${missing.join(', ')}`,
+    // Hard-fail with the actionable list. The legacy code path called
+    // dataSource.synchronize() here, which was the source of INFRA-CRITICAL-009.
+    throw new Error(
+      `Source schema "${sourceSchema}" is missing ${missing.length}/${mod.tables.length} ` +
+        `declared tables: ${missing.join(', ')}. Migrations did not create them. ` +
+        `Refusing to fall back to runtime synchronize() per INFRA-CRITICAL-009. ` +
+        `Add a migration that CREATEs these tables to ` +
+        `apps/${mod.moduleName}-service/src/migrations/ (or wherever the ` +
+        `MigrationRunnerService for this schema reads from), then redeploy.`,
     );
+  }
 
-    await this.dataSource.synchronize();
-
-    const tablesAfter = await this.dataSource.query(
-      `SELECT table_name FROM information_schema.tables WHERE table_schema = $1 AND table_type = 'BASE TABLE'`,
-      [sourceSchema],
-    );
-    this.logger.log(
-      `Source schema "${sourceSchema}" incremental sync complete — now has ${tablesAfter.length} tables`,
-    );
+  /**
+   * Format the remediation message for an empty source schema. Splits
+   * the path so the operator can either fix the migration runner OR
+   * realise that no migrations exist for this service yet.
+   */
+  private formatEmptySchemaRemediation(sourceSchema: string): string {
+    return [
+      `Likely causes:`,
+      `  (1) The MigrationRunnerService for "${sourceSchema}" never ran. ` +
+        `Verify it is registered in providers BEFORE SourceSchemaBootstrapService ` +
+        `(NestJS provider order determines onApplicationBootstrap firing order).`,
+      `  (2) The MigrationRunnerService ran but its migrations directory is empty. ` +
+        `The service has no declared DDL — add a migration before deploying.`,
+      `  (3) The aqua-db-migrate centralised runner did not include this schema. ` +
+        `Verify the schema is listed in apps/db-migrate/src/schema-slots.ts (or equivalent).`,
+    ].join(' ');
   }
 
   /**
@@ -204,9 +246,8 @@ export class SourceSchemaBootstrapService implements OnModuleInit {
    * - Errors are fatal: strict enforcement MUST be complete, and a
    *   partial drop could leave the RLS migration crashing on the
    *   half-cleaned schema. The single `try` wrapper in
-   *   `onModuleInit` still catches the fatal error and logs it
-   *   without crashing the pod, matching the rest of the bootstrap's
-   *   non-fatal-on-failure contract.
+   *   `onApplicationBootstrap` re-throws the fatal error so the
+   *   deploy gate catches the regression.
    */
   private async dropOrphanTables(sourceSchema: string): Promise<void> {
     // Dynamic import to avoid circular dependency between
@@ -289,31 +330,5 @@ export class SourceSchemaBootstrapService implements OnModuleInit {
       `Strict-ownership enforcement complete for "${sourceSchema}": dropped ${orphans.length} orphan table(s). ` +
         `The schema now contains only tables declared by MODULE_SCHEMAS[${mod.moduleName}].`,
     );
-  }
-
-  /**
-   * Drop orphaned indexes in a schema that has no tables.
-   * This happens when a previous TypeORM sync failed mid-way, leaving indexes
-   * without their parent tables. Subsequent sync attempts then crash with
-   * "relation IDX_xxx already exists".
-   */
-  private async dropOrphanedIndexes(schema: string): Promise<void> {
-    const indexes = await this.dataSource.query(
-      `SELECT indexname FROM pg_indexes WHERE schemaname = $1`,
-      [schema],
-    );
-
-    if (indexes.length === 0) return;
-
-    this.logger.warn(
-      `Found ${indexes.length} orphaned indexes in empty schema "${schema}" — dropping...`,
-    );
-
-    for (const row of indexes) {
-      const indexName: string = row.indexname;
-      await this.dataSource.query(`DROP INDEX IF EXISTS "${schema}"."${indexName}"`);
-    }
-
-    this.logger.log(`Dropped ${indexes.length} orphaned indexes from "${schema}"`);
   }
 }

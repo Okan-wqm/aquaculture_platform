@@ -1,13 +1,17 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD, Reflector } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { LoggingModule, RlsModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common';
+import { RlsModule, SchemaDriftModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common/database';
+import { LoggingModule } from '@aquaculture/backend-common/logging';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScheduleModule } from '@nestjs/schedule';
 import { PrometheusModule } from './prometheus/prometheus.module';
 import { MetricsAggregatorModule } from './metrics/metrics-aggregator.module';
 import { HealthModule } from './health/health.module';
 import { TracingModule } from './tracing/tracing.module';
+import { MigrationAuditModule } from './migration-audit/migration-audit.module';
+import { GdprModule } from './gdpr/gdpr.module';
+import { RetentionBootstrapModule } from './retention/retention-bootstrap.module';
 import { InternalApiGuard } from './guards/internal-api.guard';
 
 @Module({
@@ -45,6 +49,19 @@ import { InternalApiGuard } from './guards/internal-api.guard';
     MetricsAggregatorModule,
     HealthModule,
     TracingModule,
+    // Plan v3 Phase 0 — durable audit trail for db-migrate lifecycle
+    // events + drift validator emissions. Exposes RecordMigrationEventCommand
+    // via the CQRS bus; the orchestrator (Phase 6) dispatches against it.
+    MigrationAuditModule,
+    // Plan v3 Phase 9 — GDPR Art 17 erasure + Art 15/20 DSAR handlers
+    // for observability's tenant-scoped audit rows. 11th service in the
+    // platform erasure cascade roster.
+    GdprModule,
+    // Plan v3 R17 — single-enforcer-many-policies retention. Registers
+    // migration_events (13mo) + schema_object_history (7y) +
+    // emergency_overrides (7y, with legal-hold predicate) at module-init.
+    // Replaces the retired per-table MigrationEventsRetentionService.
+    RetentionBootstrapModule,
     /**
      * SECURITY (HIGH-004, V6): RlsConnectionBootstrap for pool-level GUC
      * propagation. observability-service reads aggregated metrics across
@@ -58,6 +75,20 @@ import { InternalApiGuard } from './guards/internal-api.guard';
       autoApply: false,
       excludeTables: [],
     }),
+    /**
+     * INFRA-CRITICAL-016: SchemaDriftValidator registration.
+     *
+     * Observability-service has no @Entity() declarations (it consumes
+     * aggregated metrics via raw SQL across tenant schemas, not via
+     * TypeORM entities), so the validator runs against an empty
+     * entityMetadatas list. Even at zero entities the validator emits
+     *   `Schema drift scan clean: checked 0 entities`
+     * — substring `Schema drift scan clean` matches the deploy-gate's
+     * `schema_drift_clean` signal_library entry. Without this
+     * registration, observability cannot satisfy the manifest contract
+     * declared in infrastructure/deploy/required-signals.yaml.
+     */
+    SchemaDriftModule.forRoot({ serviceName: 'observability' }),
   ],
   providers: [
     // WHY: useFactory bypasses reflect-metadata resolution which fails in Docker Alpine.

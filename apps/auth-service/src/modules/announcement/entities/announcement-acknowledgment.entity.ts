@@ -17,7 +17,7 @@ import { Announcement } from './announcement.entity';
  *
  * Tracks user views and acknowledgments for announcements.
  */
-@Entity('announcement_acknowledgments')
+@Entity('announcement_acknowledgments', { schema: 'auth' })
 @ObjectType()
 @Index(['announcementId', 'userId'])
 @Index(['userId', 'viewedAt'])

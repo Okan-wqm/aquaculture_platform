@@ -11,6 +11,8 @@ import { PurchaseOrder } from './entities/purchase-order.entity';
 import { PurchaseOrderItem } from './entities/purchase-order-item.entity';
 import { InventoryCount } from './entities/inventory-count.entity';
 import { InventoryCountItem } from './entities/inventory-count-item.entity';
+import { StorageLotMix } from './entities/storage-lot-mix.entity';
+import { LotMixService } from './services/lot-mix.service';
 import { Site } from '../site/entities/site.entity';
 import { Feed } from '../feed/entities/feed.entity';
 import { Chemical } from '../chemical/entities/chemical.entity';
@@ -35,6 +37,7 @@ import { ApproveInventoryCountHandler } from './handlers/approve-inventory-count
 import { GetStorageLocationHandler } from './handlers/get-storage-location.handler';
 import { ListStorageLocationsHandler } from './handlers/list-storage-locations.handler';
 import { GetStorageInventoryHandler } from './handlers/get-storage-inventory.handler';
+import { ListStorageInventoryByCursorHandler } from './handlers/list-storage-inventory-by-cursor.handler';
 import { ListStockMovementsHandler } from './handlers/list-stock-movements.handler';
 import { GetStorageOverviewHandler } from './handlers/get-storage-overview.handler';
 import { ListPurchaseOrdersHandler } from './handlers/list-purchase-orders.handler';
@@ -63,6 +66,7 @@ const QueryHandlers = [
   GetStorageLocationHandler,
   ListStorageLocationsHandler,
   GetStorageInventoryHandler,
+  ListStorageInventoryByCursorHandler,
   ListStockMovementsHandler,
   GetStorageOverviewHandler,
   ListPurchaseOrdersHandler,
@@ -87,6 +91,7 @@ const EventHandlers = [
       PurchaseOrderItem,
       InventoryCount,
       InventoryCountItem,
+      StorageLotMix,
       Site,
       Feed,
       Chemical,
@@ -95,6 +100,7 @@ const EventHandlers = [
   ],
   providers: [
     StorageResolver,
+    LotMixService,
     ...CommandHandlers,
     ...QueryHandlers,
     ...EventHandlers,

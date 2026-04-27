@@ -23,7 +23,7 @@ import {
   USER_B1,
   E2eTestContext,
 } from './e2e-setup';
-import { getTenantSchemaName } from '@aquaculture/backend-common';
+import { getTenantSchemaName } from '@aquaculture/backend-common/database';
 
 describe('Tenant Isolation (E2E) — SECURITY-CRITICAL', () => {
   let ctx: E2eTestContext;

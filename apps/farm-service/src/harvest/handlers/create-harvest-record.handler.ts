@@ -20,7 +20,7 @@
  * @module Harvest/Handlers
  */
 import { randomUUID } from 'crypto';
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import type { BatchHarvestedEvent } from '@platform/event-contracts';
@@ -34,6 +34,11 @@ import { Batch, BatchStatus } from '../../batch/entities/batch.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { TankOperation, OperationType } from '../../batch/entities/tank-operation.entity';
 import { Tank } from '../../tank/entities/tank.entity';
+import { BatchHarvestEligibilityService } from '../../fish-health/services/batch-harvest-eligibility.service';
+import { BatchWithdrawalBlockedError } from '../../common/errors/farm-errors';
+import { FarmDomainMetricsService } from '../../common/metrics/farm-domain-metrics.service';
+import { BackdatePolicyService } from '../../common/services/backdate-policy.service';
+import { HarvestPolicyService } from '../services/harvest-policy.service';
 
 @Injectable()
 @CommandHandler(CreateHarvestRecordCommand)
@@ -42,6 +47,9 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
   constructor(
     private readonly dataSource: DataSource,
     private readonly outboxPublisher: OutboxPublisher,
+    private readonly harvestEligibility: BatchHarvestEligibilityService,
+    private readonly backdatePolicy: BackdatePolicyService,
+    private readonly harvestPolicy: HarvestPolicyService,
     @InjectRepository(HarvestRecord)
     private readonly harvestRepository: Repository<HarvestRecord>,
     @InjectRepository(Batch)
@@ -52,6 +60,8 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
     private readonly tankBatchRepository: Repository<TankBatch>,
     @InjectRepository(Tank)
     private readonly tankRepository: Repository<Tank>,
+    @Optional()
+    private readonly metricsService?: FarmDomainMetricsService,
   ) {}
 
   async execute(command: CreateHarvestRecordCommand): Promise<HarvestRecord> {
@@ -61,6 +71,16 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
     const harvestDate = typeof input.harvestDate === 'string'
       ? new Date(input.harvestDate)
       : input.harvestDate;
+
+    // Backdate policy: harvest may be logged up to HARVEST_BACKDATE_LIMIT_DAYS
+    // (default 7) after the physical event. Future dates are rejected
+    // unconditionally — a harvest record with a harvestDate in the future
+    // would falsely advance lot traceability timelines.
+    this.backdatePolicy.validate({
+      context: 'harvest',
+      proposedDate: harvestDate,
+      subjectLabel: `batch ${input.batchId}`,
+    });
 
     // Parse qualityGrade early (no DB needed)
     const qualityGrade = this.parseQualityGrade(input.qualityGrade);
@@ -80,6 +100,65 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
       if (!batch) {
         throw new NotFoundException(`Batch ${input.batchId} bulunamadı`);
       }
+
+      // ── COMPLIANCE GATE: medicine withdrawal period ─────────────────────
+      //
+      // Food-safety rule (Norwegian Mattilsynet, EU Reg 37/2010):
+      // harvesting a batch before the medicine withdrawal period has
+      // elapsed puts unsafe fish on the market. The check runs outside
+      // the batch row's pessimistic_write lock (separate table) so it
+      // cannot deadlock; it runs INSIDE the transaction so a concurrent
+      // resolveHealthEvent cannot clear the block between the check and
+      // the harvest write.
+      //
+      // Blocking logic lives in BatchHarvestEligibilityService so the
+      // GraphQL query `batchHarvestEligibility` can reuse it for UI
+      // pre-submit warnings. See docs/illustrator/ (Girdi 14h).
+      const eligibility = await this.harvestEligibility.checkEligibility(
+        tenantId,
+        input.batchId,
+        harvestDate,
+      );
+      if (!eligibility.eligible) {
+        this.metricsService?.incWithdrawalBlock({
+          tenantId,
+          surface: 'harvest_record',
+        });
+        throw new BatchWithdrawalBlockedError({
+          userMessage:
+            eligibility.reason ??
+            'Harvest blocked by active medicine withdrawal period.',
+          activeTreatments: eligibility.blockingEvents.map((e) => ({
+            eventCode: e.id,
+            productName: e.title,
+            earliestHarvestDate: e.earliestHarvestDate.toISOString(),
+            daysRemaining: Math.max(
+              0,
+              Math.ceil(
+                (e.earliestHarvestDate.getTime() - Date.now()) / 86_400_000,
+              ),
+            ),
+          })),
+          fieldPath: ['createHarvestRecord', 'batchId'],
+        });
+      }
+
+      // ── POLICY GATE: harvest-plan mandatory for large harvests ──────
+      //
+      // Large harvests (over the biomass or quantity threshold — env
+      // overridable) MUST cite an APPROVED / SCHEDULED / IN_PROGRESS
+      // harvest plan for the same batch. Small harvests may continue
+      // without a plan but land a log entry so ops can track how often
+      // the shortcut is used. See HarvestPolicyService for the rule
+      // details and Girdi 15-B10 in
+      // docs/illustrator/farm-modulu-kor-noktalar-dogrulama.md.
+      await this.harvestPolicy.evaluate({
+        tenantId,
+        batchId: input.batchId,
+        projectedBiomassKg: Number(input.totalBiomass || 0),
+        projectedQuantity: Number(input.quantityHarvested || 0),
+        harvestPlanId: input.harvestPlanId ?? null,
+      });
 
       // Tank bul with pessimistic lock
       const tank = await queryRunner.manager.findOne(Tank, {
@@ -144,6 +223,7 @@ export class CreateHarvestRecordHandler implements ICommandHandler<CreateHarvest
         lotNumber,
         batchId: input.batchId,
         tankId: input.tankId,
+        harvestPlanId: input.harvestPlanId,
         status: HarvestRecordStatus.COMPLETED,
         harvestDate,
         operation,

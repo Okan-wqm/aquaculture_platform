@@ -1,6 +1,6 @@
 import { Logger } from '@nestjs/common';
 import { Resolver, Query, Mutation, Args, ID, ObjectType, Field, Int } from '@nestjs/graphql';
-import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common';
+import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
 import { GraphQLJSON } from 'graphql-scalars';
 
 import { Sensor } from '../../database/entities/sensor.entity';

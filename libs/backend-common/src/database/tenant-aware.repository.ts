@@ -3,17 +3,22 @@ import { Injectable, Scope, Inject, Logger } from '@nestjs/common';
 import { REQUEST } from '@nestjs/core';
 import { SchemaManagerService } from './schema-manager.service';
 import { TenantRequest } from '../types/tenant-request.interface';
+import { TenantEntity } from './tenant-entity.interface';
 
-/**
- * Base entity interface with tenantId
- */
-export interface TenantEntity extends ObjectLiteral {
-  tenantId: string;
-}
+// Re-export so downstream imports like
+// `import { TenantEntity } from './tenant-aware.repository'` still resolve.
+// The canonical home is now `./tenant-entity.interface`.
+export { TenantEntity };
 
 /**
  * Scoped repository interface that automatically applies tenant filtering.
  * Returned by getScopedRepository().
+ *
+ * @deprecated — use {@link TenantScopedRepository} from
+ *   `./tenant-scoped-repository` for new code. That class provides
+ *   full CRUD (save / update / delete / softDelete) and works in both
+ *   HTTP and non-HTTP (MQTT, NATS, cron) contexts via
+ *   AsyncLocalStorage.
  */
 export interface ScopedRepository<T extends TenantEntity> {
   find(options?: FindManyOptions<T>): Promise<T[]>;
@@ -23,8 +28,29 @@ export interface ScopedRepository<T extends TenantEntity> {
 }
 
 /**
- * Tenant-Aware Repository Factory
- * Creates repositories that automatically filter by tenant and use tenant-specific schemas
+ * @deprecated
+ *
+ * Legacy per-request tenant-scoped repository factory.
+ *
+ * Do NOT use in new code. Use {@link TenantScopedRepository} + the
+ * `@InjectTenantRepository(Entity)` decorator from
+ * `./tenant-scoped-repository` instead.
+ *
+ * Reasons to migrate:
+ * - This class is REQUEST-scoped (`@Inject(REQUEST)`), so it only works
+ *   for HTTP handlers. MQTT listeners, NATS event handlers, and cron
+ *   jobs have no Express Request object. `TenantScopedRepository` reads
+ *   from AsyncLocalStorage, which HTTP middleware and
+ *   `withTenantContext()` both populate.
+ * - The `getScopedRepository()` proxy exposes only find / findOne /
+ *   count / createQueryBuilder. It is missing save / update / delete,
+ *   which was the root cause of ~30 historic findings where developers
+ *   fell back to raw `repository.delete()` without tenantId scoping.
+ *
+ * This class is retained for backwards compatibility of existing tests
+ * and transitional callers only. After the cold-audit getRepository
+ * migration (AUDIT-HIGH-002/003/007/008) lands, a follow-up commit will
+ * delete this class and its tests.
  */
 @Injectable({ scope: Scope.REQUEST })
 export class TenantAwareRepository<T extends TenantEntity> {
@@ -47,6 +73,7 @@ export class TenantAwareRepository<T extends TenantEntity> {
     }
 
     // Create repository (will be used with tenant filtering)
+    // eslint-disable-next-line no-restricted-syntax -- TenantAwareRepository is the LIBRARY-LEVEL implementation that other code uses INSTEAD of raw getRepository(). The tenant-filtering wrapper lives in this constructor; raw access here is the foundation everyone else's safe alternative is built on.
     this.repository = this.dataSource.getRepository(entity);
   }
 

@@ -10,8 +10,8 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Request, Response } from 'express';
 import { createHmac, timingSafeEqual } from 'crypto';
-import { Public } from '@aquaculture/backend-common';
-import { RedisService } from '@aquaculture/backend-common';
+import { Public } from '@aquaculture/backend-common/decorators';
+import { RedisService } from '@aquaculture/backend-common/redis';
 import { StripeWebhookService } from './stripe-webhook.service';
 
 /**

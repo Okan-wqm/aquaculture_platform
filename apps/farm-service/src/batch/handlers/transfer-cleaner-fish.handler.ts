@@ -9,6 +9,11 @@ import { Injectable, BadRequestException, NotFoundException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
+import { OutboxPublisher } from '@platform/outbox';
+import {
+  createBaseEvent,
+  type CleanerFishTransferredEvent,
+} from '@platform/event-contracts';
 import { TransferCleanerFishCommand } from '../commands/transfer-cleaner-fish.command';
 import { Batch, BatchType } from '../entities/batch.entity';
 import { TankBatch, CleanerFishDetail } from '../entities/tank-batch.entity';
@@ -31,6 +36,7 @@ export class TransferCleanerFishHandler implements ICommandHandler<TransferClean
     @InjectRepository(Species)
     private readonly speciesRepository: Repository<Species>,
     private readonly dataSource: DataSource,
+    private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   async execute(command: TransferCleanerFishCommand): Promise<Batch> {
@@ -286,7 +292,11 @@ export class TransferCleanerFishHandler implements ICommandHandler<TransferClean
     // Batch güncelle
     cleanerBatch.updatedBy = transferredBy;
 
-    // All saves in a single transaction for data consistency
+    // All saves + outbox enqueue in a single transaction. Downstream
+    // consumers (cleaner-fish timeline projections, welfare dashboards)
+    // rely on both source/destination snapshots landing together —
+    // splitting would produce a moment where source-minus-transfer
+    // and destination-without-transfer are observable simultaneously.
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
@@ -296,6 +306,29 @@ export class TransferCleanerFishHandler implements ICommandHandler<TransferClean
       await queryRunner.manager.save(TankOperation, transferOutOp);
       await queryRunner.manager.save(TankOperation, transferInOp);
       await queryRunner.manager.save(Batch, cleanerBatch);
+
+      const event: CleanerFishTransferredEvent = {
+        ...createBaseEvent<CleanerFishTransferredEvent>('CleanerFishTransferred', tenantId, {
+          aggregateId: cleanerBatch.id,
+          aggregateType: 'Batch',
+        }),
+        cleanerBatchId: cleanerBatch.id,
+        sourceTankId: payload.sourceTankId,
+        destinationTankId: payload.destinationTankId,
+        speciesName,
+        quantity: payload.quantity,
+        avgWeightG,
+        biomassKg,
+        reason: payload.reason,
+        transferredAt: payload.transferredAt,
+        newSourceTankCleanerFishQuantity: sourceTankBatch.cleanerFishQuantity ?? 0,
+        newSourceTankCleanerFishBiomassKg: Number(sourceTankBatch.cleanerFishBiomassKg ?? 0),
+        newDestinationTankCleanerFishQuantity: destTankBatch.cleanerFishQuantity ?? 0,
+        newDestinationTankCleanerFishBiomassKg: Number(destTankBatch.cleanerFishBiomassKg ?? 0),
+        newDestinationTankDensityKgM3: Number(destTankBatch.densityKgM3 ?? 0),
+      };
+      await this.outboxPublisher.enqueue(event, queryRunner.manager);
+
       await queryRunner.commitTransaction();
     } catch (error) {
       await queryRunner.rollbackTransaction();

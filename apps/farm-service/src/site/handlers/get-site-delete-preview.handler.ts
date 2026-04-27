@@ -4,13 +4,14 @@
  */
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { NotFoundException, Logger } from '@nestjs/common';
 import { GetSiteDeletePreviewQuery } from '../queries/get-site-delete-preview.query';
 import { Site } from '../entities/site.entity';
 import { Department } from '../../department/entities/department.entity';
 import { System } from '../../system/entities/system.entity';
 import { Equipment } from '../../equipment/entities/equipment.entity';
+import { EquipmentSystem } from '../../equipment/entities/equipment-system.entity';
 import { Tank } from '../../tank/entities/tank.entity';
 import {
   SiteDeletePreviewResponse,
@@ -36,6 +37,8 @@ export class GetSiteDeletePreviewHandler
     private readonly systemRepository: Repository<System>,
     @InjectRepository(Equipment)
     private readonly equipmentRepository: Repository<Equipment>,
+    @InjectRepository(EquipmentSystem)
+    private readonly equipmentSystemRepository: Repository<EquipmentSystem>,
     @InjectRepository(Tank)
     private readonly tankRepository: Repository<Tank>,
   ) {}
@@ -122,21 +125,35 @@ export class GetSiteDeletePreviewHandler
       }),
     );
 
-    // Build system summaries with equipment counts
-    const systemSummaries: SystemSummary[] = await Promise.all(
-      systems.map(async (sys) => {
-        // Count equipment linked to this system via EquipmentSystem junction table
-        // For now, we'll count equipment in the same site (simplified)
-        const equipmentCount = 0; // TODO: Query EquipmentSystem junction table
+    // Build system summaries with equipment counts via the
+    // `equipment_systems` junction table. A single equipment item can
+    // belong to multiple systems (many-to-many) so the junction owns
+    // the truth; a naive count of `equipment.systemId === sys.id`
+    // would miss equipment linked via the junction and over/under-
+    // count shared equipment.
+    //
+    // One aggregate query → map, rather than one query per system.
+    const systemIds = systems.map((s) => s.id);
+    const systemEquipmentCounts = new Map<string, number>();
+    if (systemIds.length > 0) {
+      const links = await this.equipmentSystemRepository.find({
+        where: { tenantId, systemId: In(systemIds) },
+        select: ['systemId'],
+      });
+      for (const link of links) {
+        systemEquipmentCounts.set(
+          link.systemId,
+          (systemEquipmentCounts.get(link.systemId) ?? 0) + 1,
+        );
+      }
+    }
 
-        return {
-          id: sys.id,
-          name: sys.name,
-          code: sys.code,
-          equipmentCount,
-        };
-      }),
-    );
+    const systemSummaries: SystemSummary[] = systems.map((sys) => ({
+      id: sys.id,
+      name: sys.name,
+      code: sys.code,
+      equipmentCount: systemEquipmentCounts.get(sys.id) ?? 0,
+    }));
 
     // Build equipment summaries
     const equipmentSummaries: EquipmentSummary[] = equipment.map((eq) => ({

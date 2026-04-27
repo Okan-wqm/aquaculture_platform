@@ -13,7 +13,7 @@ import {
   JoinColumn,
   VersionColumn,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 // Note: Supplier is referenced via string to avoid circular dependency
 // Type-only import for TypeScript type checking
 import type { Supplier } from '../../supplier/entities/supplier.entity';
@@ -148,7 +148,7 @@ export interface FeedingMatrix2D {
   notes?: string;
 }
 
-@Entity('feeds')
+@Entity('feeds', { schema: 'farm' })
 @Index(['tenantId', 'code'], { unique: true })
 @Index(['tenantId', 'name'], { unique: true })
 @Index(['tenantId', 'type'])

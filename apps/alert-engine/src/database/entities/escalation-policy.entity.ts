@@ -134,7 +134,7 @@ export class SuppressionWindow {
  * Defines how alerts are escalated and who gets notified
  */
 @ObjectType()
-@Entity('escalation_policies')
+@Entity('escalation_policies', { schema: 'alert' })
 @Index(['tenantId', 'isActive'])
 @Index(['severity'])
 export class EscalationPolicy {

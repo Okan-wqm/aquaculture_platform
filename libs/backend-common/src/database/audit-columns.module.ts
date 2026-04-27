@@ -41,7 +41,7 @@ import {
  * # Usage — service WITHOUT migration runner
  *
  * ```ts
- * import { AuditColumnsModule, RlsModule } from '@aquaculture/backend-common';
+ * import { AuditColumnsModule, RlsModule } from '@aquaculture/backend-common/audit-columns.module.ts';
  *
  * @Module({
  *   imports: [

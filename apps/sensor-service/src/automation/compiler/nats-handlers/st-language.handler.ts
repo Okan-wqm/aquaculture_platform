@@ -6,7 +6,7 @@ import {
   Subscription,
   StringCodec,
 } from 'nats';
-import { buildNatsConnectionOptions } from '@aquaculture/backend-common';
+import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
 
 import { NATS_SUBJECTS } from '../compiler.constants';
 import { NatsLanguageRequest, NatsLanguageReply } from '../compiler.types';

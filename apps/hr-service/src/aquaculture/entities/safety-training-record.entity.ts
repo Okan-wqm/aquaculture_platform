@@ -39,7 +39,7 @@ registerEnumType(SafetyTrainingType, { name: 'SafetyTrainingType' });
 registerEnumType(SafetyTrainingStatus, { name: 'SafetyTrainingStatus' });
 
 @ObjectType()
-@Entity('safety_training_records')
+@Entity('safety_training_records', { schema: 'hr' })
 @Index(['tenantId', 'employeeId', 'trainingType'])
 @Index(['tenantId', 'status'])
 @Index(['tenantId', 'expiryDate'])

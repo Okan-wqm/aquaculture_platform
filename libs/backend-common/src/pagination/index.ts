@@ -29,3 +29,32 @@ export {
   calculateHasMore,
   createPaginatedResult,
 } from './pagination.dto';
+
+// Cursor pagination primitive — phase 5.1. Opaque-cursor
+// forward-traversal pagination for hot paths that outgrow
+// offset/limit. Resolvers migrate at their own pace behind a
+// parallel API; the legacy StandardPaginationInput stays valid
+// throughout the deprecation window.
+export {
+  CursorPaginationInput,
+  CursorEdge,
+  CursorPageInfo,
+  DEFAULT_FIRST,
+  DEFAULT_FIRST_CAP,
+  encodeCursor,
+  decodeCursor,
+  buildCursorResponse,
+  normaliseCursorInput,
+  type CursorPayload,
+  type CursorKeyedRow,
+  type CursorPaginatedResponse,
+} from './cursor';
+
+// TypeORM adapter — the one-line bridge from Repository<T> to
+// CursorPaginatedResponse<T>. Keeps per-resolver adoption
+// boilerplate-free so the tuple WHERE clause stays in one
+// place platform-wide.
+export {
+  paginateCursor,
+  type PaginateCursorOptions,
+} from './cursor-repository';

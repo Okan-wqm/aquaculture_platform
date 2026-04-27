@@ -1,0 +1,36 @@
+{
+  "name": "observability",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "library",
+  "sourceRoot": "crates/observability/src",
+  "tags": ["scope:rust", "type:crate", "layer:observability"],
+  "targets": {
+    "build": {
+      "executor": "@aqua/cargo:run",
+      "options": { "command": "build", "package": "observability", "release": false },
+      "outputs": ["{workspaceRoot}/target/debug/libobservability.rlib"],
+      "cache": true
+    },
+    "build-release": {
+      "executor": "@aqua/cargo:run",
+      "options": { "command": "build", "package": "observability", "release": true },
+      "outputs": ["{workspaceRoot}/target/release/libobservability.rlib"],
+      "cache": true
+    },
+    "test": {
+      "executor": "@aqua/cargo:run",
+      "options": { "command": "test", "package": "observability", "allFeatures": true },
+      "cache": true
+    },
+    "lint": {
+      "executor": "@aqua/cargo:run",
+      "options": { "command": "clippy", "package": "observability", "args": ["--all-targets", "--all-features", "--", "-D", "warnings"] },
+      "cache": true
+    },
+    "fmt-check": {
+      "executor": "@aqua/cargo:run",
+      "options": { "command": "fmt", "package": "observability", "args": ["--", "--check"] },
+      "cache": true
+    }
+  }
+}

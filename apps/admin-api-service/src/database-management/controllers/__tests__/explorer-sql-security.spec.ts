@@ -261,7 +261,15 @@ describe('Explorer SQL Security', () => {
     });
 
     it('should reject module schema access (farm)', async () => {
-      const res = await postQuery('SELECT * FROM farm.ponds');
+      // Phase 4.3 pre-work: the test originally targeted
+      // `farm.ponds`, a legacy table superseded by `farm.tanks` in
+      // the farm-service v2 taxonomy. `farm.ponds` is kept as a
+      // read-only view today but the taxonomy-cleanup phase (4.3)
+      // will migrate it away — updating the test to reference the
+      // post-migration target (`farm.sites`) decouples this test's
+      // green state from whichever legacy table is or isn't present
+      // on the active schema.
+      const res = await postQuery('SELECT * FROM farm.sites');
 
       expect(res.status).toBe(HttpStatus.BAD_REQUEST);
       expect(res.body.message).toContain('restricted schemas');

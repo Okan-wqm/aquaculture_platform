@@ -406,11 +406,7 @@ export function validateProgramSettings(settings: unknown): string[] {
   return errors;
 }
 
-// ============================================================================
-// TRANSFORMERS
-// ============================================================================
-
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 
 // ============================================================================
 // FORWARD DECLARATION FOR RELATION TYPE
@@ -446,7 +442,7 @@ import type { FeedingProgramTank } from './feeding-program-tank.entity';
  * ```
  */
 @ObjectType()
-@Entity('feeding_programs')
+@Entity('feeding_programs', { schema: 'farm' })
 @Index(['tenantId', 'status'])
 @Index(['tenantId', 'code'], { unique: true })
 @Index(['tenantId', 'siteId'])

@@ -140,13 +140,17 @@ impl CommandHandler {
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
-        let (force_registry, process_image, force_store, license) = {
+        // Batch #314 D-9 migration: pull the clock authority
+        // alongside the registry so the apply() call mints a
+        // MonotonicDeadline (clock-rollback-safe TTL countdown).
+        let (force_registry, process_image, force_store, license, clock_authority) = {
             let state = self.state.read().await;
             (
                 state.force_registry.clone(),
                 state.process_image.clone(),
                 state.force_registry_store.clone(),
                 state.license.clone(),
+                state.clock_authority.clone(),
             )
         };
 
@@ -188,6 +192,7 @@ impl CommandHandler {
                 reason.clone(),
                 ttl_secs,
                 persist,
+                &*clock_authority,
             )
             .await
         {

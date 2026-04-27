@@ -1830,6 +1830,7 @@ mod tests {
         // purely off the in-memory map, no DB or sweep task
         // required.
         let fr = Arc::new(ForceRegistry::new());
+        let clock = crate::runtime_safety::SystemClockAuthority::new();
         let adapter = ForceRegistryOpcUaAdapter::new(fr.clone());
 
         // Empty registry — no tag forced.
@@ -1844,6 +1845,7 @@ mod tests {
             "test force".to_string(),
             60,
             false,
+            &clock,
         )
         .await
         .unwrap();
@@ -2282,6 +2284,7 @@ mod tests {
     #[tokio::test]
     async fn force_registry_adapter_reflects_removal() {
         let fr = Arc::new(ForceRegistry::new());
+        let clock = crate::runtime_safety::SystemClockAuthority::new();
         let adapter = ForceRegistryOpcUaAdapter::new(fr.clone());
 
         fr.apply(
@@ -2292,6 +2295,7 @@ mod tests {
             "test".to_string(),
             60,
             false,
+            &clock,
         )
         .await
         .unwrap();

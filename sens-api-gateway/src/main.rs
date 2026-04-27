@@ -2539,9 +2539,13 @@ impl AppState {
 
         // Rehydrate existing persistent forces into
         // the in-memory registry.
+        // Batch #314 D-9 migration: pass the clock authority
+        // so each restored entry mints a MonotonicDeadline
+        // through the standard apply() gate.
         let results = crate::scripting::force_registry_store::load_into_registry(
             &store,
             &self.force_registry,
+            &*self.clock_authority,
         )
         .await;
         let mut loaded = 0usize;
@@ -4464,9 +4468,14 @@ async fn run_agent(
     // if no command or io_poll tick triggers a
     // lookup.
     {
-        let force_registry = {
+        // Batch #314 D-9 migration: pull the clock authority
+        // alongside the registry so the sweep loop runs the
+        // monotonic-anchored is_past_now check (immune to
+        // operator wallclock rollback within the process
+        // lifetime).
+        let (force_registry, clock_authority) = {
             let s = state.read().await;
-            s.force_registry.clone()
+            (s.force_registry.clone(), s.clock_authority.clone())
         };
         let (force_sweep_watch_tx, force_sweep_watch_rx) =
             tokio::sync::watch::channel(false);
@@ -4477,8 +4486,9 @@ async fn run_agent(
         });
         let sweep_handle = tokio::spawn(async move {
             let summary =
-                crate::scripting::force_registry::run_sweep_task(
+                crate::scripting::force_registry::run_sweep_task_with_clock(
                     force_registry,
+                    clock_authority,
                     std::time::Duration::from_secs(1),
                     force_sweep_watch_rx,
                 )

@@ -21,6 +21,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import yaml from 'js-yaml';
+import { writeDummyEnvForCompose } from './lib/compose-dummy-env.ts';
 
 const COMPOSE_FILE =
   process.env['COMPOSE_FILE'] ?? 'docker-compose.droplet.yml';
@@ -64,10 +65,14 @@ function listComposeServices(composeFile: string): string[] {
     console.error(`::error::compose file not found at ${composeFile}`);
     process.exit(2);
   }
+  // Same `${VAR:?required}` interpolation issue as the criticality
+  // manifest validator — emit a dummy env so compose can resolve the
+  // file without needing the real secrets.
+  const { envPath, cleanup } = writeDummyEnvForCompose(composeFile);
   try {
     const out = execFileSync(
       'docker',
-      ['compose', '-f', composeFile, 'config', '--services'],
+      ['compose', '-f', composeFile, '--env-file', envPath, 'config', '--services'],
       { encoding: 'utf8' },
     );
     return out
@@ -78,6 +83,8 @@ function listComposeServices(composeFile: string): string[] {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`::error::docker compose config failed: ${msg}`);
     process.exit(2);
+  } finally {
+    cleanup();
   }
 }
 

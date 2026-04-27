@@ -83,6 +83,16 @@ pub mod rotation_deadline;
 // arc continuation.
 pub mod rotation_marker_store;
 
+// Batch #317 D-1b alarm runner: 1-hour interval task
+// that reads the marker + evaluates the deadline +
+// emits structured operator-visible alarms on
+// LeadTimeExceeded / Overdue. Per-tick re-emission
+// (NOT edge-triggered) for restart resilience —
+// processes loading an already-Overdue marker MUST
+// alarm immediately on the first tick, not silently
+// drop the transition.
+pub mod rotation_alarm_runner;
+
 pub use acceptance::{AcceptanceToken, FileBackedAcceptance, FileBackedAcceptanceError};
 pub use error::{KeyDerivationError, KeystoreError, KeystoreErrorKind};
 pub use file_backed::{Argon2idParams, FileBackedKeystore};
@@ -118,6 +128,14 @@ pub use rotation_deadline::{
 pub use rotation_marker_store::{
     read_marker, read_or_init, record_rotation_now, write_marker,
     MarkerStoreError, ROTATION_MARKER_FILENAME,
+};
+
+// Batch #317 re-exports — alarm runner. main.rs cold-
+// boot path spawns this task alongside the keystore
+// instantiation.
+pub use rotation_alarm_runner::{
+    run_keystore_rotation_alarm_task, AlarmRunSummary,
+    DEFAULT_ALARM_INTERVAL_SECS,
 };
 // RotationSource is defined in this module above + already
 // pub, so consumers can `use crate::keystore::RotationSource`

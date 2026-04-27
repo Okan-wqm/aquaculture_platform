@@ -328,11 +328,11 @@ export class AuditLogService {
     const dateParams: Record<string, Date> = {};
     if (startDate) {
       dateWhere += ' AND audit.createdAt >= :startDate';
-      dateParams.startDate = startDate;
+      dateParams['startDate'] = startDate;
     }
     if (endDate) {
       dateWhere += ' AND audit.createdAt <= :endDate';
-      dateParams.endDate = endDate;
+      dateParams['endDate'] = endDate;
     }
 
     const [

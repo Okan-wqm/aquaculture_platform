@@ -312,21 +312,21 @@ export class VfdProfinetAdapter extends BaseVfdAdapter {
 
     const cfg = config as Record<string, unknown>;
 
-    if (!cfg.deviceName || typeof cfg.deviceName !== 'string') {
+    if (!cfg['deviceName'] || typeof cfg['deviceName'] !== 'string') {
       errors.push('deviceName is required and must be a string');
     }
 
-    if (!cfg.ipAddress || typeof cfg.ipAddress !== 'string') {
+    if (!cfg['ipAddress'] || typeof cfg['ipAddress'] !== 'string') {
       errors.push('ipAddress is required and must be a string');
     } else {
       const ipRegex = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
-      if (!ipRegex.test(cfg.ipAddress)) {
+      if (!ipRegex.test(cfg['ipAddress'])) {
         errors.push('ipAddress must be a valid IPv4 address');
       }
     }
 
-    if (cfg.sendClock !== undefined) {
-      if (typeof cfg.sendClock !== 'number' || cfg.sendClock < 250 || cfg.sendClock > 4000) {
+    if (cfg['sendClock'] !== undefined) {
+      if (typeof cfg['sendClock'] !== 'number' || cfg['sendClock'] < 250 || cfg['sendClock'] > 4000) {
         errors.push('sendClock must be between 250 and 4000 µs');
       }
     }
@@ -437,16 +437,16 @@ export class VfdProfinetAdapter extends BaseVfdAdapter {
     }
 
     return {
-      deviceName: config.deviceName as string,
-      ipAddress: config.ipAddress as string,
-      subnetMask: (config.subnetMask as string) || '255.255.255.0',
-      gateway: config.gateway as string,
-      gsdmlFile: config.gsdmlFile as string,
-      inputModuleSlot: (config.inputModuleSlot as number) || 1,
-      outputModuleSlot: (config.outputModuleSlot as number) || 1,
-      sendClock: (config.sendClock as number) || 1000,
-      reductionRatio: (config.reductionRatio as number) || 32,
-      watchdogFactor: (config.watchdogFactor as number) || 10,
+      deviceName: config['deviceName'] as string,
+      ipAddress: config['ipAddress'] as string,
+      subnetMask: (config['subnetMask'] as string) || '255.255.255.0',
+      gateway: config['gateway'] as string,
+      gsdmlFile: config['gsdmlFile'] as string,
+      inputModuleSlot: (config['inputModuleSlot'] as number) || 1,
+      outputModuleSlot: (config['outputModuleSlot'] as number) || 1,
+      sendClock: (config['sendClock'] as number) || 1000,
+      reductionRatio: (config['reductionRatio'] as number) || 32,
+      watchdogFactor: (config['watchdogFactor'] as number) || 10,
     };
   }
 

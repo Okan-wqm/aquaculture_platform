@@ -127,15 +127,15 @@ describe('UpdateFeedingRecordHandler — transactional outbox', () => {
 
     expect(enqueue).toHaveBeenCalledTimes(1);
     const event = enqueue.mock.calls[0]![0] as Record<string, unknown>;
-    expect(event.eventType).toBe('FeedingRecordUpdated');
-    expect(event.tenantId).toBe('tenant-1');
-    expect(event.feedingRecordId).toBe('fr-1');
-    expect(event.batchId).toBe('batch-1');
-    expect(event.previousActualAmountKg).toBe(10);
-    expect(event.newActualAmountKg).toBe(15);
-    expect(event.amountDiffKg).toBe(5);
+    expect(event['eventType']).toBe('FeedingRecordUpdated');
+    expect(event['tenantId']).toBe('tenant-1');
+    expect(event['feedingRecordId']).toBe('fr-1');
+    expect(event['batchId']).toBe('batch-1');
+    expect(event['previousActualAmountKg']).toBe(10);
+    expect(event['newActualAmountKg']).toBe(15);
+    expect(event['amountDiffKg']).toBe(5);
     // Feed cost wasn't touched → diff = 0
-    expect(event.costDiff).toBe(0);
+    expect(event['costDiff']).toBe(0);
 
     // Batch read + write happens when amount changed
     expect(managerFindOne).toHaveBeenCalledWith(Batch, {
@@ -150,10 +150,10 @@ describe('UpdateFeedingRecordHandler — transactional outbox', () => {
     await handler.execute(makeCommand({ feedCost: 150 }));
 
     const event = enqueue.mock.calls[0]![0] as Record<string, unknown>;
-    expect(event.amountDiffKg).toBe(0);
-    expect(event.previousFeedCost).toBe(100);
-    expect(event.newFeedCost).toBe(150);
-    expect(event.costDiff).toBe(50);
+    expect(event['amountDiffKg']).toBe(0);
+    expect(event['previousFeedCost']).toBe(100);
+    expect(event['newFeedCost']).toBe(150);
+    expect(event['costDiff']).toBe(50);
   });
 
   it('notes-only change: event still fires (zero diffs) — batch not read', async () => {
@@ -163,8 +163,8 @@ describe('UpdateFeedingRecordHandler — transactional outbox', () => {
 
     expect(enqueue).toHaveBeenCalledTimes(1);
     const event = enqueue.mock.calls[0]![0] as Record<string, unknown>;
-    expect(event.amountDiffKg).toBe(0);
-    expect(event.costDiff).toBe(0);
+    expect(event['amountDiffKg']).toBe(0);
+    expect(event['costDiff']).toBe(0);
     // Batch read is skipped when no numerical change
     expect(managerFindOne).not.toHaveBeenCalled();
   });

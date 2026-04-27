@@ -1,22 +1,16 @@
 {
+  // PROC-MEDIUM-011 closed in PR-42 — `isolatedModules` and
+  // `noPropertyAccessFromIndexSignature` both live in
+  // tsconfig.base.json now; cross-lib production sources were
+  // rewritten to bracket access via the programmatic fixer at
+  // tools/scripts/fix-no-property-access-from-index-signature.mjs.
+  // No per-spec overrides needed.
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "outDir": "../../dist/out-tsc",
     "module": "commonjs",
     "moduleResolution": "node10",
-    "types": ["jest", "node"],
-    // isolatedModules is now in tsconfig.base.json (PR-41,
-    // PROC-MEDIUM-011 phase 1) — no per-project override needed
-    // anymore; type-only re-exports across the monorepo were
-    // converted to `export type`. The PR-32 override is removed.
-    //
-    // noPropertyAccessFromIndexSignature stays disabled at the
-    // spec layer because the cross-lib spec compile traverses
-    // production sources of libs/backend-common, libs/event-
-    // contracts, platform/libs/event-bus — those still use
-    // `process.env.X` style access. Tightening THAT setting
-    // monorepo-wide is the PROC-MEDIUM-011 phase 2 work-stream.
-    "noPropertyAccessFromIndexSignature": false
+    "types": ["jest", "node"]
   },
   "include": [
     "jest.config.ts",

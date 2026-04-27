@@ -41,7 +41,7 @@ export class StripeWebhookService {
    * and transitions the invoice to PAID / PARTIALLY_PAID.
    */
   async handlePaymentIntentSucceeded(event: Record<string, any>): Promise<void> {
-    const paymentIntent = event.data?.object;
+    const paymentIntent = event['data']?.object;
     if (!paymentIntent) {
       this.logger.warn('payment_intent.succeeded: missing data.object');
       return;
@@ -188,7 +188,7 @@ export class StripeWebhookService {
    * Records a failed payment and publishes a PaymentFailed event.
    */
   async handlePaymentIntentFailed(event: Record<string, any>): Promise<void> {
-    const paymentIntent = event.data?.object;
+    const paymentIntent = event['data']?.object;
     if (!paymentIntent) {
       this.logger.warn('payment_intent.payment_failed: missing data.object');
       return;
@@ -280,7 +280,7 @@ export class StripeWebhookService {
    * Transitions the subscription to PAST_DUE status.
    */
   async handleInvoicePaymentFailed(event: Record<string, any>): Promise<void> {
-    const stripeInvoice = event.data?.object;
+    const stripeInvoice = event['data']?.object;
     if (!stripeInvoice) {
       this.logger.warn('invoice.payment_failed: missing data.object');
       return;
@@ -347,7 +347,7 @@ export class StripeWebhookService {
    * Cancels the subscription.
    */
   async handleSubscriptionDeleted(event: Record<string, any>): Promise<void> {
-    const stripeSubscription = event.data?.object;
+    const stripeSubscription = event['data']?.object;
     if (!stripeSubscription) {
       this.logger.warn('customer.subscription.deleted: missing data.object');
       return;
@@ -427,7 +427,7 @@ export class StripeWebhookService {
    * publishes the event for coordination.
    */
   async handleChargeRefunded(event: Record<string, any>): Promise<void> {
-    const charge = event.data?.object;
+    const charge = event['data']?.object;
     if (!charge) {
       this.logger.warn('charge.refunded: missing data.object');
       return;

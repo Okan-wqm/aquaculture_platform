@@ -172,43 +172,43 @@ export function validateFeedAssignment(assignment: unknown): string[] {
   const a = assignment as Record<string, unknown>;
 
   // Required fields
-  if (!a.feedId || typeof a.feedId !== 'string') {
+  if (!a['feedId'] || typeof a['feedId'] !== 'string') {
     errors.push('feedId must be a non-empty string (UUID)');
-  } else if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(a.feedId)) {
+  } else if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(a['feedId'])) {
     errors.push('feedId must be a valid UUID');
   }
 
-  if (!a.feedCode || typeof a.feedCode !== 'string') {
+  if (!a['feedCode'] || typeof a['feedCode'] !== 'string') {
     errors.push('feedCode must be a non-empty string');
-  } else if (a.feedCode.length > 50) {
+  } else if (a['feedCode'].length > 50) {
     errors.push('feedCode must not exceed 50 characters');
   }
 
-  if (!a.feedName || typeof a.feedName !== 'string') {
+  if (!a['feedName'] || typeof a['feedName'] !== 'string') {
     errors.push('feedName must be a non-empty string');
-  } else if (a.feedName.length > 200) {
+  } else if (a['feedName'].length > 200) {
     errors.push('feedName must not exceed 200 characters');
   }
 
-  if (typeof a.minWeightG !== 'number' || a.minWeightG < 0) {
+  if (typeof a['minWeightG'] !== 'number' || a['minWeightG'] < 0) {
     errors.push('minWeightG must be a non-negative number');
   }
 
-  if (typeof a.maxWeightG !== 'number' || a.maxWeightG < 0) {
+  if (typeof a['maxWeightG'] !== 'number' || a['maxWeightG'] < 0) {
     errors.push('maxWeightG must be a non-negative number');
   }
 
-  if (typeof a.minWeightG === 'number' && typeof a.maxWeightG === 'number') {
-    if (a.minWeightG >= a.maxWeightG) {
+  if (typeof a['minWeightG'] === 'number' && typeof a['maxWeightG'] === 'number') {
+    if (a['minWeightG'] >= a['maxWeightG']) {
       errors.push('minWeightG must be less than maxWeightG');
     }
   }
 
-  if (typeof a.priority !== 'number' || a.priority < 1 || a.priority > 100) {
+  if (typeof a['priority'] !== 'number' || a['priority'] < 1 || a['priority'] > 100) {
     errors.push('priority must be a number between 1 and 100');
   }
 
-  if (a.notes !== undefined && typeof a.notes !== 'string') {
+  if (a['notes'] !== undefined && typeof a['notes'] !== 'string') {
     errors.push('notes must be a string if provided');
   }
 
@@ -249,58 +249,58 @@ export function validateFCRTable(table: unknown): string[] {
   const t = table as Record<string, unknown>;
 
   // Temperatures validation
-  if (!Array.isArray(t.temperatures)) {
+  if (!Array.isArray(t['temperatures'])) {
     errors.push('temperatures must be an array');
   } else {
-    if (t.temperatures.length === 0) {
+    if (t['temperatures'].length === 0) {
       errors.push('temperatures array must not be empty');
     }
-    if (t.temperatures.length > MAX_FCR_TEMPERATURES) {
+    if (t['temperatures'].length > MAX_FCR_TEMPERATURES) {
       errors.push(`temperatures array must not exceed ${MAX_FCR_TEMPERATURES} items`);
     }
-    for (let i = 0; i < t.temperatures.length; i++) {
-      if (typeof t.temperatures[i] !== 'number' || t.temperatures[i] < -10 || t.temperatures[i] > 50) {
+    for (let i = 0; i < t['temperatures'].length; i++) {
+      if (typeof t['temperatures'][i] !== 'number' || t['temperatures'][i] < -10 || t['temperatures'][i] > 50) {
         errors.push(`temperatures[${i}] must be a number between -10 and 50`);
       }
     }
   }
 
   // Weights validation
-  if (!Array.isArray(t.weights)) {
+  if (!Array.isArray(t['weights'])) {
     errors.push('weights must be an array');
   } else {
-    if (t.weights.length === 0) {
+    if (t['weights'].length === 0) {
       errors.push('weights array must not be empty');
     }
-    if (t.weights.length > MAX_FCR_WEIGHTS) {
+    if (t['weights'].length > MAX_FCR_WEIGHTS) {
       errors.push(`weights array must not exceed ${MAX_FCR_WEIGHTS} items`);
     }
-    for (let i = 0; i < t.weights.length; i++) {
-      if (typeof t.weights[i] !== 'number' || t.weights[i] < 0 || t.weights[i] > 100000) {
+    for (let i = 0; i < t['weights'].length; i++) {
+      if (typeof t['weights'][i] !== 'number' || t['weights'][i] < 0 || t['weights'][i] > 100000) {
         errors.push(`weights[${i}] must be a number between 0 and 100000`);
       }
     }
   }
 
   // FCR values validation
-  if (!Array.isArray(t.fcrValues)) {
+  if (!Array.isArray(t['fcrValues'])) {
     errors.push('fcrValues must be a 2D array');
   } else {
-    const expectedRows = Array.isArray(t.temperatures) ? t.temperatures.length : 0;
-    const expectedCols = Array.isArray(t.weights) ? t.weights.length : 0;
+    const expectedRows = Array.isArray(t['temperatures']) ? t['temperatures'].length : 0;
+    const expectedCols = Array.isArray(t['weights']) ? t['weights'].length : 0;
 
-    if (t.fcrValues.length !== expectedRows) {
+    if (t['fcrValues'].length !== expectedRows) {
       errors.push(`fcrValues must have ${expectedRows} rows (one per temperature)`);
     }
 
-    for (let i = 0; i < t.fcrValues.length; i++) {
-      if (!Array.isArray(t.fcrValues[i])) {
+    for (let i = 0; i < t['fcrValues'].length; i++) {
+      if (!Array.isArray(t['fcrValues'][i])) {
         errors.push(`fcrValues[${i}] must be an array`);
-      } else if (t.fcrValues[i].length !== expectedCols) {
+      } else if (t['fcrValues'][i].length !== expectedCols) {
         errors.push(`fcrValues[${i}] must have ${expectedCols} columns (one per weight)`);
       } else {
-        for (let j = 0; j < t.fcrValues[i].length; j++) {
-          const val = t.fcrValues[i][j];
+        for (let j = 0; j < t['fcrValues'][i].length; j++) {
+          const val = t['fcrValues'][i][j];
           // 0 is allowed as it indicates an uncovered cell
           if (typeof val !== 'number' || val < 0 || val > 5) {
             errors.push(`fcrValues[${i}][${j}] must be a number between 0 and 5`);
@@ -311,15 +311,15 @@ export function validateFCRTable(table: unknown): string[] {
   }
 
   // Optional fields validation
-  if (t.temperatureUnit !== undefined && !['celsius', 'fahrenheit'].includes(t.temperatureUnit as string)) {
+  if (t['temperatureUnit'] !== undefined && !['celsius', 'fahrenheit'].includes(t['temperatureUnit'] as string)) {
     errors.push('temperatureUnit must be "celsius" or "fahrenheit"');
   }
 
-  if (t.weightUnit !== undefined && !['gram', 'kg'].includes(t.weightUnit as string)) {
+  if (t['weightUnit'] !== undefined && !['gram', 'kg'].includes(t['weightUnit'] as string)) {
     errors.push('weightUnit must be "gram" or "kg"');
   }
 
-  if (t.notes !== undefined && typeof t.notes !== 'string') {
+  if (t['notes'] !== undefined && typeof t['notes'] !== 'string') {
     errors.push('notes must be a string if provided');
   }
 
@@ -361,44 +361,44 @@ export function validateProgramSettings(settings: unknown): string[] {
 
   const s = settings as Record<string, unknown>;
 
-  if (typeof s.autoTransition !== 'boolean') {
+  if (typeof s['autoTransition'] !== 'boolean') {
     errors.push('autoTransition must be a boolean');
   }
 
-  if (typeof s.transitionBuffer !== 'number' || s.transitionBuffer < 0 || s.transitionBuffer > 100) {
+  if (typeof s['transitionBuffer'] !== 'number' || s['transitionBuffer'] < 0 || s['transitionBuffer'] > 100) {
     errors.push('transitionBuffer must be a number between 0 and 100');
   }
 
-  if (typeof s.notifyOnTransition !== 'boolean') {
+  if (typeof s['notifyOnTransition'] !== 'boolean') {
     errors.push('notifyOnTransition must be a boolean');
   }
 
-  if (!Object.values(FCRSource).includes(s.fcrSource as FCRSource)) {
+  if (!Object.values(FCRSource).includes(s['fcrSource'] as FCRSource)) {
     errors.push('fcrSource must be a valid FCRSource enum value');
   }
 
-  if (s.defaultMealsPerDay !== undefined) {
-    if (typeof s.defaultMealsPerDay !== 'number' || s.defaultMealsPerDay < 1 || s.defaultMealsPerDay > 24) {
+  if (s['defaultMealsPerDay'] !== undefined) {
+    if (typeof s['defaultMealsPerDay'] !== 'number' || s['defaultMealsPerDay'] < 1 || s['defaultMealsPerDay'] > 24) {
       errors.push('defaultMealsPerDay must be a number between 1 and 24');
     }
   }
 
-  if (s.minFeedingRatePercent !== undefined) {
-    if (typeof s.minFeedingRatePercent !== 'number' || s.minFeedingRatePercent < 0 || s.minFeedingRatePercent > 100) {
+  if (s['minFeedingRatePercent'] !== undefined) {
+    if (typeof s['minFeedingRatePercent'] !== 'number' || s['minFeedingRatePercent'] < 0 || s['minFeedingRatePercent'] > 100) {
       errors.push('minFeedingRatePercent must be a number between 0 and 100');
     }
   }
 
-  if (s.maxFeedingRatePercent !== undefined) {
-    if (typeof s.maxFeedingRatePercent !== 'number' || s.maxFeedingRatePercent < 0 || s.maxFeedingRatePercent > 100) {
+  if (s['maxFeedingRatePercent'] !== undefined) {
+    if (typeof s['maxFeedingRatePercent'] !== 'number' || s['maxFeedingRatePercent'] < 0 || s['maxFeedingRatePercent'] > 100) {
       errors.push('maxFeedingRatePercent must be a number between 0 and 100');
     }
   }
 
   if (
-    typeof s.minFeedingRatePercent === 'number' &&
-    typeof s.maxFeedingRatePercent === 'number' &&
-    s.minFeedingRatePercent > s.maxFeedingRatePercent
+    typeof s['minFeedingRatePercent'] === 'number' &&
+    typeof s['maxFeedingRatePercent'] === 'number' &&
+    s['minFeedingRatePercent'] > s['maxFeedingRatePercent']
   ) {
     errors.push('minFeedingRatePercent must be less than or equal to maxFeedingRatePercent');
   }

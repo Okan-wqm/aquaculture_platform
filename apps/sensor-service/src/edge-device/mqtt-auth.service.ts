@@ -382,15 +382,15 @@ export class MqttAuthService implements OnModuleInit {
    */
   private mapRowToEdgeDevice(row: Record<string, any>): EdgeDevice {
     const device = new EdgeDevice();
-    device.id = row.id;
-    device.tenantId = row.tenant_id;
-    device.deviceCode = row.device_code;
-    device.deviceName = row.device_name;
-    device.lifecycleState = row.lifecycle_state;
-    device.mqttClientId = row.mqtt_client_id;
-    device.mqttPasswordHash = row.mqtt_password_hash;
-    device.isOnline = row.is_online;
-    device.lastSeenAt = row.last_seen_at ? new Date(row.last_seen_at) : undefined;
+    device.id = row['id'];
+    device.tenantId = row['tenant_id'];
+    device.deviceCode = row['device_code'];
+    device.deviceName = row['device_name'];
+    device.lifecycleState = row['lifecycle_state'];
+    device.mqttClientId = row['mqtt_client_id'];
+    device.mqttPasswordHash = row['mqtt_password_hash'];
+    device.isOnline = row['is_online'];
+    device.lastSeenAt = row['last_seen_at'] ? new Date(row['last_seen_at']) : undefined;
     return device;
   }
 

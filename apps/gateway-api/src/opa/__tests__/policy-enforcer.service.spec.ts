@@ -275,7 +275,7 @@ describe('PolicyEnforcerService', () => {
       } catch (error) {
         expect(error).toBeInstanceOf(ForbiddenException);
         const response = (error as ForbiddenException).getResponse() as Record<string, unknown>;
-        expect(response.reason).toBe('Custom denial reason');
+        expect(response['reason']).toBe('Custom denial reason');
       }
     });
 

@@ -113,20 +113,20 @@ describe('Swagger / OpenAPI Documentation', () => {
     });
 
     it('should have valid OpenAPI 3.x version', () => {
-      expect(spec.openapi).toMatch(/^3\.\d+\.\d+$/);
+      expect(spec['openapi']).toMatch(/^3\.\d+\.\d+$/);
     });
 
     it('should contain correct API title and version', () => {
-      expect(spec.info.title).toBe('Aquaculture Admin API');
-      expect(spec.info.version).toBe('1.0.0');
+      expect(spec['info'].title).toBe('Aquaculture Admin API');
+      expect(spec['info'].version).toBe('1.0.0');
     });
 
     it('should contain API description', () => {
-      expect(spec.info.description).toContain('Aquaculture');
+      expect(spec['info'].description).toContain('Aquaculture');
     });
 
     it('should define Bearer JWT security scheme', () => {
-      const securitySchemes = spec.components?.securitySchemes;
+      const securitySchemes = spec['components']?.securitySchemes;
       expect(securitySchemes).toBeDefined();
       expect(securitySchemes.JWT).toBeDefined();
       expect(securitySchemes.JWT.type).toBe('http');
@@ -135,22 +135,22 @@ describe('Swagger / OpenAPI Documentation', () => {
     });
 
     it('should define server entries', () => {
-      expect(spec.servers).toBeDefined();
-      expect(spec.servers.length).toBeGreaterThanOrEqual(1);
+      expect(spec['servers']).toBeDefined();
+      expect(spec['servers'].length).toBeGreaterThanOrEqual(1);
 
-      const urls = spec.servers.map((s: any) => s.url);
+      const urls = spec['servers'].map((s: any) => s.url);
       expect(urls).toContain('/');
     });
 
     it('should have paths section with documented endpoints', () => {
-      expect(spec.paths).toBeDefined();
-      const pathKeys = Object.keys(spec.paths);
+      expect(spec['paths']).toBeDefined();
+      const pathKeys = Object.keys(spec['paths']);
       expect(pathKeys.length).toBeGreaterThan(0);
     });
 
     it('documented endpoints should reference valid HTTP methods', () => {
       const validMethods = ['get', 'post', 'put', 'patch', 'delete', 'options', 'head'];
-      for (const [, methods] of Object.entries(spec.paths)) {
+      for (const [, methods] of Object.entries(spec['paths'])) {
         for (const method of Object.keys(methods as object)) {
           if (method.startsWith('x-')) continue; // OpenAPI extensions
           expect(validMethods).toContain(method);

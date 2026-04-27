@@ -288,12 +288,12 @@ describe('NatsIngestionConsumerService', () => {
       // signature, so the direct cast is rejected. The intent here is
       // shape introspection, not type narrowing.
       const ev = firstCall[0] as unknown as Record<string, unknown>;
-      expect(ev.eventType).toBe('SensorReading');
-      expect(ev.sensorId).toBe(SENSOR_ID);
-      expect(ev.tenantId).toBe(TENANT_ID);
-      expect(ev.farmId).toBe(FARM_ID);
-      expect(ev.pondId).toBe(POND_ID);
-      expect(ev.readingTemperature).toBe(24.5);
+      expect(ev['eventType']).toBe('SensorReading');
+      expect(ev['sensorId']).toBe(SENSOR_ID);
+      expect(ev['tenantId']).toBe(TENANT_ID);
+      expect(ev['farmId']).toBe(FARM_ID);
+      expect(ev['pondId']).toBe(POND_ID);
+      expect(ev['readingTemperature']).toBe(24.5);
     });
 
     it('event-side farm/pond preferred over sensor cache when both present', async () => {
@@ -332,8 +332,8 @@ describe('NatsIngestionConsumerService', () => {
         string,
         unknown
       >;
-      expect(typedEv.farmId).toBe(EVENT_FARM);
-      expect(typedEv.pondId).toBe(EVENT_POND);
+      expect(typedEv['farmId']).toBe(EVENT_FARM);
+      expect(typedEv['pondId']).toBe(EVENT_POND);
     });
 
     it('falls back to sensor cache farm/pond when event has none', async () => {
@@ -363,8 +363,8 @@ describe('NatsIngestionConsumerService', () => {
         string,
         unknown
       >;
-      expect(typedEv.farmId).toBe(FARM_ID);
-      expect(typedEv.pondId).toBe(POND_ID);
+      expect(typedEv['farmId']).toBe(FARM_ID);
+      expect(typedEv['pondId']).toBe(POND_ID);
     });
 
     it('publish failure does not abort persistence — enqueue already happened', async () => {

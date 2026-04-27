@@ -116,20 +116,20 @@ function makeHarness(opts: HarnessOpts = {}) {
   };
 
   const batchRepository = {
-    findOne: jest.fn().mockResolvedValue(findOneResults.Batch),
+    findOne: jest.fn().mockResolvedValue(findOneResults['Batch']),
   };
   const tankBatchRepository = {
-    findOne: jest.fn().mockResolvedValue(findOneResults.TankBatch),
+    findOne: jest.fn().mockResolvedValue(findOneResults['TankBatch']),
   };
   const operationRepository = {
     create: jest.fn((payload: unknown) => payload as TankOperation),
     findOne: jest.fn(),
   };
   const equipmentRepository = {
-    findOne: jest.fn().mockResolvedValue(findOneResults.Equipment),
+    findOne: jest.fn().mockResolvedValue(findOneResults['Equipment']),
   };
   const speciesRepository = {
-    findOne: jest.fn().mockResolvedValue(findOneResults.Species),
+    findOne: jest.fn().mockResolvedValue(findOneResults['Species']),
   };
 
   const managerSave = jest.fn(
@@ -207,19 +207,19 @@ describe('RemoveCleanerFishHandler — transactional outbox', () => {
 
     expect(enqueue).toHaveBeenCalledTimes(1);
     const event = enqueue.mock.calls[0]![0] as Record<string, unknown>;
-    expect(event.eventType).toBe('CleanerFishRemoved');
-    expect(event.cleanerBatchId).toBe('cleaner-batch-1');
-    expect(event.tankId).toBe('tank-1');
-    expect(event.tenantId).toBe('tenant-1');
-    expect(event.quantity).toBe(20);
-    expect(event.reason).toBe('end_of_cycle');
-    expect(event.speciesName).toBe('Lumpfish');
-    expect(event.biomassKg).toBeCloseTo(1, 5); // 20 * 50 / 1000 = 1 kg
+    expect(event['eventType']).toBe('CleanerFishRemoved');
+    expect(event['cleanerBatchId']).toBe('cleaner-batch-1');
+    expect(event['tankId']).toBe('tank-1');
+    expect(event['tenantId']).toBe('tenant-1');
+    expect(event['quantity']).toBe(20);
+    expect(event['reason']).toBe('end_of_cycle');
+    expect(event['speciesName']).toBe('Lumpfish');
+    expect(event['biomassKg']).toBeCloseTo(1, 5); // 20 * 50 / 1000 = 1 kg
     // Post-op: tank had 60 cleaner fish; removed 20 → 40 left.
-    expect(event.newTankCleanerFishQuantity).toBe(40);
+    expect(event['newTankCleanerFishQuantity']).toBe(40);
     // Non-relocation reasons leave cleanerBatch.currentQuantity
     // untouched (the fish are consumed / end-of-cycle / harvested).
-    expect(event.newCleanerBatchCurrentQuantity).toBe(100);
+    expect(event['newCleanerBatchCurrentQuantity']).toBe(100);
 
     expect(commit).toHaveBeenCalledTimes(1);
   });
@@ -233,8 +233,8 @@ describe('RemoveCleanerFishHandler — transactional outbox', () => {
 
     const event = enqueue.mock.calls[0]![0] as Record<string, unknown>;
     // 100 (original) + 10 (returned via relocation) = 110
-    expect(event.newCleanerBatchCurrentQuantity).toBe(110);
-    expect(event.reason).toBe('relocation');
+    expect(event['newCleanerBatchCurrentQuantity']).toBe(110);
+    expect(event['reason']).toBe('relocation');
   });
 
   it('outbox enqueue failure rolls back every domain write', async () => {

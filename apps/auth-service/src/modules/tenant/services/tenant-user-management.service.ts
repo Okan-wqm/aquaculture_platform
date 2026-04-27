@@ -985,27 +985,27 @@ export class TenantUserManagementService {
    * Map database row to UserRoleAssignmentResult
    */
   private mapRowToUserRoleAssignment(row: Record<string, unknown>): UserRoleAssignmentResult {
-    const overrides = this.parsePermissionOverrides(row.permission_overrides);
-    const panelPermissions = this.parsePanelPermissions(row.panel_permissions);
-    const resourcePermissions: string[] = (row.resource_permissions as string[]) || [];
+    const overrides = this.parsePermissionOverrides(row['permission_overrides']);
+    const panelPermissions = this.parsePanelPermissions(row['panel_permissions']);
+    const resourcePermissions: string[] = (row['resource_permissions'] as string[]) || [];
     const effectivePermissions = this.calculateEffectivePermissions(resourcePermissions, overrides);
 
     return {
-      id: row.id as string,
-      userId: row.user_id as string,
-      roleId: row.role_id as string,
-      roleName: row.role_name as string,
-      roleColor: row.role_color as string,
-      roleIcon: row.role_icon as string,
-      roleLevel: row.role_level as number,
+      id: row['id'] as string,
+      userId: row['user_id'] as string,
+      roleId: row['role_id'] as string,
+      roleName: row['role_name'] as string,
+      roleColor: row['role_color'] as string,
+      roleIcon: row['role_icon'] as string,
+      roleLevel: row['role_level'] as number,
       permissionOverrides: overrides,
       panelPermissions,
       resourcePermissions,
       effectivePermissions,
-      isActive: row.is_active as boolean,
-      expiresAt: row.expires_at as Date | null,
-      assignedAt: row.created_at as Date,
-      assignedBy: row.assigned_by as string,
+      isActive: row['is_active'] as boolean,
+      expiresAt: row['expires_at'] as Date | null,
+      assignedAt: row['created_at'] as Date,
+      assignedBy: row['assigned_by'] as string,
     };
   }
 }

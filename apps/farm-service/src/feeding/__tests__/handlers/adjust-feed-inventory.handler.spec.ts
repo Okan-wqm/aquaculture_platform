@@ -110,16 +110,16 @@ describe('AdjustFeedInventoryHandler — transactional outbox', () => {
 
     expect(enqueue).toHaveBeenCalledTimes(1);
     const event = enqueue.mock.calls[0]![0] as Record<string, unknown>;
-    expect(event.eventType).toBe('FeedInventoryAdjusted');
-    expect(event.tenantId).toBe('tenant-1');
-    expect(event.inventoryId).toBe('inv-1');
-    expect(event.adjustmentType).toBe('increase');
-    expect(event.adjustmentQuantityKg).toBe(50);
-    expect(event.previousQuantityKg).toBe(200);
-    expect(event.newQuantityKg).toBe(250);
-    expect(event.reason).toBe('physical count');
-    expect(event.notes).toBe('unit test');
-    expect(event.adjustedAt).toBeInstanceOf(Date);
+    expect(event['eventType']).toBe('FeedInventoryAdjusted');
+    expect(event['tenantId']).toBe('tenant-1');
+    expect(event['inventoryId']).toBe('inv-1');
+    expect(event['adjustmentType']).toBe('increase');
+    expect(event['adjustmentQuantityKg']).toBe(50);
+    expect(event['previousQuantityKg']).toBe(200);
+    expect(event['newQuantityKg']).toBe(250);
+    expect(event['reason']).toBe('physical count');
+    expect(event['notes']).toBe('unit test');
+    expect(event['adjustedAt']).toBeInstanceOf(Date);
 
     expect(commit).toHaveBeenCalledTimes(1);
   });
@@ -130,9 +130,9 @@ describe('AdjustFeedInventoryHandler — transactional outbox', () => {
     await handler.execute(makeCommand(AdjustmentType.DECREASE, 40));
 
     const event = enqueue.mock.calls[0]![0] as Record<string, unknown>;
-    expect(event.adjustmentType).toBe('decrease');
-    expect(event.previousQuantityKg).toBe(200);
-    expect(event.newQuantityKg).toBe(160);
+    expect(event['adjustmentType']).toBe('decrease');
+    expect(event['previousQuantityKg']).toBe(200);
+    expect(event['newQuantityKg']).toBe(160);
   });
 
   it('SET_QUANTITY: overrides the quantity and emits event', async () => {
@@ -141,9 +141,9 @@ describe('AdjustFeedInventoryHandler — transactional outbox', () => {
     await handler.execute(makeCommand(AdjustmentType.SET_QUANTITY, 75));
 
     const event = enqueue.mock.calls[0]![0] as Record<string, unknown>;
-    expect(event.adjustmentType).toBe('set_quantity');
-    expect(event.previousQuantityKg).toBe(200);
-    expect(event.newQuantityKg).toBe(75);
+    expect(event['adjustmentType']).toBe('set_quantity');
+    expect(event['previousQuantityKg']).toBe(200);
+    expect(event['newQuantityKg']).toBe(75);
   });
 
   it('DECREASE below zero rejects before any save or enqueue', async () => {

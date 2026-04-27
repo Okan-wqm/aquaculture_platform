@@ -206,7 +206,7 @@ describe('CreateChannelHandler', () => {
         // Check both patterns: save(Entity, data) and save(data)
         const candidate = call.length === 1 ? call[0] : call[1];
         const data = candidate as Record<string, unknown>;
-        return data && data.eventType === 'ChannelCreated';
+        return data && data['eventType'] === 'ChannelCreated';
       },
     );
     expect(outboxSaveCall).toBeDefined();

@@ -522,8 +522,8 @@ describe('RequestValidatorMiddleware', () => {
       middleware.use(req, res, next);
 
       const validatedReq = req as ValidatedRequest;
-      expect(validatedReq.sanitizedBody?.name).toBe('John &lt;b&gt;Doe&lt;&#x2F;b&gt;');
-      expect(validatedReq.sanitizedBody?.description).toBe(
+      expect(validatedReq.sanitizedBody?.['name']).toBe('John &lt;b&gt;Doe&lt;&#x2F;b&gt;');
+      expect(validatedReq.sanitizedBody?.['description']).toBe(
         'Test&#x27;s &quot;value&quot;',
       );
     });
@@ -557,7 +557,7 @@ describe('RequestValidatorMiddleware', () => {
       middleware.use(req, res, next);
 
       const validatedReq = req as ValidatedRequest;
-      const sanitizedTags = validatedReq.sanitizedBody?.tags as string[];
+      const sanitizedTags = validatedReq.sanitizedBody?.['tags'] as string[];
       expect(sanitizedTags[0]).toBe('safe');
       expect(sanitizedTags[1]).toBe('test&lt;tag&gt;');
     });
@@ -631,7 +631,7 @@ describe('RequestValidatorMiddleware', () => {
 
         const body = getSanitizedBody(req);
         expect(body).toBeDefined();
-        expect(body?.name).toBe('test value');
+        expect(body?.['name']).toBe('test value');
       });
     });
 
@@ -647,7 +647,7 @@ describe('RequestValidatorMiddleware', () => {
 
         const query = getSanitizedQuery(req);
         expect(query).toBeDefined();
-        expect(query?.search).toBe('test query');
+        expect(query?.['search']).toBe('test query');
       });
     });
   });
@@ -736,10 +736,10 @@ describe('RequestValidatorMiddleware', () => {
       middleware.use(req, res, next);
 
       const validatedReq = req as ValidatedRequest;
-      expect(validatedReq.sanitizedBody?.count).toBe(42);
-      expect(validatedReq.sanitizedBody?.active).toBe(true);
-      expect(validatedReq.sanitizedBody?.price).toBe(19.99);
-      expect(validatedReq.sanitizedBody?.tags).toBeNull();
+      expect(validatedReq.sanitizedBody?.['count']).toBe(42);
+      expect(validatedReq.sanitizedBody?.['active']).toBe(true);
+      expect(validatedReq.sanitizedBody?.['price']).toBe(19.99);
+      expect(validatedReq.sanitizedBody?.['tags']).toBeNull();
     });
   });
 

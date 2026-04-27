@@ -311,29 +311,29 @@ export class VfdEthernetIpAdapter extends BaseVfdAdapter {
 
     const cfg = config as Record<string, unknown>;
 
-    if (!cfg.host || typeof cfg.host !== 'string') {
+    if (!cfg['host'] || typeof cfg['host'] !== 'string') {
       errors.push('host is required and must be a string');
     } else {
       const ipRegex = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
-      if (!ipRegex.test(cfg.host) && cfg.host !== 'localhost') {
+      if (!ipRegex.test(cfg['host']) && cfg['host'] !== 'localhost') {
         errors.push('host must be a valid IP address');
       }
     }
 
-    if (cfg.port !== undefined) {
-      if (typeof cfg.port !== 'number' || cfg.port < 1 || cfg.port > 65535) {
+    if (cfg['port'] !== undefined) {
+      if (typeof cfg['port'] !== 'number' || cfg['port'] < 1 || cfg['port'] > 65535) {
         errors.push('port must be between 1 and 65535');
       }
     }
 
-    if (cfg.slot !== undefined) {
-      if (typeof cfg.slot !== 'number' || cfg.slot < 0 || cfg.slot > 15) {
+    if (cfg['slot'] !== undefined) {
+      if (typeof cfg['slot'] !== 'number' || cfg['slot'] < 0 || cfg['slot'] > 15) {
         errors.push('slot must be between 0 and 15');
       }
     }
 
-    if (cfg.rpi !== undefined) {
-      if (typeof cfg.rpi !== 'number' || cfg.rpi < 2 || cfg.rpi > 3200) {
+    if (cfg['rpi'] !== undefined) {
+      if (typeof cfg['rpi'] !== 'number' || cfg['rpi'] < 2 || cfg['rpi'] > 3200) {
         errors.push('rpi must be between 2 and 3200 ms');
       }
     }
@@ -433,15 +433,15 @@ export class VfdEthernetIpAdapter extends BaseVfdAdapter {
     }
 
     return {
-      host: config.host as string,
-      port: (config.port as number) || 44818,
-      slot: (config.slot as number) ?? 0,
-      originatorSerialNumber: (config.originatorSerialNumber as number) || 12345,
-      inputAssembly: (config.inputAssembly as number) || 100,
-      outputAssembly: (config.outputAssembly as number) || 150,
-      configurationAssembly: (config.configurationAssembly as number) || 151,
-      rpi: (config.rpi as number) || 100,
-      edsFile: config.edsFile as string,
+      host: config['host'] as string,
+      port: (config['port'] as number) || 44818,
+      slot: (config['slot'] as number) ?? 0,
+      originatorSerialNumber: (config['originatorSerialNumber'] as number) || 12345,
+      inputAssembly: (config['inputAssembly'] as number) || 100,
+      outputAssembly: (config['outputAssembly'] as number) || 150,
+      configurationAssembly: (config['configurationAssembly'] as number) || 151,
+      rpi: (config['rpi'] as number) || 100,
+      edsFile: config['edsFile'] as string,
     };
   }
 

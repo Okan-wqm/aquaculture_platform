@@ -583,7 +583,7 @@ describe('BaseVfdAdapter', () => {
       const config = adapter.getDefaultConfiguration();
 
       expect(config).toBeDefined();
-      expect(config.port).toBe(502);
+      expect(config['port']).toBe(502);
     });
   });
 });

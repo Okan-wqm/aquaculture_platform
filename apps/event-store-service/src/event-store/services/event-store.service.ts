@@ -137,7 +137,7 @@ export class EventStoreService {
       // Bulk insert all events
       const insertResult = await queryRunner.manager.insert(StoredEvent, storedEvents);
       for (const row of insertResult.identifiers) {
-        eventIds.push(row.id);
+        eventIds.push(row['id']);
       }
 
       // Update stream metadata

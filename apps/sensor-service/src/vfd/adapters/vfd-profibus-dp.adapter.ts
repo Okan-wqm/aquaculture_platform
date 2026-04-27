@@ -315,20 +315,20 @@ export class VfdProfibusAdapter extends BaseVfdAdapter {
 
     const cfg = config as Record<string, unknown>;
 
-    if (cfg.slaveAddress === undefined || typeof cfg.slaveAddress !== 'number') {
+    if (cfg['slaveAddress'] === undefined || typeof cfg['slaveAddress'] !== 'number') {
       errors.push('slaveAddress is required and must be a number');
-    } else if (cfg.slaveAddress < 1 || cfg.slaveAddress > 125) {
+    } else if (cfg['slaveAddress'] < 1 || cfg['slaveAddress'] > 125) {
       errors.push('slaveAddress must be between 1 and 125');
     }
 
-    if (cfg.masterAddress !== undefined) {
-      if (typeof cfg.masterAddress !== 'number' || cfg.masterAddress < 0 || cfg.masterAddress > 125) {
+    if (cfg['masterAddress'] !== undefined) {
+      if (typeof cfg['masterAddress'] !== 'number' || cfg['masterAddress'] < 0 || cfg['masterAddress'] > 125) {
         errors.push('masterAddress must be between 0 and 125');
       }
     }
 
     const validBaudRates = [9600, 19200, 45450, 93750, 187500, 500000, 1500000, 3000000, 6000000, 12000000];
-    if (cfg.baudRate !== undefined && !validBaudRates.includes(cfg.baudRate as number)) {
+    if (cfg['baudRate'] !== undefined && !validBaudRates.includes(cfg['baudRate'] as number)) {
       errors.push(`baudRate must be one of: ${validBaudRates.join(', ')}`);
     }
 
@@ -424,15 +424,15 @@ export class VfdProfibusAdapter extends BaseVfdAdapter {
     }
 
     return {
-      slaveAddress: config.slaveAddress as number,
-      masterAddress: (config.masterAddress as number) ?? 0,
-      baudRate: (config.baudRate as ProfibusConfig['baudRate']) || 1500000,
-      gsdFile: config.gsdFile as string,
-      inputLength: (config.inputLength as number) || 12,
-      outputLength: (config.outputLength as number) || 12,
-      timeout: (config.timeout as number) || 1000,
-      interfaceType: (config.interfaceType as ProfibusConfig['interfaceType']) || 'usb',
-      interfacePath: config.interfacePath as string,
+      slaveAddress: config['slaveAddress'] as number,
+      masterAddress: (config['masterAddress'] as number) ?? 0,
+      baudRate: (config['baudRate'] as ProfibusConfig['baudRate']) || 1500000,
+      gsdFile: config['gsdFile'] as string,
+      inputLength: (config['inputLength'] as number) || 12,
+      outputLength: (config['outputLength'] as number) || 12,
+      timeout: (config['timeout'] as number) || 1000,
+      interfaceType: (config['interfaceType'] as ProfibusConfig['interfaceType']) || 'usb',
+      interfacePath: config['interfacePath'] as string,
     };
   }
 

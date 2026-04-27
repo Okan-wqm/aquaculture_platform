@@ -233,7 +233,7 @@ describe('AddMemberHandler', () => {
     const outboxCall = queryRunner.manager.save.mock.calls.find((call) => {
       const candidate = call.length === 1 ? call[0] : call[1];
       const data = candidate as Record<string, unknown>;
-      return data && data.eventType === 'ChannelMemberAdded';
+      return data && data['eventType'] === 'ChannelMemberAdded';
     });
     expect(outboxCall).toBeDefined();
   });

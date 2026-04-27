@@ -262,8 +262,10 @@ export class VfdModbusRtuAdapter extends BaseVfdAdapter {
       count
     );
 
-    // In production, this would send/receive via serial port
-    // For now, return simulated data
+    // Serial-port I/O is not yet wired in this adapter — the simulated
+    // return below lets integration tests exercise the call shape
+    // without serial hardware. Real I/O integration is a separate
+    // hardware-bring-up task.
     this.logDebug(`Reading ${count} registers from address ${address}`, {
       slaveId: connection.config.slaveId,
       functionCode,
@@ -353,36 +355,36 @@ export class VfdModbusRtuAdapter extends BaseVfdAdapter {
     const cfg = config as Record<string, unknown>;
 
     // Required fields
-    if (!cfg.serialPort || typeof cfg.serialPort !== 'string') {
+    if (!cfg['serialPort'] || typeof cfg['serialPort'] !== 'string') {
       errors.push('serialPort is required and must be a string');
     }
 
-    if (cfg.slaveId === undefined || typeof cfg.slaveId !== 'number') {
+    if (cfg['slaveId'] === undefined || typeof cfg['slaveId'] !== 'number') {
       errors.push('slaveId is required and must be a number');
-    } else if (cfg.slaveId < 1 || cfg.slaveId > 247) {
+    } else if (cfg['slaveId'] < 1 || cfg['slaveId'] > 247) {
       errors.push('slaveId must be between 1 and 247');
     }
 
     // Optional fields with validation
     const validBaudRates = [4800, 9600, 19200, 38400, 57600, 115200];
-    if (cfg.baudRate !== undefined && !validBaudRates.includes(cfg.baudRate as number)) {
+    if (cfg['baudRate'] !== undefined && !validBaudRates.includes(cfg['baudRate'] as number)) {
       errors.push(`baudRate must be one of: ${validBaudRates.join(', ')}`);
     }
 
-    if (cfg.dataBits !== undefined && ![7, 8].includes(cfg.dataBits as number)) {
+    if (cfg['dataBits'] !== undefined && ![7, 8].includes(cfg['dataBits'] as number)) {
       errors.push('dataBits must be 7 or 8');
     }
 
-    if (cfg.parity !== undefined && !['none', 'even', 'odd'].includes(cfg.parity as string)) {
+    if (cfg['parity'] !== undefined && !['none', 'even', 'odd'].includes(cfg['parity'] as string)) {
       errors.push('parity must be "none", "even", or "odd"');
     }
 
-    if (cfg.stopBits !== undefined && ![1, 2].includes(cfg.stopBits as number)) {
+    if (cfg['stopBits'] !== undefined && ![1, 2].includes(cfg['stopBits'] as number)) {
       errors.push('stopBits must be 1 or 2');
     }
 
-    if (cfg.timeout !== undefined) {
-      if (typeof cfg.timeout !== 'number' || cfg.timeout < 100 || cfg.timeout > 30000) {
+    if (cfg['timeout'] !== undefined) {
+      if (typeof cfg['timeout'] !== 'number' || cfg['timeout'] < 100 || cfg['timeout'] > 30000) {
         errors.push('timeout must be between 100 and 30000 ms');
       }
     }
@@ -475,14 +477,14 @@ export class VfdModbusRtuAdapter extends BaseVfdAdapter {
     }
 
     return {
-      serialPort: config.serialPort as string,
-      slaveId: config.slaveId as number,
-      baudRate: (config.baudRate as ModbusRtuConfig['baudRate']) || 9600,
-      dataBits: (config.dataBits as ModbusRtuConfig['dataBits']) || 8,
-      parity: (config.parity as ModbusRtuConfig['parity']) || 'none',
-      stopBits: (config.stopBits as ModbusRtuConfig['stopBits']) || 1,
-      timeout: (config.timeout as number) || 1000,
-      retryCount: (config.retryCount as number) || 3,
+      serialPort: config['serialPort'] as string,
+      slaveId: config['slaveId'] as number,
+      baudRate: (config['baudRate'] as ModbusRtuConfig['baudRate']) || 9600,
+      dataBits: (config['dataBits'] as ModbusRtuConfig['dataBits']) || 8,
+      parity: (config['parity'] as ModbusRtuConfig['parity']) || 'none',
+      stopBits: (config['stopBits'] as ModbusRtuConfig['stopBits']) || 1,
+      timeout: (config['timeout'] as number) || 1000,
+      retryCount: (config['retryCount'] as number) || 3,
     };
   }
 

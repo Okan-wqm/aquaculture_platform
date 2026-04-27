@@ -167,7 +167,7 @@ describe('OutboxPublisher', () => {
       const row = saveCalls[0]!;
       // After JSON.parse(JSON.stringify(...)), the prototype is Object —
       // not FancyEvent. This is the load-bearing JSONB-safety property.
-      expect(Object.getPrototypeOf(row.payload.payload)).toBe(Object.prototype);
+      expect(Object.getPrototypeOf(row.payload['payload'])).toBe(Object.prototype);
     });
 
     it('passes idempotencyKey + aggregateId from options through to the row', async () => {
@@ -179,8 +179,8 @@ describe('OutboxPublisher', () => {
       });
 
       const row = saveCalls[0]!;
-      expect(row.payload.idempotencyKey).toBe('idem-abc-123');
-      expect(row.payload.aggregateId).toBe('aggregate-xyz-789');
+      expect(row.payload['idempotencyKey']).toBe('idem-abc-123');
+      expect(row.payload['aggregateId']).toBe('aggregate-xyz-789');
     });
   });
 
@@ -291,8 +291,8 @@ describe('OutboxPublisher', () => {
       const { manager, saveCalls } = makeManager({ isTransactionActive: true });
       await publisher.enqueue(makeEvent({ eventType: 'BatchClosed' }), manager);
       const row = saveCalls[0]!;
-      expect(row.payload.eventType).toBe('BatchClosed');
-      expect(row.payload.tenantId).toBe(VALID_TENANT);
+      expect(row.payload['eventType']).toBe('BatchClosed');
+      expect(row.payload['tenantId']).toBe(VALID_TENANT);
     });
 
     it('the JSONB payload preserves all event fields after the round-trip', async () => {
@@ -304,12 +304,12 @@ describe('OutboxPublisher', () => {
       });
       await publisher.enqueue(event, manager);
       const row = saveCalls[0]!;
-      const payload = row.payload.payload as Record<string, unknown>;
-      expect(payload.eventId).toBe('evt-payload-001');
-      expect(payload.eventType).toBe('PayloadCheck');
-      expect(payload.tenantId).toBe(VALID_TENANT);
-      expect(payload.version).toBe(3);
-      expect(payload.timestamp).toBe('2026-04-27T00:00:00.000Z');
+      const payload = row.payload['payload'] as Record<string, unknown>;
+      expect(payload['eventId']).toBe('evt-payload-001');
+      expect(payload['eventType']).toBe('PayloadCheck');
+      expect(payload['tenantId']).toBe(VALID_TENANT);
+      expect(payload['version']).toBe(3);
+      expect(payload['timestamp']).toBe('2026-04-27T00:00:00.000Z');
     });
   });
 });

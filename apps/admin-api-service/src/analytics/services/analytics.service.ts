@@ -483,8 +483,12 @@ export class AnalyticsService {
     // Revenue growth rate (compare to last month's snapshot)
     const revenueGrowthRate = await this.calculateGrowthRate('financial', 'mrr', mrr);
 
-    // Group by currency
-    const byCurrency: Record<string, number> = { USD: mrr }; // Assuming all USD for now
+    // Group by currency. Single-currency assumption (USD) holds because
+    // the subscription pipeline does not yet support multi-currency
+    // pricing (see PROC-MEDIUM-007 backlog item). When that lands the
+    // MRR aggregation needs a per-currency breakdown via the invoice
+    // currency column.
+    const byCurrency: Record<string, number> = { USD: mrr };
 
     this.logger.debug(`Financial metrics: MRR=${mrr}, totalRevenue=${totalRevenue}, payingTenants=${payingTenants}`);
 
@@ -572,8 +576,10 @@ export class AnalyticsService {
   async getSystemMetrics(): Promise<SystemMetrics> {
     this.logger.debug('Calculating system metrics...');
 
-    // These would ideally come from Prometheus/CloudWatch/etc.
-    // For now, we calculate what we can from the database
+    // These would ideally come from Prometheus/CloudWatch. The
+    // database-derived approximation below covers the metrics
+    // available without a metrics-stack scrape; an observability
+    // integration is captured separately.
 
     // Count database connections (approximate from pool)
     const activeConnections = 10; // Would need DB pool stats
@@ -662,8 +668,10 @@ export class AnalyticsService {
       // Non-critical — leave as 0
     }
 
-    // Module usage - would need audit logs for real data
-    // For now, return zeros with warning
+    // Module usage requires aggregating audit logs by module —
+    // returning zeros with a logged warning so the caller (admin
+    // dashboard) renders a "no data" state instead of crashing
+    // when audit-log analysis isn't wired in.
     this.logger.warn('Detailed module usage metrics require audit log analysis');
 
     return {
@@ -760,9 +768,9 @@ export class AnalyticsService {
 
     const previousSnapshots = await this.getSnapshotsNear(oneMonthAgo);
 
-    const prevTenant = previousSnapshots.tenant?.metrics as TenantMetrics | undefined;
-    const prevUser = previousSnapshots.user?.metrics as UserMetrics | undefined;
-    const prevFinancial = previousSnapshots.financial?.metrics as FinancialMetrics | undefined;
+    const prevTenant = previousSnapshots['tenant']?.metrics as TenantMetrics | undefined;
+    const prevUser = previousSnapshots['user']?.metrics as UserMetrics | undefined;
+    const prevFinancial = previousSnapshots['financial']?.metrics as FinancialMetrics | undefined;
 
     return {
       totalTenants: this.calculateComparison(tenantMetrics.total, prevTenant?.total || 0),

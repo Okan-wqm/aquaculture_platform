@@ -505,8 +505,10 @@ export class TenantConfigurationService {
       throw new BadRequestException('No pending domain verification');
     }
 
-    // In production, this would perform DNS lookup to verify the TXT record
-    // For now, we'll mark as verified
+    // The DNS-based TXT record verification is not yet wired in; this
+    // path marks the domain as verified directly and logs the action
+    // for the audit trail. Real DNS verification is captured as a
+    // dedicated follow-up.
     config.domainConfig.customDomainVerified = true;
     await this.configRepository.save(config);
 
@@ -687,7 +689,7 @@ export class TenantConfigurationService {
   private encryptValue(value: string): string {
     const algorithm = 'aes-256-cbc';
     // SECURITY: Encryption key must be provided in production
-    const envKey = process.env.ENCRYPTION_KEY;
+    const envKey = process.env['ENCRYPTION_KEY'];
     if (!envKey && process.env['NODE_ENV'] === 'production') {
       throw new Error('SECURITY: ENCRYPTION_KEY environment variable must be set in production');
     }

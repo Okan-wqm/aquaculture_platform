@@ -104,8 +104,8 @@ describe('UpdateBatchHandler — transactional outbox', () => {
     expect(result.name).toBe('New Name');
     expect(managerSave).toHaveBeenCalledTimes(1);
     const event = enqueue.mock.calls[0]![0] as Record<string, unknown>;
-    expect(event.eventType).toBe('BatchMetadataUpdated');
-    expect(event.changedFields).toEqual(['name']);
+    expect(event['eventType']).toBe('BatchMetadataUpdated');
+    expect(event['changedFields']).toEqual(['name']);
   });
 
   it('does not overwrite fields not in payload (notes-only edit preserves name)', async () => {
@@ -118,7 +118,7 @@ describe('UpdateBatchHandler — transactional outbox', () => {
     expect(result.name).toBe('Old Name');
     expect(result.notes).toBe('Updated Notes');
     const event = enqueue.mock.calls[0]![0] as Record<string, unknown>;
-    expect(event.changedFields).toEqual(['notes']);
+    expect(event['changedFields']).toEqual(['notes']);
   });
 
   it('throws NotFoundException when batch is missing — no tx commit, no event', async () => {
@@ -145,8 +145,8 @@ describe('UpdateBatchHandler — transactional outbox', () => {
     await handler.execute(makeCommand({ targetFCR: 1.4 }));
 
     const event = enqueue.mock.calls[0]![0] as Record<string, unknown>;
-    expect(event.changedFields).toEqual(['targetFCR']);
-    expect(event.newTargetFCR).toBe(1.4);
+    expect(event['changedFields']).toEqual(['targetFCR']);
+    expect(event['newTargetFCR']).toBe(1.4);
   });
 
   it('empty payload: changedFields=[], event still fires (audit)', async () => {
@@ -156,7 +156,7 @@ describe('UpdateBatchHandler — transactional outbox', () => {
 
     expect(enqueue).toHaveBeenCalledTimes(1);
     const event = enqueue.mock.calls[0]![0] as Record<string, unknown>;
-    expect(event.changedFields).toEqual([]);
+    expect(event['changedFields']).toEqual([]);
   });
 
   it('outbox enqueue failure rolls back the batch save', async () => {

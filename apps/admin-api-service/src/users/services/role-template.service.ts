@@ -445,15 +445,15 @@ export class RoleTemplateService {
       );
 
       return result.map((row: Record<string, unknown>) => ({
-        id: row.id as string,
-        tenantId: row.tenant_id as string,
-        name: row.name as string,
-        description: row.description as string,
-        baseRole: row.base_role as string,
-        permissions: JSON.parse(row.permissions as string),
-        createdBy: row.created_by as string,
-        createdAt: row.created_at as Date,
-        updatedAt: row.updated_at as Date,
+        id: row['id'] as string,
+        tenantId: row['tenant_id'] as string,
+        name: row['name'] as string,
+        description: row['description'] as string,
+        baseRole: row['base_role'] as string,
+        permissions: JSON.parse(row['permissions'] as string),
+        createdBy: row['created_by'] as string,
+        createdAt: row['created_at'] as Date,
+        updatedAt: row['updated_at'] as Date,
       }));
     } catch (error) {
       // Table might not exist yet

@@ -318,30 +318,30 @@ export class VfdBacnetAdapter extends BaseVfdAdapter {
 
     const cfg = config as Record<string, unknown>;
 
-    if (!cfg.transport || !['ip', 'mstp'].includes(cfg.transport as string)) {
+    if (!cfg['transport'] || !['ip', 'mstp'].includes(cfg['transport'] as string)) {
       errors.push('transport must be "ip" or "mstp"');
     }
 
-    if (cfg.transport === 'ip') {
-      if (!cfg.ipAddress || typeof cfg.ipAddress !== 'string') {
+    if (cfg['transport'] === 'ip') {
+      if (!cfg['ipAddress'] || typeof cfg['ipAddress'] !== 'string') {
         errors.push('ipAddress is required for BACnet/IP');
       }
     }
 
-    if (cfg.transport === 'mstp') {
-      if (!cfg.serialPort || typeof cfg.serialPort !== 'string') {
+    if (cfg['transport'] === 'mstp') {
+      if (!cfg['serialPort'] || typeof cfg['serialPort'] !== 'string') {
         errors.push('serialPort is required for BACnet MS/TP');
       }
-      if (cfg.macAddress === undefined || typeof cfg.macAddress !== 'number') {
+      if (cfg['macAddress'] === undefined || typeof cfg['macAddress'] !== 'number') {
         errors.push('macAddress is required for BACnet MS/TP');
-      } else if (cfg.macAddress < 0 || cfg.macAddress > 127) {
+      } else if (cfg['macAddress'] < 0 || cfg['macAddress'] > 127) {
         errors.push('macAddress must be between 0 and 127');
       }
     }
 
-    if (cfg.deviceInstance === undefined || typeof cfg.deviceInstance !== 'number') {
+    if (cfg['deviceInstance'] === undefined || typeof cfg['deviceInstance'] !== 'number') {
       errors.push('deviceInstance is required and must be a number');
-    } else if (cfg.deviceInstance < 0 || cfg.deviceInstance > 4194302) {
+    } else if (cfg['deviceInstance'] < 0 || cfg['deviceInstance'] > 4194302) {
       errors.push('deviceInstance must be between 0 and 4194302');
     }
 
@@ -452,16 +452,16 @@ export class VfdBacnetAdapter extends BaseVfdAdapter {
     }
 
     return {
-      transport: config.transport as 'ip' | 'mstp',
-      ipAddress: config.ipAddress as string,
-      port: (config.port as number) || 47808,
-      serialPort: config.serialPort as string,
-      baudRate: (config.baudRate as BacnetConfig['baudRate']) || 76800,
-      macAddress: config.macAddress as number,
-      deviceInstance: config.deviceInstance as number,
-      apduTimeout: (config.apduTimeout as number) || 3000,
-      apduRetries: (config.apduRetries as number) || 3,
-      maxApduLength: (config.maxApduLength as number) || 1476,
+      transport: config['transport'] as 'ip' | 'mstp',
+      ipAddress: config['ipAddress'] as string,
+      port: (config['port'] as number) || 47808,
+      serialPort: config['serialPort'] as string,
+      baudRate: (config['baudRate'] as BacnetConfig['baudRate']) || 76800,
+      macAddress: config['macAddress'] as number,
+      deviceInstance: config['deviceInstance'] as number,
+      apduTimeout: (config['apduTimeout'] as number) || 3000,
+      apduRetries: (config['apduRetries'] as number) || 3,
+      maxApduLength: (config['maxApduLength'] as number) || 1476,
     };
   }
 

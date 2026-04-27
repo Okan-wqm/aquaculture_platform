@@ -40,7 +40,7 @@ function resolveKey(envVarName: string): Buffer {
   if (cached) return cached;
 
   const rawKey = process.env[envVarName];
-  const isProduction = process.env.NODE_ENV === 'production';
+  const isProduction = process.env['NODE_ENV'] === 'production';
 
   if (!rawKey) {
     if (isProduction) {
@@ -125,7 +125,8 @@ function decrypt(encrypted: string, key: Buffer): string {
     );
   }
 
-  // parts[0] is keyVersion (unused for now -- single key), parts[1..3] are crypto components
+  // parts[0] is keyVersion (unused while only one key is active —
+  // multi-key rotation will read it). parts[1..3] are crypto components.
   const [, ivHex, authTagHex, ciphertextHex] = parts as [string, string, string, string];
   const iv = Buffer.from(ivHex, 'hex');
   const authTag = Buffer.from(authTagHex, 'hex');

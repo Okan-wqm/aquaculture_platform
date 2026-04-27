@@ -369,7 +369,7 @@ export class OpaPolicyGuard implements CanActivate {
       },
       resource: {
         type: className,
-        id: request.params?.id,
+        id: request.params?.['id'],
         tenantId: request.tenantId ?? (typeof tenantIdHeader === 'string' ? tenantIdHeader : undefined),
         ...config.input,
       },

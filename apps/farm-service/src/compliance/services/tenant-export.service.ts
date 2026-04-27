@@ -136,15 +136,15 @@ export class TenantExportService {
     if (tableName !== 'farm_audit_logs') return row;
     if (!row || typeof row !== 'object') return row;
     const copy = { ...(row as Record<string, unknown>) };
-    const changes = copy.changes;
-    const metadata = copy.metadata;
+    const changes = copy['changes'];
+    const metadata = copy['metadata'];
     if (changes && typeof changes === 'object') {
-      copy.changes = this.redaction.redactChanges(
+      copy['changes'] = this.redaction.redactChanges(
         changes as Parameters<AuditRedactionService['redactChanges']>[0],
       );
     }
     if (metadata && typeof metadata === 'object') {
-      copy.metadata = this.redaction.redactMetadata(
+      copy['metadata'] = this.redaction.redactMetadata(
         metadata as Parameters<AuditRedactionService['redactMetadata']>[0],
       );
     }

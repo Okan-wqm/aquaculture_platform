@@ -321,7 +321,7 @@ export class ChannelDetectionService {
 
       // Unwrap nested { timestamp, values: {...} } format
       const data = (typeof sample === 'object' && sample !== null && 'values' in (sample as Record<string, unknown>))
-        ? (sample as Record<string, unknown>).values as Record<string, unknown>
+        ? (sample as Record<string, unknown>)['values'] as Record<string, unknown>
         : sample as Record<string, unknown>;
 
       for (const [key, value] of Object.entries(data)) {

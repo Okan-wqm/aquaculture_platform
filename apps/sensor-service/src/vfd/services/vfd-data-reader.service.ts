@@ -166,7 +166,7 @@ export class VfdDataReaderService implements OnModuleInit, OnModuleDestroy {
     };
 
     if (timeRange) {
-      whereCondition.timestamp = Between(timeRange.from, timeRange.to);
+      whereCondition['timestamp'] = Between(timeRange.from, timeRange.to);
     }
 
     return this.vfdReadingRepository.find({

@@ -125,8 +125,8 @@ export class StripeWebhookController {
       return;
     }
 
-    const eventId: string | undefined = event.id;
-    const eventType: string | undefined = event.type;
+    const eventId: string | undefined = event['id'];
+    const eventType: string | undefined = event['type'];
 
     if (!eventId || !eventType) {
       this.logger.warn('Webhook payload missing id or type');

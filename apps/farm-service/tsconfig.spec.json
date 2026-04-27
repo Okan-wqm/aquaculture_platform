@@ -1,4 +1,12 @@
 {
+  // PROC-MEDIUM-012 closed by PR-44 — the exclude block (added in
+  // PR-35 to keep the integration/e2e suites out of the unit-test
+  // gate while their domain-model drift was unaddressed) has been
+  // removed now that batch-lifecycle, tank-operations, and the
+  // race-conditions e2e are re-derived against the current Batch /
+  // Species / TankBatch / OutboxPublisher contracts. The auxiliary
+  // suites are back in the strict-tsc gate along with the rest of
+  // the farm-service spec sources.
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "outDir": "../../dist/out-tsc",
@@ -11,22 +19,5 @@
     "src/**/*.test.ts",
     "src/**/*.spec.ts",
     "src/**/*.d.ts"
-  ],
-  "exclude": [
-    // Integration specs (live-DB, separate runtime requirements: real
-    // Postgres + synchronize+dropSchema bring-up) are excluded from the
-    // unit-test strict-tsc gate. They have a different review cycle —
-    // the domain-model drift in batch-lifecycle (52 errors) and tank-
-    // operations (31 errors) requires a test-suite-wide re-derivation
-    // against the current Batch/Species/BatchStatus shapes (PROC-
-    // MEDIUM-012 candidate). Excluding them here does NOT weaken the
-    // strict-tsc gate for the production code surfaces (commands,
-    // handlers, services, resolvers) — those still go through this
-    // tsconfig. A future tsconfig.integration.json should pick these
-    // up under a dedicated nx target tied to the integration-test
-    // runner, so they fail loudly on their own time without blocking
-    // unit-test PRs. Surfaced by PR-35 of the PROC-MEDIUM-007 ratchet.
-    "src/**/__tests__/integration/**/*.spec.ts",
-    "src/**/__tests__/e2e/**/*.spec.ts"
   ]
 }

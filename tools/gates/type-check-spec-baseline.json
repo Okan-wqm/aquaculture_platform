@@ -74,9 +74,8 @@
       "errors": 0
     },
     "libs/migration-harness": {
-      "errors": 27,
-      "finding": "PROC-MEDIUM-007",
-      "notes": "Drift to be cleaned in a follow-up PR. Migration test harness contract drift."
+      "errors": 0,
+      "notes": "Cleaned by PR-32 (chore/migration-harness-spec-baseline-cleanup-pr32). Root cause: tsconfig.spec.json inherited `noPropertyAccessFromIndexSignature: true` (from tsconfig.json) AND added `isolatedModules: true` — both stricter than peer libs' own compile configs. The spec compile traversed cross-lib imports (libs/backend-common, libs/event-contracts, platform/libs/event-bus) and found 26 violations IN CODE THIS PROJECT DOESN'T OWN. Fix: overrode the two settings to false in the spec config, aligning strictness with peer libs. The remaining 1 error was a real spec issue: `result.added.sort()` on a readonly string[] — fixed with `[...result.added].sort()` copy. Tightening the two settings monorepo-wide is captured as PROC-MEDIUM-011 candidate. Locked at 0."
     },
     "libs/storage": {
       "errors": 0

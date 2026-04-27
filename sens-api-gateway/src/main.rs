@@ -2011,10 +2011,36 @@ impl AppState {
     /// the trust anchor for all downstream key derivation;
     /// there's no "permissive" fallback that silently uses
     /// weaker keys.
-    pub fn init_keystore(&mut self) -> Result<(), String> {
+    /// **Batch #320 D-1b CLOSURE — async + rotation-tracking
+    /// integration.**
+    ///
+    /// Converted from sync to async so the FileBackedKeystore
+    /// open path can call `open_with_rotation_tracker`
+    /// (which awaits `clock.trustworthy_wall_clock()` for
+    /// the marker init/read). The single production caller
+    /// at the cold-boot block already holds an async context
+    /// (`state.write().await`) so the conversion is
+    /// non-breaking.
+    ///
+    /// Wire chain:
+    /// 1. Derive `marker_path = data_dir::data_dir().join(ROTATION_MARKER_FILENAME)`
+    ///    — same path the alarm runner reads.
+    /// 2. Construct `FileBackedKeystore::open_with_rotation_tracker`
+    ///    with the marker_path + the AppState's clock_authority.
+    /// 3. read_or_init mints the marker on first boot (anchored
+    ///    at the current trustworthy wallclock) OR reads
+    ///    existing on subsequent boots.
+    /// 4. The alarm runner task (spawned later in main()) reads
+    ///    the SAME marker on each tick.
+    ///
+    /// Disabled mode + the empty-config-path check skip the
+    /// rotation tracker: TPM-mode (future batch) handles
+    /// rotation via NV counter, not this marker.
+    pub async fn init_keystore(&mut self) -> Result<(), String> {
         use crate::config::KeystoreMode;
         use crate::keystore::{
             AcceptanceToken, Argon2idParams, FileBackedAcceptance, FileBackedKeystore,
+            ROTATION_MARKER_FILENAME,
         };
 
         if matches!(self.config.keystore.mode, KeystoreMode::Disabled) {
@@ -2097,17 +2123,40 @@ impl AppState {
             parallelism: self.config.keystore.argon2_parallelism,
         };
 
-        let ks = FileBackedKeystore::open(&pass_path, &salt_path, params, acceptance)
-            .map_err(|e| {
-                format!(
-                    "Keystore init: FileBacked open failed (fail-closed boot): {}",
-                    e
-                )
-            })?;
+        // Batch #320 D-1b CLOSURE: production cold-boot uses
+        // the rotation-tracker-aware ctor. The marker lives at
+        // a stable path under data_dir (operator-readable JSON
+        // for incident-response cat); the alarm runner task
+        // (spawned later in main()) reads the SAME path on
+        // each tick. clock_authority is the AppState field
+        // that ALL TTL/rotation primitives share — keystore
+        // alarm + force_registry sweep + future D-9 consumers
+        // all converge on this single Arc<dyn ClockAuthority>.
+        let marker_path = data_dir::data_dir().join(ROTATION_MARKER_FILENAME);
+        let clock_for_keystore = self.clock_authority.clone();
+        let ks = FileBackedKeystore::open_with_rotation_tracker(
+            &pass_path,
+            &salt_path,
+            params,
+            acceptance,
+            marker_path.clone(),
+            clock_for_keystore,
+        )
+        .await
+        .map_err(|e| {
+            format!(
+                "Keystore init: FileBacked open_with_rotation_tracker failed (fail-closed boot): {}",
+                e
+            )
+        })?;
 
         info!(
-            "Keystore opened: backend=FileBacked argon2id m={}KiB t={} p={}",
-            params.memory_kib, params.iterations, params.parallelism
+            "Keystore opened: backend=FileBacked argon2id m={}KiB t={} p={} \
+             rotation_marker={}",
+            params.memory_kib,
+            params.iterations,
+            params.parallelism,
+            marker_path.display(),
         );
 
         self.keystore = Some(std::sync::Arc::new(ks));
@@ -3353,8 +3402,11 @@ async fn async_main() -> Result<()> {
     // -> exit(1). The keystore is the trust anchor; weaker
     // fallback would violate ADR-018 §4 invariants.
     {
+        // Batch #320 D-1b CLOSURE: init_keystore is async
+        // since it now reads/initializes the rotation marker
+        // via the trustworthy wallclock at boot.
         let mut state_guard = state.write().await;
-        if let Err(msg) = state_guard.init_keystore() {
+        if let Err(msg) = state_guard.init_keystore().await {
             error!(
                 "Keystore init failed (fail-closed boot): {}",
                 msg
@@ -4501,6 +4553,72 @@ async fn run_agent(
         shutdown_coordinator
             .register_task("force_registry_sweep", sweep_handle);
         info!("Force-registry sweep task spawned (1 Hz)");
+    }
+
+    // Batch #320 D-1b CLOSURE: spawn the keystore rotation
+    // alarm runner. Reads the same marker that
+    // init_keystore wrote/read at boot; emits structured
+    // alarms on LeadTimeExceeded / Overdue every interval
+    // (default 1 hour per ADR-018 §6 audit-sink dedup
+    // window). Per-tick re-emission ensures restarted
+    // agents that load an already-Overdue marker alarm
+    // immediately on the first tick (Batch #317
+    // architectural property pinned).
+    //
+    // Skipped when keystore.mode == Disabled — there's no
+    // master key to track rotation for. TPM-mode (future
+    // batch) handles rotation via NV counter, not this
+    // marker.
+    let keystore_mode_for_alarm = {
+        let s = state.read().await;
+        s.config.keystore.mode
+    };
+    if !matches!(
+        keystore_mode_for_alarm,
+        crate::config::KeystoreMode::Disabled
+    ) {
+        let clock_for_alarm = {
+            let s = state.read().await;
+            s.clock_authority.clone()
+        };
+        let marker_path = data_dir::data_dir()
+            .join(crate::keystore::ROTATION_MARKER_FILENAME);
+        let (alarm_watch_tx, alarm_watch_rx) =
+            tokio::sync::watch::channel(false);
+        let mut alarm_broadcast_rx = shutdown_coordinator.subscribe();
+        tokio::spawn(async move {
+            let _ = alarm_broadcast_rx.recv().await;
+            let _ = alarm_watch_tx.send(true);
+        });
+        let alarm_marker_path = marker_path.clone();
+        let alarm_handle = tokio::spawn(async move {
+            let summary =
+                crate::keystore::run_keystore_rotation_alarm_task(
+                    alarm_marker_path,
+                    clock_for_alarm,
+                    std::time::Duration::from_secs(
+                        crate::keystore::DEFAULT_ALARM_INTERVAL_SECS,
+                    ),
+                    alarm_watch_rx,
+                )
+                .await;
+            info!(
+                "keystore_rotation_alarm exit: ticks={} lead_time_alarms={} \
+                 overdue_alarms={} marker_missing={} clock_unhealthy={}",
+                summary.ticks_executed,
+                summary.lead_time_alarms,
+                summary.overdue_alarms,
+                summary.marker_missing_ticks,
+                summary.clock_unhealthy_ticks,
+            );
+        });
+        shutdown_coordinator
+            .register_task("keystore_rotation_alarm", alarm_handle);
+        info!(
+            "Keystore rotation alarm runner spawned (interval={}s, marker={})",
+            crate::keystore::DEFAULT_ALARM_INTERVAL_SECS,
+            marker_path.display(),
+        );
     }
 
     // Batch 171 Faz 3 + Batch 193 Faz 4 wire: spawn

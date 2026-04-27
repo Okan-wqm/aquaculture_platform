@@ -4,6 +4,10 @@
  * findings.jsonl + docs/compliance/evidence/ to assert the gate's
  * grandfathering + scope logic.
  */
+
+// `export {}` keeps strict-tsc treating this file as a MODULE so its
+// top-level declarations stay file-scoped (PROC-MEDIUM-010 invariant).
+export {};
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const {
   main: attestationMain,

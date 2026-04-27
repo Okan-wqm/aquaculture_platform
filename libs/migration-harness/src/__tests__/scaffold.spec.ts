@@ -7,6 +7,10 @@
  *   - expect-no-drift.spec.ts   (Jest matcher + drift assertion)
  *   - hr-drift-regression.spec.ts (5-commit HR loop reproduction)
  */
+
+// `export {}` keeps strict-tsc treating this file as a MODULE so its
+// top-level declarations stay file-scoped (PROC-MEDIUM-010 invariant).
+export {};
 describe('migration-harness scaffold', () => {
   it('lib compiles and Jest picks up __tests__ convention', () => {
     expect(true).toBe(true);

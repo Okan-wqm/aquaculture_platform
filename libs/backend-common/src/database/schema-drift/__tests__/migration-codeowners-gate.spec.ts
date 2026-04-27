@@ -8,6 +8,10 @@
  * fails this test in CI before landing.
  */
 
+// `export {}` keeps strict-tsc treating this file as a MODULE so its
+// top-level declarations stay file-scoped (PROC-MEDIUM-010 invariant).
+export {};
+
 // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
 const { main: codeownersMain } = require('../../../../../../tools/gates/migration-codeowners-coverage') as {
   main: (argv: readonly string[]) => number;

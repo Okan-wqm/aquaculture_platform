@@ -28,6 +28,10 @@
  *   that already cost us 3 cleanup PRs.
  */
 
+// `export {}` keeps strict-tsc treating this file as a MODULE so its
+// top-level declarations stay file-scoped (PROC-MEDIUM-010 invariant).
+export {};
+
 describe.skip('OutboxWorkerService (migrated to @platform/outbox — see file header)', () => {
   it('placeholder', () => {
     expect(true).toBe(true);

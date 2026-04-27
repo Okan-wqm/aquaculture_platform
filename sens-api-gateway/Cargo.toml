@@ -610,6 +610,19 @@ path = "tests/invariants/faz1_architectural_primitives.rs"
 name = "d9_clock_authority_wired"
 path = "tests/invariants/d9_clock_authority_wired.rs"
 
+# Batch #323 Faz 2 D-4 mTLS rotation state-machine
+# wire-status arc — Tier-3 detection seams pinning
+# CertRotationStage 2-variant enum + LeafCertFingerprint
+# domain-separation newtype + bridge_until_unix_secs
+# wall-clock anchor + wire_tag stable u8 + post-window
+# collapse via accepted_fingerprints + cert_label
+# operator-readable diagnostic. Partial UH-018 closure
+# (the cloud-side staged-rollout half is tracked under
+# Faz 8 G-* admin-api edge controllers).
+[[test]]
+name = "mtls_rotation_stage_monotonic"
+path = "tests/invariants/mtls_rotation_stage_monotonic.rs"
+
 # Batch 40 plan Faz 2 coherence — validate_faz2_security_coherence rules.
 [[test]]
 name = "config_coherence"

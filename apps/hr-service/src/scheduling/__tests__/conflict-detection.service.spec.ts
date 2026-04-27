@@ -38,8 +38,11 @@ describe('ConflictDetectionService', () => {
     plannedMinutes,
     shift: shift as Shift,
     shiftId: shift?.id,
-    plannedStartTime,
-    plannedEndTime,
+    // WeeklyPlanEntry.plannedStart/EndTime narrowed from string to Date
+    // (data-layer normalization). The factory accepts string params for
+    // ergonomic test setup but converts at the boundary.
+    plannedStartTime: plannedStartTime ? new Date(plannedStartTime) : undefined,
+    plannedEndTime: plannedEndTime ? new Date(plannedEndTime) : undefined,
   });
 
   beforeEach(async () => {

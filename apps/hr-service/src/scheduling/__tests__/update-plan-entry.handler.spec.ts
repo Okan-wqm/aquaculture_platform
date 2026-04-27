@@ -246,7 +246,11 @@ describe('UpdatePlanEntryHandler', () => {
         mockTenantId,
         mockUserId,
         mockEntryId,
-        null, // Clear shift
+        // shiftId is `string | undefined` per the command contract.
+        // Tests passing `null` to mean "clear" must use undefined; the
+        // handler interprets undefined-shiftId as a clear operation
+        // (verified by the find-existing branch in the handler).
+        undefined,
       );
 
       manager.findOne.mockResolvedValueOnce(workEntry);

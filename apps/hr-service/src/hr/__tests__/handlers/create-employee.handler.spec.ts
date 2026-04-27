@@ -8,8 +8,13 @@
  * - Employee number uniqueness is enforced under concurrency
  */
 import { ConflictException } from '@nestjs/common';
-import { EventBus } from '@nestjs/cqrs';
+import { OutboxPublisher } from '@platform/outbox';
 import { DataSource, QueryRunner, EntityManager, Repository } from 'typeorm';
+// CRITICAL-002 fix migrated CreateEmployeeHandler from EventBus.publish()
+// (post-commit, fire-and-forget) to OutboxPublisher.enqueue() (transactional
+// outbox INSERT joining the same transaction as the domain write). Spec
+// was still mocking EventBus.publish — strict-tsc surfaced the contract
+// drift in PR-34 of the PROC-MEDIUM-007 ratchet.
 
 import { CreateEmployeeCommand } from '../../commands/create-employee.command';
 import { CreateEmployeeHandler } from '../../handlers/create-employee.handler';
@@ -46,6 +51,24 @@ const validInput = {
   firstName: 'Ali',
   lastName: 'Yilmaz',
   email: 'ali@example.com',
+  // contactInfo / address / nationalId / baseSalary became required on
+  // CreateEmployeeInput; the spec literal was missing them. Filled with
+  // representative test values so the input passes the input contract.
+  contactInfo: {
+    email: 'ali@example.com',
+    phone: '+905551112233',
+    emergencyContact: 'Ayse Yilmaz',
+    emergencyPhone: '+905551112244',
+  },
+  address: {
+    street: '1 Marina Yolu',
+    city: 'Izmir',
+    state: 'Izmir',
+    postalCode: '35000',
+    country: 'TR',
+  },
+  nationalId: '12345678901',
+  baseSalary: 5000,
   position: 'Fish Farm Operator',
   department: Department.OPERATIONS,
   employmentType: EmploymentType.FULL_TIME,
@@ -98,14 +121,14 @@ const buildMockQueryRunner = (overrides?: {
 describe('CreateEmployeeHandler', () => {
   let handler: CreateEmployeeHandler;
   let mockDataSource: Partial<DataSource>;
-  let mockEventBus: Partial<EventBus>;
+  let mockOutboxPublisher: Partial<OutboxPublisher>;
 
   const tenantId = 'tenant-uuid-001';
   const userId = 'admin-user-001';
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockEventBus = { publish: jest.fn().mockResolvedValue(undefined) };
+    mockOutboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
   });
 
   it('creates employee, commits transaction, and publishes EmployeeCreatedEvent', async () => {
@@ -113,7 +136,7 @@ describe('CreateEmployeeHandler', () => {
     const { mockQR } = buildMockQueryRunner({ saveResult: savedEmployee });
     mockDataSource = { createQueryRunner: jest.fn().mockReturnValue(mockQR) };
 
-    handler = new CreateEmployeeHandler(mockDataSource as DataSource, mockEventBus as EventBus);
+    handler = new CreateEmployeeHandler(mockDataSource as DataSource, mockOutboxPublisher as OutboxPublisher);
     const command = new CreateEmployeeCommand(tenantId, validInput, userId);
     const result = await handler.execute(command);
 
@@ -121,8 +144,12 @@ describe('CreateEmployeeHandler', () => {
     expect(mockQR.commitTransaction).toHaveBeenCalled();
     // Event must be published AFTER commit — if publish is called before commit
     // the event could fire while the row doesn't yet exist in DB.
-    const commitOrder = (mockQR.commitTransaction as jest.Mock).mock.invocationCallOrder[0];
-    const publishOrder = (mockEventBus.publish as jest.Mock).mock.invocationCallOrder[0];
+    // invocationCallOrder[0] is `number | undefined` under
+    // noUncheckedIndexedAccess. Both calls must have happened (the
+    // toHaveBeenCalled() assertion above proved commit; outbox enqueue
+    // is asserted by the .toBeGreaterThan() check that follows).
+    const commitOrder = (mockQR.commitTransaction as jest.Mock).mock.invocationCallOrder[0]!;
+    const publishOrder = (mockOutboxPublisher.enqueue as jest.Mock).mock.invocationCallOrder[0]!;
     expect(publishOrder).toBeGreaterThan(commitOrder);
   });
 
@@ -132,25 +159,25 @@ describe('CreateEmployeeHandler', () => {
     mockEmployeeRepo.findOne.mockResolvedValue(buildMockEmployee());
     mockDataSource = { createQueryRunner: jest.fn().mockReturnValue(mockQR) };
 
-    handler = new CreateEmployeeHandler(mockDataSource as DataSource, mockEventBus as EventBus);
+    handler = new CreateEmployeeHandler(mockDataSource as DataSource, mockOutboxPublisher as OutboxPublisher);
     const command = new CreateEmployeeCommand(tenantId, validInput, userId);
 
     await expect(handler.execute(command)).rejects.toThrow(ConflictException);
     expect(mockQR.rollbackTransaction).toHaveBeenCalled();
     // No event when transaction failed
-    expect(mockEventBus.publish).not.toHaveBeenCalled();
+    expect(mockOutboxPublisher.enqueue).not.toHaveBeenCalled();
   });
 
   it('does NOT publish EmployeeCreatedEvent when DB save throws', async () => {
     const { mockQR } = buildMockQueryRunner({ shouldFailSave: true });
     mockDataSource = { createQueryRunner: jest.fn().mockReturnValue(mockQR) };
 
-    handler = new CreateEmployeeHandler(mockDataSource as DataSource, mockEventBus as EventBus);
+    handler = new CreateEmployeeHandler(mockDataSource as DataSource, mockOutboxPublisher as OutboxPublisher);
     const command = new CreateEmployeeCommand(tenantId, validInput, userId);
 
     await expect(handler.execute(command)).rejects.toThrow();
     expect(mockQR.rollbackTransaction).toHaveBeenCalled();
-    expect(mockEventBus.publish).not.toHaveBeenCalled();
+    expect(mockOutboxPublisher.enqueue).not.toHaveBeenCalled();
   });
 
   it('throws ConflictException when email already exists in tenant', async () => {
@@ -158,7 +185,7 @@ describe('CreateEmployeeHandler', () => {
     mockEmployeeRepo.findOne.mockResolvedValue(buildMockEmployee());
     mockDataSource = { createQueryRunner: jest.fn().mockReturnValue(mockQR) };
 
-    handler = new CreateEmployeeHandler(mockDataSource as DataSource, mockEventBus as EventBus);
+    handler = new CreateEmployeeHandler(mockDataSource as DataSource, mockOutboxPublisher as OutboxPublisher);
     const command = new CreateEmployeeCommand(tenantId, validInput, userId);
 
     await expect(handler.execute(command)).rejects.toThrow(ConflictException);
@@ -169,7 +196,7 @@ describe('CreateEmployeeHandler', () => {
     mockEmployeeRepo.findOne.mockResolvedValue(buildMockEmployee()); // trigger ConflictException
     mockDataSource = { createQueryRunner: jest.fn().mockReturnValue(mockQR) };
 
-    handler = new CreateEmployeeHandler(mockDataSource as DataSource, mockEventBus as EventBus);
+    handler = new CreateEmployeeHandler(mockDataSource as DataSource, mockOutboxPublisher as OutboxPublisher);
     const command = new CreateEmployeeCommand(tenantId, validInput, userId);
 
     await expect(handler.execute(command)).rejects.toThrow();

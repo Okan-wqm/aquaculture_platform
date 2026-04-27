@@ -1139,6 +1139,79 @@ billing-service locked at 0.
 
 ---
 
+## 36. hr-service ratchet 46 → 0 + transactional-outbox migration not propagated to specs (RESOLVED in PR-34)
+
+**Files:**
+- `apps/hr-service/src/hr/__tests__/handlers/approve-payroll.handler.spec.ts`
+- `apps/hr-service/src/hr/__tests__/handlers/create-employee.handler.spec.ts`
+- `apps/hr-service/src/leave/__tests__/leave.integration.spec.ts`
+- `apps/hr-service/src/scheduling/__tests__/conflict-detection.service.spec.ts`
+- `apps/hr-service/src/scheduling/__tests__/schedule-notification.service.spec.ts`
+- `apps/hr-service/src/scheduling/__tests__/update-plan-entry.handler.spec.ts`
+- `apps/hr-service/src/training/__tests__/training.integration.spec.ts`
+
+**Five root causes:**
+
+1. **EventBus → OutboxPublisher migration (CRITICAL-002)** —
+   12 errors. ApprovePayroll + CreateEmployee handlers were
+   migrated to publish events via the **transactional outbox**
+   (`outboxPublisher.enqueue(event, queryRunner.manager)`) so
+   the outbox INSERT joins the same transaction as the domain
+   write. Specs were still constructing `EventBus` mocks with
+   `publish: jest.fn()`. Fixed: 12 sites renamed mockEventBus
+   → mockOutboxPublisher with `enqueue` instead of `publish`,
+   and `as OutboxPublisher` casts.
+
+2. **CreateEmployeeInput grew required fields** — 5 errors.
+   `contactInfo`, `address`, `nationalId`, `baseSalary` became
+   required (the data layer relies on them for compliance:
+   national-ID → tax records, base salary → payroll). Spec's
+   `validInput` literal extended with representative test
+   values that satisfy the nested ContactInfoInput / AddressInput
+   contracts.
+
+3. **Leave events: class → interface migration + factory
+   re-export** — 11 errors. `LeaveX` was migrated from class
+   to discriminated-union interface in
+   `@platform/event-contracts`. The hr-service `leave.events`
+   module re-exports only the `createLeaveX` FACTORY functions,
+   not the type identities. Spec was importing the types from
+   the wrong location AND was using them as runtime values
+   (`expect.any(LeaveX)`). Fixed: imported types from
+   `@platform/event-contracts` directly + migrated assertions
+   to `expect.objectContaining({ eventType: 'LeaveX' })`.
+   Field rename `rejectionReason` → `reason` (BaseEvent
+   normalization).
+
+4. **save.mockImplementation overload mismatch** — 8 errors
+   in leave.integration. typeorm's `Repository.save` has 16+
+   overloads (entity vs entity-array, with options, etc.).
+   Test mock returned `Promise<DeepPartial<T>>` but the
+   primary save overload requires `Promise<DeepPartial<T> & T>`.
+   Fix: cast through `(repo.save as jest.Mock).mockImplementation`
+   with `entity: Record<string, unknown>` so spread works,
+   then cast result `as unknown as LeaveBalance/LeaveRequest`.
+
+5. **Domain field renames + Date/string narrowing** — 10 errors:
+   - `WeeklyPlanEntry.plannedStart/EndTime` narrowed
+     `string → Date`
+   - `WeekDay` enum literal violations (string `'monday'` not
+     assignable to enum) → use `WeekDay.MONDAY`
+   - `notifiedAt: null` → `undefined` (entity uses optional)
+   - `UpdatePlanEntryCommand` shiftId param `string|undefined`
+     not `string|null` (test passing null to mean "clear")
+   - `TrainingCourse.durationHours` → `durationMinutes`
+   - `CertificationType.validityPeriodMonths` → `validityMonths`
+   - assessmentAttempts array index undefined narrowing
+
+**PROC-MEDIUM-007 progress:** 3 → 2 dirty projects.
+hr-service locked at 0.
+
+Remaining: alert-engine (124), farm-service (84). Both are
+larger surfaces — likely 2 more PRs.
+
+---
+
 ## Closing posture
 
 This file lives at:

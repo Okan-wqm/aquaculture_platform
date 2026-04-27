@@ -183,6 +183,23 @@ pub struct CommandMessage {
     #[serde(default)]
     pub params: serde_json::Value,
     pub timestamp: String,
+    /// **Batch #307 Faz 6 two-person integrity flow-through.**
+    /// True when envelope_adapter verified BOTH the primary
+    /// signature AND the co-approver signature against the
+    /// same canonical-bytes transcript (Batch #306 gate).
+    /// False for legacy CommandMessage parses (no envelope =>
+    /// no co-approver concept) AND for envelopes that carried
+    /// no co-approver fields. The handler-side gate
+    /// (cmd_force_value + future cmd_update_firmware /
+    /// cmd_safe_state_trigger / cmd_deploy_program /
+    /// cmd_reboot) reads this flag.
+    ///
+    /// `#[serde(default, skip_deserializing)]` keeps it
+    /// Rust-internal: the wire format never carries this
+    /// field; the adapter populates it post-verify; legacy
+    /// payloads default to false.
+    #[serde(default, skip_deserializing)]
+    pub verified_co_approver: bool,
 }
 
 /// Command response message

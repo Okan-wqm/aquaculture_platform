@@ -576,6 +576,16 @@ path = "tests/invariants/required_permission_mapping.rs"
 name = "d1_source_compile_roundtrip"
 path = "tests/invariants/d1_source_compile_roundtrip.rs"
 
+# Batch #305-#307 Faz 6 two-person integrity arc — co-approver
+# signature wire format + adapter verify gate + dispatch-layer
+# enforcement. Contract-marker file documents the 3-layer trust
+# chain; executable counterparts live in
+# command_envelope::envelope::tests +
+# commands::envelope_adapter::tests.
+[[test]]
+name = "two_person_integrity_gate"
+path = "tests/invariants/two_person_integrity_gate.rs"
+
 # Batch 40 plan Faz 2 coherence — validate_faz2_security_coherence rules.
 [[test]]
 name = "config_coherence"

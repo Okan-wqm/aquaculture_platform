@@ -173,33 +173,94 @@ impl super::CommandHandler {
             is_safety_critical
         );
 
-        // Batch 37 Sprint 6.4 partial: two-person-integrity
-        // preview. ADR-018 §7 mandates a SECOND signature
-        // (co-approval) for the `UpdateFirmware / DeployProgram
-        // / ForceValue / SafeStateTrigger / Reboot` subset.
-        // Pre-Sprint-6.4 we don't have an envelope carrying a
-        // co-approver field; this warn-log surfaces the
-        // pending requirement so operators planning rollout
-        // know which commands will tighten:
+        // **Batch #307 Faz 6 two-person integrity gate.**
+        // ADR-017 §8 mandates a SECOND signature (co-approval)
+        // for the `UpdateFirmware / DeployProgram / ForceValue
+        // / SafeStateTrigger / Reboot` subset. The gate enforces
+        // here at the dispatch layer (centralized SSoT — all
+        // mandatory commands flow through this same check).
         //
-        // - Rollout sequencing: cloud signer adds co-approval
-        //   field BEFORE edge enforcement flips on.
-        // - Training anchor: operators running firmware
-        //   updates or force commands get visible notice that
-        //   the workflow will require a second operator.
-        // - Audit-entry anchor: Sprint 6.2 sink records this
-        //   field as `two_person_integrity_pending` until
-        //   Sprint 6.4 switches it to `required` /
-        //   `verified` / `rejected_co_approval`.
+        // Pre-Batch-#307 the block was a warn-log preview only;
+        // Batches #305 (CommandEnvelope v3 wire fields) + #306
+        // (envelope_adapter co-approver verify) landed the
+        // primitives + adapter; this batch flips the gate from
+        // PREVIEW to ENFORCING.
+        //
+        // Trust chain (all 3 layers must agree before the
+        // command reaches its handler):
+        //
+        //   1. Wire format carries co_approver_actor +
+        //      co_approver_signature (Batch #305).
+        //   2. envelope_adapter::verify_co_approver_if_present
+        //      verifies the co-approver signature against the
+        //      same canonical bytes as primary (Batch #306).
+        //      Sets AdaptedCommand.verified_co_approver = true
+        //      on success.
+        //   3. handle_message projects the flag to
+        //      CommandMessage.verified_co_approver.
+        //   4. THIS GATE rejects when the command's
+        //      Permission::requires_two_person_integrity()
+        //      returns true AND verified_co_approver is false.
+        //
+        // Rejected commands STILL get the post-exec audit
+        // emission below (rejection counts as a completion
+        // outcome — silent denies hide policy probes from the
+        // SIEM). The audit-detail surfaces 'two_person_integrity_required'
+        // as the reason.
         let requires_two_person = required_perm
             .as_ref()
             .map(|p| p.requires_two_person_integrity())
             .unwrap_or(false);
-        if requires_two_person {
+        if requires_two_person && !command.verified_co_approver {
             warn!(
-                "TWO-PERSON-INTEGRITY preview: command='{}' requires Sprint 6.4 co-approval (ADR-018 §7). \
-                 Pre-Sprint-6.4 accepted without second signature; plan rollout to update cloud signer first.",
-                sanitize_for_log(&command.command)
+                "TWO-PERSON-INTEGRITY rejected: command='{}' requires co-approval per ADR-017 §8; envelope carried no verified co-approver signature. id='{}'",
+                sanitize_for_log(&command.command),
+                command.command_id,
+            );
+            // Build the same response shape as the unknown-
+            // command + shutdown-race rejects so audit paths
+            // see a uniform structure. The post-exec audit
+            // emission below fires with the rejection details.
+            let elapsed = start_time.elapsed();
+            audit_emit::emit_post_event(
+                audit_sink.as_ref(),
+                &command.command,
+                &command.command_id,
+                &device_id,
+                tenant,
+                crate::audit::AuditOutcome::Failure,
+                &format!(
+                    "elapsed_ms={} err=two_person_integrity_required",
+                    elapsed.as_millis()
+                ),
+            );
+            return CommandResponse {
+                command_id: command.command_id.clone(),
+                device_id,
+                success: false,
+                result: serde_json::json!({
+                    "rejected": "two_person_integrity_required",
+                    "required_permission": format!("{:?}", required_perm),
+                }),
+                timestamp: Utc::now().to_rfc3339(),
+                error: Some(
+                    "Command requires two-person integrity per ADR-017 §8 — \
+                     envelope MUST carry a verified co-approver signature \
+                     (co_approver_actor + co_approver_signature). The \
+                     primary operator + a second operator with the \
+                     ForceValueCoApprove-class permission must BOTH sign \
+                     the same canonical bytes for the command to dispatch."
+                        .to_string(),
+                ),
+            };
+        } else if requires_two_person {
+            // Co-approver verified — log at info level for
+            // operator-visible audit trail of mandatory
+            // commands that DID get the second signature.
+            info!(
+                "TWO-PERSON-INTEGRITY accepted: command='{}' verified co-approval id='{}'",
+                sanitize_for_log(&command.command),
+                command.command_id,
             );
         }
 

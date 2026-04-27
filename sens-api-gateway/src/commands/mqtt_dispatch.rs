@@ -151,11 +151,16 @@ impl super::CommandHandler {
                         // passed. Project into CommandMessage
                         // shape so the existing execute_command
                         // dispatch path stays unchanged.
+                        // Batch #307: propagate the verified-
+                        // co-approver flag so cmd_force_value
+                        // (and other two-person-integrity
+                        // handlers) can gate on it.
                         CommandMessage {
                             command_id: adapted.command_id,
                             command: adapted.command,
                             params: adapted.params,
                             timestamp: adapted.timestamp,
+                            verified_co_approver: adapted.verified_co_approver,
                         }
                     }
                     envelope_adapter::AdapterOutcome::VerifyFailed(err) => {

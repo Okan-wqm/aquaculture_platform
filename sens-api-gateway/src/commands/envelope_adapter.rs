@@ -55,6 +55,22 @@ pub(super) struct AdaptedCommand {
     pub command: String,
     pub params: Value,
     pub timestamp: String,
+    /// **Batch #307 Faz 6 two-person integrity flow-through.**
+    /// True when the adapter verified BOTH the primary
+    /// signature AND the co-approver signature against the
+    /// canonical bytes. False when the envelope had no
+    /// co-approver fields (and primary alone passed) — the
+    /// adapter's `verify_co_approver_if_present` returns Ok
+    /// for the absent-co-approver case so non-mandatory
+    /// commands still dispatch.
+    ///
+    /// The handler's two-person-integrity gate (cmd_force_value
+    /// + future cmd_update_firmware / cmd_safe_state_trigger /
+    /// cmd_deploy_program / cmd_reboot) reads this flag to
+    /// decide whether to accept the command. Permission classes
+    /// that return `requires_two_person_integrity() == true`
+    /// reject when this flag is false.
+    pub verified_co_approver: bool,
 }
 
 /// Decision from `try_parse_and_verify`.
@@ -191,6 +207,15 @@ pub(super) fn try_parse_and_verify(
                 mode,
                 env.co_approver_actor.is_some(),
             );
+            // Batch #307: capture the verified-co-approver
+            // claim. When BOTH co_approver_actor +
+            // co_approver_signature were Some AND verify_
+            // co_approver_if_present returned Ok, the adapter
+            // verified the second signature against the same
+            // canonical bytes the primary signed. The handler-
+            // side gate (cmd_force_value etc.) reads this flag.
+            let verified_co_approver = env.co_approver_actor.is_some()
+                && env.co_approver_signature.is_some();
             AdapterOutcome::Verified(AdaptedCommand {
                 command_id: jti.as_str().to_string(),
                 command: env.cmd.clone(),
@@ -204,6 +229,7 @@ pub(super) fn try_parse_and_verify(
                 )
                 .map(|dt| dt.to_rfc3339())
                 .unwrap_or_else(|| chrono::Utc::now().to_rfc3339()),
+                verified_co_approver,
             })
         }
         Err(e) => AdapterOutcome::VerifyFailed(e),

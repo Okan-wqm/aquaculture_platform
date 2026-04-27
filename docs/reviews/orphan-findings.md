@@ -899,3 +899,31 @@ The remaining sub-steps 5c / 5d / 5e / 5f are unaffected — they correctly targ
 **Linked plan:** Ultra-plan §A-2b part 5 sub-step taxonomy. Linked findings: ULTRA-HIGH-039 RESOLVED (5a namespace registration), ULTRA-HIGH-035 PARTIAL_FIX (overall A-2b part 5), ORPHAN-CRITICAL-021 (anonymous-actor hardcode — closed by 5c+5f wiring), ORPHAN-MEDIUM-023 (Allow-path skips delegate — closed by 5f).
 
 **Architectural lesson:** When a multi-step plan is written, every step's choices must be internally consistent with every other step's. Step 5a's choice (namespace registration via DefaultTypeTree) IMPLIED pattern 2 commitment; step 5b should have followed the implication forward. Future ultra-plan steps should cite the canonical-pattern source explicitly (e.g., "5b: implement per DiagnosticsNodeManager.browse pattern at `async-opcua-server-0.18.0/src/diagnostics/node_manager.rs:619-667`") so a later reader can re-derive the full architectural trajectory from the spec alone.
+
+---
+
+## ORPHAN-LOW-028 — `sens-api-gateway/src/main.rs.disabled-test` is a 37-byte dead stub referencing a module that does not exist (2026-04-27)
+
+**Discovered by:** Batch #307 in-flight environment scan (Faz 6 force_value two-person integrity gate session). The file appears in `git status` as an `??` untracked entry — predates this session (`stat` mtime `Apr 23 18:12`).
+
+**File contents (full):**
+
+```rust
+mod opc_ua_type_debug; // diagnostic
+```
+
+**Why this is a hygiene problem (not a correctness problem):**
+
+- The file name `main.rs.disabled-test` is a non-standard convention: it is neither a Rust source (`*.rs`), a doc fixture (`tests/...`), nor a documented "renamed" file. The `.disabled-test` suffix suggests a developer wanted to gate a debug-only module without the cargo build picking it up, but the chosen mechanism is a manual filename rename rather than a Rust-native gate (`#[cfg(feature = "opcua-type-debug")]` or `#[cfg(test)]`).
+- The referenced module `opc_ua_type_debug` does not exist anywhere in the workspace (verified via `grep -rn opc_ua_type_debug --include="*.rs"`). So even if the file were renamed back to `main.rs` and included via `mod`, the build would fail.
+- Untracked files in a long-running git checkout drift over time and pollute every fresh `git status` invocation, increasing the surface area for accidental commits via `git add -A`.
+
+**Architectural fix (single tier 1 candidate):**
+
+- Tier 1 (make it impossible) — DELETE the stub entirely. If a future developer needs an OPC UA type-introspection diagnostic, the canonical shape is a `#[cfg(feature = "opcua-type-debug")]`-gated module under `src/opc_ua/`, not a quarantine file outside the build graph. This finding documents the intent to delete; deletion is itself a 1-byte change in a future hygiene batch and does not need to block any plan-aligned arc.
+
+**Severity: LOW** — repo hygiene only. No correctness, security, or test-coverage implication. Documented per user policy: *gördüğüm hiçbir problemi senin ilgili olmasa bile not al*.
+
+**Status:** OPEN. Slated for the next no-arc hygiene batch (no firm deadline; trigger-based rather than time-based — fold into the next session that already touches `sens-api-gateway/src/` for an unrelated reason).
+
+**Linked plan:** none (out-of-band of every active arc).

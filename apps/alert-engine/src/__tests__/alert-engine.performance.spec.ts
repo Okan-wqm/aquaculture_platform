@@ -3,16 +3,19 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
-import { RulesEngineService, RuleEvaluationContext } from '../rules-engine/rules-engine.service';
-import { RuleEvaluatorService } from '../rules-engine/rule-evaluator.service';
-import { RiskCalculatorService, RiskCalculationContext } from '../risk-scoring/risk-calculator.service';
+import { RulesEngineService } from '../rules-engine/rules-engine.service';
+import { RuleEvaluatorService, type EvaluationContext } from '../rules-engine/rule-evaluator.service';
+import { RiskCalculatorService, type RiskCalculationContext } from '../risk-scoring/risk-calculator.service';
 import { ImpactAnalyzerService } from '../risk-scoring/impact-analyzer.service';
 import { SeverityClassifierService } from '../risk-scoring/severity-classifier.service';
-import { NotificationDispatcherService, ChannelHandler } from '../notification/notification-dispatcher.service';
+import { NotificationDispatcherService, type ChannelHandler } from '../notification/notification-dispatcher.service';
 import { ChannelRouterService } from '../notification/channel-router.service';
 import { TemplateRendererService } from '../notification/template-renderer.service';
 
-import { AlertRule, AlertSeverity, RuleOperator, LogicalOperator } from '../database/entities/alert-rule.entity';
+// EvaluationContext lives on rule-evaluator.service (was originally
+// re-exported from rules-engine.service). LogicalOperator was removed
+// from alert-rule.entity — it's a rules-engine concern, not entity.
+import { AlertRule, AlertSeverity, AlertOperator } from '../database/entities/alert-rule.entity';
 import { NotificationChannel } from '../database/entities/escalation-policy.entity';
 
 /**
@@ -38,9 +41,8 @@ describe('Alert Engine Performance', () => {
     severity: AlertSeverity.HIGH,
     isActive: true,
     conditions: [
-      { field: 'temperature', operator: RuleOperator.GT, value: 30 },
+      { parameter: 'temperature', operator: AlertOperator.GT, threshold: 30, severity: AlertSeverity.HIGH },
     ],
-    logicalOperator: LogicalOperator.AND,
   });
 
   beforeEach(async () => {
@@ -83,12 +85,12 @@ describe('Alert Engine Performance', () => {
   describe('Rule Evaluation Performance', () => {
     it('should evaluate single rule in under 10ms', async () => {
       const rule = createMockRule('rule-1');
-      const context = { temperature: 35 };
+      const context = { values: { temperature: 35 } };
 
       const startTime = performance.now();
 
       for (let i = 0; i < 100; i++) {
-        ruleEvaluator.evaluate(rule as AlertRule, context);
+        ruleEvaluator.evaluate(rule as unknown as AlertRule, context);
       }
 
       const endTime = performance.now();
@@ -101,27 +103,28 @@ describe('Alert Engine Performance', () => {
       const complexRule: Partial<AlertRule> = {
         ...createMockRule('complex-and'),
         conditions: [
-          { field: 'temperature', operator: RuleOperator.GT, value: 30 },
-          { field: 'humidity', operator: RuleOperator.GT, value: 70 },
-          { field: 'pressure', operator: RuleOperator.LT, value: 1000 },
-          { field: 'windSpeed', operator: RuleOperator.GT, value: 20 },
-          { field: 'salinity', operator: RuleOperator.GT, value: 35 },
+          { parameter: 'temperature', operator: AlertOperator.GT, threshold: 30, severity: AlertSeverity.HIGH },
+          { parameter: 'humidity', operator: AlertOperator.GT, threshold: 70, severity: AlertSeverity.HIGH },
+          { parameter: 'pressure', operator: AlertOperator.LT, threshold: 1000, severity: AlertSeverity.HIGH },
+          { parameter: 'windSpeed', operator: AlertOperator.GT, threshold: 20, severity: AlertSeverity.HIGH },
+          { parameter: 'salinity', operator: AlertOperator.GT, threshold: 35, severity: AlertSeverity.HIGH },
         ],
-        logicalOperator: LogicalOperator.AND,
       };
 
       const context = {
-        temperature: 35,
-        humidity: 80,
-        pressure: 950,
-        windSpeed: 25,
-        salinity: 40,
+        values: {
+          temperature: 35,
+          humidity: 80,
+          pressure: 950,
+          windSpeed: 25,
+          salinity: 40,
+        },
       };
 
       const startTime = performance.now();
 
       for (let i = 0; i < 100; i++) {
-        ruleEvaluator.evaluate(complexRule as AlertRule, context);
+        ruleEvaluator.evaluate(complexRule as unknown as AlertRule, context);
       }
 
       const endTime = performance.now();
@@ -132,17 +135,17 @@ describe('Alert Engine Performance', () => {
 
     it('should evaluate 100 rules in under 100ms', async () => {
       const rules = Array.from({ length: 100 }, (_, i) => createMockRule(`rule-${i}`));
-      alertRuleRepository.find.mockResolvedValue(rules as AlertRule[]);
+      alertRuleRepository.find.mockResolvedValue(rules as unknown as AlertRule[]);
 
-      const context: RuleEvaluationContext = {
+      const context: EvaluationContext = {
         tenantId: 'tenant-1',
-        data: { temperature: 35 },
+        values: { temperature: 35 },
         timestamp: new Date(),
       };
 
       const startTime = performance.now();
 
-      await rulesEngine.evaluateRules(context);
+      await rulesEngine.evaluateRules({ tenantId: context.tenantId!, context: context });
 
       const endTime = performance.now();
       const totalTime = endTime - startTime;
@@ -152,22 +155,22 @@ describe('Alert Engine Performance', () => {
 
     it('should benefit from rule caching', async () => {
       const rules = Array.from({ length: 50 }, (_, i) => createMockRule(`rule-${i}`));
-      alertRuleRepository.find.mockResolvedValue(rules as AlertRule[]);
+      alertRuleRepository.find.mockResolvedValue(rules as unknown as AlertRule[]);
 
-      const context: RuleEvaluationContext = {
+      const context: EvaluationContext = {
         tenantId: 'tenant-1',
-        data: { temperature: 35 },
+        values: { temperature: 35 },
         timestamp: new Date(),
       };
 
       // First call (cache miss)
       const startTime1 = performance.now();
-      await rulesEngine.evaluateRules(context);
+      await rulesEngine.evaluateRules({ tenantId: context.tenantId!, context: context });
       const time1 = performance.now() - startTime1;
 
       // Second call (cache hit)
       const startTime2 = performance.now();
-      await rulesEngine.evaluateRules(context);
+      await rulesEngine.evaluateRules({ tenantId: context.tenantId!, context: context });
       const time2 = performance.now() - startTime2;
 
       // Cached call should be faster
@@ -177,7 +180,7 @@ describe('Alert Engine Performance', () => {
 
   describe('Risk Calculation Performance', () => {
     it('should calculate risk score in under 50ms', async () => {
-      alertRuleRepository.findOne.mockResolvedValue(createMockRule('rule-1') as AlertRule);
+      alertRuleRepository.findOne.mockResolvedValue(createMockRule('rule-1') as unknown as AlertRule);
 
       const context: RiskCalculationContext = {
         tenantId: 'tenant-1',
@@ -198,7 +201,7 @@ describe('Alert Engine Performance', () => {
     });
 
     it('should calculate batch risk scores efficiently', async () => {
-      alertRuleRepository.findOne.mockResolvedValue(createMockRule('rule-1') as AlertRule);
+      alertRuleRepository.findOne.mockResolvedValue(createMockRule('rule-1') as unknown as AlertRule);
 
       const contexts: RiskCalculationContext[] = Array.from({ length: 50 }, (_, i) => ({
         tenantId: 'tenant-1',
@@ -454,17 +457,17 @@ describe('Alert Engine Performance', () => {
   describe('Memory Usage', () => {
     it('should not leak memory during rule evaluation', async () => {
       const rules = Array.from({ length: 100 }, (_, i) => createMockRule(`rule-${i}`));
-      alertRuleRepository.find.mockResolvedValue(rules as AlertRule[]);
+      alertRuleRepository.find.mockResolvedValue(rules as unknown as AlertRule[]);
 
-      const context: RuleEvaluationContext = {
+      const context: EvaluationContext = {
         tenantId: 'tenant-1',
-        data: { temperature: 35 },
+        values: { temperature: 35 },
         timestamp: new Date(),
       };
 
       // Run multiple times to detect memory growth
       for (let i = 0; i < 100; i++) {
-        await rulesEngine.evaluateRules(context);
+        await rulesEngine.evaluateRules({ tenantId: context.tenantId!, context: context });
       }
 
       // If we get here without OOM, test passes
@@ -472,7 +475,7 @@ describe('Alert Engine Performance', () => {
     });
 
     it('should handle large historical datasets without issues', async () => {
-      alertRuleRepository.findOne.mockResolvedValue(createMockRule('rule-1') as AlertRule);
+      alertRuleRepository.findOne.mockResolvedValue(createMockRule('rule-1') as unknown as AlertRule);
 
       const context: RiskCalculationContext = {
         tenantId: 'tenant-1',
@@ -491,7 +494,7 @@ describe('Alert Engine Performance', () => {
   describe('Throughput Tests', () => {
     it('should handle high throughput of rule evaluations', async () => {
       const rules = Array.from({ length: 10 }, (_, i) => createMockRule(`rule-${i}`));
-      alertRuleRepository.find.mockResolvedValue(rules as AlertRule[]);
+      alertRuleRepository.find.mockResolvedValue(rules as unknown as AlertRule[]);
 
       const startTime = performance.now();
       const iterations = 100;
@@ -499,8 +502,10 @@ describe('Alert Engine Performance', () => {
       const promises = Array.from({ length: iterations }, (_, i) =>
         rulesEngine.evaluateRules({
           tenantId: 'tenant-1',
-          data: { temperature: 25 + (i % 20) },
-          timestamp: new Date(),
+          context: {
+            values: { temperature: 25 + (i % 20) },
+            timestamp: new Date(),
+          },
         }),
       );
 

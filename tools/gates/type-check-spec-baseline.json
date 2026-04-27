@@ -75,6 +75,10 @@
     },
     "libs/storage": {
       "errors": 0
+    },
+    "platform/libs/outbox": {
+      "errors": 0,
+      "notes": "Added by PR-39 (chore/outbox-tests-pr39). New tsconfig.spec.json + first test suite (outbox-publisher.service.spec.ts) closed PROC-MEDIUM-008. Locked at 0 from inception. Worker / notify-listener / metrics specs are follow-up work."
     }
   }
 }

@@ -53,6 +53,18 @@ const mockImpersonationService = {
   getActiveSessionCount: jest.fn().mockReturnValue(0),
   getSession: jest.fn().mockResolvedValue({ id: 'session-1' }),
   querySessions: jest.fn().mockResolvedValue({ data: [], total: 0 }),
+  // extendSession was added to ImpersonationService (apps/admin-api-
+  // service/.../impersonation.service.ts:589) but the controller
+  // spec mock didn't track it. Tests at line 680/690/698/708 then
+  // ASSIGN to `mockImpersonationService.extendSession = jest.fn()`,
+  // which strict-tsc rejects because the mock literal is the type
+  // anchor — new properties can't be added at runtime under strict
+  // mode. Declared here so per-test `.mockResolvedValueOnce()` works
+  // without ad-hoc `as any` widening.
+  extendSession: jest.fn().mockResolvedValue({
+    id: 'session-1',
+    status: ImpersonationStatus.ACTIVE,
+  }),
   logAction: jest.fn().mockResolvedValue(undefined),
   logResourceAccess: jest.fn().mockResolvedValue(undefined),
   getAuditSummary: jest.fn().mockResolvedValue({ totalSessions: 0 }),

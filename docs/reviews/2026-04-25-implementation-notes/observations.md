@@ -922,6 +922,41 @@ libs/backend-common locked at 0.
 
 ---
 
+## 32. admin-api-service ratchet 14 → 0 (RESOLVED in PR-30)
+
+**Files:**
+- `apps/admin-api-service/src/impersonation/controllers/__tests__/impersonation.controller.spec.ts`
+- `apps/admin-api-service/src/tenant/services/provisioning-saga.service.spec.ts`
+
+**Two root causes:**
+
+1. **`ImpersonationService.extendSession` not on the mock literal.**
+   The service grew `extendSession()` (line ~589) but the
+   controller spec's `mockImpersonationService` literal did not
+   track it. Four tests then assigned `mock.extendSession =
+   jest.fn().mockResolvedValue(...)` to set up the mock at
+   call site. Strict-tsc rejects because the literal is the
+   type anchor — new properties can't be added at runtime under
+   strict mode. Fix: declared `extendSession` in the literal
+   with a default `mockResolvedValue`. Per-test bodies that
+   re-mock with `mockResolvedValueOnce` would be cleaner but
+   the existing reassignments work too once the property
+   exists.
+
+2. **10× `result.steps[N]` strict-tsc errors** under
+   `noUncheckedIndexedAccess`. `expect(result.steps).toHaveLength(2)`
+   doesn't narrow the array type for the matcher boundary —
+   `result.steps[1]` is still typed `T | undefined`. Fix: `!`
+   non-null assertions, with a comment explaining the matcher-
+   boundary limitation. (Alternative: switch matchers to
+   `expect(result.steps).toMatchObject([...])` which preserves
+   typing — but that would be a much larger spec rewrite.)
+
+**PROC-MEDIUM-007 progress:** 7 → 6 dirty projects.
+admin-api-service locked at 0.
+
+---
+
 ## Closing posture
 
 This file lives at:

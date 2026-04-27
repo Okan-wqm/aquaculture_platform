@@ -17,7 +17,10 @@ export {
   // Standard (use these)
   StandardPaginationInput,
   StandardPaginatedResponse,
-  IStandardPaginatedResult,
+  // I*Result are interfaces — inline `type` modifier under
+  // isolatedModules. Same pattern used below for cursor / cursor-
+  // repository exports.
+  type IStandardPaginatedResult,
   createStandardPaginatedResult,
   fromCqrsPaginated,
   safeSortField,
@@ -25,7 +28,7 @@ export {
   // Legacy (deprecated — Phase 4 complete, remove in Phase 5)
   PaginationInput,
   PaginatedResponse,
-  IPaginatedResult,
+  type IPaginatedResult,
   calculateHasMore,
   createPaginatedResult,
 } from './pagination.dto';

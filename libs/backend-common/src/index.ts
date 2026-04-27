@@ -78,15 +78,19 @@ export * from './filters/http-exception.filter';
 // Note: TenantRequest is excluded here; the canonical TenantRequest is exported from
 // './types/tenant-request.interface' above. The middleware's extended TenantRequest
 // (which adds tenantContext) is available by importing directly from the middleware file.
+// Value re-exports (classes — present at runtime).
 export {
-  UserPayload,
-  TenantContext,
   UserContextMiddleware,
   TenantContextMiddleware,
-  TraceContext,
-  TracedRequest,
   CorrelationIdMiddleware,
   RequestLoggingMiddleware,
+} from './middleware/tenant-context.middleware';
+// Type-only re-exports — `export type` is required under isolatedModules.
+export type {
+  UserPayload,
+  TenantContext,
+  TraceContext,
+  TracedRequest,
 } from './middleware/tenant-context.middleware';
 
 // Tenant Schema Middleware (centralized factory)
@@ -176,7 +180,9 @@ export { buildNatsConnectionOptions, buildNatsTransportOptions } from './nats/na
 export type { NatsAuthMode } from './nats/nats-connection.factory';
 
 // NATS - Tenant-validating consumer base class for cross-tenant isolation
-export { TenantValidatingConsumer, TenantValidationResult } from './nats/tenant-validating-consumer';
+export { TenantValidatingConsumer } from './nats/tenant-validating-consumer';
+// TenantValidationResult is an interface — `export type` under isolatedModules.
+export type { TenantValidationResult } from './nats/tenant-validating-consumer';
 
 // Constants - Shared NATS patterns and validation regexes
 export { NATS_PATTERNS } from './constants/nats-patterns';

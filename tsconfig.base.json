@@ -3,7 +3,10 @@
   "compilerOptions": {
     "target": "ES2021",
     "module": "commonjs",
-    "lib": ["ES2021", "dom"],
+    "lib": [
+      "ES2021",
+      "dom"
+    ],
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
@@ -26,7 +29,10 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "skipDefaultLibCheck": true,
-    "types": ["node", "jest"],
+    "types": [
+      "node",
+      "jest"
+    ],
     "forceConsistentCasingInFileNames": true,
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true,
@@ -36,29 +42,73 @@
     "importHelpers": true,
     "baseUrl": ".",
     "paths": {
-      "@platform/shared": ["libs/shared/src/index.ts"],
-      "@platform/shared-ui": ["web/shared-ui/src/index.ts"],
-      "@platform/shared-ui/*": ["web/shared-ui/src/*"],
-      "@platform/backend-common": ["libs/backend-common/src/index.ts"],
-      "@aquaculture/backend-common": ["libs/backend-common/src/index.ts"],
-      "@aquaculture/backend-common/audit": ["libs/backend-common/src/audit/index.ts"],
-      "@aquaculture/backend-common/gdpr": ["libs/backend-common/src/security/gdpr/index.ts"],
+      "@platform/shared": [
+        "libs/shared/src/index.ts"
+      ],
+      "@platform/shared-ui": [
+        "web/shared-ui/src/index.ts"
+      ],
+      "@platform/shared-ui/*": [
+        "web/shared-ui/src/*"
+      ],
+      "@platform/backend-common": [
+        "libs/backend-common/src/index.ts"
+      ],
+      "@aquaculture/backend-common": [
+        "libs/backend-common/src/index.ts"
+      ],
+      "@aquaculture/backend-common/audit": [
+        "libs/backend-common/src/audit/index.ts"
+      ],
+      "@aquaculture/backend-common/gdpr": [
+        "libs/backend-common/src/security/gdpr/index.ts"
+      ],
       "@aquaculture/backend-common/finding-registry": [
         "libs/backend-common/src/finding-registry/index.ts"
       ],
-      "@platform/event-contracts": ["libs/event-contracts/src/index.ts"],
-      "@platform/storage": ["libs/storage/src/index.ts"],
-      "@platform/sdk": ["libs/sdk/typescript/src/index.ts"],
-      "@platform/testing": ["libs/testing/src/index.ts"],
-      "@aquaculture/testing": ["libs/testing/src/index.ts"],
-      "@platform/event-bus": ["platform/libs/event-bus/src/index.ts"],
-      "@platform/outbox": ["platform/libs/outbox/src/index.ts"],
-      "@platform/cqrs": ["platform/libs/cqrs/src/index.ts"],
-      "@web/shared-ui": ["web/shared-ui/src/index.ts"],
-      "@aquaculture/node-components": ["libs/node-components/src/index.ts"],
-      "@platform/aquaculture-engines": ["libs/aquaculture-engines/src/index.ts"],
-      "@platform/migration-harness": ["libs/migration-harness/src/index.ts"]
-    }
+      "@platform/event-contracts": [
+        "libs/event-contracts/src/index.ts"
+      ],
+      "@platform/storage": [
+        "libs/storage/src/index.ts"
+      ],
+      "@platform/sdk": [
+        "libs/sdk/typescript/src/index.ts"
+      ],
+      "@platform/testing": [
+        "libs/testing/src/index.ts"
+      ],
+      "@aquaculture/testing": [
+        "libs/testing/src/index.ts"
+      ],
+      "@platform/event-bus": [
+        "platform/libs/event-bus/src/index.ts"
+      ],
+      "@platform/outbox": [
+        "platform/libs/outbox/src/index.ts"
+      ],
+      "@platform/cqrs": [
+        "platform/libs/cqrs/src/index.ts"
+      ],
+      "@web/shared-ui": [
+        "web/shared-ui/src/index.ts"
+      ],
+      "@aquaculture/node-components": [
+        "libs/node-components/src/index.ts"
+      ],
+      "@platform/aquaculture-engines": [
+        "libs/aquaculture-engines/src/index.ts"
+      ],
+      "@platform/migration-harness": [
+        "libs/migration-harness/src/index.ts"
+      ]
+    },
+    "isolatedModules": true
   },
-  "exclude": ["node_modules", "tmp", "dist", ".nx"]
+  "exclude": [
+    "node_modules",
+    "tmp",
+    "dist",
+    ".nx"
+  ]
 }

@@ -27,8 +27,9 @@ import {
 import { FeatureFlagDebugService } from './feature-flag-debug.service';
 import { QueryInspectorService } from './query-inspector.service';
 
-// Re-export types for backward compatibility
-export {
+// Re-export types for backward compatibility — interfaces require
+// `export type` under isolatedModules.
+export type {
   QueryInspectorResult,
   ApiLogResult,
   CacheInspectorResult,

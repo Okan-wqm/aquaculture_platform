@@ -586,6 +586,18 @@ path = "tests/invariants/d1_source_compile_roundtrip.rs"
 name = "two_person_integrity_gate"
 path = "tests/invariants/two_person_integrity_gate.rs"
 
+# Batch #321 Faz 1 architectural-primitives wire-status arc —
+# Tier-3 detection seams pinning UH-001..007 wire status
+# (EnvelopeHandler trait / CommandDispatcher /
+# AuthenticatedUser / SensNodeManager / SimpleNodeManager
+# retirement / UserTokenEnrollment / RbacManifestStore
+# hot-reload). Closes the stale-A registry findings via real
+# regression-detection assertions, not bookkeeping-only
+# closure.
+[[test]]
+name = "faz1_architectural_primitives"
+path = "tests/invariants/faz1_architectural_primitives.rs"
+
 # Batch 40 plan Faz 2 coherence — validate_faz2_security_coherence rules.
 [[test]]
 name = "config_coherence"

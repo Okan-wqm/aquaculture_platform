@@ -8,6 +8,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import Decimal from 'decimal.js';
 import { Payment, PaymentStatus, PaymentMethod, PaymentMethodDetails } from '../entities/payment.entity';
 import { Invoice, InvoiceStatus } from '../entities/invoice.entity';
 
@@ -79,7 +80,7 @@ describe('Payment Service', () => {
         const processCardPayment = async (
           invoiceId: string,
           cardDetails: PaymentMethodDetails,
-          amount: number,
+          amount: Decimal,
         ): Promise<Partial<Payment>> => {
           // Validate card
           if (!cardDetails.cardLast4 || cardDetails.cardLast4.length !== 4) {
@@ -104,7 +105,7 @@ describe('Payment Service', () => {
           cardExpYear: 2025,
         };
 
-        const payment = await processCardPayment('inv-123', cardDetails, 199.00);
+        const payment = await processCardPayment('inv-123', cardDetails, new Decimal('199.00'));
 
         expect(payment.status).toBe(PaymentStatus.SUCCEEDED);
         expect(payment.paymentMethod).toBe(PaymentMethod.CREDIT_CARD);
@@ -220,7 +221,7 @@ describe('Payment Service', () => {
       it('should capture authorized payment', async () => {
         const capturePayment = async (
           authorizationId: string,
-          amount: number,
+          amount: Decimal,
         ): Promise<Partial<Payment>> => {
           return {
             id: `pay-${Date.now()}`,
@@ -231,7 +232,7 @@ describe('Payment Service', () => {
           };
         };
 
-        const payment = await capturePayment('auth-123', 199.00);
+        const payment = await capturePayment('auth-123', new Decimal('199.00'));
 
         expect(payment.status).toBe(PaymentStatus.SUCCEEDED);
         expect(payment.capturedAt).toBeDefined();
@@ -283,8 +284,8 @@ describe('Payment Service', () => {
         };
 
         const key = 'idem-key-123';
-        const payment1 = await processWithIdempotency(key, { amount: 100 });
-        const payment2 = await processWithIdempotency(key, { amount: 100 });
+        const payment1 = await processWithIdempotency(key, { amount: new Decimal(100) });
+        const payment2 = await processWithIdempotency(key, { amount: new Decimal(100) });
 
         expect(payment1.id).toBe(payment2.id);
       });
@@ -349,13 +350,16 @@ describe('Payment Service', () => {
         const invoicePayments: { invoiceId: string; payments: Partial<Payment>[] } = {
           invoiceId: 'inv-123',
           payments: [
-            { id: 'pay-1', amount: 200.00, status: PaymentStatus.SUCCEEDED },
-            { id: 'pay-2', amount: 200.00, status: PaymentStatus.SUCCEEDED },
-            { id: 'pay-3', amount: 100.00, status: PaymentStatus.SUCCEEDED },
+            { id: 'pay-1', amount: new Decimal('200.00'), status: PaymentStatus.SUCCEEDED },
+            { id: 'pay-2', amount: new Decimal('200.00'), status: PaymentStatus.SUCCEEDED },
+            { id: 'pay-3', amount: new Decimal('100.00'), status: PaymentStatus.SUCCEEDED },
           ],
         };
 
-        const totalPaid = invoicePayments.payments.reduce((sum, p) => sum + (p.amount || 0), 0);
+        const totalPaid = invoicePayments.payments.reduce(
+          (sum, p) => sum + (p.amount ? p.amount.toNumber() : 0),
+          0,
+        );
 
         expect(totalPaid).toBe(500.00);
       });
@@ -568,7 +572,12 @@ describe('Payment Service', () => {
         for (const invoice of sorted) {
           if (remaining <= 0) break;
 
-          const invoiceBalance = invoice.total || 0;
+          // invoice.total is Decimal | undefined; convert to number
+          // for the Math.min/arithmetic ops in this allocator. The
+          // allocator is a test helper that works in plain numbers
+          // by design — the production allocator (when it lands)
+          // should keep Decimal end-to-end. Tracked as PROC-LOW-NN.
+          const invoiceBalance = invoice.total ? invoice.total.toNumber() : 0;
           const allocation = Math.min(remaining, invoiceBalance);
 
           allocations.push({
@@ -583,9 +592,9 @@ describe('Payment Service', () => {
       };
 
       const invoices: Partial<Invoice>[] = [
-        { id: 'inv-1', total: 100, issueDate: new Date('2024-01-01') },
-        { id: 'inv-2', total: 150, issueDate: new Date('2024-02-01') },
-        { id: 'inv-3', total: 200, issueDate: new Date('2024-03-01') },
+        { id: 'inv-1', total: new Decimal(100), issueDate: new Date('2024-01-01') },
+        { id: 'inv-2', total: new Decimal(150), issueDate: new Date('2024-02-01') },
+        { id: 'inv-3', total: new Decimal(200), issueDate: new Date('2024-03-01') },
       ];
 
       const allocations = allocatePayment(300, invoices);
@@ -660,7 +669,10 @@ describe('Payment Service', () => {
         return (
           payments.find(
             (p) =>
-              p.amount === transaction.amount &&
+              // payment.amount is Decimal; bank transaction is plain
+              // number. Compare via Decimal.equals() — direct ===
+              // would always fail (object vs primitive identity).
+              p.amount?.equals(transaction.amount) &&
               p.referenceNumber === transaction.reference,
           ) || null
         );
@@ -674,8 +686,8 @@ describe('Payment Service', () => {
       };
 
       const payments: Partial<Payment>[] = [
-        { id: 'pay-1', amount: 199.00, referenceNumber: 'INV-2024-0001' },
-        { id: 'pay-2', amount: 99.00, referenceNumber: 'INV-2024-0002' },
+        { id: 'pay-1', amount: new Decimal('199.00'), referenceNumber: 'INV-2024-0001' },
+        { id: 'pay-2', amount: new Decimal('99.00'), referenceNumber: 'INV-2024-0002' },
       ];
 
       const matched = matchBankTransaction(bankTransaction, payments);
@@ -705,7 +717,7 @@ describe('Payment Service', () => {
           };
         };
 
-        const payment: Partial<Payment> = { id: 'pay-123', amount: 199.00 };
+        const payment: Partial<Payment> = { id: 'pay-123', amount: new Decimal('199.00') };
         const refund = processRefund(payment, 199.00, 'Customer request');
 
         expect(refund.amount).toBe(199.00);
@@ -719,7 +731,11 @@ describe('Payment Service', () => {
           payment: Partial<Payment>,
           refundAmount: number,
         ): { refund: LocalRefundInfo; remainingAmount: number } => {
-          const remaining = (payment.amount || 0) - refundAmount;
+          // payment.amount is Decimal; convert to number for the
+          // plain-arithmetic remaining calc (this helper works in
+          // numbers by design — see note above).
+          const paymentAsNumber = payment.amount ? payment.amount.toNumber() : 0;
+          const remaining = paymentAsNumber - refundAmount;
 
           return {
             refund: {
@@ -734,7 +750,7 @@ describe('Payment Service', () => {
           };
         };
 
-        const payment: Partial<Payment> = { id: 'pay-123', amount: 199.00 };
+        const payment: Partial<Payment> = { id: 'pay-123', amount: new Decimal('199.00') };
         const result = processPartialRefund(payment, 50.00);
 
         expect(result.refund.amount).toBe(50.00);
@@ -863,7 +879,9 @@ describe('Payment Service', () => {
 
         return recentPayments.some(
           (p) =>
-            p.amount === newPayment.amount &&
+            // Decimal vs Decimal: use .equals() instead of ===
+            // (object identity vs value equality).
+            p.amount?.equals(newPayment.amount ?? 0) &&
             p.invoiceId === newPayment.invoiceId &&
             p.createdAt &&
             p.createdAt > windowStart,
@@ -871,11 +889,11 @@ describe('Payment Service', () => {
       };
 
       const recentPayments: Partial<Payment>[] = [
-        { amount: 199, invoiceId: 'inv-1', createdAt: new Date() },
+        { amount: new Decimal(199), invoiceId: 'inv-1', createdAt: new Date() },
       ];
 
-      const duplicatePayment: Partial<Payment> = { amount: 199, invoiceId: 'inv-1' };
-      const uniquePayment: Partial<Payment> = { amount: 199, invoiceId: 'inv-2' };
+      const duplicatePayment: Partial<Payment> = { amount: new Decimal(199), invoiceId: 'inv-1' };
+      const uniquePayment: Partial<Payment> = { amount: new Decimal(199), invoiceId: 'inv-2' };
 
       expect(isDuplicatePayment(duplicatePayment, recentPayments)).toBe(true);
       expect(isDuplicatePayment(uniquePayment, recentPayments)).toBe(false);
@@ -894,12 +912,17 @@ describe('Payment Service', () => {
       ): SuspiciousActivity[] => {
         const alerts: SuspiciousActivity[] = [];
 
-        // Check for unusually large payment
+        // Check for unusually large payment. p.amount is Decimal —
+        // .toNumber() at the boundary so the average / threshold
+        // arithmetic stays in plain numbers.
         const avgAmount =
-          tenantHistory.reduce((sum, p) => sum + (p.amount || 0), 0) /
-          Math.max(tenantHistory.length, 1);
+          tenantHistory.reduce(
+            (sum, p) => sum + (p.amount ? p.amount.toNumber() : 0),
+            0,
+          ) / Math.max(tenantHistory.length, 1);
 
-        if ((payment.amount || 0) > avgAmount * 5) {
+        const paymentAmount = payment.amount ? payment.amount.toNumber() : 0;
+        if (paymentAmount > avgAmount * 5) {
           alerts.push({
             type: 'unusual_amount',
             severity: 'medium',
@@ -911,13 +934,13 @@ describe('Payment Service', () => {
       };
 
       const history: Partial<Payment>[] = [
-        { amount: 100 },
-        { amount: 100 },
-        { amount: 100 },
+        { amount: new Decimal(100) },
+        { amount: new Decimal(100) },
+        { amount: new Decimal(100) },
       ];
 
-      const normalPayment: Partial<Payment> = { amount: 150 };
-      const suspiciousPayment: Partial<Payment> = { amount: 1000 };
+      const normalPayment: Partial<Payment> = { amount: new Decimal(150) };
+      const suspiciousPayment: Partial<Payment> = { amount: new Decimal(1000) };
 
       expect(detectSuspiciousActivity(normalPayment, history).length).toBe(0);
       expect(detectSuspiciousActivity(suspiciousPayment, history).length).toBeGreaterThan(0);

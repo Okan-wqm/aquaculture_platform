@@ -1075,6 +1075,70 @@ libs/migration-harness locked at 0.
 
 ---
 
+## 35. billing-service ratchet 40 → 0 + Decimal lossless precision migration (RESOLVED in PR-33)
+
+**Files:**
+- `apps/billing-service/src/billing/__tests__/billing-scheduler.service.spec.ts`
+- `apps/billing-service/src/billing/__tests__/invoice.service.spec.ts`
+- `apps/billing-service/src/billing/__tests__/payment.service.spec.ts`
+- `apps/billing-service/src/billing/__tests__/record-payment.handler.spec.ts`
+- `apps/billing-service/src/modules/metering/__tests__/usage-metering.service.spec.ts`
+
+**Three root causes:**
+
+1. **Decimal lossless-precision migration not propagated to specs**
+   (36 of 40 errors). Monetary fields on `Invoice` and `Payment`
+   entities (`subtotal`, `total`, `amount`, `amountPaid`,
+   `amountDue`, `discount`, `refundedAmount`) were narrowed from
+   `number` to `Decimal` (decimal.js) via the `@MoneyColumn`
+   transformer for **lossless 19,4 numeric** precision (cents-
+   safe arithmetic). 36 specs hardcoded plain numeric literals
+   (`subtotal: 149.00`, `amount: 199`, etc.) and were never
+   updated. Strict-tsc rejected.
+
+   **Fix:** imported `Decimal` in 3 specs (invoice, payment,
+   record-payment), wrapped every literal with `new Decimal(N)`,
+   and at arithmetic boundaries (Math.min, +, >) called
+   `.toNumber()` to drop into plain-number space. The test
+   helpers are explicit about being plain-number internally with
+   a comment that production allocators should stay Decimal
+   end-to-end. Bank-transaction match assertions changed from
+   `===` (object identity) to `.equals()` (Decimal value
+   comparison) — another silent-correctness improvement the gate
+   surfaced (similar to bcryptjs/bcrypt in PR-31, paint by the
+   same brush: spec was never actually testing what it
+   claimed).
+
+2. **BillingSchedulerService grew a DataSource constructor param**
+   (1 error). The auto-invoice transactional flow needed
+   `@InjectDataSource()` for queryRunner-managed inserts; the
+   constructor went from 3 args to 4. Spec still called
+   `new BillingSchedulerService(subRepo, invRepo, eventBus)` —
+   3 args. Strict-tsc said the first arg (Repository) wasn't
+   assignable to DataSource. Fix: minimal DataSource mock at
+   index 0.
+
+3. **UsageEvent.timestamp narrowed to ISO string** (2 errors).
+   The contract documents `timestamp: string` (ISO 8601 — JSONB
+   wire format alignment). Spec called `event.timestamp.getTime()`
+   as if it were Date. Fix: `new Date(event.timestamp).getTime()`
+   at the assertion boundary.
+
+**Severity reflection:** root cause #1 is yet another silent
+correctness improvement. The `===` Decimal comparison would have
+ALWAYS returned false at runtime (object identity check on two
+different `new Decimal(199)` instances). The "should match bank
+transaction" test was passing for the wrong reason: the assertion
+checked `.id === 'pay-1'` after an `||` short-circuit that
+wouldn't have actually matched anything, but jest's optional
+chaining made it not throw. Same disease pattern as PR-25's
+pH-Level snake-case and PR-31's bcrypt/bcryptjs.
+
+**PROC-MEDIUM-007 progress:** 4 → 3 dirty projects.
+billing-service locked at 0.
+
+---
+
 ## Closing posture
 
 This file lives at:

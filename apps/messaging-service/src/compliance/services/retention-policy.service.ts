@@ -3,6 +3,7 @@ import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, LessThan, IsNull, EntityManager } from 'typeorm';
 import { Cron, CronExpression } from '@nestjs/schedule';
 
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { RetentionPolicy } from '../entities/retention-policy.entity';
 import { Message } from '../../message/entities/message.entity';
 import { LegalHoldService } from './legal-hold.service';
@@ -50,8 +51,12 @@ export class RetentionPolicyService {
     userId: string,
     manager?: EntityManager,
   ): Promise<RetentionPolicy> {
-    // eslint-disable-next-line no-restricted-syntax -- AUDIT-MEDIUM-014 (messaging-service): Phase B tenantManagerRepo migration backlog — conditional pattern
-    const repo = manager ? manager.getRepository(RetentionPolicy) : this.policyRepo;
+    // Inside-transaction path wraps via tenantManagerRepo so policy rows
+    // can never be written under a different tenant than the caller. The
+    // fallback `this.policyRepo` carries explicit tenantId in `where:`.
+    const repo = manager
+      ? tenantManagerRepo(manager, RetentionPolicy, tenantId)
+      : this.policyRepo;
 
     const existing = await repo.findOne({
       where: { tenantId, channelId: channelId ?? IsNull() },

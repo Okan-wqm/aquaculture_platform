@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull, EntityManager } from 'typeorm';
 import Redis from 'ioredis';
 
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { LegalHold } from '../entities/legal-hold.entity';
 import { REDIS_CLIENT } from '../../shared/redis.provider';
 
@@ -68,9 +69,14 @@ export class LegalHoldService {
       );
     }
 
-    // Use caller's transaction manager if provided, fall back to injected repo
-    // eslint-disable-next-line no-restricted-syntax -- AUDIT-MEDIUM-014 (messaging-service): Phase B tenantManagerRepo migration backlog — conditional pattern
-    const repo = manager ? manager.getRepository(LegalHold) : this.holdRepo;
+    // Use caller's transaction manager if provided, fall back to injected
+    // request-scoped repo. The `manager` branch wraps via tenantManagerRepo
+    // so cross-tenant rows can never be written from inside a caller's
+    // transaction; the fallback `this.holdRepo` branch carries explicit
+    // `tenantId` in every downstream `where:` clause.
+    const repo = manager
+      ? tenantManagerRepo(manager, LegalHold, tenantId)
+      : this.holdRepo;
 
     // Check for existing active hold on same scope
     const existing = await repo.findOne({
@@ -117,11 +123,23 @@ export class LegalHoldService {
    *
    * @param manager Optional EntityManager for transactional callers (same rationale as activate).
    */
-  async release(holdId: string, userId: string, manager?: EntityManager): Promise<LegalHold> {
-    // eslint-disable-next-line no-restricted-syntax -- AUDIT-MEDIUM-014 (messaging-service): Phase B tenantManagerRepo migration backlog — conditional pattern
-    const repo = manager ? manager.getRepository(LegalHold) : this.holdRepo;
+  async release(
+    holdId: string,
+    tenantId: string,
+    userId: string,
+    manager?: EntityManager,
+  ): Promise<LegalHold> {
+    // tenantId is required so the find below cannot match a hold that
+    // belongs to a different tenant than the caller. Without this scope,
+    // a user from Tenant A who learned a hold's id (via leaked log,
+    // forwarded ticket, etc.) could release Tenant B's hold — defeating
+    // GDPR's per-tenant retention guarantees. The tenantManagerRepo
+    // wrapper enforces the same scope structurally on the manager-branch.
+    const repo = manager
+      ? tenantManagerRepo(manager, LegalHold, tenantId)
+      : this.holdRepo;
 
-    const hold = await repo.findOne({ where: { id: holdId } });
+    const hold = await repo.findOne({ where: { id: holdId, tenantId } });
     if (!hold) {
       throw new ForbiddenException(`Legal hold not found: ${holdId}`);
     }

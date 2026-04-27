@@ -5,6 +5,7 @@ import { randomUUID } from 'crypto';
 import { CreateGoalCommand } from '../commands/create-goal.command';
 import { Goal, GoalStatus } from '../entities/goal.entity';
 import { Employee } from '../../hr/entities/employee.entity';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 
 @CommandHandler(CreateGoalCommand)
 export class CreateGoalHandler implements ICommandHandler<CreateGoalCommand> {
@@ -33,10 +34,8 @@ export class CreateGoalHandler implements ICommandHandler<CreateGoalCommand> {
     await queryRunner.startTransaction();
 
     try {
-      // eslint-disable-next-line no-restricted-syntax -- AUDIT-MEDIUM-014 (hr-service): Phase B tenantManagerRepo migration backlog — Employee read
-      const employeeRepo = queryRunner.manager.getRepository(Employee);
-      // eslint-disable-next-line no-restricted-syntax -- AUDIT-MEDIUM-014 (hr-service): Phase B tenantManagerRepo migration backlog — Goal write
-      const goalRepo = queryRunner.manager.getRepository(Goal);
+      const employeeRepo = tenantManagerRepo(queryRunner.manager, Employee, tenantId);
+      const goalRepo = tenantManagerRepo(queryRunner.manager, Goal, tenantId);
 
       // Validate employee exists
       const employee = await employeeRepo.findOne({

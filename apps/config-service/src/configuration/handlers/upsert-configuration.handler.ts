@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { DataSource } from 'typeorm';
+import { TenantScopedRepository } from '@aquaculture/backend-common/database';
 import { UpsertConfigurationCommand } from '../commands/upsert-configuration.command';
 import { Configuration, ConfigurationHistory, ConfigValueType } from '../entities/configuration.entity';
 import { ConfigurationService } from '../services/configuration.service';
@@ -27,8 +28,7 @@ export class UpsertConfigurationHandler
     const { tenantId, service, key, value, environment, userId, isSecret } = command;
 
     try {
-      // eslint-disable-next-line no-restricted-syntax -- AUDIT-MEDIUM-014 (config-service): Phase B tenantManagerRepo migration backlog
-      const repo = this.dataSource.getRepository(Configuration);
+      const repo = TenantScopedRepository.create(this.dataSource, Configuration, tenantId);
 
       // Fetch existing config before upsert (for history tracking)
       const existingConfig = await repo.findOne({
@@ -80,8 +80,7 @@ export class UpsertConfigurationHandler
       // Record history if value changed (update case, not insert)
       if (existingConfig && existingConfig.value !== valueToStore) {
         try {
-          // eslint-disable-next-line no-restricted-syntax -- AUDIT-MEDIUM-014 (config-service): Phase B tenantManagerRepo migration backlog — ConfigurationHistory audit row
-          const historyRepo = this.dataSource.getRepository(ConfigurationHistory);
+          const historyRepo = TenantScopedRepository.create(this.dataSource, ConfigurationHistory, tenantId);
 
           // SECURITY: Redact secret values in history records
           const previousDisplayValue = existingConfig.isSecret

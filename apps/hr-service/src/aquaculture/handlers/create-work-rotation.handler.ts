@@ -12,6 +12,7 @@ import { CreateWorkRotationCommand } from '../commands/create-work-rotation.comm
 import { WorkRotation, RotationStatus } from '../entities/work-rotation.entity';
 import { WorkArea } from '../entities/work-area.entity';
 import { CertificationValidationService } from '../certification-validation.service';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 
 @Injectable()
 @CommandHandler(CreateWorkRotationCommand)
@@ -45,10 +46,8 @@ export class CreateWorkRotationHandler implements ICommandHandler<CreateWorkRota
     await queryRunner.startTransaction('SERIALIZABLE');
 
     try {
-      // eslint-disable-next-line no-restricted-syntax -- AUDIT-MEDIUM-014 (hr-service): Phase B tenantManagerRepo migration backlog — WorkRotation write inside transaction
-      const rotationRepo = queryRunner.manager.getRepository(WorkRotation);
-      // eslint-disable-next-line no-restricted-syntax -- AUDIT-MEDIUM-014 (hr-service): Phase B tenantManagerRepo migration backlog — WorkArea read inside transaction
-      const workAreaRepo = queryRunner.manager.getRepository(WorkArea);
+      const rotationRepo = tenantManagerRepo(queryRunner.manager, WorkRotation, tenantId);
+      const workAreaRepo = tenantManagerRepo(queryRunner.manager, WorkArea, tenantId);
 
       // Verify work area exists and belongs to tenant
       const workArea = await workAreaRepo.findOne({

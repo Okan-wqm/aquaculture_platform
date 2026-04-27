@@ -7,6 +7,7 @@ import { ApprovePayrollCommand } from '../commands/approve-payroll.command';
 import { Payroll, PayrollStatus } from '../entities/payroll.entity';
 import { createBaseEvent } from '@platform/event-contracts';
 import type { PayrollProcessedEvent } from '@platform/event-contracts';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 
 @Injectable()
 @CommandHandler(ApprovePayrollCommand)
@@ -26,8 +27,7 @@ export class ApprovePayrollHandler implements ICommandHandler<ApprovePayrollComm
     await queryRunner.startTransaction();
 
     try {
-      // eslint-disable-next-line no-restricted-syntax -- AUDIT-MEDIUM-014 (hr-service): Phase B tenantManagerRepo migration backlog — Payroll write inside SERIALIZABLE transaction
-      const payrollRepo = queryRunner.manager.getRepository(Payroll);
+      const payrollRepo = tenantManagerRepo(queryRunner.manager, Payroll, tenantId);
 
       // Pessimistic write lock — prevents concurrent double-approval of the same payroll.
       // @VersionColumn provides optimistic concurrency control but the window between

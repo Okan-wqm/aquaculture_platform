@@ -7,6 +7,7 @@ import {
 import { DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 
+import { TenantScopedRepository } from '@aquaculture/backend-common/database';
 import { OutboxPublisher } from '@platform/outbox';
 import { createBaseEvent, BaseEvent } from '@platform/event-contracts';
 import { CreateChannelCommand } from './create-channel.command';
@@ -88,12 +89,19 @@ export class CreateChannelHandler
       const dmPairKey = this.channelService.buildDmPairKey(peerIds[0], peerIds[1]);
 
       // ---------------------------------------------------------------
-      // Check for existing DM (return it instead of creating duplicate)
-      // ---------------------------------------------------------------
-      // eslint-disable-next-line no-restricted-syntax -- AUDIT-MEDIUM-014 (messaging-service): Phase B tenantManagerRepo migration backlog
-      const existingDm = await this.dataSource
-        .getRepository(Channel)
-        .findOne({ where: { dmPairKey }, relations: ['members'] });
+      // Check for existing DM (return it instead of creating duplicate).
+      // The DataSource-scoped repo wraps via TenantScopedRepository so
+      // the lookup auto-filters by tenantId — without this wrapper a
+      // dmPairKey collision across tenants would silently return the
+      // wrong tenant's DM (the entity's unique index on dmPairKey is
+      // composite with tenantId; the original raw `where: { dmPairKey }`
+      // relied on the index but did not enforce tenant filtering at the
+      // ORM layer).
+      const channelRepo = TenantScopedRepository.create(this.dataSource, Channel, tenantId);
+      const existingDm = await channelRepo.findOne({
+        where: { dmPairKey },
+        relations: ['members'],
+      });
 
       if (existingDm) {
         this.logger.debug(

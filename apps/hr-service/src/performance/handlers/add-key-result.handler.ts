@@ -4,6 +4,7 @@ import { NotFoundException, BadRequestException, Logger, InternalServerErrorExce
 import { randomUUID } from 'crypto';
 import { AddKeyResultCommand } from '../commands/add-key-result.command';
 import { Goal, GoalStatus } from '../entities/goal.entity';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 
 @CommandHandler(AddKeyResultCommand)
 export class AddKeyResultHandler implements ICommandHandler<AddKeyResultCommand> {
@@ -19,8 +20,7 @@ export class AddKeyResultHandler implements ICommandHandler<AddKeyResultCommand>
     await queryRunner.startTransaction();
 
     try {
-      // eslint-disable-next-line no-restricted-syntax -- AUDIT-MEDIUM-014 (hr-service): Phase B tenantManagerRepo migration backlog
-      const goalRepo = queryRunner.manager.getRepository(Goal);
+      const goalRepo = tenantManagerRepo(queryRunner.manager, Goal, tenantId);
 
       const goal = await goalRepo.findOne({
         where: { id: goalId, tenantId, isDeleted: false },

@@ -3,6 +3,7 @@ import { DataSource } from 'typeorm';
 import { NotFoundException, BadRequestException, Logger, InternalServerErrorException } from '@nestjs/common';
 import { UpdateGoalProgressCommand } from '../commands/update-goal-progress.command';
 import { Goal, GoalStatus } from '../entities/goal.entity';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 
 @CommandHandler(UpdateGoalProgressCommand)
 export class UpdateGoalProgressHandler implements ICommandHandler<UpdateGoalProgressCommand> {
@@ -18,8 +19,7 @@ export class UpdateGoalProgressHandler implements ICommandHandler<UpdateGoalProg
     await queryRunner.startTransaction();
 
     try {
-      // eslint-disable-next-line no-restricted-syntax -- AUDIT-MEDIUM-014 (hr-service): Phase B tenantManagerRepo migration backlog
-      const goalRepo = queryRunner.manager.getRepository(Goal);
+      const goalRepo = tenantManagerRepo(queryRunner.manager, Goal, tenantId);
 
       const goal = await goalRepo.findOne({
         where: { id: goalId, tenantId, isDeleted: false },

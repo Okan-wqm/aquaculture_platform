@@ -12,6 +12,7 @@ import { Configuration, ConfigurationHistory } from '../entities/configuration.e
 import { ConfigurationService } from '../services/configuration.service';
 import { ConfigurationValidationService } from '../services/configuration-validation.service';
 import { EncryptionService } from '../services/encryption.service';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 
 @Injectable()
 @CommandHandler(UpdateConfigurationCommand)
@@ -35,10 +36,8 @@ export class UpdateConfigurationHandler
     await queryRunner.startTransaction('READ COMMITTED');
 
     try {
-      // eslint-disable-next-line no-restricted-syntax -- AUDIT-MEDIUM-014 (config-service): Phase B tenantManagerRepo migration backlog — Configuration writes inside transaction
-      const configRepo = queryRunner.manager.getRepository(Configuration);
-      // eslint-disable-next-line no-restricted-syntax -- AUDIT-MEDIUM-014 (config-service): Phase B tenantManagerRepo migration backlog — ConfigurationHistory audit row
-      const historyRepo = queryRunner.manager.getRepository(ConfigurationHistory);
+      const configRepo = tenantManagerRepo(queryRunner.manager, Configuration, tenantId);
+      const historyRepo = tenantManagerRepo(queryRunner.manager, ConfigurationHistory, tenantId);
 
       const configuration = await configRepo.findOne({
         where: { id: input.id, tenantId, isActive: true },

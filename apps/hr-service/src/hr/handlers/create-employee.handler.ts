@@ -5,6 +5,7 @@ import { OutboxPublisher } from '@platform/outbox';
 import { CreateEmployeeCommand } from '../commands/create-employee.command';
 import { Employee } from '../entities/employee.entity';
 import { createEmployeeCreatedEvent } from '../events/hr.events';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 
 @Injectable()
 @CommandHandler(CreateEmployeeCommand)
@@ -25,8 +26,7 @@ export class CreateEmployeeHandler implements ICommandHandler<CreateEmployeeComm
     await queryRunner.startTransaction('SERIALIZABLE');
 
     try {
-      // eslint-disable-next-line no-restricted-syntax -- AUDIT-MEDIUM-014 (hr-service): Phase B tenantManagerRepo migration backlog
-      const employeeRepo = queryRunner.manager.getRepository(Employee);
+      const employeeRepo = tenantManagerRepo(queryRunner.manager, Employee, tenantId);
 
       // Check for existing employee with same email (within transaction)
       const existingByEmail = await employeeRepo.findOne({

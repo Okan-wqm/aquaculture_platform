@@ -3,6 +3,7 @@ import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { DataSource, QueryRunner } from 'typeorm';
 import { DeactivateWorkAreaCommand } from '../commands/deactivate-work-area.command';
 import { WorkArea } from '../entities/work-area.entity';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 
 @Injectable()
 @CommandHandler(DeactivateWorkAreaCommand)
@@ -19,8 +20,7 @@ export class DeactivateWorkAreaHandler implements ICommandHandler<DeactivateWork
     await queryRunner.startTransaction();
 
     try {
-      // eslint-disable-next-line no-restricted-syntax -- AUDIT-MEDIUM-014 (hr-service): Phase B tenantManagerRepo migration backlog
-      const repo = queryRunner.manager.getRepository(WorkArea);
+      const repo = tenantManagerRepo(queryRunner.manager, WorkArea, tenantId);
 
       const workArea = await repo.findOne({
         where: { id: workAreaId, tenantId, isDeleted: false },

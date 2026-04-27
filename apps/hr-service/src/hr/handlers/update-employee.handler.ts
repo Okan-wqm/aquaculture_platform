@@ -6,6 +6,7 @@ import { UpdateEmployeeCommand } from '../commands/update-employee.command';
 import { Employee } from '../entities/employee.entity';
 import { createEmployeeUpdatedEvent, createEmployeeTerminatedEvent } from '../events/hr.events';
 import { EmployeeStatus } from '../entities/employee.entity';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 
 @Injectable()
 @CommandHandler(UpdateEmployeeCommand)
@@ -26,8 +27,7 @@ export class UpdateEmployeeHandler implements ICommandHandler<UpdateEmployeeComm
     await queryRunner.startTransaction('SERIALIZABLE');
 
     try {
-      // eslint-disable-next-line no-restricted-syntax -- AUDIT-MEDIUM-014 (hr-service): Phase B tenantManagerRepo migration backlog
-      const employeeRepo = queryRunner.manager.getRepository(Employee);
+      const employeeRepo = tenantManagerRepo(queryRunner.manager, Employee, tenantId);
 
       const employee = await employeeRepo.findOne({
         where: { id: input.id, tenantId },

@@ -67,7 +67,11 @@ interface Baseline {
 }
 
 function discoverProjects(): string[] {
-  const roots = ['apps', 'libs'];
+  // Project roots that may contain a `tsconfig.spec.json`. `platform/libs`
+  // was added in PR-39 when @platform/outbox got its first test suite —
+  // before then no platform lib had a spec config, so the gate never had
+  // to look there.
+  const roots: readonly string[] = ['apps', 'libs', 'platform/libs'];
   const projects: string[] = [];
   for (const root of roots) {
     const rootDir = join(REPO_ROOT, root);

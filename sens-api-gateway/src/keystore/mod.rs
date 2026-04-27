@@ -50,12 +50,27 @@ pub mod secret;
 // (TPM + systemd-creds follow in Batches 83 + 84). Unblocks
 // Sprint 6.2 Batch 80 master-key-derived audit HMAC.
 pub mod file_backed;
+// Batch #308 D-1a primitive-first split: TPM-backed keystore
+// abstraction. Lands the `TpmDevice` trait + `TpmKeystore<D>`
+// skeleton + `MockTpmDevice` for the default-feature test
+// suite. The real `tss-esapi`-backed `RealTpmDevice` impl
+// lives behind `#[cfg(feature = "tpm")]` and lands in Batch
+// #309. The boot-time `KeystoreSelector` lands in Batch
+// #310 (closes ULTRA-HIGH-015 D-1a fully).
+pub mod tpm_backed;
 
 pub use acceptance::{AcceptanceToken, FileBackedAcceptance, FileBackedAcceptanceError};
 pub use error::{KeyDerivationError, KeystoreError, KeystoreErrorKind};
 pub use file_backed::{Argon2idParams, FileBackedKeystore};
 pub use purpose::{DerivedKeyId, KeyPurpose};
 pub use secret::{KeyMaterial, MasterKeyMaterial};
+// Batch #308 re-exports — the TPM backend public surface.
+// `TpmDevice` is the FFI abstraction boundary; consumers
+// outside `keystore::tpm_backed` import these names.
+pub use tpm_backed::{
+    MockTpmDevice, NvCounterValue, PcrHashBank, PcrSelection, TpmDevice,
+    TpmDeviceError, TpmKeystore, TpmKeystoreConfig, TpmSealedBlob, UnsealedMaster,
+};
 // RotationSource is defined in this module above + already
 // pub, so consumers can `use crate::keystore::RotationSource`
 // directly without re-export. The reference here documents

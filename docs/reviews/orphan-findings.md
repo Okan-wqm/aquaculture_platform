@@ -927,3 +927,65 @@ mod opc_ua_type_debug; // diagnostic
 **Status:** OPEN. Slated for the next no-arc hygiene batch (no firm deadline; trigger-based rather than time-based — fold into the next session that already touches `sens-api-gateway/src/` for an unrelated reason).
 
 **Linked plan:** none (out-of-band of every active arc).
+
+---
+
+## ORPHAN-MEDIUM-029 — `scripting::force_registry::unix_secs_now()` uses `SystemTime::now()` for TTL countdown — operator clock rollback breaks force-value expiry gate (2026-04-27)
+
+**Discovered by:** Batch #313 D-9 MonotonicDeadline primitive landing — grep for SystemTime::now usage in TTL paths. Existing pattern at `sens-api-gateway/src/scripting/force_registry.rs:371-376`:
+
+```rust
+fn unix_secs_now() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+```
+
+The helper is called from `sweep_expired(now_unix_secs)` at line 414 + every `expires_at_unix <= now_unix` comparison in the registry. An operator who rolls the wall clock backward extends every force-value's apparent lifetime — a force operator wrote at T=100 with TTL=300 (expires at T=400). Operator rolls clock back to T=50; the registry reads `now_unix_secs = 50` < `expires_at_unix = 400`; the force is still active even though 300 real seconds have elapsed.
+
+**Severity: MEDIUM** — force-value TTL is the safety-critical surface that gates force operations from outliving the operator's intent. ICS context (PLC force-overrides) makes the bug high-stakes (a force that should have auto-cleared after 5 minutes lingering for hours under clock rollback could mask runaway equipment).
+
+**Architectural fix (Tier 1 — make-it-impossible, on the new primitive):**
+
+- Add a `Clock: Arc<dyn ClockAuthority>` field to `ForceRegistry`.
+- Replace `expires_at_unix: i64` with `expires_at: MonotonicDeadline` (Batch #313 primitive).
+- Construct `MonotonicDeadline::from_duration_now(ttl, &*clock)` at force registration.
+- `sweep_expired` walks entries calling `expires_at.is_past_now(&*clock)` instead of comparing unix seconds.
+- Operator clock rollback after force registration has NO effect on the deadline.
+
+**Migration scope:** ~50 lines in `force_registry.rs` + tests update. The `Clock` injection is the architectural unblock that prevents accidental SystemTime::now usage.
+
+**Status:** OPEN. Tracked as a follow-up to UH-021 D-9 (the parent Clock Authority finding); closes alongside the JWT exp gate migration + jti TTL migration + session timeout migration. Suggested batch order: force_registry first (smallest blast radius + clearest test seam), then license_cache, then JWT/jti.
+
+**Linked plan:** Plan §5 Faz 2 D-9. Linked findings: ULTRA-HIGH-021 (D-9 parent), ULTRA-HIGH-062 (Batch #313 MonotonicDeadline primitive).
+
+---
+
+## ORPHAN-MEDIUM-030 — Multiple TTL/expiry call sites still use `SystemTime::now()` directly — D-9 migration backlog (2026-04-27)
+
+**Discovered by:** Batch #313 grep `SystemTime::now` over `sens-api-gateway/src/**`. Confirmed call sites that compute `now - then` for relative duration / countdown decisions (TTL-class pattern):
+
+- `sens-api-gateway/src/license_cache.rs` — license expiry gate
+- `sens-api-gateway/src/lifecycle.rs` — boot-state lifecycle timeouts
+- `sens-api-gateway/src/lifecycle_auth.rs` — auth lifecycle (token TTL)
+- `sens-api-gateway/src/mqtt.rs` — MQTT keepalive / session
+- `sens-api-gateway/src/mqtt_failover.rs` — failover backoff timing
+- `sens-api-gateway/src/outbound_publisher.rs` — publisher rate limiter
+- `sens-api-gateway/src/opc_ua_server.rs` — OPC UA session timeout
+- `sens-api-gateway/src/opc_ua_sens_node_manager.rs` — node-manager session
+- `sens-api-gateway/src/security.rs:356` — `(expiry_ts - now_ts) / 86400` for cert days-remaining display (audit-only — not a TTL gate per se but couples wall-clock to display logic; review whether it should be monotonic-based)
+- `sens-api-gateway/src/main.rs` — boot / lifecycle
+- `sens-api-gateway/src/scripting/force_registry.rs` — already covered by ORPHAN-MEDIUM-029
+
+**Severity: MEDIUM (cumulative)** — same class-of-bug as ORPHAN-MEDIUM-029. Each call site needs individual review: TTL-class usage migrates to `MonotonicDeadline`; absolute-time usage (audit timestamps, log lines) stays on `SystemTime` via `ClockAuthority::trustworthy_wall_clock()` for the NTS-sync gate.
+
+**Architectural fix (per call site, Tier 1 / Tier 3):**
+
+- Each module adopts `Arc<dyn ClockAuthority>` injection + replaces direct `SystemTime::now()` with the typed primitive (`MonotonicDeadline` for TTL, `WallClockReading` for audit).
+- Add invariant test `tests/invariants/no_system_time_for_ttl.rs` (Tier 3 detection) AFTER migration so a regression of new direct `SystemTime::now()` in a TTL path fails CI. Pre-migration the invariant would fail on every existing site; the order is: migrate first, then invariant.
+
+**Status:** OPEN. Each call site is an individual mini-batch; no urgency-cascade. Slate for the D-9 closure arc continuation after the chrony NTS impl batch lands.
+
+**Linked plan:** Plan §5 Faz 2 D-9. Linked findings: ULTRA-HIGH-021 (D-9 parent), ULTRA-HIGH-062 (Batch #313 MonotonicDeadline primitive), ORPHAN-MEDIUM-029 (force_registry slice).

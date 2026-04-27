@@ -4937,6 +4937,12 @@ async fn run_agent(
                 .ok()
                 .map(|u| crate::authz::permission::TenantId::new_from_verified(*u.as_bytes()))
         });
+        // Batch #325 D-9 migration: pull clock_authority for
+        // the OPC UA write-path received_at gate.
+        let clock_authority_for_opcua = {
+            let s = state.read().await;
+            s.clock_authority.clone()
+        };
         match opc_ua_server_runtime::init_opc_ua_server(
             opc_ua_server_runtime::OpcUaInitDeps {
                 config: &opc_ua_cfg,
@@ -4947,6 +4953,7 @@ async fn run_agent(
                 rbac_manifest_store: rbac_store_for_opcua,
                 user_token_manifest_store: user_token_store_for_opcua,
                 license: &license_for_opcua,
+                clock_authority: clock_authority_for_opcua,
             },
         )
         .await

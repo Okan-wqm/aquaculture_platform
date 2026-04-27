@@ -456,6 +456,13 @@ pub struct OpcUaInitDeps<'a> {
     pub user_token_manifest_store:
         Arc<crate::authz::user_token_manifest_runtime::UserTokenManifestStore>,
     pub license: &'a EdgeLicenseLimits,
+    /// **Batch #325 D-9 migration field.** Clock authority
+    /// for the SensNodeManager + PolicyEngineOpcUaAdapter
+    /// `received_at` reads. Threaded from AppState's
+    /// clock_authority so OPC UA writes share the same
+    /// trustworthy_wall_clock gate as every other
+    /// TTL-bearing subsystem.
+    pub clock_authority: Arc<dyn crate::runtime_safety::ClockAuthority>,
 }
 
 /// Gate-chained startup: operator config switch → Faz 7
@@ -508,6 +515,7 @@ pub async fn init_opc_ua_server(
         rbac_manifest_store,
         user_token_manifest_store,
         license,
+        clock_authority,
     } = deps;
     // Gate 1: operator off-switch.
     if !config.enabled {
@@ -651,6 +659,10 @@ pub async fn init_opc_ua_server(
             force_port,
             pi_port,
             audit_port,
+            // Batch #325 D-9 migration: forward the
+            // AppState clock_authority so SensNodeManager
+            // writes use the trustworthy_wall_clock gate.
+            clock_authority.clone(),
         );
 
     let auth_manager = Arc::new(
@@ -969,6 +981,7 @@ mod tests {
             Arc::new(NoForce),
             Arc::new(NoCommitPi),
             Arc::new(NoAudit),
+            Arc::new(crate::runtime_safety::SystemClockAuthority::new()),
         );
         let auth_manager =
             Arc::new(SensAuthManager::new(validator));
@@ -1272,6 +1285,12 @@ mod tests {
                     ::UserTokenManifestStore::new(),
             ),
             license,
+            // Batch #325 D-9: test fixture clock —
+            // SystemClockAuthority for the trustworthy
+            // wallclock gate.
+            clock_authority: Arc::new(
+                crate::runtime_safety::SystemClockAuthority::new(),
+            ),
         }
     }
 

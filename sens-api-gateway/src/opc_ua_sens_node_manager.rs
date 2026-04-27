@@ -292,6 +292,19 @@ pub struct SensNodeManager {
     /// split matches the typed-authz vs legacy-write boundary.
     write_audit: Arc<dyn OpcUaAuditPort>,
 
+    /// **Batch #325 D-9 migration field.** Clock authority
+    /// for the per-write `received_at` timestamp threaded
+    /// to TypedAuthzPort::authorize_write. The pre-#325
+    /// implementation read SystemTime::now() directly,
+    /// vulnerable to operator clock-rollback against
+    /// downstream policy-version freshness checks. Reading
+    /// received_at via clock.trustworthy_wall_clock()
+    /// fails-closed on stale-NTS via ClockAuthority's
+    /// gate; OPC UA writes are denied with
+    /// BadUserAccessDenied on clock-side error rather
+    /// than risking silent policy bypass.
+    clock: Arc<dyn crate::runtime_safety::ClockAuthority>,
+
     /// Debug name returned by `name()`. Static literal because
     /// we instantiate exactly one custom manager per agent.
     manager_name: &'static str,
@@ -328,6 +341,11 @@ impl SensNodeManager {
         write_force: Arc<dyn OpcUaForceRegistryPort>,
         write_process_image: Arc<dyn OpcUaProcessImagePort>,
         write_audit: Arc<dyn OpcUaAuditPort>,
+        // Batch #325 D-9 migration: 9th param threads the
+        // clock through. Production wire passes
+        // AppState::clock_authority; tests pass a fresh
+        // SystemClockAuthority via the test fixture.
+        clock: Arc<dyn crate::runtime_safety::ClockAuthority>,
     ) -> Self {
         Self {
             namespace_uri: Self::NAMESPACE_URI.to_string(),
@@ -340,6 +358,7 @@ impl SensNodeManager {
             write_force,
             write_process_image,
             write_audit,
+            clock,
             manager_name: Self::NAME,
         }
     }
@@ -820,7 +839,33 @@ impl NodeManager for SensNodeManager {
             let authn = crate::opc_ua_server_session::AuthenticatedUser::user_pass(
                 operator_id.clone(),
             );
-            let received_at = std::time::SystemTime::now();
+            // Batch #325 D-9 migration: read received_at via
+            // the trustworthy wallclock gate. NTS-stale
+            // clock → fail-closed (BadUserAccessDenied),
+            // matching the architectural pattern from
+            // PolicyEngineOpcUaAdapter (Batch #325). The
+            // policy-version freshness check downstream
+            // depends on a trusted received_at; an
+            // operator-rolled wallclock could either pass
+            // an expired policy as fresh or fail a valid
+            // policy as stale.
+            let received_at = match self.clock.trustworthy_wall_clock().await {
+                Ok(reading) => reading.system_time,
+                Err(e) => {
+                    tracing::warn!(
+                        "SensNodeManager::write: clock unhealthy ({}) — \
+                         REJECTING write for tag={} operator_id_hex={:?} \
+                         (fail-closed per Batch #325 D-9)",
+                        e,
+                        tag_node.tag_name,
+                        operator_id.as_bytes(),
+                    );
+                    node.set_status(
+                        opcua::types::StatusCode::BadUserAccessDenied,
+                    );
+                    continue;
+                }
+            };
             let authz_outcome = self
                 .authz
                 .authorize_write(
@@ -1753,6 +1798,13 @@ pub struct SensNodeManagerBuilder {
     /// commit error) fires `record_write_attempt` via the
     /// delegate.
     write_audit: Arc<dyn OpcUaAuditPort>,
+
+    /// **Batch #325 D-9 migration field.** Clock authority
+    /// threaded through the builder so SensNodeManager
+    /// constructed via build() inherits the same clock
+    /// the rest of the agent uses (AppState's
+    /// clock_authority).
+    clock: Arc<dyn crate::runtime_safety::ClockAuthority>,
 }
 
 #[cfg(feature = "opc-ua-server")]
@@ -1781,6 +1833,9 @@ impl SensNodeManagerBuilder {
         write_force: Arc<dyn OpcUaForceRegistryPort>,
         write_process_image: Arc<dyn OpcUaProcessImagePort>,
         write_audit: Arc<dyn OpcUaAuditPort>,
+        // Batch #325 D-9 migration: 9th param threads the
+        // clock through the builder.
+        clock: Arc<dyn crate::runtime_safety::ClockAuthority>,
     ) -> Self {
         Self {
             tenant_id,
@@ -1791,6 +1846,7 @@ impl SensNodeManagerBuilder {
             write_force,
             write_process_image,
             write_audit,
+            clock,
         }
     }
 }
@@ -1929,6 +1985,9 @@ impl NodeManagerBuilder for SensNodeManagerBuilder {
             self.write_force,
             self.write_process_image,
             self.write_audit,
+            // Batch #325 D-9 migration: thread the
+            // clock from builder to manager.
+            self.clock,
         ))
     }
 }
@@ -2375,6 +2434,10 @@ mod tests {
             write_force,
             write_process_image,
             write_audit,
+            // Batch #325 D-9: test fixture clock — fresh
+            // SystemClockAuthority for the trustworthy
+            // wallclock gate.
+            Arc::new(crate::runtime_safety::SystemClockAuthority::new()),
         )
     }
 
@@ -2589,6 +2652,7 @@ mod tests {
             write_force.clone(),
             write_process_image.clone(),
             write_audit.clone(),
+            Arc::new(crate::runtime_safety::SystemClockAuthority::new()),
         );
 
         // Post-construction strong counts: builder holds a 2nd

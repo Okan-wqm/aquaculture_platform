@@ -1019,6 +1019,16 @@ pub struct PolicyEngineOpcUaAdapter {
     engine: Arc<dyn PolicyEngine>,
     tenant: TenantId,
     actor_resolver: ActorResolverFn,
+    /// **Batch #325 D-9 migration:** clock authority for
+    /// the AuthorizationRequest.received_at field. The
+    /// pre-#325 implementation used SystemTime::now()
+    /// which was vulnerable to operator clock-rollback
+    /// against the policy-version freshness check
+    /// (StalePolicyVersion deny path). Reading
+    /// received_at via clock.trustworthy_wall_clock()
+    /// fails-closed on stale-NTS via ClockAuthority's
+    /// gate.
+    clock: std::sync::Arc<dyn crate::runtime_safety::ClockAuthority>,
 }
 
 impl PolicyEngineOpcUaAdapter {
@@ -1026,11 +1036,17 @@ impl PolicyEngineOpcUaAdapter {
         engine: Arc<dyn PolicyEngine>,
         tenant: TenantId,
         actor_resolver: ActorResolverFn,
+        // Batch #325 D-9 migration: 4th param threads the
+        // clock through; production wire passes
+        // AppState::clock_authority; tests pass a fresh
+        // SystemClockAuthority via the test_clock helper.
+        clock: std::sync::Arc<dyn crate::runtime_safety::ClockAuthority>,
     ) -> Self {
         Self {
             engine,
             tenant,
             actor_resolver,
+            clock,
         }
     }
 }
@@ -1049,6 +1065,32 @@ impl OpcUaAuthzPort for PolicyEngineOpcUaAdapter {
             }
         };
 
+        // Batch #325 D-9 migration: read received_at via
+        // the trustworthy wallclock gate. NTS-stale clock
+        // → fail-closed (false). The policy-version
+        // freshness check (engine.authorize -> Deny(
+        // StalePolicyVersion)) depends on a trusted
+        // received_at; an operator-rolled wallclock could
+        // either pass an expired policy as fresh or fail a
+        // valid policy as stale. fail-closed on clock-side
+        // error is the architecturally honest answer (an
+        // OPC UA write rejected because the agent's clock
+        // is unverified is preferable to either silent
+        // policy-version bypass or DOS).
+        let received_at = match self.clock.trustworthy_wall_clock().await {
+            Ok(reading) => reading.system_time,
+            Err(e) => {
+                tracing::warn!(
+                    "PolicyEngineOpcUaAdapter::is_write_allowed: \
+                     clock unhealthy ({}) — REJECTING write for tag={} \
+                     actor={} (fail-closed per Batch #325 D-9)",
+                    e,
+                    tag_name,
+                    actor,
+                );
+                return false;
+            }
+        };
         let request = AuthorizationRequest::new(
             actor_identity,
             Permission::OpcUaWrite {
@@ -1056,7 +1098,7 @@ impl OpcUaAuthzPort for PolicyEngineOpcUaAdapter {
             },
             self.tenant.clone(),
             self.engine.current_policy_version(),
-            std::time::SystemTime::now(),
+            received_at,
         );
 
         match self.engine.authorize(request).await {
@@ -1952,6 +1994,12 @@ mod tests {
             engine.clone(),
             test_tenant(),
             Arc::new(|_actor: &str| Some(operator_actor())),
+            // Batch #325 D-9: test fixture clock — fresh
+            // SystemClockAuthority for the trustworthy_wall_clock
+            // gate. NTS-stale tests use a programmable mock
+            // (see authz_adapter_fail_closed_on_clock_unhealthy
+            // below).
+            Arc::new(crate::runtime_safety::SystemClockAuthority::new()),
         );
 
         assert!(adapter.is_write_allowed("hmi-op", "do_pump").await);
@@ -1979,6 +2027,7 @@ mod tests {
             engine,
             test_tenant(),
             Arc::new(|_actor: &str| Some(operator_actor())),
+            Arc::new(crate::runtime_safety::SystemClockAuthority::new()),
         );
 
         assert!(!adapter.is_write_allowed("stranger", "do_pump").await);
@@ -1996,6 +2045,7 @@ mod tests {
             engine,
             test_tenant(),
             Arc::new(|_actor: &str| Some(operator_actor())),
+            Arc::new(crate::runtime_safety::SystemClockAuthority::new()),
         );
 
         assert!(!adapter.is_write_allowed("hmi-op", "do_pump").await);
@@ -2008,6 +2058,7 @@ mod tests {
             engine.clone(),
             test_tenant(),
             Arc::new(|_actor: &str| None), // unresolvable actor
+            Arc::new(crate::runtime_safety::SystemClockAuthority::new()),
         );
 
         assert!(!adapter.is_write_allowed("anonymous", "do_pump").await);
@@ -2029,6 +2080,7 @@ mod tests {
             engine.clone(),
             my_tenant.clone(),
             Arc::new(|_actor: &str| Some(operator_actor())),
+            Arc::new(crate::runtime_safety::SystemClockAuthority::new()),
         );
 
         let _ = adapter.is_write_allowed("hmi-op", "do_pump").await;

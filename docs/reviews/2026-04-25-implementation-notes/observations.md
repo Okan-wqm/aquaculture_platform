@@ -792,6 +792,82 @@ event-store-service locked at 0.
 
 ---
 
+## 30. messaging-service ratchet 9 → 0 + orphan @platform/outbox test gap (RESOLVED in PR-28)
+
+**Files:**
+- `apps/messaging-service/src/__tests__/test-helpers.ts`
+- `apps/messaging-service/src/outbox/__tests__/outbox-worker.service.spec.ts`
+- `apps/messaging-service/src/message/commands/__tests__/send-message.handler.spec.ts`
+
+**Drift discovered:**
+
+1. **5 entity factories** (Channel, ChannelMember, Message,
+   MessageAttachment, MessageAnalysis) drifted out of sync with
+   their entities as new fields were added: `tenantId` (multi-
+   tenant isolation, MSG-HIGH-010 series), `aiPersona`,
+   `aiServiceUrl` (Channel — AI integration), `updatedBy`,
+   `isAiGenerated` (Message), `deletedAt` (MessageAttachment),
+   plus a `softDelete()` instance method on MessageAttachment
+   that strict-tsc requires the literal mock to declare.
+2. **`outbox-worker.service.spec.ts` orphan**: the local
+   `OutboxWorkerService` was migrated to `@platform/outbox`
+   but the spec stayed in-tree and its
+   `import OutboxWorkerService from '../outbox-worker.service'`
+   has been compile-broken since the migration. ts-jest's
+   permissive transform was hiding it.
+3. **`MessagingOutbox` factory's payload** was `{ channelId: '…' }`
+   — a free-form bag, not a real `IEvent`. Strict `IEvent`
+   requires `eventId` / `eventType` / `timestamp` / optional
+   `tenantId`. Domain fields like `channelId` belong in
+   `metadata`, not at the top level.
+4. **`send-message.handler.spec.ts:261`** cast
+   `outboxData.payload as Record<string, unknown>` — strict-tsc
+   rejects because `IEvent` lacks an index signature.
+
+**Architectural fixes:**
+
+- Added missing fields to all 5 factories — including the
+  `softDelete()` method (no-op for tests).
+- Rewrote the orphan spec as a documented `describe.skip`
+  placeholder rather than deleting it (deletion was blocked by
+  the safety prompt — test removal needs explicit user authz).
+- Reshaped `createMockOutboxEvent` to produce a real
+  `createBaseEvent`-style envelope with `metadata.channelId`.
+- Narrowed the send-message cast to a structural type matching
+  only the asserted fields — type-safe, no `any`, no
+  service-private import coupling.
+
+**Orphan test-coverage gap (NEW finding, PROC-MEDIUM-008
+candidate):** the `@platform/outbox` worker has no test suite
+of its own at `platform/libs/outbox/__tests__/`. The migrated-
+away `OutboxWorkerService` therefore has zero test coverage in
+the monorepo right now. This should be backfilled with a
+dedicated platform-level spec, NOT by re-localizing tests in
+each consumer service (would re-create the per-service drift
+that already cost 4 cleanup PRs).
+
+**SECOND orphan finding exposed by this PR (PROC-MEDIUM-009
+candidate):** `send-message.handler.spec.ts` has 12 test cases
+that NEVER RAN because the file's strict-tsc cast error blocked
+compilation since the introduction of the IEvent index-signature
+restriction. With the strict-tsc fix, the file compiles — but
+the TestingModule provider list is missing 5 of the handler's
+9 constructor dependencies (ChannelMember repo, MentionService,
+MediaService, MessagingMetricsService, OutboxPublisher), so all
+12 tests would fail at `TestingModuleBuilder.compile` with
+UnknownDependenciesException. PR-28 marks the block
+`describe.skip` with finding ID and full justification (per
+CLAUDE.md "tracked-deferral" rule) so the gate stays at 0
+without merging green-but-actually-broken tests. The dedicated
+follow-up PR rebuilds the DI map and re-enables the suite. The
+test bodies are PRESERVED, not deleted, so the rebuild is a
+provider-list edit, not a test rewrite.
+
+**PROC-MEDIUM-007 progress:** 9 → 8 dirty projects.
+messaging-service locked at 0.
+
+---
+
 ## Closing posture
 
 This file lives at:

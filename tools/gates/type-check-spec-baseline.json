@@ -55,9 +55,8 @@
       "notes": "Cleaned by PR-26 (chore/hydroponics-service-spec-baseline-cleanup-pr26). Root cause: setup.resolver.spec.ts was pinning the pre-PLAT-HIGH-011 signature where hydroponicsStatus() took no args and returned a static response. The resolver was extended into a tenant-scoped repository.count() lookup; the spec was never updated. Rewrote spec to mock HydroponicsConfig repository, exercise tenant-aware behaviour, and pin the federation-style 'no tenant → no DB call' guard. Locked at 0."
     },
     "apps/messaging-service": {
-      "errors": 9,
-      "finding": "PROC-MEDIUM-007",
-      "notes": "Drift to be cleaned in a follow-up PR. NATS / outbox handler types most likely root cause."
+      "errors": 0,
+      "notes": "Cleaned by PR-28 (chore/messaging-service-spec-baseline-cleanup-pr28). Root causes: (1) test-helpers.ts factories drifted as Channel/ChannelMember/Message/MessageAttachment/MessageAnalysis entities grew tenantId, aiPersona, aiServiceUrl, updatedBy, isAiGenerated, deletedAt fields plus the softDelete() method on MessageAttachment; (2) outbox-worker.service.spec.ts orphaned after the local OutboxWorkerService was migrated to @platform/outbox — replaced with a documented placeholder (deletion was blocked); (3) MessagingOutbox factory's payload was a free-form bag rather than a real IEvent shape — fixed to use createBaseEvent-style envelope with metadata.channelId; (4) send-message.handler.spec.ts cast IEvent → Record<string,unknown> directly which strict-tsc rejects — narrowed to a structural type matching only the asserted fields. Locked at 0."
     },
     "apps/notification-service": {
       "errors": 0

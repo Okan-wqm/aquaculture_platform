@@ -7,10 +7,17 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { BadRequestException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+import { OutboxPublisher } from '@platform/outbox';
 import { Message, MessageContentType } from '../../entities/message.entity';
 import { MessageAttachment } from '../../entities/message-attachment.entity';
-import { MessagingOutbox } from '../../../outbox/messaging-outbox.entity';
+import { ChannelMember } from '../../../channel/entities/channel-member.entity';
+// MessagingOutbox import dropped: outbox writes go through
+// OutboxPublisher.enqueue, not direct manager.save(MessagingOutbox).
+// The test seam is now the publisher mock itself.
 import { REDIS_CLIENT } from '../../../shared/redis.provider';
+import { MentionService } from '../../services/mention.service';
+import { MediaService } from '../../services/media.service';
+import { MessagingMetricsService } from '../../../metrics/messaging-metrics.service';
 import { SendMessageHandler } from '../send-message.handler';
 import { SendMessageCommand } from '../send-message.command';
 import {
@@ -26,28 +33,28 @@ import {
   MockRedis,
 } from '../../../__tests__/test-helpers';
 
-// PRE-EXISTING runtime breakage exposed by PR-28 (PROC-MEDIUM-007 ratchet):
-// the SendMessageHandler constructor grew 4 additional dependencies
-// (ChannelMember repo, MentionService, MediaService, MessagingMetricsService,
-// OutboxPublisher) but this spec's TestingModule still only registers 4 of
-// the original 9. Until the strict-tsc fix landed, the file did not compile
-// at all — so the 12 tests inside silently never ran. Now that it compiles,
-// they would run AND fail at TestingModuleBuilder.compile (UnknownDependencies).
-//
-// Backfilling the 5 mocks + the per-test stubs they need is a non-trivial
-// rewrite that belongs in its own dedicated PR (tracked as PROC-MEDIUM-009
-// candidate — runtime-test backfill for messaging-service handlers). Marking
-// the block `describe.skip` here keeps the strict-tsc gate at 0, preserves
-// the test bodies for the dedicated PR to repair, and avoids merging code
-// that fails the CI test job. The skip is intentional and documented per
-// CLAUDE.md "tracked-deferral with finding-ID + plan reference" rule.
-describe.skip('SendMessageHandler — DI providers stale (see PROC-MEDIUM-009)', () => {
+// PROC-MEDIUM-009 closed by PR-40. Original PR-28 placeholder (`describe.skip`)
+// preserved test bodies pending DI rebuild. This rewrite registers all 9
+// constructor providers (was 4) so jest can actually run the 12 cases:
+//   - ChannelMember repo (for mention-resolution lookup)
+//   - MentionService.parseMentions (returns processedContent + mentionedUserIds)
+//   - MediaService.validateAttachmentKey + extractVoiceDuration
+//   - MessagingMetricsService.incrementMessages (Prometheus counter)
+//   - OutboxPublisher.enqueue (transactional outbox INSERT)
+describe('SendMessageHandler', () => {
   let handler: SendMessageHandler;
   let messageRepo: MockRepository<Message>;
   let attachmentRepo: MockRepository<MessageAttachment>;
+  let channelMemberRepo: MockRepository<ChannelMember>;
   let queryRunner: MockQueryRunner;
   let mockDataSource: ReturnType<typeof createMockDataSource>;
   let redisClient: MockRedis;
+  // Service mocks — declared at the suite scope so individual tests
+  // can re-stub specific methods via `mentionService.parseMentions.mockReturnValueOnce(...)`.
+  let mentionService: { parseMentions: jest.Mock };
+  let mediaService: { validateAttachmentKey: jest.Mock; extractVoiceDuration: jest.Mock };
+  let metricsService: { incrementMessages: jest.Mock };
+  let outboxPublisher: { enqueue: jest.Mock };
 
   const tenantId = 'tenant-0001-0001-0001-000000000001';
   const channelId = fakeUuid('ch');
@@ -59,9 +66,38 @@ describe.skip('SendMessageHandler — DI providers stale (see PROC-MEDIUM-009)',
 
     messageRepo = createMockRepository<Message>();
     attachmentRepo = createMockRepository<MessageAttachment>();
+    channelMemberRepo = createMockRepository<ChannelMember>();
+    // The handler calls channelMemberRepo.find(...) inside the mention-
+    // resolution path (line ~101). Default to an empty array so the
+    // .map() at line 109 works for tests that don't seed members
+    // explicitly. Tests that exercise mention behaviour override.
+    channelMemberRepo.find.mockResolvedValue([]);
     queryRunner = createMockQueryRunner();
     mockDataSource = createMockDataSource(queryRunner);
     redisClient = createMockRedis();
+
+    mentionService = {
+      // Default: pass content through unchanged with no mention IDs.
+      // The handler uses processedContent as the final sanitizedContent
+      // (see send-message.handler.ts:118), so returning '' would make
+      // every TEXT-message test fail the non-empty content guard.
+      parseMentions: jest.fn().mockImplementation(
+        (content: string) => ({ mentionedUserIds: [], processedContent: content }),
+      ),
+    };
+    mediaService = {
+      // Default: every attachment key validates as image/png 1024 bytes.
+      // Tests that need a specific shape override via mockResolvedValueOnce.
+      validateAttachmentKey: jest.fn().mockResolvedValue({
+        contentLength: 1024,
+        contentType: 'image/png',
+      }),
+      extractVoiceDuration: jest.fn().mockReturnValue(null),
+    };
+    metricsService = { incrementMessages: jest.fn() };
+    // Outbox enqueue is fire-and-await inside the transaction — return
+    // void to mirror the real OutboxPublisher.
+    outboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -69,7 +105,12 @@ describe.skip('SendMessageHandler — DI providers stale (see PROC-MEDIUM-009)',
         { provide: DataSource, useValue: mockDataSource },
         { provide: getRepositoryToken(Message), useValue: messageRepo },
         { provide: getRepositoryToken(MessageAttachment), useValue: attachmentRepo },
+        { provide: getRepositoryToken(ChannelMember), useValue: channelMemberRepo },
         { provide: REDIS_CLIENT, useValue: redisClient },
+        { provide: MentionService, useValue: mentionService },
+        { provide: MediaService, useValue: mediaService },
+        { provide: MessagingMetricsService, useValue: metricsService },
+        { provide: OutboxPublisher, useValue: outboxPublisher },
       ],
     }).compile();
 
@@ -119,6 +160,10 @@ describe.skip('SendMessageHandler — DI providers stale (see PROC-MEDIUM-009)',
   // -----------------------------------------------------------------------
   it('returns existing message when same idempotencyKey (Redis hit)', async () => {
     const existingMsg = createMockMessage({ id: fakeUuid('msg'), channelId, senderId });
+    // The handler now uses SET-NX: if Redis returns null (key already
+    // exists), the handler treats it as an idempotent hit. The previous
+    // implementation did GET-first; the rewrite is race-safe (atomic SET-NX).
+    redisClient.set.mockResolvedValue(null);
     redisClient.get.mockResolvedValue(existingMsg.id);
     messageRepo.findOne.mockResolvedValue(existingMsg);
 
@@ -207,11 +252,20 @@ describe.skip('SendMessageHandler — DI providers stale (see PROC-MEDIUM-009)',
 
     await handler.execute(cmd);
 
-    // manager.save called for Message and MessagingOutbox inside transaction
+    // Message save goes through the transaction's manager directly.
     const msgSave = queryRunner.manager.save.mock.calls.find((c) => c[0] === Message);
-    const outboxSave = queryRunner.manager.save.mock.calls.find((c) => c[0] === MessagingOutbox);
     expect(msgSave).toBeDefined();
-    expect(outboxSave).toBeDefined();
+    // The outbox row is now written via OutboxPublisher.enqueue(event, manager)
+    // — a thin wrapper that calls manager.save(OutboxEntityClass, …) inside
+    // the same transaction. Asserting on the publisher mock is the
+    // architecturally correct seam: it verifies the transactional
+    // outbox contract without coupling the test to the publisher's
+    // internal save implementation. The `manager` arg proves the
+    // enqueue ran INSIDE the transaction (same EntityManager
+    // instance the message save used).
+    expect(outboxPublisher.enqueue).toHaveBeenCalledTimes(1);
+    const [, enqueueManager] = outboxPublisher.enqueue.mock.calls[0]!;
+    expect(enqueueManager).toBe(queryRunner.manager);
   });
 
   // -----------------------------------------------------------------------
@@ -269,22 +323,22 @@ describe.skip('SendMessageHandler — DI providers stale (see PROC-MEDIUM-009)',
 
     await handler.execute(cmd);
 
-    const outboxSave = queryRunner.manager.save.mock.calls.find(
-      (c) => c[0] === MessagingOutbox,
-    );
-    const outboxData = outboxSave![1] as Partial<MessagingOutbox>;
-    // The outbox payload is BaseEvent (from createBaseEvent) plus the
-    // domain-specific fields the handler spreads alongside it
-    // (channelId / messageId / senderId / etc., see send-message.handler.ts:200-209).
-    // Strict-tsc rejects a direct `as Record<string, unknown>` cast on
-    // IEvent because IEvent has no index signature. We narrow via
-    // `unknown` to a *structural* type that captures only the fields
-    // this test asserts on — keeps the cast type-safe without binding
-    // to a service-private shape like `MessageSentPayload`.
-    const payload = outboxData.payload as unknown as {
+    // The outbox row is written via OutboxPublisher.enqueue(event, manager)
+    // — assert directly on the FIRST argument the publisher received.
+    // The event is BaseEvent (from createBaseEvent) plus domain-specific
+    // fields the handler spreads alongside (channelId / messageId /
+    // senderId / etc., see send-message.handler.ts:200-209). Strict-tsc
+    // rejects a direct `as Record<string, unknown>` cast on IEvent
+    // because IEvent has no index signature; narrow via `unknown` to a
+    // structural type that captures only the fields this test asserts on.
+    expect(outboxPublisher.enqueue).toHaveBeenCalledTimes(1);
+    const [enqueuedEvent] = outboxPublisher.enqueue.mock.calls[0]!;
+    const payload = enqueuedEvent as unknown as {
       tenantId?: string;
       channelId?: string;
+      eventType?: string;
     };
+    expect(payload.eventType).toBe('MessageSent');
     expect(payload.tenantId).toBe(tenantId);
     expect(payload.channelId).toBe(channelId);
   });

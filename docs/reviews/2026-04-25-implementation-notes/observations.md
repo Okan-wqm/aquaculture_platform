@@ -715,6 +715,46 @@ projects. ai-service locked at 0.
 
 ---
 
+## 28. hydroponics-service ratchet 3 → 0 (RESOLVED in PR-26)
+
+**File:** `apps/hydroponics-service/src/setup/resolvers/__tests__/setup.resolver.spec.ts`
+
+**Root cause:** The spec was pinning the **pre-PLAT-HIGH-011
+resolver signature** where `hydroponicsStatus()` took no
+arguments and returned a static `{ configured: false, moduleName }`
+response. The resolver was extended (somewhere in the
+PLAT-HIGH-011 RBAC enforcement series) into a tenant-scoped
+`@Context()` + `repository.count()` lookup, but the spec was never
+updated. ts-jest's permissive transform let this drift through
+because `Test.createTestingModule({ providers: [SetupResolver] })`
+silently failed to resolve the `@InjectRepository(HydroponicsConfig)`
+constructor dependency, and the strict-tsc errors (3) on the no-arg
+calls were masked.
+
+**Architectural fix:** rewrote the spec to:
+1. Mock the `HydroponicsConfig` repository properly via
+   `getRepositoryToken(HydroponicsConfig)` — eliminates the
+   silent constructor-resolution failure.
+2. Pass a `Context` shape `{ req: { user: { tenantId } } }` to
+   the resolver call — exercises the real signature.
+3. Add a federation-style "no tenant in context → no DB call"
+   guard test (mirrors sensor-service / farm-service
+   `__resolveReference` discipline). This pins the cross-tenant
+   safety property that was implicit in the resolver code but
+   uncovered.
+4. Keep the @Roles / @Public metadata-presence assertions
+   (security-critical contract).
+
+**Why this matters:** the spec went from 3 broken tests → 6
+tests covering happy path + edge case + tenant-isolation
+invariant. Coverage of the resolver actually increased while
+fixing the type errors.
+
+**PROC-MEDIUM-007 progress:** 11 → 10 dirty projects.
+hydroponics-service locked at 0.
+
+---
+
 ## Closing posture
 
 This file lives at:

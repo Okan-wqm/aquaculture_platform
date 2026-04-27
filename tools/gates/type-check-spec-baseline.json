@@ -52,9 +52,8 @@
       "notes": "Drift to be cleaned in a follow-up PR. HR domain contract types most likely root cause."
     },
     "apps/hydroponics-service": {
-      "errors": 3,
-      "finding": "PROC-MEDIUM-007",
-      "notes": "Small drift — close-out candidate."
+      "errors": 0,
+      "notes": "Cleaned by PR-26 (chore/hydroponics-service-spec-baseline-cleanup-pr26). Root cause: setup.resolver.spec.ts was pinning the pre-PLAT-HIGH-011 signature where hydroponicsStatus() took no args and returned a static response. The resolver was extended into a tenant-scoped repository.count() lookup; the spec was never updated. Rewrote spec to mock HydroponicsConfig repository, exercise tenant-aware behaviour, and pin the federation-style 'no tenant → no DB call' guard. Locked at 0."
     },
     "apps/messaging-service": {
       "errors": 9,

@@ -270,6 +270,24 @@ pub enum EnvelopeVerifyError {
     SignatureInvalid,
     // -- Replay --
     JtiReplay,
+    // -- Batch #306 Faz 6 two-person integrity --
+    /// One of `co_approver_actor` / `co_approver_signature` is
+    /// Some, the other is None. The two MUST be paired. Adapter
+    /// fails fast on this shape inconsistency BEFORE any pubkey
+    /// lookup.
+    CoApproverSignatureMissing,
+    /// Co-approver signature failed ed25519 verify against the
+    /// canonical bytes recomputed for the primary signature.
+    /// Distinct from `SignatureInvalid` so audit records can
+    /// discriminate which signature failed (primary vs
+    /// co-approver).
+    CoApproverSignatureInvalid,
+    /// Co-approver actor equals the primary actor — same operator
+    /// signed both. Two-person integrity REQUIRES two distinct
+    /// operators. Caught at the adapter layer before the engine
+    /// runs its own actor-inequality check (defense-in-depth +
+    /// faster fail).
+    CoApproverSelfSignature,
 }
 
 impl std::fmt::Display for EnvelopeVerifyError {
@@ -291,6 +309,15 @@ impl std::fmt::Display for EnvelopeVerifyError {
             }
             Self::SignatureInvalid => f.write_str("signature_invalid"),
             Self::JtiReplay => f.write_str("jti_replay"),
+            Self::CoApproverSignatureMissing => {
+                f.write_str("co_approver_signature_missing")
+            }
+            Self::CoApproverSignatureInvalid => {
+                f.write_str("co_approver_signature_invalid")
+            }
+            Self::CoApproverSelfSignature => {
+                f.write_str("co_approver_self_signature")
+            }
         }
     }
 }
@@ -477,7 +504,10 @@ pub fn verify_envelope(
 /// transcript. (2) Simpler audit reproducibility: signer + verifier
 /// produce the same `envelope_canonical_bytes` input from the wire fields
 /// without re-deriving canonical params.
-fn envelope_canonical_bytes(
+// Batch #306: pub(crate) so envelope_adapter (in the
+// commands::envelope_adapter sibling module — same crate) can
+// recompute canonical bytes for co-approver signature verify.
+pub(crate) fn envelope_canonical_bytes(
     env: &CommandEnvelope,
 ) -> Result<Vec<u8>, EnvelopeVerifyError> {
     let cmd_bytes = env.cmd.as_bytes();

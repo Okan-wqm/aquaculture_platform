@@ -76,6 +76,11 @@ pub use envelope::{
     verify_envelope, CommandEnvelope, EnvelopeVerifyError, SignatureMode,
     MAX_CMD_NAME_BYTES, MAX_NONCE_BYTES,
 };
+// Batch #306 Faz 6 two-person integrity: the adapter needs
+// canonical bytes to verify the co-approver signature against
+// the same transcript as the primary signature. pub(crate) on
+// the fn + this re-export keeps the surface intra-crate only.
+pub(crate) use envelope::envelope_canonical_bytes;
 pub use dispatcher::{BoxedHandler, CommandDispatcher, DispatchError};
 pub use handler::{
     EnvelopeHandler, EnvelopeMeta, HandlerError, HandlerInput, HandlerResponse,

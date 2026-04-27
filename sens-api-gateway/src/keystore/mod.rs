@@ -54,10 +54,16 @@ pub mod file_backed;
 // abstraction. Lands the `TpmDevice` trait + `TpmKeystore<D>`
 // skeleton + `MockTpmDevice` for the default-feature test
 // suite. The real `tss-esapi`-backed `RealTpmDevice` impl
-// lives behind `#[cfg(feature = "tpm")]` and lands in Batch
-// #309. The boot-time `KeystoreSelector` lands in Batch
-// #310 (closes ULTRA-HIGH-015 D-1a fully).
+// lives behind `#[cfg(feature = "tpm")]` and lands in a
+// future batch (needs libtss2-dev build environment).
 pub mod tpm_backed;
+
+// Batch #312 D-1a CLOSURE: boot-time selector applying the
+// ADR-018 §4 / ADR-019 §7 backend priority order
+// (TPM -> systemd-creds -> FileBacked-with-acceptance) +
+// the fall-back policy that distinguishes "TPM unavailable"
+// (allowed downgrade) from "TPM tamper signal" (hard-fail).
+pub mod selector;
 
 pub use acceptance::{AcceptanceToken, FileBackedAcceptance, FileBackedAcceptanceError};
 pub use error::{KeyDerivationError, KeystoreError, KeystoreErrorKind};
@@ -70,6 +76,14 @@ pub use secret::{KeyMaterial, MasterKeyMaterial};
 pub use tpm_backed::{
     MockTpmDevice, NvCounterValue, PcrHashBank, PcrSelection, TpmDevice,
     TpmDeviceError, TpmKeystore, TpmKeystoreConfig, TpmSealedBlob, UnsealedMaster,
+};
+
+// Batch #312 re-exports — boot-time selector + fall-back
+// policy. Consumers (main.rs cold-boot path + integration
+// tests) import these names.
+pub use selector::{
+    FallbackPolicy, KeystoreSelector, KeystoreSelectorConfig,
+    NullTpmDeviceFactory, TpmDeviceFactory,
 };
 // RotationSource is defined in this module above + already
 // pub, so consumers can `use crate::keystore::RotationSource`

@@ -472,7 +472,18 @@ impl std::fmt::Debug for UnsealedMaster {
 /// TPM-backed keystore parameterized over the device impl.
 /// Runtime path uses `TpmKeystore<RealTpmDevice>` (Batch
 /// #309). Tests use `TpmKeystore<MockTpmDevice>`.
-pub struct TpmKeystore<D: TpmDevice> {
+/// **`?Sized` bound (Batch #312):** `D` may be either a
+/// concrete sized type (`MockTpmDevice` for unit tests,
+/// `RealTpmDevice` when the future tss-esapi-backed impl
+/// lands) OR the unsized trait object `dyn TpmDevice`. The
+/// latter is required by `KeystoreSelector::resolve()` which
+/// returns `Arc<dyn Keystore>` and constructs
+/// `TpmKeystore<dyn TpmDevice>` internally to allow the
+/// factory to produce ANY device impl polymorphically.
+/// `Arc<D>` is always sized (it's a thin or fat pointer);
+/// the `?Sized` relaxation only allows the underlying `D` to
+/// be unsized.
+pub struct TpmKeystore<D: TpmDevice + ?Sized> {
     device: std::sync::Arc<D>,
     config: TpmKeystoreConfig,
     /// Unsealed master held under RwLock so rotation can
@@ -509,7 +520,7 @@ pub struct TpmKeystore<D: TpmDevice> {
 /// contract — defining it explicitly forces every reviewer
 /// to confirm "no master leak" once at definition rather
 /// than at every call site.
-impl<D: TpmDevice> std::fmt::Debug for TpmKeystore<D> {
+impl<D: TpmDevice + ?Sized> std::fmt::Debug for TpmKeystore<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let bound = self
             .bound_counter
@@ -525,7 +536,7 @@ impl<D: TpmDevice> std::fmt::Debug for TpmKeystore<D> {
     }
 }
 
-impl<D: TpmDevice> TpmKeystore<D> {
+impl<D: TpmDevice + ?Sized> TpmKeystore<D> {
     /// Open the TPM keystore: unseal the master, verify
     /// the bound counter ≥ on-chip counter (anti-rollback
     /// gate), construct the keystore.
@@ -711,7 +722,7 @@ impl<D: TpmDevice> TpmKeystore<D> {
 }
 
 #[async_trait]
-impl<D: TpmDevice> Keystore for TpmKeystore<D> {
+impl<D: TpmDevice + ?Sized> Keystore for TpmKeystore<D> {
     fn backend(&self) -> KeyBackend {
         KeyBackend::Tpm
     }

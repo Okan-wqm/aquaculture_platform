@@ -1315,6 +1315,14 @@ impl AppState {
             // can bump firmware_confirm + update slot/
             // version gauges on success.
             health_state: self.health_state.clone(),
+            // Batch #324 D-9 migration: forward the clock
+            // authority so verify_request's
+            // trustworthy_wall_clock gate uses the
+            // operator-configured impl
+            // (SystemClockAuthority or ChronyNtsClockAuthority)
+            // rather than falling back to the SystemTime::now
+            // trusting baseline.
+            clock_authority: Some(self.clock_authority.clone()),
         };
 
         if cell.set(handles).is_err() {

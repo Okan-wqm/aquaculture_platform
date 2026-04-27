@@ -108,6 +108,18 @@ pub struct LifecycleHandles {
     /// HealthState wasn't constructed at lifecycle cell
     /// population time.
     pub health_state: Option<crate::health::HealthState>,
+    /// **Batch #324 D-9 migration:** clock authority
+    /// reference for verify_request's trustworthy_wall_clock
+    /// gate. Replaces the pre-#324 SystemTime::now() read
+    /// that was vulnerable to operator clock-rollback
+    /// DOS. Always Some in production (AppState always
+    /// has a clock_authority — defaults to
+    /// SystemClockAuthority in init_clock_authority);
+    /// Option<> here so legacy LifecycleHandles
+    /// constructors that don't have the clock yet can
+    /// migrate gradually.
+    pub clock_authority:
+        Option<Arc<dyn crate::runtime_safety::ClockAuthority>>,
 }
 
 /// Axum-shareable container for `LifecycleHandles`.
@@ -168,13 +180,33 @@ pub async fn confirm_active_handler(
         let ts_header = headers
             .get(HEADER_TIMESTAMP)
             .and_then(|v| v.to_str().ok());
+        // Batch #324 D-9 migration: pull the clock authority
+        // from handles. AppState boot wires it post-cell-
+        // population; if somehow None at this point (legacy
+        // call site), fall back to a fresh SystemClockAuthority
+        // for backward-compat — the trusting-0-age default
+        // is a STRICTLY WEAKER posture than the migrated path
+        // but matches pre-#324 behaviour. Production wiring
+        // is expected to populate the field.
+        let clock_authority_owned;
+        let clock_ref: &dyn crate::runtime_safety::ClockAuthority =
+            if let Some(c) = handles.clock_authority.as_ref() {
+                &**c
+            } else {
+                clock_authority_owned =
+                    crate::runtime_safety::SystemClockAuthority::new();
+                &clock_authority_owned
+            };
         if let Err(auth_err) = verify_request(
             auth_key,
             "POST",
             "/lifecycle/confirm-active",
             hmac_header,
             ts_header,
-        ) {
+            clock_ref,
+        )
+        .await
+        {
             warn!(
                 "lifecycle confirm_active: HMAC auth REJECTED: {}",
                 auth_err
@@ -187,6 +219,11 @@ pub async fn confirm_active_handler(
                 AuthError::MalformedTimestampHeader => "malformed_timestamp_header",
                 AuthError::TimestampOutOfWindow { .. } => "timestamp_out_of_window",
                 AuthError::InvalidHmac => "invalid_hmac",
+                // Batch #324 D-9 migration: ClockUnhealthy
+                // arm — operator-actionable label so
+                // dashboards can distinguish "agent's clock
+                // broken" from "client sent bad timestamp".
+                AuthError::ClockUnhealthy(_) => "clock_unhealthy",
             };
             // Batch 135 Sprint 6.5 — closes Batch 132 obs
             // #3: bump auth rejection counters. invalid_hmac
@@ -464,6 +501,11 @@ mod tests {
             tenant: TenantId::new_from_verified([0u8; 16]),
             auth_key: None,
             health_state: None,
+            // Batch #324 D-9: tests use legacy None;
+            // verify_request falls back to a fresh
+            // SystemClockAuthority via the lifecycle.rs
+            // call site's owned-fallback path.
+            clock_authority: None,
         }
     }
 
@@ -481,6 +523,7 @@ mod tests {
             tenant: TenantId::new_from_verified([0u8; 16]),
             auth_key: Some(Arc::new(key)),
             health_state: None,
+            clock_authority: None,
         }
     }
 
@@ -496,6 +539,7 @@ mod tests {
             tenant: TenantId::new_from_verified([0u8; 16]),
             auth_key: None,
             health_state: Some(health),
+            clock_authority: None,
         }
     }
 
@@ -672,6 +716,7 @@ mod tests {
             tenant: TenantId::new_from_verified([0u8; 16]),
             auth_key: Some(Arc::new(key)),
             health_state: Some(health.clone()),
+            clock_authority: None,
         })
         .ok();
 
@@ -739,6 +784,7 @@ mod tests {
             tenant: TenantId::new_from_verified([0u8; 16]),
             auth_key: Some(Arc::new(key)),
             health_state: Some(health.clone()),
+            clock_authority: None,
         })
         .ok();
 

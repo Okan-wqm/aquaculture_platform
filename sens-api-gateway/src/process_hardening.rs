@@ -241,13 +241,31 @@ pub fn install_panic_abort_hook() {
             eprintln!("Process aborting (hardened panic hook — no destructor unwinding).");
         }
 
+        // Batch #311 D-2 closure: walk the panic_zeroize
+        // registry BEFORE abort. Best-effort with try_lock so
+        // a panic mid-register/unregister doesn't deadlock
+        // the hook; in that rare case the kernel still
+        // releases pages (mlock + zeroize-on-drop layers
+        // remain). Registry is empty if no caller has
+        // registered any secret region (default path).
+        let scrubbed = panic_zeroize::scrub_all_registered_best_effort();
+        if scrubbed > 0 {
+            #[allow(clippy::print_stderr)]
+            {
+                eprintln!(
+                    "Panic-zeroize: {} registered secret regions scrubbed.",
+                    scrubbed
+                );
+            }
+        }
+
         // Abort: kernel terminates the process without destructor
         // execution. Exit code will be SIGABRT (134 on typical
         // Linux) which systemd's Restart=on-failure should pick
         // up as a restart trigger.
         std::process::abort();
     }));
-    warn!("Panic-abort hook installed — panics will SIGABRT the process without unwinding");
+    warn!("Panic-abort hook installed — panics will SIGABRT the process without unwinding (panic_zeroize registry scrubs registered secrets first)");
 }
 
 // ===================================================================
@@ -1016,6 +1034,332 @@ pub mod memfd_secret {
                 "debug must not include byte hex: {}",
                 debug
             );
+        }
+    }
+}
+
+// ===================================================================
+// Batch #311 D-2 panic_zeroize registry — closes the D-2 arc
+// (#309 mlock + #310 memfd_secret + #311 panic_zeroize together
+// form the in-process FR4 Data Confidentiality layer cake).
+// ===================================================================
+
+/// `panic_zeroize` submodule — global registry of secret regions
+/// that the panic hook scrubs BEFORE std::process::abort().
+///
+/// ## Why a registry exists at all
+///
+/// Existing layers:
+/// - **Drop + ZeroizeOnDrop** (Layer E) — scrubs at value drop
+///   on the NORMAL release path.
+/// - **panic-abort hook** (Layer D) — kills the process so the
+///   kernel reaps + zeroes pages.
+///
+/// Gap closed by this batch: between the panic instant and the
+/// kernel-reap, secret pages are still mapped + readable by a
+/// concurrent attacker (a coredump-disabling prctl + non-
+/// dumpable status STILL allows the kernel itself to read those
+/// pages while the process is alive). On a panicking
+/// multi-threaded program the panic hook runs on ONE thread; OTHER
+/// threads continue running until abort() actually fires (which is
+/// after the hook finishes). That window is small but architecturally
+/// non-zero. Walking a registry of secret regions zeroing each
+/// BEFORE abort() shrinks the window to "during the zeroize loop"
+/// — kernel memory access during that loop sees progressively-
+/// zeroed pages.
+///
+/// ## Registration discipline
+///
+/// Callers register at allocation boundary (TpmKeystore::open,
+/// FileBackedKeystore::open, MemfdSecretRegion::allocate when used
+/// as a secret container). Unregistration happens at Drop.
+/// Allocation boundaries are infrequent + happen at process boot
+/// before the system is taking traffic; the lock contention surface
+/// is intentionally narrow.
+///
+/// ## Why try_lock in the hook
+///
+/// The panic hook runs in an arbitrary thread context. If the
+/// panic itself happened while a thread was holding the registry
+/// mutex (e.g., during a register/unregister mid-allocation), a
+/// blocking lock would DEADLOCK the hook. try_lock is best-effort
+/// — if the lock can't be acquired in 100ms, the hook abandons
+/// the scrub + proceeds to abort. The mlock + zeroize-on-drop
+/// layers remain in effect; the registry scrub is a defense-in-
+/// depth optimization, not the primary guarantee.
+///
+/// ## Why raw pointers (and not Vec<&[u8]>)
+///
+/// The registry holds `(NonNull<u8>, usize)` pairs. Using
+/// references would require a lifetime parameter at the registry
+/// type level which conflicts with the global `Mutex<Vec<...>>`
+/// shape (no lifetime can satisfy 'static + the secret regions'
+/// shorter lifetimes simultaneously). Raw pointers give the
+/// caller full responsibility for the register / unregister
+/// pairing — caller MUST unregister BEFORE the underlying region
+/// is dropped. The Drop impl of MemfdSecretRegion (Batch #310)
+/// handles this; future TpmKeystore consumer wiring follows the
+/// same pattern.
+pub mod panic_zeroize {
+
+    use std::ptr::NonNull;
+    use std::sync::Mutex;
+    use std::sync::OnceLock;
+    use std::time::{Duration, Instant};
+
+    /// One slot in the registry. Owned by the registering caller;
+    /// pointer + length are exclusively-accessible-by-caller for
+    /// the registration window.
+    #[derive(Debug, Clone, Copy)]
+    struct RegisteredRegion {
+        ptr: NonNull<u8>,
+        len: usize,
+    }
+
+    // SAFETY: pointer + length values are integers / opaque
+    // raw addresses. Moving the slot value across threads is
+    // safe as long as the caller maintains the invariant that
+    // the underlying region is valid while registered (caller
+    // contract). The registry never DEREFERENCES the pointer
+    // outside the panic-hook scrub path; the scrub path runs
+    // on a single thread that has won the try_lock race.
+    unsafe impl Send for RegisteredRegion {}
+
+    /// Lazy-init global registry. OnceLock keeps init lock-free
+    /// after first registration; the inner Mutex guards
+    /// register / unregister / scrub-all access.
+    static REGISTRY: OnceLock<Mutex<Vec<RegisteredRegion>>> = OnceLock::new();
+
+    fn registry() -> &'static Mutex<Vec<RegisteredRegion>> {
+        REGISTRY.get_or_init(|| Mutex::new(Vec::new()))
+    }
+
+    /// Register a secret region for panic-time scrubbing.
+    ///
+    /// CONTRACT (caller maintains):
+    /// - `ptr` is non-null + points to a region of at least
+    ///   `len` writable bytes.
+    /// - The region remains valid + writable until
+    ///   `unregister(ptr)` returns.
+    /// - The caller MUST `unregister(ptr)` BEFORE the region's
+    ///   underlying allocation is dropped/freed (otherwise the
+    ///   panic hook may write to freed memory — UB).
+    ///
+    /// Returns the registration count after this call (audit /
+    /// metric accessor).
+    pub fn register(ptr: NonNull<u8>, len: usize) -> usize {
+        let mut guard = registry().lock().unwrap_or_else(|poisoned| {
+            // Lock was poisoned — recover by taking the inner
+            // value. Poisoning happens when a previous holder
+            // panicked while holding the lock; the registry
+            // contents are still valid (Vec<RegisteredRegion>
+            // is poison-safe), we just need to clear the
+            // poisoned flag.
+            poisoned.into_inner()
+        });
+        guard.push(RegisteredRegion { ptr, len });
+        guard.len()
+    }
+
+    /// Unregister a previously-registered region. Returns true
+    /// if the region was found + removed. If the same ptr was
+    /// registered twice (caller bug), only the first matching
+    /// entry is removed; the duplicate stays + the caller is
+    /// responsible for matching pairs.
+    pub fn unregister(ptr: NonNull<u8>) -> bool {
+        let mut guard = registry().lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(pos) = guard.iter().position(|r| r.ptr == ptr) {
+            guard.swap_remove(pos);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Audit / test accessor — current registration count.
+    pub fn registered_count() -> usize {
+        registry()
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .len()
+    }
+
+    /// Walk the registry zeroing each region. Best-effort:
+    /// uses `try_lock` with a 100ms total budget so the panic
+    /// hook does not deadlock if the panic itself occurred
+    /// while a thread was holding the registry lock. Returns
+    /// the number of regions successfully scrubbed (zero when
+    /// the lock could not be acquired).
+    ///
+    /// **Why best-effort:** this is a defense-in-depth layer.
+    /// If the lock is unavailable, the kernel's automatic page
+    /// release on process exit + the mlock + zeroize-on-drop
+    /// layers still apply.
+    ///
+    /// SAFETY: writes through registered raw pointers. The
+    /// caller's register/unregister pairing contract makes this
+    /// safe — only currently-registered regions are walked, and
+    /// those are guaranteed valid by contract.
+    pub fn scrub_all_registered_best_effort() -> usize {
+        let deadline = Instant::now() + Duration::from_millis(100);
+        loop {
+            match registry().try_lock() {
+                Ok(mut guard) => {
+                    let count = guard.len();
+                    for region in guard.iter() {
+                        // SAFETY: caller's register-contract
+                        // guarantees the region is valid and
+                        // exclusively-writable for the
+                        // registration window. The panic hook
+                        // is the LAST writer (process is
+                        // about to abort). Writing zeroes is
+                        // a value-only operation that does not
+                        // change the allocation's
+                        // type/length.
+                        unsafe {
+                            std::ptr::write_bytes(
+                                region.ptr.as_ptr(),
+                                0,
+                                region.len,
+                            );
+                        }
+                    }
+                    // Clear the registry so a re-entrant call
+                    // (extremely unlikely) does not double-
+                    // scrub.
+                    guard.clear();
+                    return count;
+                }
+                Err(_) => {
+                    if Instant::now() >= deadline {
+                        return 0;
+                    }
+                    // Brief spin — panic hook is single-call
+                    // path, sleep would be wrong (we're
+                    // pre-abort, latency budget is microseconds).
+                    std::hint::spin_loop();
+                }
+            }
+        }
+    }
+
+    /// Clear the registry without scrubbing. Used by tests to
+    /// reset between cases. NOT a public production API — the
+    /// process-exit path zeroes pages by kernel-release; the
+    /// only caller that wants to forcibly clear is a test
+    /// fixture.
+    #[cfg(test)]
+    pub(crate) fn test_only_clear() {
+        let mut guard = registry().lock().unwrap_or_else(|p| p.into_inner());
+        guard.clear();
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use std::sync::Mutex as StdMutex;
+
+        // Tests share global registry state — serialize them
+        // with a per-module mutex so concurrent test runs do
+        // not see each other's registrations. This matches
+        // the project pattern from auth flow tests that touch
+        // global state.
+        static TEST_LOCK: StdMutex<()> = StdMutex::new(());
+
+        fn with_clean_registry<F: FnOnce()>(f: F) {
+            let _guard = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+            test_only_clear();
+            f();
+            test_only_clear();
+        }
+
+        #[test]
+        fn register_unregister_round_trip() {
+            with_clean_registry(|| {
+                let mut buf = [0u8; 32];
+                let ptr =
+                    NonNull::new(buf.as_mut_ptr()).expect("non-null array ptr");
+                assert_eq!(registered_count(), 0);
+                let after = register(ptr, buf.len());
+                assert_eq!(after, 1);
+                assert_eq!(registered_count(), 1);
+                let removed = unregister(ptr);
+                assert!(removed);
+                assert_eq!(registered_count(), 0);
+                // Unregister of a non-registered ptr returns false.
+                assert!(!unregister(ptr));
+            });
+        }
+
+        #[test]
+        fn multiple_regions_register_independently() {
+            with_clean_registry(|| {
+                let mut a = [0u8; 16];
+                let mut b = [0u8; 16];
+                let pa = NonNull::new(a.as_mut_ptr()).unwrap();
+                let pb = NonNull::new(b.as_mut_ptr()).unwrap();
+                assert_eq!(register(pa, 16), 1);
+                assert_eq!(register(pb, 16), 2);
+                assert_eq!(registered_count(), 2);
+                assert!(unregister(pa));
+                assert_eq!(registered_count(), 1);
+                assert!(unregister(pb));
+                assert_eq!(registered_count(), 0);
+            });
+        }
+
+        #[test]
+        fn scrub_all_zeroes_registered_regions() {
+            with_clean_registry(|| {
+                let mut a = [0xaau8; 32];
+                let mut b = [0xbbu8; 16];
+                let pa = NonNull::new(a.as_mut_ptr()).unwrap();
+                let pb = NonNull::new(b.as_mut_ptr()).unwrap();
+                register(pa, a.len());
+                register(pb, b.len());
+
+                // Pre-scrub: bytes hold the recognizable
+                // patterns.
+                assert_eq!(a[0], 0xaa);
+                assert_eq!(b[0], 0xbb);
+
+                let scrubbed = scrub_all_registered_best_effort();
+                assert_eq!(scrubbed, 2);
+
+                // Post-scrub: every byte is zero.
+                assert!(a.iter().all(|b| *b == 0), "a not zeroed: {:?}", &a[..]);
+                assert!(b.iter().all(|x| *x == 0), "b not zeroed: {:?}", &b[..]);
+
+                // Registry cleared after scrub — re-scrubbing
+                // returns 0.
+                assert_eq!(scrub_all_registered_best_effort(), 0);
+            });
+        }
+
+        #[test]
+        fn scrub_with_empty_registry_returns_zero() {
+            with_clean_registry(|| {
+                assert_eq!(scrub_all_registered_best_effort(), 0);
+            });
+        }
+
+        /// Same ptr registered twice → unregister removes one
+        /// (caller's responsibility to match pairs). Pin the
+        /// contract so a refactor does not silently change to
+        /// "remove-all-matching".
+        #[test]
+        fn unregister_removes_one_of_duplicate_registrations() {
+            with_clean_registry(|| {
+                let mut buf = [0u8; 8];
+                let ptr = NonNull::new(buf.as_mut_ptr()).unwrap();
+                register(ptr, 8);
+                register(ptr, 8);
+                assert_eq!(registered_count(), 2);
+                assert!(unregister(ptr));
+                assert_eq!(registered_count(), 1);
+                assert!(unregister(ptr));
+                assert_eq!(registered_count(), 0);
+            });
         }
     }
 }

@@ -67,7 +67,7 @@ describe('RuleEvaluatorService', () => {
 
       expect(result.matched).toBe(true);
       expect(result.matchedConditions).toHaveLength(1);
-      expect(result.matchedConditions[0].parameter).toBe('temperature');
+      expect(result.matchedConditions[0]!.parameter).toBe('temperature');
     });
 
     it('should evaluate threshold-based rule (less than) successfully', async () => {
@@ -133,7 +133,7 @@ describe('RuleEvaluatorService', () => {
 
       expect(result.matched).toBe(true);
       expect(result.matchedConditions).toHaveLength(1);
-      expect(result.matchedConditions[0].parameter).toBe('ph');
+      expect(result.matchedConditions[0]!.parameter).toBe('ph');
     });
 
     it('should handle empty rule set without error', async () => {

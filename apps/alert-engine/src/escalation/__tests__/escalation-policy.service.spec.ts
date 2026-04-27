@@ -248,7 +248,7 @@ describe('EscalationPolicyService', () => {
       const result = await service.getPolicies('tenant-1');
 
       expect(result).toHaveLength(1);
-      expect(result[0].isActive).toBe(true);
+      expect(result[0]!.isActive).toBe(true);
     });
 
     it('should return all policies when activeOnly is false', async () => {
@@ -801,7 +801,7 @@ describe('EscalationPolicyService', () => {
       const result = await service.getPoliciesBySeverity('tenant-1', AlertSeverity.HIGH);
 
       expect(result).toHaveLength(1);
-      expect(result[0].severity).toContain(AlertSeverity.HIGH);
+      expect(result[0]!.severity).toContain(AlertSeverity.HIGH);
     });
   });
 

@@ -138,8 +138,8 @@ describe('AlertIncident Entity', () => {
         incident.acknowledge('user-1');
 
         expect(incident.timeline).toHaveLength(1);
-        expect(incident.timeline[0].type).toBe(TimelineEventType.ACKNOWLEDGED);
-        expect(incident.timeline[0].userId).toBe('user-1');
+        expect(incident.timeline[0]!.type).toBe(TimelineEventType.ACKNOWLEDGED);
+        expect(incident.timeline[0]!.userId).toBe('user-1');
       });
 
       it('should throw error when acknowledging closed incident', () => {
@@ -164,8 +164,8 @@ describe('AlertIncident Entity', () => {
         incident.assign('user-2');
 
         expect(incident.timeline).toHaveLength(1);
-        expect(incident.timeline[0].type).toBe(TimelineEventType.ASSIGNED);
-        expect(incident.timeline[0].description).toContain('user-2');
+        expect(incident.timeline[0]!.type).toBe(TimelineEventType.ASSIGNED);
+        expect(incident.timeline[0]!.description).toContain('user-2');
       });
     });
 
@@ -203,7 +203,7 @@ describe('AlertIncident Entity', () => {
         incident.resolve('user-1', 'Issue resolved');
 
         expect(incident.timeline).toHaveLength(1);
-        expect(incident.timeline[0].type).toBe(TimelineEventType.RESOLVED);
+        expect(incident.timeline[0]!.type).toBe(TimelineEventType.RESOLVED);
       });
 
       it('should throw error when resolving already closed incident', () => {
@@ -252,7 +252,7 @@ describe('AlertIncident Entity', () => {
         incident.reopen('user-1', 'Issue came back');
 
         expect(incident.timeline).toHaveLength(1);
-        expect(incident.timeline[0].type).toBe(TimelineEventType.REOPENED);
+        expect(incident.timeline[0]!.type).toBe(TimelineEventType.REOPENED);
       });
 
       it('should throw error when reopening open incident', () => {
@@ -277,7 +277,7 @@ describe('AlertIncident Entity', () => {
         incident.suppress('user-1', 'Not relevant');
 
         expect(incident.timeline).toHaveLength(1);
-        expect(incident.timeline[0].type).toBe(TimelineEventType.STATUS_CHANGE);
+        expect(incident.timeline[0]!.type).toBe(TimelineEventType.STATUS_CHANGE);
       });
     });
 
@@ -297,7 +297,7 @@ describe('AlertIncident Entity', () => {
         incident.escalate(2);
 
         expect(incident.timeline).toHaveLength(1);
-        expect(incident.timeline[0].type).toBe(TimelineEventType.ESCALATED);
+        expect(incident.timeline[0]!.type).toBe(TimelineEventType.ESCALATED);
       });
 
       it('should throw error when escalating non-escalatable incident', () => {
@@ -320,9 +320,9 @@ describe('AlertIncident Entity', () => {
         });
 
         expect(incident.timeline).toHaveLength(1);
-        expect(incident.timeline[0].id).toBeDefined();
-        expect(incident.timeline[0].id).toContain('evt-');
-        expect(incident.timeline[0].timestamp).toBeInstanceOf(Date);
+        expect(incident.timeline[0]!.id).toBeDefined();
+        expect(incident.timeline[0]!.id).toContain('evt-');
+        expect(incident.timeline[0]!.timestamp).toBeInstanceOf(Date);
       });
 
       it('should preserve event data in metadata', () => {
@@ -333,7 +333,7 @@ describe('AlertIncident Entity', () => {
           data: { previousStatus: IncidentStatus.NEW, newStatus: IncidentStatus.ACKNOWLEDGED },
         });
 
-        expect(incident.timeline[0].metadata).toEqual({
+        expect(incident.timeline[0]!.metadata).toEqual({
           previousStatus: IncidentStatus.NEW,
           newStatus: IncidentStatus.ACKNOWLEDGED,
         });
@@ -347,9 +347,9 @@ describe('AlertIncident Entity', () => {
         incident.addComment('user-1', 'This is a comment');
 
         expect(incident.timeline).toHaveLength(1);
-        expect(incident.timeline[0].type).toBe(TimelineEventType.COMMENT_ADDED);
-        expect(incident.timeline[0].description).toBe('This is a comment');
-        expect(incident.timeline[0].userId).toBe('user-1');
+        expect(incident.timeline[0]!.type).toBe(TimelineEventType.COMMENT_ADDED);
+        expect(incident.timeline[0]!.description).toBe('This is a comment');
+        expect(incident.timeline[0]!.userId).toBe('user-1');
       });
     });
 
@@ -563,11 +563,11 @@ describe('AlertIncident Entity', () => {
 
       // Verify timeline
       expect(incident.timeline.length).toBe(5);
-      expect(incident.timeline[0].type).toBe(TimelineEventType.ACKNOWLEDGED);
-      expect(incident.timeline[1].type).toBe(TimelineEventType.ASSIGNED);
-      expect(incident.timeline[2].type).toBe(TimelineEventType.STATUS_CHANGE);
-      expect(incident.timeline[3].type).toBe(TimelineEventType.COMMENT_ADDED);
-      expect(incident.timeline[4].type).toBe(TimelineEventType.RESOLVED);
+      expect(incident.timeline[0]!.type).toBe(TimelineEventType.ACKNOWLEDGED);
+      expect(incident.timeline[1]!.type).toBe(TimelineEventType.ASSIGNED);
+      expect(incident.timeline[2]!.type).toBe(TimelineEventType.STATUS_CHANGE);
+      expect(incident.timeline[3]!.type).toBe(TimelineEventType.COMMENT_ADDED);
+      expect(incident.timeline[4]!.type).toBe(TimelineEventType.RESOLVED);
     });
 
     it('should handle reopen and re-resolve cycle', () => {

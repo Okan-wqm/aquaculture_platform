@@ -123,8 +123,8 @@ describe('RulesEngineService', () => {
       const matches = await service.evaluateRules(request);
 
       expect(matches).toHaveLength(1);
-      expect(matches[0].rule.id).toBe('rule-123');
-      expect(matches[0].severity).toBe(AlertSeverity.WARNING);
+      expect(matches[0]!.rule.id).toBe('rule-123');
+      expect(matches[0]!.severity).toBe(AlertSeverity.WARNING);
     });
 
     it('should return empty array when no rules match', async () => {
@@ -194,7 +194,7 @@ describe('RulesEngineService', () => {
       const matches = await service.evaluateRules(request);
 
       expect(matches).toHaveLength(1);
-      expect(matches[0].rule.id).toBe('rule-1');
+      expect(matches[0]!.rule.id).toBe('rule-1');
     });
 
     it('should use ALL_MATCH strategy', async () => {
@@ -274,8 +274,8 @@ describe('RulesEngineService', () => {
       const matches = await service.evaluateRules(request);
 
       expect(matches).toHaveLength(2);
-      expect(matches[0].severity).toBe(AlertSeverity.CRITICAL);
-      expect(matches[1].severity).toBe(AlertSeverity.WARNING);
+      expect(matches[0]!.severity).toBe(AlertSeverity.CRITICAL);
+      expect(matches[1]!.severity).toBe(AlertSeverity.WARNING);
     });
 
     it('should filter by farm/pond/sensor IDs', async () => {
@@ -403,7 +403,11 @@ describe('RulesEngineService', () => {
       ruleRepository.findOne.mockResolvedValue(existingRule);
       ruleRepository.save.mockResolvedValue({ ...existingRule, name: 'Updated Rule' } as AlertRule);
 
-      const result = await service.updateRule('rule-123', { name: 'Updated Rule' });
+      // updateRule grew a tenantId arg between (id, updates).
+      // Same for deleteRule / toggleRuleStatus / getRuleById —
+      // multi-tenant authorization push (PR-36 of the
+      // PROC-MEDIUM-007 ratchet).
+      const result = await service.updateRule('rule-123', 'tenant-1', { name: 'Updated Rule' });
 
       expect(result.name).toBe('Updated Rule');
     });
@@ -411,7 +415,7 @@ describe('RulesEngineService', () => {
     it('should throw error for non-existent rule', async () => {
       ruleRepository.findOne.mockResolvedValue(null);
 
-      await expect(service.updateRule('non-existent', { name: 'Test' })).rejects.toThrow(
+      await expect(service.updateRule('non-existent', 'tenant-1', { name: 'Test' })).rejects.toThrow(
         'Rule non-existent not found',
       );
     });
@@ -423,14 +427,14 @@ describe('RulesEngineService', () => {
       ruleRepository.findOne.mockResolvedValue(existingRule);
       ruleRepository.delete.mockResolvedValue({ affected: 1, raw: [] });
 
-      await expect(service.deleteRule('rule-123')).resolves.toBeUndefined();
+      await expect(service.deleteRule('rule-123', 'tenant-1')).resolves.toBeUndefined();
       expect(ruleRepository.delete).toHaveBeenCalledWith('rule-123');
     });
 
     it('should throw error for non-existent rule', async () => {
       ruleRepository.findOne.mockResolvedValue(null);
 
-      await expect(service.deleteRule('non-existent')).rejects.toThrow(
+      await expect(service.deleteRule('non-existent', 'tenant-1')).rejects.toThrow(
         'Rule non-existent not found',
       );
     });
@@ -442,7 +446,7 @@ describe('RulesEngineService', () => {
       ruleRepository.findOne.mockResolvedValue(rule);
       ruleRepository.save.mockResolvedValue({ ...rule, isActive: true } as AlertRule);
 
-      const result = await service.toggleRuleStatus('rule-123', true);
+      const result = await service.toggleRuleStatus('rule-123', 'tenant-1', true);
 
       expect(result.isActive).toBe(true);
     });
@@ -452,7 +456,7 @@ describe('RulesEngineService', () => {
       ruleRepository.findOne.mockResolvedValue(rule);
       ruleRepository.save.mockResolvedValue({ ...rule, isActive: false } as AlertRule);
 
-      const result = await service.toggleRuleStatus('rule-123', false);
+      const result = await service.toggleRuleStatus('rule-123', 'tenant-1', false);
 
       expect(result.isActive).toBe(false);
     });
@@ -463,7 +467,7 @@ describe('RulesEngineService', () => {
       const rule = createMockRule();
       ruleRepository.findOne.mockResolvedValue(rule);
 
-      const result = await service.getRuleById('rule-123');
+      const result = await service.getRuleById('rule-123', 'tenant-1');
 
       expect(result).toEqual(rule);
     });
@@ -471,7 +475,7 @@ describe('RulesEngineService', () => {
     it('should return null when not found', async () => {
       ruleRepository.findOne.mockResolvedValue(null);
 
-      const result = await service.getRuleById('non-existent');
+      const result = await service.getRuleById('non-existent', 'tenant-1');
 
       expect(result).toBeNull();
     });
@@ -692,7 +696,8 @@ describe('RulesEngineService', () => {
       const stats = service.getCacheStats();
 
       expect(stats.size).toBe(0);
-      expect(stats.keys).toHaveLength(0);
+      // getCacheStats returns { size, keyCount } — keys[] removed.
+      expect(stats.keyCount).toBe(0);
     });
   });
 
@@ -785,7 +790,11 @@ describe('RulesEngineService', () => {
 
       expect(result).not.toBeNull();
       expect(result!.rule.id).toBe('rule-123');
-      expect(result!.matched).toBeDefined();
+      // RuleMatch surfaces evaluation result via the
+      // evaluationResult sub-object, not as a direct .matched
+      // property — clearer separation between matched-rule metadata
+      // and the per-condition evaluation outcome.
+      expect(result!.evaluationResult.matched).toBeDefined();
     });
 
     it('should return null for non-matching rule', async () => {
@@ -837,7 +846,7 @@ describe('RulesEngineService', () => {
         context: createContext({ temp: 35, ph: 5.5, oxygen: 3 }),
       });
 
-      expect(result[0].severity).toBe(AlertSeverity.CRITICAL);
+      expect(result[0]!.severity).toBe(AlertSeverity.CRITICAL);
     });
   });
 });

@@ -36,7 +36,7 @@ describe('RulesEngineService Caching', () => {
       cooldownMinutes: 5,
       createdAt: new Date(),
       updatedAt: new Date(),
-    } as AlertRule,
+    } as unknown as AlertRule,
     {
       id: 'rule-2',
       tenantId: 'tenant-1',
@@ -58,7 +58,7 @@ describe('RulesEngineService Caching', () => {
       cooldownMinutes: 5,
       createdAt: new Date(),
       updatedAt: new Date(),
-    } as AlertRule,
+    } as unknown as AlertRule,
   ];
 
   beforeEach(async () => {
@@ -102,7 +102,7 @@ describe('RulesEngineService Caching', () => {
     it('should cache all rules under the same key', async () => {
       const request = {
         tenantId: 'tenant-1',
-        context: { temperature: 25 },
+        context: { values: { temperature: 25 } },
         farmId: 'farm-1',
       };
 
@@ -118,7 +118,7 @@ describe('RulesEngineService Caching', () => {
     it('should return all cached rules, not just one', async () => {
       const request = {
         tenantId: 'tenant-1',
-        context: { temperature: 25 },
+        context: { values: { temperature: 25 } },
         farmId: 'farm-1',
       };
 
@@ -129,20 +129,20 @@ describe('RulesEngineService Caching', () => {
       // Second call should return all cached rules (not just one)
       const rules2 = await service.getApplicableRules(request);
       expect(rules2).toHaveLength(2);
-      expect(rules2[0].id).toBe('rule-1');
-      expect(rules2[1].id).toBe('rule-2');
+      expect(rules2[0]!.id).toBe('rule-1');
+      expect(rules2[1]!.id).toBe('rule-2');
     });
 
     it('should use different cache keys for different filters', async () => {
       const request1 = {
         tenantId: 'tenant-1',
-        context: { temperature: 25 },
+        context: { values: { temperature: 25 } },
         farmId: 'farm-1',
       };
 
       const request2 = {
         tenantId: 'tenant-1',
-        context: { temperature: 25 },
+        context: { values: { temperature: 25 } },
         farmId: 'farm-2',
       };
 
@@ -158,7 +158,7 @@ describe('RulesEngineService Caching', () => {
 
       const request = {
         tenantId: 'tenant-1',
-        context: { temperature: 25 },
+        context: { values: { temperature: 25 } },
       };
 
       // First call
@@ -178,7 +178,7 @@ describe('RulesEngineService Caching', () => {
     it('should invalidate cache when rule is created', async () => {
       const request = {
         tenantId: 'tenant-1',
-        context: { temperature: 25 },
+        context: { values: { temperature: 25 } },
       };
 
       // Cache rules
@@ -198,16 +198,17 @@ describe('RulesEngineService Caching', () => {
     it('should invalidate cache when rule is updated', async () => {
       const request = {
         tenantId: 'tenant-1',
-        context: { temperature: 25 },
+        context: { values: { temperature: 25 } },
       };
 
       // Cache rules
       await service.getApplicableRules(request);
 
       // Update rule
-      mockRuleRepository.findOne.mockResolvedValue(mockRules[0]);
-      mockRuleRepository.save.mockResolvedValue({ ...mockRules[0], name: 'Updated' } as AlertRule);
-      await service.updateRule('rule-1', { name: 'Updated' });
+      mockRuleRepository.findOne.mockResolvedValue(mockRules[0]!);
+      mockRuleRepository.save.mockResolvedValue({ ...mockRules[0]!, name: 'Updated' } as AlertRule);
+      // updateRule grew a tenantId arg between (id, updates).
+      await service.updateRule('rule-1', 'tenant-1', { name: 'Updated' });
 
       // Cache should be invalidated
       await service.getApplicableRules(request);
@@ -217,15 +218,16 @@ describe('RulesEngineService Caching', () => {
     it('should invalidate cache when rule is deleted', async () => {
       const request = {
         tenantId: 'tenant-1',
-        context: { temperature: 25 },
+        context: { values: { temperature: 25 } },
       };
 
       // Cache rules
       await service.getApplicableRules(request);
 
       // Delete rule
-      mockRuleRepository.findOne.mockResolvedValue(mockRules[0]);
-      await service.deleteRule('rule-1');
+      mockRuleRepository.findOne.mockResolvedValue(mockRules[0]!);
+      // deleteRule grew a tenantId arg.
+      await service.deleteRule('rule-1', 'tenant-1');
 
       // Cache should be invalidated
       await service.getApplicableRules(request);
@@ -235,7 +237,7 @@ describe('RulesEngineService Caching', () => {
     it('should provide accurate cache statistics', async () => {
       const request = {
         tenantId: 'tenant-1',
-        context: { temperature: 25 },
+        context: { values: { temperature: 25 } },
       };
 
       // Initially empty cache
@@ -245,16 +247,19 @@ describe('RulesEngineService Caching', () => {
       // Cache rules
       await service.getApplicableRules(request);
 
-      // Should have one cache entry (for all rules under one key)
+      // Should have one cache entry (for all rules under one key).
+      // getCacheStats returns { size, keyCount } — the keys[] array
+      // was removed from the public API to avoid leaking cache
+      // internals; size assertion is sufficient invariant.
       stats = service.getCacheStats();
       expect(stats.size).toBe(1);
-      expect(stats.keys[0]).toContain('tenant-1');
+      expect(stats.keyCount).toBe(1);
     });
 
     it('should clear all cache', async () => {
       const request = {
         tenantId: 'tenant-1',
-        context: { temperature: 25 },
+        context: { values: { temperature: 25 } },
       };
 
       await service.getApplicableRules(request);

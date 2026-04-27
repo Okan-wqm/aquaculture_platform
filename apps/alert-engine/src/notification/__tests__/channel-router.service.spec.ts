@@ -1,12 +1,40 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import {
   ChannelRouterService,
+  ChannelConfig,
   UserNotificationPreferences,
   RoutingRule,
 } from '../channel-router.service';
 import { NotificationChannel } from '../../database/entities/escalation-policy.entity';
 import { AlertSeverity } from '../../database/entities/alert-rule.entity';
 import { RedisService } from '@aquaculture/backend-common';
+
+/**
+ * UserNotificationPreferences.channelConfigs is
+ * `Record<NotificationChannel, ChannelConfig>` — ALL 7 channel keys
+ * must be present. Specs that only configure a subset (SMS, EMAIL)
+ * trip strict-tsc. This helper fills the rest with `enabled: false`
+ * defaults so each test only asserts on the channels it cares about.
+ * Surfaced by PR-36 of the PROC-MEDIUM-007 ratchet — the production
+ * interface SHOULD probably be `Partial<Record<…>>` (PROC-MEDIUM-014
+ * candidate, tracked as PROC-MEDIUM-014). The test-side fill
+ * here keeps the gate at 0 without weakening the production
+ * contract — the production-side relaxation is its own PR.
+ */
+function makeChannelConfigs(
+  overrides: Partial<Record<NotificationChannel, ChannelConfig>>,
+): Record<NotificationChannel, ChannelConfig> {
+  const defaults: Record<NotificationChannel, ChannelConfig> = {
+    [NotificationChannel.EMAIL]: { enabled: false },
+    [NotificationChannel.SMS]: { enabled: false },
+    [NotificationChannel.SLACK]: { enabled: false },
+    [NotificationChannel.TEAMS]: { enabled: false },
+    [NotificationChannel.WEBHOOK]: { enabled: false },
+    [NotificationChannel.PUSH]: { enabled: false },
+    [NotificationChannel.PAGERDUTY]: { enabled: false },
+  };
+  return { ...defaults, ...overrides };
+}
 
 const mockRedisService = {
   get: jest.fn().mockResolvedValue(null),
@@ -255,7 +283,7 @@ describe('ChannelRouterService', () => {
         userId: 'user-1',
         enabledChannels: [NotificationChannel.EMAIL, NotificationChannel.SMS],
         preferredChannel: NotificationChannel.EMAIL,
-        channelConfigs: {
+        channelConfigs: makeChannelConfigs({
           [NotificationChannel.SMS]: {
             enabled: true,
             severityFilter: [AlertSeverity.CRITICAL],
@@ -263,7 +291,7 @@ describe('ChannelRouterService', () => {
           [NotificationChannel.EMAIL]: {
             enabled: true,
           },
-        },
+        }),
       };
 
       service.setUserPreferences(prefs);
@@ -369,8 +397,8 @@ describe('ChannelRouterService', () => {
 
       const rules = service.getRoutingRules();
 
-      expect(rules[0].id).toBe('high-priority');
-      expect(rules[1].id).toBe('low-priority');
+      expect(rules[0]!.id).toBe('high-priority');
+      expect(rules[1]!.id).toBe('low-priority');
     });
 
     it('should evaluate rule conditions correctly', () => {
@@ -440,7 +468,7 @@ describe('ChannelRouterService', () => {
         userId: 'user-1',
         enabledChannels: [NotificationChannel.EMAIL, NotificationChannel.SMS],
         preferredChannel: NotificationChannel.EMAIL,
-        channelConfigs: {
+        channelConfigs: makeChannelConfigs({
           [NotificationChannel.SMS]: {
             enabled: true,
             rateLimit: {
@@ -451,7 +479,7 @@ describe('ChannelRouterService', () => {
           [NotificationChannel.EMAIL]: {
             enabled: true,
           },
-        },
+        }),
       };
 
       service.setUserPreferences(prefs);
@@ -471,7 +499,7 @@ describe('ChannelRouterService', () => {
         userId: 'user-1',
         enabledChannels: [NotificationChannel.SMS],
         preferredChannel: NotificationChannel.SMS,
-        channelConfigs: {
+        channelConfigs: makeChannelConfigs({
           [NotificationChannel.SMS]: {
             enabled: true,
             rateLimit: {
@@ -479,7 +507,7 @@ describe('ChannelRouterService', () => {
               maxPerDay: 10,
             },
           },
-        },
+        }),
       };
 
       service.setUserPreferences(prefs);
@@ -497,24 +525,24 @@ describe('ChannelRouterService', () => {
         userId: 'user-1',
         enabledChannels: [NotificationChannel.SMS],
         preferredChannel: NotificationChannel.SMS,
-        channelConfigs: {
+        channelConfigs: makeChannelConfigs({
           [NotificationChannel.SMS]: {
             enabled: true,
             rateLimit: { maxPerHour: 1, maxPerDay: 10 },
           },
-        },
+        }),
       });
 
       service.setUserPreferences({
         userId: 'user-2',
         enabledChannels: [NotificationChannel.SMS],
         preferredChannel: NotificationChannel.SMS,
-        channelConfigs: {
+        channelConfigs: makeChannelConfigs({
           [NotificationChannel.SMS]: {
             enabled: true,
             rateLimit: { maxPerHour: 1, maxPerDay: 10 },
           },
-        },
+        }),
       });
 
       service.route('user-1', AlertSeverity.HIGH);

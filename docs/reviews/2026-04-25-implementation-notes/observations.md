@@ -755,6 +755,43 @@ hydroponics-service locked at 0.
 
 ---
 
+## 29. event-store-service ratchet 4 → 0 (RESOLVED in PR-27)
+
+**File:** `apps/event-store-service/src/event-store/__tests__/event-store.controller.spec.ts`
+
+**Root cause:** Controller-spec mocks were **minimal POJOs** that
+drifted out of sync with three real contracts as the entities
+evolved:
+
+- `EventStream` entity grew `id`, `tenantId`, `isDeleted`,
+  `updatedAt` — mocks omitted them.
+- `Snapshot` entity grew `id` (UUID PK) — mocks omitted it.
+- `PersistedEvent` interface enriched with `streamName`,
+  `globalPosition`, `streamPosition`, `aggregateType`,
+  `aggregateId`, `version`, `tenantId`, `storedAt`, `occurredAt`,
+  `schemaVersion` — mocks had only `id`, `eventType`, `version`,
+  `payload`.
+
+**Architectural fix:** introduced **typed mock factories** at the
+top of the spec — `makeStream(overrides)`, `makeSnapshot(overrides)`,
+`makeEvent(overrides)`. Each factory returns a complete instance
+of the real type (literally `: EventStream` / `: Snapshot` /
+`: PersistedEvent`); strict-tsc enforces shape conformance. Tests
+spread overrides for the fields they care about; future contract
+changes will fail at the factory line, not in 4 scattered POJOs.
+
+This is the SAME discipline I should've applied across the gateway-
+api / sensor-service / farm-module cleanups (and probably will
+apply going forward in the remaining ratchets). It's the cheapest
+durable defence against the pattern.
+
+**Coverage:** 15/15 tests pass.
+
+**PROC-MEDIUM-007 progress:** 10 → 9 dirty projects.
+event-store-service locked at 0.
+
+---
+
 ## Closing posture
 
 This file lives at:

@@ -33,9 +33,8 @@
       "errors": 0
     },
     "apps/event-store-service": {
-      "errors": 4,
-      "finding": "PROC-MEDIUM-007",
-      "notes": "Small drift — close-out candidate."
+      "errors": 0,
+      "notes": "Cleaned by PR-27 (chore/event-store-service-spec-baseline-cleanup-pr27). Root cause: event-store.controller.spec.ts mocks were minimal POJOs that drifted out of sync with the EventStream / Snapshot entity contracts and PersistedEvent interface. Added typed makeStream / makeSnapshot / makeEvent factories, replaced 4 broken mocks with factory calls. Locked at 0."
     },
     "apps/farm-service": {
       "errors": 84,

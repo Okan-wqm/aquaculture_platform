@@ -1152,7 +1152,7 @@ The recommendation is closed-without-implementation because re-running the same 
 
 ## 2026-04-27 ORPHAN-LINT-SCOPE-002 — `no-restricted-imports` (root-barrel ban) shares the same affected-vs-all CI gap as `no-restricted-syntax`
 
-**Status:** OPEN — same architectural class as ORPHAN-CI-PROVISIONING-001 / AUDIT-MEDIUM-014, scoped to a different ESLint rule.
+**Status:** RESOLVED — closed in PR #159 by `tests/invariants/no-root-barrel-import.spec.ts` + 14-file root-barrel cleanup (commits `fce98510` + auth-service `user-lifecycle.service.ts` split). Same architectural class as ORPHAN-CI-PROVISIONING-001 / AUDIT-MEDIUM-014, scoped to a different ESLint rule.
 
 **Scope:** `.eslintrc.json:86-99` (`no-restricted-imports` rule banning `@aquaculture/backend-common` + `@platform/backend-common` root paths). 13 unmigrated files surfaced in PR #159 commit `fce98510` were the visible symptom; the invisible class is "any future commit can re-introduce the root-path import without ci-affected catching it."
 
@@ -1170,17 +1170,15 @@ The pattern mirrors `no-direct-getrepository-call.spec.ts` exactly:
 - Runs in `invariants:fast` (the always-on PR gate per AUDIT-CRITICAL-003)
 - Bypasses Nx affected scope entirely
 
-**Why I am NOT shipping this in PR #159:**
+**Closure (same PR, no follow-up):**
 
-Adding a 3rd Tier-3 detector inflates the suite's surface area. Two are enough to close the immediate cold-audit class (`no-direct-getrepository-call` for `getRepository`, plus this orphan record for the next iteration). A separate small PR scoped just to "add no-root-barrel-import invariant + zero violations" is the cleaner architectural shape — the invariant lands AFTER the cleanup commit (`fce98510`) so its first run is green.
+The invariant + cleanup landed together in PR #159:
 
-**Closure path:**
+1. `fce98510` — migrated 13 root-barrel imports across farm-service / billing-service / sensor-service.
+2. (auth-service follow-up edit) — `user-lifecycle.service.ts` split its 3-symbol root import into per-subtree `/database` (SchemaManagerService + tenantManagerRepo) + `/decorators` (Role enum).
+3. `tests/invariants/no-root-barrel-import.spec.ts` (Tier-3 detector) — walks tracked .ts/.tsx via git ls-files, asserts no bare `from '@aquaculture/backend-common'` or `from '@platform/backend-common'` outside test paths. Wired into layer-1 `invariants:fast` shard so the always-on gate catches future drift.
 
-1. Open a follow-up PR `feat(invariants): no-root-barrel-import Tier-3 detector`.
-2. Add `tests/invariants/no-root-barrel-import.spec.ts` modelled on `no-direct-getrepository-call.spec.ts`.
-3. Wire into `tests/invariants/jest.config.ts` layer-1 `testMatch`.
-4. CI's invariants:fast gate fires — confirms green at landing time.
-5. Commit carries `Closes: docs/reviews/orphan-findings.md#ORPHAN-LINT-SCOPE-002`.
+Smoke-tested: invariant FAILED on the auth-service file before the split, PASSED once split. Layer-1 went 102 → 103 tests; no regression.
 
 **Why a parallel-pattern detector matters:**
 

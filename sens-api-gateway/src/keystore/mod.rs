@@ -74,6 +74,25 @@ pub mod selector;
 // arc continuation toward UH ULTRA-MEDIUM-007 closure.
 pub mod rotation_deadline;
 
+// Batch #316 D-1b persistence: atomic-write JSON marker
+// store ($SUDERRA_DATA_DIR/keystore_rotation_marker.json)
+// for cross-restart `last_rotation_at` tracking. read_or_init
+// on first boot mints + persists; record_rotation_now is
+// the post-rotation update entry. Pure persistence module
+// — FileBackedKeystore consumer wiring lands in the D-1b
+// arc continuation.
+pub mod rotation_marker_store;
+
+// Batch #317 D-1b alarm runner: 1-hour interval task
+// that reads the marker + evaluates the deadline +
+// emits structured operator-visible alarms on
+// LeadTimeExceeded / Overdue. Per-tick re-emission
+// (NOT edge-triggered) for restart resilience —
+// processes loading an already-Overdue marker MUST
+// alarm immediately on the first tick, not silently
+// drop the transition.
+pub mod rotation_alarm_runner;
+
 pub use acceptance::{AcceptanceToken, FileBackedAcceptance, FileBackedAcceptanceError};
 pub use error::{KeyDerivationError, KeystoreError, KeystoreErrorKind};
 pub use file_backed::{Argon2idParams, FileBackedKeystore};
@@ -101,6 +120,22 @@ pub use selector::{
 pub use rotation_deadline::{
     KeystoreRotationDeadline, RotationDeadlineError, RotationStatus,
     DEFAULT_ALARM_LEAD_TIME_DAYS, DEFAULT_ROTATION_PERIOD_DAYS,
+};
+
+// Batch #316 re-exports — rotation marker persistence.
+// FileBackedKeystore consumer wiring (next arc batch)
+// imports these.
+pub use rotation_marker_store::{
+    read_marker, read_or_init, record_rotation_now, write_marker,
+    MarkerStoreError, ROTATION_MARKER_FILENAME,
+};
+
+// Batch #317 re-exports — alarm runner. main.rs cold-
+// boot path spawns this task alongside the keystore
+// instantiation.
+pub use rotation_alarm_runner::{
+    run_keystore_rotation_alarm_task, AlarmRunSummary,
+    DEFAULT_ALARM_INTERVAL_SECS,
 };
 // RotationSource is defined in this module above + already
 // pub, so consumers can `use crate::keystore::RotationSource`

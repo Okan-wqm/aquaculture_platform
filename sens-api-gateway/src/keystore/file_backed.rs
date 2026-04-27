@@ -143,6 +143,44 @@ pub struct FileBackedKeystore {
     // operator explicitly accepted this fallback path.
     #[allow(dead_code)]
     acceptance: FileBackedAcceptance,
+    /// **Batch #318 D-1b CLOSURE — rotation tracking
+    /// integration.** When `Some`, the keystore is wired to
+    /// the marker store + rotation deadline + alarm-runner
+    /// chain (Batches #315 + #316 + #317). Operations:
+    ///
+    /// - `rotate_master_from_files_with_tracking` updates
+    ///   the marker via `record_rotation_now` after a
+    ///   successful master swap.
+    /// - `rotation_status` evaluates the deadline against
+    ///   the clock authority + returns the 3-state outcome.
+    ///
+    /// `None` keeps the legacy ctor path zero-cost: tests
+    /// + dev-mode boots that don't care about the 180-day
+    /// alarm do not pay the read_or_init / clock-injection
+    /// cost. Production cold-boot uses
+    /// `open_with_rotation_tracker` for the wired path.
+    rotation_tracker: Option<RotationTracker>,
+}
+
+/// Internal RotationTracker bundle — owns the marker
+/// path + the in-memory deadline (under tokio RwLock so
+/// the rotate_master_with_tracking path can take a
+/// write guard across an await) + the clock authority
+/// shared via Arc.
+///
+/// **Why tokio::sync::RwLock here vs std::sync::RwLock
+/// on `master`:** the master's write guard never crosses
+/// an `await` point (the rotate_master_from_files
+/// argon2 compute is synchronous). The deadline guard
+/// DOES cross awaits (record_rotation_now reads the
+/// clock asynchronously). Mixing the two lock kinds in
+/// the same struct is the architecturally honest shape:
+/// each field gets the lock kind that matches its
+/// access pattern.
+struct RotationTracker {
+    marker_path: std::path::PathBuf,
+    deadline: tokio::sync::RwLock<crate::keystore::KeystoreRotationDeadline>,
+    clock: std::sync::Arc<dyn crate::runtime_safety::ClockAuthority>,
 }
 
 impl FileBackedKeystore {
@@ -265,7 +303,172 @@ impl FileBackedKeystore {
         Ok(Self {
             master: std::sync::RwLock::new(master),
             acceptance,
+            // Batch #318: legacy ctor leaves rotation
+            // tracking off. Production cold-boot uses
+            // `open_with_rotation_tracker` to opt into the
+            // 180-day alarm chain.
+            rotation_tracker: None,
         })
+    }
+
+    /// **Batch #318 D-1b CLOSURE — production cold-boot
+    /// ctor with rotation tracking enabled.**
+    ///
+    /// Same Argon2id derivation path as `open`, plus:
+    ///
+    /// 1. Reads (or mints + persists) the rotation marker
+    ///    via `rotation_marker_store::read_or_init`. If
+    ///    the marker is missing (first-boot), the factory
+    ///    closure produces a fresh `KeystoreRotationDeadline`
+    ///    anchored at the current trustworthy wallclock.
+    /// 2. Stores the marker path + the in-memory deadline
+    ///    + the clock authority on `self.rotation_tracker`.
+    /// 3. Subsequent `rotate_master_from_files_with_tracking`
+    ///    calls update the marker; `rotation_status()`
+    ///    evaluates the deadline against `clock`.
+    ///
+    /// **Why async (vs `open`):** `read_or_init` is async
+    /// because it calls `clock.trustworthy_wall_clock()`.
+    /// Cold-boot is the only call site so the async cost
+    /// is acceptable.
+    pub async fn open_with_rotation_tracker(
+        passphrase_path: &Path,
+        salt_path: &Path,
+        params: Argon2idParams,
+        acceptance: FileBackedAcceptance,
+        rotation_marker_path: std::path::PathBuf,
+        clock: std::sync::Arc<dyn crate::runtime_safety::ClockAuthority>,
+    ) -> Result<Self, KeystoreError> {
+        // Step 1 — derive the master via the existing
+        // sync ctor.
+        let mut keystore =
+            Self::open(passphrase_path, salt_path, params, acceptance)?;
+
+        // Step 2 — initialize the rotation marker. First
+        // boot mints + persists; subsequent boots read.
+        use crate::keystore::rotation_marker_store::read_or_init;
+        use crate::keystore::KeystoreRotationDeadline;
+        use super::error::KeystoreErrorKind;
+        let deadline = read_or_init(
+            &rotation_marker_path,
+            &*clock,
+            |now_unix_secs| {
+                KeystoreRotationDeadline::new_with_defaults(now_unix_secs)
+            },
+        )
+        .await
+        .map_err(|e| {
+            KeystoreError::new(
+                KeystoreErrorKind::IoError,
+                format!(
+                    "FileBackedKeystore: rotation marker init failed: {}",
+                    e
+                ),
+            )
+        })?;
+
+        keystore.rotation_tracker = Some(RotationTracker {
+            marker_path: rotation_marker_path,
+            deadline: tokio::sync::RwLock::new(deadline),
+            clock,
+        });
+
+        info!(
+            "FileBackedKeystore opened with rotation tracking enabled"
+        );
+        Ok(keystore)
+    }
+
+    /// **Batch #318 D-1b CLOSURE — accessor returning the
+    /// current `RotationStatus` per the wired tracker.**
+    ///
+    /// Returns `None` when the keystore was constructed
+    /// via the legacy `open` ctor (no tracker wired).
+    /// Returns `Some(status)` when the tracker is present
+    /// AND the evaluation succeeded; surfaces clock /
+    /// marker errors via the structured Err arm.
+    ///
+    /// Used by:
+    /// - operator dashboard / health endpoint to display
+    ///   "rotation overdue by N days" in the agent
+    ///   status block.
+    /// - the alarm runner task (via the marker store
+    ///   path; this accessor is the alternative entry for
+    ///   call sites that have the FileBackedKeystore Arc
+    ///   directly + don't want to round-trip via JSON).
+    pub async fn rotation_status(
+        &self,
+    ) -> Option<
+        Result<
+            crate::keystore::RotationStatus,
+            crate::keystore::RotationDeadlineError,
+        >,
+    > {
+        let tracker = self.rotation_tracker.as_ref()?;
+        let deadline_guard = tracker.deadline.read().await;
+        Some(deadline_guard.evaluate(&*tracker.clock).await)
+    }
+
+    /// **Batch #318 D-1b CLOSURE — rotation entry point
+    /// that updates the persisted marker after a
+    /// successful master swap.**
+    ///
+    /// Composition:
+    /// 1. Calls the existing sync `rotate_master_from_files`
+    ///    for the actual master swap.
+    /// 2. On success AND when the tracker is wired:
+    ///    a. Acquire the deadline write guard (tokio
+    ///       async — cross-await safe).
+    ///    b. Call `record_rotation_now` which advances
+    ///       the in-memory deadline + atomically rewrites
+    ///       the marker JSON.
+    /// 3. **Failure semantic:** if the marker write
+    ///    fails AFTER the master swap succeeded, the
+    ///    in-memory master IS the new one but the
+    ///    persisted marker is stale by one rotation.
+    ///    The architectural decision is FAIL-SAFE: log
+    ///    warn + return Ok. Result: the alarm fires too
+    ///    EARLY on the next tick (operator sees rotation
+    ///    due, runs ceremony, alarm clears) — preferable
+    ///    to alarm firing too LATE (silent rotation miss).
+    ///
+    /// **When tracker is None:** behaves identically to
+    /// the legacy sync `rotate_master_from_files` —
+    /// useful for tests + dev-mode boots that don't care
+    /// about the alarm chain.
+    pub async fn rotate_master_from_files_with_tracking(
+        &self,
+        passphrase_path: &Path,
+        salt_path: &Path,
+        params: Argon2idParams,
+    ) -> Result<(), KeystoreError> {
+        // Step 1 — actual master swap (sync, existing).
+        self.rotate_master_from_files(passphrase_path, salt_path, params)?;
+
+        // Step 2 — update the marker if the tracker is
+        // wired. Fail-safe semantic on persistence error.
+        if let Some(tracker) = self.rotation_tracker.as_ref() {
+            use crate::keystore::rotation_marker_store::record_rotation_now;
+            let mut guard = tracker.deadline.write().await;
+            if let Err(e) = record_rotation_now(
+                &tracker.marker_path,
+                &mut *guard,
+                &*tracker.clock,
+            )
+            .await
+            {
+                warn!(
+                    "FileBackedKeystore rotate_master_from_files_with_tracking: \
+                     master swap succeeded BUT marker persistence FAILED ({}). \
+                     The in-memory master is the new one; the persisted marker \
+                     is stale by one rotation. The alarm runner will fire too \
+                     EARLY on the next tick — operator should run the rotation \
+                     ceremony to clear the alarm. Fail-safe semantic per ADR-018 §6.",
+                    e
+                );
+            }
+        }
+        Ok(())
     }
 
     /// Swap the master key by re-deriving from NEW
@@ -727,6 +930,10 @@ mod tests {
         let ks = FileBackedKeystore {
             master: std::sync::RwLock::new(master),
             acceptance: build_acceptance(),
+            // Batch #318: tests don't exercise the
+            // rotation alarm chain — None keeps the
+            // legacy behaviour.
+            rotation_tracker: None,
         };
 
         let k1 = ks
@@ -755,6 +962,10 @@ mod tests {
         let ks = FileBackedKeystore {
             master: std::sync::RwLock::new(master),
             acceptance: build_acceptance(),
+            // Batch #318: tests don't exercise the
+            // rotation alarm chain — None keeps the
+            // legacy behaviour.
+            rotation_tracker: None,
         };
 
         let audit = ks
@@ -783,6 +994,10 @@ mod tests {
         let ks = FileBackedKeystore {
             master: std::sync::RwLock::new(master),
             acceptance: build_acceptance(),
+            // Batch #318: tests don't exercise the
+            // rotation alarm chain — None keeps the
+            // legacy behaviour.
+            rotation_tracker: None,
         };
 
         let a = ks
@@ -811,6 +1026,10 @@ mod tests {
         let ks = FileBackedKeystore {
             master: std::sync::RwLock::new(master),
             acceptance: build_acceptance(),
+            // Batch #318: tests don't exercise the
+            // rotation alarm chain — None keeps the
+            // legacy behaviour.
+            rotation_tracker: None,
         };
         assert_eq!(ks.backend(), KeyBackend::FileBacked);
     }
@@ -830,6 +1049,10 @@ mod tests {
         let ks = FileBackedKeystore {
             master: std::sync::RwLock::new(master),
             acceptance: build_acceptance(),
+            // Batch #318: tests don't exercise the
+            // rotation alarm chain — None keeps the
+            // legacy behaviour.
+            rotation_tracker: None,
         };
 
         let id1 = ks.derived_key_id(KeyPurpose::AuditHmacChain, b"ctx");
@@ -923,8 +1146,238 @@ mod tests {
         let ks = FileBackedKeystore {
             master: std::sync::RwLock::new(master),
             acceptance: build_acceptance(),
+            // Batch #318: tests don't exercise the
+            // rotation alarm chain — None keeps the
+            // legacy behaviour.
+            rotation_tracker: None,
         };
         let result = ks.rotate_master().await;
         assert!(result.is_err());
+    }
+
+    // ================================================================
+    // Batch #318 D-1b CLOSURE — FileBackedKeystore rotation tracking
+    // ================================================================
+    //
+    // 4 architectural property tests pin the wired behaviour:
+    //  (1) legacy `open` ctor leaves rotation_tracker as None;
+    //      rotation_status() returns None.
+    //  (2) `open_with_rotation_tracker` first-boot mints + persists
+    //      the marker; rotation_status() returns Some(WithinPolicy).
+    //  (3) `open_with_rotation_tracker` reads the existing marker;
+    //      a 200-day-old marker yields Some(Overdue).
+    //  (4) rotate_master_from_files_with_tracking advances the
+    //      marker; subsequent rotation_status() shows the freshly-
+    //      anchored deadline.
+
+    use crate::runtime_safety::SystemClockAuthority;
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn legacy_open_ctor_leaves_rotation_tracker_none() {
+        let dir = std::env::temp_dir().join(format!(
+            "suderra-rotation-test-{}-{}",
+            std::process::id(),
+            rand::random::<u32>()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let pp = dir.join("passphrase");
+        let salt = dir.join("salt");
+        std::fs::write(&pp, b"correct horse battery").unwrap();
+        std::fs::write(&salt, [0xa5u8; 32]).unwrap();
+
+        let ks = FileBackedKeystore::open(
+            &pp,
+            &salt,
+            test_params_owasp_ok(),
+            build_acceptance(),
+        )
+        .expect("open");
+
+        // Legacy ctor leaves tracker None — rotation_status
+        // returns None (NOT an error; expressing the
+        // "no tracking enabled" state).
+        let status = ks.rotation_status().await;
+        assert!(status.is_none(), "legacy open MUST leave tracker None");
+    }
+
+    #[tokio::test]
+    async fn open_with_rotation_tracker_first_boot_mints_marker() {
+        let dir = std::env::temp_dir().join(format!(
+            "suderra-rotation-firstboot-{}-{}",
+            std::process::id(),
+            rand::random::<u32>()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let pp = dir.join("passphrase");
+        let salt = dir.join("salt");
+        std::fs::write(&pp, b"correct horse battery").unwrap();
+        std::fs::write(&salt, [0xa5u8; 32]).unwrap();
+        let marker_path = dir.join(
+            crate::keystore::ROTATION_MARKER_FILENAME,
+        );
+        assert!(!marker_path.exists(), "first-boot precondition");
+
+        let clock: Arc<dyn crate::runtime_safety::ClockAuthority> =
+            Arc::new(SystemClockAuthority::new());
+        let ks = FileBackedKeystore::open_with_rotation_tracker(
+            &pp,
+            &salt,
+            test_params_owasp_ok(),
+            build_acceptance(),
+            marker_path.clone(),
+            clock,
+        )
+        .await
+        .expect("open_with_rotation_tracker");
+
+        // Marker file now exists.
+        assert!(marker_path.exists(), "first-boot must mint the marker");
+
+        // rotation_status returns Some(WithinPolicy) for a
+        // freshly-minted deadline.
+        let status = ks
+            .rotation_status()
+            .await
+            .expect("Some — tracker is wired")
+            .expect("evaluate succeeded");
+        assert!(matches!(
+            status,
+            crate::keystore::RotationStatus::WithinPolicy { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn open_with_rotation_tracker_reads_existing_overdue_marker() {
+        let dir = std::env::temp_dir().join(format!(
+            "suderra-rotation-overdue-{}-{}",
+            std::process::id(),
+            rand::random::<u32>()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let pp = dir.join("passphrase");
+        let salt = dir.join("salt");
+        std::fs::write(&pp, b"correct horse battery").unwrap();
+        std::fs::write(&salt, [0xa5u8; 32]).unwrap();
+        let marker_path = dir.join(
+            crate::keystore::ROTATION_MARKER_FILENAME,
+        );
+
+        // Pre-seed the marker with a 200-days-ago timestamp
+        // so the deadline is overdue.
+        use crate::keystore::{
+            write_marker, KeystoreRotationDeadline,
+        };
+        let now_unix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        let overdue_deadline = KeystoreRotationDeadline::new_with_defaults(
+            now_unix - 200 * 86_400,
+        )
+        .unwrap();
+        write_marker(&marker_path, &overdue_deadline).unwrap();
+
+        let clock: Arc<dyn crate::runtime_safety::ClockAuthority> =
+            Arc::new(SystemClockAuthority::new());
+        let ks = FileBackedKeystore::open_with_rotation_tracker(
+            &pp,
+            &salt,
+            test_params_owasp_ok(),
+            build_acceptance(),
+            marker_path,
+            clock,
+        )
+        .await
+        .expect("open_with_rotation_tracker");
+
+        // Existing marker is read; status is Overdue.
+        let status = ks
+            .rotation_status()
+            .await
+            .expect("Some — tracker is wired")
+            .expect("evaluate succeeded");
+        assert!(
+            matches!(status, crate::keystore::RotationStatus::Overdue { .. }),
+            "expected Overdue for 200-day-old marker, got {:?}",
+            status
+        );
+    }
+
+    #[tokio::test]
+    async fn rotate_with_tracking_advances_marker_and_clears_overdue() {
+        let dir = std::env::temp_dir().join(format!(
+            "suderra-rotation-advance-{}-{}",
+            std::process::id(),
+            rand::random::<u32>()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let pp = dir.join("passphrase");
+        let salt = dir.join("salt");
+        std::fs::write(&pp, b"old passphrase").unwrap();
+        std::fs::write(&salt, [0xa5u8; 32]).unwrap();
+        let marker_path = dir.join(
+            crate::keystore::ROTATION_MARKER_FILENAME,
+        );
+
+        // Pre-seed overdue marker.
+        use crate::keystore::{
+            write_marker, KeystoreRotationDeadline,
+        };
+        let now_unix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        let stale = KeystoreRotationDeadline::new_with_defaults(
+            now_unix - 200 * 86_400,
+        )
+        .unwrap();
+        write_marker(&marker_path, &stale).unwrap();
+
+        let clock: Arc<dyn crate::runtime_safety::ClockAuthority> =
+            Arc::new(SystemClockAuthority::new());
+        let ks = FileBackedKeystore::open_with_rotation_tracker(
+            &pp,
+            &salt,
+            test_params_owasp_ok(),
+            build_acceptance(),
+            marker_path.clone(),
+            clock,
+        )
+        .await
+        .expect("open_with_rotation_tracker");
+
+        // Pre-rotate: status is Overdue.
+        let pre = ks.rotation_status().await.unwrap().unwrap();
+        assert!(matches!(pre, crate::keystore::RotationStatus::Overdue { .. }));
+
+        // Rotate the master + advance the marker. NEW
+        // passphrase + same salt produces a new master.
+        std::fs::write(&pp, b"new passphrase").unwrap();
+        ks.rotate_master_from_files_with_tracking(
+            &pp,
+            &salt,
+            test_params_owasp_ok(),
+        )
+        .await
+        .expect("rotate_with_tracking");
+
+        // Post-rotate: status is WithinPolicy (deadline
+        // anchored at the rotation moment).
+        let post = ks.rotation_status().await.unwrap().unwrap();
+        assert!(
+            matches!(post, crate::keystore::RotationStatus::WithinPolicy { .. }),
+            "post-rotation must be WithinPolicy, got {:?}",
+            post
+        );
+
+        // Persisted marker reflects the new timestamp.
+        let loaded = crate::keystore::read_marker(&marker_path)
+            .unwrap()
+            .unwrap();
+        assert!(
+            loaded.last_rotation_at_unix_secs() > now_unix - 60,
+            "persisted marker must reflect the fresh rotation timestamp"
+        );
     }
 }

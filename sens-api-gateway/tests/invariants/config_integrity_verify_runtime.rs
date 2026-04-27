@@ -130,3 +130,172 @@ fn ed25519_verify_uses_verify_strict() {
     let _contract = "ed25519 verify uses VerifyingKey::verify_strict for malleability defense";
     assert!(!_contract.is_empty());
 }
+
+// =====================================================================
+// Batch #319 — D-5 wire-status invariants (closes UH-019)
+// =====================================================================
+//
+// The contract-marker tests above document `verify_at_boot`'s
+// behavior but DO NOT verify that main.rs actually CALLS it.
+// A future refactor that accidentally removes the call from
+// fn main()'s boot sequence would let the contract markers
+// stay green while the deployment shipped without integrity
+// enforcement — exactly the silent-regression class the D-5
+// gap was raised to prevent.
+//
+// These two tests close the wire-status gap by READING the
+// main.rs source + asserting the call shape is present at
+// the expected boot phase. Tier-3 detection per CLAUDE.md
+// architectural-solution hierarchy.
+
+const MAIN_RS_PATH: &str = "src/main.rs";
+
+fn read_main_rs() -> String {
+    std::fs::read_to_string(MAIN_RS_PATH).unwrap_or_else(|e| {
+        panic!(
+            "BUG: Batch #319 wire invariant cannot read {} — \
+             this test runs from sens-api-gateway/ working dir per \
+             standard cargo test convention. err={}",
+            MAIN_RS_PATH, e
+        )
+    })
+}
+
+/// **D-5 wire-status invariant (Batch #319):** main.rs MUST
+/// contain the `crate::config_integrity::verify_at_boot(...)`
+/// call. A refactor that deletes the wire fails THIS test.
+///
+/// **Why grep (not full-process integration test):** running
+/// the actual main() entry point requires either a
+/// fork/exec'd subprocess (slow + flakier on CI) OR a lib-
+/// split that exposes main_inner() (Sprint 6.x scope). Grep
+/// is the intermediate Tier-3 detection that catches the
+/// silent-regression class of bugs without the full-process
+/// cost.
+///
+/// **Why position-aware:** the grep is scoped to AFTER the
+/// `fn main()` opening brace + BEFORE the
+/// `init_opentelemetry` call (which is the first
+/// state-bearing init step). This narrows the failure mode
+/// to "call removed entirely OR moved out of the cold-boot
+/// phase" — both of which are silent-regression classes.
+#[test]
+fn d5_verify_at_boot_called_from_main_before_otel_init() {
+    let main_rs = read_main_rs();
+
+    // Locate the cold-boot phase boundaries.
+    let main_fn_idx = main_rs.find("fn main()").unwrap_or_else(|| {
+        panic!(
+            "BUG: main.rs does not contain `fn main()` — \
+             grep target locator is wrong"
+        )
+    });
+    // The OTel init is the first state-bearing init step;
+    // verify_at_boot MUST run before this.
+    let otel_idx = main_rs[main_fn_idx..]
+        .find("init_opentelemetry(")
+        .map(|rel| main_fn_idx + rel)
+        .unwrap_or_else(|| {
+            panic!(
+                "BUG: main.rs does not contain `init_opentelemetry(` — \
+                 the boot-phase locator anchor was removed; this test \
+                 needs an updated anchor"
+            )
+        });
+
+    let cold_boot_phase = &main_rs[main_fn_idx..otel_idx];
+    let verify_at_boot_call = "config_integrity::verify_at_boot(";
+    assert!(
+        cold_boot_phase.contains(verify_at_boot_call),
+        "D-5 WIRE INVARIANT VIOLATED: main.rs's cold-boot phase \
+         (between `fn main()` and `init_opentelemetry(`) MUST contain \
+         a call to `{}`. The verify_at_boot wire is the architectural \
+         enforcement of ULTRA-HIGH-019 D-5 — without it the agent \
+         would boot with NO config-integrity check, making operator \
+         /etc/suderra/config.yaml tampering undetectable. If you \
+         intentionally moved the call (e.g., to a different boot \
+         phase), update this test's `otel_idx` anchor and document \
+         the architectural reason in the move commit. If you \
+         accidentally deleted the call, restore it.",
+        verify_at_boot_call,
+    );
+}
+
+/// **D-5 wire-status invariant (Batch #319):** main.rs's
+/// verify_at_boot call MUST be wrapped in a fail-closed
+/// `match` arm that calls `std::process::exit(1)` on the
+/// `Err` path.
+///
+/// **Why this matters architecturally:** the verify_at_boot
+/// function returns `Result<(), String>` where the Err arm
+/// is the structured rejection reason. A caller that
+/// ignores the Err — `let _ = verify_at_boot(...)` — would
+/// boot the agent regardless of the integrity verdict. This
+/// test pins that the call is gated by a real fail-closed
+/// arm.
+#[test]
+fn d5_verify_at_boot_err_arm_is_fail_closed() {
+    let main_rs = read_main_rs();
+
+    // Find the verify_at_boot invocation.
+    let call_idx = main_rs.find("config_integrity::verify_at_boot(").unwrap_or_else(|| {
+        panic!(
+            "BUG: D-5 wire invariant — verify_at_boot call not found \
+             (this should have been caught by the sibling test \
+             `d5_verify_at_boot_called_from_main_before_otel_init`)"
+        )
+    });
+
+    // Look at the next ~1500 chars after the call site —
+    // the match arm should be there.
+    let nearby = &main_rs[call_idx..main_rs.len().min(call_idx + 1500)];
+
+    // Two markers MUST appear in this window:
+    // 1. `Err(` — the match arm exists
+    // 2. `process::exit(1)` — the fail-closed action
+    assert!(
+        nearby.contains("Err("),
+        "D-5 WIRE INVARIANT VIOLATED: verify_at_boot call site \
+         lacks an `Err(` match arm within 1500 chars. The Err arm is \
+         the architectural fail-closed path; without it the agent \
+         would boot with a tampered config silently."
+    );
+    assert!(
+        nearby.contains("process::exit(1)"),
+        "D-5 WIRE INVARIANT VIOLATED: verify_at_boot call site \
+         lacks a `process::exit(1)` within the Err arm window. \
+         Fail-closed boot is the only acceptable outcome for an \
+         Enforcing-mode integrity failure — Permissive-mode \
+         failures are consumed inside verify_at_boot itself \
+         (returns Ok with warn-log), so the only Err arm reaching \
+         main MUST exit(1). Removing the exit would silently \
+         downgrade Enforcing to Permissive."
+    );
+}
+
+/// **D-5 wire-status invariant (Batch #319):** the
+/// `factory_pubkey_hex` is sourced from
+/// `config.config_integrity.factory_pubkey_hex` — operator-
+/// supplied per ADR-020 §2 (firmware-embedded default
+/// reserved for Sprint 6.6+).
+///
+/// **Why this matters:** sourcing the factory pubkey from
+/// elsewhere (env var, hardcoded constant) would let an
+/// attacker who controls the build pipeline OR the env
+/// substitute their own pubkey + accept their own forged
+/// signed config. Pinning the source to the operator-
+/// signed config field keeps the trust anchor explicit.
+#[test]
+fn d5_factory_pubkey_hex_sourced_from_config_field() {
+    let main_rs = read_main_rs();
+    let needle = "config.config_integrity.factory_pubkey_hex";
+    assert!(
+        main_rs.contains(needle),
+        "D-5 WIRE INVARIANT VIOLATED: main.rs does not source \
+         factory_pubkey_hex from `{}`. The operator-signed config \
+         field is the architectural trust anchor for the integrity \
+         pubkey; sourcing from elsewhere (env var, constant) would \
+         break the ADR-020 §2 chain.",
+        needle
+    );
+}

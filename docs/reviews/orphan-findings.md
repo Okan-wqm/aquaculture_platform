@@ -997,7 +997,7 @@ The PRESENT state (untracked, no policy file) is the worst of both — engineers
 
 **Severity: LOW** — git hygiene only. No correctness, security, or test-coverage implication. Documented per user policy: *gördüğüm hiçbir problemi senin ilgili olmasa bile not al*.
 
-**Status:** OPEN. Slated for the next no-arc hygiene batch (or fold into the next batch that already touches `sens-api-gateway/.gitignore` for an unrelated reason).
+**Status:** RESOLVED — closed by Batch #334 (this session). Per the workspace `.gitignore`'s explicit "Cargo.lock IS committed" policy (the canonical convention for binary-producing crates), the lockfile is now tracked. `fuzz/Cargo.lock` was 3814 lines + 382 packages at the time of commit — standard cargo-fuzz lockfile shape. The `??` no longer appears in `git status` and the workspace policy is uniformly applied across all binary crates in the repo.
 
 **Linked plan:** none.
 

@@ -2,8 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
-/** SEC-L15: Use shared isSensitiveField for consistent PII redaction across all services. */
-import { isSensitiveField } from '@aquaculture/backend-common';
+import { isSensitiveField } from '@aquaculture/backend-common/security';
 
 import {
   CapturedApiCall,

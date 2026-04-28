@@ -10,6 +10,7 @@ import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { DataSource, QueryRunner } from 'typeorm';
 import { UpdateWorkRotationCommand } from '../commands/update-work-rotation.command';
 import { WorkRotation, RotationStatus } from '../entities/work-rotation.entity';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 
 @Injectable()
 @CommandHandler(UpdateWorkRotationCommand)
@@ -27,7 +28,7 @@ export class UpdateWorkRotationHandler implements ICommandHandler<UpdateWorkRota
     await queryRunner.startTransaction();
 
     try {
-      const repo = queryRunner.manager.getRepository(WorkRotation);
+      const repo = tenantManagerRepo(queryRunner.manager, WorkRotation, tenantId);
 
       const rotation = await repo.findOne({
         where: { id, tenantId, isDeleted: false },

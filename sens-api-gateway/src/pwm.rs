@@ -16,8 +16,37 @@
 //! - Hardware PWM with configurable frequency/duty cycle
 //! - Software PWM fallback
 //! - Servo mode support (50Hz, 1-2ms pulse)
+//!
+//! ## ARC-009 decision (Batch 17 / Faz 1 Step 8): **WHITELIST-PENDING-INVENTORY**
+//!
+//! Plan §5 Faz 1 Step 8 explicitly marks PWM as "**ADR-019 envanter
+//! sonrası** (LED diurnal için wire; aerator için REMOVE)". The final
+//! WIRE-or-REMOVE decision depends on ADR-019 §5 Hardware Adapter
+//! Inventory which enumerates deployed actuator classes:
+//!
+//! - **LED diurnal (circadian aquarium lighting):** WIRE — needs HW
+//!   PWM at 1kHz+ for flicker-free fade.
+//! - **Aerator motor speed control:** REMOVE — aerator actuators
+//!   belong to `ActuatorClass::Aeration(LifeSupport)` per ADR-024 §3,
+//!   and PWM-based speed control is NOT acceptable for that class
+//!   (digital on/off with hardwired safety override is the correct
+//!   shape). Using PWM for life-support would bypass the Batch 3
+//!   `FailSafe::OnFull` contract.
+//!
+//! **Why WHITELIST-PENDING-INVENTORY:** fleet-inventory decision
+//! blocks the file-level decision. Removing would force re-introduction
+//! if LED path is confirmed; wiring would leak aerator-unsafe API.
+//!
+//! **Re-evaluate:** ADR-019 §5 Hardware Adapter Inventory sprint
+//! (Faz 2 Sprint 7.1 hardware-inventory.yaml loader). At that point:
+//! - Stays WIRE + LED consumer in Sprint 7.3, OR
+//! - REMOVED + replaced with explicit `AeratorOnOff` + `LedDriver`
+//!   separated modules (safer — no shared API across safety classes).
+//!
+//! Plan ref: §5 Faz 1 Step 8 / ARC-009 + ADR-019 §5.
 
-// TODO: PWM actor fully implemented but not yet wired in main.rs init_hardware
+// TODO: PWM actor fully implemented; wire decision pending ADR-019
+// inventory per ARC-009 WHITELIST-PENDING-INVENTORY above.
 #![allow(dead_code)]
 
 use anyhow::Result;

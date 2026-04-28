@@ -1,8 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
-import {
-  applyTenantRlsToSchema,
-  MigrationLogger,
-} from '@aquaculture/backend-common';
+import { applyTenantRlsToSchema, MigrationLogger } from '@aquaculture/backend-common/database';
 
 /**
  * RefreshTenantRlsPredicate1781000000000
@@ -61,7 +58,7 @@ import {
  * makes it safe to forward-migrate predicate changes via the helper —
  * future predicate updates ship as another `Refresh*` migration.
  *
- * # Out of scope
+ * # Runtime RLS wiring (separate concern)
  *
  * This migration does NOT add the runtime RLS context propagation. That is
  * delivered by `RlsModule.forPoolService({ serviceName: 'farm' })` in `AppModule`, which patches

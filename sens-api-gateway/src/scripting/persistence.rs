@@ -1,13 +1,34 @@
 //! Persistent Storage for RETAIN Variables (IEC 61131-3 Compliance)
 //!
-//! NOTE: Full persistence API is implemented. Some methods are for future
-//! batch operations and advanced script state management.
-#![allow(dead_code)]
-//!
 //! Provides SQLite-based persistence for:
 //! - RETAIN variables (survive power cycles)
 //! - Function block states (Timer elapsed, Counter values)
 //! - Script execution metadata
+//!
+//! NOTE: Full persistence API is implemented. Some methods are for
+//! future batch operations and advanced script state management.
+//!
+//! ## Wire status (Batch #275 audit)
+//!
+//! Production wire confirmed across multiple call sites:
+//! - `scripting::mod.rs:132` re-exports `SqlitePersistence`,
+//!   `PersistenceError`, `VariableScope`, `VariableStore` as
+//!   the canonical scripting persistence public surface.
+//! - `bytecode_runner.rs:129,151,174` — RETAIN load/save path
+//!   for ST bytecode programs.
+//! - `bytecode_scan_cycle_task.rs:104` — scan-cycle task holds
+//!   `Option<Arc<SqlitePersistence>>` for retain-aware
+//!   execution.
+//! - `task_scheduler.rs:605,860` — multi-task scheduler
+//!   propagates persistence to per-task scan ticks.
+//! - `fb_registry.rs:40` — function block instance state load.
+//! - `bytecode_e2e_tests.rs:47` — integration test harness.
+//!
+//! Per-item dead-code allow audit pending — blanket allow
+//! retained as WHITELIST-with-reason while a focused F-series
+//! cleanup batch surfaces residual unused helpers.
+
+#![allow(dead_code)]
 //!
 //! Design Principles:
 //! - SOLID: Single Responsibility, Dependency Inversion via traits

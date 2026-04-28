@@ -13,17 +13,10 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
-import {
-  Role,
-  TimingSafeService,
-  ISessionManager,
-  ITokenBlacklist,
-  SESSION_MANAGER,
-  TOKEN_BLACKLIST,
-  requestContextStorage,
-  getRequestContext,
-  BypassRlsService,
-} from '@aquaculture/backend-common';
+import { BypassRlsService } from '@aquaculture/backend-common/database';
+import { Role } from '@aquaculture/backend-common/decorators';
+import { requestContextStorage, getRequestContext } from '@aquaculture/backend-common/logging';
+import { TimingSafeService, ISessionManager, ITokenBlacklist, SESSION_MANAGER, TOKEN_BLACKLIST } from '@aquaculture/backend-common/security';
 import { IEventBus } from '@platform/event-bus';
 import { createBaseEvent } from '@platform/event-contracts';
 import { DataSource, Repository } from 'typeorm';
@@ -497,6 +490,12 @@ export class AuthenticationService {
     const result = await this.dataSource.transaction(async (manager) => {
       // SECURITY: Lock the invitation row to prevent concurrent acceptance
       // Try hashed token first, then fall back to plaintext for backward compatibility
+      // Invitation redemption runs BEFORE tenant context is established
+      // — the invitation token IS the pre-tenant credential, so the
+      // lookup must scan across all tenants by construction. auth-
+      // service is the one service where cross-tenant auth flows are
+      // first-class; tenantManagerRepo cannot be used here.
+      // eslint-disable-next-line no-restricted-syntax -- pre-tenant-context auth flow
       let invitation = await manager
         .getRepository(Invitation)
         .createQueryBuilder('invitation')
@@ -506,6 +505,7 @@ export class AuthenticationService {
 
       if (!invitation) {
         // Backward compatibility: try plaintext token for pre-migration invitations
+        // eslint-disable-next-line no-restricted-syntax -- pre-tenant-context auth flow
         invitation = await manager
           .getRepository(Invitation)
           .createQueryBuilder('invitation')
@@ -525,14 +525,16 @@ export class AuthenticationService {
         throw new BadRequestException('Invitation cannot be accepted');
       }
 
-      // Find user by invitation token hash (within transaction)
-      // SECURITY: Try hashed token first, then plaintext fallback for backward compatibility (SEC-005)
+      // Find user by invitation token hash (within transaction).
+      // Same cross-tenant-before-tenant-resolved rationale as above.
+      // eslint-disable-next-line no-restricted-syntax -- pre-tenant-context auth flow
       let user = await manager
         .getRepository(User)
         .findOne({ where: { invitationToken: tokenHash } });
 
       if (!user) {
         // Backward compatibility: try plaintext token for pre-migration users
+        // eslint-disable-next-line no-restricted-syntax -- pre-tenant-context auth flow
         user = await manager
           .getRepository(User)
           .findOne({ where: { invitationToken: token } });
@@ -651,6 +653,11 @@ export class AuthenticationService {
     // NOTE: FOR UPDATE cannot be used with LEFT JOIN in PostgreSQL, so we split
     // the token lock and user fetch into separate queries.
     return this.dataSource.transaction(async (manager) => {
+      // RefreshToken rotation runs before tenant context is
+      // re-established — the bearer's tenant is derived from the token
+      // row's userId after the row is resolved. Cross-tenant scan is
+      // intrinsic to the refresh-token protocol.
+      // eslint-disable-next-line no-restricted-syntax -- pre-tenant-context auth flow
       const tokenRepo = manager.getRepository(RefreshToken);
 
       // SELECT FOR UPDATE to lock the token row and prevent concurrent refresh
@@ -666,7 +673,8 @@ export class AuthenticationService {
         throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
       }
 
-      // Fetch the associated user separately (no lock needed on user row)
+      // Fetch the associated user separately (no lock needed on user row).
+      // eslint-disable-next-line no-restricted-syntax -- pre-tenant-context auth flow
       const user = await manager
         .getRepository(User)
         .findOne({ where: { id: refreshToken.userId } });
@@ -706,6 +714,11 @@ export class AuthenticationService {
     const tokenPart = separatorIndex > 0 ? plainToken.substring(separatorIndex + 1) : plainToken;
 
     return this.dataSource.transaction(async (manager) => {
+      // RefreshToken rotation runs before tenant context is
+      // re-established — the bearer's tenant is derived from the token
+      // row's userId after the row is resolved. Cross-tenant scan is
+      // intrinsic to the refresh-token protocol.
+      // eslint-disable-next-line no-restricted-syntax -- pre-tenant-context auth flow
       const tokenRepo = manager.getRepository(RefreshToken);
 
       // Build query scoped to user if userId prefix is available
@@ -745,7 +758,8 @@ export class AuthenticationService {
         throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
       }
 
-      // Fetch the associated user separately
+      // Fetch the associated user separately.
+      // eslint-disable-next-line no-restricted-syntax -- pre-tenant-context auth flow
       const user = await manager
         .getRepository(User)
         .findOne({ where: { id: matchedToken.userId } });

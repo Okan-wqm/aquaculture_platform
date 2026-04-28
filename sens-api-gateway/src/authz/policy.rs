@@ -99,8 +99,11 @@ pub struct CoApproverEvidence {
 /// **EDGE-LOW-002 closure:** matches the Batch 2 validated-newtype pattern
 /// (`ModbusRegisterRange::new`). Tier-1 make-it-impossible for the
 /// signature-length class of bug.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Ed25519SignatureBytes([u8; 64]);
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Ed25519SignatureBytes(
+    #[serde(with = "serde_big_array::BigArray")]
+    [u8; 64],
+);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct InvalidSignatureLength {
@@ -304,7 +307,7 @@ mod tests {
     fn authorization_request_builder_defaults_co_approver_none() {
         let req = AuthorizationRequest::new(
             operator(),
-            Permission::ReadTag(TagId::from("t".to_string())),
+            Permission::ReadTag,
             tenant(),
             42,
             SystemTime::UNIX_EPOCH,
@@ -355,7 +358,7 @@ mod tests {
         let engine = DenyAllPolicyEngine::new(AuthorizationDenyReason::PermissionNotGranted);
         let req = AuthorizationRequest::new(
             operator(),
-            Permission::ReadTag(TagId::from("t".to_string())),
+            Permission::ReadTag,
             tenant(),
             42,
             SystemTime::UNIX_EPOCH,

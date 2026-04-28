@@ -1,4 +1,4 @@
-import { createMigrationRunnerService } from '@aquaculture/backend-common';
+import { createMigrationRunnerService } from '@aquaculture/backend-common/database';
 
 /**
  * MigrationRunnerService for farm-service.

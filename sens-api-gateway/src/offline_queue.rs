@@ -16,9 +16,6 @@
 //! # v1.2.3 Improvements
 //! - Added mutex poison recovery for better resilience
 
-// v1.2.4: API reserved for offline message queuing - silence dead_code warnings
-#![allow(dead_code)]
-
 use anyhow::{Context, Result};
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
@@ -38,10 +35,47 @@ use tracing::{debug, error, info, warn};
 /// is world-readable and therefore insufficient as sole key material (IEC 62443 FR4).
 ///
 /// Returns an error if machine-id or secret key cannot be obtained.
+///
+/// ## Caching discipline (Batch 96 architectural fix)
+///
+/// The derived hex is cached in a process-global `OnceLock`
+/// on first successful computation. Subsequent calls return
+/// the cached value WITHOUT re-reading /etc/machine-id or
+/// /etc/suderra/db.key. This:
+///
+/// 1. Eliminates the parallel-test flake where env-var
+///    mutation on one thread raced against file-read on
+///    another (Batch 88+90 partial mitigations via
+///    ENV_RACE_MUTEX + LazyLock were targeted fixes;
+///    this is the root-cause architectural fix).
+/// 2. Bounds the filesystem-read cost to ONE syscall per
+///    process lifetime rather than N-per-connection.
+/// 3. Matches the production invariant: the derived key
+///    never changes during a process lifetime (machine-id
+///    is stable, secret file is touched only at provision
+///    time). Any key rotation inherently requires an
+///    agent restart (Batch 85 rotate_master documents this
+///    explicitly).
+///
+/// Test discipline: the cache persists across tests within a
+/// single `cargo test` process. The first test to call
+/// `derive_db_encryption_key` latches the value; subsequent
+/// tests with different `SUDERRA_DB_KEY_PATH` env values
+/// would observe the cached first-call result. This is
+/// intentional — tests that need a specific path MUST set
+/// the env BEFORE the first call, exactly as the sandbox
+/// LazyLock in the test module does.
 pub(crate) fn derive_db_encryption_key() -> Result<String> {
     use sha2::Sha256;
     use hmac::{Hmac, Mac};
+    use std::sync::OnceLock;
     type HmacSha256 = Hmac<Sha256>;
+
+    static CACHED: OnceLock<String> = OnceLock::new();
+
+    if let Some(hex) = CACHED.get() {
+        return Ok(hex.clone());
+    }
 
     let machine_id = machine_uid::get()
         .map_err(|e| anyhow::anyhow!(
@@ -55,18 +89,38 @@ pub(crate) fn derive_db_encryption_key() -> Result<String> {
         .context("Failed to create HMAC instance")?;
     mac.update(machine_id.as_bytes());
     let result = mac.finalize().into_bytes();
+    let hex: String = result.iter().map(|b| format!("{:02x}", b)).collect();
 
-    Ok(result.iter().map(|b| format!("{:02x}", b)).collect())
+    // Store via OnceLock::get_or_init to handle the race
+    // where multiple threads invoke derive_db_encryption_
+    // key() before any has cached. First writer wins; other
+    // threads observe the winner's value (happens-before
+    // via OnceLock's internal barrier).
+    let cached_ref = CACHED.get_or_init(|| hex.clone());
+    Ok(cached_ref.clone())
 }
 
 /// Load or create the device-local secret key for database encryption.
 ///
-/// The secret is stored at /etc/suderra/db.key with 0400 permissions.
+/// The secret is stored at `/etc/suderra/db.key` with 0400
+/// permissions by default. If `SUDERRA_DB_KEY_PATH` env var is
+/// set (Batch 88 CI-sandbox support), that path is used instead
+/// — enables non-root CI runners to exercise tests that need
+/// the SQLCipher derivation path without needing `/etc`
+/// write access.
+///
 /// If the file does not exist, a 32-byte random key is generated.
 fn load_or_create_db_secret() -> Result<Vec<u8>> {
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
-    let secret_path = Path::new("/etc/suderra/db.key");
+    // Batch 88: env-override for CI + test environments that
+    // cannot write to /etc. Production deployments leave the
+    // env unset + use the canonical path.
+    let path_buf: PathBuf = match std::env::var_os("SUDERRA_DB_KEY_PATH") {
+        Some(v) => PathBuf::from(v),
+        None => PathBuf::from("/etc/suderra/db.key"),
+    };
+    let secret_path: &Path = path_buf.as_path();
 
     if secret_path.exists() {
         let key = std::fs::read(secret_path)
@@ -85,7 +139,12 @@ fn load_or_create_db_secret() -> Result<Vec<u8>> {
     // Ensure parent directory exists
     if let Some(parent) = secret_path.parent() {
         std::fs::create_dir_all(parent)
-            .context("Failed to create /etc/suderra directory")?;
+            .with_context(|| {
+                format!(
+                    "Failed to create secret-key parent directory {}",
+                    parent.display()
+                )
+            })?;
     }
 
     // Write with restrictive permissions from the start (no TOCTOU race)
@@ -97,7 +156,12 @@ fn load_or_create_db_secret() -> Result<Vec<u8>> {
             .create_new(true)
             .mode(0o400)
             .open(secret_path)
-            .context("Failed to create database secret key file at /etc/suderra/db.key")?;
+            .with_context(|| {
+                format!(
+                    "Failed to create database secret key file at {}",
+                    secret_path.display()
+                )
+            })?;
         std::io::Write::write_all(&mut file, &key)
             .context("Failed to write database secret key")?;
     }
@@ -108,7 +172,7 @@ fn load_or_create_db_secret() -> Result<Vec<u8>> {
             .context("Failed to write database secret key")?;
     }
 
-    tracing::info!("Generated new database secret key at /etc/suderra/db.key");
+    tracing::info!("Generated new database secret key at {}", secret_path.display());
     Ok(key)
 }
 
@@ -131,6 +195,14 @@ fn apply_db_encryption_key(conn: &Connection) -> Result<()> {
 /// as SQLite handles its own transaction rollback.
 ///
 /// # v1.3.3: Added connection health check after poison recovery
+///
+/// **Batch #257 wire status:** retained as a generic helper for
+/// non-SQLite mutex paths (no current callers — SQLite hot path
+/// migrated to `acquire_sqlite_lock` for the BUG-015 health-check
+/// fix). Kept compiled with `#[allow(dead_code)]` so future
+/// non-Connection mutex consumers can reuse the simple-poison-
+/// recovery shape without re-deriving it.
+#[allow(dead_code)]
 fn acquire_lock<T>(mutex: &Mutex<T>) -> Result<MutexGuard<'_, T>> {
     match mutex.lock() {
         Ok(guard) => Ok(guard),
@@ -159,6 +231,15 @@ fn acquire_lock<T>(mutex: &Mutex<T>) -> Result<MutexGuard<'_, T>> {
 /// process. Without the flag, `SELECT 1` would run on every hot-path lock
 /// acquisition (enqueue, dequeue, stats) for the rest of the process lifetime,
 /// adding unnecessary SQLite overhead in scan-cycle mode (BUG-015).
+///
+/// ## Wire status (Batch #257)
+///
+/// Wired across all 11 hot-path callers (enqueue, dequeue, ack,
+/// peek, stats, retention-clean, etc.) as of Batch #257. The
+/// SELECT-1 health probe fires exactly once after a mutex
+/// poison event — subsequent acquisitions on the same poisoned
+/// mutex skip the probe via the `poison_health_verified` flag,
+/// keeping the hot-path overhead at one atomic-load per call.
 fn acquire_sqlite_lock<'a>(
     mutex: &'a Mutex<Connection>,
     health_verified: &AtomicBool,
@@ -296,7 +377,8 @@ pub struct OfflineQueue {
     /// Tracks whether the SQLite connection health check has already passed after
     /// a mutex poison event. Prevents running SELECT 1 on every hot-path lock
     /// acquisition for the lifetime of the process once a panic has been recovered
-    /// (BUG-015 fix).
+    /// (BUG-015 fix). Wired by Batch #257 — every `acquire_sqlite_lock` callsite
+    /// passes a reference to this flag.
     poison_health_verified: AtomicBool,
 }
 
@@ -421,7 +503,7 @@ impl OfflineQueue {
 
     /// Initialize database schema
     fn init_schema(&self) -> Result<()> {
-        let conn = acquire_lock(&self.conn)?;
+        let conn = acquire_sqlite_lock(&self.conn, &self.poison_health_verified)?;
 
         conn.execute_batch(
             "
@@ -468,7 +550,7 @@ impl OfflineQueue {
         qos: u8,
         retain: bool,
     ) -> Result<i64> {
-        let conn = acquire_lock(&self.conn)?;
+        let conn = acquire_sqlite_lock(&self.conn, &self.poison_health_verified)?;
 
         // Check current queue size
         let mut current_size: usize = conn
@@ -549,7 +631,7 @@ impl OfflineQueue {
     /// Returns the message but does NOT remove it from queue.
     /// Call `ack()` after successful processing to remove.
     pub fn peek(&self) -> Result<Option<QueuedMessage>> {
-        let conn = acquire_lock(&self.conn)?;
+        let conn = acquire_sqlite_lock(&self.conn, &self.poison_health_verified)?;
 
         // Clean up expired messages first
         if self.max_age_secs > 0 {
@@ -585,7 +667,7 @@ impl OfflineQueue {
 
     /// Acknowledge successful message processing (removes from queue)
     pub fn ack(&self, message_id: i64) -> Result<bool> {
-        let conn = acquire_lock(&self.conn)?;
+        let conn = acquire_sqlite_lock(&self.conn, &self.poison_health_verified)?;
 
         let deleted = conn
             .execute(
@@ -603,7 +685,7 @@ impl OfflineQueue {
 
     /// Mark message for retry (increments retry count)
     pub fn nack(&self, message_id: i64) -> Result<()> {
-        let conn = acquire_lock(&self.conn)?;
+        let conn = acquire_sqlite_lock(&self.conn, &self.poison_health_verified)?;
 
         conn.execute(
             "UPDATE message_queue SET retry_count = retry_count + 1 WHERE id = ?1",
@@ -617,7 +699,7 @@ impl OfflineQueue {
 
     /// Get multiple messages for batch processing
     pub fn peek_batch(&self, max_count: usize) -> Result<Vec<QueuedMessage>> {
-        let conn = acquire_lock(&self.conn)?;
+        let conn = acquire_sqlite_lock(&self.conn, &self.poison_health_verified)?;
 
         // Clean up expired messages first
         if self.max_age_secs > 0 {
@@ -656,7 +738,7 @@ impl OfflineQueue {
             return Ok(0);
         }
 
-        let conn = acquire_lock(&self.conn)?;
+        let conn = acquire_sqlite_lock(&self.conn, &self.poison_health_verified)?;
 
         // Build parameterized query
         let placeholders: Vec<String> =
@@ -707,7 +789,7 @@ impl OfflineQueue {
 
     /// Get queue statistics
     pub fn stats(&self) -> Result<QueueStats> {
-        let conn = acquire_lock(&self.conn)?;
+        let conn = acquire_sqlite_lock(&self.conn, &self.poison_health_verified)?;
 
         let total_messages: usize = conn
             .query_row("SELECT COUNT(*) FROM message_queue", [], |row| row.get(0))
@@ -775,7 +857,7 @@ impl OfflineQueue {
 
     /// Clear all messages from queue
     pub fn clear(&self) -> Result<usize> {
-        let conn = acquire_lock(&self.conn)?;
+        let conn = acquire_sqlite_lock(&self.conn, &self.poison_health_verified)?;
 
         let deleted = conn
             .execute("DELETE FROM message_queue", [])
@@ -824,7 +906,7 @@ impl OfflineQueue {
     /// * `Ok((before, after))` - Bytes before and after VACUUM
     /// * `Err` if VACUUM fails
     pub fn vacuum(&self) -> Result<(u64, u64)> {
-        let conn = acquire_lock(&self.conn)?;
+        let conn = acquire_sqlite_lock(&self.conn, &self.poison_health_verified)?;
 
         let before = self.get_db_size(&conn);
 
@@ -857,7 +939,7 @@ impl OfflineQueue {
     /// * `Some((before, after))` if VACUUM was run
     /// * `None` if VACUUM was skipped
     pub fn vacuum_if_needed(&self) -> Result<Option<(u64, u64)>> {
-        let conn = acquire_lock(&self.conn)?;
+        let conn = acquire_sqlite_lock(&self.conn, &self.poison_health_verified)?;
 
         // Skip if no disk limit set
         if self.max_disk_bytes == 0 {
@@ -1098,6 +1180,12 @@ pub struct IntegrityCheckResult {
 /// ```
 pub struct AsyncOfflineQueue {
     inner: std::sync::Arc<OfflineQueue>,
+    /// Optional HealthState for Batch 105 observability
+    /// instrumentation. Set via `with_health_state` post-
+    /// construction. When Some, enqueue/ack operations
+    /// increment the offline-queue counter family +
+    /// update the queue-size gauge. None = no-op.
+    health_state: Option<crate::health::HealthState>,
 }
 
 impl AsyncOfflineQueue {
@@ -1105,12 +1193,25 @@ impl AsyncOfflineQueue {
     pub fn new(queue: OfflineQueue) -> Self {
         Self {
             inner: std::sync::Arc::new(queue),
+            health_state: None,
         }
     }
 
     /// Create from an existing Arc<OfflineQueue>
     pub fn from_arc(queue: std::sync::Arc<OfflineQueue>) -> Self {
-        Self { inner: queue }
+        Self {
+            inner: queue,
+            health_state: None,
+        }
+    }
+
+    /// Batch 105 observability wire. Attach a HealthState so
+    /// enqueue/ack paths update counters + the queue-size
+    /// gauge. Builder-style so existing call sites keep
+    /// working; only main.rs init_offline_queue wires this.
+    pub fn with_health_state(mut self, health_state: crate::health::HealthState) -> Self {
+        self.health_state = Some(health_state);
+        self
     }
 
     /// Get a clone of the inner Arc for sharing
@@ -1131,9 +1232,23 @@ impl AsyncOfflineQueue {
         let topic = topic.to_string();
         let payload = payload.to_string();
 
-        tokio::task::spawn_blocking(move || queue.enqueue(&topic, &payload, priority, qos, retain))
-            .await
-            .map_err(|e| anyhow::anyhow!("spawn_blocking join error: {}", e))?
+        let result = tokio::task::spawn_blocking(move || {
+            queue.enqueue(&topic, &payload, priority, qos, retain)
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("spawn_blocking join error: {}", e))?;
+
+        // Batch 105: on successful enqueue, bump the
+        // "queued_total" lifetime counter + refresh the
+        // queue-size gauge. Errors don't change either.
+        if result.is_ok() {
+            if let Some(hs) = self.health_state.as_ref() {
+                hs.inc_offline_queued();
+                hs.set_offline_queue_size(self.inner.len() as u64);
+            }
+        }
+
+        result
     }
 
     /// Async peek - get next message without removing
@@ -1149,9 +1264,22 @@ impl AsyncOfflineQueue {
     pub async fn ack_async(&self, message_id: i64) -> Result<bool> {
         let queue = self.inner.clone();
 
-        tokio::task::spawn_blocking(move || queue.ack(message_id))
+        let result = tokio::task::spawn_blocking(move || queue.ack(message_id))
             .await
-            .map_err(|e| anyhow::anyhow!("spawn_blocking join error: {}", e))?
+            .map_err(|e| anyhow::anyhow!("spawn_blocking join error: {}", e))?;
+
+        // Batch 105: on successful ack, bump the "sent_total"
+        // lifetime counter (ack = message delivered +
+        // removed from queue) + refresh the queue-size
+        // gauge.
+        if matches!(result, Ok(true)) {
+            if let Some(hs) = self.health_state.as_ref() {
+                hs.inc_offline_sent();
+                hs.set_offline_queue_size(self.inner.len() as u64);
+            }
+        }
+
+        result
     }
 
     /// Async nack - mark message for retry
@@ -1272,6 +1400,7 @@ impl Clone for AsyncOfflineQueue {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
+            health_state: self.health_state.clone(),
         }
     }
 }
@@ -1279,6 +1408,46 @@ impl Clone for AsyncOfflineQueue {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Test-wide shared key-path sandbox (Batch 88 / 90 / 96
+    /// architecture). Set ONCE on first backup-test
+    /// invocation; the Batch 96 `OnceLock<String>` cache
+    /// inside `derive_db_encryption_key` then latches the
+    /// derived hex + all subsequent calls return the cached
+    /// value without re-reading the env or filesystem — the
+    /// root-cause architectural fix for the parallel-test
+    /// race that previously required a Mutex guard.
+    ///
+    /// Tests that need the sandbox call `ensure_key_sandbox()`
+    /// which triggers LazyLock init (sets env) + returns.
+    /// Subsequent calls are no-op. First call that reaches
+    /// `derive_db_encryption_key` does the derivation using
+    /// the sandbox path; OnceLock caches; all further tests
+    /// see the cached value regardless of thread interleaving.
+    static TEST_KEY_PATH_INIT: std::sync::LazyLock<std::path::PathBuf> =
+        std::sync::LazyLock::new(|| {
+            let dir = std::env::temp_dir().join(format!(
+                "suderra-offline-queue-test-{}",
+                std::process::id()
+            ));
+            std::fs::create_dir_all(&dir).expect("mkdir test key dir");
+            let path = dir.join("db.key");
+            // SAFETY: set_var happens ONCE inside LazyLock::
+            // new (internal synchronization). Correct
+            // memory-ordering visibility is guaranteed by
+            // Batch 96's OnceLock<String> cache in
+            // derive_db_encryption_key — once any thread
+            // latches the derived hex, no thread re-reads
+            // the env regardless of interleaving.
+            unsafe {
+                std::env::set_var("SUDERRA_DB_KEY_PATH", &path);
+            }
+            path
+        });
+
+    fn ensure_key_sandbox() {
+        let _ = &*TEST_KEY_PATH_INIT;
+    }
 
     #[test]
     fn test_enqueue_dequeue() {
@@ -1485,6 +1654,12 @@ mod tests {
 
     #[test]
     fn test_backup_to() {
+        // Batch 88/90/96: sandbox the SUDERRA_DB_KEY_PATH
+        // before first derive_db_encryption_key call. Batch
+        // 96's OnceLock cache in the derive function makes
+        // the Mutex guard unnecessary — the first call
+        // latches the derived hex; parallel tests are safe.
+        ensure_key_sandbox();
         let temp_dir = tempfile::tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
         let backup_path = temp_dir.path().join("backup.db");
@@ -1507,6 +1682,7 @@ mod tests {
 
     #[test]
     fn test_backup_rolling() {
+        ensure_key_sandbox();
         let temp_dir = tempfile::tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
         let backup_dir = temp_dir.path().join("backups");

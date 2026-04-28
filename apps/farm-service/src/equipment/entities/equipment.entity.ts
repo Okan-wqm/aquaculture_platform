@@ -27,7 +27,7 @@ import {
   BeforeInsert,
   BeforeUpdate,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 // Note: Department, SubSystem, EquipmentSystem are referenced via string in decorator to avoid circular dependency
 // Type-only imports for TypeScript type checking
 import type { Department } from '../../department/entities/department.entity';

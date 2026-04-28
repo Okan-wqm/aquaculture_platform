@@ -9,6 +9,7 @@ import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { DataSource, QueryRunner } from 'typeorm';
 import { ApproveRotationCommand } from '../commands/approve-rotation.command';
 import { WorkRotation, RotationStatus } from '../entities/work-rotation.entity';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 
 @Injectable()
 @CommandHandler(ApproveRotationCommand)
@@ -25,7 +26,7 @@ export class ApproveRotationHandler implements ICommandHandler<ApproveRotationCo
     await queryRunner.startTransaction();
 
     try {
-      const repo = queryRunner.manager.getRepository(WorkRotation);
+      const repo = tenantManagerRepo(queryRunner.manager, WorkRotation, tenantId);
 
       const rotation = await repo.findOne({
         where: { id: rotationId, tenantId, isDeleted: false },

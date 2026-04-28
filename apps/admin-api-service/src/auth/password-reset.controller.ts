@@ -1,6 +1,6 @@
 import * as crypto from 'crypto';
 
-import { ThrottlePasswordReset } from '@aquaculture/backend-common';
+import { ThrottlePasswordReset } from '@aquaculture/backend-common/security';
 import {
   Controller,
   Post,

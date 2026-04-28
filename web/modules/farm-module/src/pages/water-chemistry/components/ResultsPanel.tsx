@@ -2,7 +2,7 @@
  * Results Panel - Horizontal 3-column layout for calculated outputs and dosing recipes
  */
 import React from 'react';
-import { CalculatedOutputs } from '../engine/types';
+import type { CalculatedOutputs } from '@platform/aquaculture-engines';
 
 interface ResultsPanelProps {
   outputs: CalculatedOutputs | null;

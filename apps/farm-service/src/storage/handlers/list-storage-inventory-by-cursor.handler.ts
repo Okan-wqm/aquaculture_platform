@@ -15,10 +15,7 @@
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import {
-  paginateCursor,
-  type CursorPaginatedResponse,
-} from '@aquaculture/backend-common';
+import { paginateCursor, CursorPaginatedResponse } from '@aquaculture/backend-common/pagination';
 
 import { ListStorageInventoryByCursorQuery } from '../queries/list-storage-inventory-by-cursor.query';
 import { StorageInventory, StorageItemType } from '../entities/storage-inventory.entity';

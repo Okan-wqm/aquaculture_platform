@@ -18,8 +18,40 @@
 //! - Configurable clock speed, mode, bit order
 //! - Full-duplex transfer support
 //! - Multiple chip select support
+//!
+//! ## ARC-009 decision (Batch 17 / Faz 1 Step 8): **WHITELIST-PENDING-INVENTORY**
+//!
+//! Plan §5 Faz 1 Step 8 explicitly marks SPI as "**ADR-019 envanter
+//! sonrası** (MAX31865 RTD için wire; ADS1256/MFRC522 REMOVE)". Per-
+//! device decision depends on ADR-019 §5 Hardware Adapter Inventory:
+//!
+//! - **MAX31865 RTD (Pt100/Pt1000 temperature sensor):** WIRE —
+//!   industrial temperature sensor critical for aquaculture thermal
+//!   monitoring. Real-world deployment need.
+//! - **ADS1256 (24-bit ADC):** REMOVE — high-precision ADC used in
+//!   prototype test rigs; not in any production fleet deployment.
+//!   Production uses Modbus-TCP readings from validated PLC hardware.
+//! - **MFRC522 (RFID auth reader):** REMOVE PER ADR-024 §6 — RFID for
+//!   operator authentication is EXPLICITLY BANNED (cloneable / weak
+//!   identity). The SPI infrastructure that enabled MFRC522 must be
+//!   severed cleanly so no future code path can re-introduce it.
+//!
+//! **Why WHITELIST-PENDING-INVENTORY:** same as pwm.rs — fleet
+//! inventory decision blocks file-level decision. REMOVE in absence
+//! of MAX31865 inventory would force re-introduction. WIRE now could
+//! leak MFRC522-shaped API back in if the ADR-024 §6 ban isn't
+//! enforced at type-level separation.
+//!
+//! **Re-evaluate:** Faz 2 Sprint 7.1 hardware-inventory.yaml loader.
+//! At that point:
+//! - MAX31865 in inventory → split into `src/spi/max31865.rs` RTD
+//!   driver (WIRE) + remove generic SPI primitive.
+//! - No MAX31865 in inventory → REMOVE `src/spi.rs` entirely.
+//!
+//! Plan ref: §5 Faz 1 Step 8 / ARC-009 + ADR-019 §5 + ADR-024 §6.
 
-// TODO: SPI actor fully implemented but not yet wired in main.rs init_hardware
+// TODO: SPI actor fully implemented; wire decision pending ADR-019
+// inventory per ARC-009 WHITELIST-PENDING-INVENTORY above.
 #![allow(dead_code)]
 
 use anyhow::Result;

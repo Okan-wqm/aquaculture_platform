@@ -1,0 +1,15 @@
+PASS layer-3 tests/invariants/agent-ownership-uniqueness.spec.ts
+PASS layer-3 tests/invariants/orchestrator-routing-coverage.spec.ts
+PASS layer-3 tests/invariants/skills-catalog.spec.ts
+PASS layer-1 tests/invariants/upcaster-chain.spec.ts
+PASS layer-3 tests/invariants/active-path-hygiene.spec.ts
+FAIL layer-1 tests/invariants/knowledge-ssot.spec.ts
+PASS layer-3 tests/invariants/doc-cardinality.spec.ts
+PASS layer-3 tests/invariants/agent-name-uniqueness.spec.ts
+PASS layer-3 tests/invariants/agent-frontmatter-schema.spec.ts
+PASS layer-3 tests/invariants/agent-size-limit.spec.ts
+PASS layer-3 tests/invariants/boundary-allowlist-invariants.spec.ts
+PASS layer-3 tests/invariants/maintenance-isolation.spec.ts
+FAIL layer-1 tests/invariants/finding-registry-integrity.spec.ts
+PASS layer-3 tests/invariants/settings-hook-coverage.spec.ts
+Tests:       3 failed, 472 passed, 475 total

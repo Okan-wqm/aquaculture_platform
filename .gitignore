@@ -147,6 +147,9 @@ schema.graphql
 # per-session log; never committed.
 .claude/agents/.dispatch-log.jsonl
 
+# Claude Code wakeup-scheduler pidfile; local-only, regenerated on demand.
+.claude/scheduled_tasks.lock
+
 # SEC-M05: vite-plugin-pwa dev-dist is a development-only service worker artifact.
 # It must never be committed because it contains a GraphQL-caching SW that leaks
 # authenticated responses if deployed to production.

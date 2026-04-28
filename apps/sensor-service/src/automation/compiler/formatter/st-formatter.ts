@@ -56,7 +56,7 @@ import type {
   IdentifierExpression,
   ParenthesizedExpression,
   NamedArgument,
-} from '../parser/st-ast';
+} from '@platform/sensor-automation-types';
 
 // ────────────────────────────────────────────────────────────────────────────
 // Formatter Options

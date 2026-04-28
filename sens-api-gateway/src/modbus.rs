@@ -597,99 +597,107 @@ impl ModbusClient {
             Duration::from_secs(30), // Max retry delay
         );
 
-        let channel = if self.config.tls.enabled {
-            // TLS connection (IEC 62443 SL2 FR4)
-            info!(
-                "Connecting to Modbus TCP/TLS device '{}' at {} (TLS enabled)",
-                self.config.name, socket_addr
-            );
+        // Batch 22 ARC-007: convert the serde-deserialized TLS
+        // config to the type-level TlsMode enum. Validation
+        // happens at load time here — half-configured combinations
+        // (e.g., client cert without client key) fail-fast with
+        // an operator-actionable error string before any socket
+        // is opened.
+        let tls_mode = self
+            .config
+            .tls
+            .to_mode()
+            .map_err(|e| anyhow::anyhow!("Modbus '{}' TLS config invalid: {}", self.config.name, e))?;
 
-            // Get certificate paths
-            let ca_cert_path = self
-                .config
-                .tls
-                .ca_cert_path
-                .as_ref()
-                .ok_or_else(|| anyhow::anyhow!("TLS enabled but ca_cert_path not specified"))?;
-            let ca_path = std::path::Path::new(ca_cert_path);
+        let channel = match tls_mode {
+            crate::config::TlsMode::Full {
+                ref server_name,
+                ref ca_cert_path,
+                ref client_cert_path,
+                ref client_key_path,
+                ..
+            } => {
+                info!(
+                    "Connecting to Modbus TCP/mTLS device '{}' at {} (mutual TLS)",
+                    self.config.name, socket_addr
+                );
 
-            // Server name for SNI (use server_name or extract from address)
-            let server_name = self
-                .config
-                .tls
-                .server_name
-                .clone()
-                .unwrap_or_else(|| socket_addr.ip().to_string());
-
-            // Use rodbus 1.4 TLS API: full_pki() for PKI hierarchy or self_signed()
-            // full_pki() validates against CA certificate and optionally checks server name
-            let tls_config = if let (Some(cert_path), Some(key_path)) = (
-                self.config.tls.client_cert_path.as_ref(),
-                self.config.tls.client_key_path.as_ref(),
-            ) {
-                // mTLS with client certificate
-                let client_cert_path = std::path::Path::new(cert_path);
-                let client_key_path = std::path::Path::new(key_path);
-
-                rodbus::client::TlsClientConfig::full_pki(
-                    Some(server_name.clone()), // Server name for SNI validation (Option<String>)
-                    ca_path,                   // CA certificate path
-                    client_cert_path,          // Client certificate path
-                    client_key_path,           // Client private key path
-                    None,                      // Private key password (None = unencrypted)
-                    rodbus::client::MinTlsVersion::V1_2, // Minimum TLS version
+                let tls_config = rodbus::client::TlsClientConfig::full_pki(
+                    Some(server_name.clone()),
+                    std::path::Path::new(ca_cert_path),
+                    std::path::Path::new(client_cert_path),
+                    std::path::Path::new(client_key_path),
+                    None, // Private key password (None = unencrypted)
+                    rodbus::client::MinTlsVersion::V1_2,
                 )
-                .with_context(|| "Failed to create TLS config with client cert")?
-            } else {
-                // Server-only TLS (no client cert / mTLS disabled)
-                // v1.2.4: rodbus full_pki() requires paths even for server-only auth.
-                // Empty paths signal "no client certificate" to the rodbus API.
-                // This is documented behavior - rodbus checks path.as_os_str().is_empty()
+                .with_context(|| "Failed to create mTLS config")?;
+
+                rodbus::client::spawn_tls_client_task(
+                    host_addr,
+                    1,
+                    retry,
+                    tls_config,
+                    DecodeLevel::default(),
+                    None,
+                )
+            }
+            crate::config::TlsMode::ServerOnly {
+                ref server_name,
+                ref ca_cert_path,
+                ..
+            } => {
+                info!(
+                    "Connecting to Modbus TCP/TLS device '{}' at {} (server-only TLS)",
+                    self.config.name, socket_addr
+                );
                 debug!(
-                    "Configuring server-only TLS for '{}' (no client certificate)",
+                    "Server-only TLS for '{}' (no client certificate)",
                     self.config.name
                 );
 
-                // Use empty paths to indicate no client certificate
-                // rodbus will skip client auth when paths are empty
+                // rodbus full_pki() requires paths even for server-
+                // only auth. Empty paths signal "no client cert"
+                // to the rodbus API (checks path.as_os_str().
+                // is_empty()).
                 let empty_path = std::path::Path::new("");
-                rodbus::client::TlsClientConfig::full_pki(
-                        Some(server_name.clone()), // Server name for SNI validation
-                        ca_path,                   // CA certificate path for server validation
-                        empty_path,                // No client cert
-                        empty_path,                // No client key
-                        None,                      // No password
-                        rodbus::client::MinTlsVersion::V1_2,
+                let tls_config = rodbus::client::TlsClientConfig::full_pki(
+                    Some(server_name.clone()),
+                    std::path::Path::new(ca_cert_path),
+                    empty_path,
+                    empty_path,
+                    None,
+                    rodbus::client::MinTlsVersion::V1_2,
+                )
+                .with_context(|| {
+                    format!(
+                        "Failed to create server-only TLS config for '{}'. Ensure CA certificate at '{}' is valid PEM format.",
+                        self.config.name, ca_cert_path
                     )
-                    .with_context(|| format!(
-                        "Failed to create TLS config for '{}'. Ensure CA certificate at '{}' is valid PEM format.",
-                        self.config.name,
-                        ca_path.display()
-                    ))?
-            };
+                })?;
 
-            rodbus::client::spawn_tls_client_task(
-                host_addr,
-                1, // max queued requests
-                retry,
-                tls_config,
-                DecodeLevel::default(),
-                None, // listener
-            )
-        } else {
-            // Plain TCP connection (backwards compatible)
-            info!(
-                "Connecting to Modbus TCP device '{}' at {}",
-                self.config.name, socket_addr
-            );
+                rodbus::client::spawn_tls_client_task(
+                    host_addr,
+                    1,
+                    retry,
+                    tls_config,
+                    DecodeLevel::default(),
+                    None,
+                )
+            }
+            crate::config::TlsMode::Disabled => {
+                info!(
+                    "Connecting to Modbus TCP device '{}' at {} (plaintext)",
+                    self.config.name, socket_addr
+                );
 
-            rodbus::client::spawn_tcp_client_task(
-                host_addr,
-                1, // max queued requests
-                retry,
-                DecodeLevel::default(),
-                None, // listener
-            )
+                rodbus::client::spawn_tcp_client_task(
+                    host_addr,
+                    1,
+                    retry,
+                    DecodeLevel::default(),
+                    None,
+                )
+            }
         };
 
         self.channel = Some(channel);

@@ -21,6 +21,10 @@ futures = "0.3"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.9"
+# serde_big_array: serde Serialize/Deserialize for fixed-width byte arrays
+# larger than 32 bytes (serde auto-impl caps at [T; 32]). Used by Batch 5a
+# Ed25519SignatureBytes([u8; 64]). Added as BATCH-001-CI-FIX-006.
+serde-big-array = "0.5"
 
 # HTTP client for provisioning API
 # Use rustls for cross-compilation support (no OpenSSL dependency)
@@ -31,6 +35,14 @@ reqwest = { version = "0.12", features = ["json", "rustls-tls-manual-roots"], de
 
 # MQTT client — uses rustls by default (no OpenSSL dependency)
 rumqttc = "0.25"
+
+# Direct rustls dep (Batch 136 Sprint 6.6/6.8 wire). Version
+# MUST match what rumqttc pulls in (0.23 series) so the
+# SuderraServerCertVerifier interoperates with the same
+# ServerCertVerifier trait that rumqttc's tokio-rustls
+# expects. Consumed via `rustls::client::danger::ServerCertVerifier`
+# + related types in `src/mtls/rustls_verifier.rs`.
+rustls = { version = "0.23", default-features = false, features = ["std", "tls12"] }
 
 # System CA store for TLS (Let's Encrypt certs are pre-installed on most Linux systems)
 rustls-native-certs = "0.8"
@@ -61,13 +73,28 @@ regex = "1.10"
 # Modbus TCP/RTU for PLC communication (v1.2.0: rodbus with TLS support)
 # rodbus provides native TLS support for IEC 62443 SL2 FR4 compliance
 #
-# BUG-005 (version pin): The server-only TLS path in modbus.rs passes empty
-# Path::new("") for the client cert/key arguments to TlsClientConfig::full_pki().
-# This relies on rodbus 1.4 treating an empty OsStr path as "no client certificate".
-# If rodbus changes this behavior in a future minor version, Modbus TLS connections
-# without client certs will silently fail or panic.
-# Do NOT bump this dependency without re-testing server-only TLS (no mTLS) connections.
-rodbus = "=1.4.0"
+# BUG-005 (version pin, HISTORICAL — see BATCH-001-CI-FIX-004 below):
+# rodbus 1.4.0 required a Path::new("") workaround in modbus.rs for
+# TlsClientConfig::full_pki() server-only path (no mTLS client cert).
+#
+# BATCH-001-CI-FIX-004: Bumped to 1.5.0-RC1 to pull in sfio-rustls-config
+# 0.4.0 which uses rustls-webpki 0.103.12 (patches RUSTSEC-2026-0049/
+# 0098/0099). The rodbus 1.5 API MAY break the empty-Path workaround —
+# Batch 22 ARC-007: exact-pin to a single rodbus RC version.
+# Plan §5 Faz 1 Step 7 requires patch-level pinning to block
+# untracked minor upgrades. Caret-default `"1.5.0-RC1"` (used
+# pre-Batch-22) semantically meant `>=1.5.0-RC1, <2.0.0` so
+# Cargo could silently bump through 1.6.x / 1.7.x on every
+# cargo update. `"=1.5.0-RC1"` is the EXACT-pin operator — any
+# version change must be explicit + reviewed. Future bump path:
+# `~1.5.0` (patch-allowing) when rodbus 1.5.0 stable releases;
+# `~1.5` when 1.5.x stabilizes across patches.
+#
+# ARC-007 Tier 1 counterpart: TlsMode enum in config.rs encodes
+# the Full/ServerOnly/Disabled states at the Rust type level so
+# the modbus.rs consumer path cannot observe a half-configured
+# TLS combination (client cert without client key etc).
+rodbus = "=1.5.0-RC1"
 # Keep tokio-serial for RTU serial port support
 tokio-serial = "5.4"
 
@@ -171,6 +198,19 @@ hkdf = "0.12"
 argon2 = "0.5"
 
 # =============================================================================
+# unicode-normalization (PINNED) — Batch #242 A-3a homoglyph defense
+# =============================================================================
+# WHY: OPC UA UserName/Password tokens (ADR-017 §4.2) accept raw UTF-8
+#      usernames from external HMI clients. Unicode canonical composition
+#      (NFKC) + lowercase normalization closes the homoglyph attack class
+#      where "admin" vs "аdmin" (Cyrillic a U+0430) would otherwise resolve
+#      to two distinct lookup keys — letting an attacker enroll a
+#      look-alike user with an unrelated password.
+# INVARIANT: All usernames cross the NFKC normalization gate before any
+#            manifest lookup; raw bytes never touch the enrollment map.
+unicode-normalization = "0.1"
+
+# =============================================================================
 # bincode (PINNED) — ADR-020 FINDING-019 + ADR-017 §6 bytecode serialization
 # =============================================================================
 # WHY: Audit chain entries (ADR-020 §1 AuditEntry) + ST bytecode artifacts
@@ -252,18 +292,24 @@ tracing-journald = "0.3"
 jsonwebtoken = { version = "9", optional = true }
 
 # =============================================================================
-# opcua — Faz 5 OPC UA Server (optional)
+# async-opcua — Faz 5 OPC UA Server (optional)
 # =============================================================================
 # WHY: ADR-018 §3 OPC UA Server for 3rd-party HMI integration (Ignition / Wonderware
 #      / UaExpert read + controlled write). ADR-019 §3.6 STRIDE per-component.
-# WHAT: Pure-Rust OPC UA 1.04 server (canonical crate `opcua` by locka99/opcua;
-#       crates.io/crates/opcua). Optional because opc-ua-server feature off by
-#       default (not all deployments need HMI). BATCH-001-FINDING-002 closure
-#       (corrected crate name from `async-opcua` to canonical `opcua`).
+# WHAT: Pure-Rust async OPC UA 1.04 server via `async-opcua` — the
+#       maintained successor fork of locka99/opcua. Optional because
+#       opc-ua-server feature off by default (not all deployments need HMI).
+#
+#       BATCH-001-CI-FIX-005: Switched from `opcua 0.12` → `async-opcua
+#       0.18` because opcua 0.12.0 pulls ancient `url 1.7.2` + `idna 0.1.5`
+#       which carries RUSTSEC-2024-0421 (punycode label acceptance bypass).
+#       async-opcua uses modern `url 2.5` + `idna 1.1`. API is rewritten
+#       for tokio async — Sprint 6.1/6.5 wiring consumes the new API.
+#
 # INVARIANT: Feature OFF → binary MUST NOT contain OPC UA symbols; CI gate
 #            `tests/invariants/feature_off_no_symbols.sh` runs `nm` over release
 #            binary and fails on any `opcua` symbol match when feature disabled.
-opcua = { version = "0.12", optional = true, features = ["server"] }
+async-opcua = { version = "0.18", optional = true, features = ["server"] }
 
 # =============================================================================
 # TPM 2.0 via tss-esapi — ADR-019 §7 Tier 1 master key sealing (optional)
@@ -272,8 +318,11 @@ opcua = { version = "0.12", optional = true, features = ["server"] }
 #      + PCR-sealed key unsealing. Best-available anti-rollback (ADR-018 §4) +
 #      master key protection. RPi 4 without TPM → Tier 2/3 fallback (ADR-019 §7).
 # WHAT: Rust bindings to tpm2-tss C library; build-time dependency on libtss2-esys
-#       (>=4.0) on target platform. Version 8.x adopted (BATCH-001-FINDING-003
-#       closure) — current major, security fixes, Context::execute_with_session API.
+#       (>=4.0) on target platform. Version 7.x is the current STABLE major
+#       (BATCH-001-CI-FIX-001: Batch 1 originally pinned "8" but 8.x only
+#       ships alpha.2 — Cargo `^8` semver excludes pre-release, so resolver
+#       could not pick a version. Reverted to stable 7.6.x. Alpha 8.x is
+#       tracked for future migration when it ships stable.).
 # INVARIANT: (A) Feature gate tpm; missing TPM at runtime → Tier fallback per
 #            ADR-019 §7 hierarchy (systemd-creds Tier 2 → file Tier 3 operator-gated).
 #            (B) Cross-compile gate: CI matrix MUST run `cross build --target
@@ -281,7 +330,32 @@ opcua = { version = "0.12", optional = true, features = ["server"] }
 #            (C) No silent TPM disable: operator must explicitly accept fallback
 #            via config + audit event (ADR-019 §7 i_accept_file_backed_keystore_risk).
 # ENFORCE: tests/invariants/tpm_feature_cross_compile.rs — CI job entry required.
-tss-esapi = { version = "8", optional = true }
+tss-esapi = { version = "7", optional = true }
+
+# =============================================================================
+# aws-lc-sys — transitive dep via rustls/rumqttc/reqwest/hyper-rustls
+# =============================================================================
+# WHY (BATCH-001-CI-FIX-002 / RUSTSEC-2026-0044/0045/0047/0048): aws-lc-sys
+# 0.36.0 carries 4 RUSTSEC advisories (2 HIGH: PKCS7_verify bypass, CRL
+# distribution point logic error; 2 medium: X.509 Name Constraints bypass,
+# AES-CCM timing side-channel). All fixed in >=0.39. Advisory drop date
+# 2026-03-02 / 2026-03-19 — post-dates last green Edge Agent Release on
+# 2026-03-05 (agent-v1.8.2).
+# WHAT: Explicit direct dep forces resolver to pick 0.40.x (current latest
+# stable) even though we don't use aws-lc-sys directly. Transitive deps
+# (rustls, aws-lc-rs, rumqttc, reqwest, rodbus) accept any compatible
+# 0.x via their own dependency specifiers so the upgrade is transparent.
+# INVARIANT: cargo audit on Cargo.lock must report 0 RUSTSEC-2026-* advisories
+#            for aws-lc-sys family.
+#
+# BATCH-001-CI-FIX-009: `features = ["bindgen"]` uses the `bindgen` library
+# crate to generate bindings at compile time instead of requiring the
+# external `bindgen-cli` binary in the sysroot. Without this, cross-compile
+# to armv7/aarch64 via `cross` fails with:
+#   "Failure invoking external bindgen! External bindgen command failed."
+# Using the library feature adds ~15s to the first cold build but keeps
+# the CI stack self-contained (no apt install bindgen-cli needed).
+aws-lc-sys = { version = "0.40", features = ["bindgen"] }
 
 # LoRaWAN cryptography and packet encoding (optional, activated by `lorawan` feature)
 aes = { version = "0.8", optional = true }
@@ -322,7 +396,16 @@ rppal = { version = "0.17", optional = true }
 #       rollout be staged per-tenant without new binary variants.
 # INVARIANT: tests/invariants/default_build_no_security_escape.rs — default build
 #            must NOT enable any feature that changes security posture silently.
-default = []
+# BATCH-001-CI-FIX-016 (Batch 14 ARC-003): `health` added to default
+# features per plan §5 Faz 1 Step 1.4. The HTTP health server is needed
+# by every deployment running under docker / k8s / systemd liveness
+# probes. Server itself only binds when `config.health.enabled=true`
+# (serde default false), so enabling the feature in the binary is
+# zero-cost for operators who leave the config disabled — ~200KB
+# axum+tower link-cost paid once per binary. `gpio` is NOT added to
+# defaults because not every target has RPi hardware; operators
+# explicitly enable via `--features gpio` in per-deployment build.
+default = ["health"]
 gpio = ["rppal"]
 # HTTP health check endpoint (uses axum)
 health = ["axum"]
@@ -376,7 +459,7 @@ multi-task-scheduler = []
 # WHAT: Enables async-opcua server binding on port 4840 (configurable); policy-gated
 #       write-through via ADR-018 Permission::OpcUaWrite.
 # INVARIANT: Feature OFF → no OPC UA symbols in binary (binary-size invariant test).
-opc-ua-server = ["dep:opcua"]
+opc-ua-server = ["dep:async-opcua"]
 
 # WHY: Faz 6 Live debug protocol (ADR-017 §13 + Plan §5 Faz 6).
 # WHAT: Enables watch_subscribe / force_value / unforce / list_forces MQTT commands;
@@ -447,3 +530,143 @@ unsafe_op_in_unsafe_fn = "deny"  # SECURITY: require unsafe block inside unsafe 
 [[bin]]
 name = "suderra-agent"
 path = "src/main.rs"
+
+# Batch 23 ARC-001+002+003+006+007+009: plan §5 Faz 1 Step 1
+# mandates invariant tests under `tests/invariants/`. Cargo
+# doesn't auto-discover sub-directories as test targets — each
+# invariant test file is explicitly registered here. This keeps
+# the plan-referenced path structure (`tests/invariants/
+# app_state_wired.rs`) while satisfying Cargo's flat-target
+# discovery model.
+[[test]]
+name = "app_state_wired"
+path = "tests/invariants/app_state_wired.rs"
+
+# Batch 24 Sprint 6.3 partial invariant — prctl + panic hook.
+[[test]]
+name = "process_hardening"
+path = "tests/invariants/process_hardening.rs"
+
+# Batch 25 plan D-14 — retained MQTT message rejection.
+[[test]]
+name = "retained_msg_rejection"
+path = "tests/invariants/retained_msg_rejection.rs"
+
+# Batch 26 plan D-15 — shutdown drain-before-safe-state ordering.
+[[test]]
+name = "shutdown_drain"
+path = "tests/invariants/shutdown_drain.rs"
+
+# Batch 27 plan §5 Faz 2 item 7 — mTLS rollout-mode config.
+[[test]]
+name = "mtls_config"
+path = "tests/invariants/mtls_config.rs"
+
+# Batch 28 Sprint 6.1 partial — command → Permission mapping.
+[[test]]
+name = "required_permission_mapping"
+path = "tests/invariants/required_permission_mapping.rs"
+
+# Batch #300 ORPHAN-HIGH-020 closure FINAL — D-1 ST source compile
+# production wire integration invariants. Contract-marker file
+# (the bin is `[[bin]]` not `[lib]` so external tests can't
+# import internal types); executable counterparts live in
+# scripting::bytecode_deploy::tests as d1_source_compile_roundtrip_*.
+[[test]]
+name = "d1_source_compile_roundtrip"
+path = "tests/invariants/d1_source_compile_roundtrip.rs"
+
+# Batch #305-#307 Faz 6 two-person integrity arc — co-approver
+# signature wire format + adapter verify gate + dispatch-layer
+# enforcement. Contract-marker file documents the 3-layer trust
+# chain; executable counterparts live in
+# command_envelope::envelope::tests +
+# commands::envelope_adapter::tests.
+[[test]]
+name = "two_person_integrity_gate"
+path = "tests/invariants/two_person_integrity_gate.rs"
+
+# Batch #321 Faz 1 architectural-primitives wire-status arc —
+# Tier-3 detection seams pinning UH-001..007 wire status
+# (EnvelopeHandler trait / CommandDispatcher /
+# AuthenticatedUser / SensNodeManager / SimpleNodeManager
+# retirement / UserTokenEnrollment / RbacManifestStore
+# hot-reload). Closes the stale-A registry findings via real
+# regression-detection assertions, not bookkeeping-only
+# closure.
+[[test]]
+name = "faz1_architectural_primitives"
+path = "tests/invariants/faz1_architectural_primitives.rs"
+
+# Batch 40 plan Faz 2 coherence — validate_faz2_security_coherence rules.
+[[test]]
+name = "config_coherence"
+path = "tests/invariants/config_coherence.rs"
+
+# Batch 41 Sprint 6.1/6.4 — MUTATING_COMMANDS ↔ Permission::is_mutating agreement.
+[[test]]
+name = "mutating_commands_vs_permission"
+path = "tests/invariants/mutating_commands_vs_permission.rs"
+
+# Batch 46 plan §2 HC-6 Sprint 6.4 — SignatureMode config rollout.
+[[test]]
+name = "signature_mode"
+path = "tests/invariants/signature_mode.rs"
+
+# Batch 51 — RateLimiter sliding-window semantics.
+[[test]]
+name = "rate_limiter_semantics"
+path = "tests/invariants/rate_limiter_semantics.rs"
+
+# Batch 54 Sprint 6.6 FULL WIRE — config-integrity verify_at_boot.
+[[test]]
+name = "config_integrity_verify_runtime"
+path = "tests/invariants/config_integrity_verify_runtime.rs"
+
+# Batch 55 Sprint 6.7 partial — SystemClockAuthority baseline impl.
+[[test]]
+name = "system_clock"
+path = "tests/invariants/system_clock.rs"
+
+# Batch 57 Sprint 6.4 partial — Moka jti dedup hot-window tier.
+[[test]]
+name = "moka_jti_dedup"
+path = "tests/invariants/moka_jti_dedup.rs"
+
+# Batch 61 Sprint 6.4 partial — two-layer dedup (Moka + VecDeque fallback).
+[[test]]
+name = "dedup_two_layer"
+path = "tests/invariants/dedup_two_layer.rs"
+
+# Batch 64 Sprint 6.4 partial — envelope adapter parse-and-verify.
+[[test]]
+name = "envelope_adapter"
+path = "tests/invariants/envelope_adapter.rs"
+
+# Batch 71 Sprint 6.1 follow-up — ManifestVersionStore
+# persistent rollback-protection floor.
+[[test]]
+name = "manifest_rollback_protection"
+path = "tests/invariants/manifest_rollback_protection.rs"
+
+# Batch 72 Sprint 6.1 hot-reload — cmd_update_policy +
+# RbacManifestStore::hot_reload_from_bytes contract anchors.
+[[test]]
+name = "rbac_hot_reload"
+path = "tests/invariants/rbac_hot_reload.rs"
+
+# Batches 74-80 Sprint 6.2 Phase 2 — audit sink pipeline
+# contract anchors (sink + recovery + reopen + verify +
+# AppState wiring + CommandHandler emit + SIGHUP handler).
+[[test]]
+name = "audit_pipeline"
+path = "tests/invariants/audit_pipeline.rs"
+
+# Batch #240 Faz 5 A-2a part 2 — AuthenticatedUser sealed-ctor
+# invariant (grep-enforced). Asserts no external constructor
+# path exists for the typed session principal (no From<&str>,
+# FromStr, TryFrom, Deserialize, or test-ctor reference in
+# production code).
+[[test]]
+name = "authenticated_user_sealed"
+path = "tests/invariants/authenticated_user_sealed.rs"

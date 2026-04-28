@@ -1,8 +1,5 @@
 import { Module, OnModuleInit } from '@nestjs/common';
-import {
-  RetentionEnforcementService,
-  registerRetentionPolicy,
-} from '@aquaculture/backend-common';
+import { RetentionEnforcementService, registerRetentionPolicy } from '@aquaculture/backend-common/database';
 
 /**
  * RetentionBootstrapModule — single module, many policies.

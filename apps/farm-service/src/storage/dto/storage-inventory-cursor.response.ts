@@ -11,7 +11,7 @@
  * copy when they migrate.
  */
 import { ObjectType, Field } from '@nestjs/graphql';
-import { CursorPageInfo } from '@aquaculture/backend-common';
+import { CursorPageInfo } from '@aquaculture/backend-common/pagination';
 
 import { StorageInventoryResponse } from './storage-inventory.response';
 

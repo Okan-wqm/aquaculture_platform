@@ -1,0 +1,42 @@
+# 2026-04-22 cold-audit campaign — findings whose closing_commits[]
+# array references branch SHAs from the cold-audit/pr-* chain.
+#
+# This list is the frozen input to:
+#   tools/audit/registry-rechain-after-squash.ts --from-list=<this-file>
+#
+# Use ONLY when PR #159 lands via squash-merge (which collapses the
+# 42 branch commits into a single main-tip SHA). Rebase-merge or
+# merge-commit preserves the branch SHAs natively; this list is a
+# no-op there.
+#
+# Schema: one finding ID per line. `#` to end-of-line is a comment.
+# IDs are validated against findings.jsonl by the rechain CLI.
+
+# Phase A — registry hardening + CI plumbing (3 CRITICAL)
+AUDIT-CRITICAL-001                  # per-project type-check runner (7ff34b3d)
+AUDIT-CRITICAL-002                  # gates --mode=staged default (b4add5af)
+AUDIT-CRITICAL-003                  # invariants:fast required CI gate (770e4cc4)
+
+# Phase B — tenant-isolation migration (7 HIGH)
+AUDIT-HIGH-002                      # farm feeding-scheduler + feeding-program (7fbe8595)
+AUDIT-HIGH-003                      # sensor mqtt-listener + automation (43222f24)
+AUDIT-HIGH-004                      # web water-chemistry duplicate (c03b98b2)
+AUDIT-HIGH-005                      # sensor ST-AST duplication (affc1dc0)
+AUDIT-HIGH-006                      # node-components edges duplicate (dd39e044)
+AUDIT-HIGH-007                      # AI safety primitives extraction (c73293a1)
+AUDIT-HIGH-008                      # billing 5-handler tenant scoping (69abfdfb)
+
+# Phase B/C/D — MEDIUM cluster
+AUDIT-MEDIUM-001                    # web/sensor-module churn → Tier-4 monitor (77660392)
+AUDIT-MEDIUM-004                    # apps/hr-service churn → Tier-4 monitor (77660392)
+AUDIT-MEDIUM-005                    # backend-common root-barrel → per-subtree (34a67d44)
+AUDIT-MEDIUM-006                    # messaging entity-relation invariant (946f3011)
+AUDIT-MEDIUM-007                    # auth-service getRepository annotation (6f5450a5)
+AUDIT-MEDIUM-009                    # admin-api schema-boundaries invariant (6cb1f292)
+AUDIT-MEDIUM-010                    # web/tenant-admin churn → Tier-4 monitor (77660392)
+AUDIT-MEDIUM-011                    # admin-panel Sidebar fork removal (feebbdfe)
+AUDIT-MEDIUM-012                    # aquamobil RecordEntityPage extraction (f0e62b78)
+AUDIT-MEDIUM-013                    # NATS shared-mTLS false-positive (2cd0a7bb)
+
+# Phase C low-tier
+AUDIT-LOW-001                       # nx-intrinsic duplication classification (77660392)

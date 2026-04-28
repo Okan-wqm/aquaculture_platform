@@ -1,0 +1,17 @@
+{
+  "id": "AUDIT-CRITICAL-002",
+  "severity": "CRITICAL",
+  "state": "OPEN",
+  "title": "npm run gates:all chain is broken — gates:banned-phrase invoked without --mode, prints Usage and exits 2",
+  "layer": 3,
+  "evidence": [
+    "package.json:90",
+    "tools/gates/banned-phrase.ts:1"
+  ],
+  "rule_violated": "CLAUDE.md \"nx affected --target=test && nx affected --target=lint green before every commit\" (gates:all is expected to catch banned phrases; it short-circuits before ever running)",
+  "owner_agent": "orchestrator",
+  "raised_in_cycle": "2026-04-22-cold-audit",
+  "review_file": "docs/reviews/_audit/2026-04-22-cold-audit/03-explore-findings.md",
+  "created_at": "2026-04-22T19:00:00Z",
+  "notes": "Tier 1 fix: require --mode in CLI parser and propagate from gates:all wrapper; today the banned-phrase gate exits 2 before migration-sql and tier-claim gates run."
+}

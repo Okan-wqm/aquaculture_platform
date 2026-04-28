@@ -14,7 +14,7 @@
  *
  * Usage in service main.ts:
  * ```ts
- * import { createServiceApp } from '@aquaculture/backend-common';
+ * import { createServiceApp } from '@aquaculture/backend-common/create-service-app.ts';
  * import { AppModule } from './app.module';
  *
  * createServiceApp(AppModule, {
@@ -489,7 +489,7 @@ function resolvePort(
  *
  * @example
  * // Minimal usage
- * import { createServiceApp } from '@aquaculture/backend-common';
+ * import { createServiceApp } from '@aquaculture/backend-common/create-service-app.ts';
  * import { AppModule } from './app.module';
  * createServiceApp(AppModule, { serviceName: 'farm-service', portEnvVar: 'FARM_SERVICE_PORT' });
  *
@@ -835,7 +835,7 @@ export async function createServiceApp(
  * error message and stack trace are always visible in container logs.
  *
  * @example
- * import { bootstrapService } from '@aquaculture/backend-common';
+ * import { bootstrapService } from '@aquaculture/backend-common/create-service-app.ts';
  * import { AppModule } from './app.module';
  * bootstrapService(AppModule, { serviceName: 'farm-service', portEnvVar: 'FARM_SERVICE_PORT' });
  */

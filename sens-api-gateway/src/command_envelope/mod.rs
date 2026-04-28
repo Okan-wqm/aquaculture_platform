@@ -1,3 +1,7 @@
+// BATCH-001-CI-FIX-015: pre-staged types for Sprint 6.1-6.8 runtime wiring.
+// Re-exports are intentionally unused until the runtime consumers land.
+#![allow(unused_imports)]
+
 //! # CommandEnvelope — Zero-Trust command dispatch wire format
 //!
 //! Per plan §4.10 Zero-Trust Command Model:
@@ -51,14 +55,38 @@
 //! - Batch 5b `verify_manifest` closure-injection precedent
 
 pub mod canonical;
+pub mod dispatcher;
 pub mod envelope;
+pub mod handler;
 pub mod jti;
+pub mod moka_dedup;
 pub mod mutating;
+// Batch 91 Sprint 6.4 full wire tier 2: SQLCipher-persistent
+// 72h dedup store. Closes the reboot-survives-envelope-
+// lifetime replay gap left by Moka-only (in-memory) tier.
+pub mod sqlcipher_dedup;
+// Batch 92 Sprint 6.4 full wire composite: Moka hot-tier +
+// SQLCipher persistent tier layered dedup. Fast-path hits
+// Moka (microseconds); Moka-miss falls through to SQLCipher
+// (catches cross-restart replays).
+pub mod layered_dedup;
 
 pub use canonical::{canonical_params, CanonicalParamsError, CmdHash};
 pub use envelope::{
     verify_envelope, CommandEnvelope, EnvelopeVerifyError, SignatureMode,
     MAX_CMD_NAME_BYTES, MAX_NONCE_BYTES,
 };
-pub use jti::{DedupResult, InvalidJti, Jti, JtiDedupTable, MAX_JTI_BYTES};
+// Batch #306 Faz 6 two-person integrity: the adapter needs
+// canonical bytes to verify the co-approver signature against
+// the same transcript as the primary signature. pub(crate) on
+// the fn + this re-export keeps the surface intra-crate only.
+pub(crate) use envelope::envelope_canonical_bytes;
+pub use dispatcher::{BoxedHandler, CommandDispatcher, DispatchError};
+pub use handler::{
+    EnvelopeHandler, EnvelopeMeta, HandlerError, HandlerInput, HandlerResponse,
+};
+pub use jti::{DedupResult, DedupTableError, InvalidJti, Jti, JtiDedupTable, MAX_JTI_BYTES};
+pub use moka_dedup::{MokaJtiDedupTable, DEFAULT_MOKA_CAPACITY, DEFAULT_MOKA_TTL_SECS};
 pub use mutating::{is_mutating, MUTATING_COMMANDS};
+pub use sqlcipher_dedup::SqlCipherJtiDedupTable;
+pub use layered_dedup::LayeredJtiDedupTable;

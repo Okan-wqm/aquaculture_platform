@@ -14,6 +14,27 @@
 //!
 //! NOTE: Complete script engine API. Many methods are for direct script
 //! management and are called via commands/MQTT, not from main.rs directly.
+//!
+//! ## Wire status (Batch #274 audit)
+//!
+//! Production wire confirmed:
+//! - `main.rs:5144,5145` — `ScriptEngine::new(state)` /
+//!   `ScriptEngine::with_persistence(state, persistence)` boot
+//!   the orchestrator under `tokio::spawn` for the scan-cycle
+//!   loop. The persistence-Some path runs RETAIN-aware scan
+//!   cycles; the persistence-None path runs ephemeral scan
+//!   cycles for hardware-less default-build paths.
+//! - Re-exported via `scripting::mod.rs:128` `pub use
+//!   engine::ScriptEngine` — the canonical scripting public
+//!   surface for command-handler script-management API
+//!   (`cmd_deploy_program`, `cmd_list_scripts`, etc.).
+//!
+//! The blanket allow stays because the methods that look unused
+//! from main.rs's POV are the PUBLIC API the command handlers
+//! consume via the re-export — exactly what the original NOTE
+//! above predicted. Per-item audit pending in a focused
+//! F-series cleanup batch.
+
 #![allow(dead_code)]
 
 use chrono::Utc;
@@ -175,10 +196,9 @@ const MAX_SCAN_CYCLE_MS: u64 = 10000;
 
 /// Get default program state path
 /// v1.2.6: Creates directory if it doesn't exist
+/// Batch 30: route through crate::data_dir SSoT helper.
 fn default_program_state_path() -> PathBuf {
-    let data_dir =
-        std::env::var("SUDERRA_DATA_DIR").unwrap_or_else(|_| "/var/lib/suderra".to_string());
-    let path = PathBuf::from(&data_dir);
+    let path = crate::data_dir::data_dir();
 
     // Ensure data directory exists (v1.2.6: early validation)
     if !path.exists() {
@@ -606,8 +626,9 @@ impl ScriptEngine {
 
         for script_id in startup_scripts {
             info!("Running startup script: {}", script_id);
-            // Use depth=0 for startup scripts (top-level execution)
-            if let Err(e) = self.execute_with_depth(&script_id, 0).await {
+            // Batch 104: route through execute_script (public
+            // API, depth=0) for HealthState instrumentation.
+            if let Err(e) = self.execute_script(&script_id).await {
                 error!("Startup script {} failed: {}", script_id, e);
             }
         }
@@ -674,8 +695,9 @@ impl ScriptEngine {
             // Execute triggered scripts
             for script_id in scripts_to_run {
                 debug!("Trigger fired for script: {}", script_id);
-                // Use depth=0 for trigger-based executions (top-level)
-                if let Err(e) = self.execute_with_depth(&script_id, 0).await {
+                // Batch 104: route through execute_script
+                // (depth=0) for HealthState instrumentation.
+                if let Err(e) = self.execute_script(&script_id).await {
                     error!("Script {} execution failed: {}", script_id, e);
                 }
             }
@@ -735,7 +757,9 @@ impl ScriptEngine {
 
             for script_id in scripts_to_run {
                 debug!(script_id = %script_id, "Executing script in scan cycle");
-                if let Err(e) = self.execute_with_depth(&script_id, 0).await {
+                // Batch 104: route through execute_script
+                // (depth=0) for HealthState instrumentation.
+                if let Err(e) = self.execute_script(&script_id).await {
                     error!(script_id = %script_id, error = %e, "Script execution failed");
                 }
             }
@@ -1112,9 +1136,29 @@ impl ScriptEngine {
             .collect()
     }
 
-    /// Execute a script by ID (public API - uses depth=0)
+    /// Execute a script by ID (public API - uses depth=0).
+    ///
+    /// Batch 104 observability: TOP-LEVEL script executions
+    /// increment HealthState counters here. Recursive
+    /// sub-script calls (via execute_with_depth from inside
+    /// an action handler) are internal; counting them would
+    /// conflate "operator-visible script runs" with
+    /// "implementation-detail sub-invocations" — the former
+    /// is the actionable fleet signal.
     pub async fn execute_script(&mut self, script_id: &str) -> anyhow::Result<ExecutionResult> {
-        self.execute_with_depth(script_id, 0).await
+        let result = self.execute_with_depth(script_id, 0).await;
+        // Snapshot HealthState Arc under a brief read guard.
+        let health_state = {
+            let s = self.state.read().await;
+            s.health_state.clone()
+        };
+        if let Some(hs) = health_state {
+            match &result {
+                Ok(exec_result) if exec_result.success => hs.inc_script_executions(),
+                _ => hs.inc_script_errors(),
+            }
+        }
+        result
     }
 
     /// Execute a script with depth tracking (v2.0 - infinite loop protection)
@@ -1654,7 +1698,7 @@ impl ScriptEngine {
 
         return ActionResult::failure(
             ActionType::Alert,
-            "alert() action is not yet connected to MQTT transport; use log() for now",
+            "alert() action is not yet connected to MQTT transport; use log() until Sprint 6.4 wires the alert publisher",
         );
     }
 
@@ -1760,7 +1804,7 @@ impl ScriptEngine {
 
         ActionResult::failure(
             ActionType::PublishMqtt,
-            "publishMqtt() action is not yet connected to MQTT transport; use log() for now",
+            "publishMqtt() action is not yet connected to MQTT transport; use log() until Sprint 6.4 wires the publisher",
         )
     }
 

@@ -12,11 +12,8 @@ import {
 import { Server, Socket } from 'socket.io';
 import { ClientProxy } from '@nestjs/microservices';
 import { firstValueFrom, timeout } from 'rxjs';
-import {
-  buildWsCorsConfig,
-  enforceAccessTokenType,
-  getJwtVerifyOptions,
-} from '@aquaculture/backend-common';
+import { enforceAccessTokenType, getJwtVerifyOptions } from '@aquaculture/backend-common/auth';
+import { buildWsCorsConfig } from '@aquaculture/backend-common/websocket';
 
 // Types
 

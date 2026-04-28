@@ -1,10 +1,6 @@
 import { ObjectType, Field, ID, HideField, registerEnumType, Directive } from '@nestjs/graphql';
-import {
-  Role,
-  hashPassword as hashPasswordWithPepper,
-  verifyPassword as verifyPasswordWithPepper,
-  PEPPERED_PREFIX_V1,
-} from '@aquaculture/backend-common';
+import { hashPassword as hashPasswordWithPepper, verifyPassword as verifyPasswordWithPepper, PEPPERED_PREFIX_V1 } from '@aquaculture/backend-common/auth';
+import { Role } from '@aquaculture/backend-common/decorators';
 import {
   Entity,
   Column,

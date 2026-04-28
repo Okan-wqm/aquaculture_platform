@@ -68,6 +68,27 @@ pub enum KeystoreErrorKind {
     /// Keystore is ready (happy path) — used only as a placeholder variant
     /// for consumers that need a "none" marker; normal Ok-path returns Ok(()).
     Unspecified,
+
+    /// Configuration invalid (Batch 82): Argon2id params below OWASP floor,
+    /// passphrase empty, salt too short, etc. Operator must fix config.
+    Configuration,
+
+    /// IO error reading passphrase/salt/seal-blob file (Batch 82).
+    /// Distinct from `MasterMissing` which is the "file is supposed to
+    /// exist but doesn't" path; `IoError` is "file exists but read
+    /// failed" (permissions, disk error).
+    IoError,
+
+    /// HKDF-Expand / Argon2id hash computation failed at runtime. Batch 82
+    /// surfaces this for Argon2id master derivation; KDF library failures
+    /// here indicate resource exhaustion (OOM on memory_kib too high for
+    /// the device) or a library internal error.
+    DerivationFailure,
+
+    /// Operation requested isn't wired in the current batch (e.g.
+    /// `rotate_master` pre-Batch-85). Operator should use the pre-Batch
+    /// workaround documented in the error context.
+    NotImplemented,
 }
 
 impl fmt::Display for KeystoreErrorKind {
@@ -81,6 +102,10 @@ impl fmt::Display for KeystoreErrorKind {
             Self::FileBackedAcceptanceMissing => "file_backed_acceptance_missing",
             Self::RotationFailed => "rotation_failed",
             Self::Unspecified => "unspecified",
+            Self::Configuration => "configuration",
+            Self::IoError => "io_error",
+            Self::DerivationFailure => "derivation_failure",
+            Self::NotImplemented => "not_implemented",
         };
         f.write_str(s)
     }
@@ -104,6 +129,11 @@ pub enum KeyDerivationError {
 
     /// Master keystore returned an error while requesting the raw bytes.
     MasterAccessFailed,
+
+    /// HKDF library reported a computation failure (Batch 82) — typically
+    /// info-length overflow or an internal state issue. Carries the
+    /// upstream error message for diagnostic purposes.
+    HkdfFailure(String),
 }
 
 impl fmt::Display for KeyDerivationError {
@@ -120,6 +150,9 @@ impl fmt::Display for KeyDerivationError {
             }
             Self::MasterAccessFailed => {
                 f.write_str("master key access failed during derivation")
+            }
+            Self::HkdfFailure(msg) => {
+                write!(f, "hkdf library failure: {}", msg)
             }
         }
     }

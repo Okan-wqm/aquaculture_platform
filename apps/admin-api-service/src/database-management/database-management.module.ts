@@ -7,7 +7,7 @@
 import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { SchemaManagerService } from '@aquaculture/backend-common';
+import { SchemaManagerService } from '@aquaculture/backend-common/database';
 import { AuditLogModule } from '../audit/audit.module';
 
 // Entities

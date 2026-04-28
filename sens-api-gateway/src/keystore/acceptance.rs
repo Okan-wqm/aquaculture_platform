@@ -70,6 +70,16 @@ pub struct AcceptanceToken {
 ///
 /// **Why pub fields forbidden:** every field is hidden; consumers cannot
 /// fabricate a `FileBackedAcceptance` from an unsigned `AcceptanceToken`.
+///
+/// **Why Debug is derived (Batch 69, closes ORPHAN-HIGH-012):** the
+/// sealed-construction invariant is enforced by private fields + the
+/// `try_from_parts` sole-constructor path — Debug only PRINTS values,
+/// it cannot CONSTRUCT. Field values (operator_id, device_id,
+/// expires_at) already round-trip through the public `AcceptanceToken`
+/// shape, so Debug-printing them leaks nothing that is not already on
+/// the wire. Enables `.expect_err(...)` in tests without weakening
+/// construction discipline.
+#[derive(Debug)]
 pub struct FileBackedAcceptance {
     operator_id: String,
     device_id: String,

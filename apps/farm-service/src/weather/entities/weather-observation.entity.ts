@@ -11,7 +11,7 @@ import {
   Index,
   Unique,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import { ObjectType, Field, ID, Float, registerEnumType } from '@nestjs/graphql';
 
 export enum WeatherDataType {

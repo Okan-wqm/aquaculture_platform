@@ -13,7 +13,7 @@ import {
   JoinColumn,
   VersionColumn,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 // Note: Supplier is referenced via string to avoid circular dependency
 // Type-only import for TypeScript type checking
 import type { Supplier } from '../../supplier/entities/supplier.entity';

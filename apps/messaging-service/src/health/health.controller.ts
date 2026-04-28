@@ -18,7 +18,7 @@ import { Controller, Inject, Logger, Optional } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { ClientProxy } from '@nestjs/microservices';
-import { StandardHealthController } from '@aquaculture/backend-common';
+import { StandardHealthController } from '@aquaculture/backend-common/health';
 import Redis from 'ioredis';
 import { REDIS_CLIENT } from '../shared/redis.provider';
 

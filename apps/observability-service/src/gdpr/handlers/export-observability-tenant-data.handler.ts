@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { CommandHandler, type ICommandHandler } from '@platform/cqrs';
 import { Between, LessThanOrEqual, MoreThanOrEqual, Repository } from 'typeorm';
 
-import { hmacTenantHash } from '@aquaculture/backend-common';
+import { hmacTenantHash } from '@aquaculture/backend-common/utils';
 
 import { MigrationEventEntity } from '../../database/entities/migration-event.entity';
 import { ExportObservabilityTenantDataCommand } from '../commands/export-observability-tenant-data.command';

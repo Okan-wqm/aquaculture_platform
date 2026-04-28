@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! MQTT Broker Failover for High Availability (v1.3.4)
 //!
 //! Provides automatic failover between primary and backup MQTT brokers
@@ -50,6 +49,39 @@ pub enum FailoverState {
     /// Both brokers unavailable
     Disconnected,
 }
+
+/// Errors from manual failover/recovery triggers.
+///
+/// BATCH-001-CI-FIX-008 closure — `force_failover` / `force_recovery`
+/// previously returned `()` while `commands.rs` treated them as
+/// `Result<(), _>`. This enum surfaces the structured reason so audit
+/// events can discriminate "backup not configured" from
+/// "state machine doesn't permit".
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FailoverError {
+    /// `config.mqtt.failover.backup_broker` is None — no failover target.
+    BackupBrokerNotConfigured,
+    /// Failover can only fire from `PrimaryActive`; other states reject.
+    InvalidStateForFailover { current: FailoverState },
+    /// Recovery can only fire from `BackupActive`; other states reject.
+    InvalidStateForRecovery { current: FailoverState },
+}
+
+impl std::fmt::Display for FailoverError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::BackupBrokerNotConfigured => f.write_str("backup_broker_not_configured"),
+            Self::InvalidStateForFailover { current } => {
+                write!(f, "invalid_state_for_failover:{}", current)
+            }
+            Self::InvalidStateForRecovery { current } => {
+                write!(f, "invalid_state_for_recovery:{}", current)
+            }
+        }
+    }
+}
+
+impl std::error::Error for FailoverError {}
 
 impl std::fmt::Display for FailoverState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -343,26 +375,42 @@ impl FailoverManager {
         let _ = self.state_tx.send(new_state);
     }
 
-    /// Manually trigger failover to backup
-    pub async fn force_failover(&self) {
+    /// Manually trigger failover to backup.
+    ///
+    /// BATCH-001-CI-FIX-008: return type changed from `()` to
+    /// `Result<(), FailoverError>` so `commands.rs::cmd_failover_force`
+    /// (which has been pattern-matching on `Ok(())`/`Err(e)` since commit
+    /// 3f51ba70 — a pre-existing type mismatch) compiles correctly.
+    pub async fn force_failover(&self) -> Result<(), FailoverError> {
         if !self.is_enabled() {
             warn!("Cannot force failover: backup broker not configured");
-            return;
+            return Err(FailoverError::BackupBrokerNotConfigured);
         }
 
         let state = *self.state.read().await;
-        if state == FailoverState::PrimaryActive {
-            info!("🔧 Manual failover triggered");
-            self.transition_to(FailoverState::ConnectingToBackup).await;
+        match state {
+            FailoverState::PrimaryActive => {
+                info!("🔧 Manual failover triggered");
+                self.transition_to(FailoverState::ConnectingToBackup).await;
+                Ok(())
+            }
+            other => Err(FailoverError::InvalidStateForFailover { current: other }),
         }
     }
 
-    /// Manually trigger recovery to primary
-    pub async fn force_recovery(&self) {
+    /// Manually trigger recovery to primary.
+    ///
+    /// BATCH-001-CI-FIX-008: same shape change as `force_failover` — returns
+    /// `Result<(), FailoverError>` instead of `()`.
+    pub async fn force_recovery(&self) -> Result<(), FailoverError> {
         let state = *self.state.read().await;
-        if state == FailoverState::BackupActive {
-            info!("🔧 Manual recovery triggered");
-            self.transition_to(FailoverState::CheckingPrimary).await;
+        match state {
+            FailoverState::BackupActive => {
+                info!("🔧 Manual recovery triggered");
+                self.transition_to(FailoverState::CheckingPrimary).await;
+                Ok(())
+            }
+            other => Err(FailoverError::InvalidStateForRecovery { current: other }),
         }
     }
 

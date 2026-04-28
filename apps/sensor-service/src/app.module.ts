@@ -10,21 +10,13 @@ import { join } from 'path';
 import { ScheduleModule } from '@nestjs/schedule';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import {
-  UserContextMiddleware,
-  TenantContextMiddleware,
-  CorrelationIdMiddleware,
-  RequestContextMiddleware,
-  MetricsMiddleware,
-  TenantGuard,
-  RolesGuard,
-  SourceSchemaBootstrapService,
-  ServiceIdentityGuard,
-  RedisModule,
-  RlsModule,
-  PlatformJwtModule,
-  createServiceTypeOrmConfig,
-} from '@aquaculture/backend-common';
+import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
+import { SourceSchemaBootstrapService, RlsModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common/database';
+import { TenantGuard, RolesGuard, ServiceIdentityGuard } from '@aquaculture/backend-common/guards';
+import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
+import { MetricsMiddleware } from '@aquaculture/backend-common/metrics';
+import { UserContextMiddleware, TenantContextMiddleware, CorrelationIdMiddleware } from '@aquaculture/backend-common/middleware';
+import { RedisModule } from '@aquaculture/backend-common/redis';
 import { EventBusModule } from '@platform/event-bus';
 import depthLimit from 'graphql-depth-limit';
 import { GraphQLError } from 'graphql';
@@ -55,7 +47,8 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
 import { HealthModule } from './health/health.module';
 import { IngestionModule } from './ingestion/ingestion.module';
 import { SensorMetricsModule } from './metrics/metrics.module';
-import { createTenantSchemaMiddleware, createTenantConnectionBootstrap, TenantSchemaSyncService, SourceSchemaWriteGuardService, SchemaDriftModule } from '@aquaculture/backend-common';
+import { createTenantConnectionBootstrap, TenantSchemaSyncService, SourceSchemaWriteGuardService, SchemaDriftModule } from '@aquaculture/backend-common/database';
+import { createTenantSchemaMiddleware } from '@aquaculture/backend-common/middleware';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('sensor');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('sensor');
 import { Process } from './process/entities/process.entity';

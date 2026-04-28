@@ -97,6 +97,13 @@ jobs:
 
       - name: Build release binary
         working-directory: sens-api-gateway
+        # BATCH-001-CI-FIX-012: LIBCLANG_PATH points the aws-lc-sys bindgen
+        # library at the LLVM 12 install that Cross.toml's pre-build step
+        # places at /usr/lib/llvm-12/lib. cross propagates this env var
+        # INTO the container via `[build.env] passthrough = ["LIBCLANG_PATH"]`
+        # in Cross.toml — the documented cross integration pattern.
+        env:
+          LIBCLANG_PATH: /usr/lib/llvm-12/lib
         run: cross build --release --target ${{ matrix.target }} --features scada-display
 
       - name: Strip binary (x86_64 only)

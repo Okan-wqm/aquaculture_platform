@@ -862,7 +862,8 @@ impl S7Client {
     /// Convert ST program to S7 AWL/MC7 format
     fn compile_to_mc7(&self, _program: &PlcProgram) -> Result<Vec<u8>> {
         // In a real implementation, this would compile ST to MC7 bytecode.
-        // For now, we create a placeholder that demonstrates the structure.
+        // This placeholder demonstrates the structure until full
+        // ST→MC7 compilation lands.
         //
         // NOTE: Full ST->MC7 compilation requires Siemens compiler or
         // reverse-engineered MC7 encoding.

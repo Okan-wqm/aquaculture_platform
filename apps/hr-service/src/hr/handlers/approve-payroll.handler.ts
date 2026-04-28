@@ -1,12 +1,13 @@
 import { Injectable, NotFoundException, BadRequestException, Logger, InternalServerErrorException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
-import { Money } from '@aquaculture/backend-common';
+import { Money } from '@aquaculture/backend-common/monetary';
 import { OutboxPublisher } from '@platform/outbox';
 import { ApprovePayrollCommand } from '../commands/approve-payroll.command';
 import { Payroll, PayrollStatus } from '../entities/payroll.entity';
 import { createBaseEvent } from '@platform/event-contracts';
 import type { PayrollProcessedEvent } from '@platform/event-contracts';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 
 @Injectable()
 @CommandHandler(ApprovePayrollCommand)
@@ -26,7 +27,7 @@ export class ApprovePayrollHandler implements ICommandHandler<ApprovePayrollComm
     await queryRunner.startTransaction();
 
     try {
-      const payrollRepo = queryRunner.manager.getRepository(Payroll);
+      const payrollRepo = tenantManagerRepo(queryRunner.manager, Payroll, tenantId);
 
       // Pessimistic write lock — prevents concurrent double-approval of the same payroll.
       // @VersionColumn provides optimistic concurrency control but the window between

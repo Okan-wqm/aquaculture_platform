@@ -31,9 +31,8 @@ import { AuditLogService } from '../../audit/audit.service';
 import { AuditSeverity } from '../../audit/audit.entity';
 import { getAuthUser } from '../../shared/authenticated-request';
 
-// Fix: H8 -- per-route throttle for sensitive database operations
-import { ThrottleSensitive, ThrottleExport } from '@aquaculture/backend-common';
-import { MODULE_SCHEMAS, DEFAULT_TENANT_MODULES } from '@aquaculture/backend-common';
+import { ThrottleSensitive, ThrottleExport } from '@aquaculture/backend-common/security';
+import { MODULE_SCHEMAS, DEFAULT_TENANT_MODULES } from '@aquaculture/backend-common/database';
 // ============================================================================
 // Module Table Access Control
 // ============================================================================

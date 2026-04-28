@@ -52,7 +52,7 @@ import {
   type SourceLocation,
   type ParseResult,
   type ParseError,
-} from './st-ast';
+} from '@platform/sensor-automation-types';
 import { ParserErrorCode, RecoveryStrategy, createParseError } from './st-errors';
 
 // ────────────────────────────────────────────────────────────────────────────

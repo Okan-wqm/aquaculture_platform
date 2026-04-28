@@ -22,11 +22,68 @@ db-urls = ["https://github.com/rustsec/advisory-db"]
 # Deny known vulnerabilities
 version = 2
 
-# Ignore specific advisories (with justification)
+# Ignore specific advisories — policy mirror of `.cargo/audit.toml`.
+# cargo-deny reads THIS file; cargo-audit reads the other. Both tools
+# run in CI so both allowlists MUST agree; otherwise CI fails on the
+# same advisory through the other tool. When upstream fixes land,
+# REMOVE entry from BOTH files in the same commit.
+#
+# Policy (plan discipline): delay with tracked-IDs permitted only with
+# explicit owner + deadline + finding-ID + upstream blocker reference.
 ignore = [
-    # RUSTSEC-2025-0134: rustls-pemfile marked unmaintained (transitional)
-    # Justification: Used by reqwest, waiting for upstream fix
+    # -----------------------------------------------------------------
+    # EDGE-CI-001: rustls-webpki 0.102.8 × 3 advisories — rumqttc 0.25.1
+    # transitive. Owner: platform-team. Deadline: 2026-07-01.
+    # Upstream: rumqttc/bytebeamio main branch still on 0.102.8.
+    # Our Batch 11 mTLS uses SHA-256 fingerprint pinning (not name-
+    # constraint validation) so advisory code paths are not exercised.
+    # If rumqttc 0.26 misses deadline: suderra fork OR paho-mqtt-rust.
+    # -----------------------------------------------------------------
+    "RUSTSEC-2026-0098", # Name constraints for URI names incorrectly accepted
+    "RUSTSEC-2026-0099", # Name constraints accepted for wildcard cert asserts
+    "RUSTSEC-2026-0049", # CRLs not considered authoritative by Distribution Point
+
+    # -----------------------------------------------------------------
+    # EDGE-CI-002: rsa 0.9.10 Marvin Attack — NO UPSTREAM FIX.
+    # Owner: platform-team. Deadline: RE-EVAL QUARTERLY.
+    # Marvin Attack requires timing-measurable decryption oracle;
+    # async-opcua X.509 VERIFICATION path does NOT expose one. OPC UA
+    # feature `opc-ua-server` off-by-default; opt-in only.
+    # -----------------------------------------------------------------
+    "RUSTSEC-2023-0071",
+
+    # -----------------------------------------------------------------
+    # EDGE-CI-003: bincode 1.3.3 unmaintained (RUSTSEC-2025-0141).
+    # Owner: platform-team. Deadline: 2026-09-01 (bincode 2.x migration).
+    # Plan Batch 1 PINS for wire-format stability of audit HMAC chain +
+    # canonical bytes. Migration = breaking on-wire change; ADR-level
+    # coordinated fleet event (re-sign every live audit record).
+    # -----------------------------------------------------------------
+    "RUSTSEC-2025-0141",
+
+    # -----------------------------------------------------------------
+    # EDGE-CI-004: derivative 2.2.0 unmaintained (RUSTSEC-2024-0388).
+    # Owner: platform-team. Deadline: 2026-09-01 (async-opcua upstream).
+    # Via async-opcua 0.18 OPC UA binary serialization layer. No active
+    # advisory — unmaintained signal only.
+    # -----------------------------------------------------------------
+    "RUSTSEC-2024-0388",
+
+    # -----------------------------------------------------------------
+    # EDGE-CI-005: rustls-pemfile 2.2.0 unmaintained (RUSTSEC-2025-0134).
+    # Owner: platform-team. Deadline: 2026-07-01 (with rumqttc 0.26).
+    # Same rumqttc 0.25.1 transitive as EDGE-CI-001; tied to its
+    # resolution.
+    # -----------------------------------------------------------------
     "RUSTSEC-2025-0134",
+
+    # -----------------------------------------------------------------
+    # EDGE-CI-006: atomic-polyfill 1.0.3 unmaintained (RUSTSEC-2023-0089).
+    # Owner: platform-team. Deadline: 2026-09-01.
+    # New transitive via async-opcua 0.18. Upstream migrating to
+    # std::sync::atomic. No active vulnerability.
+    # -----------------------------------------------------------------
+    "RUSTSEC-2023-0089",
 ]
 
 [licenses]

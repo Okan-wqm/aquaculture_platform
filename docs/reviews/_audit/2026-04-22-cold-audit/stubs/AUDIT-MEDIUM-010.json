@@ -1,0 +1,16 @@
+{
+  "id": "AUDIT-MEDIUM-010",
+  "severity": "MEDIUM",
+  "state": "OPEN",
+  "title": "web/tenant-admin hotspot (86 pts) — TenantDashboard / TenantUsers / TenantSettings page churn",
+  "layer": 1,
+  "evidence": [
+    "web/modules/tenant-admin/src/pages/TenantDashboard.tsx:1"
+  ],
+  "rule_violated": "No hard rule — churn signal.",
+  "owner_agent": "frontend-expert",
+  "raised_in_cycle": "2026-04-22-cold-audit",
+  "review_file": "docs/reviews/_audit/2026-04-22-cold-audit/03-explore-findings.md",
+  "created_at": "2026-04-22T19:00:00Z",
+  "notes": "Tier 4 monitor. Expected UI churn during feature work."
+}

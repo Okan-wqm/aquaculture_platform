@@ -187,6 +187,12 @@ const EXEMPT_PATHS: readonly RegExp[] = [
   /^\.claude\/knowledge\//,
   /^\.claude\/skills\//,
   /^CLAUDE\.md$/,
+  // Community docs that DOCUMENT the banned-phrase discipline by name.
+  // They list "for now", "good enough", etc. as forbidden phrases — the
+  // doc IS the meta-text describing this very gate. Same exemption
+  // rationale as banned-phrase.ts itself below.
+  /^CONTRIBUTING\.md$/,
+  /^SECURITY\.md$/,
   /^tools\/gates\/banned-phrase\.(ts|mjs)$/,
   /^tools\/gates\/banned-phrase\.test\.(ts|mjs)$/,
   /^tools\/scripts\/seed-finding-registry\.(mjs|ts)$/, // finding seed text references banned phrases by name (meta-text)
@@ -198,6 +204,18 @@ const EXEMPT_PATHS: readonly RegExp[] = [
   // rows. The file is exempt only for the "deferred" rule; other banned
   // phrases (for now, pragmatic, etc.) still apply.
   /^apps\/hr-service\/src\/performance\/entities\/goal\.entity\.ts$/,
+  // Same rationale: the migration that CREATES the goal_status enum ships
+  // `'deferred'` as a SQL literal to match the entity. The phrase appears
+  // inside an SQL string, not as a gating excuse.
+  /^apps\/hr-service\/src\/database\/migrations\/1736000000000-CreateHRModuleSchema\.ts$/,
+  // The defer-goal command handler reads / writes `GoalStatus.DEFERRED`
+  // and embeds the word "Deferred:" in the audit log entry it constructs.
+  // Same rationale as the enum file above: the word IS the product
+  // semantics for the performance-management domain (a parked goal),
+  // not an architectural gating excuse. Renaming the enum or the audit
+  // string would require database + audit-log migrations on persisted
+  // historical state.
+  /^apps\/hr-service\/src\/performance\/handlers\/defer-goal\.handler\.ts$/,
 ];
 
 interface Violation {
@@ -463,12 +481,14 @@ function scanRangeCommitBodies(baseRef: string, headRef: string): Violation[] {
 }
 
 function main(): void {
-  const [, , modeFlag, ...args] = process.argv;
-  if (!modeFlag) {
-    console.error(
-      'Usage: ts-node tools/gates/banned-phrase.ts --mode=<staged|range|commit|file> [args]',
-    );
-    process.exit(2);
+  const [, , rawModeFlag, ...args] = process.argv;
+  // Default mode when invoked via `npm run gates:all` or a bare shell:
+  // scan the git-staged files. CI always supplies --mode=range <base>
+  // <head> explicitly, so the default only fires for local developer
+  // ergonomics — not a silent fallback for the CI path.
+  const modeFlag = rawModeFlag ?? '--mode=staged';
+  if (!rawModeFlag) {
+    console.error('[banned-phrase] no --mode supplied; defaulting to --mode=staged.');
   }
 
   const mode = modeFlag.replace(/^--mode=/, '');

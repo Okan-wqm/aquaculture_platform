@@ -7,6 +7,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, IsNull, DataSource } from 'typeorm';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 
 import { ChannelDetectionLog, UserAction } from '../database/entities/channel-detection-log.entity';
 import {
@@ -138,8 +139,8 @@ export class ChannelDetectionService {
     }
 
     return this.dataSource.transaction(async (manager) => {
-      const channelRepo = manager.getRepository(SensorDataChannel);
-      const logRepo = manager.getRepository(ChannelDetectionLog);
+      const channelRepo = tenantManagerRepo(manager, SensorDataChannel, tenantId);
+      const logRepo = tenantManagerRepo(manager, ChannelDetectionLog, tenantId);
 
       // Batch create channels
       const channelEntities = channelsToCreate
@@ -166,7 +167,7 @@ export class ChannelDetectionService {
           calibrationOffset: 0.0,
         }));
 
-      const created = await channelRepo.save(channelEntities);
+      const created = await channelRepo.saveMany(channelEntities);
 
       // Update proposal with approval
       proposal.userAction = UserAction.APPROVED;

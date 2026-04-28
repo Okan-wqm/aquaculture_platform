@@ -14,7 +14,7 @@
 import { ExecutionContext, CallHandler } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { GqlContextType } from '@nestjs/graphql';
-import { RedisService } from '@aquaculture/backend-common';
+import { RedisService } from '@aquaculture/backend-common/redis';
 import { firstValueFrom, lastValueFrom, of, throwError } from 'rxjs';
 
 import {

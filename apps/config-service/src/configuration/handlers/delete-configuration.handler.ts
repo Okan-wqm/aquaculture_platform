@@ -9,6 +9,7 @@ import { DataSource, QueryRunner } from 'typeorm';
 import { DeleteConfigurationCommand } from '../commands/delete-configuration.command';
 import { Configuration } from '../entities/configuration.entity';
 import { ConfigurationService } from '../services/configuration.service';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 
 @Injectable()
 @CommandHandler(DeleteConfigurationCommand)
@@ -30,7 +31,7 @@ export class DeleteConfigurationHandler
     await queryRunner.startTransaction('READ COMMITTED');
 
     try {
-      const configRepo = queryRunner.manager.getRepository(Configuration);
+      const configRepo = tenantManagerRepo(queryRunner.manager, Configuration, tenantId);
 
       const configuration = await configRepo.findOne({
         where: { id: configurationId, tenantId },

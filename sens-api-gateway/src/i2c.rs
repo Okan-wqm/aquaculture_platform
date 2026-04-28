@@ -72,7 +72,13 @@ impl Default for I2cDeviceConfig {
     }
 }
 
-/// I2C read result
+/// I2C read result.
+///
+/// Batch 21 ARC-006: `simulated` field added so the io_poll path
+/// can route sim reads to `TagQuality::Simulated` and MQTT
+/// publish can attach `"simulated": true` to the outgoing tag
+/// value. Serde-skipped when false so real-hardware reads don't
+/// carry an unused field in every payload.
 #[derive(Debug, Clone, Serialize)]
 pub struct I2cReadResult {
     pub device: String,
@@ -81,6 +87,11 @@ pub struct I2cReadResult {
     pub data: Vec<u8>,
     pub success: bool,
     pub error: Option<String>,
+    /// True when this read came from the simulation branch
+    /// (default build or missing `gpio` feature). Real-hardware
+    /// reads always set this to `false`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub simulated: bool,
 }
 
 /// I2C scan result
@@ -193,6 +204,7 @@ impl I2cHandle {
                 data: vec![],
                 success: false,
                 error: Some("Failed to send command".to_string()),
+                simulated: false,
             };
         }
         rx.await.unwrap_or_else(|_| I2cReadResult {
@@ -202,6 +214,7 @@ impl I2cHandle {
             data: vec![],
             success: false,
             error: Some("Actor disconnected".to_string()),
+            simulated: false,
         })
     }
 
@@ -238,6 +251,7 @@ impl I2cHandle {
                 data: vec![],
                 success: false,
                 error: Some("Failed to send command".to_string()),
+                simulated: false,
             };
         }
         rx.await.unwrap_or_else(|_| I2cReadResult {
@@ -247,6 +261,7 @@ impl I2cHandle {
             data: vec![],
             success: false,
             error: Some("Actor disconnected".to_string()),
+            simulated: false,
         })
     }
 
@@ -494,6 +509,7 @@ impl I2cActor {
                     data: buffer,
                     success: true,
                     error: None,
+                    simulated: false,
                 }
             }
             Err(e) => I2cReadResult {
@@ -517,13 +533,16 @@ impl I2cActor {
             device, register, length
         );
 
+        // ARC-006: mark as simulated so io_poll routes to
+        // TagQuality::Simulated + MQTT payload gets the marker.
         I2cReadResult {
             device: device.to_string(),
             address,
             register,
-            data: vec![0u8; length], // Simulated zeros
+            data: vec![0u8; length],
             success: true,
             error: None,
+            simulated: true,
         }
     }
 
@@ -609,6 +628,7 @@ impl I2cActor {
                 data: buffer,
                 success: true,
                 error: None,
+                simulated: false,
             },
             Err(e) => I2cReadResult {
                 device: device.to_string(),
@@ -626,6 +646,9 @@ impl I2cActor {
         let config = self.device_map.get(device);
         let address = config.map(|c| c.address).unwrap_or(0);
 
+        // ARC-006: mark as simulated so downstream tag quality
+        // surfaces as TagQuality::Simulated + MQTT publish
+        // attaches `"simulated": true`.
         I2cReadResult {
             device: device.to_string(),
             address,
@@ -633,6 +656,7 @@ impl I2cActor {
             data: vec![0u8; length],
             success: true,
             error: None,
+            simulated: true,
         }
     }
 

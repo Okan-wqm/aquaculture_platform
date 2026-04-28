@@ -14,6 +14,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
 use std::fs;
 use std::path::PathBuf;
+use std::str::FromStr;
 use tracing::{debug, info, warn};
 
 use crate::i2c::I2cDeviceConfig;
@@ -175,6 +176,30 @@ pub struct AgentConfig {
     /// MQTT configuration
     pub mqtt: MqttConfig,
 
+    /// Health HTTP server configuration (Batch 14 ARC-003).
+    /// Default: disabled with localhost:8080 bind. Per plan §5 Faz 1
+    /// Step 1.4 HealthServer wire — orchestrators (Docker / k8s /
+    /// systemd) probe /health + /ready + /metrics + /diagnostics for
+    /// liveness + readiness gating.
+    #[serde(default)]
+    pub health: HealthServerConfig,
+
+    /// Offline queue configuration (Batch 15 ARC-002).
+    /// Default: disabled. Per plan §5 Faz 1 Step 1.3 — SQLCipher-backed
+    /// durable queue for telemetry across broker outages. Enable via
+    /// `config.yaml::offline_queue.enabled: true`.
+    #[serde(default)]
+    pub offline_queue: OfflineQueueConfig,
+
+    /// Backup manager configuration (Batch 18 ARC-009 wire).
+    /// Default: disabled. Per plan §5 Faz 1 Step 8 + ADR-020 §6 GDPR
+    /// Art 20 edge portability — config/script/FB/SQLite snapshot to
+    /// gzipped binary at `backup_dir`. Operator reads via future HTTP
+    /// endpoint (auth via `BACKUP_AUTH_SECRET` env) OR manually
+    /// copies for operator-controlled data export.
+    #[serde(default)]
+    pub backup: BackupConfig,
+
     /// Telemetry configuration
     #[serde(default)]
     pub telemetry: TelemetryConfig,
@@ -207,6 +232,124 @@ pub struct AgentConfig {
     #[serde(default)]
     pub runtime: RuntimeConfig,
 
+    /// mTLS rollout-stage configuration (Batch 27, plan §5 Faz 2
+    /// item 7). Controls cert-age checks + fingerprint-pinning
+    /// enforcement across the Legacy → Warn → Strict 3-stage
+    /// rollout. Wired into rustls client builder in Sprint 6-.8;
+    /// pre-Sprint-6.8 the value is surfaced at boot log for
+    /// operator visibility but does not yet affect TLS handshakes.
+    #[serde(default)]
+    pub mtls: MtlsConfig,
+
+    /// Config-integrity sidecar verification (Batch 42, plan D-13
+    /// / ADR-020 §6 / Sprint 6.6). Controls whether boot reads
+    /// `/etc/suderra/config.yaml.sig`, computes SHA-256 of
+    /// `config.yaml`, and verifies the factory-ed25519
+    /// signature against the embedded public key.
+    /// Pre-Sprint-6.6 the MODE field is surfaced at boot log for
+    /// operator visibility; the actual verify path wires in
+    /// Sprint 6.6 once the factory key is bundled in the
+    /// firmware image.
+    #[serde(default)]
+    pub config_integrity: ConfigIntegrityConfig,
+
+    /// Command-envelope signature verification mode (Batch 45,
+    /// plan §2 HC-6 / Sprint 6.4). Controls whether incoming
+    /// MQTT commands require a valid ed25519 signature for
+    /// mutating operations. Pre-Sprint-6.4 the MODE field is
+    /// exposed here + logged at boot for operator visibility;
+    /// the actual envelope verify path wires in Sprint 6.4
+    /// along with the Moka-backed jti dedup cache.
+    ///
+    /// Rollout discipline (plan §2 HC-6):
+    /// - Disabled (default) — HC-1 backward compat; unsigned
+    ///   commands accepted.
+    /// - Permissive — unsigned mutating commands logged but
+    ///   accepted; signed envelopes MUST verify.
+    /// - Enforcing — unsigned mutating commands rejected.
+    #[serde(default)]
+    pub signature_mode: crate::command_envelope::envelope::SignatureMode,
+
+    /// Clock authority configuration (Batch 56, plan D-7 /
+    /// Sprint 6.7). Controls NTS-sync staleness threshold used
+    /// by the future `ChronyNtsClockAuthority` to reject wall-
+    /// clock reads when chronyd has been silent too long.
+    /// Pre-Sprint-6.7 the SystemClockAuthority (Batch 55)
+    /// reports nts_sync_age_secs=0 unconditionally so the
+    /// threshold check never fires; operators can still tune
+    /// the threshold so their config.yaml is ready for
+    /// Sprint 6.7 swap-in.
+    #[serde(default)]
+    pub clock: ClockConfig,
+
+    /// Envelope dedup cache configuration (Batch 58, plan
+    /// §4.10 / Sprint 6.4). Controls the MokaJtiDedupTable
+    /// capacity + TTL — the hot-window tier (60s default)
+    /// that catches QoS-1 MQTT redelivery replays in-memory.
+    /// Sprint 6.4 full wire layers a SQLCipher persistent tier
+    /// underneath for the 72-hour plan window.
+    #[serde(default)]
+    pub envelope_dedup: EnvelopeDedupConfig,
+
+    /// RBAC manifest configuration (Batch 66, plan §3 R-5 /
+    /// ADR-018 / Sprint 6.1). Controls loading + verification
+    /// of the cloud-signed RBAC manifest that carries
+    /// operator-pubkey bindings + custom role definitions.
+    /// Pre-Sprint-6.1 the MODE is exposed + logged at boot;
+    /// manifest runtime (actor-pubkey lookup for envelope
+    /// signature verify) wires at Sprint 6.1 full.
+    #[serde(default)]
+    pub rbac_manifest: RbacManifestConfig,
+
+    /// User-token manifest knobs (Batch #249b Faz 5 A-3c).
+    /// Serde-default so pre-Batch-249b config.yaml files continue
+    /// to parse; when absent, user-token manifest stays disabled
+    /// (fail-closed — no credentials can be enrolled).
+    #[serde(default)]
+    pub user_token_manifest: UserTokenManifestConfig,
+
+    /// Firmware update verification configuration (Batch 114
+    /// Sprint 6.5 / ADR-019 §3). Controls whether incoming
+    /// firmware payloads are verified as SignedFirmwareManifest
+    /// (ed25519 + 8-gate verify) or fall through to the
+    /// legacy Batch 20k tarball OTA path. Operator-facing
+    /// knobs: rollout mode (Disabled/Permissive/Enforcing) +
+    /// ed25519 signing pubkey hex. Coherence Rule 20 enforces
+    /// that non-Disabled mode requires a parseable 64-char
+    /// hex pubkey.
+    #[serde(default)]
+    pub firmware_update: FirmwareUpdateConfig,
+
+    /// Lifecycle HTTP endpoint auth config (Batch 129
+    /// Sprint 6.6). Controls whether
+    /// `POST /lifecycle/confirm-active` requires a
+    /// per-request HMAC derived from a
+    /// systemd-credential-delivered key. HC-1 default is
+    /// Disabled; production deployments set
+    /// `auth_mode = hmac_token` + deploy the corresponding
+    /// systemd unit with LoadCredential.
+    #[serde(default)]
+    pub lifecycle_endpoint: LifecycleEndpointConfig,
+
+    /// Audit sink configuration (Batch 78 Sprint 6.2 Phase 2).
+    /// Controls whether pre+post audit events are written to
+    /// `/var/log/suderra/audit.log` with HMAC chain integrity.
+    /// Phase 2 / Batch 80 swaps the HMAC key source from
+    /// config-supplied hex to Sprint 6.3 keystore-derived
+    /// (KeyPurpose::AuditHmacChain) — the config knob is the
+    /// rollout-stage path.
+    #[serde(default)]
+    pub audit: AuditConfig,
+
+    /// Keystore configuration (Batch 83 Sprint 6.3). Selects
+    /// the master-key backend (TPM / systemd-creds /
+    /// FileBacked) + supplies the per-backend paths.
+    /// Disabled (default) leaves AppState.keystore = None —
+    /// existing deployments keep using config-supplied hex
+    /// keys from audit/sqlcipher config surfaces.
+    #[serde(default)]
+    pub keystore: KeystoreConfig,
+
     /// Cache configuration (v1.2.0)
     #[serde(default)]
     pub cache: CacheConfig,
@@ -218,6 +361,26 @@ pub struct AgentConfig {
     /// LoRaWAN gateway configuration (v1.5.0)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lorawan: Option<LoRaWanConfig>,
+
+    /// OPC UA server configuration (Batch 207 Faz 5).
+    ///
+    /// WHY: Plan §5 Faz 5 specifies an async-opcua-backed server
+    /// that 3rd-party HMIs (Ignition, UaExpert, Kepware,
+    /// Wonderware) browse + subscribe to without the cloud
+    /// broker. Read paths expose the process image; write paths
+    /// go through the same authz + audit gate every MQTT-command
+    /// write uses, so the OPC UA surface cannot bypass policy.
+    ///
+    /// HC-1 backward compat: `enabled` default false — existing
+    /// config.yaml files deserialize unchanged and no OPC UA
+    /// port is opened. The `opc-ua-server` Cargo feature flag
+    /// compiles the implementation out of the binary entirely
+    /// when not built; this config block is always accepted at
+    /// the serde layer so operators can pre-stage the config for
+    /// a feature-built binary roll-out without re-deploying
+    /// agent configs.
+    #[serde(default)]
+    pub opc_ua_server: OpcUaServerConfig,
 }
 
 /// MQTT TLS configuration (IEC 62443 SL2 FR4: Data Confidentiality)
@@ -359,6 +522,201 @@ impl Default for MqttFailoverConfig {
     }
 }
 
+// =============================================================================
+// HealthServerConfig — Batch 14 ARC-003 (HealthServer wire)
+// =============================================================================
+//
+// WHY: Plan §5 Faz 1 Step 1.4 — `health.rs` implements an axum HTTP server
+// exposing `/health /ready /metrics /diagnostics` for orchestrator liveness
+// probes (Docker, k8s, systemd). Pre-Batch-14 the file was dead-code.
+// OBS-14-001 (see session-observations.md): HealthState counter update
+// paths from MQTT / modbus / script engine subsystems are NOT wired —
+// metrics will report 0 until Sprint 6.2 threads HealthState clones into
+// those subsystems. This batch wires the server + AppState field only.
+//
+// WHAT: Config struct with:
+//   - `enabled` — master toggle (default false per plan HC-6 rollout
+//     discipline; explicit opt-in per deployment).
+//   - `bind` — SocketAddr string. Default `127.0.0.1:8080` (LOCALHOST
+//     ONLY — orchestrators probe via loopback or sidecar; external
+//     scrape requires explicit operator reconfigure to the routable
+//     interface).
+//
+// INVARIANT: Server binds to `bind` ONLY when `enabled == true`. Invalid
+// SocketAddr parse fails at boot with operator-visible ERROR; no silent
+// fallback to a different address.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HealthServerConfig {
+    /// Master toggle for the HTTP health server.
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Bind address for the health server. Default `127.0.0.1:8080` —
+    /// LOCALHOST ONLY. Operators MUST explicitly reconfigure to route
+    /// externally (e.g. `0.0.0.0:8080` or a specific interface);
+    /// default is intentionally non-routable per SL-2 defense-in-depth.
+    #[serde(default = "default_health_bind")]
+    pub bind: String,
+}
+
+fn default_health_bind() -> String {
+    "127.0.0.1:8080".to_string()
+}
+
+impl Default for HealthServerConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            bind: default_health_bind(),
+        }
+    }
+}
+
+// =============================================================================
+// OfflineQueueConfig — Batch 15 ARC-002 (OfflineQueue wire)
+// =============================================================================
+//
+// WHY: Plan §5 Faz 1 Step 1.3 — `offline_queue.rs` (1527 lines) implements
+// a SQLCipher-backed durable queue for telemetry that was NOT YET wired
+// into the MQTT publish path. Pre-Batch-15: when broker is unreachable,
+// in-flight telemetry is simply dropped. ADR-020 §6 + IEC 62443 FR6
+// Timely Response require queue-and-forward so no telemetry is lost
+// across transient broker outages.
+//
+// WHAT: Config struct with:
+//   - `enabled` — master toggle (default false per plan HC-6 rollout
+//     discipline; explicit opt-in per deployment).
+//   - `db_path_override` — Option<PathBuf>. When None, uses
+//     `${SUDERRA_DATA_DIR}/offline_queue.db` (default
+//     `/var/lib/suderra/offline_queue.db`). Operator override for
+//     non-standard layouts.
+//   - `max_size` — row count cap. Default 10_000 telemetry messages
+//     (~10MB at 1KB avg/msg). After cap, drop_oldest_low_priority.
+//   - `max_age_secs` — row TTL. Default 7 days (604800s). Older rows
+//     auto-expunged on enqueue.
+//   - `max_disk_bytes` — disk cap. Default 100MB (104857600). SQLCipher
+//     + indexes overhead considered.
+//
+// OBS-15-001 (session-observations.md): SQLCipher key is derived from
+// machine-id today (plan HC-5 flags this as needing replacement by
+// HKDF(master_key) per Sprint 6.3 keystore runtime). Batch 15 uses the
+// existing v1.6.0 machine-id derivation to preserve HC-1 backward-
+// compat. Migration tracked.
+//
+// INVARIANT: When `enabled == false`, the AsyncOfflineQueue is not
+// constructed; the MQTT publish path (Sprint 6.2 wiring) falls back to
+// the current v1.6.0 drop-on-disconnect behavior. When enabled but DB
+// open fails, boot FAILS-CLOSED (fatal error) — a declared-enabled queue
+// that silently isn't running would hide data-loss from operators.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OfflineQueueConfig {
+    /// Master toggle.
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Optional path override. None → `${SUDERRA_DATA_DIR}/offline_queue.db`.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub db_path_override: Option<std::path::PathBuf>,
+
+    /// Maximum row count before drop_oldest_low_priority kicks in.
+    #[serde(default = "default_offline_max_size")]
+    pub max_size: usize,
+
+    /// Maximum row age in seconds. 0 = no expiration (not recommended).
+    #[serde(default = "default_offline_max_age_secs")]
+    pub max_age_secs: u64,
+
+    /// Maximum disk footprint in bytes. 0 = no limit (not recommended).
+    #[serde(default = "default_offline_max_disk_bytes")]
+    pub max_disk_bytes: u64,
+}
+
+fn default_offline_max_size() -> usize {
+    10_000
+}
+
+fn default_offline_max_age_secs() -> u64 {
+    7 * 24 * 60 * 60 // 7 days
+}
+
+fn default_offline_max_disk_bytes() -> u64 {
+    100 * 1024 * 1024 // 100 MB
+}
+
+impl Default for OfflineQueueConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            db_path_override: None,
+            max_size: default_offline_max_size(),
+            max_age_secs: default_offline_max_age_secs(),
+            max_disk_bytes: default_offline_max_disk_bytes(),
+        }
+    }
+}
+
+// =============================================================================
+// BackupConfig — Batch 18 ARC-009 (backup.rs wire, GDPR Art 20)
+// =============================================================================
+//
+// WHY: Plan §5 Faz 1 Step 8 + ADR-020 §6 — `backup.rs` (715 lines)
+// implements config/script/FB/SQLite snapshot → gzipped binary export.
+// Pre-Batch-18 the module was dead-code; no way to dump device state
+// for GDPR Art 20 portability requests or disaster recovery.
+//
+// WHAT:
+//   - `enabled: bool` (default false) — master toggle.
+//   - `backup_dir: Option<PathBuf>` — override. None →
+//     `${SUDERRA_DATA_DIR}/backups/` (default `/var/lib/suderra/backups/`,
+//     Batch 4a systemd-whitelisted).
+//   - `max_backups: usize` (default 10) — retention cap; older
+//     backups auto-deleted after each create (BackupManager::
+//     cleanup_old_backups).
+//
+// OBS-18-001 (session-observations.md): scheduled/periodic backup is
+// NOT wired. Operators must manually trigger via future HTTP endpoint
+// OR `suderra-agent backup-create` CLI subcommand (Sprint 6.x).
+// Current batch wires the manager; triggering landing in Sprint 6.x.
+//
+// OBS-18-002 (session-observations.md): `BACKUP_AUTH_SECRET` env var
+// already loaded by `BackupManager::new()` for HTTP auth defense, but
+// no HTTP endpoint yet exists. Sprint 6.x HTTP wiring inherits the
+// existing secret validation via `BackupManager::validate_auth()`.
+//
+// INVARIANT: enabled=true + backup_dir unwritable → fail-closed boot.
+// A declared-enabled backup that silently can't write would give
+// operators false confidence their data is being captured.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackupConfig {
+    /// Master toggle for the backup manager.
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Optional backup directory override. None →
+    /// `${SUDERRA_DATA_DIR}/backups/`.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub backup_dir: Option<std::path::PathBuf>,
+
+    /// Maximum number of backup files to keep on disk. Older backups
+    /// are auto-deleted after each `create_backup()` call.
+    #[serde(default = "default_backup_max_count")]
+    pub max_backups: usize,
+}
+
+fn default_backup_max_count() -> usize {
+    10
+}
+
+impl Default for BackupConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            backup_dir: None,
+            max_backups: default_backup_max_count(),
+        }
+    }
+}
+
 /// Custom Debug implementation that masks the password
 impl fmt::Debug for MqttConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -416,6 +774,16 @@ pub struct MqttTopics {
     /// LoRa events topic pattern (v1.5.0: publish LoRaWAN uplink/join events)
     #[serde(default = "default_lora_events_topic")]
     pub lora_events: String,
+
+    /// **Batch #302 Faz 4 step 5.** Per-task scheduler stats
+    /// telemetry topic pattern. The task_stats publisher loop
+    /// emits a JSON snapshot of every task's TaskStats
+    /// (cycle_ms_min/max/avg, jitter_ms_*, overrun_count,
+    /// watchdog_kill_count) at a configurable interval (default
+    /// 30s) so operators see scheduler health without parsing
+    /// agent internals. Plan §5 Faz 4 step 5 canonical path.
+    #[serde(default = "default_task_stats_topic")]
+    pub task_stats: String,
 }
 
 impl Default for MqttTopics {
@@ -430,6 +798,7 @@ impl Default for MqttTopics {
             io_data: default_io_data_topic(),
             alarms: default_alarms_topic(),
             lora_events: default_lora_events_topic(),
+            task_stats: default_task_stats_topic(),
         }
     }
 }
@@ -476,6 +845,11 @@ impl MqttTopics {
                 .lora_events
                 .replace("{tenant_id}", tenant_id)
                 .replace("{device_id}", device_id),
+            // Batch #302 Faz 4 step 5: task_stats topic resolve
+            task_stats: self
+                .task_stats
+                .replace("{tenant_id}", tenant_id)
+                .replace("{device_id}", device_id),
         };
 
         // v1.2.3: Validate that all placeholders were resolved
@@ -501,6 +875,10 @@ pub struct ResolvedTopics {
     pub alarms: String,
     /// LoRa events topic (v1.5.0)
     pub lora_events: String,
+    /// **Batch #302 Faz 4 step 5.** Per-task scheduler stats
+    /// telemetry topic — populated by the task_stats publisher
+    /// loop on a configurable interval (default 30s).
+    pub task_stats: String,
 }
 
 impl ResolvedTopics {
@@ -524,6 +902,11 @@ impl ResolvedTopics {
             ("io_data", &self.io_data),
             ("alarms", &self.alarms),
             ("lora_events", &self.lora_events),
+            // Batch #302 Faz 4 step 5: include task_stats in
+            // the validation sweep so an unresolved placeholder
+            // there surfaces with the same operator-visible
+            // warning as the other topics.
+            ("task_stats", &self.task_stats),
         ];
 
         for (name, topic) in topics {
@@ -730,6 +1113,60 @@ pub struct ScriptingConfig {
     /// Maximum execution time per script (seconds)
     #[serde(default = "default_max_execution_time_secs")]
     pub max_execution_time_secs: u64,
+
+    /// Batch 169 Faz 3 (plan R-1): path to the SQLCipher
+    /// file that persists deployed ST bytecode programs
+    /// across reboots. Empty string (default) disables
+    /// persistence — in-memory registry only. Set to
+    /// e.g. `/var/lib/suderra/bytecode_registry.db` for
+    /// production deployments.
+    #[serde(default)]
+    pub bytecode_store_path: String,
+
+    /// Batch 192 Faz 4 (plan R-3): multi-task scheduler
+    /// configuration. Empty vector (default) runs the
+    /// legacy single-cadence bytecode scan-cycle loop
+    /// (Batch 170). Populated → main.rs boot sequence
+    /// constructs a `TaskScheduler` + spawns the
+    /// scheduler cadence loop + event listener in
+    /// place of the single-cadence loop.
+    ///
+    /// Backward compat: existing config.yaml files
+    /// without a `tasks:` key deserialize to an empty
+    /// Vec (via serde default) and get the single-
+    /// cadence behavior unchanged.
+    #[serde(default)]
+    pub tasks: Vec<crate::scripting::task_scheduler::TaskConfig>,
+
+    /// Batch 202 Faz 6 (plan R-9): path to the
+    /// SQLCipher file that persists
+    /// `persist_across_reboot=true` force entries
+    /// across reboots. Empty string (default)
+    /// disables persistence — `force_value` commands
+    /// with `persist_across_reboot: true` still
+    /// succeed in memory but DON'T survive reboot
+    /// (operator sees `persisted: false` flag in the
+    /// response + a warn log).
+    ///
+    /// Set to e.g.
+    /// `/var/lib/suderra/force_registry.db` for
+    /// production edges supporting long-running
+    /// diagnostics.
+    #[serde(default)]
+    pub force_store_path: String,
+
+    /// **Batch #302 Faz 4 step 5 closure.** Per-task
+    /// scheduler stats publish interval (seconds). Plan §5
+    /// Faz 4 step 5 default 30s. Validated bounds: 5..=3600.
+    /// Below 5s would saturate the broker queue with
+    /// observability traffic; above 3600s would lose too
+    /// much visibility for operators monitoring SLO tier
+    /// compliance. The publisher loop spawns ONLY when
+    /// `tasks: [...]` is non-empty (single-cadence legacy
+    /// path doesn't have per-task stats so doesn't need the
+    /// publisher).
+    #[serde(default = "default_task_stats_interval_secs")]
+    pub task_stats_publish_interval_secs: u64,
 }
 
 impl Default for ScriptingConfig {
@@ -743,6 +1180,10 @@ impl Default for ScriptingConfig {
             max_execution_depth: default_max_execution_depth(),
             max_actions: default_max_actions(),
             max_execution_time_secs: default_max_execution_time_secs(),
+            bytecode_store_path: String::new(),
+            tasks: Vec::new(),
+            force_store_path: String::new(),
+            task_stats_publish_interval_secs: default_task_stats_interval_secs(),
         }
     }
 }
@@ -778,9 +1219,42 @@ pub struct RuntimeConfig {
     #[serde(default = "default_provisioning_timeout_secs")]
     pub provisioning_timeout_secs: u64,
 
-    /// Shutdown timeout in seconds
+    /// Shutdown timeout in seconds. OUTER budget for the whole
+    /// graceful-shutdown sequence (signal → drain → safe-state →
+    /// flush → disconnect MQTT). Individual tasks timed out
+    /// inside shutdown_coordinator.shutdown() use this value.
     #[serde(default = "default_shutdown_timeout_secs")]
     pub shutdown_timeout_secs: u64,
+
+    /// Per-task DRAIN budget in milliseconds (plan D-15).
+    /// In-flight commands get at most this duration between
+    /// shutdown signal and force-cancel. Separate from the
+    /// outer `shutdown_timeout_secs` because drain is per-task
+    /// while shutdown_timeout bounds the whole sequence.
+    /// Default 50ms matches plan D-15 specification.
+    #[serde(default = "default_drain_timeout_ms")]
+    pub drain_timeout_ms: u64,
+
+    /// Maximum acceptable command age in seconds (IEC 62443
+    /// SL-2 FR-7 replay protection). Commands older than this
+    /// are rejected to bound the replay window on a compromised
+    /// QoS 1 redelivery path. Batch 34: exposed as config
+    /// (pre-Batch-34 was a hardcoded 300s constant). Default
+    /// 300s (5 minutes) matches pre-Batch-34 hardcoded value.
+    /// Tightening to 60s is a common hardening posture for
+    /// well-synced NTS fleets; operators must first verify
+    /// clock skew across all devices is within the new window.
+    #[serde(default = "default_max_command_age_secs")]
+    pub max_command_age_secs: u64,
+
+    /// Maximum acceptable command CLOCK-SKEW in seconds — the
+    /// negative-age tolerance for commands whose RFC3339
+    /// timestamp is FUTURE-dated (cloud clock ahead of edge
+    /// clock). Batch 34 exposes as config; default 60s matches
+    /// pre-Batch-34 hardcoded value. Tighten only after fleet-
+    /// wide NTS sync is verified.
+    #[serde(default = "default_max_command_skew_secs")]
+    pub max_command_skew_secs: u64,
 
     /// MQTT reconnect minimum delay in seconds
     #[serde(default = "default_mqtt_reconnect_min_secs")]
@@ -802,6 +1276,9 @@ impl Default for RuntimeConfig {
             circuit_breaker_recovery_secs: default_circuit_breaker_recovery_secs(),
             provisioning_timeout_secs: default_provisioning_timeout_secs(),
             shutdown_timeout_secs: default_shutdown_timeout_secs(),
+            drain_timeout_ms: default_drain_timeout_ms(),
+            max_command_age_secs: default_max_command_age_secs(),
+            max_command_skew_secs: default_max_command_skew_secs(),
             mqtt_reconnect_min_secs: default_mqtt_reconnect_min_secs(),
             mqtt_reconnect_max_secs: default_mqtt_reconnect_max_secs(),
         }
@@ -1008,6 +1485,14 @@ impl Default for ModbusSecurityConfig {
 ///
 /// Enables encrypted Modbus/TCP communication using TLS.
 /// Supports both server authentication and mutual TLS (mTLS).
+///
+/// Serde-deserialized from YAML as the backward-compat wire
+/// format. Consumers should call `to_mode()` at load time to
+/// convert to the type-level `TlsMode` enum (Batch 22 ARC-007)
+/// which encodes "server-only vs mTLS vs disabled" at the Rust
+/// type level and prevents the `client_cert set but client_key
+/// missing` class of misconfiguration from being representable
+/// in the consumer path.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ModbusTlsConfig {
     /// Enable TLS encryption for Modbus TCP
@@ -1030,6 +1515,1113 @@ pub struct ModbusTlsConfig {
     /// Skip server certificate verification (NOT recommended for production)
     #[serde(default)]
     pub insecure_skip_verify: bool,
+}
+
+impl ModbusTlsConfig {
+    /// Convert the serde-deserialized config to the type-level
+    /// `TlsMode` enum. Fails at load time on any invalid
+    /// combination (e.g., client cert set without client key,
+    /// TLS enabled without server_name + ca_cert_path).
+    ///
+    /// Batch 22 ARC-007: this is the tier-1 "make it impossible"
+    /// boundary. Downstream consumers pattern-match on TlsMode
+    /// and cannot observe half-configured TLS state.
+    pub fn to_mode(&self) -> Result<TlsMode, String> {
+        if !self.enabled {
+            return Ok(TlsMode::Disabled);
+        }
+
+        let server_name = self.server_name.as_ref().ok_or_else(|| {
+            "TLS enabled but `server_name` is missing (required for SNI validation)".to_string()
+        })?;
+        let ca_cert_path = self.ca_cert_path.as_ref().ok_or_else(|| {
+            "TLS enabled but `ca_cert_path` is missing (required for server cert validation)"
+                .to_string()
+        })?;
+
+        match (self.client_cert_path.as_ref(), self.client_key_path.as_ref()) {
+            (None, None) => Ok(TlsMode::ServerOnly {
+                server_name: server_name.clone(),
+                ca_cert_path: ca_cert_path.clone(),
+                insecure_skip_verify: self.insecure_skip_verify,
+            }),
+            (Some(cert), Some(key)) => Ok(TlsMode::Full {
+                server_name: server_name.clone(),
+                ca_cert_path: ca_cert_path.clone(),
+                client_cert_path: cert.clone(),
+                client_key_path: key.clone(),
+                insecure_skip_verify: self.insecure_skip_verify,
+            }),
+            (Some(_), None) => Err(
+                "TLS mTLS requires both `client_cert_path` and `client_key_path`; `client_key_path` is missing"
+                    .to_string(),
+            ),
+            (None, Some(_)) => Err(
+                "TLS mTLS requires both `client_cert_path` and `client_key_path`; `client_cert_path` is missing"
+                    .to_string(),
+            ),
+        }
+    }
+}
+
+// ============================================================================
+// RbacManifestConfig — Batch 66 plan §3 R-5 / ADR-018 / Sprint 6.1
+// ============================================================================
+//
+// WHY: Plan §3 R-5 + ADR-018 mandate a cloud-signed RBAC manifest that
+// carries operator→role bindings + custom role→permission bindings.
+// The edge loads this manifest at boot + on MQTT `update_policy` commands
+// (hot-reload per ADR-018 §8). Envelope signature verification (Batch 63
+// Gate 7) requires the operator's ed25519 pubkey, which is looked up from
+// the verified manifest's `operator_bindings`.
+//
+// Pre-Sprint-6.1 MODE gate follows the Disabled/Permissive/Enforcing
+// discipline consistent with Batches 27/42/45/56 (mtls/config_integrity/
+// signature_mode/clock). Operators tuning config.yaml get predictable
+// knob semantics regardless of which security surface they're configuring.
+
+/// RBAC manifest verification mode. 3-stage rollout pattern
+/// identical to ConfigIntegrityMode / SignatureMode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RbacManifestMode {
+    /// No manifest load (pre-Batch-66 behavior). HC-1 backward
+    /// compat default — envelope signature verify falls to the
+    /// Batch 63 NO-OP closure.
+    #[default]
+    Disabled,
+    /// Manifest loaded + verified; lookup failures log-only.
+    /// Early-detection posture for operator migration.
+    Permissive,
+    /// Manifest required; lookup failures reject.
+    Enforcing,
+}
+
+/// RBAC manifest loader knobs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RbacManifestConfig {
+    /// Rollout mode: disabled / permissive / enforcing.
+    #[serde(default)]
+    pub mode: RbacManifestMode,
+
+    /// Hex-encoded 32-byte ed25519 pubkey for manifest
+    /// signature verify. Plan §3 R-4 specifies 3 ayrı keypair
+    /// (firmware + rbac_manifest + command); this is the
+    /// MANIFEST signing key, distinct from config_integrity
+    /// (factory) + command (operator-per-operator). Sprint
+    /// 6.1 wires firmware-embedded default; pre-Sprint-6.1
+    /// operators supply their own test key.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub manifest_signing_pubkey_hex: Option<String>,
+
+    /// Manifest file path override. None →
+    /// `/etc/suderra/rbac_manifest.json`.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub manifest_path: Option<std::path::PathBuf>,
+
+    /// Persistent `highest_seen_policy_version` store path
+    /// override (Batch 71). None →
+    /// `/var/lib/suderra/rbac_version.sqlite`.
+    ///
+    /// WHY separate from `offline_queue.sqlite` +
+    /// `scada_db.sqlite`: single-responsibility — a
+    /// `DROP TABLE` or corruption in one domain's database
+    /// cannot cascade into the RBAC rollback-protection
+    /// invariant. SQLCipher-encrypted via the shared
+    /// `offline_queue::derive_db_encryption_key()` helper.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub version_store_path: Option<std::path::PathBuf>,
+}
+
+impl Default for RbacManifestConfig {
+    fn default() -> Self {
+        Self {
+            mode: RbacManifestMode::default(),
+            manifest_signing_pubkey_hex: None,
+            manifest_path: None,
+            version_store_path: None,
+        }
+    }
+}
+
+/// User-token manifest loader knobs (Batch #249b Faz 5 A-3c wire).
+///
+/// Parallel to [`RbacManifestConfig`] but gates the OPC UA
+/// UserName/Password + X.509 credential side. Distinct signing key
+/// (ADR-021 slot 4) + distinct monotonic version stream
+/// (ManifestVersionStore::STREAM_ID_USER_TOKEN per Batch #246) so
+/// credential rotation is independent of RBAC role rotation.
+///
+/// **No `mode` field.** The user-token manifest does not need the
+/// RBAC manifest's staged-rollout modes (Disabled / Permissive /
+/// Enforcing). Authentication is either enrolled (manifest
+/// ingested, signing pubkey configured) or NOT enrolled
+/// (UserTokenValidator fails closed with NoManifestLoaded). There
+/// is no "permissive" middle state — an unauthenticated session
+/// cannot upgrade by skipping the check.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct UserTokenManifestConfig {
+    /// Hex-encoded 32-byte ed25519 pubkey for user-token manifest
+    /// signature verify (ADR-021 slot 4 / Plan B R-4 3-key
+    /// segregation). When `None`, `cmd_update_user_token_manifest`
+    /// rejects with `SigningPubkeyNotConfigured` — operator must
+    /// populate via config.yaml before the cloud can push
+    /// enrollments. No default: the edge agent does not embed a
+    /// fallback pubkey.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub manifest_signing_pubkey_hex: Option<String>,
+
+    /// Persistent `highest_seen_policy_version` store path override
+    /// for the user-token stream. None →
+    /// `/var/lib/suderra/user_token_version.sqlite`.
+    ///
+    /// **Separate file from `rbac_version.sqlite`** — intentional
+    /// blast-radius isolation. A `DROP TABLE` or corruption in one
+    /// stream's database cannot cascade into the other's rollback
+    /// defense. SQLCipher-encrypted via the shared
+    /// `offline_queue::derive_db_encryption_key()` helper.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub version_store_path: Option<std::path::PathBuf>,
+}
+
+// ============================================================================
+// AuditConfig — Batch 78 Sprint 6.2 Phase 2 / ADR-020 / plan §5 Faz 2 item 8
+// ============================================================================
+//
+// WHY: Plan §5 Faz 2 item 8 + ADR-020 mandate an append-only audit log with
+// HMAC chain integrity for every regulated action. Batches 74-77 built the
+// sink / recovery / SIGHUP / verify primitives; this config surface wires
+// them at boot.
+//
+// Pre-Sprint-6.3 the HMAC key comes from config hex (operator-supplied
+// during rollout). Phase 2 / Batch 80 swaps to KeyPurpose::AuditHmacChain
+// derivation from the master key once the keystore lands.
+
+/// Audit sink mode. 2-stage rollout (not 3-stage like mtls/
+/// config_integrity/rbac_manifest). Audit sink admits no
+/// "permissive" fallback: either it's writing the log or it
+/// isn't. Plan §5 Faz 2 item 8 + IEC 62443 SL-2 FR6 mandate
+/// audit-on-every-regulated-action for compliant deployments;
+/// Disabled targets dev-only + pre-rollout environments.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AuditMode {
+    /// No audit sink opened (pre-Batch-78 behavior). HC-1
+    /// backward compat default. Command handlers that Phase
+    /// 2 / Batch 79 wires audit emit into will log-only.
+    #[default]
+    Disabled,
+    /// Sink opened; pre+post events written on every
+    /// regulated action. Boot fails-closed if sink cannot
+    /// open (permissions / path). The forensic-trail
+    /// invariant per IEC 62443 SL-2 FR6 is non-negotiable —
+    /// no "permissive" fallback to log-only.
+    Enabled,
+}
+
+/// Audit sink configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditConfig {
+    /// Rollout mode: disabled / enabled.
+    #[serde(default)]
+    pub mode: AuditMode,
+
+    /// Audit log file path override. None →
+    /// `/var/log/suderra/audit.log`.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub log_path: Option<std::path::PathBuf>,
+
+    /// Hex-encoded 32-byte HMAC key for chain integrity.
+    /// REQUIRED when mode=Enabled until Phase 2 / Batch 80
+    /// wires master-key derivation (Sprint 6.3 keystore
+    /// dependency). Operators supply a 64-char lowercase hex
+    /// value generated via `openssl rand -hex 32` during
+    /// provisioning; rotated on compromise via the standard
+    /// operator ceremony.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub hmac_key_hex: Option<String>,
+}
+
+impl Default for AuditConfig {
+    fn default() -> Self {
+        Self {
+            mode: AuditMode::default(),
+            log_path: None,
+            hmac_key_hex: None,
+        }
+    }
+}
+
+// ============================================================================
+// KeystoreConfig — Batch 83 Sprint 6.3 / ADR-018 §4
+// ============================================================================
+//
+// WHY: Plan §5 Faz 2 item 1 + ADR-018 §4 mandate a 3-backend priority
+// (TPM > systemd-creds > FileBacked). Batch 82 landed the FileBacked
+// implementation; Batch 83 exposes the config surface + AppState field
+// wiring. Batches 83a/83b land TPM + systemd-creds backends; pre-
+// Batch-84 Auto mode falls back to FileBacked with a warn log.
+
+/// Keystore backend selection policy. `Auto` is the
+/// recommended production setting — the runtime probes TPM
+/// first, then systemd-creds, then FileBacked. Explicit
+/// modes are for test/dev OR operators forcing a specific
+/// fallback tier.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum KeystoreMode {
+    /// No keystore opened. HC-1 backward compat default —
+    /// existing deployments using config-supplied hex keys
+    /// (audit.hmac_key_hex) keep working. Phase 2 / Batch
+    /// 84 migrates those surfaces to KeyPurpose::*-derived
+    /// keys when this flips away from Disabled.
+    #[default]
+    Disabled,
+    /// Auto-select: TPM probe -> systemd-creds probe ->
+    /// FileBacked (requires acceptance token). Matches
+    /// ADR-018 §4 priority order. Pre-TPM-landing (Batch
+    /// 83a pending) Auto falls through to FileBacked after
+    /// logging the downgrade.
+    Auto,
+    /// Force FileBacked. Operator-explicit choice; requires
+    /// acceptance token + passphrase + salt files.
+    FileBacked,
+}
+
+/// Keystore knobs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KeystoreConfig {
+    /// Backend selection policy.
+    #[serde(default)]
+    pub mode: KeystoreMode,
+
+    /// Passphrase file path (FileBacked only). Default:
+    /// /etc/suderra/keystore.passphrase (0400 owner:suderra).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub passphrase_path: Option<std::path::PathBuf>,
+
+    /// Salt file path (FileBacked only). Default:
+    /// /etc/suderra/keystore.salt (0400 owner:suderra). Must
+    /// be >= 16 bytes.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub salt_path: Option<std::path::PathBuf>,
+
+    /// Acceptance token JSON path (FileBacked only). The
+    /// operator signs an explicit acknowledgment that file-
+    /// backed is used instead of TPM. Default:
+    /// /etc/suderra/keystore.acceptance.json.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub acceptance_path: Option<std::path::PathBuf>,
+
+    /// Argon2id memory cost (KiB). Default: 65536 (64 MiB).
+    /// Must be >= 19456 (OWASP 2024 floor).
+    #[serde(default = "default_argon2_memory_kib")]
+    pub argon2_memory_kib: u32,
+
+    /// Argon2id iterations. Default: 3. Must be >= 2.
+    #[serde(default = "default_argon2_iterations")]
+    pub argon2_iterations: u32,
+
+    /// Argon2id parallelism. Default: 4. Must be >= 1.
+    #[serde(default = "default_argon2_parallelism")]
+    pub argon2_parallelism: u32,
+}
+
+fn default_argon2_memory_kib() -> u32 {
+    65_536
+}
+fn default_argon2_iterations() -> u32 {
+    3
+}
+fn default_argon2_parallelism() -> u32 {
+    4
+}
+
+impl Default for KeystoreConfig {
+    fn default() -> Self {
+        Self {
+            mode: KeystoreMode::default(),
+            passphrase_path: None,
+            salt_path: None,
+            acceptance_path: None,
+            argon2_memory_kib: default_argon2_memory_kib(),
+            argon2_iterations: default_argon2_iterations(),
+            argon2_parallelism: default_argon2_parallelism(),
+        }
+    }
+}
+
+// ============================================================================
+// FirmwareUpdateConfig — Batch 114 Sprint 6.5 / ADR-019 §3
+// ============================================================================
+//
+// WHY: Plan §3 R-4 mandates that firmware update payloads carry an ed25519
+// signed SignedFirmwareManifest. The `verify_firmware_manifest` function
+// (Batch 8) is the fail-closed gate; it takes the verifying pubkey as a
+// closure-injected parameter. This config surface wires the operator-facing
+// knobs: mode selector + trusted pubkey source.
+//
+// Rollout mode follows the 3-stage pattern shared with mtls/config_integrity/
+// signature_mode/rbac_manifest:
+// - Disabled: legacy tarball path only (Batch 20k cmd_update_firmware).
+//   HC-1 backward compat default.
+// - Permissive: signed manifests accepted + preferred; unsigned tarball
+//   fallback warn-logged but still works.
+// - Enforcing: unsigned tarball rejected; only SignedFirmwareManifest flow.
+//
+// ## Signing pubkey source
+//
+// Plan §3 R-4 specifies 3 distinct keypairs — firmware + rbac_manifest +
+// command. The firmware pubkey is distinct from the rbac_manifest pubkey
+// (different trust domain: firmware can overwrite the entire stack; RBAC
+// cannot). Pre-Sprint-6.5 operators supply via config hex. Post-6.5 a
+// firmware-embedded default pubkey covers the factory key + config hex
+// overrides for field-rotated keys.
+
+/// Firmware update verification mode. 3-stage rollout pattern
+/// identical to RbacManifestMode / ConfigIntegrityMode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FirmwareUpdateMode {
+    /// No signed-manifest verification. Legacy tarball OTA
+    /// (Batch 20k `cmd_update_firmware`) remains the sole
+    /// update path. HC-1 backward compat default.
+    #[default]
+    Disabled,
+    /// Signed-manifest path accepted + preferred. Legacy
+    /// tarball OTA still works but warn-logs on invocation.
+    /// Operator migration posture.
+    Permissive,
+    /// Signed-manifest path required. Legacy tarball OTA
+    /// rejected at command dispatch.
+    Enforcing,
+}
+
+/// Lifecycle HTTP endpoint authentication mode (Batch 129
+/// Sprint 6.6 hardening — closes Batch 122 obs #1).
+///
+/// Controls whether `POST /lifecycle/confirm-active`
+/// requires a per-request HMAC-SHA256 proving knowledge
+/// of a systemd-credential-delivered secret.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LifecycleAuthMode {
+    /// No auth beyond localhost-binding + same-UID
+    /// isolation. HC-1 backward compat default. Acceptable
+    /// for isolated-device deployments; production multi-
+    /// tenant-host deployments should enable HmacToken.
+    #[default]
+    Disabled,
+    /// HMAC-SHA256 required on every request. Key loaded
+    /// at boot from `$CREDENTIALS_DIRECTORY/<name>` via
+    /// systemd LoadCredential. 401 on missing / malformed
+    /// / out-of-window / mismatched HMAC.
+    HmacToken,
+}
+
+/// Lifecycle HTTP endpoint config (Batch 129 Sprint 6.6).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct LifecycleEndpointConfig {
+    #[serde(default)]
+    pub auth_mode: LifecycleAuthMode,
+
+    /// Systemd credential filename within
+    /// `$CREDENTIALS_DIRECTORY`. None → default
+    /// "lifecycle-hmac-key". Operators with non-default
+    /// credential naming override here.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub systemd_credential_name: Option<String>,
+}
+
+/// Bootloader backend selector (Batch 128 Sprint 6.5).
+///
+/// Controls which `BootloaderHandle` implementation the
+/// agent constructs at boot time.
+///
+/// - `Noop` (default): non-RPi deployments. Log-only
+///   bootloader coord; PartitionStore state machine
+///   still functional for forensic-audit purposes.
+/// - `Tryboot`: RPi CM4/5 with tryboot support. Reads +
+///   writes `/boot/firmware/autoboot.txt` to flip
+///   next-boot slot. Real hardware boot behavior.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BootloaderBackend {
+    /// HC-1 backward compat default.
+    #[default]
+    Noop,
+    /// RPi tryboot overlay (autoboot.txt manipulator).
+    Tryboot,
+}
+
+/// Firmware update verification knobs (Batch 114 Sprint 6.5).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FirmwareUpdateConfig {
+    /// Rollout mode: disabled / permissive / enforcing.
+    #[serde(default)]
+    pub mode: FirmwareUpdateMode,
+
+    /// Hex-encoded 32-byte ed25519 pubkey for
+    /// SignedFirmwareManifest signature verify. Distinct
+    /// from `rbac_manifest.manifest_signing_pubkey_hex` +
+    /// `config_integrity.factory_pubkey_hex` — plan §3 R-4
+    /// 3-key segregation. Required when mode != Disabled;
+    /// config coherence Rule 20 enforces this.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub signing_pubkey_hex: Option<String>,
+
+    /// Bootloader backend selector (Batch 128 Sprint 6.5).
+    /// Defaults to Noop (HC-1 backward compat). Operators
+    /// on RPi CM4/5 set this to `tryboot` + configure
+    /// `tryboot_autoboot_path` below if non-default.
+    #[serde(default)]
+    pub bootloader_backend: BootloaderBackend,
+
+    /// Path override for `TrybootBootloaderHandle`
+    /// autoboot.txt. None → uses
+    /// `DEFAULT_AUTOBOOT_TXT_PATH` (/boot/firmware/autoboot.txt).
+    /// Ignored when bootloader_backend != Tryboot.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tryboot_autoboot_path: Option<std::path::PathBuf>,
+
+    /// A/B partition mount paths (Batch 123 Sprint 6.5).
+    /// Where the cmd_apply_signed_manifest orchestrator
+    /// streams signed firmware files before triggering
+    /// the SwapToPending transition.
+    ///
+    /// WHY: The verify-apply-bootloader pipeline needs to
+    /// know WHICH filesystem directory corresponds to
+    /// `AbPartition::A` vs `AbPartition::B` so the
+    /// streaming step can write to the NON-active slot.
+    /// On real RPi hardware these are mount points for
+    /// separate partitions (e.g. /mnt/slot-a, /mnt/slot-b).
+    /// On x86 dev boxes they can be regular directories.
+    ///
+    /// None in either slot leaves file-streaming disabled;
+    /// the manifest verify-preview path still works but
+    /// `cmd_apply_signed_manifest` returns
+    /// `gate=slot_mounts_not_configured` until both are
+    /// set. Fail-open discipline matches the
+    /// `firmware_update.mode=Disabled` path: HC-1 backward
+    /// compat for deployments not yet A/B-enabled.
+    #[serde(default)]
+    pub ab_partitions: AbPartitionMountConfig,
+}
+
+impl Default for FirmwareUpdateConfig {
+    fn default() -> Self {
+        Self {
+            mode: FirmwareUpdateMode::default(),
+            signing_pubkey_hex: None,
+            bootloader_backend: BootloaderBackend::default(),
+            tryboot_autoboot_path: None,
+            ab_partitions: AbPartitionMountConfig::default(),
+        }
+    }
+}
+
+/// Mount paths for A/B partitions (Batch 123 Sprint 6.5).
+///
+/// Canonical hardware shape (RPi CM4/5 + tryboot):
+/// ```yaml
+/// firmware_update:
+///   ab_partitions:
+///     slot_a_mount: /mnt/slot-a
+///     slot_b_mount: /mnt/slot-b
+/// ```
+///
+/// Both None (default) = file-streaming path disabled;
+/// operators running in Permissive mode without A/B
+/// hardware still get manifest verify-preview but not
+/// apply. Coherence Rule 22 catches half-configured
+/// scenarios (one set, other None) + fails fast.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AbPartitionMountConfig {
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub slot_a_mount: Option<std::path::PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub slot_b_mount: Option<std::path::PathBuf>,
+}
+
+impl AbPartitionMountConfig {
+    /// True when both mount paths are configured — the
+    /// file-streaming path is ready to run.
+    pub fn is_fully_configured(&self) -> bool {
+        self.slot_a_mount.is_some() && self.slot_b_mount.is_some()
+    }
+}
+
+// ============================================================================
+// EnvelopeDedupConfig — Batch 58 plan §4.10 / Sprint 6.4
+// ============================================================================
+//
+// WHY: Plan §4.10 mandates a 72-hour jti dedup window as replay defense.
+// The MokaJtiDedupTable (Batch 57) is the hot-window (seconds-to-minutes)
+// tier; Sprint 6.4 full wire adds a SQLCipher persistent tier covering
+// the 72-hour window. Batch 58 exposes the Moka tier's operator-tunable
+// parameters so:
+// - Resource-constrained devices (256 MB RAM per ADR-024 §5) can tighten
+//   capacity to 10_000 for ~2 MB footprint.
+// - Deployments with high command rate can loosen TTL to 120s to match
+//   broker-redelivery timing.
+
+/// Envelope dedup cache configuration (Batch 58).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnvelopeDedupConfig {
+    /// Moka cache capacity (max live entries). Default 100_000
+    /// per crate::command_envelope::DEFAULT_MOKA_CAPACITY.
+    /// Tighten on low-RAM deployments; loosen on high-rate
+    /// deployments.
+    #[serde(default = "default_envelope_dedup_capacity")]
+    pub moka_capacity: u64,
+
+    /// Moka cache TTL in seconds. Default 60 per crate::
+    /// command_envelope::DEFAULT_MOKA_TTL_SECS. Must fit within
+    /// the plan §4.10 72-hour full window; values outside
+    /// [30, 3600] are almost certainly operator typos (Batch 58
+    /// coherence rule caught at config load).
+    #[serde(default = "default_envelope_dedup_ttl_secs")]
+    pub moka_ttl_secs: u64,
+
+    /// Enable SQLCipher-persistent tier behind the Moka hot
+    /// cache (Batch 92 Sprint 6.4 full wire). Default false
+    /// — HC-1 backward compat leaves Moka-only (Batch 57).
+    /// Set true for reboot-survive 72-hour replay defense
+    /// per plan §4.10 threat model.
+    ///
+    /// When true, the persistent store is opened at
+    /// `/var/lib/suderra/jti_dedup.sqlite` (SQLCipher-
+    /// encrypted via the shared derive_db_encryption_key
+    /// helper). Consumer is the envelope verify path.
+    #[serde(default)]
+    pub enable_sqlcipher_persist: bool,
+
+    /// SQLCipher jti-dedup file path override. None →
+    /// `/var/lib/suderra/jti_dedup.sqlite`.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub sqlcipher_path: Option<std::path::PathBuf>,
+}
+
+fn default_envelope_dedup_capacity() -> u64 {
+    100_000
+}
+
+fn default_envelope_dedup_ttl_secs() -> u64 {
+    60
+}
+
+impl Default for EnvelopeDedupConfig {
+    fn default() -> Self {
+        Self {
+            moka_capacity: default_envelope_dedup_capacity(),
+            moka_ttl_secs: default_envelope_dedup_ttl_secs(),
+            enable_sqlcipher_persist: false,
+            sqlcipher_path: None,
+        }
+    }
+}
+
+// ============================================================================
+// ClockConfig — Batch 56 plan D-7 / Sprint 6.7
+// ============================================================================
+//
+// WHY: Plan D-7 mandates NTS-authenticated wall-clock discipline. The
+// edge agent uses `CLOCK_MONOTONIC` (via Instant) for TTL enforcement +
+// `SystemTime` for audit timestamps, BUT SystemTime must be freshness-
+// checked against chronyd's last-sync age. A wall clock whose NTS sync
+// is > threshold stale cannot be trusted for regulated-action paths
+// (audit timestamps, signature freshness windows).
+//
+// Pre-Sprint-6.7 SystemClockAuthority (Batch 55) reports
+// nts_sync_age_secs=0 unconditionally — the threshold check never fires.
+// Sprint 6.7 wires the real chronyd query + fail-closed gate.
+//
+// ClockConfig is the operator knob: `config.clock.nts_sync_max_skew_secs
+// = 3600` today (default); operators can tighten to 300 for SCADA
+// deployments that require fresh audit timestamps, or loosen to 86400
+// for legacy-device compat during NTS rollout.
+
+/// Clock authority configuration (Batch 56, plan D-7).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClockConfig {
+    /// Maximum NTS-sync staleness in seconds. Sprint 6.7
+    /// `ChronyNtsClockAuthority.trustworthy_wall_clock()`
+    /// returns `Err(NtsSyncStale)` when the last chronyd
+    /// re-sync is older than this threshold.
+    /// Default 3600s (1 hour) per plan D-7.
+    #[serde(default = "default_nts_sync_max_skew_secs")]
+    pub nts_sync_max_skew_secs: u64,
+
+    /// Enable chronyc-tracking subprocess query for real
+    /// NTS sync age (Batch 90 Sprint 6.7 wire). Default
+    /// false — HC-1 backward compat leaves the clock
+    /// authority at `SystemClockAuthority` (always-trusting
+    /// 0-age). Set true to swap to `ChronyNtsClockAuthority`
+    /// + get real fail-closed on stale NTS.
+    ///
+    /// REQUIRES: chronyd running + `chronyc` binary in PATH
+    /// + the agent user has query access. See
+    /// `docs/runbooks/edge-chrony-setup.md` (Phase 2 /
+    /// Batch 91) for the operator checklist.
+    #[serde(default)]
+    pub enable_chrony_query: bool,
+}
+
+fn default_nts_sync_max_skew_secs() -> u64 {
+    // Matches `crate::runtime_safety::system_clock::
+    // DEFAULT_NTS_SYNC_MAX_SKEW_SECS`. Duplicated here because
+    // config.rs runs at module-load time before runtime_safety
+    // can be guaranteed to have been linked; keeping a local
+    // default avoids circular-init ordering.
+    3600
+}
+
+impl Default for ClockConfig {
+    fn default() -> Self {
+        Self {
+            nts_sync_max_skew_secs: default_nts_sync_max_skew_secs(),
+            enable_chrony_query: false,
+        }
+    }
+}
+
+// ============================================================================
+// ConfigIntegrityConfig — Batch 42 plan D-13 / Sprint 6.6
+// ============================================================================
+//
+// WHY: Plan D-13 + ADR-020 §6 mandate that every edge device boots with
+// `/etc/suderra/config.yaml.sig` alongside `config.yaml`. The sidecar
+// carries a SignedConfigMeta whose ed25519 signature covers SHA-256 of
+// the config bytes + device binding + monotonic config version. Fail-
+// closed boot on sig invalid prevents an attacker who gains write-access
+// to /etc/suderra from swapping in a poisoned config (disable alarms,
+// redirect MQTT broker, raise thresholds).
+//
+// Pre-Sprint-6.6 the VERIFY PATH doesn't exist yet — factory key isn't
+// bundled, sidecar writer CLI doesn't ship. Batch 42 pre-stages the
+// CONFIG KNOB (mode field) + boot-time log so operators know the rollout
+// path exists. Sprint 6.6 wires the actual verify.
+//
+// ROLLOUT STAGES (3-mode state machine, mirrors MtlsMode pattern):
+// - Disabled (default): no sidecar check. Pre-Batch-42 behavior.
+// - Permissive: sidecar read + verify attempted; failure LOGGED but boot
+//   continues. Early-detection posture for operator-managed migration.
+// - Enforcing: sidecar verify required; failure exits boot.
+//
+// FACTORY KEY: the operator-bundled approach vs firmware-embedded
+// approach is a Sprint 6.6 decision. Pre-Sprint-6.6 the factory_pubkey_
+// hex field accepts a hex-encoded 32-byte key so operators can test the
+// flow against their own keyring before the factory bundle lands.
+
+/// Config-integrity verification mode. 3-stage rollout pattern
+/// identical to MtlsMode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConfigIntegrityMode {
+    /// No sidecar verification (pre-Batch-42 behavior). HC-1
+    /// backward-compatible default.
+    #[default]
+    Disabled,
+    /// Verify attempted; log-only on failure. Early-detection
+    /// posture for operator migration.
+    Permissive,
+    /// Verify required; fail-closed boot on failure.
+    Enforcing,
+}
+
+/// Config-integrity sidecar verification knobs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConfigIntegrityConfig {
+    /// Rollout mode: disabled / permissive / enforcing.
+    #[serde(default)]
+    pub mode: ConfigIntegrityMode,
+
+    /// Hex-encoded 32-byte ed25519 public key used to verify
+    /// the config signature. Sprint 6.6 replaces with a
+    /// firmware-embedded factory key; pre-Sprint-6.6 operators
+    /// can test with their own keyring. None = use the
+    /// firmware-embedded key (Sprint 6.6 target).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub factory_pubkey_hex: Option<String>,
+
+    /// Sidecar path override. None → `/etc/suderra/config.yaml.sig`.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub sidecar_path: Option<std::path::PathBuf>,
+}
+
+impl Default for ConfigIntegrityConfig {
+    fn default() -> Self {
+        Self {
+            mode: ConfigIntegrityMode::default(),
+            factory_pubkey_hex: None,
+            sidecar_path: None,
+        }
+    }
+}
+
+/// OPC UA server TLS security policy (Batch 207 Faz 5).
+///
+/// Plan §5 Faz 5 step 7 mandates Basic256Sha256 — the minimum
+/// industrial policy current HMIs (Ignition / UaExpert /
+/// Kepware / Wonderware) negotiate without operator override.
+/// Deprecated policies (None, Basic128Rsa15) are intentionally
+/// excluded at the type level so the config cannot deserialize
+/// into an insecure mode. Future policies (Aes128_Sha256_RsaOaep,
+/// Aes256_Sha256_RsaPss) extend this enum additively.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OpcUaSecurityPolicy {
+    /// Basic256Sha256 — the plan's fixed minimum. All 3rd-party
+    /// HMIs in the plan interop matrix support this policy.
+    Basic256Sha256,
+}
+
+impl Default for OpcUaSecurityPolicy {
+    fn default() -> Self {
+        Self::Basic256Sha256
+    }
+}
+
+impl OpcUaSecurityPolicy {
+    /// async-opcua / OPC UA spec string representation —
+    /// stable across versions so this is safe to stringify here.
+    pub fn as_uri_suffix(&self) -> &'static str {
+        match self {
+            Self::Basic256Sha256 => "Basic256Sha256",
+        }
+    }
+}
+
+/// OPC UA server authentication mode (Batch 207 Faz 5).
+///
+/// Plan §5 Faz 5 step 3 lists three supported modes. The enum
+/// captures the operator-selected primary mode; every session
+/// always falls through to a final authz gate regardless of
+/// mode, so `Anonymous` in the plan's words means "anonymous
+/// read-only + write always denied at the policy layer" — not
+/// "no authz at all".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OpcUaAuthMode {
+    /// Anonymous sessions allowed; reads gate only on policy.
+    /// Writes are rejected regardless of policy (anonymous
+    /// actors cannot satisfy any `Permission::OpcUaWrite`
+    /// binding). This is the HC-1 backward-compat default for
+    /// the first pilot release.
+    AnonymousReadOnly,
+    /// Operator user/password. The per-user pubkey binding
+    /// lives in the RBAC manifest (Sprint 6.1) — matching the
+    /// shape of MQTT-command actor resolution.
+    UsernamePassword,
+    /// X509 client cert. Operator cert CN resolves to the
+    /// RBAC manifest actor entry.
+    X509,
+}
+
+impl Default for OpcUaAuthMode {
+    fn default() -> Self {
+        Self::AnonymousReadOnly
+    }
+}
+
+/// OPC UA server configuration (Batch 207 Faz 5).
+///
+/// Shape-level primitive — the config block does not start the
+/// server (Batch 208+ wires `async-opcua`). Keeping the shape
+/// separate from the runtime lets operators pre-stage config
+/// for a feature-built binary roll-out, and gives unit tests
+/// something stable to validate against without the full
+/// async-opcua dep chain.
+///
+/// Every field is `serde(default)` so existing config.yaml
+/// files deserialize unchanged (HC-1 backward compat).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct OpcUaServerConfig {
+    /// Master switch. `false` (default) leaves the server
+    /// subsystem off regardless of Cargo feature build. Set to
+    /// `true` only on agents built with the `opc-ua-server`
+    /// feature flag; Batch 208 boot wiring logs a CRITICAL warn
+    /// when the feature is absent but this flag is true.
+    pub enabled: bool,
+
+    /// Bind address. Default `0.0.0.0` — intentional: plan
+    /// §5 Faz 5 step 8 notes LAN HMI interop is the primary
+    /// consumer. Operators restrict to a VLAN interface by
+    /// overriding here (e.g. `10.10.5.1`).
+    pub bind: String,
+
+    /// TCP port. Default 4840 is the OPC UA registered well-
+    /// known port; operators can override to 48400 etc. when
+    /// running multiple tenants on a single host.
+    pub port: u16,
+
+    /// Hard cap on concurrent sessions. Plan §5 Faz 5 step 9:
+    /// "max 10 concurrent sessions". License-tier overrides this
+    /// downward at boot (license_cache clamps at enforce time).
+    pub max_sessions: u32,
+
+    /// Brute-force throttle — sessions with more than this many
+    /// failed auth attempts in any 60-second sliding window get
+    /// IP-throttled. Plan §5 Faz 5 step 9: 20 failed / 60s.
+    pub max_failed_auth_per_60s: u32,
+
+    /// Primary auth mode. Secondary gate is always the authz
+    /// policy engine — see module doc.
+    pub auth_mode: OpcUaAuthMode,
+
+    /// TLS security policy. Fixed at `Basic256Sha256` by type
+    /// until a future batch extends the enum; operators cannot
+    /// downgrade to `None` or `Basic128Rsa15`.
+    pub security_policy: OpcUaSecurityPolicy,
+
+    /// Directory holding the server's own PKI keypair +
+    /// self-signed cert. Default matches plan §5 Faz 5 step 7.
+    pub own_pki_dir: String,
+
+    /// Directory holding trusted HMI client certs. Operators
+    /// drop peer certs here after the first-boot mutual trust
+    /// exchange. Default matches plan §5 Faz 5 step 7.
+    pub trusted_certs_dir: String,
+
+    /// Phase 1 MVP polling interval — how often the server re-
+    /// reads the process image to publish MonitoredItem values.
+    /// Batch 209+ swaps this for push via
+    /// `ProcessImage::subscribe_changes` (plan §5 Faz 5 step 6);
+    /// the polling knob stays available as the fallback path.
+    pub subscription_polling_interval_ms: u64,
+}
+
+impl Default for OpcUaServerConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            bind: "0.0.0.0".to_string(),
+            port: 4840,
+            max_sessions: 10,
+            max_failed_auth_per_60s: 20,
+            auth_mode: OpcUaAuthMode::default(),
+            security_policy: OpcUaSecurityPolicy::default(),
+            own_pki_dir: "/var/lib/suderra/pki/own".to_string(),
+            trusted_certs_dir: "/var/lib/suderra/pki/trusted/certs".to_string(),
+            subscription_polling_interval_ms: 100,
+        }
+    }
+}
+
+impl OpcUaServerConfig {
+    /// Load-time validator. Runs regardless of `enabled` so
+    /// operators get immediate feedback on mis-configured blocks
+    /// at boot — latent bad values cannot survive a feature-flag
+    /// flip. Returns on the first violation to keep error
+    /// surfaces small + actionable.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.bind.trim().is_empty() {
+            return Err(
+                "opc_ua_server.bind must be a non-empty IP address (e.g. 0.0.0.0)"
+                    .to_string(),
+            );
+        }
+        if std::net::IpAddr::from_str(self.bind.trim()).is_err() {
+            return Err(format!(
+                "opc_ua_server.bind `{}` is not a parseable IP address",
+                self.bind
+            ));
+        }
+        if self.port == 0 {
+            return Err(
+                "opc_ua_server.port must be non-zero (standard 4840)"
+                    .to_string(),
+            );
+        }
+        if self.max_sessions == 0 {
+            return Err(
+                "opc_ua_server.max_sessions must be >= 1 so at least one HMI can connect"
+                    .to_string(),
+            );
+        }
+        if self.max_failed_auth_per_60s == 0 {
+            return Err(
+                "opc_ua_server.max_failed_auth_per_60s must be >= 1 (0 disables brute-force throttle)"
+                    .to_string(),
+            );
+        }
+        // Polling below 10ms risks pathological lock contention
+        // on ProcessImage::get_all_tags + starves other tasks.
+        // The plan's 100ms default comfortably clears this floor.
+        if self.subscription_polling_interval_ms < 10 {
+            return Err(format!(
+                "opc_ua_server.subscription_polling_interval_ms ({}) below 10ms floor — ProcessImage lock contention + task starvation risk",
+                self.subscription_polling_interval_ms
+            ));
+        }
+        if self.own_pki_dir.trim().is_empty() {
+            return Err(
+                "opc_ua_server.own_pki_dir must be a non-empty directory path"
+                    .to_string(),
+            );
+        }
+        if self.trusted_certs_dir.trim().is_empty() {
+            return Err(
+                "opc_ua_server.trusted_certs_dir must be a non-empty directory path"
+                    .to_string(),
+            );
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod opc_ua_server_config_tests {
+    use super::*;
+
+    #[test]
+    fn default_is_disabled_with_plan_specified_values() {
+        let cfg = OpcUaServerConfig::default();
+        assert!(!cfg.enabled);
+        assert_eq!(cfg.bind, "0.0.0.0");
+        assert_eq!(cfg.port, 4840);
+        assert_eq!(cfg.max_sessions, 10);
+        assert_eq!(cfg.max_failed_auth_per_60s, 20);
+        assert_eq!(cfg.auth_mode, OpcUaAuthMode::AnonymousReadOnly);
+        assert_eq!(cfg.security_policy, OpcUaSecurityPolicy::Basic256Sha256);
+        assert_eq!(cfg.subscription_polling_interval_ms, 100);
+    }
+
+    #[test]
+    fn validate_accepts_default() {
+        OpcUaServerConfig::default().validate().unwrap();
+    }
+
+    #[test]
+    fn validate_rejects_empty_bind() {
+        let mut c = OpcUaServerConfig::default();
+        c.bind = String::new();
+        let err = c.validate().unwrap_err();
+        assert!(err.contains("bind"), "err={}", err);
+    }
+
+    #[test]
+    fn validate_rejects_unparseable_bind() {
+        let mut c = OpcUaServerConfig::default();
+        c.bind = "not an ip".to_string();
+        let err = c.validate().unwrap_err();
+        assert!(err.contains("parseable IP"), "err={}", err);
+    }
+
+    #[test]
+    fn validate_rejects_zero_port() {
+        let mut c = OpcUaServerConfig::default();
+        c.port = 0;
+        let err = c.validate().unwrap_err();
+        assert!(err.contains("port"), "err={}", err);
+    }
+
+    #[test]
+    fn validate_rejects_zero_max_sessions() {
+        let mut c = OpcUaServerConfig::default();
+        c.max_sessions = 0;
+        let err = c.validate().unwrap_err();
+        assert!(err.contains("max_sessions"), "err={}", err);
+    }
+
+    #[test]
+    fn validate_rejects_zero_failed_auth_window() {
+        let mut c = OpcUaServerConfig::default();
+        c.max_failed_auth_per_60s = 0;
+        let err = c.validate().unwrap_err();
+        assert!(err.contains("max_failed_auth"), "err={}", err);
+    }
+
+    #[test]
+    fn validate_rejects_polling_below_floor() {
+        let mut c = OpcUaServerConfig::default();
+        c.subscription_polling_interval_ms = 5;
+        let err = c.validate().unwrap_err();
+        assert!(err.contains("10ms floor"), "err={}", err);
+    }
+
+    #[test]
+    fn validate_accepts_ipv6_bind() {
+        let mut c = OpcUaServerConfig::default();
+        c.bind = "::1".to_string();
+        c.validate().unwrap();
+    }
+
+    #[test]
+    fn serde_round_trip_default_yaml_is_empty_safe() {
+        // Existing config.yaml files with no `opc_ua_server`
+        // block MUST deserialize — this is HC-1 backward compat.
+        let yaml = "";
+        let got: OpcUaServerConfig = serde_yaml::from_str(yaml).unwrap_or_default();
+        assert!(!got.enabled);
+    }
+
+    #[test]
+    fn serde_partial_yaml_fills_defaults() {
+        // Operator overrides only port + enabled; every other
+        // field MUST default to the plan's value.
+        let yaml = "enabled: true\nport: 48400\n";
+        let got: OpcUaServerConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(got.enabled);
+        assert_eq!(got.port, 48400);
+        assert_eq!(got.bind, "0.0.0.0");
+        assert_eq!(got.max_sessions, 10);
+        assert_eq!(got.security_policy, OpcUaSecurityPolicy::Basic256Sha256);
+    }
+
+    #[test]
+    fn security_policy_uri_suffix_stable() {
+        assert_eq!(
+            OpcUaSecurityPolicy::Basic256Sha256.as_uri_suffix(),
+            "Basic256Sha256"
+        );
+    }
+
+    #[test]
+    fn auth_mode_default_is_anonymous_read_only() {
+        assert_eq!(OpcUaAuthMode::default(), OpcUaAuthMode::AnonymousReadOnly);
+    }
+}
+
+/// TLS mode enum (Batch 22 ARC-007).
+///
+/// Type-level encoding of the three valid Modbus-over-TLS
+/// configurations. A value of type `TlsMode` is statically
+/// guaranteed to be ONE of these three states — the consumer
+/// path cannot observe a half-configured combination like
+/// "client cert set but client key missing".
+///
+/// WHY NOT KEEP SERDE AT THIS LEVEL: Serde-derived enums with
+/// internally-tagged representation would surface discriminator
+/// fields in the YAML config, breaking backward compat with the
+/// existing `enabled: true` / `client_cert_path: ...` flat
+/// schema. The TlsMode enum is the INTERNAL consumer-facing
+/// representation; `ModbusTlsConfig` remains the serde-
+/// deserialized wire format + `to_mode()` is the load-time
+/// conversion boundary.
+#[derive(Debug, Clone)]
+pub enum TlsMode {
+    /// TLS not in use — plaintext Modbus TCP.
+    Disabled,
+    /// Server-only TLS: agent validates the PLC server cert;
+    /// PLC does NOT validate the agent client cert. Minimum
+    /// useful TLS posture for legacy PLCs without client-cert
+    /// infrastructure.
+    ServerOnly {
+        server_name: String,
+        ca_cert_path: String,
+        insecure_skip_verify: bool,
+    },
+    /// Full mutual TLS: both sides present certs + both validate.
+    /// IEC 62443 SL2 FR4 preferred posture.
+    Full {
+        server_name: String,
+        ca_cert_path: String,
+        client_cert_path: String,
+        client_key_path: String,
+        insecure_skip_verify: bool,
+    },
 }
 
 /// Modbus device configuration
@@ -1222,6 +2814,11 @@ fn default_cb_half_open_permits() -> u32 {
 }
 
 // Scripting defaults
+/// Batch #302 Faz 4 step 5: default 30s task_stats publish interval.
+fn default_task_stats_interval_secs() -> u64 {
+    30
+}
+
 fn default_scan_cycle_ms() -> u64 {
     100
 }
@@ -1267,7 +2864,42 @@ fn default_provisioning_timeout_secs() -> u64 {
     30
 }
 fn default_shutdown_timeout_secs() -> u64 {
-    10
+    // Batch 32: matches the prior hardcoded SHUTDOWN_TIMEOUT_SECS
+    // constant in main.rs (30s). Pre-Batch-32 the config field
+    // was DEAD — declared but never read, defaulting to 10s
+    // while main.rs used 30s. Operators who explicitly set 10s
+    // in config.yaml were getting 30s behavior silently.
+    30
+}
+
+fn default_drain_timeout_ms() -> u64 {
+    // Plan D-15 specifies 50ms. This is the per-task
+    // cancel-vs-drain budget: in-flight commands get at most
+    // 50ms between shutdown signal and force-cancel. Typical
+    // command dispatch completes in sub-millisecond; the 50ms
+    // headroom accommodates network-aware commands
+    // (plc_upload, firmware fetch) that await a remote
+    // response. Force-cancel after 50ms is the outer backstop;
+    // actual per-command timeouts are operator-configurable
+    // (plc_upload: 30s, firmware download: 300s).
+    50
+}
+
+fn default_max_command_age_secs() -> u64 {
+    // Batch 34: matches the prior hardcoded constant in
+    // commands/mod.rs (300s). IEC 62443 SL-2 FR-7 replay
+    // protection — commands older than this bound are
+    // rejected. 5-minute default balances operator-timezone
+    // clock skew against replay-window tightness.
+    300
+}
+
+fn default_max_command_skew_secs() -> u64 {
+    // Batch 34: matches pre-Batch-34 hardcoded 60s. Negative-
+    // age tolerance for future-dated commands (cloud clock
+    // ahead of edge clock). 60s is generous for well-synced
+    // NTS fleets; operators can tighten after verifying sync.
+    60
 }
 fn default_mqtt_reconnect_min_secs() -> u64 {
     1
@@ -1321,6 +2953,100 @@ fn default_alarms_topic() -> String {
 
 fn default_lora_events_topic() -> String {
     "tenants/{tenant_id}/devices/{device_id}/lora_events".to_string()
+}
+
+/// Batch #302 Faz 4 step 5: per-task scheduler stats topic.
+fn default_task_stats_topic() -> String {
+    "tenants/{tenant_id}/devices/{device_id}/task_stats".to_string()
+}
+
+// ============================================================================
+// MtlsConfig — Batch 27 plan §5 Faz 2 item 7 (mTLS 3-stage rollout)
+// ============================================================================
+//
+// WHY: Plan §5 Faz 2 item 7 mandates a 3-stage mTLS rollout
+// (Legacy → Warn → Strict) to migrate devices off long-lived certs
+// without breaking fleet-wide TLS on day-one cutover. The
+// `crate::mtls::MtlsMode` enum encodes the stages as a type; this
+// struct is the serde-deserialized wire format that puts the mode
+// into `config.yaml`.
+//
+// Pre-Sprint-6.8 the mode field is logged at boot for operator
+// visibility but does NOT yet alter rustls handshake behavior.
+// Full wire (pinning + leaf-cert-age check + cipher suite allowlist
+// + 2-phase rotation) lands in Sprint 6.8 per plan §11 PR #19.
+//
+// WHAT:
+// - `mode: MtlsMode` with default `Legacy` — preserves HC-1 v1.6.0
+//   backward compat. Operators must explicitly opt in to Warn/
+//   Strict; no automatic cutover.
+// - `enforce_fingerprint_pinning: bool` — Sprint 6.8 target. Split
+//   from mode so an operator can enable pinning in Legacy mode for
+//   early detection without full rollout commitment.
+// - `min_tls_version` — TLS 1.2 default; Strict mode may bump to
+//   TLS 1.3. Explicit field rather than derived from mode so the
+//   cipher-suite allowlist in Sprint 6.8 is operator-tunable.
+
+/// mTLS rollout-stage configuration. See `crate::mtls::MtlsMode`
+/// for the type-level state machine.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MtlsConfig {
+    /// Rollout stage: `legacy`, `warn`, or `strict`. Defaults to
+    /// `legacy` for v1.6.0 → v2.0.0 backward compat.
+    #[serde(default)]
+    pub mode: crate::mtls::MtlsMode,
+
+    /// Enforce leaf-cert fingerprint pinning. Independent of
+    /// `mode` — an operator can enable pinning in Legacy stage
+    /// for early-detection value. Defaults to `false` pre-Sprint-
+    /// 6.8; Strict mode will flip the default to `true`.
+    #[serde(default)]
+    pub enforce_fingerprint_pinning: bool,
+
+    /// Minimum TLS protocol version accepted. Options:
+    /// `tls_1_2` (default) or `tls_1_3`. Strict mode deployments
+    /// should bump to `tls_1_3` once all PLCs + MQTT brokers in
+    /// the fleet support it.
+    #[serde(default = "default_min_tls_version")]
+    pub min_tls_version: String,
+
+    /// Pinned leaf cert SHA-256 fingerprints (Batch 137 Sprint
+    /// 6.6/6.8). 64-char hex strings corresponding to the
+    /// DER-over-SHA-256 of every leaf cert the agent will
+    /// accept during TLS handshakes.
+    ///
+    /// Consumed by `SuderraServerCertVerifier` (Batch 136) to
+    /// populate `CertRotationStage` at boot.
+    ///
+    /// - `Legacy` mode: optional. Empty list = no pinning;
+    ///   pins present = early-detection logging.
+    /// - `Warn` mode: optional. Empty = warn on every
+    ///   handshake (degraded posture); pins = audit-emit on
+    ///   mismatch.
+    /// - `Strict` mode: REQUIRED non-empty. Coherence Rule 24
+    ///   enforces ≥1 pin.
+    ///
+    /// Cloud-signed rotation manifest (future batch) will
+    /// replace this static config with a hot-reloadable
+    /// source; the static config path persists for test
+    /// keyring + pre-manifest-rollout operator use.
+    #[serde(default)]
+    pub pinned_leaf_fingerprints_hex: Vec<String>,
+}
+
+fn default_min_tls_version() -> String {
+    "tls_1_2".to_string()
+}
+
+impl Default for MtlsConfig {
+    fn default() -> Self {
+        Self {
+            mode: crate::mtls::MtlsMode::default(),
+            enforce_fingerprint_pinning: false,
+            min_tls_version: default_min_tls_version(),
+            pinned_leaf_fingerprints_hex: Vec::new(),
+        }
+    }
 }
 
 impl AgentConfig {
@@ -1719,7 +3445,472 @@ impl AgentConfig {
             }
         }
 
+        // Batch 207 Faz 5: OPC UA server config shape check.
+        // Runs regardless of `opc_ua_server.enabled` so operators
+        // cannot ship a latent bad value that flips live the
+        // moment the feature flag gets toggled on.
+        if let Err(e) = self.opc_ua_server.validate() {
+            anyhow::bail!("opc_ua_server config invalid: {}", e);
+        }
+
+        // Batch 39: Faz 2 security-posture coherence checks.
+        // Catches operator typos that produce nonsensical
+        // combinations BEFORE the agent boots with them.
+        // Pre-Batch-39 a config like `mtls.mode: strict` with
+        // `enforce_fingerprint_pinning: false` would load
+        // silently, producing a confusing runtime log where
+        // Strict mode claims fingerprint verification but
+        // silently skips it.
+        self.validate_faz2_security_coherence()?;
+
         debug!("Configuration validation passed");
+        Ok(())
+    }
+
+    /// Faz 2 security-posture coherence checks (Batch 39).
+    ///
+    /// Catches operator typos that produce nonsensical
+    /// combinations. Each rule returns an error string that
+    /// points operators directly at the conflicting fields
+    /// AND the expected relationship — fail-to-boot messages
+    /// are the LAST chance to guide operators before silent
+    /// misbehavior.
+    fn validate_faz2_security_coherence(&self) -> Result<()> {
+        // Rule 1: mtls.mode=strict implies fingerprint pinning
+        // enforced. Strict mode's whole point is "reject TLS
+        // handshake on fingerprint mismatch"; disabling
+        // pinning in Strict mode is self-contradictory.
+        if matches!(self.mtls.mode, crate::mtls::MtlsMode::Strict)
+            && !self.mtls.enforce_fingerprint_pinning
+        {
+            anyhow::bail!(
+                "Config coherence: mtls.mode=strict requires mtls.enforce_fingerprint_pinning=true (Strict mode's primary contract is fingerprint enforcement)"
+            );
+        }
+
+        // Rule 2: max_command_skew_secs should be reasonable
+        // relative to max_command_age_secs. A skew larger than
+        // age would mean the agent accepts future-dated
+        // commands beyond the replay window — logically
+        // unsound (any command in the future-skew envelope
+        // would also be within the age envelope when clocks
+        // re-sync).
+        if self.runtime.max_command_skew_secs > self.runtime.max_command_age_secs {
+            anyhow::bail!(
+                "Config coherence: runtime.max_command_skew_secs ({}) must be <= runtime.max_command_age_secs ({}) — skew larger than age is logically unsound",
+                self.runtime.max_command_skew_secs,
+                self.runtime.max_command_age_secs
+            );
+        }
+
+        // Rule 3: drain_timeout_ms should be reasonable
+        // relative to shutdown_timeout_secs. Drain budget in
+        // milliseconds converting to seconds MUST be less
+        // than the outer shutdown budget — otherwise a drain
+        // that hits its timeout would exhaust the outer budget
+        // leaving no time for safe-state + flush + MQTT
+        // disconnect phases.
+        let drain_as_secs = self.runtime.drain_timeout_ms / 1000;
+        if drain_as_secs >= self.runtime.shutdown_timeout_secs {
+            anyhow::bail!(
+                "Config coherence: runtime.drain_timeout_ms ({}ms = {}s) must be < runtime.shutdown_timeout_secs ({}s) — leaving no time for safe-state + flush phases",
+                self.runtime.drain_timeout_ms,
+                drain_as_secs,
+                self.runtime.shutdown_timeout_secs
+            );
+        }
+
+        // Rule 4: config_integrity Permissive/Enforcing mode
+        // requires a factory pubkey to be usable. Pre-Sprint-
+        // 6.6 the firmware-embedded key doesn't exist yet, so
+        // operators MUST supply `factory_pubkey_hex` when
+        // opting into Permissive/Enforcing. Once Sprint 6.6
+        // bundles the default key, `factory_pubkey_hex = None`
+        // will mean "use firmware default" — a rule update
+        // lands with that sprint.
+        if !matches!(self.config_integrity.mode, ConfigIntegrityMode::Disabled)
+            && self.config_integrity.factory_pubkey_hex.is_none()
+        {
+            anyhow::bail!(
+                "Config coherence: config_integrity.mode={:?} requires config_integrity.factory_pubkey_hex (pre-Sprint-6.6 firmware key bundle). Set factory_pubkey_hex to a 64-char hex string OR set mode=disabled",
+                self.config_integrity.mode
+            );
+        }
+
+        // Rule 5: factory_pubkey_hex if present MUST be a
+        // 64-char lowercase hex string (32 bytes ed25519
+        // public key). Prevents operator typos from getting
+        // past config load into the verify path where an
+        // invalid key would cause all sigs to fail with a
+        // confusing `InvalidSignature` error — catching it
+        // at config-load time gives a specific `invalid key
+        // format` error.
+        if let Some(ref hex) = self.config_integrity.factory_pubkey_hex {
+            if hex.len() != 64 {
+                anyhow::bail!(
+                    "Config coherence: config_integrity.factory_pubkey_hex must be 64 hex chars (32 bytes ed25519 pubkey), got {} chars",
+                    hex.len()
+                );
+            }
+            if !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+                anyhow::bail!(
+                    "Config coherence: config_integrity.factory_pubkey_hex contains non-hex characters"
+                );
+            }
+        }
+
+        // Rule 6 (Batch 49): rate_limit_max_commands must be
+        // positive. Setting 0 would either deadlock the
+        // command handler (no command ever allowed) OR the
+        // RateLimiter::check() would divide-by-zero-in-spirit
+        // (any command count would be >= 0 = "not under
+        // limit" so everything rejected). A nonsense config
+        // MUST fail-fast rather than produce a mysteriously
+        // unresponsive agent.
+        if self.runtime.rate_limit_max_commands == 0 {
+            anyhow::bail!(
+                "Config coherence: runtime.rate_limit_max_commands must be > 0 (0 would reject every command)"
+            );
+        }
+
+        // Rule 7: rate_limit_window_secs must be positive.
+        // A 0-second window would make every command
+        // instantaneously "expired" — RateLimiter evicts
+        // timestamps older than window on each check. Same
+        // fail-fast rationale as Rule 6.
+        if self.runtime.rate_limit_window_secs == 0 {
+            anyhow::bail!(
+                "Config coherence: runtime.rate_limit_window_secs must be > 0 (0 would make every timestamp instantly-expired)"
+            );
+        }
+
+        // Rule 8: max_command_age_secs must be positive.
+        // A 0-second max_age would reject every command
+        // with a timestamp older than "right now" (i.e.,
+        // every command, since network + parse takes > 0s).
+        if self.runtime.max_command_age_secs == 0 {
+            anyhow::bail!(
+                "Config coherence: runtime.max_command_age_secs must be > 0 (0 would reject every command due to parse+network latency)"
+            );
+        }
+
+        // Rule 9 (Batch 56): clock.nts_sync_max_skew_secs
+        // must be positive. A 0-second threshold would make
+        // Sprint 6.7 ChronyNtsClockAuthority reject every
+        // wall-clock read (any NTS sync age > 0 would fail
+        // freshness check). Operators wanting "immediate
+        // rejection" should set `clock.mode: disabled` (or
+        // leave the authority un-wired in AppState) rather
+        // than 0-threshold — clearer operator intent.
+        if self.clock.nts_sync_max_skew_secs == 0 {
+            anyhow::bail!(
+                "Config coherence: clock.nts_sync_max_skew_secs must be > 0 (0 would reject every wall-clock read under Sprint 6.7 Chrony wire)"
+            );
+        }
+
+        // Rule 10 (Batch 58): envelope_dedup.moka_capacity
+        // must be positive. Zero capacity would disable dedup
+        // entirely (no entries retained) — replay defense
+        // silently off. Operators wanting dedup disabled
+        // should leave signature_mode = Disabled rather than
+        // 0-capacity (clearer intent).
+        if self.envelope_dedup.moka_capacity == 0 {
+            anyhow::bail!(
+                "Config coherence: envelope_dedup.moka_capacity must be > 0 (0 silently disables replay defense)"
+            );
+        }
+
+        // Rule 11 (Batch 58): envelope_dedup.moka_ttl_secs
+        // must be in the sane range [30, 3600]. Below 30s:
+        // TTL shorter than MQTT broker redelivery window,
+        // replays sneak through. Above 3600s: Moka grows into
+        // the SQLCipher tier's territory (Sprint 6.4 covers
+        // 72-hour window) — operator likely confused about
+        // which tier is which.
+        if self.envelope_dedup.moka_ttl_secs < 30
+            || self.envelope_dedup.moka_ttl_secs > 3600
+        {
+            anyhow::bail!(
+                "Config coherence: envelope_dedup.moka_ttl_secs ({}) must be in [30, 3600] seconds — hot-window tier bounds",
+                self.envelope_dedup.moka_ttl_secs
+            );
+        }
+
+        // Rule 12 (Batch 66): rbac_manifest Permissive/
+        // Enforcing mode requires manifest_signing_pubkey_hex.
+        // Same rationale as Rule 4 (config_integrity): pre-
+        // Sprint-6.1 the firmware-embedded default key
+        // doesn't exist; operators opting into Permissive/
+        // Enforcing MUST supply their own test key.
+        if !matches!(self.rbac_manifest.mode, RbacManifestMode::Disabled)
+            && self.rbac_manifest.manifest_signing_pubkey_hex.is_none()
+        {
+            anyhow::bail!(
+                "Config coherence: rbac_manifest.mode={:?} requires rbac_manifest.manifest_signing_pubkey_hex (pre-Sprint-6.1 firmware key bundle). Set manifest_signing_pubkey_hex to a 64-char hex string OR set mode=disabled",
+                self.rbac_manifest.mode
+            );
+        }
+
+        // Rule 13 (Batch 66): manifest_signing_pubkey_hex if
+        // present MUST be 64-char lowercase hex. Same rationale
+        // as Rule 5 (config_integrity): catches typos at
+        // config-load time instead of producing confusing
+        // `InvalidSignature` runtime errors downstream.
+        if let Some(ref hex) = self.rbac_manifest.manifest_signing_pubkey_hex {
+            if hex.len() != 64 {
+                anyhow::bail!(
+                    "Config coherence: rbac_manifest.manifest_signing_pubkey_hex must be 64 hex chars (32 bytes ed25519 pubkey), got {} chars",
+                    hex.len()
+                );
+            }
+            if !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+                anyhow::bail!(
+                    "Config coherence: rbac_manifest.manifest_signing_pubkey_hex contains non-hex characters"
+                );
+            }
+        }
+
+        // Rule 14 (Batch 71): rbac_manifest.version_store_path
+        // if set MUST point to a writable location (same
+        // filesystem permission class as offline_queue.sqlite
+        // + scada_db.sqlite). We cannot check writability at
+        // config-load time (the path may not yet exist) — we
+        // DO check that it has a parent component so
+        // `std::fs::create_dir_all` in ManifestVersionStore::
+        // open can succeed. An empty or root-only path is a
+        // likely misconfiguration.
+        if let Some(ref path) = self.rbac_manifest.version_store_path {
+            if path.as_os_str().is_empty() {
+                anyhow::bail!(
+                    "Config coherence: rbac_manifest.version_store_path is set to an empty path. \
+                     Either omit the field (defaults to /var/lib/suderra/rbac_version.sqlite) or \
+                     provide a valid filesystem path."
+                );
+            }
+            if path.parent().map(|p| p.as_os_str().is_empty()).unwrap_or(true) {
+                anyhow::bail!(
+                    "Config coherence: rbac_manifest.version_store_path={} has no parent directory. \
+                     Provide an absolute path with a parent dir (e.g. /var/lib/suderra/rbac_version.sqlite).",
+                    path.display()
+                );
+            }
+        }
+
+        // Rule 15 (Batch 78, relaxed Batch 84): audit.mode=
+        // Enabled requires EITHER a live keystore (keystore.
+        // mode != Disabled) OR audit.hmac_key_hex. The
+        // keystore-derived path (preferred) derives the HMAC
+        // key via KeyPurpose::AuditHmacChain; hex config is
+        // the rollout-stage fallback.
+        if matches!(self.audit.mode, AuditMode::Enabled)
+            && self.audit.hmac_key_hex.is_none()
+            && matches!(self.keystore.mode, KeystoreMode::Disabled)
+        {
+            anyhow::bail!(
+                "Config coherence: audit.mode=Enabled requires EITHER keystore.mode != Disabled (preferred — \
+                 derives HMAC key via KeyPurpose::AuditHmacChain) OR audit.hmac_key_hex (rollout-stage fallback, \
+                 64-char lowercase hex). Both are currently unset."
+            );
+        }
+
+        // Rule 16 (Batch 78): audit.hmac_key_hex if present
+        // MUST be 64-char lowercase hex. Matches Rule 13
+        // discipline for manifest_signing_pubkey_hex.
+        if let Some(ref hex) = self.audit.hmac_key_hex {
+            if hex.len() != 64 {
+                anyhow::bail!(
+                    "Config coherence: audit.hmac_key_hex must be 64 hex chars (32-byte HMAC key), got {} chars",
+                    hex.len()
+                );
+            }
+            if !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+                anyhow::bail!(
+                    "Config coherence: audit.hmac_key_hex contains non-hex characters"
+                );
+            }
+        }
+
+        // Rule 17 (Batch 78): audit.log_path if set must
+        // have a parent component. Same sanity check as Rule
+        // 14 for rbac_manifest.version_store_path.
+        if let Some(ref path) = self.audit.log_path {
+            if path.as_os_str().is_empty() {
+                anyhow::bail!(
+                    "Config coherence: audit.log_path is set to an empty path. \
+                     Either omit the field (defaults to /var/log/suderra/audit.log) or \
+                     provide a valid filesystem path."
+                );
+            }
+            if path.parent().map(|p| p.as_os_str().is_empty()).unwrap_or(true) {
+                anyhow::bail!(
+                    "Config coherence: audit.log_path={} has no parent directory. \
+                     Provide an absolute path with a parent dir.",
+                    path.display()
+                );
+            }
+        }
+
+        // Rule 18 (Batch 83): Argon2id params MUST meet
+        // OWASP 2024 floor (memory >= 19456 KiB, iterations
+        // >= 2, parallelism >= 1) when keystore.mode !=
+        // Disabled. Matches Argon2idParams::validate()
+        // semantic in keystore/file_backed.rs but fails
+        // early at config-load (better operator UX than
+        // letting the keystore::open call surface the same
+        // error at boot).
+        if !matches!(self.keystore.mode, KeystoreMode::Disabled) {
+            if self.keystore.argon2_memory_kib < 19_456 {
+                anyhow::bail!(
+                    "Config coherence: keystore.argon2_memory_kib={} below OWASP 2024 floor (19456 KiB = 19 MiB). \
+                     Set to >= 19456, or set keystore.mode=disabled to skip keystore.",
+                    self.keystore.argon2_memory_kib
+                );
+            }
+            if self.keystore.argon2_iterations < 2 {
+                anyhow::bail!(
+                    "Config coherence: keystore.argon2_iterations={} below OWASP 2024 floor (2). \
+                     Set to >= 2, or set keystore.mode=disabled.",
+                    self.keystore.argon2_iterations
+                );
+            }
+            if self.keystore.argon2_parallelism == 0 {
+                anyhow::bail!(
+                    "Config coherence: keystore.argon2_parallelism must be >= 1, got 0."
+                );
+            }
+        }
+
+        // Rule 19 (Batch 83): keystore.mode=FileBacked
+        // requires all three file paths (passphrase, salt,
+        // acceptance) — when explicit FileBacked is chosen,
+        // the operator CANNOT rely on defaults for one and
+        // set another explicitly. Auto mode uses defaults
+        // for any unset path.
+        if matches!(self.keystore.mode, KeystoreMode::FileBacked) {
+            let has_any = self.keystore.passphrase_path.is_some()
+                || self.keystore.salt_path.is_some()
+                || self.keystore.acceptance_path.is_some();
+            let has_all = self.keystore.passphrase_path.is_some()
+                && self.keystore.salt_path.is_some()
+                && self.keystore.acceptance_path.is_some();
+            if has_any && !has_all {
+                anyhow::bail!(
+                    "Config coherence: keystore.mode=file_backed with SOME paths set requires ALL paths set \
+                     (passphrase_path, salt_path, acceptance_path). Either set all three explicitly or \
+                     omit all three to use /etc/suderra/keystore.* defaults."
+                );
+            }
+        }
+
+        // Rule 20 (Batch 114): firmware_update mode != Disabled
+        // requires a parseable 64-char hex ed25519 pubkey.
+        // Same fail-fast discipline as Rule 12 (rbac_manifest)
+        // + Rule 4 (config_integrity): catches operator typos
+        // + unconfigured production deployments at boot time
+        // rather than at first firmware-deploy attempt.
+        if !matches!(self.firmware_update.mode, FirmwareUpdateMode::Disabled)
+            && self.firmware_update.signing_pubkey_hex.is_none()
+        {
+            anyhow::bail!(
+                "Config coherence: firmware_update.mode={:?} requires firmware_update.signing_pubkey_hex \
+                 (64-char hex ed25519 pubkey). Set signing_pubkey_hex OR set mode=disabled.",
+                self.firmware_update.mode
+            );
+        }
+
+        // Rule 21 (Batch 114): firmware_update.signing_pubkey_hex
+        // if set MUST be a parseable 64-char hex string.
+        // Same validation as Rule 13 (rbac_manifest) + Rule 5
+        // (config_integrity) — catches typos at config load
+        // rather than at first verify.
+        if let Some(ref hex) = self.firmware_update.signing_pubkey_hex {
+            if hex.len() != 64 {
+                anyhow::bail!(
+                    "Config coherence: firmware_update.signing_pubkey_hex must be 64 hex chars (32 bytes ed25519 pubkey), got {} chars",
+                    hex.len()
+                );
+            }
+            if !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+                anyhow::bail!(
+                    "Config coherence: firmware_update.signing_pubkey_hex contains non-hex characters"
+                );
+            }
+        }
+
+        // Rule 22 (Batch 123): firmware_update.ab_partitions
+        // must be BOTH-SET or BOTH-UNSET. Half-configured is
+        // an operator typo signal — either fully A/B enable
+        // the device or leave the file-streaming path
+        // disabled. Mirrors the Rule 19 FileBacked-keystore
+        // all-or-none discipline.
+        let a_set = self.firmware_update.ab_partitions.slot_a_mount.is_some();
+        let b_set = self.firmware_update.ab_partitions.slot_b_mount.is_some();
+        if a_set != b_set {
+            anyhow::bail!(
+                "Config coherence: firmware_update.ab_partitions must have BOTH slot_a_mount \
+                 AND slot_b_mount set, or BOTH unset. Half-configured A/B mounts \
+                 (slot_a_mount.is_some={}, slot_b_mount.is_some={}) would leave \
+                 cmd_apply_signed_manifest unable to determine the target standby slot.",
+                a_set, b_set
+            );
+        }
+
+        // Rule 23 (Batch 123): if ab_partitions paths are
+        // set, they MUST NOT be equal. Same-path for both
+        // slots would overwrite the active firmware on
+        // every deploy attempt. Tier-1 make-it-impossible.
+        if let (Some(a), Some(b)) = (
+            self.firmware_update.ab_partitions.slot_a_mount.as_ref(),
+            self.firmware_update.ab_partitions.slot_b_mount.as_ref(),
+        ) {
+            if a == b {
+                anyhow::bail!(
+                    "Config coherence: firmware_update.ab_partitions.slot_a_mount and \
+                     slot_b_mount are identical ({}). A/B requires two DISTINCT mount \
+                     points — pointing both at the same path would overwrite the \
+                     active firmware on every apply_signed_manifest invocation.",
+                    a.display()
+                );
+            }
+        }
+
+        // Rule 24 (Batch 137): mtls.mode=Strict REQUIRES at
+        // least one pinned leaf fingerprint. Plan §3 R-6 +
+        // ADR-021 §10: Strict mode is "reject handshake on
+        // any mismatch" — with an empty pin set, EVERY
+        // handshake would mismatch + reject, bricking the
+        // device's TLS connectivity. Fail-fast at config
+        // load so operators don't discover this at first
+        // MQTT connect.
+        if matches!(self.mtls.mode, crate::mtls::MtlsMode::Strict)
+            && self.mtls.pinned_leaf_fingerprints_hex.is_empty()
+        {
+            anyhow::bail!(
+                "Config coherence: mtls.mode=Strict requires at least one entry in \
+                 mtls.pinned_leaf_fingerprints_hex. Supply the expected leaf cert \
+                 SHA-256 hex digest(s) or downgrade mode to Warn during rollout."
+            );
+        }
+
+        // Rule 25 (Batch 137): each pinned fingerprint hex
+        // MUST be 64 chars of ASCII hex. Same validation
+        // discipline as Rule 21 (firmware signing pubkey).
+        for (idx, hex) in self.mtls.pinned_leaf_fingerprints_hex.iter().enumerate() {
+            if hex.len() != 64 {
+                anyhow::bail!(
+                    "Config coherence: mtls.pinned_leaf_fingerprints_hex[{}] must be 64 hex chars (32-byte SHA-256), got {} chars",
+                    idx,
+                    hex.len()
+                );
+            }
+            if !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+                anyhow::bail!(
+                    "Config coherence: mtls.pinned_leaf_fingerprints_hex[{}] contains non-hex characters",
+                    idx
+                );
+            }
+        }
+
         Ok(())
     }
 
@@ -1781,6 +3972,99 @@ impl AgentConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ====================================================================
+    // Batch 192 Faz 4 — ScriptingConfig.tasks schema round-trip
+    // ====================================================================
+
+    #[test]
+    fn scripting_config_tasks_default_is_empty_vec() {
+        let cfg = ScriptingConfig::default();
+        assert!(cfg.tasks.is_empty());
+    }
+
+    #[test]
+    fn scripting_config_tasks_missing_key_deserializes_to_empty() {
+        // Legacy config.yaml without `tasks:` still
+        // parses cleanly — backward compat.
+        let yaml = r#"
+enabled: true
+default_scan_cycle_ms: 1000
+min_scan_cycle_ms: 10
+max_scan_cycle_ms: 10000
+max_function_blocks: 50
+max_execution_depth: 10
+max_actions: 1000
+max_execution_time_secs: 30
+bytecode_store_path: ""
+"#;
+        let cfg: ScriptingConfig = serde_yaml::from_str(yaml).expect("ok");
+        assert!(cfg.tasks.is_empty());
+    }
+
+    #[test]
+    fn scripting_config_tasks_round_trip_with_populated_vec() {
+        use crate::scripting::task_scheduler::{SloTier, TaskKind};
+
+        let yaml = r#"
+enabled: true
+default_scan_cycle_ms: 1000
+min_scan_cycle_ms: 10
+max_scan_cycle_ms: 10000
+max_function_blocks: 50
+max_execution_depth: 10
+max_actions: 1000
+max_execution_time_secs: 30
+bytecode_store_path: "/var/lib/suderra/bytecode.db"
+tasks:
+  - name: safety_alarms
+    kind:
+      kind: cyclic
+      period_ms: 500
+    slo_tier: safety_critical
+    watchdog_ms: 400
+    programs:
+      - o2_guard
+      - ph_guard
+  - name: feed_schedule
+    kind:
+      kind: cyclic
+      period_ms: 1200
+    slo_tier: routine
+    watchdog_ms: 1000
+    programs:
+      - feeder_cron
+  - name: on_temp_change
+    kind:
+      kind: event
+      event_tag: water_temp
+    slo_tier: safety_critical
+    watchdog_ms: 300
+    programs:
+      - temp_alarm_eval
+"#;
+        let cfg: ScriptingConfig = serde_yaml::from_str(yaml).expect("ok");
+        assert_eq!(cfg.tasks.len(), 3);
+
+        assert_eq!(cfg.tasks[0].name, "safety_alarms");
+        assert_eq!(cfg.tasks[0].slo_tier, SloTier::SafetyCritical);
+        assert_eq!(cfg.tasks[0].programs, vec!["o2_guard", "ph_guard"]);
+        assert_eq!(
+            cfg.tasks[0].kind,
+            TaskKind::Cyclic { period_ms: 500 }
+        );
+
+        assert_eq!(cfg.tasks[1].name, "feed_schedule");
+        assert_eq!(cfg.tasks[1].slo_tier, SloTier::Routine);
+
+        assert_eq!(cfg.tasks[2].name, "on_temp_change");
+        assert_eq!(
+            cfg.tasks[2].kind,
+            TaskKind::Event {
+                event_tag: "water_temp".into()
+            }
+        );
+    }
 
     #[test]
     fn test_topic_resolution() {
@@ -2000,5 +4284,192 @@ gpio: []
         assert_eq!(config.telemetry.interval_seconds, 30);
         assert!(config.modbus.is_empty());
         assert!(config.gpio.is_empty());
+    }
+
+    // ========================================================================
+    // Firmware Update Config Tests (Batch 114 Sprint 6.5)
+    // ========================================================================
+
+    #[test]
+    fn test_firmware_update_config_default_is_disabled() {
+        let config = FirmwareUpdateConfig::default();
+        assert!(matches!(config.mode, FirmwareUpdateMode::Disabled));
+        assert!(config.signing_pubkey_hex.is_none());
+    }
+
+    #[test]
+    fn test_firmware_update_config_yaml_roundtrip() {
+        let config = FirmwareUpdateConfig {
+            mode: FirmwareUpdateMode::Enforcing,
+            signing_pubkey_hex: Some("a".repeat(64)),
+            bootloader_backend: BootloaderBackend::default(),
+            tryboot_autoboot_path: None,
+            ab_partitions: AbPartitionMountConfig::default(),
+        };
+        let yaml = serde_yaml::to_string(&config).unwrap();
+        assert!(yaml.contains("mode: enforcing"));
+        assert!(yaml.contains(&"a".repeat(64)));
+        let parsed: FirmwareUpdateConfig = serde_yaml::from_str(&yaml).unwrap();
+        assert!(matches!(parsed.mode, FirmwareUpdateMode::Enforcing));
+        assert_eq!(parsed.signing_pubkey_hex, Some("a".repeat(64)));
+    }
+
+    #[test]
+    fn test_firmware_update_mode_disabled_accepts_none_pubkey() {
+        let yaml = r#"
+mode: disabled
+"#;
+        let config: FirmwareUpdateConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(matches!(config.mode, FirmwareUpdateMode::Disabled));
+        assert!(config.signing_pubkey_hex.is_none());
+    }
+
+    #[test]
+    fn test_firmware_update_permissive_mode_parses() {
+        let yaml = r#"
+mode: permissive
+signing_pubkey_hex: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+"#;
+        let config: FirmwareUpdateConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(matches!(config.mode, FirmwareUpdateMode::Permissive));
+        assert_eq!(
+            config.signing_pubkey_hex.as_deref(),
+            Some("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+        );
+    }
+
+    // ========================================================================
+    // AbPartitionMountConfig tests (Batch 123 Sprint 6.5)
+    // ========================================================================
+
+    #[test]
+    fn test_ab_partitions_default_is_both_none() {
+        let c = AbPartitionMountConfig::default();
+        assert!(c.slot_a_mount.is_none());
+        assert!(c.slot_b_mount.is_none());
+        assert!(!c.is_fully_configured());
+    }
+
+    #[test]
+    fn test_ab_partitions_is_fully_configured_requires_both() {
+        let mut c = AbPartitionMountConfig::default();
+        assert!(!c.is_fully_configured());
+
+        c.slot_a_mount = Some(std::path::PathBuf::from("/mnt/slot-a"));
+        assert!(!c.is_fully_configured());
+
+        c.slot_b_mount = Some(std::path::PathBuf::from("/mnt/slot-b"));
+        assert!(c.is_fully_configured());
+
+        c.slot_a_mount = None;
+        assert!(!c.is_fully_configured());
+    }
+
+    #[test]
+    fn test_ab_partitions_yaml_roundtrip() {
+        let yaml = r#"
+slot_a_mount: /mnt/slot-a
+slot_b_mount: /mnt/slot-b
+"#;
+        let c: AbPartitionMountConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(c.slot_a_mount, Some(std::path::PathBuf::from("/mnt/slot-a")));
+        assert_eq!(c.slot_b_mount, Some(std::path::PathBuf::from("/mnt/slot-b")));
+        assert!(c.is_fully_configured());
+    }
+
+    #[test]
+    fn test_firmware_update_config_embeds_ab_partitions() {
+        let yaml = r#"
+mode: permissive
+signing_pubkey_hex: "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+ab_partitions:
+  slot_a_mount: /mnt/slot-a
+  slot_b_mount: /mnt/slot-b
+"#;
+        let c: FirmwareUpdateConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(c.ab_partitions.is_fully_configured());
+        assert_eq!(
+            c.ab_partitions.slot_a_mount,
+            Some(std::path::PathBuf::from("/mnt/slot-a"))
+        );
+    }
+
+    #[test]
+    fn test_firmware_update_config_omitted_ab_partitions_defaults_to_none() {
+        let yaml = r#"
+mode: disabled
+"#;
+        let c: FirmwareUpdateConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(!c.ab_partitions.is_fully_configured());
+        assert!(c.ab_partitions.slot_a_mount.is_none());
+        assert!(c.ab_partitions.slot_b_mount.is_none());
+    }
+
+    // ========================================================================
+    // BootloaderBackend tests (Batch 128 Sprint 6.5)
+    // ========================================================================
+
+    #[test]
+    fn test_bootloader_backend_default_is_noop() {
+        let b = BootloaderBackend::default();
+        assert!(matches!(b, BootloaderBackend::Noop));
+    }
+
+    #[test]
+    fn test_bootloader_backend_yaml_parses_tryboot() {
+        let yaml = r#"
+mode: permissive
+signing_pubkey_hex: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+bootloader_backend: tryboot
+tryboot_autoboot_path: /boot/firmware/autoboot.txt
+"#;
+        let c: FirmwareUpdateConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(matches!(c.bootloader_backend, BootloaderBackend::Tryboot));
+        assert_eq!(
+            c.tryboot_autoboot_path,
+            Some(std::path::PathBuf::from("/boot/firmware/autoboot.txt"))
+        );
+    }
+
+    // ========================================================================
+    // Batch 137 Sprint 6.6/6.8 — mtls.pinned_leaf_fingerprints_hex tests
+    // ========================================================================
+
+    #[test]
+    fn test_mtls_config_default_pinned_list_is_empty() {
+        let c = MtlsConfig::default();
+        assert!(c.pinned_leaf_fingerprints_hex.is_empty());
+    }
+
+    #[test]
+    fn test_mtls_config_yaml_accepts_pinned_list() {
+        let yaml = r#"
+mode: warn
+pinned_leaf_fingerprints_hex:
+  - "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+  - "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+"#;
+        let c: MtlsConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(c.pinned_leaf_fingerprints_hex.len(), 2);
+        assert!(matches!(c.mode, crate::mtls::MtlsMode::Warn));
+    }
+
+    #[test]
+    fn test_mtls_config_yaml_omitted_pins_yields_empty_vec() {
+        let yaml = r#"
+mode: legacy
+"#;
+        let c: MtlsConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(c.pinned_leaf_fingerprints_hex.is_empty());
+    }
+
+    #[test]
+    fn test_bootloader_backend_yaml_defaults_to_noop_when_omitted() {
+        let yaml = r#"
+mode: disabled
+"#;
+        let c: FirmwareUpdateConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(matches!(c.bootloader_backend, BootloaderBackend::Noop));
+        assert!(c.tryboot_autoboot_path.is_none());
     }
 }

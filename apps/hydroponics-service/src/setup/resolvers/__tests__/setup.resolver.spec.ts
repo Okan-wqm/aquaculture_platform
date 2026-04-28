@@ -19,7 +19,7 @@ import { Reflector } from '@nestjs/core';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { ROLES_KEY } from '@aquaculture/backend-common';
+import { ROLES_KEY } from '@aquaculture/backend-common/decorators';
 
 import { HydroponicsConfig } from '../../entities/hydroponics-config.entity';
 import { SetupResolver } from '../setup.resolver';

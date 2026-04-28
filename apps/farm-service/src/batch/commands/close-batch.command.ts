@@ -10,7 +10,7 @@
  * @module Batch/Commands
  */
 import { ITenantCommand } from '@platform/cqrs';
-import { Role } from '@aquaculture/backend-common';
+import { Role } from '@aquaculture/backend-common/decorators';
 
 export enum BatchCloseReason {
   HARVEST_COMPLETED = 'harvest_completed',   // Hasat tamamlandi

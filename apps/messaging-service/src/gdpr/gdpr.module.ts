@@ -1,7 +1,7 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ClientsModule, Transport } from '@nestjs/microservices';
-import { buildNatsTransportOptions } from '@aquaculture/backend-common';
+import { buildNatsTransportOptions } from '@aquaculture/backend-common/nats';
 import { Message } from '../message/entities/message.entity';
 import { MessagingOutbox } from '../outbox/messaging-outbox.entity';
 import { PresenceModule } from '../presence/presence.module';

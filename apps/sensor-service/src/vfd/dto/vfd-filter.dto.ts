@@ -13,7 +13,7 @@ import {
 import { GraphQLJSON } from 'graphql-scalars';
 
 import { VfdBrand, VfdProtocol, VfdDeviceStatus } from '../entities/vfd.enums';
-import { StandardPaginationInput, StandardPaginatedResponse } from '@aquaculture/backend-common';
+import { StandardPaginationInput, StandardPaginatedResponse } from '@aquaculture/backend-common/pagination';
 
 /**
  * Filter input for querying VFD devices

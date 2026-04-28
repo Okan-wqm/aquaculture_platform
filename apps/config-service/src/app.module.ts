@@ -7,7 +7,10 @@ import { join } from 'path';
 import { CqrsModule } from '@nestjs/cqrs';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
 import depthLimit from 'graphql-depth-limit';
-import { TenantGuard, RolesGuard, LoggingModule, ServiceIdentityGuard, RlsModule, AuditColumnsModule, createMigrationRunnerService, SchemaDriftModule, PlatformJwtModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common';
+import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
+import { RlsModule, AuditColumnsModule, createMigrationRunnerService, SchemaDriftModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common/database';
+import { TenantGuard, RolesGuard, ServiceIdentityGuard } from '@aquaculture/backend-common/guards';
+import { LoggingModule } from '@aquaculture/backend-common/logging';
 import { AuditLogModule, AuditLogInterceptor } from '@aquaculture/backend-common/audit';
 
 /**

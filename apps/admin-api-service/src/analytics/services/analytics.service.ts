@@ -11,7 +11,7 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThanOrEqual, In, DataSource } from 'typeorm';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { RedisService } from '@aquaculture/backend-common';
+import { RedisService } from '@aquaculture/backend-common/redis';
 
 import { AuditLogService } from '../../audit/audit.service';
 import {

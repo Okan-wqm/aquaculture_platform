@@ -1,3 +1,7 @@
+// BATCH-001-CI-FIX-015: pre-staged types for Sprint 6.1-6.8 runtime wiring.
+// Re-exports are intentionally unused until the runtime consumers land.
+#![allow(unused_imports)]
+
 //! # Audit — append-only signed audit log (ADR-020)
 //!
 //! The audit module is the edge agent's **primary forensic surface**. Every
@@ -42,6 +46,16 @@
 
 pub mod chain;
 pub mod entry;
+// Batch 74 Sprint 6.2 Phase 2: runtime sink — file append +
+// HMAC chain state + NDJSON serialization. Chain recovery on
+// restart (Batch 75) + SIGHUP rotation (Batch 76) land in the
+// same module. Cloud relay is follow-up.
+pub mod sink;
+// Batch 77 Sprint 6.2 Phase 2: offline chain verification —
+// pure read + recompute HMAC + linkage assertion. Consumed by
+// the `--audit-verify` CLI flag in main.rs + external
+// auditors.
+pub mod verify;
 
 pub use chain::{
     append_entry,
@@ -51,6 +65,10 @@ pub use chain::{
     HmacChainEntry,
     PrevHmac,
 };
+
+pub use sink::{AuditHmacKey, AuditSink, AuditSinkError};
+
+pub use verify::{verify_audit_log, VerifyInput, VerifyOutcome};
 
 pub use entry::{
     AuditAction,

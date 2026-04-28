@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
-import { maskEmail } from '@aquaculture/backend-common';
+import { maskEmail } from '@aquaculture/backend-common/utils';
 
 /**
  * HTML escape function to prevent XSS in email templates.

@@ -21,7 +21,9 @@ import {
   Parent,
 } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
-import { TenantGuard, Tenant, CurrentUser, Roles, Role, StandardPaginatedResponse, IStandardPaginatedResult } from '@aquaculture/backend-common';
+import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
+import { TenantGuard } from '@aquaculture/backend-common/guards';
+import { StandardPaginatedResponse, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 
 // Entities
 import { HarvestPlan, HarvestPlanStatus } from '../entities/harvest-plan.entity';

@@ -15,17 +15,35 @@ import { useState, useEffect, useCallback, MouseEvent as ReactMouseEvent, useMem
 import { EdgeProps, Position, useReactFlow } from 'reactflow';
 import { getEdgeStyle, ConnectionType } from '../config/connectionTypes';
 
+/**
+ * Optional persistence callback signature. When a consumer maintains
+ * edge state outside ReactFlow's own edge list (e.g. a zustand store
+ * backing SCADA process graphs), it passes its own update function
+ * here; the lib edge will call it instead of ReactFlow's setEdges.
+ * Defaults to ReactFlow's native state when omitted.
+ */
+export type EdgeDataUpdater<TData> = (id: string, data: Partial<TData>) => void;
+
 /* -------------------------------------------------- */
 /*  Types                                             */
 /* -------------------------------------------------- */
 type Point = { x: number; y: number };
 type BendPoint = Point & { locked?: boolean };
 
-interface OrthogonalEdgeData {
+export interface OrthogonalEdgeData {
   bendPoints?: BendPoint[];
   label?: string;
   connectionType?: ConnectionType;
   routingMode?: 'horizontal-first' | 'vertical-first' | 'auto';
+}
+
+export interface OrthogonalEdgeProps extends EdgeProps<OrthogonalEdgeData> {
+  /**
+   * Optional persistence callback — see {@link EdgeDataUpdater}.
+   * When omitted, the component persists bend-point changes via
+   * ReactFlow's native setEdges.
+   */
+  updateEdgeData?: EdgeDataUpdater<OrthogonalEdgeData>;
 }
 
 /* -------------------------------------------------- */
@@ -174,7 +192,7 @@ const findSegmentIndex = (
 /* -------------------------------------------------- */
 /*  Component                                         */
 /* -------------------------------------------------- */
-export default function OrthogonalEdge(props: EdgeProps<OrthogonalEdgeData>) {
+export default function OrthogonalEdge(props: OrthogonalEdgeProps) {
   const {
     id,
     sourceX,
@@ -186,9 +204,32 @@ export default function OrthogonalEdge(props: EdgeProps<OrthogonalEdgeData>) {
     style = {},
     data,
     selected,
+    updateEdgeData: externalUpdater,
   } = props;
 
   const { setEdges } = useReactFlow();
+
+  // Unified persistence: prefer the consumer's updater when provided
+  // (e.g. sensor-module's zustand processStore); fall back to
+  // ReactFlow's native edges state otherwise. This lets the lib edge
+  // live in both ReactFlow-native and store-backed consumer contexts
+  // without forking the component.
+  const persistBendPoints = useCallback(
+    (nextBends: BendPoint[]) => {
+      if (externalUpdater) {
+        externalUpdater(id, { bendPoints: nextBends });
+        return;
+      }
+      setEdges((edges) =>
+        edges.map((e) =>
+          e.id === id
+            ? { ...e, data: { ...e.data, bendPoints: nextBends } }
+            : e,
+        ),
+      );
+    },
+    [id, setEdges, externalUpdater],
+  );
 
   // Apply handle offset correction to center edges on handle dots
   const HANDLE_OFFSET = 6; // half of 12px handle
@@ -238,14 +279,8 @@ export default function OrthogonalEdge(props: EdgeProps<OrthogonalEdgeData>) {
 
   /* ---------- Persist changes ---------------------- */
   useEffect(() => {
-    setEdges(edges =>
-      edges.map(e =>
-        e.id === id
-          ? { ...e, data: { ...e.data, bendPoints } }
-          : e
-      )
-    );
-  }, [bendPoints, id, setEdges]);
+    persistBendPoints(bendPoints);
+  }, [bendPoints, persistBendPoints]);
 
   /* ---------- Drag handling ------------------------ */
   const handleMouseDown = useCallback((e: ReactMouseEvent<SVGRectElement>, idx: number) => {

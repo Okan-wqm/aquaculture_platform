@@ -19,7 +19,7 @@
  * then null — ensuring the farm dashboard degrades gracefully.
  */
 import { Injectable, Logger, Optional } from '@nestjs/common';
-import { RedisService } from '@aquaculture/backend-common';
+import { RedisService } from '@aquaculture/backend-common/redis';
 import { McpClientService } from './mcp-client.service';
 import {
   TankRiskAssessment,
@@ -364,7 +364,7 @@ export class AiInsightsService {
 
     /**
      * WHY: Tank risks are derived from the farm-wide risk factors rather than
-     * individual per-tank calls — a pragmatic trade-off that avoids N+1 MCP
+     * individual per-tank calls — explicit aggregation avoids N+1 MCP
      * calls. Per-tank drill-down uses getTankRiskAssessment separately.
      */
     const tankRisks: TankRiskAssessment[] = riskData

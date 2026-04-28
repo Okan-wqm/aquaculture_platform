@@ -19,7 +19,7 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { GqlContextType, GqlExecutionContext } from '@nestjs/graphql';
-import { RedisService } from '@aquaculture/backend-common';
+import { RedisService } from '@aquaculture/backend-common/redis';
 import { createHash } from 'crypto';
 import { Observable, from, of } from 'rxjs';
 import { switchMap, tap } from 'rxjs/operators';

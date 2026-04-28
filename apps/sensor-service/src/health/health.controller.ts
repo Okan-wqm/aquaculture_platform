@@ -1,6 +1,6 @@
 import { Controller } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { StandardHealthController } from '@aquaculture/backend-common';
+import { StandardHealthController } from '@aquaculture/backend-common/health';
 import { DataSource } from 'typeorm';
 
 interface ExtensionQueryResult {

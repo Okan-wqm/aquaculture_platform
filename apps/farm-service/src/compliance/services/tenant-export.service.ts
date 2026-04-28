@@ -83,6 +83,7 @@ export class TenantExportService {
     for (const meta of tenantScoped) {
       const tableName = meta.tableName;
       try {
+        // eslint-disable-next-line no-restricted-syntax -- cross-tenant admin export: tenant-export.service walks every tenant by design (GDPR Art-15 export job; iterates tenants outside the request context). tenantManagerRepo would scope the export to the calling tenant only, defeating the cross-tenant export purpose.
         const rows = await this.dataSource
           .getRepository(meta.target)
           .createQueryBuilder('t')

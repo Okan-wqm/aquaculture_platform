@@ -3,6 +3,7 @@ import { DataSource, QueryRunner } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { CreateDepartmentCommand } from '../commands/create-department.command';
 import { DepartmentHR } from '../entities/department.entity';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 
 @Injectable()
 @CommandHandler(CreateDepartmentCommand)
@@ -21,7 +22,7 @@ export class CreateDepartmentHandler implements ICommandHandler<CreateDepartment
     await queryRunner.startTransaction();
 
     try {
-      const repo = queryRunner.manager.getRepository(DepartmentHR);
+      const repo = tenantManagerRepo(queryRunner.manager, DepartmentHR, tenantId);
 
       // Check for duplicate code within tenant
       const existing = await repo.findOne({

@@ -13,7 +13,7 @@ import {
   Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn,
   Index, ManyToOne, JoinColumn,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import { StorageItemType } from './storage-inventory.entity';
 import { InventoryCount } from './inventory-count.entity';
 

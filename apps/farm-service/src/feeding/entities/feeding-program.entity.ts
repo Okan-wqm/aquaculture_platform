@@ -406,11 +406,7 @@ export function validateProgramSettings(settings: unknown): string[] {
   return errors;
 }
 
-// ============================================================================
-// TRANSFORMERS
-// ============================================================================
-
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 
 // ============================================================================
 // FORWARD DECLARATION FOR RELATION TYPE

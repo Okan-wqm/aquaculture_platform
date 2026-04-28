@@ -1,9 +1,5 @@
 //! Graceful Shutdown Coordinator
 //!
-//! NOTE: Full shutdown coordination API. Some helpers are for advanced
-//! task management patterns.
-#![allow(dead_code)]
-//!
 //! Manages proper shutdown sequence for all agent components:
 //! 1. Signal all tasks to stop
 //! 2. Wait for script engine + in-flight operations to stop
@@ -14,6 +10,30 @@
 //! 7. Disconnect MQTT
 //!
 //! v1.2.3: Increased broadcast channel capacity for reliability
+//!
+//! NOTE: Full shutdown coordination API. Some helpers are for
+//! advanced task management patterns.
+//!
+//! ## Wire status (Batch #276 audit)
+//!
+//! Production wire confirmed across multiple call sites:
+//! - `main.rs::shutdown_coordinator.shutdown(...)` — graceful
+//!   shutdown entry point at SIGTERM / SIGINT.
+//! - Batch #258 `is_shutting_down` AtomicBool — command-
+//!   dispatch race gate flipped at the start of the shutdown
+//!   sequence so new commands reject with `ServiceShuttingDown`.
+//!
+//! Per-item dead-code allow audit pending — the
+//! `ShutdownAwareTask` wrapper type + a few unused `register_*`
+//! helper variants remain compiled-but-unreferenced. They're
+//! held for future Sprint 6.x integration when additional
+//! background tasks (drain task expansions, scada-display
+//! WebSocket fan-out) need shutdown registration. WHITELIST-
+//! with-reason per the ARC-009 framework.
+//!
+//! Plan ref: ARC-009 + Batch #258 C-7 shutdown race fix.
+
+#![allow(dead_code)]
 
 use std::time::Duration;
 use tokio::sync::broadcast;

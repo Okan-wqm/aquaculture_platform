@@ -44,7 +44,7 @@
  * # Usage
  *
  * ```ts
- * import { sanitizePgError } from '@aquaculture/backend-common';
+ * import { sanitizePgError } from '@aquaculture/backend-common/sanitize-pg-error.util.ts';
  *
  * try {
  *   await qr.query(someMigration);

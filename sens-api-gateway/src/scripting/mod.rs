@@ -13,6 +13,125 @@
 //! - Sandboxed execution context
 
 mod actions;
+// Batch 148 Faz 3 (plan R-1): ST bytecode IR primitives.
+// Compiler (AST → bytecode) + stack VM + gas metering
+// land in subsequent batches. `#![allow(dead_code)]`
+// inside the module until Batch 149 compiler consumes
+// the types.
+pub mod bytecode;
+// Batch 149 Faz 3 (plan R-1): ST expression compiler
+// (AST `Expression` → `Vec<Opcode>`). Statement-level
+// compilation + control flow + retain binding land in
+// Batches 150+.
+pub mod bytecode_compiler;
+// Batch 151 Faz 3 (plan R-1): stack-based bytecode VM
+// with gas metering. Executes `Bytecode` artifacts
+// produced by `bytecode_compiler`. LoadTag / WriteTag
+// wiring to `ProcessImage` + `RbacGatedWriter` and
+// `StdlibCall` dispatch land in Batches 152+.
+pub mod bytecode_vm;
+// Batch 158 Faz 3 (plan R-1): signed bytecode artifact
+// — canonical binary encoding + ed25519 signature
+// wrapper + verify_signed_bytecode function. The
+// deploy-command batch consumes this to gate bytecode
+// ingestion on signature match.
+pub mod bytecode_sig;
+
+// Batch #297 ORPHAN-HIGH-020 closure (D-1b prep): operator-
+// signed ST source envelope. Wire shape parallel to
+// SignedBytecode but signs source bytes (not bytecode bytes)
+// + uses domain tag `st-source-v1` (vs `st-bytecode-v3`) so
+// cross-format signature confusion is structurally
+// impossible. Edge verifies the source signature, then runs
+// parse_st + compile_program internally to produce the
+// runnable Bytecode (Batch #298 wire). This is the
+// architectural shape that lets operators push raw .st
+// source files to the edge without giving the edge a private
+// signing key — trust transfer happens via source signature,
+// not bytecode signature.
+pub mod st_source_sig;
+// Batch 160 Faz 3 (plan R-1): ProcessImage ↔ TagIo
+// adapter. `SnapshotTagIo` buffers reads from a scan-
+// cycle-start snapshot + collects writes into a pending
+// list drained after `ScriptVm::run_with_io`. The
+// ScriptEngine Phase 5b batch wires this into the
+// actual async ProcessImage boundary.
+pub mod process_image_tagio;
+// Batch 163 Faz 3 (plan R-1): in-memory registry of
+// deployed bytecode programs. Enforces monotonic policy
+// version + tenant isolation on insert. Consumed by the
+// deploy-command batch + the ScriptEngine scan-cycle
+// dispatcher.
+pub mod bytecode_registry;
+// Batch 164 Faz 3 (plan R-1): scan-cycle orchestrator.
+// Composes registry + ProcessImage snapshot + VM
+// execution + commit pattern into a single `run_scan_tick`
+// entry so the ScriptEngine Phase 5b batch can drive
+// it at a configured cadence.
+pub mod bytecode_runner;
+// Batch 166 Faz 3 (plan R-1): deploy pipeline —
+// composes Batch 158 signature verify + Batch 163
+// registry insert into a single gate-ordered
+// `verify_and_deploy`. The MQTT deploy-command handler
+// uses this as its core logic in a future batch.
+pub mod bytecode_deploy;
+// Batch 168 Faz 3 (plan R-1): SQLCipher persistence
+// for the bytecode registry so deployed programs
+// survive reboot. Same master-key derivation as
+// offline_queue + scripting::persistence.
+pub mod bytecode_registry_store;
+// Batch 170 Faz 3 (plan R-1): cadence driver that
+// spawns the scan-cycle loop. Reads registry + pi
+// + declared_types + scan_cycle_ms + shutdown_rx,
+// drives `run_scan_tick` at the configured interval
+// with overrun detection + structured summary return.
+pub mod bytecode_scan_cycle_task;
+// Batch 184 Faz 4 (plan R-3 + D-11): multi-task
+// scheduler primitives — SloTier / TaskKind /
+// TaskConfig / TaskStats. The runtime that dispatches
+// tasks according to these configs lands in Batch 185+.
+pub mod task_scheduler;
+
+// Batch #302 Faz 4 step 5 closure: per-task scheduler stats
+// MQTT publisher loop. Plan §5 Faz 4 step 5 canonical path
+// `tenants/{tid}/devices/{did}/task_stats` 30s default
+// interval. Spawns alongside run_scheduler_cadence_loop +
+// run_event_listener in the multi-task scheduler boot block.
+pub mod task_stats_publisher;
+// Batch 194 Faz 6 (plan R-9): live-debug force
+// registry — per-tag ForceEntry with TTL + rate
+// limit + concurrent count cap + persist opt-in.
+// Command handlers (Batch 197+) apply security gates
+// before calling into this primitive.
+pub mod force_registry;
+// Batch 201 Faz 6 (plan R-9): SQLCipher persistence
+// for persist_across_reboot=true force entries.
+// Boot-time rehydrator restores into the in-memory
+// registry. Non-persistent forces bypass this store
+// entirely + evaporate at shutdown drain.
+pub mod force_registry_store;
+// Batch 203 Faz 6 (plan R-9 watch_subscribe): live-
+// watch session registry. Per-session tag list +
+// interval + TTL + next-fire timestamp. Publisher
+// task + MQTT command handlers land in batches
+// 204-205.
+pub mod watch_sessions;
+// Batch 206 Faz 6: production MQTT adapter for the
+// watch publisher. Implements WatchPublishSink on
+// top of MqttClient::publish_raw via AppState.
+pub mod watch_publisher_wire;
+// Batch 175 Faz 3 (plan R-1): RETAIN variable load/save
+// bridge between Bytecode.retain_vars declarations +
+// the existing SqlitePersistence variable store.
+// Orchestrator wiring (per-tick load/save around
+// ScriptVm::run) lands in a future batch.
+pub mod bytecode_retain;
+// Batch 179 Faz 3: end-to-end integration tests that
+// exercise the full deploy→execute→reboot-rehydrate
+// pipeline in one pass. Runs only under #[cfg(test)]
+// so the production binary is not affected.
+#[cfg(test)]
+mod bytecode_e2e_tests;
 mod conflict;
 mod context;
 mod engine;

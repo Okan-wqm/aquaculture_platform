@@ -15,7 +15,7 @@ import { NotificationRetentionService } from './services/notification-retention.
 import { RetrySchedulerService } from './services/retry-scheduler.service';
 import { InAppNotificationService } from './services/in-app.service';
 import { DeadLetterQueueService } from './services/dead-letter-queue.service';
-import { SsrfValidatorService } from './services/ssrf-validator.service';
+import { AiSafetyCoreModule } from '@aquaculture/backend-common/ai-safety';
 
 // Event Handlers
 import { AlertTriggeredEventHandler } from './event-handlers/alert-triggered.handler';
@@ -41,6 +41,9 @@ import { NotificationResolver } from './resolvers/notification.resolver';
     TypeOrmModule.forFeature([NotificationLog, DeviceToken]),
     // Required for @Cron decorators — forRoot() is in AppModule, plain import here
     ScheduleModule,
+    // SSRF validator (+ unused-here input filter / PII scanner) now sourced
+    // from the shared core module per AUDIT-HIGH-007 / ADR-028.
+    AiSafetyCoreModule,
   ],
   providers: [
     // Services
@@ -50,7 +53,6 @@ import { NotificationResolver } from './resolvers/notification.resolver';
     NotificationDispatcherService,
     InAppNotificationService,
     DeadLetterQueueService,
-    SsrfValidatorService,
 
     // Scheduled jobs
     NotificationRetentionService,

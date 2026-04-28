@@ -519,27 +519,22 @@ impl LoRaActor {
                 // MQTT yayinlari icin state lock'u kisa sure alinir
                 let state = self.state.read().await;
 
-                // LoRa event yayinla (opsiyonel, detayli bilgi icin)
-                if let Some(ref mqtt) = state.mqtt_client {
-                    let event_payload = serde_json::json!({
-                        "event_type": "uplink_summary",
-                        "dev_eui": format!("{}", dev_eui),
-                        "dev_addr": format!("{}", dev_addr),
-                        "f_port": f_port,
-                        "frame_count_up": f_cnt,
-                        "rssi": rssi,
-                        "snr": snr,
-                        "values": decoded_values.iter()
-                            .map(|(k, v)| serde_json::json!({"tag": k, "value": v}))
-                            .collect::<Vec<_>>(),
-                        "timestamp": chrono::Utc::now().to_rfc3339(),
-                    });
-
-                    // lora_events topic'ine yayinla (ResolvedTopics uzerinden)
-                    if let Err(e) = mqtt.publish_lora_event(&event_payload).await {
-                        debug!("LoRa event yayinlama hatasi: {}", e);
-                    }
-                }
+                // LoRa event yayinla — Batch #255 ARC-002 migration:
+                // routes via publish_helpers (Outbound when wired).
+                let event_payload = serde_json::json!({
+                    "event_type": "uplink_summary",
+                    "dev_eui": format!("{}", dev_eui),
+                    "dev_addr": format!("{}", dev_addr),
+                    "f_port": f_port,
+                    "frame_count_up": f_cnt,
+                    "rssi": rssi,
+                    "snr": snr,
+                    "values": decoded_values.iter()
+                        .map(|(k, v)| serde_json::json!({"tag": k, "value": v}))
+                        .collect::<Vec<_>>(),
+                    "timestamp": chrono::Utc::now().to_rfc3339(),
+                });
+                crate::publish_helpers::publish_lora_event(&state, &event_payload).await;
             }
 
             MacEvent::SendJoinAccept { tx_packet, dev_eui, dev_addr } => {
@@ -551,19 +546,15 @@ impl LoRaActor {
                         error!("Join-Accept TX hatasi: {}", e);
                     }
                 }
-                // MQTT join event yayinla
+                // MQTT join event yayinla — Batch #255 ARC-002.
                 let state = self.state.read().await;
-                if let Some(ref mqtt) = state.mqtt_client {
-                    let event = serde_json::json!({
-                        "event_type": "join_accept",
-                        "dev_eui": format!("{}", dev_eui),
-                        "dev_addr": format!("{}", dev_addr),
-                        "timestamp": chrono::Utc::now().to_rfc3339(),
-                    });
-                    if let Err(e) = mqtt.publish_lora_event(&event).await {
-                        debug!("Join event MQTT yayinlama hatasi: {}", e);
-                    }
-                }
+                let event = serde_json::json!({
+                    "event_type": "join_accept",
+                    "dev_eui": format!("{}", dev_eui),
+                    "dev_addr": format!("{}", dev_addr),
+                    "timestamp": chrono::Utc::now().to_rfc3339(),
+                });
+                crate::publish_helpers::publish_lora_event(&state, &event).await;
             }
 
             MacEvent::SendDownlink { tx_packet } => {
@@ -626,20 +617,14 @@ impl LoRaActor {
             );
         }
 
-        // MQTT'ye topluca yayinla
+        // MQTT'ye topluca yayinla — Batch #255 ARC-002 migration.
         let state = self.state.read().await;
-        if let Some(ref mqtt) = state.mqtt_client {
-            let payload = IoDataPayload {
-                timestamp: chrono::Utc::now().to_rfc3339(),
-                tags: io_tags,
-            };
-
-            if let Err(e) = mqtt.publish_io_data(&payload).await {
-                warn!("LoRa io_data batch yayinlama hatasi: {} tag kayboldu, hata={}", tag_count, e);
-            } else {
-                debug!("LoRa io_data batch yayinlandi: {} tag", tag_count);
-            }
-        }
+        let payload = IoDataPayload {
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            tags: io_tags,
+        };
+        crate::publish_helpers::publish_io_data(&state, &payload).await;
+        debug!("LoRa io_data batch yayinlandi: {} tag", tag_count);
     }
 }
 

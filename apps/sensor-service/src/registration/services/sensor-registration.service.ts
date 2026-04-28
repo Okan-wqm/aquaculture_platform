@@ -7,7 +7,7 @@ import { Sensor, SensorType, SensorRegistrationStatus, SensorRole } from '../../
 import { ConnectionTesterService, ExtendedTestResult } from '../../protocol/services/connection-tester.service';
 import { ProtocolRegistryService } from '../../protocol/services/protocol-registry.service';
 import { ProtocolValidatorService } from '../../protocol/services/protocol-validator.service';
-import { safeSortField, safeSortOrder, createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common';
+import { safeSortField, safeSortOrder, createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import {
   RegisterSensorInput,
   UpdateSensorProtocolInput,

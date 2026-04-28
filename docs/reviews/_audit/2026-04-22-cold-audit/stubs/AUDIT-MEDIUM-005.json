@@ -1,0 +1,18 @@
+{
+  "id": "AUDIT-MEDIUM-005",
+  "severity": "MEDIUM",
+  "state": "OPEN",
+  "title": "libs/backend-common/src/database hotspot (213 pts) — schema-manager + index barrel churn",
+  "layer": 2,
+  "evidence": [
+    "libs/backend-common/src/database/schema-manager.service.ts:1",
+    "libs/backend-common/src/database/index.ts:1",
+    "libs/backend-common/src/index.ts:1"
+  ],
+  "rule_violated": "Anti-pattern: omnibus barrel file (libs/backend-common/src/index.ts) that re-exports everything; every add triggers a wide invalidation.",
+  "owner_agent": "data-expert",
+  "raised_in_cycle": "2026-04-22-cold-audit",
+  "review_file": "docs/reviews/_audit/2026-04-22-cold-audit/03-explore-findings.md",
+  "created_at": "2026-04-22T19:00:00Z",
+  "notes": "Tier 2 fix: split barrels — database/index.ts, auth/index.ts etc., consumers import specific subtree. Move schema-manager logic into migration-runner (already owns schema semantics)."
+}

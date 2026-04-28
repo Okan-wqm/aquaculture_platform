@@ -20,7 +20,7 @@ import type {
   TimeLiteral,
   IdentifierExpression,
   ExpressionStatement,
-} from '../st-ast-types';
+} from '@platform/sensor-automation-types';
 
 // ════════════════════════════════════════════════════════════════════════════
 // Plan tests

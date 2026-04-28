@@ -9,9 +9,49 @@
 //! # IEC 62443 SL2 Compliance
 //! - FR6: Timely Response to Events (alarm notification)
 //! - FR7: Resource Availability (alarm tracking)
-
-// v1.2.4: API reserved for alarms feature - silence dead_code warnings
-#![allow(dead_code)]
+//!
+//! # ARC-009 wire decision (Batch 19 — Faz 1 Step 8)
+//!
+//! **Decision:** WIRE-FULL. This module is NOT dead code — it is
+//! actively invoked on every IO-poll tick AND from command handlers.
+//!
+//! **Runtime invocation paths verified Batch 19:**
+//! - `AppState.alarm_manager: Arc<RwLock<AlarmManager>>` constructed
+//!   in `AppState::new()` (main.rs).
+//! - `cmd_register_atlas_alarms` (commands.rs ~line 3456) calls
+//!   `AlarmDefinition::high_limit()` / `low_limit()` +
+//!   `.with_priority()` + `AlarmManager::register()` to seed Atlas
+//!   EZO pH/DO/temperature alarm definitions.
+//! - `io_poll::poll_atlas_sensors()` (io_poll.rs:147) calls
+//!   `AlarmManager::process_source(tag_name, value)` on every
+//!   Atlas tag read. Hot-path invocation — cannot be dead code.
+//!
+//! **Why the blanket `#![allow(dead_code)]` was WRONG pre-Batch-19:**
+//! The pre-Batch-19 comment ("API reserved for alarms feature")
+//! described dead-code-reserved state, but the module has been
+//! actively wired since io_poll v1.x. The allow-attribute was a
+//! stale defensive override that masked legitimate dead-code
+//! warnings on symbols that ARE reserved (AlarmType variants,
+//! AlarmSummary aggregation helpers).
+//!
+//! **Batch 19 action:** Remove the blanket `#![allow(dead_code)]`
+//! and replace with surgical `#[allow(dead_code)]` on the specific
+//! items that are legitimately reserved for Sprint 6.x consumers:
+//! - `AlarmSummary` + `AlarmManager::summary()` — reserved for MQTT
+//!   aggregated-alarm-dashboard publish path (Sprint 6.x
+//!   observability).
+//! - `AlarmType::*` enum variants — reserved for declarative alarm
+//!   config loader (Sprint 6.x config.yaml `alarms:` section); no
+//!   current consumer.
+//! - `AlarmInstance::unacknowledge`, `shelve`, `unshelve` — reserved
+//!   for operator command handlers (Sprint 6.x
+//!   cmd_alarm_acknowledge / cmd_alarm_shelve).
+//!
+//! **Observed issue:** See OBS-19-001 / OBS-19-002 in session-
+//! observations.md. The stale blanket allow is a pattern worth
+//! auditing in other modules (pre-existing tech-debt), but
+//! removing it from alarms.rs revealed NO actual hot-path dead code
+//! — every `pub fn` has a consumer.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

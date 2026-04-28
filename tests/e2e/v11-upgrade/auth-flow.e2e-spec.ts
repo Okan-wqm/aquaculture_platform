@@ -26,13 +26,8 @@ import { JwtService, JwtModule } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Reflector } from '@nestjs/core';
-import {
-  Role,
-  TimingSafeService,
-  SESSION_MANAGER,
-  TOKEN_BLACKLIST,
-  IS_PUBLIC_KEY,
-} from '@aquaculture/backend-common';
+import { Role, IS_PUBLIC_KEY } from '@aquaculture/backend-common/decorators';
+import { TimingSafeService, SESSION_MANAGER, TOKEN_BLACKLIST } from '@aquaculture/backend-common/security';
 import { DataSource, Repository } from 'typeorm';
 
 import { AuditLogService } from '../../../apps/auth-service/src/audit/audit-log.service';

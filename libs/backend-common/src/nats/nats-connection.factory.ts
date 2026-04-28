@@ -370,7 +370,7 @@ export function buildNatsConnectionOptions(serviceName?: string): {
  *
  * Usage:
  * ```ts
- * import { buildNatsTransportOptions } from '@aquaculture/backend-common';
+ * import { buildNatsTransportOptions } from '@aquaculture/backend-common/nats-connection.factory.ts';
  *
  * ClientsModule.register([{
  *   name: 'NATS_SERVICE',

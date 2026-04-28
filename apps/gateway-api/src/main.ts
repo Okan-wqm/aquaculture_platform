@@ -1,6 +1,6 @@
 // WHY: MUST be first import — see apps/admin-api-service/src/main.ts for full explanation.
 import 'reflect-metadata';
-import { bootstrapService } from '@aquaculture/backend-common';
+import { bootstrapService } from '@aquaculture/backend-common/bootstrap';
 import { ConfigService } from '@nestjs/config';
 import { Logger } from '@nestjs/common';
 import cookieParser from 'cookie-parser';

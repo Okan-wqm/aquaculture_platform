@@ -34,7 +34,7 @@
  * # Usage
  *
  * ```ts
- * import { introspectSchema } from '@aquaculture/backend-common';
+ * import { introspectSchema } from '@aquaculture/backend-common/schema-drift';
  *
  * const snapshot = await introspectSchema(queryRunner, 'hr');
  * // snapshot.tables.find(t => t.name === 'payrolls')?.columns

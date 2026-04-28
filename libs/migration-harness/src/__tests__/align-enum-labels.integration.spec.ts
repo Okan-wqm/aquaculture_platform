@@ -1,4 +1,4 @@
-import { alignEnumLabels } from '@aquaculture/backend-common';
+import { alignEnumLabels } from '@aquaculture/backend-common/database';
 
 import {
   type HarnessContext,

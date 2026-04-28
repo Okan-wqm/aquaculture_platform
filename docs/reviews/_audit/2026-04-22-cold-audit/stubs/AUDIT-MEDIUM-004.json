@@ -1,0 +1,17 @@
+{
+  "id": "AUDIT-MEDIUM-004",
+  "severity": "MEDIUM",
+  "state": "OPEN",
+  "title": "apps/hr-service hotspot (225 pts) — app.module + entities (employee, payroll) churn",
+  "layer": 1,
+  "evidence": [
+    "apps/hr-service/src/hr/entities/employee.entity.ts:1",
+    "apps/hr-service/src/hr/hr.resolver.ts:1"
+  ],
+  "rule_violated": "No hard rule — churn signal, not ADR violation.",
+  "owner_agent": "hr-expert",
+  "raised_in_cycle": "2026-04-22-cold-audit",
+  "review_file": "docs/reviews/_audit/2026-04-22-cold-audit/03-explore-findings.md",
+  "created_at": "2026-04-22T19:00:00Z",
+  "notes": "Tier 4 monitor. HR is actively under feature development; no architectural action."
+}

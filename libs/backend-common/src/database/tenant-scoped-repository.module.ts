@@ -2,7 +2,7 @@ import { DynamicModule, Module, Provider, Inject } from '@nestjs/common';
 import { DataSource, ObjectLiteral, EntityTarget } from 'typeorm';
 
 import { TenantScopedRepository } from './tenant-scoped-repository';
-import { TenantEntity } from './tenant-aware.repository';
+import { TenantEntity } from './tenant-entity.interface';
 
 /**
  * Unique prefix for tenant-scoped repository injection tokens.

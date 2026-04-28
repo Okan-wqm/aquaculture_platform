@@ -10,6 +10,7 @@ import { DataSource, QueryRunner } from 'typeorm';
 import { CancelRotationCommand } from '../commands/cancel-rotation.command';
 import { WorkRotation, RotationStatus } from '../entities/work-rotation.entity';
 import { Employee } from '../../hr/entities/employee.entity';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 
 @Injectable()
 @CommandHandler(CancelRotationCommand)
@@ -26,7 +27,7 @@ export class CancelRotationHandler implements ICommandHandler<CancelRotationComm
     await queryRunner.startTransaction();
 
     try {
-      const repo = queryRunner.manager.getRepository(WorkRotation);
+      const repo = tenantManagerRepo(queryRunner.manager, WorkRotation, tenantId);
 
       const rotation = await repo.findOne({
         where: { id: rotationId, tenantId, isDeleted: false },

@@ -1,6 +1,7 @@
 import { Logger, UseGuards } from '@nestjs/common';
 import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
-import { Tenant, Roles, Role, TenantGuard } from '@aquaculture/backend-common';
+import { Tenant, Roles, Role } from '@aquaculture/backend-common/decorators';
+import { TenantGuard } from '@aquaculture/backend-common/guards';
 
 import { SensorDataChannel, ChannelDataType } from '../../database/entities/sensor-data-channel.entity';
 import {

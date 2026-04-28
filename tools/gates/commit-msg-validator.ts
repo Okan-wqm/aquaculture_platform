@@ -44,11 +44,28 @@ const REGISTRY_PATH = resolve(REPO_ROOT, 'docs', 'reviews', '_registry', 'findin
 
 /**
  * Conventional-commit subject prefixes that REQUIRE a Closes: trailer.
+ *
  *   fix()                         — closes a bug finding
  *   security()                    — closes a security finding
  *   refactor(agentic,phase-*)     — closes a plan-phase-scoped finding
+ *   feat()                        — closes a feature-tracking finding
+ *                                   (Batch #285 fix for ORPHAN-MEDIUM-025;
+ *                                   pre-Batch-#285 feat commits bypassed
+ *                                   the trailer check entirely, so 38
+ *                                   feat batches in the 2026-04-25
+ *                                   session shipped with dangling
+ *                                   `Closes: ULTRA-HIGH-NNN` trailers
+ *                                   pointing to unregistered IDs without
+ *                                   the gate noticing — see
+ *                                   ORPHAN-HIGH-024 + ORPHAN-MEDIUM-025).
+ *
+ * Architectural reasoning: every architectural change in this codebase
+ * (whether bug-fix, security hardening, refactor, or new feature) MUST
+ * be traceable to a finding in the registry. The
+ * `Review Finding Traceability` discipline (CLAUDE.md) is universal —
+ * the regex was historically narrow, this batch widens it to match.
  */
-const REQUIRE_CLOSES_TYPES = /^(fix|security|refactor\(agentic,phase-)/;
+const REQUIRE_CLOSES_TYPES = /^(fix|security|refactor\(agentic,phase-|feat)/;
 
 /** Hard format for the trailer; stricter than a free-text "closes" mention. */
 const CLOSES_TRAILER_REGEX =

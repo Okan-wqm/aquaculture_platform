@@ -661,6 +661,17 @@ path = "tests/invariants/mtls_unified_assembly.rs"
 name = "db_migration_primitive"
 path = "tests/invariants/db_migration_primitive.rs"
 
+# Batch #330 Faz 2 D-3 boot-time v1 detector — pure
+# detection function `detect_db_migration_backlog` +
+# DbMigrationBacklogReport shape + log_structured_warn
+# emission. Invariants pin: empty input, v1/v2/missing/
+# corrupt classification, mixed input bucket arithmetic,
+# continue-on-error semantic, idempotent log emission,
+# target-version-snapshot self-contained reports.
+[[test]]
+name = "db_migration_boot_detector"
+path = "tests/invariants/db_migration_boot_detector.rs"
+
 # Batch 40 plan Faz 2 coherence — validate_faz2_security_coherence rules.
 [[test]]
 name = "config_coherence"

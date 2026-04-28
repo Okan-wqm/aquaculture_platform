@@ -24,18 +24,28 @@
 //!
 //! D-3 is a substantial arc that lands in stages:
 //!
-//!   - **Batch #329 (this batch) — primitive-first split.**
+//!   - **Batch #329 — primitive-first split.**
 //!     - `DbKeySchemaVersion` enum (V1MachineIdDerived,
 //!       V2KeystoreDerived).
 //!     - `DbKeySourceManifest` sidecar JSON shape with
 //!       atomic-write persistence (mirrors Batch #316
 //!       RotationMarkerStore pattern).
 //!     - `DbMigrationError` taxonomy.
-//!   - **Future Batch — boot-time detector.** Every
-//!     SQLCipher consumer at boot reads the manifest +
-//!     emits a structured WARN log when a v1 DB is
-//!     present + bumps a Prometheus metric so operators
-//!     see the migration backlog.
+//!   - **Batch #330 (this batch) — boot-time detector.**
+//!     - `detect_db_migration_backlog(db_paths)` pure
+//!       function that scans a list of DB paths, reads
+//!       each sidecar manifest, treats missing manifests
+//!       as legacy v1 default (the historical pre-D-3
+//!       state), and returns a `DbMigrationBacklogReport`.
+//!     - `DbMigrationBacklogReport::log_structured_warn`
+//!       emits one operator-readable WARN per backlog
+//!       entry + a single SUMMARY WARN with the count.
+//!     - The corresponding Prometheus metric
+//!       `suderra_db_migration_backlog` is a label-free
+//!       gauge (we deliberately do NOT label by db_path
+//!       to avoid high-cardinality storage blow-up; per-DB
+//!       detail lives in the structured WARN log so
+//!       operators correlate via timestamp).
 //!   - **Future Batch — migration binary.** A
 //!     `db-migrate-cli` binary that reads a v1 DB with
 //!     the machine-id-derived key, rekeys to the v2
@@ -74,11 +84,30 @@
 //! rename ensures either the OLD manifest stays intact OR
 //! the NEW manifest is fully written; never a partial.
 
+pub mod boot_detector;
 pub mod manifest;
 pub mod schema_version;
 
-pub use manifest::{
-    read_manifest, write_manifest, DbKeySourceManifest, DbMigrationError,
-    DB_KEY_SOURCE_MANIFEST_SUFFIX,
+// **Why allow(unused_imports):** the D-3 arc lands the
+// re-exports at primitive time (Batch #329) + boot
+// detector (Batch #330) BEFORE the consumer-migration
+// arc wires call sites in offline_queue / license_cache /
+// scripting persistence / scripting bytecode_retain
+// (future batches). The re-exports are the architectural
+// public-API contract — they must exist now so the
+// future consumer batches can use them at the documented
+// path (`crate::db_migration::*`) without rearranging
+// internal module layout. The lint suppression is the
+// minimum-noise way to land the contract early.
+#[allow(unused_imports)]
+pub use boot_detector::{
+    detect_db_migration_backlog, DbMigrationBacklogEntry,
+    DbMigrationBacklogReport,
 };
+#[allow(unused_imports)]
+pub use manifest::{
+    manifest_path_for_db, read_manifest, write_manifest,
+    DbKeySourceManifest, DbMigrationError, DB_KEY_SOURCE_MANIFEST_SUFFIX,
+};
+#[allow(unused_imports)]
 pub use schema_version::DbKeySchemaVersion;

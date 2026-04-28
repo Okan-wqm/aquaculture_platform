@@ -522,22 +522,16 @@ function rangeForPrePushRef(
  * mode can call it once per ref + aggregate results.
  */
 function gateRange(base: string, head: string, label: string): number {
-  const affected = (() => {
-    const raw = execFileSync(
-      'git',
-      ['diff', '--name-only', `${base}...${head}`],
-      { encoding: 'utf8', cwd: REPO_ROOT },
-    );
-    const files = new Set<string>();
-    for (const line of raw.split('\n')) {
-      const path = line.trim();
-      if (!path) continue;
-      if (!path.startsWith(RUST_CRATE_PREFIX)) continue;
-      if (!path.endsWith('.rs')) continue;
-      files.add(path);
-    }
-    return files;
-  })();
+  // Batch #352 — closes the file-set-computation
+  // duplication introduced in Batch #347. Pre-#352 this
+  // function inlined a `git diff --name-only` IIFE that
+  // duplicated the logic in `affectedFiles('range',
+  // base, head)`. Calling the existing helper instead
+  // keeps the file-set algorithm SSoT-located + makes
+  // future changes to the file filter (e.g., a `.rs`
+  // extension swap or a path-prefix change) ripple
+  // through one place.
+  const affected = affectedFiles('range', base, head);
 
   if (affected.size === 0) {
     console.log(

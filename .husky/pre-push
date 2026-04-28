@@ -1,6 +1,13 @@
 #!/bin/sh
 . "$(dirname "$0")/_/husky.sh"
 
+# Husky inherits the user's shell PATH but NOT shell rc files.
+# `cargo` typically lives under $HOME/.cargo/bin which login shells
+# add via .bashrc/.zshrc — but a hook spawned from `git push` runs
+# with a minimal env. Explicitly prepend so the gate's
+# `cargo clippy` invocation resolves.
+export PATH="$HOME/.cargo/bin:$PATH"
+
 # Pre-push gates — Batch #345 (operations completion of the Batch #343
 # clippy-affected gate landing).
 #

@@ -1,6 +1,11 @@
 // Schema Manager
 export * from './schema-manager.service';
 
+// SQL identifier validator — single canonical helper for identifier
+// interpolation (DDL paths use it instead of inlining a private regex).
+export { validateSqlIdentifier } from './sql-identifier.util';
+export type { SqlIdentifierKind } from './sql-identifier.util';
+
 // Source Schema Bootstrap
 export * from './source-schema-bootstrap.service';
 

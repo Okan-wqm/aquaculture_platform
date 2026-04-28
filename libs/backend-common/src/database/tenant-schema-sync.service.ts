@@ -2,6 +2,7 @@ import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { MODULE_SCHEMAS } from './schema-manager.service';
 import { listTenantSchemas } from './tenant-schema.utils';
+import { validateSqlIdentifier } from './sql-identifier.util';
 
 export interface SyncReport {
   tablesCreated: number;
@@ -85,24 +86,34 @@ export class TenantSchemaSyncService implements OnApplicationBootstrap {
     mod: { sourceSchema: string; tables: string[] },
     report: SyncReport,
   ): Promise<void> {
+    // WHY: tenantSchema, mod.sourceSchema, and tableName are all interpolated
+    // into raw DDL. Without identifier validation a malformed schema name
+    // (e.g. one carrying a stray semicolon or quote) would inject SQL into
+    // CREATE TABLE / ALTER TABLE — DATA-CRITICAL-002 SQL-injection surface.
+    // WHAT: validateSqlIdentifier rejects anything outside the unquoted-
+    // identifier regex AND identifiers longer than 63 chars.
+    const safeTenantSchema = validateSqlIdentifier(tenantSchema, 'schema');
+    const safeSourceSchema = validateSqlIdentifier(mod.sourceSchema, 'schema');
+
     for (const tableName of mod.tables) {
       try {
-        const sourceExists = await this.tableExists(mod.sourceSchema, tableName);
+        const safeTableName = validateSqlIdentifier(tableName, 'table');
+        const sourceExists = await this.tableExists(safeSourceSchema, safeTableName);
         if (!sourceExists) continue;
 
-        const tenantExists = await this.tableExists(tenantSchema, tableName);
+        const tenantExists = await this.tableExists(safeTenantSchema, safeTableName);
 
         if (!tenantExists) {
           // Create missing table from source schema template
           await this.dataSource.query(`
-            CREATE TABLE IF NOT EXISTS "${tenantSchema}"."${tableName}"
-            (LIKE "${mod.sourceSchema}"."${tableName}" INCLUDING ALL)
+            CREATE TABLE IF NOT EXISTS "${safeTenantSchema}"."${safeTableName}"
+            (LIKE "${safeSourceSchema}"."${safeTableName}" INCLUDING ALL)
           `);
           report.tablesCreated++;
-          this.logger.log(`Created missing table: ${tenantSchema}.${tableName}`);
+          this.logger.log(`Created missing table: ${safeTenantSchema}.${safeTableName}`);
         } else {
           // Table exists — check for missing columns
-          await this.syncColumns(mod.sourceSchema, tenantSchema, tableName, report);
+          await this.syncColumns(safeSourceSchema, safeTenantSchema, safeTableName, report);
         }
       } catch (error) {
         const msg = `${tenantSchema}.${tableName}: ${error instanceof Error ? error.message : String(error)}`;
@@ -118,17 +129,30 @@ export class TenantSchemaSyncService implements OnApplicationBootstrap {
     tableName: string,
     report: SyncReport,
   ): Promise<void> {
-    const sourceColumns = await this.getColumns(sourceSchema, tableName);
-    const tenantColumns = await this.getColumns(tenantSchema, tableName);
+    // Caller (syncTenantSchema) has already validated these. Re-asserting
+    // here keeps the contract local — any future caller that bypasses the
+    // outer validation still cannot inject through this method.
+    const safeSourceSchema = validateSqlIdentifier(sourceSchema, 'schema');
+    const safeTenantSchema = validateSqlIdentifier(tenantSchema, 'schema');
+    const safeTableName = validateSqlIdentifier(tableName, 'table');
+
+    const sourceColumns = await this.getColumns(safeSourceSchema, safeTableName);
+    const tenantColumns = await this.getColumns(safeTenantSchema, safeTableName);
     const tenantColumnNames = new Set(tenantColumns.map((c: any) => c.column_name));
 
     for (const col of sourceColumns) {
       if (!tenantColumnNames.has(col.column_name)) {
         try {
+          // WHY: col.column_name comes from pg_attribute. Postgres only stores
+          // valid identifiers there, but defence-in-depth requires the same
+          // validator at every interpolation point — a future change that
+          // sources column names from elsewhere (e.g. a config file) would
+          // otherwise inherit an injection surface silently.
+          const safeColumnName = validateSqlIdentifier(col.column_name, 'column');
           const dataType = col.full_data_type;
           const nullClause = col.is_nullable === 'NO' ? 'NOT NULL' : '';
           // Skip schema-qualified defaults (sequences etc.) — they reference source schema
-          const hasSchemaDefault = col.column_default && col.column_default.includes(`${sourceSchema}.`);
+          const hasSchemaDefault = col.column_default && col.column_default.includes(`${safeSourceSchema}.`);
           const defaultClause = col.column_default && !hasSchemaDefault
             ? `DEFAULT ${col.column_default}`
             : '';
@@ -136,11 +160,11 @@ export class TenantSchemaSyncService implements OnApplicationBootstrap {
           const effectiveNull = (nullClause === 'NOT NULL' && !defaultClause) ? '' : nullClause;
 
           await this.dataSource.query(`
-            ALTER TABLE "${tenantSchema}"."${tableName}"
-            ADD COLUMN IF NOT EXISTS "${col.column_name}" ${dataType} ${effectiveNull} ${defaultClause}
+            ALTER TABLE "${safeTenantSchema}"."${safeTableName}"
+            ADD COLUMN IF NOT EXISTS "${safeColumnName}" ${dataType} ${effectiveNull} ${defaultClause}
           `);
           report.columnsAdded++;
-          this.logger.log(`Added missing column: ${tenantSchema}.${tableName}.${col.column_name}`);
+          this.logger.log(`Added missing column: ${safeTenantSchema}.${safeTableName}.${safeColumnName}`);
         } catch (error) {
           const msg = `Column ${tenantSchema}.${tableName}.${col.column_name}: ${error instanceof Error ? error.message : String(error)}`;
           report.errors.push(msg);

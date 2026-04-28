@@ -488,9 +488,43 @@ function rangeForPrePushRef(
   // Branch deletion — nothing to clippy.
   if (ZERO_SHA_REGEX.test(ref.localSha)) return null;
 
-  // New branch (no remote ancestor) — fall back to
-  // origin/main if available.
+  // New branch (no remote ancestor) — fall back to a
+  // sensible base.
+  //
+  // **Stacked-PR support (Batch #2 of PR-195):** if the
+  // operator sets `SUDERRA_PREPUSH_BASE_REF` to a
+  // specific ref (e.g., `origin/pr194-faz2-d-closure`
+  // when stacking PR-195 on PR-194), use that ref as
+  // the base. This avoids surfacing 100% of the
+  // accumulated debt across the parent PR's commits as
+  // "new on this branch". Without the override the
+  // fallback is `origin/main`, which is conservative
+  // for green-field branches but over-aggressive for
+  // stacked PRs.
   if (ZERO_SHA_REGEX.test(ref.remoteSha)) {
+    const overrideBase = process.env.SUDERRA_PREPUSH_BASE_REF;
+    if (overrideBase) {
+      const hasOverride = (() => {
+        try {
+          execFileSync('git', ['rev-parse', '--verify', '--quiet', overrideBase], {
+            cwd: REPO_ROOT,
+            stdio: ['ignore', 'pipe', 'ignore'],
+          });
+          return true;
+        } catch {
+          return false;
+        }
+      })();
+      if (hasOverride) {
+        return { base: overrideBase, head: ref.localSha };
+      }
+      // Override set but ref not resolvable — log + fall
+      // through to origin/main; the operator sees the
+      // exact ref name in the gate output to fix.
+      console.error(
+        `clippy-affected: SUDERRA_PREPUSH_BASE_REF=${overrideBase} not resolvable; falling back to origin/main.`,
+      );
+    }
     const hasOriginMain = (() => {
       try {
         execFileSync('git', ['rev-parse', '--verify', '--quiet', 'origin/main'], {

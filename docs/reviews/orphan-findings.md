@@ -955,6 +955,84 @@ mod opc_ua_type_debug; // diagnostic
 **Linked plan:** none (out-of-band of every active arc).
 
 
+## ORPHAN-MEDIUM-029 — `sens-api-gateway` clippy deny-list violations are widespread but the gate is not enforced in current dev workflow (2026-04-28)
+
+**Discovered by:** Batch #331 v1 legacy-key kernel session. Running `cargo clippy --bin suderra-agent` surfaces dozens of `error: used 'expect()' on a 'Result' value`, `error: indexing may panic`, `error: used 'unwrap()' on a 'Result' value` errors across many files (e.g., `src/lifecycle_auth.rs:357`, multiple files with indexing). All these lints are in the crate's deny-list per the rustc invocation flags (`'--deny=clippy::unwrap_used' '--deny=clippy::expect_used' '--deny=clippy::indexing_slicing'`), yet `cargo check` passes cleanly because clippy lints are not registered in regular rustc — they only fire under `cargo clippy`.
+
+**Why this is an architectural problem (not just lint noise):**
+
+- The deny-list is an architectural CONTRACT that says "this codebase bans `expect`/`unwrap`/`indexing` outside test code". The contract is asserted via rustc flags but not gate-enforced in the current dev workflow — every batch can land violations indefinitely.
+- New code conforming to the contract (this session's #329-#333 batches) sits next to legacy code violating it, with no operator-visible signal of which side is "current standard". Future batches don't know whether to follow the deny-list or the precedent.
+- `lifecycle_auth.rs:357` uses `.expect()` on the same `HmacSha256::new_from_slice` pattern Batch #331 needed; without an `#[allow(clippy::expect_used)]` annotation the lint would fail clippy. Batch #331 added the annotation explicitly + documented the RFC 2104 unreachability rationale; lifecycle_auth.rs has no such annotation.
+
+**Architectural fix (3-tier hierarchy):**
+
+- **Tier 1 (make it impossible)** — Add `cargo clippy --bin suderra-agent --all-features --deny warnings` to the husky pre-commit + CI gate. Forces every commit to pass clippy. Migration cost: large (need to fix or annotate every existing violation).
+- **Tier 2 (make it automatic)** — Add the gate ONLY for files touched in the current diff (clippy on `git diff --name-only`-filtered files). Forces NEW code to comply without forcing a fleet-wide cleanup batch.
+- **Tier 3 (make it detectable)** — Document the gap in `docs/runbooks/clippy-deny-list.md` so engineers know clippy is a per-batch optional check, not a CI gate. This finding is the documentation step.
+
+**Severity: MEDIUM** — silent architectural-contract erosion; not a runtime correctness issue. The RFC-2104-justified `.expect()` patterns Batch #331 added with explicit `#[allow]` annotations would not break the codebase; the legacy violations are indistinguishable from intentional ones without per-callsite review.
+
+**Status:** OPEN. Slated for a future hygiene batch when an arc-aligned reason already touches the affected files. Tier 2 (per-diff gate) is the recommended next step — fits in a single batch and prevents NEW debt without forcing a fleet-wide cleanup.
+
+**Linked plan:** none (cross-cutting hygiene; out-of-band of every active D-arc).
+
+
+## ORPHAN-LOW-030 — `sens-api-gateway/fuzz/Cargo.lock` regenerates as untracked on every build, polluting `git status` (2026-04-28)
+
+**Discovered by:** Batches #329-#333 D-3 SQLCipher migration arc. Every cargo check / cargo test invocation regenerates `sens-api-gateway/fuzz/Cargo.lock` (the fuzz crate's lockfile). `git status` consistently shows it as `??` untracked across every batch this session. Pre-existed — not introduced by any D-3 batch.
+
+**Why this is a hygiene problem (not a correctness problem):**
+
+- `git add -A` would silently include the lockfile, possibly with stale dependency-version pins from one engineer's local env.
+- Modern Rust convention for binary/test crates is to commit Cargo.lock for reproducibility; for library crates (and per-target fuzz harnesses), the convention is mixed. This crate has no explicit policy file.
+- The repeated `??` in `git status` increases the surface area for accidental commits AND distracts engineers reviewing the working-tree state.
+
+**Architectural fix (2-tier choice):**
+
+- **Tier 1 — commit `fuzz/Cargo.lock`** — explicit reproducibility for the fuzz harness; matches the convention for binary-producing crates. Single-commit fix; no behavioral change.
+- **Tier 1 alternative — add `fuzz/Cargo.lock` to `sens-api-gateway/.gitignore`** — explicit "this lockfile is intentionally local". Single-commit fix; matches the convention for library-style crates. Either way, the file is no longer `??` in status.
+
+The PRESENT state (untracked, no policy file) is the worst of both — engineers don't know if the file SHOULD be committed and may add or omit it inconsistently.
+
+**Severity: LOW** — git hygiene only. No correctness, security, or test-coverage implication. Documented per user policy: *gördüğüm hiçbir problemi senin ilgili olmasa bile not al*.
+
+**Status:** OPEN. Slated for the next no-arc hygiene batch (or fold into the next batch that already touches `sens-api-gateway/.gitignore` for an unrelated reason).
+
+**Linked plan:** none.
+
+
+## ORPHAN-MEDIUM-031 — `KeyPurpose` enum projects 4 SqlCipher consumers but defines only 2 variants; consumer-migration arc cannot start without ADR for missing variants (2026-04-28)
+
+**Discovered by:** Batch #332 D-3 v2 keystore-derived shim session. The shim's `is_sqlcipher_purpose` predicate centralizes the SSoT for "which purposes are valid for SQLCipher rekey" (today: `SqlCipherOfflineQueue` + `SqlCipherRetainPersistence`). Plan §5 Faz 2 D-3 docs project FOUR SqlCipher consumers requiring per-consumer migration: `offline_queue` + `license_cache` + `scripting/persistence` + `scripting/bytecode_retain`. The keystore enum is short by 2 variants; the per-consumer migration arc cannot start until the new variants land via ADR.
+
+**Evidence:**
+
+- `src/keystore/purpose.rs:33-65` — only `SqlCipherOfflineQueue` (line 33-36) + `SqlCipherRetainPersistence` (line 38-41) defined.
+- Per the existing per-variant doc comments, each variant's HKDF info string is a STABILITY CONTRACT: "Changing any value invalidates every deployed derived key for that purpose; such a change requires an ADR + a fleet-wide migration window".
+- `src/license_cache.rs` uses `derive_db_encryption_key()` (the v1 path) — would need `KeyPurpose::SqlCipherLicenseCache` for v2 migration.
+- `src/scripting/persistence.rs` (if exists) + `src/scripting/bytecode_retain.rs` (if exists) — same gap.
+
+**Why this is an architectural problem:**
+
+- The `is_sqlcipher_purpose` predicate cannot pre-emptively include `SqlCipherLicenseCache` (or other future variants) because they don't exist yet — the predicate is correctly scoped to TODAY's variants. But the per-consumer migration arc (PR-195) needs the variants ADDED before consumer call sites can flip to v2 derivation.
+- The HKDF info string contract means each new variant is a fleet-wide change: a typo in the info bytes invalidates every device's derived keys for that consumer. The ADR + migration window is non-negotiable.
+- Skipping ADR + adding variants in-line during PR-195 would conflict with the project's stated change-control discipline (`docs/adr/` is the canonical surface for these decisions).
+
+**Architectural fix (clear sequence):**
+
+1. **Tier 1 — write the ADR** that adds `SqlCipherLicenseCache`, `SqlCipherScriptingPersistence`, `SqlCipherBytecodeRetain` (or whatever the consumer-final names land as) to `KeyPurpose` with explicit HKDF info strings + per-variant context-bytes contract. Include the cross-deployment migration plan: every device on the fleet has these consumers' v1 DBs; the ADR + landing batch must include the migration runbook.
+2. **Tier 1 — extend `is_sqlcipher_purpose`** in the same batch as the ADR landing so the v2 shim accepts the new variants.
+3. **Tier 1 — extend `db_migration_wire_status.rs` invariant 15** (the predicate-coverage check) to assert all NEW variants are members.
+4. **Tier 2 — per-consumer flip** — each consumer's call site adopts v2 derivation in the consumer-migration arc. The boot detector (#330) automatically picks up the new manifests; the rekey binary (PR-195) handles the v1→v2 roundtrip.
+
+**Severity: MEDIUM** — blocks the per-consumer migration arc but does not affect any deployed system (current consumers stay on v1 unless migration ships). Tracked in Batch #332's commit body but elevated to a standalone orphan finding for visibility.
+
+**Status:** OPEN. PR-195 cannot complete the consumer-migration arc until the ADR lands. Suggested ADR title: "ADR-NNN: KeyPurpose enum extension for D-3 SQLCipher consumer-migration arc".
+
+**Linked plan:** Plan §5 Faz 2 D-3 (UH-017 parent finding); PR-195 D-3 closure arc (consumer-migration installment).
+
+
 ## DEPLOY-CRITICAL-005 — MigrationAuditModule missing EventBusModule.forRoot() import (2026-04-21)
 
 **Status:** RESOLVED — fixed by the commit that introduces this entry.

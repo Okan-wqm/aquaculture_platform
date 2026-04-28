@@ -46,8 +46,7 @@
 //!       to avoid high-cardinality storage blow-up; per-DB
 //!       detail lives in the structured WARN log so
 //!       operators correlate via timestamp).
-//!   - **Batch #331 (this batch) — v1 legacy-key
-//!     derivation primitive.**
+//!   - **Batch #331 — v1 legacy-key derivation primitive.**
 //!     - `derive_v1_legacy_key(machine_id, secret_key)`
 //!       pure-crypto kernel implementing the legacy
 //!       `HMAC-SHA256(machine_id, secret_key)` algorithm.
@@ -66,6 +65,23 @@
 //!       pins that BOTH paths produce the same bytes for
 //!       the same inputs, locking the algorithm against
 //!       drift between the two copies.
+//!   - **Batch #332 (this batch) — v2 keystore-derived
+//!     key shim.**
+//!     - `derive_v2_sqlcipher_key(keystore, purpose,
+//!       context)` async wrapper around
+//!       `Keystore::derive_key`. Symmetric counterpart
+//!       to Batch #331's v1 kernel — together they give
+//!       the migration tool both keys needed for
+//!       `PRAGMA rekey`.
+//!     - Wrong-purpose runtime guard rejects
+//!       non-`SqlCipher*` `KeyPurpose` variants with
+//!       `V2DerivationError::WrongPurpose`. Catches
+//!       refactor mistakes (e.g., accidentally passing
+//!       `AuditHmacChain`) at the migration boundary,
+//!       not at next-DB-open.
+//!     - `derive_v2_sqlcipher_pragma_key_hex` convenience
+//!       wrapper that returns the SQLCipher PRAGMA-key
+//!       hex string directly.
 //!   - **Future Batch — migration binary.** A
 //!     `db-migrate-cli` binary that reads a v1 DB with
 //!     the machine-id-derived key, rekeys to the v2
@@ -108,6 +124,7 @@ pub mod boot_detector;
 pub mod manifest;
 pub mod schema_version;
 pub mod v1_legacy_key;
+pub mod v2_keystore_key;
 
 // **Why allow(unused_imports):** the D-3 arc lands the
 // re-exports at primitive time (Batch #329) + boot
@@ -135,4 +152,9 @@ pub use schema_version::DbKeySchemaVersion;
 #[allow(unused_imports)]
 pub use v1_legacy_key::{
     derive_v1_legacy_key, format_sqlcipher_pragma_key_hex,
+};
+#[allow(unused_imports)]
+pub use v2_keystore_key::{
+    derive_v2_sqlcipher_key, derive_v2_sqlcipher_pragma_key_hex,
+    V2DerivationError,
 };

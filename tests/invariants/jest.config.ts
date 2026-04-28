@@ -113,6 +113,7 @@ export default {
         '<rootDir>/strip-internal-headers-mounted.spec.ts',
         '<rootDir>/audited-operation-module-wired.spec.ts',
         '<rootDir>/no-query-param-tenant.spec.ts',
+        '<rootDir>/legal-hold-canonical-lib.spec.ts',
       ],
     },
     {

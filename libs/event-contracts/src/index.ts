@@ -21,6 +21,9 @@ export * from './storage-events';
 // Security events (auth failures, rate limit, CSP violations, etc.)
 export * from './security';
 
+// Compliance events (legal-hold lifecycle: applied/released/expired).
+export * from './compliance-events';
+
 // Schema-migration events (Phase 6 NATS event-bridge). Emitted by each
 // service's MigrationRunnerService via NatsMigrationEventSink; the
 // observability-service consumer persists via RecordMigrationEventCommand.
@@ -53,6 +56,7 @@ import type { WaterQualityEvent } from './water-quality-events';
 import type { MessagingEvent } from './messaging-events';
 import type { StorageEvent } from './storage-events';
 import type { SecurityEvent } from './security';
+import type { ComplianceEvent } from './compliance-events';
 
 /**
  * Union type for all platform events.
@@ -73,4 +77,5 @@ export type AnyPlatformEvent =
   | WaterQualityEvent
   | MessagingEvent
   | StorageEvent
-  | SecurityEvent;
+  | SecurityEvent
+  | ComplianceEvent;

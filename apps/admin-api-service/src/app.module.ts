@@ -24,6 +24,7 @@ import { CreateAdminAuditLogsTable1787100000000 } from './migrations/17871000000
 import { RealignSharedAuditLogsSchema1787200000000 } from './migrations/1787200000000-RealignSharedAuditLogsSchema';
 import { CreateIngestBackendPolicyState1787300000000 } from './migrations/1787300000000-CreateIngestBackendPolicyState';
 import { RestoreSharedAuditLogsImmutability1787400000000 } from './migrations/1787400000000-RestoreSharedAuditLogsImmutability';
+import { CreateComplianceLegalHolds1787500000000 } from './migrations/1787500000000-CreateComplianceLegalHolds';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AuditLogModule } from './audit/audit.module';
 import { PasswordResetModule } from './auth/password-reset.module';
@@ -85,6 +86,7 @@ import { UsersModule } from './users/users.module';
             RealignSharedAuditLogsSchema1787200000000,
             CreateIngestBackendPolicyState1787300000000,
             RestoreSharedAuditLogsImmutability1787400000000,
+            CreateComplianceLegalHolds1787500000000,
           ],
           // admin-api opts in to TypeORM's built-in migration runner via the
           // legacy DATABASE_MIGRATIONS_RUN env var (default true). All other

@@ -22,6 +22,12 @@
 //! (no full-bin compile) using the same `#[path]`
 //! support-directory pattern as Batch #329.
 
+// Batch #338: manifest.rs delegates to
+// `crate::shared_io::atomic_json_sidecar`. Stage the
+// helper at the test crate root.
+#[path = "db_migration_boot_detector_support/shared_io_mod.rs"]
+mod shared_io;
+
 #[path = "db_migration_boot_detector_support/mod.rs"]
 mod db_migration;
 

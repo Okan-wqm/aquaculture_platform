@@ -53,13 +53,15 @@
 //! change.
 
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
 use super::schema_version::DbKeySchemaVersion;
+use crate::shared_io::atomic_json_sidecar::{
+    write_atomic_json, AtomicJsonWriteError,
+};
 
 /// Suffix appended to the SQLCipher DB filename to form
 /// the manifest sidecar path. Every consumer derives the
@@ -148,6 +150,39 @@ impl std::fmt::Display for DbMigrationError {
 }
 
 impl std::error::Error for DbMigrationError {}
+
+/// Map the shared atomic-JSON-sidecar helper's error
+/// taxonomy into this consumer's domain error. All five
+/// helper-side variants collapse into our single
+/// `WriteFailed { path, reason }` variant — operators
+/// see the canonical `db_migration_manifest_write_failed`
+/// prefix + the helper-side reason for diagnostic
+/// drill-down (Batch #338).
+impl From<AtomicJsonWriteError> for DbMigrationError {
+    fn from(e: AtomicJsonWriteError) -> Self {
+        // Pull the path + the helper-Display reason. The
+        // helper's Display already includes a canonical
+        // prefix; we keep it in the reason so the
+        // operator log carries BOTH our consumer-side
+        // prefix and the helper-side prefix for precise
+        // diagnostic routing.
+        let path = match &e {
+            AtomicJsonWriteError::ParentCreate { path, .. } => path.clone(),
+            AtomicJsonWriteError::Serialize { path, .. } => path.clone(),
+            AtomicJsonWriteError::TempIo { temp_path, .. } => {
+                temp_path.clone()
+            }
+            AtomicJsonWriteError::Rename { path, .. } => path.clone(),
+            AtomicJsonWriteError::ParentFsync { parent, .. } => {
+                parent.clone()
+            }
+        };
+        Self::WriteFailed {
+            path,
+            reason: format!("{e}"),
+        }
+    }
+}
 
 /// Public manifest shape returned to consumers. Carries
 /// the schema version + the unix timestamp the manifest
@@ -248,8 +283,10 @@ pub fn read_manifest(
     }))
 }
 
-/// Atomic write: serialize the manifest to JSON, write
-/// to a temp file, fsync, rename over the target path.
+/// Atomic write: serialize the manifest to JSON, hand
+/// off to the shared atomic-JSON-sidecar helper for the
+/// full 6-step crash-safe dance (temp + fsync + rename +
+/// parent-dir fsync).
 ///
 /// **Failure semantic:** caller MUST treat WriteFailed as
 /// "manifest not updated" — the calling migration logic
@@ -258,94 +295,27 @@ pub fn read_manifest(
 /// the OLD manifest + the DB-key derivation goes out of
 /// sync with what the migration thought it persisted.
 ///
-/// **Why same-fs temp:** the temp file lives in the SAME
-/// directory as the target so the rename is on the same
-/// filesystem (cross-fs rename returns EXDEV; same-fs
-/// rename is atomic per POSIX).
-///
-/// **Why fsync before rename:** without fsync a power
-/// loss between rename + actual disk flush could leave a
-/// zero-byte file with a successful rename name — the
-/// file_size==0 case would parse-fail at next read.
-/// fsync makes this fail-closed.
+/// **Why delegate (Batch #338 — closes audit MEDIUM-004):**
+/// the 6-step dance is shared with
+/// `keystore::rotation_marker_store::write_marker`. Both
+/// previously implemented steps 1-5 inline + omitted step
+/// 6 (parent-dir fsync). Extracting the SSoT helper
+/// removes the duplication + fixes both consumers in one
+/// place. The helper's `AtomicJsonWriteError` is mapped
+/// into our `DbMigrationError::WriteFailed` via the
+/// `From` impl above so consumer-side log prefixes stay
+/// canonical.
 pub fn write_manifest(
     path: &Path,
     manifest: &DbKeySourceManifest,
 ) -> Result<(), DbMigrationError> {
-    // Ensure parent directory exists (first-boot case
-    // where `$SUDERRA_DATA_DIR` was just created or where
-    // the DB lives in a deeper subdirectory).
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|e| {
-            DbMigrationError::WriteFailed {
-                path: path.to_path_buf(),
-                reason: format!("create_dir_all parent: {}", e),
-            }
-        })?;
-    }
-
     let payload = ManifestFileSchemaV1 {
         manifest_envelope_version: MANIFEST_ENVELOPE_VERSION,
         schema_version: manifest.schema_version,
         last_updated_at_unix_secs: manifest.last_updated_at_unix_secs,
     };
-    let bytes = serde_json::to_vec_pretty(&payload).map_err(|e| {
-        DbMigrationError::WriteFailed {
-            path: path.to_path_buf(),
-            reason: format!("json serialize: {}", e),
-        }
-    })?;
 
-    // Temp file in the SAME directory as the target so
-    // the rename stays on the same filesystem.
-    let parent = path
-        .parent()
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| PathBuf::from("."));
-    let temp_path = parent.join(format!(
-        ".{}.tmp-{}",
-        path.file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or("db_key_source_manifest"),
-        std::process::id()
-    ));
-    // Stale temp from a previous crashed write may exist
-    // — overwrite it (the rename only replaces the target
-    // on success).
-    let _ = fs::remove_file(&temp_path);
-
-    {
-        let mut f = fs::OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(&temp_path)
-            .map_err(|e| DbMigrationError::WriteFailed {
-                path: temp_path.clone(),
-                reason: format!("open temp: {}", e),
-            })?;
-        f.write_all(&bytes).map_err(|e| DbMigrationError::WriteFailed {
-            path: temp_path.clone(),
-            reason: format!("write_all: {}", e),
-        })?;
-        f.sync_all().map_err(|e| DbMigrationError::WriteFailed {
-            path: temp_path.clone(),
-            reason: format!("fsync: {}", e),
-        })?;
-        // f drops here, releasing the file descriptor
-        // before the rename below takes the temp path.
-    }
-
-    fs::rename(&temp_path, path).map_err(|e| {
-        // Best-effort cleanup of the temp file on rename
-        // failure. The rename failed atomically so the
-        // OLD target (if any) is intact.
-        let _ = fs::remove_file(&temp_path);
-        DbMigrationError::WriteFailed {
-            path: path.to_path_buf(),
-            reason: format!("rename: {}", e),
-        }
-    })?;
+    write_atomic_json(path, &payload)?;
 
     info!(
         "DB key-source manifest written: {} (schema_version={} last_updated={})",

@@ -25,3 +25,12 @@ pub mod schema_version;
 
 #[path = "../../../src/db_migration/manifest.rs"]
 pub mod manifest;
+
+// Batch #338 — `manifest.rs` now delegates to the
+// shared atomic-JSON-sidecar helper at
+// `crate::shared_io::atomic_json_sidecar`. The
+// integration test binary has its own crate root, so we
+// stage the helper here with the same path the bin uses
+// (`crate::shared_io::atomic_json_sidecar`). Declared at
+// the test-file level (not nested under db_migration) in
+// db_migration_primitive.rs.

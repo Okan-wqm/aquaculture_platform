@@ -220,28 +220,56 @@ fn d3_wire_db_migration_error_variants_locked() {
 }
 
 /// **D-3 wire invariant 6:** atomic-write contract is
-/// preserved. The manifest persistence MUST use
-/// temp-file + fsync + rename. A refactor that switched
-/// to direct `fs::write` would silently lose the
-/// crash-safety property — torn writes leaving the
-/// manifest pointing to the WRONG schema version
-/// would brick the DB permanently.
+/// preserved + delegated to the SSoT helper.
+///
+/// Pre-Batch-#338 manifest.rs implemented the 5-step
+/// atomic-write inline (temp + fsync + rename). The
+/// audit follow-up (MEDIUM-004) flagged that BOTH
+/// manifest.rs AND keystore::rotation_marker_store::
+/// write_marker were missing the 6th step (parent-dir
+/// fsync) needed for full POSIX rename durability.
+/// Batch #338 extracted `crate::shared_io::atomic_json_sidecar::
+/// write_atomic_json` as the SSoT for the 6-step dance;
+/// both consumers now delegate.
+///
+/// This invariant pins TWO architectural properties:
+///   1. manifest.rs DELEGATES to `write_atomic_json`
+///      (no inline fsync + rename — that's now an audit
+///      regression because it would re-introduce the
+///      step-6 omission).
+///   2. The SSoT helper has the full 6-step shape
+///      (temp file + fsync + rename + parent-dir fsync).
 #[test]
-fn d3_wire_manifest_write_uses_temp_fsync_rename() {
-    let src = read_source(MANIFEST_RS);
+fn d3_wire_manifest_write_delegates_to_atomic_json_helper() {
+    let manifest_src = read_source(MANIFEST_RS);
     assert!(
-        src.contains(".sync_all()"),
+        manifest_src.contains("write_atomic_json(path,"),
         "D-3 WIRE INVARIANT VIOLATED: {MANIFEST_RS} no longer \
-         calls fsync (.sync_all()) before rename. A power-loss \
-         between rename + disk flush would leave a zero-byte \
-         manifest — wrong-key derivation at next boot bricks \
-         the DB. The fsync makes this fail-closed."
+         delegates to crate::shared_io::atomic_json_sidecar::\
+         write_atomic_json. Re-inlining the atomic-write dance \
+         re-introduces the step-6 (parent-dir fsync) omission \
+         flagged by MEDIUM-004."
+    );
+    // The SSoT helper MUST have all 6 steps.
+    let helper_src = read_source("src/shared_io/atomic_json_sidecar.rs");
+    assert!(
+        helper_src.contains(".sync_all()"),
+        "D-3 WIRE INVARIANT VIOLATED: shared_io::atomic_json_sidecar \
+         no longer fsyncs the temp file. Step 4 of the 6-step \
+         dance is missing."
     );
     assert!(
-        src.contains("fs::rename(&temp_path, path)"),
-        "D-3 WIRE INVARIANT VIOLATED: {MANIFEST_RS} no longer \
-         uses fs::rename(temp -> target) for atomic write. \
-         Direct write would lose crash safety."
+        helper_src.contains("fs::rename(&temp_path, path)"),
+        "D-3 WIRE INVARIANT VIOLATED: shared_io::atomic_json_sidecar \
+         no longer uses fs::rename for atomic commit. Step 5 of \
+         the 6-step dance is missing."
+    );
+    assert!(
+        helper_src.contains("sync_parent_directory"),
+        "D-3 WIRE INVARIANT VIOLATED: shared_io::atomic_json_sidecar \
+         no longer calls sync_parent_directory after rename. Step \
+         6 (parent-dir fsync) is the architectural fix MEDIUM-004 \
+         landed; dropping it re-opens the rename-durability gap."
     );
 }
 

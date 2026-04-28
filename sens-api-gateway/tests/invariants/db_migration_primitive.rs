@@ -65,6 +65,13 @@
 // (three `..` to escape
 // `tests/invariants/db_migration_primitive_support/`
 // up to the crate root).
+// Batch #338: manifest.rs delegates to
+// `crate::shared_io::atomic_json_sidecar`. Stage the
+// `shared_io` mod tree so `crate::shared_io` resolves
+// identically inside the integration test crate.
+#[path = "db_migration_primitive_support/shared_io_mod.rs"]
+mod shared_io;
+
 #[path = "db_migration_primitive_support/mod.rs"]
 mod db_migration;
 

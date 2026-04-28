@@ -85,6 +85,13 @@ mod keystore;
 // db-migrate-cli + per-consumer migration follow in subsequent D-3 batches.
 #[allow(dead_code)] // D-3 boot-detector + migration binary wire consumers; primitives pre-staged.
 mod db_migration;
+// Batch #338 — cross-cutting IO primitives shared by sidecar-persisting
+// modules (closes audit MEDIUM-004 finding). The first primitive is
+// `atomic_json_sidecar::write_atomic_json` which does the full 6-step
+// crash-safe write (temp + fsync + rename + PARENT-DIR fsync — the 6th
+// step both rotation_marker_store + db_migration::manifest were missing
+// before this batch).
+mod shared_io;
 // Batch 6 — ADR-020 audit log AuditEntry + HMAC chain. Pure types + closure-
 // injected HMAC append function; runtime sink + cloud relay + audit-verify CLI
 // land in Faz 2 Sprint 6.2.

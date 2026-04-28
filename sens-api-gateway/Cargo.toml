@@ -672,6 +672,17 @@ path = "tests/invariants/db_migration_primitive.rs"
 name = "db_migration_boot_detector"
 path = "tests/invariants/db_migration_boot_detector.rs"
 
+# Batch #331 Faz 2 D-3 v1 legacy-key derivation kernel —
+# pure HMAC-SHA256(machine_id, secret_key) +
+# format_sqlcipher_pragma_key_hex helper. Cross-
+# validation invariant pins parity with a reference
+# reimplementation using the same `hmac`+`sha2` crates;
+# role-swap test fails-loud on an HMAC-input role
+# inversion regression.
+[[test]]
+name = "db_migration_v1_legacy_key"
+path = "tests/invariants/db_migration_v1_legacy_key.rs"
+
 # Batch 40 plan Faz 2 coherence — validate_faz2_security_coherence rules.
 [[test]]
 name = "config_coherence"

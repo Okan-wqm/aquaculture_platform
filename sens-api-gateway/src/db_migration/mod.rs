@@ -31,7 +31,7 @@
 //!       atomic-write persistence (mirrors Batch #316
 //!       RotationMarkerStore pattern).
 //!     - `DbMigrationError` taxonomy.
-//!   - **Batch #330 (this batch) — boot-time detector.**
+//!   - **Batch #330 — boot-time detector.**
 //!     - `detect_db_migration_backlog(db_paths)` pure
 //!       function that scans a list of DB paths, reads
 //!       each sidecar manifest, treats missing manifests
@@ -46,6 +46,26 @@
 //!       to avoid high-cardinality storage blow-up; per-DB
 //!       detail lives in the structured WARN log so
 //!       operators correlate via timestamp).
+//!   - **Batch #331 (this batch) — v1 legacy-key
+//!     derivation primitive.**
+//!     - `derive_v1_legacy_key(machine_id, secret_key)`
+//!       pure-crypto kernel implementing the legacy
+//!       `HMAC-SHA256(machine_id, secret_key)` algorithm.
+//!     - `format_sqlcipher_pragma_key_hex(&[u8; 32])`
+//!       lower-hex helper for the PRAGMA key string.
+//!     - The migration binary will call this kernel +
+//!       `keystore.derive_key(SqlCipherOfflineQueue,
+//!       &db_path_bytes)` to compute the (v1, v2) key
+//!       pair needed for `PRAGMA rekey`. The kernel is
+//!       INTENTIONALLY duplicated from
+//!       `offline_queue::derive_db_encryption_key` (which
+//!       retains a production-only `OnceLock` cache for
+//!       its hot-path callers) so the migration tool gets
+//!       a clean, cache-free, parameter-injectable
+//!       function. A cross-validation test in this batch
+//!       pins that BOTH paths produce the same bytes for
+//!       the same inputs, locking the algorithm against
+//!       drift between the two copies.
 //!   - **Future Batch — migration binary.** A
 //!     `db-migrate-cli` binary that reads a v1 DB with
 //!     the machine-id-derived key, rekeys to the v2
@@ -87,6 +107,7 @@
 pub mod boot_detector;
 pub mod manifest;
 pub mod schema_version;
+pub mod v1_legacy_key;
 
 // **Why allow(unused_imports):** the D-3 arc lands the
 // re-exports at primitive time (Batch #329) + boot
@@ -111,3 +132,7 @@ pub use manifest::{
 };
 #[allow(unused_imports)]
 pub use schema_version::DbKeySchemaVersion;
+#[allow(unused_imports)]
+pub use v1_legacy_key::{
+    derive_v1_legacy_key, format_sqlcipher_pragma_key_hex,
+};

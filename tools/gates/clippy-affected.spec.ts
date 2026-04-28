@@ -53,9 +53,11 @@ import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 
 import {
+  parseArgs,
   parseDiffHunkLines,
   parsePrePushStdin,
   rangeForPrePushRef,
+  repoRelativeFromClippyPath,
   type PrePushRef,
 } from './clippy-affected';
 
@@ -269,6 +271,74 @@ test('parseDiffHunkLines: large new_count yields large range', () => {
   assert.ok(lines.has(100));
   assert.ok(!lines.has(0));
   assert.ok(!lines.has(101));
+});
+
+// ---------------------------------------------------------
+// repoRelativeFromClippyPath (Batch #353 — last pure
+// function untested before this commit)
+// ---------------------------------------------------------
+
+test('repoRelativeFromClippyPath: prefixes crate-relative paths', () => {
+  // cargo clippy emits paths relative to the crate root
+  // (e.g., `src/foo.rs`); the gate compares against
+  // repo-relative paths (`sens-api-gateway/src/foo.rs`).
+  // This helper does the prefix mapping.
+  assert.strictEqual(
+    repoRelativeFromClippyPath('src/db_migration/manifest.rs'),
+    'sens-api-gateway/src/db_migration/manifest.rs',
+  );
+});
+
+test('repoRelativeFromClippyPath: returns paths unchanged when already prefixed', () => {
+  // Idempotent on already-prefixed paths so a future
+  // refactor that emits repo-relative paths from clippy
+  // doesn't double-prefix.
+  assert.strictEqual(
+    repoRelativeFromClippyPath('sens-api-gateway/src/foo.rs'),
+    'sens-api-gateway/src/foo.rs',
+  );
+});
+
+test('repoRelativeFromClippyPath: handles deep nested paths', () => {
+  assert.strictEqual(
+    repoRelativeFromClippyPath('src/a/b/c/d/e.rs'),
+    'sens-api-gateway/src/a/b/c/d/e.rs',
+  );
+});
+
+// ---------------------------------------------------------
+// parseArgs (Batch #353)
+// ---------------------------------------------------------
+
+test('parseArgs: --mode=range with base + head', () => {
+  const opts = parseArgs(['--mode=range', 'origin/main', 'HEAD']);
+  assert.strictEqual(opts.mode, 'range');
+  assert.strictEqual(opts.base, 'origin/main');
+  assert.strictEqual(opts.head, 'HEAD');
+});
+
+test('parseArgs: --mode=range without refs leaves them undefined for main() to validate', () => {
+  // parseArgs accepts the mode + leaves base/head
+  // undefined; the caller (main) validates that range
+  // mode requires both refs. This split keeps parseArgs
+  // pure (no process.exit) — tests can exercise the
+  // missing-refs case without process termination.
+  const opts = parseArgs(['--mode=range']);
+  assert.strictEqual(opts.mode, 'range');
+  assert.strictEqual(opts.base, undefined);
+  assert.strictEqual(opts.head, undefined);
+});
+
+test('parseArgs: --mode=staged returns staged with no refs', () => {
+  const opts = parseArgs(['--mode=staged']);
+  assert.strictEqual(opts.mode, 'staged');
+  assert.strictEqual(opts.base, undefined);
+  assert.strictEqual(opts.head, undefined);
+});
+
+test('parseArgs: --mode=prepush returns prepush mode', () => {
+  const opts = parseArgs(['--mode=prepush']);
+  assert.strictEqual(opts.mode, 'prepush');
 });
 
 // ---------------------------------------------------------

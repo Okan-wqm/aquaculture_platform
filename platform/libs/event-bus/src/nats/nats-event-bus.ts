@@ -163,18 +163,58 @@ export class NatsEventBus
     }
   }
 
+  /**
+   * Track current reconnect-attempt depth so scheduleReconnect respects
+   * `maxReconnectAttempts` (NATS_MAX_RECONNECT_ATTEMPTS, default 10).
+   *
+   * # Why this counter exists (PLAT-MEDIUM-001 closure)
+   *
+   * Pre-fix scheduleReconnect recursed infinitely on every failure
+   * without consulting maxReconnectAttempts — the field was read into
+   * the constructor but never used. A pod stuck on a permanently-broken
+   * NATS endpoint (DNS misconfiguration, certificate revoked, broker
+   * decommissioned) would log warnings forever, masking the underlying
+   * issue. The cap forces the pod into a clear non-healthy state after
+   * the configured attempts so liveness/readiness probes can intervene.
+   *
+   * Counter resets to 0 on every successful connect so legitimate
+   * cycle-out periods (e.g. broker rolling restart) do not exhaust
+   * the budget for the next outage.
+   */
+  private reconnectAttemptCount = 0;
+
   private scheduleReconnect(): void {
+    if (this.reconnectAttemptCount >= this.maxReconnectAttempts) {
+      // Cap reached. Log loud and stop scheduling. The pod's liveness
+      // probe will eventually mark the container unhealthy and the
+      // orchestrator will restart it — at which point the counter
+      // resets via fresh module init.
+      this.logger.error(
+        `NATS reconnect attempts exhausted (${this.reconnectAttemptCount}/${this.maxReconnectAttempts}). ` +
+          'Stopping reconnect loop. The pod is in a degraded state — ' +
+          'liveness probe will trigger orchestrator restart.',
+      );
+      return;
+    }
+
+    this.reconnectAttemptCount += 1;
+    const attempt = this.reconnectAttemptCount;
     setTimeout(async () => {
       if (this.connectionState === 'disconnected') {
-        this.logger.log('Attempting to reconnect to NATS...');
+        this.logger.log(
+          `Attempting to reconnect to NATS (attempt ${attempt}/${this.maxReconnectAttempts})...`,
+        );
         try {
           await this.connect();
           await this.setupStream();
           await this.activatePendingSubscriptions();
+          this.reconnectAttemptCount = 0; // reset budget on success
           this.logger.log('Successfully reconnected to NATS');
         } catch (error) {
           this.logger.warn(
-            `Reconnection attempt failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            `Reconnection attempt ${attempt}/${this.maxReconnectAttempts} failed: ${
+              error instanceof Error ? error.message : 'Unknown error'
+            }`,
           );
           this.scheduleReconnect();
         }

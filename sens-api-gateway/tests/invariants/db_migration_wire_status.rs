@@ -291,6 +291,34 @@ fn d3_wire_manifest_envelope_version_is_1() {
     );
 }
 
+/// **D-3 wire invariant 7b (Batch #339 — closes audit
+/// MEDIUM-005):** timestamp sanity floor is enforced at
+/// manifest read time. A manifest with
+/// `last_updated_at_unix_secs` < the floor is rejected
+/// as `Corrupt` rather than silently flowing into
+/// operator log surfaces as a 1969-epoch entry.
+#[test]
+fn d3_wire_manifest_enforces_timestamp_sanity_floor() {
+    let src = read_source(MANIFEST_RS);
+    assert!(
+        src.contains("const TIMESTAMP_SANITY_FLOOR_UNIX_SECS: i64 = 1_500_000_000;"),
+        "D-3 WIRE INVARIANT VIOLATED: {MANIFEST_RS} no longer \
+         declares TIMESTAMP_SANITY_FLOOR_UNIX_SECS. The Audit \
+         MEDIUM-005 fix relied on a constant floor; removing \
+         it re-opens the negative-timestamp acceptance gap."
+    );
+    // The floor MUST be checked at read time, not just
+    // declared.
+    assert!(
+        src.contains(
+            "if parsed.last_updated_at_unix_secs < TIMESTAMP_SANITY_FLOOR_UNIX_SECS"
+        ),
+        "D-3 WIRE INVARIANT VIOLATED: read_manifest no longer \
+         enforces the timestamp sanity floor — the constant \
+         exists but no comparison gates the parse path."
+    );
+}
+
 // ---------------------------------------------------------
 // Batch #330 — boot-time detector
 // ---------------------------------------------------------
@@ -402,6 +430,42 @@ fn d3_wire_boot_detector_emits_canonical_summary_event_kind() {
         "D-3 WIRE INVARIANT VIOLATED: detection-failure ERROR \
          event_kind renamed away from \
          `db_migration_detection_failure` in {BOOT_DETECTOR_RS}."
+    );
+}
+
+/// **D-3 wire invariant 11b (Batch #339 — closes audit
+/// LOW-007):** detection-failure ERROR carries a
+/// `runbook_url` structured field referencing the
+/// operator runbook. Removing the field forces operators
+/// to grep blog posts / git history to find the
+/// triage procedure — the audit-flagged operator-
+/// actionable diagnostic gap.
+#[test]
+fn d3_wire_boot_detector_detection_failure_references_runbook() {
+    let src = read_source(BOOT_DETECTOR_RS);
+    assert!(
+        src.contains(
+            "runbook_url = \"docs/runbooks/db-migration-detection-failure.md\""
+        ),
+        "D-3 WIRE INVARIANT VIOLATED: detection-failure ERROR in \
+         {BOOT_DETECTOR_RS} no longer carries the `runbook_url` \
+         structured field. Operators reading the log line lose \
+         the canonical link to the triage procedure."
+    );
+    // The runbook file itself MUST exist.
+    assert!(
+        std::path::Path::new(
+            "../docs/runbooks/db-migration-detection-failure.md"
+        )
+        .exists()
+            || std::path::Path::new(
+                "docs/runbooks/db-migration-detection-failure.md"
+            )
+            .exists(),
+        "D-3 WIRE INVARIANT VIOLATED: \
+         docs/runbooks/db-migration-detection-failure.md is \
+         missing. The runbook_url log field references a non-\
+         existent document."
     );
 }
 

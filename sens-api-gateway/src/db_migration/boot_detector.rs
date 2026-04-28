@@ -232,10 +232,17 @@ impl DbMigrationBacklogReport {
             );
         }
         for failure in &self.detection_failures {
+            // Batch #339 — closes audit LOW-007. The
+            // `runbook_url` field references the
+            // operator runbook documenting the
+            // per-class response. Path is relative-to-
+            // repo so the audit trail survives a docs
+            // reorganization.
             error!(
                 event_kind = "db_migration_detection_failure",
                 db_path = %failure.db_path.display(),
                 reason = %failure.reason,
+                runbook_url = "docs/runbooks/db-migration-detection-failure.md",
                 "SQLCipher manifest unreadable — operator triage required (corrupt / envelope-mismatch / IO error)"
             );
         }

@@ -79,6 +79,33 @@ pub const DB_KEY_SOURCE_MANIFEST_SUFFIX: &str = ".key-source.json";
 /// envelope versions to fail-closed.
 const MANIFEST_ENVELOPE_VERSION: u32 = 1;
 
+/// Sanity floor for `last_updated_at_unix_secs` field.
+/// Equals `2017-07-14 02:40:00 UTC` (Unix 1_500_000_000).
+/// Manifests with timestamps before this floor are
+/// suspicious — the agent's first release predates this
+/// date by several years; any timestamp earlier than
+/// this almost certainly indicates a corrupt or
+/// hand-edited manifest (e.g., `last_updated_at_unix_secs:
+/// -1` or a 1970 epoch zero).
+///
+/// **Why a floor (Batch #339 — closes audit MEDIUM-005):**
+/// the original `i64` field accepts negative timestamps
+/// silently. Operator log aggregators may treat negative
+/// epoch as "never" or as a 1969 date — misleading
+/// either way. Rejecting at parse time with a structured
+/// `Corrupt` error gives the operator a precise signal
+/// (the runbook §1 corrupt-manifest path) instead of a
+/// confusing "manifest from 1969" entry in the migration
+/// backlog log.
+///
+/// **Why this specific value:** mid-2017 is well before
+/// the agent's first deployment (the keystore ADR-018
+/// rotation marker references late-2024 onwards). Using
+/// a floor that's a few years pre-deployment leaves
+/// headroom for time-skew + clock-rollback scenarios
+/// without degrading the corruption signal.
+const TIMESTAMP_SANITY_FLOOR_UNIX_SECS: i64 = 1_500_000_000;
+
 /// Errors specific to the manifest store. Distinct from
 /// keystore / clock errors so I/O faults stay typed at
 /// the caller boundary.
@@ -274,6 +301,23 @@ pub fn read_manifest(
             path: path.to_path_buf(),
             expected: MANIFEST_ENVELOPE_VERSION,
             actual: parsed.manifest_envelope_version,
+        });
+    }
+
+    // Batch #339 — closes audit MEDIUM-005. Reject
+    // timestamps earlier than the sanity floor as
+    // Corrupt. See `TIMESTAMP_SANITY_FLOOR_UNIX_SECS`
+    // doc for the rationale + the chosen floor value.
+    if parsed.last_updated_at_unix_secs < TIMESTAMP_SANITY_FLOOR_UNIX_SECS
+    {
+        return Err(DbMigrationError::Corrupt {
+            path: path.to_path_buf(),
+            reason: format!(
+                "last_updated_at_unix_secs={} predates sanity floor \
+                 {} (mid-2017) — corrupt or hand-edited manifest",
+                parsed.last_updated_at_unix_secs,
+                TIMESTAMP_SANITY_FLOOR_UNIX_SECS,
+            ),
         });
     }
 
@@ -633,5 +677,77 @@ mod tests {
     fn db_migration_error_implements_std_error() {
         fn assert_err<E: std::error::Error>() {}
         assert_err::<DbMigrationError>();
+    }
+
+    /// Timestamp floor: a manifest with
+    /// `last_updated_at_unix_secs = -1` parses cleanly
+    /// at the JSON layer but MUST be rejected by the
+    /// reader as Corrupt (Batch #339 — closes audit
+    /// MEDIUM-005). Pinning this catches a
+    /// hand-edited / corrupt manifest at the manifest
+    /// boundary instead of letting it flow into
+    /// downstream WARN logs as a 1969-epoch entry.
+    #[test]
+    fn read_manifest_negative_timestamp_rejected_as_corrupt() {
+        let (_dir, _db, manifest_path) = manifest_paths();
+        fs::create_dir_all(manifest_path.parent().unwrap()).unwrap();
+        let bogus = r#"{"manifest_envelope_version": 1, "schema_version": "v2-keystore-derived", "last_updated_at_unix_secs": -1}"#;
+        fs::write(&manifest_path, bogus).expect("seed");
+        let err =
+            read_manifest(&manifest_path).expect_err("must error");
+        match err {
+            DbMigrationError::Corrupt { reason, .. } => {
+                assert!(
+                    reason.contains("predates sanity floor"),
+                    "expected sanity-floor reason, got: {reason}"
+                );
+            }
+            other => panic!(
+                "expected Corrupt for negative timestamp, got {:?}",
+                other
+            ),
+        }
+    }
+
+    /// Timestamp at the floor (mid-2017) is rejected
+    /// because the floor is INCLUSIVE-of-floor =
+    /// rejected ("less than" check). Pinning this gives
+    /// a precise boundary signal — adjustments to the
+    /// floor value land as a deliberate single-line
+    /// change here.
+    #[test]
+    fn read_manifest_pre_floor_timestamp_rejected() {
+        let (_dir, _db, manifest_path) = manifest_paths();
+        fs::create_dir_all(manifest_path.parent().unwrap()).unwrap();
+        // 1_499_999_999 = floor minus 1 second.
+        let bogus = r#"{"manifest_envelope_version": 1, "schema_version": "v2-keystore-derived", "last_updated_at_unix_secs": 1499999999}"#;
+        fs::write(&manifest_path, bogus).expect("seed");
+        let err =
+            read_manifest(&manifest_path).expect_err("must error");
+        assert!(matches!(err, DbMigrationError::Corrupt { .. }));
+    }
+
+    /// Timestamp exactly at the floor is ACCEPTED — the
+    /// check is strictly less-than. Pinning this gives
+    /// the precise boundary semantic.
+    #[test]
+    fn read_manifest_at_floor_timestamp_accepted() {
+        let (_dir, _db, manifest_path) = manifest_paths();
+        write_manifest(
+            &manifest_path,
+            &DbKeySourceManifest {
+                schema_version: DbKeySchemaVersion::V2KeystoreDerived,
+                last_updated_at_unix_secs:
+                    TIMESTAMP_SANITY_FLOOR_UNIX_SECS,
+            },
+        )
+        .expect("seed");
+        let loaded = read_manifest(&manifest_path)
+            .expect("read")
+            .expect("Some");
+        assert_eq!(
+            loaded.last_updated_at_unix_secs,
+            TIMESTAMP_SANITY_FLOOR_UNIX_SECS
+        );
     }
 }

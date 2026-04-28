@@ -34,12 +34,31 @@
  *   2 — usage error
  */
 
-import { execSync } from 'node:child_process';
+import { execFileSync, execSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
 
-const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+// Resolve repo root via `git rev-parse --show-toplevel`
+// (Batch #349) — switched away from
+// `dirname(fileURLToPath(import.meta.url))` because the
+// `import.meta` reference forced Node to load this file
+// as ESM at the import time of `commit-msg-validator.spec.ts`,
+// which then conflicted with ts-node's CommonJS
+// compilation of the spec file ("ReferenceError: exports
+// is not defined in ES module scope"). The git-rev-parse
+// pattern is CommonJS-clean + already used by
+// `tools/gates/clippy-affected.ts` (Batch #343); standardizing
+// removes the ESM/CommonJS interop trap from the test
+// surface.
+const REPO_ROOT = (() => {
+  try {
+    return execFileSync('git', ['rev-parse', '--show-toplevel'], {
+      encoding: 'utf8',
+    }).trim();
+  } catch {
+    return process.cwd();
+  }
+})();
 const REGISTRY_PATH = resolve(REPO_ROOT, 'docs', 'reviews', '_registry', 'findings.jsonl');
 
 /**
@@ -411,4 +430,30 @@ function main(): void {
   process.exit(1);
 }
 
-main();
+// Guard main() invocation so this module can be imported
+// by tests without triggering the CLI's argv parsing +
+// execution. See clippy-affected.ts module doc for the
+// architectural rationale (Batch #348 established this
+// pattern as the SSoT for CLI-script-with-exported-
+// helpers in `tools/gates/`).
+if (require.main === module) {
+  main();
+}
+
+// Exported for testing (Batch #349 — closes the test-
+// coverage gap from Batch #342 where the orphan-routing
+// extensions to `validateCommit` + the new `loadOrphanIds`
+// helper shipped without unit tests).
+export {
+  CLOSES_TRAILER_REGEX,
+  ORPHAN_HEADING_REGEX,
+  REQUIRE_CLOSES_TYPES,
+  commitFromMsgFile,
+  extractTrailers,
+  loadOrphanIds,
+  loadRegistryIds,
+  validateCommit,
+  type Commit,
+  type Trailer,
+  type Violation,
+};

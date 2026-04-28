@@ -123,6 +123,7 @@
 pub mod boot_detector;
 pub mod manifest;
 pub mod rekey;
+pub mod rekey_swap;
 pub mod schema_version;
 pub mod v1_legacy_key;
 pub mod v2_keystore_key;
@@ -161,6 +162,11 @@ pub use v2_keystore_key::{
 };
 #[allow(unused_imports)]
 pub use rekey::{pragma_rekey, RekeyError};
+#[allow(unused_imports)]
+pub use rekey_swap::{
+    rekey_with_manifest_swap, rekey_with_manifest_swap_inner,
+    RekeyManifestError,
+};
 
 /// Batch #340 — closes audit MEDIUM-003.
 ///

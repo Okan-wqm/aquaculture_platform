@@ -973,7 +973,7 @@ mod opc_ua_type_debug; // diagnostic
 
 **Severity: MEDIUM** — silent architectural-contract erosion; not a runtime correctness issue. The RFC-2104-justified `.expect()` patterns Batch #331 added with explicit `#[allow]` annotations would not break the codebase; the legacy violations are indistinguishable from intentional ones without per-callsite review.
 
-**Status:** OPEN. Slated for a future hygiene batch when an arc-aligned reason already touches the affected files. Tier 2 (per-diff gate) is the recommended next step — fits in a single batch and prevents NEW debt without forcing a fleet-wide cleanup.
+**Status:** RESOLVED — closed by Batch #343 (this session). Tier-2 fix landed: new gate at `tools/gates/clippy-affected.ts` that runs `cargo clippy --bin suderra-agent --no-deps --message-format=json` and filters error-level diagnostics to only those whose primary span lives in a file touched by the current diff (`git diff --name-only <base>...<head>`). New code in any PR-194/195+ batch must satisfy the deny-list; legacy violations in untouched files are not blocked. Smoke-tested over the recent 5-commit window — 3 affected files, zero clippy errors. Verified gracefully skips when no Rust files are in the diff. Wiring into husky pre-push hook + CI workflow is a separate operational decision (the gate is callable on demand today; making it mandatory waits for the next operations cycle).
 
 **Linked plan:** none (cross-cutting hygiene; out-of-band of every active D-arc).
 

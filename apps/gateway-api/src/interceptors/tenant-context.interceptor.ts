@@ -180,13 +180,13 @@ export class TenantContextInterceptor implements NestInterceptor {
    * Extract tenant ID from request
    */
   private extractTenantId(request: TenantAwareRequest): string | undefined {
-    // Priority 1: Header
-    const headerTenantId = request.headers[this.tenantHeader] as string;
-    if (headerTenantId) {
-      return headerTenantId;
-    }
-
-    // Priority 2: JWT user payload
+    // SECURITY (MT-CRITICAL-001 — 3rd cycle closure):
+    // JWT is the cryptographically verified trust anchor. Header / param
+    // fall through ONLY when JWT is absent (pre-auth, edge-ingestion,
+    // HMAC-signed cross-tenant admin RPC). Query-string source REMOVED —
+    // it has no cryptographic binding and can be appended by any client.
+    //
+    // Priority 1: JWT user payload (auth middleware decoded it).
     const user = (request as Request & { user?: UserPayload }).user;
     if (user) {
       const jwtTenantId = user.tenantId || user.tenant_id || user.organizationId;
@@ -195,13 +195,14 @@ export class TenantContextInterceptor implements NestInterceptor {
       }
     }
 
-    // Priority 3: Query parameter (for specific use cases like webhooks)
-    const queryTenantId = request.query['tenantId'] as string;
-    if (queryTenantId) {
-      return queryTenantId;
+    // Priority 2: x-tenant-id header — pre-auth + signed-internal RPC paths.
+    const headerTenantId = request.headers[this.tenantHeader] as string;
+    if (headerTenantId) {
+      return headerTenantId;
     }
 
-    // Priority 4: Path parameter
+    // Priority 3: URL :tenantId path parameter (RESTful routes; visible
+    // in route definition, audited at the controller boundary).
     const pathTenantId = request.params['tenantId'];
     if (pathTenantId) {
       return pathTenantId;

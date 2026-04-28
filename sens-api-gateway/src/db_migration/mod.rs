@@ -122,6 +122,7 @@
 
 pub mod boot_detector;
 pub mod manifest;
+pub mod rekey;
 pub mod schema_version;
 pub mod v1_legacy_key;
 pub mod v2_keystore_key;
@@ -158,6 +159,8 @@ pub use v2_keystore_key::{
     derive_v2_sqlcipher_key, derive_v2_sqlcipher_pragma_key_hex,
     V2DerivationError,
 };
+#[allow(unused_imports)]
+pub use rekey::{pragma_rekey, RekeyError};
 
 /// Batch #340 — closes audit MEDIUM-003.
 ///

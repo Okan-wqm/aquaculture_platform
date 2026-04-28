@@ -558,9 +558,11 @@ pub async fn execute_opcua_write(
 // the 5th being `OpcUaAuthzPort::is_write_allowed(actor, tag)`
 // — the legacy untyped authz path. SimpleNodeManager's
 // `add_write_callback` boundary loses RequestContext (per
-// ORPHAN-CRITICAL-021) so its only authz signal is a
-// hard-coded actor string `"opc-ua-anonymous"`, which the
-// PolicyEngine rejects unconditionally. That's why Gap A-3
+// ORPHAN-CRITICAL-021) so its only authz signal is the
+// legacy anonymous-actor hardcode (string-literal banned by
+// the Batch #354 audit_actor_label_no_legacy invariant),
+// which the PolicyEngine rejects unconditionally. That's
+// why Gap A-3
 // landed the typed-authz chain (Batches #239-#250 +
 // SensNodeManager Batches #263-#289).
 //

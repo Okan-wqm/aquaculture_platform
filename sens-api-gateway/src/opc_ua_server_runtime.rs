@@ -40,8 +40,10 @@
 //!   async-opcua server task under `tokio::spawn` + registers
 //!   with the ShutdownCoordinator.
 //! - SimpleNodeManager wire at line 259 + `add_write_callback`
-//!   loop at line 985 wires the legacy actor=`opc-ua-anonymous`
-//!   path. ORPHAN-CRITICAL-021 tracks the SensNodeManager
+//!   loop at line 985 wires the legacy anonymous-actor path
+//!   (string-literal banned by the Batch #354
+//!   audit_actor_label_no_legacy invariant).
+//!   ORPHAN-CRITICAL-021 tracks the SensNodeManager
 //!   replacement; Batch #267 swap deletes this loop.
 //!
 //! Per-item dead-code allow audit pending — the blanket allow
@@ -575,9 +577,11 @@ pub async fn init_opc_ua_server(
     // provisioning state.
     //
     // The pre-Batch-#294 fallback (legacy SimpleNodeManager
-    // + wire_write_callbacks with a hardcoded
-    // "opc-ua-anonymous" actor that the policy engine always
-    // rejected) was architecturally a footgun: it produced a
+    // + wire_write_callbacks with a hardcoded legacy-
+    // anonymous-actor wire-string — banned by the Batch
+    // #354 audit_actor_label_no_legacy invariant — that
+    // the policy engine always rejected) was architecturally
+    // a footgun: it produced a
     // running server with a gate that always denied + a
     // tracing-only audit + no operator-visible signal that
     // the production typed path was inactive. Replacing it

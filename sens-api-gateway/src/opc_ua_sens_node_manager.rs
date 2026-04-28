@@ -660,24 +660,25 @@ impl NodeManager for SensNodeManager {
     ///    (already production-tested).
     /// 4. On Deny: set per-node `BadUserAccessDenied`.
     ///
-    /// **Linked finding:** ORPHAN-CRITICAL-021 — the actor
-    /// hardcode (`actor: "opc-ua-anonymous"`) lives in the
-    /// `add_write_callback` body that this `write` method
-    /// REPLACES. Once Batch #265 wires the real authz, that
-    /// callback is unwired + the legacy hardcode is deleted in
-    /// the same commit (no parallel paths — divergent authz
-    /// would defeat the gate).
+    /// **Linked finding:** ORPHAN-CRITICAL-021 — the legacy
+    /// anonymous-actor hardcode (string-literal banned by
+    /// the Batch #354 audit_actor_label_no_legacy invariant)
+    /// lived in the `add_write_callback` body that this
+    /// `write` method REPLACES. Once Batch #265 wires the
+    /// real authz, that callback is unwired + the legacy
+    /// hardcode is deleted in the same commit (no parallel
+    /// paths — divergent authz would defeat the gate).
     /// **Wire status:** real implementation (Batch #265 A-2b part 3).
     ///
     /// This is the architectural fix for ORPHAN-CRITICAL-021. The
     /// pre-Batch-265 SimpleNodeManager `add_write_callback` API
-    /// hardcoded `actor: "opc-ua-anonymous"` because callback
-    /// signatures carried no session context — every write was
-    /// authz-checked under the anonymous identity, which the
-    /// policy engine rejects unconditionally. Net effect: Gap
-    /// A-3's typed-authz chain (Batches #239-#250) had zero
-    /// observable production value because no HMI write could
-    /// reach it.
+    /// hardcoded the legacy anonymous-actor wire-string because
+    /// callback signatures carried no session context — every
+    /// write was authz-checked under the anonymous identity,
+    /// which the policy engine rejects unconditionally. Net
+    /// effect: Gap A-3's typed-authz chain (Batches #239-#250)
+    /// had zero observable production value because no HMI
+    /// write could reach it.
     ///
     /// This method consumes `context.session.user_token()` (an
     /// `Option<&UserToken>` populated by `SensAuthManager` —
@@ -715,9 +716,10 @@ impl NodeManager for SensNodeManager {
     ///    in audit log.
     ///
     /// **Linked finding:** ORPHAN-CRITICAL-021 — closed by this
-    /// method's wire (the literal "opc-ua-anonymous" hardcode is
-    /// REPLACED in Batch #267 runtime swap when `simple_node_manager`
-    /// gets removed in favor of `with_node_manager(SensNodeManager)`).
+    /// method's wire (the legacy anonymous-actor hardcode in
+    /// `simple_node_manager` is REPLACED in Batch #267 runtime
+    /// swap when that path is removed in favor of
+    /// `with_node_manager(SensNodeManager)`).
     async fn write(
         &self,
         context: &RequestContext,

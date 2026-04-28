@@ -695,6 +695,16 @@ path = "tests/invariants/db_migration_v1_legacy_key.rs"
 name = "db_migration_wire_status"
 path = "tests/invariants/db_migration_wire_status.rs"
 
+# Batch #354 — Faz 5 Core Gap E-4 (UM-001) AuditActorLabel
+# invariant seal. Tier-3 grep gate banning the legacy
+# `"opc-ua-anonymous"` literal from the src/ tree. The
+# runtime event class was closed by Batches #241-#243
+# (A-2a/A-2b/A-2c); this gate makes "cannot reappear"
+# structural. Empty allowlist by Batch #354 convention.
+[[test]]
+name = "audit_actor_label_no_legacy"
+path = "tests/invariants/audit_actor_label_no_legacy.rs"
+
 # Batch 40 plan Faz 2 coherence — validate_faz2_security_coherence rules.
 [[test]]
 name = "config_coherence"

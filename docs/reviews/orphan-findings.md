@@ -973,7 +973,45 @@ mod opc_ua_type_debug; // diagnostic
 
 **Severity: MEDIUM** — silent architectural-contract erosion; not a runtime correctness issue. The RFC-2104-justified `.expect()` patterns Batch #331 added with explicit `#[allow]` annotations would not break the codebase; the legacy violations are indistinguishable from intentional ones without per-callsite review.
 
-**Status:** RESOLVED — closed by Batch #343 (this session). Tier-2 fix landed: new gate at `tools/gates/clippy-affected.ts` that runs `cargo clippy --bin suderra-agent --no-deps --message-format=json` and filters error-level diagnostics to only those whose primary span lives in a file touched by the current diff (`git diff --name-only <base>...<head>`). New code in any PR-194/195+ batch must satisfy the deny-list; legacy violations in untouched files are not blocked. Smoke-tested over the recent 5-commit window — 3 affected files, zero clippy errors. Verified gracefully skips when no Rust files are in the diff. **Operations completion (Batch #345):** wired into `.husky/pre-push` so the gate fires automatically on every `git push`. Pre-push (not pre-commit) is the right hook layer because cargo clippy compiles the whole crate (~30-60s); pre-push fires once per push regardless of commit count. Base ref resolution prefers `origin/main`, falls back to `@{upstream}`, gracefully skips on detached/orphan branches.
+**Status:** PARTIALLY RESOLVED — Batch #343 callable gate landed; Batch #345 wiring REVERTED after design flaw exposed. The gate at `tools/gates/clippy-affected.ts` filters by FILE-level affected set (any file touched by `git diff --name-only <base>...<head>`) and surfaces ALL error-level diagnostics in those files. Live-fire test on the PR-194 branch (212 affected Rust files vs origin/main) returned **700 error-level diagnostics** — pre-existing legacy violations in files the branch touched even minimally (single-import refactor, doc-comment edit, etc.). This is the very outcome the auditor warned would block dev velocity with the heavier Tier-1 approach.
+
+The architectural fix per CLAUDE.md hierarchy is **per-LINE filtering** (not per-FILE): parse `git diff --unified=0 <base>...<head> -- <file>` to extract the added/modified line ranges per file; filter clippy diagnostics to only those whose primary span's `line_start` falls within the affected-line set. This catches NEW violations introduced by the diff while ignoring legacy debt on lines the diff didn't touch — the auditor's actual Tier-2 intent.
+
+Implementation is non-trivial (~50-80 lines of TypeScript in clippy-affected.ts: hunk-header parser + `Map<file, Set<line>>` + diagnostic-line-range filter) and warrants its own focused batch. Filed as ORPHAN-MEDIUM-034 below (the design-flaw observation).
+
+**Linked plan:** none. Next architectural batch: ORPHAN-MEDIUM-034 (per-line filtering refinement).
+
+
+## ORPHAN-MEDIUM-034 — `clippy-affected` gate uses per-FILE filtering not per-LINE; flags pre-existing legacy debt the moment a file is touched (2026-04-28)
+
+**Discovered by:** Batch #345 husky pre-push wiring attempt (this session). The Batch #343 gate ships per-FILE filtering — any clippy error in a file touched by `git diff --name-only` triggers the gate. On the PR-194 branch this surfaced **700 errors across 212 affected files**, all pre-existing legacy violations (e.g., `lifecycle_auth.rs:357 .expect()` precedent that's been in the codebase since Batch 129; `process_hardening.rs:824` mmap NonNull expect; `alarms.rs:752` slice indexing; etc.).
+
+**Why this is an architectural problem:**
+
+- The auditor's MEDIUM-029 recommendation explicitly framed the Tier-2 fix as "the per-diff gate prevents NEW debt without forcing a fleet-wide cleanup". The per-FILE shape forces fleet-wide cleanup the moment a file is touched — exactly the failure mode the recommendation was designed to avoid.
+- Operators making routine refactors (e.g., extending an import path, fixing a doc typo) would be blocked by unrelated legacy violations in the same file. Either they'd have to fix the legacy debt (scope creep) or skip the gate (defeats enforcement).
+- The Batch #345 husky pre-push wiring attempt landed the enforcement before the design flaw was visible — discovered when the hook fired on its own follow-up commit's push and rejected with 700 errors.
+
+**Architectural fix (Tier-1 make-it-impossible):**
+
+Refine `tools/gates/clippy-affected.ts` to per-LINE filtering:
+
+1. Run `git diff --unified=0 <base>...<head> -- <file>` per affected file to get line-precise hunks.
+2. Parse hunk headers (`@@ -<old_start>,<old_count> +<new_start>,<new_count> @@`) to extract added/modified line numbers.
+3. Build `Map<file_path, Set<line_number>>` of affected lines.
+4. Filter clippy diagnostics: keep only those whose primary span's `line_start` (or any of `line_start..=line_end`) intersects the affected-line set for that file.
+5. Document the per-line semantic in the gate's module doc + the rationale for choosing it over per-file.
+
+This change makes the gate fire ONLY on violations introduced by the diff — line-precise. Legacy debt on lines the diff didn't touch passes cleanly. Architectural completion of the auditor's MEDIUM-029 Tier-2 intent.
+
+**Severity: MEDIUM** — design correctness; the gate as currently shipped is callable but not auto-enforced (Batch #345 wiring reverted), so dev velocity is not blocked. The per-line refinement makes the gate ready for husky pre-push wiring on the next operations cycle.
+
+**Status:** OPEN. Next architectural batch — implement per-line filtering in `tools/gates/clippy-affected.ts` + re-attempt the husky pre-push wiring once verified clean on the PR-194 branch.
+
+**Linked plan:** none.
+
+
+## DEPLOY-CRITICAL-005 — MigrationAuditModule missing EventBusModule.forRoot() import (2026-04-21)
 
 **Linked plan:** none (cross-cutting hygiene; out-of-band of every active D-arc).
 

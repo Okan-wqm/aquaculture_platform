@@ -12,6 +12,7 @@ import { Request, Response } from 'express';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { Public } from '@aquaculture/backend-common/decorators';
 import { RedisService } from '@aquaculture/backend-common/redis';
+import { AuditLogService, AuditSeverity } from '@aquaculture/backend-common/audit';
 import { StripeWebhookService } from './stripe-webhook.service';
 
 /**
@@ -70,6 +71,13 @@ export class StripeWebhookController {
     private readonly configService: ConfigService,
     private readonly webhookService: StripeWebhookService,
     @Optional() private readonly redisService?: RedisService,
+    // AUDITTRAIL-CRITICAL-005 closure: every webhook outcome (signature
+    // failure, dedup, parse failure, success, handler error) writes a
+    // transactional audit row via recordAwait. Optional injection
+    // because the audit-log infrastructure may not be wired during
+    // local-dev-without-db scenarios; production registers it via
+    // AuditLogModule.forRoot() in app.module.ts.
+    @Optional() private readonly auditLog?: AuditLogService,
   ) {
     this.webhookSecret = this.configService.get<string>('STRIPE_WEBHOOK_SECRET', '');
     if (!this.webhookSecret) {
@@ -88,8 +96,16 @@ export class StripeWebhookController {
   ): Promise<void> {
     // 1. Extract raw body
     const rawBody = req.rawBody;
+    const sourceIp = (req.ip ?? (req.headers['x-forwarded-for'] as string | undefined) ?? 'unknown')
+      .toString()
+      .substring(0, 45);
     if (!rawBody || rawBody.length === 0) {
       this.logger.warn('Webhook request missing raw body');
+      await this.audit('stripe.webhook.rejected.missing_body', {
+        ip: sourceIp,
+        severity: AuditSeverity.WARNING,
+        metadata: { reason: 'missing-raw-body' },
+      });
       res.status(400).json({ error: 'Missing request body' });
       return;
     }
@@ -98,19 +114,37 @@ export class StripeWebhookController {
     const signatureHeader = req.headers['stripe-signature'] as string | undefined;
     if (!signatureHeader) {
       this.logger.warn('Webhook request missing stripe-signature header');
+      await this.audit('stripe.webhook.rejected.missing_signature', {
+        ip: sourceIp,
+        severity: AuditSeverity.WARNING,
+        metadata: { reason: 'missing-stripe-signature-header' },
+      });
       res.status(400).json({ error: 'Missing stripe-signature header' });
       return;
     }
 
     if (!this.webhookSecret) {
       this.logger.error('STRIPE_WEBHOOK_SECRET not configured, rejecting webhook');
+      await this.audit('stripe.webhook.rejected.secret_missing', {
+        ip: sourceIp,
+        severity: AuditSeverity.CRITICAL,
+        metadata: { reason: 'STRIPE_WEBHOOK_SECRET-env-missing' },
+      });
       res.status(500).json({ error: 'Webhook secret not configured' });
       return;
     }
 
     const verificationResult = this.verifySignature(rawBody, signatureHeader, this.webhookSecret);
     if (!verificationResult.valid) {
+      // BILLING-HIGH-004 closure (paired with this audit row): signature
+      // failure is a security-relevant event — rate-spike on this audit
+      // row triggers the SecurityAlertRaised alert path (W1.4).
       this.logger.warn(`Webhook signature verification failed: ${verificationResult.reason}`);
+      await this.audit('stripe.webhook.rejected.invalid_signature', {
+        ip: sourceIp,
+        severity: AuditSeverity.CRITICAL,
+        metadata: { reason: verificationResult.reason ?? 'unknown' },
+      });
       res.status(400).json({ error: 'Invalid signature' });
       return;
     }
@@ -121,6 +155,11 @@ export class StripeWebhookController {
       event = JSON.parse(rawBody.toString('utf8'));
     } catch {
       this.logger.warn('Failed to parse webhook payload as JSON');
+      await this.audit('stripe.webhook.rejected.parse_failure', {
+        ip: sourceIp,
+        severity: AuditSeverity.WARNING,
+        metadata: { reason: 'invalid-json-payload' },
+      });
       res.status(400).json({ error: 'Invalid JSON payload' });
       return;
     }
@@ -130,6 +169,15 @@ export class StripeWebhookController {
 
     if (!eventId || !eventType) {
       this.logger.warn('Webhook payload missing id or type');
+      await this.audit('stripe.webhook.rejected.missing_event_fields', {
+        ip: sourceIp,
+        severity: AuditSeverity.WARNING,
+        metadata: {
+          reason: 'event-missing-id-or-type',
+          hasId: !!eventId,
+          hasType: !!eventType,
+        },
+      });
       res.status(400).json({ error: 'Invalid event structure' });
       return;
     }
@@ -145,6 +193,12 @@ export class StripeWebhookController {
 
       if (!isNew) {
         this.logger.log(`Duplicate webhook event ${eventId} (${eventType}), skipping`);
+        await this.audit('stripe.webhook.duplicate', {
+          resourceId: eventId,
+          ip: sourceIp,
+          severity: AuditSeverity.INFO,
+          metadata: { eventType, reason: 'redis-dedup-hit' },
+        });
         res.status(200).json({ received: true, duplicate: true });
         return;
       }
@@ -152,26 +206,94 @@ export class StripeWebhookController {
 
     // 5. Route to handler
     this.logger.log(`Processing webhook event: ${eventType} (${eventId})`);
+    // Pre-handler audit row — captures every webhook the platform agreed
+    // to process. The post-handler row records success/failure outcome
+    // so a triage operator can pair them and see the lifecycle.
+    await this.audit('stripe.webhook.received', {
+      resourceId: eventId,
+      ip: sourceIp,
+      severity: AuditSeverity.INFO,
+      metadata: { eventType, supported: this.isSupportedEvent(eventType) },
+    });
 
     if (this.isSupportedEvent(eventType)) {
       try {
         await this.routeEvent(eventType, event);
+        await this.audit('stripe.webhook.processed', {
+          resourceId: eventId,
+          ip: sourceIp,
+          severity: AuditSeverity.INFO,
+          metadata: { eventType, outcome: 'success' },
+        });
       } catch (err) {
         // CRITICAL: Always return 200 to Stripe. Log the error for investigation.
         // Returning non-200 causes Stripe to retry, which can amplify failures.
+        const errorMessage = err instanceof Error ? err.message : 'Unknown error';
         this.logger.error(
-          `Error processing webhook event ${eventType} (${eventId}): ${
-            err instanceof Error ? err.message : 'Unknown error'
-          }`,
+          `Error processing webhook event ${eventType} (${eventId}): ${errorMessage}`,
           err instanceof Error ? err.stack : undefined,
         );
+        await this.audit('stripe.webhook.handler_error', {
+          resourceId: eventId,
+          ip: sourceIp,
+          severity: AuditSeverity.CRITICAL,
+          metadata: {
+            eventType,
+            outcome: 'handler-error',
+            errorMessage: errorMessage.substring(0, 500),
+          },
+        });
       }
     } else {
       this.logger.log(`Ignoring unsupported event type: ${eventType}`);
+      await this.audit('stripe.webhook.unsupported_event', {
+        resourceId: eventId,
+        ip: sourceIp,
+        severity: AuditSeverity.INFO,
+        metadata: { eventType, reason: 'event-type-not-in-SUPPORTED_EVENTS' },
+      });
     }
 
     // 6. Always acknowledge
     res.status(200).json({ received: true });
+  }
+
+  /**
+   * Audit-row helper — wraps recordAwait with the resource constant
+   * ('stripe-webhook') and a defensive try/catch so an audit-log
+   * outage cannot block webhook acknowledgement (which would force
+   * Stripe to retry and storm the system). The catch is justified
+   * here because the controller MUST always return 200; the alternative
+   * would be a silent retry storm.
+   */
+  private async audit(
+    action: string,
+    args: {
+      resourceId?: string;
+      ip: string;
+      severity: AuditSeverity;
+      metadata: Record<string, unknown>;
+    },
+  ): Promise<void> {
+    if (!this.auditLog) return;
+    try {
+      await this.auditLog.recordAwait({
+        action,
+        resource: 'stripe-webhook',
+        resourceId: args.resourceId,
+        severity: args.severity,
+        ip: args.ip,
+        metadata: args.metadata,
+      });
+    } catch (err) {
+      // Audit-log outage MUST NOT block the webhook ack — Stripe's retry
+      // storm would amplify the failure. We log loud and move on.
+      this.logger.error(
+        `Failed to write Stripe webhook audit row (${action}): ${
+          err instanceof Error ? err.message : 'unknown'
+        }`,
+      );
+    }
   }
 
   /**

@@ -220,3 +220,50 @@ fn d3_v1_key_role_swap_produces_different_output() {
     // role swap MUST produce different bytes.
     assert_ne!(proper, swapped);
 }
+
+/// **D-3 v1-key invariant 9 (RFC 4231 §4 KAT — algorithm-
+/// independent oracle, Batch #335):** the kernel matches
+/// the RFC 4231 Test Case 2 known-answer vector for
+/// HMAC-SHA-256.
+///
+/// **Why this test:** the SEC-MEDIUM-004 audit finding
+/// flagged that the cross-validation oracle
+/// (`reference_v1_key`) reuses the same `hmac` + `sha2`
+/// crates the kernel uses internally. A hypothetical CVE
+/// in the upstream `hmac` crate that produces wrong-but-
+/// self-consistent output would slip through both the
+/// kernel and the reference; the parity test would say
+/// "match", but both sides would be wrong. RFC 4231 §4
+/// Test Case 2 is the algorithm-independent oracle: the
+/// expected bytes are pinned by the IETF specification,
+/// not by any specific Rust crate.
+///
+/// **RFC 4231 Test Case 2:**
+///   Key  = b"Jefe"  (4 bytes)
+///   Data = b"what do ya want for nothing?"  (28 bytes)
+///   HMAC-SHA-256 = 5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843
+///
+/// In our kernel's role assignment (key = secret_key,
+/// data = machine_id) the inputs map as:
+///   secret_key  ← b"Jefe"
+///   machine_id  ← b"what do ya want for nothing?"
+#[test]
+fn d3_v1_key_rfc_4231_test_case_2() {
+    let secret_key = b"Jefe";
+    let machine_id = b"what do ya want for nothing?";
+
+    let key = derive_v1_legacy_key(machine_id, secret_key);
+    let hex = format_sqlcipher_pragma_key_hex(&key);
+
+    // From RFC 4231 §4 Test Case 2.
+    let expected =
+        "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843";
+    assert_eq!(
+        hex, expected,
+        "D-3 v1-key kernel disagreed with RFC 4231 §4 Test Case 2 — \
+         the algorithm-independent oracle says the kernel produces \
+         wrong output. Possible causes: HMAC role inversion (key↔data), \
+         hash substitution (SHA-256 → SHA-512), or upstream `hmac` / \
+         `sha2` crate bug."
+    );
+}

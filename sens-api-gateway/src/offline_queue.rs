@@ -65,11 +65,43 @@ use tracing::{debug, error, info, warn};
 /// intentional — tests that need a specific path MUST set
 /// the env BEFORE the first call, exactly as the sandbox
 /// LazyLock in the test module does.
+///
+/// ## Algorithm SSoT (Batch #335 — closes ULTRA-HIGH-082's
+/// HIGH-001 audit finding)
+///
+/// The HMAC-SHA256(secret_key, machine_id) algorithm is
+/// implemented exactly ONCE in the codebase, at
+/// `crate::db_migration::v1_legacy_key::derive_v1_legacy_key`.
+/// This function is the IO-cached production wrapper:
+///
+///   1. Reads `/etc/machine-id` (or the `SUDERRA_DB_KEY_PATH`
+///      override) — IO that the pure kernel cannot do.
+///   2. Reads or creates `/etc/suderra/db.key` — IO that the
+///      pure kernel cannot do.
+///   3. Calls the kernel to compute the HMAC bytes.
+///   4. Formats the bytes as the SQLCipher PRAGMA-key
+///      lower-hex string via the kernel's
+///      `format_sqlcipher_pragma_key_hex` helper.
+///   5. Caches the hex string in `OnceLock` so subsequent
+///      calls skip steps 1-4.
+///
+/// Pre-Batch-#335, this function inlined the HMAC + hex
+/// formatting locally — that produced TWO copies of the
+/// algorithm (here + in `db_migration::v1_legacy_key`). The
+/// audit finding [registry: ULTRA-HIGH-082's HIGH-001
+/// surfaced by edge-industrial-auditor] flagged that the
+/// "cross-validation parity" test in
+/// `tests/invariants/db_migration_v1_legacy_key.rs`
+/// reimplemented the algorithm in the test file using the
+/// same `hmac`+`sha2` crates — it never imported THIS
+/// function. So a one-byte change here (e.g., switching
+/// to upper-hex) would NOT have been caught by the parity
+/// test, even though the migration tool's correctness
+/// depends on byte-for-byte parity. The architectural fix:
+/// this function delegates to the kernel; there is no
+/// second copy to drift away.
 pub(crate) fn derive_db_encryption_key() -> Result<String> {
-    use sha2::Sha256;
-    use hmac::{Hmac, Mac};
     use std::sync::OnceLock;
-    type HmacSha256 = Hmac<Sha256>;
 
     static CACHED: OnceLock<String> = OnceLock::new();
 
@@ -85,11 +117,16 @@ pub(crate) fn derive_db_encryption_key() -> Result<String> {
 
     let secret_key = load_or_create_db_secret()?;
 
-    let mut mac = HmacSha256::new_from_slice(&secret_key)
-        .context("Failed to create HMAC instance")?;
-    mac.update(machine_id.as_bytes());
-    let result = mac.finalize().into_bytes();
-    let hex: String = result.iter().map(|b| format!("{:02x}", b)).collect();
+    // Single-source-of-truth delegation. The HMAC algorithm
+    // + hex format live in `db_migration::v1_legacy_key`;
+    // this function is the IO-cached wrapper.
+    let key_bytes = crate::db_migration::v1_legacy_key::derive_v1_legacy_key(
+        machine_id.as_bytes(),
+        &secret_key,
+    );
+    let hex = crate::db_migration::v1_legacy_key::format_sqlcipher_pragma_key_hex(
+        &key_bytes,
+    );
 
     // Store via OnceLock::get_or_init to handle the race
     // where multiple threads invoke derive_db_encryption_

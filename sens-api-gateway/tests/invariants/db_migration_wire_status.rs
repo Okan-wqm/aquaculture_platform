@@ -430,6 +430,60 @@ fn d3_wire_v1_kernel_hmac_role_assignment() {
     );
 }
 
+/// **D-3 wire invariant 13b (Batch #335 — closes
+/// HIGH-001 audit finding):** `offline_queue.rs`
+/// `derive_db_encryption_key` MUST delegate to the
+/// `db_migration::v1_legacy_key` kernel rather than
+/// inline-computing HMAC.
+///
+/// **Why this matters:** pre-Batch-#335 the algorithm
+/// existed in TWO copies (offline_queue inline + the
+/// kernel). The cross-validation test exercised the
+/// kernel against an in-test reimpl, NOT against
+/// offline_queue's copy — so a one-byte change in
+/// either copy would pass all tests but brick the
+/// migration tool's rekey roundtrip. Batch #335
+/// removed the duplication: offline_queue now CALLS
+/// the kernel. This invariant pins that the
+/// delegation stays in place; a refactor that
+/// re-inlined the HMAC into offline_queue would fail
+/// here.
+#[test]
+fn d3_wire_offline_queue_delegates_to_v1_kernel() {
+    let src = read_source("src/offline_queue.rs");
+    assert!(
+        src.contains(
+            "crate::db_migration::v1_legacy_key::derive_v1_legacy_key"
+        ),
+        "D-3 WIRE INVARIANT VIOLATED: src/offline_queue.rs no \
+         longer delegates to crate::db_migration::v1_legacy_key:: \
+         derive_v1_legacy_key. Re-inlining the HMAC into \
+         offline_queue would re-introduce the algorithm-drift \
+         risk between the production hot-path + the migration \
+         kernel — exactly the SEC-MEDIUM-004 audit finding the \
+         delegation closed."
+    );
+    assert!(
+        src.contains(
+            "crate::db_migration::v1_legacy_key::format_sqlcipher_pragma_key_hex"
+        ),
+        "D-3 WIRE INVARIANT VIOLATED: src/offline_queue.rs no \
+         longer uses the kernel's hex formatter. Re-inlining \
+         the format!(\"{{:02x}}\", b) loop loses the lower-hex \
+         zero-padded contract pin."
+    );
+    // offline_queue MUST NOT inline the HMAC computation
+    // anymore. A refactor that adds a local
+    // `Hmac::new_from_slice` call would fail this.
+    assert!(
+        !src.contains("HmacSha256::new_from_slice"),
+        "D-3 WIRE INVARIANT VIOLATED: src/offline_queue.rs \
+         re-introduced an inline HMAC computation. The \
+         algorithm SSoT is db_migration::v1_legacy_key; \
+         offline_queue MUST delegate, not re-implement."
+    );
+}
+
 /// **D-3 wire invariant 14:** the lower-hex zero-padded
 /// formatter is preserved. SQLCipher accepts either
 /// hex case but v1 → v2 migration MUST NOT change the

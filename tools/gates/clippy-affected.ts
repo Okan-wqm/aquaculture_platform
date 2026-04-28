@@ -630,7 +630,16 @@ function main(): void {
   }
 }
 
-main();
+// Guard main() invocation behind the require.main check
+// so this module can be imported by tests without
+// triggering the CLI's argv parsing + execution.
+// `require.main === module` is true only when this file
+// is the entry point (invoked via `ts-node` or `node`).
+// When imported as a library (e.g., from
+// `clippy-affected.spec.ts`), main() is skipped.
+if (require.main === module) {
+  main();
+}
 
 // Exported for testing.
 export {

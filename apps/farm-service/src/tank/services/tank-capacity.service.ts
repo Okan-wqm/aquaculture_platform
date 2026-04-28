@@ -15,15 +15,19 @@
  *      `specifications.maxDensity` (kg/m³ cap). Default 30 when
  *      unconfigured (industry default for salmonids).
  *
- * The service replaces three competing implementations:
+ * The service is now the only path for tank capacity enforcement —
+ * three previously-competing implementations are gone:
  *
- *   a. `Equipment.hasCapacityFor(biomassToAdd)` entity method — still
- *      present but marked @deprecated and delegates here for the
- *      duration of the migration. Eventually it will be removed and
- *      all callers will consume the service directly.
+ *   a. `Equipment.hasCapacityFor(biomassToAdd)` and the symmetric
+ *      `Tank.hasCapacityFor()` entity methods. Both could not be
+ *      reached by the audit-log interceptor and could not honour
+ *      admin overrides; both were removed in the Phase 1.1 final
+ *      consolidation once a monorepo grep confirmed zero remaining
+ *      callers.
  *   b. Inline ad-hoc checks in create-batch.handler.ts and
  *      transfer-batch.handler.ts that only computed the density flag
- *      without enforcement.
+ *      without enforcement — replaced by `enforce({ mode: 'soft' })`
+ *      and `enforce({ mode: 'hard' })` calls respectively.
  *   c. The previous density-only version of this service (pre-Phase-1
  *      of the kalan-kör-noktalar plan; shipped in commit 80b16c1b and
  *      consumed by deployCleanerFish).

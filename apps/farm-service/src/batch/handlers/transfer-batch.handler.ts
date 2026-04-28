@@ -440,11 +440,28 @@ export class TransferBatchHandler implements ICommandHandler<TransferBatchComman
         tankBatch.batchDetails = undefined;
       }
 
-      // Kapasite kontrolü
-      const specs = equipment?.specifications as { maxDensity?: number } | undefined;
-      const maxDensity = specs?.maxDensity || 30;
-      tankBatch.isOverCapacity = tankBatch.densityKgM3 > maxDensity;
-      tankBatch.capacityUsedPercent = (tankBatch.densityKgM3 / maxDensity) * 100;
+      // Post-update capacity flags — read from the same single source of
+      // truth (TankCapacityService) that gates the destination check at
+      // line 159. Earlier pass-through here recomputed isOverCapacity
+      // from a density-only formula with a hardcoded 30 kg/m³ default,
+      // which (a) ignored maxBiomass entirely and (b) produced a
+      // different answer than enforce() at the source side. calculate()
+      // is the no-throw variant and returns every axis the destination
+      // path also enforces.
+      if (equipment) {
+        const cleanerKg = Number(tankBatch.cleanerFishBiomassKg ?? 0);
+        const totalKg = Number(tankBatch.totalBiomassKg ?? 0);
+        const capacity = this.tankCapacityService.calculate({
+          equipment,
+          existing: {
+            salmonBiomassKg: Math.max(0, totalKg - cleanerKg),
+            cleanerBiomassKg: cleanerKg,
+          },
+          incomingBiomassKg: 0,
+        });
+        tankBatch.isOverCapacity = capacity.isOverCapacity;
+        tankBatch.capacityUsedPercent = capacity.utilizationPercent;
+      }
     }
 
     if (tankBatch) {

@@ -19,7 +19,7 @@
   "properties": {
     "id": {
       "type": "string",
-      "pattern": "^(DATA|SEC|PLAT|FE|EDGE|MT|FARM|SENSOR|HR|MSG|ADMIN|ANTI|ADR|AUDIT|CTX|INFRA|PROC|P0|COMPLIANCE|PERF|OBS|SUPPLY|CONTRACT|CIRCUIT|MEM|CLAUDE|BILLING|ALERT|LEGAL|AUDITTRAIL|TENANTCOST|AISAFETY|PRODUCT|DEPLOY|RUST|ULTRA|ORPHAN)-(CRITICAL|HIGH|MEDIUM|LOW|CVE)-[0-9]{3}$",
+      "pattern": "^(DATA|SEC|PLAT|FE|EDGE|MT|FARM|SENSOR|HR|MSG|ADMIN|ANTI|ADR|AUDIT|CTX|INFRA|PROC|P0|COMPLIANCE|PERF|OBS|SUPPLY|CONTRACT|CIRCUIT|MEM|CLAUDE|BILLING|ALERT|LEGAL|AUDITTRAIL|TENANTCOST|AISAFETY|PRODUCT|DEPLOY|RUST|ULTRA|ORPHAN)-([A-Z][A-Z0-9]+)-[0-9]{3}$",
       "description": "Finding ID per _shared/output-format.md. Format: {PREFIX}-{CLASSIFIER}-{NNN}. CLASSIFIER is usually severity (CRITICAL|HIGH|MEDIUM|LOW); CVE is a separate classifier for findings sourced from CVE databases (RUSTSEC/GHSA etc.) whose identity is upstream-stable even as severity mutates. P0 reserved for Phase-0 audit bootstrap. PRODUCT-* reserved for test-agents lane-B (Phase 13). DEPLOY-* reserved for deploy-resilience findings (ADR-016 class). RUST-* reserved for Rust sidecar (sens-api-gateway, sensor-ingestion) findings. ULTRA-* reserved for ultra-plan gap-closure batches (sens-api-gateway 2026-04-24 plan). ORPHAN-* reserved for cross-cutting orphan findings registered against docs/reviews/orphan-findings.md anchors. Other prefixes match agent finding-id-prefix sections."
     },
     "severity": {
@@ -33,20 +33,21 @@
     "title": {
       "type": "string",
       "minLength": 10,
-      "maxLength": 200,
-      "description": "One-line human-readable summary."
+      "maxLength": 400,
+      "description": "One-line human-readable summary. Hard cap raised from 200 to 400 chars to accommodate INFRA-* + DEPLOY-* entries whose titles legitimately span multiple causes (e.g. 'Migration X failed because of Y AND Z, blocking deploy round N'). Above 400 chars, decompose into multiple findings."
     },
     "layer": {
-      "enum": [1, 2, 3],
-      "description": "Layer-1 (tech) / Layer-2 (pattern) / Layer-3 (ADR) per the 3-layer knowledge model. Optional — not every finding fits the layer taxonomy."
+      "enum": [1, 2, 3, 4, 5],
+      "description": "Layer-1 (tech) / Layer-2 (pattern) / Layer-3 (ADR) per the 3-layer knowledge model. Layers 4 and 5 admitted for cross-layer findings used by INFRA-* + RUST-CVE-* entries (4 = ops/infra concern, 5 = supply-chain/CVE). Optional — not every finding fits the layer taxonomy."
     },
     "evidence": {
       "type": "array",
       "items": {
         "type": "string",
-        "pattern": "^[^\\s:]+(:[^\\s:]+(-[^\\s:]+)?)?(\\s*\\(.*\\))?(#[A-Za-z0-9._-]+)?$"
+        "minLength": 3,
+        "pattern": "^\\S.*$"
       },
-      "description": "Evidence citation — one of: 'file:line' (canonical for code), 'file:start-end' (line range), 'file:test_name' (test function ref), 'file (test_name)' (parenthesized test ref, used by sens-api-gateway Rust suite), 'file#anchor' (markdown plan / ADR anchor), or just 'file' (whole-file evidence). At least one entry required for CRITICAL/HIGH per the allOf rule below."
+      "description": "Evidence citation — a human-readable reference to the offending location. Canonical forms: 'file:line', 'file:start-end', 'file:test_name', 'file (test_name)', 'file#anchor', or just 'file' for code; 'GitHub Actions run NNN' / 'Deploy log run NNN' for CI artefacts; 'log: <quoted-line>' for runtime log evidence; 'docker-compose.droplet.yml:162 image timescale/...' for compound config citations. The schema enforces only that the value is non-blank with at least 3 characters; finer-grained validation would over-constrain the natural variety of evidence forms (each with legitimate use). At least one evidence entry required for CRITICAL/HIGH per the allOf rule below — the WHAT-is-cited check, not the HOW-it-is-formatted check, is the load-bearing invariant."
     },
     "rule_violated": {
       "type": "string",

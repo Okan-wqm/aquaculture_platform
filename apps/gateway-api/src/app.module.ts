@@ -23,6 +23,7 @@ import { MetricsMiddleware } from '@aquaculture/backend-common/metrics';
 import { UserContextMiddleware, TenantContextMiddleware, CorrelationIdMiddleware, RequestLoggingMiddleware } from '@aquaculture/backend-common/middleware';
 import { RedisModule, RedisService } from '@aquaculture/backend-common/redis';
 import { buildSignedInternalHeaders } from '@aquaculture/backend-common/http';
+import { AuditedOperationModule } from '@aquaculture/backend-common/audit';
 import { StorageModule, StorageConfig } from '@platform/storage';
 
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
@@ -280,6 +281,9 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
     // fallback. Tracked separately because removing the dev path requires
     // updating dev-onboarding scripts.
     PlatformJwtModule,
+
+    // AUDITTRAIL-CRITICAL-002 sweep — registers AuditedOperationInterceptor.
+    AuditedOperationModule.forRoot(),
 
     // Apollo Federation Gateway
     GraphQLModule.forRootAsync<ApolloGatewayDriverConfig>({

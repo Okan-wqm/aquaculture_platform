@@ -66,7 +66,9 @@ describe('INVARIANT (BILLING-CRITICAL-001): StripeApiService is the only outboun
       'retrieveRefund',
       'reportMeterEvent',
     ]) {
-      expect(src).toMatch(new RegExp(`\\b${method}\\(args:\\s*\\{`));
+      // The reportMeterEvent signature uses `args: StripeMeterEvent & { ... }`,
+      // so accept either the inline-object shape OR an intersection.
+      expect(src).toMatch(new RegExp(`\\b${method}\\(args:\\s*(?:\\{|StripeMeterEvent)`));
     }
   });
 

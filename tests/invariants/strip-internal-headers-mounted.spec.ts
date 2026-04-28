@@ -63,11 +63,20 @@ const SERVICES_REQUIRED: ReadonlyArray<string> = [
   'gateway-api',
   'auth-service',
   'billing-service',
-  // Future: 'farm-service', 'sensor-service', 'hr-service',
-  // 'hydroponics-service', 'alert-engine', 'messaging-service',
-  // 'admin-api-service', 'notification-service', 'ai-service',
-  // 'config-service', 'event-store-service', 'observability-service',
-  // — added as each commit on this PR sweeps them in.
+  // W0.I-finalize sweep (this commit) — services that mount UserContextMiddleware:
+  'farm-service',
+  'sensor-service',
+  'hr-service',
+  'hydroponics-service',
+  'alert-engine',
+  'messaging-service',
+  'notification-service',
+  'ai-service',
+  // Future: admin-api-service, config-service, event-store-service,
+  // observability-service — these don't currently mount UserContextMiddleware
+  // (no x-user-payload trust). Adding StripInternalHeadersMiddleware to
+  // them is defense-in-depth and lands in W0.I-followup once each gets a
+  // configure() block.
 ];
 
 interface ModuleAnalysis {

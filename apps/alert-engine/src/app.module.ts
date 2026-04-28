@@ -13,9 +13,9 @@ import depthLimit from 'graphql-depth-limit';
 import { SourceSchemaBootstrapService, createTenantConnectionBootstrap, TenantSchemaSyncService, SourceSchemaWriteGuardService, RlsModule, createMigrationRunnerService, SchemaDriftModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common/database';
 import { TenantGuard, RolesGuard, ServiceIdentityGuard } from '@aquaculture/backend-common/guards';
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
-import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware, createTenantSchemaMiddleware } from '@aquaculture/backend-common/middleware';
+import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware, createTenantSchemaMiddleware, StripInternalHeadersMiddleware } from '@aquaculture/backend-common/middleware';
 import { RedisModule } from '@aquaculture/backend-common/redis';
-import { AuditLogModule, AuditLogInterceptor } from '@aquaculture/backend-common/audit';
+import { AuditLogModule, AuditLogInterceptor, AuditedOperationModule } from '@aquaculture/backend-common/audit';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('alert');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('alert');
 
@@ -145,6 +145,8 @@ import { AlertCondition } from './database/entities/alert-rule.entity';
     HealthModule,
     /** SEC-M22: Audit trail infrastructure for compliance tracking. */
     AuditLogModule.forRoot(),
+    // AUDITTRAIL-CRITICAL-002 sweep — registers AuditedOperationInterceptor.
+    AuditedOperationModule.forRoot(),
     /** SECURITY (HIGH-004): Tenant RLS (schema-per-tenant alert). */
     RlsModule.forPoolService({
       serviceName: 'alert',
@@ -204,6 +206,8 @@ export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     consumer
       .apply(
+        // SEC-CRITICAL-002 sweep — strip forged internal headers.
+        StripInternalHeadersMiddleware,
         CorrelationIdMiddleware,
         RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging
         UserContextMiddleware,

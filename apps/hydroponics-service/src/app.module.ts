@@ -16,7 +16,8 @@ import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
 import { SourceSchemaBootstrapService, createTenantConnectionBootstrap, TenantSchemaSyncService, SourceSchemaWriteGuardService, RlsModule, SchemaDriftModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common/database';
 import { RolesGuard, TenantGuard, ServiceIdentityGuard } from '@aquaculture/backend-common/guards';
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
-import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware, createTenantSchemaMiddleware } from '@aquaculture/backend-common/middleware';
+import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware, createTenantSchemaMiddleware, StripInternalHeadersMiddleware } from '@aquaculture/backend-common/middleware';
+import { AuditedOperationModule } from '@aquaculture/backend-common/audit';
 import { ThrottlerModule, ThrottlerGuard, SlidingWindowStrategy } from '@aquaculture/backend-common/security';
 import { AuditLogModule, AuditLogInterceptor } from '@aquaculture/backend-common/audit';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('hydroponics');
@@ -152,6 +153,8 @@ const complexityCache = new Map<string, number>();
     HealthModule,
     /** SEC-M22: Audit trail infrastructure for compliance tracking. */
     AuditLogModule.forRoot(),
+    // AUDITTRAIL-CRITICAL-002 sweep — registers AuditedOperationInterceptor.
+    AuditedOperationModule.forRoot(),
     /** SECURITY (HIGH-004): Tenant RLS (schema-per-tenant hydroponics). */
     RlsModule.forPoolService({
       serviceName: 'hydroponics',
@@ -213,6 +216,8 @@ export class AppModule implements NestModule {
     // 4. TenantSchemaMiddleware - Set PostgreSQL search_path to tenant schema
     consumer
       .apply(
+        // SEC-CRITICAL-002 sweep — strip forged internal headers.
+        StripInternalHeadersMiddleware,
         CorrelationIdMiddleware,
         RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging
         UserContextMiddleware,

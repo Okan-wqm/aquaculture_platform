@@ -15,7 +15,8 @@ import { SourceSchemaBootstrapService, RlsModule, createServiceTypeOrmConfig } f
 import { TenantGuard, RolesGuard, ServiceIdentityGuard } from '@aquaculture/backend-common/guards';
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
 import { MetricsMiddleware } from '@aquaculture/backend-common/metrics';
-import { UserContextMiddleware, TenantContextMiddleware, CorrelationIdMiddleware } from '@aquaculture/backend-common/middleware';
+import { UserContextMiddleware, TenantContextMiddleware, CorrelationIdMiddleware, StripInternalHeadersMiddleware } from '@aquaculture/backend-common/middleware';
+import { AuditedOperationModule } from '@aquaculture/backend-common/audit';
 import { RedisModule } from '@aquaculture/backend-common/redis';
 import { EventBusModule } from '@platform/event-bus';
 import depthLimit from 'graphql-depth-limit';
@@ -276,6 +277,10 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
     // 2026-04-14) — single source of truth for all consumer services.
     PlatformJwtModule,
 
+    // AUDITTRAIL-CRITICAL-002 sweep — registers AuditedOperationInterceptor
+    // as APP_INTERCEPTOR.
+    AuditedOperationModule.forRoot(),
+
     // Scheduler for @Interval/@Cron decorators (deployment timeout check, etc.)
     ScheduleModule.forRoot(),
 
@@ -409,6 +414,9 @@ export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
     consumer
       .apply(
+        // SEC-CRITICAL-002 sweep — strips forged internal headers when the
+        // request lacks a valid x-service-identity HMAC signature.
+        StripInternalHeadersMiddleware,
         MetricsMiddleware,        // Record request metrics (first for accurate duration)
         CorrelationIdMiddleware,
         RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging

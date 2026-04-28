@@ -32,7 +32,8 @@ import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
 import { SourceSchemaBootstrapService, createTenantConnectionBootstrap, createMigrationRunnerService, TenantSchemaSyncService, SourceSchemaWriteGuardService, RlsModule, SchemaDriftModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common/database';
 import { RolesGuard, TenantGuard, ServiceIdentityGuard } from '@aquaculture/backend-common/guards';
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
-import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware, createTenantSchemaMiddleware } from '@aquaculture/backend-common/middleware';
+import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware, createTenantSchemaMiddleware, StripInternalHeadersMiddleware } from '@aquaculture/backend-common/middleware';
+import { AuditedOperationModule } from '@aquaculture/backend-common/audit';
 import { ThrottlerModule, ThrottlerGuard, SlidingWindowStrategy } from '@aquaculture/backend-common/security';
 
 // Tenant infrastructure — 'messaging' source schema for template tables
@@ -253,6 +254,8 @@ const complexityCache = new Map<string, number>();
 
     // CQRS for command/query separation
     CqrsModule.forRoot(),
+    // AUDITTRAIL-CRITICAL-002 sweep — registers AuditedOperationInterceptor.
+    AuditedOperationModule.forRoot(),
 
     // Scheduled tasks (partition manager, outbox cleanup)
     ScheduleModule.forRoot(),
@@ -351,6 +354,8 @@ export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     consumer
       .apply(
+        // SEC-CRITICAL-002 sweep — strip forged internal headers.
+        StripInternalHeadersMiddleware,
         CorrelationIdMiddleware,
         RequestContextMiddleware,
         UserContextMiddleware,

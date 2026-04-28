@@ -20,8 +20,9 @@ import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
 import { SourceSchemaBootstrapService } from '@aquaculture/backend-common/database';
 import { TenantGuard, RolesGuard, ServiceIdentityGuard } from '@aquaculture/backend-common/guards';
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
-import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware } from '@aquaculture/backend-common/middleware';
+import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware, StripInternalHeadersMiddleware } from '@aquaculture/backend-common/middleware';
 import { ThrottlerModule } from '@aquaculture/backend-common/security';
+import { AuditedOperationModule } from '@aquaculture/backend-common/audit';
 
 /**
  * Extended request interface for GraphQL context
@@ -386,6 +387,10 @@ import { AddFarmOutboxModernColumns1786200000000 } from './database/migrations/1
 
     // CQRS Module
     CqrsModule.forRoot(),
+    // AUDITTRAIL-CRITICAL-002 sweep: registers AuditedOperationInterceptor
+    // as APP_INTERCEPTOR so any handler decorated with @AuditedOperation()
+    // in this service writes a transactional audit row.
+    AuditedOperationModule.forRoot(),
 
     // Event Bus Module
     EventBusModule.forRootAsync({
@@ -595,6 +600,13 @@ export class AppModule implements NestModule {
     // 4. TenantSchemaMiddleware - Set PostgreSQL search_path to tenant schema
     consumer
       .apply(
+        // SEC-CRITICAL-002 sweep: MUST run BEFORE UserContextMiddleware so
+        // forged x-user-payload / x-tenant-id headers from a Docker-network
+        // attacker cannot survive into req.user. Verifies the request
+        // carries a valid x-service-identity + x-service-signature pair
+        // signed with INTERNAL_SERVICE_SECRET; otherwise strips the four
+        // spoofable internal headers from req.headers.
+        StripInternalHeadersMiddleware,
         CorrelationIdMiddleware,
         RequestContextMiddleware, // Populate AsyncLocalStorage for structured logging
         UserContextMiddleware,

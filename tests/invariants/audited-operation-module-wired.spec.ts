@@ -42,10 +42,19 @@ const REPO_ROOT = resolve(__dirname, '..', '..');
 const SERVICES_REQUIRED: ReadonlyArray<string> = [
   'auth-service',
   'billing-service',
-  // Future commits on this PR add: gateway-api, farm-service,
-  // sensor-service, hr-service, hydroponics-service, alert-engine,
-  // messaging-service, admin-api-service, notification-service,
-  // ai-service, config-service, event-store-service, observability-service.
+  // W0.J-finalize sweep (this commit):
+  'gateway-api',
+  'farm-service',
+  'sensor-service',
+  'hr-service',
+  'hydroponics-service',
+  'alert-engine',
+  'messaging-service',
+  'notification-service',
+  'ai-service',
+  // Future: admin-api-service, config-service, event-store-service,
+  // observability-service — internal services with limited surface; their
+  // wiring lands in W0.J-followup commits on the same PR.
 ];
 
 interface ModuleAnalysis {

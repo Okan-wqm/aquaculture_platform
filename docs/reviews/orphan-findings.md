@@ -1033,6 +1033,47 @@ The PRESENT state (untracked, no policy file) is the worst of both — engineers
 **Linked plan:** Plan §5 Faz 2 D-3 (UH-017 parent finding); PR-195 D-3 closure arc (consumer-migration installment).
 
 
+## ORPHAN-MEDIUM-032 — `git rev-parse --short HEAD` after a husky-rejected commit captures STALE HEAD; registry-close shell pipelines record the wrong closing SHA (2026-04-28)
+
+**Discovered by:** Batch #341 (this session) commit cycle. The shell pipeline:
+```sh
+git commit -m "...batch body..."  # husky-rejected — files stay staged
+SHA=$(git rev-parse --short HEAD)  # ← captures PRIOR commit, not the failed one
+finding-registry close UH-NNN $SHA
+```
+
+When the first `git commit` is rejected by the husky `commit-msg` hook (e.g., trailer-validation failure), the staged files remain in the index but no commit lands. The next `git rev-parse --short HEAD` returns the SHA of the PREVIOUSLY-LANDED commit (often the prior batch's registry-close commit), NOT the would-be Batch SHA. The `finding-registry close <id> $SHA` call then records the WRONG SHA in `closing_commits[]`.
+
+**Symptom (concrete this session):**
+- Batch #341's first commit attempted `Closes: docs/reviews/orphan-findings.md#ORPHAN-MEDIUM-031` + `Closes: docs/reviews/orphan-findings.md#ULTRA-HIGH-089` trailers. The commit-msg validator rejected the multi-`Closes:` shape (regex requires UH-`{PREFIX}-(CRITICAL|HIGH|MEDIUM|LOW)-NNN` only — `ORPHAN-` prefix is not in the regex).
+- The shell pipeline kept running. `git rev-parse --short HEAD` returned `076d52d0` (Batch #340's registry-close commit, the actual previous HEAD).
+- The `finding-registry close ULTRA-HIGH-089 076d52d0` call recorded the wrong SHA.
+- The follow-on `git commit -m "chore(registry): close UH-089..."` then committed BOTH the registry-close JSON edit AND the still-staged Batch #341 files in a single commit — under the wrong commit-message header.
+
+**Why this is a process-correctness problem (not a hot data-loss problem):**
+- Audit-trail traceability (CLAUDE.md "Review Finding Traceability") requires `closing_commits[]` to point at the commit that contains the actual fix. A wrong SHA breaks `git show <sha>` lookups for future archaeologists.
+- The bundled-content-under-wrong-message hides the commit's true scope from `git log` searches by message keyword.
+- The batch-body commit-message text is preserved nowhere on the branch — its `WHY` rationale is lost.
+
+**Architectural fix (3-tier):**
+
+- **Tier 1 (make-it-impossible):** make the husky `commit-msg` regex accept the existing `Closes:` shapes including `ORPHAN-MEDIUM-NNN` references. Today the regex at `tools/gates/commit-msg-validator.ts` requires UH-`{PREFIX}-(CRITICAL|HIGH|MEDIUM|LOW)-NNN`; `ORPHAN-` is a valid `{PREFIX}` per the orphan-findings doc convention but not in the validator's allowlist. Updating the validator regex to include `ORPHAN` (and the other documented prefixes — DEPLOY-CRITICAL, AUDIT, etc.) would let multi-`Closes:` commits land cleanly.
+- **Tier 2 (make-it-automatic):** restructure the commit pipeline to capture the SHA AFTER the commit succeeds, not after the commit attempt. The ergonomic shell pattern would be a wrapper script `tools/audit/commit-and-close.sh` that does:
+  ```sh
+  git commit -m "$BODY" || exit 1   # FAIL on rejection
+  SHA=$(git rev-parse --short HEAD)  # only reaches here on success
+  finding-registry close $UH $SHA
+  git add findings.jsonl && git commit -m "chore(registry): close $UH with $SHA"
+  ```
+- **Tier 3 (make-it-detectable):** add a CI gate that grep-checks every `closing_commits[]` SHA against `git log` and fails if the named commit's message doesn't reference the closed UH ID — surfaces the desync at PR-review time. This is belt-and-suspenders for the Tier-1/Tier-2 fixes.
+
+**Severity: MEDIUM** — process correctness + audit-trail integrity. Recoverable via re-running `finding-registry close` with the correct SHA (which appends, not overwrites — both SHAs end up in `closing_commits[]`, with future readers needing to disambiguate via `git show`). This session's UH-089 has the appended-fix applied; the wrong 076d52d0 entry stays in the array as an audit-trail of the race occurrence.
+
+**Status:** OPEN. Tier-1 fix (commit-msg-validator regex extension) is the smallest architectural change that closes the gap; estimated 1-line update + a test fixture in `tools/gates/__tests__/commit-msg-validator.spec.ts`. Slated for the next no-arc tooling-hygiene batch.
+
+**Linked plan:** none (cross-cutting tooling concern).
+
+
 ## DEPLOY-CRITICAL-005 — MigrationAuditModule missing EventBusModule.forRoot() import (2026-04-21)
 
 **Status:** RESOLVED — fixed by the commit that introduces this entry.

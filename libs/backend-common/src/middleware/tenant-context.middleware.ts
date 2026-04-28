@@ -59,8 +59,14 @@ export class UserContextMiddleware implements NestMiddleware {
       try {
         const user = JSON.parse(userPayloadHeader) as UserPayload;
         req.user = user;
+        // SEC-LOW-002 cure: log structured user identity WITHOUT the
+        // email PII. Previously this debug line printed the email
+        // address — even at DEBUG severity, structured-log
+        // aggregation pipelines may persist debug rows long enough
+        // for the PII to leak into a third-party retention. The
+        // userId (sub) is sufficient for trace correlation.
         this.logger.debug(
-          `User context set: ${user.email} (tenant: ${user.tenantId})`,
+          `User context set: userId=${user.sub} (tenant: ${user.tenantId})`,
         );
       } catch (error) {
         this.logger.warn(`Failed to parse x-user-payload header: ${error}`);

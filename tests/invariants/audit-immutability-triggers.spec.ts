@@ -45,20 +45,39 @@ import { resolve } from 'node:path';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const ENTITY_PATH = 'libs/backend-common/src/audit/audit-log.entity.ts';
-const MIGRATION_GLOB = 'apps/admin-api-service/src/migrations/*.ts';
+const MIGRATION_GLOBS = [
+  'apps/admin-api-service/src/migrations/*.ts',
+  'apps/auth-service/src/migrations/*.ts',
+] as const;
 
 const REQUIRED_TRIGGER_NAMES = [
   'trg_audit_logs_prevent_update',
   'trg_audit_logs_prevent_legal_hold_delete',
 ] as const;
 
-const REQUIRED_FUNCTION_NAMES = [
+const REQUIRED_FUNCTION_NAMES_SHARED = [
   'shared.audit_logs_prevent_update',
   'shared.audit_logs_prevent_legal_hold_delete',
 ] as const;
 
-describe('INVARIANT (AUDITTRAIL-CRITICAL-001): shared.audit_logs immutability artefacts', () => {
-  it('AuditLogEntity declares the legalHold column', () => {
+const REQUIRED_FUNCTION_NAMES_AUTH = [
+  'auth.audit_logs_prevent_update',
+  'auth.audit_logs_prevent_legal_hold_delete',
+] as const;
+
+function loadMigrationCorpus(): string {
+  const allFiles: string[] = [];
+  for (const glob of MIGRATION_GLOBS) {
+    const out = execSync(`git -C ${REPO_ROOT} ls-files ${glob}`, { encoding: 'utf8' });
+    allFiles.push(...out.trim().split('\n').filter(Boolean));
+  }
+  return allFiles
+    .map((rel) => readFileSync(resolve(REPO_ROOT, rel), 'utf8'))
+    .join('\n---\n');
+}
+
+describe('INVARIANT (AUDITTRAIL-CRITICAL-001 / AUDITTRAIL-HIGH-005): audit-table immutability artefacts', () => {
+  it('AuditLogEntity (shared) declares the legalHold column', () => {
     const entitySrc = readFileSync(resolve(REPO_ROOT, ENTITY_PATH), 'utf8');
 
     // The column declaration must be present so SchemaDriftValidator
@@ -67,26 +86,17 @@ describe('INVARIANT (AUDITTRAIL-CRITICAL-001): shared.audit_logs immutability ar
     expect(entitySrc).toMatch(/@Column\(\s*\{[^}]*type:\s*'boolean'/);
   });
 
-  it('a migration creates the BEFORE UPDATE / BEFORE DELETE triggers and legalHold column on shared.audit_logs', () => {
-    const migrationFiles = execSync(
-      `git -C ${REPO_ROOT} ls-files ${MIGRATION_GLOB}`,
-      { encoding: 'utf8' },
-    )
-      .trim()
-      .split('\n')
-      .filter(Boolean);
-
-    // Aggregate substring presence across migration files that touch
-    // shared.audit_logs. We do NOT require a single file to own all three —
-    // future maintainers may reasonably split the responsibility.
-    const sharedAuditTouchers = migrationFiles.filter((rel) =>
-      readFileSync(resolve(REPO_ROOT, rel), 'utf8').includes('shared.audit_logs'),
+  it('AuditLog entity (auth) declares the legalHold column', () => {
+    const entitySrc = readFileSync(
+      resolve(REPO_ROOT, 'apps/auth-service/src/audit/audit-log.entity.ts'),
+      'utf8',
     );
-    expect(sharedAuditTouchers.length).toBeGreaterThan(0);
+    expect(entitySrc).toMatch(/legalHold!:\s*boolean/);
+    expect(entitySrc).toMatch(/@Column\(\s*\{[^}]*type:\s*'boolean'/);
+  });
 
-    const aggregate = sharedAuditTouchers
-      .map((rel) => readFileSync(resolve(REPO_ROOT, rel), 'utf8'))
-      .join('\n---\n');
+  it('a migration creates the BEFORE UPDATE / BEFORE DELETE triggers and legalHold column on shared.audit_logs', () => {
+    const aggregate = loadMigrationCorpus();
 
     // legalHold column ADD must appear in some migration after the realign
     // CASCADE. The regex is shape-specific to the ADD COLUMN pattern with
@@ -97,7 +107,7 @@ describe('INVARIANT (AUDITTRAIL-CRITICAL-001): shared.audit_logs immutability ar
 
     // Each trigger function name must be present in a CREATE OR REPLACE
     // FUNCTION definition.
-    for (const fn of REQUIRED_FUNCTION_NAMES) {
+    for (const fn of REQUIRED_FUNCTION_NAMES_SHARED) {
       const re = new RegExp(`CREATE OR REPLACE FUNCTION\\s+${fn.replace('.', '\\.')}\\s*\\(`, 'i');
       expect(aggregate).toMatch(re);
     }
@@ -106,6 +116,27 @@ describe('INVARIANT (AUDITTRAIL-CRITICAL-001): shared.audit_logs immutability ar
     for (const trg of REQUIRED_TRIGGER_NAMES) {
       const re = new RegExp(
         `CREATE TRIGGER\\s+${trg}[\\s\\S]*?ON\\s+shared\\.audit_logs`,
+        'i',
+      );
+      expect(aggregate).toMatch(re);
+    }
+  });
+
+  it('a migration creates the BEFORE UPDATE / BEFORE DELETE triggers and legalHold column on auth.audit_logs', () => {
+    const aggregate = loadMigrationCorpus();
+
+    expect(aggregate).toMatch(
+      /ALTER TABLE\s+auth\.audit_logs[\s\S]*?ADD COLUMN[\s\S]*?"legalHold"\s+boolean\s+NOT NULL\s+DEFAULT\s+false/i,
+    );
+
+    for (const fn of REQUIRED_FUNCTION_NAMES_AUTH) {
+      const re = new RegExp(`CREATE OR REPLACE FUNCTION\\s+${fn.replace('.', '\\.')}\\s*\\(`, 'i');
+      expect(aggregate).toMatch(re);
+    }
+
+    for (const trg of REQUIRED_TRIGGER_NAMES) {
+      const re = new RegExp(
+        `CREATE TRIGGER\\s+${trg}[\\s\\S]*?ON\\s+auth\\.audit_logs`,
         'i',
       );
       expect(aggregate).toMatch(re);

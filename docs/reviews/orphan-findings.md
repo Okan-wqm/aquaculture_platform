@@ -2430,3 +2430,53 @@ The 2026-04-28 core-platform audit explicitly excluded messaging-service and sen
 4. Add JSON Schema validators where these events cross trust boundaries.
 
 Until the messaging-service and sensor-service audit cycles land, the allowlist preserves the invariant's value (it still catches NEW regressions in any other domain) without blocking core-platform progress.
+
+
+---
+
+## ORPHAN-FARM-MIGRATION-REGISTRATION — farm-service migrations array is incomplete (2026-04-28)
+
+**Status:** OPEN — discovered during W0.D-extension work on this PR
+(harmonic-sleeping-cascade plan); to be solved within this same plan.
+
+**Scope:** `apps/farm-service/src/app.module.ts:194` migrations array.
+
+**Discovery:** While extending audit-immutability triggers
+(AUDITTRAIL-HIGH-005) to per-service audit tables, the farm-service
+migration registration was found to stop at
+`AddFarmOutboxModernColumns1786200000000`. The following migrations
+EXIST on disk under `apps/farm-service/src/database/migrations/` but
+are NOT listed in the AppModule's `migrations: [...]` array:
+
+  - `1787300000000-AddRecurringTemplateTimezone.ts`
+  - `1787400000000-AddDailyBatchFeedingMaterializedView.ts`
+  - `1787500000000-AddDailyTankWaterQualityMaterializedView.ts`
+  - `1788100000000-WireSupplierSitesAndSiteContacts.ts`
+
+These migrations would never run on a fresh farm-service deploy —
+every existing droplet's farm schema therefore drifts from what the
+codebase claims is its current shape.
+
+**Why plan-independent:**
+
+The 2026-04-28 core-platform audit captured ADR-011 (schema
+ownership) + ADR-012 (schema drift) but did not specifically test
+each service's migrations-array completeness. This is a latent
+operational gap — not a security regression, but it blocks
+production schema-state from converging with code.
+
+**Closure path within this plan (harmonic-sleeping-cascade):**
+
+1. Add the 4 missing migration imports + array entries to
+   `apps/farm-service/src/app.module.ts`.
+2. Validate the migrations actually run cleanly against a fresh
+   farm schema (idempotent + correct order).
+3. Add an invariant test that scans `apps/<svc>/src/**/migrations/*.ts`
+   files and asserts every one is referenced by the corresponding
+   AppModule's migrations array.
+
+Tracked as W0.D-extension-followup. Until closed, the farm-side
+audit-immutability cure (sibling to AUDITTRAIL-HIGH-005) cannot land
+because adding a new farm migration to a schema whose current state
+already lags the entity declaration risks ALTER-on-missing-column
+errors.

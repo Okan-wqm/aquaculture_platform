@@ -648,6 +648,19 @@ path = "tests/invariants/no_system_time_for_ttl.rs"
 name = "mtls_unified_assembly"
 path = "tests/invariants/mtls_unified_assembly.rs"
 
+# Batch #329 Faz 2 D-3 SQLCipher v1->v2 migration arc
+# primitive — DbKeySchemaVersion enum + DbKeySourceManifest
+# sidecar JSON + atomic write/read + DbMigrationError
+# taxonomy. Standalone test crate so the test binary
+# does not require the full suderra-agent bin (memory
+# constraint workaround mirroring Batch #327 fuzz
+# target's #[path] include strategy). Boot detector +
+# migration binary + per-consumer migration follow in
+# subsequent D-3 batches.
+[[test]]
+name = "db_migration_primitive"
+path = "tests/invariants/db_migration_primitive.rs"
+
 # Batch 40 plan Faz 2 coherence — validate_faz2_security_coherence rules.
 [[test]]
 name = "config_coherence"

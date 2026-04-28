@@ -79,6 +79,12 @@ mod safe_state_v2;
 // Wired here so `cargo check` validates the module graph before runtime lands.
 #[allow(dead_code)] // Faz 2 Sprint 6.3 wires consumers; types pre-staged.
 mod keystore;
+// Batch #329 — plan §5 Faz 2 D-3 SQLCipher v1->v2 migration arc primitive
+// split. `DbKeySchemaVersion` enum + `DbKeySourceManifest` sidecar JSON +
+// atomic write/read + `DbMigrationError` taxonomy. Boot-time detector +
+// db-migrate-cli + per-consumer migration follow in subsequent D-3 batches.
+#[allow(dead_code)] // D-3 boot-detector + migration binary wire consumers; primitives pre-staged.
+mod db_migration;
 // Batch 6 — ADR-020 audit log AuditEntry + HMAC chain. Pure types + closure-
 // injected HMAC append function; runtime sink + cloud relay + audit-verify CLI
 // land in Faz 2 Sprint 6.2.

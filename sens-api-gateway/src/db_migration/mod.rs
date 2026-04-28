@@ -158,3 +158,80 @@ pub use v2_keystore_key::{
     derive_v2_sqlcipher_key, derive_v2_sqlcipher_pragma_key_hex,
     V2DerivationError,
 };
+
+/// Batch #340 — closes audit MEDIUM-003.
+///
+/// **Why this test exists:** the six `#[allow(unused_imports)]`
+/// re-exports above suppress the compiler warning that the
+/// public-API symbols are unused (they will become required
+/// when the PR-195 consumer-migration arc wires call sites).
+/// The auditor flagged that the blanket `allow` would mask
+/// an UNINTENTIONAL refactor that accidentally dropped one
+/// of the re-exports — the `allow` hides any
+/// "unused symbol" signal from the affected re-export's
+/// neighborhood, so a typo + drop would compile cleanly +
+/// only fail at PR-195 callsite-landing time.
+///
+/// The architectural fix: a `#[cfg(test)]` function that
+/// MENTIONS every re-exported public-API symbol. The test
+/// is compile-only — it never runs. If a future refactor
+/// drops or renames a re-export the function fails to
+/// compile, surfacing the regression INSIDE the same PR
+/// rather than waiting for PR-195.
+///
+/// This is the auditor's recommended Tier-1 alternative to
+/// a Cargo feature gate. The feature-gate approach was
+/// rejected as substantial new tooling for a problem that
+/// a 30-line test resolves with stronger compile-time
+/// semantics.
+///
+/// **Why `let _ = ...; let _ = ...;`:** binding the symbol
+/// with `let _ = ` is the canonical Rust idiom for a
+/// "I'm using this" no-op assertion. For function symbols
+/// that need to be referenced as values (not called), we
+/// use the function-pointer cast `let _: fn(...) -> ... =
+/// <symbol>;` so a signature change here surfaces at
+/// compile time too (not just a name change).
+#[cfg(test)]
+#[allow(dead_code)]
+fn _api_surface_is_complete_compile_check() {
+    use std::path::Path;
+
+    // Constants referenced via `let _ = <CONST>;` — drop
+    // or rename surfaces here.
+    let _ = DB_KEY_SOURCE_MANIFEST_SUFFIX;
+
+    // Type symbols — referenced as type ascriptions in
+    // unit-typed bindings so the compiler verifies the
+    // type still exists at the documented path.
+    let _: Option<DbKeySchemaVersion> = None;
+    let _: Option<DbKeySourceManifest> = None;
+    let _: Option<DbMigrationError> = None;
+    let _: Option<DbMigrationBacklogEntry> = None;
+    let _: Option<DbMigrationBacklogReport> = None;
+    let _: Option<V2DerivationError> = None;
+
+    // Function symbols — referenced via fn-pointer cast
+    // so a signature change (added/removed param,
+    // changed return type) surfaces here at compile time.
+    let _: fn(&Path) -> std::path::PathBuf = manifest_path_for_db;
+    let _: fn(
+        &Path,
+    ) -> Result<Option<DbKeySourceManifest>, DbMigrationError> =
+        read_manifest;
+    let _: fn(
+        &Path,
+        &DbKeySourceManifest,
+    ) -> Result<(), DbMigrationError> = write_manifest;
+    let _: fn(&[&Path]) -> DbMigrationBacklogReport =
+        detect_db_migration_backlog;
+    let _: fn(&[u8], &[u8]) -> [u8; 32] = derive_v1_legacy_key;
+    let _: fn(&[u8; 32]) -> String = format_sqlcipher_pragma_key_hex;
+
+    // Async functions — fn-pointer cast not directly
+    // applicable (the future type is opaque) but we can
+    // assign the function item itself which still pins
+    // the existence + module path.
+    let _ = derive_v2_sqlcipher_key;
+    let _ = derive_v2_sqlcipher_pragma_key_hex;
+}

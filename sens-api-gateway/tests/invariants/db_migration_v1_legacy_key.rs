@@ -104,16 +104,26 @@ fn d3_v1_key_differs_when_secret_key_changes() {
     assert_ne!(k1, k2);
 }
 
-/// **D-3 v1-key invariant 4:** empty inputs do not
-/// panic. The kernel is the BOUNDARY — IO wrappers can
-/// reject empty inputs above with structured errors,
-/// but the kernel itself must NEVER panic on caller
-/// inputs (defensive boundary).
+/// **D-3 v1-key invariant 4 (Batch #340 — closes audit
+/// SEC-MEDIUM-003):** empty inputs trigger debug_assert
+/// in debug/test builds. The kernel is the BOUNDARY —
+/// IO wrappers MUST reject empty machine_id /
+/// secret_key reads BEFORE the kernel runs. The
+/// debug_assert flags any caller that forgot the
+/// upstream guard. Release builds preserve RFC 2104
+/// acceptance (empty inputs valid).
 #[test]
-fn d3_v1_key_handles_empty_inputs_without_panic() {
-    let _ = derive_v1_legacy_key(b"", b"");
-    let _ = derive_v1_legacy_key(b"machine", b"");
+#[should_panic(expected = "empty machine_id passed to kernel")]
+fn d3_v1_key_debug_panics_on_empty_machine_id() {
     let _ = derive_v1_legacy_key(b"", b"secret");
+}
+
+/// Empty secret_key triggers the secret_key debug_assert.
+/// Pins both halves of the IO-wrapper-bypass guard.
+#[test]
+#[should_panic(expected = "empty secret_key passed to kernel")]
+fn d3_v1_key_debug_panics_on_empty_secret_key() {
+    let _ = derive_v1_legacy_key(b"machine", b"");
 }
 
 /// **D-3 v1-key invariant 5:** the kernel matches the
@@ -129,8 +139,16 @@ fn d3_v1_key_handles_empty_inputs_without_panic() {
 /// output bytes.
 #[test]
 fn d3_v1_key_matches_reference_reimplementation() {
+    // Note (Batch #340 — closes audit SEC-MEDIUM-003):
+    // empty machine_id / secret_key cases were removed
+    // from this test fixture because the kernel now
+    // debug_assert-panics on empty inputs in debug/test
+    // builds (the IO-wrapper-bypass detection guard).
+    // The empty-input case is exercised by the dedicated
+    // `d3_v1_key_debug_panics_on_*` tests above. The
+    // cross-validation parity property is unchanged for
+    // non-empty inputs.
     let cases: &[(&[u8], &[u8])] = &[
-        (b"", b""),
         (b"machine-aaa", b"secret-aaa"),
         (b"abcdef0123456789abcdef0123456789", b"32-byte-secret-key-canonical!!"),
         // Long machine_id (ASCII).

@@ -141,6 +141,40 @@ pub fn derive_v1_legacy_key(
     machine_id: &[u8],
     secret_key: &[u8],
 ) -> [u8; 32] {
+    // **Empty-input guard (Batch #340 — closes audit
+    // SEC-MEDIUM-003):** the kernel itself MUST accept
+    // empty inputs per RFC 2104 (HMAC is well-defined
+    // for any key length including zero), and refusing
+    // them at the kernel layer would be a protocol
+    // violation. But in production the IO wrappers
+    // (offline_queue's `derive_db_encryption_key` +
+    // future db-migrate-cli's reader) MUST reject empty
+    // machine_id / secret_key BEFORE they reach the
+    // kernel. The auditor's concern: a partial-write
+    // race that produced a 0-byte secret-key file would
+    // silently derive a UNIVERSALLY-KNOWN key (HMAC of
+    // empty data under empty key) — every device with
+    // that failure mode would share the same DB
+    // encryption key.
+    //
+    // The guard fires `debug_assert!` (only in debug +
+    // test builds), giving the dev/CI surface a fail-
+    // loud signal if a caller forgot the IO-side
+    // rejection. Release builds preserve RFC 2104
+    // semantics + perform the derivation — matching the
+    // upstream `hmac` crate's contract.
+    debug_assert!(
+        !machine_id.is_empty(),
+        "v1 legacy derivation: empty machine_id passed to kernel — \
+         IO wrapper MUST reject empty machine-id reads before \
+         reaching the crypto kernel (audit SEC-MEDIUM-003)",
+    );
+    debug_assert!(
+        !secret_key.is_empty(),
+        "v1 legacy derivation: empty secret_key passed to kernel — \
+         IO wrapper MUST reject zero-byte secret-key files before \
+         reaching the crypto kernel (audit SEC-MEDIUM-003)",
+    );
     let mut mac = HmacSha256::new_from_slice(secret_key)
         .expect("HMAC-SHA256 accepts any key length per RFC 2104");
     mac.update(machine_id);
@@ -252,14 +286,43 @@ mod tests {
         assert_ne!(k1, k2);
     }
 
-    /// Empty inputs do not panic — HMAC-SHA256 is defined
-    /// for any key length + any data length. The kernel
-    /// must NEVER panic on caller inputs (defensive
-    /// boundary; the IO wrappers can reject empty inputs
-    /// with structured errors before they reach the
-    /// kernel).
+    /// Batch #340 — closes audit SEC-MEDIUM-003. In
+    /// DEBUG / TEST builds the kernel MUST panic on
+    /// empty machine_id (debug_assert fires) — IO
+    /// wrapper bypass detection. Release builds still
+    /// accept empty inputs per RFC 2104 (verified via
+    /// `#[cfg(not(debug_assertions))]` test below).
     #[test]
-    fn v1_legacy_key_handles_empty_inputs_without_panic() {
+    #[should_panic(expected = "empty machine_id passed to kernel")]
+    fn v1_legacy_key_debug_panics_on_empty_machine_id() {
+        let _ = derive_v1_legacy_key(b"", b"some-secret");
+    }
+
+    /// Counterpart for empty secret_key.
+    #[test]
+    #[should_panic(expected = "empty secret_key passed to kernel")]
+    fn v1_legacy_key_debug_panics_on_empty_secret_key() {
+        let _ = derive_v1_legacy_key(b"some-machine", b"");
+    }
+
+    /// Both empty triggers the FIRST assert (machine_id).
+    /// Pinning this against future re-ordering of the
+    /// debug_assert pair.
+    #[test]
+    #[should_panic(expected = "empty machine_id passed to kernel")]
+    fn v1_legacy_key_debug_panics_on_both_empty() {
+        let _ = derive_v1_legacy_key(b"", b"");
+    }
+
+    /// In RELEASE builds (no debug_assertions) the
+    /// debug_assert is compiled out — empty inputs are
+    /// accepted per RFC 2104 + the derivation succeeds.
+    /// `cargo test --release` exercises this path; the
+    /// gate ensures the architectural property survives
+    /// the cfg toggle.
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn v1_legacy_key_release_accepts_empty_inputs_per_rfc_2104() {
         let _k1 = derive_v1_legacy_key(b"", b"");
         let _k2 = derive_v1_legacy_key(b"machine", b"");
         let _k3 = derive_v1_legacy_key(b"", b"secret");

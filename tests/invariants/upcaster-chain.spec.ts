@@ -45,10 +45,42 @@ interface UpcasterShape {
   readonly toVersion: number;
 }
 
+/**
+ * Strip JS/TS comments from source before regex extraction. The
+ * version-marker regexes below are unanchored, so a JSDoc paragraph
+ * that *describes* an example (e.g. "see fromVersion: 1, toVersion: 2"
+ * inside `sensor-reading-v2-to-v3.upcaster.ts:39`) would otherwise
+ * match BEFORE the real `fromVersion: 2` on the const declaration —
+ * causing `parseUpcasterFile` to report fromVersion=1 for a v2→v3
+ * upcaster, which then surfaces as a phantom chain gap.
+ *
+ * We strip:
+ *   - block comments (incl. JSDoc): `/* ... *​/` non-greedy across newlines
+ *   - line comments: `//` to end-of-line
+ *
+ * Stripping comments before regex matching is the architectural fix
+ * (the alternative — line-anchored regex with negative lookbehind on
+ * `*` — both narrows valid matches AND is fragile against indentation
+ * variation in real upcaster constants).
+ */
+function stripComments(source: string): string {
+  // Block comments first (greediness matters: `[\s\S]*?` non-greedy
+  // so consecutive blocks don't merge).
+  let out = source.replace(/\/\*[\s\S]*?\*\//g, '');
+  // Then line comments. We DO NOT strip URLs (e.g. `https://`) because
+  // there's a `:` after `https`; the regex is anchored at start-of-
+  // line whitespace + `//` to avoid that case.
+  out = out.replace(/^\s*\/\/.*$/gm, '');
+  return out;
+}
+
 function parseUpcasterFile(filename: string): UpcasterShape | null {
   const abs = resolve(UPCASTERS_DIR, filename);
   if (!existsSync(abs)) return null;
-  const source = readFileSync(abs, 'utf8');
+  const rawSource = readFileSync(abs, 'utf8');
+  // Strip comments BEFORE regex extraction so JSDoc text mentioning
+  // `fromVersion: N` does not pollute the const-declaration match.
+  const source = stripComments(rawSource);
 
   const eventTypeMatch = /eventType\s*:\s*['"]([A-Za-z][A-Za-z0-9]*)['"]/.exec(source);
   const fromMatch = /fromVersion\s*:\s*(\d+)/.exec(source);

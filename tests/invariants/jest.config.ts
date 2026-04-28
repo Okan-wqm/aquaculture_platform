@@ -116,6 +116,7 @@ export default {
         '<rootDir>/legal-hold-canonical-lib.spec.ts',
         '<rootDir>/stripe-calls-via-canonical-client.spec.ts',
         '<rootDir>/auth-users-tenant-fk.spec.ts',
+        '<rootDir>/migration-registration-completeness.spec.ts',
       ],
     },
     {

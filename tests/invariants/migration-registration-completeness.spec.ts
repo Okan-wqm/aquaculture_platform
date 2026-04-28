@@ -1,0 +1,188 @@
+/**
+ * Platform-wide invariant — ORPHAN-FARM-MIGRATION-REGISTRATION:
+ *
+ * Every TypeORM migration file under
+ * `apps/<svc>/src/migrations/` or
+ * `apps/<svc>/src/database/migrations/`
+ * MUST be referenced by the corresponding service's AppModule
+ * migrations array — otherwise a fresh deploy never runs it and the
+ * schema state silently lags the entity declarations.
+ *
+ * # Why
+ *
+ * Discovered during W0.D-extension work on this PR
+ * (harmonic-sleeping-cascade plan): farm-service's AppModule
+ * migrations array stopped at AddFarmOutboxModernColumns1786200000000
+ * while four newer migrations existed on disk
+ * (1787300000000 / 1787400000000 / 1787500000000 / 1788100000000).
+ * Auth-service uses a glob pattern so the gap doesn't apply there;
+ * farm-service uses an explicit array. This invariant catches the
+ * regression class wholesale across every service.
+ *
+ * # Allow-list
+ *
+ * Services that load migrations via a glob (`migrations: [__dirname +
+ * '/migrations/*{.ts,.js}']`) are exempt — the glob auto-includes
+ * every file. Detection is via reading the AppModule and looking for
+ * the glob pattern.
+ *
+ * Services that have NO migrations directory are exempt (no findings
+ * to register).
+ *
+ * # Per-service allowlist (transitional)
+ *
+ * The first run of this invariant surfaced the same regression class
+ * across 7 other services (admin-api, alert-engine, billing-service,
+ * event-store-service, hr-service, messaging-service,
+ * notification-service). Each is tracked as an orphan finding with
+ * its own per-service closure path; the allowlist below carries them
+ * with explicit ORPHAN-* references. Removing an entry happens when
+ * the matching service's migrations array is brought up to date —
+ * the invariant immediately re-locks the gap once the entry is gone.
+ */
+
+import { execFileSync } from 'node:child_process';
+import { readFileSync, existsSync, statSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+const REPO_ROOT = resolve(__dirname, '..', '..');
+
+/**
+ * Services with KNOWN unregistered migrations as of W0.D-extension-followup.
+ * Each entry references the orphan finding tracking the gap. Removing an
+ * entry is the closure signal — the per-service follow-up commit must
+ * delete the line here in the same change that registers the migrations.
+ */
+const KNOWN_UNREGISTERED: ReadonlyMap<string, string> = new Map([
+  ['admin-api-service', 'docs/reviews/orphan-findings.md#ORPHAN-MIGRATION-REGISTRATION-1'],
+  ['alert-engine', 'docs/reviews/orphan-findings.md#ORPHAN-MIGRATION-REGISTRATION-2'],
+  ['billing-service', 'docs/reviews/orphan-findings.md#ORPHAN-MIGRATION-REGISTRATION-3'],
+  ['event-store-service', 'docs/reviews/orphan-findings.md#ORPHAN-MIGRATION-REGISTRATION-4'],
+  ['hr-service', 'docs/reviews/orphan-findings.md#ORPHAN-MIGRATION-REGISTRATION-5'],
+  ['messaging-service', 'docs/reviews/orphan-findings.md#ORPHAN-MIGRATION-REGISTRATION-6'],
+  ['notification-service', 'docs/reviews/orphan-findings.md#ORPHAN-MIGRATION-REGISTRATION-7'],
+  ['observability-service', 'docs/reviews/orphan-findings.md#ORPHAN-MIGRATION-REGISTRATION-8'],
+  ['sensor-service', 'docs/reviews/orphan-findings.md#ORPHAN-MIGRATION-REGISTRATION-9'],
+]);
+
+function listMigrationFilesFor(service: string): string[] {
+  const out: string[] = [];
+  for (const sub of ['src/migrations', 'src/database/migrations']) {
+    const dir = resolve(REPO_ROOT, 'apps', service, sub);
+    if (!existsSync(dir) || !statSync(dir).isDirectory()) continue;
+    try {
+      const ls = execFileSync(
+        'git',
+        ['-C', REPO_ROOT, 'ls-files', `apps/${service}/${sub}/*.ts`],
+        { encoding: 'utf8' },
+      );
+      out.push(
+        ...ls
+          .split('\n')
+          .filter(
+            (f) =>
+              f.length > 0 &&
+              !f.endsWith('.spec.ts') &&
+              !f.endsWith('.test.ts') &&
+              !f.includes('/__tests__/') &&
+              // Exclude TypeORM CLI data-source helpers if any drift here.
+              !f.endsWith('/data-source.ts'),
+          ),
+      );
+    } catch {
+      // empty directory — ignore
+    }
+  }
+  return out;
+}
+
+function listServicesWithMigrations(): string[] {
+  const ls = execFileSync(
+    'git',
+    ['-C', REPO_ROOT, 'ls-files',
+     'apps/*/src/migrations/*.ts',
+     'apps/*/src/database/migrations/*.ts'],
+    { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 },
+  );
+  const services = new Set<string>();
+  for (const line of ls.split('\n')) {
+    const m = line.match(/^apps\/([^/]+)\//);
+    if (m) services.add(m[1]);
+  }
+  return Array.from(services).sort();
+}
+
+function appModulePath(service: string): string | null {
+  const candidate = resolve(REPO_ROOT, `apps/${service}/src/app.module.ts`);
+  return existsSync(candidate) ? candidate : null;
+}
+
+function usesGlobPattern(appModuleSrc: string): boolean {
+  // Pattern: `migrations: [__dirname + '/migrations/*{.ts,.js}']` or
+  // a similar glob assignment. We accept any string-literal that
+  // contains '*{' (the glob marker).
+  return /migrations:\s*\[[^\]]*\*\{/i.test(appModuleSrc);
+}
+
+function migrationFileToClassNames(rel: string): string[] {
+  const src = readFileSync(resolve(REPO_ROOT, rel), 'utf8');
+  const re = /export\s+class\s+([A-Z][A-Za-z0-9_]+)/g;
+  const out: string[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(src)) !== null) {
+    out.push(m[1]);
+  }
+  return out;
+}
+
+describe('INVARIANT (ORPHAN-FARM-MIGRATION-REGISTRATION): every migration is registered in its AppModule', () => {
+  const services = listServicesWithMigrations();
+
+  it('discovers at least one service with migrations', () => {
+    expect(services.length).toBeGreaterThan(0);
+  });
+
+  it.each(services)('service %s registers every on-disk migration in AppModule', (service) => {
+    const appPath = appModulePath(service);
+    if (!appPath) {
+      // Service has no AppModule (rare — db-migrate CLI runner) → skip.
+      return;
+    }
+    const appSrc = readFileSync(appPath, 'utf8');
+
+    if (usesGlobPattern(appSrc)) {
+      // Glob auto-includes every file → no per-file registration needed.
+      return;
+    }
+
+    if (KNOWN_UNREGISTERED.has(service)) {
+      // Tracked orphan — see KNOWN_UNREGISTERED for closure pointer.
+      return;
+    }
+
+    const migrations = listMigrationFilesFor(service);
+    const missing: string[] = [];
+    for (const migFile of migrations) {
+      const classes = migrationFileToClassNames(migFile);
+      // The migration file must export at least one class. If multiple
+      // classes are exported (rare), at least ONE must be referenced.
+      if (classes.length === 0) continue;
+      const referenced = classes.some((cls) => appSrc.includes(cls));
+      if (!referenced) {
+        missing.push(`${migFile} (class ${classes.join(', ')})`);
+      }
+    }
+
+    if (missing.length > 0) {
+      throw new Error(
+        `Service "${service}" has ${missing.length} migration file(s) not registered ` +
+          `in its AppModule's migrations array:\n` +
+          missing.map((m) => `  - ${m}`).join('\n') +
+          `\n\nA fresh deploy of "${service}" will never run these migrations — ` +
+          `the schema state will silently lag the entity declarations. ` +
+          `Add the imports + array entries OR switch the service's TypeOrmModule config ` +
+          `to use the glob pattern \`migrations: [__dirname + '/migrations/*{.ts,.js}']\`.`,
+      );
+    }
+  });
+});

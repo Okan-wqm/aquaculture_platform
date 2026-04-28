@@ -162,6 +162,20 @@ import { AddFarmOutboxLeaseColumns1782000000000 } from './database/migrations/17
 // cadence) to ~5ms.
 import { AddFarmOutboxNotifyTrigger1782100000000 } from './database/migrations/1782100000000-AddFarmOutboxNotifyTrigger';
 import { AddFarmOutboxModernColumns1786200000000 } from './database/migrations/1786200000000-AddFarmOutboxModernColumns';
+// ORPHAN-FARM-MIGRATION-REGISTRATION cure: register every migration that
+// existed on disk but was missing from the AppModule's migrations array.
+// A fresh farm-service deploy that does not list a migration here never
+// runs it — the schema state silently lags the entity declarations. The
+// migration-registration-completeness invariant test enforces complete
+// coverage going forward.
+import { MovePublicTablesToFarm1786000000000 } from './database/migrations/1786000000000-MovePublicTablesToFarm';
+import { AddDomainRetentionFunctions1787000000000 } from './database/migrations/1787000000000-AddDomainRetentionFunctions';
+import { AddStorageInventoryReceivedDate1787100000000 } from './database/migrations/1787100000000-AddStorageInventoryReceivedDate';
+import { AddStorageLotMixesGinIndex1787200000000 } from './database/migrations/1787200000000-AddStorageLotMixesGinIndex';
+import { AddRecurringTemplateTimezone1787300000000 } from './database/migrations/1787300000000-AddRecurringTemplateTimezone';
+import { AddDailyBatchFeedingMaterializedView1787400000000 } from './database/migrations/1787400000000-AddDailyBatchFeedingMaterializedView';
+import { AddDailyTankWaterQualityMaterializedView1787500000000 } from './database/migrations/1787500000000-AddDailyTankWaterQualityMaterializedView';
+import { WireSupplierSitesAndSiteContacts1788100000000 } from './database/migrations/1788100000000-WireSupplierSitesAndSiteContacts';
 
 @Module({
   imports: [
@@ -211,7 +225,16 @@ import { AddFarmOutboxModernColumns1786200000000 } from './database/migrations/1
             ConvertAuditColumnsToTimestamptz1781900000000,
             AddFarmOutboxLeaseColumns1782000000000,
             AddFarmOutboxNotifyTrigger1782100000000,
+            // ORPHAN-FARM-MIGRATION-REGISTRATION cure (chronological):
+            MovePublicTablesToFarm1786000000000,
             AddFarmOutboxModernColumns1786200000000,
+            AddDomainRetentionFunctions1787000000000,
+            AddStorageInventoryReceivedDate1787100000000,
+            AddStorageLotMixesGinIndex1787200000000,
+            AddRecurringTemplateTimezone1787300000000,
+            AddDailyBatchFeedingMaterializedView1787400000000,
+            AddDailyTankWaterQualityMaterializedView1787500000000,
+            WireSupplierSitesAndSiteContacts1788100000000,
           ],
           // INFRA-CRITICAL-020 contract: env-aware migration timing.
           // - Production: DATABASE_MIGRATIONS_RUN=false (default). The

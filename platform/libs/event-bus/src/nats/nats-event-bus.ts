@@ -820,7 +820,24 @@ export class NatsEventBus
 
   /**
    * Deserialize JSON string to event.
-   * Applies upcasters to migrate legacy event schemas (v1 → v2+) transparently.
+   *
+   * WHY: Pre-fix this method applied a string→Date re-coercion on
+   * `parsed.timestamp` after upcasters ran — directly contradicting
+   * `IEvent.timestamp: string` and `BaseEvent.timestamp: string`. Every
+   * NATS consumer therefore received a Date where TypeScript said it
+   * would be a string, a kernel-level type lie (PLAT-CRITICAL-002).
+   * The wire format is JSON; JSON has no Date type; the canonical
+   * representation is ISO 8601 string. Removing the re-coercion aligns
+   * runtime with the type system. Consumers that previously relied
+   * on Date methods (e.g. `event.timestamp.getTime()`) must call
+   * `Date.parse(event.timestamp)` or `new Date(event.timestamp)` at
+   * the point of use — those callers were already incorrect under
+   * the contract.
+   *
+   * WHAT: Apply upcasters and return the parsed payload as-is. The
+   * timestamp stays a string per contract.
+   *
+   * Closes: docs/reviews/platform-kernel-expert/2026-04-28-core-platform-review.md#PLAT-CRITICAL-002
    */
   private deserializeEvent(data: string): IEvent {
     let parsed = JSON.parse(data);
@@ -830,10 +847,7 @@ export class NatsEventBus
       parsed = this.upcasterRegistry.upcast(parsed);
     }
 
-    return {
-      ...parsed,
-      timestamp: new Date(parsed.timestamp),
-    };
+    return parsed as IEvent;
   }
 
   /**

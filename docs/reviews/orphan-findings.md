@@ -2396,3 +2396,37 @@ Two architectural options, neither required for current PR landing:
 2. **Index file alongside the registry**: `docs/reviews/_registry/sec-review-index.md` with one markdown anchor per SEC-REVIEW-NNN. Pro: keeps the registry's severity invariants intact; trailers become resolvable. Con: requires a new gate to prevent drift between commits + the index.
 
 Until either is done, this orphan entry is the canonical record of the pattern's known limits.
+
+
+---
+
+## ORPHAN-EVENT-CONTRACT-001..018 — 20 createBaseEvent emits without interface (2026-04-28)
+
+**Status:** OPEN — discovered during W0.E (event-contract type integrity) work; allowlisted in `tests/invariants/event-contract-emit-has-interface.spec.ts` until the matching domain audit cycle lands the missing interfaces.
+
+**Scope:** `apps/messaging-service/` + `apps/sensor-service/automation/`
+
+**Discovery:** The new invariant test `event-contract-emit-has-interface.spec.ts` (added in W0.E to enforce DATA-HIGH-002 / DATA-HIGH-004 / COMPLIANCE-CRITICAL-003 / CONTRACT-CRITICAL-002 closures) walks every `createBaseEvent('<EventType>', …)` call site and asserts a matching `<EventType>Event` interface exists in `libs/event-contracts/src/`. The walk surfaced 20 eventType literals that have NO interface anywhere in the contracts library — a producer-side field bump on any of these would not surface as a consumer compile break, inviting the same silent-consumer-crash regression class the audit captured for `SubscriptionPastDue`.
+
+**The 20 orphan eventTypes (messaging + sensor automation):**
+
+| EventType | Domain | Emitted from |
+|-----------|--------|--------------|
+| `ChannelCreated`, `ChannelUpdated`, `ChannelArchived`, `ChannelMemberAdded`, `ChannelMemberRemoved` | messaging | `apps/messaging-service/src/channel/...` |
+| `MessageUpdated`, `MessageDeleted`, `MessagePinned`, `MessageUnpinned`, `MessageForwarded`, `ReactionAdded`, `ReactionRemoved` | messaging | `apps/messaging-service/src/message/...` |
+| `RetentionPolicyChanged`, `LegalHoldToggled` | messaging compliance | `apps/messaging-service/src/compliance/...` |
+| `SentimentAlert`, `StorageWarning` | messaging | `apps/messaging-service/src/message/services/...` |
+| `AutomationProgramSaved`, `AutomationProgramDeployed`, `AutomationTagsUpdated`, `AutomationFBDefinitionsChanged` | sensor automation | `apps/sensor-service/src/automation/events/automation-events.publisher.ts` |
+
+**Why plan-independent:**
+
+The 2026-04-28 core-platform audit explicitly excluded messaging-service and sensor-service domain modules. These eventTypes have always been orphan; the invariant simply made the gap visible at CI time. Closing them requires authoring interfaces in `libs/event-contracts/src/messaging-events.ts` and a future automation-events file, plus ensuring each interface enters the relevant domain union (`MessagingEvent`, new `AutomationEvent`).
+
+**Closure path (Tier-1, deferred to messaging-service + sensor-service domain audits):**
+
+1. Author the 20 missing interfaces with field shapes derived from the call-site payload spreads.
+2. Add each to its domain union.
+3. Remove the matching entry from `KNOWN_EXEMPT` in `event-contract-emit-has-interface.spec.ts`.
+4. Add JSON Schema validators where these events cross trust boundaries.
+
+Until the messaging-service and sensor-service audit cycles land, the allowlist preserves the invariant's value (it still catches NEW regressions in any other domain) without blocking core-platform progress.

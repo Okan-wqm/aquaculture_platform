@@ -80,6 +80,115 @@ export interface PasswordResetCompletedEvent extends BaseEvent {
   userId: string;
 }
 
+/**
+ * User Deleted Event
+ *
+ * Published when a user account is deleted via either user-initiated
+ * delete or admin/GDPR-erasure cascade. Consumed by every tenant-data-
+ * bearing service to erase per-user data (sensor history, audit rows
+ * (legal-hold permitting), notification subscriptions, etc.) and by the
+ * AI service to drop conversation context for the user.
+ *
+ * WHY: Pre-fix the event was emitted via raw `createBaseEvent('UserDeleted', …)`
+ * with NO interface, losing the branded-EventId Tier-1 type safety the
+ * SSoT promises (ADR-006). COMPLIANCE-CRITICAL-003. The interface here
+ * makes the event type-checked at compile time and enables JSON Schema
+ * validation at consumer trust-boundaries.
+ *
+ * `cryptoShredKeyId` is MANDATORY for the GDPR erasure path — deleting
+ * the underlying KMS key after cascade renders any cryptographically
+ * shredded PII irrecoverable, providing legal-grade right-to-erasure.
+ */
+export interface UserDeletedEvent extends BaseEvent {
+  eventType: 'UserDeleted';
+  userId: string;
+  /** Whether the row was hard-deleted (true) or anonymized in place (false). */
+  hardDelete: boolean;
+  /** Whether downstream services should cascade their own per-user data erasure. */
+  cascadeRequested: boolean;
+  /** Caller of the delete: user-initiated, admin action, or GDPR erasure. */
+  initiatedBy: 'user' | 'admin' | 'gdpr-erasure';
+  /** MANDATORY — KMS key id for crypto-shred completion of PII erasure. */
+  cryptoShredKeyId: string;
+}
+
+/**
+ * User Data Anonymized Event
+ *
+ * Published when a user record is anonymized in place rather than
+ * deleted (typical for users referenced by historical events that must
+ * survive for audit/regulatory reasons). Consumers update their local
+ * denormalised user references to the anonymised placeholder.
+ */
+export interface UserDataAnonymizedEvent extends BaseEvent {
+  eventType: 'UserDataAnonymized';
+  userId: string;
+  /** Anonymisation method recorded for audit trail (e.g. 'pii-fields-nulled', 'crypto-shredded'). */
+  method: 'pii-fields-nulled' | 'crypto-shredded';
+  /** Caller of the anonymisation. */
+  initiatedBy: 'user' | 'admin' | 'gdpr-erasure';
+  /** Crypto-shred key id when method='crypto-shredded'. */
+  cryptoShredKeyId?: string;
+}
+
+/**
+ * GDPR Anonymize Requested Event
+ *
+ * Published when a user (or admin on user's behalf) submits an Art 17
+ * right-to-erasure request that will be fulfilled via anonymisation
+ * (rather than hard delete). Consumers begin the legal-hold check and,
+ * if clear, schedule the anonymisation work.
+ */
+export interface GdprAnonymizeRequestedEvent extends BaseEvent {
+  eventType: 'GdprAnonymizeRequested';
+  userId: string;
+  /** Reference to the GDPR request row in the canonical registry. */
+  requestId: string;
+  /** Deadline by which fulfilment must complete (ISO 8601 string per BaseEvent contract). */
+  fulfilByIso: string;
+  /** Optional operator note explaining the request. */
+  reason?: string;
+}
+
+/**
+ * Consent Recorded Event
+ *
+ * Published when a user grants a new consent (e.g. analytics, AI
+ * processing). Consumers gate their respective behaviours on consent
+ * presence — AI service only embeds tenant data when AI consent is
+ * present and current.
+ *
+ * WHY: Pre-fix `UserConsentService.recordConsent` and `withdrawConsent`
+ * emitted ZERO events on the outbox — withdrawal of ANALYTICS|PROFILING
+ * consent was invisible cross-service, violating GDPR Art 7(3) instant-
+ * effect. COMPLIANCE-CRITICAL-003.
+ */
+export interface ConsentRecordedEvent extends BaseEvent {
+  eventType: 'ConsentRecorded';
+  userId: string;
+  consentType: string;
+  /** Schema version of the consent text the user accepted. */
+  consentVersion: string;
+  /** Legal basis the consent rests on (Art 6: 'consent', 'contract', 'legal-obligation', etc.). */
+  legalBasis: string;
+}
+
+/**
+ * Consent Withdrawn Event
+ *
+ * Published when a user revokes a previously-recorded consent. Art 7(3)
+ * requires withdrawal to take effect "as easily as it was given" —
+ * downstream consumers must pause / scrub the dependent processing
+ * within seconds.
+ */
+export interface ConsentWithdrawnEvent extends BaseEvent {
+  eventType: 'ConsentWithdrawn';
+  userId: string;
+  consentType: string;
+  /** Reason captured at withdrawal time (free text, GDPR Art 7(3) record). */
+  reason?: string;
+}
+
 // ==================== Type Union ====================
 
 /**
@@ -90,4 +199,9 @@ export type AuthEvent =
   | UserLoggedInEvent
   | InvitationAcceptedEvent
   | PasswordResetRequestedEvent
-  | PasswordResetCompletedEvent;
+  | PasswordResetCompletedEvent
+  | UserDeletedEvent
+  | UserDataAnonymizedEvent
+  | GdprAnonymizeRequestedEvent
+  | ConsentRecordedEvent
+  | ConsentWithdrawnEvent;

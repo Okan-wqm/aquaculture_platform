@@ -3,6 +3,8 @@
  */
 import { Resolver, Query, Mutation, Args, ID, ResolveField, Parent } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
 import { CurrentTenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
 import { TenantGuard } from '@aquaculture/backend-common/guards';
@@ -21,6 +23,8 @@ import { ListDepartmentsQuery } from './queries/list-departments.query';
 import { GetDepartmentDeletePreviewQuery } from './queries/get-department-delete-preview.query';
 import { SiteResponse } from '../site/dto/site.response';
 import { GetSiteQuery } from '../site/queries/get-site.query';
+import { Department } from './entities/department.entity';
+import { RestoreService } from '../common/services/restore.service';
 
 @Resolver(() => DepartmentResponse)
 @UseGuards(TenantGuard)
@@ -30,6 +34,9 @@ export class DepartmentResolver {
   constructor(
     private readonly commandBus: CommandBus,
     private readonly queryBus: QueryBus,
+    @InjectRepository(Department)
+    private readonly departmentRepository: Repository<Department>,
+    private readonly restoreService: RestoreService,
   ) {}
 
   /**
@@ -92,6 +99,34 @@ export class DepartmentResolver {
     this.logger.log(`Deleting department ${id} for tenant ${tenantId} by user ${user.sub} (cascade: ${cascade})`);
     const command = new DeleteDepartmentCommand(id, tenantId, user.sub, cascade);
     return this.commandBus.execute(command);
+  }
+
+  /**
+   * Restore a soft-deleted department. TENANT_ADMIN only — restore
+   * does NOT cascade to children; each soft-deleted child must be
+   * restored explicitly. The uniqueness check guards the
+   * (tenantId, code) index from department.entity.ts:80.
+   *
+   * Phase 4.2 of the "Farm modülü kalan kör noktalar" plan. Closes
+   * Girdi 6 for Department.
+   */
+  @Roles(Role.TENANT_ADMIN)
+  @Mutation(() => DepartmentResponse)
+  async restoreDepartment(
+    @Args('id', { type: () => ID }) id: string,
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: { sub: string; name?: string },
+  ): Promise<Department> {
+    this.logger.log(`Restoring department ${id} for tenant ${tenantId} by user ${user.sub}`);
+    return this.restoreService.restore(
+      this.departmentRepository,
+      Department,
+      id,
+      { tenantId, userId: user.sub, userName: user.name },
+      {
+        uniqueKeys: [['code']],
+      },
+    );
   }
 
   /**

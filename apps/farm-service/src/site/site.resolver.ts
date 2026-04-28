@@ -4,6 +4,8 @@
 import { Resolver, Query, Mutation, Args, ID, ResolveField, Parent } from '@nestjs/graphql';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
 import { UseGuards, Logger } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { CurrentTenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
 import { TenantGuard } from '@aquaculture/backend-common/guards';
 import { fromCqrsPaginated } from '@aquaculture/backend-common/pagination';
@@ -22,6 +24,8 @@ import { GetSiteQuery } from './queries/get-site.query';
 import { ListSitesQuery } from './queries/list-sites.query';
 import { GetSiteDeletePreviewQuery } from './queries/get-site-delete-preview.query';
 import { ListSiteContactsQuery } from './queries/list-site-contacts.query';
+import { Site } from './entities/site.entity';
+import { RestoreService } from '../common/services/restore.service';
 
 @Resolver(() => SiteResponse)
 @UseGuards(TenantGuard)
@@ -30,6 +34,9 @@ export class SiteResolver {
   constructor(
     private readonly commandBus: CommandBus,
     private readonly queryBus: QueryBus,
+    @InjectRepository(Site)
+    private readonly siteRepository: Repository<Site>,
+    private readonly restoreService: RestoreService,
   ) {}
 
   /**
@@ -92,6 +99,40 @@ export class SiteResolver {
     this.logger.log(`Deleting site ${id} for tenant ${tenantId} by user ${user.sub} (cascade: ${cascade})`);
     const command = new DeleteSiteCommand(id, tenantId, user.sub, cascade);
     return this.commandBus.execute(command);
+  }
+
+  /**
+   * Restore a soft-deleted site. TENANT_ADMIN only — restoring a site
+   * does NOT cascade to its previously-deleted children; each child
+   * (department, system, equipment) must be restored explicitly so the
+   * operator confirms the rollback scope. The uniqueness check guards
+   * BOTH unique indexes — (tenantId, code) and (tenantId, name) — so
+   * a code or name re-used on an active site since the soft delete
+   * surfaces a RestoreUniquenessConflictError instead of a database
+   * unique-constraint failure.
+   *
+   * Phase 4.2 of the "Farm modülü kalan kör noktalar" plan. Closes
+   * Girdi 6 for Site.
+   */
+  @Roles(Role.TENANT_ADMIN)
+  @Mutation(() => SiteResponse)
+  async restoreSite(
+    @Args('id', { type: () => ID }) id: string,
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: { sub: string; name?: string },
+  ): Promise<Site> {
+    this.logger.log(`Restoring site ${id} for tenant ${tenantId} by user ${user.sub}`);
+    return this.restoreService.restore(
+      this.siteRepository,
+      Site,
+      id,
+      { tenantId, userId: user.sub, userName: user.name },
+      {
+        // Both unique indexes from site.entity.ts:132-133 must be
+        // checked. Restore is rejected if either active row collides.
+        uniqueKeys: [['code'], ['name']],
+      },
+    );
   }
 
   /**

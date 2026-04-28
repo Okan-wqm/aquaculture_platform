@@ -164,4 +164,24 @@ export class AuditLogEntity {
    */
   @CreateDateColumn()
   createdAt!: Date;
+
+  /**
+   * Litigation legal-hold flag.
+   *
+   * WHY: Database-level retention sweeps and any operator-driven DELETE on
+   * this table must NOT remove rows flagged for legal hold. The companion
+   * BEFORE DELETE trigger `trg_audit_logs_prevent_legal_hold_delete` —
+   * installed by `1787400000000-RestoreSharedAuditLogsImmutability` after
+   * the regression caused by `1787200000000-RealignSharedAuditLogsSchema`
+   * removed it — inspects this column and aborts deletion when the value
+   * is true. Exposing the column on the entity lets SchemaDriftValidator
+   * detect future drift and lets the canonical LegalHold registry write
+   * the flag at INSERT time (the only path the immutability trigger
+   * permits, since `trg_audit_logs_prevent_update` rejects every UPDATE).
+   *
+   * WHAT: Boolean column, default false, set at audit-row INSERT time
+   * based on the active LegalHold state for the row's tenantId/scope.
+   */
+  @Column({ type: 'boolean', default: false })
+  legalHold!: boolean;
 }

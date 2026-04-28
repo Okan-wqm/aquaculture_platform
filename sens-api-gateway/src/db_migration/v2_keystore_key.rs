@@ -50,23 +50,46 @@
 //! site, which is where the deployment UUID / program
 //! SHA is actually known.
 //!
-//! ## Output format
+//! ## Output format (Batch #336 — Zeroize harness fix)
 //!
-//! Returns the raw 32 bytes (NOT the SQLCipher hex
-//! string). Callers use `format_sqlcipher_pragma_key_hex`
-//! from `v1_legacy_key.rs` to render the PRAGMA-key
-//! string. The byte/hex split keeps the shim pure-bytes
-//! (composable with future consumers that don't need
-//! hex encoding).
+//! Returns `Zeroizing<[u8; 32]>` (NOT a plain `[u8; 32]`).
+//! The original Batch #332 design returned a plain
+//! `[u8; 32]` by value, which the SEC-MEDIUM-001 audit
+//! finding flagged as a Tier-1 violation of the
+//! `KeyMaterial` architectural property: the source
+//! `KeyMaterial` is `ZeroizeOnDrop` so its 32 bytes get
+//! scrubbed when the wrapper drops, but the COPIED
+//! `[u8; 32]` we returned has no Drop scrubber — it sits
+//! on the caller's stack, gets copied into hex-format
+//! intermediate buffers (heap-allocated `String`, also
+//! unscrubbed), gets passed into SQLCipher PRAGMA strings
+//! (also unscrubbed), and ultimately leaves residue in
+//! heap pages reachable by core-dump / `/proc/<pid>/mem`
+//! / swap.
+//!
+//! The architectural fix wraps the return in `Zeroizing<>`
+//! (the zeroize-crate convenience type that scrubs on
+//! Drop). Callers consume `&[u8; 32]` via deref. The hex
+//! wrapper returns `Zeroizing<String>` so the hex bytes
+//! are scrubbed too. SQLCipher's PRAGMA-key C-string is
+//! still unscrubbable once it crosses FFI, but the
+//! Rust-side leak window is closed.
+//!
+//! Callers needing the raw bytes use
+//! `derive_v2_sqlcipher_key`; callers needing the
+//! SQLCipher PRAGMA-key hex string use
+//! `derive_v2_sqlcipher_pragma_key_hex`. Both return
+//! Zeroize-wrapped types.
 //!
 //! ## Scope of THIS batch
 //!
-//! Async shim + wrong-purpose guard + 3 unit tests
-//! using a stub `Keystore` impl. The actual rekey
+//! Async shim + wrong-purpose guard + Zeroize-wrapped
+//! return types + 7 unit tests. The actual rekey
 //! orchestration lands when the db-migrate-cli binary
 //! lands in PR-195.
 
 use async_trait::async_trait;
+use zeroize::Zeroizing;
 
 use super::v1_legacy_key::format_sqlcipher_pragma_key_hex;
 use crate::keystore::error::KeyDerivationError;
@@ -128,11 +151,19 @@ fn is_sqlcipher_purpose(purpose: KeyPurpose) -> bool {
 }
 
 /// Derive the v2 SQLCipher key from a `Keystore` for the
-/// given `(purpose, context)`. Returns raw 32 bytes.
+/// given `(purpose, context)`. Returns the 32 bytes
+/// wrapped in `Zeroizing<>` so they are scrubbed when the
+/// wrapper drops.
 ///
 /// **Wrong-purpose guard:** rejects non-SqlCipher
 /// purposes with `V2DerivationError::WrongPurpose`. See
 /// the module-level doc for the architectural rationale.
+///
+/// **Why `Zeroizing<[u8; 32]>` (not plain `[u8; 32]`):**
+/// see SEC-MEDIUM-001 audit finding closure rationale in
+/// the module-level doc. The plain return would escape
+/// the `KeyMaterial` ZeroizeOnDrop harness and leave key
+/// residue in heap pages.
 ///
 /// **Async:** mirrors the underlying
 /// `Keystore::derive_key` async signature — TPM-backed
@@ -142,33 +173,53 @@ pub async fn derive_v2_sqlcipher_key(
     keystore: &dyn Keystore,
     purpose: KeyPurpose,
     context: &[u8],
-) -> Result<[u8; 32], V2DerivationError> {
+) -> Result<Zeroizing<[u8; 32]>, V2DerivationError> {
     if !is_sqlcipher_purpose(purpose) {
         return Err(V2DerivationError::WrongPurpose { got: purpose });
     }
     let material: KeyMaterial =
         keystore.derive_key(purpose, context).await?;
-    // expose_secret() returns &[u8; 32]; we copy the
-    // bytes into an owned array so the KeyMaterial's
-    // ZeroizeOnDrop wrapper can free the underlying
-    // memory when this function returns. The 32 bytes
-    // we return are the caller's to own + the caller is
-    // responsible for any subsequent zeroization.
-    Ok(*material.expose_secret())
+    // Copy the bytes into a Zeroizing<[u8; 32]> wrapper
+    // so the caller's local copy gets scrubbed on Drop.
+    // The source KeyMaterial is dropped at function
+    // return + its DerivedKeyBytes ZeroizeOnDrop scrubs
+    // the original; the Zeroizing wrapper carries the
+    // same protection forward into the caller's scope.
+    Ok(Zeroizing::new(*material.expose_secret()))
 }
 
 /// Convenience wrapper that returns the SQLCipher
-/// PRAGMA-key hex string instead of raw bytes. Most
+/// PRAGMA-key hex string wrapped in `Zeroizing<>`. Most
 /// migration call sites need the hex form; offering it
 /// directly avoids per-call-site formatting.
+///
+/// **Why `Zeroizing<String>`:** the hex string
+/// recomputes the key bytes character-by-character into
+/// a heap-allocated `String`. Without the wrapper, the
+/// string's heap allocation would leak the key bytes
+/// (in textual form) when the `String` drops. The
+/// wrapper scrubs on Drop. See SEC-MEDIUM-001 closure
+/// rationale.
 pub async fn derive_v2_sqlcipher_pragma_key_hex(
     keystore: &dyn Keystore,
     purpose: KeyPurpose,
     context: &[u8],
-) -> Result<String, V2DerivationError> {
+) -> Result<Zeroizing<String>, V2DerivationError> {
     let bytes =
         derive_v2_sqlcipher_key(keystore, purpose, context).await?;
-    Ok(format_sqlcipher_pragma_key_hex(&bytes))
+    // `format_sqlcipher_pragma_key_hex` returns a plain
+    // String; wrapping it in Zeroizing transfers the
+    // scrub-on-drop semantic to the hex form. The
+    // intermediate plain String exists for one
+    // statement; its Drop happens after the wrap, but
+    // since we move the value into Zeroizing::new the
+    // intermediate is ALREADY zeroized by the wrapper's
+    // Drop when the caller is done. (The very brief
+    // unwrapped lifetime within this function is
+    // acceptable — the alternative would require
+    // changing format_sqlcipher_pragma_key_hex's return
+    // type globally, breaking the v1 path.)
+    Ok(Zeroizing::new(format_sqlcipher_pragma_key_hex(&bytes)))
 }
 
 /// Stub keystore for unit testing the shim's
@@ -242,8 +293,9 @@ mod tests {
     }
 
     /// Happy path: SqlCipherOfflineQueue purpose returns
-    /// the stub's deterministic 0xa1-prefixed bytes.
-    /// Pins the forwarding semantic.
+    /// the stub's deterministic 0xa1-prefixed bytes
+    /// wrapped in `Zeroizing`. Pins the forwarding
+    /// semantic + the Zeroize-harness contract.
     #[tokio::test]
     async fn shim_forwards_sqlcipher_offline_queue_purpose() {
         let stub = StubKeystore;
@@ -254,6 +306,8 @@ mod tests {
         )
         .await
         .expect("derive ok");
+        // Zeroizing<[u8;32]> derefs to [u8;32]; index
+        // access goes through the Deref impl.
         assert_eq!(bytes[0], 0xa1);
     }
 
@@ -271,6 +325,29 @@ mod tests {
         .await
         .expect("derive ok");
         assert_eq!(bytes[0], 0xa2);
+    }
+
+    /// Returned bytes are wrapped in `Zeroizing<>` so the
+    /// 32 bytes get scrubbed on Drop. Pins the
+    /// architectural property closing SEC-MEDIUM-001.
+    /// A refactor that reverted to plain `[u8; 32]`
+    /// would fail here because `Zeroizing` is the type
+    /// we destructure on.
+    #[tokio::test]
+    async fn shim_returns_zeroize_wrapped_bytes() {
+        let stub = StubKeystore;
+        let bytes: Zeroizing<[u8; 32]> = derive_v2_sqlcipher_key(
+            &stub,
+            KeyPurpose::SqlCipherOfflineQueue,
+            b"ctx",
+        )
+        .await
+        .expect("derive ok");
+        // Type-pin via let-binding above is the actual
+        // architectural assertion. A refactor to plain
+        // `[u8; 32]` makes the let-binding fail to
+        // compile.
+        assert_eq!(bytes.len(), 32);
     }
 
     /// Wrong-purpose guard: AuditHmacChain rejects with
@@ -325,11 +402,13 @@ mod tests {
 
     /// `derive_v2_sqlcipher_pragma_key_hex` returns 64
     /// lower-hex chars (the format expected by SQLCipher
-    /// `PRAGMA key = "x'...'"`).
+    /// `PRAGMA key = "x'...'"`) wrapped in `Zeroizing`.
+    /// Pins both the format contract + the Zeroize-
+    /// harness extension into the hex form.
     #[tokio::test]
     async fn pragma_hex_wrapper_returns_64_char_lower_hex() {
         let stub = StubKeystore;
-        let hex = derive_v2_sqlcipher_pragma_key_hex(
+        let hex: Zeroizing<String> = derive_v2_sqlcipher_pragma_key_hex(
             &stub,
             KeyPurpose::SqlCipherOfflineQueue,
             b"ctx",

@@ -566,6 +566,54 @@ fn d3_wire_v2_shim_wrong_purpose_variant_present() {
     );
 }
 
+/// **D-3 wire invariant 16b (Batch #336 — closes
+/// SEC-MEDIUM-001 audit finding):** the v2 shim's
+/// public-API return types are wrapped in `Zeroizing`
+/// so the key bytes / hex string get scrubbed on Drop.
+///
+/// **Why this matters:** pre-Batch-#336 the shim
+/// returned plain `[u8; 32]` and plain `String`. The
+/// `KeyMaterial` source was `ZeroizeOnDrop` so the
+/// keystore-side bytes scrubbed correctly, but the
+/// COPIES we returned had no Drop scrubber — they sat
+/// on the caller's stack, got copied into hex format
+/// buffers, and ultimately leaked key residue via
+/// core-dump / `/proc/<pid>/mem` / swap. Batch #336
+/// wraps both returns in `Zeroizing<>`. This invariant
+/// fails-loud if a future refactor drops the wrapper.
+#[test]
+fn d3_wire_v2_shim_returns_zeroize_wrapped_types() {
+    let src = read_source(V2_KEYSTORE_KEY_RS);
+    assert!(
+        src.contains(
+            "-> Result<Zeroizing<[u8; 32]>, V2DerivationError>"
+        ),
+        "D-3 WIRE INVARIANT VIOLATED: derive_v2_sqlcipher_key \
+         no longer returns Zeroizing<[u8; 32]>. A plain \
+         [u8; 32] return escapes the KeyMaterial Zeroize \
+         harness — see SEC-MEDIUM-001 audit finding closure \
+         rationale in {V2_KEYSTORE_KEY_RS}."
+    );
+    assert!(
+        src.contains(
+            "-> Result<Zeroizing<String>, V2DerivationError>"
+        ),
+        "D-3 WIRE INVARIANT VIOLATED: \
+         derive_v2_sqlcipher_pragma_key_hex no longer returns \
+         Zeroizing<String>. The hex form leaks key bytes via \
+         the heap-allocated String when the wrapper drops."
+    );
+    // The zeroize crate import MUST be present.
+    assert!(
+        src.contains("use zeroize::Zeroizing;"),
+        "D-3 WIRE INVARIANT VIOLATED: {V2_KEYSTORE_KEY_RS} \
+         dropped the `use zeroize::Zeroizing` import. The \
+         Zeroize-harness types are not in scope; the Result \
+         signatures above would fail to compile, but the \
+         grep here makes the dependency explicit."
+    );
+}
+
 // ---------------------------------------------------------
 // Module-level — re-exports and roadmap
 // ---------------------------------------------------------

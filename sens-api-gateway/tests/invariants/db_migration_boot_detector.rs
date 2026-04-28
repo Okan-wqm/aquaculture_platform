@@ -46,6 +46,15 @@ fn tempdir() -> tempfile::TempDir {
     tempfile::tempdir().expect("tempdir")
 }
 
+/// Create an empty DB file at the given path so the
+/// detector's (db_exists, sidecar_exists) classification
+/// (PR-195 Batch #5) treats this entry as "real DB
+/// present". Tests that want the orphan-sidecar arm
+/// (sidecar exists, DB missing) skip this helper.
+fn touch_db(path: &std::path::Path) {
+    fs::write(path, b"").expect("touch db file");
+}
+
 /// **D-3 boot-detector invariant 1:** empty input
 /// produces an empty report (no panic, no false
 /// positives). Pins the clean-install no-DB case.
@@ -66,6 +75,7 @@ fn d3_boot_empty_input_returns_empty_report() {
 fn d3_boot_v1_manifest_classified_as_backlog_with_timestamp() {
     let dir = tempdir();
     let db = dir.path().join("offline_queue.db");
+    touch_db(&db);
     write_manifest(
         &manifest_path_for_db(&db),
         &DbKeySourceManifest {
@@ -102,6 +112,7 @@ fn d3_boot_v1_manifest_classified_as_backlog_with_timestamp() {
 fn d3_boot_v2_manifest_counted_up_to_date() {
     let dir = tempdir();
     let db = dir.path().join("license_cache.db");
+    touch_db(&db);
     write_manifest(
         &manifest_path_for_db(&db),
         &DbKeySourceManifest {
@@ -126,6 +137,7 @@ fn d3_boot_v2_manifest_counted_up_to_date() {
 fn d3_boot_missing_manifest_treated_as_legacy_v1_with_none_timestamp() {
     let dir = tempdir();
     let db = dir.path().join("legacy.db");
+    touch_db(&db); // DB present, no sidecar = legacy v1 default.
     // No manifest written — pre-D-3 historical state.
 
     let report = detect_db_migration_backlog(&[db.as_path()]);
@@ -150,6 +162,7 @@ fn d3_boot_missing_manifest_treated_as_legacy_v1_with_none_timestamp() {
 fn d3_boot_corrupt_manifest_routed_to_detection_failures() {
     let dir = tempdir();
     let db = dir.path().join("broken.db");
+    touch_db(&db);
     fs::write(manifest_path_for_db(&db), b"not valid JSON {").expect("seed");
 
     let report = detect_db_migration_backlog(&[db.as_path()]);
@@ -168,6 +181,7 @@ fn d3_boot_corrupt_manifest_routed_to_detection_failures() {
 fn d3_boot_envelope_version_mismatch_routed_to_detection_failures() {
     let dir = tempdir();
     let db = dir.path().join("future.db");
+    touch_db(&db);
     let bogus = r#"{"manifest_envelope_version": 999, "schema_version": "v2-keystore-derived", "last_updated_at_unix_secs": 1700000000}"#;
     fs::write(manifest_path_for_db(&db), bogus).expect("seed");
 
@@ -188,6 +202,7 @@ fn d3_boot_mixed_input_distributes_to_correct_buckets() {
 
     // v1 manifest.
     let v1_db = dir.path().join("v1.db");
+    touch_db(&v1_db);
     write_manifest(
         &manifest_path_for_db(&v1_db),
         &DbKeySourceManifest {
@@ -199,6 +214,7 @@ fn d3_boot_mixed_input_distributes_to_correct_buckets() {
 
     // v2 manifest.
     let v2_db = dir.path().join("v2.db");
+    touch_db(&v2_db);
     write_manifest(
         &manifest_path_for_db(&v2_db),
         &DbKeySourceManifest {
@@ -210,9 +226,11 @@ fn d3_boot_mixed_input_distributes_to_correct_buckets() {
 
     // Missing manifest.
     let missing_db = dir.path().join("missing.db");
+    touch_db(&missing_db);
 
     // Corrupt manifest.
     let corrupt_db = dir.path().join("corrupt.db");
+    touch_db(&corrupt_db);
     fs::write(manifest_path_for_db(&corrupt_db), b"not valid JSON")
         .expect("seed corrupt");
 
@@ -244,10 +262,12 @@ fn d3_boot_one_corrupt_does_not_halt_classification() {
     let dir = tempdir();
 
     let corrupt_db = dir.path().join("corrupt.db");
+    touch_db(&corrupt_db);
     fs::write(manifest_path_for_db(&corrupt_db), b"junk")
         .expect("seed");
 
     let v1_db = dir.path().join("v1.db");
+    touch_db(&v1_db);
     write_manifest(
         &manifest_path_for_db(&v1_db),
         &DbKeySourceManifest {
@@ -282,6 +302,7 @@ fn d3_boot_log_structured_warn_is_idempotent() {
         }],
         up_to_date_count: 0,
         detection_failures: vec![],
+        nonexistent_dbs_count: 0,
     };
     report.log_structured_warn();
     report.log_structured_warn();
@@ -298,6 +319,7 @@ fn d3_boot_log_structured_warn_is_idempotent() {
 fn d3_boot_target_version_is_snapshotted_per_entry() {
     let dir = tempdir();
     let db = dir.path().join("v1.db");
+    touch_db(&db);
     write_manifest(
         &manifest_path_for_db(&db),
         &DbKeySourceManifest {

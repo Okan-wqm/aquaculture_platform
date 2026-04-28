@@ -12,6 +12,9 @@ certs/
 # Carries deploy-specific cert paths + DB password; never check it in.
 infrastructure/sensor-ingestion/config.toml
 
+# perf-baseline JSON outputs (noise; markdown summary is the durable artefact)
+docs/perf/runs/: sensor-service ingestion baseline tooling (Faz 0 PR-B))
+
 # Dependencies
 node_modules
 

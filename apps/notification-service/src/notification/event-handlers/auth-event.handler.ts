@@ -124,16 +124,20 @@ export class AuthEventHandler
    */
   private async resolveUserPII(userId: string, tenantId: string): Promise<ResolvedUserPII | null> {
     try {
-      const { generateServiceIdentityHeaders } = require('@aquaculture/backend-common');
-      // SECURITY (HIGH-003): tenantId bound into HMAC signature.
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        'x-tenant-id': tenantId,
-        ...generateServiceIdentityHeaders('notification-service', this.internalSecret, tenantId),
-      };
-      const response = await fetch(
+      // SECURITY (SEC-CRITICAL-001 closure): use signedFetch which produces
+      // v2 HMAC headers binding tenantId AND method+path+body. Manual
+      // generateServiceIdentityHeaders + fetch is the v1 pattern that left
+      // the canonical input cross-endpoint-replayable.
+      const { signedFetch } = require('@aquaculture/backend-common');
+      const response = await signedFetch(
         `${this.authServiceUrl}/internal/users/${userId}/pii`,
-        { headers },
+        {
+          method: 'GET',
+          serviceName: 'notification-service',
+          tenantId,
+          secret: this.internalSecret,
+          headers: { 'Content-Type': 'application/json' },
+        },
       );
       if (!response.ok) {
         this.logger.error(`Failed to resolve user PII for userId=${userId}: HTTP ${response.status}`);
@@ -151,16 +155,17 @@ export class AuthEventHandler
    */
   private async resolveTenantInfo(tenantId: string): Promise<ResolvedTenantInfo | null> {
     try {
-      const { generateServiceIdentityHeaders } = require('@aquaculture/backend-common');
-      // SECURITY (HIGH-003): tenantId bound into HMAC signature.
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        'x-tenant-id': tenantId,
-        ...generateServiceIdentityHeaders('notification-service', this.internalSecret, tenantId),
-      };
-      const response = await fetch(
+      // SECURITY (SEC-CRITICAL-001 closure): see resolveUserPII for rationale.
+      const { signedFetch } = require('@aquaculture/backend-common');
+      const response = await signedFetch(
         `${this.authServiceUrl}/internal/tenants/${tenantId}/info`,
-        { headers },
+        {
+          method: 'GET',
+          serviceName: 'notification-service',
+          tenantId,
+          secret: this.internalSecret,
+          headers: { 'Content-Type': 'application/json' },
+        },
       );
       if (!response.ok) {
         this.logger.error(`Failed to resolve tenant info for tenantId=${tenantId}: HTTP ${response.status}`);
@@ -181,16 +186,17 @@ export class AuthEventHandler
    */
   private async resolveActionUrl(actionTokenId: string, tenantId: string): Promise<ResolvedActionInfo | null> {
     try {
-      const { generateServiceIdentityHeaders } = require('@aquaculture/backend-common');
-      // SECURITY (HIGH-003): tenantId bound into HMAC signature.
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        'x-tenant-id': tenantId,
-        ...generateServiceIdentityHeaders('notification-service', this.internalSecret, tenantId),
-      };
-      const response = await fetch(
+      // SECURITY (SEC-CRITICAL-001 closure): see resolveUserPII for rationale.
+      const { signedFetch } = require('@aquaculture/backend-common');
+      const response = await signedFetch(
         `${this.authServiceUrl}/internal/action-tokens/${actionTokenId}/url`,
-        { headers },
+        {
+          method: 'GET',
+          serviceName: 'notification-service',
+          tenantId,
+          secret: this.internalSecret,
+          headers: { 'Content-Type': 'application/json' },
+        },
       );
       if (!response.ok) {
         this.logger.error(`Failed to resolve action URL for tokenId=${actionTokenId}: HTTP ${response.status}`);

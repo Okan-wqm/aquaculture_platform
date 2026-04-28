@@ -107,6 +107,7 @@ export default {
         '<rootDir>/no-direct-getrepository-call.spec.ts',
         '<rootDir>/no-root-barrel-import.spec.ts',
         '<rootDir>/audit-immutability-triggers.spec.ts',
+        '<rootDir>/service-identity-canonical-coverage.spec.ts',
       ],
     },
     {

@@ -22,7 +22,7 @@ import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
 import { MetricsMiddleware } from '@aquaculture/backend-common/metrics';
 import { UserContextMiddleware, TenantContextMiddleware, CorrelationIdMiddleware, RequestLoggingMiddleware } from '@aquaculture/backend-common/middleware';
 import { RedisModule, RedisService } from '@aquaculture/backend-common/redis';
-import { generateServiceIdentityHeaders } from '@aquaculture/backend-common/utils';
+import { buildSignedInternalHeaders } from '@aquaculture/backend-common/http';
 import { StorageModule, StorageConfig } from '@platform/storage';
 
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
@@ -199,19 +199,34 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
       httpRequest.headers.set('x-user-payload', JSON.stringify(user));
     }
 
-    // SECURITY (HIGH-003): sign request for subgraph identity verification AND
-    // bind the resolved tenant into the HMAC so a compromised caller cannot
-    // forward a valid signature with a spoofed x-tenant-id header. If no
-    // tenant applies (public / pre-auth paths), tenantId is empty string.
+    // SECURITY: sign request for subgraph identity verification AND bind
+    // the resolved tenant + method + path + body into the HMAC. v2 canonical
+    // input prevents cross-endpoint replay (a captured signature for one
+    // subgraph operation cannot be forwarded to another) AND body-tampering
+    // (the receiver re-derives sha256(body) and rejects on mismatch). If
+    // no tenant applies (public / pre-auth paths), tenantId is empty string.
+    //
+    // Closes: SEC-CRITICAL-001 — sender side; subgraph guards already accept v2
+    // via verifyServiceIdentityRequest in libs/backend-common/src/guards.
     if (this.secret) {
       const signedTenantId = uuidRegex.test(resolvedTenantId ?? '')
         ? (resolvedTenantId as string)
         : '';
-      const identityHeaders = generateServiceIdentityHeaders(
-        'gateway-api',
-        this.secret,
-        signedTenantId,
-      );
+      // Apollo's httpRequest exposes the to-be-sent verb, URL, and body.
+      // Path is extracted without the query string per v2 contract.
+      const subgraphUrl = new URL(httpRequest.url);
+      const subgraphPath = subgraphUrl.pathname;
+      const subgraphMethod = httpRequest.method ?? 'POST';
+      const subgraphBody =
+        typeof httpRequest.body === 'string' ? httpRequest.body : JSON.stringify(httpRequest.body ?? '');
+      const identityHeaders = buildSignedInternalHeaders({
+        serviceName: 'gateway-api',
+        tenantId: signedTenantId,
+        method: subgraphMethod,
+        path: subgraphPath,
+        body: subgraphBody,
+        secret: this.secret,
+      });
       for (const [key, value] of Object.entries(identityHeaders)) {
         httpRequest.headers.set(key, value);
       }

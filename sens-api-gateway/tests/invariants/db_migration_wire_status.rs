@@ -627,18 +627,27 @@ fn d3_wire_v2_shim_centralizes_purpose_predicate() {
          KeyPurpose. The SSoT for 'which purposes are valid \
          for SQLCipher migration' is gone."
     );
-    // The method MUST match BOTH SqlCipher* variants
-    // currently defined. Adding a third later requires
-    // extending the method AND this invariant.
-    assert!(
-        purpose_src.contains("Self::SqlCipherOfflineQueue")
-            && purpose_src.contains("Self::SqlCipherRetainPersistence"),
-        "D-3 WIRE INVARIANT VIOLATED: is_sqlcipher_variant \
-         method dropped a SqlCipher* variant in \
-         src/keystore/purpose.rs. Both SqlCipherOfflineQueue \
-         and SqlCipherRetainPersistence are valid migration \
-         targets today."
-    );
+    // The method MUST match ALL FOUR SqlCipher* variants
+    // currently defined (Batch #341 / ADR-031 added
+    // SqlCipherLicenseCache + SqlCipherBytecodeRetain to
+    // the original SqlCipherOfflineQueue +
+    // SqlCipherRetainPersistence). Adding a fifth later
+    // requires extending the method AND this invariant.
+    for variant in [
+        "Self::SqlCipherOfflineQueue",
+        "Self::SqlCipherRetainPersistence",
+        "Self::SqlCipherLicenseCache",
+        "Self::SqlCipherBytecodeRetain",
+    ] {
+        assert!(
+            purpose_src.contains(variant),
+            "D-3 WIRE INVARIANT VIOLATED: is_sqlcipher_variant \
+             method dropped `{variant}` in \
+             src/keystore/purpose.rs. All four SqlCipher* \
+             variants are valid migration targets today \
+             (ADR-031)."
+        );
+    }
     // The v2 shim retains a thin pass-through pointing
     // at the method.
     let shim_src = read_source(V2_KEYSTORE_KEY_RS);

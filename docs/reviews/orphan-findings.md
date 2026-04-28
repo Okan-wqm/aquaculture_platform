@@ -1028,7 +1028,7 @@ The PRESENT state (untracked, no policy file) is the worst of both — engineers
 
 **Severity: MEDIUM** — blocks the per-consumer migration arc but does not affect any deployed system (current consumers stay on v1 unless migration ships). Tracked in Batch #332's commit body but elevated to a standalone orphan finding for visibility.
 
-**Status:** OPEN. PR-195 cannot complete the consumer-migration arc until the ADR lands. Suggested ADR title: "ADR-NNN: KeyPurpose enum extension for D-3 SQLCipher consumer-migration arc".
+**Status:** RESOLVED — closed by Batch #341 (this session). ADR-031 written + landed at `docs/adr/031-keypurpose-sqlcipher-consumer-extension.md`. Two variants added to `KeyPurpose`: `SqlCipherLicenseCache` (hkdf_info `b"suderra:sqlcipher:license-cache:v2"`, deployment-instance UUID context) + `SqlCipherBytecodeRetain` (hkdf_info `b"suderra:sqlcipher:bytecode-retain:v1"`, program-artifact-SHA256 context). `KeyPurpose::is_sqlcipher_variant` extended to match all 4 SqlCipher* variants. Wire-status invariant 15 in `db_migration_wire_status.rs` extended to assert all 4 variants present. PR-195 consumer-migration arc unblocked.
 
 **Linked plan:** Plan §5 Faz 2 D-3 (UH-017 parent finding); PR-195 D-3 closure arc (consumer-migration installment).
 

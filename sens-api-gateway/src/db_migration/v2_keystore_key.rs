@@ -281,6 +281,8 @@ mod tests {
             bytes[0] = match purpose {
                 KeyPurpose::SqlCipherOfflineQueue => 0xa1,
                 KeyPurpose::SqlCipherRetainPersistence => 0xa2,
+                KeyPurpose::SqlCipherLicenseCache => 0xa3,
+                KeyPurpose::SqlCipherBytecodeRetain => 0xa4,
                 KeyPurpose::AuditHmacChain => 0xb1,
                 KeyPurpose::ReplayCache => 0xb2,
                 KeyPurpose::DekEscrow => 0xc1,
@@ -494,10 +496,18 @@ mod tests {
     /// `is_sqlcipher_purpose` is a thin pass-through.
     /// Pin both halves so a future inlining of the match
     /// arm at the call site fails this gate.
+    ///
+    /// Updated Batch #341 (ADR-031) to cover the two new
+    /// SqlCipher* variants `SqlCipherLicenseCache` +
+    /// `SqlCipherBytecodeRetain`. Both must be classified
+    /// as SQLCipher migration targets; non-SqlCipher
+    /// variants must be rejected.
     #[test]
     fn key_purpose_is_sqlcipher_variant_method_is_ssot() {
         assert!(KeyPurpose::SqlCipherOfflineQueue.is_sqlcipher_variant());
         assert!(KeyPurpose::SqlCipherRetainPersistence.is_sqlcipher_variant());
+        assert!(KeyPurpose::SqlCipherLicenseCache.is_sqlcipher_variant());
+        assert!(KeyPurpose::SqlCipherBytecodeRetain.is_sqlcipher_variant());
         assert!(!KeyPurpose::AuditHmacChain.is_sqlcipher_variant());
         assert!(!KeyPurpose::ReplayCache.is_sqlcipher_variant());
         assert!(!KeyPurpose::DekEscrow.is_sqlcipher_variant());

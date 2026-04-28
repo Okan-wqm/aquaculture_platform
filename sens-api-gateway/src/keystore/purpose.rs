@@ -38,6 +38,24 @@ pub enum KeyPurpose {
     /// with new bytecode loses retain access — intentional, ADR-017 §7).
     SqlCipherRetainPersistence,
 
+    /// SQLCipher master key for the license-tier cache database
+    /// (ADR-031, Batch #341).
+    /// Context bytes: deployment-instance UUID. The license cache is bound
+    /// to the device, NOT to any program artifact — same context shape as
+    /// `SqlCipherOfflineQueue`. Adding this variant unblocks the PR-195
+    /// per-consumer migration arc for `src/license_cache.rs`.
+    SqlCipherLicenseCache,
+
+    /// SQLCipher master key for the ST VM bytecode-retain persistence
+    /// database (ADR-031, Batch #341). Distinct from
+    /// `SqlCipherRetainPersistence` (which covers `scripting/persistence.rs`
+    /// — the runtime VM state). This variant covers
+    /// `scripting/bytecode_retain.rs` — the bytecode artifact retention
+    /// store.
+    /// Context bytes: program artifact SHA-256 (program-bound lifecycle
+    /// matches `SqlCipherRetainPersistence` per ADR-017 §7).
+    SqlCipherBytecodeRetain,
+
     /// HMAC-SHA256 chain key for the append-only audit log (ADR-020 §2).
     /// Context bytes: `b"audit-hmac-chain-v1"` (constant; rotation happens at
     /// master level). Rotation closes the old chain and opens a new one with
@@ -70,6 +88,8 @@ impl KeyPurpose {
         match self {
             Self::SqlCipherOfflineQueue => b"suderra:sqlcipher:offline-queue:v2",
             Self::SqlCipherRetainPersistence => b"suderra:sqlcipher:retain-persistence:v1",
+            Self::SqlCipherLicenseCache => b"suderra:sqlcipher:license-cache:v2",
+            Self::SqlCipherBytecodeRetain => b"suderra:sqlcipher:bytecode-retain:v1",
             Self::AuditHmacChain => b"suderra:audit:hmac-chain:v1",
             Self::ReplayCache => b"suderra:replay-cache:v1",
             Self::DekEscrow => b"suderra:dek-escrow:v1",
@@ -108,6 +128,8 @@ impl KeyPurpose {
             self,
             Self::SqlCipherOfflineQueue
                 | Self::SqlCipherRetainPersistence
+                | Self::SqlCipherLicenseCache
+                | Self::SqlCipherBytecodeRetain
         )
     }
 }
@@ -165,6 +187,15 @@ mod tests {
             KeyPurpose::SqlCipherRetainPersistence.hkdf_info(),
             b"suderra:sqlcipher:retain-persistence:v1"
         );
+        // Batch #341 — ADR-031 additions.
+        assert_eq!(
+            KeyPurpose::SqlCipherLicenseCache.hkdf_info(),
+            b"suderra:sqlcipher:license-cache:v2"
+        );
+        assert_eq!(
+            KeyPurpose::SqlCipherBytecodeRetain.hkdf_info(),
+            b"suderra:sqlcipher:bytecode-retain:v1"
+        );
         assert_eq!(
             KeyPurpose::AuditHmacChain.hkdf_info(),
             b"suderra:audit:hmac-chain:v1"
@@ -181,6 +212,8 @@ mod tests {
         let purposes = [
             KeyPurpose::SqlCipherOfflineQueue,
             KeyPurpose::SqlCipherRetainPersistence,
+            KeyPurpose::SqlCipherLicenseCache,
+            KeyPurpose::SqlCipherBytecodeRetain,
             KeyPurpose::AuditHmacChain,
             KeyPurpose::ReplayCache,
             KeyPurpose::DekEscrow,

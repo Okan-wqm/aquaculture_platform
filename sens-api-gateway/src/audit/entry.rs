@@ -681,7 +681,7 @@ mod tests {
     fn audit_resource_wire_tags_stable() {
         let t = AuditResource::Tag { name: "x".to_string() };
         let p = AuditResource::Permission {
-            permission: Permission::ReadTag(crate::authz::TagId::from("x".to_string())),
+            permission: Permission::ReadTag,
         };
         let pg = AuditResource::Program { program_id: "x".to_string() };
         let fi = AuditResource::FirmwareImage { image_digest_hex: "x".to_string() };
@@ -727,7 +727,7 @@ mod tests {
     #[test]
     fn audit_resource_permission_variant_encodes_via_wire_tag_and_length_prefix() {
         let res = AuditResource::Permission {
-            permission: Permission::ReadTag(crate::authz::TagId::from("p".to_string())),
+            permission: Permission::ReadTag,
         };
         let mut out = Vec::new();
         res.append_canonical_bytes(&mut out).expect("ok");
@@ -749,7 +749,7 @@ mod tests {
     fn audit_entry_with_permission_resource_canonical_bytes_ok() {
         let mut e = canned_entry();
         e.resource = AuditResource::Permission {
-            permission: Permission::ReadTag(crate::authz::TagId::from("pond3_temp".to_string())),
+            permission: Permission::ReadTag,
         };
         let bytes = e.canonical_bytes().expect("permission resource ok");
         assert!(bytes.ends_with(b"audit-entry-v1"));

@@ -1,15 +1,4 @@
-/**
- * SlidingWindowStrategy - Unit Tests
- *
- * Tests cover:
- * - Basic consume and allow/block behavior
- * - consumeWithConfig for custom limits
- * - Window expiration (requests age out)
- * - Reset functionality
- * - Get current state without consuming
- * - Cleanup of expired entries
- */
-import { SlidingWindowStrategy } from '@aquaculture/backend-common';
+import { SlidingWindowStrategy } from '@aquaculture/backend-common/security';
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 

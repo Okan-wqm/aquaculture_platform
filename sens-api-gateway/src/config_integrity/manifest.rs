@@ -100,6 +100,16 @@ impl ConfigMeta {
 }
 
 impl SignedConfigMeta {
+    /// Construct from a ConfigMeta body + raw signature bytes.
+    ///
+    /// Batch 54 note: the runtime verify path
+    /// (config_integrity::verify_runtime) deserializes
+    /// SignedConfigMeta directly via `serde_json::from_slice`,
+    /// not via this constructor. Kept as a compile-time
+    /// fallback for future offline-constructor callers
+    /// (e.g., a `suderra-config-sign` CLI that would produce
+    /// the meta + sig pair programmatically).
+    #[allow(dead_code)]
     pub fn from_body_and_signature_bytes(
         meta: ConfigMeta,
         signature_bytes: &[u8],

@@ -1,6 +1,6 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 import { Logger } from '@nestjs/common';
-import { assertSafeSchemaName, pinSearchPath } from '@aquaculture/backend-common';
+import { assertSafeSchemaName, pinSearchPath } from '@aquaculture/backend-common/database';
 
 /**
  * Migration: Add feeder_calibrations table

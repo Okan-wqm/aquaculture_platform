@@ -9,6 +9,30 @@
 //! # IEC 62443 Compliance
 //! - FR3: System Integrity (input validation, log sanitization)
 //! - FR4: Data Confidentiality (credential protection)
+//!
+//! ## Wire status (Batch #279 audit)
+//!
+//! Production wire confirmed across **wide consumer surface**:
+//! - `config.rs:80` — `validate_key_file_permissions(...)`
+//!   asserts 0400 mode on `/etc/suderra/db.key` + sibling
+//!   secret files at boot.
+//! - `commands/*.rs` (12+ call sites) —
+//!   `sanitize_for_log(...)` is invoked on every command
+//!   handler that logs user-provided string params:
+//!   `script.rs`, `diagnostic.rs`, `confirm_slot.rs`,
+//!   `verify_signed_manifest.rs`, `apply_signed_manifest.rs`,
+//!   `deploy_bytecode_program.rs`, `refresh_license.rs`,
+//!   `ide_deploy.rs`, `bytecode_ops.rs`, etc. The single-
+//!   source sanitizer prevents log-injection attacks where an
+//!   HMI / cloud crafts a payload with `\n` + fake log line.
+//!
+//! Per-item dead-code allow audit pending — the
+//! `Module provides utilities for future use` comment names
+//! the WHITELIST-with-reason intent. The mask_sensitive_data /
+//! credential-protection helpers are compiled-but-unreferenced
+//! in production today; they wait on Sprint 6.x credential-
+//! rotation paths that explicitly opt into the masking
+//! discipline. Per Plan §3.1 ARC-009 framework.
 
 #![allow(dead_code)] // Module provides utilities for future use
 
@@ -92,8 +116,11 @@ pub fn validate_key_file_permissions(path: &Path) -> Result<(), String> {
 
 #[cfg(not(unix))]
 pub fn validate_key_file_permissions(_path: &Path) -> Result<(), String> {
-    // Windows uses ACLs, not Unix permissions
-    // For now, we skip this check on non-Unix platforms
+    // Windows uses ACLs, not Unix permissions — this check is
+    // intentionally skipped on non-Unix platforms; Windows ACL
+    // validation is a separate codepath that lands when the
+    // edge agent is qualified for Windows hosts (currently
+    // Linux-only per IEC 62443 SL-2 deployment scope).
     Ok(())
 }
 

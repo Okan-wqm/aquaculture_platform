@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
-import { buildSignedInternalHeaders } from '@aquaculture/backend-common';
+import { buildSignedInternalHeaders } from '@aquaculture/backend-common/http';
 
 export interface SystemMetrics {
   timestamp: string;

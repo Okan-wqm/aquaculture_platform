@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, EntityManager } from 'typeorm';
 
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import {
   ComplianceAuditLog,
   ComplianceAction,
@@ -74,7 +75,13 @@ export class ComplianceAuditService {
    *   When no manager (fire-and-forget callers), errors are caught as before.
    */
   async log(params: AuditLogParams, manager?: EntityManager): Promise<void> {
-    const repo = manager ? manager.getRepository(ComplianceAuditLog) : this.auditRepo;
+    // Inside-transaction path wraps via tenantManagerRepo so the audit row
+    // can never carry a tenantId different from the caller's request scope.
+    // Outside-transaction fallback (fire-and-forget) carries explicit
+    // tenantId in the entry payload below.
+    const repo = manager
+      ? tenantManagerRepo(manager, ComplianceAuditLog, params.tenantId)
+      : this.auditRepo;
 
     const doLog = async (): Promise<void> => {
       const entry = repo.create({

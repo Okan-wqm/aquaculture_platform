@@ -34,13 +34,8 @@ import {
 } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
 import { Logger, UseGuards } from '@nestjs/common';
-import {
-  CurrentTenant,
-  CurrentUser,
-  Role,
-  Roles,
-  TenantGuard,
-} from '@aquaculture/backend-common';
+import { CurrentTenant, CurrentUser, Role, Roles } from '@aquaculture/backend-common/decorators';
+import { TenantGuard } from '@aquaculture/backend-common/guards';
 
 import { TenantExportService } from './services/tenant-export.service';
 import { TenantErasureService } from './services/tenant-erasure.service';

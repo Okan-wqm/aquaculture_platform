@@ -1,7 +1,4 @@
-import {
-  EncryptedAtRest,
-  dropOrphanedColumns,
-} from '@aquaculture/backend-common';
+import { EncryptedAtRest, dropOrphanedColumns } from '@aquaculture/backend-common/database';
 import {
   Column,
   DataSource,

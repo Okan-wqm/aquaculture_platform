@@ -1,3 +1,7 @@
+// BATCH-001-CI-FIX-015: pre-staged types for Sprint 6.1-6.8 runtime wiring.
+// Re-exports are intentionally unused until the runtime consumers land.
+#![allow(unused_imports)]
+
 //! # Authorization module — ABAC Permission-set + sealed `AuthorizedContext`
 //!
 //! Implements the architectural contract defined in:
@@ -57,6 +61,56 @@ pub mod policy;
 pub mod manifest;
 pub mod verify;
 
+// Batch #249a refactor — shared ed25519 pubkey hex parser.
+// Used by every signed-manifest verifier in the authz tree (RBAC
+// + user-token + future streams) so the 64-char-length + hex
+// conversion + VerifyingKey ctor lives in exactly ONE place.
+pub mod signing_key_util;
+
+// Batch #243 refactor — shared envelope-gate helper. Gates 1-5
+// (validity window / clock / tenant / version / expiry) are common to
+// every signed edge manifest; `manifest_common::run_envelope_gates` is
+// the single canonical implementation consumed by `verify` (RBAC) and
+// `user_token_manifest` (OPC UA credentials). Zero duplication across
+// manifest verifiers.
+pub mod manifest_common;
+
+// Batch #243 — UserTokenManifest wire format + verify_user_token_manifest.
+// Parallel to `manifest` + `verify` for the OPC UA UserName/Password +
+// X.509 credential side of operator authentication. Signed by
+// `user_token_manifest_signing_key` (ADR-021 slot 4); independent
+// monotonic version stream so credential rotation doesn't force RBAC
+// fleet re-signing.
+pub mod user_token_manifest;
+
+// Batch #245 — UserTokenManifestStore hot-reload atom. Holds the
+// verified user-token manifest + a cached UserTokenEnrollment; the
+// store swap is atomic so validator readers never see mismatched
+// pairs. Paired with `opc_ua_server_user_token_validator` (at crate
+// root) which consumes this store.
+pub mod user_token_manifest_runtime;
+
+// Batch 67 — RbacManifestStore runtime loader (Sprint 6.1 full wire
+// partial). Holds the verified manifest in memory + exposes operator→
+// pubkey lookup for Batch 68+ envelope Gate 7 swap.
+pub mod manifest_runtime;
+
+// Batch 71 — ManifestVersionStore: SQLCipher-backed persistence for
+// `highest_seen_policy_version` across reboots. Closes the rollback
+// window where Batch 67/68 started from floor=0 every boot, letting
+// an attacker replay a captured older signed manifest. Batch 72
+// wires this into RbacManifestStore::load_from_file_inner.
+pub mod manifest_version_store;
+
+// Batch 223 — InMemoryPolicyEngine: PolicyEngine impl backed by
+// RbacManifestStore. Closes gap A-1 from the ruthless assessment
+// (Faz 5 write chain was DenyAll-only; this batch wires the real
+// authorize path — tenant check, policy-version monotonicity,
+// manifest-validity window, operator-binding lookup, role-set
+// permission match, co-approver gate for two-person-integrity
+// commands).
+pub mod in_memory_engine;
+
 // Re-export the commonly-used types for ergonomic downstream use.
 // Keep this list in sync with public API surface; every addition here is a
 // commitment to forward-compat for downstream consumers (ST VM, commands,
@@ -106,3 +160,12 @@ pub use manifest::{
 };
 
 pub use verify::{verify_manifest, ManifestVerifyError};
+
+pub use manifest_common::{run_envelope_gates, ManifestStructuralError};
+
+pub use user_token_manifest::{
+    verify_user_token_manifest, SignedUserTokenManifest, UserPassManifestBinding,
+    UserTokenManifest, UserTokenManifestVerifyError, X509ManifestBinding,
+};
+
+pub use user_token_manifest_runtime::UserTokenManifestStore;

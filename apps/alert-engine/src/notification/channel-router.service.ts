@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { NotificationChannel } from '../database/entities/escalation-policy.entity';
 import { AlertSeverity } from '../database/entities/alert-rule.entity';
-import { RedisService } from '@aquaculture/backend-common';
+import { RedisService } from '@aquaculture/backend-common/redis';
 
 /**
  * User notification preferences

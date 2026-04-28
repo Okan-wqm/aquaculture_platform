@@ -24,7 +24,7 @@ import type {
 } from '../compiler.types';
 import { tokenize } from '../lexer';
 import { STFormatter } from '../formatter/st-formatter';
-import type { ASTNode, VarBlockNode, VarDeclarationNode } from '../parser/st-ast';
+import type { ASTNode, VarBlockNode, VarDeclarationNode } from '@platform/sensor-automation-types';
 
 /**
  * Main worker function exported for piscina.

@@ -4,8 +4,14 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Outlet, useLocation } from 'react-router-dom';
-import { AdminSidebar } from './AdminSidebar';
+import { Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Sidebar, type UserRole } from '@aquaculture/shared-ui';
+import { adminNavItems, adminNavIcons } from './admin-nav-items';
+
+// Admin panel standalone dev mode runs without auth context. The
+// shared-ui Sidebar resolves access via `userRoles` PROPS — so we
+// pass the platform-admin role set directly. No auth provider needed.
+const ADMIN_DEV_ROLES: UserRole[] = ['SUPER_ADMIN'];
 
 // ============================================================================
 // Types
@@ -183,10 +189,35 @@ const MobileSidebarOverlay: React.FC<{
             </button>
           </div>
 
-          <AdminSidebar collapsed={false} />
+          <AdminNavSidebar collapsed={false} />
         </div>
       </div>
     </div>
+  );
+};
+
+// ============================================================================
+// AdminNavSidebar — thin wrapper around the shared-ui Sidebar with
+// admin-specific items, icons, and 'admin' theme baked in.
+// ============================================================================
+
+const AdminNavSidebar: React.FC<{
+  collapsed?: boolean;
+  onCollapsedChange?: (collapsed: boolean) => void;
+}> = ({ collapsed = false, onCollapsedChange }) => {
+  const navigate = useNavigate();
+  const location = useLocation();
+  return (
+    <Sidebar
+      items={adminNavItems}
+      customIcons={adminNavIcons}
+      activePath={location.pathname}
+      onNavigate={(path) => navigate(path)}
+      userRoles={ADMIN_DEV_ROLES}
+      theme="admin"
+      collapsed={collapsed}
+      {...(onCollapsedChange ? { onCollapsedChange } : {})}
+    />
   );
 };
 
@@ -229,7 +260,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
 
       {/* Desktop Sidebar */}
       <div className="hidden lg:block">
-        <AdminSidebar
+        <AdminNavSidebar
           collapsed={sidebarCollapsed}
           onCollapsedChange={setSidebarCollapsed}
         />

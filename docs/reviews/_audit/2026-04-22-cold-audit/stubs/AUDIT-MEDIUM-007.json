@@ -1,0 +1,17 @@
+{
+  "id": "AUDIT-MEDIUM-007",
+  "severity": "MEDIUM",
+  "state": "OPEN",
+  "title": "apps/auth-service authentication.service.ts has 8 getRepository() calls — cross-tenant risk in auth path",
+  "layer": 2,
+  "evidence": [
+    "apps/auth-service/src/modules/authentication/services/authentication.service.ts:1",
+    "apps/auth-service/src/modules/tenant/services/user-lifecycle.service.ts:1"
+  ],
+  "rule_violated": "CLAUDE.md \"getRepository() is FORBIDDEN → use getScopedRepository()\" — auth is MEDIUM here because auth.tenants is intentionally cross-tenant (login resolves tenant); but every NON-tenant-resolver callsite must scope.",
+  "owner_agent": "auth-security-expert",
+  "raised_in_cycle": "2026-04-22-cold-audit",
+  "review_file": "docs/reviews/_audit/2026-04-22-cold-audit/03-explore-findings.md",
+  "created_at": "2026-04-22T19:00:00Z",
+  "notes": "Tier 1: same eslint ban as HIGH-002/003/008, plus per-callsite review to distinguish legit cross-tenant resolver calls from bypasses."
+}

@@ -1,0 +1,17 @@
+{
+  "id": "AUDIT-CRITICAL-001",
+  "severity": "CRITICAL",
+  "state": "OPEN",
+  "title": "npm run type-check is a silent no-op — no root tsconfig.json, tsc prints help and exits 0",
+  "layer": 3,
+  "evidence": [
+    "package.json:33",
+    "tsconfig.base.json:1"
+  ],
+  "rule_violated": "CLAUDE.md \"CRITICAL — Run nx affected --target=test and nx affected --target=lint after changes. Never commit with red tests.\" (type-check cannot fail red because it never actually checks)",
+  "owner_agent": "orchestrator",
+  "raised_in_cycle": "2026-04-22-cold-audit",
+  "review_file": "docs/reviews/_audit/2026-04-22-cold-audit/03-explore-findings.md",
+  "created_at": "2026-04-22T19:00:00Z",
+  "notes": "Tier 1 fix: rename script or point --project explicitly; tsc without a project returns help and exits 0, so every PR \"passes\" type-check without checking."
+}

@@ -1,9 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
-import {
-  convertAuditColumnsToTimestamptz,
-  revertAuditColumnsToTimestamp,
-  MigrationLogger,
-} from '@aquaculture/backend-common';
+import { convertAuditColumnsToTimestamptz, revertAuditColumnsToTimestamp, MigrationLogger } from '@aquaculture/backend-common/database';
 
 /**
  * ConvertAuditColumnsToTimestamptz1781900000000

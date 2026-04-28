@@ -10,7 +10,7 @@
  * when used in hot paths (e.g. WebSocket message handlers).
  *
  * @example
- * import { VALIDATION_PATTERNS } from '@aquaculture/backend-common';
+ * import { VALIDATION_PATTERNS } from '@aquaculture/backend-common/validation-patterns.ts';
  * if (!VALIDATION_PATTERNS.DEVICE_CODE.test(input)) { ... }
  */
 

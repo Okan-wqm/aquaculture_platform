@@ -16,7 +16,11 @@ import { HrOutbox } from './hr/entities/hr-outbox.entity';
 import { GraphQLError, GraphQLFormattedError } from 'graphql';
 import depthLimit from 'graphql-depth-limit';
 import { fieldExtensionsEstimator, getComplexity, simpleEstimator } from 'graphql-query-complexity';
-import { TenantContextMiddleware, CorrelationIdMiddleware, RequestContextMiddleware, UserContextMiddleware, TenantGuard, RolesGuard, SourceSchemaBootstrapService, ServiceIdentityGuard, createTenantSchemaMiddleware, createTenantConnectionBootstrap, TenantSchemaSyncService, SourceSchemaWriteGuardService, AuditColumnsModule, createMigrationRunnerService, SchemaDriftModule, PlatformJwtModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common';
+import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
+import { SourceSchemaBootstrapService, createTenantConnectionBootstrap, TenantSchemaSyncService, SourceSchemaWriteGuardService, AuditColumnsModule, createMigrationRunnerService, SchemaDriftModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common/database';
+import { TenantGuard, RolesGuard, ServiceIdentityGuard } from '@aquaculture/backend-common/guards';
+import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
+import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware, createTenantSchemaMiddleware } from '@aquaculture/backend-common/middleware';
 import { AuditLogModule, AuditLogInterceptor } from '@aquaculture/backend-common/audit';
 
 /**

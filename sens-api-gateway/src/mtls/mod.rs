@@ -1,3 +1,7 @@
+// BATCH-001-CI-FIX-015: pre-staged types for Sprint 6.1-6.8 runtime wiring.
+// Re-exports are intentionally unused until the runtime consumers land.
+#![allow(unused_imports)]
+
 //! # mTLS 3-stage rollout + leaf cert pinning (plan §5 Faz 2 item 7 + D-6)
 //!
 //! Edge-to-broker MQTT + edge-to-cloud HTTPS both require mutual TLS. Plan
@@ -45,6 +49,12 @@ pub mod cipher;
 pub mod error;
 pub mod mode;
 pub mod pinning;
+// Batch 136 Sprint 6.6/6.8: rustls ServerCertVerifier impl
+// that plumbs the mTLS 3-stage mode logic into the real
+// TLS handshake. Runs cert-age + fingerprint pinning at
+// the verify callback; delegates X.509 chain trust +
+// hostname match to the rustls WebPkiServerVerifier.
+pub mod rustls_verifier;
 pub mod verify;
 
 pub use cipher::{CipherSuite, CIPHER_SUITE_ALLOWLIST};
@@ -55,5 +65,10 @@ pub use mode::{
 };
 pub use pinning::{
     CertRotationStage, LeafCertFingerprint, PinnedLeafCert, PinnedLeafCertSet,
+};
+pub use rustls_verifier::{
+    build_rotation_stage_from_pins_hex, build_suderra_verifier,
+    verify_cert_at_handshake, SuderraServerCertVerifier,
+    SuderraVerifierBuildError,
 };
 pub use verify::verify_leaf_cert;

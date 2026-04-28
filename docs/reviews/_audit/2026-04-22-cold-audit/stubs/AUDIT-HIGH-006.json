@@ -1,0 +1,19 @@
+{
+  "id": "AUDIT-HIGH-006",
+  "severity": "HIGH",
+  "state": "OPEN",
+  "title": "node-components edges duplicated: libs/node-components shadowed by web/modules/sensor-module copies (~700 lines across 3 files)",
+  "layer": 2,
+  "evidence": [
+    "libs/node-components/src/edges/OrthogonalEdge.tsx:1",
+    "web/modules/sensor-module/src/components/process-editor/edges/OrthogonalEdge.tsx:1",
+    "libs/node-components/src/edges/MultiHandleEdge.tsx:1",
+    "libs/node-components/src/edges/DraggableEdge.tsx:1"
+  ],
+  "rule_violated": "DRY / extract-to-lib — libs/node-components exists as home; sensor-module additionally has its own intra-dup between process-editor and scada-builder.",
+  "owner_agent": "frontend-expert",
+  "raised_in_cycle": "2026-04-22-cold-audit",
+  "review_file": "docs/reviews/_audit/2026-04-22-cold-audit/03-explore-findings.md",
+  "created_at": "2026-04-22T19:00:00Z",
+  "notes": "Also delete web/modules/sensor-module/src/components/scada-builder/edges/{Orthogonal,MultiHandle}Edge.tsx which duplicate their siblings in process-editor/edges/."
+}

@@ -1,3 +1,7 @@
+// BATCH-001-CI-FIX-015: pre-staged types for Sprint 6.1-6.8 runtime wiring.
+// Re-exports are intentionally unused until the runtime consumers land.
+#![allow(unused_imports)]
+
 //! # Keystore — master-key hierarchy types (ADR-018 §4, §5, §7)
 //!
 //! Batch 4b — **Pure type definitions**. No runtime behavior here; the TPM FFI,
@@ -41,11 +45,102 @@ pub mod acceptance;
 pub mod error;
 pub mod purpose;
 pub mod secret;
+// Batch 82 Sprint 6.3 partial: file-backed Argon2id keystore
+// backend. First of the three ADR-018 §4 backends to land
+// (TPM + systemd-creds follow in Batches 83 + 84). Unblocks
+// Sprint 6.2 Batch 80 master-key-derived audit HMAC.
+pub mod file_backed;
+// Batch #308 D-1a primitive-first split: TPM-backed keystore
+// abstraction. Lands the `TpmDevice` trait + `TpmKeystore<D>`
+// skeleton + `MockTpmDevice` for the default-feature test
+// suite. The real `tss-esapi`-backed `RealTpmDevice` impl
+// lives behind `#[cfg(feature = "tpm")]` and lands in a
+// future batch (needs libtss2-dev build environment).
+pub mod tpm_backed;
+
+// Batch #312 D-1a CLOSURE: boot-time selector applying the
+// ADR-018 §4 / ADR-019 §7 backend priority order
+// (TPM -> systemd-creds -> FileBacked-with-acceptance) +
+// the fall-back policy that distinguishes "TPM unavailable"
+// (allowed downgrade) from "TPM tamper signal" (hard-fail).
+pub mod selector;
+
+// Batch #315 D-1b primitive: KeystoreRotationDeadline
+// tracks the 180-day rotation cadence per ADR-018 §6 +
+// surfaces a 3-state status (WithinPolicy /
+// LeadTimeExceeded / Overdue) to the alarm runner. Pure
+// type + evaluate function in this batch; persistence +
+// FileBackedKeystore wiring + alarm task land in the D-1b
+// arc continuation toward UH ULTRA-MEDIUM-007 closure.
+pub mod rotation_deadline;
+
+// Batch #316 D-1b persistence: atomic-write JSON marker
+// store ($SUDERRA_DATA_DIR/keystore_rotation_marker.json)
+// for cross-restart `last_rotation_at` tracking. read_or_init
+// on first boot mints + persists; record_rotation_now is
+// the post-rotation update entry. Pure persistence module
+// — FileBackedKeystore consumer wiring lands in the D-1b
+// arc continuation.
+pub mod rotation_marker_store;
+
+// Batch #317 D-1b alarm runner: 1-hour interval task
+// that reads the marker + evaluates the deadline +
+// emits structured operator-visible alarms on
+// LeadTimeExceeded / Overdue. Per-tick re-emission
+// (NOT edge-triggered) for restart resilience —
+// processes loading an already-Overdue marker MUST
+// alarm immediately on the first tick, not silently
+// drop the transition.
+pub mod rotation_alarm_runner;
 
 pub use acceptance::{AcceptanceToken, FileBackedAcceptance, FileBackedAcceptanceError};
 pub use error::{KeyDerivationError, KeystoreError, KeystoreErrorKind};
+pub use file_backed::{Argon2idParams, FileBackedKeystore};
 pub use purpose::{DerivedKeyId, KeyPurpose};
 pub use secret::{KeyMaterial, MasterKeyMaterial};
+// Batch #308 re-exports — the TPM backend public surface.
+// `TpmDevice` is the FFI abstraction boundary; consumers
+// outside `keystore::tpm_backed` import these names.
+pub use tpm_backed::{
+    MockTpmDevice, NvCounterValue, PcrHashBank, PcrSelection, TpmDevice,
+    TpmDeviceError, TpmKeystore, TpmKeystoreConfig, TpmSealedBlob, UnsealedMaster,
+};
+
+// Batch #312 re-exports — boot-time selector + fall-back
+// policy. Consumers (main.rs cold-boot path + integration
+// tests) import these names.
+pub use selector::{
+    FallbackPolicy, KeystoreSelector, KeystoreSelectorConfig,
+    NullTpmDeviceFactory, TpmDeviceFactory,
+};
+
+// Batch #315 re-exports — rotation deadline primitive.
+// The alarm runner + future FileBackedKeystore consumer
+// import these names directly.
+pub use rotation_deadline::{
+    KeystoreRotationDeadline, RotationDeadlineError, RotationStatus,
+    DEFAULT_ALARM_LEAD_TIME_DAYS, DEFAULT_ROTATION_PERIOD_DAYS,
+};
+
+// Batch #316 re-exports — rotation marker persistence.
+// FileBackedKeystore consumer wiring (next arc batch)
+// imports these.
+pub use rotation_marker_store::{
+    read_marker, read_or_init, record_rotation_now, write_marker,
+    MarkerStoreError, ROTATION_MARKER_FILENAME,
+};
+
+// Batch #317 re-exports — alarm runner. main.rs cold-
+// boot path spawns this task alongside the keystore
+// instantiation.
+pub use rotation_alarm_runner::{
+    run_keystore_rotation_alarm_task, AlarmRunSummary,
+    DEFAULT_ALARM_INTERVAL_SECS,
+};
+// RotationSource is defined in this module above + already
+// pub, so consumers can `use crate::keystore::RotationSource`
+// directly without re-export. The reference here documents
+// the public API surface alongside the other types.
 
 use async_trait::async_trait;
 
@@ -73,6 +168,49 @@ pub enum KeyBackend {
     /// An unsigned `FileBackedAcceptance` is a compile-time construction
     /// error; operator MUST produce a signed acceptance token that expires.
     FileBacked,
+}
+
+/// Rotation source — unified discriminator for the different
+/// backends' rotation inputs (Batch 101 architectural
+/// refinement closing the Batch 100 trait shape-gap note).
+///
+/// File-backed rotation needs external paths (new
+/// passphrase + new salt); TPM rotation triggers an NV re-
+/// seal with current PCR policy + new-material internal to
+/// the TPM; systemd-creds rotation re-issues the encrypted
+/// credential via the systemd IPC.
+///
+/// Wrapping these in a single enum lets the orchestrator
+/// (command handler) call ONE method regardless of backend;
+/// each impl dispatches on the variant + rejects the ones
+/// it doesn't support via `NotImplemented`.
+///
+/// **Add a variant when a new backend is added**. Removing
+/// or reshaping a variant is a breaking contract change.
+pub enum RotationSource<'a> {
+    /// File-backed: read new passphrase + salt files; re-run
+    /// Argon2id with the given params; replace master in
+    /// the RwLock.
+    FileBacked {
+        /// Path to the new passphrase file (operator-provided,
+        /// 0400 perms).
+        passphrase_path: &'a std::path::Path,
+        /// Path to the new salt file (≥16 bytes, 0400 perms).
+        salt_path: &'a std::path::Path,
+        /// Argon2id params (OWASP 2024 floor enforced by
+        /// impl).
+        params: crate::keystore::Argon2idParams,
+    },
+    /// TPM re-seal: the TPM backend re-generates a seeded
+    /// master internally, re-seals to the current PCR
+    /// policy. Not yet implemented — Phase 2 / TPM backend
+    /// batch.
+    TpmReseal,
+    /// systemd-creds re-issue: delegate to systemd's
+    /// credential API to re-encrypt the master with a new
+    /// DEK. Not yet implemented — Phase 2 / systemd-creds
+    /// backend batch.
+    SystemdCredsReissue,
 }
 
 /// Keystore abstraction — backends implement this, consumers depend on it.
@@ -116,6 +254,38 @@ pub trait Keystore: Send + Sync + 'static {
     /// **Default grace:** 180 days (ADR-018 §6). Compromise response shortens
     /// to 0 seconds with mandatory offline sync.
     async fn rotate_master(&self) -> Result<(), KeystoreError>;
+
+    /// Rotate the master key with backend-specific source
+    /// inputs (Batch 101 — unified orchestrator entry point).
+    ///
+    /// Backends match on the variant:
+    /// - FileBacked impl accepts `RotationSource::FileBacked`;
+    ///   returns NotImplemented for the others.
+    /// - TPM impl accepts `RotationSource::TpmReseal`; returns
+    ///   NotImplemented for the others.
+    /// - systemd-creds impl accepts
+    ///   `RotationSource::SystemdCredsReissue`; returns
+    ///   NotImplemented for the others.
+    ///
+    /// The orchestrator (cmd_rotate_master) calls
+    /// `self.backend()` to pick the right variant, then
+    /// invokes this ONE method — no backend-specific
+    /// downcast gymnastics.
+    ///
+    /// Default impl returns NotImplemented so new backend
+    /// authors know to implement explicitly (and existing
+    /// impls compile without touching them — additive trait
+    /// extension per Rust trait-object evolution rules).
+    async fn rotate_master_with_source(
+        &self,
+        _source: RotationSource<'_>,
+    ) -> Result<(), KeystoreError> {
+        Err(KeystoreError::new(
+            KeystoreErrorKind::NotImplemented,
+            "backend does not implement rotate_master_with_source — override in the impl"
+                .to_string(),
+        ))
+    }
 }
 
 #[cfg(test)]

@@ -3348,7 +3348,8 @@ impl OpcUaClient {
         // The initial browse_nodes doesn't return continuation points currently,
         // but if we had one, we'd follow it here. This method serves as a higher-level
         // API that will integrate BrowseNext when the initial browse returns a CP.
-        // For now it delegates to browse_nodes which handles most cases with max 1000 refs.
+        // Until BrowseNext integration lands it delegates to browse_nodes which
+        // handles most cases with max 1000 refs.
 
         Ok(all_refs)
     }
@@ -3838,7 +3839,8 @@ impl OpcUaClient {
                         offset += 4;
                         // Skip diagnostic infos (simplified)
                         if diag_count > 0 {
-                            // Each diag info is variable length; skip for now
+                            // Each diag info is variable length; skipped here
+                            // pending the full diagnostic-info parser landing.
                         }
                     }
                 }

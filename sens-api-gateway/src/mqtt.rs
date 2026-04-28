@@ -54,6 +54,13 @@ pub struct MqttClient {
     message_rx: mpsc::Receiver<IncomingMessage>,
     /// Event loop task handle for graceful shutdown (v1.2.6)
     event_loop_handle: Option<tokio::task::JoinHandle<()>>,
+    /// Optional metrics observer (Batch 102 observability
+    /// wire). When Some, publish / receive / connect /
+    /// disconnect events increment the corresponding
+    /// HealthState counters + update the connection gauge.
+    /// None = no-op (HC-1 backward compat + test paths that
+    /// don't spin up the health server).
+    health_state: Option<crate::health::HealthState>,
 }
 
 /// Incoming message from MQTT
@@ -176,6 +183,23 @@ pub struct CommandMessage {
     #[serde(default)]
     pub params: serde_json::Value,
     pub timestamp: String,
+    /// **Batch #307 Faz 6 two-person integrity flow-through.**
+    /// True when envelope_adapter verified BOTH the primary
+    /// signature AND the co-approver signature against the
+    /// same canonical-bytes transcript (Batch #306 gate).
+    /// False for legacy CommandMessage parses (no envelope =>
+    /// no co-approver concept) AND for envelopes that carried
+    /// no co-approver fields. The handler-side gate
+    /// (cmd_force_value + future cmd_update_firmware /
+    /// cmd_safe_state_trigger / cmd_deploy_program /
+    /// cmd_reboot) reads this flag.
+    ///
+    /// `#[serde(default, skip_deserializing)]` keeps it
+    /// Rust-internal: the wire format never carries this
+    /// field; the adapter populates it post-verify; legacy
+    /// payloads default to false.
+    #[serde(default, skip_deserializing)]
+    pub verified_co_approver: bool,
 }
 
 /// Command response message
@@ -192,8 +216,18 @@ pub struct CommandResponse {
 }
 
 impl MqttClient {
-    /// Create and connect MQTT client
-    pub async fn new(config: &AgentConfig) -> Result<Self> {
+    /// Create and connect MQTT client (Batch 102: optional
+    /// HealthState for observability wire).
+    ///
+    /// `health_state` — Some when the caller has a live
+    /// HealthState Arc (standard main.rs boot path);
+    /// None in test contexts that don't spin up the
+    /// health server. All counter increments + connection
+    /// gauge updates short-circuit to no-op when None.
+    pub async fn new(
+        config: &AgentConfig,
+        health_state: Option<crate::health::HealthState>,
+    ) -> Result<Self> {
         // Get MQTT settings
         let broker = config
             .mqtt
@@ -246,7 +280,8 @@ impl MqttClient {
 
         // Configure TLS transport if enabled (IEC 62443 SL2 FR4)
         if config.mqtt.tls.enabled {
-            let tls_config = Self::configure_tls(&config.mqtt.tls)?;
+            let tls_config =
+                Self::configure_tls(&config.mqtt.tls, &config.mtls)?;
             options.set_transport(tls_config);
             info!("MQTT TLS enabled");
         }
@@ -279,6 +314,10 @@ impl MqttClient {
         let client_clone = client.clone();
         let min_backoff = config.runtime.mqtt_reconnect_min_secs;
         let max_backoff = config.runtime.mqtt_reconnect_max_secs;
+        // Batch 102: clone the HealthState Arc into the event-
+        // loop task so ConnAck/Disconnect/Publish events update
+        // the gauge + counters without a separate IPC channel.
+        let health_state_for_task = health_state.clone();
         let event_loop_handle = tokio::spawn(async move {
             Self::handle_events(
                 &mut eventloop,
@@ -287,6 +326,7 @@ impl MqttClient {
                 topics_clone,
                 min_backoff,
                 max_backoff,
+                health_state_for_task,
             )
             .await;
         });
@@ -298,13 +338,32 @@ impl MqttClient {
             device_code: config.device_code.clone(),
             message_rx,
             event_loop_handle: Some(event_loop_handle),
+            health_state,
         };
 
         // Subscribe to command and config topics
         mqtt_client.subscribe().await?;
 
-        // Publish online status
-        mqtt_client.publish_status(DeviceStatus::Online, 0).await?;
+        // Initial Online status publish was REMOVED from
+        // MqttClient::new in Batch #268 — see ORPHAN-MEDIUM-022.
+        //
+        // **Why removed:** The publish-status path needs to route
+        // through the broker-aware OutboundPublisher dispatcher
+        // (Batch #251-#255 ARC-002 wire) so a transient broker
+        // outage during the connect→publish window queues the
+        // status transition to disk + replays on reconnect.
+        // Calling publish_status here on the bare MqttClient
+        // bypasses the queue protection — a status loss during
+        // intermittent broker availability defeats the
+        // operator-facing "device just came online" gauge.
+        //
+        // **Replacement:** main.rs boot sequence calls
+        // `publish_helpers::publish_status` from a helper invoked
+        // AFTER `init_outbound_publisher` populates the
+        // dispatcher Arc, ensuring the Online-publish path goes
+        // through the queue-aware route. Wire location:
+        // `main.rs::publish_initial_online_status` post-init
+        // helper.
 
         Ok(mqtt_client)
     }
@@ -317,6 +376,7 @@ impl MqttClient {
         topics: ResolvedTopics,
         min_backoff_secs: u64,
         max_backoff_secs: u64,
+        health_state: Option<crate::health::HealthState>,
     ) {
         let mut consecutive_errors: u32 = 0;
         let mut first_connect = true;
@@ -345,6 +405,15 @@ impl MqttClient {
             match poll_result {
                 Ok(Event::Incoming(Packet::Publish(publish))) => {
                     consecutive_errors = 0; // Reset on success
+
+                    // Batch 102: observability counter.
+                    // Increment BEFORE the size check so
+                    // dropped oversized messages still
+                    // show up in the received count
+                    // (operators need to see them).
+                    if let Some(hs) = health_state.as_ref() {
+                        hs.inc_mqtt_received();
+                    }
 
                     // Reject oversized payloads to prevent memory exhaustion on constrained devices.
                     const MAX_MQTT_PAYLOAD: usize = 1_048_576; // 1 MiB
@@ -424,6 +493,13 @@ impl MqttClient {
                         connack.code, connack.session_present
                     );
 
+                    // Batch 102: flip the connection gauge ON
+                    // + bump mqtt_last_connected timestamp via
+                    // set_mqtt_connected(true).
+                    if let Some(hs) = health_state.as_ref() {
+                        hs.set_mqtt_connected(true);
+                    }
+
                     // Resubscribe after reconnection: when clean_session=true,
                     // the broker drops all subscriptions on disconnect.
                     // Default is now false (persistent session), but resubscribe if
@@ -461,6 +537,13 @@ impl MqttClient {
                 Ok(Event::Incoming(Packet::Disconnect)) => {
                     // v1.2.6: Log disconnection events
                     warn!("🔴 MQTT DISCONNECTED by broker");
+
+                    // Batch 102: flip the connection gauge
+                    // OFF. Reconnect attempts hit the
+                    // ConnAck path above on success.
+                    if let Some(hs) = health_state.as_ref() {
+                        hs.set_mqtt_connected(false);
+                    }
                 }
                 Ok(Event::Outgoing(outgoing)) => {
                     // v1.2.6: Log outgoing events at trace level
@@ -549,6 +632,7 @@ impl MqttClient {
             .publish(&self.topics.status, QoS::AtLeastOnce, true, payload)
             .await
             .context("Failed to publish status")?;
+        self.record_publish();
 
         // v1.2.6: Enhanced publish logging
         info!(
@@ -583,6 +667,7 @@ impl MqttClient {
             .publish(&self.topics.telemetry, QoS::AtLeastOnce, false, payload)
             .await
             .context("Failed to publish telemetry")?;
+        self.record_publish();
 
         // v1.2.6: Enhanced telemetry logging
         info!(
@@ -603,6 +688,7 @@ impl MqttClient {
             .publish(&self.topics.responses, QoS::AtLeastOnce, false, payload)
             .await
             .context("Failed to publish response")?;
+        self.record_publish();
 
         // v1.2.6: Enhanced response logging
         info!(
@@ -618,6 +704,7 @@ impl MqttClient {
         self.client
             .publish(&self.topics.io_data, rumqttc::QoS::AtMostOnce, false, data)
             .await?;
+        self.record_publish();
         Ok(())
     }
 
@@ -627,6 +714,7 @@ impl MqttClient {
         self.client
             .publish(&self.topics.alarms, rumqttc::QoS::AtLeastOnce, false, data)
             .await?;
+        self.record_publish();
         Ok(())
     }
 
@@ -636,6 +724,7 @@ impl MqttClient {
         self.client
             .publish(&self.topics.lora_events, rumqttc::QoS::AtMostOnce, false, data)
             .await?;
+        self.record_publish();
         Ok(())
     }
 
@@ -648,8 +737,151 @@ impl MqttClient {
             .publish(topic, QoS::AtLeastOnce, false, payload)
             .await
             .with_context(|| format!("Failed to publish to {}", topic))?;
+        self.record_publish();
         debug!("Published {} bytes to {}", payload.len(), topic);
         Ok(())
+    }
+
+    /// Internal helper: convert u8 QoS to rumqttc::QoS.
+    /// Used by the [`crate::outbound_publisher::MqttPublishSink`]
+    /// impl below + by a future Batch #254+ migration of the
+    /// existing publish_* methods to a single canonical publish
+    /// path. Centralizes the u8 → enum conversion so adding QoS=2
+    /// support (currently no caller uses ExactlyOnce) is a one-
+    /// line change.
+    pub(crate) fn qos_from_u8(qos: u8) -> QoS {
+        match qos {
+            0 => QoS::AtMostOnce,
+            1 => QoS::AtLeastOnce,
+            2 => QoS::ExactlyOnce,
+            // Unknown value — treat as QoS 1 (the conservative
+            // default for "must be delivered"). Caller-supplied u8
+            // beyond {0,1,2} indicates a config or wire-format
+            // bug; we don't drop the message but we do log via the
+            // record_publish path.
+            _ => QoS::AtLeastOnce,
+        }
+    }
+}
+
+// =============================================================================
+// MqttPublishAdapter — Batch #253 ARC-002 part 3
+// =============================================================================
+//
+// Lightweight clone-able adapter that holds JUST the pieces of
+// `MqttClient` needed for the
+// `outbound_publisher::MqttPublishSink` trait: the rumqttc
+// `AsyncClient` (internally Arc-wrapped + Clone-able) + an
+// optional `HealthState` for the `record_publish` observability
+// hook.
+//
+// **Why a separate struct:** `MqttClient` itself is NOT Clone
+// because it owns a `mpsc::Receiver<IncomingMessage>` (single-
+// owner channel for inbound traffic). The OutboundPublisher
+// dispatcher needs an `Arc<S: MqttPublishSink>` for the publish-
+// path; wrapping MqttClient itself in an Arc would force every
+// existing `&mut MqttClient` consumer to thread the Arc — a much
+// larger refactor than this batch's scope. The lightweight
+// adapter keeps MqttClient's existing struct shape intact while
+// giving the outbound dispatcher exactly the surface it needs.
+//
+// The adapter is constructed via `MqttClient::publish_adapter()`
+// at boot, before the message-loop consumer takes ownership of
+// the inbound receiver. Production wires ONE adapter Arc shared
+// between OutboundPublisher (direct path) and DrainTask (replay
+// path) so both paths flow through identical record_publish
+// instrumentation.
+#[derive(Clone)]
+pub struct MqttPublishAdapter {
+    client: AsyncClient,
+    health_state: Option<crate::health::HealthState>,
+}
+
+impl MqttClient {
+    /// Extract a clone-able publish adapter that the
+    /// `outbound_publisher::OutboundPublisher` + `DrainTask` can
+    /// share. The returned adapter holds clones of the internal
+    /// rumqttc client + the optional health-state observer; the
+    /// `MqttClient` itself is unaffected by this call (no
+    /// ownership transfer).
+    pub fn publish_adapter(&self) -> MqttPublishAdapter {
+        MqttPublishAdapter {
+            client: self.client.clone(),
+            health_state: self.health_state.clone(),
+        }
+    }
+}
+
+impl MqttPublishAdapter {
+    #[inline]
+    fn record_publish(&self) {
+        if let Some(hs) = self.health_state.as_ref() {
+            hs.inc_mqtt_sent();
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl crate::outbound_publisher::MqttPublishSink for MqttPublishAdapter {
+    async fn publish_to_broker(
+        &self,
+        topic: &str,
+        payload: &[u8],
+        qos: u8,
+        retain: bool,
+    ) -> Result<(), crate::outbound_publisher::PublishSinkError> {
+        use crate::outbound_publisher::PublishSinkError;
+        let qos_enum = MqttClient::qos_from_u8(qos);
+
+        // rumqttc 0.24 ClientError variants don't expose a
+        // structured "broker disconnected" tag — every transport
+        // failure surfaces as a generic ClientError. The
+        // OutboundPublisher dispatcher treats `Transport(_)` as
+        // "do not enqueue, propagate error" and `Disconnected` as
+        // "fall through to enqueue". We deliberately classify ALL
+        // rumqttc errors as Transport here:
+        //
+        // - rumqttc owns reconnect logic internally; a transient
+        //   broker drop is invisible to the caller (publish()
+        //   future blocks on the reconnect-buffer until the
+        //   eventloop reconnects, then returns Ok).
+        // - The `is_connected` check in the dispatcher (read from
+        //   HealthState atomic) IS the canonical "broker down"
+        //   signal at the start of publish; rumqttc-side errors
+        //   AFTER that check are genuine transport faults
+        //   (payload too large, eventloop dropped, etc.) — those
+        //   should surface to caller, not silently get queued.
+        match self.client.publish(topic, qos_enum, retain, payload).await {
+            Ok(()) => {
+                self.record_publish();
+                Ok(())
+            }
+            Err(e) => Err(PublishSinkError::Transport(e.to_string())),
+        }
+    }
+}
+
+// Continuation of `impl MqttClient` (Batch #253 split — the
+// MqttPublishAdapter struct + its trait impl interleave between
+// MqttClient method blocks; Rust permits multiple `impl` blocks
+// for the same type).
+impl MqttClient {
+    /// Private Batch 102 observability hook — called by every
+    /// publish method after a successful `.client.publish()
+    /// .await?`. Increments the MQTT sent counter on the
+    /// registered HealthState (no-op when
+    /// `health_state = None`).
+    ///
+    /// Kept private + single-source so adding a new publish
+    /// method automatically picks up instrumentation if the
+    /// author calls this helper. A future code review can
+    /// grep for `.client.publish(` without `record_publish`
+    /// to find uninstrumented paths.
+    #[inline]
+    fn record_publish(&self) {
+        if let Some(hs) = self.health_state.as_ref() {
+            hs.inc_mqtt_sent();
+        }
     }
 
     /// Receive next incoming message
@@ -688,12 +920,29 @@ impl MqttClient {
         &self.topics
     }
 
+    /// Device identifier accessor (Batch #255 ARC-002 wire).
+    /// Used by `publish_helpers` to populate the envelope shape
+    /// that the legacy `publish_status` / `publish_telemetry`
+    /// internal methods built. Returning `&str` keeps the call
+    /// site allocation-free.
+    pub fn device_id(&self) -> &str {
+        &self.device_id
+    }
+
+    /// Device code accessor (Batch #255 ARC-002 wire).
+    pub fn device_code(&self) -> &str {
+        &self.device_code
+    }
+
     /// Configure TLS transport (IEC 62443 SL2 FR4: Data Confidentiality)
     ///
     /// Supports:
     /// - Server certificate verification via CA cert
     /// - Client certificate authentication (mTLS) for FR1 compliance
-    fn configure_tls(tls_config: &crate::config::MqttTlsConfig) -> Result<Transport> {
+    fn configure_tls(
+        tls_config: &crate::config::MqttTlsConfig,
+        mtls_config: &crate::config::MtlsConfig,
+    ) -> Result<Transport> {
         use rumqttc::TlsConfiguration;
 
         // LOW/H-01: validate verify_hostname config is not set to false.
@@ -768,13 +1017,82 @@ impl MqttClient {
             }
             info!("Loaded {} system CA certificates for MQTT TLS", root_store.len());
 
-            let mut client_config = rumqttc::tokio_rustls::rustls::ClientConfig::builder()
-                .with_root_certificates(root_store)
-                .with_no_client_auth();
+            // Batch 139 Sprint 6.6/6.8: install
+            // SuderraServerCertVerifier when configured
+            // (mtls.mode != Legacy OR pins supplied).
+            // Legacy-no-pins path returns None from
+            // build_suderra_verifier + we fall through
+            // to the rustls default webpki verifier — HC-1
+            // backward compat.
+            //
+            // Root-store is shared between the default
+            // builder AND the SuderraServerCertVerifier's
+            // inner WebPkiServerVerifier so X.509 chain
+            // trust uses the SAME anchors either path.
+            let root_store_arc = Arc::new(root_store.clone());
+            let provider = rumqttc::tokio_rustls::rustls::crypto::ring::default_provider();
+            let sig_algs = provider.signature_verification_algorithms;
+            let suderra_verifier = crate::mtls::build_suderra_verifier(
+                mtls_config.mode,
+                sig_algs,
+                &mtls_config.pinned_leaf_fingerprints_hex,
+                root_store_arc,
+            )
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "SuderraServerCertVerifier build failed (check mtls.mode + pinned_leaf_fingerprints_hex): {}",
+                    e
+                )
+            })?;
+
+            let mut client_config = if let Some(verifier) = suderra_verifier {
+                info!(
+                    "mTLS: SuderraServerCertVerifier installed (mode={:?}, pins={})",
+                    mtls_config.mode,
+                    mtls_config.pinned_leaf_fingerprints_hex.len()
+                );
+                rumqttc::tokio_rustls::rustls::ClientConfig::builder()
+                    .dangerous()
+                    .with_custom_certificate_verifier(verifier)
+                    .with_no_client_auth()
+            } else {
+                info!(
+                    "mTLS: Suderra custom verifier NOT installed (mode={:?}, no pins — HC-1 default webpki only)",
+                    mtls_config.mode
+                );
+                rumqttc::tokio_rustls::rustls::ClientConfig::builder()
+                    .with_root_certificates(root_store)
+                    .with_no_client_auth()
+            };
             client_config.alpn_protocols = vec![b"mqtt".to_vec()];
 
             let tls = TlsConfiguration::Rustls(Arc::new(client_config));
             return Ok(Transport::Tls(tls));
+        }
+
+        // Batch 139: custom-CA branch keeps
+        // `TlsConfiguration::Simple` which rumqttc builds
+        // internally — it does NOT support custom
+        // verifiers. Surface this as a WARN log when
+        // operator has configured Suderra mTLS so they
+        // know the gates are INACTIVE on this path +
+        // migrate to system-CA mode for Suderra-policy
+        // enforcement. Strict mode + custom CA is an
+        // explicit fail-closed because Strict requires
+        // pinning which isn't reachable here.
+        if !matches!(
+            mtls_config.mode,
+            crate::mtls::MtlsMode::Legacy
+        ) {
+            warn!(
+                "mTLS: custom-CA TLS branch in use + mtls.mode={:?} — Suderra policy gates (fingerprint pinning, age caps) are NOT ACTIVE on this path (rumqttc::TlsConfiguration::Simple does not support custom verifiers). Migrate to system-CA TLS for Suderra mTLS enforcement.",
+                mtls_config.mode
+            );
+        }
+        if matches!(mtls_config.mode, crate::mtls::MtlsMode::Strict) {
+            return Err(anyhow::anyhow!(
+                "mTLS Strict mode is incompatible with custom-CA TLS branch (rumqttc::TlsConfiguration::Simple cannot install SuderraServerCertVerifier). Either migrate to system-CA TLS (omit mqtt.tls.ca_cert_path) or downgrade mtls.mode to Warn during rollout."
+            ));
         }
 
         let tls = TlsConfiguration::Simple {

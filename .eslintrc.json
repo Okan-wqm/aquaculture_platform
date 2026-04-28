@@ -83,6 +83,21 @@
         "no-console": [
           "error"
         ],
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "@aquaculture/backend-common",
+                "message": "The root @aquaculture/backend-common barrel aggregates ~25 subtrees; importing from it forces every consumer to re-invalidate on any change to any subtree. Import from the specific sub-barrel instead — @aquaculture/backend-common/auth, /guards, /database, /utils, /nats, etc. The 2026-04-23 mass-codemod (AUDIT-MEDIUM-005) split all existing consumers, and this rule keeps it that way."
+              },
+              {
+                "name": "@platform/backend-common",
+                "message": "Same rationale as @aquaculture/backend-common — import from the specific sub-barrel (@platform/backend-common/<subtree>). Also note that @aquaculture/backend-common/<subtree> is the canonical alias platform-wide; @platform/backend-common exists as a parity alias used by only two files."
+              }
+            ]
+          }
+        ],
         "no-restricted-syntax": [
           "error",
           {

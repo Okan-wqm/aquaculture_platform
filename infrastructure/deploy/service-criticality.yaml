@@ -77,6 +77,10 @@ services:
     level: critical
     reason: ingests live telemetry; missing a window loses production data
 
+  - name: sensor-ingestion
+    level: critical
+    reason: Rust sidecar that decodes sensor payloads and publishes to NATS — without it sensor-service has no source of telemetry to consume. Same data-loss profile as sensor-service.
+
   - name: hr-service
     level: warning
     reason: scheduling/payroll tolerates short unavailability

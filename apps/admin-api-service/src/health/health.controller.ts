@@ -9,7 +9,7 @@ import {
   Res,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { SkipThrottle } from '@aquaculture/backend-common';
+import { SkipThrottle } from '@aquaculture/backend-common/security';
 import { Response } from 'express';
 
 import { Public } from '../decorators/public.decorator';

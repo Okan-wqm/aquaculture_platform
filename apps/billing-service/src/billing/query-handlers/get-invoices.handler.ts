@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { DataSource, FindOptionsWhere, MoreThanOrEqual, LessThanOrEqual, Between, In } from 'typeorm';
 import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
+import { TenantScopedRepository } from '@aquaculture/backend-common/database';
 import { GetInvoicesQuery } from '../queries/get-invoices.query';
 import { Invoice } from '../entities/invoice.entity';
 
@@ -12,9 +13,11 @@ export class GetInvoicesHandler implements IQueryHandler<GetInvoicesQuery, Invoi
   async execute(query: GetInvoicesQuery): Promise<Invoice[]> {
     const { tenantId, filter } = query;
 
-    const invoiceRepo = this.dataSource.getRepository(Invoice);
+    const invoiceRepo = TenantScopedRepository.create(this.dataSource, Invoice, tenantId);
 
-    const where: FindOptionsWhere<Invoice> = { tenantId };
+    // tenantId is auto-injected by the scoped repo; WHERE stays free
+    // for status/date filters only.
+    const where: FindOptionsWhere<Invoice> = {};
 
     if (filter?.statuses && filter.statuses.length > 0) {
       where.status = In(filter.statuses);

@@ -7,7 +7,7 @@
  * @module Batch/Commands
  */
 import { ITenantCommand } from '@platform/cqrs';
-import { Role } from '@aquaculture/backend-common';
+import { Role } from '@aquaculture/backend-common/decorators';
 import { AllocationType } from '../entities/tank-allocation.entity';
 
 export { AllocationType };

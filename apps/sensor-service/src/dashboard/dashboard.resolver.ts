@@ -1,6 +1,7 @@
 import { Logger, ForbiddenException, UseGuards } from '@nestjs/common';
 import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
-import { Roles, Role, TenantGuard, Tenant, CurrentUser, CurrentUserPayload } from '@aquaculture/backend-common';
+import { Roles, Role, Tenant, CurrentUser, CurrentUserPayload } from '@aquaculture/backend-common/decorators';
+import { TenantGuard } from '@aquaculture/backend-common/guards';
 
 import { DashboardService } from './dashboard.service';
 import { SaveDashboardLayoutInput, CreateSystemDefaultLayoutInput } from './dto/dashboard-layout.dto';

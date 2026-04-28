@@ -1,3 +1,7 @@
+// BATCH-001-CI-FIX-015: pre-staged types for Sprint 6.1-6.8 runtime wiring.
+// Re-exports are intentionally unused until the runtime consumers land.
+#![allow(unused_imports)]
+
 //! # Config integrity — factory-signed `config.yaml.sig` (plan D-13, ADR-020 §6)
 //!
 //! Every edge device boots with `/etc/suderra/config.yaml` AND a sidecar
@@ -53,7 +57,13 @@
 pub mod error;
 pub mod manifest;
 pub mod verify;
+// Batch 54 Sprint 6.6 full wire — runtime orchestrator that
+// reads config.yaml + sidecar JSON + computes SHA-256 +
+// performs ed25519 verify via closure injection. Calls the
+// Batch 9 pure `verify_config_integrity` function.
+pub mod verify_runtime;
 
 pub use error::{ConfigIntegrityError, ConfigMetaCanonicalBytesError};
 pub use manifest::{ConfigMeta, SignedConfigMeta};
 pub use verify::verify_config_integrity;
+pub use verify_runtime::verify_at_boot;

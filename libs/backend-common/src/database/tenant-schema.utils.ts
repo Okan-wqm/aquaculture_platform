@@ -1,10 +1,20 @@
 import { DataSource } from 'typeorm';
 
 /**
- * UUID v4 format validator.
- * Shared across middleware, NATS handlers, and cron jobs.
+ * UUID format validator (any version). File-local; not exported to avoid
+ * a name collision with `security/validators/regex-patterns.ts::UUID_V4_REGEX`
+ * (which is strictly v4) now that both subtrees are `export *`-barreled
+ * through the root. Previously the old root barrel used explicit named
+ * re-exports that masked the duplication. Consumers that need UUID matching
+ * outside this file should import from either:
+ *   - `@aquaculture/backend-common/constants` (UUID_REGEX, v1-v5, preferred)
+ *   - `@aquaculture/backend-common/security` (UUID_V4_REGEX, v4-only)
+ *
+ * This regex accepts any-version UUIDs and exists solely to back the
+ * `isValidUUID()` helper below — callers who want stricter v4 checking
+ * should use `UUID_V4_REGEX` from the security sub-barrel.
  */
-export const UUID_V4_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID_ANY_VERSION_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Schema name validation regex.
@@ -16,7 +26,7 @@ export const SCHEMA_NAME_REGEX = /^[a-z0-9_]+$/;
  * Validate whether a string is a valid UUID v4 format.
  */
 export function isValidUUID(id: string): boolean {
-  return UUID_V4_REGEX.test(id);
+  return UUID_ANY_VERSION_REGEX.test(id);
 }
 
 /**

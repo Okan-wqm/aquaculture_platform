@@ -2,6 +2,7 @@ import {
   Repository,
   EntityTarget,
   DataSource,
+  EntityManager,
   ObjectLiteral,
   DeepPartial,
   FindManyOptions,
@@ -14,7 +15,7 @@ import {
 import { Logger } from '@nestjs/common';
 
 import { getRequestContext } from '../logging/request-context';
-import { TenantEntity } from './tenant-aware.repository';
+import { TenantEntity } from './tenant-entity.interface';
 
 /**
  * TenantScopedRepository<T> — wraps TypeORM Repository with mandatory tenant isolation.
@@ -96,6 +97,7 @@ export class TenantScopedRepository<T extends TenantEntity> {
     entity: EntityTarget<E>,
     explicitTenantId?: string,
   ): TenantScopedRepository<E> {
+    // eslint-disable-next-line no-restricted-syntax -- LIBRARY-LEVEL: this static factory is the canonical entry point that wraps a TypeORM Repository in TenantScopedRepository — every downstream caller goes THROUGH this point of contact precisely so application code does not.
     const repository = dataSource.getRepository(entity);
     return new TenantScopedRepository<E>(repository, explicitTenantId);
   }
@@ -266,6 +268,43 @@ export class TenantScopedRepository<T extends TenantEntity> {
   }
 
   /**
+   * Construct an in-memory entity instance (no persistence) with tenantId
+   * auto-populated from the current tenant context.
+   *
+   * Mirrors TypeORM `Repository.create(dto)` but guarantees the returned
+   * entity carries the correct tenantId, so subsequent `.save()` through
+   * THIS repository (or the underlying DataSource) cannot accidentally
+   * land under a different tenant.
+   *
+   * @param dto - Partial entity shape
+   * @returns A new unsaved entity instance with tenantId injected
+   */
+  create(dto: DeepPartial<T>): T {
+    const tenantId = this.requireTenantId();
+    return this.repository.create({ ...dto, tenantId } as DeepPartial<T>);
+  }
+
+  /**
+   * Delete an entity that was previously loaded from THIS repository.
+   * Verifies `entity.tenantId` matches the current tenant context
+   * before issuing the DELETE — protects against a caller passing an
+   * entity loaded via a different (or unscoped) path.
+   *
+   * @param entity - Entity instance to remove
+   * @returns The removed entity (same shape as TypeORM Repository.remove)
+   */
+  async remove(entity: T): Promise<T> {
+    const tenantId = this.requireTenantId();
+    if ((entity as { tenantId?: string }).tenantId !== tenantId) {
+      throw new Error(
+        `TenantScopedRepository.remove: entity.tenantId (${(entity as { tenantId?: string }).tenantId}) ` +
+          `!= current tenant (${tenantId}). Refusing to remove cross-tenant entity.`,
+      );
+    }
+    return this.repository.remove(entity);
+  }
+
+  /**
    * Save multiple entities with tenant ID enforcement.
    *
    * SECURITY: Every entity gets tenantId forced to the current tenant.
@@ -416,4 +455,52 @@ export class TenantScopedRepository<T extends TenantEntity> {
       } as FindOptionsWhere<T>,
     };
   }
+}
+
+/**
+ * `tenantManagerRepo(manager, Entity)` — the canonical way to obtain a
+ * tenant-scoped repository inside a TypeORM transaction. Wraps
+ * `manager.getRepository(Entity)` in a TenantScopedRepository so every
+ * query auto-injects tenantId from AsyncLocalStorage.
+ *
+ * Without this helper, transaction-scoped code falls back to raw
+ * `manager.getRepository(Entity)` + manual `{ where: { ..., tenantId } }`
+ * — which the ESLint rule `no-restricted-syntax` rightly flags
+ * (CLAUDE.md: "getRepository() is FORBIDDEN") and which frequently
+ * leaks cross-tenant queries when a developer forgets the `tenantId`
+ * key. The wrapper has a single, audited, eslint-disabled
+ * `manager.getRepository()` call at the library boundary — that call
+ * is architecturally justified because the return value is
+ * immediately handed to TenantScopedRepository which enforces
+ * tenant scoping on every downstream query.
+ *
+ * Usage pattern:
+ * ```ts
+ * await this.dataSource.transaction(async (manager) => {
+ *   const inventoryRepo = tenantManagerRepo(manager, StorageInventory);
+ *   const movementRepo = tenantManagerRepo(manager, StockMovement);
+ *
+ *   // Both queries below auto-include tenantId in the WHERE clause.
+ *   const inventory = await inventoryRepo.findOne({ where: { id: inventoryId } });
+ *   await movementRepo.save({ ... });
+ * });
+ * ```
+ *
+ * @param manager - TypeORM EntityManager (from `dataSource.transaction(m => ...)` or
+ *   `queryRunner.manager`).
+ * @param entity - The entity class to scope.
+ * @param explicitTenantId - Optional override; falls back to
+ *   AsyncLocalStorage via TenantScopedRepository.requireTenantId().
+ */
+export function tenantManagerRepo<T extends TenantEntity>(
+  manager: EntityManager,
+  entity: EntityTarget<T>,
+  explicitTenantId?: string,
+): TenantScopedRepository<T> {
+  // eslint-disable-next-line no-restricted-syntax -- justified: the Repository
+  // returned is immediately wrapped by TenantScopedRepository.fromRepository,
+  // which enforces tenantId injection on every downstream query. This is the
+  // single point of contact with manager.getRepository in the whole codebase.
+  const repository = manager.getRepository(entity);
+  return TenantScopedRepository.fromRepository(repository, explicitTenantId);
 }

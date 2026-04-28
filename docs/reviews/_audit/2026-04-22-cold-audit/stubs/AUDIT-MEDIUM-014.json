@@ -1,0 +1,39 @@
+{
+  "id": "AUDIT-MEDIUM-014",
+  "severity": "MEDIUM",
+  "state": "OPEN",
+  "title": "49 unmigrated direct-getRepository callsites in hr-service / config-service / messaging-service / farm-service tenant-export — Phase B' migration backlog",
+  "layer": 2,
+  "evidence": [
+    "apps/hr-service/src/aquaculture/handlers/approve-rotation.handler.ts:21",
+    "apps/hr-service/src/aquaculture/handlers/cancel-rotation.handler.ts:21",
+    "apps/hr-service/src/aquaculture/handlers/create-work-area.handler.ts:22",
+    "apps/hr-service/src/hr/handlers/approve-payroll.handler.ts:1",
+    "apps/hr-service/src/performance/handlers/create-goal.handler.ts:1",
+    "apps/hr-service/src/attendance/handlers/create-shift.handler.ts:1",
+    "apps/config-service/src/configuration/handlers/create-configuration.handler.ts:1",
+    "apps/config-service/src/configuration/handlers/update-configuration.handler.ts:1",
+    "apps/config-service/src/configuration/handlers/upsert-configuration.handler.ts:1",
+    "apps/config-service/src/configuration/handlers/delete-configuration.handler.ts:1",
+    "apps/messaging-service/src/channel/commands/create-channel.handler.ts:94",
+    "apps/messaging-service/src/compliance/services/compliance-audit.service.ts:77",
+    "apps/messaging-service/src/compliance/services/legal-hold.service.ts:72-120",
+    "apps/messaging-service/src/compliance/services/retention-policy.service.ts:53",
+    "apps/farm-service/src/compliance/services/tenant-export.service.ts:1"
+  ],
+  "rule_violated": "CLAUDE.md \"getRepository() is FORBIDDEN → use getScopedRepository()\". Phase B (PR-4 farm-service, PR-5 sensor + billing + auth) migrated 5 of the 6 backend services that had the violation; hr-service / config-service / messaging-service / farm-service-tenant-export carry the remaining 49 callsites. The CI lint scope (`nx affected -t lint`) does not surface these on PRs that don't touch the affected services.",
+  "owner_agent": "multi-tenant-saas-expert",
+  "raised_in_cycle": "2026-04-22-cold-audit",
+  "review_file": "docs/reviews/orphan-findings.md",
+  "created_at": "2026-04-26T08:00:00Z",
+  "notes": "Surfaced during PR #159's SEC-REVIEW-003 + Tier-3 invariant landing. The new no-direct-getrepository-call.spec.ts invariant in tests/invariants/ is the architectural detector — it runs in the always-on invariants:fast shard, bypassing the affected-vs-all lint scope class. Each pre-existing callsite carries an `// eslint-disable-next-line no-restricted-syntax -- AUDIT-MEDIUM-014: ...` annotation linking back to this finding; new callsites cannot land without an annotation OR a tenantManagerRepo migration. Closure: split into per-service migration PRs following the Phase B pattern. hr-service is the heaviest (33 sites across 30 handlers) — same `queryRunner.manager.getRepository(X) → tenantManagerRepo(queryRunner.manager, X, tenantId)` substitution PR-4 used for farm-service.",
+  "narrative": [
+    "Migration scope (49 callsites total):",
+    "- hr-service: 33 sites across ~30 handlers (aquaculture/, attendance/, hr/, performance/). Mechanical migration — every handler uses the same `queryRunner.manager.getRepository(Entity)` pattern that PR-4 / PR-5 substituted for farm/sensor/billing.",
+    "- config-service: 6 sites across 4 configuration handlers. Same mechanical pattern.",
+    "- messaging-service: 5 sites across 4 services using a `manager ? manager.getRepository(X) : this.fooRepo` conditional pattern. Migration requires careful preservation of the no-transaction fallback path; cannot be a blind text substitution.",
+    "- farm-service tenant-export: 1 site in compliance/services/tenant-export.service.ts. Cross-tenant admin path (the export job spans tenants by design); annotate-with-rationale, do NOT migrate.",
+    "- messaging channel handler: 1 site (multi-line). Mechanical migration after careful read.",
+    "Closure plan: 4 follow-up PRs scoped one per service. Each closes a portion of AUDIT-MEDIUM-014 with `Closes:` trailers naming this finding. Final closure (state RESOLVED) once every callsite is either migrated or carries a structurally-justified library-level annotation. Owner: multi-tenant-saas-expert per CLAUDE.md \"Tenant-ID sourcing\" section."
+  ]
+}

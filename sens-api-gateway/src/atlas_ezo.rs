@@ -53,6 +53,17 @@ impl AtlasEzoDriver {
             return (0.0, TagQuality::CommFailure);
         }
 
+        // ARC-006: In simulation mode the I2C handle returns
+        // all-zero data buffers with `success=true` + `simulated=
+        // true`. The EZO response parser would reject the empty
+        // status byte as `Bad`, which hides the simulation signal.
+        // Short-circuit: return TagQuality::Simulated with a
+        // stable placeholder value (0.0) so SCADA screens render
+        // a visible "simulated" badge rather than a "bad" error.
+        if result.simulated {
+            return (0.0, TagQuality::Simulated);
+        }
+
         if result.data.is_empty() {
             warn!("EZO empty response from '{}'", device_name);
             return (0.0, TagQuality::CommFailure);

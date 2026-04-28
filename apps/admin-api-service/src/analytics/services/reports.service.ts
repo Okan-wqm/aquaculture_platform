@@ -11,7 +11,7 @@ import * as crypto from 'crypto';
 
 import { Injectable, Logger, BadRequestException, NotFoundException, NotImplementedException, Optional } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { RedisService } from '@aquaculture/backend-common';
+import { RedisService } from '@aquaculture/backend-common/redis';
 import PDFDocument from 'pdfkit';
 import { Repository, DataSource } from 'typeorm';
 

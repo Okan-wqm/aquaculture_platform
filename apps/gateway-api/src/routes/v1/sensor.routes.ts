@@ -9,7 +9,7 @@
 import { Module, Controller, Get, Post, Req, Res, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Request, Response } from 'express';
-import { signedFetch } from '@aquaculture/backend-common';
+import { signedFetch } from '@aquaculture/backend-common/http';
 
 // Helper to extract tenant UUID from incoming request for signed propagation.
 function resolveTenantId(req: Request): string {

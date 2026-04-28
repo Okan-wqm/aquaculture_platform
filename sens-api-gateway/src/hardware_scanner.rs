@@ -1370,16 +1370,25 @@ device_name:    RevPi DIO
 
         let ios = scanner.i2c_bus_to_discovered_ios(&bus_info);
         assert_eq!(ios.len(), 2);
-        // Known device
-        assert_eq!(ios[0].tag_name, "BME280");
+        // Known device — Batch 85 fix of ORPHAN-HIGH-013 #4:
+        // tag_name production format is `{name}_B{bus}_{addr}`
+        // (vs the old test's bare `{name}`). Bus + address
+        // suffix disambiguates the SAME chip appearing on
+        // multiple buses OR at different addresses on one bus
+        // (common in multi-sensor I2C deployments). Test
+        // updated to match production format.
+        assert_eq!(ios[0].tag_name, "BME280_B1_0x76");
         assert_eq!(ios[0].io_type, "AI");
         assert_eq!(ios[0].source, "i2c");
         assert_eq!(ios[0].bus_type, Some("i2c".to_string()));
         assert_eq!(ios[0].i2c_bus, Some(1));
         assert_eq!(ios[0].i2c_address, Some(0x76));
         assert_eq!(ios[0].i2c_device_name, Some("BME280".to_string()));
-        // Unknown device
-        assert_eq!(ios[1].tag_name, "I2C_1_0x55");
+        // Unknown device — production format `I2C_B{bus}_{addr}`
+        // (was `I2C_{bus}_{addr}` in the old test which
+        // missed the `B` bus-prefix consistency with the
+        // known-device path).
+        assert_eq!(ios[1].tag_name, "I2C_B1_0x55");
         assert!(ios[1].i2c_device_name.is_none());
     }
 

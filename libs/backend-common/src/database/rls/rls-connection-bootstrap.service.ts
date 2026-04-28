@@ -63,7 +63,7 @@ import { RLS_BYPASS_GUC, RLS_TENANT_GUC } from './apply-tenant-rls.helper';
  * @example
  * ```ts
  * // billing-service AppModule
- * import { createRlsConnectionBootstrap } from '@aquaculture/backend-common';
+ * import { createRlsConnectionBootstrap } from '@aquaculture/backend-common/rls';
  *
  * const RlsConnectionBootstrap = createRlsConnectionBootstrap();
  *

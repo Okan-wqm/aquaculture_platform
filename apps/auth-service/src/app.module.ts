@@ -7,7 +7,13 @@ import { JwtModule, JwtService } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { join } from 'path';
 import depthLimit from 'graphql-depth-limit';
-import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware, RequestLoggingMiddleware, RequestContextMiddleware, MetricsMiddleware, TenantGuard, RolesGuard, ServiceIdentityGuard, RedisModule, TOKEN_BLACKLIST, ITokenBlacklist, RlsModule, SchemaDriftModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common';
+import { RlsModule, SchemaDriftModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common/database';
+import { TenantGuard, RolesGuard, ServiceIdentityGuard } from '@aquaculture/backend-common/guards';
+import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
+import { MetricsMiddleware } from '@aquaculture/backend-common/metrics';
+import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware, RequestLoggingMiddleware } from '@aquaculture/backend-common/middleware';
+import { RedisModule } from '@aquaculture/backend-common/redis';
+import { TOKEN_BLACKLIST, ITokenBlacklist } from '@aquaculture/backend-common/security';
 import { EventBusModule } from '@platform/event-bus';
 
 import { AuthSchemaBootstrapModule } from './database/auth-schema-bootstrap.module';

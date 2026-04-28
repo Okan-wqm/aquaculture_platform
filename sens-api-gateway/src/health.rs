@@ -16,15 +16,12 @@
 //! - FR6: Timely Response to Events (health monitoring)
 //! - FR7: Resource Availability (diagnostics for troubleshooting)
 
-// v1.2.4: API reserved for health feature - silence dead_code warnings
-#![allow(dead_code)]
-
 use serde::Serialize;
 use std::collections::VecDeque;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use tracing::{error, info};
 
 /// Health status response
@@ -232,6 +229,26 @@ pub struct ConfigDiagnostics {
     pub telemetry_interval_secs: u64,
 }
 
+/// Sanitize a string for safe inclusion as a Prometheus
+/// label value (Batch 95). Per Prometheus exposition format
+/// (OpenMetrics section 3.3) label values can contain any
+/// unicode EXCEPT backslash, double-quote, and LF. We
+/// replace each forbidden char with `_`.
+///
+/// Also enforces a length cap at 128 chars — device_id +
+/// tenant UUIDs fit well under this; the cap prevents a
+/// misconfigured field from bloating every scrape.
+fn sanitize_prom_label(s: &str) -> String {
+    let truncated = if s.len() > 128 { &s[..128] } else { s };
+    truncated
+        .chars()
+        .map(|c| match c {
+            '\n' | '\r' | '\\' | '"' => '_',
+            c => c,
+        })
+        .collect()
+}
+
 /// Health check state shared with the main application
 #[derive(Clone)]
 pub struct HealthState {
@@ -241,6 +258,16 @@ pub struct HealthState {
 struct HealthStateInner {
     /// When the service started
     start_time: Instant,
+    /// Prometheus metric label for `device_id` (Batch 95).
+    /// Set via `set_device_id()` after config load. Empty
+    /// string when unset = "unknown" (valid Prometheus
+    /// label value, differentiates from devices with a
+    /// real ID so Grafana queries can filter).
+    device_id_label: std::sync::RwLock<String>,
+    /// Prometheus metric label for `tenant` (Batch 95).
+    /// Set via `set_tenant_id()` after provisioning
+    /// completes. Empty string = pre-provisioning.
+    tenant_id_label: std::sync::RwLock<String>,
     /// Whether config is loaded
     config_loaded: AtomicBool,
     /// Whether MQTT is connected
@@ -286,6 +313,40 @@ struct HealthStateInner {
     modbus_circuit_states: std::sync::RwLock<Vec<(String, String)>>,
     /// Function block type counts (v1.2.5)
     fb_type_counts: std::sync::RwLock<std::collections::HashMap<String, usize>>,
+    /// Batch 132 Sprint 6.5: firmware lifecycle counters.
+    /// Plan §4.2 IEC 62443 SL-2 observability evidence.
+    /// `firmware_apply_applied` — successful apply.
+    /// `firmware_apply_rejected` — verify / apply / streaming reject.
+    /// `firmware_confirm` — successful PendingConfirm→Active.
+    /// `firmware_rollback` — watchdog-fired rollback.
+    /// `firmware_active_slot` gauge — 0=A, 1=B.
+    /// `firmware_active_version` gauge — current active
+    /// firmware version (monotonic). Populated after
+    /// apply_signed_manifest or confirm_slot advances the
+    /// PartitionStore active_firmware_version field.
+    firmware_apply_applied: AtomicU64,
+    firmware_apply_rejected: AtomicU64,
+    firmware_confirm: AtomicU64,
+    firmware_rollback: AtomicU64,
+    firmware_active_slot: AtomicU64,
+    firmware_active_version: AtomicU64,
+    /// Batch 135 Sprint 6.5 — closes Batch 132 obs #3:
+    /// lifecycle HTTP endpoint HMAC auth rejection
+    /// counters. TOTAL bucket tracks ALL rejection
+    /// reasons (missing header, malformed, timestamp
+    /// skew, wrong HMAC). INVALID_HMAC bucket tracks
+    /// the specific "correct shape but wrong key" path
+    /// — operator-actionable security signal because it
+    /// indicates a client computing HMACs with a
+    /// different key than the agent expects (potentially
+    /// a compromise or a key-rotation-mismatch).
+    ///
+    /// Two counters instead of 6-per-variant: simpler
+    /// dashboard story ("how often is auth failing?" +
+    /// "is there a key mismatch signal?") without
+    /// exploding metric cardinality.
+    lifecycle_auth_rejected: AtomicU64,
+    lifecycle_auth_invalid_hmac: AtomicU64,
 }
 
 impl HealthState {
@@ -294,6 +355,8 @@ impl HealthState {
         Self {
             inner: Arc::new(HealthStateInner {
                 start_time: Instant::now(),
+                device_id_label: std::sync::RwLock::new(String::new()),
+                tenant_id_label: std::sync::RwLock::new(String::new()),
                 config_loaded: AtomicBool::new(false),
                 mqtt_connected: AtomicBool::new(false),
                 device_activated: AtomicBool::new(false),
@@ -316,13 +379,108 @@ impl HealthState {
                 mqtt_last_connected: AtomicI64::new(0),
                 modbus_circuit_states: std::sync::RwLock::new(Vec::new()),
                 fb_type_counts: std::sync::RwLock::new(std::collections::HashMap::new()),
+                firmware_apply_applied: AtomicU64::new(0),
+                firmware_apply_rejected: AtomicU64::new(0),
+                firmware_confirm: AtomicU64::new(0),
+                firmware_rollback: AtomicU64::new(0),
+                // firmware_active_slot gauge — 0=A by
+                // convention matches PartitionState::initial.
+                firmware_active_slot: AtomicU64::new(0),
+                firmware_active_version: AtomicU64::new(0),
+                lifecycle_auth_rejected: AtomicU64::new(0),
+                lifecycle_auth_invalid_hmac: AtomicU64::new(0),
             }),
+        }
+    }
+
+    // ========================================================================
+    // Batch 132 Sprint 6.5 — firmware lifecycle metrics accessors
+    // ========================================================================
+
+    pub fn inc_firmware_apply_applied(&self) {
+        self.inner
+            .firmware_apply_applied
+            .fetch_add(1, Ordering::AcqRel);
+    }
+
+    pub fn inc_firmware_apply_rejected(&self) {
+        self.inner
+            .firmware_apply_rejected
+            .fetch_add(1, Ordering::AcqRel);
+    }
+
+    pub fn inc_firmware_confirm(&self) {
+        self.inner.firmware_confirm.fetch_add(1, Ordering::AcqRel);
+    }
+
+    pub fn inc_firmware_rollback(&self) {
+        self.inner.firmware_rollback.fetch_add(1, Ordering::AcqRel);
+    }
+
+    /// Set firmware_active_slot gauge. 0 = slot A, 1 = slot B.
+    /// Other values are clamped to the enum range (defense
+    /// against accidental non-enum writes; no harm if
+    /// clamped since dashboards filter by 0/1).
+    pub fn set_firmware_active_slot(&self, slot_index: u64) {
+        let clamped = if slot_index > 1 { 1 } else { slot_index };
+        self.inner
+            .firmware_active_slot
+            .store(clamped, Ordering::Release);
+    }
+
+    pub fn set_firmware_active_version(&self, version: u64) {
+        self.inner
+            .firmware_active_version
+            .store(version, Ordering::Release);
+    }
+
+    /// Bump both the total-rejection counter AND, when
+    /// `is_invalid_hmac` is true, the invalid-hmac
+    /// counter. The is_invalid_hmac bucket is the
+    /// operator-security signal (client + server disagree
+    /// on the key); the total bucket tracks all rejection
+    /// causes including operator misconfig.
+    pub fn inc_lifecycle_auth_rejected(&self, is_invalid_hmac: bool) {
+        self.inner
+            .lifecycle_auth_rejected
+            .fetch_add(1, Ordering::AcqRel);
+        if is_invalid_hmac {
+            self.inner
+                .lifecycle_auth_invalid_hmac
+                .fetch_add(1, Ordering::AcqRel);
         }
     }
 
     /// Get uptime in seconds
     pub fn uptime_secs(&self) -> u64 {
         self.inner.start_time.elapsed().as_secs()
+    }
+
+    /// Set the device_id label for Prometheus output
+    /// (Batch 95 enterprise fleet observability). Called
+    /// once from main.rs after config load — the label
+    /// stays stable for the agent's lifetime.
+    ///
+    /// Validates against Prometheus label-value character
+    /// set: rejects newline, double-quote, backslash
+    /// (avoids exposition-format injection). Invalid chars
+    /// are replaced with `_`.
+    pub fn set_device_id(&self, device_id: &str) {
+        let sanitized = sanitize_prom_label(device_id);
+        if let Ok(mut w) = self.inner.device_id_label.write() {
+            *w = sanitized;
+        }
+    }
+
+    /// Set the tenant_id label for Prometheus output.
+    /// Called once from main.rs after provisioning
+    /// completes; before provisioning, the tenant label is
+    /// the empty string.
+    pub fn set_tenant_id(&self, tenant_id: &str) {
+        let sanitized = sanitize_prom_label(tenant_id);
+        if let Ok(mut w) = self.inner.tenant_id_label.write() {
+            *w = sanitized;
+        }
     }
 
     /// Set config loaded status
@@ -340,6 +498,19 @@ impl HealthState {
             let now = chrono::Utc::now().timestamp();
             self.inner.mqtt_last_connected.store(now, Ordering::Release);
         }
+    }
+
+    /// Read current MQTT connection state (Batch #251 ARC-002 wire).
+    ///
+    /// Used by [`crate::outbound_publisher::OutboundPublisher`] to
+    /// route publishes between direct-broker delivery and
+    /// queue-on-disk persistence. The atomic load uses Acquire
+    /// ordering so a `set_mqtt_connected(true)` from the event-loop
+    /// thread is observed by the publish-path before the
+    /// corresponding `publish_to_broker` call (load-bearing for the
+    /// connect-handshake → first-publish ordering).
+    pub fn is_mqtt_connected(&self) -> bool {
+        self.inner.mqtt_connected.load(Ordering::Acquire)
     }
 
     /// Set device activated status
@@ -509,6 +680,171 @@ impl HealthState {
         }
     }
 
+    /// Get metrics in Prometheus text exposition format
+    /// (Batch 94 enterprise observability foundation).
+    ///
+    /// Returns a String in the standard Prometheus
+    /// exposition format consumable by
+    /// `prometheus_scrape`, Grafana Agent, VictoriaMetrics,
+    /// etc. Metric names follow Prometheus naming
+    /// conventions:
+    /// - `snake_case` identifiers.
+    /// - Counters end with `_total`.
+    /// - Gauges have plain names.
+    /// - Durations in seconds (not milliseconds).
+    ///
+    /// All metrics carry `agent="suderra-edge"` + `device_id`
+    /// + `tenant` labels so multi-tenant fleet dashboards can
+    /// slice by device + tenant. `device_id` / `tenant`
+    /// default to empty string pre-config-load +
+    /// pre-provisioning respectively.
+    pub fn metrics_prometheus(&self) -> String {
+        let mut out = String::with_capacity(2048);
+
+        // Batch 95: assemble label set once per scrape.
+        // Empty values are still valid Prometheus label
+        // values — distinguish from missing metrics via
+        // the empty string sentinel (Grafana queries
+        // filter `device_id!=""`).
+        let device_id = self
+            .inner
+            .device_id_label
+            .read()
+            .map(|g| g.clone())
+            .unwrap_or_default();
+        let tenant_id = self
+            .inner
+            .tenant_id_label
+            .read()
+            .map(|g| g.clone())
+            .unwrap_or_default();
+        let labels = format!(
+            "agent=\"suderra-edge\",device_id=\"{}\",tenant=\"{}\"",
+            device_id, tenant_id
+        );
+
+        // Helper macros via simple string concat — avoiding
+        // prometheus crate dep + matching the existing
+        // vanilla approach in this module.
+        let counter = |out: &mut String, name: &str, help: &str, value: u64, labels: &str| {
+            out.push_str(&format!("# HELP {} {}\n", name, help));
+            out.push_str(&format!("# TYPE {} counter\n", name));
+            out.push_str(&format!("{}{{{}}} {}\n", name, labels, value));
+        };
+        let gauge = |out: &mut String, name: &str, help: &str, value: u64, labels: &str| {
+            out.push_str(&format!("# HELP {} {}\n", name, help));
+            out.push_str(&format!("# TYPE {} gauge\n", name));
+            out.push_str(&format!("{}{{{}}} {}\n", name, labels, value));
+        };
+
+        counter(&mut out, "suderra_uptime_seconds_total",
+            "Total uptime since agent start",
+            self.uptime_secs(), &labels);
+        counter(&mut out, "suderra_mqtt_messages_sent_total",
+            "Total MQTT messages published",
+            self.inner.mqtt_sent.load(Ordering::Acquire), &labels);
+        counter(&mut out, "suderra_mqtt_messages_received_total",
+            "Total MQTT messages received",
+            self.inner.mqtt_received.load(Ordering::Acquire), &labels);
+        gauge(&mut out, "suderra_mqtt_connected",
+            "MQTT broker connection state (1=connected, 0=disconnected)",
+            u64::from(self.inner.mqtt_connected.load(Ordering::Acquire)),
+            &labels);
+        counter(&mut out, "suderra_modbus_reads_total",
+            "Total Modbus register reads completed",
+            self.inner.modbus_reads.load(Ordering::Acquire), &labels);
+        counter(&mut out, "suderra_modbus_errors_total",
+            "Total Modbus read errors",
+            self.inner.modbus_errors.load(Ordering::Acquire), &labels);
+        counter(&mut out, "suderra_script_executions_total",
+            "Total ST script executions",
+            self.inner.script_executions.load(Ordering::Acquire),
+            &labels);
+        counter(&mut out, "suderra_script_errors_total",
+            "Total ST script execution errors",
+            self.inner.script_errors.load(Ordering::Acquire), &labels);
+        gauge(&mut out, "suderra_offline_queue_size",
+            "Current number of messages queued offline",
+            self.inner.offline_queue_size.load(Ordering::Acquire),
+            &labels);
+        gauge(&mut out, "suderra_offline_queue_capacity",
+            "Offline queue capacity ceiling",
+            self.inner.offline_queue_capacity.load(Ordering::Acquire),
+            &labels);
+        counter(&mut out, "suderra_offline_queue_queued_total",
+            "Total messages ever queued offline (lifetime)",
+            self.inner.offline_total_queued.load(Ordering::Acquire),
+            &labels);
+        counter(&mut out, "suderra_offline_queue_sent_total",
+            "Total messages ever sent from offline queue (lifetime)",
+            self.inner.offline_total_sent.load(Ordering::Acquire),
+            &labels);
+        gauge(&mut out, "suderra_modbus_clients",
+            "Number of currently-registered Modbus clients",
+            self.inner.modbus_client_count.load(Ordering::Acquire),
+            &labels);
+        gauge(&mut out, "suderra_scripts_loaded",
+            "Number of ST scripts loaded",
+            self.inner.script_loaded_count.load(Ordering::Acquire),
+            &labels);
+        gauge(&mut out, "suderra_scripts_active",
+            "Number of ST scripts actively executing",
+            self.inner.script_active_count.load(Ordering::Acquire),
+            &labels);
+        gauge(&mut out, "suderra_function_blocks",
+            "Number of function block instances",
+            self.inner.fb_instance_count.load(Ordering::Acquire),
+            &labels);
+
+        // Batch 132 Sprint 6.5: firmware lifecycle metrics.
+        // Plan §4.2 IEC 62443 SL-2 observability evidence.
+        counter(&mut out, "suderra_firmware_apply_applied_total",
+            "Total signed-manifest firmware applies that succeeded end-to-end (verify + stream + apply_roll + bootloader coord)",
+            self.inner.firmware_apply_applied.load(Ordering::Acquire),
+            &labels);
+        counter(&mut out, "suderra_firmware_apply_rejected_total",
+            "Total signed-manifest firmware applies that were rejected at any gate (verify / streaming / apply_roll)",
+            self.inner.firmware_apply_rejected.load(Ordering::Acquire),
+            &labels);
+        counter(&mut out, "suderra_firmware_confirm_total",
+            "Total A/B slot confirms that succeeded (PendingConfirm -> Active transition)",
+            self.inner.firmware_confirm.load(Ordering::Acquire),
+            &labels);
+        counter(&mut out, "suderra_firmware_rollback_total",
+            "Total watchdog-fired firmware rollbacks (cold-boot-budget expired on PendingConfirm slot)",
+            self.inner.firmware_rollback.load(Ordering::Acquire),
+            &labels);
+        gauge(&mut out, "suderra_firmware_active_slot",
+            "Currently-active A/B partition slot (0=slot_a, 1=slot_b)",
+            self.inner.firmware_active_slot.load(Ordering::Acquire),
+            &labels);
+        gauge(&mut out, "suderra_firmware_active_version",
+            "Monotonic firmware version currently active on the device",
+            self.inner.firmware_active_version.load(Ordering::Acquire),
+            &labels);
+        // Batch 135 Sprint 6.5: lifecycle HTTP HMAC auth
+        // rejection counters. Total = any reject reason;
+        // invalid_hmac = specifically wrong-key path.
+        counter(&mut out, "suderra_lifecycle_auth_rejected_total",
+            "Total POST /lifecycle/* HMAC auth rejections across all gates (missing header, malformed, timestamp skew, wrong hmac)",
+            self.inner.lifecycle_auth_rejected.load(Ordering::Acquire),
+            &labels);
+        counter(&mut out, "suderra_lifecycle_auth_invalid_hmac_total",
+            "POST /lifecycle/* HMAC auth rejections where HMAC bytes parsed correctly but did not match (client+server key mismatch signal)",
+            self.inner.lifecycle_auth_invalid_hmac.load(Ordering::Acquire),
+            &labels);
+        gauge(&mut out, "suderra_device_activated",
+            "Device activation state (1=activated, 0=pending-provisioning)",
+            u64::from(self.inner.device_activated.load(Ordering::Acquire)),
+            &labels);
+        gauge(&mut out, "suderra_config_loaded",
+            "Config load state (1=loaded, 0=not-yet)",
+            u64::from(self.inner.config_loaded.load(Ordering::Acquire)),
+            &labels);
+
+        out
+    }
+
     /// Get comprehensive diagnostics response (v1.2.4)
     pub fn diagnostics(&self) -> DiagnosticsResponse {
         use sysinfo::{Disks, System};
@@ -667,22 +1003,62 @@ impl Default for HealthState {
 ///
 /// # Returns
 /// A join handle that can be used to wait for the server to stop.
+// BATCH-001-CI-FIX-017 (Batch 14 bug revealed by default="health"):
+// `State` tuple-struct pattern at health_handler et al. needs `State` as a
+// BARE NAME in scope — a full path `axum::extract::State` in the type
+// annotation doesn't satisfy tuple-struct pattern syntax. Handlers live
+// OUTSIDE `start_health_server`, so the function-local `use axum::{...}`
+// inside that body didn't cover them. Before Batch 14 the `health` feature
+// was OFF by default, so the cfg-gated handlers never compiled and the
+// scope bug stayed silent.
+//
+// Fix: module-level `use axum::extract::State` (cfg-gated) so all
+// `#[cfg(feature = "health")]` handlers see it. Function-local imports
+// inside `start_health_server` removed (router methods use full paths).
+//
+// Logged as OBS-14-004 in session-observations.md.
+#[cfg(feature = "health")]
+use axum::extract::State;
+
 #[cfg(feature = "health")]
 pub async fn start_health_server(
     addr: SocketAddr,
     state: HealthState,
+    lifecycle_cell: Option<crate::lifecycle::LifecycleHandlesCell>,
 ) -> tokio::task::JoinHandle<()> {
-    use axum::{
-        Json, Router, extract::State, http::StatusCode, response::IntoResponse, routing::get,
-    };
+    use axum::{routing::{get, post}, Extension, Router};
 
-    // Build the router
-    let app = Router::new()
+    // Build the router. The lifecycle cell is layered in
+    // as Extension so the confirm-active handler can read
+    // it independently of the HealthState state. Axum's
+    // with_state type takes exactly ONE state type; we
+    // keep HealthState there + layer the lifecycle cell
+    // on top so the routes that need it can extract it
+    // via Extension<LifecycleHandlesCell>.
+    let mut app = Router::new()
         .route("/health", get(health_handler))
         .route("/ready", get(ready_handler))
         .route("/metrics", get(metrics_handler))
-        .route("/diagnostics", get(diagnostics_handler))
-        .with_state(state);
+        .route("/metrics/prometheus", get(metrics_prometheus_handler))
+        .route("/diagnostics", get(diagnostics_handler));
+
+    // Batch 122 Sprint 6.5: register the lifecycle
+    // endpoint(s) conditionally. When the caller supplied
+    // a cell (main path wires one iff partition_store
+    // init succeeds), the route is live; otherwise the
+    // route is NOT registered so there is no half-wired
+    // 503-always state.
+    if let Some(cell) = lifecycle_cell {
+        app = app
+            .route(
+                "/lifecycle/confirm-active",
+                post(crate::lifecycle::confirm_active_handler),
+            )
+            .layer(Extension(cell));
+        info!("Lifecycle HTTP endpoint registered: POST /lifecycle/confirm-active");
+    }
+
+    let app = app.with_state(state);
 
     info!("Starting health check server on {}", addr);
 
@@ -733,6 +1109,29 @@ async fn metrics_handler(
     State(state): axum::extract::State<HealthState>,
 ) -> impl axum::response::IntoResponse {
     (axum::http::StatusCode::OK, axum::Json(state.metrics()))
+}
+
+/// Prometheus text-format metrics endpoint (Batch 94
+/// enterprise observability).
+///
+/// Returns the Prometheus exposition format with
+/// `Content-Type: text/plain; version=0.0.4; charset=utf-8`
+/// per Prometheus scrape protocol. Grafana Agent /
+/// VictoriaMetrics / plain Prometheus all consume this
+/// shape natively.
+#[cfg(feature = "health")]
+async fn metrics_prometheus_handler(
+    State(state): axum::extract::State<HealthState>,
+) -> impl axum::response::IntoResponse {
+    let body = state.metrics_prometheus();
+    (
+        axum::http::StatusCode::OK,
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/plain; version=0.0.4; charset=utf-8",
+        )],
+        body,
+    )
 }
 
 #[cfg(feature = "health")]
@@ -862,5 +1261,346 @@ mod tests {
 
         // Still very small
         assert!(state.uptime_secs() < 2);
+    }
+
+    #[test]
+    fn prometheus_output_contains_expected_metric_families() {
+        let state = HealthState::new();
+        let out = state.metrics_prometheus();
+
+        // Spot-check a representative set across counter +
+        // gauge types. The contract is that every field in
+        // HealthStateInner becomes a prometheus metric.
+        let expected = [
+            "suderra_uptime_seconds_total",
+            "suderra_mqtt_messages_sent_total",
+            "suderra_mqtt_messages_received_total",
+            "suderra_mqtt_connected",
+            "suderra_modbus_reads_total",
+            "suderra_modbus_errors_total",
+            "suderra_script_executions_total",
+            "suderra_script_errors_total",
+            "suderra_offline_queue_size",
+            "suderra_offline_queue_capacity",
+            "suderra_offline_queue_queued_total",
+            "suderra_offline_queue_sent_total",
+            "suderra_modbus_clients",
+            "suderra_scripts_loaded",
+            "suderra_scripts_active",
+            "suderra_function_blocks",
+            "suderra_device_activated",
+            "suderra_config_loaded",
+        ];
+        for metric in expected {
+            assert!(out.contains(metric), "missing metric: {}\n{}", metric, out);
+            // Each metric MUST carry the agent label.
+            assert!(
+                out.contains(&format!(
+                    "{}{{agent=\"suderra-edge\",device_id=\"\",tenant=\"\"}} ",
+                    metric
+                )),
+                "metric {} missing expected labels (raw:\n{})",
+                metric,
+                out
+            );
+        }
+    }
+
+    #[test]
+    fn prometheus_output_uses_correct_type_declarations() {
+        let state = HealthState::new();
+        let out = state.metrics_prometheus();
+        // Counters MUST declare TYPE counter.
+        assert!(out.contains("# TYPE suderra_mqtt_messages_sent_total counter"));
+        assert!(out.contains("# TYPE suderra_uptime_seconds_total counter"));
+        // Gauges MUST declare TYPE gauge.
+        assert!(out.contains("# TYPE suderra_mqtt_connected gauge"));
+        assert!(out.contains("# TYPE suderra_offline_queue_size gauge"));
+    }
+
+    #[test]
+    fn prometheus_output_reflects_counter_increments() {
+        let state = HealthState::new();
+        state.inc_mqtt_sent();
+        state.inc_mqtt_sent();
+        state.inc_mqtt_received();
+        let out = state.metrics_prometheus();
+        assert!(
+            out.contains(
+                "suderra_mqtt_messages_sent_total{agent=\"suderra-edge\",device_id=\"\",tenant=\"\"} 2"
+            ),
+            "sent counter not incremented: {}",
+            out
+        );
+        assert!(
+            out.contains(
+                "suderra_mqtt_messages_received_total{agent=\"suderra-edge\",device_id=\"\",tenant=\"\"} 1"
+            ),
+            "received counter not incremented: {}",
+            out
+        );
+    }
+
+    #[test]
+    fn prometheus_output_reflects_gauge_state() {
+        let state = HealthState::new();
+        assert!(state.metrics_prometheus().contains(
+            "suderra_mqtt_connected{agent=\"suderra-edge\",device_id=\"\",tenant=\"\"} 0"
+        ));
+        state.set_mqtt_connected(true);
+        assert!(state.metrics_prometheus().contains(
+            "suderra_mqtt_connected{agent=\"suderra-edge\",device_id=\"\",tenant=\"\"} 1"
+        ));
+    }
+
+    #[test]
+    fn prometheus_labels_reflect_device_id_and_tenant() {
+        let state = HealthState::new();
+        state.set_device_id("dev-alpha-123");
+        state.set_tenant_id("fd23af6b-167f-4afd-a62a-ceace2a4046b");
+        let out = state.metrics_prometheus();
+        assert!(
+            out.contains(
+                "suderra_mqtt_connected{agent=\"suderra-edge\",device_id=\"dev-alpha-123\",tenant=\"fd23af6b-167f-4afd-a62a-ceace2a4046b\"}"
+            ),
+            "labels not injected: {}",
+            out
+        );
+    }
+
+    #[test]
+    fn prometheus_label_sanitization_replaces_forbidden_chars() {
+        let state = HealthState::new();
+        // Malicious / misconfigured values with injection
+        // attempts — MUST be neutralized to `_`.
+        state.set_device_id("evil\"injected\nmulti\\line");
+        let out = state.metrics_prometheus();
+        // No raw double-quote or newline in the value.
+        assert!(
+            !out.contains("evil\"injected"),
+            "raw double-quote leaked: {}",
+            out
+        );
+        // Sanitized form present.
+        assert!(
+            out.contains("device_id=\"evil_injected_multi_line\""),
+            "sanitized form missing: {}",
+            out
+        );
+    }
+
+    #[test]
+    fn prometheus_output_ends_with_newline_for_each_metric() {
+        let state = HealthState::new();
+        let out = state.metrics_prometheus();
+        // Final line MUST be newline-terminated per
+        // Prometheus exposition format (each sample ends
+        // with LF). Our last metric is suderra_config_loaded.
+        assert!(
+            out.ends_with('\n'),
+            "prometheus output must end with newline (scrape protocol): last 40 chars={:?}",
+            &out[out.len().saturating_sub(40)..]
+        );
+    }
+
+    // ========================================================================
+    // Batch 132 Sprint 6.5 — firmware lifecycle metrics tests
+    // ========================================================================
+
+    #[test]
+    fn firmware_metrics_present_in_prometheus_output() {
+        let state = HealthState::new();
+        let out = state.metrics_prometheus();
+        for name in [
+            "suderra_firmware_apply_applied_total",
+            "suderra_firmware_apply_rejected_total",
+            "suderra_firmware_confirm_total",
+            "suderra_firmware_rollback_total",
+            "suderra_firmware_active_slot",
+            "suderra_firmware_active_version",
+        ] {
+            assert!(
+                out.contains(name),
+                "firmware metric '{}' missing from scrape output",
+                name
+            );
+        }
+    }
+
+    #[test]
+    fn firmware_counters_initialize_at_zero() {
+        let state = HealthState::new();
+        let out = state.metrics_prometheus();
+        // Match the exact " 0" suffix to rule out partial
+        // string coincidence (e.g. a timestamp ending in 0).
+        for name in [
+            "suderra_firmware_apply_applied_total",
+            "suderra_firmware_apply_rejected_total",
+            "suderra_firmware_confirm_total",
+            "suderra_firmware_rollback_total",
+        ] {
+            let line = out
+                .lines()
+                .find(|l| l.starts_with(name))
+                .expect(&format!("missing metric line for {}", name));
+            assert!(
+                line.ends_with(" 0"),
+                "{} should start at 0, got line: {}",
+                name,
+                line
+            );
+        }
+    }
+
+    #[test]
+    fn firmware_apply_applied_increment_reflected_in_output() {
+        let state = HealthState::new();
+        state.inc_firmware_apply_applied();
+        state.inc_firmware_apply_applied();
+        state.inc_firmware_apply_applied();
+        let out = state.metrics_prometheus();
+        let line = out
+            .lines()
+            .find(|l| l.starts_with("suderra_firmware_apply_applied_total"))
+            .expect("missing metric line");
+        assert!(line.ends_with(" 3"), "expected 3 applies, got: {}", line);
+    }
+
+    #[test]
+    fn firmware_rollback_increment_reflected_in_output() {
+        let state = HealthState::new();
+        state.inc_firmware_rollback();
+        let out = state.metrics_prometheus();
+        let line = out
+            .lines()
+            .find(|l| l.starts_with("suderra_firmware_rollback_total"))
+            .expect("missing metric line");
+        assert!(line.ends_with(" 1"), "expected 1 rollback, got: {}", line);
+    }
+
+    #[test]
+    fn firmware_active_slot_gauge_reflects_value() {
+        let state = HealthState::new();
+        state.set_firmware_active_slot(1);
+        let out = state.metrics_prometheus();
+        let line = out
+            .lines()
+            .find(|l| l.starts_with("suderra_firmware_active_slot"))
+            .expect("missing gauge line");
+        assert!(
+            line.ends_with(" 1"),
+            "expected slot=1 (B), got: {}",
+            line
+        );
+    }
+
+    #[test]
+    fn firmware_active_slot_gauge_clamps_invalid_values() {
+        // Defense: if a caller accidentally writes 42,
+        // the gauge clamps to 1 (max-valid) rather than
+        // expose nonsense to dashboards.
+        let state = HealthState::new();
+        state.set_firmware_active_slot(42);
+        let out = state.metrics_prometheus();
+        let line = out
+            .lines()
+            .find(|l| l.starts_with("suderra_firmware_active_slot"))
+            .expect("missing gauge line");
+        assert!(
+            line.ends_with(" 1"),
+            "expected clamped=1, got: {}",
+            line
+        );
+    }
+
+    #[test]
+    fn firmware_active_version_gauge_reflects_value() {
+        let state = HealthState::new();
+        state.set_firmware_active_version(42);
+        let out = state.metrics_prometheus();
+        let line = out
+            .lines()
+            .find(|l| l.starts_with("suderra_firmware_active_version"))
+            .expect("missing gauge line");
+        assert!(line.ends_with(" 42"), "expected version=42, got: {}", line);
+    }
+
+    // ========================================================================
+    // Batch 135 Sprint 6.5 — lifecycle auth rejection metric tests
+    // ========================================================================
+
+    #[test]
+    fn lifecycle_auth_rejection_metrics_present_in_output() {
+        let state = HealthState::new();
+        let out = state.metrics_prometheus();
+        assert!(out.contains("suderra_lifecycle_auth_rejected_total"));
+        assert!(out.contains("suderra_lifecycle_auth_invalid_hmac_total"));
+    }
+
+    #[test]
+    fn lifecycle_auth_non_invalid_hmac_bumps_only_total() {
+        let state = HealthState::new();
+        // Simulate a MissingHmacHeader reject (not invalid_hmac).
+        state.inc_lifecycle_auth_rejected(false);
+        let out = state.metrics_prometheus();
+        let total = out
+            .lines()
+            .find(|l| l.starts_with("suderra_lifecycle_auth_rejected_total"))
+            .expect("total missing");
+        let invalid = out
+            .lines()
+            .find(|l| l.starts_with("suderra_lifecycle_auth_invalid_hmac_total"))
+            .expect("invalid missing");
+        assert!(total.ends_with(" 1"), "total should be 1, got: {}", total);
+        assert!(
+            invalid.ends_with(" 0"),
+            "invalid_hmac should stay 0 for non-invalid-hmac rejection, got: {}",
+            invalid
+        );
+    }
+
+    #[test]
+    fn lifecycle_auth_invalid_hmac_bumps_both_counters() {
+        let state = HealthState::new();
+        state.inc_lifecycle_auth_rejected(true);
+        let out = state.metrics_prometheus();
+        let total = out
+            .lines()
+            .find(|l| l.starts_with("suderra_lifecycle_auth_rejected_total"))
+            .expect("total missing");
+        let invalid = out
+            .lines()
+            .find(|l| l.starts_with("suderra_lifecycle_auth_invalid_hmac_total"))
+            .expect("invalid missing");
+        assert!(total.ends_with(" 1"), "total should be 1, got: {}", total);
+        assert!(
+            invalid.ends_with(" 1"),
+            "invalid_hmac should be 1 for invalid-hmac rejection, got: {}",
+            invalid
+        );
+    }
+
+    #[test]
+    fn lifecycle_auth_multiple_rejections_accumulate_independently() {
+        let state = HealthState::new();
+        // 3 non-invalid (missing headers / timestamp skew / etc)
+        state.inc_lifecycle_auth_rejected(false);
+        state.inc_lifecycle_auth_rejected(false);
+        state.inc_lifecycle_auth_rejected(false);
+        // 2 invalid_hmac (operator-security signal)
+        state.inc_lifecycle_auth_rejected(true);
+        state.inc_lifecycle_auth_rejected(true);
+
+        let out = state.metrics_prometheus();
+        let total = out
+            .lines()
+            .find(|l| l.starts_with("suderra_lifecycle_auth_rejected_total"))
+            .expect("total");
+        let invalid = out
+            .lines()
+            .find(|l| l.starts_with("suderra_lifecycle_auth_invalid_hmac_total"))
+            .expect("invalid");
+        assert!(total.ends_with(" 5"), "total = 5, got: {}", total);
+        assert!(invalid.ends_with(" 2"), "invalid = 2, got: {}", invalid);
     }
 }

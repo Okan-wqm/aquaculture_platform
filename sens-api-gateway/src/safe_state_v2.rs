@@ -40,7 +40,12 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::authz::{ActuatorClass, AerationSubClass, ChemistrySubClass, ThermalSubClass};
+// BATCH-001-CI-FIX-017: only ActuatorClass is currently referenced in
+// type signatures (e.g. `BackupPath::validate_for_life_support`).
+// AerationSubClass / ChemistrySubClass / ThermalSubClass are imported for
+// the test module at the bottom of this file; moved their `use` down
+// there to keep top-level clean under `default=["health"]` builds.
+use crate::authz::ActuatorClass;
 // Imported from authz::permission for FailSafe threshold comparisons + tag-scoped
 // interlock references; Batch 2 delivered these types.
 use crate::authz::TagId;
@@ -772,8 +777,10 @@ pub enum OutputTag {
 /// direct `bincode::serialize(&the_struct)` is forbidden (would include the
 /// signature field itself in the payload → unverifiable).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct HardwareAttestationSig(pub [u8; 64]);
+pub struct HardwareAttestationSig(
+    #[serde(with = "serde_big_array::BigArray")]
+    pub [u8; 64],
+);
 
 impl HardwareAttestationSig {
     /// Expose the raw signature bytes.
@@ -880,6 +887,11 @@ pub enum BackupPathError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // BATCH-001-CI-FIX-017: SubClass enums used inside tests at
+    // `BackupPath::validate_for_life_support` call sites + the
+    // `actuator_class_reachable_from_safe_state_v2` smoke test. Pulled
+    // into test scope explicitly so the module-level `use` stays minimal.
+    use crate::authz::{AerationSubClass, ChemistrySubClass, ThermalSubClass};
 
     // WHY: Serde roundtrip smoke test for FailSafe variants — manifest JSON
     //      shape stability depends on this contract.

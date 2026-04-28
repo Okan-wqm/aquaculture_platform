@@ -33,8 +33,7 @@ import {
 import { Request } from 'express';
 import { getAuthUser } from '../../shared/authenticated-request';
 
-// Fix: H8 -- per-route throttle for sensitive impersonation endpoints
-import { ThrottleSensitive } from '@aquaculture/backend-common';
+import { ThrottleSensitive } from '@aquaculture/backend-common/security';
 import {
   ImpersonationStatus,
   ImpersonationReason,

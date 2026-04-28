@@ -5,7 +5,7 @@ import type {
   PasswordResetRequestedEvent,
   UserInvitedEvent,
 } from '@platform/event-contracts';
-import { maskEmail } from '@aquaculture/backend-common';
+import { maskEmail } from '@aquaculture/backend-common/utils';
 import { EmailService } from '../services/email.service';
 
 // UUID v4 regex for tenant ID validation

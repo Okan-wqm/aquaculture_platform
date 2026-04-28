@@ -4,7 +4,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, LessThan, Between } from 'typeorm';
 import * as os from 'os';
 import * as fs from 'fs';
-import { buildSignedInternalHeaders } from '@aquaculture/backend-common';
+import { buildSignedInternalHeaders } from '@aquaculture/backend-common/http';
 
 import {
   PerformanceMetric,

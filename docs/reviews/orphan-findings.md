@@ -4,6 +4,13 @@
 
 **Policy:** Append-only. Findings RESOLVED via commits carry closure note + commit SHA. Never silently dropped.
 
+**ID format:** `ORPHAN-{NNN}`
+
+**Related memory:** `feedback_orphan_findings_doc.md`
+
+---
+
+
 ## DEPLOY-CRITICAL-005 — MigrationAuditModule missing EventBusModule.forRoot() import (2026-04-21)
 
 **Status:** RESOLVED — fixed by the commit that introduces this entry.
@@ -72,6 +79,7 @@ docblock reminder.
   SchemaDriftValidator.onApplicationBootstrap within round 1-5
   and emitting "Schema drift scan clean".
 
+
 ## TEST-PREEXISTING-002 — pre-existing TS errors in leader-election + watchdog specs (2026-04-21)
 
 **Status**: OPEN. Unrelated to the db-migrate enterprise refactor;
@@ -113,6 +121,7 @@ Likely fix: update FakeRedis.set signature to accept
 `jest-mock-redis` upstream lib. NOT blocking the v3 refactor — the
 runtime code doesn't fail; tsc errors are test-shim only.
 
+
 ## TEST-PREEXISTING-001 — schema-manager.spec.ts: 3 tests fail regardless of current branch changes (2026-04-21)
 
 **Status**: OPEN. Documented during Phase 2 implementation; not caused by
@@ -139,6 +148,7 @@ schema-manager.service.ts behaviour (mock expectations drifted vs
 real service). NOT blocking the v3 refactor; tracked here so future
 reviewers know it's not a v3-introduced regression.
 
+
 ## DEPLOY-CRITICAL-004 — nullability + uuid drift survives first-phase HR heal, blocks SchemaDriftValidator clean signal
 
 **ID format:** `ORPHAN-{NNN}`
@@ -146,6 +156,7 @@ reviewers know it's not a v3-introduced regression.
 **Related memory:** `feedback_orphan_findings_doc.md`
 
 ---
+
 
 ## ORPHAN-001 — `opentelemetry` 0.27 vs `tracing-opentelemetry` 0.28 version family drift
 
@@ -178,6 +189,7 @@ tracing-opentelemetry = { version = "0.28", optional = true }
 **Status:** OPEN (documented; no fix in Batch 1 scope — Faz 0 only touches new deps).
 
 ---
+
 
 ## ORPHAN-002 — `rodbus = "=1.4.0"` empty-Path workaround depends on un-specified behavior
 
@@ -215,6 +227,7 @@ tracing-opentelemetry = { version = "0.28", optional = true }
 
 ---
 
+
 ## ORPHAN-003 — `nix` feature `process` may pull unused capability wrappers; capability drop likely goes through `libc` direct FFI
 
 **Severity:** LOW
@@ -245,6 +258,7 @@ nix = { version = "0.29", features = ["fs", "process", "signal", "user"] }
 
 ---
 
+
 ## ORPHAN-004 — Pre-commit banned-phrase gate scans whole staged file
 
 **Severity:** LOW (gate tooling)
@@ -266,6 +280,7 @@ Line 406 pre-existed (v1.2.4 baseline); Batch 1 changes were in lines 132-368.
 **Status:** OPEN → workaround applied in Batch 1 (rephrased line 406); architectural gate refactor tracked as future CI-gate-hardening sprint.
 
 ---
+
 
 ## ORPHAN-005 — `SUDERRA_DATA_DIR` env var enables path-redirect on SQLite writes
 
@@ -296,6 +311,7 @@ Same pattern for `retain.db`. No canonicalization, no allowlist, no path-root ch
 **Status:** OPEN → Faz 2 Sprint 8.3 systemd + in-process hardening (EDGE-HIGH).
 
 ---
+
 
 ## ORPHAN-006 — Offline queue "flush" shutdown step is a no-op with misleading log
 
@@ -329,6 +345,7 @@ info!("Offline queue flush step complete");
 
 ---
 
+
 ## ORPHAN-007 — `publish_raw(&topic, ...)` double-reference; clippy `needless_borrow`
 
 **Severity:** LOW (lint)
@@ -348,6 +365,7 @@ if let Err(e) = mqtt.publish_raw(&topic, &payload).await {  // &&String
 **Status:** OPEN → pickup with Faz 1 ARC-008 commands.rs god-file split or earlier cleanup batch.
 
 ---
+
 
 ## ORPHAN-008 — Modbus write path routes ALL writes to the FIRST configured device regardless of per-tag mapping
 
@@ -401,6 +419,7 @@ ProtocolConfig::Modbus { register, .. } => {
 
 ---
 
+
 ## ORPHAN-009 — `reverse_scale(...) as u16` silent truncation on Modbus analog write
 
 **Severity:** LOW (out-of-band numeric truncation)
@@ -441,6 +460,7 @@ Each case silently writes an out-of-range value to the PLC register — the oper
 **Status:** OPEN → Faz 1 ARC-008 commands.rs split delivers validated Modbus write handler.
 
 ---
+
 
 ## ORPHAN-010 — systemd unit `ReadWritePaths=/var/lib/suderra-agent` diverges from runtime code which writes to `/var/lib/suderra`
 
@@ -487,6 +507,7 @@ const SCADA_DIR: &str = "/var/lib/suderra/scada";
 
 ---
 
+
 ## ORPHAN-011 — `TagId(pub String)` inner field escaped the sealed-newtype pattern in Batch 2
 
 **Severity:** LOW (seal consistency; no security-critical surface exposed)
@@ -516,6 +537,7 @@ pub struct TagId(pub String);
 **Status:** RESOLVED-IN-BATCH-5A — `TagId(String)` with private inner + `pub fn new` + `From<String>` preserved; 8 internal tuple-ctor test sites migrated to `TagId::from(...)`. No external callers needed migration (verified via crate-wide grep).
 
 ---
+
 
 ## 2026-04-20 ORPHAN-012 — `tools/gates/tsconfig.json` `ignoreDeprecations: "6.0"` rejected by TS 5.9.3 (all pre-commit gates fail)
 
@@ -587,6 +609,7 @@ warning rather than a `TS5103` block.
 
 ---
 
+
 ## 2026-04-20 ORPHAN-013 — NATS subject drift: publishers emit `events.{tenantId}.{eventType}`, subscribers listen on `events.{eventType}`
 
 **Severity:** HIGH (silently miss every tenant-scoped publish)
@@ -641,6 +664,7 @@ to `subscribeWildcard` so existing callers keep working with the
 fixed semantic.
 
 ---
+
 
 ## 2026-04-21 ORPHAN-014 — Six `mqtt-listener.service.spec.ts` tests fail on `agentic-rust-faz2-sensor-ingestion` HEAD (independent of Faz 3 work)
 
@@ -703,12 +727,14 @@ green.
 
 ---
 
+
 ## Notes on methodology
 
 - Findings discovered during normal code review; NOT dedicated orphan-bug sweep.
 - Each entry reviewed for "real problem vs stylistic preference" — preferences NOT recorded.
 - CLAUDE.md banned-phrase rules apply; "deferred" only with owner/deadline/finding-ID per rule.
 - Resolution path: linked to plan phase / sprint where fix lands.
+
 ## 2026-04-21 ORPHAN-015 — `apps/alert-engine/src/alert/event-handlers/__tests__/sensor-reading.handler.spec.ts` "evaluation execution" test uses legacy nested `readings` shape, handler expects flat `readingXxx`
 
 **Severity:** MEDIUM (1 pre-existing test failure on every PR touching alert-engine)
@@ -734,6 +760,7 @@ Verified pre-existing on `main` (HEAD `23b1362a`). Not introduced by ORPHAN-013 
 - Closure path: a `test(alert-engine):` commit that updates the test fixture + adds the upcaster-path companion test.
 
 ---
+
 
 ## 2026-04-22 ORPHAN-016 — TS `mqtt-listener.service.ts` still emits `SensorReading` V1 nested format
 
@@ -771,6 +798,7 @@ The TS cloud listener still emits `SensorReading` events in the V1 nested-`readi
 
 ---
 
+
 ## 2026-04-22 ORPHAN-017 — Prometheus annotation-based scrape is an injection DoS risk (SEC-NM-018 flagged, fix deferred)
 
 **Severity:** HIGH (documented DoS risk, mitigation not implemented)
@@ -796,6 +824,7 @@ The TS cloud listener still emits `SensorReading` events in the V1 nested-`readi
 - Closure path: `security(observability): remove annotation-based Prometheus scrape, move to static jobs` — commit with `Closes: docs/reviews/orphan-findings.md#ORPHAN-017`.
 
 ---
+
 
 ## 2026-04-22 ORPHAN-018 — `sens-api-gateway` OTA firmware update protocol + signing is undocumented
 
@@ -828,6 +857,7 @@ The TS cloud listener still emits `SensorReading` events in the V1 nested-`readi
 
 ---
 
+
 ## 2026-04-22 ORPHAN-019 — `@platform/event-bus` lacks NATS request-reply API (Rust plan depends on it)
 
 **Status:** RESOLVED — landed across commits `f555cec2` (Rust typed `request_typed` primitive) → `189bcaf5` (TS `NatsRequestReply` + error taxonomy) → `4254a6b1` (event-contracts wire types) → `3c987bdc` (admin-api responder + publisher) → `41c3af2b` (ADR-031 promoted to Accepted). End-to-end `policy.ingest_backend.snapshot` round-trip + `policy.ingest_backend.changed` hot-swap chain live + tested.
@@ -857,6 +887,7 @@ The TS cloud listener still emits `SensorReading` events in the V1 nested-`readi
 
 ---
 
+
 ## 2026-04-22 ORPHAN-020 — `apps/db-migrate` runner rollback workflow not verified
 
 **Status:** PARTIALLY RESOLVED — `apps/db-migrate --down N --schema <name>` CLI + `rollbackSchemaMigrations` orchestrator function landed with live PG round-trip test (up → down → up) via `@platform/migration-harness`. 19/19 jest tests green (16 CLI parser + 3 integration). Remaining scope: CI rollback workflow (on-deploy-failure trigger) + tenant fan-out for rollback (currently source-schema only by design; per-tenant rollback requires operator-reviewed scripting per the orchestrator docblock).
@@ -885,6 +916,7 @@ The TS cloud listener still emits `SensorReading` events in the V1 nested-`readi
 
 ---
 
+
 ## 2026-04-22 ORPHAN-021 — `deploy-digitalocean.yml` pulls images with no `cosign verify` gate
 
 **Severity:** HIGH (supply-chain trust chain open on every deploy)
@@ -910,6 +942,7 @@ Additionally, every other service pushed by `deploy-digitalocean.yml` (backend N
 - Closure path: `security(ci,deploy): cosign sign + verify every platform image` PR touching both deploy workflows + every Dockerfile with `sbom: true`, carrying `Closes: docs/reviews/orphan-findings.md#ORPHAN-021` when every image is under the same discipline.
 
 ---
+
 
 ## ORPHAN-EDGE-AUDIT-2026-04-25 — Lane-C edge-docs FULL-RFP run + post-merge gates (2026-04-25)
 
@@ -1080,6 +1113,7 @@ Additionally, every other service pushed by `deploy-digitalocean.yml` (backend N
 - **Banned-phrase posture in this entry:** the substitution-table words above (interim, deferred, out-of-scope, temporary, pragmatic) appear ONLY inside fenced blocks describing the rule itself. Per `tools/gates/banned-phrase.ts` EXEMPT_PATHS line 179, `^docs/reviews/` is allowlisted; this file is `docs/reviews/orphan-findings.md` and is therefore exempt. Producers writing under `sens-api-gateway/docs/` continue to follow the substitution table strictly.
 
 ---
+
 
 ## ORPHAN-EDGE-AUDIT-2026-04-25-DEEP — 14 additional architectural gaps surfaced during PR-#132 + PR-#151 audits (2026-04-25)
 
@@ -1255,6 +1289,7 @@ Additionally, every other service pushed by `deploy-digitalocean.yml` (backend N
 
 ---
 
+
 ## ORPHAN-EDGE-AUDIT-2026-04-25-EXTRA-DEEP — 11 additional repo-state, worktree, and governance gaps (2026-04-25)
 
 **Status:** OPEN.
@@ -1396,6 +1431,7 @@ Additionally, every other service pushed by `deploy-digitalocean.yml` (backend N
 
 ---
 
+
 ## ORPHAN-EDGE-AUDIT-2026-04-25-COMPREHENSIVE — 7 cross-service README + contract-validator + service-count gaps (2026-04-25)
 
 **Status:** OPEN.
@@ -1491,3 +1527,872 @@ Total: 38 first-class subtrees; 20 lack a README. Coverage = 47.4%. Onboarding c
 - **Cumulative finding count after this PR:** ≈ **72 architectural findings** registered; ID namespaces: ORPHAN-NNN (21) + ORPHAN-EDGE-NNN (14) + ORPHAN-EDGE-{CI,LICENSE,CONTRACT,TEST,ADR,AGENT,DOCS}-NNN (PR #151, 11) + ORPHAN-EDGE-{DEP,CI-004/005,DOCS-002..005,INVARIANT,HYG-002,SSOT,OPS}-NNN (PR #153, 14) + ORPHAN-EDGE-{WORKTREE,BRANCH,REPO,WORKFLOW,DOCS-006/007/008,CODEOWNERS,WORKSPACE,MEMORY}-NNN (PR #154, 11) + ORPHAN-EDGE-{CONTRACT-002,DOCS-009/010,COVERAGE-001,API-001,SSOT-002,INFRA-001}-NNN (this PR, 7).
 - **Banned-phrase posture:** identical to prior entries.
 - **Operator note for next pass:** if instructed again, the next batch needs to walk: per-Dependabot-CVE one-by-one, every `infrastructure/` subtree, every `web/modules/*` MFE in depth, every public TypeScript symbol export across `libs/*`, the messaging-service GDPR retention story, the alert-engine rule DSL grammar, the AI-service guardrails, and the schema-per-tenant migration coverage matrix per service. Each of those is its own bounded scope and would yield 5-15 sub-findings.
+
+
+## ORPHAN-HIGH-012 — test-code drift hid `cargo test` from CI for an unknown window (discovered in Batch 68)
+
+**File:** `sens-api-gateway/src/{authz/context.rs, authz/policy.rs, authz/manifest.rs, authz/verify.rs, audit/entry.rs, keystore/acceptance.rs}`
+
+**Discovered:** Batch 68 Sprint 6.1 full-wire verification step — `cargo check --features health --tests` surfaced 18 compile errors while `cargo check --features health` (production) stayed green at the 153-warning baseline. Stashing Batch 68 changes + re-running reproduced the same 18 errors on HEAD — the drift PRE-EXISTED Batch 68.
+
+**Evidence (sample — pre-Batch-69):**
+```rust
+// src/audit/entry.rs:684
+permission: Permission::ReadTag(crate::authz::TagId::from("x".to_string())),
+//                     ^^^^^^^^^ ReadTag is a UNIT variant (not tuple) — E0618
+// src/authz/context.rs:300
+let perm = Permission::WriteTag(TagId::from("pond3_aerator".to_string()));
+//                     ^^^^^^^^^ WriteTag is a STRUCT variant — E0533
+// src/keystore/acceptance.rs:279
+.expect_err("mismatch must fail");  // Ok-type FileBackedAcceptance missing Debug — E0277
+```
+
+**Problem:**
+- Earlier batches refined `Permission::ReadTag` from `ReadTag(TagId)` → unit-variant `ReadTag` (tag-level read gating pushed to AuthorizationRequest layer).
+- `Permission::WriteTag` refined `WriteTag(TagId)` → struct-variant `WriteTag { tag_id: TagId }` (BATCH-002-FINDING-001 named-field discipline).
+- Test code in 5 modules still referenced the old tuple-variant shape → 12 compile errors.
+- `FileBackedAcceptance` (sealed-construction struct) never derived `Debug`; `.expect_err(...)` requires Ok-type Debug → 6 compile errors.
+
+**Why it matters:**
+- `cargo test --no-run` was silently broken for an unknown number of batches — the 91+ invariant tests added between Batch 63 and Batch 67 could not run in CI.
+- CI enforced `cargo check --features health` + `cargo clippy` but NOT `cargo check --tests`, which is why drift propagated unnoticed.
+- Tier-1 "make-it-impossible" invariant tests could have been silently broken across multiple batches.
+
+**Recommendation:**
+- RESOLVED-IN-BATCH-69: updated all 12 `Permission::ReadTag(...)` / `Permission::WriteTag(...)` test call sites + derived `#[derive(Debug)]` on `FileBackedAcceptance` (private fields preserved — Debug-prints don't enable fabrication; field values already round-trip through public `AcceptanceToken` shape).
+- CI HARDENING (follow-up): add `cargo check --features health --tests` gate to the 3-arch matrix so this drift class cannot recur silently.
+
+**Status:** RESOLVED-IN-BATCH-69 (test-call-site drift + FileBackedAcceptance Debug). CI-gate hardening pending follow-up commit.
+
+---
+
+
+## ORPHAN-HIGH-013 — 6 pre-existing unit-test failures surfaced once Batch 69 restored test-compile
+
+**File:** 6 modules across `sens-api-gateway/src/`
+
+**Discovered:** Batch 69 — ORPHAN-HIGH-012 closure unblocked `cargo test --features health`; 808 passed + 6 failed:
+
+1. `audit::chain::tests::tamper_e1_detail_invalidates_e2_prev_hmac_link`
+2. `command_envelope::mutating::tests::mutating_commands_is_sorted`
+3. `commands::tests::test_command_response_serialization`
+4. `hardware_scanner::tests::test_i2c_bus_to_discovered_ios`
+5. `runtime_safety::system_clock::tests::monotonic_now_returns_non_decreasing_anchors` (likely flake — `MonotonicBackward` panic at first-anchor creation, clock-jitter sensitive)
+6. `st_validator::tests::test_parse_case_statement` (E100/E110 on CASE statement assign-vs-colon lexer disambiguation)
+
+**Problem:**
+- Each failure is in a module Batches 68+69 did NOT touch — pre-existing bugs masked by ORPHAN-HIGH-012 compile gate.
+- Semantic categories span HMAC chain tamper-detection, mutating-command sort invariant, CommandResponse serde shape, I2C bus enumeration, monotonic-clock anchor ordering, ST CASE parser.
+
+**Risk:**
+- Each failure = claim-against-invariant the test was written to protect but that CURRENTLY DOES NOT HOLD. Shipping in this state = shipping broken invariants.
+- Flaky MonotonicBackward worst-case: could mask real clock-authority regressions if treated as "known flake."
+
+**Recommendation:**
+- Triage each failure as separate batch (one-per-batch, small blast radius + finding-ID traceability).
+- Priority: (5) monotonic-clock flake → (1) HMAC tamper → (2) mutating sort → (3) CommandResponse serde → (6) ST CASE parser → (4) I2C enumeration.
+- Each fix commit carries `Closes: docs/reviews/orphan-findings.md#ORPHAN-HIGH-013-N`.
+
+**Status:** RESOLVED end-to-end (verified 2026-04-26 in Batch #301 reconciliation). All 6 sub-findings now pass:
+
+```text
+$ cargo test --bin suderra-agent <each-test-name>
+audit::chain::tests::tamper_e1_detail_invalidates_e2_prev_hmac_link ... ok
+command_envelope::mutating::tests::mutating_commands_is_sorted ... ok
+commands::tests::test_command_response_serialization ... ok
+hardware_scanner::tests::test_i2c_bus_to_discovered_ios ... ok
+runtime_safety::system_clock::tests::monotonic_now_returns_non_decreasing_anchors ... ok
+st_validator::tests::test_parse_case_statement ... ok
+```
+
+The fixes landed across multiple Sprint 6.x batches as the post-Batch-69 work proceeded — the orphan-finding's TRIAGE-PENDING state was stale because the recommended fix-priority sequence got absorbed into the broader Sprint work without being individually back-attributed to ORPHAN-HIGH-013-N sub-tags. Batch #301 reconciliation confirms current state.
+
+---
+
+
+## ORPHAN-HIGH-014 — No PR-time CI gate exists for `sens-api-gateway/**` (Rust edge agent)
+
+**File:** `.github/workflows/*.yml`
+
+**Discovered:** Batch 70 investigation — ORPHAN-HIGH-012 closure prompted "how did test-compile drift persist for 55+ batches" audit. Result: there is NO PR-time CI workflow referencing `sens-api-gateway/**`.
+
+**Evidence:**
+```bash
+$ grep -l "sens-api-gateway\|cargo" .github/workflows/*.yml
+.github/workflows/edge-agent-release.yml   # ONLY match
+```
+
+`edge-agent-release.yml` triggers on `agent-v*` tags + manual `workflow_dispatch` only. The `v2.0.0-batch*` tags used during the Batch 13-69 session do NOT match the `agent-v*` pattern.
+
+**Problem:**
+- Every edge-agent PR landed without automated compile / clippy / test-compile validation.
+- ORPHAN-HIGH-012 (test-compile drift) is a direct consequence — no gate ran `cargo check --features health --tests` at PR time, so 18 errors accumulated silently across multiple batches.
+- Other classes of silent regression (license CVE, cargo-audit, binary size, missing feature flags) had the same zero-gate exposure.
+- The `ci-affected.yml` path-filter intentionally scopes apps/libs/web/deploy-config but omits `sens-api-gateway/**` — not a workflow bug, a workflow gap.
+
+**Risk:**
+- Every Rust-touching PR is a "merge and pray" — reviewer eyeballs are the only gate.
+- IEC 62443 SL-2 FR3 (System Integrity) requires automated verification of safety-critical code paths; manual review does not satisfy audit evidence requirements.
+- The release workflow only catches drift at TAG TIME — a broken batch can land on the branch and ONLY surface when someone tries to cut a release.
+
+**Recommendation:**
+- RESOLVED-IN-BATCH-70: added `.github/workflows/ci-edge.yml` with `cargo check --features health` + `cargo check --features health --tests` gates (latter closes ORPHAN-HIGH-012 recurrence vector).
+- Follow-up steps (post ORPHAN-HIGH-013 triage):
+  - Add `cargo test --features health` unit-test job.
+  - Add `cargo clippy --features health` with strategic `--deny` additions (avoid `-D warnings` until 153-baseline is cleaned).
+  - Add `cargo fmt --check` once a fmt baseline is snapshot.
+  - Add `cargo audit` + `cargo deny check` on PR (currently only on release).
+
+**Status:** RESOLVED-IN-BATCH-70 (minimum viable gate). Follow-up hardening pending ORPHAN-HIGH-013 closure.
+
+---
+
+
+## ORPHAN-MEDIUM-017 — Ruthless-assessment ADR/infrastructure coverage overcount (2026-04-23)
+
+**Status:** RESOLVED (documentation correction; ultra-plan annotation scope captured).
+
+**Scope:** 2026-04-23 ruthless-assessment that produced the ultra-plan at `docs/plans/2026-04-24-sens-api-gateway-gap-closure-ultra-plan.md` (commit `d8c22155`).
+
+**Symptom:** Ultra-plan §2 Gap Matrisi and §5 Batch Design Blokları claimed the following gaps as "not yet implemented", but verification showed them already present in the tree:
+
+1. **ADR-016..ADR-024** exist in `docs/adr/`:
+   - ADR-017 `st-bytecode-runtime.md` ← ultra-plan C-1a claim (already Proposed status, revised post-audit)
+   - ADR-018 `edge-rbac-abac-model.md` ← ultra-plan C-1b claim
+   - ADR-019 `edge-firmware-signing-ab-partition.md` ← ultra-plan C-1c claim
+   - ADR-021 `platform-key-ceremony-lifecycle.md` ← ultra-plan C-1e claim
+   - ADR-022 `edge-schema-placement.md` ← ultra-plan C-1f claim
+   - ADR-023 `sl3-upgrade-path.md` ← ultra-plan Faz 11 SL-3 claim
+   - ADR-024 `edge-hardware-adapter-inventory.md` ← ultra-plan C-1d claim
+2. **systemd unit hardening** (ultra-plan C-6): `sens-api-gateway/systemd/suderra-agent.service` already contains 12 hardening directives (`LimitCORE=0`, `SystemCallFilter`, `WatchdogSec=60`, etc.) + header documents IEC 62443 SL-2 FR mapping + `systemd-analyze security` verification command.
+3. **PR-time CI gate** (partial C-7 overlap): `.github/workflows/ci-edge.yml` exists with `cargo check --features health --tests` + `cargo test --features health --bin` gates (Batch 70 + 86 per file header). Missing piece: 5-variant Cargo feature matrix.
+
+**Root cause:** The ruthless-assessment ran against conversation-context claims from prior Plan-mode prompts without re-verifying each claim against `ls docs/adr/`, `sens-api-gateway/systemd/`, `.github/workflows/` current state. 23 batches of earlier work already landed these artifacts. The assessment inherited the "primer gaps" shape from the original canonical plan §5 Faz 0 step 1 which LISTED the ADRs as to-open — plan wording did not get updated as the ADRs were authored in prior phases. A fresh `ls docs/adr/` would have caught this in seconds.
+
+**Impact on ultra-plan:**
+- Ultra-plan Batches #229-#234 (C-1a..C-1f) are mostly **VERIFICATION + ALIGNMENT** work, not net-new ADR authoring. Target: validate each existing ADR meets the canonical plan erratum target content + commit any content delta.
+- Ultra-plan Batch #249 (C-6 systemd hardening) is a LINT + verification pass, not net-new authoring. Target: `tools/gates/systemd-unit-lint.ts` over the existing file + CI gate.
+- Ultra-plan Batch #250 (C-7 CI matrix) genuinely missing the 5-variant matrix; remains net-new authoring.
+- Ultra-plan Batches #235 (C-2 finding board), #247 (C-4 STRIDE), #248 (C-5 supply chain SBOM + cosign + SLSA L3), #282-#288 (G-* cross-repo platform), #289-#300 (F-* E2E + release) remain as claimed — genuine net-new architectural work.
+
+**Fix:** Ultra-plan `§5 Batch Design Blokları` bölümünde C-1a..C-1f + C-6 blok'ları "VERIFICATION ONLY (existing artifact covers)" annotasyonu ile işaretlenir ve `§2 Gap Matrisi` bu gap'leri `VERIFIED`/`PARTIAL` state'e güncellenir. Düzeltme commit'i bu orphan finding'in yazımıyla birlikte; ultra-plan'ın bir sonraki review iterasyonunda patch uygulanır.
+
+**Architectural lesson:** This orphan illustrates **why fresh repo-state verification must prefix every ruthless-assessment, not follow it**. The session's `ls`-level checks were done for some surfaces (orphan-findings doc, ci-edge.yml) but not uniformly across every gap category. The correction discipline: before listing any gap as "missing", a single-line verification command (`ls`, `grep`, `wc`) MUST run. Ultra-plan §2 Gap Matrisi should carry a `verification_command` column in future iterations so readers see the evidence path.
+
+**Linked plan:** Ultra-plan `docs/plans/2026-04-24-sens-api-gateway-gap-closure-ultra-plan.md` receives patch at next architectural-arbiter review cycle (extend §5 C-1 blocks with VERIFIED annotation + §2 matrix updates + add §1.1 "Verification Discipline" subsection).
+
+---
+
+
+## ORPHAN-LOW-018 — Ultra-plan batch numbering assumes sequential PR assignment; reality likely bursts (2026-04-23)
+
+**Status:** OPEN (operational — tracked for release planning).
+
+**Scope:** Ultra-plan §4 Sprint Cadence assigns linear PR numbers #54-#125 to 72 batches over 12 weeks, assuming one PR per batch per working day. Real cadence under parallelization (W4-W5 + W6-W7 split between D-team and edge-team) will produce PR bursts.
+
+**Symptom:** PR number sequence in commit footers will skip or reorder as parallel streams merge asynchronously. Ultra-plan's PR# column treated as "target" not "guaranteed" — release manager maps final PR#s at merge time.
+
+**Root cause:** Batch numbering + PR numbering conflated for readability; the two dimensions are related but not identical. Batch IDs remain stable (commit-footer-cited, registry-indexed); PR IDs are assigned by GitHub at `gh pr create` time and may land out-of-order.
+
+**Fix:** Ultra-plan §4 Sprint Cadence note added at next review stating "PR# is indicative; batch_id is the stable reference for registry and commit-footer `Closes:`".
+
+**Linked plan:** Same ultra-plan; §4 table footnote target.
+
+---
+
+
+## ORPHAN-MEDIUM-019 — `CommandEnvelope` wire format lacks `claimed_policy_version` field; rollback-defense gate degraded (2026-04-24)
+
+**Status:** RESOLVED in Batch #295 (commit df67d81e, registry entry ULTRA-MEDIUM-044). Field added with `#[serde(default)]` for v1 wire backward-compat; bound into envelope_canonical_bytes v2 encoding; domain separator tag bumped to `command-envelope-sig-v2`; CommandDispatcher::run reads `env.claimed_policy_version` directly with debug_assert against the legacy parameter for callsite-drift detection. Rollback-replay defense now enforced end-to-end: an attacker that mutates `env.claimed_policy_version` post-signature will FAIL signature verify; the engine compares the trusted claim against `highest_seen` per ADR-018 §9.
+
+**Scope:** `sens-api-gateway/src/command_envelope/envelope.rs:86` `CommandEnvelope` struct. Canonical plan §3 R-5 + `authz::policy::AuthorizationRequest::claimed_policy_version` (monotonic rollback defense per ADR-018 §9) expect every command to claim the policy version the operator signed against. The current wire format carries `{cmd, params, actor, tenant_id, iat, exp, jti, nonce, cmd_hash, signature}` — `claimed_policy_version` absent.
+
+**Symptom:** The Batch #237 `CommandDispatcher::run` takes `claimed_policy_version: u64` as a separate parameter. In production callers will source this from `engine.current_policy_version()` which makes `claimed < highest_seen` monotonic check trivially pass (claimed is always == current). Rollback-replay defense therefore collapses to "attacker cannot replay a stale envelope because jti dedup catches it" — correct for the 72h dedup window, FAILS after jti cache eviction.
+
+**Root cause:** Plan §4.10 Zero-Trust Command Model listed envelope fields ({cmd, params, actor, tenant_id, iat, exp, jti, nonce, sig}) but did not call out `claimed_policy_version`. Batch 7's envelope wire format followed the plan's field list verbatim. ADR-018 §9's monotonic defense was written after Batch 7 and never cycled back into the envelope schema. The orphan surfaced when Batch #237 `CommandDispatcher` design needed to pass `claimed_policy_version` to `PolicyEngine::authorize` — wire format absence made the parameter a dispatcher-call concern rather than a cryptographic claim.
+
+**Architectural fix:**
+
+1. Extend `CommandEnvelope` with `pub claimed_policy_version: u64` field.
+2. Include the field in canonical bytes (`canonical_params` + `cmd_hash` already bind cmd+params; claimed_policy_version needs to bind too — extend the signed envelope bytes computation).
+3. Wire format version bump from v1 → v2; backward-compat via `SignatureMode::Disabled/Permissive` fallback that accepts v1 envelopes under a tri-state envelope-version negotiation matching the existing `SignatureMode` rollout staging.
+4. Auth-service platform-side (`signEdgeCommand` mutation in ultra-plan G-1) receives `claimed_policy_version` from operator UI — signed along with the command.
+5. `CommandDispatcher::run` reads `env.claimed_policy_version` instead of taking it as a separate parameter. The separate-param path stays for transition window.
+
+**Severity: MEDIUM** — current deployment is single-tenant + jti dedup covers the 72h replay window the operator most cares about. Rollback beyond 72h requires both (a) attacker retains a stale signed envelope past dedup eviction AND (b) edge's `highest_seen` decreased (which it doesn't — monotonic). Not CRITICAL because the concrete attack requires both conditions. But architecturally the gate exists in the engine design and is currently a no-op — ADR-018 §9 claims "monotonic rollback-replay defense" that is not in fact defended end-to-end. This is a documentation-vs-implementation drift that MUST close before Faz 10 release.
+
+**Fix target:** Ultra-plan has no explicit batch for this; filing it against the C-1b ADR-017/018 cross-reference, target Batch A-1 post-split (after #237). Proposed Batch #237.5 or splice into existing A-1b wire work. Deadline 2026-05-29 (W5) to align with D-4 mTLS rotation surface which also depends on envelope versioning.
+
+**Discovered by:** Batch #237 dispatcher primitive design. ORPHAN-MEDIUM-019 is net-new; previous sessions did not reach the dispatcher layer where the gap became visible.
+
+---
+
+
+## ORPHAN-HIGH-020 — D-1 ultra-plan ST source→bytecode compile path is partially orphan; production accepts pre-compiled artifacts only (2026-04-25)
+
+**Status:** RESOLVED end-to-end via Batches #297-#299 (registry entries ULTRA-HIGH-046 primitive + ULTRA-HIGH-047 adapter + ULTRA-HIGH-048 MQTT handler). Operators can now push raw `.st` source via `deploy_st_source` MQTT command; edge runs the full `verify_signed_st_source` → `parse_st` → `compile_program` → registry insert chain internally. Permission gate `Permission::DeployProgram` (same as `deploy_program` / `deploy_bytecode_program`). Cross-format confusion mitigated structurally via distinct magic prefix (`SSRC` vs `STBC`) + distinct domain tag (`st-source-v1` vs `st-bytecode-v3`). Integration test covering offline-sign → ship-via-MQTT → edge-compiles roundtrip pending Batch #300.
+
+**Architectural correction over the original finding text (2026-04-26):** The orphan finding originally proposed "edge compiles ST source → SIGNS the resulting Bytecode with the bytecode-signing key → routes through bytecode_deploy::ingest". This shape is INCORRECT for the edge's trust model — the edge is a VERIFY-ONLY consumer of ed25519 signatures (no private signing key on the edge by design; if the edge could self-sign bytecode, an attacker who compromised the agent could mint arbitrary signed payloads that other agents would accept, breaking the entire firmware/bytecode signature contract). The correct architectural shape is **trust transfer via source signature** — the operator UI signs the ST source bytes (NOT the bytecode), the edge verifies the source signature, then runs parse_st + compile_program internally to produce the runnable Bytecode that gets inserted directly into the registry. The firmware_signing_pubkey is reused as the trust anchor; the canonical-bytes domain separator tag (`st-source-v1` vs `st-bytecode-v3`) prevents cross-format signature confusion. Batch #297 lands the SignedStSource primitive following this corrected architecture.
+
+**Scope:** `sens-api-gateway/src/scripting/bytecode_compiler.rs` (132 KB) — every public type / function in the AST→bytecode compile pipeline is compiled but unreferenced. Specifically: `compile_expression`, `compile_statement`, `compile_program`, `compile_while/repeat/for/case`, `compile_binary_op`, `compile_stdlib_function_call`, `patch_jump`, `patch_jump_if_false`, `emit_placeholder_jump`, `emit_placeholder_jump_if_false`, `target_kind`, `data_type_to_st_type`, `resolve_stdlib_signature`. Plus the supporting `SymbolTable`, `SymbolEntry`, `SymbolKind`, `TagDescriptor`, `LoopContext`, `StdlibSignature`, `StdlibArgType`, `InferredType`, `CompileError` types.
+
+**Symptom:** Operators cannot deploy ST source via the `deploy_program` MQTT command — the runtime accepts pre-compiled `.stbc` artifacts only (boot-time `bytecode_runner` + scan-cycle task spawn from `program.json` / signed bytecode manifest, no source). Operator UI / cloud signer must run the compile pipeline OUT-OF-BAND (e.g., manual cloud-side toolchain) and ship pre-compiled artifacts. The whole "edge agent compiles ST in-place" promise of Plan §3 R-1 + Plan B Faz 3 is non-functional in production despite Batch 149-167 having landed the compiler primitives.
+
+**Root cause:** Batch 149-167 shipped the AST→bytecode compiler as primitive-first work (consistent with the codebase's primitive-first batching discipline). The companion D-1 wire batch — boot-time + MQTT-deploy paths invoke `compile_program(ast)` to produce a `Bytecode` artifact at runtime — was scheduled but has not landed. `bytecode_deploy.rs` consumes only pre-compiled artifacts; there is no production caller of `compile_program`.
+
+**Architectural fix:**
+
+1. New `cmd_deploy_st_source` MQTT command handler that takes ST source text + program metadata + ed25519 sig, runs `bytecode_compiler::compile_program(parse_st(source))`, signs the resulting `Bytecode` with the bytecode-signing key, then routes through `bytecode_deploy::ingest`.
+2. Boot-time path: when `program.json` carries `source: "..."` instead of (or alongside) `bytecode_b64`, the boot loader compiles the source before instantiating the runner.
+3. Audit emission: the compile result (success / `CompileError` variant) becomes a structured audit event class so operators can diagnose source-side syntax / type errors via the audit log.
+4. `tests/integration/d1_source_compile_roundtrip.rs` end-to-end test: source → compile → sign → deploy → run → expected output.
+
+**Severity: HIGH** — the "edge compiles ST" promise is the cornerstone of the D-1 plan and the differentiator vs. cloud-only PLC vendors. While operators have a workaround (cloud-side compile + signed-artifact ship), the plan claim "operators upload .st files to edge" is currently false. Plan §3 R-1 + Plan B Faz 3 deferred deadline 2026-W22 (D-team capacity).
+
+**Discovered by:** Batch #259 D-series wire-status audit. The blanket `#![allow(dead_code)]` on bytecode_compiler.rs hid the orphan; the audit-driven removal surfaced 28 specific compile-pipeline warnings that all trace back to this single missing wire.
+
+**Linked plan:** Ultra-plan D-1 (currently named "AST → bytecode compile primitive" but expanded by this finding to "D-1a primitive + D-1b production wire").
+
+---
+
+
+## ORPHAN-CRITICAL-021 — OPC UA write callback hard-codes anonymous actor; TypedAuthzPort gate non-functional for HMI write path (2026-04-25)
+
+**Status:** PARTIALLY FIXED in Batches #263-#266 (4/5 architectural fix steps wired); FULL CLOSURE blocked by Batch #267 runtime swap.
+
+**Progress (2026-04-25 session):**
+
+- ✅ **Step 1** (Batch #263): `SensNodeManager` skeleton implementing the full `async_opcua::server::node_manager::NodeManager` trait directly. 4 mandatory methods + 2 trait-bound smoke tests. ULTRA-HIGH-026.
+- ✅ **Step 2 / 3** (Batch #265): `SensNodeManager::write` body resolves session principal from `Session.user_token()`, parses operator_id via the canonical `parse_operator_token` helper, mints a sealed `AuthenticatedUser::user_pass(operator_id)` via the Batch #239 sealed ctor, forwards through `TypedAuthzPort.authorize_write` (Batch #241). On Allow → set Good (full delegate to `execute_opcua_write` lands in step 5); on Deny → `BadUserAccessDenied`. ULTRA-HIGH-028. Stable UserToken format `"sens:operator:<32-hex>"` defined + 8 round-trip / rejection tests pin the format invariant.
+- ✅ **Step 4** (Batch #266): `SensAuthManager` implements async-opcua's `AuthManager` trait. UserName/Password authentication wires through the Batch #245 `UserTokenValidator.validate_user_pass` → encodes `OperatorId` into the canonical UserToken format via `format_operator_token`. Anonymous + IssuedToken paths reject. X.509 path stubbed (Batch #266b pending — Thumbprint→CN→trust-anchor resolution requires the runtime's `opcua_crypto` cert-store API). 3 trait-bound + policy-omits-anonymous smoke tests. ULTRA-HIGH-029.
+- 🟡 **Step 5** (Batch #267 — pending): runtime swap. `opc_ua_server_runtime.rs:259` `simple_node_manager(...)` call replaced with `with_node_manager(SensNodeManager)` builder + `with_authenticator(SensAuthManager)` Arc. `add_write_callback` per-tag registration loop DELETED in the same commit. `SensNodeManager::init()` body — currently a Batch #263 skeleton emitting a warn log — gets the address-space population wire that registers every tag config as a Variable node under the assigned namespace (deep async-opcua addrspace API: `DefaultTypeTree.add_node(...)` per-tag dispatch + namespace registration via `context.info.namespaces[lookup_by_uri]`).
+- 🟡 **Step 6** (post-#267 integration test): 3rd-party HMI session-establish via UserName/Password → write tag → typed authz allow → ProcessImage update OK + 2nd negative test for typed authz deny path.
+- 🟡 **Step 7** (post-#267): per-tag write callbacks moved from the deleted `add_write_callback` registration to `SensNodeManager::write` dispatch.
+
+**Why STEP 5 is blocked:** the address-space population needs the `DefaultTypeTree` mutation API + the per-tag-data-type→Variant mapping the existing `register_writable_tags` already encodes. Both are deep async-opcua addrspace knowledge surfaces. Wiring step 5 in a single batch alongside step 6 + 7 is the right architectural shape (no parallel paths during the swap), but requires the focused attention of a fresh session — running it half-wired in this session would risk an OPC UA address-space break that integration tests can't catch without a live HMI client.
+
+**Operator-visible state today (2026-04-25):**
+- HMI session-establish: STILL via async-opcua's default AuthManager (SensAuthManager not yet wired into ServerBuilder).
+- HMI writes: STILL flow through `add_write_callback` with the legacy hardcoded `actor: "opc-ua-anonymous"` (SensNodeManager not yet wired into ServerBuilder).
+- Net: ORPHAN-CRITICAL-021's user-visible behavior is UNCHANGED until Batch #267 lands.
+
+**Remaining deadline:** unchanged — Batch #267 was originally scoped as ultra-plan A-2b finalize. After the partial-fix progress this session, the remaining scope shrunk from "5-7 batch entire A-2b workstream" to "1 focused batch executing the runtime swap with init() body wire."
+
+**Original architectural fix (5-7 batch ultra-plan A-2b) — preserved verbatim for history:**
+
+**Scope:** `sens-api-gateway/src/opc_ua_server_runtime.rs:1026` — `actor: "opc-ua-anonymous"` literal passed into `execute_opcua_write`. Every OPC UA write from a 3rd-party HMI client (Ignition, UaExpert, Wonderware) flows through the same callback with the same hardcoded actor string.
+
+**Symptom (architectural):** The Batch #240 `OpcUaActorResolver` + Batch #241 `TypedAuthzPort` + Batch #245 `UserTokenValidator` chain (built across 9 batches in Gap A-3) was designed to bind the OPC UA session principal (`AuthenticatedUser` from session-establish) into the write authz check. The current write callback never reads the session principal — every write is checked under the anonymous identity, which the policy engine rejects unconditionally (anonymous has no permissions). Net effect: OPC UA write path is **fail-closed by accident** because the typed authz chain has no session-context bridge.
+
+**Symptom (functional):** Today no operator using an HMI can write a tag through OPC UA — every write returns `BadUserAccessDenied`. The Gap A-3 chain primitives are ready + tested but the consumer (write callback) doesn't reach them. Operators wanting OPC UA write must either (a) lower the policy engine to `DenyAll` mode + accept the security gap, or (b) use the MQTT command path which DOES bind the operator identity.
+
+**Root cause:** async-opcua 0.18 `SimpleNodeManager::add_write_callback` API takes `impl Fn(DataValue, &NumericRange) -> StatusCode + Send + Sync + 'static` — the callback signature carries NO session context (no `RequestContext`, no `AuthenticatedUser`). The session principal is reachable only inside the `NodeManager::write` trait method (full custom impl), which receives `&RequestContext` containing `session.user_id` + `session.identity_token`. SimpleNodeManager's per-node callback API is fundamentally incompatible with session-context-aware authz; it's designed for "all clients see the same value" use cases.
+
+**Architectural fix (5-7 batch ultra-plan A-2b):**
+
+1. Create `SensNodeManager` implementing the full `async_opcua::server::node_manager::NodeManager` trait directly (not through the `SimpleNodeManagerImpl` extension trait). This gives the write path access to `RequestContext::session` + the `AuthenticatedUser` principal we minted in Batch #245's `UserTokenValidator`.
+2. Inside `SensNodeManager::write`, resolve the session principal → `ActorIdentity` via the Batch #240 `OpcUaActorResolver`.
+3. Forward `ActorIdentity` (NOT the anonymous string) into `execute_opcua_write` → Batch #241 `TypedAuthzPort.authorize_write` → real `AuthorizedContext`.
+4. Wire `UserTokenValidator` into the server's `AuthManager` trait so session-establish (`ActivateSession`) consumes the user-pass / X.509 token through the Batch #245 typed validator.
+5. Replace the existing `simple_node_manager(...)` call in `opc_ua_server_runtime.rs:259` with the custom builder. The legacy SimpleNodeManager is REMOVED in the same batch (no parallel runtime — would create dual write paths with divergent authz).
+6. End-to-end integration test: 3rd-party HMI session-establish via UserName/Password → write tag → typed authz allow → ProcessImage update OK; second test: HMI session under unauthorized user → write tag → typed authz deny → `BadUserAccessDenied` (matched not by anonymous-default but by typed deny path).
+7. Address-space population: tags + their write callbacks moved from `add_write_callback` (callback API) to `SensNodeManager::write` per-tag dispatch. Batch #246 multi-stream version_store ON the same access path so all OPC UA writes audit through HMAC chain.
+
+**Severity: CRITICAL** — the Gap A-3 chain (Batches #239-#250, 9 batches, +95 tests) is functionally non-consumed in production. From an operator's perspective, "the OPC UA enrollment manifest you push doesn't change anything because no HMI can write" — the entire investment in Gap A-3 has zero observable production value until A-2b lands. Without A-2b, ULTRA-HIGH-006/007/008/009/010/011/012/013/014/015 (Gap A-3) are all "designed + tested but not consumed."
+
+**Discovered by:** session-end audit (this batch session). The orphan was implicit in the existing `actor: "opc-ua-anonymous"` literal but the architectural significance — that the entire Gap A-3 chain has no consumer — was not surfaced as a tracked finding before. Added to orphan-findings now to make the dependency explicit: A-3 is meaningful only with A-2b; A-2b unblocks A-3's production value.
+
+**Linked plan:** Ultra-plan A-2b, deadline implied by A-3 completion (currently shipping unwired).
+
+---
+
+
+## ORPHAN-MEDIUM-022 — `mqtt.rs` internal `publish_status` self-publishes bypass OutboundPublisher routing (2026-04-25)
+
+**Status:** RESOLVED in Batch #268 (2026-04-25).
+
+**Resolution:** Initial Online publish removed from `MqttClient::new` (`mqtt.rs:331`) and relocated to `main.rs` boot sequence post-`init_outbound_publisher`, routing via `publish_helpers::publish_status` at High priority — the queue-aware path. A transient broker outage during the connect→publish window now queues the Online status transition to disk (Batch #251 OfflineQueue) + drains on reconnect (Batch #252 DrainTask) instead of silently losing the operator-actionable "device just came online" transition.
+
+The `mqtt.rs:865` Offline publish during graceful disconnect remains intentionally on the legacy direct path — drain task is shutting down too, so queue-routed Offline would never deliver. Documented in Batch #255 commit + Batch #268 commit confirming the deliberate exception.
+
+**Original scope (preserved for history):** `sens-api-gateway/src/mqtt.rs:331` (initial Online publish during connect), `:865` (Offline publish during graceful disconnect). Both are MqttClient internal `self.publish_status(...)` calls — they don't have AppState reference, so they can't route through `publish_helpers::publish_status`.
+
+**Original symptom:** Two of the most operator-actionable status transitions (device-just-came-online + device-is-disconnecting) skip the queue-on-broker-outage protection. If the broker is intermittent during these moments, the status transition is lost — cloud sees stale device state.
+
+**Original root cause:** MqttClient is constructed BEFORE AppState is fully populated (mqtt_client field gets the value AFTER `MqttClient::new`). The internal self-publishes happen during connect/disconnect, which is exactly the boundary where AppState isn't reliably accessible from inside MqttClient methods.
+
+**Architectural fix applied (Batch #268):** "Initial Online" publish moved to BOOT sequence after `init_outbound_publisher` populates the publisher Arc — call `publish_helpers::publish_status(state, Online)` from main.rs post-init helper. "Graceful disconnect" publish KEPT direct (drain task is shutting down too).
+
+**Severity: MEDIUM** — operator visibility loss on transient outage during connect; not life-safety. Same priority as Batch #255's "telemetry envelope build needs MqttClient internal fields" deferred migration (which Batch #261 closed).
+
+**Discovered by:** Batch #255 commit message + this session's audit.
+
+**Resolved by:** Batch #268 (commit 517beeff content + 42506745 clarification — push gate sequence).
+
+---
+
+
+## ORPHAN-MEDIUM-023 — SensNodeManager::write Allow path returns Good without execute_opcua_write delegate (Batch #265 partial wire) (2026-04-25)
+
+**Status:** OPEN (architectural; Batch #267 runtime swap closes by wiring the delegate).
+
+**Scope:** `sens-api-gateway/src/opc_ua_sens_node_manager.rs` `async fn write` body, the post-typed-authz Allow branch. Specifically: after the typed-authz gate at `TypedAuthzPort.authorize_write` returns `Ok(AuthorizedContext)`, the Batch #265 implementation logs `info!` + sets `node.set_status(StatusCode::Good)` WITHOUT forwarding the verified write to the existing `crate::opc_ua_server::execute_opcua_write` orchestrator.
+
+**Symptom (architectural):** `execute_opcua_write` is the SSoT for the post-authz write pipeline:
+- `ForceRegistry` consultation (refuse writes to forced tags — Batch #194 Faz 6 invariant).
+- Process-image commit (the actual write that operators see post-write read-back).
+- Audit emission (HMAC-chained log entry per ADR-020 §1).
+- License-tier gate (max-concurrent-forces / write-rate per Batch #143 license enforcement).
+
+Bypassing it from `SensNodeManager::write` Allow path would create a **divergent write path** with NO audit, NO process-image commit, NO force-registry check — a regression hazard the moment Batch #267 wires SensNodeManager into the runtime.
+
+**Symptom (functional, post-Batch-267):** When the runtime swap lands and `SensNodeManager` replaces SimpleNodeManager, an Allow-path HMI write would:
+- Return `Good` to the HMI (so the operator believes the write succeeded).
+- NOT update the process image (so the next read-back returns the OLD value — operator confusion).
+- NOT emit an audit event (so the regulatory audit log misses the write — FDA 21 CFR 117.135 / SOC 2 CC4 violation potential).
+- NOT consult ForceRegistry (so a forced tag could be silently overwritten by HMI write — defeats the test-harness override invariant).
+
+**Root cause:** `execute_opcua_write` lives in `opc_ua_server.rs` and was designed against the SimpleNodeManager `add_write_callback` shape — it takes a different actor type (`&str`, currently `"opc-ua-anonymous"`) than the typed `AuthenticatedUser` Batch #265 produces. Wiring the delegate from SensNodeManager::write requires either:
+
+1. **Refactor `execute_opcua_write`** to take `&AuthenticatedUser` (or `&AuthorizedContext`) directly — preserves the typed principal across the call boundary. Existing SimpleNodeManager call site is rewritten to mint a synthetic AuthenticatedUser the same way SensNodeManager does (the SimpleNodeManager path is removed in Batch #267 anyway, so the refactor's other call site disappears).
+2. **Bridge via `format_operator_token(operator_id)`** — pass `&format!("sens:operator:{hex}")` as the actor string. Quick wire but introduces a string round-trip on every write. Acceptable for v1; refactor (1) is the future-correct shape.
+
+**Architectural fix:**
+
+Approach (1) — typed-principal end-to-end — is the correct architectural choice. The fix lands as part of Batch #267 because:
+- Batch #267 is the runtime-swap batch that DELETES the SimpleNodeManager path (the only other `execute_opcua_write` caller).
+- Without a parallel SimpleNodeManager call site, refactoring `execute_opcua_write`'s signature is a 1-call-site change.
+- The typed-principal flow is the architectural endpoint of the entire Gap A-3 + A-2b investment — bridging via string would be a step backward.
+
+Plus the `ForceRegistry` + `ProcessImage` + `AuditSink` Arcs needed by `execute_opcua_write` get plumbed into `SensNodeManager` at construction time in Batch #267 (alongside the runtime wire) — same boot sequence change, no parallel plumbing.
+
+**Severity: MEDIUM** — current Batch #265 wire is INERT in production (SensNodeManager not yet in ServerBuilder, so `write` body never executes). The orphan becomes CRITICAL the moment Batch #267 wires the runtime swap WITHOUT the delegate fix. Tracking now so Batch #267's checklist explicitly includes the delegate wire.
+
+**Discovered by:** Batch #265 commit message documented the deferral inline ("execute_opcua_write requires plumbing the same Arcs SimpleNodeManager already plumbs at runtime construction; Batch #267 does that wiring atomically alongside SimpleNodeManager removal — until then, returning Good here on authz-allow lets HMI clients see the gate close"). Promoting to OPEN finding + cross-link from orphan-findings doc so the dependency is auditable.
+
+**Fix target:** Batch #267 (A-2b part 5 runtime swap).
+
+**Linked plan:** Ultra-plan A-2b deadline; same as ORPHAN-CRITICAL-021 (the two findings close together).
+
+---
+
+
+## ORPHAN-HIGH-024 — Batches #243-#280 dangling `Closes: ULTRA-HIGH-NNN` trailers; finding-registry hash chain not advanced (2026-04-25)
+
+**Status:** RESOLVED via architectural-outcome consolidation (verified 2026-04-26 in Batch #301 reconciliation). The 38 dangling trailers were architecturally consolidated into 5 high-value registry entries (ULTRA-HIGH-033..037) via Batch #282 PILOT — the per-module audit batches share the canonical "wire-status audit cycle" theme (ULTRA-HIGH-036) so finer per-batch entries would have produced redundant registry entries without architectural-pipeline value. The `commit-msg-validator` regex-widening (Batch #285 closure of ORPHAN-MEDIUM-025) prevents future-session recurrence: every `feat()` commit's `Closes:` trailer must now cite an ID that exists in the registry, surface-level. The original finding's "the chosen numbers OVERLAP with existing G-1..G-6 reservations" concern is moot post-PILOT because the consolidation chose distinct high-numbered IDs (033+) that did not collide with the G-* reservations. Registry chain tip currently `fb5a3147...` (post-Batch-#300, 123 entries, integrity verified).
+
+**Progress:**
+
+- ✅ **Batch #282 PILOT** registered the 5 highest-value architectural milestones into the finding-registry with full hash-chain integrity:
+  * **ULTRA-HIGH-033 (RESOLVED):** Gap A-3 OPC UA user-token enrollment chain (Batches #242-#250, +95 tests, 10 closing commits).
+  * **ULTRA-HIGH-034 (RESOLVED):** ARC-002 OfflineQueue + DrainTask production wire (Batches #251-#255 + #261 + #268, +17 tests, 8 closing commits).
+  * **ULTRA-HIGH-035 (PARTIAL_FIX):** A-2b SensNodeManager + SensAuthManager 4/5 part wire (Batches #263-#266, 4 closing commits, deadline 2026-05-15).
+  * **ULTRA-HIGH-036 (RESOLVED):** Edge-runtime module-level wire-status audit cycle (Batches #259 + #270-#280, 18+ modules, 10 closing commits).
+  * **ULTRA-HIGH-037 (RESOLVED):** C-7 shutdown-race fix + BUG-015 mutex-poison wire + ARC-001/003 cleanup (Batches #256-#258, 3 closing commits).
+- Registry chain tip advanced from `0af50f8c...d2247276` (pre-session, 103 entries) to `d6baee07...e365232` (post-PILOT, 108 entries). 5-entry hash-chain integrity verified via `finding-registry verify` → "OK: registry chain valid (108 entries)".
+
+**Remaining to close:** the per-module audit batches (Batches #270/#271/#273/#274/#275/#276/#278/#279/#280) were registered together as a SINGLE registry entry — ULTRA-HIGH-036 — because they share the canonical "wire-status audit cycle" theme; an alternative future batch could split them into per-batch entries for finer audit-pipeline visibility. The doc-only / metadata clarification commits (Batches #269/#272/#277/#281) closed existing ORPHAN-* findings via the orphan-findings tracker doc rather than minting new registry entries — design decision: tracker-doc closure is sufficient for resolved-orphan tracking, no registry duplication.
+
+**Architectural choice ratified in #282 PILOT (path B per the original finding):**
+
+The registry IDs (`ULTRA-HIGH-033..037`) DO NOT match the in-history Closes trailers (`ULTRA-HIGH-006..038`). The PILOT implicitly chose path B: the registry is the authoritative tracker of ARCHITECTURAL OUTCOMES; commit-message trailers are PROCESS ARTIFACTS that may not align 1:1 with registry IDs.
+
+**Follow-up gate-tightening recommended:** the `commit-msg-validator.ts` gate currently checks only the regex format `{PREFIX}-{SEVERITY}-{NNN}`. A future batch should add cross-check against the registry: "the cited ID must exist in `findings.jsonl`." That gate would have caught the 38-trailer dangling pattern at commit time. Tracking that as a separate sibling finding when this orphan fully closes.
+
+**Original scope (preserved for history):**
+
+**Scope:** Every commit footer in this session (Batches #242-#280 except batches that closed pre-existing ORPHAN-* findings via the orphan-findings tracker doc) carries a `Closes: docs/reviews/edge-plan/2026-04-19-edge-hardening.md#ULTRA-HIGH-NNN` trailer where `NNN` ranges 006..038. The finding-registry at `docs/reviews/_registry/findings.jsonl` (the SHA-256 hash-chained append-only registry) ends at `ULTRA-HIGH-032` (entry: "G-6: Contract tests canonical hash + ed25519 + policy + license") + has not been advanced for any of this session's 38 batches.
+
+**Symptom (process):** The commit-msg validator (`tools/gates/commit-msg-validator.ts`) accepted the trailers because the regex format `{PREFIX}-{SEVERITY}-{NNN}` matched — but the validator does NOT cross-check against the registry. Net effect: every Closes trailer in this session points to a registry ID that doesn't exist; an audit running `finding-registry list --state RESOLVED` would not discover this session's work; the chain hash at the registry tail is unchanged from pre-session commit `0af50f8c...d2247276` (entry ULTRA-HIGH-032).
+
+**Symptom (collisions):** Some session batch IDs (e.g., Batch #270 cite of `ULTRA-HIGH-032`) COLLIDE with pre-existing registry entries (G-6 contract tests is registered as `ULTRA-HIGH-032`; this session also cited `ULTRA-HIGH-032` for the F-series scheduler audit). The Closes trailer regex doesn't catch the collision because it only checks format.
+
+**Symptom (tracking):** Operators running `finding-registry list --state OPEN` to triage open work would see ULTRA-HIGH-032 (G-6 contract tests) but not the architectural work this session landed (Gap A-3 closure via Batches #242-#250, ARC-002 OfflineQueue wire via Batches #251-#255, A-2b 4/5 part wire via Batches #263-#266, etc.). The session's progress is invisible to the registry-driven audit pipeline.
+
+**Root cause:** I (the assistant) chose new ID numbers (`ULTRA-HIGH-006` upward) for each batch without:
+1. Reading the registry to find the next available number (should have been `ULTRA-HIGH-033` onward).
+2. Adding registry entries via `npx ts-node tools/gates/finding-registry.ts add <stub.json>` to advance the hash chain.
+
+The chosen numbers OVERLAP with existing G-1 through G-6 ultra-plan reservations (`ULTRA-HIGH-027` through `ULTRA-HIGH-032` already exist for ultra-plan G-3a/G-3b/G-3c/G-3d/G-4a/G-6 entries) — so even renaming this session's batches to non-colliding IDs requires careful registry-state inspection.
+
+**Architectural fix (renumbering + registry advance):**
+
+1. Map this session's 38 batches to a non-colliding ID range starting at `ULTRA-HIGH-033` (the first free integer past the G-6 reservation).
+2. Mint registry stub JSON for each batch with the canonical schema (id / severity / state / title / evidence / rule_violated / owner_agent / raised_in_cycle / review_file / created_at / closing_commits / deadline / owner_user / notes / prev_hash / content_hash).
+3. Bulk-add each stub via `finding-registry add <stub.json>`, advancing the hash chain entry-by-entry.
+4. The PROBLEM: commit history's `Closes: ULTRA-HIGH-006..038` trailers are immutable (force-push forbidden per CLAUDE.md). The renumbered registry IDs would not match the in-history trailers; consumers parsing commit history would still see the old IDs.
+
+**Architectural fix (preferred — accept the in-history IDs as canonical):**
+
+Mint registry entries with the EXACT IDs cited in the commit history (`ULTRA-HIGH-006` upward), even though that overlaps with pre-existing reservations. The collision is not destructive (the registry is append-only; both the old G-3a entry under `ULTRA-HIGH-027` AND the new Batch #245 entry under `ULTRA-HIGH-027` would coexist as two entries with the same ID — undesirable but recoverable via a separate dedup batch). The commit history stays authoritative; the registry catches up.
+
+**Severity: HIGH** — process discipline gap; not a security or correctness gap. The architectural work IS landed + tested + push-canonical; the audit-pipeline visibility is the missing piece. Future operators running `finding-registry list` will see incorrect "OPEN" state on this session's work until the registry catches up.
+
+**Discovered by:** post-session audit (this finding registration). The dangling-Closes pattern is invisible in any single commit's pre-commit check + only surfaces when comparing the registry tail-hash to the commit log span.
+
+**Fix target:** dedicated registry-catchup batch session. Estimated 1-2 hours focused work to mint 38 stub JSON files + run `finding-registry add` for each + verify chain integrity via `finding-registry verify`. The renumbering vs. accept-collision question is itself an architectural decision the next session should make explicitly.
+
+**Linked plan:** ultra-plan ARC-009 + meta-tracking discipline. The orphan-findings doc + the finding-registry are TWO TRACKERS that should agree; this session's work was added to the orphan-findings doc but not to the registry — the divergence is the orphan.
+
+---
+
+
+## ORPHAN-MEDIUM-025 — `commit-msg-validator.ts` does not cross-check `Closes:` trailer IDs against finding-registry; format-only check leaks dangling pointers (2026-04-25)
+
+**Status:** RESOLVED in Batch #285 (2026-04-25, registry entry ULTRA-MEDIUM-026).
+
+**Resolution narrative:**
+
+When implementing the proposed fix in Batch #285, source inspection of `tools/gates/commit-msg-validator.ts` revealed a different architectural shape than this finding's original "no registry-existence check" claim:
+
+- **Line 223 of the validator ALREADY contains the registry-existence check** (`if (!registryIds.has(findingId)) { ... }`).
+- **The actual root cause** of ORPHAN-HIGH-024's 38-batch dangling pattern was that `REQUIRE_CLOSES_TYPES` regex `/^(fix|security|refactor\(agentic,phase-)/` did NOT match `feat()` subjects. Every dangling commit was `feat(edge,...): Batch #NNN — ...` shape, so the validator's `needsCloses` flag was `false` for those commits — the registry-existence check was bypassed entirely because the gate didn't even look for trailers.
+
+The architectural fix delivered in Batch #285:
+
+```text
+Before: const REQUIRE_CLOSES_TYPES = /^(fix|security|refactor\(agentic,phase-)/;
+After:  const REQUIRE_CLOSES_TYPES = /^(fix|security|refactor\(agentic,phase-|feat)/;
+```
+
+Every architectural change in this codebase (whether bug-fix, security hardening, refactor, or new feature) is now traced to a finding in the registry — the regex was historically narrow, Batch #285 widens it to match the universal `Review Finding Traceability` discipline (CLAUDE.md MANDATORY).
+
+**Original finding text (preserved for history; the OPEN claim was partially incorrect about the validator's behavior — see RESOLUTION above for the actual root cause):**
+
+**Scope:** `tools/gates/commit-msg-validator.ts` — the pre-commit / commit-msg gate validates the `Closes:` trailer's REGEX FORMAT (`{PREFIX}-{SEVERITY}-{NNN}`) but does NOT validate that the cited ID EXISTS in `docs/reviews/_registry/findings.jsonl`. This is the root cause of ORPHAN-HIGH-024's 38-batch dangling-trailer pattern: every trailer matched the regex, every commit landed, but 38 IDs pointed to registry rows that didn't exist.
+
+**Symptom (gate effectiveness):** The gate's stated purpose (per CLAUDE.md "Review Finding Traceability (MANDATORY)") is to enforce that "Every fix commit must formally reference the review finding it closes." The current implementation enforces only the FORMAT of the reference, not the EXISTENCE — a spelling-correctness check, not a referential-integrity check. Trailers can cite phantom IDs indefinitely without gate intervention.
+
+**Symptom (audit pipeline):** Operators running registry-driven audit queries (`finding-registry list --state OPEN`, `finding-registry list --owner okan`, etc.) get incomplete state because dangling trailers' "Closes" don't actually close any registry row. The pipeline silently misses architectural progress.
+
+**Architectural fix:**
+
+The `commit-msg-validator.ts` gate should add a registry-existence check after the format check:
+
+```typescript
+// Pseudocode for the new gate step
+const registry = loadRegistry(); // existing helper from finding-registry.ts
+const ids_in_registry = new Set(registry.map(e => e.id));
+for (const id of citedClosesIds) {
+  if (!ids_in_registry.has(id)) {
+    console.error(`Closes trailer cites unknown ID: ${id} (not in findings.jsonl)`);
+    process.exit(1);
+  }
+}
+```
+
+The check is O(N) on registry size + O(M) on trailer count per commit; both bounded by reasonable caps (registry ~hundreds; trailers per commit ~1-5). Negligible overhead on the commit-msg path.
+
+**Severity: MEDIUM** — gate-discipline gap; not a security or correctness gap. Architecturally significant because the gate's documented purpose is referential integrity but the implementation only enforces format. The gap was hidden until ORPHAN-HIGH-024 surfaced 38 cumulative violations.
+
+**Discovered by:** Batch #283 commit message draft naming the gate-tightening recommendation. Promoted to OPEN finding so the gap is auditable + future commit-msg validator improvement work has a concrete tracking target.
+
+**Fix target:** dedicated commit-msg-validator gate-hardening batch. Estimated 1 batch (gate code + unit test against canned good-trailer + bad-trailer fixtures + integration test against current registry).
+
+**Linked plan:** Plan §3.1 ARC-009 review-finding traceability discipline + ORPHAN-HIGH-024 (the 38-batch dangling pattern this gate would have caught).
+
+---
+
+
+## ORPHAN-HIGH-027 — Ultra-plan A-2b step 5b spec ("address-space populate per-tag VariableNode") is architecturally wrong-shape vs canonical async-opcua NodeManager pattern (2026-04-25)
+
+**Status:** OPEN at filing time → re-spec landed in Batch #288 (registry entry ULTRA-HIGH-040 RESOLVED).
+
+**Scope:** `docs/reviews/_registry/findings.jsonl` ULTRA-HIGH-039 `notes` field + the historical ultra-plan A-2b step 5 sub-step taxonomy.
+
+**Pre-Batch-#288 spec (wrong-shape):** ULTRA-HIGH-039's `notes` enumerated the remaining A-2b part 5 sub-steps as:
+
+```text
+5b (SensNodeManager.init() address-space populate per-tag VariableNode)
+5c (opc_ua_server_runtime.rs:259 simple_node_manager → with_node_manager swap)
+5d (with_authenticator(SensAuthManager) wire)
+5e (add_write_callback loop DELETE)
+5f (execute_opcua_write actor: &str → &AuthenticatedUser refactor)
+```
+
+The 5b wording assumed that completing the SensNodeManager runtime swap requires a per-tag VariableNode population step against `DefaultTypeTree` (or against an internal AddressSpace). This is architecturally incorrect for the chosen NodeManager pattern.
+
+**Architectural fact (discovered via async-opcua source-of-truth read):**
+
+In async-opcua 0.18, `DefaultTypeTree` stores ONLY type-definitions (ObjectTypes, VariableTypes — the metaclasses of the OPC UA type system). Variable INSTANCE nodes (the actual data nodes that HMIs read) are NEVER stored in DefaultTypeTree. There are exactly two canonical patterns for a NodeManager to expose instance nodes:
+
+1. **In-memory AddressSpace pattern (SimpleNodeManager / InMemoryNodeManager):** the NodeManager owns a `RwLock<AddressSpace>`; nodes get `address_space.add_folder(...)` / `address_space.insert(...)` calls at boot; the trait's default browse/read service implementations look nodes up by NodeId. Trade-off: rigid (every node must exist before service calls) + per-node read/write callbacks LOSE `RequestContext` (the entire reason A-2b chose to abandon this pattern in Batch #225+).
+
+2. **Virtual nodes / dynamic resolution pattern (DiagnosticsNodeManager):** the NodeManager registers ONLY the namespace + carries no per-node storage; the trait methods `browse()` / `read()` / `write()` resolve the node FROM the NodeId at request time (via opaque NodeId encoding + per-namespace ownership filter). Trade-off: requires explicit per-method implementations; benefits include `RequestContext` access on every call (load-bearing for A-2b's session-aware authz gate) + zero state duplication between `tag_registry` (catalog) and address-space (which would also be a catalog).
+
+**SensNodeManager already chose pattern (2)** — Batch #263 skeleton + Batch #264 (read) + Batch #265 (write) all resolve nodes from the incoming `NodeId.identifier` against `OpcUaTagRegistry.find_by_browse_name(...)`. The catalog IS the address-space; populating an additional in-memory AddressSpace would create a second catalog that drifts from the first.
+
+**Therefore the original step 5b spec was internally inconsistent with the architectural choice of step 5a:** step 5a registered the namespace via `type_tree.namespaces_mut().add_namespace(...)` (canonical to pattern 2); step 5b's "address-space populate" assumed pattern 1's storage model. Either step 5a needed to be different (lock the type_tree and call address_space.insert), OR step 5b needed to be different (implement browse() per the canonical pattern-2 path). Step 5a is correct + canonical; step 5b is the side that needs re-specification.
+
+**Architectural re-spec (Batch #288):**
+
+```text
+5b (was): SensNodeManager.init() address-space populate per-tag VariableNode
+5b (now): SensNodeManager.browse() trait method implementation per canonical
+          DiagnosticsNodeManager pattern — virtual node resolution covering
+          the 4 entry points HMIs use:
+          (a) Browse from ObjectsFolder → add HasComponent ref to Suderra root
+          (b) Browse from Suderra root → add HasComponent ref to Tags folder
+          (c) Browse from Tags folder → add HasComponent ref per tag in registry
+          (d) Browse from a tag node → add HasTypeDefinition ref to BaseDataVariableType
+              + Inverse HasComponent ref back to Tags
+```
+
+The remaining sub-steps 5c / 5d / 5e / 5f are unaffected — they correctly target opc_ua_server_runtime.rs wiring + execute_opcua_write signature. Only step 5b's verb (`populate` → `implement browse`) and target (`type_tree` → trait method override) change.
+
+**Severity: HIGH** — without the architectural correction, completing 5b per the original wording would have either:
+(a) Forced a SensNodeManager refactor to pattern 1, throwing away Batches #263-#266's pattern 2 commitments (months of work re-architected for an internally inconsistent spec).
+(b) Surfaced a compilation error at first attempt (DefaultTypeTree has no `add_variable_node` method) and triggered a session-blocking architectural re-derivation under user-facing time pressure.
+
+**Discovered by:** Batch #288 implementation prep — read of `async-opcua-server-0.18.0/src/diagnostics/node_manager.rs` revealed the canonical pattern-2 shape; cross-checked against `async-opcua-nodes-0.18.0/src/type_tree.rs` (DefaultTypeTree only exposes `add_type_node` / `add_namespace` / `add_type_property`, no instance-node API).
+
+**Fix target:** Batch #288 (this batch) implements browse() trait method per re-spec. Subsequent batches (5c-5f) proceed unchanged.
+
+**Linked plan:** Ultra-plan §A-2b part 5 sub-step taxonomy. Linked findings: ULTRA-HIGH-039 RESOLVED (5a namespace registration), ULTRA-HIGH-035 PARTIAL_FIX (overall A-2b part 5), ORPHAN-CRITICAL-021 (anonymous-actor hardcode — closed by 5c+5f wiring), ORPHAN-MEDIUM-023 (Allow-path skips delegate — closed by 5f).
+
+**Architectural lesson:** When a multi-step plan is written, every step's choices must be internally consistent with every other step's. Step 5a's choice (namespace registration via DefaultTypeTree) IMPLIED pattern 2 commitment; step 5b should have followed the implication forward. Future ultra-plan steps should cite the canonical-pattern source explicitly (e.g., "5b: implement per DiagnosticsNodeManager.browse pattern at `async-opcua-server-0.18.0/src/diagnostics/node_manager.rs:619-667`") so a later reader can re-derive the full architectural trajectory from the spec alone.
+
+---
+
+
+## ORPHAN-LOW-028 — `sens-api-gateway/src/main.rs.disabled-test` is a 37-byte dead stub referencing a module that does not exist (2026-04-27)
+
+**Discovered by:** Batch #307 in-flight environment scan (Faz 6 force_value two-person integrity gate session). The file appears in `git status` as an `??` untracked entry — predates this session (`stat` mtime `Apr 23 18:12`).
+
+**File contents (full):**
+
+```rust
+mod opc_ua_type_debug; // diagnostic
+```
+
+**Why this is a hygiene problem (not a correctness problem):**
+
+- The file name `main.rs.disabled-test` is a non-standard convention: it is neither a Rust source (`*.rs`), a doc fixture (`tests/...`), nor a documented "renamed" file. The `.disabled-test` suffix suggests a developer wanted to gate a debug-only module without the cargo build picking it up, but the chosen mechanism is a manual filename rename rather than a Rust-native gate (`#[cfg(feature = "opcua-type-debug")]` or `#[cfg(test)]`).
+- The referenced module `opc_ua_type_debug` does not exist anywhere in the workspace (verified via `grep -rn opc_ua_type_debug --include="*.rs"`). So even if the file were renamed back to `main.rs` and included via `mod`, the build would fail.
+- Untracked files in a long-running git checkout drift over time and pollute every fresh `git status` invocation, increasing the surface area for accidental commits via `git add -A`.
+
+**Architectural fix (single tier 1 candidate):**
+
+- Tier 1 (make it impossible) — DELETE the stub entirely. If a future developer needs an OPC UA type-introspection diagnostic, the canonical shape is a `#[cfg(feature = "opcua-type-debug")]`-gated module under `src/opc_ua/`, not a quarantine file outside the build graph. This finding documents the intent to delete; deletion is itself a 1-byte change in a future hygiene batch and does not need to block any plan-aligned arc.
+
+**Severity: LOW** — repo hygiene only. No correctness, security, or test-coverage implication. Documented per user policy: *gördüğüm hiçbir problemi senin ilgili olmasa bile not al*.
+
+**Status:** OPEN. Slated for the next no-arc hygiene batch (no firm deadline; trigger-based rather than time-based — fold into the next session that already touches `sens-api-gateway/src/` for an unrelated reason).
+
+**Linked plan:** none (out-of-band of every active arc).
+
+
+## 2026-04-23 NX-CONVENTION-001 — Nx generator scaffolding duplication is intentional (pre-empt future jscpd noise)
+
+**Status:** DOCUMENT-ONLY — this is a classification rule for future audits, not a bug.
+
+**Scope:** `apps/*/tsconfig.build.json`, `apps/*/jest.config.ts`, per-project lint/test config files created by Nx generators.
+
+**Observation (2026-04-22 cold audit):**
+
+jscpd reported per-service `tsconfig.build.json` as a duplicate cluster (e.g. `apps/admin-api-service/tsconfig.build.json` ≡ `apps/sensor-service/tsconfig.build.json`, ~64 lines). Similar overlap for `jest.config.ts`. Over 17 services this accounts for >1000 lines of "duplication" that would inflate any code-smell metric.
+
+**Why this is not a finding:**
+
+These files are generated by Nx workspace generators (`nx generate @nx/nest:app <svc>` and friends). The template is uniform by design — every service gets the same build/test bootstrap so Nx cache keys are stable across projects. Deviating from the template requires a documented override in `nx.json` `targetDefaults` or a per-project override in that service's `project.json`. Extracting the template content to a shared file (e.g. via `"extends"`) is explicitly NOT how Nx wants this — the generators re-emit the full config on regeneration, so an extends-chain would drift the moment a scaffolded service is re-generated.
+
+**Classification rule for future audits:**
+
+jscpd clusters where EVERY participating file is one of:
+- `tsconfig.build.json` with only `extends` + `compilerOptions.outDir` differing
+- `jest.config.ts` with only `displayName` + `coverageDirectory` differing
+- `project.json` Nx target definitions sharing the same `executor` with only `options.projectName` differing
+
+…are classified **NX-INTRINSIC DUPLICATION** and SHOULD NOT be raised as extraction candidates. Future audit cycles (and the `02-jscpd-clusters.md` artifact generator) must filter them out.
+
+**Closure:**
+
+This orphan entry is the architectural tier-4 "document" fallback for `AUDIT-LOW-001` from the 2026-04-22 cold audit. The audit-tool `tools/audit/aggregate-hotspots.ts` does NOT currently filter these — a follow-up improvement (not tracked as a separate finding because the noise is informational only) would add an ignore glob.
+
+**Follow-on tracking:**
+- Owner: orchestrator.
+- No deadline — this is an informational classification, not an actionable fix.
+- Closure path: commit that adds this note carries `Closes: docs/reviews/_audit/2026-04-22-cold-audit/03-explore-findings.md#AUDIT-LOW-001`.
+
+
+## 2026-04-23 MONITOR-HOTSPOT-001 — churn-only findings archived until next audit cycle
+
+**Status:** DOCUMENT-ONLY. Closes `AUDIT-MEDIUM-001`, `AUDIT-MEDIUM-004`, `AUDIT-MEDIUM-010` as Tier-4 monitor markers.
+
+**Scope:** Three 2026-04-22 cold-audit findings that surfaced as hotspot-score signals (high commit frequency + large surface area) but do not carry a structural defect claim:
+
+- `AUDIT-MEDIUM-001` — `web/modules/sensor-module` (319 pts): automation editor, SCADA builder, package-builder pages.
+- `AUDIT-MEDIUM-004` — `apps/hr-service` (225 pts): `app.module.ts` + `employee.entity.ts` + `hr.resolver.ts` churn.
+- `AUDIT-MEDIUM-010` — `web/modules/tenant-admin` (86 pts): TenantDashboard / TenantUsers / TenantSettings pages.
+
+**Why Tier-4 document is the correct tier:**
+
+Churn is a leading indicator, not a defect. All three surfaces are actively under feature development in this cycle per `git log --since="3 months ago" --name-only`. No ADR violation, no tenant-isolation bypass, no schema drift, no lint-rule violation attaches to these files — only high edit frequency.
+
+Applying Tier 1–3 (make-impossible / make-automatic / make-detectable) would mean freezing the surfaces or adding artificial rate-limits on commit frequency. That is over-correction; active feature development SHOULD produce churn hotspots.
+
+**Escalation rule (the Tier-3 half of this entry):**
+
+The next cold-audit cycle (2026-06 or earlier on a triggered audit) inspects these three surfaces AGAIN. If ANY of them shows:
+- churn *and* a correlated failing e2e test suite, OR
+- churn *and* a spike in open AUDIT-* findings on the same files, OR
+- churn *and* a rise in lint-warning count for the service,
+
+the relevant MEDIUM-NNN escalates to a HIGH-severity finding with the specific defect class it correlates with. The MONITOR classification is automatic — no human-review handoff needed — because the audit tooling (`tools/audit/aggregate-hotspots.ts`) can compute the correlation deterministically.
+
+**Follow-on tracking:**
+- Owner: orchestrator.
+- Deadline: next cold-audit cycle (tracked by the audit tooling itself, not a date).
+- Closure path: commit that adds this note carries `Closes: docs/reviews/_audit/2026-04-22-cold-audit/03-explore-findings.md#AUDIT-MEDIUM-001` + `#AUDIT-MEDIUM-004` + `#AUDIT-MEDIUM-010` trailers on separate lines.
+
+
+## 2026-04-23 ORPHAN-DIC-001 — parent-scoped child entities have no `tenantId` column (cross-service architectural class)
+
+**Status:** OPEN — surfaced during the Phase B.3 cold-audit remediation while trying to migrate `manager.getRepository(Entity)` calls to `tenantManagerRepo()`. Architectural class is cross-service (sensor-service was the first instance; PR #159's audit surfaced billing-service `SubscriptionModuleItem` as a second instance of the same class).
+
+**Scope (now 4+ entities across 2 services):**
+
+sensor-service:
+1. `apps/sensor-service/src/edge-device/entities/device-io-config.entity.ts` — reachable only via parent `EdgeDevice`.
+2. `apps/sensor-service/src/automation/entities/program-variable.entity.ts` — reachable only via parent `AutomationProgram`.
+
+billing-service (added 2026-04-27 during PR #159 audit):
+3. `apps/billing-service/src/billing/entities/subscription-module-item.entity.ts` — reachable only via parent `Subscription` (scoped by `subscriptionId` FK).
+
+(implicit) Any future child entity in any service that follows the same parent-scoped pattern. The architectural class is "child entity reachable only via parent FK; tenantId is inherited via JOIN, not stored locally."
+
+None of these declare a `@Column` for `tenantId`. Rows are reachable only via the parent relationship, whose row does carry `tenantId`.
+
+**Why the entity can't be wrapped by `tenantManagerRepo()`:**
+
+The scoped repo auto-injects `{ ..., tenantId }` into every save / update / create / delete. DeviceIoConfig has no `tenantId` column → the INSERT would fail at runtime with a `column "tenantId" does not exist` Postgres error. Wrapping with `tenantManagerRepo()` is therefore *structurally incorrect* until the column exists.
+
+**Current state:**
+
+`bulkAddIoConfigs()` in `edge-device.service.ts` still calls `manager.getRepository(DeviceIoConfig)` directly, with an `// eslint-disable-next-line no-restricted-syntax -- ORPHAN-DIC-001` comment pointing at this entry.
+
+**The architectural question:**
+
+Should `DeviceIoConfig` gain a `tenantId` column?
+
+- **Pro:** explicit tenant scoping at every repository call; no reliance on parent-row traversal; RLS policies would work without JOINs; matches the pattern every other sensor-service entity follows.
+- **Con:** denormalizes the tenantId (stored twice — on EdgeDevice and again on each of its DeviceIoConfig rows). Adds a migration touching every live DeviceIoConfig row. Adds an index-maintenance cost.
+
+**Closure path:**
+
+A follow-up PR that lands the `tenantId` column migration + entity update can delete the eslint-disable comment in `bulkAddIoConfigs` AND rewrite the line to `tenantManagerRepo(manager, DeviceIoConfig, tenantId)`, carrying `Closes: docs/reviews/orphan-findings.md#ORPHAN-DIC-001`.
+
+Until then this ORPHAN documents why the getRepository rule has a single sensor-service exception with a traceable reference — an architectural acknowledgement, not a patch.
+
+
+## 2026-04-23 ORPHAN-DOCS-001 — Untracked top-level `CONTRIBUTING.md` + `SECURITY.md` in working tree
+
+**Status:** OPEN — surfaced during the SEC-REVIEW-003 invariant landing on `cold-audit/pr-8-security-hardening`.
+
+**Scope:**
+- `/var/aqua-saas/CONTRIBUTING.md` — 6070 bytes, Apr 25 timestamp, untracked.
+- `/var/aqua-saas/SECURITY.md` — 3120 bytes, Apr 25 timestamp, untracked.
+
+**Observation:**
+
+`git log --all --source --remotes -- CONTRIBUTING.md SECURITY.md` returns empty across every branch. The two files exist locally but have never been committed on any remote ref. Their content is well-formed:
+- `CONTRIBUTING.md` references CLAUDE.md as the platform invariant playbook, walks through the trunk-based dev model + commit format + finding traceability rules.
+- `SECURITY.md` documents an ISO/IEC 30111 + 29147 vulnerability handling policy, with a `security@suderra.example` placeholder address that must be replaced before external publication.
+
+**Why this is plan-independent:**
+
+These files were created out-of-band by a prior session (likely a docs-pass agent) and never staged. They block no work — `git status` simply shows them as untracked indefinitely. The risk is that someone runs `git add -A` and silently commits them into an unrelated PR, or that they drift further from the CLAUDE.md they reference until they become misleading.
+
+**Closure path (architecturally clean — separate PR):**
+
+1. Decide on the `security@suderra.example` placeholder. The `SECURITY.md` itself flags the placeholder for replacement; mint an actual PSIRT alias before the file goes public.
+2. Open a docs-only PR: `docs(community): add CONTRIBUTING.md + SECURITY.md` carrying both files unchanged from the working-tree copies (they are well-aligned with CLAUDE.md already).
+3. Reference this entry in the commit body: `Closes: docs/reviews/orphan-findings.md#ORPHAN-DOCS-001`.
+
+Until then they remain untracked but **not destroyed** — relocating untracked files out of the worktree without explicit user authorization is forbidden by sandbox policy and would lose the prior session's draft. The files survive in `/var/aqua-saas/` until the docs PR lands.
+
+
+## 2026-04-23 ORPHAN-TEST-INFRA-001 — `ts-jest` `isolatedModules` deprecation warning chronic in invariants suite
+
+**Status:** OPEN — informational; does not break any test, but every invariants invocation prints the same warning.
+
+**Scope:** `tests/invariants/jest.config.ts` + `tests/invariants/tsconfig.spec.json`.
+
+**Observation:**
+
+Every `npx jest --config tests/invariants/jest.config.ts ...` invocation begins with:
+
+```
+ts-jest[config] (WARN)
+    The "ts-jest" config option "isolatedModules" is deprecated and will be
+    removed in v30.0.0. Please use "isolatedModules: true" in
+    /var/aqua-saas/tests/invariants/tsconfig.spec.json instead, see
+    https://www.typescriptlang.org/tsconfig/#isolatedModules
+```
+
+The warning is correct: `isolatedModules: true` lives in the ts-jest transformer config (`jest.config.ts:73`) where ts-jest no longer wants it; the upstream-recommended location is the spec `tsconfig.json`. The current config still works, but each warning costs cognitive overhead and the upgrade to ts-jest v30 will hard-fail.
+
+**Why this is plan-independent:**
+
+Pre-existing on `main` since the invariants suite was first sharded (Phase 14.3 — see `tests/invariants/jest.config.ts:11-54` rationale block). Independent of any current planned work.
+
+**Closure path:**
+
+Single-line, mechanical fix:
+1. Add `"isolatedModules": true` to `tests/invariants/tsconfig.spec.json` `compilerOptions`.
+2. Remove `isolatedModules: true` from the ts-jest `transform` block in `jest.config.ts:73`.
+3. Re-run `invariants:fast`; the warning disappears and behaviour is byte-identical.
+
+Carry `Closes: docs/reviews/orphan-findings.md#ORPHAN-TEST-INFRA-001` on the commit.
+
+
+## 2026-04-23 ORPHAN-CI-PROVISIONING-001 — PR #158 UNSTABLE blocked on Nx Cloud token provisioning + cache substrate
+
+**Status:** OPEN — meta-finding for the campaign maintainer.
+
+**Scope:** GitHub repo settings (secrets) + `.github/workflows/ci-full.yml` cache namespace + Nx Cloud account.
+
+**Observation:**
+
+PR #158 ("Lossless main refresh: 13 PRs (4 CI fix + 9 dependabot bumps)") is `MERGEABLE` per `git merge-tree` but `mergeStateStatus: UNSTABLE` per the GH API: `lint`, `type-check`, `test`, `build` are all FAILURE while every other gate (banned-phrase, schema-validation, dependency-review, cargo-deny, cargo-audit, secrets scan, k6 benchmark) is SUCCESS.
+
+The four failing checks are the same 35-min cold-cache timeout class that AUDIT-CRITICAL-002 named on 2026-04-22. The architectural fix exists in three forms inside PR #158 itself:
+- `9323a6f1` — `nx.json` templating fix (removes `nxCloudAccessToken: ${NX_CLOUD_ACCESS_TOKEN}` which Nx does not interpolate).
+- `ed851d3f` — cache namespace unification (`nx-full-` → `nx-ci-` plus a missing 4th `Cache Nx` step in the test job).
+- `bdefb510` — `main-deletion-witness` gate (silent-regression detector — orthogonal to the timeout class but part of the same campaign).
+
+The remaining piece is **manual** and cannot be performed by an agent: provisioning the `NX_CLOUD_ACCESS_TOKEN` GitHub secret per ADR-030 §5 (5-step browser runbook). Once the secret is set + PR #158 lands, the cold-cache window collapses to ~3-5 min and PR #159 (this campaign's consolidation) inherits the green substrate.
+
+**Why this is plan-independent:**
+
+This entry exists to prevent the campaign from getting stuck in a recursive "PR #159 fails CI → reopen PR #158 → still fails CI" loop. The blocker is human-in-the-loop, not architectural.
+
+**Closure path:**
+
+1. Maintainer follows ADR-030 §5: nx.app sign-in → Connect existing repo → copy access token → GitHub repo Settings → Actions → New repository secret named `NX_CLOUD_ACCESS_TOKEN`.
+2. Re-run PR #158 CI; expect green.
+3. Squash-merge PR #158.
+4. Re-run PR #159 CI on top of the new main; expect green.
+5. Squash-merge PR #159.
+6. Carry `Closes: docs/reviews/orphan-findings.md#ORPHAN-CI-PROVISIONING-001` on the squash-merge commit message of PR #158 (closes the meta-finding when the substrate is in place; the cold-audit content closure happens on PR #159's merge).
+
+
+## 2026-04-23 ORPHAN-CAMPAIGN-LIFECYCLE-001 — Cold-audit train (PRs #121-#130) closed-then-reopened pattern
+
+**Status:** RESOLVED — documents the lifecycle transition on this branch's commits, no further action.
+
+**Scope:** PRs #121, #122, #123, #124, #125, #126, #127, #130 (cold-audit train) and PR #159 (consolidation landing).
+
+**Observation:**
+
+The cold-audit campaign was originally landed as 8 stacked PRs (`#121` through `#130`, with `#128/#129` skipped by gh numbering quirk). All 8 carried `state: CLOSED, mergedAt: null` after a parallel "Lossless main refresh" PR (#158) absorbed the 4 CI-fix branches into a single integration branch via `--no-ff` merges. The cold-audit train was preserved on `claude/cold-audit-pr-130-isolated` because:
+
+> `findings.jsonl` hash-chain conflict requires registry rebuild before merge; train is preserved verbatim for separate landing
+> — PR #158 body, "NOT included" table
+
+The PR #158 body explicitly identifies the cold-audit train as deferred-to-later, not abandoned. PR #159 is the deferred landing — same content as `claude/cold-audit-pr-130-isolated` plus the SEC-REVIEW-003 invariant (commit `1ff67716`) added during the 2026-04-23 follow-up session.
+
+**Why this is plan-independent:**
+
+The closed-then-reopened pattern is a structural artefact of two parallel agent sessions resolving the same backlog with different strategies. Documenting the lifecycle here prevents future archaeology.
+
+**Closure path:**
+
+This entry serves as the historical record. No action needed once PR #159 merges.
+
+
+## 2026-04-23 ORPHAN-SEC-007-COVERAGE-001 — SEC-REVIEW-007 6-Playwright-test recommendation: already covered by existing 6-layer defence
+
+**Status:** RESOLVED — coverage analysis below. No additional E2E tests warranted.
+
+**Scope:** SEC-REVIEW-007 (post-cold-audit security review of the tenantManagerRepo wrapper contract). The original review recommended adding 6 Playwright E2E tests covering tenant-leak-on-write paths; PR #159's commit `b1e425c4` delivered only the unit-level factory contract.
+
+**Why no additional E2E tests are needed:**
+
+The architectural surface SEC-REVIEW-007 names (handler accepts an arbitrary `tenantId` in body / header → wrapper writes a row with the wrong tenant) is already covered by SIX independent detection layers, each catching a different failure mode:
+
+| # | Layer | Defends against |
+|---|-------|-----------------|
+| 1 | ESLint `no-restricted-syntax` rule (`.eslintrc.json:101-128`) | direct `.getRepository(` at compile-time, on every changed file |
+| 2 | `no-direct-getrepository-call.spec.ts` invariant (PR #159) | direct `.getRepository(` at PR-time, on every file (bypasses Nx affected scope) |
+| 3 | `eslint-disable-annotation-positional-binding.spec.ts` invariant (SEC-REVIEW-003) | drifted / orphaned annotations that no longer bind to a real callsite |
+| 4 | `tenant-scoped-repository.spec.ts` unit contract tests (SEC-REVIEW-007 unit, in commit `b1e425c4`) | regression of the wrapper's `tenantId` auto-injection logic |
+| 5 | 4 Playwright tests at `e2e/tests/security/tenant-isolation.spec.ts` (already on `main`) | gateway-level X-Tenant-Id spoofing + cross-tenant query rejection |
+| 6 | 6 integration-level tests at `e2e/tests/integration/data-isolation-chain.spec.ts` (already on `main`) | end-to-end write-then-read cross-tenant invisibility |
+
+**The proposed 6th-set of Playwright tests would have covered:**
+
+- "Authenticate as Tenant A; POST a body with `tenantId: <Tenant-B's-id>`; assert the row lands under Tenant A's scope, not B's."
+
+**Why that scenario is already moot:**
+
+The mismatch case is structurally rejected at the gateway layer (Layer 5 test 4: "Invalid tenant ID format in X-Tenant-Id header is rejected" + JWT-vs-header reconciliation in `TenantContextMiddleware`). The `tenantManagerRepo` wrapper itself reads tenantId from AsyncLocalStorage (set by the gateway middleware), not from the request body. Layer 4's unit contract proves the wrapper IGNORES any `tenantId` value in the entity payload and OVERRIDES it with the AsyncLocalStorage-resolved value.
+
+The 6 originally-recommended Playwright tests would re-verify what Layer 5 + Layer 4 already prove — strict redundancy, not additional coverage.
+
+**Closure path:**
+
+This entry serves as the architectural decision record. Future reviewers asking "why didn't we add the 6 E2E tests SEC-REVIEW-007 recommended?" find this entry and the layer table here.
+
+The recommendation is closed-without-implementation because re-running the same assertion through a slower test surface adds latency to CI without adding signal. Re-opening this finding would require a NEW failure class that none of layers 1-6 catch.
+
+
+## 2026-04-27 ORPHAN-LINT-SCOPE-002 — `no-restricted-imports` (root-barrel ban) shares the same affected-vs-all CI gap as `no-restricted-syntax`
+
+**Status:** RESOLVED — closed in PR #159 by `tests/invariants/no-root-barrel-import.spec.ts` + 14-file root-barrel cleanup (commits `fce98510` + auth-service `user-lifecycle.service.ts` split). Same architectural class as ORPHAN-CI-PROVISIONING-001 / AUDIT-MEDIUM-014, scoped to a different ESLint rule.
+
+**Scope:** `.eslintrc.json:86-99` (`no-restricted-imports` rule banning `@aquaculture/backend-common` + `@platform/backend-common` root paths). 13 unmigrated files surfaced in PR #159 commit `fce98510` were the visible symptom; the invisible class is "any future commit can re-introduce the root-path import without ci-affected catching it."
+
+**Why this is plan-independent:**
+
+The AUDIT-MEDIUM-005 codemod (`810eae97`) migrated then-existing root-barrel users into per-subtree imports + added the lint rule. CI's `nx affected -t lint` only ran on projects whose dependency graph the diff touched, so 13 unmigrated files outside that scope were missed. The 2026-04-27 cleanup commit fixed the 13 files but did NOT add a Tier-3 detector that would have caught them at PR-time.
+
+**Architectural fix (Tier-3 invariant — mirrors the no-direct-getrepository pattern):**
+
+Add `tests/invariants/no-root-barrel-import.spec.ts` that walks every tracked .ts file via `git ls-files` and asserts no `import ... from '@aquaculture/backend-common'` (root) AND no `import ... from '@platform/backend-common'` (root) appears. The exemption set is the per-subtree `/<name>` form (`/database`, `/auth`, `/audit`, etc.).
+
+The pattern mirrors `no-direct-getrepository-call.spec.ts` exactly:
+- Walks tracked source via `git ls-files`
+- Skips test/__tests__/__mocks__/migrations
+- Runs in `invariants:fast` (the always-on PR gate per AUDIT-CRITICAL-003)
+- Bypasses Nx affected scope entirely
+
+**Closure (same PR, no follow-up):**
+
+The invariant + cleanup landed together in PR #159:
+
+1. `fce98510` — migrated 13 root-barrel imports across farm-service / billing-service / sensor-service.
+2. (auth-service follow-up edit) — `user-lifecycle.service.ts` split its 3-symbol root import into per-subtree `/database` (SchemaManagerService + tenantManagerRepo) + `/decorators` (Role enum).
+3. `tests/invariants/no-root-barrel-import.spec.ts` (Tier-3 detector) — walks tracked .ts/.tsx via git ls-files, asserts no bare `from '@aquaculture/backend-common'` or `from '@platform/backend-common'` outside test paths. Wired into layer-1 `invariants:fast` shard so the always-on gate catches future drift.
+
+Smoke-tested: invariant FAILED on the auth-service file before the split, PASSED once split. Layer-1 went 102 → 103 tests; no regression.
+
+**Why a parallel-pattern detector matters:**
+
+The `nx affected -t lint` scope class will keep producing instances of "rule fires correctly on a clean PR but silently accumulates violations in unrelated services." Each orphan we surface (AUDIT-MEDIUM-014 for `no-restricted-syntax`, this entry for `no-restricted-imports`) is one more case where the always-on invariants:fast shard catches what affected-lint misses. Until the platform either (a) provisions Nx Cloud + flips ci-affected to ci-all on every PR, OR (b) builds an invariants-shard equivalent for every gating ESLint rule, this class will keep producing surface area.
+
+
+## 2026-04-23 ORPHAN-COMMIT-TRAILER-001 — `SEC-REVIEW-NNN` IDs not registrable; `Closes:` trailers are decorative on `test()` subjects
+
+**Status:** OPEN — informational; documents an existing pattern, no action required.
+
+**Scope:** `docs/reviews/_registry/findings.jsonl.schema.json` + 3 commits using SEC-REVIEW-NNN identifiers (`6f5450a5`, `b1e425c4`, `1ff67716`, `69abfdfb`).
+
+**Observation:**
+
+The registry schema's `id` pattern admits prefixes `DATA|SEC|PLAT|FE|EDGE|MT|FARM|SENSOR|HR|MSG|ADMIN|...` — i.e., `SEC-` is allowed but **`SEC-REVIEW-`** is not. The format strictly enforces `^{PREFIX}-{CRITICAL|HIGH|MEDIUM|LOW|CVE}-NNN$`, so `SEC-REVIEW-003` cannot be a registry entry without first registering `REVIEW` as an additional severity classifier (it is not).
+
+Three campaign commits (`6f5450a5`, `b1e425c4`, `1ff67716`) use SEC-REVIEW-NNN identifiers as informal labels for findings raised during the **post-cold-audit security review** of the campaign itself. These IDs appear in commit subjects, in inline rationale comments next to `eslint-disable-next-line` directives, and in test-name strings — but they are NOT registry entries. The commit-msg-validator only enforces `Closes:` trailers on `^(fix|security|refactor\(agentic,phase-)` subjects, so the `test(invariants):` and `test(security):` subjects on these commits pass even though their trailers reference non-registry IDs.
+
+**Why this is plan-independent:**
+
+The pattern works for the campaign — SEC-REVIEW IDs are traceable via grep across commits + comments + tests. But future tooling (e.g. `findings:list --include-informal-ids`) cannot surface them because no central index exists. The dangling `Closes: ...#SEC-REVIEW-NNN` trailers are decorative metadata, not registry-enforced traceability.
+
+**Closure path (Tier-3 make-detectable, NOT urgent):**
+
+Two architectural options, neither required for current PR landing:
+
+1. **Extend the schema**: add `REVIEW` to the severity-classifier enum so `SEC-REVIEW-NNN` becomes a valid registry id. Pro: heals dangling trailers retroactively. Con: dilutes the severity field's semantics (REVIEW is not a severity).
+2. **Index file alongside the registry**: `docs/reviews/_registry/sec-review-index.md` with one markdown anchor per SEC-REVIEW-NNN. Pro: keeps the registry's severity invariants intact; trailers become resolvable. Con: requires a new gate to prevent drift between commits + the index.
+
+Until either is done, this orphan entry is the canonical record of the pattern's known limits.

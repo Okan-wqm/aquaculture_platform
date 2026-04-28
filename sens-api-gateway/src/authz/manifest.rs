@@ -327,7 +327,7 @@ mod tests {
             }],
             roles: vec![CustomRole {
                 name: "viewer".to_string(),
-                permissions: vec![Permission::ReadTag(TagId::from("pond3_temp".to_string()))],
+                permissions: vec![Permission::ReadTag],
                 valid_from_unix_secs: 1_700_000_000,
                 valid_until_unix_secs: 1_800_000_000,
                 is_emergency_role: false,

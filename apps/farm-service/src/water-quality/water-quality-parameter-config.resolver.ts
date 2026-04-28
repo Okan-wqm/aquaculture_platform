@@ -9,7 +9,8 @@
 import { Resolver, Query, Mutation, Args, ID, Int, ObjectType, Field } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@platform/cqrs';
-import { TenantGuard, CurrentTenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common';
+import { CurrentTenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
+import { TenantGuard } from '@aquaculture/backend-common/guards';
 import { WaterQualityParameterConfig } from './entities/water-quality-parameter-config.entity';
 import { WaterQualityParamEquipment } from './entities/water-quality-param-equipment.entity';
 

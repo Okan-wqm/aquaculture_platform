@@ -30,7 +30,7 @@
     "lint:all": "nx run-many --target=lint --all",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md}\"",
-    "type-check": "tsc --noEmit",
+    "type-check": "node tools/scripts/type-check-all.mjs",
     "affected:graph": "nx affected:graph",
     "graph": "nx graph",
     "prepare": "husky install",
@@ -91,7 +91,8 @@
     "gates:migration-sql": "ts-node --project tools/gates/tsconfig.json tools/gates/migration-sql-lint.ts",
     "gates:tier-claim": "ts-node --project tools/gates/tsconfig.json tools/gates/tier-claim-lint.ts",
     "gates:type-check-spec": "ts-node --project tools/gates/tsconfig.json tools/gates/type-check-spec.ts",
-    "gates:all": "npm run gates:banned-phrase && npm run gates:migration-sql && npm run gates:tier-claim && npm run gates:type-check-spec",
+    "gates:deletion-witness": "ts-node --project tools/gates/tsconfig.json tools/gates/main-deletion-witness.ts",
+    "gates:all": "npm run gates:banned-phrase && npm run gates:migration-sql && npm run gates:tier-claim && npm run gates:type-check-spec && npm run gates:deletion-witness",
     "type-check:spec": "ts-node --project tools/gates/tsconfig.json tools/gates/type-check-spec.ts",
     "ripple": "npx ts-node --project tools/ripple-tracer/tsconfig.json tools/ripple-tracer/cli.ts"
   },

@@ -81,7 +81,7 @@ export class ToggleLegalHoldHandler
           `Legal hold activated: id=${hold.id}, tenant=${tenantId}, channel=${channelId ?? 'all'}`,
         );
       } else {
-        hold = await this.legalHoldService.release(holdId!, userId, manager);
+        hold = await this.legalHoldService.release(holdId!, tenantId, userId, manager);
 
         this.logger.log(`Legal hold released: id=${holdId}, by=${userId}`);
       }

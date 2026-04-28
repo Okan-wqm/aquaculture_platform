@@ -34,10 +34,7 @@
  */
 import { Column, Entity, PrimaryColumn } from 'typeorm';
 
-import {
-  dropDependentPartialIndexes,
-  parseAlterColumnTypeTargets,
-} from '@aquaculture/backend-common';
+import { dropDependentPartialIndexes, parseAlterColumnTypeTargets } from '@aquaculture/backend-common/database';
 
 import {
   type HarnessContext,

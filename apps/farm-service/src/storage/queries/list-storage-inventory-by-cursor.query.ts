@@ -1,4 +1,4 @@
-import type { CursorPaginationInput } from '@aquaculture/backend-common';
+import type { CursorPaginationInput } from '@aquaculture/backend-common/pagination';
 
 /**
  * Cursor-paginated variant of the storage-inventory list query.

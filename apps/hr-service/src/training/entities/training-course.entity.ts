@@ -7,7 +7,7 @@ import {
   VersionColumn,
   Index,
 } from 'typeorm';
-import { DecimalTransformer } from '@aquaculture/backend-common';
+import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import { ObjectType, Field, ID, Int, Float, registerEnumType } from '@nestjs/graphql';
 
 export enum TrainingType {

@@ -1,0 +1,28 @@
+apps/admin-api-service/src/policy/services/ingest-backend-policy.service.ts:94:    // `as any` bypass. Failing here keeps the DB state from
+apps/farm-service/src/storage/handlers/record-stock-movement.handler.ts:325:        // Previously used (chem as any) casts which are unnecessary — the entity is properly typed.
+apps/farm-service/src/storage/commands/update-storage-location.command.ts:5: * `locationId`. This avoids an `as any` cast in the resolver when spreading
+platform/libs/outbox/src/outbox-publisher.service.ts:143:    // without resorting to `as any` or `as unknown as X` casts.
+libs/backend-common/src/database/rls/rls-connection-bootstrap.service.ts:136:      const driver = this.dataSource.driver as any;
+libs/backend-common/src/database/tenant-connection-bootstrap.service.ts:81:      const driver = this.dataSource.driver as any;
+web/shared-ui/src/utils/api-client.ts:331:    const authGlobal = (window as any).__AQUACULTURE_AUTH__;
+web/shared-ui/src/utils/api-client.ts:405:    const authGlobal = (window as any).__AQUACULTURE_AUTH__;
+web/modules/sensor-module/src/services/st-websocket.service.ts:18:  (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_WS_URL)
+web/modules/sensor-module/src/services/st-websocket.service.ts:19:    ? `${(import.meta as any).env.VITE_WS_URL}/st-language`
+web/modules/sensor-module/src/services/st-websocket.service.ts:20:    : (typeof window !== 'undefined' && (window as any).__RUNTIME_CONFIG__?.WS_URL)
+web/modules/sensor-module/src/services/st-websocket.service.ts:21:      ? `${(window as any).__RUNTIME_CONFIG__.WS_URL}/st-language`
+web/modules/sensor-module/src/store/processStore.ts:580:      const sensorId = (node.data as any)?.sensorId as string | undefined;
+web/modules/sensor-module/src/hooks/useScadaKeyboardShortcuts.ts:120:          (s as any).groupWidgets(s.activeScreenId, s.selectedWidgetIds);
+web/modules/sensor-module/src/hooks/useScadaKeyboardShortcuts.ts:133:          (s as any).ungroupWidgets(s.activeScreenId, widget.groupId);
+web/modules/sensor-module/src/hooks/useScadaKeyboardShortcuts.ts:144:          (s as any).toggleWidgetLock(s.activeScreenId, s.selectedWidgetId);
+web/modules/sensor-module/src/hooks/useScadaLiveData.ts:18:  (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_WS_URL) ||
+web/modules/sensor-module/src/hooks/useScadaLiveData.ts:19:  (typeof window !== 'undefined' && (window as any).__RUNTIME_CONFIG__?.WS_URL) ||
+web/modules/sensor-module/src/hooks/useEdgeIoSocket.ts:25:  (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_WS_URL) ||
+web/modules/sensor-module/src/hooks/useEdgeIoSocket.ts:26:  (typeof window !== 'undefined' && (window as any).__RUNTIME_CONFIG__?.WS_URL) ||
+web/modules/sensor-module/src/hooks/useSensorSocket.ts:19:  (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_WS_URL) ||
+web/modules/sensor-module/src/hooks/useSensorSocket.ts:20:  (typeof window !== 'undefined' && (window as any).__RUNTIME_CONFIG__?.WS_URL) ||
+web/modules/sensor-module/src/store/scada/screenIO.ts:79:    screenType: (json.screenType as any) || 'dashboard',
+web/modules/sensor-module/src/hooks/socketFactory.ts:51:      (existing.socket as any).auth = { token };
+web/modules/sensor-module/src/hooks/socketFactory.ts:69:      (socket as any).auth = { token: freshToken };
+web/modules/admin-panel/src/services/http-client.ts:84:/** Construct a well-typed ApiError without resorting to `as any`. */
+web/modules/sensor-module/src/simulation/st-parser-lite.ts:965:        expr = { kind: 'memberAccess', object: expr, member, location: this.loc(expr as any) };
+web/modules/sensor-module/src/simulation/st-parser-lite.ts:971:        expr = { kind: 'arrayAccess', array: expr, indices, location: this.loc(expr as any) };

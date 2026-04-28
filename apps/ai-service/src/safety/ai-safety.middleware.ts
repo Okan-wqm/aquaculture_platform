@@ -23,16 +23,16 @@
  * @see MSG-HIGH-033 (JSON schema validation)
  */
 import { Injectable, Logger } from '@nestjs/common';
-import { InputFilterService, InputFilterResult } from './input-filter.service';
 import {
-  InstructionHierarchyService,
-} from './instruction-hierarchy.service';
-import {
+  InputFilterService,
+  InputFilterResult,
   OutputPiiScannerService,
   PiiRedactResult,
   PiiScanResult,
-} from './output-pii-scanner.service';
-import { SsrfValidatorService, SsrfValidationResult } from './ssrf-validator.service';
+  SsrfValidatorService,
+  SsrfValidationResult,
+} from '@aquaculture/backend-common/ai-safety';
+import { InstructionHierarchyService } from './instruction-hierarchy.service';
 import {
   ToolSchemaValidatorService,
   ToolValidationResult,

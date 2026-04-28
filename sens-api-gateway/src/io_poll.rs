@@ -7,7 +7,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::{self, MissedTickBehavior};
 use serde::Serialize;
-use tracing::{debug, warn, info};
+use tracing::{debug, error, info, warn};
 
 use crate::AppState;
 use crate::atlas_ezo::AtlasEzoDriver;
@@ -21,17 +21,60 @@ pub struct IoDataPayload {
     pub tags: HashMap<String, IoTagData>,
 }
 
-/// Single tag data in io_data payload
+/// Single tag data in io_data payload.
+///
+/// Batch 21 ARC-006: `simulated` field attached when tag quality
+/// is `TagQuality::Simulated`. Platform UI badges the tag as
+/// non-authoritative so operators cannot confuse sim data with
+/// live sensor reads. Field is `#[serde(skip)]` when false —
+/// real-hardware reads don't carry an unused field in every
+/// payload.
 #[derive(Debug, Serialize)]
 pub struct IoTagData {
     pub value: serde_json::Value,
     pub quality: String,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub simulated: bool,
 }
 
 /// Main I/O polling loop
 pub async fn io_poll_loop(state: Arc<RwLock<AppState>>) {
+    // Batch 147 Faz 7: license IO channel budget gate.
+    // Plan R-10 + Faz 7 discipline: if configured
+    // channels exceed license.max_io_channels, the task
+    // does NOT start + CRITICAL log fires. Agent
+    // degrades observably (zero telemetry from this
+    // path) so operator sees the license-contract
+    // violation immediately on device bring-up.
+    //
+    // No fail-closed process exit: the CRITICAL log is
+    // the operator signal; the AGENT stays alive so
+    // refresh_license + signature_mode + other
+    // non-IO-polling paths remain operable while the
+    // operator resolves the budget.
     let interval_ms = {
         let s = state.read().await;
+        let budget = crate::license::check_io_channel_budget(&s.config, &s.license);
+        match budget {
+            crate::license::IoChannelBudget::Exceeded { configured, cap } => {
+                error!(
+                    "CRITICAL LICENSE BUDGET EXCEEDED: configured {} IO channels > license cap {} (tier={}). I/O polling task REFUSES TO START. Operator must either (a) reduce modbus/gpio/i2c channel count in config.yaml to <= {} OR (b) refresh_license to a higher tier. Agent remains operable for license refresh + other paths.",
+                    configured,
+                    cap,
+                    s.license.tier.as_str(),
+                    cap
+                );
+                return;
+            }
+            crate::license::IoChannelBudget::WithinBudget { configured, cap } => {
+                info!(
+                    "License IO budget: {} configured / {} cap (tier={})",
+                    configured,
+                    cap,
+                    s.license.tier.as_str()
+                );
+            }
+        }
         s.config.telemetry.io_data_interval_ms
     };
 
@@ -58,6 +101,15 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
     }
 
     let process_image = s.process_image.clone();
+    // Batch 199 Faz 6 wire: force-registry bypass.
+    // Every update_tag call in this poll cycle passes
+    // through `maybe_update_tag` which checks
+    // `force_registry.is_forced` first + skips the
+    // refresh when the tag is forced. The forced
+    // value stays live (ProcessImage was set to the
+    // force value when the `force_value` command
+    // fired per Batch 197).
+    let force_registry = s.force_registry.clone();
 
     let configs = process_image.get_configs().await;
 
@@ -74,7 +126,7 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
                 if let ProtocolConfig::Gpio { pin, .. } = &cfg.protocol_config {
                     if *pin == pin_value.pin {
                         let value = if matches!(pin_value.state, PinState::High) { 1.0 } else { 0.0 };
-                        process_image.update_tag(&cfg.tag_name, value, TagQuality::Good, TagSource::Gpio).await;
+                        maybe_update_tag(&process_image, &force_registry, &cfg.tag_name, value, TagQuality::Good, TagSource::Gpio).await;
                     }
                 }
             }
@@ -84,13 +136,34 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
     // --- Modbus reads (parallel per device) ---
     if let Some(ref modbus) = s.modbus_handle {
         let results = modbus.read_all_parallel().await;
+        // Batch 103 observability: count successful + failed
+        // device reads for fleet dashboards. Each
+        // ModbusReadResult represents ONE DEVICE round-trip;
+        // values[] is the register-level output (which could
+        // itself be partial). The device-level success/error
+        // gauge is the actionable operator signal ("device N
+        // is flaky"); register-level counting would explode
+        // the cardinality.
         for device_result in &results {
+            if let Some(hs) = s.health_state.as_ref() {
+                // ModbusReadResult shape: success = no errors
+                // in the errors vector. Partial reads (some
+                // registers OK, some failed) count as error
+                // for the DEVICE-level signal. Register-level
+                // partial counting lands in a follow-up batch
+                // if fleet dashboards need it.
+                if device_result.errors.is_empty() {
+                    hs.inc_modbus_reads();
+                } else {
+                    hs.inc_modbus_errors();
+                }
+            }
             for reg_value in &device_result.values {
                 // Match register to tag config by tag name
                 for cfg in &configs {
                     if let ProtocolConfig::Modbus { .. } = &cfg.protocol_config {
                         if reg_value.name == cfg.tag_name {
-                            process_image.update_tag(&cfg.tag_name, reg_value.scaled_value, TagQuality::Good, TagSource::Modbus).await;
+                            maybe_update_tag(&process_image, &force_registry, &cfg.tag_name, reg_value.scaled_value, TagQuality::Good, TagSource::Modbus).await;
                         }
                     }
                 }
@@ -107,26 +180,78 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
                 match driver_type {
                     I2cDriverType::AtlasEzo { sensor_type } => {
                         let (value, quality) = ezo_driver.read_measurement(&cfg.tag_name, sensor_type).await;
-                        process_image.update_tag_raw(&cfg.tag_name, value, quality, TagSource::I2c).await;
+                        // Batch 104 observability: TagQuality
+                        // already encodes Atlas EZO
+                        // success/error semantically. Map to
+                        // the modbus counter family:
+                        // - Good / Simulated → success (real
+                        //   sensor data or declared sim).
+                        // - Bad / Uncertain / CommFailure /
+                        //   ConfigError → error.
+                        // No driver-signature refactor needed
+                        // (the gap flagged in Batch 103
+                        // observations is closed at the
+                        // interpretation site, not the
+                        // source).
+                        if let Some(hs) = s.health_state.as_ref() {
+                            match quality {
+                                TagQuality::Good | TagQuality::Simulated => {
+                                    hs.inc_modbus_reads();
+                                }
+                                _ => {
+                                    hs.inc_modbus_errors();
+                                }
+                            }
+                        }
+                        maybe_update_tag_raw(&process_image, &force_registry, &cfg.tag_name, value, quality, TagSource::I2c).await;
                     }
                     I2cDriverType::GenericRegister { read_register, read_length } => {
                         let result = i2c.read_register(&cfg.tag_name, *read_register, *read_length as usize).await;
+                        // Batch 103 observability: I2C reads
+                        // map to the same modbus_reads/errors
+                        // counter family since they're both
+                        // field-bus ingress (operators care
+                        // about "are my sensors talking?",
+                        // not "how many via modbus vs i2c").
+                        // Future batch could split into
+                        // i2c_reads_total for dashboards that
+                        // need per-protocol slicing.
+                        if let Some(hs) = s.health_state.as_ref() {
+                            if result.success {
+                                hs.inc_modbus_reads();
+                            } else {
+                                hs.inc_modbus_errors();
+                            }
+                        }
                         if result.success {
                             let value = bytes_to_f64(&result.data);
-                            process_image.update_tag(&cfg.tag_name, value, TagQuality::Good, TagSource::I2c).await;
+                            // ARC-006: sim reads surface as
+                            // TagQuality::Simulated so SCADA
+                            // cannot mistake sim for live data.
+                            let quality = if result.simulated { TagQuality::Simulated } else { TagQuality::Good };
+                            maybe_update_tag(&process_image, &force_registry, &cfg.tag_name, value, quality, TagSource::I2c).await;
                         } else {
                             warn!("I2C register read failed for '{}': {}", cfg.tag_name, result.error.as_deref().unwrap_or("unknown"));
-                            process_image.update_tag(&cfg.tag_name, 0.0, TagQuality::CommFailure, TagSource::I2c).await;
+                            maybe_update_tag(&process_image, &force_registry, &cfg.tag_name, 0.0, TagQuality::CommFailure, TagSource::I2c).await;
                         }
                     }
                     I2cDriverType::GenericDirect { read_length } => {
                         let result = i2c.read_direct(&cfg.tag_name, *read_length as usize).await;
+                        if let Some(hs) = s.health_state.as_ref() {
+                            if result.success {
+                                hs.inc_modbus_reads();
+                            } else {
+                                hs.inc_modbus_errors();
+                            }
+                        }
                         if result.success {
                             let value = bytes_to_f64(&result.data);
-                            process_image.update_tag(&cfg.tag_name, value, TagQuality::Good, TagSource::I2c).await;
+                            // ARC-006: sim read quality routing.
+                            let quality = if result.simulated { TagQuality::Simulated } else { TagQuality::Good };
+                            maybe_update_tag(&process_image, &force_registry, &cfg.tag_name, value, quality, TagSource::I2c).await;
                         } else {
                             warn!("I2C direct read failed for '{}': {}", cfg.tag_name, result.error.as_deref().unwrap_or("unknown"));
-                            process_image.update_tag(&cfg.tag_name, 0.0, TagQuality::CommFailure, TagSource::I2c).await;
+                            maybe_update_tag(&process_image, &force_registry, &cfg.tag_name, 0.0, TagQuality::CommFailure, TagSource::I2c).await;
                         }
                     }
                 }
@@ -144,23 +269,35 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
         {
             let mut mgr = s.alarm_manager.write().await;
             for (tag_name, tag_value) in &all_tags {
+                // ARC-006: skip simulated-quality tags. Sim
+                // reads produce a stable placeholder (0.0); a
+                // configured low-limit alarm at e.g. 5.0 would
+                // otherwise fire spuriously on every sim poll
+                // cycle, burying the real-alarm signal in
+                // default-build deployments.
+                if tag_value.quality.is_simulated() {
+                    continue;
+                }
                 let events = mgr.process_source(tag_name, tag_value.value);
                 alarm_events.extend(events);
             }
         }
 
-        // Publish alarm events if any
+        // Publish alarm events if any.
+        //
+        // Batch #255 ARC-002: routes via `publish_helpers::
+        // publish_alarms` which encapsulates the Outbound-vs-
+        // direct decision. Alarms publish at
+        // MessagePriority::Critical so the drain task replays
+        // alarms BEFORE telemetry/status/etc. on reconnect —
+        // life-safety hot path (FDA 21 CFR 117.135, EU
+        // Machinery Directive alignment).
         if !alarm_events.is_empty() {
-            if let Some(ref mqtt) = s.mqtt_client {
-                let payload = serde_json::json!({
-                    "timestamp": chrono::Utc::now().to_rfc3339(),
-                    "alarms": alarm_events.iter().map(|e| serde_json::to_value(e).unwrap_or_default()).collect::<Vec<_>>(),
-                });
-
-                if let Err(e) = mqtt.publish_alarms(&payload).await {
-                    warn!("Failed to publish alarms: {}", e);
-                }
-            }
+            let payload = serde_json::json!({
+                "timestamp": chrono::Utc::now().to_rfc3339(),
+                "alarms": alarm_events.iter().map(|e| serde_json::to_value(e).unwrap_or_default()).collect::<Vec<_>>(),
+            });
+            crate::publish_helpers::publish_alarms(&s, &payload).await;
         }
     }
 
@@ -179,6 +316,9 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
         io_tags.insert(name.clone(), IoTagData {
             value,
             quality: format!("{:?}", tag.quality).to_lowercase(),
+            // ARC-006: attach marker when the underlying read
+            // came from the simulation branch.
+            simulated: tag.quality.is_simulated(),
         });
     }
 
@@ -187,14 +327,9 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
             timestamp: chrono::Utc::now().to_rfc3339(),
             tags: io_tags,
         };
-
-        if let Some(ref mqtt) = s.mqtt_client {
-            if let Err(e) = mqtt.publish_io_data(&payload).await {
-                warn!("Failed to publish io_data: {}", e);
-            } else {
-                debug!("Published io_data ({} tags)", all_tags.len());
-            }
-        }
+        // Batch #255 migration to OutboundPublisher routing.
+        crate::publish_helpers::publish_io_data(&s, &payload).await;
+        debug!("Published io_data ({} tags)", all_tags.len());
     }
 
     // --- SCADA display broadcast (reuses all_tags snapshot) ---
@@ -224,6 +359,50 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
 }
 
 /// Convert raw bytes to f64 (big-endian, supports 2 or 4 byte values)
+/// Batch 199 Faz 6: force-registry-aware update_tag
+/// shim. Skips the refresh when the tag has an active
+/// force entry so the forced value stays live.
+///
+/// Consolidated here (instead of inlined at every
+/// update_tag callsite) so future refinements
+/// (metrics, audit emit on skip) land in one place.
+async fn maybe_update_tag(
+    pi: &crate::process_image::ProcessImage,
+    force_registry: &crate::scripting::force_registry::ForceRegistry,
+    tag_name: &str,
+    value: f64,
+    quality: crate::process_image::TagQuality,
+    source: crate::process_image::TagSource,
+) {
+    if force_registry.is_forced(tag_name).await {
+        // Skip — the forced value was written to PI
+        // when the `force_value` command fired
+        // (Batch 197) + TTL sweep (Batch 198)
+        // drops it when expired. Polling refresh
+        // would clobber the operator-applied
+        // value.
+        return;
+    }
+    pi.update_tag(tag_name, value, quality, source).await;
+}
+
+/// Batch 199 Faz 6: the same for the raw variant
+/// used by I2C / Atlas EZO paths that write already-
+/// scaled values.
+async fn maybe_update_tag_raw(
+    pi: &crate::process_image::ProcessImage,
+    force_registry: &crate::scripting::force_registry::ForceRegistry,
+    tag_name: &str,
+    value: f64,
+    quality: crate::process_image::TagQuality,
+    source: crate::process_image::TagSource,
+) {
+    if force_registry.is_forced(tag_name).await {
+        return;
+    }
+    pi.update_tag_raw(tag_name, value, quality, source).await;
+}
+
 fn bytes_to_f64(data: &[u8]) -> f64 {
     match data.len() {
         2 => {

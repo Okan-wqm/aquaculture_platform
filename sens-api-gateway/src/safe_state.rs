@@ -101,8 +101,9 @@ impl SafeStateManager {
         // ── I2C outputs ──
         // I2C devices are heterogeneous; we cannot generically know which
         // registers are outputs.  A future config field `safe_state_register`
-        // should be added per-device.  For now we skip I2C unless the device
-        // config explicitly provides output metadata.
+        // should be added per-device.  Until that schema extension lands,
+        // I2C devices are skipped from the safe-state apply path unless
+        // their device config explicitly provides output metadata.
         // (Placeholder: I2C safe-state is logged as a warning.)
 
         info!(

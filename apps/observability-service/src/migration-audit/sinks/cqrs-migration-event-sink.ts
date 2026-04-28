@@ -1,10 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { CommandBus } from '@platform/cqrs';
 
-import type {
-  MigrationEventSink,
-  MigrationSinkEvent,
-} from '@aquaculture/backend-common';
+import type { MigrationEventSink, MigrationSinkEvent } from '@aquaculture/backend-common/database';
 
 import { RecordMigrationEventCommand } from '../commands/record-migration-event.command';
 

@@ -1,7 +1,7 @@
 import { Injectable, Logger, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull, DataSource } from 'typeorm';
-import { getTenantSchemaName } from '@aquaculture/backend-common';
+import { getTenantSchemaName, tenantManagerRepo } from '@aquaculture/backend-common/database';
 
 import { SaveDashboardLayoutInput, CreateSystemDefaultLayoutInput } from './dto/dashboard-layout.dto';
 import { DashboardLayout } from './entities/dashboard-layout.entity';
@@ -212,7 +212,7 @@ export class DashboardService {
     const tenantSchema = getTenantSchemaName(tenantId);
     return this.dataSource.transaction(async (txManager) => {
       await txManager.query(`SET LOCAL search_path TO "${tenantSchema}", sensor, public`);
-      const repo = txManager.getRepository(DashboardLayout);
+      const repo = tenantManagerRepo(txManager, DashboardLayout, tenantId);
       const layout = repo.create({
         tenantId,
         userId: undefined,

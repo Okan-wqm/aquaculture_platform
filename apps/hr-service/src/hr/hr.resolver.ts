@@ -1,7 +1,8 @@
 import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType } from '@nestjs/graphql';
 import { UnauthorizedException, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
-import { Roles, Role, StandardPaginatedResponse, IStandardPaginatedResult, fromCqrsPaginated, AuditLog } from '@aquaculture/backend-common';
+import { Roles, Role, AuditLog } from '@aquaculture/backend-common/decorators';
+import { StandardPaginatedResponse, IStandardPaginatedResult, fromCqrsPaginated } from '@aquaculture/backend-common/pagination';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { Employee, EmployeeStatus, Department } from './entities/employee.entity';

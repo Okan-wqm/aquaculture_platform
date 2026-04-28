@@ -1,12 +1,38 @@
 //! Error types for Suderra Edge Agent
 //!
-//! NOTE: Complete error hierarchy. Some variants and helpers are for future
-//! error handling paths and diagnostics.
-#![allow(dead_code)]
+//! ## ARC-009 decision (Batch 16 / Faz 1 Step 8): **WHITELIST**
+//!
+//! Complete domain-error taxonomy — Modbus granular errors, persistence
+//! errors, MQTT errors, etc. Some variants are currently unreferenced
+//! because the consuming handler code path hasn't landed yet (Sprint
+//! 6.x runtime wiring).
+//!
+//! **Why WHITELIST (not REMOVE, not WIRE):** removing would force
+//! error-type duplication when consumers finally land in Sprint 6.2
+//! (MQTT publisher error mapping), Sprint 6.5 (firmware update apply
+//! error mapping), etc. Each batch's runtime wiring picks the variants
+//! it needs.
 //!
 //! ## Modbus Error Granularity (v1.2.0)
 //! Added detailed Modbus error types for better diagnostics and error handling.
 //! This enables callers to handle specific error conditions appropriately.
+//!
+//! **Re-evaluate:** after Faz 2 runtime sprints — any variant still
+//! unreferenced in the real handler map can be REMOVED. Not now.
+//!
+//! ## Wire status (Batch #276 audit)
+//!
+//! **Plan classification:** ARC-009 WHITELIST (utility, yeni
+//! kod tarafından kullanılacak). Error variant catalogue used
+//! across the entire Suderra error-conversion surface; the
+//! blanket allow holds compiled-but-unreferenced variants
+//! (e.g., Modbus subclass codes that haven't been triggered in
+//! production yet) until Faz 2 runtime sprint exhaustively
+//! exercises every handler-error path.
+//!
+//! Plan ref: §5 Faz 1 Step 8 / ARC-009.
+
+#![allow(dead_code)]
 
 use thiserror::Error;
 

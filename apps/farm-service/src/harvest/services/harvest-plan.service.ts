@@ -19,7 +19,7 @@ import {
   CustomerOrder,
   QualityRequirements,
 } from '../entities/harvest-plan.entity';
-import { IStandardPaginatedResult, createStandardPaginatedResult } from '@aquaculture/backend-common';
+import { IStandardPaginatedResult, createStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import { CreateHarvestPlanInput } from '../dto/create-harvest-plan.input';
 import { UpdateHarvestPlanInput } from '../dto/update-harvest-plan.input';
 import { HarvestPlanFilterInput } from '../dto/harvest-plan-filter.input';

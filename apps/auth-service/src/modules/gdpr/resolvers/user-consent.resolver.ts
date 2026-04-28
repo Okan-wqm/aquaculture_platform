@@ -8,12 +8,8 @@ import {
   Int,
   Context,
 } from '@nestjs/graphql';
-import {
-  CurrentUser,
-  SuperAdminOnly,
-  SkipTenantGuard,
-  ConsentType,
-} from '@aquaculture/backend-common';
+import { CurrentUser, SuperAdminOnly, SkipTenantGuard } from '@aquaculture/backend-common/decorators';
+import { ConsentType } from '@aquaculture/backend-common/security';
 import {
   RecordConsentInput,
   RecordBulkConsentInput,

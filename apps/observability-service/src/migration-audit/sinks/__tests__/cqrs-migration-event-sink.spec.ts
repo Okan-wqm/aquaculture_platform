@@ -1,5 +1,5 @@
 import type { CommandBus } from '@platform/cqrs';
-import type { MigrationSinkEvent } from '@aquaculture/backend-common';
+import type { MigrationSinkEvent } from '@aquaculture/backend-common/database';
 
 import { RecordMigrationEventCommand } from '../../commands/record-migration-event.command';
 import { CqrsMigrationEventSink } from '../cqrs-migration-event-sink';

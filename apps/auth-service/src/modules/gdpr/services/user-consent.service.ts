@@ -6,7 +6,8 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
-import { ConsentType, ConsentRecord, ConsentStatus, Role } from '@aquaculture/backend-common';
+import { Role } from '@aquaculture/backend-common/decorators';
+import { ConsentType, ConsentRecord, ConsentStatus } from '@aquaculture/backend-common/security';
 import { UserConsent } from '@aquaculture/backend-common/gdpr';
 
 import { User } from '../../authentication/entities/user.entity';
@@ -125,6 +126,12 @@ export class UserConsentService {
     // Batch insert in a single transaction to ensure atomicity (M-10)
     // and avoid N sequential round-trips (HIGH-06)
     const saved = await this.dataSource.transaction(async (manager) => {
+      // context.tenantId can legitimately be null for pre-tenant-signup
+      // consents (e.g. cookie/privacy acceptance before the tenant is
+      // provisioned). tenantManagerRepo requires a non-null tenantId,
+      // so this callsite uses the raw repo and relies on the tenantId
+      // already baked into each entity by create() above.
+      // eslint-disable-next-line no-restricted-syntax -- pre-tenant-signup GDPR consent flow
       return manager.getRepository(UserConsent).save(entities);
     });
 

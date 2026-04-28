@@ -1,7 +1,7 @@
 import * as crypto from 'crypto';
 
 import { ObjectType, Field, ID, registerEnumType, Int } from '@nestjs/graphql';
-import { Role } from '@aquaculture/backend-common';
+import { Role } from '@aquaculture/backend-common/decorators';
 import {
   Entity,
   Column,

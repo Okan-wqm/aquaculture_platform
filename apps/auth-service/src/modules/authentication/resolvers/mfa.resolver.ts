@@ -2,7 +2,7 @@ import { Logger } from '@nestjs/common';
 import { Resolver, Mutation, Args, Context } from '@nestjs/graphql';
 import { Request, Response } from 'express';
 import { ConfigService } from '@nestjs/config';
-import { CurrentUser, Public, SkipTenantGuard } from '@aquaculture/backend-common';
+import { CurrentUser, Public, SkipTenantGuard } from '@aquaculture/backend-common/decorators';
 
 import { SECURITY_CONSTANTS } from '../../../constants/auth.constants';
 import { AuthPayload } from '../dto/auth-response.dto';

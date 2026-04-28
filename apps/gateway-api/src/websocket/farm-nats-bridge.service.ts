@@ -73,10 +73,8 @@ import {
   StringCodec,
   ConnectionOptions,
 } from 'nats';
-import {
-  buildNatsConnectionOptions,
-  TENANT_ID_REGEX,
-} from '@aquaculture/backend-common';
+import { TENANT_ID_REGEX } from '@aquaculture/backend-common/constants';
+import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
 import { validateFarmEvent } from '@platform/event-contracts';
 
 import { FarmGateway } from './farm.gateway';

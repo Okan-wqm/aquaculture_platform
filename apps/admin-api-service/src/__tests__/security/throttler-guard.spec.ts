@@ -1,16 +1,4 @@
-/**
- * ThrottlerGuard - Unit Tests
- *
- * Tests cover:
- * - Rate limiting enforcement (allow/block)
- * - Skip throttle decorator
- * - Custom throttle configurations
- * - Per-user vs per-IP rate limiting
- * - Rate limit headers
- * - Anonymous vs authenticated limits
- * - Disabled throttling
- */
-import { ThrottlerGuard, SlidingWindowStrategy, THROTTLE_KEY, THROTTLE_SKIP_KEY, ThrottleDefaults } from '@aquaculture/backend-common';
+import { ThrottlerGuard, SlidingWindowStrategy, THROTTLE_KEY, THROTTLE_SKIP_KEY, ThrottleDefaults } from '@aquaculture/backend-common/security';
 import { ExecutionContext, HttpException, HttpStatus } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';

@@ -12,6 +12,7 @@ import { Configuration } from '../entities/configuration.entity';
 import { ConfigurationService } from '../services/configuration.service';
 import { ConfigurationValidationService } from '../services/configuration-validation.service';
 import { EncryptionService } from '../services/encryption.service';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 
 @Injectable()
 @CommandHandler(CreateConfigurationCommand)
@@ -41,7 +42,7 @@ export class CreateConfigurationHandler
     await queryRunner.startTransaction('READ COMMITTED');
 
     try {
-      const configRepo = queryRunner.manager.getRepository(Configuration);
+      const configRepo = tenantManagerRepo(queryRunner.manager, Configuration, tenantId);
 
       const existing = await configRepo.findOne({
         where: {

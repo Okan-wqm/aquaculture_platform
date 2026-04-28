@@ -1,10 +1,4 @@
-/**
- * Auth Service Constants
- *
- * Centralizes magic numbers and configuration defaults to improve
- * maintainability and provide a single source of truth.
- */
-import { JWT_SECURITY_CONSTANTS } from '@aquaculture/backend-common';
+import { JWT_SECURITY_CONSTANTS } from '@aquaculture/backend-common/security';
 
 /**
  * Security-related constants

@@ -1,12 +1,44 @@
 //! Bounded Collections Module
 //!
-//! NOTE: Complete bounded collection API for embedded/safety-critical use.
-//! Some methods are for direct buffer manipulation outside the agent core.
-#![allow(dead_code)]
+//! ## ARC-009 decision (Batch 16 / Faz 1 Step 8): **WHITELIST**
+//!
+//! Utility crate-local module — stack-allocated bounded collections
+//! (`heapless::Vec`-based) that enforce compile-time capacity limits.
+//! Supports IEC 62443 SL-2 FR5 Resource Availability (prevent memory
+//! exhaustion via unbounded heap growth).
+//!
+//! **Why WHITELIST (not REMOVE, not WIRE):** downstream consumers will
+//! land in Faz 3 (ST bytecode VM stack) and Faz 4 (multi-task scheduler
+//! bounded queues). Removing today → re-introduction later; wiring a
+//! placeholder consumer today → YAGNI violation. Keep the module,
+//! document the decision, let real consumers land naturally.
 //!
 //! Provides stack-allocated, bounded collections using heapless crate.
 //! These prevent unbounded memory growth and are suitable for embedded
 //! environments where heap allocation should be minimized.
+//!
+//! **Re-evaluate:** Faz 3 Sprint ST VM stack — if `StVmStack` uses
+//! `heapless::Vec` directly, consider REMOVE. Otherwise WIRE.
+//!
+//! ## Wire status (Batch #276 audit)
+//!
+//! **Plan classification:** ARC-009 WHITELIST-with-reason —
+//! utility primitives compiled in place pending Faz 3 ST VM
+//! stack consumer. The Plan §3.1 ARC-009 framework lists
+//! `bounded.rs` under the "WHITELIST (utility, yeni kod
+//! tarafından kullanılacak)" category — explicitly held-for-
+//! future-consumer status.
+//!
+//! Pre-Batch-276 the docstring already named the Faz 3 ST VM
+//! stack consumer ("Re-evaluate: Faz 3 Sprint ST VM stack —
+//! if `StVmStack` uses `heapless::Vec` directly, consider
+//! REMOVE. Otherwise WIRE.") but didn't explicitly classify
+//! under the canonical 3-state vocabulary. This audit closes
+//! that classification gap.
+//!
+//! Plan ref: §5 Faz 1 Step 8 / ARC-009.
+
+#![allow(dead_code)]
 //!
 //! # IEC 62443 SL2 FR5: Resource Availability
 //! Bounded collections prevent memory exhaustion attacks by enforcing

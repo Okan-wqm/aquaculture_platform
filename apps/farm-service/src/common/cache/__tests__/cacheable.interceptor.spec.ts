@@ -19,7 +19,7 @@
  */
 import { ExecutionContext, CallHandler } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { RedisService } from '@aquaculture/backend-common';
+import { RedisService } from '@aquaculture/backend-common/redis';
 import { lastValueFrom, of, throwError } from 'rxjs';
 
 import {

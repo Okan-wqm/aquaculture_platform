@@ -8,7 +8,7 @@ import {
   ForbiddenException,
   BadRequestException,
 } from '@nestjs/common';
-import { RedisService } from '@aquaculture/backend-common';
+import { RedisService } from '@aquaculture/backend-common/redis';
 import { AuditLogService } from '../../audit/audit.service';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';

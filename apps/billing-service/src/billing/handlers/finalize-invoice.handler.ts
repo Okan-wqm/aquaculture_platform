@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
-import { AuditedOperation } from '@aquaculture/backend-common';
+import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import { FinalizeInvoiceCommand } from '../commands/finalize-invoice.command';
 import { Invoice, InvoiceStatus } from '../entities/invoice.entity';
 

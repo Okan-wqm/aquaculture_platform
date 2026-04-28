@@ -1,5 +1,5 @@
 import { ObjectType, Field, Float, Int, ID } from '@nestjs/graphql';
-import { StandardPaginatedResponse } from '@aquaculture/backend-common';
+import { StandardPaginatedResponse } from '@aquaculture/backend-common/pagination';
 import { PurchaseOrderCategory, PurchaseOrderStatus } from '../entities/purchase-order.entity';
 
 @ObjectType()

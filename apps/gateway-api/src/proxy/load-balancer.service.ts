@@ -10,7 +10,7 @@ import { EventEmitter } from 'events';
 
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { buildSignedInternalHeaders } from '@aquaculture/backend-common';
+import { buildSignedInternalHeaders } from '@aquaculture/backend-common/http';
 
 /**
  * Load balancing algorithms

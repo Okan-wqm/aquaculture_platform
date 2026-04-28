@@ -8,7 +8,7 @@ import {
 
 import {
   EMAIL_REGEX,
-  UUID_REGEX,
+  UUID_V4_REGEX,
   PHONE_REGEX,
   SLUG_REGEX,
   SQL_IDENTIFIER_REGEX,
@@ -131,7 +131,7 @@ export class IsSafeUuidConstraint implements ValidatorConstraintInterface {
   validate(value: unknown): boolean {
     if (typeof value !== 'string') return false;
     if (value.length !== 36) return false;
-    return UUID_REGEX.test(value);
+    return UUID_V4_REGEX.test(value);
   }
 
   defaultMessage(): string {

@@ -129,3 +129,35 @@ jobs:
             echo "::error::tools/eslint-rules/dist/ is out of sync with source. Run \`(cd tools/eslint-rules && npm run build)\` and commit the updated dist/."
             exit 1
           fi
+
+  # =============================================================================
+  # invariants-fast: promote the Jest invariant suite from a developer-
+  # only local gate to a CI hard gate. Before A.4 of the cold-audit
+  # remediation, `npm run invariants:fast` was never invoked in CI — it
+  # covered semantics the CLI gates cannot (knowledge-ssot consistency,
+  # schema conformance of registry entries, orchestrator routing
+  # coverage, agent roster uniqueness, etc.), and the suite had drifted
+  # to 3 red tests by 2026-04-22. Making it a required job means the
+  # next drift breaks the PR, not the next audit.
+  #
+  # Kept as a separate job (not folded into banned-phrase-gate) so that
+  # a gate-CLI change and an invariant-spec change surface in
+  # independently-retryable lanes of the GitHub checks UI.
+  # =============================================================================
+  invariants-fast:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --ignore-scripts --no-audit --no-fund
+
+      - name: Run Jest invariants (layer-1 + layer-3 fast subset)
+        run: npm run invariants:fast

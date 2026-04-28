@@ -1,5 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
-import { MigrationLogger, pinSearchPath } from '@aquaculture/backend-common';
+import { MigrationLogger, pinSearchPath } from '@aquaculture/backend-common/database';
 
 /**
  * WireSupplierSitesAndSiteContacts1788100000000

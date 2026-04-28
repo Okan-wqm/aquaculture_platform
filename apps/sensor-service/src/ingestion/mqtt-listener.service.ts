@@ -27,7 +27,8 @@ import { DeviceEvent, DeviceEventType, DeviceEventSeverity } from '../edge-devic
 import { DeviceIoConfig } from '../edge-device/entities/device-io-config.entity';
 import { EdgeDevice } from '../edge-device/entities/edge-device.entity';
 import { EdgeDeviceService, DeviceHeartbeat } from '../edge-device/edge-device.service';
-import { getTenantSchemaName, withTenantContext } from '@aquaculture/backend-common';
+import { withTenantContext } from '@aquaculture/backend-common/context';
+import { getTenantSchemaName, TenantScopedRepository } from '@aquaculture/backend-common/database';
 import { MqttClientService } from '../shared-mqtt/mqtt-client.service';
 import { SensorServiceProfileService } from '../config/sensor-service-profile.service';
 import { SensorTopicCacheService, CachedSensorInfo } from './sensor-topic-cache.service';
@@ -1188,6 +1189,11 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     }
 
     const configs = await withTenantContext(tenantId, async () => {
+      // DeviceIoConfig has no tenantId column — tenant scoping is
+      // inherited from the parent EdgeDevice. The search_path pin in
+      // withTenantContext + the deviceId WHERE provide the effective
+      // isolation here. See ORPHAN-DIC-001.
+      // eslint-disable-next-line no-restricted-syntax -- ORPHAN-DIC-001
       return this.dataSource
         .getRepository(DeviceIoConfig)
         .find({ where: { deviceId, isActive: true } });
@@ -1259,7 +1265,13 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       // pool patch sets the correct search_path on connection checkout.
       if (events.length > 0) {
         await withTenantContext(tenantId, async () => {
-          await this.dataSource.getRepository(DeviceEvent).save(events);
+          // DeviceEvent has a tenantId column — use the scoped repo so
+          // every event row carries the current tenant by construction.
+          await TenantScopedRepository.create(
+            this.dataSource,
+            DeviceEvent,
+            tenantId,
+          ).saveMany(events);
         });
       }
     } catch (error) {
@@ -1580,7 +1592,14 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
             continue; // Skip schemas without sensors table
           }
 
-          // Try exact topic match (use queryRunner.manager to stay on the same connection)
+          // Cross-tenant scan: this loop iterates through every tenant
+          // schema searching for an MQTT-topic match. tenantManagerRepo
+          // cannot be used because tenantId is not fixed — the whole
+          // point of the scan is to FIND which tenant owns the topic.
+          // The search_path SET above isolates the query to the current
+          // schema in the loop; each iteration is a tenant-scoped
+          // lookup by construction.
+          // eslint-disable-next-line no-restricted-syntax -- cross-tenant topic-registry scan
           const sensorByTopic = await queryRunner.manager
             .getRepository(Sensor)
             .createQueryBuilder('sensor')
@@ -1592,7 +1611,8 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
             return sensorByTopic;
           }
 
-          // Try wildcard match
+          // Try wildcard match — same cross-tenant scan rationale as above.
+          // eslint-disable-next-line no-restricted-syntax -- cross-tenant topic-registry scan
           const sensorsWithWildcard = await queryRunner.manager
             .getRepository(Sensor)
             .createQueryBuilder('sensor')

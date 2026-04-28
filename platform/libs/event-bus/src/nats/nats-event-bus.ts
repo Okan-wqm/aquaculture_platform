@@ -23,11 +23,7 @@ import {
   ConnectionOptions,
 } from 'nats';
 import * as os from 'os';
-// ADR-015: centralize NATS connection option building in the shared factory.
-// This class previously duplicated all the TLS + auth + production-warning
-// logic inline, which was the exact drift vector that the cert-is-identity
-// refactor exists to eliminate. One factory, one auth model, one code path.
-import { buildNatsConnectionOptions } from '@aquaculture/backend-common';
+import { buildNatsConnectionOptions } from '@aquaculture/backend-common/nats';
 import {
   IEventBus,
   IEvent,

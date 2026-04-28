@@ -1,5 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
-import { MigrationLogger } from '@aquaculture/backend-common';
+import { MigrationLogger } from '@aquaculture/backend-common/database';
 
 /**
  * MovePublicTablesToSensor1786000100000
@@ -22,9 +22,8 @@ import { MigrationLogger } from '@aquaculture/backend-common';
  *
  * industry_templates is also in MODULE_SCHEMAS[sensor].referenceDataTables
  * but has no tenantId column — not in the original 14-table RLS scope.
- * Deferred to a future reference-data consolidation commit; not blocking
- * the current teardown because SET SCHEMA for a non-tenant table is a
- * trivial follow-up.
+ * Separately tracked — not blocking the current teardown because SET
+ * SCHEMA for a non-tenant table is a trivial follow-up.
  *
  * # See farm-service migration 1786000000000 for full architectural
  *   rationale (SET SCHEMA semantics, sequence handling, RLS policy

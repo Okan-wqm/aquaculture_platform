@@ -51,10 +51,8 @@ import { Injectable, OnApplicationBootstrap, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, QueryRunner } from 'typeorm';
 import { randomUUID } from 'crypto';
-import {
-  BypassRlsService,
-  GLOBAL_TENANT_UUID,
-} from '@aquaculture/backend-common';
+import { BypassRlsService } from '@aquaculture/backend-common/database';
+import { GLOBAL_TENANT_UUID } from '@aquaculture/backend-common/tenant';
 import { EQUIPMENT_TYPES_SEED } from '../../equipment/seeds/equipment-types.seed';
 import { CHEMICAL_TYPES_SEED } from '../../chemical/seeds/chemical-types.seed';
 import { SUPPLIER_TYPES_SEED } from '../../supplier/seeds/supplier-types.seed';

@@ -1,9 +1,4 @@
-/**
- * Integration test for expectNoDriftAgainst + toHaveNoDrift matcher.
- * Uses fixture entities to verify each of the 4 drift classes (A-D) is
- * detected correctly, and that a clean shape produces zero violations.
- */
-import { AllowTenantDelta, EncryptedAtRest } from '@aquaculture/backend-common';
+import { AllowTenantDelta, EncryptedAtRest } from '@aquaculture/backend-common/database';
 import { Check, Column, Entity, PrimaryColumn } from 'typeorm';
 
 import {

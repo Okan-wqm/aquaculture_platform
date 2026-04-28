@@ -11,7 +11,7 @@ import {
   Int,
 } from '@nestjs/graphql';
 import { IsString, IsOptional, IsBoolean, IsNumber, IsObject } from 'class-validator';
-import { Roles, Role, Tenant } from '@aquaculture/backend-common';
+import { Roles, Role, Tenant } from '@aquaculture/backend-common/decorators';
 import { GraphQLJSON } from 'graphql-scalars';
 
 import { ProtocolCategory } from '../../database/entities/sensor-protocol.entity';

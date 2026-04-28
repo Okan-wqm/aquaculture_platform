@@ -1,0 +1,46 @@
+#!/bin/sh
+. "$(dirname "$0")/_/husky.sh"
+
+# Husky inherits the user's shell PATH but NOT shell rc files.
+# `cargo` typically lives under $HOME/.cargo/bin which login shells
+# add via .bashrc/.zshrc — but a hook spawned from `git push` runs
+# with a minimal env. Explicitly prepend so the gate's
+# `cargo clippy` invocation resolves.
+export PATH="$HOME/.cargo/bin:$PATH"
+
+# Pre-push gates — Batch #347 (closes ORPHAN-LOW-035 — operations
+# completion of the Batch #343/#346 clippy-affected gate landing,
+# now using git's pre-push stdin protocol for the correct
+# "what's new in THIS push" semantic).
+#
+# Pre-push stdin format (per git-scm.com/docs/githooks#_pre_push):
+#
+#     <local_ref> <local_sha> <remote_ref> <remote_sha>
+#
+# git pipes one line per ref being pushed. clippy-affected.ts's
+# `--mode=prepush` reads stdin, parses each line, computes
+# `<remote_sha>...<local_sha>` per ref (the new commits being
+# added), runs the per-LINE gate per range, aggregates errors
+# across all refs.
+#
+# WHY pre-push stdin (not origin/main...HEAD):
+#
+# Long-lived feature branches accumulate clippy debt across
+# multiple batches. `origin/main...HEAD` would catch ALL that
+# accumulated debt every push — exactly the failure mode the
+# Batch #345 live-fire test exposed (700 errors). The pre-push
+# stdin range scopes the gate to ONLY the commits THIS push
+# adds. Pushes that introduce no new violations pass cleanly
+# regardless of branch-accumulated debt.
+#
+# WHY enforce-mode (not advisory):
+#
+# The auditor's MEDIUM-029 recommendation was Tier-2
+# make-it-automatic. Advisory mode defeats enforcement.
+# Enforce-mode at push time is the architectural completion of
+# the gate's intent.
+
+GATE_TS_NODE="./node_modules/.bin/ts-node"
+GATE_TSCONFIG="--project tools/gates/tsconfig.json"
+
+"$GATE_TS_NODE" $GATE_TSCONFIG tools/gates/clippy-affected.ts --mode=prepush || exit 1

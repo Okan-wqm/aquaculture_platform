@@ -1041,7 +1041,18 @@ New tooling shape:
 
 **Severity: LOW** — operations enhancement; the gate is callable today and the per-LINE refinement closes the design correctness concern. The pre-push wiring is a future operations cycle.
 
-**Status:** OPEN. Next operations batch.
+**Status:** RESOLVED — closed by Batch #347 (this session). New `--mode=prepush` added to `tools/gates/clippy-affected.ts`:
+
+- `parsePrePushStdin()` reads git's pre-push stdin protocol (`<local_ref> <local_sha> <remote_ref> <remote_sha>` per ref).
+- `rangeForPrePushRef()` resolves each ref to a `<base>...<head>` range with edge-case handling: branch deletion (`local_sha = 0…`) skipped; new branch (`remote_sha = 0…`) falls back to `origin/main` if available else skipped with operator log.
+- New `gateRange()` helper extracted from `main()` so prepush mode dispatches per-ref independently and aggregates the error count across all refs.
+- `.husky/pre-push` re-added with the correct stdin-piping invocation: `clippy-affected.ts --mode=prepush`.
+
+**Live-fire verification:**
+- Simulated stdin with `HEAD~3..HEAD` range (no Rust files): gate skipped ✓.
+- Simulated stdin with `HEAD~7..HEAD` range (Batch #344's Rust changes): 3 files / 241 lines / 0 errors ✓.
+
+The pre-push hook now scopes the gate to "what's new in THIS push" — long-lived feature branches with accumulated debt no longer fail every push.
 
 **Linked plan:** none.
 

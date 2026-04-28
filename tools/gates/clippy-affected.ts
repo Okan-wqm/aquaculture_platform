@@ -355,7 +355,7 @@ function repoRelativeFromClippyPath(clippyPath: string): string {
 }
 
 interface RunOptions {
-  readonly mode: 'range' | 'staged';
+  readonly mode: 'range' | 'staged' | 'prepush';
   readonly base?: string;
   readonly head?: string;
 }
@@ -364,7 +364,7 @@ function parseArgs(argv: readonly string[]): RunOptions {
   const args = [...argv];
   const modeFlag = args.shift() ?? '';
   if (!modeFlag.startsWith('--mode=')) {
-    console.error('Usage: clippy-affected --mode=<range|staged> [base head]');
+    console.error('Usage: clippy-affected --mode=<range|staged|prepush> [base head]');
     process.exit(2);
   }
   const mode = modeFlag.replace(/^--mode=/, '');
@@ -375,44 +375,150 @@ function parseArgs(argv: readonly string[]): RunOptions {
   if (mode === 'staged') {
     return { mode: 'staged' };
   }
+  if (mode === 'prepush') {
+    return { mode: 'prepush' };
+  }
   console.error(`Unknown mode: ${mode}`);
   process.exit(2);
 }
 
-function main(): void {
-  const opts = parseArgs(process.argv.slice(2));
-  const affected = affectedFiles(opts.mode, opts.base, opts.head);
+/**
+ * Pre-push stdin parser (Batch #347 — closes
+ * ORPHAN-LOW-035).
+ *
+ * git invokes pre-push hooks with one line per ref on
+ * stdin:
+ *
+ *     <local_ref> <local_sha> <remote_ref> <remote_sha>
+ *
+ * The hook is expected to inspect each ref + decide
+ * whether to allow the push. For our gate the relevant
+ * range is `<remote_sha>...<local_sha>` — exactly the
+ * commits being introduced by THIS push, not
+ * `origin/main...HEAD` (the full branch delta).
+ *
+ * **Edge cases handled:**
+ *
+ * - Branch deletion (`local_sha = 0000…`): nothing to
+ *   gate; skip.
+ * - New branch creation (`remote_sha = 0000…`): fall
+ *   back to `origin/main` as the base if it exists,
+ *   else skip with a warning. The fallback covers the
+ *   "first push of a feature branch" case where there's
+ *   no remote-side ancestor to compare against.
+ * - Multiple refs in one push: process each
+ *   independently; the gate fires if ANY ref's range
+ *   has clippy errors. The combined error list groups
+ *   per-ref output for operator legibility.
+ *
+ * **Why stdin parsing (not just `origin/main...HEAD`):**
+ * see ORPHAN-LOW-035 closure rationale. A long-lived
+ * feature branch with N batches' worth of clippy debt
+ * would fail every push under the
+ * `origin/main...HEAD` semantic — even pushes that
+ * only contain new clippy-clean commits. The pre-push
+ * stdin range scopes the gate to exactly the new
+ * commits this push is publishing.
+ */
+interface PrePushRef {
+  readonly localRef: string;
+  readonly localSha: string;
+  readonly remoteRef: string;
+  readonly remoteSha: string;
+}
+
+const ZERO_SHA_REGEX = /^0+$/;
+
+function parsePrePushStdin(raw: string): PrePushRef[] {
+  const refs: PrePushRef[] = [];
+  for (const line of raw.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const parts = trimmed.split(/\s+/);
+    if (parts.length !== 4) continue;
+    const [localRef, localSha, remoteRef, remoteSha] = parts;
+    if (!localRef || !localSha || !remoteRef || !remoteSha) continue;
+    refs.push({ localRef, localSha, remoteRef, remoteSha });
+  }
+  return refs;
+}
+
+/**
+ * Resolve the diff range for a pre-push ref. Returns
+ * `null` if the ref should be skipped (deletion + no
+ * fallback for new-branch case).
+ */
+function rangeForPrePushRef(
+  ref: PrePushRef,
+): { base: string; head: string } | null {
+  // Branch deletion — nothing to clippy.
+  if (ZERO_SHA_REGEX.test(ref.localSha)) return null;
+
+  // New branch (no remote ancestor) — fall back to
+  // origin/main if available.
+  if (ZERO_SHA_REGEX.test(ref.remoteSha)) {
+    const hasOriginMain = (() => {
+      try {
+        execFileSync('git', ['rev-parse', '--verify', '--quiet', 'origin/main'], {
+          cwd: REPO_ROOT,
+          stdio: ['ignore', 'pipe', 'ignore'],
+        });
+        return true;
+      } catch {
+        return false;
+      }
+    })();
+    if (!hasOriginMain) return null;
+    return { base: 'origin/main', head: ref.localSha };
+  }
+
+  // Updating an existing branch — exact range is the
+  // commits being added.
+  return { base: ref.remoteSha, head: ref.localSha };
+}
+
+/**
+ * Run the per-LINE clippy gate over a single
+ * `<base>...<head>` range. Returns the count of
+ * error-level diagnostics found on affected lines (0 =
+ * gate passed). Errors are written to stderr in the
+ * caller's expected canonical format.
+ *
+ * Extracted from `main()` in Batch #347 so the prepush
+ * mode can call it once per ref + aggregate results.
+ */
+function gateRange(base: string, head: string, label: string): number {
+  const affected = (() => {
+    const raw = execFileSync(
+      'git',
+      ['diff', '--name-only', `${base}...${head}`],
+      { encoding: 'utf8', cwd: REPO_ROOT },
+    );
+    const files = new Set<string>();
+    for (const line of raw.split('\n')) {
+      const path = line.trim();
+      if (!path) continue;
+      if (!path.startsWith(RUST_CRATE_PREFIX)) continue;
+      if (!path.endsWith('.rs')) continue;
+      files.add(path);
+    }
+    return files;
+  })();
+
   if (affected.size === 0) {
-    console.log('clippy-affected: no Rust files in the diff; gate skipped.');
-    return;
+    console.log(
+      `clippy-affected[${label}]: no Rust files in ${base}...${head}; gate skipped.`,
+    );
+    return 0;
   }
 
-  // Batch #346 — closes ORPHAN-MEDIUM-034. Compute the
-  // per-LINE affected set so legacy clippy violations on
-  // lines this diff didn't touch don't fire the gate.
-  // Range mode: use `<base>...<head>` for the diff.
-  // Staged-mode per-LINE is filed as ORPHAN-LOW-035 +
-  // requires its own `git diff --cached --unified=0`
-  // hunk parser; this gate explicitly requires range
-  // mode + fails-fast otherwise so the caller cannot
-  // accidentally invoke it via the unimplemented path.
-  if (opts.mode !== 'range' || !opts.base || !opts.head) {
-    console.error(
-      'clippy-affected: per-LINE filtering requires --mode=range with explicit base + head refs.',
-    );
-    console.error(
-      '  Staged-mode per-line tracked at ORPHAN-LOW-035 (filed Batch #346).',
-    );
-    process.exit(2);
-  }
-
-  const lineRanges = affectedLineRanges(opts.base, opts.head, affected);
+  const lineRanges = affectedLineRanges(base, head, affected);
   const totalAffectedLines = Array.from(lineRanges.values()).reduce(
     (sum, set) => sum + set.size,
     0,
   );
   console.log(
-    `clippy-affected: scanning ${affected.size} affected file(s) / ${totalAffectedLines} affected line(s) under ${RUST_CRATE_PREFIX}…`,
+    `clippy-affected[${label}]: scanning ${affected.size} file(s) / ${totalAffectedLines} line(s) in ${base}...${head}…`,
   );
 
   if (!existsSync(resolve(RUST_CRATE_DIR, 'Cargo.toml'))) {
@@ -423,39 +529,39 @@ function main(): void {
   }
 
   const all = runClippy();
-  const errorsInAffectedFiles = all.filter((d) => {
+  const errorsInAffectedLines = all.filter((d) => {
     if (d.level !== 'error') return false;
     const repoRelative = repoRelativeFromClippyPath(d.primaryFile);
     if (!affected.has(repoRelative)) return false;
-    // Per-LINE filter: keep only diagnostics whose
-    // primary span overlaps the affected-line set for
-    // this file. A diagnostic spanning lines [start..=end]
-    // overlaps iff ANY of those lines is in the set.
     const fileLines = lineRanges.get(repoRelative);
-    if (!fileLines) return false; // file in diff but no NEW lines added (pure deletion)
+    if (!fileLines) return false;
     for (let ln = d.primaryLineStart; ln <= d.primaryLineEnd; ln += 1) {
       if (fileLines.has(ln)) return true;
     }
     return false;
   });
 
-  if (errorsInAffectedFiles.length === 0) {
+  if (errorsInAffectedLines.length === 0) {
     console.log(
-      'clippy-affected: no error-level diagnostics on affected lines. Gate passed.',
+      `clippy-affected[${label}]: 0 errors on affected lines.`,
     );
-    return;
+    return 0;
   }
 
   console.error(
-    `clippy-affected: FAILED — ${errorsInAffectedFiles.length} error-level diagnostic(s) on affected lines:`,
+    `clippy-affected[${label}]: FAILED — ${errorsInAffectedLines.length} error(s) on affected lines:`,
   );
   console.error('');
-  for (const diag of errorsInAffectedFiles) {
+  for (const diag of errorsInAffectedLines) {
     console.error(diag.rendered.trimEnd());
     console.error('');
   }
+  return errorsInAffectedLines.length;
+}
+
+function printDenyListReminder(): void {
   console.error(
-    'New code in this diff must satisfy the crate-level clippy deny-list (',
+    'New code on affected lines must satisfy the crate-level clippy deny-list (',
   );
   console.error(
     '  clippy::unwrap_used / clippy::expect_used / clippy::indexing_slicing /',
@@ -470,12 +576,58 @@ function main(): void {
     ').',
   );
   console.error(
-    'Legacy violations in untouched files are not blocked — only new code is gated.',
+    'Legacy violations on untouched lines are not blocked — only new code is gated.',
   );
   console.error(
-    'See ORPHAN-MEDIUM-029 + Batch #343 commit for the architectural rationale.',
+    'See ORPHAN-MEDIUM-029 + Batch #343/#346/#347 commits for architectural rationale.',
   );
-  process.exit(1);
+}
+
+function main(): void {
+  const opts = parseArgs(process.argv.slice(2));
+
+  if (opts.mode === 'prepush') {
+    // Read git's pre-push stdin protocol.
+    const stdin = readFileSync(0, 'utf8');
+    const refs = parsePrePushStdin(stdin);
+    if (refs.length === 0) {
+      console.log('clippy-affected[prepush]: no refs on stdin; gate skipped.');
+      return;
+    }
+    let totalErrors = 0;
+    for (const ref of refs) {
+      const range = rangeForPrePushRef(ref);
+      if (!range) {
+        console.log(
+          `clippy-affected[prepush]: ref ${ref.localRef} → ${ref.remoteRef} skipped (deletion or new-branch with no origin/main fallback).`,
+        );
+        continue;
+      }
+      const label = `${ref.localRef}→${ref.remoteRef}`;
+      totalErrors += gateRange(range.base, range.head, label);
+    }
+    if (totalErrors > 0) {
+      printDenyListReminder();
+      process.exit(1);
+    }
+    return;
+  }
+
+  if (opts.mode !== 'range' || !opts.base || !opts.head) {
+    console.error(
+      'clippy-affected: per-LINE filtering requires --mode=range with explicit base + head refs (or --mode=prepush via git pre-push stdin).',
+    );
+    console.error(
+      '  Staged-mode per-line tracked at ORPHAN-LOW-035 (filed Batch #346).',
+    );
+    process.exit(2);
+  }
+
+  const errors = gateRange(opts.base, opts.head, 'range');
+  if (errors > 0) {
+    printDenyListReminder();
+    process.exit(1);
+  }
 }
 
 main();
@@ -484,8 +636,11 @@ main();
 export {
   affectedFiles,
   affectedLineRanges,
+  parsePrePushStdin,
+  rangeForPrePushRef,
   parseArgs,
   repoRelativeFromClippyPath,
   type ClippyDiagnostic,
+  type PrePushRef,
   type RunOptions,
 };

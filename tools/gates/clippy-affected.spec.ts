@@ -53,6 +53,7 @@ import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 
 import {
+  parseDiffHunkLines,
   parsePrePushStdin,
   rangeForPrePushRef,
   type PrePushRef,
@@ -181,6 +182,93 @@ test('rangeForPrePushRef: deletion takes precedence over new-branch check', () =
     remoteSha: '0'.repeat(40),
   };
   assert.strictEqual(rangeForPrePushRef(ref), null);
+});
+
+// ---------------------------------------------------------
+// parseDiffHunkLines (Batch #350 — extracted hunk parser)
+// ---------------------------------------------------------
+
+test('parseDiffHunkLines: empty input returns empty set', () => {
+  assert.strictEqual(parseDiffHunkLines('').size, 0);
+  assert.strictEqual(parseDiffHunkLines('\n\n').size, 0);
+});
+
+test('parseDiffHunkLines: single-line addition with default count', () => {
+  // `@@ -X +Y @@` (no `,N`) defaults to count=1 per
+  // git diff convention.
+  const raw = '@@ -10 +20 @@\n+the new line';
+  const lines = parseDiffHunkLines(raw);
+  assert.strictEqual(lines.size, 1);
+  assert.ok(lines.has(20));
+});
+
+test('parseDiffHunkLines: multi-line addition with explicit count', () => {
+  // `@@ -10,0 +20,3 @@` adds 3 lines starting at NEW-side line 20.
+  const raw = '@@ -10,0 +20,3 @@\n+line 20\n+line 21\n+line 22';
+  const lines = parseDiffHunkLines(raw);
+  assert.deepStrictEqual(
+    Array.from(lines).sort((a, b) => a - b),
+    [20, 21, 22],
+  );
+});
+
+test('parseDiffHunkLines: pure deletion hunk skipped', () => {
+  // `@@ -10,3 +12,0 @@` deletes 3 lines on the OLD side
+  // and adds 0 on the NEW side — no new-side lines to
+  // gate. Skip.
+  const raw = '@@ -10,3 +12,0 @@\n-deleted 1\n-deleted 2\n-deleted 3';
+  const lines = parseDiffHunkLines(raw);
+  assert.strictEqual(lines.size, 0);
+});
+
+test('parseDiffHunkLines: multiple hunks union into single set', () => {
+  const raw = [
+    '@@ -1,1 +1,1 @@',
+    '+modified line 1',
+    '@@ -50,0 +60,2 @@',
+    '+added line 60',
+    '+added line 61',
+    '@@ -100,3 +100,0 @@', // pure deletion, skipped
+    '-d',
+    '-d',
+    '-d',
+    '@@ -200 +200 @@',
+    '+modified line 200',
+  ].join('\n');
+  const lines = parseDiffHunkLines(raw);
+  assert.deepStrictEqual(
+    Array.from(lines).sort((a, b) => a - b),
+    [1, 60, 61, 200],
+  );
+});
+
+test('parseDiffHunkLines: ignores non-hunk-header lines starting with @@', () => {
+  // A diff line that happens to start with `@@` but
+  // isn't a hunk header (e.g., a code line containing
+  // `@@`) shouldn't false-positive. The regex anchors
+  // on the full hunk shape.
+  const raw = [
+    '@@@ this is not a hunk header @@@',
+    '@@-malformed+@@',
+    '@@ -10 +20 @@', // valid
+  ].join('\n');
+  const lines = parseDiffHunkLines(raw);
+  // Only the valid header contributes.
+  assert.strictEqual(lines.size, 1);
+  assert.ok(lines.has(20));
+});
+
+test('parseDiffHunkLines: large new_count yields large range', () => {
+  // Pin the range arithmetic for a 100-line addition.
+  const raw = '@@ -0,0 +1,100 @@';
+  const lines = parseDiffHunkLines(raw);
+  assert.strictEqual(lines.size, 100);
+  // Boundary checks.
+  assert.ok(lines.has(1));
+  assert.ok(lines.has(50));
+  assert.ok(lines.has(100));
+  assert.ok(!lines.has(0));
+  assert.ok(!lines.has(101));
 });
 
 // ---------------------------------------------------------

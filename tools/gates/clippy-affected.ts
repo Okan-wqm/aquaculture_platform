@@ -319,23 +319,57 @@ function affectedLineRanges(
       ],
       { encoding: 'utf8', cwd: REPO_ROOT },
     );
-    const lines = new Set<number>();
-    // Hunk header: `@@ -<old> +<new_start>,<new_count> @@`.
-    // The `,<count>` is optional (defaults to 1 when omitted).
-    const hunkRegex = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/;
-    for (const line of raw.split('\n')) {
-      const m = hunkRegex.exec(line);
-      if (!m || !m[1]) continue;
-      const newStart = Number.parseInt(m[1], 10);
-      const newCount = m[2] === undefined ? 1 : Number.parseInt(m[2], 10);
-      if (newCount === 0) continue; // pure deletion hunk
-      for (let ln = newStart; ln < newStart + newCount; ln += 1) {
-        lines.add(ln);
-      }
-    }
+    const lines = parseDiffHunkLines(raw);
     if (lines.size > 0) result.set(file, lines);
   }
   return result;
+}
+
+/**
+ * Pure-function hunk-header parser (Batch #350 —
+ * extracted from `affectedLineRanges` so the line-set
+ * computation can be unit-tested independently of git
+ * invocation).
+ *
+ * Input: raw output of `git diff --unified=0 ...` for a
+ * single file (or empty string).
+ *
+ * Output: Set of NEW-side (post-diff) line numbers
+ * that were added or modified.
+ *
+ * **Hunk header shape:** `@@ -<old_start>,<old_count>
+ * +<new_start>,<new_count> @@` — counts default to 1
+ * when omitted. `<new_count> = 0` is a pure deletion
+ * (no NEW-side lines added); skipped.
+ *
+ * **Why extracted (not inlined in `affectedLineRanges`):**
+ * the parser is the algorithmic core of the line-set
+ * computation; the git invocation is the IO. Splitting
+ * them keeps the algorithm directly testable via
+ * canned input strings — Batch #348's spec file pattern
+ * extends to this helper without needing a temp git
+ * repo.
+ */
+function parseDiffHunkLines(rawDiffOutput: string): Set<number> {
+  const lines = new Set<number>();
+  // Hunk header: `@@ -<old> +<new_start>,<new_count> @@`.
+  // The `,<count>` is optional (defaults to 1 when
+  // omitted). Anchor at line start so `@@` mentions
+  // inside diff context don't false-positive — but
+  // since we run `git diff --unified=0` the hunk
+  // headers are the only `@@`-bearing lines anyway.
+  const hunkRegex = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/;
+  for (const line of rawDiffOutput.split('\n')) {
+    const m = hunkRegex.exec(line);
+    if (!m || !m[1]) continue;
+    const newStart = Number.parseInt(m[1], 10);
+    const newCount = m[2] === undefined ? 1 : Number.parseInt(m[2], 10);
+    if (newCount === 0) continue; // pure deletion hunk
+    for (let ln = newStart; ln < newStart + newCount; ln += 1) {
+      lines.add(ln);
+    }
+  }
+  return lines;
 }
 
 /**
@@ -645,6 +679,7 @@ if (require.main === module) {
 export {
   affectedFiles,
   affectedLineRanges,
+  parseDiffHunkLines,
   parsePrePushStdin,
   rangeForPrePushRef,
   parseArgs,

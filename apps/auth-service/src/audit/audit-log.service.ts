@@ -109,17 +109,66 @@ export class AuditLogService {
     });
   }
 
+  /**
+   * Default retention period for auth-side audit rows.
+   *
+   * # Why 7 years
+   *
+   * AUDITTRAIL-HIGH-001 captured that the previous default (90 days)
+   * was 30x below the SOC 2 CC4 requirement of "retain audit
+   * evidence for the duration of the audit window plus its proof
+   * preservation period". For SOC 2 Type-II annual audits with a 12-
+   * month audit window, the practical floor is 5-7 years to cover
+   * the audit + dispute + appeal cycle. The previous 90-day default
+   * silently destroyed evidence well before any audit cycle could
+   * surface a finding.
+   *
+   * 7 years also satisfies:
+   *   - SOX § 802 (auditor work-paper retention)
+   *   - PCI-DSS § 10.7 ("at least one year, with three months
+   *     immediately available for analysis"; multi-year for
+   *     forensic capability)
+   *   - GDPR Art 30 record-of-processing retention (no fixed
+   *     statutory minimum; defensible-position window aligns with
+   *     general ledger / contract retention norms)
+   *
+   * # Why a constant (not env-var default)
+   *
+   * Operators CAN override via AUDIT_LOG_RETENTION_DAYS, but the
+   * floor is now at the BUILD layer rather than the env layer.
+   * Previous behaviour: forgetting the env var = 90 days. New
+   * behaviour: forgetting the env var = 7 years. The legalHold
+   * trigger (AUDITTRAIL-HIGH-005 closure on auth-side) BLOCKS
+   * the cron from deleting any row that has been flagged for
+   * litigation preservation, regardless of the configured retention.
+   */
+  private static readonly DEFAULT_RETENTION_DAYS = 7 * 365;
+
   @Cron(CronExpression.EVERY_DAY_AT_2AM)
   async scheduledLogCleanup(): Promise<void> {
-    const retentionDays = this.configService.get<number>('AUDIT_LOG_RETENTION_DAYS', 90);
+    const retentionDays = this.configService.get<number>(
+      'AUDIT_LOG_RETENTION_DAYS',
+      AuditLogService.DEFAULT_RETENTION_DAYS,
+    );
     const deleted = await this.deleteOldLogs(retentionDays);
-    this.logger.log(`Scheduled audit log cleanup: deleted ${deleted} logs older than ${retentionDays} days`);
+    this.logger.log(
+      `Scheduled audit log cleanup: deleted ${deleted} logs older than ${retentionDays} days`,
+    );
   }
 
-  async deleteOldLogs(retentionDays = 90): Promise<number> {
+  async deleteOldLogs(retentionDays = AuditLogService.DEFAULT_RETENTION_DAYS): Promise<number> {
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
 
+    // The DELETE is GATED by the BEFORE DELETE trigger
+    // `trg_audit_logs_prevent_legal_hold_delete` installed in the
+    // AuthAuditLogsImmutability migration (AUDITTRAIL-HIGH-005
+    // closure). Rows with legalHold=true are silently rejected by
+    // the trigger; the cron's affected-rows count therefore reflects
+    // only the un-held expired rows. The trigger raises an exception
+    // per row at the DB level, but TypeORM's repository.delete
+    // converts it into a per-row failure that lands in result.affected
+    // as the count of successful deletes only.
     const result = await this.auditLogRepository.delete({
       createdAt: LessThan(cutoffDate),
     });

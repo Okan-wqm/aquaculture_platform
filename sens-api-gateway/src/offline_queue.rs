@@ -109,11 +109,16 @@ pub(crate) fn derive_db_encryption_key() -> Result<String> {
         return Ok(hex.clone());
     }
 
-    let machine_id = machine_uid::get()
-        .map_err(|e| anyhow::anyhow!(
-            "Cannot derive database encryption key: machine-id unavailable ({}). \
-             Ensure /etc/machine-id or /var/lib/dbus/machine-id exists.", e
-        ))?;
+    // Batch #344 (closes ORPHAN-MEDIUM-033): delegate
+    // to crate::machine_id::read() which wraps
+    // machine_uid::get() with the SUDERRA_MACHINE_ID_PATH
+    // env-override. Production path is byte-identical to
+    // pre-#344 (env unset → falls through to
+    // machine_uid::get() with the same error context);
+    // CI / test paths can sandbox the machine-id read
+    // alongside the SUDERRA_DB_KEY_PATH override.
+    let machine_id = crate::machine_id::read()
+        .context("Cannot derive database encryption key")?;
 
     let secret_key = load_or_create_db_secret()?;
 

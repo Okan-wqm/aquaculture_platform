@@ -1074,6 +1074,36 @@ When the first `git commit` is rejected by the husky `commit-msg` hook (e.g., tr
 **Linked plan:** none (cross-cutting tooling concern).
 
 
+## ORPHAN-MEDIUM-033 — `machine_uid::get()` has no env-override path; SUDERRA_DB_KEY_PATH pattern is asymmetric across the two v1 derivation inputs (2026-04-28)
+
+**Discovered by:** Batch #335 v1 algorithm SSoT extraction session, while reading `offline_queue::derive_db_encryption_key`. The function takes TWO inputs to the HMAC-SHA256 kernel:
+
+- `secret_key` — read via `load_or_create_db_secret()` which CHECKS `SUDERRA_DB_KEY_PATH` env override (Batch 88 CI-sandbox support, line 156). CI runners + tests CAN sandbox this read.
+- `machine_id` — read via `machine_uid::get()` (line 112). NO env override exists. CI runners + tests CANNOT sandbox this read; they get whatever `/etc/machine-id` happens to contain on the host (or an error if the host has no machine-id file).
+
+**Why this is an architectural problem:**
+
+- The test suite for `offline_queue` becomes coupled to host filesystem state. A sandboxed CI runner without `/etc/machine-id` (e.g., a stripped Docker image) cannot exercise the full derivation path.
+- The migration tool (future db-migrate-cli, PR-195) will need to override the machine-id read for cross-device DB rekey scenarios where the operator runs the tool on a different host than the device that produced the original DB. Without an env-override, the tool cannot be written without forking machine_uid or shipping per-device.
+- The Batch #335 v1 kernel (`derive_v1_legacy_key`) takes `machine_id: &[u8]` as a caller-supplied input — pure-byte injection works at the kernel layer. But the IO wrapper (offline_queue) hard-reads via `machine_uid::get()`, defeating the architectural intent of the kernel's parameter-injectable design.
+
+**Architectural fix (Tier-1 make-it-impossible):**
+
+Create a new wrapper module `crate::machine_id` that:
+1. Checks `SUDERRA_MACHINE_ID_PATH` env var (mirrors `SUDERRA_DB_KEY_PATH`).
+2. If set: reads the file at that path + trims whitespace + returns the contents as a string.
+3. If not set: falls back to `machine_uid::get()` for production parity.
+4. Returns a `Result<String, anyhow::Error>` with the same error shape as the current `machine_uid::get().map_err(...)` chain.
+
+Update `offline_queue::derive_db_encryption_key` to call the wrapper instead of `machine_uid::get()` directly. Test discipline (the OnceLock cache) is unchanged — the wrapper's output is fed into the same cache.
+
+**Severity: MEDIUM** — test-isolation gap + future db-migrate-cli prerequisite.
+
+**Status:** RESOLVED — closed by Batch #344 (this session). Wrapper landed at `src/machine_id.rs`, offline_queue refactored to delegate, test sandbox precedent established for the migration tool.
+
+**Linked plan:** Plan §5 Faz 2 D-3 (test-isolation prerequisite for PR-195 db-migrate-cli).
+
+
 ## DEPLOY-CRITICAL-005 — MigrationAuditModule missing EventBusModule.forRoot() import (2026-04-21)
 
 **Status:** RESOLVED — fixed by the commit that introduces this entry.

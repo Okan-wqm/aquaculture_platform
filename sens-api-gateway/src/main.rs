@@ -92,6 +92,11 @@ mod db_migration;
 // step both rotation_marker_store + db_migration::manifest were missing
 // before this batch).
 mod shared_io;
+// Batch #344 — machine-id read with env-override sandboxing (closes
+// ORPHAN-MEDIUM-033). Mirrors the SUDERRA_DB_KEY_PATH pattern; tests +
+// CI sandboxes can now inject machine-id alongside the secret-key path.
+// offline_queue's derive_db_encryption_key delegates to this wrapper.
+mod machine_id;
 // Batch 6 — ADR-020 audit log AuditEntry + HMAC chain. Pure types + closure-
 // injected HMAC append function; runtime sink + cloud relay + audit-verify CLI
 // land in Faz 2 Sprint 6.2.

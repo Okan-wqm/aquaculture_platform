@@ -161,6 +161,13 @@ import { AddFarmOutboxLeaseColumns1782000000000 } from './database/migrations/17
 // cadence) to ~5ms.
 import { AddFarmOutboxNotifyTrigger1782100000000 } from './database/migrations/1782100000000-AddFarmOutboxNotifyTrigger';
 import { AddFarmOutboxModernColumns1786200000000 } from './database/migrations/1786200000000-AddFarmOutboxModernColumns';
+// Phase 7.4 — cross-service correlation column on water_quality_measurements
+// pointing back at the sensor_readings row that produced it. Sibling migrations
+// 1786000000000–1788100000000 are picked up by the aqua-db-migrate orchestrator
+// via glob; only the explicit list below is consulted by farm-service's
+// in-process MigrationRunnerService when DATABASE_MIGRATIONS_RUN=true (dev / E2E).
+// Future hygiene PR: backfill the omitted 1787*/1788* entries here too.
+import { AddWaterQualitySensorReadingCorrelation1788200000000 } from './database/migrations/1788200000000-AddWaterQualitySensorReadingCorrelation';
 
 @Module({
   imports: [
@@ -211,6 +218,7 @@ import { AddFarmOutboxModernColumns1786200000000 } from './database/migrations/1
             AddFarmOutboxLeaseColumns1782000000000,
             AddFarmOutboxNotifyTrigger1782100000000,
             AddFarmOutboxModernColumns1786200000000,
+            AddWaterQualitySensorReadingCorrelation1788200000000,
           ],
           // INFRA-CRITICAL-020 contract: env-aware migration timing.
           // - Production: DATABASE_MIGRATIONS_RUN=false (default). The

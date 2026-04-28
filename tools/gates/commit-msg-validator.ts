@@ -145,6 +145,53 @@ function loadRegistryIds(): Set<string> {
   return ids;
 }
 
+/**
+ * Load the set of `ORPHAN-{SEV}-NNN` IDs from
+ * `docs/reviews/orphan-findings.md` (Batch #342 — closes
+ * ORPHAN-MEDIUM-032).
+ *
+ * **Why orphan IDs need their own loader:** orphan
+ * findings live in markdown (not the hash-chained
+ * registry) by architectural design — they record
+ * plan-independent observations that are not gated by
+ * the registry's append-only crash-safety contract. But
+ * fix commits can legitimately reference orphan IDs in
+ * `Closes:` trailers (e.g., a hygiene batch that closes
+ * an ORPHAN-LOW finding). Pre-#342 the validator rejected
+ * any non-registry ID, blocking multi-Closes commits
+ * that referenced both UH-NNN (registry) AND ORPHAN-NNN
+ * (markdown) targets — even when the registry side was
+ * legitimately valid. The architectural fix is per-prefix
+ * routing: ORPHAN-* trailers validate against this loader;
+ * non-ORPHAN trailers continue to validate against the
+ * registry as before.
+ *
+ * **Parser shape:** scans for `^## (ORPHAN-{SEV}-NNN)`
+ * headings. The orphan-findings.md format is documented
+ * at the file's top + has been stable since the doc was
+ * established. A future restructure that breaks the
+ * heading convention also fails the orphan-findings
+ * structural tests (out-of-band).
+ */
+const ORPHAN_FINDINGS_PATH = resolve(
+  REPO_ROOT,
+  'docs/reviews/orphan-findings.md',
+);
+
+const ORPHAN_HEADING_REGEX =
+  /^##\s+(ORPHAN-(?:CRITICAL|HIGH|MEDIUM|LOW)-\d{3})\b/;
+
+function loadOrphanIds(): Set<string> {
+  if (!existsSync(ORPHAN_FINDINGS_PATH)) return new Set();
+  const ids = new Set<string>();
+  const content = readFileSync(ORPHAN_FINDINGS_PATH, 'utf8');
+  for (const line of content.split('\n')) {
+    const m = ORPHAN_HEADING_REGEX.exec(line);
+    if (m && m[1]) ids.add(m[1]);
+  }
+  return ids;
+}
+
 function extractTrailers(body: string): Trailer[] {
   const out: Trailer[] = [];
   for (const line of body.split('\n')) {
@@ -209,6 +256,7 @@ function commitFromMsgFile(path: string): Commit {
 function validateCommit(
   commit: Commit,
   registryIds: ReadonlySet<string>,
+  orphanIds: ReadonlySet<string>,
   isPreGate: (commit: Commit) => boolean,
 ): Violation[] {
   const needsCloses = REQUIRE_CLOSES_TYPES.test(commit.subject);
@@ -237,7 +285,24 @@ function validateCommit(
         reason: `Closes: trailer references missing review file: ${path}`,
       });
     }
-    if (!registryIds.has(findingId)) {
+    // Per-prefix routing (Batch #342 — closes
+    // ORPHAN-MEDIUM-032): ORPHAN-{SEV}-NNN IDs are
+    // validated against the orphan-findings.md heading
+    // index; all other prefixes (ULTRA-HIGH-*,
+    // AUDIT-*, DEPLOY-CRITICAL-*, etc.) continue to
+    // validate against the hash-chained registry. This
+    // unblocks commits that legitimately close BOTH a
+    // registry-tracked finding AND a referenced orphan
+    // finding in the same batch.
+    if (findingId.startsWith('ORPHAN-')) {
+      if (!orphanIds.has(findingId)) {
+        out.push({
+          sha: commit.shortSha,
+          subject: commit.subject,
+          reason: `Closes: trailer references unknown ORPHAN finding ID: ${findingId} (no matching "## ${findingId}" heading in docs/reviews/orphan-findings.md)`,
+        });
+      }
+    } else if (!registryIds.has(findingId)) {
       out.push({
         sha: commit.shortSha,
         subject: commit.subject,
@@ -274,6 +339,7 @@ function main(): void {
 
   const mode = modeFlag.replace(/^--mode=/, '');
   const registryIds = loadRegistryIds();
+  const orphanIds = loadOrphanIds();
   const violations: Violation[] = [];
 
   if (mode === 'msg-file') {
@@ -288,7 +354,14 @@ function main(): void {
       process.exit(2);
     }
     // No PRE_PHASE6_SHAS applies — the commit has no SHA yet.
-    violations.push(...validateCommit(commitFromMsgFile(abs), registryIds, () => false));
+    violations.push(
+      ...validateCommit(
+        commitFromMsgFile(abs),
+        registryIds,
+        orphanIds,
+        () => false,
+      ),
+    );
   } else if (mode === 'range') {
     const [baseRef, headRef] = args;
     if (!baseRef || !headRef) {
@@ -302,7 +375,12 @@ function main(): void {
     }
     for (const c of commits) {
       violations.push(
-        ...validateCommit(c, registryIds, (cm) => PRE_PHASE6_SHAS.has(cm.shortSha)),
+        ...validateCommit(
+          c,
+          registryIds,
+          orphanIds,
+          (cm) => PRE_PHASE6_SHAS.has(cm.shortSha),
+        ),
       );
     }
   } else if (mode === 'commit') {
@@ -312,7 +390,12 @@ function main(): void {
       return;
     }
     violations.push(
-      ...validateCommit(c, registryIds, (cm) => PRE_PHASE6_SHAS.has(cm.shortSha)),
+      ...validateCommit(
+        c,
+        registryIds,
+        orphanIds,
+        (cm) => PRE_PHASE6_SHAS.has(cm.shortSha),
+      ),
     );
   } else {
     console.error(`Unknown mode: ${mode}`);

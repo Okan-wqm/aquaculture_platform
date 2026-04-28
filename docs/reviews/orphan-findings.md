@@ -1069,7 +1069,7 @@ When the first `git commit` is rejected by the husky `commit-msg` hook (e.g., tr
 
 **Severity: MEDIUM** — process correctness + audit-trail integrity. Recoverable via re-running `finding-registry close` with the correct SHA (which appends, not overwrites — both SHAs end up in `closing_commits[]`, with future readers needing to disambiguate via `git show`). This session's UH-089 has the appended-fix applied; the wrong 076d52d0 entry stays in the array as an audit-trail of the race occurrence.
 
-**Status:** OPEN. Tier-1 fix (commit-msg-validator regex extension) is the smallest architectural change that closes the gap; estimated 1-line update + a test fixture in `tools/gates/__tests__/commit-msg-validator.spec.ts`. Slated for the next no-arc tooling-hygiene batch.
+**Status:** RESOLVED — closed by Batch #342 (this session). Root cause was NOT the regex (which already accepts ORPHAN-* prefixes via `[A-Z][A-Z0-9]+`) but the validator's `loadRegistryIds` only checked `findings.jsonl` — orphan IDs live in `orphan-findings.md` by architectural design. Fix: added `loadOrphanIds()` parsing `## ORPHAN-{SEV}-NNN` markdown headings + per-prefix routing in `validateCommit` so ORPHAN-* trailers validate against the orphan-findings doc while non-ORPHAN trailers continue to validate against the registry. Multi-Closes commits referencing both UH-NNN (registry) AND ORPHAN-NNN (markdown) now validate cleanly. Verified via 3 synthetic test commits: real ORPHAN-MEDIUM-031 passes, bogus ORPHAN-LOW-999 rejected with structured reason, multi-Closes (UH-089 + ORPHAN-031) passes.
 
 **Linked plan:** none (cross-cutting tooling concern).
 

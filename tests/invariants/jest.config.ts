@@ -114,6 +114,7 @@ export default {
         '<rootDir>/audited-operation-module-wired.spec.ts',
         '<rootDir>/no-query-param-tenant.spec.ts',
         '<rootDir>/legal-hold-canonical-lib.spec.ts',
+        '<rootDir>/stripe-calls-via-canonical-client.spec.ts',
       ],
     },
     {

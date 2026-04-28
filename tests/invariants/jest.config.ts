@@ -115,6 +115,7 @@ export default {
         '<rootDir>/no-query-param-tenant.spec.ts',
         '<rootDir>/legal-hold-canonical-lib.spec.ts',
         '<rootDir>/stripe-calls-via-canonical-client.spec.ts',
+        '<rootDir>/auth-users-tenant-fk.spec.ts',
       ],
     },
     {

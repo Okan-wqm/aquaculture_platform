@@ -16,7 +16,7 @@ import { TenantGuard, RolesGuard, ServiceIdentityGuard } from '@aquaculture/back
 import { LoggingModule } from '@aquaculture/backend-common/logging';
 import { UserContextMiddleware, TenantContextMiddleware, StripInternalHeadersMiddleware } from '@aquaculture/backend-common/middleware';
 import { RedisModule } from '@aquaculture/backend-common/redis';
-import { AuditLogModule, AuditLogInterceptor } from '@aquaculture/backend-common/audit';
+import { AuditLogModule, AuditLogInterceptor, AuditedOperationModule } from '@aquaculture/backend-common/audit';
 
 /**
  * BillingMigrationRunnerService — runs pending TypeORM migrations in the
@@ -152,6 +152,18 @@ import { ModuleQuantities, ModuleLineItem } from './billing/entities/subscriptio
     HealthModule,
     /** SEC-M22: Audit trail infrastructure for compliance tracking. */
     AuditLogModule.forRoot(),
+    /**
+     * AUDITTRAIL-CRITICAL-002 cure: registers AuditedOperationInterceptor
+     * as a global APP_INTERCEPTOR so the 7 @AuditedOperation()-decorated
+     * billing handlers (create/change/cancel subscription, create/finalize/
+     * void invoice, record/refund payment) actually write audit rows.
+     * Pre-fix the decorators were structurally inert — no service in the
+     * fleet imported AuditedOperationModule, so audit-row coverage across
+     * 180 CQRS handlers was ~1%. Mounting this module here is the
+     * make-automatic Tier-2 cure that activates the existing decorators
+     * without further per-handler changes.
+     */
+    AuditedOperationModule.forRoot(),
     /**
      * SEC-DB: Tenant Row-Level Security.
      *

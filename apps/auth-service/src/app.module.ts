@@ -12,6 +12,7 @@ import { TenantGuard, RolesGuard, ServiceIdentityGuard } from '@aquaculture/back
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
 import { MetricsMiddleware } from '@aquaculture/backend-common/metrics';
 import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware, RequestLoggingMiddleware, StripInternalHeadersMiddleware } from '@aquaculture/backend-common/middleware';
+import { AuditedOperationModule } from '@aquaculture/backend-common/audit';
 import { RedisModule } from '@aquaculture/backend-common/redis';
 import { TOKEN_BLACKLIST, ITokenBlacklist } from '@aquaculture/backend-common/security';
 import { EventBusModule } from '@platform/event-bus';
@@ -229,6 +230,15 @@ import { TenantModule } from './modules/tenant/tenant.module';
     AnnouncementModule,
     GdprModule,
     AuditModule,
+    /**
+     * AUDITTRAIL-CRITICAL-002 cure: registers AuditedOperationInterceptor
+     * as a global APP_INTERCEPTOR so any handler decorated with
+     * @AuditedOperation() in this service writes a transactional audit
+     * row — the decorator is structurally inert without this module
+     * registration. Independent from the local AuditModule above
+     * (which is auth-service-specific schema/service infrastructure).
+     */
+    AuditedOperationModule.forRoot(),
     HealthModule,
 
     // Prometheus metrics (per-service /metrics endpoint)

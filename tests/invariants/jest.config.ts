@@ -111,6 +111,7 @@ export default {
         '<rootDir>/event-contract-emit-has-interface.spec.ts',
         '<rootDir>/circuit-breaker-canonical-lib.spec.ts',
         '<rootDir>/strip-internal-headers-mounted.spec.ts',
+        '<rootDir>/audited-operation-module-wired.spec.ts',
       ],
     },
     {

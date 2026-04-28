@@ -72,8 +72,8 @@ const HMAC_ALLOWLIST: ReadonlyArray<{ path: string; reason: string }> = [
     reason: 'External API-key HMAC for tenant-issued API keys. Different protocol from internal-service identity.',
   },
   {
-    path: 'apps/gateway-api/src/middleware/strip-internal-headers.middleware.ts',
-    reason: 'Strip-vs-trust gate using HMAC(serviceName, secret) only. Narrower contract — proof-of-secret-possession; not a SEC-CRITICAL-001 surface.',
+    path: 'libs/backend-common/src/middleware/strip-internal-headers.middleware.ts',
+    reason: 'Strip-vs-trust gate using HMAC(serviceName, secret) only. Narrower contract — proof-of-secret-possession; not a SEC-CRITICAL-001 surface. Promoted to backend-common in W0.I.',
   },
 ];
 

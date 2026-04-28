@@ -32,7 +32,7 @@ import { BasicAuthStrategy } from './guards/strategies/basic-auth.strategy';
 import { TenantIsolationGuard } from './guards/tenant-isolation.guard';
 import { JwtMiddleware } from './middleware/jwt.middleware';
 import { SecurityHeadersMiddleware } from './middleware/security-headers.middleware';
-import { StripInternalHeadersMiddleware } from './middleware/strip-internal-headers.middleware';
+import { StripInternalHeadersMiddleware } from '@aquaculture/backend-common/middleware';
 import { CsrfMiddleware } from './middleware/csrf.middleware';
 import { RequestValidatorMiddleware } from './middleware/request-validator.middleware';
 import { RateLimitGuard, RATE_LIMIT_STORE } from './guards/rate-limit.guard';

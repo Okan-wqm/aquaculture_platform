@@ -14,7 +14,7 @@ import depthLimit from 'graphql-depth-limit';
 import { RlsModule, AuditColumnsModule, createMigrationRunnerService, SchemaDriftModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common/database';
 import { TenantGuard, RolesGuard, ServiceIdentityGuard } from '@aquaculture/backend-common/guards';
 import { LoggingModule } from '@aquaculture/backend-common/logging';
-import { UserContextMiddleware, TenantContextMiddleware } from '@aquaculture/backend-common/middleware';
+import { UserContextMiddleware, TenantContextMiddleware, StripInternalHeadersMiddleware } from '@aquaculture/backend-common/middleware';
 import { RedisModule } from '@aquaculture/backend-common/redis';
 import { AuditLogModule, AuditLogInterceptor } from '@aquaculture/backend-common/audit';
 
@@ -240,10 +240,24 @@ import { ModuleQuantities, ModuleLineItem } from './billing/entities/subscriptio
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     // Middleware execution order:
+    // 0. StripInternalHeadersMiddleware (SECREV-CRITICAL-002): MUST run
+    //    BEFORE UserContextMiddleware. Verifies the request carries a
+    //    valid x-service-identity + x-service-signature pair signed with
+    //    INTERNAL_SERVICE_SECRET; if not, strips x-user-payload /
+    //    x-user-id / x-user-roles / x-tenant-id from req.headers so
+    //    UserContextMiddleware cannot pick up a forged SUPER_ADMIN
+    //    payload from a Docker-network attacker. The Stripe webhook
+    //    controller is @Public() and previously trusted unvalidated
+    //    metadata.tenantId — closing this header path closes the
+    //    forge-on-public-route surface SECREV-CRITICAL-001 references.
     // 1. UserContextMiddleware - Parse x-user-payload header from gateway (sets req.user)
     // 2. TenantContextMiddleware - Extract tenant from JWT/headers (uses req.user.tenantId)
     consumer
-      .apply(UserContextMiddleware, TenantContextMiddleware)
+      .apply(
+        StripInternalHeadersMiddleware,
+        UserContextMiddleware,
+        TenantContextMiddleware,
+      )
       .forRoutes('*');
   }
 }

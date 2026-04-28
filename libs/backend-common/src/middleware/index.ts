@@ -23,3 +23,9 @@ export {
 } from './tenant-context.middleware';
 
 export { createTenantSchemaMiddleware } from './tenant-schema.middleware';
+
+// Strip-internal-headers middleware (SEC-CRITICAL-002 / SECREV-CRITICAL-002).
+// Canonical, cross-service. Mount FIRST in every service's AppModule
+// before any auth middleware so forged x-user-payload / x-tenant-id
+// headers cannot survive into UserContextMiddleware.
+export { StripInternalHeadersMiddleware } from './strip-internal-headers.middleware';

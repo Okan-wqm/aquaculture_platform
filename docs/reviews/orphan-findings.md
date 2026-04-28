@@ -1006,9 +1006,47 @@ This change makes the gate fire ONLY on violations introduced by the diff — li
 
 **Severity: MEDIUM** — design correctness; the gate as currently shipped is callable but not auto-enforced (Batch #345 wiring reverted), so dev velocity is not blocked. The per-line refinement makes the gate ready for husky pre-push wiring on the next operations cycle.
 
-**Status:** OPEN. Next architectural batch — implement per-line filtering in `tools/gates/clippy-affected.ts` + re-attempt the husky pre-push wiring once verified clean on the PR-194 branch.
+**Status:** RESOLVED — closed by Batch #346 (this session). Per-LINE filtering landed:
+
+- `affectedLineRanges()` runs `git diff --unified=0 <base>...<head> -- <file>` per affected Rust file, parses hunk headers (`@@ -<old> +<new_start>,<new_count> @@`) to build `Map<file, Set<line>>`.
+- The diagnostic filter now keeps only diagnostics whose primary span's `[line_start..=line_end]` overlaps the affected-line set for that file.
+- Module doc + usage notes updated to document the per-LINE semantic + cite the MEDIUM-034 closure rationale.
+
+**Live-fire results:**
+- Short-range test (`HEAD~5..HEAD`, includes Batch #344 Rust changes): 3 affected files / 241 affected lines, **0 errors. Gate passed.**
+- Full-branch test (`origin/main..HEAD`, 17-batch feature branch): 212 files / 91,025 lines / 69 errors. **Big improvement from per-FILE's 700 errors but real legacy debt remains** — the violations are on lines THIS branch added (e.g., process_hardening.rs is a brand-new file from origin/main's POV; every line in it is "added"). Long-lived feature branches accumulating multi-batch debt is a legitimate architectural concern that the gate now ACCURATELY surfaces.
+
+**Why husky pre-push re-wiring NOT in this batch:** for a pre-push hook the right semantic is "what's new in this PUSH" — git-stdin per-ref `<remote_sha>...<local_sha>` parsing — NOT `origin/main...HEAD` which is "what's new on the branch since main". The git-stdin parsing is a separate batch (filed as ORPHAN-LOW-035 below for visibility).
+
+**Linked plan:** none. Knock-on follow-up captured in ORPHAN-LOW-035.
+
+
+## ORPHAN-LOW-035 — `clippy-affected` pre-push hook needs git-stdin per-ref parsing for tighter "new in this push" semantic (2026-04-28)
+
+**Discovered by:** Batch #346 (this session). The Batch #346 per-LINE refinement closed ORPHAN-MEDIUM-034's design flaw — the gate now correctly filters by line. But for husky pre-push wiring the natural diff range is "what's being pushed in THIS push event", not `origin/main...HEAD`.
+
+Git's pre-push protocol provides per-ref `<local_ref> <local_sha> <remote_ref> <remote_sha>` lines on stdin. A correct pre-push hook would:
+
+1. Read stdin per-ref.
+2. For each ref being pushed compute the range as `<remote_sha>...<local_sha>`.
+3. Pass that range to clippy-affected (instead of `origin/main...HEAD`).
+
+Result: a multi-commit push of N new commits sees ONLY those N commits' line changes — not the full branch delta vs main. Long-lived feature branch's accumulated debt no longer fires the gate.
+
+**Architectural fix (Tier-2 make-it-automatic):**
+
+New tooling shape:
+- `tools/gates/clippy-affected-prepush.ts` (or extend existing CLI with `--mode=prepush` reading stdin) — reads pre-push stdin lines, computes ranges, dispatches to the existing per-LINE filter.
+- `.husky/pre-push` calls the new mode + passes stdin through.
+
+**Severity: LOW** — operations enhancement; the gate is callable today and the per-LINE refinement closes the design correctness concern. The pre-push wiring is a future operations cycle.
+
+**Status:** OPEN. Next operations batch.
 
 **Linked plan:** none.
+
+
+## DEPLOY-CRITICAL-005 — MigrationAuditModule missing EventBusModule.forRoot() import (2026-04-21)
 
 
 ## DEPLOY-CRITICAL-005 — MigrationAuditModule missing EventBusModule.forRoot() import (2026-04-21)

@@ -30,21 +30,44 @@
  * current diff. New code can't introduce new
  * violations; legacy debt doesn't block.
  *
- * ## How it works
+ * ## How it works (per-LINE semantic, Batch #346 — closes
+ * ORPHAN-MEDIUM-034)
  *
  * 1. Compute the affected Rust file set:
  *    `git diff --name-only <base>...<head>`. Filter to
  *    `*.rs` paths under `sens-api-gateway/`.
- * 2. Run `cargo clippy --bin suderra-agent
+ * 2. Compute the affected LINE set per file:
+ *    `git diff --unified=0 <base>...<head> -- <file>`.
+ *    Parse hunk headers (`@@ -<old> +<new_start>,<new_count>
+ *    @@`) to extract added/modified line numbers on the
+ *    NEW (post-diff) side. Result is
+ *    `Map<file, Set<line>>`.
+ * 3. Run `cargo clippy --bin suderra-agent
  *    --message-format=json` once. Cargo emits one JSON
- *    object per diagnostic.
- * 3. Parse the JSON stream. Filter to diagnostics whose
- *    primary span's file_name is in the affected set.
- * 4. Filter to error-level diagnostics (warning-level
+ *    object per diagnostic with `spans[].line_start` /
+ *    `line_end`.
+ * 4. Parse the JSON stream. Filter to diagnostics whose
+ *    primary span's file_name is in the affected file
+ *    set AND whose primary span's line range
+ *    `[line_start..=line_end]` overlaps the affected
+ *    line set for that file.
+ * 5. Filter to error-level diagnostics (warning-level
  *    pass cleanly so legacy `dead_code` warnings don't
  *    block).
- * 5. Print the affected diagnostics + exit non-zero if
+ * 6. Print the affected diagnostics + exit non-zero if
  *    any remain.
+ *
+ * **Why per-LINE (not per-FILE):** the auditor's
+ * MEDIUM-029 recommendation framed Tier-2 as preventing
+ * NEW debt without forcing fleet-wide cleanup.
+ * Pre-Batch-#346 the gate was per-FILE — touching a file
+ * even minimally (single import, doc-comment edit)
+ * surfaced ALL pre-existing legacy violations in that
+ * file. On the PR-194 branch this caught 700 violations
+ * across 212 affected files (live-fire test in Batch
+ * #345). The per-LINE refinement narrows the gate to
+ * only catch violations on lines this diff actually
+ * touched — the auditor's Tier-2 intent.
  *
  * ## Why JSON message format (not human format)
  *
@@ -69,7 +92,13 @@
  * ## Usage
  *
  *   ts-node tools/gates/clippy-affected.ts --mode=range <base> <head>
- *   ts-node tools/gates/clippy-affected.ts --mode=staged   # pre-commit
+ *
+ * Note (Batch #346): per-LINE filtering requires
+ * `--mode=range` with explicit base+head refs. Staged
+ * mode (`--mode=staged`) is not yet implemented for
+ * per-line filtering — the file-set computation
+ * supports it but the line-range hunk extraction needs
+ * a `--cached` variant. Future batch.
  *
  * ## Exit codes
  *
@@ -111,6 +140,10 @@ interface ClippyDiagnostic {
   readonly level: string;
   /** Primary file the diagnostic applies to. */
   readonly primaryFile: string;
+  /** Primary span's line_start (1-indexed). */
+  readonly primaryLineStart: number;
+  /** Primary span's line_end (1-indexed, inclusive). */
+  readonly primaryLineEnd: number;
 }
 
 interface CargoMessage {
@@ -121,6 +154,8 @@ interface CargoMessage {
     readonly spans?: ReadonlyArray<{
       readonly file_name?: string;
       readonly is_primary?: boolean;
+      readonly line_start?: number;
+      readonly line_end?: number;
     }>;
   };
 }
@@ -220,9 +255,87 @@ function runClippy(): ClippyDiagnostic[] {
     const primary = (msg.spans ?? []).find((s) => s.is_primary === true);
     const primaryFile = primary?.file_name ?? '';
     if (!primaryFile) continue;
-    diagnostics.push({ rendered, level, primaryFile });
+    const primaryLineStart = primary?.line_start ?? 0;
+    const primaryLineEnd = primary?.line_end ?? primaryLineStart;
+    if (primaryLineStart === 0) continue;
+    diagnostics.push({
+      rendered,
+      level,
+      primaryFile,
+      primaryLineStart,
+      primaryLineEnd,
+    });
   }
   return diagnostics;
+}
+
+/**
+ * Per-LINE affected-line-set computation (Batch #346 —
+ * closes ORPHAN-MEDIUM-034). For each Rust file in the
+ * affected-FILE set, run `git diff --unified=0
+ * <base>...<head> -- <file>` to extract hunk headers,
+ * parse them into added/modified line numbers on the
+ * NEW (post-diff) side, return a
+ * `Map<repo-relative-path, Set<line>>`.
+ *
+ * **Hunk header shape:** `@@ -<old_start>,<old_count>
+ * +<new_start>,<new_count> @@` (counts default to 1 if
+ * omitted). For hunks with `<new_count> = 0` (pure
+ * deletion), no lines are added on the new side; we
+ * skip. For `<new_count> >= 1` we add the range
+ * `[new_start, new_start + new_count)` to the set.
+ *
+ * **Why per-line (not per-file):** the auditor's
+ * MEDIUM-029 recommendation framed Tier-2 as preventing
+ * NEW debt without forcing fleet-wide cleanup. Per-FILE
+ * filtering caught 700 pre-existing legacy violations
+ * on the PR-194 branch (live-fire test in Batch #345).
+ * Per-LINE filtering catches only the violations on
+ * lines this diff actually touched — the auditor's
+ * Tier-2 intent.
+ *
+ * **Why --unified=0:** `git diff --unified=N` includes
+ * N lines of CONTEXT around each change. `=0` strips
+ * context, so hunk headers describe only the changed
+ * lines — no false positives from context-line
+ * inclusion.
+ */
+function affectedLineRanges(
+  base: string,
+  head: string,
+  files: Iterable<string>,
+): Map<string, Set<number>> {
+  const result = new Map<string, Set<number>>();
+  for (const file of files) {
+    const raw = execFileSync(
+      'git',
+      [
+        'diff',
+        '--unified=0',
+        '--no-color',
+        `${base}...${head}`,
+        '--',
+        file,
+      ],
+      { encoding: 'utf8', cwd: REPO_ROOT },
+    );
+    const lines = new Set<number>();
+    // Hunk header: `@@ -<old> +<new_start>,<new_count> @@`.
+    // The `,<count>` is optional (defaults to 1 when omitted).
+    const hunkRegex = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/;
+    for (const line of raw.split('\n')) {
+      const m = hunkRegex.exec(line);
+      if (!m || !m[1]) continue;
+      const newStart = Number.parseInt(m[1], 10);
+      const newCount = m[2] === undefined ? 1 : Number.parseInt(m[2], 10);
+      if (newCount === 0) continue; // pure deletion hunk
+      for (let ln = newStart; ln < newStart + newCount; ln += 1) {
+        lines.add(ln);
+      }
+    }
+    if (lines.size > 0) result.set(file, lines);
+  }
+  return result;
 }
 
 /**
@@ -273,8 +386,33 @@ function main(): void {
     console.log('clippy-affected: no Rust files in the diff; gate skipped.');
     return;
   }
+
+  // Batch #346 — closes ORPHAN-MEDIUM-034. Compute the
+  // per-LINE affected set so legacy clippy violations on
+  // lines this diff didn't touch don't fire the gate.
+  // Range mode: use `<base>...<head>` for the diff.
+  // Staged-mode per-LINE is filed as ORPHAN-LOW-035 +
+  // requires its own `git diff --cached --unified=0`
+  // hunk parser; this gate explicitly requires range
+  // mode + fails-fast otherwise so the caller cannot
+  // accidentally invoke it via the unimplemented path.
+  if (opts.mode !== 'range' || !opts.base || !opts.head) {
+    console.error(
+      'clippy-affected: per-LINE filtering requires --mode=range with explicit base + head refs.',
+    );
+    console.error(
+      '  Staged-mode per-line tracked at ORPHAN-LOW-035 (filed Batch #346).',
+    );
+    process.exit(2);
+  }
+
+  const lineRanges = affectedLineRanges(opts.base, opts.head, affected);
+  const totalAffectedLines = Array.from(lineRanges.values()).reduce(
+    (sum, set) => sum + set.size,
+    0,
+  );
   console.log(
-    `clippy-affected: scanning ${affected.size} affected file(s) under ${RUST_CRATE_PREFIX}…`,
+    `clippy-affected: scanning ${affected.size} affected file(s) / ${totalAffectedLines} affected line(s) under ${RUST_CRATE_PREFIX}…`,
   );
 
   if (!existsSync(resolve(RUST_CRATE_DIR, 'Cargo.toml'))) {
@@ -288,18 +426,28 @@ function main(): void {
   const errorsInAffectedFiles = all.filter((d) => {
     if (d.level !== 'error') return false;
     const repoRelative = repoRelativeFromClippyPath(d.primaryFile);
-    return affected.has(repoRelative);
+    if (!affected.has(repoRelative)) return false;
+    // Per-LINE filter: keep only diagnostics whose
+    // primary span overlaps the affected-line set for
+    // this file. A diagnostic spanning lines [start..=end]
+    // overlaps iff ANY of those lines is in the set.
+    const fileLines = lineRanges.get(repoRelative);
+    if (!fileLines) return false; // file in diff but no NEW lines added (pure deletion)
+    for (let ln = d.primaryLineStart; ln <= d.primaryLineEnd; ln += 1) {
+      if (fileLines.has(ln)) return true;
+    }
+    return false;
   });
 
   if (errorsInAffectedFiles.length === 0) {
     console.log(
-      'clippy-affected: no error-level diagnostics in affected files. Gate passed.',
+      'clippy-affected: no error-level diagnostics on affected lines. Gate passed.',
     );
     return;
   }
 
   console.error(
-    `clippy-affected: FAILED — ${errorsInAffectedFiles.length} error-level diagnostic(s) in affected files:`,
+    `clippy-affected: FAILED — ${errorsInAffectedFiles.length} error-level diagnostic(s) on affected lines:`,
   );
   console.error('');
   for (const diag of errorsInAffectedFiles) {
@@ -335,6 +483,7 @@ main();
 // Exported for testing.
 export {
   affectedFiles,
+  affectedLineRanges,
   parseArgs,
   repoRelativeFromClippyPath,
   type ClippyDiagnostic,

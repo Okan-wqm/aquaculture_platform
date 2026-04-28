@@ -683,6 +683,18 @@ path = "tests/invariants/db_migration_boot_detector.rs"
 name = "db_migration_v1_legacy_key"
 path = "tests/invariants/db_migration_v1_legacy_key.rs"
 
+# Batch #333 Faz 2 D-3 wire-status arc — Tier-3
+# detection seams pinning the architectural contracts
+# of all four D-3 primitive batches (#329 schema_version
+# + manifest, #330 boot detector, #331 v1 kernel, #332
+# v2 shim) against silent refactor regressions. Pattern
+# mirrors mtls_unified_assembly + Batch #319/#321/
+# #322/#323/#326 wire invariants — closes the D-3
+# arc's architectural-property-detection family.
+[[test]]
+name = "db_migration_wire_status"
+path = "tests/invariants/db_migration_wire_status.rs"
+
 # Batch 40 plan Faz 2 coherence — validate_faz2_security_coherence rules.
 [[test]]
 name = "config_coherence"

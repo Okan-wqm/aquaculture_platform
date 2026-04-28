@@ -507,35 +507,56 @@ fn d3_wire_v1_pragma_hex_is_lower_case_zero_padded() {
 // Batch #332 — v2 keystore-derived shim
 // ---------------------------------------------------------
 
-/// **D-3 wire invariant 15:** the v2 shim's wrong-
-/// purpose guard is centralized in a single
-/// `is_sqlcipher_purpose` predicate. A refactor that
-/// inlined the match arms at every call site would
-/// fragment the SSoT — adding a future SqlCipher*
-/// variant would require touching N call sites.
+/// **D-3 wire invariant 15:** the canonical predicate
+/// for "which `KeyPurpose` variants are SQLCipher
+/// migration targets" lives as a method on `KeyPurpose`
+/// itself (Batch #337 — closes LOW-006 audit finding).
+/// The v2 shim retains a thin pass-through `is_sqlcipher_purpose`
+/// free function for import-graph visibility at the
+/// migration boundary, but the SSoT is the method.
+///
+/// **Why this matters:** before Batch #337 the predicate
+/// lived as a private free function in
+/// `db_migration::v2_keystore_key`. A future module
+/// needing the same predicate (e.g., a key-rotation
+/// orchestrator filtering SqlCipher purposes) would have
+/// reimplemented the match arm — and the SSoT claim
+/// would have quietly stopped being true. Promoting the
+/// predicate to `KeyPurpose::is_sqlcipher_variant` puts
+/// the match arm next to the variant definitions, the
+/// natural SSoT location.
 #[test]
 fn d3_wire_v2_shim_centralizes_purpose_predicate() {
-    let src = read_source(V2_KEYSTORE_KEY_RS);
+    let purpose_src = read_source("src/keystore/purpose.rs");
     assert!(
-        src.contains("fn is_sqlcipher_purpose"),
-        "D-3 WIRE INVARIANT VIOLATED: {V2_KEYSTORE_KEY_RS} no \
-         longer defines `is_sqlcipher_purpose` predicate. \
-         Inlining the match arms at call sites fragments the \
-         'which purposes are valid for SQLCipher' SSoT — adding \
-         a future SqlCipher* variant would silently miss any \
-         non-updated call site."
+        purpose_src.contains("pub const fn is_sqlcipher_variant"),
+        "D-3 WIRE INVARIANT VIOLATED: src/keystore/purpose.rs \
+         no longer defines `is_sqlcipher_variant` method on \
+         KeyPurpose. The SSoT for 'which purposes are valid \
+         for SQLCipher migration' is gone."
     );
-    // The predicate MUST match BOTH SqlCipher* variants
+    // The method MUST match BOTH SqlCipher* variants
     // currently defined. Adding a third later requires
-    // extending this predicate AND this invariant.
+    // extending the method AND this invariant.
     assert!(
-        src.contains("KeyPurpose::SqlCipherOfflineQueue")
-            && src.contains("KeyPurpose::SqlCipherRetainPersistence"),
-        "D-3 WIRE INVARIANT VIOLATED: is_sqlcipher_purpose \
-         predicate dropped a SqlCipher* variant in \
-         {V2_KEYSTORE_KEY_RS}. Both SqlCipherOfflineQueue \
+        purpose_src.contains("Self::SqlCipherOfflineQueue")
+            && purpose_src.contains("Self::SqlCipherRetainPersistence"),
+        "D-3 WIRE INVARIANT VIOLATED: is_sqlcipher_variant \
+         method dropped a SqlCipher* variant in \
+         src/keystore/purpose.rs. Both SqlCipherOfflineQueue \
          and SqlCipherRetainPersistence are valid migration \
          targets today."
+    );
+    // The v2 shim retains a thin pass-through pointing
+    // at the method.
+    let shim_src = read_source(V2_KEYSTORE_KEY_RS);
+    assert!(
+        shim_src.contains("purpose.is_sqlcipher_variant()"),
+        "D-3 WIRE INVARIANT VIOLATED: {V2_KEYSTORE_KEY_RS} no \
+         longer delegates to KeyPurpose::is_sqlcipher_variant \
+         from its is_sqlcipher_purpose pass-through. Re-inlining \
+         the match arm fragments the SSoT — exactly the \
+         architectural regression LOW-006 was filed against."
     );
 }
 

@@ -116,9 +116,29 @@ pub enum V2DerivationError {
 impl std::fmt::Display for V2DerivationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::WrongPurpose { got } => write!(
+            // **Why no `got` variant name in Display
+            // (Batch #337 — closes SEC-MEDIUM-002 audit
+            // finding):** the `got: KeyPurpose` field is
+            // retained for `Debug` (operator-internal
+            // diagnostics) but stripped from `Display`
+            // (operator-visible logs). The auth-security-expert
+            // audit observed that emitting the variant
+            // name into structured logs creates a
+            // side-channel where an attacker who can
+            // influence the `purpose` argument (e.g., via
+            // an unsanitized config-file field that maps
+            // to `KeyPurpose`) can probe which non-
+            // SqlCipher variants exist by observing the
+            // log surface. For the current call sites
+            // (operator-controlled CLI argv) this is
+            // non-exploitable; for future call sites the
+            // scrubbed Display preserves the architectural
+            // safety property without operator log
+            // legibility cost (the kind prefix + canonical
+            // message is still searchable).
+            Self::WrongPurpose { .. } => write!(
                 f,
-                "v2_derivation_wrong_purpose: expected SqlCipher* variant, got {got:?}"
+                "v2_derivation_wrong_purpose: not a SqlCipher* variant"
             ),
             Self::Keystore(e) => {
                 write!(f, "v2_derivation_keystore_error: {e}")
@@ -136,18 +156,21 @@ impl From<KeyDerivationError> for V2DerivationError {
 }
 
 /// True iff the purpose is a SqlCipher* variant (i.e.,
-/// usable for SQLCipher key derivation). Today this is
-/// `SqlCipherOfflineQueue` + `SqlCipherRetainPersistence`;
-/// a future v3 may add `SqlCipherLicenseCache` etc.
-/// Centralizing the predicate here means the future v3
-/// addition is a one-line change at this function plus
-/// any new ADR-derived KeyPurpose variant.
+/// usable for SQLCipher key derivation).
+///
+/// **Why a thin pass-through (Batch #337 — closes LOW-006
+/// audit finding):** the canonical predicate lives on
+/// `KeyPurpose::is_sqlcipher_variant` (next to the variant
+/// definitions — the natural SSoT location). This module
+/// retains the free function as a thin pass-through so
+/// existing imports + the wire-status invariant grep
+/// continue to work AND so the migration tool's import
+/// graph still shows the predicate at the migration
+/// boundary. Adding a future SqlCipher* variant requires
+/// extending the method's match arm — which is the only
+/// place to update.
 fn is_sqlcipher_purpose(purpose: KeyPurpose) -> bool {
-    matches!(
-        purpose,
-        KeyPurpose::SqlCipherOfflineQueue
-            | KeyPurpose::SqlCipherRetainPersistence
-    )
+    purpose.is_sqlcipher_variant()
 }
 
 /// Derive the v2 SQLCipher key from a `Keystore` for the
@@ -421,16 +444,64 @@ mod tests {
     }
 
     /// Display string for `WrongPurpose` carries the
-    /// canonical `v2_derivation_wrong_purpose` prefix
-    /// for log aggregator search. Pins the operator-
-    /// visible error surface.
+    /// canonical `v2_derivation_wrong_purpose` prefix for
+    /// log aggregator search AND does NOT leak the
+    /// rejected variant name (Batch #337 — closes
+    /// SEC-MEDIUM-002). The variant name remains in
+    /// `Debug` for operator-internal diagnostics.
     #[test]
     fn wrong_purpose_display_string_pinned() {
         let err = V2DerivationError::WrongPurpose {
             got: KeyPurpose::AuditHmacChain,
         };
         let s = format!("{err}");
-        assert!(s.contains("v2_derivation_wrong_purpose"));
+        assert!(
+            s.contains("v2_derivation_wrong_purpose"),
+            "operator-visible canonical prefix missing: {s}"
+        );
+        // SEC-MEDIUM-002 architectural property: the
+        // rejected variant name MUST NOT appear in the
+        // Display string. A refactor that re-leaked it
+        // (e.g., `{got:?}` reintroduced) fails here.
+        assert!(
+            !s.contains("AuditHmacChain"),
+            "SEC-MEDIUM-002 VIOLATION: WrongPurpose Display \
+             leaked the rejected variant name into the \
+             operator-visible log surface: {s}"
+        );
+    }
+
+    /// Debug string still carries the variant name for
+    /// operator-internal diagnostics. Pinning the split
+    /// between Display (scrubbed) and Debug (full) keeps
+    /// the SEC-MEDIUM-002 fix from over-correcting into
+    /// a useless internal-debugging story.
+    #[test]
+    fn wrong_purpose_debug_string_retains_variant_name() {
+        let err = V2DerivationError::WrongPurpose {
+            got: KeyPurpose::AuditHmacChain,
+        };
+        let s = format!("{err:?}");
+        assert!(
+            s.contains("AuditHmacChain"),
+            "Debug string should retain variant name for \
+             operator-internal diagnostics, got: {s}"
+        );
+    }
+
+    /// `KeyPurpose::is_sqlcipher_variant()` is the SSoT
+    /// (Batch #337 — closes LOW-006). The shim's
+    /// `is_sqlcipher_purpose` is a thin pass-through.
+    /// Pin both halves so a future inlining of the match
+    /// arm at the call site fails this gate.
+    #[test]
+    fn key_purpose_is_sqlcipher_variant_method_is_ssot() {
+        assert!(KeyPurpose::SqlCipherOfflineQueue.is_sqlcipher_variant());
+        assert!(KeyPurpose::SqlCipherRetainPersistence.is_sqlcipher_variant());
+        assert!(!KeyPurpose::AuditHmacChain.is_sqlcipher_variant());
+        assert!(!KeyPurpose::ReplayCache.is_sqlcipher_variant());
+        assert!(!KeyPurpose::DekEscrow.is_sqlcipher_variant());
+        assert!(!KeyPurpose::ConfigVerify.is_sqlcipher_variant());
     }
 
     /// `From<KeyDerivationError>` implemented so the `?`

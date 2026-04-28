@@ -76,6 +76,40 @@ impl KeyPurpose {
             Self::ConfigVerify => b"suderra:config-verify:v1",
         }
     }
+
+    /// True iff this `KeyPurpose` is a SQLCipher key
+    /// derivation target — i.e., usable as input to
+    /// SQLCipher `PRAGMA key`/`PRAGMA rekey`. Today this
+    /// is `SqlCipherOfflineQueue` + `SqlCipherRetainPersistence`;
+    /// adding a future SqlCipher* variant requires extending
+    /// this match arm AND an ADR-driven rollout per the
+    /// `hkdf_info` stability contract above.
+    ///
+    /// ## Why a method on `KeyPurpose` (not a free function
+    /// in `db_migration::v2_keystore_key`)
+    ///
+    /// Pre-Batch-#337 the predicate lived as a private
+    /// `is_sqlcipher_purpose` function in
+    /// `db_migration::v2_keystore_key`. The
+    /// audit-flagged LOW-006 finding (edge-industrial-auditor)
+    /// observed that this fragmentation undermined the
+    /// SSoT claim — a future module needing the same
+    /// predicate (e.g., a key-rotation orchestrator that
+    /// filters SqlCipher purposes) would reimplement the
+    /// match arm, and the SSoT would quietly stop being
+    /// true. Promoting the predicate to a method on the
+    /// enum places the match arm next to the variant
+    /// definitions — the natural SSoT location.
+    ///
+    /// `const` so it's usable in const contexts (e.g.,
+    /// future static lookup tables).
+    pub const fn is_sqlcipher_variant(self) -> bool {
+        matches!(
+            self,
+            Self::SqlCipherOfflineQueue
+                | Self::SqlCipherRetainPersistence
+        )
+    }
 }
 
 /// Opaque identifier for a derived key — a 16-byte digest of

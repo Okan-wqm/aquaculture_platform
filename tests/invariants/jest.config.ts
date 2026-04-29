@@ -123,6 +123,7 @@ export default {
         '<rootDir>/audit-log-mandatory-shape.spec.ts',
         '<rootDir>/audit-fail-closed-mfa-webauthn.spec.ts',
         '<rootDir>/access-log-stream-shape.spec.ts',
+        '<rootDir>/webhook-public-paths.spec.ts',
       ],
     },
     {

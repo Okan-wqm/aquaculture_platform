@@ -2048,3 +2048,155 @@ Two architectural options, neither required for current PR landing:
 2. **Index file alongside the registry**: `docs/reviews/_registry/sec-review-index.md` with one markdown anchor per SEC-REVIEW-NNN. Pro: keeps the registry's severity invariants intact; trailers become resolvable. Con: requires a new gate to prevent drift between commits + the index.
 
 Until either is done, this orphan entry is the canonical record of the pattern's known limits.
+
+## 2026-04-29 ORPHAN-D3-BOOT-ORDER-001 — `init_keystore` runs AFTER `init_offline_queue` in main.rs; manifest-aware consumer adoption requires re-ordering
+
+**Where surfaced:** PR-195 Batch #16 (D-3 SQLCipher migration arc — manifest-aware consumer adoption planning).
+
+**Where it lives:** `sens-api-gateway/src/main.rs` boot sequence, current order:
+- L3209: `state_guard.init_offline_queue().await`
+- L3371: `state_guard.init_license_cache()`
+- L3383: `state_guard.init_bytecode_registry_store().await`
+- L3394: `state_guard.init_retain_persistence()`
+- L3405: `state_guard.init_force_registry_store().await`
+- L3492: `state_guard.init_keystore().await`  ← runs AFTER all consumers above
+
+**Why this is a real architectural concern (not just stylistic):**
+
+PR-195 Batches #13-#15 landed manifest-aware constructors on all 4 SQLCipher consumers (`OfflineQueue::with_keystore_derivation`, `LicenseCacheStore::open_with_keystore_derivation`, `SqlitePersistence::new_with_keystore_derivation`, `BytecodeRegistryStore::new_with_keystore_derivation`). Each one takes `Arc<dyn Keystore>` as a required arg + uses `consumer_key_resolver::resolve_consumer_pragma_key` to dispatch v1-vs-v2 derivation per the manifest sidecar.
+
+For `init_offline_queue` / `init_license_cache` / etc. to actually USE these new constructors (the next architectural batch — switch the AppState init callsites), `self.keystore` must be `Some(Arc<dyn Keystore>)` at the time those `init_X` functions execute. Currently it's `None` because `init_keystore` runs LATER in the boot sequence.
+
+**Why the boot-order is currently safe (pre-Batch-16):** the legacy v1-only constructors (`OfflineQueue::with_disk_limit`, `LicenseCacheStore::open`, etc.) derive the SQLCipher key via `offline_queue::derive_db_encryption_key` which only needs `/etc/machine-id` + `/etc/suderra/db.key` — no keystore dependency. So pre-D-3 the boot order didn't matter for these consumers.
+
+**Why the boot-order becomes critical post-Batch-16:** once `init_X` switches to the manifest-aware constructors, `self.keystore.as_ref()?` becomes the entry contract. Calling `init_offline_queue` before `init_keystore` would either fail-closed (refusing to boot the agent) or fall back silently to v1-only (defeating the migration ceremony's whole purpose).
+
+**Architectural fix path (Tier-1 MAKE-IT-IMPOSSIBLE):**
+
+Re-order the boot sequence so `init_keystore` runs FIRST, before any SQLCipher consumer init. The relocation is mechanical:
+
+1. Move the `init_keystore` block from the current line (~3492) to immediately after `init_failover_manager` / `init_health_server` (around line 3200, before `init_offline_queue` at L3209).
+2. Verify no dependency cycles: `init_keystore` reads `self.config` + `self.clock_authority` (both set at `AppState::new`); it does NOT depend on any other `init_X`. Safe to relocate.
+3. Add a Tier-3 wire-status invariant that pins the order: `tests/invariants/boot_order.rs` asserting `init_keystore` line number < `init_offline_queue` line number in main.rs (grep-based detector — fails CI if a future refactor mis-orders).
+
+**Why this is documented as an ORPHAN (not done in Batch #16):**
+
+Batch #16 extracted `build_production_keystore_from_config` — the SSoT for keystore construction usable from BOTH the AppState boot path AND the future `--migrate-db` CLI dispatch. The boot-order relocation is a SEPARATE architectural concern that interacts with two open questions:
+
+1. **Program-bound consumer init lifecycle (ORPHAN-D3-BOOT-ORDER-002 below).** `init_retain_persistence` + `init_bytecode_registry_store` are PROGRAM-BOUND consumers per ADR-031 — they need `program_artifact_sha256` for the v2 derivation path. At AppState boot time, no program is loaded yet (programs deploy via MQTT post-boot). The keystore being available isn't enough; the program SHA isn't either.
+
+2. **CLI subcommand dispatch wiring (ORPHAN-D3-CLI-DISPATCH-001 below).** `--migrate-db` runs PRE-AppState entirely; it doesn't even have access to `self.keystore`. The bootstrap helper extracted in Batch #16 enables that dispatch site to build its own keystore independently. Independent boot path; doesn't share the AppState boot order.
+
+The boot-order fix is separate from both. Tracking it here so a future architectural batch picks it up.
+
+**State:** OPEN. Owner: okan. No deadline pinned (D-3 closure work; not blocking any other PR).
+
+## 2026-04-29 ORPHAN-D3-BOOT-ORDER-002 — `init_retain_persistence` / `init_bytecode_registry_store` need `program_artifact_sha256` at boot but no program is loaded yet
+
+**Where surfaced:** PR-195 Batch #16 (manifest-aware consumer adoption planning — program-bound flow analysis).
+
+**Where it lives:** `sens-api-gateway/src/main.rs:init_retain_persistence` (L2668) + `init_bytecode_registry_store` (~L2480 area).
+
+**The architectural problem:**
+
+Per ADR-031, the four SQLCipher consumers split into two binding shapes:
+- DEVICE-BOUND: `OfflineQueue` + `LicenseCacheStore` — context = `deployment_uuid` (always available at boot via `config.device_id`).
+- PROGRAM-BOUND: `SqlitePersistence` + `BytecodeRegistryStore` — context = `program_artifact_sha256` of the currently-loaded program.
+
+Programs deploy via the MQTT command path AFTER agent boot completes. At `init_retain_persistence` / `init_bytecode_registry_store` time, no program is loaded yet, so `program_artifact_sha256` is `None`.
+
+For pre-migration hosts (v1 manifest, or no manifest at all), the resolver's v1 path doesn't read program_sha — `init_X` works fine with empty/None program_sha because the v1 fallback ignores it.
+
+For post-migration hosts (v2 manifest):
+- The migration ceremony WAS run at some prior point.
+- The ceremony itself faced this same chicken-and-egg: which program SHA does the operator pass to the migration tool when migrating program-bound DBs?
+- If the migration tool ran with `program_sha = X`, the consumer DBs were rekeyed to a v2 key derived under `X`.
+- At runtime boot, the consumer constructor sees v2 manifest + has no program loaded yet + no SHA available → resolver fires `ProgramSha256Required` → fail-closed.
+
+**Three architectural options to resolve:**
+
+1. **Lazy DB-open: defer SqlitePersistence + BytecodeRegistryStore construction until a program loads.** `AppState.retain_persistence` becomes `None` at boot; the MQTT `cmd_deploy_program` handler initializes them with the program's SHA from the deploy payload. Pro: clean "key context = program context". Con: substantial boot-flow refactor; multiple call sites currently expect `state.retain_persistence` to be populated for the bytecode runner.
+
+2. **Delayed-bind constructor: open the DB at boot WITHOUT applying PRAGMA key, then apply the key when program loads.** Pro: existing AppState shape preserved. Con: SQLCipher requires the key BEFORE any read — the DB cannot be opened "later"; the connection itself must carry the key from open time. Architecturally infeasible.
+
+3. **First-program-deploy migration discipline: program-bound DBs cannot be migrated by the offline ceremony; instead, the agent re-creates them under v2 keys WHEN a program first loads after the migration.** The migration ceremony's `KNOWN_SQLCIPHER_CONSUMERS` excludes program-bound entries; the orchestrator emits `Skipped { reason: ProgramBoundDeferredToRuntime }` for those purposes. The consumer constructors at runtime detect "no v2 manifest + program now loaded" and recreate the DB under v2 atomically.
+
+Option 3 is the cleanest architectural shape — separates the DEVICE-bound and PROGRAM-bound migration cadences; matches the natural lifecycle of program-bound state (re-deployable at any time, no migration needed because the new program's SHA produces a fresh key naturally).
+
+**Why this is documented as an ORPHAN (not done in Batch #16):**
+
+The choice between options 1 and 3 affects the migration ceremony's `KNOWN_SQLCIPHER_CONSUMERS` SSoT, the orchestrator's outcome taxonomy, the per-consumer constructors' contract, AND the boot-flow shape. Substantial design work that deserves its own PR with proper architectural review — not a back-pocket decision inside the broader Batch #16 scope.
+
+**State:** OPEN. Owner: okan. No deadline pinned. Blocking: full D-3 end-to-end functionality (ceremony + runtime adoption) cannot land until this is resolved for program-bound consumers.
+
+## 2026-04-29 ORPHAN-D3-CLI-DISPATCH-001 — `main.rs --migrate-db` arm still calls legacy `run_migration_ceremony` (no MigrationContext); operators can't actually invoke the executor
+
+**Where surfaced:** PR-195 Batches #11-#16 (D-3 migration ceremony arc).
+
+**Where it lives:** `sens-api-gateway/src/main.rs:2823` `--migrate-db` dispatch arm.
+
+**Current state (post-Batch-16):**
+
+PR-195 has landed:
+- `run_migration_ceremony_with_context(argv, ctx: MigrationContext)` execute-capable CLI entry (Batch #12)
+- `crate::keystore::bootstrap::build_production_keystore_from_config(...)` SSoT helper (Batch #16)
+- All 4 per-consumer manifest-aware constructors (Batches #13-#15)
+
+The dispatch arm at `main.rs:2823` still calls the LEGACY `run_migration_ceremony(argv)` (no-context version) which refuses execute mode at runtime with the operator-readable "execution requires MigrationContext" message. So the migration tool is FUNCTIONAL but UNREACHABLE — operators run `--migrate-db --execute` and the agent says "use run_migration_ceremony_with_context" without offering them a path to do so.
+
+**Why not done in Batch #16:**
+
+Wiring the dispatch arm requires:
+1. Calling `AgentConfig::load()` inside the `--migrate-db` arm (currently config load is at L2987, AFTER the early subcommand dispatch).
+2. Building a clock-authority for the keystore (currently AppState owns this; CLI dispatch needs to pick its own).
+3. Building the keystore via `crate::keystore::bootstrap::build_production_keystore_from_config(...)`.
+4. Constructing `MigrationContext { device_id, program_artifact_sha256: None, keystore, now_unix }` (program_sha = None pending ORPHAN-D3-BOOT-ORDER-002 resolution).
+5. Mapping the `ExitCode` to an `i32` for `std::process::exit`.
+
+That's ~80-100 lines of wire-up code. Bundleable but interacts with the parallel session on PR-211 (which may also touch main.rs's early dispatch). Documented here so the next architectural batch picks it up cleanly without colliding with parallel work.
+
+**Architectural shape for the future batch:**
+
+```rust
+// sens-api-gateway/src/main.rs --migrate-db arm:
+"--migrate-db" => {
+    let sub_argv: Vec<&str> = args.get(2..).unwrap_or(&[])
+        .iter().map(|s| s.as_str()).collect();
+
+    // Build a per-call tokio runtime to run the async
+    // keystore-build + ceremony orchestrator.
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all().build().expect("tokio runtime");
+    let exit_code = rt.block_on(async {
+        let config = AgentConfig::load()
+            .map_err(|e| format!("config load: {e}"))?;
+        let clock: Arc<dyn ClockAuthority> = Arc::new(
+            crate::runtime_safety::SystemClockAuthority::new(),
+        );
+        let keystore = crate::keystore::bootstrap::
+            build_production_keystore_from_config(
+                &config, clock, data_dir::data_dir(),
+            )
+            .await?
+            .ok_or_else(|| "keystore.mode=Disabled; cannot run migration".to_string())?;
+        let ctx = crate::db_migration::cli::MigrationContext {
+            device_id: config.device_id.clone(),
+            program_artifact_sha256: None, // see ORPHAN-D3-BOOT-ORDER-002
+            keystore,
+            now_unix: chrono::Utc::now().timestamp(),
+        };
+        Ok::<_, String>(
+            crate::db_migration::cli::run_migration_ceremony_with_context(
+                &sub_argv, ctx,
+            ),
+        )
+    });
+
+    std::process::exit(match exit_code {
+        Ok(code) if format!("{code:?}").contains("status(0)") => 0,
+        _ => 1,
+    });
+}
+```
+
+**State:** OPEN. Owner: okan. No deadline pinned. Blocking: operator-invocable migration ceremony (the whole point of D-3) requires this wire-up.

@@ -2068,129 +2068,28 @@ impl AppState {
     /// rotation tracker: TPM-mode (future batch) handles
     /// rotation via NV counter, not this marker.
     pub async fn init_keystore(&mut self) -> Result<(), String> {
-        use crate::config::KeystoreMode;
-        use crate::keystore::{
-            AcceptanceToken, Argon2idParams, FileBackedAcceptance, FileBackedKeystore,
-            ROTATION_MARKER_FILENAME,
-        };
-
-        if matches!(self.config.keystore.mode, KeystoreMode::Disabled) {
-            info!("Keystore init skipped: keystore.mode=Disabled (HC-1 backward compat)");
-            return Ok(());
-        }
-
-        // Auto + FileBacked both converge on FileBacked for
-        // this batch (TPM + systemd-creds probe land in
-        // follow-up batches). Log the downgrade in Auto
-        // mode so operators know which backend actually
-        // activated.
-        if matches!(self.config.keystore.mode, KeystoreMode::Auto) {
-            warn!(
-                "Keystore.mode=Auto: TPM + systemd-creds probes land in Phase 2 / Batches 83a+83b. \
-                 Falling through to FileBacked for this boot. Provision a TPM (or systemd-creds namespace) \
-                 to promote to a hardware-backed tier when those batches ship."
-            );
-        }
-
-        let pass_path = self
-            .config
-            .keystore
-            .passphrase_path
-            .clone()
-            .unwrap_or_else(|| {
-                std::path::PathBuf::from("/etc/suderra/keystore.passphrase")
-            });
-        let salt_path = self.config.keystore.salt_path.clone().unwrap_or_else(|| {
-            std::path::PathBuf::from("/etc/suderra/keystore.salt")
-        });
-        let acceptance_path = self
-            .config
-            .keystore
-            .acceptance_path
-            .clone()
-            .unwrap_or_else(|| {
-                std::path::PathBuf::from("/etc/suderra/keystore.acceptance.json")
-            });
-
-        // Read + parse acceptance token (operator-signed).
-        let acceptance_bytes = std::fs::read(&acceptance_path).map_err(|e| {
-            format!(
-                "Keystore init: read acceptance {}: {}",
-                acceptance_path.display(),
-                e
-            )
-        })?;
-        let token: AcceptanceToken = serde_json::from_slice(&acceptance_bytes)
-            .map_err(|e| {
-                format!(
-                    "Keystore init: parse acceptance JSON {}: {}",
-                    acceptance_path.display(),
-                    e
-                )
-            })?;
-
-        // Device identity for binding. Device code is the
-        // stable acceptance-token field; operator_id comes
-        // from the token itself.
-        let device_id = self.config.device_code.clone();
-        let acceptance = FileBackedAcceptance::try_from_parts(
-            &token,
-            &token.operator_id,
-            &device_id,
-            std::time::SystemTime::now(),
-            // Pre-Batch-84 signature-verify wiring: accept
-            // operator-supplied token without crypto verify.
-            // Batch 84 introduces operator-pubkey config
-            // knob + real ed25519 verify here. Current
-            // discipline: acceptance_path file perms 0400
-            // owner:suderra + audit-log every load.
-            |_, _| true,
+        // PR-195 Batch #16: keystore construction
+        // extracted to crate::keystore::bootstrap so the
+        // same production path is reachable from BOTH
+        // this AppState boot path AND the future
+        // --migrate-db CLI dispatch (which runs
+        // PRE-AppState). The extracted function is
+        // byte-for-byte equivalent to the pre-extraction
+        // inline body — same Argon2id params, same
+        // acceptance-token verification stance, same
+        // rotation-marker wire.
+        let keystore_opt = crate::keystore::bootstrap::build_production_keystore_from_config(
+            &self.config,
+            self.clock_authority.clone(),
+            data_dir::data_dir(),
         )
-        .map_err(|e| format!("Keystore init: acceptance token invalid: {:?}", e))?;
+        .await?;
 
-        let params = Argon2idParams {
-            memory_kib: self.config.keystore.argon2_memory_kib,
-            iterations: self.config.keystore.argon2_iterations,
-            parallelism: self.config.keystore.argon2_parallelism,
-        };
-
-        // Batch #320 D-1b CLOSURE: production cold-boot uses
-        // the rotation-tracker-aware ctor. The marker lives at
-        // a stable path under data_dir (operator-readable JSON
-        // for incident-response cat); the alarm runner task
-        // (spawned later in main()) reads the SAME path on
-        // each tick. clock_authority is the AppState field
-        // that ALL TTL/rotation primitives share — keystore
-        // alarm + force_registry sweep + future D-9 consumers
-        // all converge on this single Arc<dyn ClockAuthority>.
-        let marker_path = data_dir::data_dir().join(ROTATION_MARKER_FILENAME);
-        let clock_for_keystore = self.clock_authority.clone();
-        let ks = FileBackedKeystore::open_with_rotation_tracker(
-            &pass_path,
-            &salt_path,
-            params,
-            acceptance,
-            marker_path.clone(),
-            clock_for_keystore,
-        )
-        .await
-        .map_err(|e| {
-            format!(
-                "Keystore init: FileBacked open_with_rotation_tracker failed (fail-closed boot): {}",
-                e
-            )
-        })?;
-
-        info!(
-            "Keystore opened: backend=FileBacked argon2id m={}KiB t={} p={} \
-             rotation_marker={}",
-            params.memory_kib,
-            params.iterations,
-            params.parallelism,
-            marker_path.display(),
-        );
-
-        self.keystore = Some(std::sync::Arc::new(ks));
+        // None = keystore.mode = Disabled (HC-1 backward
+        // compat). Caller's downstream consumers handle
+        // self.keystore = None as the "no keystore"
+        // case.
+        self.keystore = keystore_opt;
         Ok(())
     }
 

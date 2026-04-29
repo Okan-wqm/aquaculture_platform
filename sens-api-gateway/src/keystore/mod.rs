@@ -42,6 +42,11 @@
 //! - ADR-019 §3 "Firmware key usage does NOT touch master directly"
 
 pub mod acceptance;
+// PR-195 Batch #16 — production keystore-build helper
+// extracted from AppState::init_keystore so the same
+// construction path is reachable from main.rs's normal
+// boot AND the future `--migrate-db` CLI dispatch.
+pub mod bootstrap;
 pub mod error;
 pub mod purpose;
 pub mod secret;

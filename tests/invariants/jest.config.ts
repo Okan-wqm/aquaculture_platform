@@ -132,6 +132,7 @@ export default {
         '<rootDir>/pii-events-mandatory-crypto-shred.spec.ts',
         '<rootDir>/token-blacklist-divergence-tracked.spec.ts',
         '<rootDir>/no-new-adhoc-circuit-breaker.spec.ts',
+        '<rootDir>/legal-hold-drop-partition-guard.spec.ts',
       ],
     },
     {

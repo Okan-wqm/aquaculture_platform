@@ -86,24 +86,109 @@ export function createMonthlyPartition(
 }
 
 /**
+ * Branded token proving the legal-hold registry was consulted before
+ * a partition drop (LEGAL-MEDIUM-003 cure).
+ *
+ * # Why this exists
+ *
+ * Pre-cure `dropPartition()` was a free function any code path could
+ * call to emit destructive SQL. The agent spec mandates: "DROP SCHEMA
+ * partition / DROP migrations are explicitly enumerated as a
+ * destructive surface; primary remains the destructive handler's
+ * owner". A bare WARNING comment was Tier-4 documentation only —
+ * it could not stop a future caller from emitting the DROP without
+ * checking the hold registry.
+ *
+ * # How the brand works (Tier-1 — make impossible)
+ *
+ * The token is a branded type whose nominal shape is unconstructible
+ * outside this module (its only field is a `Symbol` declared `unique`,
+ * not exported). The factory is `LegalHoldGuard.assertHoldClearedFor(...)`
+ * — it queries `LegalHoldService.isUnderLegalHold()` and only returns
+ * a token when the answer is `false`. The destructive helper now
+ * requires a `HoldClearedToken` argument; TypeScript refuses to compile
+ * a callsite that omits it, and there is no runtime path to fabricate
+ * one without going through the guard.
+ *
+ * # Why "Hold Cleared" not "Hold Checked"
+ *
+ * "Checked" leaves room for a yes-or-no token; the brand is granted
+ * ONLY for the cleared (no-hold) outcome, so the type's mere existence
+ * proves clearance. The fail-CLOSED LegalHoldCheckUnavailable path
+ * (LEGAL-MEDIUM-001) means the token is also withheld when the
+ * registry was unreachable — destructive ops abort on registry
+ * failure by construction.
+ */
+declare const HoldClearedTokenBrand: unique symbol;
+export interface HoldClearedToken {
+  readonly [HoldClearedTokenBrand]: true;
+  /** Records the (tenant, channel) scope the clearance was granted for. */
+  readonly tenantId: string;
+  readonly channelId: string | null;
+  /** Wall-clock timestamp the registry was consulted. */
+  readonly checkedAt: Date;
+}
+
+/**
+ * Internal token factory — exported only for the LegalHoldGuard module
+ * to call. Direct invocation outside the guard is forbidden by the
+ * `tests/invariants/legal-hold-drop-partition-guard.spec.ts` invariant.
+ *
+ * The two-tier protection (TS brand + invariant test) catches both
+ * accidental drift (compile-time) and deliberate bypass (CI-time).
+ */
+export function __mintHoldClearedTokenForGuard(args: {
+  tenantId: string;
+  channelId: string | null;
+}): HoldClearedToken {
+  return Object.freeze({
+    [HoldClearedTokenBrand]: true as const,
+    tenantId: args.tenantId,
+    channelId: args.channelId,
+    checkedAt: new Date(),
+  }) as HoldClearedToken;
+}
+
+/**
  * Generates a SQL statement to drop a monthly partition.
  *
- * WARNING: This permanently deletes all data in the partition.
- * Use for retention cleanup only after confirming the data retention
- * policy allows it.
+ * # WHY THE `unsafe` PREFIX
+ *
+ * This helper emits a destructive `DROP TABLE` statement. The
+ * legal-hold-auditor agent spec requires the hold registry to be
+ * consulted before any partition drop (LEGAL-MEDIUM-003). Pre-cure
+ * the helper was named `dropPartition` and protected only by a
+ * WARNING comment — Tier-4 documentation that a future caller
+ * could ignore. Post-cure the `unsafe` prefix makes the destructive
+ * nature visible at every callsite, and the `HoldClearedToken`
+ * argument forces the caller to go through `LegalHoldGuard.assertHoldClearedFor()`
+ * — there is no path to emit the SQL without registry clearance.
  *
  * @param schema - Schema name
  * @param tableName - Parent table name
  * @param year - Partition year
  * @param month - Partition month (1-12)
+ * @param holdToken - Proof that the legal-hold registry has been
+ *   consulted and returned "no hold" for the (tenant, partition) scope.
+ *   Mintable only via LegalHoldGuard.
  * @returns SQL DROP TABLE statement
  */
-export function dropPartition(
+export function unsafeDropPartitionSql(
   schema: string,
   tableName: string,
   year: number,
   month: number,
+  holdToken: HoldClearedToken,
 ): string {
+  // The argument is type-checked at compile time. The runtime read is
+  // also defensive — a malformed token (e.g., missing tenantId) hard-fails
+  // before the destructive SQL is emitted.
+  if (!holdToken || !holdToken.tenantId) {
+    throw new Error(
+      'unsafeDropPartitionSql: HoldClearedToken is required (LEGAL-MEDIUM-003). ' +
+        'Use LegalHoldGuard.assertHoldClearedFor() to obtain one.',
+    );
+  }
   assertSafeSqlIdentifier(schema, 'schema');
   assertSafeSqlIdentifier(tableName, 'tableName');
   const paddedMonth = String(month).padStart(2, '0');

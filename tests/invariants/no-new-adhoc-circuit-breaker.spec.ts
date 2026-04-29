@@ -162,4 +162,30 @@ describe('CIRCUIT-MEDIUM-001 — no new ad-hoc CircuitBreaker outside the grandf
       expect(entry.path).toMatch(/\.ts$/);
     }
   });
+
+  /**
+   * CIRCUIT-MEDIUM-002 — service-proxy SSE path was missing the
+   * breaker wrap that sibling `proxy()` had. Cure landed inside
+   * the same proxySSE method. This invariant pins the wrap so a
+   * future "tidy" cannot strip it without tripping the gate.
+   */
+  it('CIRCUIT-MEDIUM-002 — proxySSE wraps connection-establishment fetch in circuitBreaker.execute', () => {
+    const src = read('apps/gateway-api/src/proxy/service-proxy.service.ts');
+    // Locate the proxySSE method body.
+    const methodMatch =
+      /async\s+proxySSE\s*\([\s\S]*?\)\s*:\s*Promise<void>\s*{([\s\S]*?)\n {2}}/.exec(
+        src,
+      );
+    expect(methodMatch).not.toBeNull();
+    const body = methodMatch![1] ?? '';
+    // Within proxySSE: an `await this.circuitBreaker.execute(`
+    // call MUST appear before the `response.body?.getReader()`
+    // line (the streaming entry point — once we're streaming the
+    // breaker doesn't apply).
+    const executeIdx = body.search(/this\.circuitBreaker\.execute\s*\(/);
+    const getReaderIdx = body.search(/response\.body\?\.getReader/);
+    expect(executeIdx).toBeGreaterThan(-1);
+    expect(getReaderIdx).toBeGreaterThan(-1);
+    expect(executeIdx).toBeLessThan(getReaderIdx);
+  });
 });

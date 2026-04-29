@@ -15,6 +15,7 @@ import { createHmac, timingSafeEqual } from 'crypto';
 import { Public } from '@aquaculture/backend-common/decorators';
 import { RedisService } from '@aquaculture/backend-common/redis';
 import { AuditLogService, AuditSeverity } from '@aquaculture/backend-common/audit';
+import { SecurityEventService } from '@aquaculture/backend-common/security';
 import { StripeWebhookService } from './stripe-webhook.service';
 import { StripeWebhookEventEntity } from '../entities/stripe-webhook-event.entity';
 
@@ -91,6 +92,15 @@ export class StripeWebhookController {
     @Optional()
     @InjectRepository(StripeWebhookEventEntity)
     private readonly dedupRepo?: Repository<StripeWebhookEventEntity>,
+    // BILLING-HIGH-004 cure: signature-verification failures emit a
+    // SuspiciousActivity SecurityEvent so the platform's incident-
+    // detection pipeline (Prom alert / pager / dashboard) sees the
+    // signal in real time. Audit-log-only signal is insufficient —
+    // audit has 7y retention but no real-time alert path. @Optional
+    // because the SecurityEventService may not be wired in local-dev
+    // paths.
+    @Optional()
+    private readonly securityEventService?: SecurityEventService,
   ) {
     this.webhookSecret = this.configService.get<string>('STRIPE_WEBHOOK_SECRET', '');
     if (!this.webhookSecret) {
@@ -149,15 +159,37 @@ export class StripeWebhookController {
 
     const verificationResult = this.verifySignature(rawBody, signatureHeader, this.webhookSecret);
     if (!verificationResult.valid) {
-      // BILLING-HIGH-004 closure (paired with this audit row): signature
-      // failure is a security-relevant event — rate-spike on this audit
-      // row triggers the SecurityAlertRaised alert path (W1.4).
+      // BILLING-HIGH-004 cure: every signature failure publishes a
+      // SuspiciousActivity SecurityEvent so the platform's incident-
+      // detection pipeline (Prom alert / pager / SIEM) sees the signal
+      // in real time. Audit-log row alone is insufficient — audit has
+      // 7y retention but no real-time alert path. Per-IP rate is the
+      // natural detection signal: a single misconfiguration generates
+      // one event; a replay attack generates many on the same IP.
       this.logger.warn(`Webhook signature verification failed: ${verificationResult.reason}`);
       await this.audit('stripe.webhook.rejected.invalid_signature', {
         ip: sourceIp,
         severity: AuditSeverity.CRITICAL,
         metadata: { reason: verificationResult.reason ?? 'unknown' },
       });
+      // SecurityEvent emission. Defensive try/catch — a downstream
+      // event-bus outage MUST NOT block the 400 response (otherwise a
+      // failed event publish becomes a Stripe retry storm). Failures
+      // here surface in logs without altering the controller's behaviour.
+      try {
+        await this.securityEventService?.publishSuspiciousActivity({
+          ip: sourceIp,
+          description: 'stripe-webhook-signature-failed',
+          reason: verificationResult.reason ?? 'unknown',
+          endpoint: '/webhooks/stripe',
+        });
+      } catch (err) {
+        this.logger.warn(
+          `SecurityEvent publish failed (non-fatal): ${
+            err instanceof Error ? err.message : 'Unknown'
+          }`,
+        );
+      }
       res.status(400).json({ error: 'Invalid signature' });
       return;
     }

@@ -126,6 +126,7 @@ export default {
         '<rootDir>/webhook-public-paths.spec.ts',
         '<rootDir>/cache-key-tenant-scope.spec.ts',
         '<rootDir>/admin-api-health-probe-breakered.spec.ts',
+        '<rootDir>/billing-webhook-redis-required.spec.ts',
       ],
     },
     {

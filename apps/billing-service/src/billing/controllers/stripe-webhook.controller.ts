@@ -74,7 +74,24 @@ export class StripeWebhookController {
   constructor(
     private readonly configService: ConfigService,
     private readonly webhookService: StripeWebhookService,
-    @Optional() private readonly redisService?: RedisService,
+    /**
+     * BILLING-MEDIUM-001 cure: RedisService is REQUIRED (no
+     * @Optional). Pre-cure the dependency was @Optional() and the
+     * webhook idempotency check (lines 138-150) silently
+     * bypassed dedup if Redis was missing — a misconfigured
+     * deployment ran with no dedup, accepting every replay
+     * attempt verbatim. The webhook idempotency layer is
+     * functionally a quota gate; layer-1-nestjs requires
+     * fail-closed posture for quota gates on Redis outage.
+     *
+     * BILLING-HIGH-001 (persistent DB-side dedup) makes a
+     * Redis-miss less catastrophic but still important for
+     * rate-limit semantics, so Redis stays a hard dependency.
+     * If Redis is genuinely unreachable at boot, the service
+     * fails to start — the correct fail-closed behaviour for a
+     * billing-side webhook.
+     */
+    private readonly redisService: RedisService,
     // AUDITTRAIL-CRITICAL-005 closure: every webhook outcome (signature
     // failure, dedup, parse failure, success, handler error) writes a
     // transactional audit row via recordAwait. Optional injection
@@ -271,7 +288,12 @@ export class StripeWebhookController {
     // 4b. Idempotency cache layer (Redis) — fast path that avoids
     // hitting DB on every replay during the typical 3-day Stripe retry
     // window. Authoritative source remains the DB; Redis is a cache.
-    if (this.redisService) {
+    //
+    // BILLING-MEDIUM-001: redisService is now REQUIRED (no @Optional).
+    // The branch is unconditional. A boot-time DI failure would have
+    // already prevented the service from starting; if we're inside
+    // this handler the dependency is live.
+    {
       const idempotencyKey = `webhook:stripe:${eventId}`;
       const isNew = await this.redisService.setNx(
         idempotencyKey,

@@ -82,6 +82,13 @@ import { FishHealthModule } from '../fish-health/fish-health.module';
 // (MORTALITY_BACKDATE_LIMIT_DAYS, default 14).
 import { BackdatePolicyModule } from '../common/services/backdate-policy.module';
 
+// Cross-cutting: restoreBatchFeedAssignment mutation delegates to
+// RestoreService — closes FARM-MEDIUM-002's last entity gap (5/5 of
+// the Phase 4.2 restorable surface) and FARM-MEDIUM-003 (the resolver
+// converged onto TypeORM repos so RestoreService.restore() can run
+// against it uniformly with the other restorable entities).
+import { RestoreModule } from '../common/services/restore.module';
+
 @Module({
   imports: [
     TypeOrmModule.forFeature([
@@ -105,6 +112,7 @@ import { BackdatePolicyModule } from '../common/services/backdate-policy.module'
     TankModule,
     FishHealthModule,
     BackdatePolicyModule,
+    RestoreModule,
     ConfigModule,
   ],
   controllers: [

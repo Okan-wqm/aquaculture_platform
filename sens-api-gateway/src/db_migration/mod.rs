@@ -122,6 +122,7 @@
 
 pub mod boot_detector;
 pub mod cli;
+pub mod consumer_context;
 pub mod manifest;
 pub mod rekey;
 pub mod rekey_swap;

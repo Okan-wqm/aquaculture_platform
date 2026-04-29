@@ -11,8 +11,8 @@ import {
 // `@Entity()` decorator as a side effect. Imported here for use in the
 // @Column metadata below AND re-exported (back-compat for existing
 // consumers that still import `AuditSeverity` from `audit-log.entity`).
-import { AuditSeverity } from './audit-log.tokens';
-export { AuditSeverity };
+import { AuditMethod, AuditResult, AuditSeverity } from './audit-log.tokens';
+export { AuditMethod, AuditResult, AuditSeverity };
 
 /**
  * AuditLogEntity - Immutable audit trail record
@@ -189,4 +189,168 @@ export class AuditLogEntity {
    */
   @Column({ type: 'boolean', default: false })
   legalHold!: boolean;
+
+  // ──────────────────────────────────────────────────────────────────────
+  // AUDITTRAIL-CRITICAL-004 — mandatory-shape extension
+  // ──────────────────────────────────────────────────────────────────────
+  // The audit-trail-completeness-auditor agent's mandatory shape demands
+  // 22 columns. The pre-extension entity carried 14. The 8 below close
+  // the gap. Each column is also created in DB by migration
+  // `1788100000000-AddAuditLogShapeExtension` which adds matching CHECK
+  // constraints + secondary indexes; this entity declaration is the
+  // schema-drift-validator's canonical truth. Removing or retyping any
+  // column here without an accompanying migration WILL fail the invariant.
+  //
+  // Nullability mirrors the migration: legacy rows (pre-extension) cannot
+  // carry these values, so columns are nullable for the V1→V2 transition.
+  // A follow-up migration enforces NOT NULL on the trio (actor, method,
+  // result) once backfill completes — tracked under AUDITTRAIL agenda.
+  //
+  // WHY EACH FIELD: see prose docstring on each property below; the
+  // shorthand is "field carries a forensic capability that was previously
+  // either missing or buried inside metadata.jsonb (not queryable)."
+
+  /**
+   * Actor's home tenantId — the tenant the actor belongs to.
+   *
+   * WHY: SUPER_ADMIN cross-tenant impersonation rows carry the actor's
+   * home tenant in this column and the *target* tenant in
+   * `actedOnTenantId`. Without this column, the dual-identity context
+   * was crammed into `metadata.jsonb`, which (a) is not indexable in a
+   * plan-aware way and (b) silently loses semantic meaning the moment
+   * the JSON shape changes.
+   *
+   * WHAT: nullable uuid; null for legacy rows and for actions where
+   * actor identity does not exist (system/automation rows).
+   */
+  @Column({ type: 'uuid', nullable: true })
+  @Index('IDX_audit_log_actor_home_tenant')
+  actorHomeTenantId!: string | null;
+
+  /**
+   * Acted-on tenantId — the tenant the action targeted.
+   *
+   * WHY: the legacy `tenantId` column was overloaded between actor scope
+   * and target scope. Splitting it here makes the semantics explicit.
+   * During the V1→V2 transition window, `tenantId` and `actedOnTenantId`
+   * MUST be equal for non-impersonation rows; the difference between the
+   * two is exactly the dual-identity case.
+   *
+   * WHAT: nullable uuid; null for cross-tenant aggregation rows.
+   */
+  @Column({ type: 'uuid', nullable: true })
+  @Index('IDX_audit_log_acted_on_tenant')
+  actedOnTenantId!: string | null;
+
+  /**
+   * Channel through which the audited action arrived.
+   *
+   * WHY: forensic timeline ambiguity — without this column, a DELETE
+   * action could be a CRON sweep, an HTTP DELETE, an operator CLI run,
+   * or an event-bus driven projection. The closed vocabulary matches
+   * the only five channels the platform exposes (HTTP/GRAPHQL/NATS/CRON/CLI)
+   * and is enforced by a DB-level CHECK constraint.
+   *
+   * WHAT: varchar(16) constrained by CHECK; matches `AuditMethod` enum.
+   * Stored as the enum string value rather than a postgres ENUM type
+   * because postgres ENUMs are pathologically painful to extend (see
+   * `pg_enum` partial-update gotcha) and CHECK constraints can be
+   * altered cheaply.
+   */
+  @Column({ type: 'varchar', length: 16, nullable: true })
+  method!: AuditMethod | null;
+
+  /**
+   * MFA step-up cleared flag.
+   *
+   * WHY: SOC 2 CC6.1 evidence reports filter aggressively on
+   * "show me everything that happened with MFA cleared." Storing this in
+   * `metadata.jsonb` made every such report a sequential scan. The
+   * partial index `idx_audit_logs_mfa_verified_created WHERE mfaVerified
+   * = true` (installed by the same migration) keeps the index small —
+   * the common case is mfaVerified=false.
+   *
+   * WHAT: non-null boolean default false; semantically present on every
+   * row even if pre-extension (default applies to legacy rows).
+   */
+  @Column({ type: 'boolean', default: false })
+  mfaVerified!: boolean;
+
+  /**
+   * Outcome of the audited action.
+   *
+   * WHY: the legacy schema overloaded `severity`. SUCCESS at INFO
+   * severity is the common case; SUCCESS at CRITICAL severity is a
+   * SUPER_ADMIN cross-tenant action that succeeded (still success, but
+   * worth alarming on). DENIED is not the same as ERROR — denial is the
+   * system working as designed. Keeping the two axes orthogonal removes
+   * a class of false-positive alerts and a class of false-negative
+   * compliance findings.
+   *
+   * WHAT: varchar(16) constrained by CHECK; matches `AuditResult` enum.
+   */
+  @Column({ type: 'varchar', length: 16, nullable: true })
+  result!: AuditResult | null;
+
+  /**
+   * Hex SHA-256 of entity state BEFORE the mutation (32 bytes → 64 hex chars).
+   *
+   * WHY: mutation-integrity proof. Without this, a tampered audit row
+   * cannot be distinguished from a legitimate one — the only signal is
+   * the immutability trigger, which prevents UPDATE but cannot detect
+   * INSERT-time forgery. The hash binds the audit row to the entity
+   * state it was emitted against. Combined with `postStateHash` it
+   * forms a chained proof of the mutation.
+   *
+   * WHAT: nullable varchar(64); null for non-mutation actions
+   * (READ, EXPORT, etc.) and for legacy rows.
+   */
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  preStateHash!: string | null;
+
+  /**
+   * Hex SHA-256 of entity state AFTER the mutation.
+   *
+   * WHY: mate to `preStateHash`. A SUCCESS row carries both. A DENIED
+   * row carries only `preStateHash` (no post-state exists because the
+   * mutation never happened). A FAILED row may carry both if the failure
+   * was post-mutation (e.g. event-bus publish failed after DB commit) or
+   * only `preStateHash` if pre-mutation.
+   *
+   * WHAT: nullable varchar(64).
+   */
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  postStateHash!: string | null;
+
+  /**
+   * Operator-supplied justification for override actions.
+   *
+   * WHY: audit-trail-completeness-auditor invariant: actions whose name
+   * matches the `*_OVERRIDE` pattern (e.g. `TANK_CAPACITY_OVERRIDE`,
+   * `MFA_BYPASS_OVERRIDE`) MUST carry a non-null justification — otherwise
+   * the override is unreviewable by a future auditor. The check is
+   * enforced at write-time by the `@AuditedOperation` interceptor; this
+   * column is the durable record.
+   *
+   * WHAT: text (no length cap) — operator may need to paste a ticket
+   * link or a multi-paragraph rationale.
+   */
+  @Column({ type: 'text', nullable: true })
+  justification!: string | null;
+
+  /**
+   * UUIDs of other audit rows that belong to the same logical session
+   * as this one.
+   *
+   * WHY: impersonation start row → impersonation end row linkage.
+   * Without this, reconstructing a session requires timestamp-window
+   * heuristics, which are unreliable across timezone-skewed clocks and
+   * are useless once retention compaction collapses chunks.
+   *
+   * WHAT: nullable uuid[] (postgres native array); null for atomic
+   * single-row events. Population is the caller's responsibility — the
+   * audit pipeline does not infer linkage.
+   */
+  @Column({ type: 'uuid', array: true, nullable: true })
+  relatedAuditIds!: string[] | null;
 }

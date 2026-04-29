@@ -17,7 +17,12 @@ import {
   AuditedOperationOptions,
   AuditedOperationStatus,
 } from './audited-operation.decorator';
-import { AuditLogEntity, AuditSeverity } from './audit-log.entity';
+import {
+  AuditLogEntity,
+  AuditMethod,
+  AuditResult,
+  AuditSeverity,
+} from './audit-log.entity';
 import { SENSITIVE_FIELDS_SET } from '../security/security-constants';
 
 /**
@@ -240,6 +245,24 @@ export class AuditedOperationInterceptor implements NestInterceptor {
         ? AuditSeverity.ERROR
         : AuditSeverity.INFO,
       correlationId: ctx.correlationId,
+
+      // ── AUDITTRAIL-CRITICAL-004 mandatory-shape population ──
+      // These four fields the interceptor knows from request context and
+      // execution status. The remaining four (preStateHash, postStateHash,
+      // justification, relatedAuditIds) are caller-domain knowledge — they
+      // travel with the AuditedOperationOptions metadata extracted by the
+      // decorator, or are emitted by callers writing directly via
+      // auditLogService.recordAwait. Leaving them undefined here is the
+      // architecturally correct default — the interceptor neither has nor
+      // should fabricate the entity-state hashes or override-justification.
+      actorHomeTenantId: ctx.tenantId,
+      actedOnTenantId: ctx.tenantId,
+      method: ctx.method,
+      mfaVerified: ctx.mfaVerified,
+      result:
+        status === AuditedOperationStatus.SUCCESS
+          ? AuditResult.SUCCESS
+          : AuditResult.FAILED,
     };
 
     // ── Transaction-aware write ──
@@ -260,20 +283,27 @@ export class AuditedOperationInterceptor implements NestInterceptor {
   /**
    * Extract request context from the execution context.
    * Supports HTTP, GraphQL, and RPC (CQRS) execution contexts.
+   *
+   * # Method derivation (AUDITTRAIL-CRITICAL-004)
+   *
+   * The Nest contextType drives the audit `method` field directly.
+   * Anchoring it here means a future ContextType (e.g. websocket) only
+   * needs a single mapping update rather than a sweep across every
+   * audit caller.
    */
   private extractRequestContext(context: ExecutionContext): RequestContext {
     const contextType = context.getType<string>();
 
     if (contextType === 'graphql') {
-      return this.extractFromGraphQL(context);
+      return { ...this.extractFromGraphQL(context), method: AuditMethod.GRAPHQL };
     }
 
     if (contextType === 'http') {
-      return this.extractFromHttp(context);
+      return { ...this.extractFromHttp(context), method: AuditMethod.HTTP };
     }
 
-    // RPC / CQRS context — try to extract from handler arguments
-    return this.extractFromRpc(context);
+    // RPC / CQRS context — bus-driven (NATS in this platform).
+    return { ...this.extractFromRpc(context), method: AuditMethod.NATS };
   }
 
   /**
@@ -310,6 +340,10 @@ export class AuditedOperationInterceptor implements NestInterceptor {
       userAgent: null,
       correlationId: (command?.['correlationId'] as string) ?? null,
       queryRunner: (command?.['queryRunner'] as QueryRunner) ?? null,
+      // method is set by extractRequestContext after this returns;
+      // a non-null override at this layer would be ignored by the spread.
+      method: null,
+      mfaVerified: command?.['mfaVerified'] === true,
     };
   }
 
@@ -327,6 +361,8 @@ export class AuditedOperationInterceptor implements NestInterceptor {
         userAgent: null,
         correlationId: null,
         queryRunner: null,
+        method: null,
+        mfaVerified: false,
       };
     }
 
@@ -342,6 +378,9 @@ export class AuditedOperationInterceptor implements NestInterceptor {
       userAgent: (headers['user-agent'] as string) ?? null,
       correlationId: (headers['x-correlation-id'] as string) ?? null,
       queryRunner: (request as Record<string, unknown>)['queryRunner'] as QueryRunner ?? null,
+      // method is overwritten by extractRequestContext after this returns.
+      method: null,
+      mfaVerified: user?.['mfaVerified'] === true,
     };
   }
 
@@ -479,6 +518,22 @@ interface RequestLike {
 /**
  * Extracted request context for audited operations.
  * Includes QueryRunner reference for transaction-aware writes.
+ *
+ * # method (AUDITTRAIL-CRITICAL-004)
+ *
+ * Channel through which the audited action arrived. Derived once at
+ * extraction time (HTTP context → HTTP, GraphQL context → GRAPHQL,
+ * RPC/CQRS context → NATS — the bus carrying CQRS commands across
+ * services in this platform). CRON / CLI flows do not pass through
+ * this interceptor, so those values are emitted by callers writing
+ * directly via `auditLogService.recordAwait`.
+ *
+ * # mfaVerified (AUDITTRAIL-CRITICAL-004)
+ *
+ * Derived from the JWT claim `mfaVerified` if the auth pipeline placed
+ * it on `request.user`. Defaults to false when absent — semantically
+ * safe (a missing claim is treated as not-stepped-up; SOC 2 step-up
+ * evidence reports filter on TRUE only).
  */
 interface RequestContext {
   userId: string | null;
@@ -489,4 +544,6 @@ interface RequestContext {
   userAgent: string | null;
   correlationId: string | null;
   queryRunner: QueryRunner | null;
+  method: AuditMethod | null;
+  mfaVerified: boolean;
 }

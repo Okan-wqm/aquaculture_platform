@@ -18,13 +18,30 @@ name: Database Migration Check
 #      CLI. The step has never worked in this codebase.
 #
 #   2. Run Flyway validate against `database/migrations/core/**` and
-#      `database/migrations/modules/**`. 9 of the 13 SQL files in that
-#      tree are **empty** (0 bytes). The Flyway tree is a vestigial
-#      scaffolding experiment that was never completed; nothing in the
-#      runtime code references it. Deleting the job removes the
-#      confusion. The SQL tree itself is left in place so the git history
-#      stays intact and anyone looking for the old Flyway design can
-#      still find it.
+#      `database/migrations/modules/**`. The Flyway tree is a
+#      vestigial scaffolding experiment that was never wired into
+#      the runtime — nothing in the application code references
+#      `database/migrations/**` (every service registers its own
+#      TypeORM migration classes via TypeOrmModule.forRoot per the
+#      WHAT THIS WORKFLOW CHECKS NOW section below). The Flyway
+#      job was removed when this workflow was rewritten.
+#
+#      DATA-LOW-002 cure: a previous revision of this comment
+#      claimed "9 of the 13 SQL files in that tree are empty (0
+#      bytes)". Direct file-size check at 2026-04-29 showed every
+#      `database/migrations/core/V*.sql` carried 281–2491 bytes
+#      and every `database/migrations/modules/<svc>/V*.sql` carried
+#      762–5598 bytes. None empty. The misclaim was a documentation-
+#      rot artifact from a much earlier iteration of the tree —
+#      kept here as a historical note in case future maintainers
+#      grep for the old phrasing.
+#
+#      The Flyway tree itself is left in place so the git history
+#      stays intact and anyone looking for the old Flyway design
+#      can still find it. DATA-HIGH-001 (the agent's separate
+#      tracking finding for the orphan tree) covers the eventual
+#      removal — until that lands, this workflow neither validates
+#      the tree nor relies on it.
 #
 # Beyond that, the `npx nx build` step hung silently for hours on every
 # run because the Windows-generated `package-lock.json` has no

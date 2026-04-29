@@ -447,6 +447,19 @@ Closes: docs/reviews/compliance-expert/2026-04-28-core-platform-review.md#COMPLI
 
 #### COMPLIANCE-MEDIUM-003 — `apps/auth-service/src/audit/audit-log.entity.ts` defines `auth.audit_logs` with NO immutability triggers (only `shared.audit_logs` had them, now also lost per CRITICAL-001)
 
+**Status:** RESOLVED. Cure already landed in commit `a7a61cd0`
+(`fix(audit): auth.audit_logs immutability triggers + legalHold
+column`). Migration
+`apps/auth-service/src/migrations/1787100000000-AddAuthAuditLogsImmutability.ts`
+installs `auth.audit_logs_prevent_update()` +
+`auth.audit_logs_prevent_legal_hold_delete()` functions and the
+corresponding BEFORE UPDATE / BEFORE DELETE triggers — same
+canonical shape as `shared.audit_logs` / `farm.farm_audit_logs`.
+The `audit-immutability-triggers.spec.ts` invariant pins the
+trigger presence so a future migration cannot drop them silently.
+
+Closes: docs/reviews/compliance-expert/2026-04-28-core-platform-review.md#COMPLIANCE-MEDIUM-003
+
 **Severity:** MEDIUM
 **Layer:** 3 (ADR-020 audit-log HMAC chain — auth audit not yet in scope but should be)
 **State:** OPEN

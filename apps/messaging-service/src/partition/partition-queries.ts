@@ -119,7 +119,12 @@ export function createMonthlyPartition(
  * registry was unreachable — destructive ops abort on registry
  * failure by construction.
  */
-declare const HoldClearedTokenBrand: unique symbol;
+// Module-private symbol used at runtime as the brand key. NOT exported —
+// any code outside this file that wants to forge a token would need to
+// import this symbol, and no such import path exists. Combined with the
+// invariant test that pins the import topology, the brand is unforgeable.
+const HoldClearedTokenBrand: unique symbol = Symbol('HoldClearedTokenBrand');
+
 export interface HoldClearedToken {
   readonly [HoldClearedTokenBrand]: true;
   /** Records the (tenant, channel) scope the clearance was granted for. */

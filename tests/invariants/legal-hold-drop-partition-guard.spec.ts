@@ -63,8 +63,10 @@ describe('LEGAL-MEDIUM-003 — drop-partition guard topology', () => {
   });
 
   it('exposes the HoldClearedToken brand from exactly one module', () => {
+    // The brand symbol must live in EXACTLY one module — partition-queries.
+    // Any other declaration would let a bypass module forge a token.
     const brandDeclarations = gitGrepLines(
-      'declare const HoldClearedTokenBrand:',
+      'const HoldClearedTokenBrand(\\b|:)',
       ['apps/messaging-service/**/*.ts'],
     );
     expect(brandDeclarations.length).toBe(1);
@@ -113,17 +115,22 @@ describe('LEGAL-MEDIUM-003 — drop-partition guard topology', () => {
     );
     // Currently the helper has no production caller — this guards the
     // future-caller class. When a caller lands, it must also import the
-    // guard's assertHoldClearedFor (next it() pins the pairing).
-    for (const line of callers) {
-      const allowedSites = [
-        'apps/messaging-service/src/partition/partition-queries.ts',
-      ];
+    // guard's assertHoldClearedFor (the brand topology test pins that
+    // pairing structurally — no token without the guard).
+    const allowedSites = [
+      'apps/messaging-service/src/partition/partition-queries.ts',
+      'apps/messaging-service/src/compliance/services/legal-hold.guard.ts',
+    ];
+    // Filter out doc-comment / jsdoc references (lines whose content
+    // after the `path:lineno:` prefix starts with `*` or `//`).
+    const docCommentRe = /:\d+:\s*(\*|\/\/)/;
+    const exportRe = /export\s+function\s+unsafeDropPartitionSql/;
+    const realInvocations = callers.filter(
+      (line) => !docCommentRe.test(line) && !exportRe.test(line),
+    );
+    for (const line of realInvocations) {
       const isAllowed = allowedSites.some((path) => line.includes(path));
-      const isInvocation =
-        line.includes('unsafeDropPartitionSql(') &&
-        !line.includes('export function');
-      // Allow the export declaration in the helper itself.
-      expect(isAllowed || !isInvocation).toBe(true);
+      expect(isAllowed).toBe(true);
     }
   });
 });

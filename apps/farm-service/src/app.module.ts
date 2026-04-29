@@ -176,6 +176,7 @@ import { AddRecurringTemplateTimezone1787300000000 } from './database/migrations
 import { AddDailyBatchFeedingMaterializedView1787400000000 } from './database/migrations/1787400000000-AddDailyBatchFeedingMaterializedView';
 import { AddDailyTankWaterQualityMaterializedView1787500000000 } from './database/migrations/1787500000000-AddDailyTankWaterQualityMaterializedView';
 import { WireSupplierSitesAndSiteContacts1788100000000 } from './database/migrations/1788100000000-WireSupplierSitesAndSiteContacts';
+import { AddFarmAuditLogsImmutability1788300000000 } from './database/migrations/1788300000000-AddFarmAuditLogsImmutability';
 
 @Module({
   imports: [
@@ -235,6 +236,7 @@ import { WireSupplierSitesAndSiteContacts1788100000000 } from './database/migrat
             AddDailyBatchFeedingMaterializedView1787400000000,
             AddDailyTankWaterQualityMaterializedView1787500000000,
             WireSupplierSitesAndSiteContacts1788100000000,
+            AddFarmAuditLogsImmutability1788300000000,
           ],
           // INFRA-CRITICAL-020 contract: env-aware migration timing.
           // - Production: DATABASE_MIGRATIONS_RUN=false (default). The

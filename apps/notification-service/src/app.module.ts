@@ -14,6 +14,7 @@ import { ServiceIdentityGuard, TenantGuard, RolesGuard } from '@aquaculture/back
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
 import { CorrelationIdMiddleware, UserContextMiddleware, TenantContextMiddleware, StripInternalHeadersMiddleware } from '@aquaculture/backend-common/middleware';
 import { RedisModule } from '@aquaculture/backend-common/redis';
+import { CircuitBreakerModule } from '@aquaculture/backend-common/resilience';
 import { AuditLogModule, AuditLogInterceptor, AuditedOperationModule } from '@aquaculture/backend-common/audit';
 
 /**
@@ -44,6 +45,12 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
       envFilePath: ['.env', '.env.local'],
       cache: true,
     }),
+
+    // CIRCUIT-HIGH-005 cure: SmsService.sendSms() wraps the Twilio
+    // outbound call in the canonical CircuitBreakerService.
+    // Importing CircuitBreakerModule once registers the singleton in
+    // this service's @Global DI scope.
+    CircuitBreakerModule,
 
     // Database connection — uses the platform TypeORM factory.
     // NotificationMigrationRunnerService (provider above) executes

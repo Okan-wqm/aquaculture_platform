@@ -2820,6 +2820,33 @@ fn main() {
                 let code = run_confirm_active();
                 std::process::exit(code);
             }
+            "--migrate-db" => {
+                // PR-195 Batch #6: D-3 SQLCipher v1->v2
+                // migration ceremony subcommand. The
+                // architectural contract is documented
+                // in docs/runbooks/db-migration-rekey-
+                // ceremony.md (Batch #4); the
+                // implementation lives in
+                // db_migration::cli (this module).
+                //
+                // Mirrors the established
+                // --init/--audit-verify/--confirm-active
+                // subcommand pattern: subcommand
+                // dispatch on argv[1], remaining args
+                // passed to the subcommand's parser.
+                let sub_argv: Vec<&str> =
+                    args[2..].iter().map(|s| s.as_str()).collect();
+                let exit_code =
+                    crate::db_migration::cli::run_migration_ceremony(
+                        &sub_argv,
+                    );
+                std::process::exit(
+                    match format!("{exit_code:?}").as_str() {
+                        s if s.contains("status(0)") => 0,
+                        _ => 1,
+                    },
+                );
+            }
             "--audit-verify" => {
                 // Batch 77 Sprint 6.2 Phase 2: offline audit
                 // log verification CLI path.
@@ -2866,6 +2893,7 @@ fn main() {
                 println!("    --init                    Generate default configuration file");
                 println!("    --audit-verify <path>     Verify NDJSON audit log chain (Batch 77)");
                 println!("    --confirm-active          Confirm the currently-active A/B slot (Batch 110)");
+                println!("    --migrate-db [args...]    SQLCipher v1->v2 migration ceremony (PR-195 Batch #6)");
                 println!("    --version                 Print version information");
                 println!("    --help                    Print this help message");
                 println!();

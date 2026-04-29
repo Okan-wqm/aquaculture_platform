@@ -121,6 +121,7 @@
 //! the NEW manifest is fully written; never a partial.
 
 pub mod boot_detector;
+pub mod cli;
 pub mod manifest;
 pub mod rekey;
 pub mod rekey_swap;

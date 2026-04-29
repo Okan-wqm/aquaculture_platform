@@ -52,6 +52,16 @@ registerEnumType(TenantStatus, {
 @Entity('tenants', { schema: 'auth' })
 @Index('IDX_tenants_slug', ['slug'], { unique: true })
 @Index('IDX_tenants_status', ['status'])
+// DBR-MEDIUM-001 cure: enterprise custom-domain rows MUST be unique
+// across tenants — two tenants both claiming `acme.aquaculture.com` is
+// a routing-ambiguity vector that maps a single inbound host to two
+// different tenant rows. Partial unique (WHERE customDomain IS NOT NULL)
+// allows the typical case (most tenants have NULL custom domain) without
+// the bare-NULL collision the full unique would otherwise cause.
+@Index('UQ_tenants_customDomain', ['customDomain'], {
+  unique: true,
+  where: '"customDomain" IS NOT NULL',
+})
 export class Tenant {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')

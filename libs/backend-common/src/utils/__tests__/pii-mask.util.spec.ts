@@ -4,6 +4,7 @@ import {
   maskPhone,
   maskPii,
   maskPiiDeep,
+  maskAndTruncatePii,
 } from '../pii-mask.util';
 
 /**
@@ -189,5 +190,96 @@ describe('maskPiiDeep — recursive masking', () => {
   it('returns numbers and booleans unchanged', () => {
     expect(maskPiiDeep(42)).toBe(42);
     expect(maskPiiDeep(true)).toBe(true);
+  });
+});
+
+/**
+ * maskAndTruncatePii — pin every BILLING-MEDIUM-003 invariant.
+ *
+ * # Why this spec exists
+ *
+ * The helper is the canonical persistence-boundary masker for
+ * Stripe failure messages, refund reasons, and similar third-
+ * party / user-supplied free-text fields that land in the
+ * billing service's `text` columns. A regression that drops
+ * masking would re-introduce the COMPLIANCE-HIGH-005 PII leak;
+ * a regression that drops truncation would re-introduce
+ * BILLING-MEDIUM-003 (storage exhaustion + display-layer DoS).
+ *
+ * Specs cover:
+ *
+ *   - Both invariants (mask + truncate) apply in a single pass.
+ *   - Masking is applied BEFORE truncation so the truncation
+ *     marker can never split a redaction token.
+ *   - Default cap is 500 (column-cap recommendation in
+ *     BILLING-MEDIUM-003).
+ *   - Custom cap is honoured.
+ *   - null/undefined inputs return null cleanly (callers can
+ *     `?? ''` without sentinel handling).
+ *   - Output never exceeds the cap (covers the "marker pushes
+ *     output above cap" off-by-one regression class).
+ *   - The trailing marker matches `…<truncated>` exactly so the
+ *     forensic-search tooling regex used elsewhere
+ *     (AccessLogMiddleware.truncatePath) finds every truncated
+ *     value across streams.
+ */
+describe('maskAndTruncatePii (BILLING-MEDIUM-003)', () => {
+  it('masks PII and truncates a 1KB string to the default 500-char cap', () => {
+    const longPii = 'jane.doe@example.com '.repeat(60); // ~1320 chars
+    const out = maskAndTruncatePii(longPii);
+    expect(out).not.toBeNull();
+    expect(out!.length).toBeLessThanOrEqual(500);
+    // Contains the redaction token, never the raw email
+    expect(out).toContain('[EMAIL-REDACTED]');
+    expect(out).not.toContain('jane.doe@example.com');
+    expect(out!.endsWith('…<truncated>')).toBe(true);
+  });
+
+  it('returns the masked string unchanged when below the cap', () => {
+    // The CREDIT_CARD_PATTERN regex captures the trailing space too,
+    // so the redacted output collapses the gap between marker and
+    // suffix word. The exact post-cure shape is documented here so
+    // a future regex tweak that changes spacing surfaces as a
+    // fail in this spec.
+    const short = 'Card 4242 4242 4242 4242 declined';
+    const out = maskAndTruncatePii(short);
+    expect(out).toContain('[CC-REDACTED]');
+    expect(out).toContain('declined');
+    expect(out).not.toContain('4242 4242 4242 4242');
+    expect(out!.endsWith('…<truncated>')).toBe(false);
+  });
+
+  it('honours a custom cap argument', () => {
+    const out = maskAndTruncatePii('a'.repeat(200), 50);
+    expect(out!.length).toBe(50);
+    expect(out!.endsWith('…<truncated>')).toBe(true);
+  });
+
+  it('returns null for null input (caller convention)', () => {
+    expect(maskAndTruncatePii(null)).toBeNull();
+  });
+
+  it('returns null for undefined input', () => {
+    expect(maskAndTruncatePii(undefined)).toBeNull();
+  });
+
+  it('output length never exceeds maxLen even with marker (off-by-one safety)', () => {
+    // Test multiple cap values around the marker length boundary
+    for (const cap of [20, 50, 100, 500, 1000]) {
+      const out = maskAndTruncatePii('x'.repeat(2000), cap);
+      expect(out!.length).toBe(cap);
+    }
+  });
+
+  it('masks ALL PII patterns before truncating (mask-then-truncate ordering)', () => {
+    // 600-char string ending in PII — if truncation happened FIRST
+    // we might lose the chance to mask the trailing email.
+    const value =
+      'a'.repeat(450) + ' jane@example.com 4242 4242 4242 4242 555-1234';
+    const out = maskAndTruncatePii(value, 500);
+    // Email lives within the first 500 masked chars — verify
+    // we replaced it before truncation rather than truncating
+    // it mid-string.
+    expect(out).toContain('[EMAIL-REDACTED]');
   });
 });

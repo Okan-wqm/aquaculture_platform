@@ -9,7 +9,7 @@ import {
 } from '@platform/event-contracts';
 import { Money } from '@aquaculture/backend-common/monetary';
 import { RedisService } from '@aquaculture/backend-common/redis';
-import { maskPii } from '@aquaculture/backend-common/utils';
+import { maskAndTruncatePii } from '@aquaculture/backend-common/utils';
 import Decimal from 'decimal.js';
 import { Payment, PaymentStatus, PaymentMethod } from '../entities/payment.entity';
 import { Invoice, InvoiceStatus } from '../entities/invoice.entity';
@@ -231,15 +231,29 @@ export class StripeWebhookService {
 
       const transactionId = `TXN-STRIPE-FAIL-${Date.now()}-${randomUUID().substring(0, 8).toUpperCase()}`;
 
-      // COMPLIANCE-HIGH-005 cure: maskPii on the upstream failureMessage
-      // before it lands in operational storage. Stripe's failure messages
-      // routinely include card last-4, billing email, customer name —
-      // PII that has no place in long-term operational rows. The audit
-      // log keeps the raw form via a separate path (immutable + 7y
-      // retention; tenant erasure clears with the rest of the audit
-      // trail). Operational tables get the redacted form, indefinitely
-      // queryable without leaking PII into ad-hoc reports.
-      const maskedFailureReason = `${failureCode}: ${maskPii(failureMessage)}`;
+      // COMPLIANCE-HIGH-005 + BILLING-MEDIUM-003 cures:
+      //
+      // * COMPLIANCE-HIGH-005: maskPii on the upstream failureMessage
+      //   before it lands in operational storage. Stripe's failure
+      //   messages routinely include card last-4, billing email,
+      //   customer name — PII that has no place in long-term
+      //   operational rows. The audit log keeps the raw form via a
+      //   separate path (immutable + 7y retention; tenant erasure
+      //   clears with the rest of the audit trail). Operational
+      //   tables get the redacted form, indefinitely queryable
+      //   without leaking PII into ad-hoc reports.
+      //
+      // * BILLING-MEDIUM-003: cap at 500 chars via maskAndTruncatePii.
+      //   Stripe error messages are theoretically unbounded; storing
+      //   them un-capped on a postgres `text` column exposes the
+      //   platform to storage exhaustion + display-layer DoS. The
+      //   `${failureCode}: ` prefix is at most ~40 chars (Stripe's
+      //   error codes are kebab-case identifiers), so the
+      //   500-char cap on the masked reason gives a 540-char hard
+      //   ceiling on the persisted string — well within the
+      //   downstream display surfaces' tolerances.
+      const maskedFailureReason =
+        `${failureCode}: ${maskAndTruncatePii(failureMessage, 500) ?? ''}`;
 
       const payment = manager.create(Payment, {
         tenantId,

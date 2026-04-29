@@ -22,6 +22,10 @@ export * from './water-quality-events';
 export * from './messaging-events';
 export * from './storage-events';
 
+// Automation domain events (sensor-service compiler / programming).
+// ORPHAN-EVENT-CONTRACT-015..018 cure.
+export * from './automation-events';
+
 // Security events (auth failures, rate limit, CSP violations, etc.)
 export * from './security';
 
@@ -61,6 +65,7 @@ import type { MessagingEvent } from './messaging-events';
 import type { StorageEvent } from './storage-events';
 import type { SecurityEvent } from './security';
 import type { ComplianceEvent } from './compliance-events';
+import type { AutomationEvent } from './automation-events';
 
 /**
  * Union type for all platform events.
@@ -82,4 +87,5 @@ export type AnyPlatformEvent =
   | MessagingEvent
   | StorageEvent
   | SecurityEvent
-  | ComplianceEvent;
+  | ComplianceEvent
+  | AutomationEvent;

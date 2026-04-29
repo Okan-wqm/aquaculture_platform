@@ -51,33 +51,12 @@ const CONTRACTS_DIR = 'libs/event-contracts/src';
  * interface; the invariant then catches any future regression.
  */
 const KNOWN_EXEMPT: ReadonlySet<string> = new Set<string>([
-  // ── messaging-service domain (W2026-04-28 audit out-of-scope) ──
-  // Tracked in docs/reviews/orphan-findings.md → ORPHAN-EVENT-CONTRACT-001
-  // through ORPHAN-EVENT-CONTRACT-014 (see same file). Closure happens
-  // in the messaging-service domain audit cycle.
-  'ChannelCreated',
-  'ChannelUpdated',
-  'ChannelArchived',
-  'ChannelMemberAdded',
-  'ChannelMemberRemoved',
-  'MessageUpdated',
-  'MessageDeleted',
-  'MessagePinned',
-  'MessageUnpinned',
-  'MessageForwarded',
-  'ReactionAdded',
-  'ReactionRemoved',
-  'RetentionPolicyChanged',
-  'LegalHoldToggled',
-  'SentimentAlert',
-  'StorageWarning',
-  // ── sensor-service automation domain (out-of-scope) ──
-  // Tracked in docs/reviews/orphan-findings.md → ORPHAN-EVENT-CONTRACT-015
-  // through ORPHAN-EVENT-CONTRACT-018.
-  'AutomationProgramSaved',
-  'AutomationProgramDeployed',
-  'AutomationTagsUpdated',
-  'AutomationFBDefinitionsChanged',
+  // 2026-04-29: 20 orphan eventTypes from the messaging-service +
+  // sensor-service automation domains were drained by authoring the
+  // matching interfaces in libs/event-contracts/src/messaging-events.ts
+  // (16 events) + libs/event-contracts/src/automation-events.ts (4
+  // events). Allowlist now empty — the invariant unconditionally
+  // enforces interface presence for every createBaseEvent call site.
 ]);
 
 interface CallSite {

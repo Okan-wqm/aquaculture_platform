@@ -82,8 +82,11 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use super::cli::KNOWN_SQLCIPHER_CONSUMERS;
-use super::cli_executor::{CeremonyRuntime, RuntimeError};
+use super::cli::{MigrationArgs, KNOWN_SQLCIPHER_CONSUMERS};
+use super::cli_executor::{
+    execute_migration, CeremonyRuntime, ExecutionError, MigrationOutcome,
+    RuntimeError,
+};
 use crate::keystore::purpose::KeyPurpose;
 use crate::keystore::Keystore;
 
@@ -323,6 +326,114 @@ fn read_secret_key_for_migration() -> Result<Vec<u8>, BootstrapError> {
     }
 
     Ok(bytes)
+}
+
+/// Unified ceremony error — wraps both bootstrap-stage
+/// failures (constructor IO) and orchestrator-stage
+/// failures (per-loop bootstrap or whole-ceremony
+/// abort). The CLI dispatch site (`main.rs`'s
+/// `--migrate-db` arm) returns this to its caller for
+/// uniform exit-code mapping.
+///
+/// **Why two stages, one error type:** the dispatch
+/// site doesn't care whether failure came from the
+/// constructor IO read or the orchestrator's pre-loop
+/// fetch — both are pre-DB-touch and both yield
+/// `ExitCode::FAILURE`. A unified taxonomy keeps the
+/// dispatch arm short. Per-stage discrimination is
+/// preserved INSIDE this enum for operator post-mortem
+/// (Display strings carry the source).
+#[derive(Debug)]
+pub enum CeremonyError {
+    /// `BootstrappedCeremonyRuntime::from_runtime_sources`
+    /// failed (machine-id unreadable, secret-key
+    /// missing/short/unreadable, device-id empty).
+    Bootstrap(BootstrapError),
+    /// `execute_migration` aborted before the per-
+    /// consumer loop could begin (one of the runtime
+    /// trait's pre-loop accessors failed).
+    Execution(ExecutionError),
+}
+
+impl std::fmt::Display for CeremonyError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Bootstrap(e) => {
+                write!(f, "ceremony_failed_at_bootstrap: {e}")
+            }
+            Self::Execution(e) => {
+                write!(f, "ceremony_failed_at_execution: {e}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for CeremonyError {}
+
+impl From<BootstrapError> for CeremonyError {
+    fn from(e: BootstrapError) -> Self {
+        Self::Bootstrap(e)
+    }
+}
+
+impl From<ExecutionError> for CeremonyError {
+    fn from(e: ExecutionError) -> Self {
+        Self::Execution(e)
+    }
+}
+
+/// Top-level ceremony entry point — one call from the
+/// CLI dispatch site to "do the migration". Composes
+/// the production runtime constructor (Batch #10) with
+/// the orchestrator (Batch #9) into a single async
+/// function whose error space is the unified
+/// `CeremonyError`.
+///
+/// **Caller contract:**
+///
+///   - `args` — already-parsed CLI args (from Batch #6
+///     `parse_args`). The orchestrator reads
+///     `data_dir` from these.
+///   - `device_id` — device's provisioning UUID
+///     (caller plumbs from the agent's loaded config).
+///   - `program_artifact_sha256` — currently-loaded
+///     program's bytecode SHA-256, or `None` if no
+///     program is loaded. Caller plumbs from the
+///     bytecode loader.
+///   - `keystore` — agent's already-built keystore
+///     handle. Caller plumbs from the keystore
+///     subsystem boot path.
+///   - `now_unix` — current Unix timestamp seconds for
+///     manifest's `last_updated_at_unix_secs`. Caller
+///     passes `chrono::Utc::now().timestamp()` or
+///     equivalent.
+///
+/// **Effects:** for each enabled consumer in
+/// `KNOWN_SQLCIPHER_CONSUMERS`, atomic PRAGMA rekey +
+/// manifest swap from v1 to v2 if the DB exists and is
+/// currently at v1; idempotent skip otherwise.
+///
+/// **Returns:** `MigrationOutcome` carrying one
+/// per-consumer outcome (Migrated / Skipped / Failed).
+/// The CLI dispatch site formats this as JSONL stdout
+/// per the runbook + maps `is_clean()` to the process
+/// exit code.
+pub async fn execute_migration_ceremony(
+    args: &MigrationArgs,
+    device_id: String,
+    program_artifact_sha256: Option<Vec<u8>>,
+    keystore: Arc<dyn Keystore>,
+    now_unix: i64,
+) -> Result<MigrationOutcome, CeremonyError> {
+    let runtime = BootstrappedCeremonyRuntime::from_runtime_sources(
+        device_id,
+        program_artifact_sha256,
+        keystore,
+        args.data_dir.clone(),
+    )?;
+
+    let outcome = execute_migration(args, &runtime, now_unix).await?;
+    Ok(outcome)
 }
 
 #[cfg(test)]
@@ -632,5 +743,226 @@ mod tests {
     fn bootstrap_error_implements_std_error() {
         fn assert_err<E: std::error::Error>() {}
         assert_err::<BootstrapError>();
+    }
+
+    // -------- execute_migration_ceremony integration tests --------
+    //
+    // These exercise the full bootstrap → orchestrator
+    // path: env-var-sandboxed IO read + per-consumer
+    // ceremony loop. The v1-seed helper mirrors the
+    // existing rekey test pattern (Connection::open +
+    // PRAGMA key apply + create dummy table).
+
+    use crate::db_migration::cli::OutputFormat;
+    use crate::db_migration::manifest::manifest_path_for_db;
+    use crate::db_migration::schema_version::DbKeySchemaVersion;
+    use crate::db_migration::v1_legacy_key::{
+        derive_v1_legacy_key, format_sqlcipher_pragma_key_hex,
+    };
+    use crate::keystore::secret::KeyMaterial as RealKeyMaterial;
+    use rusqlite::Connection;
+
+    /// Stub keystore that returns a deterministic v2
+    /// key so the ceremony can produce a verifiable
+    /// PRAGMA key string.
+    struct DeterministicKeystore;
+
+    #[async_trait]
+    impl Keystore for DeterministicKeystore {
+        fn backend(&self) -> KeyBackend {
+            KeyBackend::FileBacked
+        }
+
+        async fn derive_key(
+            &self,
+            purpose: KeyPurpose,
+            _context: &[u8],
+        ) -> Result<RealKeyMaterial, KeyDerivationError> {
+            let mut bytes = [0u8; 32];
+            bytes[0] = match purpose {
+                KeyPurpose::SqlCipherOfflineQueue => 0xb1,
+                KeyPurpose::SqlCipherRetainPersistence => 0xb2,
+                KeyPurpose::SqlCipherLicenseCache => 0xb3,
+                KeyPurpose::SqlCipherBytecodeRetain => 0xb4,
+                _ => 0xff,
+            };
+            Ok(RealKeyMaterial::from_derived_bytes(purpose, bytes))
+        }
+
+        fn derived_key_id(
+            &self,
+            _purpose: KeyPurpose,
+            _context: &[u8],
+        ) -> DerivedKeyId {
+            DerivedKeyId([0u8; 16])
+        }
+
+        async fn rotate_master(&self) -> Result<(), KeystoreError> {
+            Err(KeystoreError::new(
+                KeystoreErrorKind::NotImplemented,
+                String::from("stub"),
+            ))
+        }
+
+        async fn rotate_master_with_source(
+            &self,
+            _source: RotationSource<'_>,
+        ) -> Result<(), KeystoreError> {
+            Err(KeystoreError::new(
+                KeystoreErrorKind::NotImplemented,
+                String::from("stub"),
+            ))
+        }
+    }
+
+    fn seed_v1_db_for_ceremony(
+        path: &std::path::Path,
+        machine_id: &[u8],
+        secret_key: &[u8],
+    ) {
+        let v1_bytes = derive_v1_legacy_key(machine_id, secret_key);
+        let v1_hex = format_sqlcipher_pragma_key_hex(&v1_bytes);
+        let conn = Connection::open(path).expect("open db");
+        conn.execute_batch(&format!("PRAGMA key = \"x'{v1_hex}'\";"))
+            .expect("apply v1 key");
+        conn.execute_batch(
+            "CREATE TABLE seed (id INTEGER PRIMARY KEY); \
+             INSERT INTO seed VALUES (1);",
+        )
+        .expect("seed");
+    }
+
+    #[tokio::test]
+    async fn execute_migration_ceremony_happy_path_migrates_v1_db_to_v2() {
+        let _guard = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::tempdir().expect("tempdir");
+
+        // Seed env-overrides (machine-id + secret-key
+        // sandboxed for hermetic IO).
+        let mid = dir.path().join("mid");
+        std::fs::write(&mid, "ceremony-machine-id-aa\n").expect("seed mid");
+        let secret = dir.path().join("db.key");
+        let secret_bytes = vec![0xDDu8; 32];
+        std::fs::write(&secret, &secret_bytes).expect("seed secret");
+
+        // Seed a v1 OfflineQueue DB with the SAME bytes
+        // the ceremony will compute internally.
+        let db = dir.path().join("offline_queue.db");
+        seed_v1_db_for_ceremony(&db, b"ceremony-machine-id-aa", &secret_bytes);
+
+        // SAFETY: env-mutation serialized via ENV_MUTEX.
+        unsafe {
+            std::env::set_var("SUDERRA_MACHINE_ID_PATH", &mid);
+            std::env::set_var("SUDERRA_DB_KEY_PATH", &secret);
+        }
+        let args = MigrationArgs {
+            data_dir: dir.path().to_path_buf(),
+            schema_target: DbKeySchemaVersion::V2KeystoreDerived,
+            output_format: OutputFormat::Jsonl,
+            dry_run: false,
+        };
+        let result = execute_migration_ceremony(
+            &args,
+            "ceremony-device-uuid".into(),
+            Some(vec![0xEE; 32]),
+            Arc::new(DeterministicKeystore),
+            1_700_000_000,
+        )
+        .await;
+        unsafe {
+            std::env::remove_var("SUDERRA_MACHINE_ID_PATH");
+            std::env::remove_var("SUDERRA_DB_KEY_PATH");
+        }
+
+        let outcome = result.expect("ceremony succeeds");
+        assert!(outcome.is_clean());
+        assert_eq!(outcome.per_consumer.len(), 4);
+
+        // OfflineQueue is index 0 in KNOWN_SQLCIPHER_CONSUMERS.
+        match &outcome.per_consumer[0] {
+            super::super::cli_executor::ConsumerOutcome::Migrated {
+                purpose,
+                from,
+                to,
+            } => {
+                assert_eq!(*purpose, KeyPurpose::SqlCipherOfflineQueue);
+                assert_eq!(*from, DbKeySchemaVersion::V1MachineIdDerived);
+                assert_eq!(*to, DbKeySchemaVersion::V2KeystoreDerived);
+            }
+            other => panic!("expected Migrated, got {other:?}"),
+        }
+
+        // Manifest sidecar now declares v2.
+        let sidecar = manifest_path_for_db(&db);
+        let manifest_str = std::fs::read_to_string(&sidecar)
+            .expect("read sidecar");
+        assert!(
+            manifest_str.contains("v2-keystore-derived"),
+            "expected v2 manifest, got: {manifest_str}"
+        );
+    }
+
+    #[tokio::test]
+    async fn execute_migration_ceremony_bootstrap_failure_surfaces_as_bootstrap_error() {
+        let _guard = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::tempdir().expect("tempdir");
+        let no_secret = dir.path().join("nope.key");
+
+        // SAFETY: env-mutation serialized via ENV_MUTEX.
+        unsafe {
+            std::env::set_var("SUDERRA_DB_KEY_PATH", &no_secret);
+        }
+        let args = MigrationArgs {
+            data_dir: dir.path().to_path_buf(),
+            schema_target: DbKeySchemaVersion::V2KeystoreDerived,
+            output_format: OutputFormat::Jsonl,
+            dry_run: false,
+        };
+        let result = execute_migration_ceremony(
+            &args,
+            "device-uuid".into(),
+            None,
+            Arc::new(DeterministicKeystore),
+            1_700_000_000,
+        )
+        .await;
+        unsafe {
+            std::env::remove_var("SUDERRA_DB_KEY_PATH");
+        }
+
+        let err = result.expect_err("must fail");
+        match err {
+            CeremonyError::Bootstrap(BootstrapError::SecretKeyMissing { .. }) => {}
+            other => panic!("expected Bootstrap::SecretKeyMissing, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn ceremony_error_display_strings_pinned() {
+        let cases: Vec<(CeremonyError, &str)> = vec![
+            (
+                CeremonyError::Bootstrap(BootstrapError::DeviceIdEmpty),
+                "ceremony_failed_at_bootstrap",
+            ),
+            (
+                CeremonyError::Execution(ExecutionError::Bootstrap(
+                    RuntimeError {
+                        source: "machine_id".into(),
+                        reason: "test".into(),
+                    },
+                )),
+                "ceremony_failed_at_execution",
+            ),
+        ];
+        for (err, prefix) in cases {
+            let s = format!("{err}");
+            assert!(s.contains(prefix), "missing `{prefix}` in: {s}");
+        }
+    }
+
+    #[test]
+    fn ceremony_error_implements_std_error() {
+        fn assert_err<E: std::error::Error>() {}
+        assert_err::<CeremonyError>();
     }
 }

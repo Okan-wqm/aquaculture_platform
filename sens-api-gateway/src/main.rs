@@ -2491,11 +2491,35 @@ impl AppState {
             return;
         }
 
-        let store = match crate::scripting::bytecode_registry_store::BytecodeRegistryStore::new(&path) {
+        // PR-195 Batch #19 (closes
+        // ORPHAN-D3-BOOT-ORDER-002 partial — boot-time
+        // graceful degradation half). Adopt the
+        // manifest-aware constructor (Batch #15).
+        // Empty program_sha at boot per the same
+        // option-3 first-program-deploy migration
+        // discipline as init_retain_persistence; v2
+        // manifests degrade gracefully (warn +
+        // self.bytecode_registry_store = None) until
+        // the next program-deploy recreates the DB.
+        // HC-1 backward compat: legacy v1-only path
+        // when keystore.mode = Disabled.
+        let store_result: Result<crate::scripting::bytecode_registry_store::BytecodeRegistryStore, _> =
+            if let Some(ref keystore) = self.keystore {
+                crate::scripting::bytecode_registry_store::BytecodeRegistryStore::new_with_keystore_derivation(
+                    &path,
+                    keystore.clone(),
+                    Vec::new(),
+                )
+                .await
+            } else {
+                crate::scripting::bytecode_registry_store::BytecodeRegistryStore::new(&path)
+            };
+
+        let store = match store_result {
             Ok(s) => std::sync::Arc::new(s),
             Err(e) => {
                 error!(
-                    "Bytecode registry store open failed at {}: {}. Agent boots with in-memory registry only — deploys will NOT persist until SQLCipher recovers.",
+                    "Bytecode registry store open failed at {}: {}. Agent boots with in-memory registry only — deploys will NOT persist until SQLCipher recovers OR (for v2 manifest hosts) until next program-deploy recreates the DB under v2 keystore-derived key per option-3 first-program-deploy migration discipline.",
                     path,
                     e
                 );
@@ -2626,11 +2650,48 @@ impl AppState {
     /// successfully — RETAIN programs run without
     /// persistence, matching the pre-Batch-176
     /// behavior.
-    pub fn init_retain_persistence(&mut self) {
+    pub async fn init_retain_persistence(&mut self) {
         let db_path = crate::data_dir::data_dir().join("retain.db");
         let db_path_str = db_path.to_string_lossy().to_string();
 
-        match crate::scripting::SqlitePersistence::new(&db_path) {
+        // PR-195 Batch #19 (closes
+        // ORPHAN-D3-BOOT-ORDER-002 partial — boot-time
+        // graceful degradation half) — adopt the
+        // manifest-aware constructor (Batch #15). Pass
+        // empty Vec for program_artifact_sha256 because
+        // no program is loaded at boot (programs deploy
+        // via MQTT post-boot per ADR-031 program-bound
+        // consumer lifecycle). Behavior:
+        //
+        //   - v1 manifest / missing manifest → v1
+        //     fallback path; resolver doesn't read
+        //     program_sha → opens fine.
+        //   - v2 manifest → resolver returns
+        //     ProgramSha256Required → constructor
+        //     errors → graceful degradation (warn +
+        //     self.retain_persistence = None);
+        //     post-boot program-deploy command handler
+        //     is responsible for recreating the DB
+        //     under v2 keystore-derived key with the
+        //     deploy's program_sha (option-3 first-
+        //     program-deploy migration discipline).
+        //
+        // HC-1 backward compat: when keystore.mode =
+        // Disabled (no keystore), fall back to the
+        // legacy v1-only constructor.
+        let result: Result<crate::scripting::SqlitePersistence, _> =
+            if let Some(ref keystore) = self.keystore {
+                crate::scripting::SqlitePersistence::new_with_keystore_derivation(
+                    &db_path,
+                    keystore.clone(),
+                    Vec::new(),
+                )
+                .await
+            } else {
+                crate::scripting::SqlitePersistence::new(&db_path)
+            };
+
+        match result {
             Ok(p) => {
                 info!(
                     "Shared RETAIN persistence initialized: {}",
@@ -2640,7 +2701,7 @@ impl AppState {
             }
             Err(e) => {
                 warn!(
-                    "Failed to initialize RETAIN persistence at {} ({}). RETAIN variables + bytecode RETAIN will not survive reboot until SQLCipher recovers.",
+                    "Failed to initialize RETAIN persistence at {} ({}). RETAIN variables + bytecode RETAIN will not survive reboot until SQLCipher recovers OR (for v2 manifest hosts) until next program-deploy recreates the DB under v2 keystore-derived key per option-3 first-program-deploy migration discipline.",
                     db_path_str, e
                 );
             }
@@ -3392,7 +3453,11 @@ async fn async_main() -> Result<()> {
     // so this call MUST precede the spawn.
     {
         let mut state_guard = state.write().await;
-        state_guard.init_retain_persistence();
+        // PR-195 Batch #19: init_retain_persistence
+        // became async since it now reads the per-DB
+        // sidecar manifest + may await the keystore's
+        // TPM-derived key.
+        state_guard.init_retain_persistence().await;
     }
 
     // Batch 202 Faz 6 wire: force-registry SQLCipher

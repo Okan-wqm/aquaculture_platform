@@ -8,12 +8,15 @@ import {
   Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { Request, Response } from 'express';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { Public } from '@aquaculture/backend-common/decorators';
 import { RedisService } from '@aquaculture/backend-common/redis';
 import { AuditLogService, AuditSeverity } from '@aquaculture/backend-common/audit';
 import { StripeWebhookService } from './stripe-webhook.service';
+import { StripeWebhookEventEntity } from '../entities/stripe-webhook-event.entity';
 
 /**
  * Represents a raw-body Express request.
@@ -78,6 +81,16 @@ export class StripeWebhookController {
     // local-dev-without-db scenarios; production registers it via
     // AuditLogModule.forRoot() in app.module.ts.
     @Optional() private readonly auditLog?: AuditLogService,
+    // BILLING-HIGH-001 cure: persistent dedup table. UNIQUE on event_id
+    // PRIMARY KEY makes INSERT-on-receive the dedup primitive — DB
+    // serialises the constraint check, so concurrent or replayed
+    // webhook deliveries are processed exactly once across the system
+    // lifetime, not the Redis instance lifetime. Repository is optional
+    // for the same reason as AuditLogService — local-dev paths without
+    // a DB still need to compile and start.
+    @Optional()
+    @InjectRepository(StripeWebhookEventEntity)
+    private readonly dedupRepo?: Repository<StripeWebhookEventEntity>,
   ) {
     this.webhookSecret = this.configService.get<string>('STRIPE_WEBHOOK_SECRET', '');
     if (!this.webhookSecret) {
@@ -182,7 +195,50 @@ export class StripeWebhookController {
       return;
     }
 
-    // 4. Idempotency check (Redis)
+    // 4a. Persistent idempotency check (DB) — BILLING-HIGH-001 cure.
+    //
+    // WHY: The DB UNIQUE constraint on event_id PRIMARY KEY IS the dedup
+    // primitive. INSERT-on-receive becomes idempotent: a duplicate
+    // webhook arrives with the same event_id, the INSERT fails on
+    // SQLSTATE 23505 (UNIQUE_VIOLATION), the controller catches and
+    // returns 200 OK without re-running the handler. No race window —
+    // the DB serialises the constraint check at the row level. Survives
+    // Redis restart / eviction / cold cache.
+    if (this.dedupRepo) {
+      try {
+        await this.dedupRepo.insert({
+          eventId,
+          eventType,
+          receivedAt: new Date(),
+          processedAt: null,
+          outcome: 'pending',
+        });
+      } catch (err) {
+        // Postgres SQLSTATE 23505 = unique_violation. TypeORM surfaces
+        // this as a QueryFailedError with `code === '23505'`. Any other
+        // error path is a real failure (DB down, schema drift) and
+        // should propagate — fail-CLOSED for billable handling.
+        const code =
+          (err as { code?: string; driverError?: { code?: string } })?.code ??
+          (err as { driverError?: { code?: string } })?.driverError?.code;
+        if (code === '23505') {
+          this.logger.log(`Duplicate webhook event ${eventId} (${eventType}), skipping (DB dedup)`);
+          await this.audit('stripe.webhook.duplicate', {
+            resourceId: eventId,
+            ip: sourceIp,
+            severity: AuditSeverity.INFO,
+            metadata: { eventType, reason: 'db-dedup-hit' },
+          });
+          res.status(200).json({ received: true, duplicate: true });
+          return;
+        }
+        throw err;
+      }
+    }
+
+    // 4b. Idempotency cache layer (Redis) — fast path that avoids
+    // hitting DB on every replay during the typical 3-day Stripe retry
+    // window. Authoritative source remains the DB; Redis is a cache.
     if (this.redisService) {
       const idempotencyKey = `webhook:stripe:${eventId}`;
       const isNew = await this.redisService.setNx(
@@ -192,7 +248,7 @@ export class StripeWebhookController {
       );
 
       if (!isNew) {
-        this.logger.log(`Duplicate webhook event ${eventId} (${eventType}), skipping`);
+        this.logger.log(`Duplicate webhook event ${eventId} (${eventType}), skipping (Redis cache)`);
         await this.audit('stripe.webhook.duplicate', {
           resourceId: eventId,
           ip: sourceIp,
@@ -225,6 +281,7 @@ export class StripeWebhookController {
           severity: AuditSeverity.INFO,
           metadata: { eventType, outcome: 'success' },
         });
+        await this.markDedupOutcome(eventId, 'success');
       } catch (err) {
         // CRITICAL: Always return 200 to Stripe. Log the error for investigation.
         // Returning non-200 causes Stripe to retry, which can amplify failures.
@@ -243,6 +300,7 @@ export class StripeWebhookController {
             errorMessage: errorMessage.substring(0, 500),
           },
         });
+        await this.markDedupOutcome(eventId, 'handler-error');
       }
     } else {
       this.logger.log(`Ignoring unsupported event type: ${eventType}`);
@@ -252,10 +310,42 @@ export class StripeWebhookController {
         severity: AuditSeverity.INFO,
         metadata: { eventType, reason: 'event-type-not-in-SUPPORTED_EVENTS' },
       });
+      await this.markDedupOutcome(eventId, 'unsupported-event');
     }
 
     // 6. Always acknowledge
     res.status(200).json({ received: true });
+  }
+
+  /**
+   * Update the dedup row's outcome + processed_at when the handler
+   * settles. BILLING-HIGH-001 cure — the row is INSERTed with
+   * outcome='pending' on receive; the post-handler markDedupOutcome
+   * call lets operators query the (received_at, processed_at,
+   * outcome) tuple for triage without joining audit-log rows.
+   *
+   * Defensive try/catch — a DB write failure here MUST NOT block the
+   * 200 OK response to Stripe. The audit row + dedup row INSERT both
+   * succeeded earlier; a UPDATE failure on outcome is non-fatal (the
+   * audit log captures the actual outcome authoritatively).
+   */
+  private async markDedupOutcome(
+    eventId: string,
+    outcome: 'success' | 'handler-error' | 'unsupported-event',
+  ): Promise<void> {
+    if (!this.dedupRepo) return;
+    try {
+      await this.dedupRepo.update(
+        { eventId },
+        { processedAt: new Date(), outcome },
+      );
+    } catch (err) {
+      this.logger.warn(
+        `markDedupOutcome failed for ${eventId} (non-fatal): ${
+          err instanceof Error ? err.message : 'Unknown error'
+        }`,
+      );
+    }
   }
 
   /**

@@ -19,6 +19,7 @@ import { SubscriptionModuleItem } from './entities/subscription-module-item.enti
 import { TenantUsageMetrics } from './entities/tenant-usage-metrics.entity';
 import { Plan } from './entities/plan.entity';
 import { ScheduledPlanChange } from './entities/scheduled-plan-change.entity';
+import { StripeWebhookEventEntity } from './entities/stripe-webhook-event.entity';
 
 // Command Handlers
 import { CreateSubscriptionHandler } from './handlers/create-subscription.handler';
@@ -76,7 +77,7 @@ const EventHandlers = [
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Subscription, Invoice, Payment, SubscriptionModuleItem, TenantUsageMetrics, Plan, ScheduledPlanChange]),
+    TypeOrmModule.forFeature([Subscription, Invoice, Payment, SubscriptionModuleItem, TenantUsageMetrics, Plan, ScheduledPlanChange, StripeWebhookEventEntity]),
     CqrsModule,
     ScheduleModule,
   ],

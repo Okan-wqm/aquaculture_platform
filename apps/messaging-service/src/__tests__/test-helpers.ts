@@ -173,6 +173,13 @@ export interface MockQueryRunnerManager {
   find: jest.Mock;
   update: jest.Mock;
   delete: jest.Mock;
+  /**
+   * Raw SQL escape hatch — used by handlers that issue advisory locks
+   * (`SELECT pg_advisory_xact_lock(...)`) inside the transaction. Defaults
+   * to a no-op resolved value so tests that don't care about advisory
+   * locks aren't affected.
+   */
+  query: jest.Mock;
 }
 
 export interface MockQueryRunner {
@@ -193,6 +200,7 @@ export function createMockQueryRunnerManager(): MockQueryRunnerManager {
     find: jest.fn(),
     update: jest.fn(),
     delete: jest.fn(),
+    query: jest.fn().mockResolvedValue([]),
   };
 }
 

@@ -8,6 +8,7 @@ import { createBaseEvent, BaseEvent } from '@platform/event-contracts';
 import { ToggleLegalHoldCommand } from './toggle-legal-hold.command';
 import { LegalHold } from '../entities/legal-hold.entity';
 import { LegalHoldService } from '../services/legal-hold.service';
+import { tenantAdvisoryLockKey } from '../services/legal-hold.advisory-lock';
 import { ComplianceAuditService } from '../services/compliance-audit.service';
 import { ComplianceAction } from '../entities/compliance-audit-log.entity';
 
@@ -78,8 +79,23 @@ export class ToggleLegalHoldHandler
       }
     }
 
-    // Wrap hold + audit + outbox in a single transaction
+    // Wrap hold + audit + outbox in a single transaction.
+    //
+    // LEGAL-MEDIUM-004 cure (TOCTOU): the FIRST statement inside the
+    // transaction is `pg_advisory_xact_lock(tenantHash)`. The retention
+    // path (`RetentionPolicyService.dropChunksForTenantUnderLock`) takes
+    // the SAME advisory key; the two paths therefore serialize. If a
+    // retention sweep is mid-flight against this tenant, our activate
+    // waits for it to finish (so the chunks-already-dropped state is
+    // visible before the hold lands). If WE win the race, the retention
+    // sweep waits for our COMMIT; on its lock acquisition it re-reads
+    // the registry and sees the new hold, aborting the destructive op.
     return this.dataSource.transaction(async (manager) => {
+      const lockKey = tenantAdvisoryLockKey(tenantId);
+      await manager.query(`SELECT pg_advisory_xact_lock($1::bigint)`, [
+        lockKey.toString(),
+      ]);
+
       let hold: LegalHold;
 
       if (activate) {

@@ -12,6 +12,7 @@ import {
   createMockQueryRunner,
   fakeUuid,
   resetUuidCounter,
+  MockQueryRunner,
   TENANT_A,
 } from '../../../__tests__/test-helpers';
 
@@ -36,6 +37,7 @@ describe('ToggleLegalHoldHandler — LEGAL-MEDIUM-002 boundary checks', () => {
   let auditService: { log: jest.Mock };
   let outboxPublisher: { enqueue: jest.Mock };
   let mockDataSource: ReturnType<typeof createMockDataSource>;
+  let queryRunner: MockQueryRunner;
 
   const userId = fakeUuid('usr');
   const approverId = fakeUuid('usr');
@@ -50,7 +52,7 @@ describe('ToggleLegalHoldHandler — LEGAL-MEDIUM-002 boundary checks', () => {
     };
     auditService = { log: jest.fn() };
     outboxPublisher = { enqueue: jest.fn() };
-    const queryRunner = createMockQueryRunner();
+    queryRunner = createMockQueryRunner();
     mockDataSource = createMockDataSource(queryRunner);
 
     const module: TestingModule = await Test.createTestingModule({
@@ -105,6 +107,41 @@ describe('ToggleLegalHoldHandler — LEGAL-MEDIUM-002 boundary checks', () => {
 
     await expect(handler.execute(cmd)).rejects.toBeInstanceOf(BadRequestException);
     expect(legalHoldService.release).not.toHaveBeenCalled();
+  });
+
+  // -----------------------------------------------------------------------
+  // LEGAL-MEDIUM-004 — advisory lock acquisition inside the transaction
+  // -----------------------------------------------------------------------
+  it('activate acquires pg_advisory_xact_lock as the first transactional statement', async () => {
+    legalHoldService.activate.mockResolvedValue({
+      id: fakeUuid('lh'),
+      tenantId: TENANT_A,
+      channelId: null,
+      reason: LONG_REASON,
+      isActive: true,
+    });
+
+    const cmd = new ToggleLegalHoldCommand(
+      TENANT_A, userId,
+      true, // activate
+      null, null,
+      LONG_REASON,
+      fakeUuid('lm'),
+      null, null, null,
+    );
+
+    await handler.execute(cmd);
+
+    // The transaction's manager should have run pg_advisory_xact_lock
+    // BEFORE legalHoldService.activate fired. The mock transaction
+    // callback receives queryRunner.manager — that's where the
+    // advisory-lock SELECT lands.
+    const lockCalls = queryRunner.manager.query.mock.calls.filter(
+      (call: unknown[]) =>
+        typeof call[0] === 'string' &&
+        (call[0] as string).includes('pg_advisory_xact_lock'),
+    );
+    expect(lockCalls.length).toBe(1);
   });
 
   it('release with all dual-approver fields populated reaches the service', async () => {

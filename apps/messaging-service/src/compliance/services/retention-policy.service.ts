@@ -7,6 +7,7 @@ import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { RetentionPolicy } from '../entities/retention-policy.entity';
 import { Message } from '../../message/entities/message.entity';
 import { LegalHoldService } from './legal-hold.service';
+import { acquireTenantAdvisoryLock } from './legal-hold.advisory-lock';
 import { ComplianceAuditService } from './compliance-audit.service';
 import { ComplianceAction } from '../entities/compliance-audit-log.entity';
 
@@ -237,8 +238,16 @@ export class RetentionPolicyService {
     // - No WAL bloat, no index maintenance, no vacuum needed
     // Only applicable when we can drop entire time ranges without exclusions.
     // @see MSG-MEDIUM-045
+    //
+    // LEGAL-MEDIUM-004 cure (TOCTOU): the hold reads above were OUTSIDE
+    // any transaction. Between read and drop_chunks a concurrent
+    // ToggleLegalHoldHandler.activate could land a new hold; pre-cure we
+    // would silently drop chunks for the now-held tenant. The cure: take
+    // a Postgres advisory lock on (tenantId), then RE-CHECK hold state
+    // inside the lock. ToggleLegalHoldHandler acquires the same lock at
+    // activation, so the two paths serialize.
     if (!channelId && heldChannelIds.length === 0) {
-      const dropped = await this.dropChunksForTenant(tenantId, cutoffDate);
+      const dropped = await this.dropChunksForTenantUnderLock(tenantId, cutoffDate);
       return { deletedCount: dropped, skipReason: null };
     }
 
@@ -312,22 +321,73 @@ export class RetentionPolicyService {
   }
 
   /**
-   * Use TimescaleDB drop_chunks() for fast retention cleanup.
-   * Drops entire hypertable chunks older than cutoffDate in one operation.
-   * Falls back to row DELETE if drop_chunks() is not available (non-TimescaleDB deployment).
+   * Use TimescaleDB drop_chunks() for fast retention cleanup, serialized
+   * against concurrent legal-hold toggles via a tenant advisory lock
+   * (LEGAL-MEDIUM-004 cure).
+   *
+   * Drops entire hypertable chunks older than cutoffDate. Falls back to
+   * row DELETE if drop_chunks() is not available (non-TimescaleDB).
+   *
+   * # Race fix detail
+   *
+   * Sequence:
+   *   1. BEGIN
+   *   2. SET search_path
+   *   3. SELECT pg_advisory_xact_lock(tenantHash)  ← serializes vs activate
+   *   4. SELECT 1 FROM legal_holds WHERE tenantId=? AND isActive=true LIMIT 1
+   *      — re-check, since ToggleLegalHoldHandler may have committed a hold
+   *      while we were waiting on the lock.
+   *   5. drop_chunks() (still inside the transaction; lock auto-releases at COMMIT)
+   *   6. COMMIT
+   *
+   * If step 4 finds a hold, we abort the destructive op (return 0
+   * with a logged skip).
+   *
    * @see MSG-MEDIUM-045
+   * @see legal-hold-auditor LEGAL-MEDIUM-004
    */
-  private async dropChunksForTenant(
+  private async dropChunksForTenantUnderLock(
     tenantId: string,
     cutoffDate: Date,
   ): Promise<number> {
     const qr = this.dataSource.createQueryRunner();
     await qr.connect();
+    await qr.startTransaction();
 
     try {
       await qr.query(
         `SET search_path TO "tenant_${tenantId.replace(/[^a-zA-Z0-9_-]/g, '')}", messaging, public`,
       );
+
+      // Serialize against ToggleLegalHoldHandler.activate which takes the
+      // SAME advisory key. Either we wait for activate to commit (then
+      // see the new hold below and abort), or activate waits for us (its
+      // hold lands AFTER we drop_chunks — by which point the cleanup
+      // already completed against pre-hold state).
+      await acquireTenantAdvisoryLock(qr, tenantId);
+
+      // RE-CHECK hold state inside the lock. The held-channel exclusion
+      // list is not relevant to the fast path (caller already verified
+      // it was empty); we only need to confirm no tenant-wide AND no
+      // channel-scoped hold landed during the lock-wait window.
+      const heldRows: Array<{ id: string }> = await qr.query(
+        `SELECT id FROM legal_holds
+         WHERE "tenantId" = $1::uuid AND "isActive" = true
+         LIMIT 1`,
+        [tenantId],
+      );
+      if (heldRows.length > 0) {
+        // A hold landed between the outer read and the lock acquisition.
+        // Abort destructively-cleanly: rollback (no-op since we haven't
+        // mutated yet) and return 0 so the caller treats this cycle as
+        // a skip.
+        await qr.rollbackTransaction();
+        this.logger.warn(
+          `Retention drop_chunks aborted for tenant=${tenantId}: ` +
+            `legal hold landed during lock-wait window`,
+        );
+        return 0;
+      }
 
       // drop_chunks returns the list of dropped chunk names.
       // First drop attachment chunks (child table), then message chunks (parent).
@@ -344,6 +404,8 @@ export class RetentionPolicyService {
       );
 
       const droppedChunks = Array.isArray(result) ? result.length : 0;
+      await qr.commitTransaction();
+
       if (droppedChunks > 0) {
         this.logger.log(
           `Retention: dropped ${droppedChunks} chunk(s) for tenant=${tenantId} (older than ${cutoffDate.toISOString()})`,
@@ -351,6 +413,12 @@ export class RetentionPolicyService {
       }
       return droppedChunks;
     } catch (err: unknown) {
+      // Best-effort rollback; if startTransaction never succeeded this is a no-op.
+      try {
+        await qr.rollbackTransaction();
+      } catch {
+        /* ignore — rollback on a non-active transaction throws, that's fine */
+      }
       const message = err instanceof Error ? err.message : String(err);
       // If drop_chunks fails (e.g., table is not a hypertable), log and return 0.
       // The caller can handle this as a no-op; manual row DELETE fallback is above.

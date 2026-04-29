@@ -502,6 +502,44 @@ propagates as 500, blocking the data access / export / raw-SQL
 execution until the audit row commits. Same shape as
 AUDITTRAIL-CRITICAL-003 impersonation-lifecycle cure.
 
+### AUDITTRAIL-MEDIUM-004 — Sensor-service AuditSubscriber row shape divergence
+
+**Status:** RESOLVED — closure tracked in `docs/reviews/_registry/findings.jsonl`.
+
+The auditor flagged that `apps/sensor-service/src/infrastructure/audit/
+audit.subscriber.ts` writes to `sensor_audit_logs` with a row shape
+that differs from `shared.audit_logs` (the canonical mandatory-shape
+table) — specifically, the entity-mutation stream uses
+`previous_value` / `new_value` / `changed_fields` JSONB, while the
+canonical stream uses `actorHomeTenantId` / `actedOnTenantId` /
+`method` / `result` / `preStateHash` / `postStateHash` /
+`justification` / `relatedAuditIds`.
+
+**Cure** — divergence-by-design, documented in
+`apps/sensor-service/src/infrastructure/audit/audit.subscriber.ts`
+class docstring. The platform deliberately runs TWO audit streams:
+
+  - `shared.audit_logs` — semantic-action level (one row per
+    business action, queried for SOC 2 CC1 / GDPR Art 30 evidence).
+  - `sensor_audit_logs` — entity-mutation level (one row per
+    storage-tier mutation, queried for tampering detection on
+    high-throughput sensor ingestion paths). The auditor's
+    "outbox exception" explicitly allows this stream to bypass the
+    synchronous audit interceptor due to the ingestion volume.
+
+Forcing shape parity would either lose entity-mutation-specific
+information (changed_fields JSONB diff) or fabricate
+semantic-action fields with no meaning at the entity-mutation
+tier — degrading the canonical stream's signal-to-noise.
+
+**Cross-service queries** that need both streams join on
+(tenantId, correlationId). Adding the bridging `correlation_id`
+column on `sensor_audit_logs` is the AUDITTRAIL-MEDIUM-004
+follow-on (separate column migration + INSERT-statement plumbing
+through `getRequestContext().correlationId`); the divergence-by-
+design closure here is the architectural decision that gates the
+follow-on as Tier-2 wiring rather than Tier-3 detection.
+
 ### AUDITTRAIL-MEDIUM-001 — preStateHash / postStateHash mutation-integrity proof
 
 **Status:** RESOLVED — closure tracked in `docs/reviews/_registry/findings.jsonl`.

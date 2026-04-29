@@ -16,6 +16,7 @@ import { Request, Response } from 'express';
 import { THROTTLE_KEY, THROTTLE_SKIP_KEY, ThrottleOptions } from './throttler.decorator';
 import { SlidingWindowStrategy } from './sliding-window.strategy';
 import { IIpValidator, IP_VALIDATOR } from '../interfaces';
+import { SecurityEventService } from '../security-event.service';
 
 /**
  * Request with user context
@@ -56,6 +57,13 @@ export class ThrottlerGuard implements CanActivate {
     private readonly configService: ConfigService,
     private readonly rateLimiter: SlidingWindowStrategy,
     @Optional() @Inject(IP_VALIDATOR) private readonly ipValidator?: IIpValidator,
+    // SEC-HIGH-010 cure: rate-limit hits are a security signal —
+    // brute-force attacks, runaway clients, DoS attempts. The
+    // canonical SecurityEventService publishes the event into the
+    // platform's incident-detection pipeline (Prom alert / pager /
+    // SIEM) in real time. @Optional preserves local-dev paths where
+    // the security infrastructure may not be wired.
+    @Optional() private readonly securityEventService?: SecurityEventService,
   ) {
     this.defaultLimit = this.configService.get<number>('THROTTLE_DEFAULT_LIMIT', 100);
     this.defaultTtl = this.configService.get<number>('THROTTLE_DEFAULT_TTL', 60);
@@ -101,6 +109,32 @@ export class ThrottlerGuard implements CanActivate {
       this.logger.warn(
         `Rate limit exceeded for ${key}: ${config.limit} requests in ${config.ttl}s`,
       );
+
+      // SEC-HIGH-010 cure: publish RateLimitExceeded SecurityEvent so
+      // the incident-detection pipeline sees the signal in real time.
+      // Defensive try/catch — a downstream event-bus outage MUST NOT
+      // block the 429 response (otherwise a failed event publish
+      // becomes a request-storm DOS lever). We pass the rate-key as
+      // the canonical identifier; downstream alert rules typically
+      // filter on key prefix (e.g. throttle:ip vs throttle:user) to
+      // distinguish brute-force vs runaway-client patterns.
+      try {
+        await this.securityEventService?.publishRateLimitExceeded({
+          ip: this.extractClientIp(request),
+          userId: request.user?.sub ?? request.user?.userId,
+          tenantId: request.tenantId ?? request.user?.tenantId,
+          key,
+          limit: config.limit,
+          windowMs,
+          count: config.limit + 1,
+        });
+      } catch (err) {
+        this.logger.warn(
+          `RateLimitExceeded SecurityEvent publish failed (non-fatal): ${
+            err instanceof Error ? err.message : 'Unknown'
+          }`,
+        );
+      }
 
       const errorMessage = config.errorMessage || 'Too many requests. Please try again later.';
 

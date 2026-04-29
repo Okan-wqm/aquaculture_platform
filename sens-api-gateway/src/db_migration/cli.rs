@@ -153,7 +153,15 @@ pub fn parse_args(argv: &[&str]) -> Result<MigrationArgs, ArgError> {
 
     let mut i = 0;
     while i < argv.len() {
-        let arg = argv[i];
+        // Use `.get(i)` instead of `argv[i]` to satisfy
+        // the crate-level clippy::indexing_slicing deny.
+        // The `while i < argv.len()` guard makes the
+        // None branch unreachable, but the explicit
+        // match is the canonical safe-indexing shape.
+        let arg = match argv.get(i) {
+            Some(s) => *s,
+            None => break,
+        };
         match arg {
             "--data-dir" => {
                 let value = argv.get(i + 1).ok_or_else(|| {

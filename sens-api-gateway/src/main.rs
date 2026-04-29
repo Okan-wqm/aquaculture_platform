@@ -2834,8 +2834,20 @@ fn main() {
                 // subcommand pattern: subcommand
                 // dispatch on argv[1], remaining args
                 // passed to the subcommand's parser.
-                let sub_argv: Vec<&str> =
-                    args[2..].iter().map(|s| s.as_str()).collect();
+                // Use `.get(2..)` instead of `args[2..]`
+                // for the crate-level
+                // clippy::indexing_slicing deny.
+                // `unwrap_or(&[])` covers the (logically
+                // unreachable) case of args having < 2
+                // elements — the outer match on
+                // `args.get(1) == Some("--migrate-db")`
+                // proves at least 2 are present.
+                let sub_argv: Vec<&str> = args
+                    .get(2..)
+                    .unwrap_or(&[])
+                    .iter()
+                    .map(|s| s.as_str())
+                    .collect();
                 let exit_code =
                     crate::db_migration::cli::run_migration_ceremony(
                         &sub_argv,
@@ -2893,7 +2905,19 @@ fn main() {
                 println!("    --init                    Generate default configuration file");
                 println!("    --audit-verify <path>     Verify NDJSON audit log chain (Batch 77)");
                 println!("    --confirm-active          Confirm the currently-active A/B slot (Batch 110)");
-                println!("    --migrate-db [args...]    SQLCipher v1->v2 migration ceremony (PR-195 Batch #6)");
+                // print_stdout is denied at the crate
+                // level for production hot paths; the
+                // --help block is the canonical exception
+                // (operator-facing CLI output). Pre-Batch-#6
+                // help lines pre-dated the gate; my new
+                // line is on a changed line so the per-LINE
+                // filter catches it. Allow + document the
+                // exemption — same architectural shape as
+                // db_migration::cli's JSONL emission allow.
+                #[allow(clippy::print_stdout)]
+                {
+                    println!("    --migrate-db [args...]    SQLCipher v1->v2 migration ceremony (PR-195 Batch #6)");
+                }
                 println!("    --version                 Print version information");
                 println!("    --help                    Print this help message");
                 println!();

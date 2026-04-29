@@ -23,6 +23,7 @@ import {
   AuditResult,
   AuditSeverity,
 } from './audit-log.entity';
+import { getRequestContext } from '../logging/request-context';
 import { SENSITIVE_FIELDS_SET } from '../security/security-constants';
 
 /**
@@ -325,20 +326,68 @@ export class AuditedOperationInterceptor implements NestInterceptor {
 
   /**
    * Extract context from an RPC/CQRS execution context.
-   * CQRS commands often carry tenantId and userId as properties.
+   *
+   * # Trust-anchor priority (AUDITTRAIL-MEDIUM-002 cure)
+   *
+   * Pre-cure this method read tenantId / userId / correlationId / etc.
+   * exclusively from the command object. If the command author
+   * forgot to populate `tenantId` on the DTO, the audit row's
+   * `tenantId` was null even though the upstream HTTP middleware
+   * had resolved a tenant context and run the entire CQRS chain
+   * inside a `requestContextStorage.run({ tenantId, ... }, fn)`.
+   *
+   * The cure walks two trust anchors in order:
+   *
+   *   1. `requestContextStorage` (AsyncLocalStorage). This is the
+   *      canonical SSoT for tenant + user identity once
+   *      TenantContextMiddleware has run on the request. It
+   *      survives across every async boundary including CQRS
+   *      command-bus dispatch.
+   *   2. The command object itself, as a secondary signal for the
+   *      cron / event-bus / worker entry-points where no upstream
+   *      HTTP middleware ran. Those callers MUST wrap their dispatch
+   *      in `withTenantContext(...)` (see
+   *      libs/backend-common/src/context/with-tenant-context.ts) —
+   *      but until that migration is universal, command-property
+   *      fallback keeps the audit row tenantId-attributed instead
+   *      of nullifying it on a regression class that's still being
+   *      swept.
+   *
+   * Why the ALS context is the trust anchor: it was populated by
+   * TenantContextMiddleware which read the JWT (or the cron-side
+   * `withTenantContext()` wrapper which validates the UUID), so the
+   * value cannot be tampered with by a forgotten or maliciously-
+   * crafted command DTO. The command-property fallback is a Tier-2
+   * (make-automatic) compatibility shim, not a Tier-1 trust anchor.
    */
   private extractFromRpc(context: ExecutionContext): RequestContext {
     const args = context.getArgs<unknown[]>();
     const command = args[0] as Record<string, unknown> | undefined;
+    const ctx = getRequestContext();
 
     return {
-      userId: (command?.['userId'] as string) ?? null,
+      userId:
+        ctx.userId ??
+        (command?.['userId'] as string | undefined) ??
+        null,
       userEmail: (command?.['userEmail'] as string) ?? null,
-      tenantId: (command?.['tenantId'] as string) ?? null,
-      schemaName: (command?.['schemaName'] as string) ?? null,
-      ipAddress: (command?.['ipAddress'] as string) ?? null,
+      tenantId:
+        ctx.tenantId ??
+        (command?.['tenantId'] as string | undefined) ??
+        null,
+      schemaName:
+        ctx.schemaName ??
+        (command?.['schemaName'] as string | undefined) ??
+        null,
+      ipAddress:
+        ctx.ip ??
+        (command?.['ipAddress'] as string | undefined) ??
+        null,
       userAgent: null,
-      correlationId: (command?.['correlationId'] as string) ?? null,
+      correlationId:
+        ctx.correlationId ??
+        (command?.['correlationId'] as string | undefined) ??
+        null,
       queryRunner: (command?.['queryRunner'] as QueryRunner) ?? null,
       // method is set by extractRequestContext after this returns;
       // a non-null override at this layer would be ignored by the spread.

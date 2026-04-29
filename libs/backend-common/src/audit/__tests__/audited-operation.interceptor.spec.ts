@@ -11,6 +11,7 @@ import {
   AuditResult,
   AuditSeverity,
 } from '../audit-log.entity';
+import { requestContextStorage } from '../../logging/request-context';
 
 /**
  * AuditedOperationInterceptor — pin AUDITTRAIL-CRITICAL-004 mandatory-
@@ -215,6 +216,47 @@ describe('AuditedOperationInterceptor — mandatory-shape population', () => {
     const observable = interceptor.intercept(ctx, buildNext(of({ id: 'x' })));
     await lastValueFrom(observable);
     expect(lastSavedAuditEntry().mfaVerified).toBe(false);
+  });
+
+  it('RPC context: AsyncLocalStorage tenant context overrides command-level tenantId (AUDITTRAIL-MEDIUM-002)', async () => {
+    const ctx = buildRpcCtx({
+      tenantId: 'tenant-from-command-DTO',
+      userId: 'user-from-command-DTO',
+    });
+    const observable = await requestContextStorage.run(
+      {
+        tenantId: 'tenant-from-ALS-trust-anchor',
+        userId: 'user-from-ALS-trust-anchor',
+        correlationId: 'corr-als',
+        schemaName: 'schema_als',
+      },
+      () => Promise.resolve(interceptor.intercept(ctx, buildNext(of({ id: 'x' })))),
+    );
+    await lastValueFrom(observable);
+
+    const e = lastSavedAuditEntry();
+    // ALS wins.
+    expect(e.actorHomeTenantId).toBe('tenant-from-ALS-trust-anchor');
+    expect(e.actedOnTenantId).toBe('tenant-from-ALS-trust-anchor');
+    expect(e.tenantId).toBe('tenant-from-ALS-trust-anchor');
+    expect(e.userId).toBe('user-from-ALS-trust-anchor');
+    expect(e.correlationId).toBe('corr-als');
+    expect(e.schemaName).toBe('schema_als');
+  });
+
+  it('RPC context: command-level tenantId is the fallback when AsyncLocalStorage has no context', async () => {
+    const ctx = buildRpcCtx({
+      tenantId: 'tenant-from-command-DTO',
+      userId: 'user-from-command-DTO',
+    });
+    // No requestContextStorage.run wrapper — the cron / worker entry-
+    // point case before withTenantContext() is universal.
+    const observable = interceptor.intercept(ctx, buildNext(of({ id: 'x' })));
+    await lastValueFrom(observable);
+
+    const e = lastSavedAuditEntry();
+    expect(e.tenantId).toBe('tenant-from-command-DTO');
+    expect(e.userId).toBe('user-from-command-DTO');
   });
 
   it('does NOT auto-populate the four caller-owned fields (preStateHash, postStateHash, justification, relatedAuditIds)', async () => {

@@ -345,3 +345,9 @@ export type {
 export * from './convert-audit-columns-to-timestamptz.helper';
 export * from './audit-columns-bootstrap.service';
 export * from './audit-columns.module';
+
+// DATA-LOW-001 cure: typed pg.Pool extractor that hides the
+// single `as any` driver-shape bridge in one canonical adapter.
+// Connection-bootstrap services import this instead of casting
+// dataSource.driver inline.
+export * from './pg-pool-from-data-source.util';

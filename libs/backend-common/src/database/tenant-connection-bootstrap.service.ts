@@ -2,6 +2,7 @@ import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { getRequestContext } from '../logging/request-context';
 import { validateTenantSchemaName } from './schema-manager.service';
+import { getPgPoolFromDataSource } from './pg-pool-from-data-source.util';
 
 /**
  * Tenant schema regex — only matches tenant_<16 hex chars>.
@@ -78,10 +79,13 @@ export function createTenantConnectionBootstrap(sourceSchema: string) {
 
     /** @internal */
     patchConnectionPool(): void {
-      const driver = this.dataSource.driver as any;
-      const pool = driver.master;
-
-      if (!pool || typeof pool.connect !== 'function') {
+      // DATA-LOW-001 cure: route through the canonical typed
+      // adapter instead of an inline `dataSource.driver as any`
+      // cast. The cast lives once, in one util, with a narrow
+      // PgPoolLike interface — no leakage of TypeORM driver
+      // internals into the bootstrap.
+      const pool = getPgPoolFromDataSource(this.dataSource);
+      if (!pool) {
         this.logger.error('Cannot patch connection pool — pg Pool not found on DataSource driver');
         return;
       }

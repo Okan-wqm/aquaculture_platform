@@ -128,6 +128,7 @@ export default {
         '<rootDir>/admin-api-health-probe-breakered.spec.ts',
         '<rootDir>/billing-webhook-redis-required.spec.ts',
         '<rootDir>/compliance-score-tier-honesty.spec.ts',
+        '<rootDir>/no-driver-cast-as-any.spec.ts',
       ],
     },
     {

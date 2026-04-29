@@ -2,6 +2,7 @@ import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { getRequestContext } from '../../logging/request-context';
 import { RLS_BYPASS_GUC, RLS_TENANT_GUC } from './apply-tenant-rls.helper';
+import { getPgPoolFromDataSource } from '../pg-pool-from-data-source.util';
 
 /**
  * RlsConnectionBootstrap
@@ -129,14 +130,12 @@ export function createRlsConnectionBootstrap(serviceName: string) {
 
     /** @internal */
     patchConnectionPool(): void {
-      // TypeORM exposes the underlying pg Pool via `driver.master`. Same
-      // access path as TenantConnectionBootstrap; if that ever changes both
-      // bootstraps need updating in lockstep.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const driver = this.dataSource.driver as any;
-      const pool = driver.master;
-
-      if (!pool || typeof pool.connect !== 'function') {
+      // DATA-LOW-001 cure: TypeORM driver-shape cast lives once
+      // in libs/backend-common/src/database/pg-pool-from-data-source.util.ts.
+      // Sister bootstrap (TenantConnectionBootstrap) uses the
+      // same util — both stay in lockstep automatically.
+      const pool = getPgPoolFromDataSource(this.dataSource);
+      if (!pool) {
         this.logger.error(
           'Cannot patch connection pool — pg Pool not found on DataSource driver. ' +
             'RLS GUC propagation is INACTIVE — tenant isolation policies will deny all queries!',

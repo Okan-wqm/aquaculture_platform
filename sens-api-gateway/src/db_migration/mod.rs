@@ -123,6 +123,7 @@
 pub mod boot_detector;
 pub mod cli;
 pub mod cli_executor;
+pub mod cli_runtime;
 pub mod consumer_context;
 pub mod consumer_key_resolver;
 pub mod manifest;

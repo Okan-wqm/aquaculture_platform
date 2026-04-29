@@ -33,6 +33,7 @@ import { AddAdminAuditLogsImmutability1787800000000 } from './migrations/1787800
 import { AddUserPermissionsUserFk1787900000000 } from './migrations/1787900000000-AddUserPermissionsUserFk';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AuditLogModule } from './audit/audit.module';
+import { AdminApiRetentionBootstrapModule } from './retention/retention-bootstrap.module';
 import { PasswordResetModule } from './auth/password-reset.module';
 import { BillingModule } from './billing/billing.module';
 import { DatabaseManagementModule } from './database-management/database-management.module';
@@ -182,6 +183,10 @@ import { UsersModule } from './users/users.module';
     }),
     TenantManagementModule,
     AuditLogModule,
+    // COMPLIANCE-MEDIUM-001 cure: register retention policies for
+    // shared.audit_logs + admin.audit_logs with the canonical
+    // RetentionEnforcementService cron (03:00 UTC daily).
+    AdminApiRetentionBootstrapModule,
     SystemMetricsModule,
     HealthModule,
     UsersModule,

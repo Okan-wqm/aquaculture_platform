@@ -50,29 +50,56 @@ Prometheus cardinality budget, TimescaleDB hypertable, Stripe metered billing Me
 
 ### Per-tenant rollup pipeline
 
-- Hourly rollup job: Prometheus → `observability.tenant_cost_rollup` table. Schema:
+- Hourly rollup job: Prometheus → `observability.tenant_cost_rollup` table.
+  Canonical schema lives in
+  `apps/observability-service/src/database/migrations/1805000000000-AddTenantCostRollup.ts`.
+  The schema uses a CATEGORY-PIVOT row shape (one row per
+  bucket × category) rather than a column-pivot shape (one row
+  per bucket with a column per category). Rationale: extensible
+  — adding a new cost category is a CHECK-constraint extension,
+  not an `ALTER TABLE ADD COLUMN` migration.
+
   ```sql
+  -- Canonical declaration (excerpt from the migration):
   CREATE TABLE observability.tenant_cost_rollup (
+    bucket TIMESTAMPTZ NOT NULL,
     tenant_id UUID NOT NULL,
-    period_start TIMESTAMPTZ NOT NULL,
-    period_end TIMESTAMPTZ NOT NULL,
-    compute_cost_dollars NUMERIC(14,4),
-    db_cost_dollars NUMERIC(14,4),
-    storage_cost_dollars NUMERIC(14,4),
-    claude_cost_dollars NUMERIC(14,4),
-    stripe_event_cost_dollars NUMERIC(14,4),
-    nats_cost_dollars NUMERIC(14,4),
-    total_cost_dollars NUMERIC(14,4) GENERATED ALWAYS AS (
-      COALESCE(compute_cost_dollars,0) + COALESCE(db_cost_dollars,0) +
-      COALESCE(storage_cost_dollars,0) + COALESCE(claude_cost_dollars,0) +
-      COALESCE(stripe_event_cost_dollars,0) + COALESCE(nats_cost_dollars,0)
-    ) STORED,
-    PRIMARY KEY (tenant_id, period_start)
+    cost_category VARCHAR(32) NOT NULL
+      CHECK (cost_category IN (
+        'ai_tokens', 'compute_cpu', 'compute_memory',
+        'storage_postgres', 'storage_minio', 'storage_timescale',
+        'network_egress', 'nats_messages',
+        'notification_push', 'notification_email',
+        'notification_sms', 'notification_webhook'
+      )),
+    cost_subcategory VARCHAR(64) NOT NULL DEFAULT '',
+    cost_usd NUMERIC(18, 6) NOT NULL DEFAULT 0,
+    meter_primary NUMERIC(20, 6) NOT NULL DEFAULT 0,
+    meter_secondary NUMERIC(20, 6) NOT NULL DEFAULT 0,
+    plan_tier VARCHAR(32) NOT NULL,
+    source_service VARCHAR(64) NOT NULL,
+    computed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT tenant_cost_rollup_unique
+      UNIQUE (bucket, tenant_id, cost_category, cost_subcategory)
   );
-  SELECT create_hypertable('observability.tenant_cost_rollup', 'period_start');
+  SELECT create_hypertable('observability.tenant_cost_rollup', 'bucket');
   ```
-- Rollup job idempotent: re-run for same (tenantId, period) UPSERTs with final values.
-- Cost conversion: `tokens × model_price` / `bytes × storage_price` / `seconds × compute_price` — prices in a `cost_catalog` table, versioned by `effective_from` (no retroactive price change).
+
+  The migration is the SSoT; this code-block is the
+  spec-readable mirror. When the migration is extended (new
+  category, new column), update this block in lockstep.
+  TENANTCOST-LOW-002 cure: the prior column-pivot example
+  (`period_start`/`period_end` + `compute_cost_dollars` per
+  category) was authored before the migration landed and
+  diverged from the canonical shape — corrected here.
+
+- Rollup job idempotent: re-run for same (tenant, bucket,
+  category, subcategory) UPSERTs via the
+  `tenant_cost_rollup_unique` constraint.
+- Cost conversion: `tokens × model_price` / `bytes ×
+  storage_price` / `seconds × compute_price` — prices in a
+  `cost_catalog` table, versioned by `effective_from` (no
+  retroactive price change).
 
 ### Plan-tier margin SLO
 

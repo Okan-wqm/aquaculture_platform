@@ -688,3 +688,17 @@ active refresh token, blacklist all access tokens, revoke all
 sessions, and emit RefreshTokenReuseDetected SecurityEvent so the
 incident-detection pipeline (Prom alert / pager / SIEM) sees the
 signal in real time.
+
+### SEC-HIGH-010 — ThrottlerGuard rate-limit hits emit no SecurityEvent
+
+**Status:** RESOLVED — closure tracked in `docs/reviews/_registry/findings.jsonl`.
+
+Pre-fix the rate-limit-exceeded path logged WARN + threw 429 but never
+reached the canonical SecurityEventService — the incident-detection
+pipeline (Prom alert / pager / SIEM) saw nothing real-time. Repeated
+rate-limit hits on a single key (IP / user / tenant) are a security
+signal: brute-force, runaway client, DoS attempts. Cure:
+ThrottlerGuard injects SecurityEventService and publishes
+RateLimitExceeded with full rate-key context. Defensive try/catch so
+event-bus outage cannot block the 429 response (would be a
+request-storm DOS lever).

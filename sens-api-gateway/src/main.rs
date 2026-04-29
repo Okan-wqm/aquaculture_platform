@@ -1417,19 +1417,54 @@ impl AppState {
             }
         }
 
-        let queue = match crate::offline_queue::OfflineQueue::with_disk_limit(
-            &db_path,
-            self.config.offline_queue.max_size,
-            self.config.offline_queue.max_age_secs,
-            self.config.offline_queue.max_disk_bytes,
-        ) {
-            Ok(q) => q,
-            Err(e) => {
-                return Err(format!(
-                    "offline_queue DB open at `{}` failed: {:#}",
-                    db_path.display(),
-                    e
-                ));
+        // PR-195 Batch #17 — adopt the manifest-aware
+        // constructor (Batch #13). Reads the per-DB
+        // sidecar manifest, derives the SQLCipher PRAGMA
+        // key via consumer_key_resolver — works on BOTH
+        // pre-migration hosts (manifest missing → v1
+        // fallback per Batch #330) and post-migration
+        // hosts (manifest declares v2 → keystore-derived
+        // key). Falls back to legacy v1-only constructor
+        // when keystore.mode = Disabled (HC-1 backward
+        // compat — operator hasn't enabled the keystore
+        // subsystem; v2 migration is unavailable; v1
+        // path is the only valid derivation).
+        let queue = if let Some(ref keystore) = self.keystore {
+            let deployment_uuid = self.config.device_id.clone().into_bytes();
+            match crate::offline_queue::OfflineQueue::with_keystore_derivation(
+                &db_path,
+                self.config.offline_queue.max_size,
+                self.config.offline_queue.max_age_secs,
+                self.config.offline_queue.max_disk_bytes,
+                keystore.clone(),
+                deployment_uuid,
+            )
+            .await
+            {
+                Ok(q) => q,
+                Err(e) => {
+                    return Err(format!(
+                        "offline_queue DB open (manifest-aware) at `{}` failed: {:#}",
+                        db_path.display(),
+                        e
+                    ));
+                }
+            }
+        } else {
+            match crate::offline_queue::OfflineQueue::with_disk_limit(
+                &db_path,
+                self.config.offline_queue.max_size,
+                self.config.offline_queue.max_age_secs,
+                self.config.offline_queue.max_disk_bytes,
+            ) {
+                Ok(q) => q,
+                Err(e) => {
+                    return Err(format!(
+                        "offline_queue DB open (legacy v1, keystore disabled) at `{}` failed: {:#}",
+                        db_path.display(),
+                        e
+                    ));
+                }
             }
         };
 
@@ -2258,19 +2293,46 @@ impl AppState {
     /// (needs the cached pubkey) + AFTER
     /// `init_partition_store` (tenant_id available via
     /// config).
-    pub fn init_license_cache(&mut self) {
+    pub async fn init_license_cache(&mut self) {
         use std::path::PathBuf;
         let path = PathBuf::from(crate::license_cache::DEFAULT_CACHE_PATH);
 
-        let store = match crate::license_cache::LicenseCacheStore::open(&path) {
-            Ok(s) => std::sync::Arc::new(s),
-            Err(e) => {
-                error!(
-                    "License cache open failed at {}: {}. Agent boots under conservative() STARTER fallback; operator must investigate SQLCipher permissions + /etc/suderra/db.key.",
-                    path.display(),
-                    e
-                );
-                return;
+        // PR-195 Batch #17 — adopt the manifest-aware
+        // constructor (Batch #14). Same shape as
+        // init_offline_queue's adoption: prefer the
+        // keystore-aware path when keystore is wired;
+        // fall back to legacy v1-only when
+        // keystore.mode = Disabled (HC-1 backward compat).
+        let store = if let Some(ref keystore) = self.keystore {
+            let deployment_uuid = self.config.device_id.clone().into_bytes();
+            match crate::license_cache::LicenseCacheStore::open_with_keystore_derivation(
+                &path,
+                keystore.clone(),
+                deployment_uuid,
+            )
+            .await
+            {
+                Ok(s) => std::sync::Arc::new(s),
+                Err(e) => {
+                    error!(
+                        "License cache (manifest-aware) open failed at {}: {}. Agent boots under conservative() STARTER fallback; operator must investigate SQLCipher permissions + /etc/suderra/db.key + manifest sidecar.",
+                        path.display(),
+                        e
+                    );
+                    return;
+                }
+            }
+        } else {
+            match crate::license_cache::LicenseCacheStore::open(&path) {
+                Ok(s) => std::sync::Arc::new(s),
+                Err(e) => {
+                    error!(
+                        "License cache (legacy v1, keystore disabled) open failed at {}: {}. Agent boots under conservative() STARTER fallback; operator must investigate SQLCipher permissions + /etc/suderra/db.key.",
+                        path.display(),
+                        e
+                    );
+                    return;
+                }
             }
         };
 
@@ -3094,6 +3156,50 @@ async fn async_main() -> Result<()> {
         }
     };
 
+    // Initialize keystore (Batch 83 Sprint 6.3, relocated PR-195 Batch #17).
+    //
+    // WHY: Plan §5 Faz 2 item 1 + ADR-018 §4 mandate a
+    // 3-backend master-key keystore. Batch 82 shipped the
+    // FileBacked runtime; Batch 83 wires AppState +
+    // boot-time open. Subsequent ADR-031 + PR-195 D-3
+    // SQLCipher consumer migration arc requires the
+    // keystore to be initialised BEFORE any SQLCipher
+    // consumer's `init_X` runs — the manifest-aware
+    // constructors landed in Batches #13-#15
+    // (`OfflineQueue::with_keystore_derivation`,
+    // `LicenseCacheStore::open_with_keystore_derivation`,
+    // `SqlitePersistence::new_with_keystore_derivation`,
+    // `BytecodeRegistryStore::new_with_keystore_derivation`)
+    // each take `Arc<dyn Keystore>` as a required arg.
+    //
+    // PR-195 Batch #17 (closes ORPHAN-D3-BOOT-ORDER-001):
+    // relocated from the post-init block (line ~3391)
+    // to BEFORE `init_offline_queue` here. Pre-relocation
+    // the keystore was opened AFTER all SQLCipher
+    // consumers had already run their v1-only key
+    // derivation; that ordering was safe because the
+    // legacy constructors didn't depend on the keystore.
+    // The new manifest-aware constructors do — relocating
+    // is the architectural prerequisite for the init_X
+    // callsite switches in Batch #18.
+    //
+    // FAIL-CLOSED: keystore.mode != Disabled + open failure
+    // -> exit(1). The keystore is the trust anchor; weaker
+    // fallback would violate ADR-018 §4 invariants.
+    {
+        // Batch #320 D-1b CLOSURE: init_keystore is async
+        // since it now reads/initializes the rotation marker
+        // via the trustworthy wallclock at boot.
+        let mut state_guard = state.write().await;
+        if let Err(msg) = state_guard.init_keystore().await {
+            error!(
+                "Keystore init failed (fail-closed boot): {}",
+                msg
+            );
+            std::process::exit(1);
+        }
+    }
+
     // Initialize OfflineQueue (Faz 1 Step 1.3 / ARC-002 / Batch 15).
     //
     // WHY: Pre-Batch-15, MQTT publish dropped telemetry when broker
@@ -3267,7 +3373,10 @@ async fn async_main() -> Result<()> {
     // agent refusing to boot.
     {
         let mut state_guard = state.write().await;
-        state_guard.init_license_cache();
+        // PR-195 Batch #17: init_license_cache is async
+        // since it now reads the per-DB sidecar manifest
+        // + may await the keystore's TPM-derived key.
+        state_guard.init_license_cache().await;
     }
 
     // Batch 169 Faz 3 wire: bytecode registry SQLCipher
@@ -3368,34 +3477,13 @@ async fn async_main() -> Result<()> {
         state_guard.init_clock_authority();
     }
 
-    // Initialize keystore (Batch 83 Sprint 6.3).
-    //
-    // WHY: Plan §5 Faz 2 item 1 + ADR-018 §4 mandate a
-    // 3-backend master-key keystore. Batch 82 shipped the
-    // FileBacked runtime; Batch 83 wires AppState +
-    // boot-time open. Pre-Batch-84 the keystore is NOT YET
-    // consumed by audit or SQLCipher (those migrate in
-    // Batches 84+85). Opening it at boot proves the
-    // acceptance-token + Argon2id pipeline works and makes
-    // KeyPurpose-derived keys available for the downstream
-    // migration batches.
-    //
-    // FAIL-CLOSED: keystore.mode != Disabled + open failure
-    // -> exit(1). The keystore is the trust anchor; weaker
-    // fallback would violate ADR-018 §4 invariants.
-    {
-        // Batch #320 D-1b CLOSURE: init_keystore is async
-        // since it now reads/initializes the rotation marker
-        // via the trustworthy wallclock at boot.
-        let mut state_guard = state.write().await;
-        if let Err(msg) = state_guard.init_keystore().await {
-            error!(
-                "Keystore init failed (fail-closed boot): {}",
-                msg
-            );
-            std::process::exit(1);
-        }
-    }
+    // PR-195 Batch #17: keystore init relocated to
+    // BEFORE init_offline_queue (closes
+    // ORPHAN-D3-BOOT-ORDER-001) — see the relocated
+    // block above (~line 3097). The original position
+    // here was safe pre-D-3 because no consumer needed
+    // the keystore at construction time; Batches
+    // #13-#15 changed that contract.
 
     // Initialize audit sink (Batch 78 Sprint 6.2 Phase 2).
     //

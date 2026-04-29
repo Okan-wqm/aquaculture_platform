@@ -452,3 +452,20 @@ This is not a small drift — it is the audit subsystem operating in **fail-open
 - auth-security-expert — primary on `libs/backend-common/src/audit/**` (this auditor secondary reviewer for coverage + shape).
 - legal-hold-auditor — running in parallel; AUDITTRAIL-CRITICAL-001 + AUDITTRAIL-CRITICAL-003 require coordination on `legalHold` + `relatedAuditIds` shape.
 - compliance-expert — SOC 2 CC4 + GDPR Art 30 evidence-completeness coordination.
+
+---
+
+## Registry-anchor addenda (2026-04-29 closure cycle)
+
+### AUDITTRAIL-HIGH-007 — farm-service audit retention default 90d → 7y compliance floor
+
+**Status:** RESOLVED — closure tracked in `docs/reviews/_registry/findings.jsonl`.
+
+farm-service `apps/farm-service/src/database/services/audit-log.service.ts:44`
+declared `DEFAULT_RETENTION_DAYS = 90`, 30x below the SOC 2 CC4 audit-window
++ proof-preservation floor (5-7y), SOX § 802 (7y), PCI-DSS § 10.7 (multi-year
+forensic), Mattilsynet aquaculture traceability (10y combined with legal-hold).
+Cure: build-time constant raised to `7 * 365`. Operators retain
+`FARM_AUDIT_LOG_RETENTION_DAYS` env-var override, but the floor moved from
+the env layer to the build layer — forgetting the env var defaults to 7y,
+not 90d. Sibling closure to AUDITTRAIL-HIGH-001 (auth-side, prior W0 cycle).

@@ -31,13 +31,25 @@ export const SCHEMA_OWNING_SERVICES = [
   'ai-service',
   'config-service',
   'notification-service',
+  // observability-service: promoted from SCHEMALESS to SCHEMA_OWNING
+  // 2026-04-29. The service owns the `observability` schema (cost
+  // rollup hypertable, migration-events, schema-object history,
+  // emergency overrides, migration backfill progress) and registers
+  // SchemaDriftModule.forRoot({ serviceName: 'observability' }) in
+  // its AppModule. The previous SCHEMALESS classification was a
+  // Round-3 miss; observability has had its own entities + migrations
+  // on disk for several cycles.
+  'observability-service',
 ] as const;
 
 export type SchemaOwningService = (typeof SCHEMA_OWNING_SERVICES)[number];
 
 export const SCHEMALESS_SERVICES = [
+  // Gateway-api is the only true schemaless service — it terminates
+  // external traffic, runs the auth guard / rate limit / CSP / OPA
+  // pipeline, and proxies to schema-owning subgraphs. No @Entity()
+  // anywhere under apps/gateway-api/src.
   'gateway-api',
-  'observability-service',
 ] as const;
 
 export type SchemalessService = (typeof SCHEMALESS_SERVICES)[number];

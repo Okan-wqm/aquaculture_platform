@@ -2480,3 +2480,32 @@ audit-immutability cure (sibling to AUDITTRAIL-HIGH-005) cannot land
 because adding a new farm migration to a schema whose current state
 already lags the entity declaration risks ALTER-on-missing-column
 errors.
+
+---
+
+## ORPHAN-HIGH-001 — 9 services have unregistered migrations (registry anchor, 2026-04-29)
+
+**Status:** RESOLVED — closure tracked in `docs/reviews/_registry/findings.jsonl`.
+
+Cure shipped on PR `chore/core-platform-remediation-w0-foundation`:
+admin-api + messaging drains via explicit imports; alert-engine,
+billing-service, hr-service, notification-service drains via fixed
+glob-detector regex; sensor-service / event-store-service /
+observability-service switched to glob pattern. KNOWN_UNREGISTERED
+allowlist drained to empty; the migration-registration-completeness
+invariant unconditionally enforces every on-disk migration is
+reachable from the AppModule's migrations declaration.
+
+---
+
+## ORPHAN-HIGH-002 — 20 createBaseEvent emits without canonical interface (registry anchor, 2026-04-29)
+
+**Status:** RESOLVED — closure tracked in `docs/reviews/_registry/findings.jsonl`.
+
+Cure shipped on PR `chore/core-platform-remediation-w0-foundation`:
+16 messaging interfaces authored in `libs/event-contracts/src/messaging-events.ts`
+(channel lifecycle ×5, message lifecycle ×7, compliance ×2, operational ×2)
++ 4 automation interfaces in new `libs/event-contracts/src/automation-events.ts`
+(sensor-service compiler/program events). Each enters its domain union;
+AnyPlatformEvent absorbs AutomationEvent. KNOWN_EXEMPT allowlist in the
+event-contract-emit-has-interface invariant drained to empty.

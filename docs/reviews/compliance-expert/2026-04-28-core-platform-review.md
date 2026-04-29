@@ -379,7 +379,18 @@ Compliance posture has **structural foundations** (consent entity in `shared`, d
 
 ### MEDIUM
 
-#### COMPLIANCE-MEDIUM-001 — `MT-CRITICAL-001` ripple: query-param `tenantId` accepted as fallback in `TenantContextMiddleware` reaches DSAR endpoints; existing endpoints are admin-only but the path is structurally exposed
+#### COMPLIANCE-MEDIUM-001 / COMPLIANCE-MEDIUM-005 — `MT-CRITICAL-001` ripple: query-param `tenantId` accepted as fallback in `TenantContextMiddleware` reaches DSAR endpoints; existing endpoints are admin-only but the path is structurally exposed
+
+**Status:** RESOLVED — registry ID `COMPLIANCE-MEDIUM-005` (the
+canonical `COMPLIANCE-MEDIUM-001` registry slot is already occupied
+by an unrelated audit-logs retention-policy finding closed by
+`e5c18677`). Cure already landed in commit `799c3b68`
+(`security(tenant): JWT trust anchor only — drop query/body/
+variables tenant sources`). The query-param fallback was removed
+from `tenant-context.middleware.ts`; the file's lines 126-132
+explicitly document the removal with the MT-CRITICAL-001 lineage.
+
+Closes: docs/reviews/compliance-expert/2026-04-28-core-platform-review.md#COMPLIANCE-MEDIUM-005
 
 **Severity:** MEDIUM
 **Layer:** 1 (tenant-isolation primitive)

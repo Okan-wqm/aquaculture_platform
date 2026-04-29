@@ -488,3 +488,16 @@ locks the architectural shift — every service that uses `@Cron` /
 `@Interval` / `@Timeout` MUST register `ScheduleModule.forRoot` somewhere
 in its module tree. Source-text grep at CI time. Catches future
 regressions of the same class (silent dead-code cron decorators).
+
+### AUDITTRAIL-HIGH-009 — DB Explorer SUPER_ADMIN access audit fire-and-forget
+
+**Status:** RESOLVED — closure tracked in `docs/reviews/_registry/findings.jsonl`.
+
+Pre-fix the 3 audit-write callsites in
+`apps/admin-api-service/src/database-management/controllers/explorer.controller.ts`
+(DATABASE_EXPLORER_READ, _EXPORT, _RAW_SQL) used fire-and-forget
+`.catch(() => warn log)` pattern, dropping audit rows under transient
+DB blips. Cure: switch to `await` — a failed audit-row write
+propagates as 500, blocking the data access / export / raw-SQL
+execution until the audit row commits. Same shape as
+AUDITTRAIL-CRITICAL-003 impersonation-lifecycle cure.

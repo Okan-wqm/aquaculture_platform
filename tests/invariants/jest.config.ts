@@ -131,6 +131,7 @@ export default {
         '<rootDir>/no-driver-cast-as-any.spec.ts',
         '<rootDir>/pii-events-mandatory-crypto-shred.spec.ts',
         '<rootDir>/token-blacklist-divergence-tracked.spec.ts',
+        '<rootDir>/no-new-adhoc-circuit-breaker.spec.ts',
       ],
     },
     {

@@ -2748,3 +2748,47 @@ DIFFERENT method (`callAiService`); approveProposal is unaffected.
 **Related findings:**
 - CIRCUIT-LOW-002 (this batch) — the cure that surfaced this
   (transitive, via ORPHAN-MEDIUM-031 unmasking).
+
+---
+
+## ORPHAN-MEDIUM-033 — sensor-service has a 5th ad-hoc CircuitBreaker that the audit missed (2026-04-29)
+
+**Status:** OPEN (tracked under W3 wave migration alongside the
+audit-flagged 4).
+
+**Scope:**
+`apps/sensor-service/src/sensor/utils/retry.util.ts:260` —
+`export class CircuitBreaker { ... }` with hand-rolled
+failureThreshold/resetTimeoutMs/halfOpenMaxCalls config.
+
+**Symptom:**
+The circuit-breaker-auditor reviewer found four ad-hoc breaker
+impls in CIRCUIT-MEDIUM-001 (gateway proxy, OPA,
+messaging-redis, email sender). My new invariant
+`tests/invariants/no-new-adhoc-circuit-breaker.spec.ts`
+discovered a fifth in sensor-service that the audit missed.
+
+**Why this is an orphan finding:**
+The audit-flagged set is the auditor's CIRCUIT-MEDIUM-001
+scope; the W3 migration plan was authored against those four
+paths. This 5th was not in the audit, so the W3 sweep would
+have left it as a regression unless I either:
+  (a) Add it to the W3 sweep's migration target list (done
+      via the KNOWN_ADHOC_BREAKERS allow-list in the new
+      invariant).
+  (b) Migrate it inline now (premature — the W3 wave is the
+      coordinated migration of all ad-hoc breakers, not a
+      one-by-one).
+
+**How-to-fix (when prioritized):**
+The W3 sweep migrates all 5 ad-hoc breakers to
+`CircuitBreakerService.execute(...)` from
+`@aquaculture/backend-common/resilience`. Each callsite gets
+its own per-(tenant, operation) keying and per-failure-mode
+discriminator. Tracked under CIRCUIT-MEDIUM-001's W3 follow-on.
+
+**Related findings:**
+- CIRCUIT-MEDIUM-001 (this batch) — the parent finding whose
+  invariant gate caught this 5th impl.
+- CIRCUIT-CRITICAL-004 (already RESOLVED) — the foundation lib
+  the W3 sweep migrates to.

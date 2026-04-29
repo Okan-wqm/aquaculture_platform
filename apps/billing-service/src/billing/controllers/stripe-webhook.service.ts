@@ -9,6 +9,7 @@ import {
 } from '@platform/event-contracts';
 import { Money } from '@aquaculture/backend-common/monetary';
 import { RedisService } from '@aquaculture/backend-common/redis';
+import { maskPii } from '@aquaculture/backend-common/utils';
 import Decimal from 'decimal.js';
 import { Payment, PaymentStatus, PaymentMethod } from '../entities/payment.entity';
 import { Invoice, InvoiceStatus } from '../entities/invoice.entity';
@@ -230,6 +231,16 @@ export class StripeWebhookService {
 
       const transactionId = `TXN-STRIPE-FAIL-${Date.now()}-${randomUUID().substring(0, 8).toUpperCase()}`;
 
+      // COMPLIANCE-HIGH-005 cure: maskPii on the upstream failureMessage
+      // before it lands in operational storage. Stripe's failure messages
+      // routinely include card last-4, billing email, customer name —
+      // PII that has no place in long-term operational rows. The audit
+      // log keeps the raw form via a separate path (immutable + 7y
+      // retention; tenant erasure clears with the rest of the audit
+      // trail). Operational tables get the redacted form, indefinitely
+      // queryable without leaking PII into ad-hoc reports.
+      const maskedFailureReason = `${failureCode}: ${maskPii(failureMessage)}`;
+
       const payment = manager.create(Payment, {
         tenantId,
         transactionId,
@@ -241,7 +252,7 @@ export class StripeWebhookService {
         paymentDate: new Date(),
         processedAt: new Date(),
         stripePaymentIntentId,
-        failureReason: `${failureCode}: ${failureMessage}`,
+        failureReason: maskedFailureReason,
         refundedAmount: new Decimal(0),
         notes: 'Stripe webhook: payment_intent.payment_failed',
         createdBy: 'stripe-webhook',
@@ -254,7 +265,9 @@ export class StripeWebhookService {
         `payment_intent.payment_failed: recorded failed payment ${savedPayment.id} for invoice ${invoiceId}`,
       );
 
-      // Publish NATS event for notification service
+      // Publish NATS event for notification service. Same masked form on
+      // the wire — downstream consumers (notification-service) get the
+      // redacted version; the raw is preserved in audit only.
       try {
         const natsEvent: PaymentFailedEvent = {
           ...createBaseEvent<PaymentFailedEvent>('PaymentFailed', tenantId),
@@ -263,7 +276,7 @@ export class StripeWebhookService {
           amount: failedAmountMoney.toDecimal().toNumber(),
           currency,
           paymentMethod: PaymentMethod.CREDIT_CARD,
-          failureReason: `${failureCode}: ${failureMessage}`,
+          failureReason: maskedFailureReason,
           retryCount: 0,
           willRetry: paymentIntent.status === 'requires_payment_method',
         };

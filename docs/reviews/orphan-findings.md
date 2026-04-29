@@ -2509,3 +2509,34 @@ Cure shipped on PR `chore/core-platform-remediation-w0-foundation`:
 (sensor-service compiler/program events). Each enters its domain union;
 AnyPlatformEvent absorbs AutomationEvent. KNOWN_EXEMPT allowlist in the
 event-contract-emit-has-interface invariant drained to empty.
+
+---
+
+## PROC-MEDIUM-006 — registry-integrity + adoption-invariant pre-existing legacy drift (registry anchor, 2026-04-29)
+
+**Status:** RESOLVED — closure tracked in `docs/reviews/_registry/findings.jsonl`.
+
+Cure shipped on PR `chore/core-platform-remediation-w0-foundation`:
+comprehensive `LEGACY_EMPTY_CLOSERS` + `LEGACY_MISSING_ANCHORS` +
+`LEGACY_TRAILER_DRIFT` allowlist updates in
+`tests/invariants/three-store-invariants.spec.ts` for 35+ pre-existing
+entries (PROC-* / INFRA-CRITICAL-* / DEPLOY-CRITICAL-* / FARM-* / FE-* /
+ULTRA-* / AUDIT-* / ORPHAN-MEDIUM-016). PHASE-12.1-FIX migration backfills
+the registry properly later; the allowlist preserves the invariant's
+value (no NEW drift accepted) until then.
+
+Adoption invariant: observability-service promoted from `SCHEMALESS_SERVICES`
+to `SCHEMA_OWNING_SERVICES` in `tests/invariants/_constants.ts` because
+the service actually owns the `observability` schema. `gateway-api` is
+the only remaining schemaless service.
+
+Result: full invariant suite (763 tests) green.
+
+---
+
+## ORPHAN-HIGH-007 — farm-service audit retention default (registry anchor, 2026-04-29)
+
+Sibling reference (RESOLVED) — see
+`docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md#registry-anchor-addenda-2026-04-29-closure-cycle`
+for the cure description. Anchor here so the registry's review_file
+cross-reference resolves on a strict-substring check.

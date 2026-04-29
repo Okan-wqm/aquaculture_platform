@@ -30,6 +30,7 @@ import { CreateComplianceLegalHolds1787500000000 } from './migrations/1787500000
 import { AddGdprDataRequestsCheckConstraints1787600000000 } from './migrations/1787600000000-AddGdprDataRequestsCheckConstraints';
 import { AddUserConsentsNaturalKeyUnique1787700000000 } from './migrations/1787700000000-AddUserConsentsNaturalKeyUnique';
 import { AddAdminAuditLogsImmutability1787800000000 } from './migrations/1787800000000-AddAdminAuditLogsImmutability';
+import { AddUserPermissionsUserFk1787900000000 } from './migrations/1787900000000-AddUserPermissionsUserFk';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AuditLogModule } from './audit/audit.module';
 import { PasswordResetModule } from './auth/password-reset.module';
@@ -97,6 +98,7 @@ import { UsersModule } from './users/users.module';
             AddGdprDataRequestsCheckConstraints1787600000000,
             AddUserConsentsNaturalKeyUnique1787700000000,
             AddAdminAuditLogsImmutability1787800000000,
+            AddUserPermissionsUserFk1787900000000,
           ],
           // admin-api opts in to TypeORM's built-in migration runner via the
           // legacy DATABASE_MIGRATIONS_RUN env var (default true). All other

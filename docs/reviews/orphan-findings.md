@@ -2792,3 +2792,48 @@ discriminator. Tracked under CIRCUIT-MEDIUM-001's W3 follow-on.
   invariant gate caught this 5th impl.
 - CIRCUIT-CRITICAL-004 (already RESOLVED) — the foundation lib
   the W3 sweep migrates to.
+
+---
+
+## ORPHAN-MEDIUM-034 — messaging-service callers' DI specs miss collaborators after compliance refactors (2026-04-29)
+
+**Status:** OPEN (test-suite hygiene; not a runtime bug).
+
+**Scope:**
+- `apps/messaging-service/src/message/commands/__tests__/delete-message.handler.spec.ts:40`
+  — `Test.createTestingModule({ providers: [...] })` does not provide
+  `LegalHoldService`. Throws `Nest can't resolve dependencies of the
+  DeleteMessageHandler` at compile time.
+- `apps/messaging-service/src/compliance/services/__tests__/data-export.service.spec.ts:67`
+  — six tests fail with `this.dataSource.createQueryRunner is not a
+  function`. The mock `DataSource` provider was authored for an older
+  shape that didn't drive `createQueryRunner()`; the service now
+  uses it for cross-context tenant schema setting.
+
+**Symptom:**
+Both spec files were green before the calling services were
+refactored to (a) inject `LegalHoldService` (DeleteMessageHandler),
+and (b) drive `createQueryRunner()` for tenant-schema setting
+(DataExportService). The runtime services are correct; the test
+mocks weren't updated in lockstep.
+
+**Why this is an orphan finding:**
+LEGAL-MEDIUM-001 (the cure I'm landing now) does not introduce or
+mask these failures. They show up in the same run because the
+suite shares files. Conflating them with LEGAL-MEDIUM-001's
+closing trailer would fly false-positive against the registry's
+"this commit closes finding X" semantics.
+
+**How-to-fix:**
+- delete-message spec: add `{ provide: LegalHoldService, useValue:
+  { isUnderLegalHold: jest.fn().mockResolvedValue(false) } }` to the
+  test module providers array.
+- data-export spec: replace the bare `DataSource` mock with one
+  that exposes `createQueryRunner()` returning a `QueryRunner`-shaped
+  mock (the existing `createMockDataSource` helper in
+  `__tests__/test-helpers.ts` already covers this — wire it through
+  in place of the inline literal).
+
+**Related findings:**
+- LEGAL-MEDIUM-001 (this batch) — surfaced these during the
+  cure's full-suite verification but does not own them.

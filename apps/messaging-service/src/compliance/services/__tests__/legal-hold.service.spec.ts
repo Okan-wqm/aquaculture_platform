@@ -1,8 +1,12 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ForbiddenException } from '@nestjs/common';
-import { LegalHoldService } from '../legal-hold.service';
+import {
+  LegalHoldService,
+  LegalHoldCheckUnavailable,
+} from '../legal-hold.service';
 import { LegalHold } from '../../entities/legal-hold.entity';
+import { REDIS_CLIENT } from '../../../shared/redis.provider';
 import {
   createMockRepository,
   createMockLegalHold,
@@ -203,5 +207,131 @@ describe('LegalHoldService', () => {
       expect.objectContaining({ where: { id: holdId, tenantId: wrongTenant } }),
     );
     expect(holdRepo.save).not.toHaveBeenCalled();
+  });
+
+  // -----------------------------------------------------------------------
+  // LEGAL-MEDIUM-001 — fail-CLOSED on registry timeout / DB error
+  // -----------------------------------------------------------------------
+  describe('LEGAL-MEDIUM-001: fail-CLOSED on registry unavailability', () => {
+    it('throws LegalHoldCheckUnavailable when the tenant-wide query exceeds the 500ms deadline', async () => {
+      jest.useFakeTimers();
+      // findOne never resolves — simulates DB primary failover / pool exhaustion.
+      holdRepo.findOne.mockReturnValue(new Promise(() => undefined));
+
+      const promise = service.isUnderLegalHold(TENANT_A, channelId);
+      // Advance past the spec-anchored 500 ms deadline.
+      jest.advanceTimersByTime(501);
+
+      await expect(promise).rejects.toBeInstanceOf(LegalHoldCheckUnavailable);
+      jest.useRealTimers();
+    });
+
+    it('throws LegalHoldCheckUnavailable when the channel-scope query exceeds the deadline', async () => {
+      // Use real timers; trigger the second-query hang directly. Fake timers
+      // would require manual microtask draining between the two awaited
+      // findOne calls and is fragile across jest versions.
+      holdRepo.findOne
+        .mockResolvedValueOnce(null)
+        .mockReturnValueOnce(new Promise(() => undefined));
+
+      await expect(
+        service.isUnderLegalHold(TENANT_A, channelId),
+      ).rejects.toBeInstanceOf(LegalHoldCheckUnavailable);
+    }, 2000);
+
+    it('wraps non-deadline DB errors in LegalHoldCheckUnavailable (fail-CLOSED)', async () => {
+      holdRepo.findOne.mockRejectedValue(
+        new Error('connection terminated unexpectedly'),
+      );
+
+      await expect(
+        service.isUnderLegalHold(TENANT_A, channelId),
+      ).rejects.toBeInstanceOf(LegalHoldCheckUnavailable);
+    });
+
+    it('attaches tenantId/channelId to the thrown error so callers can audit', async () => {
+      holdRepo.findOne.mockRejectedValue(new Error('boom'));
+
+      const err = await service
+        .isUnderLegalHold(TENANT_A, channelId)
+        .catch((e) => e);
+
+      expect(err).toBeInstanceOf(LegalHoldCheckUnavailable);
+      expect(err).toMatchObject({ tenantId: TENANT_A, channelId });
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // LEGAL-MEDIUM-001 — cache invalidation circuit breaker
+  // -----------------------------------------------------------------------
+  describe('LEGAL-MEDIUM-001: cache-invalidation circuit breaker', () => {
+    let redis: { del: jest.Mock };
+    let svcWithRedis: LegalHoldService;
+
+    beforeEach(async () => {
+      redis = { del: jest.fn() };
+      const module: TestingModule = await Test.createTestingModule({
+        providers: [
+          LegalHoldService,
+          { provide: getRepositoryToken(LegalHold), useValue: holdRepo },
+          { provide: REDIS_CLIENT, useValue: redis },
+        ],
+      }).compile();
+      svcWithRedis = module.get(LegalHoldService);
+    });
+
+    it('isCacheDegraded() returns false on a fresh instance', () => {
+      expect(svcWithRedis.isCacheDegraded()).toBe(false);
+    });
+
+    it('flips the breaker when Redis del fails during activate()', async () => {
+      holdRepo.findOne.mockResolvedValue(null);
+      redis.del.mockRejectedValue(new Error('redis unreachable'));
+
+      await svcWithRedis.activate(
+        TENANT_A,
+        null,
+        'Regulatory investigation',
+        adminUserId,
+        fakeUuid('lm'),
+      );
+
+      expect(svcWithRedis.isCacheDegraded()).toBe(true);
+    });
+
+    it('breaker stays closed when Redis del succeeds', async () => {
+      holdRepo.findOne.mockResolvedValue(null);
+      redis.del.mockResolvedValue(1);
+
+      await svcWithRedis.activate(
+        TENANT_A,
+        null,
+        'Regulatory investigation',
+        adminUserId,
+        fakeUuid('lm'),
+      );
+
+      expect(svcWithRedis.isCacheDegraded()).toBe(false);
+    });
+
+    it('auto-resets the breaker after the configured reset window', async () => {
+      jest.useFakeTimers();
+      holdRepo.findOne.mockResolvedValue(null);
+      redis.del.mockRejectedValueOnce(new Error('redis unreachable'));
+
+      await svcWithRedis.activate(
+        TENANT_A,
+        null,
+        'Regulatory investigation',
+        adminUserId,
+        fakeUuid('lm'),
+      );
+      expect(svcWithRedis.isCacheDegraded()).toBe(true);
+
+      // Advance just past the 30s reset window.
+      jest.advanceTimersByTime(30_001);
+      expect(svcWithRedis.isCacheDegraded()).toBe(false);
+      jest.useRealTimers();
+    });
   });
 });

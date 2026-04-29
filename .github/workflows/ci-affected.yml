@@ -139,7 +139,7 @@ jobs:
 
       - name: Validate Nx project graph integrity
         env:
-          NX_DAEMON: 'false'
+          NX_DAEMON: 'true'
           NX_NO_CLOUD: 'true'
         run: |
           npx nx show projects --json > /tmp/nx-projects.json
@@ -220,11 +220,22 @@ jobs:
           restore-keys: |
             nx-ci-${{ runner.os }}-
 
+      # INFRA-MEDIUM-037 — NX_DAEMON flipped from 'false' to 'true'.
+      # Empirical signal from PR-200 lint job 73263369783: zero stdout
+      # for 35 minutes before timeout — characteristic of project-graph
+      # recomputation rather than slow per-task execution. Without the
+      # daemon every nx invocation walks the 22-project graph from
+      # scratch; with the daemon the graph is computed once per job
+      # and cached across the internal task fan-out. CI runners spawn
+      # one process per job (no cross-job daemon sharing), so the
+      # multi-process race conditions that would justify NX_DAEMON=false
+      # in long-running dev shells don't apply here. Easily reversible
+      # via single-line revert if it makes CI worse.
       - name: Run linter (affected only)
         run: npx nx affected -t lint --base=origin/${{ github.base_ref || 'main' }} --head=HEAD --parallel=2
         timeout-minutes: 35
         env:
-          NX_DAEMON: 'false'
+          NX_DAEMON: 'true'
           NX_NO_CLOUD: 'true'
 
   type-check:
@@ -271,7 +282,7 @@ jobs:
         run: npx nx affected -t type-check --base=origin/${{ github.base_ref || 'main' }} --head=HEAD --parallel=2
         timeout-minutes: 35
         env:
-          NX_DAEMON: 'false'
+          NX_DAEMON: 'true'
           NX_NO_CLOUD: 'true'
           NODE_OPTIONS: '--max-old-space-size=4096'
 
@@ -341,7 +352,7 @@ jobs:
         run: npx nx affected -t test --base=origin/${{ github.base_ref || 'main' }} --head=HEAD --parallel=2
         timeout-minutes: 35
         env:
-          NX_DAEMON: 'false'
+          NX_DAEMON: 'true'
           NX_NO_CLOUD: 'true'
           NODE_OPTIONS: '--max-old-space-size=4096'
 
@@ -394,7 +405,7 @@ jobs:
         run: npx nx affected -t build --base=origin/${{ github.base_ref || 'main' }} --head=HEAD --parallel=2
         timeout-minutes: 45
         env:
-          NX_DAEMON: 'false'
+          NX_DAEMON: 'true'
           NX_NO_CLOUD: 'true'
           NODE_OPTIONS: '--max-old-space-size=4096'
 

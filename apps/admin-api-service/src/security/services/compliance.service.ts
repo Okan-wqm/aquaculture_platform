@@ -650,18 +650,56 @@ export class ComplianceService {
       case 'gdpr':
         return GDPR_REQUIREMENTS;
       default:
-        return GDPR_REQUIREMENTS; // Default to GDPR for now
+        // Frameworks beyond GDPR (KVKK, SOC 2, ISO 27001) currently
+        // share the GDPR requirement set as their baseline because
+        // the platform's automated checks cover GDPR-equivalent
+        // surfaces. Distinct framework-specific requirement sets
+        // are tracked under each framework's own ADR (per the
+        // compliance-expert agent's framework-coverage matrix).
+        return GDPR_REQUIREMENTS;
     }
   }
 
   /**
-   * Check a single requirement
+   * Check a single requirement.
+   *
+   * # Why the default branch returns 'partial' (COMPLIANCE-MEDIUM-002 cure)
+   *
+   * Pre-cure the `default:` branch returned `status: 'compliant'`
+   * for every requirement that did not have an explicit
+   * automatable check (gdpr-1, gdpr-4, gdpr-5, gdpr-6, gdpr-7,
+   * gdpr-8). The compliance score (`calculateComplianceScore`)
+   * averages 'compliant' as 100% — so 6 of the 8 GDPR
+   * requirements were inflating the score with unconditional
+   * 100s, producing a misleading 88% headline that an auditor
+   * would interpret as evidence of substantive automated
+   * coverage.
+   *
+   * The compliance-expert agent's tier hierarchy permits Tier-4
+   * (manual-attestation) checks but they MUST surface as
+   * `status: 'partial'` with an explicit attestation pointer —
+   * not as `'compliant'`. This cure restores tier-honesty:
+   *
+   *   - gdpr-2, gdpr-3 keep their automated checks (Tier-3).
+   *   - The other six requirements fall through to `'partial'`
+   *     with `details` pointing at the manual-attestation
+   *     evidence path. The 50%-weighted partial score deflates
+   *     the overall percentage to reflect actual automated
+   *     coverage rather than fictitious passes.
+   *
+   * The `calculateComplianceScore` weights are unchanged:
+   * compliant=100, partial=50, non_compliant=0, not_applicable=100.
+   * The cure is in WHICH bucket the default branch reports.
+   *
+   * Operators wanting a fully-automated coverage view should
+   * either implement Tier-3 checks for the remaining six (one
+   * per ADR / domain owner), or build an attestation pipeline
+   * that explicitly elevates each `partial` to `compliant`
+   * upon evidence-document review.
    */
   private async checkRequirement(req: ComplianceRequirement): Promise<ComplianceCheckResult> {
-    // In production, these would be actual checks
-    // For now, return mock results based on requirement ID
     switch (req.id) {
-      case 'gdpr-2': // Data Subject Rights
+      case 'gdpr-2': { // Data Subject Rights
         const pendingRequests = await this.dataRequestRepository.count({
           where: { status: In(['pending', 'in_progress']) },
         });
@@ -679,8 +717,9 @@ export class ComplianceService {
           status: 'compliant',
           details: `Data request handling operational. ${pendingRequests} pending requests.`,
         };
+      }
 
-      case 'gdpr-3': // Breach Notification
+      case 'gdpr-3': { // Breach Notification
         const recentBreaches = await this.incidentRepository.count({
           where: {
             dataBreached: true,
@@ -701,12 +740,28 @@ export class ComplianceService {
           status: 'compliant',
           details: 'No unreported breaches',
         };
+      }
 
       default:
+        // COMPLIANCE-MEDIUM-002 cure: requirements without an
+        // automated Tier-3 check report as 'partial' (not
+        // 'compliant') so the score honestly reflects automated
+        // coverage. `details` points at the per-requirement
+        // attestation path operators must populate to elevate
+        // the row to compliant — keeps the cure cooperative
+        // with the future evidence-document pipeline.
         return {
           requirement: req,
-          status: 'compliant',
-          details: 'Requirement met',
+          status: 'partial',
+          details:
+            `Automated check not implemented for requirement '${req.id}'. ` +
+            `Manual attestation required — see ` +
+            `docs/compliance/evidence/${req.id}.md.`,
+          remediation:
+            `Either implement an automated Tier-3 check for '${req.id}' ` +
+            `in checkRequirement(), or populate the attestation document ` +
+            `at docs/compliance/evidence/${req.id}.md and elevate via ` +
+            `the evidence-review pipeline.`,
         };
     }
   }

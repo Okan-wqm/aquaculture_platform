@@ -118,6 +118,7 @@ export default {
         '<rootDir>/auth-users-tenant-fk.spec.ts',
         '<rootDir>/migration-registration-completeness.spec.ts',
         '<rootDir>/no-boot-time-tenant-schema-ddl.spec.ts',
+        '<rootDir>/audit-retention-legal-hold-filter.spec.ts',
       ],
     },
     {

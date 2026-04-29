@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThan } from 'typeorm';
+import { Repository } from 'typeorm';
 
 import { AuditLog, AuditLogSeverity } from './audit-log.entity';
 
@@ -160,20 +160,29 @@ export class AuditLogService {
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
 
-    // The DELETE is GATED by the BEFORE DELETE trigger
-    // `trg_audit_logs_prevent_legal_hold_delete` installed in the
-    // AuthAuditLogsImmutability migration (AUDITTRAIL-HIGH-005
-    // closure). Rows with legalHold=true are silently rejected by
-    // the trigger; the cron's affected-rows count therefore reflects
-    // only the un-held expired rows. The trigger raises an exception
-    // per row at the DB level, but TypeORM's repository.delete
-    // converts it into a per-row failure that lands in result.affected
-    // as the count of successful deletes only.
-    const result = await this.auditLogRepository.delete({
-      createdAt: LessThan(cutoffDate),
-    });
+    // COMPLIANCE-HIGH-001 cure: WHERE clause MUST exclude legalHold=true
+    // rows. Pre-fix the cron used repository.delete({ createdAt: LessThan }),
+    // which translates to a single statement-level DELETE — if ANY row in
+    // the matching set had legalHold=true, the BEFORE DELETE trigger
+    // (`trg_audit_logs_prevent_legal_hold_delete`) raised an exception and
+    // aborted the ENTIRE statement, leaking 0 rows deleted PLUS a per-cycle
+    // exception in the logs. The trigger is defense-in-depth, not the
+    // primary filter.
+    //
+    // QueryBuilder is required because TypeORM's repository.delete shorthand
+    // doesn't compose `LessThan` AND `Equal(false)` on different columns into
+    // the same WHERE — the literal { createdAt: LessThan, legalHold: false }
+    // form treats it as separate criteria but TypeORM still emits a single
+    // statement, which is what we want — but switching to QueryBuilder makes
+    // the SQL shape explicit and reviewable.
+    const result = await this.auditLogRepository
+      .createQueryBuilder()
+      .delete()
+      .where('"createdAt" < :cutoff', { cutoff: cutoffDate })
+      .andWhere('"legalHold" = false')
+      .execute();
 
-    this.logger.log(`Deleted ${result.affected} old audit logs`);
+    this.logger.log(`Deleted ${result.affected} old audit logs (legalHold-excluded)`);
     return result.affected || 0;
   }
 }

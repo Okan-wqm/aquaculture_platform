@@ -9,7 +9,7 @@
  */
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThan } from 'typeorm';
+import { Repository } from 'typeorm';
 import { AuditLog, AuditAction, AuditChanges, AuditMetadata } from '../entities/audit-log.entity';
 import { AuditRedactionService } from './audit-redaction.service';
 
@@ -295,7 +295,14 @@ export class AuditLogService {
   }
 
   /**
-   * Eski audit loglarını temizle (retention policy)
+   * Retention policy cleanup. Excludes legalHold rows at the WHERE level —
+   * the BEFORE DELETE trigger
+   * `trg_farm_audit_logs_prevent_legal_hold_delete` (migration
+   * 1788300000000) is defense-in-depth, not the primary filter. If we
+   * forgot the WHERE filter, ANY held row matching the cutoff would
+   * RAISE EXCEPTION and abort the entire cleanup batch — the trigger
+   * fails fast (visible) instead of silently destroying held rows.
+   * COMPLIANCE-HIGH-001 cure pattern.
    */
   async cleanupOldLogs(retentionDays?: number): Promise<number> {
     const days = retentionDays || this.DEFAULT_RETENTION_DAYS;
@@ -304,11 +311,14 @@ export class AuditLogService {
 
     this.logger.log(`Cleaning up audit logs older than ${days} days (before ${cutoffDate.toISOString()})`);
 
-    const result = await this.auditLogRepository.delete({
-      createdAt: LessThan(cutoffDate),
-    });
+    const result = await this.auditLogRepository
+      .createQueryBuilder()
+      .delete()
+      .where('"createdAt" < :cutoff', { cutoff: cutoffDate })
+      .andWhere('"legalHold" = false')
+      .execute();
 
-    this.logger.log(`Deleted ${result.affected} audit log records`);
+    this.logger.log(`Deleted ${result.affected} audit log records (legalHold-excluded)`);
     return result.affected || 0;
   }
 

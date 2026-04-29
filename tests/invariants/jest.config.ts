@@ -121,6 +121,7 @@ export default {
         '<rootDir>/audit-retention-legal-hold-filter.spec.ts',
         '<rootDir>/cron-requires-schedule-module.spec.ts',
         '<rootDir>/audit-log-mandatory-shape.spec.ts',
+        '<rootDir>/audit-fail-closed-mfa-webauthn.spec.ts',
       ],
     },
     {

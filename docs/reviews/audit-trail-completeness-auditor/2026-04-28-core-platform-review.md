@@ -501,3 +501,41 @@ DB blips. Cure: switch to `await` — a failed audit-row write
 propagates as 500, blocking the data access / export / raw-SQL
 execution until the audit row commits. Same shape as
 AUDITTRAIL-CRITICAL-003 impersonation-lifecycle cure.
+
+### AUDITTRAIL-MEDIUM-001 — preStateHash / postStateHash mutation-integrity proof
+
+**Status:** RESOLVED — closure tracked in `docs/reviews/_registry/findings.jsonl`.
+
+Subset of AUDITTRAIL-CRITICAL-004 (mandatory-shape extension). The
+auditor's mutation-integrity invariant required that audit rows for
+mutating actions carry a hex SHA-256 of the pre-state AND post-state
+of the entity that was mutated. Without these two columns:
+
+  - the immutability trigger blocks UPDATE on the audit row but
+    cannot detect INSERT-time forgery — there is no cryptographic
+    binding between the audit row and the entity state it claims to
+    have observed;
+  - chained proofs across multi-step mutations (admin override of a
+    scheduled change, nested batches of state transitions) are
+    unreconstructable from the audit trail alone.
+
+**Cure** — landed in 2f7c4a49 (the AUDITTRAIL-CRITICAL-004 fix
+commit). The columns are now present on the entity declaration
+(`libs/backend-common/src/audit/audit-log.entity.ts`) and on the DB
+storage layer via migration `1788100000000-AddAuditLogShapeExtension`
+(varchar(64) nullable, the canonical hex-SHA-256 column shape). The
+DTO surface (`CreateAuditEntryDto.preStateHash` / `.postStateHash`)
+exposes them to caller-domain code. Caller-side hashing logic
+(handlers wiring `preStateHash = sha256(beforeRow)` /
+`postStateHash = sha256(afterRow)`) is per-domain follow-up work
+tracked in subsequent AUDITTRAIL-* sweeps; the storage shape itself
+is fully cured by the same diff that landed CRITICAL-004.
+
+**Why a separate closure section exists:** the AUDITTRAIL-CRITICAL-004
+fix commit (2f7c4a49) carries a `Closes: ...#AUDITTRAIL-CRITICAL-004`
+trailer; the three-store invariant requires every closing-commit SHA
+on a finding to carry a matching trailer for THAT finding's id.
+Adding this anchor section in a separate commit lets the new commit
+carry the `Closes: ...#AUDITTRAIL-MEDIUM-001` trailer cleanly without
+amending the original fix commit. Same pattern PLAT-LOW-003 used at
+c1241dff.

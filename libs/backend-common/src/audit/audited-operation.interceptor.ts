@@ -24,6 +24,11 @@ import {
   AuditSeverity,
 } from './audit-log.entity';
 import { getRequestContext } from '../logging/request-context';
+import {
+  hashIpForGdpr,
+  readIpHashingPolicyFromEnv,
+  shouldHashIp,
+} from './ip-hash.util';
 import { SENSITIVE_FIELDS_SET } from '../security/security-constants';
 
 /**
@@ -240,7 +245,19 @@ export class AuditedOperationInterceptor implements NestInterceptor {
       tenantId: ctx.tenantId,
       schemaName: ctx.schemaName,
       metadata: Object.keys(metadata).length > 0 ? metadata : null,
-      ip: ctx.ipAddress,
+      // AUDITTRAIL-LOW-002 cure: route the IP through the
+      // canonical region-gated hashing decision. ctx.region is
+      // populated from the JWT residency claim (when present) by
+      // buildContextFromRequest below. The deployment-wide
+      // policy comes from env vars (AUDIT_FORCE_IP_HASH +
+      // AUDIT_HASH_UNKNOWN_REGIONS) so non-EU deployments keep
+      // plaintext behaviour until they explicitly opt in. The
+      // helper centralizes the matrix; future per-tenant
+      // residency lookups become a one-line change to ctx.region
+      // population.
+      ip: shouldHashIp(ctx.region, readIpHashingPolicyFromEnv())
+        ? hashIpForGdpr(ctx.ipAddress)
+        : ctx.ipAddress,
       userAgent: ctx.userAgent,
       severity: status === AuditedOperationStatus.FAILED
         ? AuditSeverity.ERROR
@@ -393,6 +410,11 @@ export class AuditedOperationInterceptor implements NestInterceptor {
       // a non-null override at this layer would be ignored by the spread.
       method: null,
       mfaVerified: command?.['mfaVerified'] === true,
+      // AUDITTRAIL-LOW-002: residency claim on the command DTO
+      // (when present) drives the IP-hashing decision. CQRS
+      // command authors include `region` for compliance-sensitive
+      // commands. Absent → null → policy fallback.
+      region: (command?.['region'] as string | undefined) ?? null,
     };
   }
 
@@ -412,6 +434,7 @@ export class AuditedOperationInterceptor implements NestInterceptor {
         queryRunner: null,
         method: null,
         mfaVerified: false,
+        region: null,
       };
     }
 
@@ -438,6 +461,10 @@ export class AuditedOperationInterceptor implements NestInterceptor {
       // method is overwritten by extractRequestContext after this returns.
       method: null,
       mfaVerified: user?.['mfaVerified'] === true,
+      // AUDITTRAIL-LOW-002: residency from JWT claim. Null when
+      // the deployment doesn't propagate region on the token,
+      // letting the policy fallback decide hashing.
+      region: (user?.['region'] as string | undefined) ?? null,
     };
   }
 
@@ -603,4 +630,14 @@ interface RequestContext {
   queryRunner: QueryRunner | null;
   method: AuditMethod | null;
   mfaVerified: boolean;
+  /**
+   * Tenant residency region marker (AUDITTRAIL-LOW-002).
+   *
+   * Derived from the JWT claim `region` (when minted with one)
+   * or from the upstream OPA decision attribute. Null when the
+   * deployment doesn't propagate residency on the JWT — in that
+   * case `shouldHashIp` falls back to the deployment-level
+   * `AUDIT_HASH_UNKNOWN_REGIONS` policy switch.
+   */
+  region: string | null;
 }

@@ -18,6 +18,11 @@ import { createBaseEvent } from '@platform/event-contracts';
 import { AUDIT_LOG_KEY, AuditLogOptions } from '../decorators/audit-log.decorator';
 import { AuditLogService } from './audit-log.service';
 import { AuditSeverity } from './audit-log.entity';
+import {
+  hashIpForGdpr,
+  readIpHashingPolicyFromEnv,
+  shouldHashIp,
+} from './ip-hash.util';
 
 /**
  * Keys that must never appear in audit log metadata.
@@ -230,6 +235,17 @@ export class AuditLogInterceptor implements NestInterceptor {
 
     // 1. Persist to database — AWAITED. A rejection bubbles up to
     //    the intercept() chain which surfaces it as a 5xx.
+    //    AUDITTRAIL-LOW-002: route IP through the canonical
+    //    region-gated hashing helper. Region comes from the JWT
+    //    claim (when minted with one); deployment-wide policy
+    //    comes from env vars. Same shape AuditedOperationInterceptor
+    //    uses — single SSoT for audit-IP hashing across the
+    //    platform.
+    const ipHashingPolicy = readIpHashingPolicyFromEnv();
+    const persistedIp = shouldHashIp(requestCtx.region, ipHashingPolicy)
+      ? hashIpForGdpr(requestCtx.ip)
+      : requestCtx.ip;
+
     await this.auditLogService.recordAwait({
       action: options.action,
       resource: options.resource,
@@ -239,7 +255,7 @@ export class AuditLogInterceptor implements NestInterceptor {
       tenantId: requestCtx.tenantId,
       schemaName: requestCtx.schemaName,
       metadata: Object.keys(metadata).length > 0 ? metadata : null,
-      ip: requestCtx.ip,
+      ip: persistedIp,
       userAgent: requestCtx.userAgent,
       severity: error ? AuditSeverity.ERROR : AuditSeverity.INFO,
       correlationId: requestCtx.correlationId,
@@ -323,6 +339,9 @@ export class AuditLogInterceptor implements NestInterceptor {
       ip: this.extractIp(request),
       userAgent: (headers['user-agent'] as string) ?? null,
       correlationId: (headers['x-correlation-id'] as string) ?? null,
+      // AUDITTRAIL-LOW-002: residency from JWT claim drives the
+      // IP-hashing decision in recordAuditLog above.
+      region: (user?.['region'] as string | undefined) ?? null,
     };
   }
 
@@ -459,4 +478,16 @@ interface RequestContext {
   ip: string | null;
   userAgent: string | null;
   correlationId: string | null;
+  /**
+   * Tenant residency region marker (AUDITTRAIL-LOW-002).
+   *
+   * Populated from the JWT `region` claim. Drives the IP-hashing
+   * decision in recordAuditLog via the canonical
+   * `shouldHashIp` + `hashIpForGdpr` helpers from
+   * `./ip-hash.util`. Same shape as the canonical
+   * AuditedOperationInterceptor's RequestContext.region — both
+   * interceptors funnel through the same helper to keep the
+   * IP-hashing policy identical end-to-end.
+   */
+  region: string | null;
 }

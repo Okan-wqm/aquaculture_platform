@@ -493,7 +493,15 @@ Compliance posture has **structural foundations** (consent entity in `shared`, d
 
 ### LOW
 
-#### COMPLIANCE-LOW-001 — Consent `version` is a string `'2.0.0'` hardcoded in service constructors; no bump-policy documented
+#### COMPLIANCE-LOW-001 / COMPLIANCE-LOW-003 — Consent `version` is a string `'2.0.0'` hardcoded in service constructors; no bump-policy documented
+
+**Status:** RESOLVED — registry ID `COMPLIANCE-LOW-003` (the canonical
+`COMPLIANCE-LOW-001` registry slot was already occupied by a different
+seeded finding, the PII-mask test-coverage cure closed by
+`c60842bc`). Cure documented at `docs/runbooks/consent-version-bump.md`
+and the per-bump changelog seeded at `docs/compliance/consent-versions.md`.
+
+Closes: docs/reviews/compliance-expert/2026-04-28-core-platform-review.md#COMPLIANCE-LOW-003
 
 **Severity:** LOW
 **Layer:** 4 (documented-only)

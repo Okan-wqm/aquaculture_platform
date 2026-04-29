@@ -152,70 +152,19 @@ pub(crate) fn derive_db_encryption_key() -> Result<String> {
 /// write access.
 ///
 /// If the file does not exist, a 32-byte random key is generated.
+/// **Delegating wrapper** (PR-195 Batch #14 SSoT
+/// extraction). The IO-read-or-create logic now lives
+/// in `crate::db_secret::read_or_create_v1_secret`.
+/// This function is retained as a thin delegating
+/// wrapper so callers within `offline_queue.rs` (every
+/// SQLCipher-key-using path) keep their byte-for-byte
+/// behavior — the extraction is a NAME change, not a
+/// semantic change. Other consumers
+/// (license_cache, retain_persistence, bytecode_retain)
+/// import `db_secret::read_or_create_v1_secret` directly,
+/// not this wrapper.
 fn load_or_create_db_secret() -> Result<Vec<u8>> {
-    use std::path::{Path, PathBuf};
-
-    // Batch 88: env-override for CI + test environments that
-    // cannot write to /etc. Production deployments leave the
-    // env unset + use the canonical path.
-    let path_buf: PathBuf = match std::env::var_os("SUDERRA_DB_KEY_PATH") {
-        Some(v) => PathBuf::from(v),
-        None => PathBuf::from("/etc/suderra/db.key"),
-    };
-    let secret_path: &Path = path_buf.as_path();
-
-    if secret_path.exists() {
-        let key = std::fs::read(secret_path)
-            .context("Failed to read database secret key from /etc/suderra/db.key")?;
-        if key.len() < 16 {
-            anyhow::bail!("Database secret key is too short ({} bytes), expected >= 16", key.len());
-        }
-        return Ok(key);
-    }
-
-    // Generate new random key
-    use rand::RngCore;
-    let mut key = vec![0u8; 32];
-    rand::rng().fill_bytes(&mut key);
-
-    // Ensure parent directory exists
-    if let Some(parent) = secret_path.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| {
-                format!(
-                    "Failed to create secret-key parent directory {}",
-                    parent.display()
-                )
-            })?;
-    }
-
-    // Write with restrictive permissions from the start (no TOCTOU race)
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o400)
-            .open(secret_path)
-            .with_context(|| {
-                format!(
-                    "Failed to create database secret key file at {}",
-                    secret_path.display()
-                )
-            })?;
-        std::io::Write::write_all(&mut file, &key)
-            .context("Failed to write database secret key")?;
-    }
-
-    #[cfg(not(unix))]
-    {
-        std::fs::write(secret_path, &key)
-            .context("Failed to write database secret key")?;
-    }
-
-    tracing::info!("Generated new database secret key at {}", secret_path.display());
-    Ok(key)
+    crate::db_secret::read_or_create_v1_secret()
 }
 
 /// Apply SQLCipher encryption key to a newly opened database connection.

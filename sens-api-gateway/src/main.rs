@@ -97,6 +97,11 @@ mod shared_io;
 // CI sandboxes can now inject machine-id alongside the secret-key path.
 // offline_queue's derive_db_encryption_key delegates to this wrapper.
 mod machine_id;
+// PR-195 Batch #14 — v1 SQLCipher secret-key SSoT extraction. Pre-extraction
+// the read-or-create logic lived inside offline_queue.rs; license_cache +
+// retain_persistence + bytecode_retain consumers now share this single read
+// path without duplicating env-override + permissions-mode discipline.
+mod db_secret;
 // Batch 6 — ADR-020 audit log AuditEntry + HMAC chain. Pure types + closure-
 // injected HMAC append function; runtime sink + cloud relay + audit-verify CLI
 // land in Faz 2 Sprint 6.2.

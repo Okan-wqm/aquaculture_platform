@@ -74,11 +74,15 @@
 use crate::db_migration::boot_detector::{
     detect_db_migration_backlog, DbMigrationBacklogReport,
 };
+use crate::db_migration::cli_executor::{ConsumerOutcome, FailReason, SkipReason};
+use crate::db_migration::cli_runtime::execute_migration_ceremony;
 use crate::db_migration::schema_version::DbKeySchemaVersion;
 use crate::keystore::purpose::KeyPurpose;
+use crate::keystore::Keystore;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::Arc;
 
 /// Canonical SqlCipher consumer mapping per ADR-031.
 /// The list is the SSoT for "which DBs the migration
@@ -459,7 +463,84 @@ fn format_key_purpose(purpose: KeyPurpose) -> String {
 /// **Returns:** ExitCode::SUCCESS on clean dry-run /
 /// successful execution. ExitCode::FAILURE on argument
 /// errors or execution failure.
+///
+/// **Why a thin wrapper:** the legacy two-arg call site
+/// in `main.rs` (Batch #6 dispatch) still works
+/// unchanged via this wrapper. The execution-capable
+/// path lives in
+/// `run_migration_ceremony_with_context` (Batch #12)
+/// and is invoked when `main.rs` plumbs the
+/// `MigrationContext` (subsequent batch).
 pub fn run_migration_ceremony(argv: &[&str]) -> ExitCode {
+    run_migration_ceremony_inner(argv, None)
+}
+
+/// Runtime context the execution path needs from the
+/// agent's already-initialized subsystems. Built by
+/// `main.rs`'s `--migrate-db` arm AFTER config load +
+/// keystore bootstrap, then passed into
+/// `run_migration_ceremony_with_context`.
+///
+/// **Why a struct (not three positional args):** the
+/// CLI dispatch site can construct + pass this once,
+/// the test harness can construct deterministic
+/// instances, and adding a fifth field later (e.g.,
+/// progress callback) doesn't break callers. Mirrors
+/// the established `RotationSource<'_>` shape from
+/// keystore.
+pub struct MigrationContext {
+    /// Provisioning device UUID (from
+    /// `AgentConfig.device_id`). Used for the v2
+    /// device-bound consumer context.
+    pub device_id: String,
+    /// Currently-loaded program's bytecode SHA-256, or
+    /// `None` if no program is loaded. Used for the v2
+    /// program-bound consumer context.
+    pub program_artifact_sha256: Option<Vec<u8>>,
+    /// Agent's already-built keystore handle. Used for
+    /// the v2 target-key derivation.
+    pub keystore: Arc<dyn Keystore>,
+    /// Current Unix timestamp seconds. Caller passes
+    /// `chrono::Utc::now().timestamp()` (or equivalent)
+    /// at dispatch time; the ceremony does NOT call
+    /// `SystemTime::now()` because tests would become
+    /// non-deterministic.
+    pub now_unix: i64,
+}
+
+/// Execute-capable variant of `run_migration_ceremony`.
+/// When `args.dry_run` is true, behaves identically to
+/// the legacy entry point (stdout JSONL plan emission).
+/// When `args.dry_run` is false, drives the full
+/// migration ceremony via
+/// `cli_runtime::execute_migration_ceremony` and emits
+/// per-consumer outcome JSONL to stdout.
+///
+/// **Why one entry point covers both modes:** a single
+/// dispatch site (`main.rs` `--migrate-db` arm) doesn't
+/// need to inspect `dry_run` to pick between two
+/// functions; the function inspects it internally and
+/// routes. Consistent with the
+/// `parse_args → behavior` shape of the other
+/// subcommand entry points.
+pub fn run_migration_ceremony_with_context(
+    argv: &[&str],
+    context: MigrationContext,
+) -> ExitCode {
+    run_migration_ceremony_inner(argv, Some(context))
+}
+
+/// Shared dispatcher for both
+/// `run_migration_ceremony` (no-context legacy) and
+/// `run_migration_ceremony_with_context` (execute-
+/// capable). Inspects `args.dry_run` to pick between
+/// the dry-run plan path (always available) and the
+/// execute path (only available when context is
+/// `Some`).
+fn run_migration_ceremony_inner(
+    argv: &[&str],
+    context: Option<MigrationContext>,
+) -> ExitCode {
     let args = match parse_args(argv) {
         Ok(a) => a,
         Err(e) => {
@@ -473,32 +554,106 @@ pub fn run_migration_ceremony(argv: &[&str]) -> ExitCode {
         }
     };
 
-    if !args.dry_run {
-        // Execution path requires keystore + machine_id
-        // bootstrap that subsequent PR-195 batches will
-        // plumb. Refuse to run today so operators can't
-        // accidentally invoke a half-implemented
-        // execution path against a production DB.
-        #[allow(clippy::print_stderr)]
-        {
-            eprintln!(
-                "db-migrate-cli: execution path not yet wired (PR-195 in progress)."
-            );
-            eprintln!(
-                "  Use --dry-run to compute the migration plan from the"
-            );
-            eprintln!(
-                "  current data-dir state. Subsequent PR-195 batches will"
-            );
-            eprintln!(
-                "  wire the keystore + machine_id bootstrap and enable"
-            );
-            eprintln!("  execution.");
-        }
-        return ExitCode::FAILURE;
+    if args.dry_run {
+        return emit_dry_run_plan(&args);
     }
 
-    let plan = compute_dry_run_plan(&args);
+    // Execute path — requires a `MigrationContext`. If
+    // the caller didn't provide one (legacy
+    // `run_migration_ceremony` entry), refuse with the
+    // operator-readable message that documents how to
+    // reach the execute-capable variant.
+    let ctx = match context {
+        Some(c) => c,
+        None => {
+            #[allow(clippy::print_stderr)]
+            {
+                eprintln!(
+                    "db-migrate-cli: execution path requires MigrationContext."
+                );
+                eprintln!(
+                    "  This entry point (run_migration_ceremony) is dry-run only."
+                );
+                eprintln!(
+                    "  The agent must dispatch via run_migration_ceremony_with_context"
+                );
+                eprintln!(
+                    "  with a MigrationContext built from the loaded config + keystore."
+                );
+            }
+            return ExitCode::FAILURE;
+        }
+    };
+
+    execute_ceremony_via_context(&args, ctx)
+}
+
+/// Drive the migration via the execute path. Builds a
+/// per-call tokio runtime so the sync `ExitCode`
+/// caller doesn't need to thread an async runtime
+/// through the dispatch chain.
+///
+/// **Why a per-call runtime (not the agent's main
+/// runtime):** the CLI subcommand is a one-shot
+/// process — the agent's main async runtime hasn't
+/// been spun up at this dispatch point (the migration
+/// runs PRE-agent-boot). Building a fresh
+/// current-thread runtime is the lightest-weight
+/// option that doesn't require a Tokio runtime
+/// already in scope.
+fn execute_ceremony_via_context(
+    args: &MigrationArgs,
+    ctx: MigrationContext,
+) -> ExitCode {
+    let runtime = match tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(r) => r,
+        Err(e) => {
+            #[allow(clippy::print_stderr)]
+            {
+                eprintln!(
+                    "db-migrate-cli: failed to build tokio runtime: {e}"
+                );
+            }
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let outcome_result = runtime.block_on(execute_migration_ceremony(
+        args,
+        ctx.device_id,
+        ctx.program_artifact_sha256,
+        ctx.keystore,
+        ctx.now_unix,
+    ));
+
+    match outcome_result {
+        Ok(outcome) => {
+            emit_outcome_jsonl(&outcome.per_consumer);
+            if outcome.is_clean() {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::FAILURE
+            }
+        }
+        Err(e) => {
+            #[allow(clippy::print_stderr)]
+            {
+                eprintln!("db-migrate-cli: ceremony failed: {e}");
+            }
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// Emit the dry-run plan as JSONL to stdout — extracted
+/// so both the legacy entry point and the
+/// `with_context` entry point share identical dry-run
+/// behavior (no drift between modes).
+fn emit_dry_run_plan(args: &MigrationArgs) -> ExitCode {
+    let plan = compute_dry_run_plan(args);
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();
     for step in &plan {
@@ -514,6 +669,85 @@ pub fn run_migration_ceremony(argv: &[&str]) -> ExitCode {
         }
     }
     ExitCode::SUCCESS
+}
+
+/// Emit the execute-path per-consumer outcome as JSONL
+/// to stdout — one line per `ConsumerOutcome`. The
+/// runbook documents the schema; downstream operator
+/// tooling (jq pipelines) consumes this.
+///
+/// **Why hand-rolled JSON (not serde):** the same
+/// reasoning as `plan_step_to_jsonl` (Batch #6) — avoid
+/// a serde dependency on the outcome enum + keep the
+/// schema explicit at the call site so the runbook can
+/// document it without chasing #[serde] attributes.
+fn emit_outcome_jsonl(outcomes: &[ConsumerOutcome]) {
+    let stdout = std::io::stdout();
+    let mut handle = stdout.lock();
+    for o in outcomes {
+        let line = consumer_outcome_to_jsonl(o);
+        #[allow(clippy::print_stdout)]
+        {
+            let _ = writeln!(handle, "{line}");
+        }
+    }
+}
+
+/// Hand-rolled JSON formatter for a single
+/// `ConsumerOutcome`. Format mirrors the dry-run
+/// plan's shape so operator tooling can union the two
+/// streams without per-mode parsing.
+fn consumer_outcome_to_jsonl(outcome: &ConsumerOutcome) -> String {
+    match outcome {
+        ConsumerOutcome::Migrated { purpose, from, to } => format!(
+            "{{\"outcome\":\"migrated\",\"purpose\":\"{}\",\"from\":\"{}\",\"to\":\"{}\"}}",
+            format_key_purpose(*purpose),
+            schema_version_str(*from),
+            schema_version_str(*to),
+        ),
+        ConsumerOutcome::Skipped { purpose, reason } => format!(
+            "{{\"outcome\":\"skipped\",\"purpose\":\"{}\",\"reason\":\"{}\"}}",
+            format_key_purpose(*purpose),
+            skip_reason_str(reason),
+        ),
+        ConsumerOutcome::Failed { purpose, reason } => format!(
+            "{{\"outcome\":\"failed\",\"purpose\":\"{}\",\"reason_class\":\"{}\"}}",
+            format_key_purpose(*purpose),
+            fail_reason_class(reason),
+        ),
+    }
+}
+
+fn schema_version_str(v: DbKeySchemaVersion) -> &'static str {
+    match v {
+        DbKeySchemaVersion::V1MachineIdDerived => "v1-machine-id-derived",
+        DbKeySchemaVersion::V2KeystoreDerived => "v2-keystore-derived",
+    }
+}
+
+// DbKeySchemaVersion is `Copy`; ConsumerOutcome's
+// destructure binds `from` and `to` by move into the
+// formatter call. The schema_version_str takes by
+// value so the Copy is what's flowing through.
+
+fn skip_reason_str(reason: &SkipReason) -> &'static str {
+    match reason {
+        SkipReason::NoDb => "no_db",
+        SkipReason::AlreadyV2 => "already_v2",
+    }
+}
+
+fn fail_reason_class(reason: &FailReason) -> &'static str {
+    // Class only — not full reason string. The full
+    // operator post-mortem detail comes from stderr
+    // logs; the JSONL is for routing-on-class.
+    match reason {
+        FailReason::Resolver(_) => "resolver",
+        FailReason::Context(_) => "context",
+        FailReason::V2Derivation(_) => "v2_derivation",
+        FailReason::DbOpen { .. } => "db_open",
+        FailReason::RekeySwap(_) => "rekey_swap",
+    }
 }
 
 fn print_usage() {
@@ -810,8 +1044,269 @@ mod tests {
             // Note: NO --dry-run flag.
         ];
         let exit = run_migration_ceremony(&argv);
-        // Execution path refuses today; expects
-        // FAILURE exit + operator-readable message.
+        // Legacy entry point has no MigrationContext, so
+        // the execute path refuses with the operator-
+        // readable message + FAILURE exit.
         assert_eq!(format!("{exit:?}"), "ExitCode(unix_exit_status(1))");
+    }
+
+    // -------- Batch #12 — run_migration_ceremony_with_context --------
+
+    use crate::db_migration::v1_legacy_key::{
+        derive_v1_legacy_key, format_sqlcipher_pragma_key_hex,
+    };
+    use crate::keystore::error::{
+        KeyDerivationError, KeystoreError, KeystoreErrorKind,
+    };
+    use crate::keystore::purpose::DerivedKeyId;
+    use crate::keystore::secret::KeyMaterial;
+    use crate::keystore::{KeyBackend, RotationSource};
+    use async_trait::async_trait;
+    use rusqlite::Connection;
+    use std::sync::Mutex;
+
+    /// Per-module env-mutation serializer for the
+    /// integration tests below — both `with_context`
+    /// happy-path tests touch `SUDERRA_MACHINE_ID_PATH`
+    /// + `SUDERRA_DB_KEY_PATH`. Mirrors
+    /// `cli_runtime::tests::ENV_MUTEX`.
+    static CLI_ENV_MUTEX: Mutex<()> = Mutex::new(());
+
+    /// Deterministic test keystore (mirrors Batch #11
+    /// pattern in cli_runtime).
+    struct CliDeterministicKeystore;
+
+    #[async_trait]
+    impl Keystore for CliDeterministicKeystore {
+        fn backend(&self) -> KeyBackend {
+            KeyBackend::FileBacked
+        }
+
+        async fn derive_key(
+            &self,
+            purpose: KeyPurpose,
+            _context: &[u8],
+        ) -> Result<KeyMaterial, KeyDerivationError> {
+            let mut bytes = [0u8; 32];
+            bytes[0] = match purpose {
+                KeyPurpose::SqlCipherOfflineQueue => 0xc1,
+                KeyPurpose::SqlCipherRetainPersistence => 0xc2,
+                KeyPurpose::SqlCipherLicenseCache => 0xc3,
+                KeyPurpose::SqlCipherBytecodeRetain => 0xc4,
+                _ => 0xff,
+            };
+            Ok(KeyMaterial::from_derived_bytes(purpose, bytes))
+        }
+
+        fn derived_key_id(
+            &self,
+            _purpose: KeyPurpose,
+            _context: &[u8],
+        ) -> DerivedKeyId {
+            DerivedKeyId([0u8; 16])
+        }
+
+        async fn rotate_master(&self) -> Result<(), KeystoreError> {
+            Err(KeystoreError::new(
+                KeystoreErrorKind::NotImplemented,
+                String::from("stub"),
+            ))
+        }
+
+        async fn rotate_master_with_source(
+            &self,
+            _source: RotationSource<'_>,
+        ) -> Result<(), KeystoreError> {
+            Err(KeystoreError::new(
+                KeystoreErrorKind::NotImplemented,
+                String::from("stub"),
+            ))
+        }
+    }
+
+    fn ctx(now_unix: i64) -> MigrationContext {
+        MigrationContext {
+            device_id: "ctx-device-uuid".into(),
+            program_artifact_sha256: Some(vec![0xEE; 32]),
+            keystore: Arc::new(CliDeterministicKeystore),
+            now_unix,
+        }
+    }
+
+    fn seed_v1_db(
+        path: &std::path::Path,
+        machine_id: &[u8],
+        secret_key: &[u8],
+    ) {
+        let bytes = derive_v1_legacy_key(machine_id, secret_key);
+        let hex = format_sqlcipher_pragma_key_hex(&bytes);
+        let conn = Connection::open(path).expect("open db");
+        conn.execute_batch(&format!("PRAGMA key = \"x'{hex}'\";"))
+            .expect("apply v1");
+        conn.execute_batch(
+            "CREATE TABLE seed (id INTEGER PRIMARY KEY); \
+             INSERT INTO seed VALUES (1);",
+        )
+        .expect("seed table");
+    }
+
+    #[test]
+    fn with_context_dry_run_path_emits_success_same_as_legacy() {
+        // Dry-run path should be identical regardless of
+        // whether context is supplied (the dry-run
+        // routing branch ignores context entirely).
+        let dir = tempfile::tempdir().expect("tempdir");
+        let argv: Vec<&str> = vec![
+            "--data-dir",
+            dir.path().to_str().unwrap(),
+            "--dry-run",
+        ];
+        let exit = run_migration_ceremony_with_context(&argv, ctx(1_700_000_000));
+        assert_eq!(format!("{exit:?}"), "ExitCode(unix_exit_status(0))");
+    }
+
+    #[test]
+    fn with_context_execute_path_with_no_dbs_returns_success_clean_outcome() {
+        // No v1 DBs present → 4 NoDb skips → outcome is
+        // clean → exit SUCCESS. Validates that the
+        // execute path doesn't error on an empty
+        // data_dir (the orchestrator handles NoDb
+        // gracefully).
+        let _guard = CLI_ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mid = dir.path().join("mid");
+        std::fs::write(&mid, "ctx-mid\n").expect("seed mid");
+        let secret = dir.path().join("db.key");
+        std::fs::write(&secret, vec![0xAAu8; 32]).expect("seed secret");
+
+        // SAFETY: env-mutation serialized via CLI_ENV_MUTEX.
+        unsafe {
+            std::env::set_var("SUDERRA_MACHINE_ID_PATH", &mid);
+            std::env::set_var("SUDERRA_DB_KEY_PATH", &secret);
+        }
+        let argv: Vec<&str> = vec!["--data-dir", dir.path().to_str().unwrap()];
+        let exit = run_migration_ceremony_with_context(&argv, ctx(1_700_000_000));
+        unsafe {
+            std::env::remove_var("SUDERRA_MACHINE_ID_PATH");
+            std::env::remove_var("SUDERRA_DB_KEY_PATH");
+        }
+
+        assert_eq!(format!("{exit:?}"), "ExitCode(unix_exit_status(0))");
+    }
+
+    #[test]
+    fn with_context_execute_path_with_v1_db_migrates_and_returns_success() {
+        let _guard = CLI_ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mid = dir.path().join("mid");
+        std::fs::write(&mid, "ctx-mid-with-v1\n").expect("seed mid");
+        let secret = dir.path().join("db.key");
+        let secret_bytes = vec![0xBBu8; 32];
+        std::fs::write(&secret, &secret_bytes).expect("seed secret");
+
+        // Seed offline_queue.db with the SAME v1 inputs
+        // the ceremony will compute internally.
+        seed_v1_db(
+            &dir.path().join("offline_queue.db"),
+            b"ctx-mid-with-v1",
+            &secret_bytes,
+        );
+
+        // SAFETY: env-mutation serialized via CLI_ENV_MUTEX.
+        unsafe {
+            std::env::set_var("SUDERRA_MACHINE_ID_PATH", &mid);
+            std::env::set_var("SUDERRA_DB_KEY_PATH", &secret);
+        }
+        let argv: Vec<&str> = vec!["--data-dir", dir.path().to_str().unwrap()];
+        let exit = run_migration_ceremony_with_context(&argv, ctx(1_700_000_000));
+        unsafe {
+            std::env::remove_var("SUDERRA_MACHINE_ID_PATH");
+            std::env::remove_var("SUDERRA_DB_KEY_PATH");
+        }
+
+        assert_eq!(format!("{exit:?}"), "ExitCode(unix_exit_status(0))");
+
+        // Post-condition: the manifest sidecar was
+        // written + declares v2.
+        let sidecar = crate::db_migration::manifest::manifest_path_for_db(
+            &dir.path().join("offline_queue.db"),
+        );
+        let manifest_str = std::fs::read_to_string(&sidecar)
+            .expect("read sidecar");
+        assert!(
+            manifest_str.contains("v2-keystore-derived"),
+            "expected v2 manifest, got: {manifest_str}"
+        );
+    }
+
+    #[test]
+    fn with_context_execute_path_bootstrap_failure_returns_failure_exit() {
+        let _guard = CLI_ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::tempdir().expect("tempdir");
+        // Point SUDERRA_DB_KEY_PATH at a missing file —
+        // bootstrap fails with SecretKeyMissing.
+        let no_secret = dir.path().join("nope.key");
+
+        // SAFETY: env-mutation serialized via CLI_ENV_MUTEX.
+        unsafe {
+            std::env::set_var("SUDERRA_DB_KEY_PATH", &no_secret);
+        }
+        let argv: Vec<&str> = vec!["--data-dir", dir.path().to_str().unwrap()];
+        let exit = run_migration_ceremony_with_context(&argv, ctx(1_700_000_000));
+        unsafe {
+            std::env::remove_var("SUDERRA_DB_KEY_PATH");
+        }
+
+        // Bootstrap failure → FAILURE exit.
+        assert_eq!(format!("{exit:?}"), "ExitCode(unix_exit_status(1))");
+    }
+
+    #[test]
+    fn consumer_outcome_to_jsonl_migrated_shape_pinned() {
+        let line = consumer_outcome_to_jsonl(&ConsumerOutcome::Migrated {
+            purpose: KeyPurpose::SqlCipherOfflineQueue,
+            from: DbKeySchemaVersion::V1MachineIdDerived,
+            to: DbKeySchemaVersion::V2KeystoreDerived,
+        });
+        assert_eq!(
+            line,
+            "{\"outcome\":\"migrated\",\"purpose\":\"sqlcipher-offline-queue\",\"from\":\"v1-machine-id-derived\",\"to\":\"v2-keystore-derived\"}"
+        );
+    }
+
+    #[test]
+    fn consumer_outcome_to_jsonl_skipped_no_db_shape_pinned() {
+        let line = consumer_outcome_to_jsonl(&ConsumerOutcome::Skipped {
+            purpose: KeyPurpose::SqlCipherLicenseCache,
+            reason: SkipReason::NoDb,
+        });
+        assert_eq!(
+            line,
+            "{\"outcome\":\"skipped\",\"purpose\":\"sqlcipher-license-cache\",\"reason\":\"no_db\"}"
+        );
+    }
+
+    #[test]
+    fn consumer_outcome_to_jsonl_skipped_already_v2_shape_pinned() {
+        let line = consumer_outcome_to_jsonl(&ConsumerOutcome::Skipped {
+            purpose: KeyPurpose::SqlCipherBytecodeRetain,
+            reason: SkipReason::AlreadyV2,
+        });
+        assert_eq!(
+            line,
+            "{\"outcome\":\"skipped\",\"purpose\":\"sqlcipher-bytecode-retain\",\"reason\":\"already_v2\"}"
+        );
+    }
+
+    #[test]
+    fn consumer_outcome_to_jsonl_failed_db_open_class_pinned() {
+        let line = consumer_outcome_to_jsonl(&ConsumerOutcome::Failed {
+            purpose: KeyPurpose::SqlCipherRetainPersistence,
+            reason: FailReason::DbOpen { reason: "x".into() },
+        });
+        assert_eq!(
+            line,
+            "{\"outcome\":\"failed\",\"purpose\":\"sqlcipher-retain-persistence\",\"reason_class\":\"db_open\"}"
+        );
     }
 }

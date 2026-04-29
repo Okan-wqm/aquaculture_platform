@@ -58,27 +58,14 @@ pub mod sink;
 pub mod verify;
 
 pub use chain::{
-    append_entry,
-    compose_hmac_input,
-    CurrentHmac,
-    HmacChainError,
-    HmacChainEntry,
-    PrevHmac,
+    CurrentHmac, HmacChainEntry, HmacChainError, PrevHmac, append_entry, compose_hmac_input,
 };
 
 pub use sink::{AuditHmacKey, AuditSink, AuditSinkError};
 
-pub use verify::{verify_audit_log, VerifyInput, VerifyOutcome};
+pub use verify::{VerifyInput, VerifyOutcome, verify_audit_log};
 
 pub use entry::{
-    AuditAction,
-    AuditActor,
-    AuditEntry,
-    AuditEntryCanonicalBytesError,
-    AuditOutcome,
-    AuditPhase,
-    AuditResource,
-    MAX_ACTOR_LABEL_BYTES,
-    MAX_CORRELATION_ID_BYTES,
-    MAX_DETAIL_BYTES,
+    AuditAction, AuditActor, AuditEntry, AuditEntryCanonicalBytesError, AuditOutcome, AuditPhase,
+    AuditResource, MAX_ACTOR_LABEL_BYTES, MAX_CORRELATION_ID_BYTES, MAX_DETAIL_BYTES,
 };

@@ -28,7 +28,10 @@ pub struct KeystoreError {
 
 impl KeystoreError {
     pub fn new(kind: KeystoreErrorKind, context: impl Into<String>) -> Self {
-        Self { kind, context: context.into() }
+        Self {
+            kind,
+            context: context.into(),
+        }
     }
 }
 
@@ -140,17 +143,17 @@ impl fmt::Display for KeyDerivationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidOutputLength { expected, got } => {
-                write!(f, "hkdf output length mismatch: expected {}, got {}", expected, got)
+                write!(
+                    f,
+                    "hkdf output length mismatch: expected {}, got {}",
+                    expected, got
+                )
             }
-            Self::ContextRequired => {
-                f.write_str("hkdf context bytes required for this purpose")
-            }
+            Self::ContextRequired => f.write_str("hkdf context bytes required for this purpose"),
             Self::ContextTooLarge { max, got } => {
                 write!(f, "hkdf context too large: max {} bytes, got {}", max, got)
             }
-            Self::MasterAccessFailed => {
-                f.write_str("master key access failed during derivation")
-            }
+            Self::MasterAccessFailed => f.write_str("master key access failed during derivation"),
             Self::HkdfFailure(msg) => {
                 write!(f, "hkdf library failure: {}", msg)
             }
@@ -167,7 +170,10 @@ mod tests {
     /// WHY: Display format is audit-surface; pin the string form.
     #[test]
     fn keystore_error_kind_display_snake_case() {
-        assert_eq!(format!("{}", KeystoreErrorKind::MasterMissing), "master_missing");
+        assert_eq!(
+            format!("{}", KeystoreErrorKind::MasterMissing),
+            "master_missing"
+        );
         assert_eq!(
             format!("{}", KeystoreErrorKind::FileBackedAcceptanceMissing),
             "file_backed_acceptance_missing"
@@ -195,7 +201,10 @@ mod tests {
     /// WHY: KeyDerivationError variants discriminate correctly.
     #[test]
     fn key_derivation_error_variants_distinct() {
-        let a = KeyDerivationError::InvalidOutputLength { expected: 32, got: 31 };
+        let a = KeyDerivationError::InvalidOutputLength {
+            expected: 32,
+            got: 31,
+        };
         let b = KeyDerivationError::ContextRequired;
         assert_ne!(a, b);
         assert!(format!("{}", a).contains("expected 32"));

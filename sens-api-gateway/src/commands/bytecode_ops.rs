@@ -33,7 +33,7 @@
 //! `disable` / `enable` / `delete`: `{ "program_id":
 //! "..." }`.
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tracing::{info, warn};
 
 use super::CommandHandler;
@@ -121,10 +121,7 @@ impl CommandHandler {
         enabled: bool,
         cmd_label: &str,
     ) -> (bool, Value, Option<String>) {
-        info!(
-            "Executing {} command (Faz 3 Batch 173)",
-            cmd_label
-        );
+        info!("Executing {} command (Faz 3 Batch 173)", cmd_label);
 
         let program_id = match extract_program_id(params, cmd_label) {
             Ok(id) => id,
@@ -186,13 +183,8 @@ impl CommandHandler {
         // store when present — best-effort: a store
         // failure logs + returns success because the
         // in-memory change IS live.
-        let persisted = persist_enabled_change(
-            &registry,
-            store.as_ref(),
-            &program_id,
-            cmd_label,
-        )
-        .await;
+        let persisted =
+            persist_enabled_change(&registry, store.as_ref(), &program_id, cmd_label).await;
 
         info!(
             "{}: program_id={} enabled={} persisted={}",
@@ -312,10 +304,7 @@ impl CommandHandler {
 
 /// Param helper: extract the `program_id` string or
 /// return an operator-visible error message.
-fn extract_program_id(
-    params: &Value,
-    cmd_label: &str,
-) -> Result<String, String> {
+fn extract_program_id(params: &Value, cmd_label: &str) -> Result<String, String> {
     match params.get("program_id").and_then(|v| v.as_str()) {
         Some(s) if !s.is_empty() => Ok(s.to_string()),
         _ => Err(format!(
@@ -328,10 +317,7 @@ fn extract_program_id(
 /// Tenant gate: matches when both are the same tenant,
 /// OR when the entry is platform-scoped (None). Any
 /// mismatch rejects.
-fn tenant_match(
-    entry_tenant: &Option<String>,
-    agent_tenant: &Option<String>,
-) -> bool {
+fn tenant_match(entry_tenant: &Option<String>, agent_tenant: &Option<String>) -> bool {
     match (entry_tenant, agent_tenant) {
         (Some(a), Some(b)) => a == b,
         (None, _) => true, // platform-scoped entries are visible to all tenants

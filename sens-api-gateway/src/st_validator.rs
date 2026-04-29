@@ -168,34 +168,34 @@ pub enum TokenKind {
     KwArray,
 
     // Operators
-    Assign,         // :=
-    Plus,           // +
-    Minus,          // -
-    Star,           // *
-    Slash,          // /
-    Mod,            // MOD
-    Power,          // **
-    Eq,             // =
-    Neq,            // <>
-    Lt,             // <
-    Gt,             // >
-    Le,             // <=
-    Ge,             // >=
-    And,            // AND / &
-    Or,             // OR
-    Xor,            // XOR
-    Not,            // NOT
+    Assign, // :=
+    Plus,   // +
+    Minus,  // -
+    Star,   // *
+    Slash,  // /
+    Mod,    // MOD
+    Power,  // **
+    Eq,     // =
+    Neq,    // <>
+    Lt,     // <
+    Gt,     // >
+    Le,     // <=
+    Ge,     // >=
+    And,    // AND / &
+    Or,     // OR
+    Xor,    // XOR
+    Not,    // NOT
 
     // Delimiters
-    LParen,         // (
-    RParen,         // )
-    LBracket,       // [
-    RBracket,       // ]
-    Semicolon,      // ;
-    Colon,          // :
-    Comma,          // ,
-    Dot,            // .
-    DotDot,         // ..
+    LParen,    // (
+    RParen,    // )
+    LBracket,  // [
+    RBracket,  // ]
+    Semicolon, // ;
+    Colon,     // :
+    Comma,     // ,
+    Dot,       // .
+    DotDot,    // ..
 
     // Special
     Eof,
@@ -293,13 +293,17 @@ pub enum DataType {
     Ulint,
     Real,
     Lreal,
-    String(Option<usize>),  // Optional max length
+    String(Option<usize>), // Optional max length
     Wstring(Option<usize>),
     Time,
     Date,
     TimeOfDay,
     DateAndTime,
-    Array { base: Box<DataType>, lower: i64, upper: i64 },
+    Array {
+        base: Box<DataType>,
+        lower: i64,
+        upper: i64,
+    },
     UserDefined(String),
 }
 
@@ -308,10 +312,20 @@ impl DataType {
     pub fn is_numeric(&self) -> bool {
         matches!(
             self,
-            DataType::Sint | DataType::Int | DataType::Dint | DataType::Lint
-                | DataType::Usint | DataType::Uint | DataType::Udint | DataType::Ulint
-                | DataType::Real | DataType::Lreal
-                | DataType::Byte | DataType::Word | DataType::Dword | DataType::Lword
+            DataType::Sint
+                | DataType::Int
+                | DataType::Dint
+                | DataType::Lint
+                | DataType::Usint
+                | DataType::Uint
+                | DataType::Udint
+                | DataType::Ulint
+                | DataType::Real
+                | DataType::Lreal
+                | DataType::Byte
+                | DataType::Word
+                | DataType::Dword
+                | DataType::Lword
         )
     }
 
@@ -319,9 +333,18 @@ impl DataType {
     pub fn is_integer(&self) -> bool {
         matches!(
             self,
-            DataType::Sint | DataType::Int | DataType::Dint | DataType::Lint
-                | DataType::Usint | DataType::Uint | DataType::Udint | DataType::Ulint
-                | DataType::Byte | DataType::Word | DataType::Dword | DataType::Lword
+            DataType::Sint
+                | DataType::Int
+                | DataType::Dint
+                | DataType::Lint
+                | DataType::Usint
+                | DataType::Uint
+                | DataType::Udint
+                | DataType::Ulint
+                | DataType::Byte
+                | DataType::Word
+                | DataType::Dword
+                | DataType::Lword
         )
     }
 
@@ -542,69 +565,116 @@ pub struct ValidationResult {
 
 /// Known IEC 61131-3 standard function blocks with their I/O signatures.
 /// Initialized once via LazyLock - zero allocation after first access.
-static KNOWN_FUNCTION_BLOCKS: LazyLock<HashMap<&'static str, (Vec<(&'static str, DataType)>, Vec<(&'static str, DataType)>)>> = LazyLock::new(|| {
+static KNOWN_FUNCTION_BLOCKS: LazyLock<
+    HashMap<&'static str, (Vec<(&'static str, DataType)>, Vec<(&'static str, DataType)>)>,
+> = LazyLock::new(|| {
     let mut map = HashMap::with_capacity(11);
 
     // Timers
-    map.insert("TON", (
-        vec![("IN", DataType::Bool), ("PT", DataType::Time)],
-        vec![("Q", DataType::Bool), ("ET", DataType::Time)],
-    ));
-    map.insert("TOF", (
-        vec![("IN", DataType::Bool), ("PT", DataType::Time)],
-        vec![("Q", DataType::Bool), ("ET", DataType::Time)],
-    ));
-    map.insert("TP", (
-        vec![("IN", DataType::Bool), ("PT", DataType::Time)],
-        vec![("Q", DataType::Bool), ("ET", DataType::Time)],
-    ));
+    map.insert(
+        "TON",
+        (
+            vec![("IN", DataType::Bool), ("PT", DataType::Time)],
+            vec![("Q", DataType::Bool), ("ET", DataType::Time)],
+        ),
+    );
+    map.insert(
+        "TOF",
+        (
+            vec![("IN", DataType::Bool), ("PT", DataType::Time)],
+            vec![("Q", DataType::Bool), ("ET", DataType::Time)],
+        ),
+    );
+    map.insert(
+        "TP",
+        (
+            vec![("IN", DataType::Bool), ("PT", DataType::Time)],
+            vec![("Q", DataType::Bool), ("ET", DataType::Time)],
+        ),
+    );
 
     // Counters
-    map.insert("CTU", (
-        vec![("CU", DataType::Bool), ("RESET", DataType::Bool), ("PV", DataType::Int)],
-        vec![("Q", DataType::Bool), ("CV", DataType::Int)],
-    ));
-    map.insert("CTD", (
-        vec![("CD", DataType::Bool), ("LOAD", DataType::Bool), ("PV", DataType::Int)],
-        vec![("Q", DataType::Bool), ("CV", DataType::Int)],
-    ));
-    map.insert("CTUD", (
-        vec![("CU", DataType::Bool), ("CD", DataType::Bool), ("RESET", DataType::Bool), ("LOAD", DataType::Bool), ("PV", DataType::Int)],
-        vec![("QU", DataType::Bool), ("QD", DataType::Bool), ("CV", DataType::Int)],
-    ));
+    map.insert(
+        "CTU",
+        (
+            vec![
+                ("CU", DataType::Bool),
+                ("RESET", DataType::Bool),
+                ("PV", DataType::Int),
+            ],
+            vec![("Q", DataType::Bool), ("CV", DataType::Int)],
+        ),
+    );
+    map.insert(
+        "CTD",
+        (
+            vec![
+                ("CD", DataType::Bool),
+                ("LOAD", DataType::Bool),
+                ("PV", DataType::Int),
+            ],
+            vec![("Q", DataType::Bool), ("CV", DataType::Int)],
+        ),
+    );
+    map.insert(
+        "CTUD",
+        (
+            vec![
+                ("CU", DataType::Bool),
+                ("CD", DataType::Bool),
+                ("RESET", DataType::Bool),
+                ("LOAD", DataType::Bool),
+                ("PV", DataType::Int),
+            ],
+            vec![
+                ("QU", DataType::Bool),
+                ("QD", DataType::Bool),
+                ("CV", DataType::Int),
+            ],
+        ),
+    );
 
     // Bistable
-    map.insert("RS", (
-        vec![("SET", DataType::Bool), ("RESET1", DataType::Bool)],
-        vec![("Q1", DataType::Bool)],
-    ));
-    map.insert("SR", (
-        vec![("SET1", DataType::Bool), ("RESET", DataType::Bool)],
-        vec![("Q1", DataType::Bool)],
-    ));
+    map.insert(
+        "RS",
+        (
+            vec![("SET", DataType::Bool), ("RESET1", DataType::Bool)],
+            vec![("Q1", DataType::Bool)],
+        ),
+    );
+    map.insert(
+        "SR",
+        (
+            vec![("SET1", DataType::Bool), ("RESET", DataType::Bool)],
+            vec![("Q1", DataType::Bool)],
+        ),
+    );
 
     // Edge detection
-    map.insert("R_TRIG", (
-        vec![("CLK", DataType::Bool)],
-        vec![("Q", DataType::Bool)],
-    ));
-    map.insert("F_TRIG", (
-        vec![("CLK", DataType::Bool)],
-        vec![("Q", DataType::Bool)],
-    ));
+    map.insert(
+        "R_TRIG",
+        (vec![("CLK", DataType::Bool)], vec![("Q", DataType::Bool)]),
+    );
+    map.insert(
+        "F_TRIG",
+        (vec![("CLK", DataType::Bool)], vec![("Q", DataType::Bool)]),
+    );
 
     // PID
-    map.insert("PID", (
-        vec![
-            ("AUTO", DataType::Bool),
-            ("PV", DataType::Real),
-            ("SP", DataType::Real),
-            ("KP", DataType::Real),
-            ("TI", DataType::Time),
-            ("TD", DataType::Time),
-        ],
-        vec![("OUT", DataType::Real)],
-    ));
+    map.insert(
+        "PID",
+        (
+            vec![
+                ("AUTO", DataType::Bool),
+                ("PV", DataType::Real),
+                ("SP", DataType::Real),
+                ("KP", DataType::Real),
+                ("TI", DataType::Time),
+                ("TD", DataType::Time),
+            ],
+            vec![("OUT", DataType::Real)],
+        ),
+    );
 
     map
 });
@@ -651,7 +721,10 @@ impl Lexer {
     }
 
     fn span(&self) -> Span {
-        Span { line: self.line, column: self.col }
+        Span {
+            line: self.line,
+            column: self.col,
+        }
     }
 
     fn skip_whitespace(&mut self) {
@@ -683,7 +756,9 @@ impl Lexer {
                         self.advance();
                         depth -= 1;
                     }
-                    _ => { self.advance(); }
+                    _ => {
+                        self.advance();
+                    }
                 }
             }
             return true;
@@ -691,7 +766,9 @@ impl Lexer {
         // Line comment: // ...
         if self.current() == Some('/') && self.peek() == Some('/') {
             while let Some(ch) = self.current() {
-                if ch == '\n' { break; }
+                if ch == '\n' {
+                    break;
+                }
                 self.advance();
             }
             return true;
@@ -705,7 +782,9 @@ impl Lexer {
 
         while let Some(ch) = self.current() {
             if ch.is_ascii_digit() || ch == '_' {
-                if ch != '_' { s.push(ch); }
+                if ch != '_' {
+                    s.push(ch);
+                }
                 self.advance();
             } else if ch == '.' && self.peek() != Some('.') && !is_real {
                 is_real = true;
@@ -724,7 +803,9 @@ impl Lexer {
                     let mut digits = String::new();
                     while let Some(ch) = self.current() {
                         if ch.is_ascii_alphanumeric() || ch == '_' {
-                            if ch != '_' { digits.push(ch); }
+                            if ch != '_' {
+                                digits.push(ch);
+                            }
                             self.advance();
                         } else {
                             break;
@@ -942,7 +1023,10 @@ impl Lexer {
             let ch = match self.current() {
                 Some(ch) => ch,
                 None => {
-                    tokens.push(Token { kind: TokenKind::Eof, span });
+                    tokens.push(Token {
+                        kind: TokenKind::Eof,
+                        span,
+                    });
                     break;
                 }
             };
@@ -1001,14 +1085,38 @@ impl Lexer {
                         TokenKind::Colon
                     }
                 }
-                ';' => { self.advance(); TokenKind::Semicolon }
-                ',' => { self.advance(); TokenKind::Comma }
-                '(' => { self.advance(); TokenKind::LParen }
-                ')' => { self.advance(); TokenKind::RParen }
-                '[' => { self.advance(); TokenKind::LBracket }
-                ']' => { self.advance(); TokenKind::RBracket }
-                '+' => { self.advance(); TokenKind::Plus }
-                '-' => { self.advance(); TokenKind::Minus }
+                ';' => {
+                    self.advance();
+                    TokenKind::Semicolon
+                }
+                ',' => {
+                    self.advance();
+                    TokenKind::Comma
+                }
+                '(' => {
+                    self.advance();
+                    TokenKind::LParen
+                }
+                ')' => {
+                    self.advance();
+                    TokenKind::RParen
+                }
+                '[' => {
+                    self.advance();
+                    TokenKind::LBracket
+                }
+                ']' => {
+                    self.advance();
+                    TokenKind::RBracket
+                }
+                '+' => {
+                    self.advance();
+                    TokenKind::Plus
+                }
+                '-' => {
+                    self.advance();
+                    TokenKind::Minus
+                }
                 '*' => {
                     self.advance();
                     if self.current() == Some('*') {
@@ -1018,13 +1126,25 @@ impl Lexer {
                         TokenKind::Star
                     }
                 }
-                '/' => { self.advance(); TokenKind::Slash }
-                '=' => { self.advance(); TokenKind::Eq }
+                '/' => {
+                    self.advance();
+                    TokenKind::Slash
+                }
+                '=' => {
+                    self.advance();
+                    TokenKind::Eq
+                }
                 '<' => {
                     self.advance();
                     match self.current() {
-                        Some('>') => { self.advance(); TokenKind::Neq }
-                        Some('=') => { self.advance(); TokenKind::Le }
+                        Some('>') => {
+                            self.advance();
+                            TokenKind::Neq
+                        }
+                        Some('=') => {
+                            self.advance();
+                            TokenKind::Le
+                        }
                         _ => TokenKind::Lt,
                     }
                 }
@@ -1046,7 +1166,10 @@ impl Lexer {
                         TokenKind::Dot
                     }
                 }
-                '&' => { self.advance(); TokenKind::And }
+                '&' => {
+                    self.advance();
+                    TokenKind::And
+                }
                 '#' => {
                     // Could be a type-prefixed literal like INT#5.
                     // Skip to next whitespace/delimiter; future
@@ -1056,7 +1179,8 @@ impl Lexer {
                     self.advance();
                     let mut s = String::from("#");
                     while let Some(c) = self.current() {
-                        if c.is_ascii_alphanumeric() || c == '_' || c == '.' || c == '-' || c == '+' {
+                        if c.is_ascii_alphanumeric() || c == '_' || c == '.' || c == '-' || c == '+'
+                        {
                             s.push(c);
                             self.advance();
                         } else {
@@ -1109,7 +1233,12 @@ struct Parser {
 
 impl Parser {
     fn new(tokens: Vec<Token>) -> Self {
-        Self { tokens, pos: 0, errors: Vec::new(), depth: 0 }
+        Self {
+            tokens,
+            pos: 0,
+            errors: Vec::new(),
+            depth: 0,
+        }
     }
 
     fn current(&self) -> &Token {
@@ -1183,7 +1312,12 @@ impl Parser {
                         code: "E101".to_string(),
                     });
                 }
-                Some(Program { name, var_blocks, body, span: Some(span) })
+                Some(Program {
+                    name,
+                    var_blocks,
+                    body,
+                    span: Some(span),
+                })
             }
             TokenKind::FunctionBlock => {
                 self.advance();
@@ -1197,7 +1331,12 @@ impl Parser {
                         code: "E101".to_string(),
                     });
                 }
-                Some(Program { name, var_blocks, body, span: Some(span) })
+                Some(Program {
+                    name,
+                    var_blocks,
+                    body,
+                    span: Some(span),
+                })
             }
             TokenKind::Function => {
                 self.advance();
@@ -1215,7 +1354,12 @@ impl Parser {
                         code: "E101".to_string(),
                     });
                 }
-                Some(Program { name, var_blocks, body, span: Some(span) })
+                Some(Program {
+                    name,
+                    var_blocks,
+                    body,
+                    span: Some(span),
+                })
             }
             _ => {
                 // Try parsing as implicit program (just var blocks + statements)
@@ -1255,11 +1399,26 @@ impl Parser {
         loop {
             let span = self.current_span();
             let scope = match self.current_kind() {
-                TokenKind::Var => { self.advance(); VarScope::Local }
-                TokenKind::VarInput => { self.advance(); VarScope::Input }
-                TokenKind::VarOutput => { self.advance(); VarScope::Output }
-                TokenKind::VarInOut => { self.advance(); VarScope::InOut }
-                TokenKind::VarGlobal => { self.advance(); VarScope::Global }
+                TokenKind::Var => {
+                    self.advance();
+                    VarScope::Local
+                }
+                TokenKind::VarInput => {
+                    self.advance();
+                    VarScope::Input
+                }
+                TokenKind::VarOutput => {
+                    self.advance();
+                    VarScope::Output
+                }
+                TokenKind::VarInOut => {
+                    self.advance();
+                    VarScope::InOut
+                }
+                TokenKind::VarGlobal => {
+                    self.advance();
+                    VarScope::Global
+                }
                 _ => break,
             };
 
@@ -1272,7 +1431,10 @@ impl Parser {
                     declarations.push(decl);
                 } else {
                     // Skip to next semicolon or END_VAR to recover
-                    while !matches!(self.current_kind(), TokenKind::Semicolon | TokenKind::EndVar | TokenKind::Eof) {
+                    while !matches!(
+                        self.current_kind(),
+                        TokenKind::Semicolon | TokenKind::EndVar | TokenKind::Eof
+                    ) {
                         self.advance();
                     }
                     self.eat(&TokenKind::Semicolon);
@@ -1287,7 +1449,13 @@ impl Parser {
                 });
             }
 
-            blocks.push(VarBlock { scope, retain, constant, declarations, span: Some(span) });
+            blocks.push(VarBlock {
+                scope,
+                retain,
+                constant,
+                declarations,
+                span: Some(span),
+            });
         }
         blocks
     }
@@ -1308,26 +1476,76 @@ impl Parser {
 
         self.eat(&TokenKind::Semicolon);
 
-        Some(VarDeclaration { name, data_type, initial_value, span: Some(span) })
+        Some(VarDeclaration {
+            name,
+            data_type,
+            initial_value,
+            span: Some(span),
+        })
     }
 
     fn parse_data_type(&mut self) -> Option<DataType> {
         let dt = match self.current_kind().clone() {
-            TokenKind::KwBool => { self.advance(); DataType::Bool }
-            TokenKind::KwByte => { self.advance(); DataType::Byte }
-            TokenKind::KwWord => { self.advance(); DataType::Word }
-            TokenKind::KwDword => { self.advance(); DataType::Dword }
-            TokenKind::KwLword => { self.advance(); DataType::Lword }
-            TokenKind::KwSint => { self.advance(); DataType::Sint }
-            TokenKind::KwInt => { self.advance(); DataType::Int }
-            TokenKind::KwDint => { self.advance(); DataType::Dint }
-            TokenKind::KwLint => { self.advance(); DataType::Lint }
-            TokenKind::KwUsint => { self.advance(); DataType::Usint }
-            TokenKind::KwUint => { self.advance(); DataType::Uint }
-            TokenKind::KwUdint => { self.advance(); DataType::Udint }
-            TokenKind::KwUlint => { self.advance(); DataType::Ulint }
-            TokenKind::KwReal => { self.advance(); DataType::Real }
-            TokenKind::KwLreal => { self.advance(); DataType::Lreal }
+            TokenKind::KwBool => {
+                self.advance();
+                DataType::Bool
+            }
+            TokenKind::KwByte => {
+                self.advance();
+                DataType::Byte
+            }
+            TokenKind::KwWord => {
+                self.advance();
+                DataType::Word
+            }
+            TokenKind::KwDword => {
+                self.advance();
+                DataType::Dword
+            }
+            TokenKind::KwLword => {
+                self.advance();
+                DataType::Lword
+            }
+            TokenKind::KwSint => {
+                self.advance();
+                DataType::Sint
+            }
+            TokenKind::KwInt => {
+                self.advance();
+                DataType::Int
+            }
+            TokenKind::KwDint => {
+                self.advance();
+                DataType::Dint
+            }
+            TokenKind::KwLint => {
+                self.advance();
+                DataType::Lint
+            }
+            TokenKind::KwUsint => {
+                self.advance();
+                DataType::Usint
+            }
+            TokenKind::KwUint => {
+                self.advance();
+                DataType::Uint
+            }
+            TokenKind::KwUdint => {
+                self.advance();
+                DataType::Udint
+            }
+            TokenKind::KwUlint => {
+                self.advance();
+                DataType::Ulint
+            }
+            TokenKind::KwReal => {
+                self.advance();
+                DataType::Real
+            }
+            TokenKind::KwLreal => {
+                self.advance();
+                DataType::Lreal
+            }
             TokenKind::KwString => {
                 self.advance();
                 let len = if self.eat(&TokenKind::LBracket) {
@@ -1350,10 +1568,22 @@ impl Parser {
                 };
                 DataType::Wstring(len)
             }
-            TokenKind::KwTime => { self.advance(); DataType::Time }
-            TokenKind::KwDate => { self.advance(); DataType::Date }
-            TokenKind::KwTod => { self.advance(); DataType::TimeOfDay }
-            TokenKind::KwDt => { self.advance(); DataType::DateAndTime }
+            TokenKind::KwTime => {
+                self.advance();
+                DataType::Time
+            }
+            TokenKind::KwDate => {
+                self.advance();
+                DataType::Date
+            }
+            TokenKind::KwTod => {
+                self.advance();
+                DataType::TimeOfDay
+            }
+            TokenKind::KwDt => {
+                self.advance();
+                DataType::DateAndTime
+            }
             TokenKind::KwArray => {
                 self.advance();
                 self.eat(&TokenKind::LBracket);
@@ -1364,7 +1594,11 @@ impl Parser {
                 // OF keyword
                 self.eat(&TokenKind::Of);
                 let base = self.parse_data_type()?;
-                DataType::Array { base: Box::new(base), lower, upper }
+                DataType::Array {
+                    base: Box::new(base),
+                    lower,
+                    upper,
+                }
             }
             TokenKind::Identifier(name) => {
                 self.advance();
@@ -1409,9 +1643,9 @@ impl Parser {
             safety_counter += 1;
 
             // Check terminators
-            let should_stop = terminators.iter().any(|t| {
-                std::mem::discriminant(self.current_kind()) == std::mem::discriminant(t)
-            });
+            let should_stop = terminators
+                .iter()
+                .any(|t| std::mem::discriminant(self.current_kind()) == std::mem::discriminant(t));
             if should_stop {
                 break;
             }
@@ -1444,13 +1678,17 @@ impl Parser {
             TokenKind::Repeat => self.parse_repeat_statement(),
             TokenKind::Return => {
                 self.advance();
-                let value = if !matches!(self.current_kind(), TokenKind::Semicolon | TokenKind::Eof) {
+                let value = if !matches!(self.current_kind(), TokenKind::Semicolon | TokenKind::Eof)
+                {
                     Some(self.parse_expression())
                 } else {
                     None
                 };
                 self.eat(&TokenKind::Semicolon);
-                Some(Statement::Return { value, span: Some(span) })
+                Some(Statement::Return {
+                    value,
+                    span: Some(span),
+                })
             }
             TokenKind::Exit => {
                 self.advance();
@@ -1481,17 +1719,15 @@ impl Parser {
         let condition = self.parse_expression();
         self.expect(&TokenKind::Then).ok();
 
-        let then_body = self.parse_statement_list(&[
-            TokenKind::Elsif, TokenKind::Else, TokenKind::EndIf,
-        ]);
+        let then_body =
+            self.parse_statement_list(&[TokenKind::Elsif, TokenKind::Else, TokenKind::EndIf]);
 
         let mut elsif_branches = Vec::new();
         while self.eat(&TokenKind::Elsif) {
             let cond = self.parse_expression();
             self.expect(&TokenKind::Then).ok();
-            let body = self.parse_statement_list(&[
-                TokenKind::Elsif, TokenKind::Else, TokenKind::EndIf,
-            ]);
+            let body =
+                self.parse_statement_list(&[TokenKind::Elsif, TokenKind::Else, TokenKind::EndIf]);
             elsif_branches.push((cond, body));
         }
 
@@ -1583,9 +1819,8 @@ impl Parser {
                         }
                         _ => {
                             self.errors.push(StError {
-                                message:
-                                    "CASE range `..` requires integer literals on both sides"
-                                        .to_string(),
+                                message: "CASE range `..` requires integer literals on both sides"
+                                    .to_string(),
                                 span: Some(self.current_span()),
                                 code: "E205".to_string(),
                             });
@@ -1660,7 +1895,12 @@ impl Parser {
         }
         self.eat(&TokenKind::Semicolon);
 
-        Some(Statement::Case { expr, branches, else_body, span: Some(span) })
+        Some(Statement::Case {
+            expr,
+            branches,
+            else_body,
+            span: Some(span),
+        })
     }
 
     /// Batch 85 helper for CASE body parsing. Returns true iff
@@ -1703,8 +1943,7 @@ impl Parser {
             ) {
                 idx += 1;
                 match self.tokens.get(idx).map(|t| &t.kind) {
-                    Some(TokenKind::IntLiteral(_))
-                    | Some(TokenKind::Identifier(_)) => {
+                    Some(TokenKind::IntLiteral(_)) | Some(TokenKind::Identifier(_)) => {
                         idx += 1;
                     }
                     _ => return false,
@@ -1747,7 +1986,14 @@ impl Parser {
         }
         self.eat(&TokenKind::Semicolon);
 
-        Some(Statement::For { variable, from, to, by, body, span: Some(span) })
+        Some(Statement::For {
+            variable,
+            from,
+            to,
+            by,
+            body,
+            span: Some(span),
+        })
     }
 
     fn parse_while_statement(&mut self) -> Option<Statement> {
@@ -1765,7 +2011,11 @@ impl Parser {
         }
         self.eat(&TokenKind::Semicolon);
 
-        Some(Statement::While { condition, body, span: Some(span) })
+        Some(Statement::While {
+            condition,
+            body,
+            span: Some(span),
+        })
     }
 
     fn parse_repeat_statement(&mut self) -> Option<Statement> {
@@ -1791,7 +2041,11 @@ impl Parser {
         }
         self.eat(&TokenKind::Semicolon);
 
-        Some(Statement::Repeat { body, condition, span: Some(span) })
+        Some(Statement::Repeat {
+            body,
+            condition,
+            span: Some(span),
+        })
     }
 
     fn parse_assignment_or_call(&mut self) -> Option<Statement> {
@@ -1844,7 +2098,11 @@ impl Parser {
                 self.expect(&TokenKind::RParen).ok();
                 self.eat(&TokenKind::Semicolon);
 
-                Some(Statement::FunctionCall { name, args, span: Some(span) })
+                Some(Statement::FunctionCall {
+                    name,
+                    args,
+                    span: Some(span),
+                })
             }
         }
         // Member access or array access before assignment
@@ -1875,7 +2133,11 @@ impl Parser {
             if self.eat(&TokenKind::Assign) {
                 let value = self.parse_expression();
                 self.eat(&TokenKind::Semicolon);
-                Some(Statement::Assignment { target, value, span: Some(span) })
+                Some(Statement::Assignment {
+                    target,
+                    value,
+                    span: Some(span),
+                })
             } else {
                 self.eat(&TokenKind::Semicolon);
                 // Bare identifier with semicolon, treat as empty/noop
@@ -2024,12 +2286,18 @@ impl Parser {
             TokenKind::Not => {
                 self.advance();
                 let operand = self.parse_unary();
-                Expression::UnaryOp { op: UnaryOp::Not, operand: Box::new(operand) }
+                Expression::UnaryOp {
+                    op: UnaryOp::Not,
+                    operand: Box::new(operand),
+                }
             }
             TokenKind::Minus => {
                 self.advance();
                 let operand = self.parse_unary();
-                Expression::UnaryOp { op: UnaryOp::Neg, operand: Box::new(operand) }
+                Expression::UnaryOp {
+                    op: UnaryOp::Neg,
+                    operand: Box::new(operand),
+                }
             }
             _ => self.parse_primary(),
         }
@@ -2094,8 +2362,7 @@ impl Parser {
                         array: Box::new(Expression::Variable(name, Some(span))),
                         index: Box::new(index),
                     }
-                }
-                else {
+                } else {
                     Expression::Variable(name, Some(span))
                 }
             }
@@ -2160,7 +2427,11 @@ impl Validator {
                 } else {
                     self.variables.insert(
                         upper_name.clone(),
-                        (decl.data_type.clone(), block.scope.clone(), decl.span.clone()),
+                        (
+                            decl.data_type.clone(),
+                            block.scope.clone(),
+                            decl.span.clone(),
+                        ),
                     );
                 }
 
@@ -2199,7 +2470,11 @@ impl Validator {
 
     fn validate_statement(&mut self, stmt: &Statement) {
         match stmt {
-            Statement::Assignment { target, value, span } => {
+            Statement::Assignment {
+                target,
+                value,
+                span,
+            } => {
                 let target_type = self.infer_expression_type(target);
                 let value_type = self.infer_expression_type(value);
                 self.check_variable_references(target);
@@ -2219,17 +2494,20 @@ impl Validator {
                     // Warn on precision loss
                     if tt.is_integer() && vt.is_real() {
                         self.warnings.push(StWarning {
-                            message: format!(
-                                "Possible precision loss: assigning {} to {}",
-                                vt, tt
-                            ),
+                            message: format!("Possible precision loss: assigning {} to {}", vt, tt),
                             span: span.clone(),
                             code: "W210".to_string(),
                         });
                     }
                 }
             }
-            Statement::If { condition, then_body, elsif_branches, else_body, .. } => {
+            Statement::If {
+                condition,
+                then_body,
+                elsif_branches,
+                else_body,
+                ..
+            } => {
                 self.check_variable_references(condition);
                 let cond_type = self.infer_expression_type(condition);
                 if let Some(ref ct) = cond_type {
@@ -2242,32 +2520,59 @@ impl Validator {
                     }
                 }
 
-                for s in then_body { self.validate_statement(s); }
+                for s in then_body {
+                    self.validate_statement(s);
+                }
                 for (cond, body) in elsif_branches {
                     self.check_variable_references(cond);
-                    for s in body { self.validate_statement(s); }
+                    for s in body {
+                        self.validate_statement(s);
+                    }
                 }
                 if let Some(body) = else_body {
-                    for s in body { self.validate_statement(s); }
+                    for s in body {
+                        self.validate_statement(s);
+                    }
                 }
             }
-            Statement::Case { expr, branches, else_body, .. } => {
+            Statement::Case {
+                expr,
+                branches,
+                else_body,
+                ..
+            } => {
                 self.check_variable_references(expr);
                 for (labels, body) in branches {
-                    for label in labels { self.check_variable_references(label); }
-                    for s in body { self.validate_statement(s); }
+                    for label in labels {
+                        self.check_variable_references(label);
+                    }
+                    for s in body {
+                        self.validate_statement(s);
+                    }
                 }
                 if let Some(body) = else_body {
-                    for s in body { self.validate_statement(s); }
+                    for s in body {
+                        self.validate_statement(s);
+                    }
                 }
             }
-            Statement::For { variable, from, to, by, body, span } => {
+            Statement::For {
+                variable,
+                from,
+                to,
+                by,
+                body,
+                span,
+            } => {
                 // Check that loop variable exists and is integer
                 let upper = variable.to_uppercase();
                 if let Some((dt, _, _)) = self.variables.get(&upper) {
                     if !dt.is_integer() {
                         self.errors.push(StError {
-                            message: format!("FOR loop variable '{}' must be integer type, got {}", variable, dt),
+                            message: format!(
+                                "FOR loop variable '{}' must be integer type, got {}",
+                                variable, dt
+                            ),
                             span: span.clone(),
                             code: "E212".to_string(),
                         });
@@ -2281,13 +2586,21 @@ impl Validator {
                 }
                 self.check_variable_references(from);
                 self.check_variable_references(to);
-                if let Some(b) = by { self.check_variable_references(b); }
+                if let Some(b) = by {
+                    self.check_variable_references(b);
+                }
 
                 self.loop_depth += 1;
-                for s in body { self.validate_statement(s); }
+                for s in body {
+                    self.validate_statement(s);
+                }
                 self.loop_depth -= 1;
             }
-            Statement::While { condition, body, span } => {
+            Statement::While {
+                condition,
+                body,
+                span,
+            } => {
                 self.check_variable_references(condition);
 
                 // Safety check: WHILE TRUE without EXIT
@@ -2303,16 +2616,26 @@ impl Validator {
                 }
 
                 self.loop_depth += 1;
-                for s in body { self.validate_statement(s); }
+                for s in body {
+                    self.validate_statement(s);
+                }
                 self.loop_depth -= 1;
             }
-            Statement::Repeat { body, condition, .. } => {
+            Statement::Repeat {
+                body, condition, ..
+            } => {
                 self.check_variable_references(condition);
                 self.loop_depth += 1;
-                for s in body { self.validate_statement(s); }
+                for s in body {
+                    self.validate_statement(s);
+                }
                 self.loop_depth -= 1;
             }
-            Statement::FunctionBlockCall { fb_name, assignments, span } => {
+            Statement::FunctionBlockCall {
+                fb_name,
+                assignments,
+                span,
+            } => {
                 let upper = fb_name.to_uppercase();
                 // Check if instance exists
                 if let Some(fb_type) = self.fb_instances.get(&upper).cloned() {
@@ -2351,14 +2674,19 @@ impl Validator {
                 // Safety: check for recursive calls
                 if upper == self.current_unit_name.to_uppercase() {
                     self.errors.push(StError {
-                        message: format!("Recursive call to '{}' is not allowed for safety", fb_name),
+                        message: format!(
+                            "Recursive call to '{}' is not allowed for safety",
+                            fb_name
+                        ),
                         span: span.clone(),
                         code: "E240".to_string(),
                     });
                 }
             }
             Statement::FunctionCall { name, args, span } => {
-                for a in args { self.check_variable_references(a); }
+                for a in args {
+                    self.check_variable_references(a);
+                }
                 // Recursion check
                 if name.to_uppercase() == self.current_unit_name.to_uppercase() {
                     self.errors.push(StError {
@@ -2369,7 +2697,9 @@ impl Validator {
                 }
             }
             Statement::Return { value, .. } => {
-                if let Some(v) = value { self.check_variable_references(v); }
+                if let Some(v) = value {
+                    self.check_variable_references(v);
+                }
             }
             Statement::Exit { span } => {
                 if self.loop_depth == 0 {
@@ -2420,7 +2750,9 @@ impl Validator {
                 self.check_variable_references(object);
             }
             Expression::FunctionCall { args, .. } => {
-                for a in args { self.check_variable_references(a); }
+                for a in args {
+                    self.check_variable_references(a);
+                }
             }
             Expression::Parenthesized(e) => {
                 self.check_variable_references(e);
@@ -2475,8 +2807,14 @@ impl Validator {
                 let lt = self.infer_expression_type(left);
                 let rt = self.infer_expression_type(right);
                 match op {
-                    BinaryOp::Eq | BinaryOp::Neq | BinaryOp::Lt | BinaryOp::Gt
-                    | BinaryOp::Le | BinaryOp::Ge | BinaryOp::And | BinaryOp::Or
+                    BinaryOp::Eq
+                    | BinaryOp::Neq
+                    | BinaryOp::Lt
+                    | BinaryOp::Gt
+                    | BinaryOp::Le
+                    | BinaryOp::Ge
+                    | BinaryOp::And
+                    | BinaryOp::Or
                     | BinaryOp::Xor => Some(DataType::Bool),
                     _ => {
                         // Arithmetic: promote to the wider type
@@ -2517,13 +2855,24 @@ fn body_has_exit(stmts: &[Statement]) -> bool {
     for stmt in stmts {
         match stmt {
             Statement::Exit { .. } => return true,
-            Statement::If { then_body, elsif_branches, else_body, .. } => {
-                if body_has_exit(then_body) { return true; }
+            Statement::If {
+                then_body,
+                elsif_branches,
+                else_body,
+                ..
+            } => {
+                if body_has_exit(then_body) {
+                    return true;
+                }
                 for (_, body) in elsif_branches {
-                    if body_has_exit(body) { return true; }
+                    if body_has_exit(body) {
+                        return true;
+                    }
                 }
                 if let Some(body) = else_body {
-                    if body_has_exit(body) { return true; }
+                    if body_has_exit(body) {
+                        return true;
+                    }
                 }
             }
             Statement::Return { .. } => return true,
@@ -2590,9 +2939,16 @@ fn collect_fb_calls(
     fbs: &mut Vec<ParsedFunctionBlock>,
 ) {
     match stmt {
-        Statement::FunctionBlockCall { fb_name, assignments, .. } => {
+        Statement::FunctionBlockCall {
+            fb_name,
+            assignments,
+            ..
+        } => {
             let upper = fb_name.to_uppercase();
-            let fb_type = instances.get(&upper).cloned().unwrap_or_else(|| upper.clone());
+            let fb_type = instances
+                .get(&upper)
+                .cloned()
+                .unwrap_or_else(|| upper.clone());
             let inputs: Vec<String> = assignments.iter().map(|(n, _)| n.clone()).collect();
             let outputs = if let Some((_, outs)) = known.get(fb_type.as_str()) {
                 outs.iter().map(|(n, _)| n.to_string()).collect()
@@ -2606,26 +2962,47 @@ fn collect_fb_calls(
                 outputs,
             });
         }
-        Statement::If { then_body, elsif_branches, else_body, .. } => {
-            for s in then_body { collect_fb_calls(s, instances, known, fbs); }
+        Statement::If {
+            then_body,
+            elsif_branches,
+            else_body,
+            ..
+        } => {
+            for s in then_body {
+                collect_fb_calls(s, instances, known, fbs);
+            }
             for (_, body) in elsif_branches {
-                for s in body { collect_fb_calls(s, instances, known, fbs); }
+                for s in body {
+                    collect_fb_calls(s, instances, known, fbs);
+                }
             }
             if let Some(body) = else_body {
-                for s in body { collect_fb_calls(s, instances, known, fbs); }
+                for s in body {
+                    collect_fb_calls(s, instances, known, fbs);
+                }
             }
         }
         Statement::For { body, .. }
         | Statement::While { body, .. }
         | Statement::Repeat { body, .. } => {
-            for s in body { collect_fb_calls(s, instances, known, fbs); }
+            for s in body {
+                collect_fb_calls(s, instances, known, fbs);
+            }
         }
-        Statement::Case { branches, else_body, .. } => {
+        Statement::Case {
+            branches,
+            else_body,
+            ..
+        } => {
             for (_, body) in branches {
-                for s in body { collect_fb_calls(s, instances, known, fbs); }
+                for s in body {
+                    collect_fb_calls(s, instances, known, fbs);
+                }
             }
             if let Some(body) = else_body {
-                for s in body { collect_fb_calls(s, instances, known, fbs); }
+                for s in body {
+                    collect_fb_calls(s, instances, known, fbs);
+                }
             }
         }
         _ => {}
@@ -2824,7 +3201,7 @@ mod tests {
              VAR VAR_INPUT VAR_OUTPUT VAR_IN_OUT VAR_GLOBAL END_VAR \
              IF THEN ELSIF ELSE END_IF CASE OF END_CASE \
              FOR TO BY DO END_FOR WHILE END_WHILE REPEAT UNTIL END_REPEAT \
-             EXIT RETURN TRUE FALSE"
+             EXIT RETURN TRUE FALSE",
         );
         let tokens = lexer.tokenize().unwrap();
         assert!(matches!(tokens[0].kind, TokenKind::Program));
@@ -2921,7 +3298,14 @@ mod tests {
         assert_eq!(decls[5].data_type, DataType::Int);
         assert_eq!(decls[12].data_type, DataType::Real);
         assert!(matches!(decls[15].data_type, DataType::String(Some(80))));
-        assert!(matches!(decls[17].data_type, DataType::Array { lower: 0, upper: 9, .. }));
+        assert!(matches!(
+            decls[17].data_type,
+            DataType::Array {
+                lower: 0,
+                upper: 9,
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -2945,7 +3329,12 @@ mod tests {
 
         let program = parse_st(source).unwrap();
         assert_eq!(program.body.len(), 1);
-        if let Statement::If { elsif_branches, else_body, .. } = &program.body[0] {
+        if let Statement::If {
+            elsif_branches,
+            else_body,
+            ..
+        } = &program.body[0]
+        {
             assert_eq!(elsif_branches.len(), 1);
             assert!(else_body.is_some());
         } else {
@@ -2973,7 +3362,12 @@ mod tests {
         "#;
 
         let program = parse_st(source).unwrap();
-        if let Statement::Case { branches, else_body, .. } = &program.body[0] {
+        if let Statement::Case {
+            branches,
+            else_body,
+            ..
+        } = &program.body[0]
+        {
             assert_eq!(branches.len(), 3);
             assert!(else_body.is_some());
         } else {
@@ -3126,7 +3520,12 @@ mod tests {
         "#;
 
         let program = parse_st(source).unwrap();
-        if let Statement::FunctionBlockCall { fb_name, assignments, .. } = &program.body[0] {
+        if let Statement::FunctionBlockCall {
+            fb_name,
+            assignments,
+            ..
+        } = &program.body[0]
+        {
             assert_eq!(fb_name, "myTimer");
             assert_eq!(assignments.len(), 2);
             assert_eq!(assignments[0].0, "IN");
@@ -3156,7 +3555,13 @@ mod tests {
             // Should be Add(a, Mul(b, c)) not Mul(Add(a, b), c)
             if let Expression::BinaryOp { op, right, .. } = value {
                 assert_eq!(*op, BinaryOp::Add);
-                assert!(matches!(right.as_ref(), Expression::BinaryOp { op: BinaryOp::Mul, .. }));
+                assert!(matches!(
+                    right.as_ref(),
+                    Expression::BinaryOp {
+                        op: BinaryOp::Mul,
+                        ..
+                    }
+                ));
             } else {
                 panic!("Expected BinaryOp");
             }
@@ -3338,8 +3743,11 @@ mod tests {
 
         let result = validate_st(source);
         // Should succeed but with warning
-        assert!(result.warnings.iter().any(|w| w.code == "W210"),
-            "Expected precision loss warning, warnings: {:?}", result.warnings);
+        assert!(
+            result.warnings.iter().any(|w| w.code == "W210"),
+            "Expected precision loss warning, warnings: {:?}",
+            result.warnings
+        );
     }
 
     #[test]
@@ -3357,8 +3765,11 @@ mod tests {
         "#;
 
         let result = validate_st(source);
-        assert!(result.warnings.iter().any(|w| w.code == "W220"),
-            "Expected infinite loop warning, warnings: {:?}", result.warnings);
+        assert!(
+            result.warnings.iter().any(|w| w.code == "W220"),
+            "Expected infinite loop warning, warnings: {:?}",
+            result.warnings
+        );
     }
 
     #[test]
@@ -3379,8 +3790,10 @@ mod tests {
         "#;
 
         let result = validate_st(source);
-        assert!(!result.warnings.iter().any(|w| w.code == "W220"),
-            "Should not warn about WHILE TRUE with EXIT");
+        assert!(
+            !result.warnings.iter().any(|w| w.code == "W220"),
+            "Should not warn about WHILE TRUE with EXIT"
+        );
     }
 
     #[test]
@@ -3413,8 +3826,11 @@ mod tests {
         "#;
 
         let result = validate_st(source);
-        assert!(result.errors.iter().any(|e| e.code == "E240"),
-            "Expected recursion error, errors: {:?}", result.errors);
+        assert!(
+            result.errors.iter().any(|e| e.code == "E240"),
+            "Expected recursion error, errors: {:?}",
+            result.errors
+        );
     }
 
     #[test]
@@ -3527,8 +3943,11 @@ mod tests {
 
         let result = validate_st(source);
         assert!(!result.valid);
-        assert!(result.errors.iter().any(|e| e.code == "E212"),
-            "Expected FOR loop type error, errors: {:?}", result.errors);
+        assert!(
+            result.errors.iter().any(|e| e.code == "E212"),
+            "Expected FOR loop type error, errors: {:?}",
+            result.errors
+        );
     }
 
     #[test]

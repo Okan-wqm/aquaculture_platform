@@ -106,9 +106,10 @@ impl CertRotationStage {
     /// set-layer collapse to infer rotation state.
     pub fn accepted_fingerprints(&self, now_unix_secs: i64) -> PinnedLeafCertSet {
         match self {
-            Self::Settled { current } => {
-                PinnedLeafCertSet { primary: Some(current.clone()), bridge: None }
-            }
+            Self::Settled { current } => PinnedLeafCertSet {
+                primary: Some(current.clone()),
+                bridge: None,
+            },
             Self::BridgeRotation {
                 outgoing,
                 incoming,
@@ -117,7 +118,10 @@ impl CertRotationStage {
                 if now_unix_secs > *bridge_until_unix_secs {
                     // Bridge window expired — only the incoming (new) cert
                     // is accepted; the outgoing is retired.
-                    PinnedLeafCertSet { primary: Some(incoming.clone()), bridge: None }
+                    PinnedLeafCertSet {
+                        primary: Some(incoming.clone()),
+                        bridge: None,
+                    }
                 } else {
                     PinnedLeafCertSet {
                         primary: Some(incoming.clone()),
@@ -187,9 +191,14 @@ mod tests {
     #[test]
     fn settled_accepts_only_current_fingerprint() {
         let cert = canned_cert(0x01, "prod-leaf-2026-04");
-        let stage = CertRotationStage::Settled { current: cert.clone() };
+        let stage = CertRotationStage::Settled {
+            current: cert.clone(),
+        };
         let set = stage.accepted_fingerprints(1_750_000_000);
-        assert_eq!(set.primary.as_ref().expect("primary").fingerprint, cert.fingerprint);
+        assert_eq!(
+            set.primary.as_ref().expect("primary").fingerprint,
+            cert.fingerprint
+        );
         assert!(set.bridge.is_none());
         assert!(set.accepts(&cert.fingerprint));
         assert!(!set.accepts(&LeafCertFingerprint::from_bytes([0xffu8; 32])));
@@ -219,7 +228,10 @@ mod tests {
             bridge_until_unix_secs: 1_700_000_000,
         };
         let set = stage.accepted_fingerprints(1_800_000_000);
-        assert!(!set.accepts(&out.fingerprint), "outgoing rejected after window");
+        assert!(
+            !set.accepts(&out.fingerprint),
+            "outgoing rejected after window"
+        );
         assert!(set.accepts(&inc.fingerprint), "incoming still accepted");
     }
 
@@ -272,7 +284,10 @@ mod tests {
 
     #[test]
     fn pinned_set_empty_accepts_none() {
-        let set = PinnedLeafCertSet { primary: None, bridge: None };
+        let set = PinnedLeafCertSet {
+            primary: None,
+            bridge: None,
+        };
         assert!(!set.accepts(&LeafCertFingerprint::from_bytes([0x01u8; 32])));
     }
 }

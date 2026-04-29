@@ -93,7 +93,7 @@ pub enum ModbusCommand {
         device_name: String,
         address: u16,
         value: u16,
-        response: oneshot::Sender<Result<()>>,
+        response: oneshot::Sender<Result<ModbusWriteReceipt>>,
     },
     /// Write a coil value
     WriteCoil {
@@ -174,8 +174,13 @@ impl ModbusHandle {
         rx.await.unwrap_or_default()
     }
 
-    /// Write a register value
-    pub async fn write_register(&self, device_name: &str, address: u16, value: u16) -> Result<()> {
+    /// Write a register value and return protocol/readback evidence.
+    pub async fn write_register_checked(
+        &self,
+        device_name: &str,
+        address: u16,
+        value: u16,
+    ) -> Result<ModbusWriteReceipt> {
         let (tx, rx) = oneshot::channel();
         let _ = self
             .sender
@@ -188,6 +193,13 @@ impl ModbusHandle {
             .await;
         rx.await
             .map_err(|_| anyhow::anyhow!("Actor disconnected"))?
+    }
+
+    /// Write a register value.
+    pub async fn write_register(&self, device_name: &str, address: u16, value: u16) -> Result<()> {
+        self.write_register_checked(device_name, address, value)
+            .await
+            .map(|_| ())
     }
 
     /// Write a coil value
@@ -363,6 +375,22 @@ pub struct ModbusReadResult {
     pub errors: Vec<String>,
 }
 
+/// Evidence returned by a Modbus FC6 register write.
+///
+/// 2026-04-29: Separates protocol ACK from physical/logical verification. A
+/// successful write response alone is not enough for safety-critical actuators;
+/// readback fields show whether the target register was verified after ACK.
+#[derive(Debug, Clone, Serialize)]
+pub struct ModbusWriteReceipt {
+    pub device_name: String,
+    pub address: u16,
+    pub requested_value: u16,
+    pub protocol_ack: bool,
+    pub readback_enabled: bool,
+    pub readback_verified: bool,
+    pub readback_value: Option<u16>,
+}
+
 impl ModbusClient {
     /// Create a new Modbus client (not connected)
     pub fn new(config: ModbusDeviceConfig) -> Self {
@@ -391,8 +419,8 @@ impl ModbusClient {
         // 2 ops/sec with burst 4 prevents runaway scripts from overwhelming actuators.
         let write_rate_limiter = RateLimiter::new(
             format!("modbus-write-rate-{}", config.name),
-            4,   // burst
-            2,   // ops/sec
+            4, // burst
+            2, // ops/sec
         );
 
         // Store registers in Arc to avoid cloning on every read
@@ -465,8 +493,18 @@ impl ModbusClient {
     /// cloud credential from targeting arbitrary holding registers (pump relays,
     /// dosing actuators, VFD frequency setpoints).
     fn validate_write_address(&self, address: u16) -> Result<()> {
-        if !self.security.enabled || self.security.allowed_write_ranges.is_empty() {
-            return Ok(()); // backward compat: empty ranges = all addresses allowed
+        if !self.security.enabled {
+            return Ok(());
+        }
+
+        if self.security.allowed_write_ranges.is_empty() {
+            if self.security.allow_all_write_addresses {
+                return Ok(());
+            }
+            return Err(anyhow::anyhow!(
+                "Write address policy for device '{}' has no allowed ranges; set allowed_write_ranges or explicit allow_all_write_addresses=true",
+                self.config.name
+            ));
         }
 
         let allowed = self
@@ -483,7 +521,8 @@ impl ModbusClient {
                 address, self.config.name
             );
             Err(anyhow::anyhow!(
-                "Register address {} is not in the allowed write range", address
+                "Register address {} is not in the allowed write range",
+                address
             ))
         }
     }
@@ -603,11 +642,9 @@ impl ModbusClient {
         // (e.g., client cert without client key) fail-fast with
         // an operator-actionable error string before any socket
         // is opened.
-        let tls_mode = self
-            .config
-            .tls
-            .to_mode()
-            .map_err(|e| anyhow::anyhow!("Modbus '{}' TLS config invalid: {}", self.config.name, e))?;
+        let tls_mode = self.config.tls.to_mode().map_err(|e| {
+            anyhow::anyhow!("Modbus '{}' TLS config invalid: {}", self.config.name, e)
+        })?;
 
         let channel = match tls_mode {
             crate::config::TlsMode::Full {
@@ -823,7 +860,10 @@ impl ModbusClient {
         // Use Arc reference instead of cloning (v2.0 optimization)
         let registers = Arc::clone(&self.registers);
         for register in registers.iter() {
-            match self.read_register_with_timeout(register, &cycle_timestamp).await {
+            match self
+                .read_register_with_timeout(register, &cycle_timestamp)
+                .await
+            {
                 Ok(value) => {
                     // v1.2.6: Log successful register reads at debug level
                     debug!(
@@ -1010,7 +1050,7 @@ impl ModbusClient {
     /// - Validates write operations are allowed
     /// - Validates function code against whitelist
     /// - Enforces rate limiting
-    pub async fn write_register(&mut self, address: u16, value: u16) -> Result<()> {
+    pub async fn write_register(&mut self, address: u16, value: u16) -> Result<ModbusWriteReceipt> {
         // Security checks
         self.validate_write_allowed()?;
         self.validate_write_address(address)?;
@@ -1032,12 +1072,75 @@ impl ModbusClient {
             .await
             .map_err(|e| anyhow::anyhow!("Failed to write register: {:?}", e))?;
 
+        let mut receipt = ModbusWriteReceipt {
+            device_name: self.config.name.clone(),
+            address,
+            requested_value: value,
+            protocol_ack: true,
+            readback_enabled: self.security.verify_write_readback,
+            readback_verified: !self.security.verify_write_readback,
+            readback_value: None,
+        };
+
+        if self.security.verify_write_readback {
+            receipt.readback_value = Some(self.read_back_written_register(address).await?);
+            receipt.readback_verified = receipt.readback_value == Some(value);
+            if !receipt.readback_verified {
+                return Err(anyhow::anyhow!(
+                    "Modbus write readback mismatch for device '{}' register {}: expected {}, got {:?}",
+                    self.config.name,
+                    address,
+                    value,
+                    receipt.readback_value
+                ));
+            }
+        }
+
         // v1.2.6: Enhanced Modbus write logging
         info!(
             "📝 Modbus WRITE: device='{}', register={}, value={}",
             self.config.name, address, value
         );
-        Ok(())
+        Ok(receipt)
+    }
+
+    /// Read a just-written holding register back from the same unit id.
+    ///
+    /// 2026-04-29: This closes the ACK-only blind spot. It verifies the target
+    /// register after FC6 so PLC-side clamps, ignored writes, and wrong-address
+    /// configuration fail the command instead of reporting a false success.
+    async fn read_back_written_register(&mut self, address: u16) -> Result<u16> {
+        let attempts = self.security.write_readback_retries.saturating_add(1);
+        let settle = Duration::from_millis(self.security.write_readback_settle_ms);
+        let mut last_error: Option<anyhow::Error> = None;
+
+        for _ in 0..attempts {
+            if !settle.is_zero() {
+                tokio::time::sleep(settle).await;
+            }
+
+            let channel = self
+                .channel
+                .as_mut()
+                .ok_or_else(|| anyhow::anyhow!("Not connected"))?;
+            let params = RequestParam::new(self.unit_id, MODBUS_TIMEOUT);
+            let addr_range = AddressRange::try_from(address, 1)
+                .map_err(|e| anyhow::anyhow!("Invalid readback address range: {:?}", e))?;
+
+            match channel.read_holding_registers(params, addr_range).await {
+                Ok(values) => {
+                    if let Some(indexed) = values.into_iter().next() {
+                        return Ok(indexed.value);
+                    }
+                    last_error = Some(anyhow::anyhow!("empty readback response"));
+                }
+                Err(e) => {
+                    last_error = Some(anyhow::anyhow!("readback failed: {:?}", e));
+                }
+            }
+        }
+
+        Err(last_error.unwrap_or_else(|| anyhow::anyhow!("readback did not run")))
     }
 
     /// Write to a coil using rodbus (v1.2.0)

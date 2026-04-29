@@ -26,7 +26,10 @@ use std::time::Instant;
 use tracing::{debug, error, info, warn};
 
 use super::codec::decode_payload;
-use super::crypto::{build_b0, compute_mic, derive_session_keys, encrypt_frm_payload, encrypt_join_accept, verify_mic};
+use super::crypto::{
+    build_b0, compute_mic, derive_session_keys, encrypt_frm_payload, encrypt_join_accept,
+    verify_mic,
+};
 use super::session::SessionStore;
 use super::types::{
     AppKey, DevAddr, DevEui, LoRaDeviceConfig, LoRaRegion, LoRaStats, RxPacket, TxPacket,
@@ -66,9 +69,7 @@ pub enum MacEvent {
     },
 
     /// Downlink paketi hazir — radyo uzerinden gonderilmeli
-    SendDownlink {
-        tx_packet: TxPacket,
-    },
+    SendDownlink { tx_packet: TxPacket },
 
     /// Frame sayaci sifirlandi (cihaz yeniden baslatilmis olabilir)
     /// Guvenlik uyarisi: Bu durum bir replay attack'i de gosterebilir
@@ -156,12 +157,7 @@ impl LoRaMac {
     /// - `net_id`: 3-byte ag kimligi (join-accept icin)
     /// - `sessions`: SQLite oturum deposu
     /// - `rx1_delay`: RX1 penceresi gecikme suresi (saniye, varsayilan 1)
-    pub fn new(
-        region: LoRaRegion,
-        net_id: [u8; 3],
-        sessions: SessionStore,
-        rx1_delay: u8,
-    ) -> Self {
+    pub fn new(region: LoRaRegion, net_id: [u8; 3], sessions: SessionStore, rx1_delay: u8) -> Self {
         info!(
             "LoRaWAN MAC baslatiliyor: bolge={:?}, net_id={:02X}{:02X}{:02X}, rx1_delay={}s",
             region, net_id[0], net_id[1], net_id[2], rx1_delay
@@ -404,7 +400,8 @@ impl LoRaMac {
                 let ban_duration = std::time::Duration::from_secs(300); // 5 dakika
                 let max_requests: u32 = 10;
 
-                let entry = self.unknown_device_tracker
+                let entry = self
+                    .unknown_device_tracker
                     .entry(dev_eui_hex.clone())
                     .or_insert((0, now));
 
@@ -504,11 +501,11 @@ impl LoRaMac {
             keys: session_keys.clone(),
             device_class: device_config.device_class,
             last_seen: chrono::Utc::now().timestamp(),
-            rx1_delay_secs: device_config.rx1_delay_secs.unwrap_or(self.rx1_delay as u32),
+            rx1_delay_secs: device_config
+                .rx1_delay_secs
+                .unwrap_or(self.rx1_delay as u32),
             rx2_datarate: device_config.rx2_datarate.unwrap_or(0),
-            rx2_freq_hz: device_config.rx2_freq_hz.unwrap_or(
-                self.default_rx2_freq(),
-            ),
+            rx2_freq_hz: device_config.rx2_freq_hz.unwrap_or(self.default_rx2_freq()),
             tag_prefix: device_config.tag_prefix.clone(),
             codec_json,
         };
@@ -522,7 +519,10 @@ impl LoRaMac {
         // Kayit basarisiz olursa join-accept gonderilmez — aksi halde ayni DevNonce
         // ile tekrar join-request geldiginde replay attack mumkun olur
         if let Err(e) = self.sessions.save_used_dev_nonce(&dev_eui, &dev_nonce) {
-            error!("DevNonce kaydedilemedi, join-accept iptal: dev_eui={}, hata={}", dev_eui, e);
+            error!(
+                "DevNonce kaydedilemedi, join-accept iptal: dev_eui={}, hata={}",
+                dev_eui, e
+            );
             return vec![];
         }
 
@@ -534,12 +534,8 @@ impl LoRaMac {
         // Join-Accept paketi olustur
         // Join-Accept yapisi: MHDR(1) | [AppNonce(3) | NetID(3) | DevAddr(4) | DLSettings(1) | RxDelay(1) | CFList(16)?] | MIC(4)
         // Sifreli kisim: AppNonce'dan itibaren (MHDR haric)
-        let join_accept_packet = self.build_join_accept(
-            &device_config.app_key.0,
-            &app_nonce,
-            &dev_addr,
-            pkt,
-        );
+        let join_accept_packet =
+            self.build_join_accept(&device_config.app_key.0, &app_nonce, &dev_addr, pkt);
 
         match join_accept_packet {
             Some(tx_packet) => {
@@ -550,7 +546,11 @@ impl LoRaMac {
                      kalan butce={}/sn",
                     dev_eui, dev_addr, tx_packet.timestamp, self.join_accept_budget
                 );
-                vec![MacEvent::SendJoinAccept { tx_packet, dev_eui, dev_addr }]
+                vec![MacEvent::SendJoinAccept {
+                    tx_packet,
+                    dev_eui,
+                    dev_addr,
+                }]
             }
             None => {
                 error!("Join-Accept paketi olusturulamadi: dev_eui={}", dev_eui);
@@ -584,15 +584,19 @@ impl LoRaMac {
         let dl_settings: u8 = 0x00; // RX1DRoffset=0, RX2DR=0
 
         // RxDelay: RX1 gecikme suresi (saniye), 0 = 1 saniye
-        let rx_delay: u8 = if self.rx1_delay <= 1 { 0 } else { self.rx1_delay };
+        let rx_delay: u8 = if self.rx1_delay <= 1 {
+            0
+        } else {
+            self.rx1_delay
+        };
 
         // Join-Accept plaintext olustur (MHDR haric, cunku MHDR sifrelenmez)
         let mut plaintext = Vec::with_capacity(12);
-        plaintext.extend_from_slice(app_nonce);       // AppNonce (3 byte)
-        plaintext.extend_from_slice(&self.net_id);    // NetID (3 byte)
-        plaintext.extend_from_slice(&dev_addr.0);     // DevAddr (4 byte, little-endian)
-        plaintext.push(dl_settings);                   // DLSettings (1 byte)
-        plaintext.push(rx_delay);                      // RxDelay (1 byte)
+        plaintext.extend_from_slice(app_nonce); // AppNonce (3 byte)
+        plaintext.extend_from_slice(&self.net_id); // NetID (3 byte)
+        plaintext.extend_from_slice(&dev_addr.0); // DevAddr (4 byte, little-endian)
+        plaintext.push(dl_settings); // DLSettings (1 byte)
+        plaintext.push(rx_delay); // RxDelay (1 byte)
 
         // MIC hesapla: aes128_cmac(AppKey, MHDR | plaintext)[0:4]
         let mut mic_input = vec![mhdr];
@@ -724,8 +728,14 @@ impl LoRaMac {
         let mut events = Vec::new();
 
         // Frame counter'i guncelle
-        if let Err(e) = self.sessions.update_frame_counter(&session.dev_eui, f_cnt + 1) {
-            error!("Frame counter guncellenemedi: dev_eui={}, hata={}", session.dev_eui, e);
+        if let Err(e) = self
+            .sessions
+            .update_frame_counter(&session.dev_eui, f_cnt + 1)
+        {
+            error!(
+                "Frame counter guncellenemedi: dev_eui={}, hata={}",
+                session.dev_eui, e
+            );
         }
 
         // FRMPayload'i cikart ve sifresini coz
@@ -779,7 +789,10 @@ impl LoRaMac {
                 match serde_json::from_str::<super::types::CodecType>(&session.codec_json) {
                     Ok(codec) => decode_payload(&decrypted, &session.tag_prefix, &codec),
                     Err(e) => {
-                        warn!("Codec JSON parse hatasi: dev_eui={}, hata={}", session.dev_eui, e);
+                        warn!(
+                            "Codec JSON parse hatasi: dev_eui={}, hata={}",
+                            session.dev_eui, e
+                        );
                         vec![]
                     }
                 }
@@ -861,7 +874,10 @@ impl LoRaMac {
         let f_cnt_down = match self.sessions.increment_f_cnt_down(&session.dev_eui) {
             Ok(cnt) => cnt,
             Err(e) => {
-                error!("FCntDown artirilamadi: dev_eui={}, hata={}", session.dev_eui, e);
+                error!(
+                    "FCntDown artirilamadi: dev_eui={}, hata={}",
+                    session.dev_eui, e
+                );
                 return None;
             }
         };
@@ -883,12 +899,12 @@ impl LoRaMac {
         let f_ctrl: u8 = if ack_requested { 0x20 } else { 0x00 };
 
         let mut phy_payload = Vec::new();
-        phy_payload.push(mhdr);                          // MHDR
-        phy_payload.extend_from_slice(&dev_addr.0);       // DevAddr (4 byte)
-        phy_payload.push(f_ctrl);                         // FCtrl (ACK bit set edilir eger confirmed uplink ise)
+        phy_payload.push(mhdr); // MHDR
+        phy_payload.extend_from_slice(&dev_addr.0); // DevAddr (4 byte)
+        phy_payload.push(f_ctrl); // FCtrl (ACK bit set edilir eger confirmed uplink ise)
         phy_payload.extend_from_slice(&(f_cnt_down as u16).to_le_bytes()); // FCnt (2 byte)
-        phy_payload.push(downlink.f_port);                // FPort
-        phy_payload.extend_from_slice(&encrypted);        // FRMPayload (sifreli)
+        phy_payload.push(downlink.f_port); // FPort
+        phy_payload.extend_from_slice(&encrypted); // FRMPayload (sifreli)
 
         // MIC hesapla (NwkSKey ile)
         let msg_len = phy_payload.len() as u8;
@@ -930,7 +946,10 @@ impl LoRaMac {
         let f_cnt_down = match self.sessions.increment_f_cnt_down(&session.dev_eui) {
             Ok(cnt) => cnt,
             Err(e) => {
-                error!("FCntDown artirilamadi (empty ACK): dev_eui={}, hata={}", session.dev_eui, e);
+                error!(
+                    "FCntDown artirilamadi (empty ACK): dev_eui={}, hata={}",
+                    session.dev_eui, e
+                );
                 return None;
             }
         };
@@ -1006,8 +1025,8 @@ impl LoRaMac {
     /// Bolgeye gore varsayilan TX gucu dondurur (dBm)
     fn default_tx_power(&self) -> i8 {
         match self.region {
-            LoRaRegion::Eu868 => 14,  // ERP 25mW = 14 dBm
-            LoRaRegion::Us915 => 20,  // 100mW = 20 dBm
+            LoRaRegion::Eu868 => 14, // ERP 25mW = 14 dBm
+            LoRaRegion::Us915 => 20, // 100mW = 20 dBm
             LoRaRegion::Au915 => 20,
             LoRaRegion::As923 => 14,
             LoRaRegion::Cn470 => 19,
@@ -1044,8 +1063,10 @@ mod tests {
         LoRaDeviceConfig {
             dev_eui: DevEui([0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]),
             app_eui: AppEui([0x00; 8]),
-            app_key: AppKey([0x2B, 0x7E, 0x15, 0x16, 0x28, 0xAE, 0xD2, 0xA6,
-                             0xAB, 0xF7, 0x15, 0x88, 0x09, 0xCF, 0x4F, 0x3C]),
+            app_key: AppKey([
+                0x2B, 0x7E, 0x15, 0x16, 0x28, 0xAE, 0xD2, 0xA6, 0xAB, 0xF7, 0x15, 0x88, 0x09, 0xCF,
+                0x4F, 0x3C,
+            ]),
             activation: ActivationMode::Otaa,
             device_class: DeviceClass::A,
             tag_prefix: "lora_test_".to_string(),

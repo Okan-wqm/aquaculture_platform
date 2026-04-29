@@ -304,11 +304,7 @@ pub enum BoundedRangeError {
     #[error("BoundedRange: min ({min}) must be <= max ({max})")]
     MinAfterMax { min: f32, max: f32 },
     #[error("BoundedRange: default_to ({default_to}) must be within [{min}, {max}]")]
-    DefaultOutOfBounds {
-        min: f32,
-        max: f32,
-        default_to: f32,
-    },
+    DefaultOutOfBounds { min: f32, max: f32, default_to: f32 },
     #[error("BoundedRange: min/max/default_to must not be NaN")]
     NaNInput,
 }
@@ -675,9 +671,7 @@ pub enum OutputTag {
         max_pulse_width_ms: u32,
     },
     /// I2C DAC or relay board.
-    I2cOutput {
-        descriptor: I2cOutputDescriptor,
-    },
+    I2cOutput { descriptor: I2cOutputDescriptor },
 
     // -------------------------------------------------------------------------
     // v2 NEW — PwmChannel (ADR-024 §3)
@@ -777,10 +771,7 @@ pub enum OutputTag {
 /// direct `bincode::serialize(&the_struct)` is forbidden (would include the
 /// signature field itself in the payload → unverifiable).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct HardwareAttestationSig(
-    #[serde(with = "serde_big_array::BigArray")]
-    pub [u8; 64],
-);
+pub struct HardwareAttestationSig(#[serde(with = "serde_big_array::BigArray")] pub [u8; 64]);
 
 impl HardwareAttestationSig {
     /// Expose the raw signature bytes.
@@ -1011,8 +1002,11 @@ mod tests {
             hardware_topology_notes: "GPIO 17 → 24V contactor coil bypassing PLC".to_string(),
         };
         assert!(
-            bp.validate_for_life_support(true, ActuatorClass::Aeration(AerationSubClass::LifeSupport))
-                .is_ok()
+            bp.validate_for_life_support(
+                true,
+                ActuatorClass::Aeration(AerationSubClass::LifeSupport)
+            )
+            .is_ok()
         );
     }
 
@@ -1023,11 +1017,15 @@ mod tests {
         let bp = BackupPath {
             tag_id: TagId::from("pond3_aerator_gpio_backup".to_string()),
             diversity_class: DiversityClass::DifferentTransport,
-            hardware_topology_notes: "Primary Modbus + secondary GPIO on separate power".to_string(),
+            hardware_topology_notes: "Primary Modbus + secondary GPIO on separate power"
+                .to_string(),
         };
         assert!(
-            bp.validate_for_life_support(true, ActuatorClass::Aeration(AerationSubClass::LifeSupport))
-                .is_ok()
+            bp.validate_for_life_support(
+                true,
+                ActuatorClass::Aeration(AerationSubClass::LifeSupport)
+            )
+            .is_ok()
         );
     }
 
@@ -1122,9 +1120,18 @@ mod tests {
     //      JSON stability (golden shape pin).
     #[test]
     fn comparison_op_serde_canonical_names() {
-        assert_eq!(serde_json::to_string(&ComparisonOp::Lt).expect("ok"), r#""Lt""#);
-        assert_eq!(serde_json::to_string(&ComparisonOp::Gt).expect("ok"), r#""Gt""#);
-        assert_eq!(serde_json::to_string(&ComparisonOp::Gte).expect("ok"), r#""Gte""#);
+        assert_eq!(
+            serde_json::to_string(&ComparisonOp::Lt).expect("ok"),
+            r#""Lt""#
+        );
+        assert_eq!(
+            serde_json::to_string(&ComparisonOp::Gt).expect("ok"),
+            r#""Gt""#
+        );
+        assert_eq!(
+            serde_json::to_string(&ComparisonOp::Gte).expect("ok"),
+            r#""Gte""#
+        );
     }
 
     // WHY: DailyTimeRange is a flat struct — wire format must be stable.
@@ -1177,7 +1184,10 @@ mod tests {
     #[test]
     fn tag_state_is_binary() {
         assert_eq!(serde_json::to_string(&TagState::On).expect("ok"), r#""On""#);
-        assert_eq!(serde_json::to_string(&TagState::Off).expect("ok"), r#""Off""#);
+        assert_eq!(
+            serde_json::to_string(&TagState::Off).expect("ok"),
+            r#""Off""#
+        );
     }
 
     // WHY: FreshnessRequirement has nested Box<FailSafe> — ensure recursive

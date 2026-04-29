@@ -176,7 +176,13 @@ impl TelemetryCollector {
             "agent_version": env!("CARGO_PKG_VERSION"),
             "metrics": metrics,
         });
-        crate::publish_helpers::publish_telemetry(&state, &payload).await;
+        // 2026-04-29 enterprise publish reliability:
+        // telemetry publish now propagates route/queue/transport failures to
+        // the collector loop.
+        //
+        // What it solves: outbound queue or broker errors no longer disappear
+        // as warn-only helper side effects.
+        crate::publish_helpers::publish_telemetry_checked(&state, &payload).await?;
         debug!("Telemetry published");
 
         Ok(())
@@ -208,7 +214,12 @@ impl TelemetryCollector {
             "agent_version": env!("CARGO_PKG_VERSION"),
             "uptime_seconds": uptime,
         });
-        crate::publish_helpers::publish_status(&state, &payload).await;
+        // 2026-04-29 enterprise publish reliability:
+        // status publish now reports queue/transport failure to the caller.
+        //
+        // What it solves: operators can see when lifecycle status cannot be
+        // persisted or delivered.
+        crate::publish_helpers::publish_status_checked(&state, &payload).await?;
         debug!("Status published");
 
         Ok(())

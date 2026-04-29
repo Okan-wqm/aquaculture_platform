@@ -156,10 +156,7 @@ impl JtiDedupTable for MokaJtiDedupTable {
         Ok(usize::try_from(count).unwrap_or(usize::MAX))
     }
 
-    async fn sweep_expired(
-        &self,
-        _now: SystemTime,
-    ) -> Result<usize, DedupTableError> {
+    async fn sweep_expired(&self, _now: SystemTime) -> Result<usize, DedupTableError> {
         // Moka auto-evicts on TTL; explicit sweep is an
         // invalidate_entries call. `invalidate_all` would
         // drop everything including non-expired entries

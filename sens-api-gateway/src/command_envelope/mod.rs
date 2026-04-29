@@ -71,22 +71,20 @@ pub mod sqlcipher_dedup;
 // (catches cross-restart replays).
 pub mod layered_dedup;
 
-pub use canonical::{canonical_params, CanonicalParamsError, CmdHash};
+pub use canonical::{CanonicalParamsError, CmdHash, canonical_params};
 pub use envelope::{
-    verify_envelope, CommandEnvelope, EnvelopeVerifyError, SignatureMode,
-    MAX_CMD_NAME_BYTES, MAX_NONCE_BYTES,
+    CommandEnvelope, EnvelopeVerifyError, MAX_CMD_NAME_BYTES, MAX_NONCE_BYTES, SignatureMode,
+    verify_envelope,
 };
 // Batch #306 Faz 6 two-person integrity: the adapter needs
 // canonical bytes to verify the co-approver signature against
 // the same transcript as the primary signature. pub(crate) on
 // the fn + this re-export keeps the surface intra-crate only.
-pub(crate) use envelope::envelope_canonical_bytes;
 pub use dispatcher::{BoxedHandler, CommandDispatcher, DispatchError};
-pub use handler::{
-    EnvelopeHandler, EnvelopeMeta, HandlerError, HandlerInput, HandlerResponse,
-};
+pub(crate) use envelope::envelope_canonical_bytes;
+pub use handler::{EnvelopeHandler, EnvelopeMeta, HandlerError, HandlerInput, HandlerResponse};
 pub use jti::{DedupResult, DedupTableError, InvalidJti, Jti, JtiDedupTable, MAX_JTI_BYTES};
-pub use moka_dedup::{MokaJtiDedupTable, DEFAULT_MOKA_CAPACITY, DEFAULT_MOKA_TTL_SECS};
-pub use mutating::{is_mutating, MUTATING_COMMANDS};
-pub use sqlcipher_dedup::SqlCipherJtiDedupTable;
 pub use layered_dedup::LayeredJtiDedupTable;
+pub use moka_dedup::{DEFAULT_MOKA_CAPACITY, DEFAULT_MOKA_TTL_SECS, MokaJtiDedupTable};
+pub use mutating::{MUTATING_COMMANDS, is_mutating};
+pub use sqlcipher_dedup::SqlCipherJtiDedupTable;

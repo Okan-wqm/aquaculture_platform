@@ -106,13 +106,12 @@ impl CommandHandler {
         if program.scan_cycle_ms < eff.effective_min_scan_ms
             || program.scan_cycle_ms > config_max_scan
         {
-            let gated_by = if program.scan_cycle_ms < eff.effective_min_scan_ms
-                && eff.scan_gated_by_license
-            {
-                format!("license tier={:?}", license.tier)
-            } else {
-                "scripting config".to_string()
-            };
+            let gated_by =
+                if program.scan_cycle_ms < eff.effective_min_scan_ms && eff.scan_gated_by_license {
+                    format!("license tier={:?}", license.tier)
+                } else {
+                    "scripting config".to_string()
+                };
             return (
                 false,
                 json!(null),
@@ -197,5 +196,4 @@ impl CommandHandler {
             None,
         )
     }
-
 }

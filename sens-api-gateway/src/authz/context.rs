@@ -86,7 +86,10 @@ pub enum AuthorizationDenyReason {
 
     /// Manifest is signed for a different tenant than the actor's binding.
     /// FR1 cross-tenant-identity defense.
-    TenantMismatch { requested: TenantId, actor_tenant: TenantId },
+    TenantMismatch {
+        requested: TenantId,
+        actor_tenant: TenantId,
+    },
 
     /// Permission requires two-person integrity (force_value,
     /// firmware_deploy, safe_state_trigger, policy_update) but only one
@@ -183,7 +186,10 @@ impl std::fmt::Debug for AuthorizedContext {
             .field("actor", &self.actor.audit_label())
             .field("permission", &self.granted_permission)
             .field("policy_version", &self.policy_version)
-            .field("two_person_integrity_verified", &self.two_person_integrity_verified)
+            .field(
+                "two_person_integrity_verified",
+                &self.two_person_integrity_verified,
+            )
             .finish()
     }
 }
@@ -290,14 +296,20 @@ mod tests {
             "debug must use audit_label: {}",
             debug
         );
-        assert!(!debug.contains("op-7"), "raw OperatorId must not leak: {}", debug);
+        assert!(
+            !debug.contains("op-7"),
+            "raw OperatorId must not leak: {}",
+            debug
+        );
     }
 
     /// WHY: AuthorizedContext exposes exactly the fields audit+handler paths
     ///      need; smoke-test all getters roundtrip ctor inputs.
     #[test]
     fn authorized_context_getters_roundtrip() {
-        let perm = Permission::WriteTag { tag_id: TagId::from("pond3_aerator".to_string()) };
+        let perm = Permission::WriteTag {
+            tag_id: TagId::from("pond3_aerator".to_string()),
+        };
         let ctx = build_ctx(perm.clone(), true);
         assert_eq!(ctx.granted_permission(), &perm);
         assert_eq!(ctx.tenant().as_bytes(), &[0x42u8; 16]);
@@ -313,10 +325,7 @@ mod tests {
         let actor = ActorIdentity::MachineIssuer {
             subject_cn: "billing-service.suderra.internal".to_string(),
         };
-        assert_eq!(
-            actor.audit_label(),
-            "svc:billing-service.suderra.internal"
-        );
+        assert_eq!(actor.audit_label(), "svc:billing-service.suderra.internal");
     }
 
     /// WHY: DenyReason Display values are audit strings; pin them.
@@ -351,7 +360,10 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                AuthorizationDenyReason::StalePolicyVersion { claimed: 1, highest_seen: 2 }
+                AuthorizationDenyReason::StalePolicyVersion {
+                    claimed: 1,
+                    highest_seen: 2
+                }
             ),
             "stale_policy_version"
         );

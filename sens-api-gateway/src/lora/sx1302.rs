@@ -58,7 +58,10 @@ mod ffi {
 const MAX_RX_PACKETS: usize = 16;
 // Compile-time assertion: lgw_receive takes u8 count — MAX_RX_PACKETS must fit in u8.
 // Without this, `MAX_RX_PACKETS as u8` silently truncates values > 255.
-const _: () = assert!(MAX_RX_PACKETS <= 255, "MAX_RX_PACKETS exceeds u8 range for lgw_receive()");
+const _: () = assert!(
+    MAX_RX_PACKETS <= 255,
+    "MAX_RX_PACKETS exceeds u8 range for lgw_receive()"
+);
 
 /// SX1302 sicaklik sensoru okuma araligi (saniye).
 /// Cok sik okumak SPI bandwidth'ini gereksiz tuketir.
@@ -207,9 +210,7 @@ impl Sx1302 {
         // SAFETY: pkt_buf is a valid mutable Vec of MAX_RX_PACKETS elements;
         // lgw_receive() writes at most MAX_RX_PACKETS entries and the pointer
         // remains valid for the duration of the call.
-        let nb_pkt = unsafe {
-            ffi::lgw_receive(MAX_RX_PACKETS as u8, pkt_buf.as_mut_ptr())
-        };
+        let nb_pkt = unsafe { ffi::lgw_receive(MAX_RX_PACKETS as u8, pkt_buf.as_mut_ptr()) };
 
         if nb_pkt < 0 {
             anyhow::bail!("SX1302 paket alma hatasi: lgw_receive() = {}", nb_pkt);
@@ -222,7 +223,8 @@ impl Sx1302 {
         if nb_pkt_usize > pkt_buf.len() {
             anyhow::bail!(
                 "SX1302 HAL error: lgw_receive() returned {} packets but buffer is {}",
-                nb_pkt_usize, pkt_buf.len()
+                nb_pkt_usize,
+                pkt_buf.len()
             );
         }
 

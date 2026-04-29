@@ -7,7 +7,7 @@
 //! Types that already exist in `process_image` (TagQuality, TagValue, TagConfig,
 //! ProtocolConfig, IoType, TagSource) are NOT duplicated here.
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 // ---------------------------------------------------------------------------
 // SCADA Package (top-level)

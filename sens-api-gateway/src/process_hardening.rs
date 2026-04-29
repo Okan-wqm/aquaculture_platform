@@ -57,7 +57,7 @@
 //!   prctl here is the inside-process equivalent that still applies
 //!   even if systemd-unit override raises LimitCORE).
 
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 
 /// Apply all boot-time process hardening controls.
 ///
@@ -265,7 +265,9 @@ pub fn install_panic_abort_hook() {
         // up as a restart trigger.
         std::process::abort();
     }));
-    warn!("Panic-abort hook installed — panics will SIGABRT the process without unwinding (panic_zeroize registry scrubs registered secrets first)");
+    warn!(
+        "Panic-abort hook installed — panics will SIGABRT the process without unwinding (panic_zeroize registry scrubs registered secrets first)"
+    );
 }
 
 // ===================================================================
@@ -1178,10 +1180,7 @@ pub mod panic_zeroize {
 
     /// Audit / test accessor — current registration count.
     pub fn registered_count() -> usize {
-        registry()
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .len()
+        registry().lock().unwrap_or_else(|p| p.into_inner()).len()
     }
 
     /// Walk the registry zeroing each region. Best-effort:
@@ -1217,11 +1216,7 @@ pub mod panic_zeroize {
                         // change the allocation's
                         // type/length.
                         unsafe {
-                            std::ptr::write_bytes(
-                                region.ptr.as_ptr(),
-                                0,
-                                region.len,
-                            );
+                            std::ptr::write_bytes(region.ptr.as_ptr(), 0, region.len);
                         }
                     }
                     // Clear the registry so a re-entrant call
@@ -1277,8 +1272,7 @@ pub mod panic_zeroize {
         fn register_unregister_round_trip() {
             with_clean_registry(|| {
                 let mut buf = [0u8; 32];
-                let ptr =
-                    NonNull::new(buf.as_mut_ptr()).expect("non-null array ptr");
+                let ptr = NonNull::new(buf.as_mut_ptr()).expect("non-null array ptr");
                 assert_eq!(registered_count(), 0);
                 let after = register(ptr, buf.len());
                 assert_eq!(after, 1);

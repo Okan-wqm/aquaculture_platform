@@ -111,30 +111,22 @@ pub fn perform_confirm_slot(
     // Resolve target slot.
     let slot = match selector {
         ConfirmSlotSelector::Explicit(s) => s,
-        ConfirmSlotSelector::ActiveFromSnapshot => {
-            match partition_store.snapshot() {
-                Ok(s) => s.active,
-                Err(e) => return ConfirmOutcome::SnapshotFailed(e.to_string()),
+        ConfirmSlotSelector::ActiveFromSnapshot => match partition_store.snapshot() {
+            Ok(s) => s.active,
+            Err(e) => return ConfirmOutcome::SnapshotFailed(e.to_string()),
+        },
+    };
+
+    let cold_boot_budget_secs = crate::updater::partition::DEFAULT_COLD_BOOT_BUDGET_SECS;
+
+    let new_state =
+        match partition_store.apply_roll(PartitionRoll::Confirm { slot }, cold_boot_budget_secs) {
+            Ok(s) => s,
+            Err(e) => {
+                warn!("confirm_orchestrator REJECTED: slot={:?} err={}", slot, e);
+                return ConfirmOutcome::ApplyRollRejected(e.to_string());
             }
-        }
-    };
-
-    let cold_boot_budget_secs =
-        crate::updater::partition::DEFAULT_COLD_BOOT_BUDGET_SECS;
-
-    let new_state = match partition_store.apply_roll(
-        PartitionRoll::Confirm { slot },
-        cold_boot_budget_secs,
-    ) {
-        Ok(s) => s,
-        Err(e) => {
-            warn!(
-                "confirm_orchestrator REJECTED: slot={:?} err={}",
-                slot, e
-            );
-            return ConfirmOutcome::ApplyRollRejected(e.to_string());
-        }
-    };
+        };
 
     info!(
         "confirm_orchestrator SUCCESS: slot={:?} new_state={:?}",
@@ -233,18 +225,16 @@ mod tests {
         let store = tmp_store();
         store
             .apply_roll(
-                PartitionRoll::InitialInstall { target: AbPartition::A },
+                PartitionRoll::InitialInstall {
+                    target: AbPartition::A,
+                },
                 3600,
             )
             .expect("install");
-        let bootloader: Arc<dyn BootloaderHandle> =
-            Arc::new(NoopBootloaderHandle);
+        let bootloader: Arc<dyn BootloaderHandle> = Arc::new(NoopBootloaderHandle);
 
-        let outcome = perform_confirm_slot(
-            &store,
-            &bootloader,
-            ConfirmSlotSelector::ActiveFromSnapshot,
-        );
+        let outcome =
+            perform_confirm_slot(&store, &bootloader, ConfirmSlotSelector::ActiveFromSnapshot);
         match outcome {
             ConfirmOutcome::Ok {
                 confirmed_slot,
@@ -270,8 +260,7 @@ mod tests {
         // slot must reject (state machine invariant: Confirm
         // requires PendingConfirm).
         let store = tmp_store();
-        let bootloader: Arc<dyn BootloaderHandle> =
-            Arc::new(NoopBootloaderHandle);
+        let bootloader: Arc<dyn BootloaderHandle> = Arc::new(NoopBootloaderHandle);
 
         let outcome = perform_confirm_slot(
             &store,
@@ -288,12 +277,19 @@ mod tests {
         let store = tmp_store();
         store
             .apply_roll(
-                PartitionRoll::InitialInstall { target: AbPartition::A },
+                PartitionRoll::InitialInstall {
+                    target: AbPartition::A,
+                },
                 3600,
             )
             .expect("install");
         store
-            .apply_roll(PartitionRoll::Confirm { slot: AbPartition::A }, 3600)
+            .apply_roll(
+                PartitionRoll::Confirm {
+                    slot: AbPartition::A,
+                },
+                3600,
+            )
             .expect("confirm A");
         store
             .apply_roll(
@@ -304,8 +300,7 @@ mod tests {
                 3600,
             )
             .expect("swap");
-        let bootloader: Arc<dyn BootloaderHandle> =
-            Arc::new(NoopBootloaderHandle);
+        let bootloader: Arc<dyn BootloaderHandle> = Arc::new(NoopBootloaderHandle);
 
         let outcome = perform_confirm_slot(
             &store,

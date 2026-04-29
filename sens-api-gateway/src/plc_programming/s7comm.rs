@@ -339,19 +339,31 @@ impl S7Address {
 
         // Timer
         if addr.starts_with('T') {
-            let num: u16 = addr[1..].parse().map_err(|_| anyhow!("Invalid timer number: {}", address))?;
+            let num: u16 = addr[1..]
+                .parse()
+                .map_err(|_| anyhow!("Invalid timer number: {}", address))?;
             return Ok(Self {
-                area_code: S7_AREA_TM, db_number: 0, byte_offset: num,
-                bit_offset: 0, transport_size: S7_TS_WORD, byte_length: 2,
+                area_code: S7_AREA_TM,
+                db_number: 0,
+                byte_offset: num,
+                bit_offset: 0,
+                transport_size: S7_TS_WORD,
+                byte_length: 2,
             });
         }
 
         // Counter
         if addr.starts_with('C') {
-            let num: u16 = addr[1..].parse().map_err(|_| anyhow!("Invalid counter number: {}", address))?;
+            let num: u16 = addr[1..]
+                .parse()
+                .map_err(|_| anyhow!("Invalid counter number: {}", address))?;
             return Ok(Self {
-                area_code: S7_AREA_CT, db_number: 0, byte_offset: num,
-                bit_offset: 0, transport_size: S7_TS_WORD, byte_length: 2,
+                area_code: S7_AREA_CT,
+                db_number: 0,
+                byte_offset: num,
+                bit_offset: 0,
+                transport_size: S7_TS_WORD,
+                byte_length: 2,
             });
         }
 
@@ -371,8 +383,12 @@ impl S7Address {
 
     fn parse_db_address(addr: &str) -> Result<Self> {
         // Format: DB<n>.DB<X|B|W|D><offset>[.bit]
-        let dot_pos = addr.find('.').ok_or_else(|| anyhow!("Invalid DB address format: {}", addr))?;
-        let db_num: u16 = addr[2..dot_pos].parse().map_err(|_| anyhow!("Invalid DB number: {}", addr))?;
+        let dot_pos = addr
+            .find('.')
+            .ok_or_else(|| anyhow!("Invalid DB address format: {}", addr))?;
+        let db_num: u16 = addr[2..dot_pos]
+            .parse()
+            .map_err(|_| anyhow!("Invalid DB number: {}", addr))?;
         let field = &addr[dot_pos + 1..];
 
         if !field.starts_with("DB") {
@@ -389,38 +405,68 @@ impl S7Address {
                 if parts.len() != 2 {
                     return Err(anyhow!("Invalid DB bit address: {}", addr));
                 }
-                let byte_off: u16 = parts[0].parse().map_err(|_| anyhow!("Invalid byte offset: {}", addr))?;
-                let bit_off: u8 = parts[1].parse().map_err(|_| anyhow!("Invalid bit offset: {}", addr))?;
+                let byte_off: u16 = parts[0]
+                    .parse()
+                    .map_err(|_| anyhow!("Invalid byte offset: {}", addr))?;
+                let bit_off: u8 = parts[1]
+                    .parse()
+                    .map_err(|_| anyhow!("Invalid bit offset: {}", addr))?;
                 if bit_off > 7 {
                     return Err(anyhow!("Bit offset must be 0-7: {}", addr));
                 }
                 Ok(Self {
-                    area_code: S7_AREA_DB, db_number: db_num, byte_offset: byte_off,
-                    bit_offset: bit_off, transport_size: S7_TS_BIT, byte_length: 1,
+                    area_code: S7_AREA_DB,
+                    db_number: db_num,
+                    byte_offset: byte_off,
+                    bit_offset: bit_off,
+                    transport_size: S7_TS_BIT,
+                    byte_length: 1,
                 })
             }
             "B" => {
-                let byte_off: u16 = offset_str.parse().map_err(|_| anyhow!("Invalid byte offset: {}", addr))?;
+                let byte_off: u16 = offset_str
+                    .parse()
+                    .map_err(|_| anyhow!("Invalid byte offset: {}", addr))?;
                 Ok(Self {
-                    area_code: S7_AREA_DB, db_number: db_num, byte_offset: byte_off,
-                    bit_offset: 0, transport_size: S7_TS_BYTE, byte_length: 1,
+                    area_code: S7_AREA_DB,
+                    db_number: db_num,
+                    byte_offset: byte_off,
+                    bit_offset: 0,
+                    transport_size: S7_TS_BYTE,
+                    byte_length: 1,
                 })
             }
             "W" => {
-                let byte_off: u16 = offset_str.parse().map_err(|_| anyhow!("Invalid word offset: {}", addr))?;
+                let byte_off: u16 = offset_str
+                    .parse()
+                    .map_err(|_| anyhow!("Invalid word offset: {}", addr))?;
                 Ok(Self {
-                    area_code: S7_AREA_DB, db_number: db_num, byte_offset: byte_off,
-                    bit_offset: 0, transport_size: S7_TS_WORD, byte_length: 2,
+                    area_code: S7_AREA_DB,
+                    db_number: db_num,
+                    byte_offset: byte_off,
+                    bit_offset: 0,
+                    transport_size: S7_TS_WORD,
+                    byte_length: 2,
                 })
             }
             "D" => {
-                let byte_off: u16 = offset_str.parse().map_err(|_| anyhow!("Invalid dword offset: {}", addr))?;
+                let byte_off: u16 = offset_str
+                    .parse()
+                    .map_err(|_| anyhow!("Invalid dword offset: {}", addr))?;
                 Ok(Self {
-                    area_code: S7_AREA_DB, db_number: db_num, byte_offset: byte_off,
-                    bit_offset: 0, transport_size: S7_TS_DWORD, byte_length: 4,
+                    area_code: S7_AREA_DB,
+                    db_number: db_num,
+                    byte_offset: byte_off,
+                    bit_offset: 0,
+                    transport_size: S7_TS_DWORD,
+                    byte_length: 4,
                 })
             }
-            _ => Err(anyhow!("Invalid DB size specifier '{}': {}", size_char, addr)),
+            _ => Err(anyhow!(
+                "Invalid DB size specifier '{}': {}",
+                size_char,
+                addr
+            )),
         }
     }
 
@@ -432,16 +478,43 @@ impl S7Address {
         let first_char = rest.chars().next().unwrap_or('?');
         match first_char {
             'B' => {
-                let off: u16 = rest[1..].parse().map_err(|_| anyhow!("Invalid byte offset: {}", original))?;
-                Ok(Self { area_code: area, db_number: 0, byte_offset: off, bit_offset: 0, transport_size: S7_TS_BYTE, byte_length: 1 })
+                let off: u16 = rest[1..]
+                    .parse()
+                    .map_err(|_| anyhow!("Invalid byte offset: {}", original))?;
+                Ok(Self {
+                    area_code: area,
+                    db_number: 0,
+                    byte_offset: off,
+                    bit_offset: 0,
+                    transport_size: S7_TS_BYTE,
+                    byte_length: 1,
+                })
             }
             'W' => {
-                let off: u16 = rest[1..].parse().map_err(|_| anyhow!("Invalid word offset: {}", original))?;
-                Ok(Self { area_code: area, db_number: 0, byte_offset: off, bit_offset: 0, transport_size: S7_TS_WORD, byte_length: 2 })
+                let off: u16 = rest[1..]
+                    .parse()
+                    .map_err(|_| anyhow!("Invalid word offset: {}", original))?;
+                Ok(Self {
+                    area_code: area,
+                    db_number: 0,
+                    byte_offset: off,
+                    bit_offset: 0,
+                    transport_size: S7_TS_WORD,
+                    byte_length: 2,
+                })
             }
             'D' => {
-                let off: u16 = rest[1..].parse().map_err(|_| anyhow!("Invalid dword offset: {}", original))?;
-                Ok(Self { area_code: area, db_number: 0, byte_offset: off, bit_offset: 0, transport_size: S7_TS_DWORD, byte_length: 4 })
+                let off: u16 = rest[1..]
+                    .parse()
+                    .map_err(|_| anyhow!("Invalid dword offset: {}", original))?;
+                Ok(Self {
+                    area_code: area,
+                    db_number: 0,
+                    byte_offset: off,
+                    bit_offset: 0,
+                    transport_size: S7_TS_DWORD,
+                    byte_length: 4,
+                })
             }
             _ => {
                 // Bit access: <byte>.<bit> or just <byte> for byte access
@@ -450,16 +523,36 @@ impl S7Address {
                     if parts.len() != 2 {
                         return Err(anyhow!("Invalid bit address: {}", original));
                     }
-                    let byte_off: u16 = parts[0].parse().map_err(|_| anyhow!("Invalid byte offset: {}", original))?;
-                    let bit_off: u8 = parts[1].parse().map_err(|_| anyhow!("Invalid bit offset: {}", original))?;
+                    let byte_off: u16 = parts[0]
+                        .parse()
+                        .map_err(|_| anyhow!("Invalid byte offset: {}", original))?;
+                    let bit_off: u8 = parts[1]
+                        .parse()
+                        .map_err(|_| anyhow!("Invalid bit offset: {}", original))?;
                     if bit_off > 7 {
                         return Err(anyhow!("Bit offset must be 0-7: {}", original));
                     }
-                    Ok(Self { area_code: area, db_number: 0, byte_offset: byte_off, bit_offset: bit_off, transport_size: S7_TS_BIT, byte_length: 1 })
+                    Ok(Self {
+                        area_code: area,
+                        db_number: 0,
+                        byte_offset: byte_off,
+                        bit_offset: bit_off,
+                        transport_size: S7_TS_BIT,
+                        byte_length: 1,
+                    })
                 } else {
                     // Numeric only: treat as byte access
-                    let off: u16 = rest.parse().map_err(|_| anyhow!("Invalid address offset: {}", original))?;
-                    Ok(Self { area_code: area, db_number: 0, byte_offset: off, bit_offset: 0, transport_size: S7_TS_BYTE, byte_length: 1 })
+                    let off: u16 = rest
+                        .parse()
+                        .map_err(|_| anyhow!("Invalid address offset: {}", original))?;
+                    Ok(Self {
+                        area_code: area,
+                        db_number: 0,
+                        byte_offset: off,
+                        bit_offset: 0,
+                        transport_size: S7_TS_BYTE,
+                        byte_length: 1,
+                    })
                 }
             }
         }
@@ -908,22 +1001,30 @@ impl S7Client {
         let param_len = 2 + (addresses.len() * 12); // func(1) + count(1) + items(12 each)
 
         let mut s7 = vec![
-            S7_PROTOCOL_ID, S7_JOB, 0x00, 0x00,
-            (pdu_ref >> 8) as u8, (pdu_ref & 0xFF) as u8,
-            (param_len >> 8) as u8, (param_len & 0xFF) as u8,
-            0x00, 0x00, // Data length = 0 for read
+            S7_PROTOCOL_ID,
+            S7_JOB,
+            0x00,
+            0x00,
+            (pdu_ref >> 8) as u8,
+            (pdu_ref & 0xFF) as u8,
+            (param_len >> 8) as u8,
+            (param_len & 0xFF) as u8,
+            0x00,
+            0x00, // Data length = 0 for read
             S7_FUNC_READ_VAR,
             item_count,
         ];
 
         for addr in addresses {
             s7.extend_from_slice(&[
-                0x12,       // Spec type: variable specification
-                0x0A,       // Length of rest of this item
-                0x10,       // Syntax ID: S7ANY
+                0x12, // Spec type: variable specification
+                0x0A, // Length of rest of this item
+                0x10, // Syntax ID: S7ANY
                 addr.transport_size,
-                0x00, addr.byte_length, // Count (number of elements)
-                (addr.db_number >> 8) as u8, (addr.db_number & 0xFF) as u8,
+                0x00,
+                addr.byte_length, // Count (number of elements)
+                (addr.db_number >> 8) as u8,
+                (addr.db_number & 0xFF) as u8,
                 addr.area_code,
             ]);
             // 3-byte bit address: (byte_offset * 8) + bit_offset
@@ -955,10 +1056,16 @@ impl S7Client {
         let data_len = 4 + data.len() + (data.len() % 2); // Pad to even
 
         let mut s7 = vec![
-            S7_PROTOCOL_ID, S7_JOB, 0x00, 0x00,
-            (pdu_ref >> 8) as u8, (pdu_ref & 0xFF) as u8,
-            (param_len >> 8) as u8, (param_len & 0xFF) as u8,
-            (data_len >> 8) as u8, (data_len & 0xFF) as u8,
+            S7_PROTOCOL_ID,
+            S7_JOB,
+            0x00,
+            0x00,
+            (pdu_ref >> 8) as u8,
+            (pdu_ref & 0xFF) as u8,
+            (param_len >> 8) as u8,
+            (param_len & 0xFF) as u8,
+            (data_len >> 8) as u8,
+            (data_len & 0xFF) as u8,
             S7_FUNC_WRITE_VAR,
             0x01, // Item count: 1
         ];
@@ -966,12 +1073,18 @@ impl S7Client {
         // Item specification
         let bit_addr = (addr.byte_offset as u32) * 8 + addr.bit_offset as u32;
         s7.extend_from_slice(&[
-            0x12, 0x0A, 0x10,
+            0x12,
+            0x0A,
+            0x10,
             addr.transport_size,
-            0x00, addr.byte_length,
-            (addr.db_number >> 8) as u8, (addr.db_number & 0xFF) as u8,
+            0x00,
+            addr.byte_length,
+            (addr.db_number >> 8) as u8,
+            (addr.db_number & 0xFF) as u8,
             addr.area_code,
-            (bit_addr >> 16) as u8, (bit_addr >> 8) as u8, (bit_addr & 0xFF) as u8,
+            (bit_addr >> 16) as u8,
+            (bit_addr >> 8) as u8,
+            (bit_addr & 0xFF) as u8,
         ]);
 
         // Data item
@@ -995,20 +1108,26 @@ impl S7Client {
         let data_len: u16 = 8; // SZL request data
 
         let mut s7 = vec![
-            S7_PROTOCOL_ID, S7_USERDATA, 0x00, 0x00,
-            (pdu_ref >> 8) as u8, (pdu_ref & 0xFF) as u8,
-            (param_len >> 8) as u8, (param_len & 0xFF) as u8,
-            (data_len >> 8) as u8, (data_len & 0xFF) as u8,
+            S7_PROTOCOL_ID,
+            S7_USERDATA,
+            0x00,
+            0x00,
+            (pdu_ref >> 8) as u8,
+            (pdu_ref & 0xFF) as u8,
+            (param_len >> 8) as u8,
+            (param_len & 0xFF) as u8,
+            (data_len >> 8) as u8,
+            (data_len & 0xFF) as u8,
         ];
 
         // Parameter: Userdata header
         s7.extend_from_slice(&[
             0x00, 0x01, 0x12, // Parameter head (3 bytes)
-            0x04,             // Parameter length (4 bytes follow)
-            0x11,             // Type + group: request (0x1) + SZL functions (0x1)
-            0x01,             // Subfunction: read SZL
-            0x00,             // Sequence number
-            0x00,             // Last data unit (0 = no)
+            0x04, // Parameter length (4 bytes follow)
+            0x11, // Type + group: request (0x1) + SZL functions (0x1)
+            0x01, // Subfunction: read SZL
+            0x00, // Sequence number
+            0x00, // Last data unit (0 = no)
         ]);
 
         // Data: SZL request
@@ -1054,7 +1173,10 @@ impl S7Client {
         // Data section: return_code(1) + transport_size(1) + length(2) + SZL data
         let return_code = s7[data_start];
         if return_code != 0xFF {
-            return Err(anyhow!("SZL read failed with return code: 0x{:02X}", return_code));
+            return Err(anyhow!(
+                "SZL read failed with return code: 0x{:02X}",
+                return_code
+            ));
         }
 
         let szl_data_len = ((s7[data_start + 2] as usize) << 8) | s7[data_start + 3] as usize;
@@ -1138,9 +1260,14 @@ impl PlcProgrammer for S7Client {
                 if szl_data.len() >= 32 {
                     // Firmware version is at offset 24, 8 bytes
                     let fw_bytes = &szl_data[24..32.min(szl_data.len())];
-                    let fw_end = fw_bytes.iter().position(|&b| b == 0).unwrap_or(fw_bytes.len());
+                    let fw_end = fw_bytes
+                        .iter()
+                        .position(|&b| b == 0)
+                        .unwrap_or(fw_bytes.len());
                     if fw_end > 0 {
-                        firmware = String::from_utf8_lossy(&fw_bytes[..fw_end]).trim().to_string();
+                        firmware = String::from_utf8_lossy(&fw_bytes[..fw_end])
+                            .trim()
+                            .to_string();
                     }
                 }
             }
@@ -1346,12 +1473,15 @@ impl PlcProgrammer for S7Client {
                 };
 
                 for chunk in records.chunks(4) {
-                    if chunk.len() < 4 { break; }
+                    if chunk.len() < 4 {
+                        break;
+                    }
                     let block_type = ((chunk[0] as u16) << 8) | chunk[1] as u16;
                     let count = ((chunk[2] as u16) << 8) | chunk[3] as u16;
                     let name = block_type_names(block_type);
                     if !name.is_empty() && count > 0 {
-                        for i in 1..=count.min(20) { // Cap at 20 per type
+                        for i in 1..=count.min(20) {
+                            // Cap at 20 per type
                             programs.push(format!("{}{}", name, i));
                         }
                     }
@@ -1399,7 +1529,12 @@ impl PlcProgrammer for S7Client {
         })
     }
 
-    async fn read_variable(&self, address: &str, _data_type: &super::PlcDataType, _count: u16) -> Result<Vec<u8>> {
+    async fn read_variable(
+        &self,
+        address: &str,
+        _data_type: &super::PlcDataType,
+        _count: u16,
+    ) -> Result<Vec<u8>> {
         let s7_addr = S7Address::parse(address)?;
         let pdu_ref = self.next_pdu_ref().await;
         let request = Self::build_read_var_request(pdu_ref, &[s7_addr]);
@@ -1431,7 +1566,10 @@ impl PlcProgrammer for S7Client {
         // Data item: return_code(1) + transport_size(1) + data_length(2) + data
         let return_code = s7[data_start];
         if return_code != 0xFF {
-            return Err(anyhow!("S7 read data error: return code 0x{:02X}", return_code));
+            return Err(anyhow!(
+                "S7 read data error: return code 0x{:02X}",
+                return_code
+            ));
         }
 
         let transport_size = s7[data_start + 1];
@@ -1450,7 +1588,12 @@ impl PlcProgrammer for S7Client {
         Ok(s7[data_offset..data_offset + data_byte_len].to_vec())
     }
 
-    async fn write_variable(&self, address: &str, _data_type: &super::PlcDataType, data: &[u8]) -> Result<()> {
+    async fn write_variable(
+        &self,
+        address: &str,
+        _data_type: &super::PlcDataType,
+        data: &[u8],
+    ) -> Result<()> {
         let s7_addr = S7Address::parse(address)?;
         let pdu_ref = self.next_pdu_ref().await;
         let request = Self::build_write_var_request(pdu_ref, &s7_addr, data);
@@ -1478,7 +1621,10 @@ impl PlcProgrammer for S7Client {
         if s7.len() > data_start {
             let return_code = s7[data_start];
             if return_code != 0xFF {
-                return Err(anyhow!("S7 write data error: return code 0x{:02X}", return_code));
+                return Err(anyhow!(
+                    "S7 write data error: return code 0x{:02X}",
+                    return_code
+                ));
             }
         }
 

@@ -102,6 +102,7 @@ fn signature_mode_hc6_rollout_ordering_discipline() {
     // emergency reversions (Enforcing -> Disabled) must
     // also be possible. Operator discipline + audit trail
     // substitute for type-level ordering.
-    let _contract = "HC-6 rollout progresses Disabled -> Permissive -> Enforcing through Permissive stage";
+    let _contract =
+        "HC-6 rollout progresses Disabled -> Permissive -> Enforcing through Permissive stage";
     assert!(!_contract.is_empty());
 }

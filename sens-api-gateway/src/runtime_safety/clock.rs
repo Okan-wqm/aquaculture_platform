@@ -58,7 +58,9 @@ impl MonotonicAnchor {
     /// EDGE-LOW-002 closure: demoted from `pub` to `pub(crate)` to
     /// enforce the seal. Tests use `for_test` below.
     pub(crate) fn from_nanos_since_process_epoch(nanos: u128) -> Self {
-        Self { nanos_since_epoch: nanos }
+        Self {
+            nanos_since_epoch: nanos,
+        }
     }
 
     /// Test-only ctor — mints an anchor from arbitrary nanos for use in
@@ -66,7 +68,9 @@ impl MonotonicAnchor {
     /// production builds.
     #[cfg(test)]
     pub fn for_test(nanos: u128) -> Self {
-        Self { nanos_since_epoch: nanos }
+        Self {
+            nanos_since_epoch: nanos,
+        }
     }
 
     pub fn nanos_since_process_epoch(&self) -> u128 {
@@ -130,7 +134,10 @@ pub enum ClockError {
     /// cannot be trusted for audit timestamps or signature freshness
     /// windows. Fail-closed — caller must reject time-sensitive operations
     /// until sync recovers.
-    NtsSyncStale { last_sync_age_secs: u64, threshold_secs: u64 },
+    NtsSyncStale {
+        last_sync_age_secs: u64,
+        threshold_secs: u64,
+    },
 
     /// Monotonic anchor went backward — impossible on a correct clock.
     /// Indicates kernel bug or emulator/VM quirk. Fail-closed.
@@ -322,16 +329,13 @@ impl MonotonicDeadline {
                     .checked_add(delta_nanos)
                     .ok_or(MonotonicDeadlineError::DurationOverflow)?;
                 Ok(Self {
-                    monotonic_target:
-                        MonotonicAnchor::from_nanos_since_process_epoch(target_nanos),
+                    monotonic_target: MonotonicAnchor::from_nanos_since_process_epoch(target_nanos),
                 })
             }
             Err(e) => {
                 // The system time is AFTER the target — already past.
                 let by_secs = e.duration().as_secs();
-                Err(MonotonicDeadlineError::AlreadyPastAtConstruction {
-                    by_secs,
-                })
+                Err(MonotonicDeadlineError::AlreadyPastAtConstruction { by_secs })
             }
         }
     }
@@ -355,8 +359,7 @@ impl MonotonicDeadline {
             .checked_add(delta_nanos)
             .ok_or(MonotonicDeadlineError::DurationOverflow)?;
         Ok(Self {
-            monotonic_target:
-                MonotonicAnchor::from_nanos_since_process_epoch(target_nanos),
+            monotonic_target: MonotonicAnchor::from_nanos_since_process_epoch(target_nanos),
         })
     }
 
@@ -384,10 +387,7 @@ impl MonotonicDeadline {
     /// Returns `Err(ClockError::MonotonicBackward)` if the kernel /
     /// emulator monotonic clock is broken (caller fail-closed:
     /// reject the time-sensitive operation).
-    pub fn is_past_now(
-        &self,
-        clock: &dyn ClockAuthority,
-    ) -> Result<bool, ClockError> {
+    pub fn is_past_now(&self, clock: &dyn ClockAuthority) -> Result<bool, ClockError> {
         let now = clock.monotonic_now()?;
         Ok(now >= self.monotonic_target)
     }
@@ -395,10 +395,7 @@ impl MonotonicDeadline {
     /// Remaining duration until the deadline. Returns
     /// `Ok(Duration::ZERO)` when already past. Returns
     /// `Err(ClockError::MonotonicBackward)` on broken clock.
-    pub fn remaining_now(
-        &self,
-        clock: &dyn ClockAuthority,
-    ) -> Result<StdDuration, ClockError> {
+    pub fn remaining_now(&self, clock: &dyn ClockAuthority) -> Result<StdDuration, ClockError> {
         let now = clock.monotonic_now()?;
         if now >= self.monotonic_target {
             return Ok(StdDuration::ZERO);
@@ -464,7 +461,10 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                ClockError::NtsSyncStale { last_sync_age_secs: 7200, threshold_secs: 3600 }
+                ClockError::NtsSyncStale {
+                    last_sync_age_secs: 7200,
+                    threshold_secs: 3600
+                }
             ),
             "nts_sync_stale"
         );
@@ -515,7 +515,9 @@ mod tests {
         }
 
         fn assert_object_safe(_: &dyn ClockAuthority) {}
-        let m = Mock { counter: AtomicU64::new(0) };
+        let m = Mock {
+            counter: AtomicU64::new(0),
+        };
         assert_object_safe(&m);
     }
 
@@ -619,9 +621,7 @@ mod tests {
                 s.monotonic_nanos,
             ))
         }
-        async fn trustworthy_wall_clock(
-            &self,
-        ) -> Result<WallClockReading, ClockError> {
+        async fn trustworthy_wall_clock(&self) -> Result<WallClockReading, ClockError> {
             let s = self.state.lock().unwrap();
             if s.force_pre_epoch {
                 return Err(ClockError::PreEpochWallClock);
@@ -736,12 +736,9 @@ mod tests {
     async fn from_duration_now_anchors_to_monotonic() {
         let now_wall = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
         let clock = ProgrammableMockClock::new(now_wall, 1_000_000_000);
-        let deadline = MonotonicDeadline::from_duration_now(
-            Duration::from_secs(10),
-            &clock,
-        )
-        .await
-        .expect("ctor succeeds");
+        let deadline = MonotonicDeadline::from_duration_now(Duration::from_secs(10), &clock)
+            .await
+            .expect("ctor succeeds");
         assert!(!deadline.is_past_now(&clock).expect("ok"));
         clock.advance_monotonic(11 * 1_000_000_000);
         assert!(deadline.is_past_now(&clock).expect("ok"));
@@ -752,17 +749,11 @@ mod tests {
     async fn remaining_now_is_zero_past_deadline() {
         let now_wall = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
         let clock = ProgrammableMockClock::new(now_wall, 1_000_000_000);
-        let deadline = MonotonicDeadline::from_duration_now(
-            Duration::from_secs(5),
-            &clock,
-        )
-        .await
-        .expect("ctor succeeds");
+        let deadline = MonotonicDeadline::from_duration_now(Duration::from_secs(5), &clock)
+            .await
+            .expect("ctor succeeds");
         clock.advance_monotonic(10 * 1_000_000_000);
-        assert_eq!(
-            deadline.remaining_now(&clock).expect("ok"),
-            Duration::ZERO
-        );
+        assert_eq!(deadline.remaining_now(&clock).expect("ok"), Duration::ZERO);
     }
 
     /// remaining_now returns positive Duration before deadline.
@@ -770,12 +761,9 @@ mod tests {
     async fn remaining_now_is_positive_before_deadline() {
         let now_wall = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
         let clock = ProgrammableMockClock::new(now_wall, 1_000_000_000);
-        let deadline = MonotonicDeadline::from_duration_now(
-            Duration::from_secs(60),
-            &clock,
-        )
-        .await
-        .expect("ctor succeeds");
+        let deadline = MonotonicDeadline::from_duration_now(Duration::from_secs(60), &clock)
+            .await
+            .expect("ctor succeeds");
         clock.advance_monotonic(20 * 1_000_000_000);
         let r = deadline.remaining_now(&clock).expect("ok");
         // 40 seconds remaining give-or-take stack noise (mock is
@@ -797,11 +785,13 @@ mod tests {
             ),
             "monotonic_deadline_already_past_at_construction_by_42s"
         );
-        assert!(format!(
-            "{}",
-            MonotonicDeadlineError::Clock(ClockError::MonotonicBackward)
-        )
-        .contains("monotonic_backward"));
+        assert!(
+            format!(
+                "{}",
+                MonotonicDeadlineError::Clock(ClockError::MonotonicBackward)
+            )
+            .contains("monotonic_backward")
+        );
     }
 
     #[test]
@@ -814,15 +804,9 @@ mod tests {
     /// by force_registry-style sorted-by-deadline scheduling.
     #[test]
     fn monotonic_deadline_ord_preserves_target_order() {
-        let a = MonotonicDeadline::from_monotonic_anchor_for_test(
-            MonotonicAnchor::for_test(100),
-        );
-        let b = MonotonicDeadline::from_monotonic_anchor_for_test(
-            MonotonicAnchor::for_test(200),
-        );
-        let c = MonotonicDeadline::from_monotonic_anchor_for_test(
-            MonotonicAnchor::for_test(150),
-        );
+        let a = MonotonicDeadline::from_monotonic_anchor_for_test(MonotonicAnchor::for_test(100));
+        let b = MonotonicDeadline::from_monotonic_anchor_for_test(MonotonicAnchor::for_test(200));
+        let c = MonotonicDeadline::from_monotonic_anchor_for_test(MonotonicAnchor::for_test(150));
         let mut v = vec![b, a, c];
         v.sort();
         assert_eq!(v, vec![a, c, b]);

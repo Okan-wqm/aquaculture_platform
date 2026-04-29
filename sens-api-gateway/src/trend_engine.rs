@@ -3,14 +3,14 @@
 //! Records ProcessImage tag values to SQLite at configurable intervals.
 //! Manages data retention with rolling window cleanup.
 
+use chrono::Utc;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use chrono::Utc;
 use tracing::{debug, info, warn};
 
-use crate::scada_db::ScadaDb;
 use crate::process_image::TagValue;
+use crate::scada_db::ScadaDb;
 
 /// Trend recording configuration
 #[derive(Debug, Clone)]
@@ -133,7 +133,12 @@ impl TrendEngine {
     }
 
     /// Query trend data for a tag within a time range
-    pub fn query(&self, tag: &str, from: i64, to: i64) -> Result<Vec<crate::scada_db::TrendPoint>, String> {
+    pub fn query(
+        &self,
+        tag: &str,
+        from: i64,
+        to: i64,
+    ) -> Result<Vec<crate::scada_db::TrendPoint>, String> {
         self.db.query_trend(tag, from, to)
     }
 

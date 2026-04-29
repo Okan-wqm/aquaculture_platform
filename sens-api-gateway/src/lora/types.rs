@@ -45,7 +45,10 @@ impl DevEui {
     /// Hex string'den DevEui olusturur (16 karakter, orn: "0102030405060708")
     pub fn from_hex(hex: &str) -> Result<Self, String> {
         if hex.len() != 16 {
-            return Err(format!("DevEui hex string 16 karakter olmali, {} verildi", hex.len()));
+            return Err(format!(
+                "DevEui hex string 16 karakter olmali, {} verildi",
+                hex.len()
+            ));
         }
         let mut bytes = [0u8; 8];
         for i in 0..8 {
@@ -82,7 +85,10 @@ impl AppEui {
     /// Hex string'den AppEui olusturur
     pub fn from_hex(hex: &str) -> Result<Self, String> {
         if hex.len() != 16 {
-            return Err(format!("AppEui hex string 16 karakter olmali, {} verildi", hex.len()));
+            return Err(format!(
+                "AppEui hex string 16 karakter olmali, {} verildi",
+                hex.len()
+            ));
         }
         let mut bytes = [0u8; 8];
         for i in 0..8 {
@@ -107,8 +113,11 @@ pub struct AppKey(pub [u8; 16]);
 impl fmt::Display for AppKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // Guvenlik: Sadece ilk ve son 2 byte'i goster, arasini maskele
-        write!(f, "{:02X}{:02X}..{:02X}{:02X}",
-            self.0[0], self.0[1], self.0[14], self.0[15])
+        write!(
+            f,
+            "{:02X}{:02X}..{:02X}{:02X}",
+            self.0[0], self.0[1], self.0[14], self.0[15]
+        )
     }
 }
 
@@ -122,7 +131,10 @@ impl AppKey {
     /// Hex string'den AppKey olusturur (32 karakter)
     pub fn from_hex(hex: &str) -> Result<Self, String> {
         if hex.len() != 32 {
-            return Err(format!("AppKey hex string 32 karakter olmali, {} verildi", hex.len()));
+            return Err(format!(
+                "AppKey hex string 32 karakter olmali, {} verildi",
+                hex.len()
+            ));
         }
         let mut bytes = [0u8; 16];
         for i in 0..16 {
@@ -160,7 +172,10 @@ impl DevAddr {
     /// Hex string'den DevAddr olusturur (8 karakter)
     pub fn from_hex(hex: &str) -> Result<Self, String> {
         if hex.len() != 8 {
-            return Err(format!("DevAddr hex string 8 karakter olmali, {} verildi", hex.len()));
+            return Err(format!(
+                "DevAddr hex string 8 karakter olmali, {} verildi",
+                hex.len()
+            ));
         }
         let mut bytes = [0u8; 4];
         for i in 0..4 {
@@ -425,8 +440,10 @@ mod tests {
 
     #[test]
     fn test_app_key_masked_display() {
-        let key = AppKey([0xAA, 0xBB, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                          0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xCC, 0xDD]);
+        let key = AppKey([
+            0xAA, 0xBB, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0xCC, 0xDD,
+        ]);
         let display = format!("{}", key);
         assert_eq!(display, "AABB..CCDD");
     }
@@ -450,7 +467,9 @@ mod tests {
         let json = serde_json::to_string(&codec).expect("serialize basarili olmali");
         assert!(json.contains("cayenne_lpp"));
 
-        let raw = CodecType::RawBinary { byte_order: ByteOrder::BigEndian };
+        let raw = CodecType::RawBinary {
+            byte_order: ByteOrder::BigEndian,
+        };
         let json = serde_json::to_string(&raw).expect("serialize basarili olmali");
         assert!(json.contains("raw_binary"));
     }

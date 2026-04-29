@@ -530,7 +530,7 @@ impl BackupManager {
 
     /// Calculate SHA-256 hash of data for backup integrity verification.
     fn sha256_hash(data: &[u8]) -> String {
-        use sha2::{Sha256, Digest};
+        use sha2::{Digest, Sha256};
         let hash = Sha256::digest(data);
         format!("{:x}", hash)
     }

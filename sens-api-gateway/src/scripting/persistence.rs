@@ -586,14 +586,19 @@ impl SqlitePersistence {
 
         // Apply SQLCipher encryption key using HMAC-SHA256(machine_id, secret_key).
         // Delegates to the shared key derivation in offline_queue module.
-        let hex_key = crate::offline_queue::derive_db_encryption_key()
-            .map_err(|e| PersistenceError::ConnectionFailed(
-                format!("Failed to derive database encryption key: {}", e)
-            ))?;
+        let hex_key = crate::offline_queue::derive_db_encryption_key().map_err(|e| {
+            PersistenceError::ConnectionFailed(format!(
+                "Failed to derive database encryption key: {}",
+                e
+            ))
+        })?;
         conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", hex_key))
-            .map_err(|e| PersistenceError::ConnectionFailed(
-                format!("Failed to apply database encryption key: {}", e)
-            ))?;
+            .map_err(|e| {
+                PersistenceError::ConnectionFailed(format!(
+                    "Failed to apply database encryption key: {}",
+                    e
+                ))
+            })?;
 
         // Enable WAL mode for better concurrent access
         conn.execute_batch(

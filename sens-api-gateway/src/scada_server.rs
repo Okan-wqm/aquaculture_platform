@@ -34,27 +34,26 @@ use std::sync::Arc;
 
 use axum::{
     Json, Router,
+    extract::Query,
     extract::State as AxumState,
     extract::ws::{Message, WebSocket, WebSocketUpgrade},
-    extract::Query,
-    http::{header, HeaderMap, HeaderValue, Method, StatusCode},
+    http::{HeaderMap, HeaderValue, Method, StatusCode, header},
     middleware,
     response::{Html, IntoResponse, Redirect},
     routing::get,
 };
-use tower_http::cors::{AllowOrigin, CorsLayer};
 use serde::{Deserialize, Serialize};
-use tokio::sync::{broadcast, RwLock};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use tokio::sync::{RwLock, broadcast};
+use tower_http::cors::{AllowOrigin, CorsLayer};
 use tracing::{debug, error, info, warn};
 
-use crate::alarm_engine::{AlarmEngine, AlarmEvent, ActiveAlarm};
+use crate::alarm_engine::{ActiveAlarm, AlarmEngine, AlarmEvent};
 use crate::calibration_engine::CalibrationEngine;
 use crate::process_image::{ProcessImage, TagQuality};
 use crate::scada_db::ScadaDb;
 use crate::scada_types::{
-    ScadaCommand, ScadaPackage, PinSession,
-    WsClientMessage, TagInfo, ActiveAlarmInfo, TrendPoint,
+    ActiveAlarmInfo, PinSession, ScadaCommand, ScadaPackage, TagInfo, TrendPoint, WsClientMessage,
 };
 use crate::trend_engine::TrendEngine;
 
@@ -314,7 +313,8 @@ impl ScadaState {
         let db_clone = Arc::clone(&db);
 
         // Try loading active package from DB
-        let package = db.get_active_package()
+        let package = db
+            .get_active_package()
             .ok()
             .flatten()
             .and_then(|json| serde_json::from_str::<ScadaPackage>(&json).ok());
@@ -419,34 +419,46 @@ impl ScadaState {
 
         // Persist to disk as well
         let dir = Path::new(SCADA_DIR);
-        tokio::fs::create_dir_all(dir).await
+        tokio::fs::create_dir_all(dir)
+            .await
             .map_err(|e| format!("Failed to create SCADA directory: {}", e))?;
         let pkg_path = dir.join("package.json");
         let content = serde_json::to_string_pretty(&package)
             .map_err(|e| format!("Failed to serialize package: {}", e))?;
-        tokio::fs::write(&pkg_path, content).await
+        tokio::fs::write(&pkg_path, content)
+            .await
             .map_err(|e| format!("Failed to write package: {}", e))?;
 
         // Update alarm rules
         {
             let mut alarm_engine = self.inner.alarm_engine.lock().await;
-            let rules: Vec<crate::alarm_engine::AlarmRule> = package.alarm_rules.iter().map(|r| {
-                crate::alarm_engine::AlarmRule {
+            let rules: Vec<crate::alarm_engine::AlarmRule> = package
+                .alarm_rules
+                .iter()
+                .map(|r| crate::alarm_engine::AlarmRule {
                     id: r.id.clone(),
                     tag: r.tag.clone(),
                     condition: r.condition.clone(),
                     value: r.value,
                     severity: match r.severity {
-                        crate::scada_types::AlarmSeverity::Critical => crate::alarm_engine::AlarmSeverity::Critical,
-                        crate::scada_types::AlarmSeverity::High => crate::alarm_engine::AlarmSeverity::High,
-                        crate::scada_types::AlarmSeverity::Warning => crate::alarm_engine::AlarmSeverity::Warning,
-                        crate::scada_types::AlarmSeverity::Info => crate::alarm_engine::AlarmSeverity::Info,
+                        crate::scada_types::AlarmSeverity::Critical => {
+                            crate::alarm_engine::AlarmSeverity::Critical
+                        }
+                        crate::scada_types::AlarmSeverity::High => {
+                            crate::alarm_engine::AlarmSeverity::High
+                        }
+                        crate::scada_types::AlarmSeverity::Warning => {
+                            crate::alarm_engine::AlarmSeverity::Warning
+                        }
+                        crate::scada_types::AlarmSeverity::Info => {
+                            crate::alarm_engine::AlarmSeverity::Info
+                        }
                     },
                     message: r.message.clone(),
                     deadband: r.deadband,
                     delay: r.delay,
-                }
-            }).collect();
+                })
+                .collect();
             alarm_engine.update_rules(rules);
         }
 
@@ -535,16 +547,17 @@ impl ScadaState {
         if tags.is_empty() {
             return;
         }
-        let tag_infos: Vec<TagInfo> = tags.iter().map(|(name, tv)| {
-            TagInfo {
+        let tag_infos: Vec<TagInfo> = tags
+            .iter()
+            .map(|(name, tv)| TagInfo {
                 tag_name: name.clone(),
                 value: tv.value,
                 quality: format!("{:?}", tv.quality).to_lowercase(),
                 unit: None,
                 io_type: None,
                 timestamp: tv.timestamp.to_rfc3339(),
-            }
-        }).collect();
+            })
+            .collect();
 
         let msg = serde_json::json!({
             "type": "allTags",
@@ -650,7 +663,7 @@ fn is_private_network_origin(origin: &str) -> bool {
         return octets[0] == 10                                           // 10.0.0.0/8
             || (octets[0] == 172 && (16..=31).contains(&octets[1]))      // 172.16.0.0/12
             || (octets[0] == 192 && octets[1] == 168)                    // 192.168.0.0/16
-            || octets[0] == 127;                                         // 127.0.0.0/8
+            || octets[0] == 127; // 127.0.0.0/8
     }
 
     false
@@ -704,8 +717,12 @@ impl PinLockoutState {
     fn record_failure(&mut self) {
         self.failed_attempts += 1;
         if self.failed_attempts >= MAX_PIN_FAILURES {
-            self.lockout_until = Some(chrono::Utc::now() + chrono::Duration::seconds(PIN_LOCKOUT_SECS));
-            warn!("Global PIN lockout triggered after {} failed attempts", self.failed_attempts);
+            self.lockout_until =
+                Some(chrono::Utc::now() + chrono::Duration::seconds(PIN_LOCKOUT_SECS));
+            warn!(
+                "Global PIN lockout triggered after {} failed attempts",
+                self.failed_attempts
+            );
         }
     }
 
@@ -762,7 +779,10 @@ async fn scada_page_handler() -> impl IntoResponse {
     // Generate a 128-bit random nonce (base64-encoded)
     let mut nonce_bytes = [0u8; 16];
     if let Err(e) = getrandom::getrandom(&mut nonce_bytes) {
-        warn!("Failed to generate CSP nonce: {}, falling back to static CSP", e);
+        warn!(
+            "Failed to generate CSP nonce: {}, falling back to static CSP",
+            e
+        );
         return (HeaderMap::new(), SCADA_HTML.to_string());
     }
     let nonce = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, nonce_bytes);
@@ -788,40 +808,52 @@ async fn scada_page_handler() -> impl IntoResponse {
     if let Ok(csp_value) = HeaderValue::from_str(&csp) {
         headers.insert("Content-Security-Policy", csp_value);
     }
-    headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/html; charset=utf-8"),
+    );
 
     (headers, html_with_nonce)
 }
 
 /// Get the current SCADA process definition
-async fn scada_process_handler(
-    AxumState(state): AxumState<ScadaState>,
-) -> impl IntoResponse {
+async fn scada_process_handler(AxumState(state): AxumState<ScadaState>) -> impl IntoResponse {
     match state.get_process().await {
-        Some(process) => (StatusCode::OK, Json(serde_json::to_value(&process).unwrap_or_default())).into_response(),
-        None => (StatusCode::NOT_FOUND, Json(serde_json::json!({
-            "error": "No SCADA process deployed"
-        }))).into_response(),
+        Some(process) => (
+            StatusCode::OK,
+            Json(serde_json::to_value(&process).unwrap_or_default()),
+        )
+            .into_response(),
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({
+                "error": "No SCADA process deployed"
+            })),
+        )
+            .into_response(),
     }
 }
 
 /// Get all ProcessImage tags as JSON
-async fn scada_tags_handler(
-    AxumState(state): AxumState<ScadaState>,
-) -> impl IntoResponse {
+async fn scada_tags_handler(AxumState(state): AxumState<ScadaState>) -> impl IntoResponse {
     if let Some(ref pi) = state.inner.process_image {
         let all_tags = pi.get_all_tags().await;
-        let tag_infos: Vec<TagInfo> = all_tags.iter().map(|(name, tv)| {
-            TagInfo {
+        let tag_infos: Vec<TagInfo> = all_tags
+            .iter()
+            .map(|(name, tv)| TagInfo {
                 tag_name: name.clone(),
                 value: tv.value,
                 quality: format!("{:?}", tv.quality).to_lowercase(),
                 unit: None,
                 io_type: None,
                 timestamp: tv.timestamp.to_rfc3339(),
-            }
-        }).collect();
-        (StatusCode::OK, Json(serde_json::json!({ "tags": tag_infos }))).into_response()
+            })
+            .collect();
+        (
+            StatusCode::OK,
+            Json(serde_json::json!({ "tags": tag_infos })),
+        )
+            .into_response()
     } else {
         (StatusCode::OK, Json(serde_json::json!({ "tags": [] }))).into_response()
     }
@@ -836,38 +868,54 @@ async fn scada_trends_handler(
     if let Some(ref engine) = *trend_guard {
         match engine.query(&params.tag, params.from, params.to) {
             Ok(points) => {
-                let trend_points: Vec<TrendPoint> = points.iter().map(|p| TrendPoint {
-                    timestamp: p.timestamp,
-                    value: p.value,
-                    quality: p.quality,
-                }).collect();
-                (StatusCode::OK, Json(serde_json::json!({
-                    "tag": params.tag,
-                    "data": trend_points,
-                }))).into_response()
+                let trend_points: Vec<TrendPoint> = points
+                    .iter()
+                    .map(|p| TrendPoint {
+                        timestamp: p.timestamp,
+                        value: p.value,
+                        quality: p.quality,
+                    })
+                    .collect();
+                (
+                    StatusCode::OK,
+                    Json(serde_json::json!({
+                        "tag": params.tag,
+                        "data": trend_points,
+                    })),
+                )
+                    .into_response()
             }
-            Err(e) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+            Err(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
                     "error": e,
-                }))).into_response()
-            }
+                })),
+            )
+                .into_response(),
         }
     } else {
-        (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({
-            "error": "Trend engine not available",
-        }))).into_response()
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "error": "Trend engine not available",
+            })),
+        )
+            .into_response()
     }
 }
 
 /// Get active alarms
-async fn scada_alarms_handler(
-    AxumState(state): AxumState<ScadaState>,
-) -> impl IntoResponse {
+async fn scada_alarms_handler(AxumState(state): AxumState<ScadaState>) -> impl IntoResponse {
     let engine = state.inner.alarm_engine.lock().await;
-    let alarms: Vec<ActiveAlarmInfo> = engine.get_active_alarms().iter()
+    let alarms: Vec<ActiveAlarmInfo> = engine
+        .get_active_alarms()
+        .iter()
         .map(active_alarm_to_info)
         .collect();
-    (StatusCode::OK, Json(serde_json::json!({ "alarms": alarms })))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "alarms": alarms })),
+    )
 }
 
 /// Get alarm history
@@ -877,19 +925,27 @@ async fn scada_alarms_history_handler(
 ) -> impl IntoResponse {
     if let Some(ref db) = state.inner.db {
         match db.get_alarm_history(params.limit) {
-            Ok(records) => {
-                (StatusCode::OK, Json(serde_json::json!({ "alarms": records }))).into_response()
-            }
-            Err(e) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+            Ok(records) => (
+                StatusCode::OK,
+                Json(serde_json::json!({ "alarms": records })),
+            )
+                .into_response(),
+            Err(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
                     "error": e,
-                }))).into_response()
-            }
+                })),
+            )
+                .into_response(),
         }
     } else {
-        (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({
-            "error": "Database not available",
-        }))).into_response()
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "error": "Database not available",
+            })),
+        )
+            .into_response()
     }
 }
 
@@ -902,8 +958,15 @@ async fn scada_ws_handler(
     // DoS protection: limit concurrent WebSocket connections
     let current = state.inner.ws_connection_count.load(Ordering::Relaxed);
     if current >= MAX_WS_CONNECTIONS {
-        warn!("SCADA WebSocket connection rejected: limit reached ({}/{})", current, MAX_WS_CONNECTIONS);
-        return (StatusCode::SERVICE_UNAVAILABLE, "Too many WebSocket connections").into_response();
+        warn!(
+            "SCADA WebSocket connection rejected: limit reached ({}/{})",
+            current, MAX_WS_CONNECTIONS
+        );
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Too many WebSocket connections",
+        )
+            .into_response();
     }
 
     // Origin validation: require Origin header, allow only localhost/private network IPs
@@ -987,14 +1050,27 @@ impl WsSession {
 /// Handle a single WebSocket connection with bidirectional messaging
 async fn handle_scada_ws(mut socket: WebSocket, state: ScadaState) {
     // Atomically claim a connection slot (TOCTOU-safe: increment first, check after)
-    let prev = state.inner.ws_connection_count.fetch_add(1, Ordering::Relaxed);
+    let prev = state
+        .inner
+        .ws_connection_count
+        .fetch_add(1, Ordering::Relaxed);
     if prev >= MAX_WS_CONNECTIONS {
-        state.inner.ws_connection_count.fetch_sub(1, Ordering::Relaxed);
-        warn!("SCADA WebSocket dropped post-upgrade: limit reached ({}/{})", prev, MAX_WS_CONNECTIONS);
-        let _ = socket.send(axum::extract::ws::Message::Close(Some(axum::extract::ws::CloseFrame {
-            code: 1013, // Try Again Later
-            reason: "Too many connections".into(),
-        }))).await;
+        state
+            .inner
+            .ws_connection_count
+            .fetch_sub(1, Ordering::Relaxed);
+        warn!(
+            "SCADA WebSocket dropped post-upgrade: limit reached ({}/{})",
+            prev, MAX_WS_CONNECTIONS
+        );
+        let _ = socket
+            .send(axum::extract::ws::Message::Close(Some(
+                axum::extract::ws::CloseFrame {
+                    code: 1013, // Try Again Later
+                    reason: "Too many connections".into(),
+                },
+            )))
+            .await;
         return;
     }
     let _guard = WsConnectionGuard(Arc::clone(&state.inner));
@@ -1030,16 +1106,17 @@ async fn handle_scada_ws(mut socket: WebSocket, state: ScadaState) {
     // 2. Send all current tag values
     if let Some(ref pi) = state.inner.process_image {
         let all_tags = pi.get_all_tags().await;
-        let tag_infos: Vec<TagInfo> = all_tags.iter().map(|(name, tv)| {
-            TagInfo {
+        let tag_infos: Vec<TagInfo> = all_tags
+            .iter()
+            .map(|(name, tv)| TagInfo {
                 tag_name: name.clone(),
                 value: tv.value,
                 quality: format!("{:?}", tv.quality).to_lowercase(),
                 unit: None,
                 io_type: None,
                 timestamp: tv.timestamp.to_rfc3339(),
-            }
-        }).collect();
+            })
+            .collect();
         let msg = serde_json::json!({
             "type": "allTags",
             "data": tag_infos,
@@ -1157,24 +1234,23 @@ async fn handle_ws_message(
         WsClientMessage::Command { tag, value } | WsClientMessage::Setpoint { tag, value } => {
             handle_command_or_setpoint(socket, state, session, &tag, value).await
         }
-        WsClientMessage::ConfirmResponse { request_id, confirmed } => {
-            handle_confirm_response(socket, state, session, &request_id, confirmed).await
-        }
+        WsClientMessage::ConfirmResponse {
+            request_id,
+            confirmed,
+        } => handle_confirm_response(socket, state, session, &request_id, confirmed).await,
         WsClientMessage::PinResponse { request_id, pin } => {
             handle_pin_response(socket, state, session, &request_id, &pin).await
         }
-        WsClientMessage::AlarmAck { alarm_id } => {
-            handle_alarm_ack(state, &alarm_id).await
-        }
-        WsClientMessage::Calibrate { tag, action, point_index } => {
-            handle_calibrate(socket, state, &tag, &action, point_index).await
-        }
+        WsClientMessage::AlarmAck { alarm_id } => handle_alarm_ack(state, &alarm_id).await,
+        WsClientMessage::Calibrate {
+            tag,
+            action,
+            point_index,
+        } => handle_calibrate(socket, state, &tag, &action, point_index).await,
         WsClientMessage::RequestTrend { tag, from, to } => {
             handle_request_trend(socket, state, &tag, from, to).await
         }
-        WsClientMessage::EmergencyStop => {
-            handle_emergency_stop(socket, state, session).await
-        }
+        WsClientMessage::EmergencyStop => handle_emergency_stop(socket, state, session).await,
         WsClientMessage::EmergencyReset { pin } => {
             handle_emergency_reset(socket, state, session, &pin).await
         }
@@ -1224,11 +1300,14 @@ async fn handle_command_or_setpoint(
         SecurityLevel::Confirm => {
             // Send confirm request to client
             let request_id = uuid::Uuid::new_v4().to_string();
-            session.pending_confirms.insert(request_id.clone(), PendingConfirm {
-                tag: tag.to_string(),
-                value,
-                source_ip: None,
-            });
+            session.pending_confirms.insert(
+                request_id.clone(),
+                PendingConfirm {
+                    tag: tag.to_string(),
+                    value,
+                    source_ip: None,
+                },
+            );
             let msg = serde_json::json!({
                 "type": "confirmRequest",
                 "requestId": request_id,
@@ -1246,11 +1325,14 @@ async fn handle_command_or_setpoint(
             } else {
                 // Store as pending and request PIN
                 let request_id = uuid::Uuid::new_v4().to_string();
-                session.pending_confirms.insert(request_id.clone(), PendingConfirm {
-                    tag: tag.to_string(),
-                    value,
-                    source_ip: None,
-                });
+                session.pending_confirms.insert(
+                    request_id.clone(),
+                    PendingConfirm {
+                        tag: tag.to_string(),
+                        value,
+                        source_ip: None,
+                    },
+                );
                 let msg = serde_json::json!({
                     "type": "pinRequest",
                     "requestId": request_id,
@@ -1296,10 +1378,7 @@ async fn execute_command(
         }
 
         // Wait for result with timeout
-        let result = tokio::time::timeout(
-            std::time::Duration::from_secs(5),
-            resp_rx,
-        ).await;
+        let result = tokio::time::timeout(std::time::Duration::from_secs(5), resp_rx).await;
 
         let (success, result_value, error) = match result {
             Ok(Ok(Ok(v))) => (true, Some(v), None),
@@ -1361,7 +1440,15 @@ async fn handle_confirm_response(
                 execute_emergency_stop(socket, state).await;
                 return;
             }
-            execute_command(socket, state, &pending.tag, pending.value, pending.source_ip, false).await;
+            execute_command(
+                socket,
+                state,
+                &pending.tag,
+                pending.value,
+                pending.source_ip,
+                false,
+            )
+            .await;
         } else {
             // Audit the rejection
             let action_type = if pending.tag == "__emergency_stop__" {
@@ -1421,7 +1508,11 @@ async fn handle_pin_response(
     }
 
     // Get pin_hash from package
-    let pin_hash = state.inner.package.read().await
+    let pin_hash = state
+        .inner
+        .package
+        .read()
+        .await
         .as_ref()
         .and_then(|pkg| pkg.control_permissions.pin_hash.clone());
 
@@ -1448,7 +1539,11 @@ async fn handle_pin_response(
             lockout.reset();
         }
 
-        let timeout = state.inner.package.read().await
+        let timeout = state
+            .inner
+            .package
+            .read()
+            .await
             .as_ref()
             .and_then(|pkg| pkg.control_permissions.pin_timeout)
             .unwrap_or(PIN_SESSION_TIMEOUT_SECS as u32);
@@ -1461,7 +1556,15 @@ async fn handle_pin_response(
 
         // Execute pending command if any
         if let Some(pending) = session.pending_confirms.remove(request_id) {
-            execute_command(socket, state, &pending.tag, pending.value, pending.source_ip, true).await;
+            execute_command(
+                socket,
+                state,
+                &pending.tag,
+                pending.value,
+                pending.source_ip,
+                true,
+            )
+            .await;
         }
     } else {
         // PIN wrong — track failures in GLOBAL state
@@ -1591,11 +1694,14 @@ async fn handle_request_trend(
     if let Some(ref engine) = *trend_guard {
         match engine.query(tag, from, to) {
             Ok(points) => {
-                let trend_points: Vec<TrendPoint> = points.iter().map(|p| TrendPoint {
-                    timestamp: p.timestamp,
-                    value: p.value,
-                    quality: p.quality,
-                }).collect();
+                let trend_points: Vec<TrendPoint> = points
+                    .iter()
+                    .map(|p| TrendPoint {
+                        timestamp: p.timestamp,
+                        value: p.value,
+                        quality: p.quality,
+                    })
+                    .collect();
                 let msg = serde_json::json!({
                     "type": "trendData",
                     "tag": tag,
@@ -1625,11 +1731,14 @@ async fn handle_emergency_stop(
 ) {
     // Send confirm request to client — emergency stop should be quick but deliberate
     let request_id = uuid::Uuid::new_v4().to_string();
-    session.pending_confirms.insert(request_id.clone(), PendingConfirm {
-        tag: "__emergency_stop__".to_string(),
-        value: 0.0,
-        source_ip: None,
-    });
+    session.pending_confirms.insert(
+        request_id.clone(),
+        PendingConfirm {
+            tag: "__emergency_stop__".to_string(),
+            value: 0.0,
+            source_ip: None,
+        },
+    );
     let msg = serde_json::json!({
         "type": "confirmRequest",
         "requestId": request_id,
@@ -1639,14 +1748,14 @@ async fn handle_emergency_stop(
     if let Ok(json) = serde_json::to_string(&msg) {
         let _ = socket.send(Message::Text(json.into())).await;
     }
-    info!("Emergency stop confirm request sent to client (request_id={})", request_id);
+    info!(
+        "Emergency stop confirm request sent to client (request_id={})",
+        request_id
+    );
 }
 
 /// Execute the actual emergency stop after confirmation
-async fn execute_emergency_stop(
-    socket: &mut WebSocket,
-    state: &ScadaState,
-) {
+async fn execute_emergency_stop(socket: &mut WebSocket, state: &ScadaState) {
     info!("EMERGENCY STOP activated via WebSocket (confirmed)");
 
     // Release ordering ensures all prior writes are visible before the flag is seen
@@ -1654,7 +1763,9 @@ async fn execute_emergency_stop(
 
     // Get affected tags from package
     let affected_tags = if let Some(ref pkg) = *state.inner.package.read().await {
-        pkg.control_permissions.emergency_stop.as_ref()
+        pkg.control_permissions
+            .emergency_stop
+            .as_ref()
             .map(|es| es.affected_tags.clone())
             .unwrap_or_default()
     } else {
@@ -1778,7 +1889,11 @@ async fn handle_emergency_reset(
     }
 
     // Get pin_hash from package
-    let pin_hash = state.inner.package.read().await
+    let pin_hash = state
+        .inner
+        .package
+        .read()
+        .await
         .as_ref()
         .and_then(|pkg| pkg.control_permissions.pin_hash.clone());
 
@@ -1799,7 +1914,11 @@ async fn handle_emergency_reset(
         }
 
         // Establish PIN session as well
-        let timeout = state.inner.package.read().await
+        let timeout = state
+            .inner
+            .package
+            .read()
+            .await
             .as_ref()
             .and_then(|pkg| pkg.control_permissions.pin_timeout)
             .unwrap_or(PIN_SESSION_TIMEOUT_SECS as u32);
@@ -1853,16 +1972,7 @@ async fn do_emergency_reset(state: &ScadaState) {
 
     // Audit
     if let Some(ref db) = state.inner.db {
-        let _ = db.insert_audit(
-            None,
-            "emergency_reset",
-            None,
-            None,
-            None,
-            true,
-            true,
-            None,
-        );
+        let _ = db.insert_audit(None, "emergency_reset", None, None, None, true, true, None);
     }
 
     // Broadcast to all clients
@@ -1893,12 +2003,18 @@ async fn root_redirect_handler() -> Redirect {
 
 /// Serve the UMD node/edge component bundle
 async fn node_bundle_handler() -> impl IntoResponse {
-    ([(header::CONTENT_TYPE, "application/javascript")], NODE_BUNDLE_JS)
+    (
+        [(header::CONTENT_TYPE, "application/javascript")],
+        NODE_BUNDLE_JS,
+    )
 }
 
 /// Serve PWA manifest
 async fn manifest_handler() -> impl IntoResponse {
-    ([(header::CONTENT_TYPE, "application/manifest+json")], PWA_MANIFEST)
+    (
+        [(header::CONTENT_TYPE, "application/manifest+json")],
+        PWA_MANIFEST,
+    )
 }
 
 /// Serve PWA icon (same SVG for both sizes)
@@ -1908,7 +2024,10 @@ async fn icon_handler() -> impl IntoResponse {
 
 /// Serve minimal service worker
 async fn sw_handler() -> impl IntoResponse {
-    ([(header::CONTENT_TYPE, "application/javascript")], SERVICE_WORKER_JS)
+    (
+        [(header::CONTENT_TYPE, "application/javascript")],
+        SERVICE_WORKER_JS,
+    )
 }
 
 // ============================================================================
@@ -1923,9 +2042,15 @@ async fn security_headers_middleware(
     let mut response = next.run(request).await;
     let headers = response.headers_mut();
     headers.insert("X-Frame-Options", HeaderValue::from_static("DENY"));
-    headers.insert("X-Content-Type-Options", HeaderValue::from_static("nosniff"));
+    headers.insert(
+        "X-Content-Type-Options",
+        HeaderValue::from_static("nosniff"),
+    );
     headers.insert("Referrer-Policy", HeaderValue::from_static("no-referrer"));
-    headers.insert("Permissions-Policy", HeaderValue::from_static("geolocation=(), camera=(), microphone=(), payment=(), usb=()"));
+    headers.insert(
+        "Permissions-Policy",
+        HeaderValue::from_static("geolocation=(), camera=(), microphone=(), payment=(), usb=()"),
+    );
     // EDGE-MEDIUM-008: Only set CSP if the handler didn't already set a nonce-based
     // one (e.g., scada_page_handler injects a per-request nonce). For non-HTML
     // endpoints (JSON APIs, WebSocket), the static CSP below is sufficient.
@@ -1942,7 +2067,7 @@ async fn security_headers_middleware(
                  frame-ancestors 'none'; \
                  base-uri 'self'; \
                  form-action 'none'; \
-                 object-src 'none';"
+                 object-src 'none';",
             ),
         );
     }

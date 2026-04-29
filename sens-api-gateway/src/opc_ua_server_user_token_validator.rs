@@ -114,8 +114,7 @@ impl UserTokenValidator {
         password: &Secret<Vec<u8>>,
     ) -> Result<AuthenticatedUser, UserTokenValidatorError> {
         self.store.with_enrollment(|maybe| {
-            let enrollment = maybe
-                .ok_or(UserTokenValidatorError::NoManifestLoaded)?;
+            let enrollment = maybe.ok_or(UserTokenValidatorError::NoManifestLoaded)?;
             match enrollment.verify_user_pass(raw_username, password) {
                 Ok(operator_id) => Ok(AuthenticatedUser::user_pass(operator_id)),
                 Err(UserTokenError::CredentialMismatch) => {
@@ -166,12 +165,9 @@ impl UserTokenValidator {
         presented_trust_anchor_der: &[u8],
     ) -> Result<AuthenticatedUser, UserTokenValidatorError> {
         self.store.with_enrollment(|maybe| {
-            let enrollment = maybe
-                .ok_or(UserTokenValidatorError::NoManifestLoaded)?;
+            let enrollment = maybe.ok_or(UserTokenValidatorError::NoManifestLoaded)?;
             match enrollment.resolve_x509(cn, presented_trust_anchor_der) {
-                Ok(operator_id) => {
-                    Ok(AuthenticatedUser::x509(cn.clone(), operator_id))
-                }
+                Ok(operator_id) => Ok(AuthenticatedUser::x509(cn.clone(), operator_id)),
                 Err(UserTokenError::X509IssuerNotEnrolled) => {
                     Err(UserTokenValidatorError::X509IssuerNotEnrolled)
                 }
@@ -224,9 +220,7 @@ impl std::fmt::Display for UserTokenValidatorError {
             Self::CredentialMismatch => f.write_str("credential_mismatch"),
             Self::BadUsernameFormat => f.write_str("bad_username_format"),
             Self::X509IssuerNotEnrolled => f.write_str("x509_issuer_not_enrolled"),
-            Self::X509TrustAnchorMismatch => {
-                f.write_str("x509_trust_anchor_mismatch")
-            }
+            Self::X509TrustAnchorMismatch => f.write_str("x509_trust_anchor_mismatch"),
         }
     }
 }
@@ -302,10 +296,7 @@ mod tests {
     #[test]
     fn user_pass_happy_path_returns_authenticated_user_pass() {
         let (_s, v) = make_validator_with(manifest_alice_plus_hmi());
-        let result = v.validate_user_pass(
-            "alice",
-            &Secret::new(b"pw-alice".to_vec()),
-        );
+        let result = v.validate_user_pass("alice", &Secret::new(b"pw-alice".to_vec()));
         let user = result.unwrap();
         // Verify the minted AuthenticatedUser carries the right
         // operator_id via its audit-label accessor (the label
@@ -322,10 +313,7 @@ mod tests {
     fn user_pass_wrong_password_surfaces_credential_mismatch() {
         let (_s, v) = make_validator_with(manifest_alice_plus_hmi());
         let err = v
-            .validate_user_pass(
-                "alice",
-                &Secret::new(b"wrong-password".to_vec()),
-            )
+            .validate_user_pass("alice", &Secret::new(b"wrong-password".to_vec()))
             .unwrap_err();
         assert_eq!(err, UserTokenValidatorError::CredentialMismatch);
     }
@@ -334,10 +322,7 @@ mod tests {
     fn user_pass_unknown_username_surfaces_credential_mismatch() {
         let (_s, v) = make_validator_with(manifest_alice_plus_hmi());
         let err = v
-            .validate_user_pass(
-                "mallory",
-                &Secret::new(b"pw-alice".to_vec()),
-            )
+            .validate_user_pass("mallory", &Secret::new(b"pw-alice".to_vec()))
             .unwrap_err();
         // Same error as wrong-password — enumeration defense.
         assert_eq!(err, UserTokenValidatorError::CredentialMismatch);
@@ -347,10 +332,7 @@ mod tests {
     fn user_pass_empty_username_surfaces_bad_format() {
         let (_s, v) = make_validator_with(manifest_alice_plus_hmi());
         let err = v
-            .validate_user_pass(
-                "",
-                &Secret::new(b"anything".to_vec()),
-            )
+            .validate_user_pass("", &Secret::new(b"anything".to_vec()))
             .unwrap_err();
         assert_eq!(err, UserTokenValidatorError::BadUsernameFormat);
     }
@@ -359,10 +341,7 @@ mod tests {
     fn user_pass_nfkc_match_succeeds() {
         // "ALICE" → NFKC + lowercase → "alice" → hit.
         let (_s, v) = make_validator_with(manifest_alice_plus_hmi());
-        let r = v.validate_user_pass(
-            "ALICE",
-            &Secret::new(b"pw-alice".to_vec()),
-        );
+        let r = v.validate_user_pass("ALICE", &Secret::new(b"pw-alice".to_vec()));
         assert!(r.is_ok());
     }
 
@@ -437,9 +416,10 @@ mod tests {
         let (store, v) = make_validator_with(manifest_alice_plus_hmi());
 
         // Alice auth works initially.
-        assert!(v
-            .validate_user_pass("alice", &Secret::new(b"pw-alice".to_vec()))
-            .is_ok());
+        assert!(
+            v.validate_user_pass("alice", &Secret::new(b"pw-alice".to_vec()))
+                .is_ok()
+        );
 
         // Cloud publishes a new manifest where alice is revoked
         // (removed from bindings) and bob is added.
@@ -459,22 +439,21 @@ mod tests {
 
         // Alice is now rejected (revocation visible without restart).
         assert_eq!(
-            v.validate_user_pass(
-                "alice",
-                &Secret::new(b"pw-alice".to_vec())
-            )
-            .unwrap_err(),
+            v.validate_user_pass("alice", &Secret::new(b"pw-alice".to_vec()))
+                .unwrap_err(),
             UserTokenValidatorError::CredentialMismatch
         );
 
         // Bob is accepted.
-        assert!(v
-            .validate_user_pass("bob", &Secret::new(b"pw-bob".to_vec()))
-            .is_ok());
+        assert!(
+            v.validate_user_pass("bob", &Secret::new(b"pw-bob".to_vec()))
+                .is_ok()
+        );
 
         // HMI-01 cert is rejected.
         assert_eq!(
-            v.validate_x509(&cn("hmi-01"), &canned_der(0x30)).unwrap_err(),
+            v.validate_x509(&cn("hmi-01"), &canned_der(0x30))
+                .unwrap_err(),
             UserTokenValidatorError::X509IssuerNotEnrolled
         );
     }
@@ -484,19 +463,17 @@ mod tests {
         let (store, v) = make_validator_with(manifest_alice_plus_hmi());
 
         // Works first.
-        assert!(v
-            .validate_user_pass("alice", &Secret::new(b"pw-alice".to_vec()))
-            .is_ok());
+        assert!(
+            v.validate_user_pass("alice", &Secret::new(b"pw-alice".to_vec()))
+                .is_ok()
+        );
 
         // Revocation clear.
         store.clear();
 
         assert_eq!(
-            v.validate_user_pass(
-                "alice",
-                &Secret::new(b"pw-alice".to_vec())
-            )
-            .unwrap_err(),
+            v.validate_user_pass("alice", &Secret::new(b"pw-alice".to_vec()))
+                .unwrap_err(),
             UserTokenValidatorError::NoManifestLoaded
         );
     }

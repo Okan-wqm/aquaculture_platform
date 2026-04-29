@@ -113,10 +113,7 @@ impl CmdHash {
 /// recursive-object canonicalization is tracked as Sprint 6.4 finding
 /// BATCH-007-FU-01; adding recursion requires the same lexicographic-sort
 /// discipline applied at every depth + a bumped `command-envelope-v2` tag.
-pub fn canonical_params(
-    cmd_name: &str,
-    params: &Value,
-) -> Result<Vec<u8>, CanonicalParamsError> {
+pub fn canonical_params(cmd_name: &str, params: &Value) -> Result<Vec<u8>, CanonicalParamsError> {
     if cmd_name.is_empty() {
         return Err(CanonicalParamsError::EmptyCmdName);
     }
@@ -143,11 +140,10 @@ pub fn canonical_params(
         sorted.insert(k.clone(), v.clone());
     }
 
-    let params_bytes = serde_json::to_vec(&sorted)
-        .map_err(|_| CanonicalParamsError::JsonSerializeFailed)?;
+    let params_bytes =
+        serde_json::to_vec(&sorted).map_err(|_| CanonicalParamsError::JsonSerializeFailed)?;
 
-    let mut out =
-        Vec::with_capacity(4 + cmd_name_bytes.len() + params_bytes.len() + 19);
+    let mut out = Vec::with_capacity(4 + cmd_name_bytes.len() + params_bytes.len() + 19);
     out.extend_from_slice(&cmd_name_len.to_be_bytes());
     out.extend_from_slice(cmd_name_bytes);
     out.extend_from_slice(&params_bytes);

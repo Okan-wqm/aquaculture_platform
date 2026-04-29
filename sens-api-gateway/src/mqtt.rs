@@ -183,6 +183,23 @@ pub struct CommandMessage {
     #[serde(default)]
     pub params: serde_json::Value,
     pub timestamp: String,
+    /// 2026-04-29 enterprise RBAC dispatch evidence:
+    /// verified operator UUID bytes from a successfully verified command
+    /// envelope.
+    ///
+    /// What it solves: legacy JSON must not be able to forge the actor that
+    /// dispatch-time RBAC authorizes. The field is Rust-internal and is
+    /// populated only by `commands::envelope_adapter` after signature
+    /// verification.
+    #[serde(default, skip_deserializing)]
+    pub verified_actor: Option<[u8; 16]>,
+    /// 2026-04-29 enterprise RBAC dispatch evidence:
+    /// policy version that was signed into the verified command envelope.
+    ///
+    /// What it solves: the policy engine can reject rollback-replay attempts
+    /// where an old envelope targets a stale RBAC manifest version.
+    #[serde(default, skip_deserializing)]
+    pub claimed_policy_version: u64,
     /// **Batch #307 Faz 6 two-person integrity flow-through.**
     /// True when envelope_adapter verified BOTH the primary
     /// signature AND the co-approver signature against the
@@ -200,6 +217,21 @@ pub struct CommandMessage {
     /// payloads default to false.
     #[serde(default, skip_deserializing)]
     pub verified_co_approver: bool,
+    /// 2026-04-29 enterprise two-person integrity evidence:
+    /// verified co-approver operator UUID bytes from the envelope.
+    ///
+    /// What it solves: the dispatch gate no longer trusts a boolean alone;
+    /// it carries the second actor into `PolicyEngine::authorize`.
+    #[serde(default, skip_deserializing)]
+    pub verified_co_approver_actor: Option<[u8; 16]>,
+    /// 2026-04-29 enterprise two-person integrity evidence:
+    /// co-approver signature over the same canonical envelope bytes.
+    ///
+    /// What it solves: the policy request can include explicit co-approval
+    /// evidence instead of reducing the second signature to an uninspectable
+    /// flag.
+    #[serde(default, skip_deserializing)]
+    pub verified_co_approver_signature: Option<crate::authz::policy::Ed25519SignatureBytes>,
 }
 
 /// Command response message
@@ -261,11 +293,7 @@ impl MqttClient {
         let client_id = format!("{}-{}", username, config.device_code);
 
         // Create MQTT options
-        let mut options = MqttOptions::new(
-            &client_id,
-            broker,
-            config.mqtt.port,
-        );
+        let mut options = MqttOptions::new(&client_id, broker, config.mqtt.port);
 
         // v1.2.2: Use expose_secret() to access password (zeroize on drop)
         options.set_credentials(username, password.expose_secret());
@@ -280,8 +308,7 @@ impl MqttClient {
 
         // Configure TLS transport if enabled (IEC 62443 SL2 FR4)
         if config.mqtt.tls.enabled {
-            let tls_config =
-                Self::configure_tls(&config.mqtt.tls, &config.mtls)?;
+            let tls_config = Self::configure_tls(&config.mqtt.tls, &config.mtls)?;
             options.set_transport(tls_config);
             info!("MQTT TLS enabled");
         }
@@ -420,7 +447,9 @@ impl MqttClient {
                     if publish.payload.len() > MAX_MQTT_PAYLOAD {
                         warn!(
                             "Dropping oversized MQTT message on topic='{}': {} bytes > {} limit",
-                            publish.topic, publish.payload.len(), MAX_MQTT_PAYLOAD
+                            publish.topic,
+                            publish.payload.len(),
+                            MAX_MQTT_PAYLOAD
                         );
                         continue;
                     }
@@ -509,16 +538,10 @@ impl MqttClient {
                         if !first_connect {
                             info!("Resubscribing to topics after reconnection...");
                         }
-                        if let Err(e) = client
-                            .subscribe(&topics.commands, QoS::AtLeastOnce)
-                            .await
-                        {
+                        if let Err(e) = client.subscribe(&topics.commands, QoS::AtLeastOnce).await {
                             error!("Failed to resubscribe to commands: {:?}", e);
                         }
-                        if let Err(e) = client
-                            .subscribe(&topics.config, QoS::AtLeastOnce)
-                            .await
-                        {
+                        if let Err(e) = client.subscribe(&topics.config, QoS::AtLeastOnce).await {
                             error!("Failed to resubscribe to config: {:?}", e);
                         }
                     }
@@ -722,7 +745,12 @@ impl MqttClient {
     pub async fn publish_lora_event(&self, payload: &impl serde::Serialize) -> Result<()> {
         let data = serde_json::to_vec(payload)?;
         self.client
-            .publish(&self.topics.lora_events, rumqttc::QoS::AtMostOnce, false, data)
+            .publish(
+                &self.topics.lora_events,
+                rumqttc::QoS::AtMostOnce,
+                false,
+                data,
+            )
             .await?;
         self.record_publish();
         Ok(())
@@ -858,6 +886,40 @@ impl crate::outbound_publisher::MqttPublishSink for MqttPublishAdapter {
             }
             Err(e) => Err(PublishSinkError::Transport(e.to_string())),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CommandMessage;
+
+    #[test]
+    fn legacy_json_cannot_forge_rbac_dispatch_evidence() {
+        // 2026-04-29 enterprise RBAC evidence boundary:
+        // legacy JSON may include fields named like internal proof fields, but
+        // serde must ignore them.
+        //
+        // What it solves: an unsigned legacy payload cannot self-assert a
+        // verified actor or co-approver and bypass the envelope adapter.
+        let forged_signature = vec![0u8; 64];
+        let payload = serde_json::json!({
+            "commandId": "cmd-1",
+            "command": "write_gpio",
+            "params": {"pin": 17},
+            "timestamp": "2026-04-29T00:00:00Z",
+            "verifiedActor": [7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7],
+            "claimedPolicyVersion": 99,
+            "verifiedCoApprover": true,
+            "verifiedCoApproverActor": [8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8],
+            "verifiedCoApproverSignature": forged_signature
+        });
+
+        let parsed: CommandMessage = serde_json::from_value(payload).unwrap();
+        assert_eq!(parsed.verified_actor, None);
+        assert_eq!(parsed.claimed_policy_version, 0);
+        assert!(!parsed.verified_co_approver);
+        assert_eq!(parsed.verified_co_approver_actor, None);
+        assert!(parsed.verified_co_approver_signature.is_none());
     }
 }
 
@@ -1015,7 +1077,10 @@ impl MqttClient {
                      Ensure system CA certificates are installed (e.g., ca-certificates package)."
                 ));
             }
-            info!("Loaded {} system CA certificates for MQTT TLS", root_store.len());
+            info!(
+                "Loaded {} system CA certificates for MQTT TLS",
+                root_store.len()
+            );
 
             // Batch 139 Sprint 6.6/6.8: install
             // SuderraServerCertVerifier when configured
@@ -1080,10 +1145,7 @@ impl MqttClient {
         // enforcement. Strict mode + custom CA is an
         // explicit fail-closed because Strict requires
         // pinning which isn't reachable here.
-        if !matches!(
-            mtls_config.mode,
-            crate::mtls::MtlsMode::Legacy
-        ) {
+        if !matches!(mtls_config.mode, crate::mtls::MtlsMode::Legacy) {
             warn!(
                 "mTLS: custom-CA TLS branch in use + mtls.mode={:?} — Suderra policy gates (fingerprint pinning, age caps) are NOT ACTIVE on this path (rumqttc::TlsConfiguration::Simple does not support custom verifiers). Migrate to system-CA TLS for Suderra mTLS enforcement.",
                 mtls_config.mode
@@ -1103,5 +1165,4 @@ impl MqttClient {
 
         Ok(Transport::Tls(tls))
     }
-
 }

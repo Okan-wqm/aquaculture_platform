@@ -87,11 +87,8 @@ impl AtlasEzoDriver {
         match status {
             1 => {
                 // Success - parse ASCII float from remaining bytes
-                let value_bytes: Vec<u8> = data[1..]
-                    .iter()
-                    .take_while(|&&b| b != 0)
-                    .copied()
-                    .collect();
+                let value_bytes: Vec<u8> =
+                    data[1..].iter().take_while(|&&b| b != 0).copied().collect();
 
                 match String::from_utf8(value_bytes) {
                     Ok(s) => match s.trim().parse::<f64>() {

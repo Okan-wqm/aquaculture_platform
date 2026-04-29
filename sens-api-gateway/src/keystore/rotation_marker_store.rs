@@ -79,9 +79,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
-use super::rotation_deadline::{
-    KeystoreRotationDeadline, RotationDeadlineError,
-};
+use super::rotation_deadline::{KeystoreRotationDeadline, RotationDeadlineError};
 use crate::runtime_safety::clock::ClockAuthority;
 
 /// Canonical filename inside `$SUDERRA_DATA_DIR`.
@@ -144,12 +142,9 @@ impl std::fmt::Display for MarkerStoreError {
                 path.display(),
                 reason
             ),
-            Self::Corrupt { path, reason } => write!(
-                f,
-                "marker_store_corrupt: {}: {}",
-                path.display(),
-                reason
-            ),
+            Self::Corrupt { path, reason } => {
+                write!(f, "marker_store_corrupt: {}: {}", path.display(), reason)
+            }
             Self::SchemaVersionMismatch {
                 path,
                 expected,
@@ -195,9 +190,7 @@ struct MarkerFileSchemaV1 {
 /// `Ok(None)` for the not-found case so the caller
 /// (`read_or_init`) can mint a fresh deadline. Other I/O
 /// errors propagate as `Err(ReadFailed)`.
-pub fn read_marker(
-    path: &Path,
-) -> Result<Option<KeystoreRotationDeadline>, MarkerStoreError> {
+pub fn read_marker(path: &Path) -> Result<Option<KeystoreRotationDeadline>, MarkerStoreError> {
     let bytes = match fs::read(path) {
         Ok(b) => b,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -211,8 +204,8 @@ pub fn read_marker(
         }
     };
 
-    let parsed: MarkerFileSchemaV1 = serde_json::from_slice(&bytes)
-        .map_err(|e| MarkerStoreError::Corrupt {
+    let parsed: MarkerFileSchemaV1 =
+        serde_json::from_slice(&bytes).map_err(|e| MarkerStoreError::Corrupt {
             path: path.to_path_buf(),
             reason: format!("json parse: {}", e),
         })?;
@@ -225,9 +218,7 @@ pub fn read_marker(
         });
     }
 
-    let deadline = KeystoreRotationDeadline::new_with_defaults(
-        parsed.last_rotation_at_unix_secs,
-    )?;
+    let deadline = KeystoreRotationDeadline::new_with_defaults(parsed.last_rotation_at_unix_secs)?;
     Ok(Some(deadline))
 }
 
@@ -246,11 +237,9 @@ pub fn write_marker(
     // Ensure parent directory exists (first-boot case
     // where $SUDERRA_DATA_DIR was just created).
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|e| {
-            MarkerStoreError::WriteFailed {
-                path: path.to_path_buf(),
-                reason: format!("create_dir_all parent: {}", e),
-            }
+        fs::create_dir_all(parent).map_err(|e| MarkerStoreError::WriteFailed {
+            path: path.to_path_buf(),
+            reason: format!("create_dir_all parent: {}", e),
         })?;
     }
 
@@ -258,11 +247,9 @@ pub fn write_marker(
         schema_version: ROTATION_MARKER_SCHEMA_VERSION,
         last_rotation_at_unix_secs: deadline.last_rotation_at_unix_secs(),
     };
-    let bytes = serde_json::to_vec_pretty(&payload).map_err(|e| {
-        MarkerStoreError::WriteFailed {
-            path: path.to_path_buf(),
-            reason: format!("json serialize: {}", e),
-        }
+    let bytes = serde_json::to_vec_pretty(&payload).map_err(|e| MarkerStoreError::WriteFailed {
+        path: path.to_path_buf(),
+        reason: format!("json serialize: {}", e),
     })?;
 
     // Temp file in the SAME directory as the target so
@@ -295,10 +282,11 @@ pub fn write_marker(
                 path: temp_path.clone(),
                 reason: format!("open temp: {}", e),
             })?;
-        f.write_all(&bytes).map_err(|e| MarkerStoreError::WriteFailed {
-            path: temp_path.clone(),
-            reason: format!("write_all: {}", e),
-        })?;
+        f.write_all(&bytes)
+            .map_err(|e| MarkerStoreError::WriteFailed {
+                path: temp_path.clone(),
+                reason: format!("write_all: {}", e),
+            })?;
         // fsync so the data is durable BEFORE the rename
         // commits. Without fsync a power loss between
         // rename + actual disk flush could leave a
@@ -368,9 +356,10 @@ where
 
     // First-boot path: no marker exists; mint a fresh
     // deadline using the current trustworthy wallclock.
-    let now_reading = clock.trustworthy_wall_clock().await.map_err(|e| {
-        MarkerStoreError::Deadline(RotationDeadlineError::Clock(e))
-    })?;
+    let now_reading = clock
+        .trustworthy_wall_clock()
+        .await
+        .map_err(|e| MarkerStoreError::Deadline(RotationDeadlineError::Clock(e)))?;
     let now_unix_secs = now_reading
         .system_time
         .duration_since(std::time::UNIX_EPOCH)
@@ -431,16 +420,11 @@ mod tests {
     #[tokio::test]
     async fn write_then_read_round_trips_last_rotation_timestamp() {
         let (_dir, path) = marker_path();
-        let deadline =
-            KeystoreRotationDeadline::new_with_defaults(1_700_000_000)
-                .expect("ctor");
+        let deadline = KeystoreRotationDeadline::new_with_defaults(1_700_000_000).expect("ctor");
         write_marker(&path, &deadline).expect("write");
 
         let loaded = read_marker(&path).expect("read").expect("Some");
-        assert_eq!(
-            loaded.last_rotation_at_unix_secs(),
-            1_700_000_000
-        );
+        assert_eq!(loaded.last_rotation_at_unix_secs(), 1_700_000_000);
         assert_eq!(loaded.rotation_period(), deadline.rotation_period());
         assert_eq!(loaded.alarm_lead_time(), deadline.alarm_lead_time());
     }
@@ -483,9 +467,7 @@ mod tests {
         let err = read_marker(&path).expect_err("must error");
         match err {
             MarkerStoreError::SchemaVersionMismatch {
-                expected,
-                actual,
-                ..
+                expected, actual, ..
             } => {
                 assert_eq!(expected, ROTATION_MARKER_SCHEMA_VERSION);
                 assert_eq!(actual, 999);
@@ -504,14 +486,11 @@ mod tests {
     #[test]
     fn write_marker_persists_expected_json_shape() {
         let (_dir, path) = marker_path();
-        let deadline =
-            KeystoreRotationDeadline::new_with_defaults(1_700_000_500)
-                .expect("ctor");
+        let deadline = KeystoreRotationDeadline::new_with_defaults(1_700_000_500).expect("ctor");
         write_marker(&path, &deadline).expect("write");
 
         let bytes = fs::read(&path).expect("read");
-        let parsed: MarkerFileSchemaV1 =
-            serde_json::from_slice(&bytes).expect("parse");
+        let parsed: MarkerFileSchemaV1 = serde_json::from_slice(&bytes).expect("parse");
         assert_eq!(parsed.schema_version, 1);
         assert_eq!(parsed.last_rotation_at_unix_secs, 1_700_000_500);
     }
@@ -546,9 +525,7 @@ mod tests {
     #[tokio::test]
     async fn read_or_init_returns_existing_marker_unchanged() {
         let (_dir, path) = marker_path();
-        let original =
-            KeystoreRotationDeadline::new_with_defaults(1_500_000_000)
-                .expect("ctor");
+        let original = KeystoreRotationDeadline::new_with_defaults(1_500_000_000).expect("ctor");
         write_marker(&path, &original).expect("seed");
 
         let clock = SystemClockAuthority::new();
@@ -558,10 +535,7 @@ mod tests {
         .await
         .expect("read");
 
-        assert_eq!(
-            loaded.last_rotation_at_unix_secs(),
-            1_500_000_000
-        );
+        assert_eq!(loaded.last_rotation_at_unix_secs(), 1_500_000_000);
     }
 
     /// `record_rotation_now` advances the deadline AND
@@ -571,8 +545,7 @@ mod tests {
     async fn record_rotation_now_advances_and_persists() {
         let (_dir, path) = marker_path();
         let mut deadline =
-            KeystoreRotationDeadline::new_with_defaults(1_500_000_000)
-                .expect("ctor");
+            KeystoreRotationDeadline::new_with_defaults(1_500_000_000).expect("ctor");
         write_marker(&path, &deadline).expect("seed");
 
         let clock = SystemClockAuthority::new();
@@ -599,39 +572,47 @@ mod tests {
     #[test]
     fn marker_store_error_display_strings_pinned() {
         let path = PathBuf::from("/x/y");
-        assert!(format!(
-            "{}",
-            MarkerStoreError::ReadFailed {
-                path: path.clone(),
-                reason: "perm".into()
-            }
-        )
-        .contains("marker_store_read_failed"));
-        assert!(format!(
-            "{}",
-            MarkerStoreError::WriteFailed {
-                path: path.clone(),
-                reason: "disk".into()
-            }
-        )
-        .contains("marker_store_write_failed"));
-        assert!(format!(
-            "{}",
-            MarkerStoreError::Corrupt {
-                path: path.clone(),
-                reason: "json".into()
-            }
-        )
-        .contains("marker_store_corrupt"));
-        assert!(format!(
-            "{}",
-            MarkerStoreError::SchemaVersionMismatch {
-                path,
-                expected: 1,
-                actual: 999
-            }
-        )
-        .contains("schema_version_mismatch"));
+        assert!(
+            format!(
+                "{}",
+                MarkerStoreError::ReadFailed {
+                    path: path.clone(),
+                    reason: "perm".into()
+                }
+            )
+            .contains("marker_store_read_failed")
+        );
+        assert!(
+            format!(
+                "{}",
+                MarkerStoreError::WriteFailed {
+                    path: path.clone(),
+                    reason: "disk".into()
+                }
+            )
+            .contains("marker_store_write_failed")
+        );
+        assert!(
+            format!(
+                "{}",
+                MarkerStoreError::Corrupt {
+                    path: path.clone(),
+                    reason: "json".into()
+                }
+            )
+            .contains("marker_store_corrupt")
+        );
+        assert!(
+            format!(
+                "{}",
+                MarkerStoreError::SchemaVersionMismatch {
+                    path,
+                    expected: 1,
+                    actual: 999
+                }
+            )
+            .contains("schema_version_mismatch")
+        );
     }
 
     #[test]

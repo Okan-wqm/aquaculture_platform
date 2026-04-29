@@ -106,36 +106,22 @@ impl BytecodeRegistryStore {
         if let Some(parent) = db_path.as_ref().parent() {
             if !parent.exists() {
                 std::fs::create_dir_all(parent).map_err(|e| {
-                    StoreError::ConnectionFailed(format!(
-                        "create parent dir: {}",
-                        e
-                    ))
+                    StoreError::ConnectionFailed(format!("create parent dir: {}", e))
                 })?;
             }
         }
 
-        let conn = Connection::open(&db_path).map_err(|e| {
-            StoreError::ConnectionFailed(format!("open: {}", e))
-        })?;
+        let conn = Connection::open(&db_path)
+            .map_err(|e| StoreError::ConnectionFailed(format!("open: {}", e)))?;
 
         // Apply SQLCipher master-key derivation — same
         // shared path used by offline_queue +
         // persistence so all agent SQLCipher stores
         // share one key ceremony.
         let hex_key = crate::offline_queue::derive_db_encryption_key()
-            .map_err(|e| {
-                StoreError::ConnectionFailed(format!(
-                    "derive encryption key: {}",
-                    e
-                ))
-            })?;
+            .map_err(|e| StoreError::ConnectionFailed(format!("derive encryption key: {}", e)))?;
         conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", hex_key))
-            .map_err(|e| {
-                StoreError::ConnectionFailed(format!(
-                    "apply encryption key: {}",
-                    e
-                ))
-            })?;
+            .map_err(|e| StoreError::ConnectionFailed(format!("apply encryption key: {}", e)))?;
 
         // WAL mode + sane defaults (same as
         // SqlitePersistence).
@@ -172,10 +158,7 @@ impl BytecodeRegistryStore {
     }
 
     fn run_migrations(&self) -> Result<(), StoreError> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| StoreError::LockPoisoned)?;
+        let conn = self.conn.lock().map_err(|_| StoreError::LockPoisoned)?;
 
         conn.execute_batch(
             r#"
@@ -206,10 +189,7 @@ impl BytecodeRegistryStore {
         let deployed_secs = entry.deployed_at.timestamp();
         let enabled_int = if entry.enabled { 1 } else { 0 };
 
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| StoreError::LockPoisoned)?;
+        let conn = self.conn.lock().map_err(|_| StoreError::LockPoisoned)?;
         conn.execute(
             r#"INSERT INTO bytecode_programs
                  (program_id, tenant_id, policy_version, enabled,
@@ -237,10 +217,7 @@ impl BytecodeRegistryStore {
     /// Load every persisted program. Used at boot to
     /// rehydrate the in-memory registry.
     pub fn load_all(&self) -> Result<Vec<ProgramEntry>, StoreError> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| StoreError::LockPoisoned)?;
+        let conn = self.conn.lock().map_err(|_| StoreError::LockPoisoned)?;
         let mut stmt = conn
             .prepare(
                 r#"SELECT program_id, tenant_id, policy_version, enabled,
@@ -280,11 +257,9 @@ impl BytecodeRegistryStore {
                 bytecode_json,
             ) = row.map_err(|e| StoreError::Sql(e.to_string()))?;
 
-            let bytecode: Bytecode = serde_json::from_str(&bytecode_json)
-                .map_err(|e| StoreError::Encoding(format!(
-                    "bytecode_json for `{}`: {}",
-                    program_id, e
-                )))?;
+            let bytecode: Bytecode = serde_json::from_str(&bytecode_json).map_err(|e| {
+                StoreError::Encoding(format!("bytecode_json for `{}`: {}", program_id, e))
+            })?;
 
             let deployed_at: DateTime<Utc> = Utc
                 .timestamp_opt(deployed_at_secs, 0)
@@ -308,10 +283,7 @@ impl BytecodeRegistryStore {
     /// id is NOT an error (the caller can always invoke
     /// delete + treat 0-row-affected as benign).
     pub fn delete(&self, program_id: &str) -> Result<(), StoreError> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| StoreError::LockPoisoned)?;
+        let conn = self.conn.lock().map_err(|_| StoreError::LockPoisoned)?;
         conn.execute(
             "DELETE FROM bytecode_programs WHERE program_id = ?1",
             params![program_id],
@@ -322,16 +294,11 @@ impl BytecodeRegistryStore {
 
     /// Row count — diagnostic helper for health endpoints.
     pub fn count(&self) -> Result<u64, StoreError> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| StoreError::LockPoisoned)?;
+        let conn = self.conn.lock().map_err(|_| StoreError::LockPoisoned)?;
         let count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM bytecode_programs",
-                [],
-                |row| row.get(0),
-            )
+            .query_row("SELECT COUNT(*) FROM bytecode_programs", [], |row| {
+                row.get(0)
+            })
             .map_err(|e| StoreError::Sql(e.to_string()))?;
         Ok(count as u64)
     }
@@ -385,8 +352,8 @@ pub async fn load_into_registry(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::bytecode::Opcode;
+    use super::*;
 
     fn mk_bc(program_id: &str, version: u64) -> Bytecode {
         Bytecode {

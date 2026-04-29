@@ -122,12 +122,9 @@ impl LifecycleAuthKey {
     /// LoadCredential); returns CredentialFileMissing
     /// when the directory is set but the named file
     /// doesn't exist.
-    pub fn load_from_credentials_dir(
-        credential_name: &str,
-    ) -> Result<Self, AuthKeyError> {
-        let dir = std::env::var("CREDENTIALS_DIRECTORY").map_err(|_| {
-            AuthKeyError::CredentialsDirMissing
-        })?;
+    pub fn load_from_credentials_dir(credential_name: &str) -> Result<Self, AuthKeyError> {
+        let dir = std::env::var("CREDENTIALS_DIRECTORY")
+            .map_err(|_| AuthKeyError::CredentialsDirMissing)?;
         let path = std::path::PathBuf::from(&dir).join(credential_name);
         let bytes = std::fs::read(&path).map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
@@ -177,16 +174,27 @@ impl std::fmt::Display for AuthKeyError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::TooShort { got, need } => {
-                write!(f, "lifecycle HMAC key too short: {} bytes (need >= {})", got, need)
+                write!(
+                    f,
+                    "lifecycle HMAC key too short: {} bytes (need >= {})",
+                    got, need
+                )
             }
             Self::CredentialsDirMissing => {
-                write!(f, "$CREDENTIALS_DIRECTORY not set — agent must be started via systemd with LoadCredential to enable HmacToken auth mode")
+                write!(
+                    f,
+                    "$CREDENTIALS_DIRECTORY not set — agent must be started via systemd with LoadCredential to enable HmacToken auth mode"
+                )
             }
             Self::CredentialFileMissing { path } => {
                 write!(f, "lifecycle HMAC credential file missing: {}", path)
             }
             Self::Io { path, reason } => {
-                write!(f, "lifecycle HMAC credential read failed {}: {}", path, reason)
+                write!(
+                    f,
+                    "lifecycle HMAC credential read failed {}: {}",
+                    path, reason
+                )
             }
         }
     }
@@ -222,10 +230,18 @@ impl std::fmt::Display for AuthError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::MissingHmacHeader => write!(f, "missing X-Suderra-Lifecycle-Hmac header"),
-            Self::MissingTimestampHeader => write!(f, "missing X-Suderra-Lifecycle-Timestamp header"),
+            Self::MissingTimestampHeader => {
+                write!(f, "missing X-Suderra-Lifecycle-Timestamp header")
+            }
             Self::MalformedHmacHeader => write!(f, "malformed hex in X-Suderra-Lifecycle-Hmac"),
-            Self::MalformedTimestampHeader => write!(f, "malformed integer in X-Suderra-Lifecycle-Timestamp"),
-            Self::TimestampOutOfWindow { client_ts, server_ts, window } => {
+            Self::MalformedTimestampHeader => {
+                write!(f, "malformed integer in X-Suderra-Lifecycle-Timestamp")
+            }
+            Self::TimestampOutOfWindow {
+                client_ts,
+                server_ts,
+                window,
+            } => {
                 write!(
                     f,
                     "timestamp {} outside ±{}s window around server time {}",
@@ -253,7 +269,9 @@ pub fn verify_request(
     let hmac_hex = hmac_header.ok_or(AuthError::MissingHmacHeader)?;
     let ts_str = timestamp_header.ok_or(AuthError::MissingTimestampHeader)?;
 
-    let client_ts: i64 = ts_str.parse().map_err(|_| AuthError::MalformedTimestampHeader)?;
+    let client_ts: i64 = ts_str
+        .parse()
+        .map_err(|_| AuthError::MalformedTimestampHeader)?;
 
     let server_ts = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -285,12 +303,7 @@ pub fn verify_request(
 /// timestamp + method + path tuple. Used by both the
 /// verify path (server) + the systemd timer's sign-the-
 /// request tool (client).
-pub fn compute_hmac(
-    key: &LifecycleAuthKey,
-    timestamp: i64,
-    method: &str,
-    path: &str,
-) -> [u8; 32] {
+pub fn compute_hmac(key: &LifecycleAuthKey, timestamp: i64, method: &str, path: &str) -> [u8; 32] {
     type HmacSha256 = Hmac<Sha256>;
     let mut mac = HmacSha256::new_from_slice(key.as_bytes())
         .expect("HMAC can take key of any size >= MIN_KEY_LEN_BYTES");

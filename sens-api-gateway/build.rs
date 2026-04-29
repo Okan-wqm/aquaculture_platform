@@ -73,9 +73,7 @@ fn build_sx1302_hal() {
             "cargo:warning=Gercek donanim destegi icin vendor/sx1302_hal dizinine \
              Semtech HAL'ini klonlayin."
         );
-        println!(
-            "cargo:warning=Bkz: vendor/sx1302_hal/README.md"
-        );
+        println!("cargo:warning=Bkz: vendor/sx1302_hal/README.md");
         return;
     }
 

@@ -343,11 +343,10 @@ impl ProvisioningClient {
         use secrecy::ExposeSecret;
         let (api_url, tenant_token) = {
             let state = self.state.read().await;
-            let secret = state
-                .config
-                .tenant_token
-                .clone()
-                .ok_or_else(|| AgentError::Provisioning("No tenant_token in config".to_string()))?;
+            let secret =
+                state.config.tenant_token.clone().ok_or_else(|| {
+                    AgentError::Provisioning("No tenant_token in config".to_string())
+                })?;
             let token = secret.expose_secret().clone();
 
             (state.config.api_url.clone(), token)

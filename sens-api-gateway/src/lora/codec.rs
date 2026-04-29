@@ -53,7 +53,8 @@ pub fn decode_cayenne_lpp(payload: &[u8], tag_prefix: &str) -> Vec<(String, f64)
         if pos + 2 > payload.len() {
             warn!(
                 "Cayenne LPP: Eksik veri, pos={}, payload_len={}, decode durduruluyor",
-                pos, payload.len()
+                pos,
+                payload.len()
             );
             break;
         }
@@ -67,82 +68,85 @@ pub fn decode_cayenne_lpp(payload: &[u8], tag_prefix: &str) -> Vec<(String, f64)
             // Digital Input: 1 byte, 0 veya 1
             0x01 => {
                 if pos + 1 > payload.len() {
-                    warn!("Cayenne LPP: Digital input icin yeterli veri yok, ch={}", channel);
+                    warn!(
+                        "Cayenne LPP: Digital input icin yeterli veri yok, ch={}",
+                        channel
+                    );
                     break;
                 }
                 let value = payload[pos] as f64;
                 pos += 1;
-                results.push((
-                    format!("{}ch{}_digital_input", tag_prefix, channel),
-                    value,
-                ));
+                results.push((format!("{}ch{}_digital_input", tag_prefix, channel), value));
             }
 
             // Analog Input: 2 byte, signed, olcek 0.01
             0x02 => {
                 if pos + 2 > payload.len() {
-                    warn!("Cayenne LPP: Analog input icin yeterli veri yok, ch={}", channel);
+                    warn!(
+                        "Cayenne LPP: Analog input icin yeterli veri yok, ch={}",
+                        channel
+                    );
                     break;
                 }
                 let raw = i16::from_be_bytes([payload[pos], payload[pos + 1]]);
                 pos += 2;
                 let value = f64::from(raw) * 0.01;
-                results.push((
-                    format!("{}ch{}_analog_input", tag_prefix, channel),
-                    value,
-                ));
+                results.push((format!("{}ch{}_analog_input", tag_prefix, channel), value));
             }
 
             // Illuminance: 2 byte, unsigned, olcek 1 lux
             0x65 => {
                 if pos + 2 > payload.len() {
-                    warn!("Cayenne LPP: Illuminance icin yeterli veri yok, ch={}", channel);
+                    warn!(
+                        "Cayenne LPP: Illuminance icin yeterli veri yok, ch={}",
+                        channel
+                    );
                     break;
                 }
                 let raw = u16::from_be_bytes([payload[pos], payload[pos + 1]]);
                 pos += 2;
                 let value = f64::from(raw); // 1 lux olcek
-                results.push((
-                    format!("{}ch{}_illuminance", tag_prefix, channel),
-                    value,
-                ));
+                results.push((format!("{}ch{}_illuminance", tag_prefix, channel), value));
             }
 
             // Temperature: 2 byte, signed, olcek 0.1 C
             // En yaygin sensor tipi - sicaklik olcumu
             0x67 => {
                 if pos + 2 > payload.len() {
-                    warn!("Cayenne LPP: Temperature icin yeterli veri yok, ch={}", channel);
+                    warn!(
+                        "Cayenne LPP: Temperature icin yeterli veri yok, ch={}",
+                        channel
+                    );
                     break;
                 }
                 let raw = i16::from_be_bytes([payload[pos], payload[pos + 1]]);
                 pos += 2;
                 let value = f64::from(raw) * 0.1;
-                results.push((
-                    format!("{}ch{}_temperature", tag_prefix, channel),
-                    value,
-                ));
+                results.push((format!("{}ch{}_temperature", tag_prefix, channel), value));
             }
 
             // Relative Humidity: 1 byte, unsigned, olcek 0.5 %
             0x68 => {
                 if pos + 1 > payload.len() {
-                    warn!("Cayenne LPP: Humidity icin yeterli veri yok, ch={}", channel);
+                    warn!(
+                        "Cayenne LPP: Humidity icin yeterli veri yok, ch={}",
+                        channel
+                    );
                     break;
                 }
                 let raw = payload[pos];
                 pos += 1;
                 let value = f64::from(raw) * 0.5;
-                results.push((
-                    format!("{}ch{}_humidity", tag_prefix, channel),
-                    value,
-                ));
+                results.push((format!("{}ch{}_humidity", tag_prefix, channel), value));
             }
 
             // Barometric Pressure: 2 byte, unsigned, olcek 0.1 hPa
             0x73 => {
                 if pos + 2 > payload.len() {
-                    warn!("Cayenne LPP: Barometric icin yeterli veri yok, ch={}", channel);
+                    warn!(
+                        "Cayenne LPP: Barometric icin yeterli veri yok, ch={}",
+                        channel
+                    );
                     break;
                 }
                 let raw = u16::from_be_bytes([payload[pos], payload[pos + 1]]);
@@ -212,10 +216,7 @@ pub fn decode_raw_binary(
 
         // NaN ve Infinity kontrolu - bozuk veriyi filtrele
         if value.is_finite() {
-            results.push((
-                format!("{}raw_{}", tag_prefix, i),
-                f64::from(value),
-            ));
+            results.push((format!("{}raw_{}", tag_prefix, i), f64::from(value)));
         } else {
             warn!(
                 "Raw binary: Index {} degerinde gecersiz float (NaN/Inf), atlaniyor",
@@ -247,9 +248,7 @@ pub fn decode_payload(
 ) -> Vec<(String, f64)> {
     match codec_type {
         CodecType::CayenneLpp => decode_cayenne_lpp(payload, tag_prefix),
-        CodecType::RawBinary { byte_order } => {
-            decode_raw_binary(payload, tag_prefix, *byte_order)
-        }
+        CodecType::RawBinary { byte_order } => decode_raw_binary(payload, tag_prefix, *byte_order),
         CodecType::Custom { decoder_name } => {
             // Ozel decoder'lar henuz desteklenmiyor - ileride scripting modulu
             // ile entegre edilecek (Lua veya WASM tabanli)
@@ -349,7 +348,7 @@ mod tests {
         // Birden fazla sensor: Temp 25.0C + Humidity 65%
         let payload = [
             0x01, 0x67, 0x00, 0xFA, // Ch1, Temp, 250 -> 25.0 C
-            0x02, 0x68, 0x82,       // Ch2, Hum, 130 -> 65.0 %
+            0x02, 0x68, 0x82, // Ch2, Hum, 130 -> 65.0 %
         ];
         let results = decode_cayenne_lpp(&payload, "multi_");
 

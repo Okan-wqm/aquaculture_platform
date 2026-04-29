@@ -100,11 +100,7 @@ impl CommandHandler {
                 // process kernel flag; no memory touched.
                 // Stable syscall since Linux 2.4.
                 let flag = unsafe { libc::prctl(PR_GET_DUMPABLE, 0, 0, 0, 0) };
-                if flag >= 0 {
-                    Some(flag == 0)
-                } else {
-                    None
-                }
+                if flag >= 0 { Some(flag == 0) } else { None }
             }
             #[cfg(not(target_os = "linux"))]
             {
@@ -193,10 +189,7 @@ impl CommandHandler {
     /// Uses `read_all_parallel()` (v1.2.2) to minimize wall-clock
     /// latency when multiple Modbus devices are configured — each
     /// device's read happens concurrently rather than serially.
-    pub(super) async fn cmd_read_modbus(
-        &self,
-        params: &Value,
-    ) -> (bool, Value, Option<String>) {
+    pub(super) async fn cmd_read_modbus(&self, params: &Value) -> (bool, Value, Option<String>) {
         info!("Executing read_modbus command");
 
         let _device_name = params.get("device").and_then(|v| v.as_str());

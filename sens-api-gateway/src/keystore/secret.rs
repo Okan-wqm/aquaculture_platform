@@ -66,7 +66,9 @@ impl MasterKeyMaterial {
     /// caller's responsibility to zeroize the source (typically coming from
     /// `Zeroizing<Vec<u8>>` in the TPM unseal path).
     pub(crate) fn from_bytes(bytes: [u8; 32]) -> Self {
-        Self { inner: Secret::new(MasterKeyBytes(bytes)) }
+        Self {
+            inner: Secret::new(MasterKeyBytes(bytes)),
+        }
     }
 
     /// Expose the master bytes — CRATE-PRIVATE. Only backends + HKDF derivation
@@ -111,7 +113,10 @@ impl KeyMaterial {
     /// used as the HKDF `info` parameter. Consumers obtain `KeyMaterial` ONLY
     /// via `Keystore::derive_key()`; this ctor is `pub(crate)` for that reason.
     pub(crate) fn from_derived_bytes(purpose: KeyPurpose, bytes: [u8; 32]) -> Self {
-        Self { purpose, inner: Secret::new(DerivedKeyBytes(bytes)) }
+        Self {
+            purpose,
+            inner: Secret::new(DerivedKeyBytes(bytes)),
+        }
     }
 
     /// Declared purpose — consumers assert on this at construction sites.
@@ -149,8 +154,16 @@ mod tests {
     fn master_key_debug_redacts_bytes() {
         let mk = MasterKeyMaterial::from_bytes([0xaa; 32]);
         let debug = format!("{:?}", mk);
-        assert!(debug.contains("REDACTED"), "master debug must redact: {}", debug);
-        assert!(!debug.contains("aa"), "master debug must not contain byte hex: {}", debug);
+        assert!(
+            debug.contains("REDACTED"),
+            "master debug must redact: {}",
+            debug
+        );
+        assert!(
+            !debug.contains("aa"),
+            "master debug must not contain byte hex: {}",
+            debug
+        );
     }
 
     /// WHY: Derived KeyMaterial Debug — same invariant, with purpose visible.

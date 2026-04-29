@@ -564,7 +564,9 @@ impl ScriptEngine {
                         let full_name = format!("{}:{}", script_id, var_name);
                         // LOW-40: Populate both maps so save_retain_variables() can
                         // use the fast retain_variables path on shutdown.
-                        self.context.retain_variables.insert(full_name.clone(), value.clone());
+                        self.context
+                            .retain_variables
+                            .insert(full_name.clone(), value.clone());
                         self.context.set_variable(&full_name, value);
                         loaded_count += 1;
                     }
@@ -1729,7 +1731,9 @@ impl ScriptEngine {
             // LOW-40: Also track in the dedicated retain_variables map so that
             // save_retain_variables() can flush only this subset on shutdown,
             // avoiding an O(n_all_vars) scan with string prefix matching.
-            self.context.retain_variables.insert(var_name.clone(), value.clone());
+            self.context
+                .retain_variables
+                .insert(var_name.clone(), value.clone());
 
             if let Some(ref persistence) = self.persistence {
                 let script_id = self.current_script_id.as_deref().unwrap_or("global");
@@ -1898,7 +1902,11 @@ impl ScriptEngine {
         let host_lower = host.to_lowercase();
 
         // Block localhost
-        if host_lower == "localhost" || host_lower == "127.0.0.1" || host_lower == "::1" || host_lower == "[::1]" {
+        if host_lower == "localhost"
+            || host_lower == "127.0.0.1"
+            || host_lower == "::1"
+            || host_lower == "[::1]"
+        {
             return ActionResult::failure(
                 ActionType::Webhook,
                 "Webhook to localhost is not allowed (SSRF protection)",

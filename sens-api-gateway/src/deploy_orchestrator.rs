@@ -108,7 +108,9 @@ pub struct PlcCredentials {
     pub password: Option<secrecy::Secret<String>>,
 }
 
-fn deserialize_plc_password<'de, D>(deserializer: D) -> Result<Option<secrecy::Secret<String>>, D::Error>
+fn deserialize_plc_password<'de, D>(
+    deserializer: D,
+) -> Result<Option<secrecy::Secret<String>>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {

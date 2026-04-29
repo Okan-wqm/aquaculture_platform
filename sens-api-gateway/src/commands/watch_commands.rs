@@ -8,7 +8,7 @@
 //! due sessions + publishes their tag values;
 //! these commands create + tear down sessions.
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -88,8 +88,7 @@ impl CommandHandler {
                     false,
                     json!(null),
                     Some(
-                        "watch_subscribe: missing required param `ttl_secs` (integer)"
-                            .to_string(),
+                        "watch_subscribe: missing required param `ttl_secs` (integer)".to_string(),
                     ),
                 );
             }
@@ -161,11 +160,7 @@ impl CommandHandler {
             }
             Err(e) => {
                 warn!("watch_subscribe rejected: {}", e);
-                (
-                    false,
-                    json!(null),
-                    Some(format!("watch_subscribe: {}", e)),
-                )
+                (false, json!(null), Some(format!("watch_subscribe: {}", e)))
             }
         }
     }

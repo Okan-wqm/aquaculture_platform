@@ -169,7 +169,10 @@ mod tests {
     #[test]
     fn partition_roll_wire_tag_stable() {
         assert_eq!(
-            PartitionRoll::InitialInstall { target: AbPartition::A }.wire_tag(),
+            PartitionRoll::InitialInstall {
+                target: AbPartition::A
+            }
+            .wire_tag(),
             0
         );
         assert_eq!(
@@ -180,7 +183,13 @@ mod tests {
             .wire_tag(),
             1
         );
-        assert_eq!(PartitionRoll::Confirm { slot: AbPartition::A }.wire_tag(), 2);
+        assert_eq!(
+            PartitionRoll::Confirm {
+                slot: AbPartition::A
+            }
+            .wire_tag(),
+            2
+        );
         assert_eq!(
             PartitionRoll::Rollback {
                 failed: AbPartition::A,
@@ -200,8 +209,14 @@ mod tests {
     /// WHY: serde snake_case on all enums for wire stability.
     #[test]
     fn partition_serde_snake_case() {
-        assert_eq!(serde_json::to_string(&AbPartition::A).expect("ok"), r#""a""#);
-        assert_eq!(serde_json::to_string(&AbPartition::B).expect("ok"), r#""b""#);
+        assert_eq!(
+            serde_json::to_string(&AbPartition::A).expect("ok"),
+            r#""a""#
+        );
+        assert_eq!(
+            serde_json::to_string(&AbPartition::B).expect("ok"),
+            r#""b""#
+        );
     }
 
     #[test]

@@ -32,10 +32,15 @@
 //! externally because the call site assumes the upstream MQTT
 //! pipeline already ran retain/replay/dedup gates.
 
-use serde_json::json;
 use chrono::Utc;
+use serde_json::json;
 use tracing::{debug, info, warn};
 
+use crate::authz::context::{ActorIdentity, AuthorizationDecision};
+use crate::authz::in_memory_engine::InMemoryPolicyEngine;
+use crate::authz::permission::OperatorId;
+use crate::authz::policy::{AuthorizationRequest, CoApproverEvidence, PolicyEngine};
+use crate::command_envelope::envelope::SignatureMode;
 use crate::mqtt::{CommandMessage, CommandResponse};
 use crate::security::sanitize_for_log;
 
@@ -46,10 +51,7 @@ impl super::CommandHandler {
     /// MQTT-side gates: retained reject, parse, replay window,
     /// dedup) and return the serializable [`CommandResponse`] the
     /// MQTT publisher will send.
-    pub(super) async fn execute_command(
-        &mut self,
-        command: &CommandMessage,
-    ) -> CommandResponse {
+    pub(super) async fn execute_command(&mut self, command: &CommandMessage) -> CommandResponse {
         // v1.2.6: Track command execution time for observability
         let start_time = std::time::Instant::now();
         info!(
@@ -107,7 +109,7 @@ impl super::CommandHandler {
         // device_id, audit sink Arc, and tenant bytes under
         // the read-guard so pre+post audit emit can run
         // without re-acquiring the state lock.
-        let (device_id, audit_sink, tenant_bytes) = {
+        let (device_id, audit_sink, tenant_bytes, signature_mode, rbac_manifest_store) = {
             let state = self.state.read().await;
             let tid = state
                 .tenant_id
@@ -119,6 +121,8 @@ impl super::CommandHandler {
                 state.config.device_id.clone(),
                 state.audit_sink.clone(),
                 tid,
+                state.config.signature_mode,
+                state.rbac_manifest_store.clone(),
             )
         };
         let tenant = crate::authz::permission::TenantId::new_from_verified(tenant_bytes);
@@ -133,7 +137,7 @@ impl super::CommandHandler {
             tenant,
         );
 
-        // Batch 33+35 Sprint 6.1 partial: compute required-
+        // Batch 33+35 Sprint 6.1 foundation: compute required-
         // permission ONCE and reuse for:
         //   (a) the IEC 62443 SL-2 safety-critical audit log
         //       (was a hardcoded command-name list; now derived
@@ -211,6 +215,7 @@ impl super::CommandHandler {
             .as_ref()
             .map(|p| p.requires_two_person_integrity())
             .unwrap_or(false);
+        let mut command_audit_context: Option<audit_emit::CommandAuditContext> = None;
         if requires_two_person && !command.verified_co_approver {
             warn!(
                 "TWO-PERSON-INTEGRITY rejected: command='{}' requires co-approval per ADR-017 §8; envelope carried no verified co-approver signature. id='{}'",
@@ -222,17 +227,21 @@ impl super::CommandHandler {
             // see a uniform structure. The post-exec audit
             // emission below fires with the rejection details.
             let elapsed = start_time.elapsed();
-            audit_emit::emit_post_event(
+            let deny_context = required_perm
+                .as_ref()
+                .map(audit_emit::CommandAuditContext::from_permission);
+            audit_emit::emit_post_event_with_context(
                 audit_sink.as_ref(),
                 &command.command,
                 &command.command_id,
                 &device_id,
                 tenant,
-                crate::audit::AuditOutcome::Failure,
+                crate::audit::AuditOutcome::AuthorizationDenied,
                 &format!(
                     "elapsed_ms={} err=two_person_integrity_required",
                     elapsed.as_millis()
                 ),
+                deny_context.as_ref(),
             );
             return CommandResponse {
                 command_id: command.command_id.clone(),
@@ -264,6 +273,219 @@ impl super::CommandHandler {
             );
         }
 
+        // 2026-04-29 enterprise RBAC dispatch gate:
+        // authorize the verified operator and required permission before the
+        // command reaches the handler table.
+        //
+        // What it solves: the permission mapper is no longer advisory. The
+        // only path to a permissioned handler in signed modes now carries
+        // verified actor evidence, signed policy version, tenant binding and
+        // optional co-approver evidence into `PolicyEngine::authorize`.
+        if let Some(ref perm) = required_perm {
+            match command.verified_actor {
+                Some(actor_bytes) => {
+                    let received_at = chrono::DateTime::parse_from_rfc3339(&command.timestamp)
+                        .map(|dt| {
+                            std::time::UNIX_EPOCH
+                                + std::time::Duration::from_secs(dt.timestamp().max(0) as u64)
+                        })
+                        .unwrap_or_else(|_| std::time::SystemTime::now());
+
+                    let mut request = AuthorizationRequest::new(
+                        ActorIdentity::Operator(OperatorId::new_from_verified(actor_bytes)),
+                        perm.clone(),
+                        tenant,
+                        command.claimed_policy_version,
+                        received_at,
+                    );
+
+                    if perm.requires_two_person_integrity() {
+                        match (
+                            command.verified_co_approver_actor,
+                            command.verified_co_approver_signature.clone(),
+                        ) {
+                            (Some(co_actor), Some(co_signature)) => {
+                                request = request.with_co_approver(CoApproverEvidence {
+                                    actor: ActorIdentity::Operator(OperatorId::new_from_verified(
+                                        co_actor,
+                                    )),
+                                    signature: co_signature,
+                                });
+                            }
+                            _ => {
+                                let elapsed = start_time.elapsed();
+                                let deny_context =
+                                    Some(audit_emit::CommandAuditContext::from_permission(perm));
+                                audit_emit::emit_post_event_with_context(
+                                    audit_sink.as_ref(),
+                                    &command.command,
+                                    &command.command_id,
+                                    &device_id,
+                                    tenant,
+                                    crate::audit::AuditOutcome::AuthorizationDenied,
+                                    &format!(
+                                        "elapsed_ms={} err=missing_co_approver_evidence",
+                                        elapsed.as_millis()
+                                    ),
+                                    deny_context.as_ref(),
+                                );
+                                return CommandResponse {
+                                    command_id: command.command_id.clone(),
+                                    device_id,
+                                    success: false,
+                                    result: serde_json::json!({
+                                        "rejected": "missing_co_approver_evidence",
+                                        "required_permission": format!("{:?}", required_perm),
+                                    }),
+                                    timestamp: Utc::now().to_rfc3339(),
+                                    error: Some(
+                                        "Command requires two-person integrity but verified co-approver evidence was not available at dispatch."
+                                            .to_string(),
+                                    ),
+                                };
+                            }
+                        }
+                    }
+
+                    let engine = InMemoryPolicyEngine::new(rbac_manifest_store.clone());
+                    match engine.authorize(request).await {
+                        Ok(AuthorizationDecision::Allow(ctx)) => {
+                            command_audit_context =
+                                Some(audit_emit::CommandAuditContext::from_authorized(&ctx));
+                            debug!(
+                                "RBAC-gate: allow command='{}' id='{}' required_permission={:?}",
+                                sanitize_for_log(&command.command),
+                                command.command_id,
+                                required_perm
+                            );
+                        }
+                        Ok(AuthorizationDecision::Deny(reason)) => {
+                            warn!(
+                                "RBAC-gate rejected command='{}' id='{}' required_permission={:?} reason={}",
+                                sanitize_for_log(&command.command),
+                                command.command_id,
+                                required_perm,
+                                reason
+                            );
+                            let elapsed = start_time.elapsed();
+                            let deny_context =
+                                Some(audit_emit::CommandAuditContext::from_permission(perm));
+                            audit_emit::emit_post_event_with_context(
+                                audit_sink.as_ref(),
+                                &command.command,
+                                &command.command_id,
+                                &device_id,
+                                tenant,
+                                crate::audit::AuditOutcome::AuthorizationDenied,
+                                &format!(
+                                    "elapsed_ms={} err=rbac_denied reason={}",
+                                    elapsed.as_millis(),
+                                    reason
+                                ),
+                                deny_context.as_ref(),
+                            );
+                            return CommandResponse {
+                                command_id: command.command_id.clone(),
+                                device_id,
+                                success: false,
+                                result: serde_json::json!({
+                                    "rejected": "rbac_denied",
+                                    "reason": reason.to_string(),
+                                    "required_permission": format!("{:?}", required_perm),
+                                }),
+                                timestamp: Utc::now().to_rfc3339(),
+                                error: Some(format!("Command rejected by RBAC policy: {}", reason)),
+                            };
+                        }
+                        Err(e) => {
+                            warn!(
+                                "RBAC-gate engine error command='{}' id='{}' required_permission={:?} error={}",
+                                sanitize_for_log(&command.command),
+                                command.command_id,
+                                required_perm,
+                                e
+                            );
+                            let elapsed = start_time.elapsed();
+                            audit_emit::emit_post_event(
+                                audit_sink.as_ref(),
+                                &command.command,
+                                &command.command_id,
+                                &device_id,
+                                tenant,
+                                crate::audit::AuditOutcome::Failure,
+                                &format!(
+                                    "elapsed_ms={} err=rbac_engine_error reason={}",
+                                    elapsed.as_millis(),
+                                    e
+                                ),
+                            );
+                            return CommandResponse {
+                                command_id: command.command_id.clone(),
+                                device_id,
+                                success: false,
+                                result: serde_json::json!({
+                                    "rejected": "rbac_engine_error",
+                                    "required_permission": format!("{:?}", required_perm),
+                                }),
+                                timestamp: Utc::now().to_rfc3339(),
+                                error: Some(format!(
+                                    "RBAC policy engine unavailable or invalid: {}",
+                                    e
+                                )),
+                            };
+                        }
+                    }
+                }
+                None if !matches!(signature_mode, SignatureMode::Disabled) => {
+                    warn!(
+                        "RBAC-gate rejected unsigned permissioned command='{}' id='{}' required_permission={:?} signature_mode={:?}",
+                        sanitize_for_log(&command.command),
+                        command.command_id,
+                        required_perm,
+                        signature_mode
+                    );
+                    let elapsed = start_time.elapsed();
+                    let deny_context = required_perm
+                        .as_ref()
+                        .map(audit_emit::CommandAuditContext::from_permission);
+                    audit_emit::emit_post_event_with_context(
+                        audit_sink.as_ref(),
+                        &command.command,
+                        &command.command_id,
+                        &device_id,
+                        tenant,
+                        crate::audit::AuditOutcome::AuthorizationDenied,
+                        &format!(
+                            "elapsed_ms={} err=verified_actor_required",
+                            elapsed.as_millis()
+                        ),
+                        deny_context.as_ref(),
+                    );
+                    return CommandResponse {
+                        command_id: command.command_id.clone(),
+                        device_id,
+                        success: false,
+                        result: serde_json::json!({
+                            "rejected": "verified_actor_required",
+                            "required_permission": format!("{:?}", required_perm),
+                        }),
+                        timestamp: Utc::now().to_rfc3339(),
+                        error: Some(
+                            "Signed actor evidence is required before dispatch.".to_string(),
+                        ),
+                    };
+                }
+                None => {
+                    warn!(
+                        "RBAC-gate compatibility allow: unsigned permissioned command='{}' id='{}' required_permission={:?} signature_mode=Disabled",
+                        sanitize_for_log(&command.command),
+                        command.command_id,
+                        required_perm
+                    );
+                }
+            }
+        }
+
         let (success, result, error) = match command.command.as_str() {
             "ping" => self.cmd_ping().await,
             "get_info" => self.cmd_get_info().await,
@@ -274,6 +496,8 @@ impl super::CommandHandler {
             "write_modbus" => self.cmd_write_modbus(&command.params).await,
             "read_gpio" => self.cmd_read_gpio().await,
             "write_gpio" => self.cmd_write_gpio(&command.params).await,
+            "write_opcua" => self.cmd_write_opcua(&command.params).await,
+            "write_s7" => self.cmd_write_s7(&command.params).await,
             // Script commands
             "list_scripts" => self.cmd_list_scripts().await,
             "get_script" => self.cmd_get_script(&command.params).await,
@@ -437,13 +661,9 @@ impl super::CommandHandler {
                 result_summary
             ),
             (None, true) => format!("elapsed_ms={}", elapsed.as_millis()),
-            (None, false) => format!(
-                "elapsed_ms={} {}",
-                elapsed.as_millis(),
-                result_summary
-            ),
+            (None, false) => format!("elapsed_ms={} {}", elapsed.as_millis(), result_summary),
         };
-        audit_emit::emit_post_event(
+        audit_emit::emit_post_event_with_context(
             audit_sink.as_ref(),
             &command.command,
             &command.command_id,
@@ -451,6 +671,7 @@ impl super::CommandHandler {
             tenant,
             post_outcome,
             &post_detail,
+            command_audit_context.as_ref(),
         );
 
         CommandResponse {

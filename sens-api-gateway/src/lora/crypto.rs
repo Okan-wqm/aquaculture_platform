@@ -188,16 +188,14 @@ pub fn decrypt_join_accept(app_key: &[u8; 16], encrypted: &[u8]) -> Vec<u8> {
 
     // Her 16-byte blok icin AES-ECB encrypt uygula (LoRaWAN'da decrypt = encrypt)
     for chunk in encrypted.chunks(16) {
-        let mut block = GenericArray::clone_from_slice(
-            if chunk.len() < 16 {
-                // Son blok 16 byte'dan kisaysa sifirla (pad)
-                let mut padded = [0u8; 16];
-                padded[..chunk.len()].copy_from_slice(chunk);
-                &padded
-            } else {
-                chunk
-            },
-        );
+        let mut block = GenericArray::clone_from_slice(if chunk.len() < 16 {
+            // Son blok 16 byte'dan kisaysa sifirla (pad)
+            let mut padded = [0u8; 16];
+            padded[..chunk.len()].copy_from_slice(chunk);
+            &padded
+        } else {
+            chunk
+        });
         // DIKKAT: Burada encrypt kullaniyoruz, decrypt degil!
         // LoRaWAN spec: cihaz tarafinda encrypt ile cozum yapilir
         cipher.encrypt_block(&mut block);
@@ -216,15 +214,13 @@ pub fn encrypt_join_accept(app_key: &[u8; 16], plaintext: &[u8]) -> Vec<u8> {
     let mut encrypted = Vec::with_capacity(plaintext.len());
 
     for chunk in plaintext.chunks(16) {
-        let mut block = GenericArray::clone_from_slice(
-            if chunk.len() < 16 {
-                let mut padded = [0u8; 16];
-                padded[..chunk.len()].copy_from_slice(chunk);
-                &padded
-            } else {
-                chunk
-            },
-        );
+        let mut block = GenericArray::clone_from_slice(if chunk.len() < 16 {
+            let mut padded = [0u8; 16];
+            padded[..chunk.len()].copy_from_slice(chunk);
+            &padded
+        } else {
+            chunk
+        });
         // Sunucu tarafi: AES-ECB decrypt ile sifreler
         cipher.decrypt_block(&mut block);
         encrypted.extend_from_slice(&block[..chunk.len()]);
@@ -312,10 +308,14 @@ mod tests {
     #[test]
     fn test_mic_computation() {
         // LoRaWAN spesifikasyonundan bilinen test vektoru
-        let key = [0x2B, 0x7E, 0x15, 0x16, 0x28, 0xAE, 0xD2, 0xA6,
-                    0xAB, 0xF7, 0x15, 0x88, 0x09, 0xCF, 0x4F, 0x3C];
-        let b0 = [0x49, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00,
-                   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04];
+        let key = [
+            0x2B, 0x7E, 0x15, 0x16, 0x28, 0xAE, 0xD2, 0xA6, 0xAB, 0xF7, 0x15, 0x88, 0x09, 0xCF,
+            0x4F, 0x3C,
+        ];
+        let b0 = [
+            0x49, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x04,
+        ];
         let msg = [0x40, 0x01, 0x00, 0x00];
 
         let mic = compute_mic(&key, &b0, &msg);
@@ -325,10 +325,14 @@ mod tests {
 
     #[test]
     fn test_verify_mic_constant_time() {
-        let key = [0x2B, 0x7E, 0x15, 0x16, 0x28, 0xAE, 0xD2, 0xA6,
-                    0xAB, 0xF7, 0x15, 0x88, 0x09, 0xCF, 0x4F, 0x3C];
-        let b0 = [0x49, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00,
-                   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04];
+        let key = [
+            0x2B, 0x7E, 0x15, 0x16, 0x28, 0xAE, 0xD2, 0xA6, 0xAB, 0xF7, 0x15, 0x88, 0x09, 0xCF,
+            0x4F, 0x3C,
+        ];
+        let b0 = [
+            0x49, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x04,
+        ];
         let msg = [0x40, 0x01, 0x00, 0x00];
 
         let mic = compute_mic(&key, &b0, &msg);
@@ -349,11 +353,19 @@ mod tests {
         let original = b"Hello LoRaWAN!";
 
         let encrypted = encrypt_frm_payload(&key, &dev_addr, 0, 1, original);
-        assert_ne!(&encrypted[..], &original[..], "sifreli veri orijinalden farkli olmali");
+        assert_ne!(
+            &encrypted[..],
+            &original[..],
+            "sifreli veri orijinalden farkli olmali"
+        );
 
         // Ayni parametrelerle tekrar sifreleme = cozme
         let decrypted = encrypt_frm_payload(&key, &dev_addr, 0, 1, &encrypted);
-        assert_eq!(&decrypted[..], &original[..], "cozulen veri orijinalle ayni olmali");
+        assert_eq!(
+            &decrypted[..],
+            &original[..],
+            "cozulen veri orijinalle ayni olmali"
+        );
     }
 
     #[test]
@@ -367,8 +379,10 @@ mod tests {
     #[test]
     fn test_join_accept_encrypt_decrypt_roundtrip() {
         let app_key = [0xAB; 16];
-        let plaintext = [0x20, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
-                         0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F];
+        let plaintext = [
+            0x20, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D,
+            0x0E, 0x0F,
+        ];
 
         // Sunucu sifreler (decrypt ile)
         let encrypted = encrypt_join_accept(&app_key, &plaintext);
@@ -381,8 +395,10 @@ mod tests {
 
     #[test]
     fn test_session_key_derivation() {
-        let app_key = [0x2B, 0x7E, 0x15, 0x16, 0x28, 0xAE, 0xD2, 0xA6,
-                       0xAB, 0xF7, 0x15, 0x88, 0x09, 0xCF, 0x4F, 0x3C];
+        let app_key = [
+            0x2B, 0x7E, 0x15, 0x16, 0x28, 0xAE, 0xD2, 0xA6, 0xAB, 0xF7, 0x15, 0x88, 0x09, 0xCF,
+            0x4F, 0x3C,
+        ];
         let app_nonce = [0x01, 0x02, 0x03];
         let net_id = [0x00, 0x00, 0x01];
         let dev_nonce = [0xAB, 0xCD];

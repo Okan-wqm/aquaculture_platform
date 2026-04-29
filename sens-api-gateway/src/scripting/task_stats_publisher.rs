@@ -156,18 +156,11 @@ pub struct TaskStatsPublish {
 /// Snapshot every task's stats from the scheduler. Holds the
 /// lock briefly (clone semantics on TaskStats — no async
 /// work inside the lock).
-async fn snapshot_all_tasks(
-    scheduler: &Arc<Mutex<TaskScheduler>>,
-) -> Vec<TaskStatsSnapshot> {
+async fn snapshot_all_tasks(scheduler: &Arc<Mutex<TaskScheduler>>) -> Vec<TaskStatsSnapshot> {
     let guard = scheduler.lock().await;
     guard
         .tasks()
-        .map(|t| {
-            TaskStatsSnapshot::from_task_stats(
-                t.config.name.clone(),
-                &t.stats,
-            )
-        })
+        .map(|t| TaskStatsSnapshot::from_task_stats(t.config.name.clone(), &t.stats))
         .collect()
 }
 
@@ -218,11 +211,19 @@ pub async fn run_task_stats_publisher_loop(
                     payload.tasks.len()
                 );
                 let state_guard = state.read().await;
-                crate::publish_helpers::publish_task_stats(
+                // 2026-04-29 enterprise publish reliability:
+                // scheduler stats use the checked publish path.
+                //
+                // What it solves: outbound queue or MQTT routing failures are
+                // visible with the task-stats domain label.
+                if let Err(e) = crate::publish_helpers::publish_task_stats_checked(
                     &state_guard,
                     &payload,
                 )
-                .await;
+                .await
+                {
+                    warn!("task_stats_publisher publish failed: {}", e);
+                }
             }
             res = shutdown_rx.changed() => {
                 if res.is_err() || *shutdown_rx.borrow() {
@@ -233,10 +234,11 @@ pub async fn run_task_stats_publisher_loop(
         }
     }
 
-    // Best-effort final publish on shutdown so operators see
-    // the last-known scheduler state in their dashboards
-    // post-restart. Failures here are silent — we're already
-    // exiting.
+    // 2026-04-29 enterprise shutdown observability:
+    // final publish on shutdown reports failures instead of staying silent.
+    //
+    // What it solves: operators can distinguish "no final scheduler sample"
+    // from "sample generated but queue/broker rejected it".
     let final_snapshots = snapshot_all_tasks(&scheduler).await;
     if !final_snapshots.is_empty() {
         let payload = TaskStatsPublish {
@@ -244,28 +246,30 @@ pub async fn run_task_stats_publisher_loop(
             tasks: final_snapshots,
         };
         let state_guard = state.read().await;
-        crate::publish_helpers::publish_task_stats(
-            &state_guard,
-            &payload,
-        )
-        .await;
+        // 2026-04-29 enterprise shutdown publish reliability:
+        // final scheduler snapshot reports delivery failures even during
+        // shutdown.
+        //
+        // What it solves: the final dashboard sample is no longer silently
+        // lost when the queue or broker path rejects it.
+        if let Err(e) =
+            crate::publish_helpers::publish_task_stats_checked(&state_guard, &payload).await
+        {
+            warn!("task_stats_publisher final publish failed: {}", e);
+        }
         if let Some(_) = state_guard.mqtt_client.as_ref() {
             // No-op marker; keeping the read-guard scope
             // contained so the await above runs INSIDE it.
         }
     } else {
-        warn!(
-            "task_stats_publisher exiting with no scheduler tasks to snapshot"
-        );
+        warn!("task_stats_publisher exiting with no scheduler tasks to snapshot");
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scripting::task_scheduler::{
-        SloTier, TaskConfig, TaskKind,
-    };
+    use crate::scripting::task_scheduler::{SloTier, TaskConfig, TaskKind};
 
     fn cyclic_task(name: &str, period_ms: u64) -> TaskConfig {
         TaskConfig {
@@ -327,9 +331,7 @@ mod tests {
     /// case (config without tasks: []).
     #[tokio::test]
     async fn snapshot_empty_scheduler_produces_empty_vec() {
-        let scheduler = Arc::new(Mutex::new(
-            TaskScheduler::new(vec![]).expect("empty ok"),
-        ));
+        let scheduler = Arc::new(Mutex::new(TaskScheduler::new(vec![]).expect("empty ok")));
         let snapshots = snapshot_all_tasks(&scheduler).await;
         assert!(snapshots.is_empty());
     }
@@ -350,10 +352,7 @@ mod tests {
             jitter_ms_max: 50,
             jitter_ms_p99_approx: 45,
         };
-        let snapshot = TaskStatsSnapshot::from_task_stats(
-            "test".to_string(),
-            &stats,
-        );
+        let snapshot = TaskStatsSnapshot::from_task_stats("test".to_string(), &stats);
         let json = serde_json::to_string(&snapshot).expect("serde ok");
         // Pin every field name. A renamer must update both
         // this test AND the operator dashboards in lockstep.

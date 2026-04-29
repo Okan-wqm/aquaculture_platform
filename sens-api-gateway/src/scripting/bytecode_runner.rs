@@ -64,9 +64,7 @@ use std::collections::HashMap;
 use super::bytecode::StValueType;
 use super::bytecode_registry::BytecodeProgramRegistry;
 use super::bytecode_vm::{ScriptVm, VmError, VmOutcome};
-use super::process_image_tagio::{
-    commit_pending_writes, snapshot_process_image, SnapshotTagIo,
-};
+use super::process_image_tagio::{SnapshotTagIo, commit_pending_writes, snapshot_process_image};
 use crate::process_image::ProcessImage;
 
 /// Per-program outcome surfaced to the engine consumer.
@@ -129,8 +127,7 @@ pub async fn run_scan_tick(
     persistence: Option<&super::persistence::SqlitePersistence>,
     options: &ScanTickOptions,
 ) -> Vec<(String, BytecodeRunResult)> {
-    run_scan_tick_filtered(registry, pi, declared_types, persistence, options, None)
-        .await
+    run_scan_tick_filtered(registry, pi, declared_types, persistence, options, None).await
 }
 
 /// Filtered variant — Batch 186 Faz 4. Runs only the
@@ -197,8 +194,7 @@ async fn run_scan_tick_filtered(
         }
     };
 
-    let mut results: Vec<(String, BytecodeRunResult)> =
-        Vec::with_capacity(selected.len());
+    let mut results: Vec<(String, BytecodeRunResult)> = Vec::with_capacity(selected.len());
 
     for entry in selected {
         // Fresh SnapshotTagIo per program so pending-
@@ -266,10 +262,7 @@ async fn run_scan_tick_filtered(
                         {
                             BytecodeRunResult::Failed {
                                 error: crate::scripting::bytecode_vm::VmError::TagIoFailed {
-                                    tag: format!(
-                                        "retain-save::{}",
-                                        entry.bytecode.program_id
-                                    ),
+                                    tag: format!("retain-save::{}", entry.bytecode.program_id),
                                     direction: "write",
                                     reason: e.to_string(),
                                 },
@@ -329,17 +322,13 @@ async fn run_scan_tick_filtered(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::bytecode::{Bytecode, Opcode, StValue};
     use super::super::bytecode_registry::ProgramEntry;
-    use chrono::Utc;
+    use super::*;
     use crate::process_image::{TagQuality, TagSource};
+    use chrono::Utc;
 
-    fn mk_entry(
-        program_id: &str,
-        bytecode: Bytecode,
-        enabled: bool,
-    ) -> ProgramEntry {
+    fn mk_entry(program_id: &str, bytecode: Bytecode, enabled: bool) -> ProgramEntry {
         ProgramEntry {
             program_id: program_id.to_string(),
             bytecode,
@@ -350,10 +339,7 @@ mod tests {
         }
     }
 
-    fn bc_loopback(
-        tag_name: &str,
-        allowed: Vec<String>,
-    ) -> Bytecode {
+    fn bc_loopback(tag_name: &str, allowed: Vec<String>) -> Bytecode {
         // LoadTag(tag_name); WriteTag(setpoint); Return
         // Setpoint is the allowlist entry.
         Bytecode {
@@ -367,7 +353,9 @@ mod tests {
             allowed_write_tags: allowed,
             safe_state_pinned_tags: vec![],
             opcodes: vec![
-                Opcode::LoadTag { name: tag_name.to_string() },
+                Opcode::LoadTag {
+                    name: tag_name.to_string(),
+                },
                 Opcode::WriteTag {
                     name: "setpoint".to_string(),
                 },
@@ -458,10 +446,7 @@ mod tests {
         .await;
         assert!(results.is_empty());
         // Setpoint must still be 0 — disabled program did NOT run.
-        assert_eq!(
-            pi.get_tag("setpoint").await.expect("exists").value,
-            0.0
-        );
+        assert_eq!(pi.get_tag("setpoint").await.expect("exists").value, 0.0);
     }
 
     #[tokio::test]
@@ -528,17 +513,11 @@ mod tests {
             }
         );
         assert_eq!(results[1].0, "zz_fail");
-        assert!(matches!(
-            results[1].1,
-            BytecodeRunResult::Failed { .. }
-        ));
+        assert!(matches!(results[1].1, BytecodeRunResult::Failed { .. }));
 
         // ok_output must have been updated by aa_ok despite
         // zz_fail erroring.
-        assert_eq!(
-            pi.get_tag("ok_output").await.expect("exists").value,
-            7.0
-        );
+        assert_eq!(pi.get_tag("ok_output").await.expect("exists").value, 7.0);
     }
 
     #[tokio::test]
@@ -760,8 +739,7 @@ mod tests {
         use crate::scripting::bytecode_compiler::compile_program;
         use crate::scripting::persistence::SqlitePersistence;
         use crate::st_validator::{
-            BinaryOp, DataType, Expression, Program, Statement, VarBlock,
-            VarDeclaration, VarScope,
+            BinaryOp, DataType, Expression, Program, Statement, VarBlock, VarDeclaration, VarScope,
         };
 
         let reg = BytecodeProgramRegistry::new();
@@ -793,8 +771,7 @@ mod tests {
             }],
             span: None,
         };
-        let bc = compile_program(&prog, &[], "retain_counter".into(), 10_000)
-            .expect("compile");
+        let bc = compile_program(&prog, &[], "retain_counter".into(), 10_000).expect("compile");
         assert_eq!(bc.retain_vars.len(), 1);
 
         reg.insert(mk_entry("retain_counter", bc, true))
@@ -861,8 +838,7 @@ mod tests {
         // tick) + no save happens.
         use crate::scripting::bytecode_compiler::compile_program;
         use crate::st_validator::{
-            BinaryOp, DataType, Expression, Program, Statement, VarBlock,
-            VarDeclaration, VarScope,
+            BinaryOp, DataType, Expression, Program, Statement, VarBlock, VarDeclaration, VarScope,
         };
 
         let reg = BytecodeProgramRegistry::new();
@@ -893,8 +869,7 @@ mod tests {
             }],
             span: None,
         };
-        let bc = compile_program(&prog, &[], "p".into(), 10_000)
-            .expect("compile");
+        let bc = compile_program(&prog, &[], "p".into(), 10_000).expect("compile");
         reg.insert(mk_entry("p", bc, true)).await.expect("ok");
 
         let results = run_scan_tick(
@@ -941,7 +916,9 @@ mod tests {
             allowed_write_tags: vec!["setpoint".into()],
             safe_state_pinned_tags: vec![],
             opcodes: vec![
-                Opcode::PushConst { value: StValue::Real(100.0) },
+                Opcode::PushConst {
+                    value: StValue::Real(100.0),
+                },
                 Opcode::WriteTag {
                     name: "setpoint".into(),
                 },
@@ -987,15 +964,9 @@ mod tests {
         .await;
 
         // Setpoint reflects A's write.
-        assert_eq!(
-            pi.get_tag("setpoint").await.expect("exists").value,
-            100.0
-        );
+        assert_eq!(pi.get_tag("setpoint").await.expect("exists").value, 100.0);
         // Observed reflects the snapshot (pre-tick) value,
         // not A's in-tick write.
-        assert_eq!(
-            pi.get_tag("observed").await.expect("exists").value,
-            0.0
-        );
+        assert_eq!(pi.get_tag("observed").await.expect("exists").value, 0.0);
     }
 }

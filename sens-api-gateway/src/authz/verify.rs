@@ -35,7 +35,7 @@
 use std::time::SystemTime;
 
 use super::manifest::{CanonicalBytesError, RbacManifest, SignedRbacManifest};
-use super::manifest_common::{run_envelope_gates, ManifestStructuralError};
+use super::manifest_common::{ManifestStructuralError, run_envelope_gates};
 use super::permission::TenantId;
 
 /// Structured verification errors. Every variant discriminates a distinct
@@ -59,7 +59,10 @@ pub enum ManifestVerifyError {
     NotYetValid { now_unix_secs: i64, valid_from: i64 },
 
     /// `now` is after `manifest_valid_until_unix_secs` — expired manifest.
-    Expired { now_unix_secs: i64, valid_until: i64 },
+    Expired {
+        now_unix_secs: i64,
+        valid_until: i64,
+    },
 
     /// Canonical-bytes serialization failed (e.g., length-prefix overflow,
     /// bincode encode failure on a Permission variant).
@@ -273,7 +276,10 @@ mod tests {
             .expect_err("stale: equal version");
         assert_eq!(
             err,
-            ManifestVerifyError::StalePolicyVersion { claimed: 10, highest_seen: 10 }
+            ManifestVerifyError::StalePolicyVersion {
+                claimed: 10,
+                highest_seen: 10
+            }
         );
     }
 
@@ -285,7 +291,10 @@ mod tests {
             .expect_err("stale: lower version");
         assert_eq!(
             err,
-            ManifestVerifyError::StalePolicyVersion { claimed: 10, highest_seen: 15 }
+            ManifestVerifyError::StalePolicyVersion {
+                claimed: 10,
+                highest_seen: 15
+            }
         );
     }
 
@@ -294,11 +303,14 @@ mod tests {
     fn rejects_not_yet_valid() {
         let m = canned_manifest(10, 5_000, 9_000);
         let signed = signed(m);
-        let err = verify_manifest(&signed, &tenant(), 0, now_at(1_000), |_, _| true)
-            .expect_err("future");
+        let err =
+            verify_manifest(&signed, &tenant(), 0, now_at(1_000), |_, _| true).expect_err("future");
         assert_eq!(
             err,
-            ManifestVerifyError::NotYetValid { now_unix_secs: 1_000, valid_from: 5_000 }
+            ManifestVerifyError::NotYetValid {
+                now_unix_secs: 1_000,
+                valid_from: 5_000
+            }
         );
     }
 
@@ -310,7 +322,10 @@ mod tests {
             .expect_err("expired");
         assert_eq!(
             err,
-            ManifestVerifyError::Expired { now_unix_secs: 9_000, valid_until: 5_000 }
+            ManifestVerifyError::Expired {
+                now_unix_secs: 9_000,
+                valid_until: 5_000
+            }
         );
     }
 
@@ -324,7 +339,10 @@ mod tests {
             .expect_err("inverted");
         assert_eq!(
             err,
-            ManifestVerifyError::InvalidValidityWindow { valid_from: 9_000, valid_until: 1_000 }
+            ManifestVerifyError::InvalidValidityWindow {
+                valid_from: 9_000,
+                valid_until: 1_000
+            }
         );
     }
 
@@ -351,7 +369,10 @@ mod tests {
             received_sig_len = sig.len();
             true
         });
-        assert!(received_len > 32, "canonical bytes must have substantial content");
+        assert!(
+            received_len > 32,
+            "canonical bytes must have substantial content"
+        );
         assert_eq!(received_sig_len, 64);
     }
 
@@ -369,38 +390,51 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                ManifestVerifyError::StalePolicyVersion { claimed: 1, highest_seen: 2 }
+                ManifestVerifyError::StalePolicyVersion {
+                    claimed: 1,
+                    highest_seen: 2
+                }
             ),
             "stale_policy_version"
         );
         assert_eq!(
             format!(
                 "{}",
-                ManifestVerifyError::NotYetValid { now_unix_secs: 0, valid_from: 1 }
+                ManifestVerifyError::NotYetValid {
+                    now_unix_secs: 0,
+                    valid_from: 1
+                }
             ),
             "not_yet_valid"
         );
         assert_eq!(
             format!(
                 "{}",
-                ManifestVerifyError::Expired { now_unix_secs: 2, valid_until: 1 }
+                ManifestVerifyError::Expired {
+                    now_unix_secs: 2,
+                    valid_until: 1
+                }
             ),
             "expired"
         );
-        assert_eq!(format!("{}", ManifestVerifyError::InvalidNow), "invalid_now");
+        assert_eq!(
+            format!("{}", ManifestVerifyError::InvalidNow),
+            "invalid_now"
+        );
         assert_eq!(
             format!(
                 "{}",
-                ManifestVerifyError::InvalidValidityWindow { valid_from: 9, valid_until: 1 }
+                ManifestVerifyError::InvalidValidityWindow {
+                    valid_from: 9,
+                    valid_until: 1
+                }
             ),
             "invalid_validity_window"
         );
         assert_eq!(
             format!(
                 "{}",
-                ManifestVerifyError::CanonicalBytesFailure(
-                    CanonicalBytesError::LengthExceedsU32
-                )
+                ManifestVerifyError::CanonicalBytesFailure(CanonicalBytesError::LengthExceedsU32)
             ),
             "canonical_bytes_failure"
         );
@@ -421,9 +455,7 @@ mod tests {
         let e: ManifestVerifyError = CanonicalBytesError::PermissionEncodeFailed.into();
         assert_eq!(
             e,
-            ManifestVerifyError::CanonicalBytesFailure(
-                CanonicalBytesError::PermissionEncodeFailed
-            )
+            ManifestVerifyError::CanonicalBytesFailure(CanonicalBytesError::PermissionEncodeFailed)
         );
     }
 

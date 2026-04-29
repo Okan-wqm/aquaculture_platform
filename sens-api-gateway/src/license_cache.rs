@@ -63,7 +63,7 @@
 //! (boot-time load + verify) + `cmd_refresh_license`
 //! (save + record_accepted on successful verify).
 
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 use std::path::Path;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -123,22 +123,12 @@ impl LicenseCacheStore {
     /// the 2-table schema on first run.
     pub fn open(path: &Path) -> Result<Self, LicenseCacheError> {
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| {
-                LicenseCacheError::Io(format!(
-                    "mkdir {}: {}",
-                    parent.display(),
-                    e
-                ))
-            })?;
+            std::fs::create_dir_all(parent)
+                .map_err(|e| LicenseCacheError::Io(format!("mkdir {}: {}", parent.display(), e)))?;
         }
 
-        let conn = Connection::open(path).map_err(|e| {
-            LicenseCacheError::SqlCipher(format!(
-                "open {}: {}",
-                path.display(),
-                e
-            ))
-        })?;
+        let conn = Connection::open(path)
+            .map_err(|e| LicenseCacheError::SqlCipher(format!("open {}: {}", path.display(), e)))?;
 
         let hex_key = crate::offline_queue::derive_db_encryption_key()
             .map_err(|e| LicenseCacheError::KeyDerivation(format!("{}", e)))?;
@@ -177,7 +167,10 @@ impl LicenseCacheStore {
     /// manifest — SQLCipher encryption is defense-in-depth,
     /// not the sole trust anchor.
     pub fn load(&self) -> Result<Option<SignedLicenseManifest>, LicenseCacheError> {
-        let conn = self.conn.lock().map_err(|_| LicenseCacheError::LockPoisoned)?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| LicenseCacheError::LockPoisoned)?;
 
         let row: Option<String> = conn
             .query_row(
@@ -216,7 +209,10 @@ impl LicenseCacheStore {
         let json = serde_json::to_string(signed)
             .map_err(|e| LicenseCacheError::Serialize(format!("{}", e)))?;
 
-        let conn = self.conn.lock().map_err(|_| LicenseCacheError::LockPoisoned)?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| LicenseCacheError::LockPoisoned)?;
 
         conn.execute(
             "INSERT INTO license_cache (singleton_key, signed_manifest_json, cached_at_unix_secs)
@@ -234,7 +230,10 @@ impl LicenseCacheStore {
     /// Read the persisted `highest_seen_policy_version`
     /// floor. Returns 0 on first-boot.
     pub fn get_highest_seen(&self) -> Result<u64, LicenseCacheError> {
-        let conn = self.conn.lock().map_err(|_| LicenseCacheError::LockPoisoned)?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| LicenseCacheError::LockPoisoned)?;
 
         let row: Option<i64> = conn
             .query_row(
@@ -270,7 +269,10 @@ impl LicenseCacheStore {
         // schema level too.
         let v_i64 = i64::try_from(version).unwrap_or(i64::MAX);
 
-        let conn = self.conn.lock().map_err(|_| LicenseCacheError::LockPoisoned)?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|_| LicenseCacheError::LockPoisoned)?;
 
         // UPSERT + MAX semantic: SQL `MAX(existing, new)`
         // happens via the ON CONFLICT branch. First
@@ -352,8 +354,7 @@ mod tests {
             },
         };
         let sig = signing_key.sign(&manifest.canonical_bytes());
-        SignedLicenseManifest::from_body_and_signature_bytes(manifest, &sig.to_bytes())
-            .unwrap()
+        SignedLicenseManifest::from_body_and_signature_bytes(manifest, &sig.to_bytes()).unwrap()
     }
 
     #[test]

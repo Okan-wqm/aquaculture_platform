@@ -27,25 +27,25 @@
 //!     |-- MqttClient ref
 //! ```
 
-pub mod types;
-pub mod crypto;
 pub mod codec;
+pub mod crypto;
+pub mod mac;
 pub mod session;
 pub mod sx1302;
-pub mod mac;
+pub mod types;
 
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use tokio::sync::{mpsc, oneshot, RwLock};
+use tokio::sync::{RwLock, mpsc, oneshot};
 use tracing::{debug, error, info, warn};
 
+use crate::AppState;
 use crate::config::LoRaWanConfig;
 use crate::io_poll::{IoDataPayload, IoTagData};
 use crate::process_image::{ProcessImage, TagQuality, TagSource};
-use crate::AppState;
 
 use self::mac::{DownlinkItem, LoRaMac, MacEvent};
 use self::session::SessionStore;
@@ -134,36 +134,52 @@ impl LoRaHandle {
     /// SX1302'yi baslat
     pub async fn init(&self) -> Result<()> {
         let (tx, rx) = oneshot::channel();
-        self.send_command(LoRaCommand::Init { response: tx }).await?;
-        rx.await.map_err(|_| anyhow::anyhow!("LoRa actor disconnected"))?
+        self.send_command(LoRaCommand::Init { response: tx })
+            .await?;
+        rx.await
+            .map_err(|_| anyhow::anyhow!("LoRa actor disconnected"))?
     }
 
     /// Cihaz ekle
     pub async fn add_device(&self, config: LoRaDeviceConfig) -> Result<()> {
         let (tx, rx) = oneshot::channel();
-        self.send_command(LoRaCommand::AddDevice { config, response: tx }).await?;
-        rx.await.map_err(|_| anyhow::anyhow!("LoRa actor disconnected"))?
+        self.send_command(LoRaCommand::AddDevice {
+            config,
+            response: tx,
+        })
+        .await?;
+        rx.await
+            .map_err(|_| anyhow::anyhow!("LoRa actor disconnected"))?
     }
 
     /// Cihaz kaldir
     pub async fn remove_device(&self, dev_eui: DevEui) -> Result<()> {
         let (tx, rx) = oneshot::channel();
-        self.send_command(LoRaCommand::RemoveDevice { dev_eui, response: tx }).await?;
-        rx.await.map_err(|_| anyhow::anyhow!("LoRa actor disconnected"))?
+        self.send_command(LoRaCommand::RemoveDevice {
+            dev_eui,
+            response: tx,
+        })
+        .await?;
+        rx.await
+            .map_err(|_| anyhow::anyhow!("LoRa actor disconnected"))?
     }
 
     /// Downlink mesaji kuyruga ekle
     pub async fn queue_downlink(&self, item: DownlinkItem) -> Result<()> {
         let (tx, rx) = oneshot::channel();
-        self.send_command(LoRaCommand::QueueDownlink { item, response: tx }).await?;
-        rx.await.map_err(|_| anyhow::anyhow!("LoRa actor disconnected"))?
+        self.send_command(LoRaCommand::QueueDownlink { item, response: tx })
+            .await?;
+        rx.await
+            .map_err(|_| anyhow::anyhow!("LoRa actor disconnected"))?
     }
 
     /// Istatistikleri al
     pub async fn get_stats(&self) -> Result<LoRaStats> {
         let (tx, rx) = oneshot::channel();
-        self.send_command(LoRaCommand::GetStats { response: tx }).await?;
-        rx.await.map_err(|_| anyhow::anyhow!("LoRa actor disconnected"))
+        self.send_command(LoRaCommand::GetStats { response: tx })
+            .await?;
+        rx.await
+            .map_err(|_| anyhow::anyhow!("LoRa actor disconnected"))
     }
 
     /// Actor'u durdur
@@ -235,18 +251,15 @@ impl LoRaActor {
 
         // io_data batch publish araligi — 100ms penceresi ile toplanan
         // uplink verilerini tek MQTT mesajinda gonderir
-        let mut batch_interval =
-            tokio::time::interval(tokio::time::Duration::from_millis(100));
+        let mut batch_interval = tokio::time::interval(tokio::time::Duration::from_millis(100));
         batch_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
         // Frame counter flush araligi — bellekteki counter cache'ini SQLite'a yaz
-        let mut flush_interval =
-            tokio::time::interval(tokio::time::Duration::from_secs(10));
+        let mut flush_interval = tokio::time::interval(tokio::time::Duration::from_secs(10));
         flush_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
         // Periyodik temizlik araligi — unknown_device_tracker memory leak onleme
-        let mut cleanup_interval =
-            tokio::time::interval(tokio::time::Duration::from_secs(600)); // 10 dakika
+        let mut cleanup_interval = tokio::time::interval(tokio::time::Duration::from_secs(600)); // 10 dakika
         cleanup_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
         loop {
@@ -487,7 +500,13 @@ impl LoRaActor {
                 debug!(
                     "Uplink islendi: dev_eui={}, dev_addr={}, f_port={}, f_cnt={}, \
                      RSSI={} dBm, SNR={:.1} dB, {} deger",
-                    dev_eui, dev_addr, f_port, f_cnt, rssi, snr, decoded_values.len()
+                    dev_eui,
+                    dev_addr,
+                    f_port,
+                    f_cnt,
+                    rssi,
+                    snr,
+                    decoded_values.len()
                 );
 
                 if decoded_values.is_empty() {
@@ -508,12 +527,15 @@ impl LoRaActor {
                         .await;
 
                     // io_data'yi batch tamponuna ekle — 100ms penceresi ile topluca yayinlanacak
-                    self.pending_io_data.push((tag_name.clone(), *value, TagQuality::Good));
+                    self.pending_io_data
+                        .push((tag_name.clone(), *value, TagQuality::Good));
                 }
 
                 debug!(
                     "Uplink verileri tampona eklendi: dev_eui={}, {} tag, tampon boyutu={}",
-                    dev_eui, decoded_values.len(), self.pending_io_data.len()
+                    dev_eui,
+                    decoded_values.len(),
+                    self.pending_io_data.len()
                 );
 
                 // MQTT yayinlari icin state lock'u kisa sure alinir
@@ -534,12 +556,29 @@ impl LoRaActor {
                         .collect::<Vec<_>>(),
                     "timestamp": chrono::Utc::now().to_rfc3339(),
                 });
-                crate::publish_helpers::publish_lora_event(&state, &event_payload).await;
+                // 2026-04-29 enterprise publish reliability:
+                // LoRa uplink summary uses checked outbound routing.
+                //
+                // What it solves: queue or broker failures keep LoRa context
+                // in the error log instead of disappearing inside a helper.
+                if let Err(e) =
+                    crate::publish_helpers::publish_lora_event_checked(&state, &event_payload).await
+                {
+                    error!("LoRa uplink summary publish failed: {}", e);
+                }
             }
 
-            MacEvent::SendJoinAccept { tx_packet, dev_eui, dev_addr } => {
-                info!("Join-Accept gonderiliyor: dev_eui={}, dev_addr={}, {} byte",
-                    dev_eui, dev_addr, tx_packet.payload.len());
+            MacEvent::SendJoinAccept {
+                tx_packet,
+                dev_eui,
+                dev_addr,
+            } => {
+                info!(
+                    "Join-Accept gonderiliyor: dev_eui={}, dev_addr={}, {} byte",
+                    dev_eui,
+                    dev_addr,
+                    tx_packet.payload.len()
+                );
                 // Radyodan gonder
                 if let Some(ref sx) = self.sx1302 {
                     if let Err(e) = sx.transmit(&tx_packet) {
@@ -554,7 +593,16 @@ impl LoRaActor {
                     "dev_addr": format!("{}", dev_addr),
                     "timestamp": chrono::Utc::now().to_rfc3339(),
                 });
-                crate::publish_helpers::publish_lora_event(&state, &event).await;
+                // 2026-04-29 enterprise publish reliability:
+                // join-accept events use checked outbound routing.
+                //
+                // What it solves: operator-visible join state cannot fail as
+                // a warn-only helper side effect.
+                if let Err(e) =
+                    crate::publish_helpers::publish_lora_event_checked(&state, &event).await
+                {
+                    error!("LoRa join_accept publish failed: {}", e);
+                }
             }
 
             MacEvent::SendDownlink { tx_packet } => {
@@ -623,7 +671,17 @@ impl LoRaActor {
             timestamp: chrono::Utc::now().to_rfc3339(),
             tags: io_tags,
         };
-        crate::publish_helpers::publish_io_data(&state, &payload).await;
+        // 2026-04-29 enterprise publish reliability:
+        // batched LoRa io_data uses checked outbound routing.
+        //
+        // What it solves: batch loss from queue/transport failure is visible
+        // with tag-count context.
+        if let Err(e) = crate::publish_helpers::publish_io_data_checked(&state, &payload).await {
+            error!(
+                "LoRa io_data batch publish failed: tags={} error={}",
+                tag_count, e
+            );
+        }
         debug!("LoRa io_data batch yayinlandi: {} tag", tag_count);
     }
 }

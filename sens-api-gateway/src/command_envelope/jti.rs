@@ -197,8 +197,7 @@ mod tests {
         // UUIDv4 form
         Jti::try_new("550e8400-e29b-41d4-a716-446655440000").expect("uuidv4");
         // Structured prefix
-        Jti::try_new("tenant-42:op-7:550e8400-e29b-41d4-a716-446655440000")
-            .expect("structured");
+        Jti::try_new("tenant-42:op-7:550e8400-e29b-41d4-a716-446655440000").expect("structured");
         // Underscore, dot, plus — all ASCII printable
         Jti::try_new("cmd_1.2+3").expect("underscore dot plus");
     }
@@ -225,7 +224,10 @@ mod tests {
     /// WHY: DedupTableError Display format pinned.
     #[test]
     fn dedup_table_error_display_snake_case() {
-        assert_eq!(format!("{}", DedupTableError::StoreIoError), "store_io_error");
+        assert_eq!(
+            format!("{}", DedupTableError::StoreIoError),
+            "store_io_error"
+        );
         assert_eq!(
             format!("{}", DedupTableError::InvalidExpiry),
             "invalid_expiry"
@@ -253,7 +255,9 @@ mod tests {
 
     impl InMemoryJti {
         fn new() -> Self {
-            Self { inner: Mutex::new(Vec::new()) }
+            Self {
+                inner: Mutex::new(Vec::new()),
+            }
         }
     }
 
@@ -282,10 +286,7 @@ mod tests {
             Ok(self.inner.lock().expect("poison").len())
         }
 
-        async fn sweep_expired(
-            &self,
-            now: SystemTime,
-        ) -> Result<usize, DedupTableError> {
+        async fn sweep_expired(&self, now: SystemTime) -> Result<usize, DedupTableError> {
             let mut guard = self.inner.lock().expect("poison");
             let before = guard.len();
             guard.retain(|(_, exp)| *exp > now);

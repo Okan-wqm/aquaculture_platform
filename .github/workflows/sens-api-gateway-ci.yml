@@ -1,0 +1,281 @@
+name: SENS API Gateway CI
+
+# 2026-04-29: This workflow closes the previous CI blind spot where
+# sens-api-gateway changes did not trigger the repository's Rust checks. The
+# gateway is a standalone Cargo package, so every command below runs from its
+# own manifest directory instead of the repository-root Rust workspace.
+on:
+  pull_request:
+    branches: [main, develop, agentic]
+    paths:
+      - "sens-api-gateway/**"
+      - ".github/workflows/sens-api-gateway-ci.yml"
+      - "rust-toolchain.toml"
+      - "rustfmt.toml"
+  push:
+    branches: [main, develop, agentic]
+    paths:
+      - "sens-api-gateway/**"
+      - ".github/workflows/sens-api-gateway-ci.yml"
+      - "rust-toolchain.toml"
+      - "rustfmt.toml"
+  workflow_dispatch: {}
+
+concurrency:
+  group: sens-api-gateway-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: 1
+  SENS_API_GATEWAY_DIR: sens-api-gateway
+
+jobs:
+  format:
+    name: cargo fmt --check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # stable
+        with:
+          toolchain: 1.88.0
+          components: rustfmt
+
+      # 2026-04-29: Formatting is a hard gate for the gateway package so
+      # generated diffs cannot hide behavioral changes in large PLC/security
+      # edits. The command is scoped to sens-api-gateway to avoid coupling this
+      # package to unrelated repository-root Rust formatting state.
+      - name: Check gateway formatting
+        working-directory: ${{ env.SENS_API_GATEWAY_DIR }}
+        run: cargo fmt -- --check
+
+  check-default:
+    name: cargo check
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # stable
+        with:
+          toolchain: 1.88.0
+
+      - name: Cache cargo registry and target
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: sens-api-gateway -> target
+          shared-key: sens-api-gateway-default
+          save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/agentic' }}
+
+      # 2026-04-29: Default-feature compilation is the fast PR signal for the
+      # production binary shape used by the current gateway fleet. It catches
+      # type and link-contract regressions without requiring TPM system libs.
+      - name: Check gateway default build
+        working-directory: ${{ env.SENS_API_GATEWAY_DIR }}
+        run: cargo check --locked
+
+  check-all-features:
+    name: cargo check --release --all-targets --all-features
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # stable
+        with:
+          toolchain: 1.88.0
+
+      # 2026-04-29: The TPM feature depends on tss-esapi/tss2-sys, which needs
+      # pkg-config plus the tpm2-tss development headers at compile time. Local
+      # verification failed before code compilation when these packages were
+      # missing; CI installs them explicitly so all feature gates are real.
+      - name: Install TPM build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config libtss2-dev
+
+      - name: Cache cargo registry and target
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: sens-api-gateway -> target
+          shared-key: sens-api-gateway-all-features
+          save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/agentic' }}
+
+      # 2026-04-29: All targets/all features is the architectural guardrail for
+      # optional security and protocol modules. It prevents default-only checks
+      # from missing TPM, OPC UA, SCADA, LoRaWAN, scheduler, and debug paths.
+      - name: Check gateway all feature targets
+        working-directory: ${{ env.SENS_API_GATEWAY_DIR }}
+        run: cargo check --locked --release --all-targets --all-features
+
+  clippy:
+    name: cargo clippy --all-targets --all-features
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # stable
+        with:
+          toolchain: 1.88.0
+          components: clippy
+
+      - name: Install TPM build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config libtss2-dev
+
+      - name: Cache cargo registry and target
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: sens-api-gateway -> target
+          shared-key: sens-api-gateway-clippy
+          save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/agentic' }}
+
+      # 2026-04-29: Clippy runs with all optional protocol/security modules
+      # enabled and denies high-signal lint groups. Full `-D warnings` is
+      # tracked as a dated warning-debt follow-up because the gateway currently
+      # has historical rustc unused/dead-code warnings outside this remediation.
+      - name: Lint gateway all feature targets
+        working-directory: ${{ env.SENS_API_GATEWAY_DIR }}
+        run: cargo clippy --locked --all-targets --all-features -- -D clippy::correctness -D clippy::suspicious -D clippy::perf
+
+  test:
+    name: cargo test --all-targets
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # stable
+        with:
+          toolchain: 1.88.0
+
+      - name: Cache cargo registry and target
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: sens-api-gateway -> target
+          shared-key: sens-api-gateway-test
+          save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/agentic' }}
+
+      # 2026-04-29: The gateway test suite is intentionally left as a CI gate
+      # rather than a local-only convention because small edge servers are prone
+      # to SIGKILL under cargo's test-link workload. CI gives deterministic CPU,
+      # memory, and logs for the full enterprise validation pass.
+      - name: Run gateway tests
+        working-directory: ${{ env.SENS_API_GATEWAY_DIR }}
+        run: cargo test --locked --all-targets --no-fail-fast
+
+  test-all-features:
+    name: cargo test --all-targets --all-features
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # stable
+        with:
+          toolchain: 1.88.0
+
+      - name: Install TPM build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config libtss2-dev
+
+      - name: Cache cargo registry and target
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: sens-api-gateway -> target
+          shared-key: sens-api-gateway-test-all-features
+          save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/agentic' }}
+
+      # 2026-04-29: All-feature tests are the release evidence for optional
+      # security/protocol modules; local edge servers only run smoke tests.
+      - name: Run gateway all-feature tests
+        working-directory: ${{ env.SENS_API_GATEWAY_DIR }}
+        run: cargo test --locked --all-targets --all-features --no-fail-fast
+
+  deny:
+    name: cargo deny check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@055f5df8c3f65ea01cd41e9dc855becd88953486 # v2.75.18
+        with:
+          tool: cargo-deny
+
+      - name: Check gateway supply-chain policy
+        working-directory: ${{ env.SENS_API_GATEWAY_DIR }}
+        run: cargo deny check advisories bans licenses sources
+
+  audit:
+    name: cargo audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@055f5df8c3f65ea01cd41e9dc855becd88953486 # v2.75.18
+        with:
+          tool: cargo-audit
+
+      # 2026-04-29: Security audit is scoped to the gateway lockfile so RustSec
+      # regressions in the edge binary are visible in the gateway PR itself.
+      # The explicit ignores mirror sens-api-gateway/deny.toml; each is a
+      # tracked dependency-risk finding with owner/deadline in that policy file,
+      # so cargo-audit and cargo-deny cannot drift silently.
+      - name: Audit gateway lockfile
+        working-directory: ${{ env.SENS_API_GATEWAY_DIR }}
+        run: |
+          cargo audit --deny warnings \
+            --ignore RUSTSEC-2026-0098 \
+            --ignore RUSTSEC-2026-0099 \
+            --ignore RUSTSEC-2026-0049 \
+            --ignore RUSTSEC-2023-0071 \
+            --ignore RUSTSEC-2025-0141 \
+            --ignore RUSTSEC-2024-0388 \
+            --ignore RUSTSEC-2025-0134 \
+            --ignore RUSTSEC-2023-0089
+
+  doc:
+    name: cargo doc -D warnings
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      RUSTDOCFLAGS: "-D warnings"
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # stable
+        with:
+          toolchain: 1.88.0
+
+      - name: Cache cargo registry and target
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: sens-api-gateway -> target
+          shared-key: sens-api-gateway-doc
+          save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/agentic' }}
+
+      # 2026-04-29: Rustdoc warnings are release blockers because internal API
+      # docs are part of the gateway's dated security evidence trail.
+      - name: Build gateway docs
+        working-directory: ${{ env.SENS_API_GATEWAY_DIR }}
+        run: cargo doc --locked --no-deps --document-private-items

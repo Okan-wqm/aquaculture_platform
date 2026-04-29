@@ -37,7 +37,7 @@
 //! operator path is the only one. Operator-facing
 //! documentation notes this explicitly.
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tracing::{info, warn};
 
 use super::CommandHandler;
@@ -59,10 +59,7 @@ impl CommandHandler {
     ///   immediately (next io_poll tick is
     ///   Batch 198 scope but this write makes the
     ///   forced value live NOW).
-    pub(super) async fn cmd_force_value(
-        &self,
-        params: &Value,
-    ) -> (bool, Value, Option<String>) {
+    pub(super) async fn cmd_force_value(&self, params: &Value) -> (bool, Value, Option<String>) {
         info!("Executing force_value command (Faz 6 Batch 197)");
 
         let tag_name = match params.get("tag_name").and_then(|v| v.as_str()) {
@@ -71,10 +68,7 @@ impl CommandHandler {
                 return (
                     false,
                     json!(null),
-                    Some(
-                        "force_value: missing or empty required param `tag_name`"
-                            .to_string(),
-                    ),
+                    Some("force_value: missing or empty required param `tag_name`".to_string()),
                 );
             }
         };
@@ -85,10 +79,7 @@ impl CommandHandler {
                 return (
                     false,
                     json!(null),
-                    Some(
-                        "force_value: missing or non-numeric required param `value`"
-                            .to_string(),
-                    ),
+                    Some("force_value: missing or non-numeric required param `value`".to_string()),
                 );
             }
         };
@@ -109,10 +100,7 @@ impl CommandHandler {
                 return (
                     false,
                     json!(null),
-                    Some(
-                        "force_value: missing required param `ttl_secs`"
-                            .to_string(),
-                    ),
+                    Some("force_value: missing required param `ttl_secs`".to_string()),
                 );
             }
         };
@@ -277,21 +265,14 @@ impl CommandHandler {
             }
             Err(e) => {
                 warn!("force_value rejected: {}", e);
-                (
-                    false,
-                    json!(null),
-                    Some(format!("force_value: {}", e)),
-                )
+                (false, json!(null), Some(format!("force_value: {}", e)))
             }
         }
     }
 
     /// `unforce_value { tag_name }` — remove one
     /// active force.
-    pub(super) async fn cmd_unforce_value(
-        &self,
-        params: &Value,
-    ) -> (bool, Value, Option<String>) {
+    pub(super) async fn cmd_unforce_value(&self, params: &Value) -> (bool, Value, Option<String>) {
         info!("Executing unforce_value command (Faz 6 Batch 197)");
 
         let tag_name = match params.get("tag_name").and_then(|v| v.as_str()) {
@@ -300,17 +281,17 @@ impl CommandHandler {
                 return (
                     false,
                     json!(null),
-                    Some(
-                        "unforce_value: missing or empty required param `tag_name`"
-                            .to_string(),
-                    ),
+                    Some("unforce_value: missing or empty required param `tag_name`".to_string()),
                 );
             }
         };
 
         let (force_registry, force_store) = {
             let state = self.state.read().await;
-            (state.force_registry.clone(), state.force_registry_store.clone())
+            (
+                state.force_registry.clone(),
+                state.force_registry_store.clone(),
+            )
         };
 
         match force_registry.remove(&tag_name).await {
@@ -351,11 +332,7 @@ impl CommandHandler {
             }
             Err(e) => {
                 warn!("unforce_value rejected: {}", e);
-                (
-                    false,
-                    json!(null),
-                    Some(format!("unforce_value: {}", e)),
-                )
+                (false, json!(null), Some(format!("unforce_value: {}", e)))
             }
         }
     }
@@ -363,21 +340,18 @@ impl CommandHandler {
     /// `unforce_all` — drain every active force.
     /// Returns the list of cleared tag names for
     /// audit.
-    pub(super) async fn cmd_unforce_all(
-        &self,
-        _params: &Value,
-    ) -> (bool, Value, Option<String>) {
+    pub(super) async fn cmd_unforce_all(&self, _params: &Value) -> (bool, Value, Option<String>) {
         info!("Executing unforce_all command (Faz 6 Batch 197)");
 
         let (force_registry, force_store) = {
             let state = self.state.read().await;
-            (state.force_registry.clone(), state.force_registry_store.clone())
+            (
+                state.force_registry.clone(),
+                state.force_registry_store.clone(),
+            )
         };
         let drained = force_registry.remove_all().await;
-        let tag_names: Vec<String> = drained
-            .iter()
-            .map(|e| e.tag_name.clone())
-            .collect();
+        let tag_names: Vec<String> = drained.iter().map(|e| e.tag_name.clone()).collect();
 
         // Batch 202: purge each drained entry from
         // SQLCipher. Failures are logged + skipped;
@@ -413,10 +387,7 @@ impl CommandHandler {
     }
 
     /// `list_forces` — enumerate active forces.
-    pub(super) async fn cmd_list_forces(
-        &self,
-        _params: &Value,
-    ) -> (bool, Value, Option<String>) {
+    pub(super) async fn cmd_list_forces(&self, _params: &Value) -> (bool, Value, Option<String>) {
         info!("Executing list_forces command (Faz 6 Batch 197)");
 
         let force_registry = {

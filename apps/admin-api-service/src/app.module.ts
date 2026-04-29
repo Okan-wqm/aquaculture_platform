@@ -16,6 +16,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { EventBusModule } from '@platform/event-bus';
 
 import { ConvertTimestampToTimestamptz1781500000000 } from './migrations/1781500000000-ConvertTimestampToTimestamptz';
+import { ConvertAuditColumnsToTimestamptz1781900000000 } from './migrations/1781900000000-ConvertAuditColumnsToTimestamptz';
+import { AuditLogImmutability1782000000000 } from './migrations/1782000000000-AuditLogImmutability';
 import { AddMfaCompletedToImpersonationSessions1782100000000 } from './migrations/1782100000000-AddMfaCompletedToImpersonationSessions';
 import { MoveSharedTablesFromAdminToShared1782200000000 } from './migrations/1782200000000-MoveSharedTablesFromAdminToShared';
 import { MoveUserPermissionsToShared1786900000000 } from './migrations/1786900000000-MoveUserPermissionsToShared';
@@ -80,6 +82,8 @@ import { UsersModule } from './users/users.module';
           defaultPoolSize: 40,
           migrations: [
             ConvertTimestampToTimestamptz1781500000000,
+            ConvertAuditColumnsToTimestamptz1781900000000,
+            AuditLogImmutability1782000000000,
             AddMfaCompletedToImpersonationSessions1782100000000,
             MoveSharedTablesFromAdminToShared1782200000000,
             MoveUserPermissionsToShared1786900000000,

@@ -54,12 +54,17 @@ const REPO_ROOT = resolve(__dirname, '..', '..');
  * delete the line here in the same change that registers the migrations.
  */
 const KNOWN_UNREGISTERED: ReadonlyMap<string, string> = new Map([
-  ['admin-api-service', 'docs/reviews/orphan-findings.md#ORPHAN-MIGRATION-REGISTRATION-1'],
+  // admin-api-service: drained 2026-04-29 — pre-existing
+  // ConvertAuditColumnsToTimestamptz1781900000000 + AuditLogImmutability1782000000000
+  // were unregistered behind the allowlist; both now imported and listed in
+  // the migrations array, so admin-api falls under the unconditional check.
   ['alert-engine', 'docs/reviews/orphan-findings.md#ORPHAN-MIGRATION-REGISTRATION-2'],
   ['billing-service', 'docs/reviews/orphan-findings.md#ORPHAN-MIGRATION-REGISTRATION-3'],
   ['event-store-service', 'docs/reviews/orphan-findings.md#ORPHAN-MIGRATION-REGISTRATION-4'],
   ['hr-service', 'docs/reviews/orphan-findings.md#ORPHAN-MIGRATION-REGISTRATION-5'],
-  ['messaging-service', 'docs/reviews/orphan-findings.md#ORPHAN-MIGRATION-REGISTRATION-6'],
+  // messaging-service: drained 2026-04-29 — Consolidate1782500000000 +
+  // AlignMessagingEntityDrift1782600000000 were unregistered behind the
+  // allowlist; both now imported and listed in the migrations array.
   ['notification-service', 'docs/reviews/orphan-findings.md#ORPHAN-MIGRATION-REGISTRATION-7'],
   ['observability-service', 'docs/reviews/orphan-findings.md#ORPHAN-MIGRATION-REGISTRATION-8'],
   ['sensor-service', 'docs/reviews/orphan-findings.md#ORPHAN-MIGRATION-REGISTRATION-9'],

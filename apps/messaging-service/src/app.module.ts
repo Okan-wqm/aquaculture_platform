@@ -100,6 +100,8 @@ import { AddTenantIdToMessageChildren1782300000000 } from './migrations/17823000
 // on messaging source schema. Tenant-schema clones receive the same policy
 // via TenantRlsSyncService (wired by RlsModule.forPoolService syncTenantSchemas: true).
 import { EnableRowLevelSecurity1782400000000 } from './migrations/1782400000000-EnableRowLevelSecurity';
+import { ConsolidateTenantSchemaData1782500000000 } from './migrations/1782500000000-ConsolidateTenantSchemaData';
+import { AlignMessagingEntityDrift1782600000000 } from './migrations/1782600000000-AlignMessagingEntityDrift';
 
 // Feature modules
 import { HealthModule } from './health/health.module';
@@ -181,6 +183,8 @@ const complexityCache = new Map<string, number>();
             AddMissingOutboxColumns1782200000000,
             AddTenantIdToMessageChildren1782300000000,
             EnableRowLevelSecurity1782400000000,
+            ConsolidateTenantSchemaData1782500000000,
+            AlignMessagingEntityDrift1782600000000,
           ],
         }),
     }),

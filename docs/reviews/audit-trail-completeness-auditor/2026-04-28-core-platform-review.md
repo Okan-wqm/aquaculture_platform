@@ -469,3 +469,22 @@ Cure: build-time constant raised to `7 * 365`. Operators retain
 `FARM_AUDIT_LOG_RETENTION_DAYS` env-var override, but the floor moved from
 the env layer to the build layer — forgetting the env var defaults to 7y,
 not 90d. Sibling closure to AUDITTRAIL-HIGH-001 (auth-side, prior W0 cycle).
+
+### AUDITTRAIL-HIGH-008 — auth-service ScheduleModule never registered
+
+**Status:** RESOLVED — closure tracked in `docs/reviews/_registry/findings.jsonl`.
+
+Pre-fix `apps/auth-service/src/audit/audit-log.service.ts:147` declared
+`@Cron(EVERY_DAY_AT_2AM) scheduledLogCleanup()` to enforce the 7-year
+audit retention floor (sibling AUDITTRAIL-HIGH-001 cure). The auth-service
+AppModule never imported `ScheduleModule`, so the NestJS scheduler never
+picked up the cron — the cleanup never fired and `auth.audit_logs` grew
+indefinitely. The retention floor was set in code but never enforced at
+runtime.
+
+Cure: register `ScheduleModule.forRoot()` in auth-service AppModule.
+Tier-3 invariant `tests/invariants/cron-requires-schedule-module.spec.ts`
+locks the architectural shift — every service that uses `@Cron` /
+`@Interval` / `@Timeout` MUST register `ScheduleModule.forRoot` somewhere
+in its module tree. Source-text grep at CI time. Catches future
+regressions of the same class (silent dead-code cron decorators).

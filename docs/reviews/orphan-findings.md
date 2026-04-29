@@ -2608,3 +2608,55 @@ the column, which is outside the scope of this batch.
 - BILLING-HIGH-002 (Money discipline rollout) — the parent finding
   whose incomplete sweep introduced this drift.
 - BILLING-LOW-002 (this batch) — the cure that surfaced the drift.
+
+---
+
+## ORPHAN-MEDIUM-030 — usage-metering.service.spec.ts: pre-existing module-init crash + 3 timestamp-vs-Date drift failures (2026-04-29)
+
+**Status:** PARTIAL — module-init crash fixed by this batch (BILLING-LOW-001 cure
+landed a RedisService mock); 3 timestamp drift failures remain.
+
+**Scope:**
+`apps/billing-service/src/modules/metering/__tests__/usage-metering.service.spec.ts`
+specs:
+- `should record usage event successfully` (line ~88)
+- `should process batch events correctly`
+- `should update lastUpdated timestamp` (line ~1120)
+
+**Symptom:**
+```
+expect(event.timestamp).toBeInstanceOf(Date);
+Expected constructor: Date
+Received value: "2026-04-29T15:14:17.121Z"
+```
+
+**Root cause:**
+The `recordUsage` / event-buffer flush path serializes timestamps
+to ISO 8601 strings somewhere along the chain (UsageEvent
+interface or the JSON-serialization step before Redis sync). The
+unit specs predate that change and assert against `Date`
+instances. Same pattern as ORPHAN-MEDIUM-029 (Money / number drift
+on Invoice.total) — incomplete sweep when types flipped at the
+boundary.
+
+**Why this is an orphan finding:**
+Spotted while landing BILLING-LOW-001 (stale tenant-state
+eviction). My RedisService mock fixed a pre-existing module-init
+crash that previously prevented these specs from running at all;
+the 3 timestamp failures were therefore previously invisible.
+They are now visible and persistent.
+
+**How-to-fix (when prioritized):**
+1. Audit `UsageEvent.timestamp` consumers and decide whether the
+   contract is `Date` or `string`. The interface in
+   `usage-metering.service.ts` defines it as `Date`, but the
+   runtime path serializes through JSON for Redis.
+2. Either coerce back to `Date` at the in-memory write site, OR
+   change the interface to `string` (ISO 8601) and update every
+   consumer that reads `.timestamp`.
+3. Update the affected unit specs to assert against the chosen
+   type.
+
+**Related findings:**
+- BILLING-LOW-001 (this batch) — the cure that revealed these
+  pre-existing drifts.

@@ -48,6 +48,85 @@ import { generateServiceIdentityHeadersV2 } from '../utils/service-identity.util
  * Closes: docs/reviews/auth-security-expert/2026-04-28-core-platform-review.md#SEC-CRITICAL-001
  */
 
+/**
+ * Optional circuit-breaker integration for signedFetch.
+ *
+ * # Why this is on the canonical helper (CIRCUIT-MEDIUM-004 cure)
+ *
+ * Pre-cure `signedFetch` was the platform-wide canonical
+ * helper for internal HMAC-signed cross-service calls. It
+ * attached HMAC + tenant headers but performed the raw fetch
+ * with NO resilience layer. Only one caller (gateway-api's
+ * service-proxy) wrapped externally; every other internal-
+ * service consumer (admin-api → auth-service, billing →
+ * admin-api, notification → auth, ...) executed unbreakered
+ * fetches.
+ *
+ * Auditing every callsite individually would be a per-service
+ * sweep. Centralising the breaker integration ON the canonical
+ * helper means callers opt into circuit protection by passing
+ * the same `circuitBreaker` they already inject for everything
+ * else — no per-callsite refactor needed beyond the wiring.
+ *
+ * # Why optional, not mandatory
+ *
+ * Some signedFetch consumers run in contexts that don't
+ * register a CircuitBreakerService (cron-only services, CLI
+ * scripts, test harnesses). Forcing the parameter would force
+ * every caller to either inject or fake-inject. Optional with
+ * an explicit per-call opt-in keeps the helper usable in both
+ * worlds while making the breaker the documented happy path.
+ *
+ * The `tests/invariants/signed-fetch-breakered.spec.ts` invariant
+ * (added alongside) flags every signedFetch call that omits the
+ * breaker arg in `apps/**` so the rollout can complete one
+ * service at a time without losing the discipline gate.
+ */
+export interface SignedFetchCircuitBreakerOption {
+  /** Canonical CircuitBreakerService instance. */
+  service: SignedFetchCircuitBreakerLike;
+  /** Per-(serviceName, operationName) breaker key. */
+  serviceName: string;
+}
+
+/**
+ * Minimal interface SignedFetch needs from CircuitBreakerService.
+ * Mirrors the canonical execute() shape from
+ * `libs/backend-common/src/resilience/circuit-breaker/`. Declared
+ * here as a structural type so signedFetch doesn't need to
+ * import the heavy resilience module at the http-client layer
+ * (avoids circular-import risk between http and resilience).
+ */
+export interface SignedFetchCircuitBreakerLike {
+  execute<T>(args: {
+    serviceName: string;
+    tenantId?: string;
+    fn: () => Promise<T>;
+    options: SignedFetchCircuitBreakerOptionsLike;
+    fallback?: () => T | Promise<T>;
+  }): Promise<T>;
+}
+
+/**
+ * Subset of CircuitBreakerOptions signedFetch surfaces. Callers
+ * who need the full options (slowCallMs, halfOpenRequests, etc.)
+ * pass the canonical DEFAULT_BREAKER_OPTIONS spread + their
+ * failureMode override.
+ */
+export interface SignedFetchCircuitBreakerOptionsLike {
+  failureMode: 'fail-closed' | 'fail-open-degraded';
+  failureThreshold: number;
+  successThreshold: number;
+  volumeThreshold: number;
+  failureRatePct: number;
+  slowCallMs: number;
+  slowCallRatePct: number;
+  halfOpenRequests: number;
+  openTimeoutMs: number;
+  windowSeconds: number;
+  bucketSeconds: number;
+}
+
 export interface SignedFetchOptions extends RequestInit {
   /**
    * Name of the calling service (e.g. 'gateway-api'). Included verbatim in
@@ -70,6 +149,23 @@ export interface SignedFetchOptions extends RequestInit {
    * fixtures only — real call sites rely on the env var.
    */
   secret?: string;
+  /**
+   * Optional canonical CircuitBreakerService integration
+   * (CIRCUIT-MEDIUM-004 cure). When provided, the actual fetch is
+   * wrapped in `breaker.service.execute({ serviceName: breaker.serviceName,
+   * tenantId, fn, options })` so the breaker counts failures and
+   * trips per-(callee, tenant) keying. When omitted, signedFetch
+   * runs the raw fetch as before. Callers MUST pass this on
+   * production paths; the invariant gate flags omissions in
+   * `apps/**`.
+   */
+  circuitBreaker?: SignedFetchCircuitBreakerOption;
+  /**
+   * CircuitBreaker options when `circuitBreaker` is supplied. The
+   * canonical lib exports DEFAULT_BREAKER_OPTIONS — most callers
+   * spread that and override only failureMode.
+   */
+  circuitBreakerOptions?: SignedFetchCircuitBreakerOptionsLike;
 }
 
 /**
@@ -185,11 +281,38 @@ export async function signedFetch(
   }
 
   // Strip custom fields before forwarding to fetch — RequestInit does not
-  // accept serviceName / tenantId / secret.
-  const { serviceName: _s, tenantId: _t, secret: _sec, headers: _h, ...init } = options;
+  // accept serviceName / tenantId / secret / circuitBreaker.
+  const {
+    serviceName: _s,
+    tenantId: _t,
+    secret: _sec,
+    headers: _h,
+    circuitBreaker,
+    circuitBreakerOptions,
+    ...init
+  } = options;
   void _s; void _t; void _sec; void _h;
 
-  return fetch(input, { ...init, headers: merged });
+  const finalInit = { ...init, headers: merged };
+
+  // CIRCUIT-MEDIUM-004 cure: optional circuit breaker wrap. When
+  // the caller supplied `circuitBreaker`, route the actual fetch
+  // through `circuitBreaker.service.execute()` so failures are
+  // counted and the breaker trips per-(callee, tenant). Without
+  // it, fall back to the raw-fetch behaviour (back-compat for
+  // local-dev / cron-only consumers). The signed-fetch-breakered
+  // invariant flags omissions in apps/** during the rollout
+  // window.
+  if (circuitBreaker && circuitBreakerOptions) {
+    return circuitBreaker.service.execute<Response>({
+      serviceName: circuitBreaker.serviceName,
+      tenantId: options.tenantId || '*',
+      fn: async () => fetch(input, finalInit),
+      options: circuitBreakerOptions,
+    });
+  }
+
+  return fetch(input, finalInit);
 }
 
 /**

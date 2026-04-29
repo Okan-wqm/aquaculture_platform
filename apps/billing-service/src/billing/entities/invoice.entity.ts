@@ -118,8 +118,13 @@ export class Invoice {
   @Column({ name: 'subscription_id', nullable: true })
   subscriptionId?: string;
 
+  // DBR-MEDIUM-005 cure: explicit onDelete: 'RESTRICT' encodes the
+  // business intent at the FK level — a subscription with invoice
+  // history must NOT be deletable; soft-delete via deleted_at is the
+  // only allowed lifecycle. Migration 1788300000000 installs the
+  // matching explicit DB-level constraint.
   // Note: subscription field resolved via field resolver to avoid circular dependency
-  @ManyToOne('Subscription', 'invoices')
+  @ManyToOne('Subscription', 'invoices', { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'subscription_id' })
   subscription?: import('./subscription.entity').Subscription;
 

@@ -115,6 +115,38 @@ export class AuditLogEntity {
    * corruption — audit log rows should only ever have been written
    * with tenant UUIDs, and anything else is a bug that deserves
    * surfacing rather than a silent string-to-uuid conversion.
+   *
+   * ## Why the column is nullable (DBR-LOW-002 cure)
+   *
+   * `shared.audit_logs` records BOTH tenant-scoped AND system-level
+   * events. System-level events legitimately have `tenantId IS NULL`
+   * — e.g., a SUPER_ADMIN provisioning a new tenant emits an audit
+   * row BEFORE the tenant exists, schema-bootstrap operations on
+   * source schemas, platform-wide configuration changes that are
+   * not tied to a single tenant.
+   *
+   * The agent rule "tenant_id on RLS-protected or tenant-scoped
+   * tables MUST be NOT NULL" applies to PER-TENANT tables. This
+   * table is the cross-tenant audit trail (one of the canonical
+   * SHARED_SCHEMA_TABLES per ADR-011), explicitly designed to hold
+   * cross-tenant + system-level rows alongside tenant-scoped ones.
+   * The shared.audit_logs table does NOT have RLS enabled — the
+   * NULL-policy concern does not apply.
+   *
+   * If/when RLS is added to shared.audit_logs (defense-in-depth
+   * recommended in agent guidance), the policy MUST explicitly
+   * handle NULL tenantId rows:
+   *
+   *     CREATE POLICY shared_audit_log_tenant_isolation
+   *       USING (
+   *         "tenantId" = current_setting('app.current_tenant')::uuid
+   *         OR ("tenantId" IS NULL AND has_role('platform_admin'))
+   *       );
+   *
+   * The full doctrine — when an audit table can be nullable, when
+   * not, the RLS policy shape that handles NULLs — is documented
+   * at docs/architecture/audit-tables.md (paired with DBR-MEDIUM-006
+   * follow-on).
    */
   @Column({ type: 'uuid', nullable: true })
   tenantId!: string | null;

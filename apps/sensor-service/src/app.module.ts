@@ -16,6 +16,7 @@ import { TenantGuard, RolesGuard, ServiceIdentityGuard } from '@aquaculture/back
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
 import { MetricsMiddleware } from '@aquaculture/backend-common/metrics';
 import { UserContextMiddleware, TenantContextMiddleware, CorrelationIdMiddleware, StripInternalHeadersMiddleware } from '@aquaculture/backend-common/middleware';
+import { CircuitBreakerModule } from '@aquaculture/backend-common/resilience';
 import { AuditedOperationModule } from '@aquaculture/backend-common/audit';
 import { RedisModule } from '@aquaculture/backend-common/redis';
 import { EventBusModule } from '@platform/event-bus';
@@ -102,6 +103,12 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
       envFilePath: ['.env', '.env.local'],
       cache: true,
     }),
+    // CIRCUIT-LOW-002 cure: register the canonical
+    // CircuitBreakerService at the @Global module level so the
+    // sensor-protocol HttpRestAdapter and the channel-detection
+    // service can constructor-inject it without per-feature-module
+    // re-imports. Same pattern admin-api uses for CIRCUIT-LOW-001.
+    CircuitBreakerModule,
 
     // Database connection — sensor-service owns the 'sensor' schema (over
     // TimescaleDB). Uses the platform TypeORM factory.

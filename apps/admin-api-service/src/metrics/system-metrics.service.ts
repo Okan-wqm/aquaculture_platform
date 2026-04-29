@@ -2,7 +2,10 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { buildSignedInternalHeaders } from '@aquaculture/backend-common/http';
-import { CircuitBreakerService } from '@aquaculture/backend-common/resilience';
+import {
+  CircuitBreakerService,
+  DEFAULT_BREAKER_OPTIONS,
+} from '@aquaculture/backend-common/resilience';
 
 export interface SystemMetrics {
   timestamp: string;
@@ -260,9 +263,8 @@ export class SystemMetricsService {
           // level, not tenant-scoped.
           tenantId: '*',
           options: {
+            ...DEFAULT_BREAKER_OPTIONS,
             failureMode: 'fail-open-degraded',
-            failureThreshold: 5,
-            resetTimeoutMs: 30_000,
           },
           fn: async () => {
             const controller = new AbortController();

@@ -5,7 +5,10 @@ import { Repository, DataSource, LessThan, Between } from 'typeorm';
 import * as os from 'os';
 import * as fs from 'fs';
 import { buildSignedInternalHeaders } from '@aquaculture/backend-common/http';
-import { CircuitBreakerService } from '@aquaculture/backend-common/resilience';
+import {
+  CircuitBreakerService,
+  DEFAULT_BREAKER_OPTIONS,
+} from '@aquaculture/backend-common/resilience';
 
 import {
   PerformanceMetric,
@@ -444,9 +447,8 @@ export class PerformanceMonitoringService {
             serviceName: `admin-api-perf-probe:${endpoint.name}`,
             tenantId: '*',
             options: {
+              ...DEFAULT_BREAKER_OPTIONS,
               failureMode: 'fail-open-degraded',
-              failureThreshold: 5,
-              resetTimeoutMs: 30_000,
             },
             fn: async () => {
               const controller = new AbortController();

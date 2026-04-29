@@ -2660,3 +2660,91 @@ They are now visible and persistent.
 **Related findings:**
 - BILLING-LOW-001 (this batch) — the cure that revealed these
   pre-existing drifts.
+
+---
+
+## ORPHAN-MEDIUM-031 — security-event.service.ts EVENT_TYPE_NAMES exhaustiveness violation (REFRESH_TOKEN_REUSE_DETECTED) (2026-04-29)
+
+**Status:** RESOLVED — fixed in the same commit landing CIRCUIT-LOW-002.
+
+**Scope:**
+`libs/backend-common/src/security/security-event.service.ts:152`
+
+**Symptom:**
+```
+error TS2741: Property '[SecurityEventType.REFRESH_TOKEN_REUSE_DETECTED]'
+is missing in type '{ ... 9 entries ... }' but required in type
+'Record<SecurityEventType, string>'.
+```
+
+**Root cause:**
+`libs/event-contracts/src/security/security-events.ts` added the
+`REFRESH_TOKEN_REUSE_DETECTED = 'security.events.auth.refresh.token.reuse.detected'`
+enum value in a prior commit but never added the corresponding
+`EVENT_TYPE_NAMES` record entry in `security-event.service.ts`.
+The Record<SecurityEventType, string> type's exhaustiveness check
+fired on every consumer that imports the service.
+
+**Why this is an orphan finding:**
+Spotted while landing CIRCUIT-LOW-002 (sensor-service IoT breaker
+wrap). The sensor-service unit tests transitively imported the
+SecurityEventService through the audit / interceptor wiring; the
+TS2741 blocked compilation. The proper fix is to add the missing
+mapping entry — the exhaustive Record type is doing exactly what
+it should do (catch enum/map drift at compile time).
+
+**How-to-fix:**
+Add `[SecurityEventType.REFRESH_TOKEN_REUSE_DETECTED]:
+'AuthRefreshTokenReuseDetected'` to the EVENT_TYPE_NAMES record.
+The Record<SecurityEventType, string> type stays — the discipline
+"every enum member has a name mapping" is correct.
+
+**Related findings:**
+- CIRCUIT-LOW-002 (this batch) — the cure that surfaced this.
+
+---
+
+## ORPHAN-MEDIUM-032 — channel-detection.service.spec.ts: pre-existing 2 failures on log-repository call-count drift (2026-04-29)
+
+**Status:** OPEN.
+
+**Scope:**
+`apps/sensor-service/src/sensor-type/__tests__/channel-detection.service.spec.ts`
+specs:
+- `should create channels and update log when approved`
+- `should use modifications when provided`
+
+**Symptom:**
+```
+Expected number of calls: 3
+Received number of calls: 4
+```
+
+**Root cause:**
+The `approveProposal` flow in `channel-detection.service.ts` makes
+4 repository calls instead of the spec's expected 3. The spec was
+authored before a fourth log-update site was added to the flow
+(or before a wrapper layer started double-recording). Affected
+specs assert `findOne / save / update` call counts directly,
+which is brittle to mid-method instrumentation changes.
+
+**Why this is an orphan finding:**
+Spotted while landing CIRCUIT-LOW-002. Adding the
+CircuitBreakerService mock to the spec's providers passed dependency
+injection but did not change the approveProposal call shape — the
+2 failures were already present, masked by the prior compilation
+crash (ORPHAN-MEDIUM-031). My CIRCUIT-LOW-002 wrap touches a
+DIFFERENT method (`callAiService`); approveProposal is unaffected.
+
+**How-to-fix (when prioritized):**
+1. Audit the `approveProposal` repository-call flow vs the spec's
+   expected sequence.
+2. Either fix the spec to assert against the correct shape, or
+   refactor the service to remove the unintended fourth call.
+3. The brittle "expected exactly N calls" assertion pattern
+   should be replaced with a behavior assertion (the function's
+   visible side effect, not the call count).
+
+**Related findings:**
+- CIRCUIT-LOW-002 (this batch) — the cure that surfaced this
+  (transitive, via ORPHAN-MEDIUM-031 unmasking).

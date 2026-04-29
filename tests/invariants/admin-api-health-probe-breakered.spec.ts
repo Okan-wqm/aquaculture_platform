@@ -36,15 +36,22 @@ import { resolve } from 'node:path';
 const REPO_ROOT = resolve(__dirname, '..', '..');
 
 const WATCHED_BREAKERED_FETCH_SITES = [
+  // CIRCUIT-LOW-001 — admin-api cross-service health probes
   'apps/admin-api-service/src/metrics/system-metrics.service.ts',
   'apps/admin-api-service/src/system-management/services/performance-monitoring.service.ts',
+  // CIRCUIT-LOW-002 — sensor-service IoT vendor + ai-service
+  // cross-service fetches. Same Tier-1 cure as the admin-api
+  // sites; same single SSoT for canonical-import + execute-wrap
+  // assertions.
+  'apps/sensor-service/src/sensor-type/channel-detection.service.ts',
+  'apps/sensor-service/src/protocol/adapters/iot/http-rest.adapter.ts',
 ] as const;
 
 function read(rel: string): string {
   return readFileSync(resolve(REPO_ROOT, rel), 'utf8');
 }
 
-describe('CIRCUIT-LOW-001 — admin-api health-probe breaker invariant', () => {
+describe('CIRCUIT-LOW-001 / CIRCUIT-LOW-002 — cross-service fetch breaker invariant', () => {
   it.each(WATCHED_BREAKERED_FETCH_SITES)(
     '%s imports CircuitBreakerService from the canonical resilience barrel',
     (path) => {
@@ -67,27 +74,50 @@ describe('CIRCUIT-LOW-001 — admin-api health-probe breaker invariant', () => {
     '%s admits no bare unwrapped fetch() call outside an execute() block',
     (path) => {
       const src = read(path);
-      // Locate every `fetch(` call site. Then for each one, walk
-      // back the preceding window for an `execute(` opener — if
-      // present, the fetch is wrapped. If not, the fetch is bare
-      // and the test fails.
-      const fetchSites = [...src.matchAll(/\bfetch\s*\(/g)];
+      // Strip block + line comments so JSDoc / explanatory
+      // comments referencing "fetch (" do not get flagged as
+      // callsites. Full TS-grammar parsing is outside the
+      // invariant's scope; this is good enough for the source
+      // shapes the auditor flagged.
+      const stripped = src
+        .replace(/\/\*[\s\S]*?\*\//g, ' ')
+        .replace(/\/\/[^\n]*/g, ' ');
+
+      // Locate every `fetch(` callsite. Each must have an
+      // `this.circuitBreaker.execute` opener somewhere in the
+      // preceding ~2KB of source, and the brace-depth from
+      // that opener up to the fetch must be POSITIVE — meaning
+      // we're still inside the execute call's options object.
+      // If the depth has gone to zero before the fetch, the
+      // execute block has already closed and the fetch is bare.
+      const fetchSites: number[] = [];
+      let m: RegExpExecArray | null;
+      const fetchRe = /\bfetch\s*\(/g;
+      while ((m = fetchRe.exec(stripped)) !== null) {
+        fetchSites.push(m.index);
+      }
       const bareSites: number[] = [];
 
-      for (const match of fetchSites) {
-        const at = match.index ?? 0;
-        const window = src.slice(Math.max(0, at - 1500), at);
-        // The execute() opener must be followed by an arrow lambda
-        // containing the fetch — `fn: async () => { ... fetch(`
-        // The window cap of 1500 chars covers a reasonable
-        // execute-block prelude (options, types) without false-
-        // matching unrelated execute(...) calls elsewhere in the
-        // file.
-        const wrappedByExecute =
-          /circuitBreaker\.execute\s*<[^>]*>\s*\(\s*{[\s\S]*?fn\s*:\s*async\s*\(\s*\)\s*=>\s*{/.test(
-            window,
-          );
-        if (!wrappedByExecute) {
+      for (const at of fetchSites) {
+        const windowText = stripped.slice(Math.max(0, at - 2000), at);
+        const lastOpener = windowText.lastIndexOf(
+          'this.circuitBreaker.execute',
+        );
+        if (lastOpener === -1) {
+          bareSites.push(at);
+          continue;
+        }
+        // Walk from the opener to the fetch, counting unmatched
+        // `{`. If depth > 0 at the fetch we're inside the
+        // execute call (the `fn:` lambda's body). If depth ≤ 0
+        // we're outside.
+        const between = windowText.slice(lastOpener);
+        let depth = 0;
+        for (const ch of between) {
+          if (ch === '{') depth++;
+          else if (ch === '}') depth--;
+        }
+        if (depth <= 0) {
           bareSites.push(at);
         }
       }
@@ -101,6 +131,16 @@ describe('CIRCUIT-LOW-001 — admin-api health-probe breaker invariant', () => {
       /import\s*{[^}]*CircuitBreakerModule[^}]*}\s*from\s*['"]@aquaculture\/backend-common\/resilience['"]/,
     );
     // Module is referenced in the imports[] array of the AppModule.
+    expect(src).toMatch(/CircuitBreakerModule\s*,/);
+  });
+
+  // CIRCUIT-LOW-002 sibling: sensor-service AppModule
+  // registers the canonical CircuitBreakerModule.
+  it('sensor-service app.module.ts imports CircuitBreakerModule', () => {
+    const src = read('apps/sensor-service/src/app.module.ts');
+    expect(src).toMatch(
+      /import\s*{[^}]*CircuitBreakerModule[^}]*}\s*from\s*['"]@aquaculture\/backend-common\/resilience['"]/,
+    );
     expect(src).toMatch(/CircuitBreakerModule\s*,/);
   });
 });

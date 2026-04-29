@@ -105,6 +105,9 @@
         "libs/backend-common/src/pagination/index.ts"
       ],
       "@aquaculture/backend-common/redis": ["libs/backend-common/src/redis/index.ts"],
+      "@aquaculture/backend-common/resilience": [
+        "libs/backend-common/src/resilience/index.ts"
+      ],
       "@aquaculture/backend-common/security": [
         "libs/backend-common/src/security/index.ts"
       ],

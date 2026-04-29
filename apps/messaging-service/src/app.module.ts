@@ -102,6 +102,7 @@ import { AddTenantIdToMessageChildren1782300000000 } from './migrations/17823000
 import { EnableRowLevelSecurity1782400000000 } from './migrations/1782400000000-EnableRowLevelSecurity';
 import { ConsolidateTenantSchemaData1782500000000 } from './migrations/1782500000000-ConsolidateTenantSchemaData';
 import { AlignMessagingEntityDrift1782600000000 } from './migrations/1782600000000-AlignMessagingEntityDrift';
+import { AddLegalHoldDualApprover1782700000000 } from './migrations/1782700000000-AddLegalHoldDualApprover';
 
 // Feature modules
 import { HealthModule } from './health/health.module';
@@ -185,6 +186,7 @@ const complexityCache = new Map<string, number>();
             EnableRowLevelSecurity1782400000000,
             ConsolidateTenantSchemaData1782500000000,
             AlignMessagingEntityDrift1782600000000,
+            AddLegalHoldDualApprover1782700000000,
           ],
         }),
     }),

@@ -40,6 +40,7 @@ export class ToggleLegalHoldHandler
     const {
       tenantId, userId, activate, holdId, channelId, reason,
       legalMatterId, legalMatterDescription, requestedBy, expiresAt,
+      approverId, releaseReason,
     } = command;
 
     // Validate before entering transaction
@@ -53,6 +54,28 @@ export class ToggleLegalHoldHandler
     }
     if (!activate && !holdId) {
       throw new BadRequestException('holdId is required to release a legal hold');
+    }
+    // LEGAL-MEDIUM-002: dual-approver pre-checks at the command boundary
+    // so the resolver/HTTP layer surfaces the constraint to the caller
+    // *before* the transaction opens. The service layer pins the same
+    // invariants again (defense in depth), and the DB CHECK constraint
+    // pins them at the schema layer.
+    if (!activate) {
+      if (!approverId) {
+        throw new BadRequestException(
+          'approverId is required to release a legal hold (dual-approver protocol)',
+        );
+      }
+      if (approverId === userId) {
+        throw new BadRequestException(
+          'Self-approval is forbidden: the releaser and the approver must be two distinct SUPER_ADMIN identities',
+        );
+      }
+      if (!releaseReason || releaseReason.trim().length === 0) {
+        throw new BadRequestException(
+          'releaseReason is required to release a legal hold',
+        );
+      }
     }
 
     // Wrap hold + audit + outbox in a single transaction
@@ -81,9 +104,18 @@ export class ToggleLegalHoldHandler
           `Legal hold activated: id=${hold.id}, tenant=${tenantId}, channel=${channelId ?? 'all'}`,
         );
       } else {
-        hold = await this.legalHoldService.release(holdId!, tenantId, userId, manager);
+        hold = await this.legalHoldService.release(
+          holdId!,
+          tenantId,
+          userId,
+          approverId!,
+          releaseReason!,
+          manager,
+        );
 
-        this.logger.log(`Legal hold released: id=${holdId}, by=${userId}`);
+        this.logger.log(
+          `Legal hold released: id=${holdId}, by=${userId}, approver=${approverId}`,
+        );
       }
 
       // Log to compliance audit within the same transaction.

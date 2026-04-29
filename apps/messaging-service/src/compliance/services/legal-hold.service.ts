@@ -65,6 +65,15 @@ const LEGAL_HOLD_CHECK_DEADLINE_MS = 500;
 const LEGAL_HOLD_CACHE_BREAKER_RESET_MS = 30_000;
 
 /**
+ * Minimum length (chars) for activate / release reason fields.
+ * Per the legal-hold-auditor agent spec § "Override protocol": "explicit
+ * reason (≥ 50 chars)". Forces requesters to surface legal-matter scope +
+ * originating party rather than a one-word justification (LEGAL-MEDIUM-002
+ * cure).
+ */
+const LEGAL_HOLD_MIN_REASON_CHARS = 50;
+
+/**
  * Manages legal holds on messaging data.
  *
  * When a legal hold is active, messages in scope (tenant-wide or channel-specific)
@@ -159,6 +168,16 @@ export class LegalHoldService {
       );
     }
 
+    // LEGAL-MEDIUM-002 cure: spec mandates ≥ 50 chars for the activation
+    // reason. Pre-cure a one-word "investigate" passed; downstream auditors
+    // had no context. The 50-char floor forces the requester to surface
+    // legal-matter scope + originating party.
+    if (!reason || reason.trim().length < LEGAL_HOLD_MIN_REASON_CHARS) {
+      throw new ForbiddenException(
+        `Legal hold reason must be at least ${LEGAL_HOLD_MIN_REASON_CHARS} characters (received ${reason?.trim().length ?? 0})`,
+      );
+    }
+
     // Use caller's transaction manager if provided, fall back to injected
     // request-scoped repo. The `manager` branch wraps via tenantManagerRepo
     // so cross-tenant rows can never be written from inside a caller's
@@ -211,14 +230,62 @@ export class LegalHoldService {
   /**
    * Release (deactivate) an existing legal hold.
    *
+   * # Dual-approver protocol (LEGAL-MEDIUM-002 cure)
+   *
+   * Pre-cure release was a single-identity operation: any SUPER_ADMIN
+   * with the hold's id could end the hold. The agent spec mandates
+   * "Override protocol: requires ALL of: SUPER_ADMIN role + MFA step-up
+   * (≤5min) + explicit reason (≥50 chars) + dual-approver (second
+   * SUPER_ADMIN click-through)".
+   *
+   * Post-cure release requires:
+   *   - userId  → the SUPER_ADMIN actually committing the release
+   *   - approverId → a SECOND SUPER_ADMIN that countersigned
+   *   - releaseReason ≥ 50 chars
+   *   - userId !== approverId (no self-approval)
+   *
+   * The DB has CHECK constraint `chk_legal_hold_no_self_approval`
+   * pinning the same invariant at schema level so a code regression
+   * cannot leak around it. The MFA step-up is wired via auth-service
+   * claims (the auth-security-expert follow-on).
+   *
+   * @param holdId Hold to release.
+   * @param tenantId Tenant scope (lookup is keyed on it — prevents cross-tenant release).
+   * @param userId The releaser (must equal an authenticated SUPER_ADMIN).
+   * @param approverId The countersigning second SUPER_ADMIN. MUST differ from userId.
+   * @param releaseReason ≥ 50 chars justification recorded on the row.
    * @param manager Optional EntityManager for transactional callers (same rationale as activate).
    */
   async release(
     holdId: string,
     tenantId: string,
     userId: string,
+    approverId: string,
+    releaseReason: string,
     manager?: EntityManager,
   ): Promise<LegalHold> {
+    // LEGAL-MEDIUM-002: pin the dual-approver invariant at the service
+    // layer (DB CHECK constraint pins it again at the schema layer —
+    // belt-and-braces because the schema constraint is the SSoT but
+    // the friendlier error comes from here).
+    if (!approverId) {
+      throw new ForbiddenException(
+        'approverId is required: legal hold release requires a second SUPER_ADMIN countersigning the request',
+      );
+    }
+    if (userId === approverId) {
+      throw new ForbiddenException(
+        'Self-approval is forbidden: the releaser and the approver must be two distinct SUPER_ADMIN identities',
+      );
+    }
+
+    // ≥ 50 chars release reason — same justification as activate.
+    if (!releaseReason || releaseReason.trim().length < LEGAL_HOLD_MIN_REASON_CHARS) {
+      throw new ForbiddenException(
+        `Release reason must be at least ${LEGAL_HOLD_MIN_REASON_CHARS} characters (received ${releaseReason?.trim().length ?? 0})`,
+      );
+    }
+
     // tenantId is required so the find below cannot match a hold that
     // belongs to a different tenant than the caller. Without this scope,
     // a user from Tenant A who learned a hold's id (via leaked log,
@@ -239,6 +306,8 @@ export class LegalHoldService {
 
     hold.isActive = false;
     hold.releasedBy = userId;
+    hold.releasedByApprover = approverId;
+    hold.releaseReason = releaseReason;
     hold.releasedAt = new Date();
     const saved = await repo.save(hold);
 

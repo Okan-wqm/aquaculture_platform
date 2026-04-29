@@ -406,6 +406,8 @@ export function createMockLegalHold(
     startedBy: fakeUuid('usr'),
     startedAt: new Date('2026-03-01T00:00:00Z'),
     releasedBy: null,
+    releasedByApprover: null,
+    releaseReason: null,
     releasedAt: null,
     expiresAt: null,
     isActive: true,

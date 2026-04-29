@@ -142,6 +142,22 @@ export class ToggleLegalHoldInput {
 
   @Field(() => Date, { nullable: true, description: 'Optional expiration date for the hold (GDPR proportionality).' })
   expiresAt: Date | null;
+
+  /**
+   * Required when releasing — dual-approver protocol per LEGAL-MEDIUM-002.
+   * The id of a SECOND SUPER_ADMIN that countersigned the request. MUST
+   * differ from the authenticated caller. Pre-cure single-identity
+   * release was the audit gap.
+   */
+  @Field(() => String, { nullable: true, description: 'Required when releasing. ID of the second SUPER_ADMIN countersigning (dual-approver protocol).' })
+  approverId: string | null;
+
+  /**
+   * Required when releasing — ≥ 50 chars per spec. Recorded on the
+   * row's `releaseReason` column for audit.
+   */
+  @Field(() => String, { nullable: true, description: 'Required when releasing. Free-text justification (≥ 50 chars).' })
+  releaseReason: string | null;
 }
 
 @InputType()
@@ -276,6 +292,8 @@ export class ComplianceResolver {
         input.legalMatterDescription,
         input.requestedBy,
         input.expiresAt,
+        input.approverId,
+        input.releaseReason,
       ),
     );
   }

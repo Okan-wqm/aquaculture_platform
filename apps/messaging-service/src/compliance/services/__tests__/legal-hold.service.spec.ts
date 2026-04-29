@@ -16,11 +16,24 @@ import {
   TENANT_A,
 } from '../../../__tests__/test-helpers';
 
+/**
+ * 50+ char reason used by tests where the spec-anchored ≥50 char floor
+ * is not the subject under test. Short reasons are tested explicitly
+ * in the LEGAL-MEDIUM-002 dual-approver block below.
+ */
+const LONG_REASON =
+  'Regulatory investigation under SEC matter 24-C-19821 ' +
+  'concerning historical messaging records preservation';
+const LONG_RELEASE_REASON =
+  'Matter SEC 24-C-19821 closed by court order dated 2026-04-29; ' +
+  'no further preservation obligation per outside counsel.';
+
 describe('LegalHoldService', () => {
   let service: LegalHoldService;
   let holdRepo: MockRepository<LegalHold>;
 
   const adminUserId = fakeUuid('usr');
+  const approverUserId = fakeUuid('usr');
   const channelId = fakeUuid('ch');
 
   beforeEach(async () => {
@@ -57,14 +70,14 @@ describe('LegalHoldService', () => {
 
     const legalMatterId = fakeUuid('lm');
     const result = await service.activate(
-      TENANT_A, null, 'Regulatory investigation', adminUserId, legalMatterId,
+      TENANT_A, null, LONG_REASON, adminUserId, legalMatterId,
     );
 
     expect(holdRepo.create).toHaveBeenCalledWith(
       expect.objectContaining({
         tenantId: TENANT_A,
         channelId: null,
-        reason: 'Regulatory investigation',
+        reason: LONG_REASON,
         legalMatterId,
         startedBy: adminUserId,
         isActive: true,
@@ -82,7 +95,7 @@ describe('LegalHoldService', () => {
 
     const legalMatterId = fakeUuid('lm');
     const result = await service.activate(
-      TENANT_A, channelId, 'Channel audit', adminUserId, legalMatterId,
+      TENANT_A, channelId, LONG_REASON, adminUserId, legalMatterId,
     );
 
     expect(holdRepo.create).toHaveBeenCalledWith(
@@ -104,7 +117,7 @@ describe('LegalHoldService', () => {
     holdRepo.findOne.mockResolvedValue(existingHold);
 
     await expect(
-      service.activate(TENANT_A, null, 'Duplicate', adminUserId, fakeUuid('lm')),
+      service.activate(TENANT_A, null, LONG_REASON, adminUserId, fakeUuid('lm')),
     ).rejects.toThrow(ForbiddenException);
   });
 
@@ -154,10 +167,15 @@ describe('LegalHoldService', () => {
     holdRepo.findOne.mockResolvedValue(activeHold);
 
     const releaserId = fakeUuid('usr');
-    const result = await service.release(holdId, TENANT_A, releaserId);
+    const approver = fakeUuid('usr');
+    const result = await service.release(
+      holdId, TENANT_A, releaserId, approver, LONG_RELEASE_REASON,
+    );
 
     expect(result.isActive).toBe(false);
     expect(result.releasedBy).toBe(releaserId);
+    expect(result.releasedByApprover).toBe(approver);
+    expect(result.releaseReason).toBe(LONG_RELEASE_REASON);
     expect(result.releasedAt).toBeInstanceOf(Date);
     expect(holdRepo.save).toHaveBeenCalled();
     // Verify the new tenantId scope is honoured: lookup must be by
@@ -172,7 +190,9 @@ describe('LegalHoldService', () => {
     holdRepo.findOne.mockResolvedValue(null);
 
     await expect(
-      service.release(fakeUuid('lh'), TENANT_A, adminUserId),
+      service.release(
+        fakeUuid('lh'), TENANT_A, adminUserId, approverUserId, LONG_RELEASE_REASON,
+      ),
     ).rejects.toThrow(ForbiddenException);
   });
 
@@ -181,7 +201,9 @@ describe('LegalHoldService', () => {
     holdRepo.findOne.mockResolvedValue(releasedHold);
 
     await expect(
-      service.release(releasedHold.id, TENANT_A, adminUserId),
+      service.release(
+        releasedHold.id, TENANT_A, adminUserId, approverUserId, LONG_RELEASE_REASON,
+      ),
     ).rejects.toThrow(ForbiddenException);
   });
 
@@ -201,7 +223,9 @@ describe('LegalHoldService', () => {
     const wrongTenant = fakeUuid('tn');
 
     await expect(
-      service.release(holdId, wrongTenant, adminUserId),
+      service.release(
+        holdId, wrongTenant, adminUserId, approverUserId, LONG_RELEASE_REASON,
+      ),
     ).rejects.toThrow(ForbiddenException);
     expect(holdRepo.findOne).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: holdId, tenantId: wrongTenant } }),
@@ -291,7 +315,7 @@ describe('LegalHoldService', () => {
       await svcWithRedis.activate(
         TENANT_A,
         null,
-        'Regulatory investigation',
+        LONG_REASON,
         adminUserId,
         fakeUuid('lm'),
       );
@@ -306,7 +330,7 @@ describe('LegalHoldService', () => {
       await svcWithRedis.activate(
         TENANT_A,
         null,
-        'Regulatory investigation',
+        LONG_REASON,
         adminUserId,
         fakeUuid('lm'),
       );
@@ -322,7 +346,7 @@ describe('LegalHoldService', () => {
       await svcWithRedis.activate(
         TENANT_A,
         null,
-        'Regulatory investigation',
+        LONG_REASON,
         adminUserId,
         fakeUuid('lm'),
       );
@@ -332,6 +356,94 @@ describe('LegalHoldService', () => {
       jest.advanceTimersByTime(30_001);
       expect(svcWithRedis.isCacheDegraded()).toBe(false);
       jest.useRealTimers();
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // LEGAL-MEDIUM-002 — dual-approver protocol + ≥50 char reasons
+  // -----------------------------------------------------------------------
+  describe('LEGAL-MEDIUM-002: dual-approver protocol + reason length', () => {
+    it('rejects activate when reason is shorter than 50 chars', async () => {
+      holdRepo.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.activate(TENANT_A, null, 'too short', adminUserId, fakeUuid('lm')),
+      ).rejects.toThrow(/at least 50 characters/);
+      expect(holdRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('rejects release when approverId is missing', async () => {
+      const holdId = fakeUuid('lh');
+      holdRepo.findOne.mockResolvedValue(
+        createMockLegalHold({ id: holdId, isActive: true }),
+      );
+
+      await expect(
+        service.release(
+          holdId,
+          TENANT_A,
+          adminUserId,
+          '', // empty approverId
+          LONG_RELEASE_REASON,
+        ),
+      ).rejects.toThrow(/approverId is required/);
+      expect(holdRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('rejects self-approval (releaser === approver)', async () => {
+      const holdId = fakeUuid('lh');
+      holdRepo.findOne.mockResolvedValue(
+        createMockLegalHold({ id: holdId, isActive: true }),
+      );
+
+      await expect(
+        service.release(
+          holdId,
+          TENANT_A,
+          adminUserId,
+          adminUserId, // same identity = self-approval
+          LONG_RELEASE_REASON,
+        ),
+      ).rejects.toThrow(/Self-approval is forbidden/);
+      expect(holdRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('rejects release when reason is shorter than 50 chars', async () => {
+      const holdId = fakeUuid('lh');
+      holdRepo.findOne.mockResolvedValue(
+        createMockLegalHold({ id: holdId, isActive: true }),
+      );
+
+      await expect(
+        service.release(
+          holdId,
+          TENANT_A,
+          adminUserId,
+          approverUserId,
+          'too short',
+        ),
+      ).rejects.toThrow(/at least 50 characters/);
+      expect(holdRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('records approver + reason on the row when all invariants hold', async () => {
+      const holdId = fakeUuid('lh');
+      holdRepo.findOne.mockResolvedValue(
+        createMockLegalHold({ id: holdId, isActive: true }),
+      );
+
+      const result = await service.release(
+        holdId,
+        TENANT_A,
+        adminUserId,
+        approverUserId,
+        LONG_RELEASE_REASON,
+      );
+
+      expect(result.releasedBy).toBe(adminUserId);
+      expect(result.releasedByApprover).toBe(approverUserId);
+      expect(result.releaseReason).toBe(LONG_RELEASE_REASON);
+      expect(result.isActive).toBe(false);
     });
   });
 });

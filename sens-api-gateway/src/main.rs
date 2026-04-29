@@ -2708,6 +2708,145 @@ impl AppState {
         }
     }
 
+    /// PR-195 Batch #20 (closes ORPHAN-D3-BOOT-ORDER-002
+    /// second half — post-boot program-deploy DB
+    /// recreation hook).
+    ///
+    /// Option-3 first-program-deploy migration
+    /// discipline (per ADR-031): program-bound consumer
+    /// DBs (`SqlitePersistence` for RETAIN, persistence;
+    /// `BytecodeRegistryStore` for bytecode programs)
+    /// are bound to a specific program's
+    /// `program_artifact_sha256` for v2 keystore-derived
+    /// key derivation. At boot, the program SHA is
+    /// unavailable (no program loaded yet); init_X
+    /// gracefully degrades to `self.X = None` for v2
+    /// manifest hosts (Batch #19).
+    ///
+    /// This method is the "post-deploy open" hook that
+    /// closes the gap: when a program deploys, the
+    /// deploy handler has the program's SHA and calls
+    /// this method. The method:
+    ///
+    ///   - For each program-bound consumer that's
+    ///     currently `None`, calls the manifest-aware
+    ///     constructor with the deploy's program_sha.
+    ///   - Stores the constructed handle on AppState if
+    ///     successful; logs a warning (does NOT fail
+    ///     the deploy) if open fails.
+    ///   - For consumers that are already `Some`, this
+    ///     method is a no-op — the existing handle was
+    ///     opened either at boot (v1 fallback path) or
+    ///     by an earlier deploy, and is already serving
+    ///     the runtime.
+    ///
+    /// **Why warn-not-fail:** the deploy itself doesn't
+    /// fundamentally depend on persistence. RETAIN
+    /// programs run without persistence per the
+    /// pre-Batch-176 fail-tolerant pattern; bytecode
+    /// programs work in-memory per the pre-Batch-169
+    /// fail-tolerant pattern. A v2 DB that can't be
+    /// opened with the new program's SHA is an
+    /// operator-investigation concern (DB content was
+    /// derived from a DIFFERENT program — operator
+    /// must decide whether to recover or recreate).
+    /// Failing the deploy would block the agent from
+    /// running the new program at all; warning lets the
+    /// deploy succeed + surfaces the DB state as a
+    /// persistence problem.
+    ///
+    /// **Caller contract:** the deploy handler MUST
+    /// pass the canonical bytecode SHA-256 — same value
+    /// that the migration ceremony would have used for
+    /// the v2 derivation (so the keystore yields the
+    /// same key). For source-deploy paths, the SHA is
+    /// computed over the COMPILED bytecode bytes (not
+    /// the source bytes) — this matches `ADR-031`
+    /// program-bound consumer context discipline.
+    ///
+    /// **Idempotency:** calling this method multiple
+    /// times with the same program_sha is a no-op
+    /// after the first successful open (each consumer
+    /// becomes `Some` and stays so). Calling with a
+    /// DIFFERENT program_sha after the first open is
+    /// a no-op for ALREADY-Some consumers; the new
+    /// SHA does not re-key existing handles. Operator
+    /// runs `--migrate-db` ceremony again to rekey
+    /// under the new SHA, OR (for v1-host first
+    /// deploy where DB doesn't exist yet) the
+    /// constructor creates it fresh.
+    pub async fn try_open_program_bound_dbs_under_program_sha(
+        &mut self,
+        program_artifact_sha256: Vec<u8>,
+    ) {
+        let Some(keystore) = self.keystore.clone() else {
+            // Keystore disabled (HC-1 backward compat).
+            // No v2 derivation; legacy v1 path was
+            // already attempted at boot.
+            return;
+        };
+
+        // RETAIN persistence (program-bound).
+        if self.retain_persistence.is_none() {
+            let db_path = crate::data_dir::data_dir().join("retain.db");
+            let db_path_str = db_path.to_string_lossy().to_string();
+            match crate::scripting::SqlitePersistence::new_with_keystore_derivation(
+                &db_path,
+                keystore.clone(),
+                program_artifact_sha256.clone(),
+            )
+            .await
+            {
+                Ok(p) => {
+                    info!(
+                        "PR-195 Batch #20 post-deploy-open: RETAIN persistence opened under deploy's program_sha at {} (option-3 first-program-deploy migration discipline complete for this consumer)",
+                        db_path_str
+                    );
+                    self.retain_persistence = Some(std::sync::Arc::new(p));
+                }
+                Err(e) => {
+                    warn!(
+                        "PR-195 Batch #20 post-deploy-open FAILED for RETAIN persistence at {}: {}. The DB content was derived from a different program_sha than the current deploy. Operator must investigate (recover via --migrate-db ceremony with matching program OR delete the DB to recreate fresh under the new program). RETAIN programs run without persistence in the meantime.",
+                        db_path_str, e
+                    );
+                }
+            }
+        }
+
+        // Bytecode registry store (program-bound).
+        if self.bytecode_registry_store.is_none() {
+            let path = self
+                .config
+                .scripting
+                .bytecode_store_path
+                .trim()
+                .to_string();
+            if !path.is_empty() {
+                match crate::scripting::bytecode_registry_store::BytecodeRegistryStore::new_with_keystore_derivation(
+                    &path,
+                    keystore,
+                    program_artifact_sha256,
+                )
+                .await
+                {
+                    Ok(s) => {
+                        info!(
+                            "PR-195 Batch #20 post-deploy-open: bytecode registry store opened under deploy's program_sha at {} (option-3 first-program-deploy migration discipline complete for this consumer)",
+                            path
+                        );
+                        self.bytecode_registry_store = Some(std::sync::Arc::new(s));
+                    }
+                    Err(e) => {
+                        warn!(
+                            "PR-195 Batch #20 post-deploy-open FAILED for bytecode registry store at {}: {}. The DB content was derived from a different program_sha than the current deploy. Operator must investigate (recover via --migrate-db ceremony with matching program OR delete the DB to recreate fresh under the new program). Bytecode registry runs in-memory only in the meantime.",
+                            path, e
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     pub fn init_bootloader_backend(&mut self) {
         use crate::config::BootloaderBackend;
         match self.config.firmware_update.bootloader_backend {

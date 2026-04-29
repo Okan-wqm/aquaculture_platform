@@ -520,3 +520,76 @@ describe('TenantErasureService idempotency (COMPLIANCE-MEDIUM-004)', () => {
     expect(executed).toEqual([]);
   });
 });
+
+/**
+ * COMPLIANCE-HIGH-004 — legal-hold precedence specs.
+ *
+ * Pin the contract: a tenant under active legal hold MUST NOT
+ * have farm-side data deleted. The cascade is BLOCKED at the
+ * top of confirm(), the ticket is NOT consumed, and the call
+ * throws (so the operator sees the explicit refusal).
+ */
+describe('TenantErasureService legal-hold precedence (COMPLIANCE-HIGH-004)', () => {
+  it('throws when LegalHoldService.assertNoHold reports the tenant on hold; cascade does NOT run', async () => {
+    const { dataSource, executed } = makeDs({ entities: [] });
+    const legalHoldService = {
+      assertNoHold: jest.fn().mockRejectedValue(
+        new (class extends Error {
+          constructor() {
+            super('LegalHold active');
+            this.name = 'LegalHoldActiveError';
+          }
+        })(),
+      ),
+    };
+    const service = new TenantErasureService(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dataSource as any,
+      undefined,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      legalHoldService as any,
+    );
+    const ticket = service.initiate(TENANT, USER);
+    await expect(service.confirm(TENANT, ticket.token)).rejects.toThrow(
+      /LegalHold active/i,
+    );
+    // Critical: the cascade did NOT run.
+    expect(executed).toEqual([]);
+    // Critical: the ticket is NOT consumed — the operator can
+    // retry after the legal hold is released without re-running
+    // initiate(). (The service implementation deliberately calls
+    // assertNoHold BEFORE consuming the ticket for this reason.)
+    expect(service.getPendingTicket(TENANT)).toBeDefined();
+  });
+
+  it('passes through to the cascade when no legal hold is active', async () => {
+    const { dataSource } = makeDs({ entities: [] });
+    const legalHoldService = {
+      assertNoHold: jest.fn().mockResolvedValue(undefined),
+    };
+    const service = new TenantErasureService(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dataSource as any,
+      undefined,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      legalHoldService as any,
+    );
+    const ticket = service.initiate(TENANT, USER);
+    const result = await service.confirm(TENANT, ticket.token);
+    expect(result.state).toBe('PURGED');
+    expect(legalHoldService.assertNoHold).toHaveBeenCalledWith(
+      TENANT,
+      'tenant',
+    );
+  });
+
+  it('skips the legal-hold check when LegalHoldService is not injected (test-harness/local-dev path)', async () => {
+    const { dataSource } = makeDs({ entities: [] });
+    // No legal-hold service injected.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const service = new TenantErasureService(dataSource as any);
+    const ticket = service.initiate(TENANT, USER);
+    const result = await service.confirm(TENANT, ticket.token);
+    expect(result.state).toBe('PURGED');
+  });
+});

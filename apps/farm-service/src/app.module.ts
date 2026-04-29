@@ -23,6 +23,7 @@ import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
 import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware, StripInternalHeadersMiddleware } from '@aquaculture/backend-common/middleware';
 import { ThrottlerModule } from '@aquaculture/backend-common/security';
 import { AuditedOperationModule } from '@aquaculture/backend-common/audit';
+import { LegalHoldModule } from '@aquaculture/backend-common/compliance';
 
 /**
  * Extended request interface for GraphQL context
@@ -418,6 +419,14 @@ import { CreateTenantErasureAudit1788500000000 } from './database/migrations/178
     // as APP_INTERCEPTOR so any handler decorated with @AuditedOperation()
     // in this service writes a transactional audit row.
     AuditedOperationModule.forRoot(),
+    // COMPLIANCE-HIGH-004 cure: registers the canonical
+    // LegalHoldService as @Global so TenantErasureService can
+    // run the legal-hold precedence check before any erasure
+    // cascade. Without this module the service-level @Optional()
+    // injection falls back to no-op, which is unsafe in
+    // production — the LegalHoldModule registration here is the
+    // production wiring.
+    LegalHoldModule.forRoot(),
 
     // Event Bus Module
     EventBusModule.forRootAsync({

@@ -51,6 +51,7 @@
  */
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -63,6 +64,7 @@ import {
   createBaseEvent,
   TenantErasedEvent,
 } from '@platform/event-contracts';
+import { LegalHoldService } from '@aquaculture/backend-common/compliance';
 
 import { TenantErasureAuditEntity } from '../entities/tenant-erasure-audit.entity';
 
@@ -122,6 +124,25 @@ export class TenantErasureService {
      * event is just not fanned out.
      */
     @Optional() private readonly outboxPublisher?: OutboxPublisher,
+    /**
+     * COMPLIANCE-HIGH-004 cure: legal-hold precedence check.
+     *
+     * GDPR Art 17(3)(b) excludes erasure where processing is
+     * necessary "for compliance with a legal obligation". A
+     * tenant under active litigation hold MUST NOT have farm-side
+     * data deleted — destruction of held data is itself a
+     * sanctionable spoliation act in most jurisdictions.
+     *
+     * The service is `@Optional` so test harnesses + local-dev
+     * paths can stand TenantErasureService up without the full
+     * compliance module wiring. In production the
+     * LegalHoldModule (registered in farm-service AppModule)
+     * provides the real instance via @Global. When absent, the
+     * service treats the call as "no hold" — safe in dev where
+     * litigation holds are not a concern, fail-LOUD in prod
+     * where the absence indicates a wiring regression.
+     */
+    @Optional() private readonly legalHoldService?: LegalHoldService,
   ) {}
 
   /**
@@ -169,6 +190,22 @@ export class TenantErasureService {
    * leaves the audit row behind without the matching erasure.
    */
   async confirm(tenantId: string, token: string): Promise<ErasureResult> {
+    // COMPLIANCE-HIGH-004 cure: legal-hold precedence check runs
+    // FIRST — before idempotency-replay lookup, before token
+    // validation, before any DB write. The check is a fast
+    // Redis-cached read; a HIT returns immediately. A MISS reads
+    // the legal-hold table; a HOLD-ACTIVE row throws Forbidden
+    // and the cascade never runs. Critical: the ticket is NOT
+    // consumed on this path — operators must explicitly cancel
+    // the legal hold before the erasure can proceed.
+    //
+    // Sibling pattern: messaging-service GdprService.processErasure
+    // wraps its cascade in `legalHoldService.assertNoHold`. Same
+    // shape applied here.
+    if (this.legalHoldService) {
+      await this.legalHoldService.assertNoHold(tenantId, 'tenant');
+    }
+
     const replay = await this.lookupExistingErasure(tenantId);
     if (replay) {
       this.logger.warn(

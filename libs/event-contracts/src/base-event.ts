@@ -112,6 +112,57 @@ export interface BaseEvent {
   cryptoShredKeyId?: string;
 }
 
+/**
+ * Canonical PII-class event registry (DATA-LOW-003 cure).
+ *
+ * # Why this list exists
+ *
+ * The `cryptoShredKeyId` field on BaseEvent is OPTIONAL (`?:`). The
+ * audit-trail invariant requires that EVERY event carrying PII
+ * (employee name, email, national ID, billing email, etc.) emit
+ * with a non-null `cryptoShredKeyId` so a future GDPR-Art-17
+ * erasure can crypto-shred the per-tenant key and render the
+ * event payload unrecoverable across every consumer that
+ * persisted it.
+ *
+ * Pre-cure the only event that STRUCTURALLY enforced this was
+ * `PasswordResetRequestedEvent` (mandatory `cryptoShredKeyId:
+ * string`). Other PII-bearing events relied on per-event author
+ * discipline. The systematic policy-by-shape was missing — new
+ * events introducing PII without opting in were a slow leak.
+ *
+ * # How this list works
+ *
+ * The `PII_BEARING_EVENT_TYPES` array is the canonical
+ * declaration: "these eventType strings carry PII; their
+ * publishers MUST stamp cryptoShredKeyId." The companion
+ * invariant `tests/invariants/pii-events-mandatory-crypto-shred.spec.ts`
+ * (added alongside) enforces TWO checks:
+ *
+ *   1. Every entry in this list resolves to a real event-
+ *      contract interface that DECLARES `cryptoShredKeyId:
+ *      string` (mandatory; not the optional inherited form).
+ *      A new entry without the structural mandatory-ness fails.
+ *   2. (Future-extension) Every event interface that mentions
+ *      common PII field names (email, name, phoneNumber,
+ *      nationalId) is either on this list OR carries an
+ *      explicit `// no-pii-event:` marker comment.
+ *
+ * # How to add a new PII-bearing event
+ *
+ *   1. Author the interface; declare `cryptoShredKeyId: string`
+ *      (mandatory, no `?`).
+ *   2. Add the eventType string literal to this array.
+ *   3. Update the per-event JSON Schema validator to require
+ *      cryptoShredKeyId (if cross-trust-boundary).
+ *
+ * The architectural-arbiter approves additions; compliance-expert
+ * is the CATCHER for the per-event PII categorisation decision.
+ */
+export const PII_BEARING_EVENT_TYPES: readonly string[] = [
+  'PasswordResetRequested',
+] as const;
+
 // ==================== Shared Literal Types ====================
 
 /**

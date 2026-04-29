@@ -160,7 +160,25 @@ import { AddFarmOutboxLeaseColumns1782000000000 } from './database/migrations/17
 // row. Drops median enqueue-to-publish latency from ~500ms (cron
 // cadence) to ~5ms.
 import { AddFarmOutboxNotifyTrigger1782100000000 } from './database/migrations/1782100000000-AddFarmOutboxNotifyTrigger';
+// FARM-LOW-001 — eight migrations between 1786000000000 and 1788100000000
+// existed on disk but were missing from the in-process `migrations: [...]`
+// array consulted by farm-service's MigrationRunnerService when
+// DATABASE_MIGRATIONS_RUN=true (dev / E2E). The aqua-db-migrate orchestrator
+// glob-picks them up in production via `apps/farm-service/src/database/
+// migrations/*{.ts,.js}`, so production was unaffected, but every E2E run
+// or `nx test` that boots farm-service against a real Postgres operated
+// against pre-1786 schema state. Class-ref imports (NOT glob paths) are
+// required because NX/webpack bundles all source files into a single output
+// and a `dist/migrations/*.js` glob would match zero files at runtime.
+import { MovePublicTablesToFarm1786000000000 } from './database/migrations/1786000000000-MovePublicTablesToFarm';
 import { AddFarmOutboxModernColumns1786200000000 } from './database/migrations/1786200000000-AddFarmOutboxModernColumns';
+import { AddDomainRetentionFunctions1787000000000 } from './database/migrations/1787000000000-AddDomainRetentionFunctions';
+import { AddStorageInventoryReceivedDate1787100000000 } from './database/migrations/1787100000000-AddStorageInventoryReceivedDate';
+import { AddStorageLotMixesGinIndex1787200000000 } from './database/migrations/1787200000000-AddStorageLotMixesGinIndex';
+import { AddRecurringTemplateTimezone1787300000000 } from './database/migrations/1787300000000-AddRecurringTemplateTimezone';
+import { AddDailyBatchFeedingMaterializedView1787400000000 } from './database/migrations/1787400000000-AddDailyBatchFeedingMaterializedView';
+import { AddDailyTankWaterQualityMaterializedView1787500000000 } from './database/migrations/1787500000000-AddDailyTankWaterQualityMaterializedView';
+import { WireSupplierSitesAndSiteContacts1788100000000 } from './database/migrations/1788100000000-WireSupplierSitesAndSiteContacts';
 
 @Module({
   imports: [
@@ -210,7 +228,17 @@ import { AddFarmOutboxModernColumns1786200000000 } from './database/migrations/1
             ConvertAuditColumnsToTimestamptz1781900000000,
             AddFarmOutboxLeaseColumns1782000000000,
             AddFarmOutboxNotifyTrigger1782100000000,
+            // FARM-LOW-001 — backfilled migrations 1786–1788. Strict
+            // ascending timestamp order matches the runner's apply order.
+            MovePublicTablesToFarm1786000000000,
             AddFarmOutboxModernColumns1786200000000,
+            AddDomainRetentionFunctions1787000000000,
+            AddStorageInventoryReceivedDate1787100000000,
+            AddStorageLotMixesGinIndex1787200000000,
+            AddRecurringTemplateTimezone1787300000000,
+            AddDailyBatchFeedingMaterializedView1787400000000,
+            AddDailyTankWaterQualityMaterializedView1787500000000,
+            WireSupplierSitesAndSiteContacts1788100000000,
           ],
           // INFRA-CRITICAL-020 contract: env-aware migration timing.
           // - Production: DATABASE_MIGRATIONS_RUN=false (default). The

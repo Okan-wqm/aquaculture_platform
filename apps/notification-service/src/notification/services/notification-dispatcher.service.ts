@@ -5,6 +5,10 @@ import { Repository, In, DataSource } from 'typeorm';
 import { createCipheriv, createDecipheriv, randomBytes, createHash } from 'crypto';
 import { RedisService } from '@aquaculture/backend-common/redis';
 import {
+  CircuitBreakerService,
+  DEFAULT_BREAKER_OPTIONS,
+} from '@aquaculture/backend-common/resilience';
+import {
   NotificationLog,
   NotificationStatus,
   NotificationChannel,
@@ -162,6 +166,16 @@ export class NotificationDispatcherService implements OnModuleInit {
     private readonly configService: ConfigService,
     private readonly ssrfValidator: SsrfValidatorService,
     @Optional() private readonly redisService?: RedisService,
+    // CIRCUIT-HIGH-003 cure: customer-controlled webhook URLs are
+    // particularly hazardous because the customer's endpoint can be
+    // arbitrarily slow or perpetually 5xx. Per-tenant breaker key
+    // isolates noisy-neighbor — one tenant's broken webhook can't
+    // trip the breaker for everyone. fail-open-degraded for this
+    // path: a customer's webhook outage MUST NOT block other
+    // notification dispatch (the alert is delivered via other
+    // channels and the failure is captured in NotificationLog for
+    // retry).
+    @Optional() private readonly breaker?: CircuitBreakerService,
   ) {}
 
   /**
@@ -435,7 +449,7 @@ export class NotificationDispatcherService implements OnModuleInit {
           externalId = await this.sendPush(recipient, alertData);
           break;
         case NotificationChannel.WEBHOOK:
-          externalId = await this.sendWebhook(recipient, alertData);
+          externalId = await this.sendWebhook(recipient, alertData, tenantId);
           break;
         default:
           throw new Error(`Unknown notification channel: ${channel}`);
@@ -578,6 +592,7 @@ export class NotificationDispatcherService implements OnModuleInit {
   private async sendWebhook(
     webhookUrl: string,
     alertData: AlertNotificationData,
+    tenantId: string,
   ): Promise<string> {
     // SECURITY: Full SSRF validation with DNS resolution and IP pinning
     const validation = await this.ssrfValidator.validateUrl(webhookUrl);
@@ -596,7 +611,14 @@ export class NotificationDispatcherService implements OnModuleInit {
       // SECURITY: Merge safe fetch options (redirect: 'error') with request config
       const safeFetchOptions = this.ssrfValidator.getSafeFetchOptions();
 
-      const response = await fetch(webhookUrl, {
+      // CIRCUIT-HIGH-003 cure: webhook fetch rides through the canonical
+      // sliding-window breaker. Per-tenant key (tenantId from alertData)
+      // isolates noisy-neighbor; failureMode='fail-open-degraded' with a
+      // sentinel-fallback Response so the caller's existing error path
+      // (the response.ok check below) handles the trip uniformly. The
+      // sentinel-503 carries no body — it triggers the standard webhook-
+      // failure persistence path (NotificationLog row marked failed).
+      const fetchInit: RequestInit = {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -614,7 +636,26 @@ export class NotificationDispatcherService implements OnModuleInit {
         signal: controller.signal,
         // SECURITY: Never follow redirects — prevents SSRF via open redirect
         redirect: safeFetchOptions.redirect,
-      });
+      };
+      const response = this.breaker
+        ? await this.breaker.execute({
+            serviceName: 'customer-webhook',
+            tenantId,
+            options: {
+              ...DEFAULT_BREAKER_OPTIONS,
+              failureMode: 'fail-open-degraded',
+            },
+            fn: () => fetch(webhookUrl, fetchInit),
+            fallback: () =>
+              new Response(
+                JSON.stringify({
+                  error: 'circuit-open',
+                  message: 'Customer webhook breaker is open; dispatch retried via NotificationLog',
+                }),
+                { status: 503, statusText: 'Service Unavailable' },
+              ),
+          })
+        : await fetch(webhookUrl, fetchInit);
 
       clearTimeout(timeoutId);
 
@@ -750,7 +791,7 @@ export class NotificationDispatcherService implements OnModuleInit {
               await this.logRepository.save(notification);
               continue;
             }
-            externalId = await this.sendWebhook(webhookUrl, alertData);
+            externalId = await this.sendWebhook(webhookUrl, alertData, tenantId);
             break;
           }
           default:

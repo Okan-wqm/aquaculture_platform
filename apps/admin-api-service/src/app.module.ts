@@ -33,6 +33,7 @@ import { AddAdminAuditLogsImmutability1787800000000 } from './migrations/1787800
 import { AddUserPermissionsUserFk1787900000000 } from './migrations/1787900000000-AddUserPermissionsUserFk';
 import { ConvertAuditIpColumnsToInet1788000000000 } from './migrations/1788000000000-ConvertAuditIpColumnsToInet';
 import { AddAuditLogShapeExtension1788100000000 } from './migrations/1788100000000-AddAuditLogShapeExtension';
+import { CreateSharedAccessLogs1788400000000 } from './migrations/1788400000000-CreateSharedAccessLogs';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AuditLogModule } from './audit/audit.module';
 import { AdminApiRetentionBootstrapModule } from './retention/retention-bootstrap.module';
@@ -104,6 +105,7 @@ import { UsersModule } from './users/users.module';
             AddUserPermissionsUserFk1787900000000,
             ConvertAuditIpColumnsToInet1788000000000,
             AddAuditLogShapeExtension1788100000000,
+            CreateSharedAccessLogs1788400000000,
           ],
           // admin-api opts in to TypeORM's built-in migration runner via the
           // legacy DATABASE_MIGRATIONS_RUN env var (default true). All other

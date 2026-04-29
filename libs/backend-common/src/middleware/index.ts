@@ -29,3 +29,9 @@ export { createTenantSchemaMiddleware } from './tenant-schema.middleware';
 // before any auth middleware so forged x-user-payload / x-tenant-id
 // headers cannot survive into UserContextMiddleware.
 export { StripInternalHeadersMiddleware } from './strip-internal-headers.middleware';
+
+// AUDITTRAIL-HIGH-004 cure: low-level HTTP access log middleware.
+// Mount in every service's AppModule on `forRoutes('*')` so every
+// HTTP request emits a row to shared.access_logs (request-level
+// forensic stream, distinct from the semantic-action audit_logs).
+export { AccessLogMiddleware } from './access-log.middleware';

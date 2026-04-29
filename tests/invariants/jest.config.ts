@@ -122,6 +122,7 @@ export default {
         '<rootDir>/cron-requires-schedule-module.spec.ts',
         '<rootDir>/audit-log-mandatory-shape.spec.ts',
         '<rootDir>/audit-fail-closed-mfa-webauthn.spec.ts',
+        '<rootDir>/access-log-stream-shape.spec.ts',
       ],
     },
     {

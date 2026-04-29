@@ -53,6 +53,12 @@ const SHARED_SCHEMA_TABLES = new Set<string>([
   'gdpr_data_requests',
   'user_consents',
   'user_permissions',
+  // AUDITTRAIL-HIGH-004 cure: low-level HTTP access stream.
+  // Distinct from audit_logs (semantic-action level + 7y retention)
+  // — access_logs is request-level + 90d retention. Lives in shared
+  // because access patterns must SURVIVE tenant deletion (same
+  // forensic-survivability rationale as audit_logs).
+  'access_logs',
 ]);
 
 /**

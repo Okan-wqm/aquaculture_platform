@@ -660,3 +660,31 @@ auth-security-expert WRITER (small).
 - Layer-2 patterns — Tenant isolation; outbox pattern alignment
 - Prior cycle: `docs/reviews/auth-security-expert/2026-04-10-full-repo-audit.md` — SEC-HIGH-002/003/004 supersede this cycle's CRITICAL-001 / HIGH-006
 - RFC 8725 §2.1 (algorithm confusion); RFC 9068 (issuer/audience); OAuth 2 BCP §4.12 (refresh-token reuse detection); RFC 6238 (TOTP one-time use)
+
+---
+
+## Registry-anchor addenda (2026-04-29 closure cycle)
+
+### SEC-HIGH-008 — AuthPayload.refreshToken @deprecated directive
+
+**Status:** RESOLVED — closure tracked in `docs/reviews/_registry/findings.jsonl`.
+
+Pre-fix the field carried a description-only deprecation note. Cure:
+add `deprecationReason` to the `@Field` decorator. NestJS GraphQL
+maps this directly to the SDL `@deprecated` directive — frontend
+codegen + IDE plugins now surface the sunset signal.
+
+### SEC-HIGH-009 — Refresh-token reuse detection chain invalidation
+
+**Status:** RESOLVED — closure tracked in `docs/reviews/_registry/findings.jsonl`.
+
+Pre-fix the refresh path returned generic 401 on any no-match
+condition, leaving every other active token issued to the affected
+user valid. RFC 6819 § 5.2.2 + OWASP recommend that detected
+refresh-token reuse triggers invalidation of every active token for
+the user. Cure: when no unrevoked token matches, scan revoked tokens
+for the user; on bcrypt match against a revoked row, revoke every
+active refresh token, blacklist all access tokens, revoke all
+sessions, and emit RefreshTokenReuseDetected SecurityEvent so the
+incident-detection pipeline (Prom alert / pager / SIEM) sees the
+signal in real time.

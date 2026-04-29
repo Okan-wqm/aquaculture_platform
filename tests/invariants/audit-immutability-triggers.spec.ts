@@ -79,6 +79,14 @@ const REQUIRED_TRIGGER_NAMES_FARM = [
   'trg_farm_audit_logs_prevent_legal_hold_delete',
 ] as const;
 
+// AUDITTRAIL-HIGH-006 admin-side cure (migration 1787800000000): the
+// SUPER_ADMIN cross-tenant audit table needs the same defense-in-depth
+// triggers + legalHold column.
+const REQUIRED_FUNCTION_NAMES_ADMIN = [
+  'admin.audit_logs_prevent_update',
+  'admin.audit_logs_prevent_legal_hold_delete',
+] as const;
+
 function loadMigrationCorpus(): string {
   const allFiles: string[] = [];
   for (const glob of MIGRATION_GLOBS) {
@@ -181,6 +189,36 @@ describe('INVARIANT (AUDITTRAIL-CRITICAL-001 / AUDITTRAIL-HIGH-005): audit-table
     for (const trg of REQUIRED_TRIGGER_NAMES_FARM) {
       const re = new RegExp(
         `CREATE TRIGGER\\s+${trg}[\\s\\S]*?ON\\s+farm\\.farm_audit_logs`,
+        'i',
+      );
+      expect(aggregate).toMatch(re);
+    }
+  });
+
+  it('AuditLog entity (admin) declares the legalHold column', () => {
+    const entitySrc = readFileSync(
+      resolve(REPO_ROOT, 'apps/admin-api-service/src/audit/audit.entity.ts'),
+      'utf8',
+    );
+    expect(entitySrc).toMatch(/legalHold!:\s*boolean/);
+    expect(entitySrc).toMatch(/@Column\(\s*\{[^}]*type:\s*'boolean'/);
+  });
+
+  it('a migration creates the BEFORE UPDATE / BEFORE DELETE triggers and legalHold column on admin.audit_logs', () => {
+    const aggregate = loadMigrationCorpus();
+
+    expect(aggregate).toMatch(
+      /ALTER TABLE\s+admin\.audit_logs[\s\S]*?ADD COLUMN[\s\S]*?"legalHold"\s+boolean\s+NOT NULL\s+DEFAULT\s+false/i,
+    );
+
+    for (const fn of REQUIRED_FUNCTION_NAMES_ADMIN) {
+      const re = new RegExp(`CREATE OR REPLACE FUNCTION\\s+${fn.replace('.', '\\.')}\\s*\\(`, 'i');
+      expect(aggregate).toMatch(re);
+    }
+
+    for (const trg of REQUIRED_TRIGGER_NAMES) {
+      const re = new RegExp(
+        `CREATE TRIGGER\\s+${trg}[\\s\\S]*?ON\\s+admin\\.audit_logs`,
         'i',
       );
       expect(aggregate).toMatch(re);

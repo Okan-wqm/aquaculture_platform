@@ -442,3 +442,21 @@ platform-kernel-expert WRITER mode.
 - Prior cycle: `docs/reviews/platform-kernel-expert/2026-04-10-full-repo-audit.md` — HIGH-001/002/003 carried forward into PLAT-HIGH-001/002/003 here. HIGH-004/005/006 from that cycle are RESOLVED in current code (await-all subscriptions, NAK-on-handler-failure, fail-closed prod boot).
 - Plan / context: `/root/.claude/plans/declarative-riding-shamir.md` BLOCKER-3, BLOCKER-15.
 - CLAUDE.md "Architectural Approach" — banned-phrase list applies to any deferral attempt on PLAT-HIGH-001/002/003.
+
+---
+
+## Registry-anchor addenda (2026-04-29 closure cycle)
+
+### PLAT-LOW-003 — createBaseEvent canonical contract pin
+
+**Status:** RESOLVED — closure tracked in `docs/reviews/_registry/findings.jsonl`.
+
+Pre-fix the canonical event factory had zero unit-test coverage. Three
+runtime-critical invariants were unverified at CI time: eventId
+uniqueness, ISO 8601 string timestamp (NOT Date — the W0.E
+DATA-CRITICAL-003 cure depends on this), and required-field
+population. Cure: 11-spec test pin at
+`libs/event-contracts/src/__tests__/base-event.spec.ts` covering
+each invariant. Companion to PLAT-LOW-002 (Money +
+DecimalValueTransformer); locks the W0.E shift at the unit-test
+layer.

@@ -95,6 +95,15 @@ export function createTenantConnectionBootstrap(sourceSchema: string) {
       const defaultSearchPath = `SET search_path TO "${src}", public`;
       const logger = this.logger;
 
+      // The wrapped function is polymorphic by construction — it
+      // returns void on the callback-style path AND Promise on
+      // the promise-style path. The PgPoolConnectFn surface
+      // declares both overloads but TypeScript can't infer the
+      // single-implementation polymorphic shape from the runtime
+      // function value. Assign through a unknown-cast so the
+      // narrow surface stays narrow at every consumer's read,
+      // while the polymorphic implementation is allowed to
+      // satisfy both call shapes.
       pool.connect = function (callback?: any) {
         if (typeof callback === 'function') {
           return originalConnect((err: any, client: any, done: any) => {
@@ -176,7 +185,7 @@ export function createTenantConnectionBootstrap(sourceSchema: string) {
           }
           return client;
         });
-      };
+      } as unknown as typeof pool.connect;
 
       this.logger.log(
         `PostgreSQL connection pool patched for tenant-aware search_path routing ` +

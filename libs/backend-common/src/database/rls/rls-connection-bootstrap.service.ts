@@ -205,7 +205,7 @@ export function createRlsConnectionBootstrap(serviceName: string) {
 
           return client;
         });
-      };
+      } as unknown as typeof pool.connect;
 
       this.logger.log(
         'PostgreSQL connection pool patched for RLS GUC propagation ' +

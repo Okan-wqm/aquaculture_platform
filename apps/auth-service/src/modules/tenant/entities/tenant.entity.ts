@@ -9,15 +9,14 @@ import {
   Index,
 } from 'typeorm';
 
-/**
- * Tenant subscription/plan types
- */
-export enum TenantPlan {
-  TRIAL = 'trial',
-  STARTER = 'starter',
-  PROFESSIONAL = 'professional',
-  ENTERPRISE = 'enterprise',
-}
+// DBR-HIGH-003 cure: canonical TenantPlan SSoT lives in event-contracts.
+// Pre-fix this service had its own copy missing FREE; the canonical
+// includes FREE so the auth-side path that lacked it picks it up
+// (strict superset, no service loses anything). Re-export keeps the
+// public API surface unchanged for downstream consumers that import
+// TenantPlan from this module.
+export { TenantPlan } from '@platform/event-contracts';
+import { TenantPlan } from '@platform/event-contracts';
 
 registerEnumType(TenantPlan, {
   name: 'TenantPlan',

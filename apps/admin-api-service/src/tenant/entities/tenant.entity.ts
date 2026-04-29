@@ -17,17 +17,10 @@ export enum TenantStatus {
   ARCHIVED = 'ARCHIVED',
 }
 
-export enum TenantPlan {
-  FREE = 'free',
-  TRIAL = 'trial',
-  STARTER = 'starter',
-  PROFESSIONAL = 'professional',
-  ENTERPRISE = 'enterprise',
-}
-
-// Backwards compatibility alias
-export const TenantTier = TenantPlan;
-export type TenantTier = TenantPlan;
+// DBR-HIGH-003 cure: canonical TenantPlan SSoT lives in event-contracts.
+// Re-export the type + alias so this module's public surface stays the
+// same for downstream consumers that import { TenantPlan, TenantTier }.
+export { TenantPlan, TenantTier } from '@platform/event-contracts';
 
 export interface TenantSettings {
   timezone?: string;

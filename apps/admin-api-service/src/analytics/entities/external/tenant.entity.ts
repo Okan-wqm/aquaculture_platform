@@ -8,12 +8,15 @@
 
 import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, Index, ViewEntity } from 'typeorm';
 
-export enum TenantPlan {
-  TRIAL = 'TRIAL',
-  STARTER = 'STARTER',
-  PROFESSIONAL = 'PROFESSIONAL',
-  ENTERPRISE = 'ENTERPRISE',
-}
+// DBR-HIGH-003 cure: canonical TenantPlan SSoT lives in event-contracts.
+// Pre-fix this analytics-side mirror used UPPERCASE values ('TRIAL',
+// 'STARTER', ...) which NEVER matched the actual auth.tenants column
+// (lowercase) — every analytics query against TenantPlan.TRIAL returned
+// zero rows where production data existed. Switching to the canonical
+// (lowercase) SSoT corrects the latent casing bug as part of the
+// unification.
+export { TenantPlan } from '@platform/event-contracts';
+import { TenantPlan } from '@platform/event-contracts';
 
 export enum TenantStatus {
   ACTIVE = 'ACTIVE',

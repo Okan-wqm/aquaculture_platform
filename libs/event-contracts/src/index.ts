@@ -1,6 +1,10 @@
 // Base event contract and shared types
 export * from './base-event';
 
+// Cross-service shared enums (DBR-HIGH-003 cure — single source of truth
+// for values that are persisted to the DB and round-tripped via events).
+export * from './enums/tenant-plan.enum';
+
 // Domain events by module
 export * from './auth-events';
 export * from './tenant-events';

@@ -1,6 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Anthropic from '@anthropic-ai/sdk';
+import {
+  CircuitBreakerService,
+  DEFAULT_BREAKER_OPTIONS,
+} from '@aquaculture/backend-common/resilience';
 import { ToolRegistryService } from '../tools/tool-registry.service';
 import { ToolExecutorService } from '../tools/core/tool-executor.service';
 import { AgentProfileService, ResolvedProfile } from './agent-profile.service';
@@ -49,6 +53,7 @@ export class AgentRunnerService {
     private readonly rateLimit: RateLimitService,
     private readonly agentConfig: AgentConfigService,
     private readonly aiSafety: AiSafetyMiddleware,
+    private readonly breaker: CircuitBreakerService,
   ) {
     this.anthropic = new Anthropic({
       apiKey: this.configService.get<string>('ANTHROPIC_API_KEY'),
@@ -192,12 +197,25 @@ export class AgentRunnerService {
     while (loopCount < this.maxToolLoops) {
       loopCount++;
 
-      const response = await this.anthropic.messages.create({
-        model: profile.persona.model,
-        max_tokens: profile.persona.maxTokensPerTurn,
-        system: effectiveSystemPrompt,
-        tools: toolDefinitions as Anthropic.Tool[],
-        messages: currentMessages,
+      // CIRCUIT-CRITICAL-001 cure: every Anthropic API call rides through
+      // the canonical sliding-window breaker, scoped per (serviceName,
+      // tenantId). fail-CLOSED is mandatory for billable upstreams — a
+      // degraded response from the AI must NOT silently substitute a free
+      // fallback that the user thinks is the real answer. Per-tenant key
+      // isolates noisy-neighbor: one tenant's runaway agent loop cannot
+      // trip the breaker for everyone.
+      const response = await this.breaker.execute({
+        serviceName: 'anthropic-api',
+        tenantId: request.tenantId,
+        options: { ...DEFAULT_BREAKER_OPTIONS, failureMode: 'fail-closed' },
+        fn: () =>
+          this.anthropic.messages.create({
+            model: profile.persona.model,
+            max_tokens: profile.persona.maxTokensPerTurn,
+            system: effectiveSystemPrompt,
+            tools: toolDefinitions as Anthropic.Tool[],
+            messages: currentMessages,
+          }),
       });
 
       // Track token usage

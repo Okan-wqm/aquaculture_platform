@@ -12,6 +12,7 @@ import { GraphQLError } from 'graphql';
 import depthLimit from 'graphql-depth-limit';
 import { fieldExtensionsEstimator, getComplexity, simpleEstimator } from 'graphql-query-complexity';
 import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
+import { CircuitBreakerModule } from '@aquaculture/backend-common/resilience';
 import { SourceSchemaBootstrapService, createTenantConnectionBootstrap, TenantSchemaSyncService, SourceSchemaWriteGuardService, AuditColumnsModule, RlsModule, createMigrationRunnerService, SchemaDriftModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common/database';
 import { RolesGuard, TenantGuard } from '@aquaculture/backend-common/guards';
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
@@ -59,6 +60,13 @@ const complexityCache = new Map<string, number>();
       isGlobal: true,
       envFilePath: ['.env.local', '.env'],
     }),
+    // CIRCUIT-CRITICAL-001 cure: register the @Global canonical
+    // CircuitBreakerService so feature modules (AgentRunnerService at
+    // ai-service/src/agent/...) can constructor-inject it without
+    // per-module re-import. Wraps the Anthropic API call (and any
+    // future external IO) in a sliding-window breaker with fail-CLOSED
+    // semantics and per-tenant keying.
+    CircuitBreakerModule,
     // Database connection — uses the platform TypeORM factory.
     // INTENTIONAL: no `schema:` — TenantConnectionBootstrap manages
     // search_path per request. AiMigrationRunnerService (provider above)

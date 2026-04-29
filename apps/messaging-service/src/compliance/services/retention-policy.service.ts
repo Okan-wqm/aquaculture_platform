@@ -129,32 +129,58 @@ export class RetentionPolicyService {
         where: {},
       });
 
+      // LEGAL-LOW-002 cure: emit one audit row PER (tenantId,
+      // policyId) processed instead of one anonymous system row
+      // for the whole sweep. Pre-cure the post-sweep audit
+      // hardcoded zero-UUID tenant + user, making per-tenant
+      // retention reporting impossible — and any legal-hold
+      // post-mortem ("did retention sweep on this tenant during
+      // the hold window?") had no signal beyond the global
+      // totalDeleted aggregate. The per-policy row attributes
+      // each delete batch to the correct tenant; the legal-hold
+      // skip path now writes a row with deleted=0 + reason so
+      // the held-tenant evidence is durable.
       for (const policy of policies) {
         if (policy.retentionDays === -1) continue; // indefinite — skip
 
         const cutoffDate = new Date();
         cutoffDate.setDate(cutoffDate.getDate() - policy.retentionDays);
 
-        const deleted = await this.cleanupForPolicy(policy, cutoffDate);
-        totalDeleted += deleted;
+        const policyStart = Date.now();
+        const result = await this.cleanupForPolicy(policy, cutoffDate);
+        totalDeleted += result.deletedCount;
+
+        // Per-policy audit row. tenantId/userId are real (the
+        // policy's owning tenant + a system-cron actor identity
+        // that the messaging audit service treats as the
+        // authoritative actor for scheduled retention). resourceId
+        // points at the policy.id so a "show me every cleanup
+        // for this policy" query is a single indexed lookup.
+        await this.auditService.log({
+          tenantId: policy.tenantId,
+          userId: 'system:retention-cleanup',
+          action: ComplianceAction.RETENTION_SET,
+          resourceType: 'retention_policy',
+          resourceId: policy.id,
+          details: {
+            type: 'nightly_cleanup',
+            policyId: policy.id,
+            channelId: policy.channelId ?? null,
+            retentionDays: policy.retentionDays,
+            cutoffDate: cutoffDate.toISOString(),
+            deletedCount: result.deletedCount,
+            skipReason: result.skipReason ?? null,
+            durationMs: Date.now() - policyStart,
+          },
+          ipAddress: null,
+          userAgent: 'system/retention-cleanup',
+        });
       }
 
       const durationMs = Date.now() - startTime;
       this.logger.log(
-        `Retention cleanup completed: ${totalDeleted} messages deleted in ${durationMs}ms`,
+        `Retention cleanup completed: ${totalDeleted} messages deleted in ${durationMs}ms across ${policies.length} policies`,
       );
-
-      // Log cleanup stats to compliance audit
-      await this.auditService.log({
-        tenantId: '00000000-0000-0000-0000-000000000000',
-        userId: '00000000-0000-0000-0000-000000000000',
-        action: ComplianceAction.RETENTION_SET,
-        resourceType: 'system',
-        resourceId: '00000000-0000-0000-0000-000000000000',
-        details: { type: 'nightly_cleanup', totalDeleted, durationMs },
-        ipAddress: null,
-        userAgent: 'system/retention-cleanup',
-      });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.error(`Retention cleanup failed: ${message}`);
@@ -174,21 +200,21 @@ export class RetentionPolicyService {
   private async cleanupForPolicy(
     policy: RetentionPolicy,
     cutoffDate: Date,
-  ): Promise<number> {
+  ): Promise<{ deletedCount: number; skipReason: string | null }> {
     const { tenantId, channelId } = policy;
 
     // Check if entire tenant is under legal hold — skip everything
     const tenantHeld = await this.legalHoldService.isUnderLegalHold(tenantId, null);
     if (tenantHeld) {
       this.logger.debug(`Skipping retention for tenant ${tenantId}: under tenant-wide legal hold`);
-      return 0;
+      return { deletedCount: 0, skipReason: 'tenant-wide legal hold' };
     }
 
     if (channelId) {
       const channelHeld = await this.legalHoldService.isUnderLegalHold(tenantId, channelId);
       if (channelHeld) {
         this.logger.debug(`Skipping retention for channel ${channelId}: under legal hold`);
-        return 0;
+        return { deletedCount: 0, skipReason: 'channel-scoped legal hold' };
       }
     }
 
@@ -212,7 +238,8 @@ export class RetentionPolicyService {
     // Only applicable when we can drop entire time ranges without exclusions.
     // @see MSG-MEDIUM-045
     if (!channelId && heldChannelIds.length === 0) {
-      return this.dropChunksForTenant(tenantId, cutoffDate);
+      const dropped = await this.dropChunksForTenant(tenantId, cutoffDate);
+      return { deletedCount: dropped, skipReason: null };
     }
 
     // ── Slow path: row-by-row DELETE for channel-scoped or held-channel-excluded cleanup ──
@@ -273,12 +300,12 @@ export class RetentionPolicyService {
           `Retention cleanup: deleted ${deletedCount} messages for tenant=${tenantId}, channel=${channelId ?? 'all'}`,
         );
       }
-      return deletedCount;
+      return { deletedCount, skipReason: null };
     } catch (err: unknown) {
       await qr.rollbackTransaction();
       const message = err instanceof Error ? err.message : String(err);
       this.logger.error(`Retention cleanup failed for policy ${policy.id}: ${message}`);
-      return 0;
+      return { deletedCount: 0, skipReason: `error: ${message}` };
     } finally {
       await qr.release();
     }

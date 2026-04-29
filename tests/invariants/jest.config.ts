@@ -119,6 +119,7 @@ export default {
         '<rootDir>/migration-registration-completeness.spec.ts',
         '<rootDir>/no-boot-time-tenant-schema-ddl.spec.ts',
         '<rootDir>/audit-retention-legal-hold-filter.spec.ts',
+        '<rootDir>/cron-requires-schedule-module.spec.ts',
       ],
     },
     {

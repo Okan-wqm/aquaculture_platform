@@ -4,6 +4,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD, Reflector } from '@nestjs/core';
 import { GraphQLModule } from '@nestjs/graphql';
 import { JwtModule, JwtService } from '@nestjs/jwt';
+import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { join } from 'path';
 import depthLimit from 'graphql-depth-limit';
@@ -39,6 +40,13 @@ import { TenantModule } from './modules/tenant/tenant.module';
       envFilePath: ['.env', '.env.local'],
       cache: true,
     }),
+
+    // AUDITTRAIL-HIGH-008 cure: register the NestJS scheduler so @Cron
+    // decorators (currently AuditLogService.scheduledLogCleanup, which
+    // enforces the 7-year audit retention floor from AUDITTRAIL-HIGH-001)
+    // actually fire at runtime. Without ScheduleModule, every @Cron in
+    // this service tree is silent dead code.
+    ScheduleModule.forRoot(),
 
     // Database connection — auth-service owns the 'auth' schema. Uses the
     // platform TypeORM factory so pool size, SSL, fail-fast, env-var

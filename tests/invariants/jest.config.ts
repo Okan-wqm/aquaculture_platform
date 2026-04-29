@@ -117,6 +117,7 @@ export default {
         '<rootDir>/stripe-calls-via-canonical-client.spec.ts',
         '<rootDir>/auth-users-tenant-fk.spec.ts',
         '<rootDir>/migration-registration-completeness.spec.ts',
+        '<rootDir>/no-boot-time-tenant-schema-ddl.spec.ts',
       ],
     },
     {

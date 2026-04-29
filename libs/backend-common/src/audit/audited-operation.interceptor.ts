@@ -372,7 +372,15 @@ export class AuditedOperationInterceptor implements NestInterceptor {
     return {
       userId: user?.sub ?? user?.id ?? null,
       userEmail: user?.email ?? null,
-      tenantId: user?.tenantId ?? (headers['x-tenant-id'] as string) ?? null,
+      // AUDITTRAIL-MEDIUM-003 cure (canonical interceptor sibling):
+      // tenantId comes ONLY from the JWT trust anchor. Header
+      // fallback removed for the same confused-deputy reason
+      // documented on the legacy AuditLogInterceptor. Pre-auth /
+      // cross-tenant-admin / edge-device flows do not run through
+      // this interceptor (it fires on @AuditedOperation handlers,
+      // all of which sit behind authentication). Truthful null is
+      // better than an attacker-controllable header value.
+      tenantId: user?.tenantId ?? null,
       schemaName: (headers['x-schema-name'] as string) ?? null,
       ipAddress: this.extractIp(request),
       userAgent: (headers['user-agent'] as string) ?? null,

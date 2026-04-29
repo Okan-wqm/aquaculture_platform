@@ -143,6 +143,42 @@ describe('AUDITTRAIL-HIGH-003 — MFA / WebAuthn audit fail-closed invariant', (
     expect(body).not.toMatch(/this\.auditLogService\.record\(/);
   });
 
+  it('audit interceptors MUST NOT fall back to x-tenant-id header when JWT user.tenantId is null (AUDITTRAIL-MEDIUM-003)', () => {
+    // Both the legacy AuditLogInterceptor and the canonical
+    // AuditedOperationInterceptor extract tenantId. Pre-cure both
+    // wrote `user?.tenantId ?? (headers['x-tenant-id'] as string) ?? null`,
+    // which let an injected x-tenant-id header attribute the audit
+    // row to a different tenant than the JWT — confused-deputy hazard.
+    //
+    // Per CLAUDE.md the x-tenant-id header IS accepted on pre-auth /
+    // cross-tenant-admin / edge-device paths, but those paths do
+    // not run through audit interceptors (which fire only on
+    // authenticated @AuditLog / @AuditedOperation handlers). The
+    // header fallback inside the audit interceptors is therefore
+    // strictly hazardous; truthful null is better than an
+    // attacker-controllable value.
+    const legacy = readFileSync(
+      resolve(REPO_ROOT, 'libs/backend-common/src/audit/audit-log.interceptor.ts'),
+      'utf8',
+    );
+    const canonical = readFileSync(
+      resolve(
+        REPO_ROOT,
+        'libs/backend-common/src/audit/audited-operation.interceptor.ts',
+      ),
+      'utf8',
+    );
+    const headerFallbackPattern =
+      /tenantId\s*:\s*user\?\.\s*tenantId\s*\?\?\s*\(\s*headers\s*\[\s*['"]x-tenant-id['"]/;
+    expect(legacy).not.toMatch(headerFallbackPattern);
+    expect(canonical).not.toMatch(headerFallbackPattern);
+    // Positive shape: each interceptor sets tenantId from user only.
+    expect(legacy).toMatch(/tenantId\s*:\s*user\?\.\s*tenantId\s*\?\?\s*null/);
+    expect(canonical).toMatch(
+      /tenantId\s*:\s*user\?\.\s*tenantId\s*\?\?\s*null/,
+    );
+  });
+
   it('legacy AuditLogInterceptor intercept() uses switchMap (not tap) so the response stream waits for the audit write', () => {
     const src = readFileSync(
       resolve(REPO_ROOT, 'libs/backend-common/src/audit/audit-log.interceptor.ts'),

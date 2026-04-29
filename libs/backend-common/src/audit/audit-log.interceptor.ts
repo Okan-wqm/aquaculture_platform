@@ -306,7 +306,19 @@ export class AuditLogInterceptor implements NestInterceptor {
     return {
       userId: user?.sub ?? user?.id ?? null,
       userEmail: user?.email ?? null,
-      tenantId: user?.tenantId ?? (headers['x-tenant-id'] as string) ?? null,
+      // AUDITTRAIL-MEDIUM-003 cure: tenantId comes ONLY from the JWT
+      // trust anchor (user.tenantId). The legacy code fell back to
+      // the `x-tenant-id` header when user.tenantId was null —
+      // acceptable on pre-auth / cross-tenant-admin / edge-device
+      // ingestion paths per CLAUDE.md, but those paths do not run
+      // through this interceptor (this interceptor fires only on
+      // @AuditLog()-decorated handlers, all of which sit behind
+      // authentication). The header fallback was therefore a
+      // confused-deputy hazard: a compromised intermediary that
+      // injected `x-tenant-id` could make the audit row attribute
+      // an action to a different tenant than the JWT claimed.
+      // Truthful null is better than an attacker-controllable value.
+      tenantId: user?.tenantId ?? null,
       schemaName: (headers['x-schema-name'] as string) ?? null,
       ip: this.extractIp(request),
       userAgent: (headers['user-agent'] as string) ?? null,

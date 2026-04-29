@@ -2,6 +2,7 @@ import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
 import { RlsModule, AdminBypassRlsInterceptor, SchemaDriftModule, createServiceTypeOrmConfig, buildDatabaseSslConfig } from '@aquaculture/backend-common/database';
 import { LoggingModule } from '@aquaculture/backend-common/logging';
 import { RedisModule } from '@aquaculture/backend-common/redis';
+import { CircuitBreakerModule } from '@aquaculture/backend-common/resilience';
 import { ThrottlerModule } from '@aquaculture/backend-common/security';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -162,6 +163,11 @@ import { UsersModule } from './users/users.module';
       },
     }),
     CqrsModule.forRoot(),
+    // CIRCUIT-LOW-001 cure foundation: Global circuit breaker for
+    // every cross-service fetch in admin-api (system-metrics scraper,
+    // performance-monitoring fetch). @Global so feature modules
+    // constructor-inject CircuitBreakerService directly.
+    CircuitBreakerModule,
     // Schedule module — single forRoot() for the entire service
     ScheduleModule.forRoot(),
     // NATS Event Bus for cross-service event publishing

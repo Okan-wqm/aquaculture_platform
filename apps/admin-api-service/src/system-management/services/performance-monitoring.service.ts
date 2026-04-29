@@ -5,6 +5,7 @@ import { Repository, DataSource, LessThan, Between } from 'typeorm';
 import * as os from 'os';
 import * as fs from 'fs';
 import { buildSignedInternalHeaders } from '@aquaculture/backend-common/http';
+import { CircuitBreakerService } from '@aquaculture/backend-common/resilience';
 
 import {
   PerformanceMetric,
@@ -119,6 +120,13 @@ export class PerformanceMonitoringService {
     @InjectRepository(PerformanceSnapshot)
     private readonly snapshotRepo: Repository<PerformanceSnapshot>,
     private readonly dataSource: DataSource,
+    /**
+     * CIRCUIT-LOW-001 cure (sibling site): cross-service health
+     * probes wrap in the canonical breaker. fail-OPEN-degraded so
+     * one slow downstream service doesn't slow the whole performance
+     * snapshot.
+     */
+    private readonly circuitBreaker: CircuitBreakerService,
   ) {}
 
   // ============================================================================
@@ -422,24 +430,54 @@ export class PerformanceMonitoringService {
 
       const healthResults = await Promise.allSettled(
         serviceEndpoints.map(async (endpoint) => {
-          const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 2000);
           const start = Date.now();
-          try {
-            // SECURITY (HIGH-003): cross-service health probes from
-            // admin-api scheduler are signed for platform invariant.
-            const response = await fetch(endpoint.url, {
-              signal: controller.signal,
-              headers: buildSignedInternalHeaders({
-                serviceName: 'admin-api',
-                tenantId: '',
-              }),
-            });
-            const latency = Date.now() - start;
-            return { reachable: true, healthy: response.ok, latency };
-          } finally {
-            clearTimeout(timeout);
-          }
+          // CIRCUIT-LOW-001 cure: each per-endpoint fetch runs
+          // through its OWN per-service breaker keyed on the
+          // endpoint name. A single chronically-down service
+          // trips its own breaker without dragging the rest
+          // into a degraded latency budget.
+          return this.circuitBreaker.execute<{
+            reachable: boolean;
+            healthy: boolean;
+            latency: number;
+          }>({
+            serviceName: `admin-api-perf-probe:${endpoint.name}`,
+            tenantId: '*',
+            options: {
+              failureMode: 'fail-open-degraded',
+              failureThreshold: 5,
+              resetTimeoutMs: 30_000,
+            },
+            fn: async () => {
+              const controller = new AbortController();
+              const timeout = setTimeout(() => controller.abort(), 2000);
+              try {
+                // SECURITY (HIGH-003): cross-service health probes
+                // from admin-api scheduler are signed for platform
+                // invariant.
+                const response = await fetch(endpoint.url, {
+                  signal: controller.signal,
+                  headers: buildSignedInternalHeaders({
+                    serviceName: 'admin-api',
+                    tenantId: '',
+                  }),
+                });
+                const latency = Date.now() - start;
+                return {
+                  reachable: true,
+                  healthy: response.ok,
+                  latency,
+                };
+              } finally {
+                clearTimeout(timeout);
+              }
+            },
+            fallback: () => ({
+              reachable: false,
+              healthy: false,
+              latency: Date.now() - start,
+            }),
+          });
         }),
       );
 

@@ -125,6 +125,7 @@ export default {
         '<rootDir>/access-log-stream-shape.spec.ts',
         '<rootDir>/webhook-public-paths.spec.ts',
         '<rootDir>/cache-key-tenant-scope.spec.ts',
+        '<rootDir>/admin-api-health-probe-breakered.spec.ts',
       ],
     },
     {

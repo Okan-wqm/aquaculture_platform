@@ -2795,35 +2795,28 @@ fn main() {
                 // implementation lives in
                 // db_migration::cli (this module).
                 //
-                // Mirrors the established
-                // --init/--audit-verify/--confirm-active
-                // subcommand pattern: subcommand
-                // dispatch on argv[1], remaining args
-                // passed to the subcommand's parser.
-                // Use `.get(2..)` instead of `args[2..]`
-                // for the crate-level
-                // clippy::indexing_slicing deny.
-                // `unwrap_or(&[])` covers the (logically
-                // unreachable) case of args having < 2
-                // elements — the outer match on
-                // `args.get(1) == Some("--migrate-db")`
-                // proves at least 2 are present.
-                let sub_argv: Vec<&str> = args
+                // PR-195 Batch #18 (closes
+                // ORPHAN-D3-CLI-DISPATCH-001): wire the
+                // execute path. Pre-Batch-#18 the arm
+                // called the legacy no-context entry
+                // (run_migration_ceremony) which refused
+                // execute mode at runtime — operators
+                // could only --dry-run. This batch
+                // delegates to
+                // run_migrate_db_subcommand_with_context
+                // which loads the agent config, builds
+                // the keystore via the SSoT helper
+                // (Batch #16), constructs MigrationContext,
+                // and invokes
+                // run_migration_ceremony_with_context.
+                let sub_argv_owned: Vec<String> = args
                     .get(2..)
                     .unwrap_or(&[])
-                    .iter()
-                    .map(|s| s.as_str())
-                    .collect();
-                let exit_code =
-                    crate::db_migration::cli::run_migration_ceremony(
-                        &sub_argv,
-                    );
-                std::process::exit(
-                    match format!("{exit_code:?}").as_str() {
-                        s if s.contains("status(0)") => 0,
-                        _ => 1,
-                    },
+                    .to_vec();
+                let exit_code = run_migrate_db_subcommand_with_context(
+                    sub_argv_owned,
                 );
+                std::process::exit(exit_code);
             }
             "--audit-verify" => {
                 // Batch 77 Sprint 6.2 Phase 2: offline audit
@@ -3599,6 +3592,161 @@ async fn async_main() -> Result<()> {
 /// Flow:
 /// 1. Open PartitionStore at default path.
 /// 2. Snapshot; resolve active slot.
+/// PR-195 Batch #18 — `--migrate-db` subcommand entry
+/// (closes ORPHAN-D3-CLI-DISPATCH-001).
+///
+/// Composes:
+///   1. `AgentConfig::load()` — loads the same config
+///      file the agent's normal boot path reads.
+///   2. `crate::keystore::bootstrap::
+///      build_production_keystore_from_config(...)` —
+///      the SSoT helper from Batch #16.
+///   3. `MigrationContext` construction with
+///      `device_id` from config, `now_unix` from
+///      `chrono::Utc::now().timestamp()`,
+///      `program_artifact_sha256: None` (no program is
+///      loaded at migration ceremony time —
+///      program-bound DBs that exist will surface as
+///      `ConsumerOutcome::Failed::Context::ProgramSha256Required`
+///      in the orchestrator's outcome JSONL; the
+///      operator's runbook documents that program-
+///      bound DBs are migrated by re-deploying the
+///      program post-ceremony per ADR-031 +
+///      ORPHAN-D3-BOOT-ORDER-002 option-3 discipline).
+///   4. `run_migration_ceremony_with_context(...)` —
+///      the execute-capable CLI entry from Batch #12.
+///
+/// **Why a per-call tokio runtime:** the dispatch arm
+/// runs PRE-AppState — no shared async runtime is in
+/// scope. Building a fresh `current_thread` runtime is
+/// the lightest-weight option that doesn't require
+/// hoisting tokio orchestration into the synchronous
+/// dispatch chain.
+///
+/// **Why `SystemClockAuthority` (not chrony):** the
+/// migration ceremony's keystore-build needs a clock
+/// for the rotation-marker read; `SystemClockAuthority`
+/// is the trusting-zero-age baseline that doesn't
+/// depend on chronyd being reachable. The migration
+/// ceremony runs at operator command — a chrony
+/// failure shouldn't block the migration.
+///
+/// **Pre-tracing:** same `println`/`eprintln` pattern
+/// as `--init` / `--audit-verify` / `--confirm-active`
+/// per the existing CLI convention. The dispatch arm
+/// runs BEFORE `init_logging`.
+#[allow(clippy::print_stderr)]
+fn run_migrate_db_subcommand_with_context(sub_argv_owned: Vec<String>) -> i32 {
+    let runtime = match tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("db-migrate-cli: failed to build tokio runtime: {}", e);
+            return 1;
+        }
+    };
+
+    runtime.block_on(async move {
+        // Load the agent config from the canonical
+        // path. Same call shape main()'s normal boot
+        // path uses — single SSoT for config-load.
+        let config = match AgentConfig::load() {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("db-migrate-cli: config load failed: {:#}", e);
+                return 1;
+            }
+        };
+
+        if config.device_id.is_empty()
+            || config.device_id == "00000000-0000-0000-0000-000000000000"
+        {
+            eprintln!(
+                "db-migrate-cli: config.device_id is empty or unprovisioned ({}). \
+                 Run --init + provisioning before migrating SQLCipher consumers; \
+                 the v2 keystore-derived key requires a real device UUID for the \
+                 device-bound consumer context (ADR-031).",
+                config.device_id,
+            );
+            return 1;
+        }
+
+        // Build a SystemClockAuthority for the
+        // keystore's rotation-marker read. The migration
+        // ceremony is operator-invoked; chrony NTS
+        // dependency is unnecessary for this one-shot
+        // path.
+        let clock: std::sync::Arc<dyn crate::runtime_safety::ClockAuthority> =
+            std::sync::Arc::new(
+                crate::runtime_safety::system_clock::SystemClockAuthority::new(),
+            );
+
+        // Build the keystore via the SSoT (Batch #16
+        // extraction). Same construction path as the
+        // agent's normal boot — ensures the migration
+        // tool derives the SAME v2 key the agent will
+        // see at next boot.
+        let keystore = match crate::keystore::bootstrap::
+            build_production_keystore_from_config(
+                &config,
+                clock,
+                data_dir::data_dir(),
+            )
+            .await
+        {
+            Ok(Some(ks)) => ks,
+            Ok(None) => {
+                eprintln!(
+                    "db-migrate-cli: keystore.mode = Disabled in config; \
+                     cannot run migration ceremony without keystore enabled. \
+                     Enable keystore.mode = Auto or FileBacked + provision \
+                     /etc/suderra/keystore.{{passphrase,salt,acceptance.json}} \
+                     before re-running --migrate-db."
+                );
+                return 1;
+            }
+            Err(e) => {
+                eprintln!(
+                    "db-migrate-cli: keystore build failed: {}",
+                    e
+                );
+                return 1;
+            }
+        };
+
+        let sub_argv: Vec<&str> =
+            sub_argv_owned.iter().map(|s| s.as_str()).collect();
+        let ctx = crate::db_migration::cli::MigrationContext {
+            device_id: config.device_id.clone(),
+            // Program-bound consumers (RetainPersistence +
+            // BytecodeRetain) need program_artifact_sha256
+            // for v2 derivation, but no program is loaded
+            // at ceremony time. The orchestrator records
+            // ConsumerOutcome::Failed::Context::ProgramSha256Required
+            // for any program-bound DB that exists; the
+            // runbook documents that those consumers are
+            // migrated naturally on the next program
+            // deploy (option-3 first-program-deploy
+            // migration discipline per
+            // ORPHAN-D3-BOOT-ORDER-002).
+            program_artifact_sha256: None,
+            keystore,
+            now_unix: chrono::Utc::now().timestamp(),
+        };
+
+        let exit_code =
+            crate::db_migration::cli::run_migration_ceremony_with_context(
+                &sub_argv, ctx,
+            );
+        match format!("{exit_code:?}").as_str() {
+            s if s.contains("status(0)") => 0,
+            _ => 1,
+        }
+    })
+}
+
 /// 3. Apply `PartitionRoll::Confirm { slot: active }`.
 /// 4. Exit 0 on success (new state Active) + pretty-print
 ///    the transition; exit 1 on any error.

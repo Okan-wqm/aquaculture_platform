@@ -132,9 +132,14 @@ export class AuditLogEntity {
   metadata!: Record<string, unknown> | null;
 
   /**
-   * Client IP address
+   * Client IP address. Stored as native Postgres inet (DBR-MEDIUM-003
+   * cure) for INSERT-time validation, efficient indexing, and
+   * operator-side IP-range query support via the `<<` containment
+   * operator. TypeScript type stays `string` because the pg driver
+   * surfaces inet as text on read; the validation happens at INSERT
+   * time at the DB layer.
    */
-  @Column({ type: 'varchar', length: 45, nullable: true })
+  @Column({ type: 'inet', nullable: true })
   ip!: string | null;
 
   /**

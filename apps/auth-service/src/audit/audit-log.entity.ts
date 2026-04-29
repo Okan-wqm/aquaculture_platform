@@ -89,7 +89,11 @@ export class AuditLog {
   @Column({ type: 'varchar', length: 100, nullable: true })
   sessionId?: string | null;
 
-  @Column({ type: 'varchar', length: 45, nullable: true })
+  // DBR-MEDIUM-003 cure: native Postgres inet for INSERT-time
+  // validation + efficient indexing + operator-side range queries
+  // via `<<`. Migration 1787400000000-ConvertAuthAuditIpToInet
+  // performs the column-type rewrite.
+  @Column({ type: 'inet', nullable: true })
   ipAddress?: string | null;
 
   @Column({ type: 'varchar', length: 500, nullable: true })

@@ -2540,3 +2540,71 @@ Sibling reference (RESOLVED) — see
 `docs/reviews/audit-trail-completeness-auditor/2026-04-28-core-platform-review.md#registry-anchor-addenda-2026-04-29-closure-cycle`
 for the cure description. Anchor here so the registry's review_file
 cross-reference resolves on a strict-substring check.
+
+---
+
+## ORPHAN-MEDIUM-029 — billing-scheduler.service.spec.ts: 3 pre-existing failures on invoice.total / amountDue string-vs-number drift (2026-04-29)
+
+**Status:** OPEN.
+
+**Scope:**
+`apps/billing-service/src/billing/__tests__/billing-scheduler.service.spec.ts`
+specs:
+- `should generate an invoice for ACTIVE subscription with expired period` (line ~462)
+- `should multiply base price by cycle months for non-monthly billing`
+- `should round invoice totals to 2 decimal places` (line ~713)
+
+**Symptom:**
+```
+Expected: 199
+Received: "199"
+```
+
+**Root cause:**
+The Money / DecimalValueTransformer adoption (BILLING-HIGH-002 cure)
+flipped `Invoice.total` and `Invoice.amountDue` from `number` to a
+TypeORM-driver-side `string` (Postgres NUMERIC arrives as string by
+default). The handler creates the entity with a `Money`-instance
+that the spec mock receives as the underlying `string` value
+("199"), but the spec expectations still assert against `number`
+(`199`). The test was last touched before the Money rollout.
+
+**Why this is an orphan finding:**
+Spotted while landing BILLING-LOW-002 (randomBytes(2) → randomBytes(4)).
+My fix added a `dataSource.query` mock that lets the test reach the
+generateInvoiceNumber path; that uncovered these pre-existing
+failures that were previously masked by the earlier dataSource.query
+crash. The string-vs-number drift is unrelated to BILLING-LOW-002
+but is now visible on every CI run for this spec file.
+
+**Why-it-shouldn't-be-fixed-here:**
+Fixing the assertions to match the Money-instance string output would
+silently accept a contract drift that callers (admin dashboard,
+invoice PDF generator) likely depend on. The right fix is one of:
+
+  (a) Update the entity column-transformer to coerce the read-side
+      back to `number` (or to a `Money` instance whose `valueOf()`
+      returns the number). One-line change at the entity column
+      decorator if the transformer supports it.
+  (b) Update every consumer (resolver / handler / scheduler) to
+      treat the column as Money explicitly, with explicit
+      `.toNumber()` at the boundary.
+
+Option (a) preserves call-site ergonomics; option (b) is the
+architecturally cleaner Tier-1 cure (typed monetary values flow
+through every layer). Both require auditing every read site for
+the column, which is outside the scope of this batch.
+
+**How-to-fix (when prioritized):**
+1. Audit every consumer of `Invoice.total` / `Invoice.amountDue` /
+   `Subscription.unitAmount` — locate every read site via
+   `grep -rn '\.total\b\|\.amountDue\b\|\.unitAmount\b' apps/billing-service/`.
+2. Pick option (a) or (b) per the architectural-arbiter.
+3. Update the column transformer or the consumers in the same PR.
+4. Update the affected unit specs to assert against the correct
+   type.
+
+**Related findings:**
+- BILLING-HIGH-002 (Money discipline rollout) — the parent finding
+  whose incomplete sweep introduced this drift.
+- BILLING-LOW-002 (this batch) — the cure that surfaced the drift.

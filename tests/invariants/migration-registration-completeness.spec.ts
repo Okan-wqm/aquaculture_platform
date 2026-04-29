@@ -58,16 +58,18 @@ const KNOWN_UNREGISTERED: ReadonlyMap<string, string> = new Map([
   // ConvertAuditColumnsToTimestamptz1781900000000 + AuditLogImmutability1782000000000
   // were unregistered behind the allowlist; both now imported and listed in
   // the migrations array, so admin-api falls under the unconditional check.
-  ['alert-engine', 'docs/reviews/orphan-findings.md#ORPHAN-MIGRATION-REGISTRATION-2'],
-  ['billing-service', 'docs/reviews/orphan-findings.md#ORPHAN-MIGRATION-REGISTRATION-3'],
-  ['event-store-service', 'docs/reviews/orphan-findings.md#ORPHAN-MIGRATION-REGISTRATION-4'],
-  ['hr-service', 'docs/reviews/orphan-findings.md#ORPHAN-MIGRATION-REGISTRATION-5'],
+  // alert-engine: drained 2026-04-29 — uses glob pattern.
+  // billing-service: drained 2026-04-29 — uses glob pattern.
+  // event-store-service: drained 2026-04-29 — switched to glob pattern.
+  // hr-service: drained 2026-04-29 — uses glob pattern.
   // messaging-service: drained 2026-04-29 — Consolidate1782500000000 +
   // AlignMessagingEntityDrift1782600000000 were unregistered behind the
   // allowlist; both now imported and listed in the migrations array.
-  ['notification-service', 'docs/reviews/orphan-findings.md#ORPHAN-MIGRATION-REGISTRATION-7'],
-  ['observability-service', 'docs/reviews/orphan-findings.md#ORPHAN-MIGRATION-REGISTRATION-8'],
-  ['sensor-service', 'docs/reviews/orphan-findings.md#ORPHAN-MIGRATION-REGISTRATION-9'],
+  // notification-service: drained 2026-04-29 — already uses glob pattern,
+  // so the allowlist entry was redundant. Removing it lets the invariant's
+  // glob-detection branch handle the service.
+  // observability-service: drained 2026-04-29 — switched to glob pattern.
+  // sensor-service: drained 2026-04-29 — switched to glob pattern.
 ]);
 
 function listMigrationFilesFor(service: string): string[] {
@@ -124,9 +126,11 @@ function appModulePath(service: string): string | null {
 
 function usesGlobPattern(appModuleSrc: string): boolean {
   // Pattern: `migrations: [__dirname + '/migrations/*{.ts,.js}']` or
-  // a similar glob assignment. We accept any string-literal that
-  // contains '*{' (the glob marker).
-  return /migrations:\s*\[[^\]]*\*\{/i.test(appModuleSrc);
+  // `migrations: [__dirname + '/migrations/*.{ts,js}']` etc. — any
+  // string-literal inside the migrations array that pairs a `*` glob
+  // wildcard with a `{ext1,ext2}` extension list. Both `*{...}` and
+  // `*.{...}` shapes are valid TypeORM globs and appear in the repo.
+  return /migrations:\s*\[[^\]]*\*\.?\{/i.test(appModuleSrc);
 }
 
 function migrationFileToClassNames(rel: string): string[] {

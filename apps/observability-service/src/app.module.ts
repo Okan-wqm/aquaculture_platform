@@ -39,10 +39,12 @@ import { InternalApiGuard } from './guards/internal-api.guard';
         createServiceTypeOrmConfig(configService, {
           serviceName: 'observability',
           schema: 'observability',
-          // No migrations — observability-service uses synchronize=true in
-          // dev (factory honours DATABASE_SYNC) and reads cross-schema
-          // aggregates in prod. RLS module above handles schema bootstrap.
-          migrations: [],
+          // ORPHAN-HIGH-001 cure (observability-service leg): switched
+          // from empty array to glob pattern. Pre-fix the array was [],
+          // which masked 5 on-disk migrations (cost rollup, migration
+          // events, schema-object history, emergency overrides, migration
+          // backfill progress) — none of them ran on a fresh deploy.
+          migrations: [__dirname + '/database/migrations/*.{js,ts}'],
         }),
     }),
     PrometheusModule,

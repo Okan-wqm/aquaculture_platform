@@ -130,6 +130,7 @@ export default {
         '<rootDir>/compliance-score-tier-honesty.spec.ts',
         '<rootDir>/no-driver-cast-as-any.spec.ts',
         '<rootDir>/pii-events-mandatory-crypto-shred.spec.ts',
+        '<rootDir>/token-blacklist-divergence-tracked.spec.ts',
       ],
     },
     {

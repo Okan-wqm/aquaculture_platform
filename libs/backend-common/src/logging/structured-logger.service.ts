@@ -1,13 +1,31 @@
 import { LoggerService, LogLevel } from '@nestjs/common';
 import { getRequestContext } from './request-context';
 import { maskPii } from '../utils/pii-mask.util';
+import { SENSITIVE_FIELDS } from '../security/security-constants';
 
 /**
  * Sensitive keys whose values are replaced with [REDACTED] before serialisation.
  * Matching is case-insensitive and applies to top-level metadata keys as well as
  * recursively nested objects up to MAX_DEPTH levels deep.
+ *
+ * AUDITTRAIL-LOW-001 cure: regex derived from the canonical SENSITIVE_FIELDS
+ * SSoT in `libs/backend-common/src/security/security-constants.ts`. Pre-fix
+ * the regex was a hard-coded alternation that drifted from the audit
+ * interceptor's own private Set — divergence meant a key redacted in one
+ * path leaked through the other. Building the regex from the canonical list
+ * means a new sensitive key added to security-constants.ts is picked up at
+ * both sites automatically.
+ *
+ * Anchored alternation (`^(a|b|...)$`) requires exact key-name match.
+ * Avoids false positives on substrings (`passwords` plural does NOT match
+ * `password` exactly).
  */
-const SENSITIVE_KEYS = /^(password|passwd|secret|token|authorization|apikey|api_key|access_token|refresh_token|private_key|credentials?)$/i;
+const SENSITIVE_KEYS: RegExp = (() => {
+  const escaped = SENSITIVE_FIELDS.map((k) =>
+    k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
+  );
+  return new RegExp(`^(${escaped.join('|')})$`, 'i');
+})();
 const MAX_DEPTH = 4;
 
 /** Default log levels enabled in production (error, warn, info). */

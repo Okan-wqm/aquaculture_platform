@@ -18,25 +18,28 @@ import {
   AuditedOperationStatus,
 } from './audited-operation.decorator';
 import { AuditLogEntity, AuditSeverity } from './audit-log.entity';
+import { SENSITIVE_FIELDS_SET } from '../security/security-constants';
 
 /**
- * Keys that must never appear in audit log metadata.
- * Prevents accidental leakage of secrets into the audit trail.
+ * AUDITTRAIL-LOW-001 cure: re-export the canonical SENSITIVE_FIELDS_SET
+ * under the local SENSITIVE_KEYS name so the interceptor's redaction loop
+ * consumes the single source of truth from
+ * `libs/backend-common/src/security/security-constants.ts` (alongside the
+ * structured logger). Pre-fix this file declared its own 12-entry Set
+ * that diverged from the logger's 11-entry regex, leaving keys like
+ * 'access_token' (underscore) redacted in logs but written verbatim to
+ * audit metadata, and keys like 'cvv' redacted in audit but logged
+ * verbatim. Using the canonical SET means a new sensitive key added
+ * to security-constants.ts is automatically picked up here.
+ *
+ * The Set is keyed by lowercase forms — the existing
+ * `SENSITIVE_KEYS.has(key.toLowerCase())` lookup at line ~440 still
+ * works because the canonical Set normalises every spelling to lower-
+ * case before insertion (see security-constants.ts SENSITIVE_FIELDS_SET).
  */
-const SENSITIVE_KEYS = new Set([
-  'password',
-  'token',
-  'secret',
-  'accesstoken',
-  'refreshtoken',
-  'authorization',
-  'creditcard',
-  'ssn',
-  'cvv',
-  'pin',
-  'apikey',
-  'privatekey',
-]);
+const SENSITIVE_KEYS: ReadonlySet<string> = new Set(
+  Array.from(SENSITIVE_FIELDS_SET).map((k) => k.toLowerCase()),
+);
 
 /**
  * Maximum depth for sanitizing nested objects

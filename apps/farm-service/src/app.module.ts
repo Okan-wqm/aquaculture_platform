@@ -168,6 +168,12 @@ import { AddFarmOutboxModernColumns1786200000000 } from './database/migrations/1
 // in-process MigrationRunnerService when DATABASE_MIGRATIONS_RUN=true (dev / E2E).
 // Future hygiene PR: backfill the omitted 1787*/1788* entries here too.
 import { AddWaterQualitySensorReadingCorrelation1788200000000 } from './database/migrations/1788200000000-AddWaterQualitySensorReadingCorrelation';
+// FARM-MEDIUM-005 — partial UNIQUE + lookup indexes for the relatedSensorReadingId
+// column. Split from the column-add migration because CREATE INDEX without
+// CONCURRENTLY against pre-existing per-tenant copies of water_quality_measurements
+// would take ACCESS EXCLUSIVE and stall writers. See migration's docblock for
+// the runtime tenant-schema discovery + transaction=false rationale.
+import { AddWaterQualitySensorReadingCorrelationIndexes1788210000000 } from './database/migrations/1788210000000-AddWaterQualitySensorReadingCorrelationIndexes';
 
 @Module({
   imports: [
@@ -219,6 +225,7 @@ import { AddWaterQualitySensorReadingCorrelation1788200000000 } from './database
             AddFarmOutboxNotifyTrigger1782100000000,
             AddFarmOutboxModernColumns1786200000000,
             AddWaterQualitySensorReadingCorrelation1788200000000,
+            AddWaterQualitySensorReadingCorrelationIndexes1788210000000,
           ],
           // INFRA-CRITICAL-020 contract: env-aware migration timing.
           // - Production: DATABASE_MIGRATIONS_RUN=false (default). The

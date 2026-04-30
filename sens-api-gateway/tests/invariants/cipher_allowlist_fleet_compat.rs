@@ -198,23 +198,24 @@ fn mqtt_client_auth_is_conditional_not_hardcoded() {
     );
 }
 
-/// **ORPHAN-MTLS-004 (boot-time Warn-mode warning):** AgentConfig::validate
-/// must surface a tracing::warn! when `mtls.mode == Warn` and pins are
-/// empty — otherwise operators receive a noisy audit-event-per-handshake
-/// stream they did not anticipate.
+/// **ORPHAN-MEDIUM-032 (boot-time Warn-mode warning):** AgentConfig::validate
+/// must contain a coherence gate that fires when `mtls.mode == Warn` and
+/// `pinned_leaf_fingerprints_hex` is empty. Otherwise operators receive a
+/// noisy audit-event-per-handshake stream without informed-consent surfacing.
+///
+/// Anchors on the *code shape* of the gate, not the surrounding doc-comment
+/// text — sister sessions sometimes reword comments without touching the
+/// actual matches!(...) check, so the comment text is allowed to drift.
 #[test]
 fn config_validate_warns_on_warn_mode_empty_pins() {
     let src = read_source("src/config.rs");
-    // Anchor on the warn! call site. The exact message text is allowed to
-    // drift, but the matches!(...) check + the warn! tag must coexist.
-    let has_warn_mode_check = src.contains("MtlsMode::Warn")
-        && src.contains("pinned_leaf_fingerprints_hex.is_empty()")
-        && src.contains("ORPHAN-MTLS-004")
-        || src.contains("Phase 0.3");
+    let has_match_arm = src.contains("crate::mtls::MtlsMode::Warn")
+        && src.contains("self.mtls.pinned_leaf_fingerprints_hex.is_empty()");
     assert!(
-        has_warn_mode_check,
-        "ORPHAN-MTLS-004 VIOLATED: src/config.rs does not surface a Phase 0.3 boot warning \
-         for mtls.mode=Warn + empty pin set. Operators must be informed at config load \
-         that every handshake will emit a pinning-violation audit event."
+        has_match_arm,
+        "ORPHAN-MEDIUM-032 VIOLATED: src/config.rs does not contain a coherence gate of \
+         the shape `matches!(self.mtls.mode, crate::mtls::MtlsMode::Warn) && \
+         self.mtls.pinned_leaf_fingerprints_hex.is_empty()` — the Phase 0.3 boot warning \
+         that informs operators about audit-event-per-handshake under Warn-mode + empty pins."
     );
 }

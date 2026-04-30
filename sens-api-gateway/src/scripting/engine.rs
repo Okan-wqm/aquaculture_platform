@@ -720,8 +720,11 @@ impl ScriptEngine {
     async fn run_scan_cycle(&mut self) {
         let scan_interval = Duration::from_millis(self.scan_cycle_ms);
         let mut reload_counter = 0u64;
-        // v1.2.6: Use ceiling division for accurate reload timing
-        let reload_interval = ((30000 + self.scan_cycle_ms - 1) / self.scan_cycle_ms).max(1);
+        // v1.2.6: ceiling division for accurate reload timing.
+        // PR-195 Batch #25: switched to u64::div_ceil — same
+        // semantics as the (a+b-1)/b form for valid inputs but
+        // overflow-safe at u64::MAX (clippy::manual_div_ceil).
+        let reload_interval = 30000_u64.div_ceil(self.scan_cycle_ms).max(1);
 
         info!(
             scan_cycle_ms = self.scan_cycle_ms,

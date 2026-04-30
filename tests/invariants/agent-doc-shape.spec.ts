@@ -96,4 +96,43 @@ describe('agent-doc-shape (CLAUDE-LOW-005/007/008 seals)', () => {
       expect(body).toMatch(/\|\s*`three-store-invariants\.spec\.ts`\s*\|/);
     });
   });
+
+  describe('CLAUDE-LOW-004 — tenant-cost-attribution agent uses -expert suffix', () => {
+    it('the agent file is named tenant-cost-attribution-expert.md (not -agent.md)', () => {
+      // The repo MUST carry the -expert variant; the legacy -agent name
+      // would re-introduce the audit's "naming convention drift" finding.
+      const lines = execSync(
+        `git ls-files .claude/agents/tenant-cost-attribution-*.md`,
+        { cwd: REPO_ROOT, encoding: 'utf8' },
+      )
+        .split('\n')
+        .filter(Boolean);
+      expect(lines).toContain(
+        '.claude/agents/tenant-cost-attribution-expert.md',
+      );
+      expect(lines).not.toContain(
+        '.claude/agents/tenant-cost-attribution-agent.md',
+      );
+    });
+  });
+
+  describe('CLAUDE-LOW-006 — product-audit arbiter filename matches frontmatter', () => {
+    it('the arbiter file is named product-audit-arbiter.md (not architectural-arbiter.md)', () => {
+      const lines = execSync(
+        `git ls-files .claude/agents/product-audit/*arbiter*.md`,
+        { cwd: REPO_ROOT, encoding: 'utf8' },
+      )
+        .split('\n')
+        .filter(Boolean);
+      expect(lines).toContain(
+        '.claude/agents/product-audit/product-audit-arbiter.md',
+      );
+      // Legacy filename must NOT exist; if it did, two arbiter agents
+      // with overlapping responsibility would coexist and routing would
+      // become ambiguous.
+      expect(lines).not.toContain(
+        '.claude/agents/product-audit/architectural-arbiter.md',
+      );
+    });
+  });
 });

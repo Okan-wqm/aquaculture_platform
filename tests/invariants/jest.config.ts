@@ -133,6 +133,7 @@ export default {
         '<rootDir>/token-blacklist-divergence-tracked.spec.ts',
         '<rootDir>/no-new-adhoc-circuit-breaker.spec.ts',
         '<rootDir>/legal-hold-drop-partition-guard.spec.ts',
+        '<rootDir>/agent-doc-shape.spec.ts',
       ],
     },
     {

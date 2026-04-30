@@ -2396,3 +2396,207 @@ Two architectural options, neither required for current PR landing:
 2. **Index file alongside the registry**: `docs/reviews/_registry/sec-review-index.md` with one markdown anchor per SEC-REVIEW-NNN. Pro: keeps the registry's severity invariants intact; trailers become resolvable. Con: requires a new gate to prevent drift between commits + the index.
 
 Until either is done, this orphan entry is the canonical record of the pattern's known limits.
+
+
+---
+
+
+## ORPHAN-CRITICAL-029 — `rumqttc::TlsConfiguration::Simple` makes Strict mTLS + custom broker CA architecturally impossible (Phase 0.1, 2026-04-30)
+
+**Status:** RESOLVED — Phase 0 PR-PRE Batch 0.1.
+
+**Scope:** `sens-api-gateway/src/mqtt.rs` (configure_tls).
+
+**Impact (pre-Phase-0):** Operators with self-signed or internal MQTT broker CAs configured via `mqtt.tls.ca_cert_path` could not adopt `mtls.mode=Strict`. Pre-Phase-0 `mqtt.rs` routed the custom-CA branch through `TlsConfiguration::Simple { ca, alpn, client_auth }`, which rumqttc builds internally and which **does NOT support custom verifiers**. SuderraServerCertVerifier (the mode-aware policy gate enforcing pinning + age cap + chain depth) could only ride the system-CA path. The pre-Phase-0 fail-closed branch correctly refused to silently downgrade Strict, but the Err branch made the entire 3-stage rollout discipline (Legacy → Warn → Strict) unreachable for any private-CA cohort. **Fleet-breaking** for operators who had already migrated to private brokers.
+
+**WHY this is a Tier-1 architectural fix (not a patch):** the underlying issue is that rumqttc's `Simple` TLS path is a leaky abstraction — it hides the rustls `ClientConfig` from us. The fix is to bypass `Simple` entirely on both branches and always build a full `ClientConfig` ourselves, then wrap it in `TlsConfiguration::Rustls(Arc<ClientConfig>)`. We own the verifier, the cipher policy, the protocol version, the client auth — rumqttc just gets the wrapped, audited config. Tier-1 MAKE-IT-IMPOSSIBLE: there is no longer a code path that can install `Simple` on the configure_tls side, which means there is no longer a code path that silently disables Suderra policy gates.
+
+**HOW resolved:** Phase 0.1 unifies both system-CA and custom-CA branches on `TlsConfiguration::Rustls`. The custom-CA branch now parses operator-supplied PEM bytes via `rustls::pki_types::pem::PemObject` (built into rustls 0.23 via pki-types 1.7+; no new dependency), populates a `RootCertStore`, and feeds it into the SAME ClientConfig builder used by the system-CA branch. The fail-closed `Strict + custom-CA = Err` branch is removed because Strict + custom-CA + valid pins is now a fully supported configuration. Tier-3 detector: `tests/invariants/cipher_allowlist_fleet_compat.rs::mqtt_does_not_use_tlsconfiguration_simple`.
+
+---
+
+
+## ORPHAN-MEDIUM-030 — system-CA TLS path silently dropped operator-configured client cert + key (Phase 0.1, 2026-04-30)
+
+**Status:** RESOLVED — Phase 0 PR-PRE Batch 0.1.
+
+**Scope:** `sens-api-gateway/src/mqtt.rs` (configure_tls).
+
+**Impact (pre-Phase-0):** The function read `client_cert_path` + `client_key_path` from `MqttTlsConfig` into a `client_auth: Option<(Vec<u8>, Vec<u8>)>` local. The custom-CA branch propagated `client_auth` into `TlsConfiguration::Simple { client_auth, ... }` so mutual TLS worked. The system-CA branch silently hard-coded `.with_no_client_auth()` and ignored the local entirely. An operator who configured both system-CA TLS *and* a client cert + key would observe the client cert never reaching the broker — the broker's mutual-TLS gate would reject the connection with no obvious cause on the agent side.
+
+**WHY this matters:** mutual TLS is one of the FR1-FR4 IEC 62443 SL-2 baselines. Asymmetric handling between two TLS branches means operators cannot reason about their security posture by reading config alone — they need to know which CA branch their config triggers. That coupling between transport-layer config and policy semantics is exactly the architectural smell Phase 0 is removing.
+
+**HOW resolved:** Phase 0.1's unified pipeline parses client cert + key once (via `CertificateDer::pem_slice_iter` and `PrivateKeyDer::from_pem_slice`) and applies `.with_client_auth_cert(certs, key)` to the ClientConfig builder regardless of CA source. Both branches honor the operator's configuration. Tier-3 detector: `tests/invariants/cipher_allowlist_fleet_compat.rs::mqtt_client_auth_is_conditional_not_hardcoded`.
+
+---
+
+
+## ORPHAN-HIGH-031 — `verify_leaf_cert` cipher allowlist gate is dead code at the rustls verifier callback (Phase 0.2, 2026-04-30)
+
+**Status:** RESOLVED — Phase 0 PR-PRE Batch 0.2.
+
+**Scope:** `sens-api-gateway/src/mtls/verify.rs` Gate 4 (cipher suite allowlist) + `sens-api-gateway/src/mtls/rustls_verifier.rs` (verify_cert_at_handshake).
+
+**Impact (pre-Phase-0):** Plan §5 Faz 2 item 7 + ADR-021 §10 specify a TLS 1.3-only cipher allowlist (`CIPHER_SUITE_ALLOWLIST` at `mtls/cipher.rs:51-55`). The 8-gate `verify_leaf_cert` pure function honors the gate; **but** the callback that consumes it (`SuderraServerCertVerifier::verify_server_cert` → `apply_policy_gates` → `verify_cert_at_handshake`) is invoked by rustls **before cipher selection finalizes**. The negotiated cipher is not available at this layer; the gate cannot fire. The doc comment at `mtls/rustls_verifier.rs:44-48` already acknowledged the gap as deferred work, but the registry never carried a finding for the architectural correction.
+
+**WHY architectural (not just an oversight):** rustls' design separates cert verification (per-connection, in `ServerCertVerifier`) from suite negotiation (per-`CryptoProvider`, configured at `ClientConfig::builder_with_provider` time). The honest place to enforce a cipher allowlist is the provider layer — that's where rustls picks suites, and a non-allowlisted suite simply never appears in the ClientHello. Tier-1 MAKE-IT-IMPOSSIBLE.
+
+**HOW resolved:** Phase 0.2 introduces `sens-api-gateway/src/mtls/crypto_provider.rs::build_suderra_crypto_provider()`. The function clones `rustls::crypto::ring::default_provider()` and `retain`s only the suites whose IANA codepoints appear in `CIPHER_SUITE_ALLOWLIST`. The MQTT transport at `mqtt.rs::configure_tls` now calls `ClientConfig::builder_with_provider(suderra_provider).with_protocol_versions(&[&TLS13])?` so non-allowlisted suites are unreachable from the negotiated suite list. Tier-3 detectors: `tests/invariants/cipher_allowlist_fleet_compat.rs::mqtt_uses_suderra_crypto_provider` and `mqtt_pins_protocol_to_tls13`. Phase 1.1.3 will reuse the same provider for HTTPS outbound (cloud client) so the gate spans both transports.
+
+---
+
+
+## ORPHAN-MEDIUM-032 — `mtls.mode=Warn` with empty pin set surfaces audit-event-per-handshake without operator warning (Phase 0.3, 2026-04-30)
+
+**Status:** RESOLVED — Phase 0 PR-PRE Batch 0.3.
+
+**Scope:** `sens-api-gateway/src/config.rs` (AgentConfig::validate, post Rule 25).
+
+**Impact (pre-Phase-0):** `mtls.mode=Warn + pinned_leaf_fingerprints_hex=[]` is technically legal — Warn mode does not fail-close on pin mismatch. But because the rotation-stage's accepted-fingerprint set is empty, *every* handshake produces a pinning-violation tracing event, which downstream audit emit propagates as one structured audit-log entry per connect. Operators not expecting this (e.g., a fleet running default Warn while waiting for cloud-pushed pin manifests) see a noisy audit stream that resembles an active attack and may file a false-positive incident.
+
+**HOW resolved:** Phase 0.3 adds a soft coherence warning at `AgentConfig::validate` (after Rules 24/25). When `mtls.mode == Warn && pinned_leaf_fingerprints_hex.is_empty()`, a `tracing::warn!` surfaces the operational shape and the two remediation paths (supply pins; downgrade to Legacy). Boot still proceeds — this is not a fail-closed gate, just informed-consent surfacing. Tier-3 detector: `tests/invariants/cipher_allowlist_fleet_compat.rs::config_validate_warns_on_warn_mode_empty_pins`.
+
+---
+
+
+## ORPHAN-MEDIUM-033 — Cipher allowlist + crypto provider wire had no source-level deployment regression detector (Phase 0.4, 2026-04-30)
+
+**Status:** RESOLVED — Phase 0 PR-PRE Batch 0.4.
+
+**Scope:** new `sens-api-gateway/tests/invariants/cipher_allowlist_fleet_compat.rs` + Cargo.toml `[[test]]` registration.
+
+**Impact (pre-Phase-0):** The unit tests inside `mtls/cipher.rs` and `mtls/crypto_provider.rs::tests` exercise runtime invariants. But a future PR could shrink `CIPHER_SUITE_ALLOWLIST` below RFC 8446 §9.1 mandatory-to-implement, refactor `mqtt.rs` back to bare `ClientConfig::builder()` (silently undoing Phase 0.2), or re-introduce `TlsConfiguration::Simple` on a new code path. The unit tests don't catch any of these because they exercise internal API, not source-level structure.
+
+**HOW resolved:** Phase 0.4 adds `tests/invariants/cipher_allowlist_fleet_compat.rs` — a Tier-3 source-grep detector that asserts (a) the literal IANA codepoints `0x1301`/`0x1302`/`0x1303` appear in `mtls/cipher.rs`, (b) no TLS 1.2 codepoint (`0xC02B`/`0xC02C`/`0xC02F`/`0xC030`) appears, (c) `CIPHER_SUITE_ALLOWLIST` enumerates exactly 3 variants, (d) `mqtt.rs` uses `build_suderra_crypto_provider` + `builder_with_provider` + `with_protocol_versions(&[&TLS13])`, (e) `mqtt.rs` does NOT *construct* `TlsConfiguration::Simple { ... }` or `TlsConfiguration::Simple(...)` — mere doc-comment mentions for anti-regression rationale are explicitly allowed, (f) `mqtt.rs` has both `with_client_auth_cert` and `with_no_client_auth` call sites (so the conditional is preserved), (g) `config.rs` carries the Phase 0.3 warning anchor.
+
+---
+
+
+## ORPHAN-LOW-034 — Decision: do NOT add `MtlsConfig.custom_ca_path` field (architectural memo, 2026-04-30)
+
+**Status:** RESOLVED (design decision documented).
+
+**Scope:** original Phase 2 closure plan §0.3 (proposed add) vs. realized Phase 0.
+
+**Context:** the original plan called for adding a `custom_ca_path: Option<PathBuf>` field to `MtlsConfig` plus a Coherence Rule 26 ("Strict + custom_ca_path requires non-empty pins"). During Phase 0 implementation, the field was found to be redundant: `MqttTlsConfig.ca_cert_path` already carries the per-transport CA path, and `MtlsConfig` is now the SSoT for *pinning + cipher* policy only — not CA chain location. Adding a duplicate field on `MtlsConfig` would force operators to set the same path twice (once per transport) or to choose between two SSoTs.
+
+**Decision:** keep CA path *per-transport* (`mqtt.tls.ca_cert_path`, future `cloud.tls.ca_cert_path` for Phase 1.1.3 HTTPS outbound). `MtlsConfig` stays focused on pinning + cipher + mode. Coherence Rule 24 (Strict requires pins) is sufficient — the rule does not need to know which transport's CA is in play because pinning is over the leaf, not the CA.
+
+**Why this is the right call (Tier-1):** keeping policy concerns separate from transport-config concerns means a future transport (e.g., LoRa, gRPC) can plug in its own CA-path field without mTLS policy knowing or caring. Coupling them would make adding a transport require a Coherence Rule update. Architectural minimalism beats theoretical completeness.
+
+---
+
+
+## ORPHAN-HIGH-035 — `install_default()` global CryptoProvider state writes the unrestricted ring provider; HTTPS outbound (provisioning, firmware, scripting cloud calls) does not honor the cipher allowlist (Phase 1.1.3 follow-up, 2026-04-30)
+
+**Status:** OPEN — owner: Okan-Wqm. Owner agent: Phase 1.1.3 / PR-196 (mTLS D-4/D-6 unified, edge-expert primary). Deadline: PR-196 merge close, by 2026-05-30 latest.
+
+**Scope:** `sens-api-gateway/src/mqtt.rs:963` (install_default), `sens-api-gateway/src/firmware.rs:591`, `sens-api-gateway/src/provisioning.rs:218`, `sens-api-gateway/src/scripting/engine.rs:1963`.
+
+**Severity rationale (HIGH not MEDIUM):** edge-expert reviewer flagged this — `provisioning.rs:218` carries the **single-use device-bootstrap token exchange** (the most security-critical of the four reqwest callsites). A successful TLS 1.2 cipher-suite-downgrade attack on that endpoint compromises a device's identity bootstrap. The other three (firmware download, scripting cloud fetches, telemetry posts) are also material attack surfaces. Severity reflects worst-case attack-surface impact, not just code-locality.
+
+**Impact:** Phase 0.2 narrows the *MQTT* transport to TLS 1.3 + 3-suite allowlist via explicit `builder_with_provider(suderra_provider)`. The `rustls::crypto::ring::default_provider().install_default()` call on line 963 still installs the **unrestricted** ring provider as the process-wide default. Anything that builds a rustls `ClientConfig` without an explicit provider — currently every cloud HTTPS reqwest client — pulls the unrestricted provider's full cipher list, including TLS 1.2 ECDHE suites. Cloud HTTPS does not honor the cipher allowlist or the TLS 1.3 pin.
+
+**WHY this is a finding, not part of Phase 0:** Phase 0 scope is "make Strict + custom-CA reachable" + "fix dead-code cipher gate on the MQTT path". Phase 1.1.3 in the approved plan owns "HTTPS outbound (cloud client) custom verifier wire" — that's the right place to plumb the Suderra provider into the cloud HTTPS path (via `reqwest::ClientBuilder::use_preconfigured_tls(rustls_config)` where the rustls_config is built with `ClientConfig::builder_with_provider(suderra_provider)`).
+
+**HOW to resolve in Phase 1.1.3:** unify the cloud HTTPS path to use the same `MtlsVerifierState::current()` + `build_suderra_crypto_provider()` shared by the MQTT path. Then either remove the `install_default()` call (forcing every callsite to opt in explicitly) or accept it as a fail-soft fallback for any code path that doesn't yet use the AppState-shared verifier. Resolution shape locked to Phase 1.1.3 batches.
+
+---
+
+
+## ORPHAN-MEDIUM-036 — `parse_errs > 0` on custom CA bundle load is partial-fix logged only; full audit-sink HMAC chain emit deferred (Phase 0.1 partial fix, 2026-04-30)
+
+**Status:** OPEN — owner: Okan-Wqm. Owner agent: Phase 1.1.3 / PR-196. Deadline: 2026-05-30.
+
+**Scope:** `sens-api-gateway/src/mqtt.rs` (custom-CA PEM parse loop, around line 1037-1066).
+
+**Phase 0 partial fix (already applied):** per-entry parse failures now emit at `tracing::error!` severity (not `warn!`), and a summary `error!` event `mtls_ca_bundle_partial_load` fires when `parse_errs > 0 && added > 0`. Structured-log subscribers treating error-level as audit-relevant capture this. IEC 62443 FR3 (System Integrity) baseline coverage achieved.
+
+**Remaining work (deferred to Phase 1.1.3):** the full architectural fix is to emit through the ADR-020 audit-sink HMAC chain (not just tracing). That requires importing the audit-sink API (`AuditSink`, `AuditEvent`, `audit.emit(...)`) into `configure_tls`, which currently has no audit-emit dependency. Phase 1.1.3 owns the broader audit-emit completion arc (paired with `ORPHAN-MEDIUM-037` Strict-reject audit emit), so adding the import + wiring there avoids two separate audit-import waves. Add an integration test that injects a 3-cert bundle with the middle entry malformed and asserts the structured event fires.
+
+---
+
+
+## ORPHAN-MEDIUM-037 — Strict-mode handshake reject relies on `tracing::error!` only; explicit audit-sink emit for HMAC chain coverage is needed (Phase 0 follow-up, 2026-04-30)
+
+**Status:** OPEN — owner: Okan-Wqm. Owner agent: Phase 1.1.4 / PR-196 (mTLS unified assembly, audit emit completeness). Deadline: PR-196 merge close, by 2026-05-30.
+
+**Scope:** `sens-api-gateway/src/mtls/rustls_verifier.rs:205-213` (Strict-mode reject arm).
+
+**Security-reviewer surfaced:** the Strict-mode reject path emits `tracing::error!` and returns `rustls::Error::General` to abort the handshake. The handshake-abort is correct (security-critical action fires). BUT the `tracing::error!` does NOT automatically flow into the ADR-020 audit-sink HMAC chain. Audit emit is invoked explicitly by code paths that call the audit-sink API; whether a tracing subscriber bridges error-level events to audit is deployment-config-dependent. Operators relying on audit-stream alerting may not see Strict rejections in the chain.
+
+**HOW to resolve (Phase 1.1.4):** add explicit audit-sink emit alongside `tracing::error!` in the Strict-reject arm, with structured fields `{ leaf_fingerprint_prefix, mode, reason, timestamp_unix }` tagged `event_type=mtls_strict_reject`. Defense-in-depth: handshake-abort is still the primary security action; audit-emit is for forensic post-mortem.
+
+---
+
+
+## ORPHAN-LOW-038 — `cipher.rs` documents why TLS 1.3 CCM-mode suites are intentionally absent (Phase 0.2 doc-comment update, 2026-04-30)
+
+**Status:** RESOLVED — Phase 0 PR-PRE Batch 0.2 doc-comment update.
+
+**Scope:** `sens-api-gateway/src/mtls/cipher.rs` module doc-comment.
+
+**Resolved:** the doc-comment now explains that `ring`'s `default_provider()` does NOT ship CCM-mode AEADs (`TLS_AES_128_CCM_SHA256` 0x1304, `TLS_AES_128_CCM_8_SHA256` 0x1305), so adding them to `CIPHER_SUITE_ALLOWLIST` would not enable them — and that ChaCha20-Poly1305 already covers the no-AES-NI fast path that CCM optimizes for IoT-AES-only-hardware deployments.
+
+---
+
+
+## ORPHAN-HIGH-039 — `cmd_update_cert_pinning` MUST validate `bridge_until_unix_secs > now + min_bridge_window_secs` to prevent fleet bridge-stranding via past-time bridge windows (Phase 1.1.2, 2026-04-30)
+
+**Status:** OPEN — owner: Okan-Wqm. Owner agent: Phase 1.1.2 / PR-196 (mTLS cmd_update_cert_pinning author). Deadline: PR-196 merge close, by 2026-05-30.
+
+**Scope:** `sens-api-gateway/src/commands/cert_pinning.rs` (TBD — Phase 1.1.2 introduces this file), and `sens-api-gateway/src/mtls/pinning.rs:107-133` (`accepted_fingerprints` BridgeRotation collapse logic).
+
+**Security-reviewer surfaced:** Phase 1.1.2 will add `cmd_update_cert_pinning` MQTT command that accepts an ed25519-signed `CertRotationStage` payload and applies it via `MtlsVerifierState::rebuild`. The `BridgeRotation { incoming, outgoing, bridge_until_unix_secs }` shape collapses to "incoming only" once `bridge_until` has passed (`pinning.rs:107-133`). If `cmd_update_cert_pinning` accepts a manifest with `bridge_until_unix_secs` set in the past, the agent immediately collapses to "accept only `incoming`", and if `incoming` is wrong (operator typo, malicious cloud manifest), every TLS handshake will fail-closed in Strict mode → device strands. A poisoned cloud manifest could brick a fleet simultaneously.
+
+**HOW to resolve (Phase 1.1.2):** in `cmd_update_cert_pinning` parse path, BEFORE applying the new rotation stage, validate: for `Settled { current }` no extra check; for `BridgeRotation { incoming, outgoing, bridge_until_unix_secs }` assert `bridge_until_unix_secs > now_unix + MIN_BRIDGE_WINDOW_SECS` where `MIN_BRIDGE_WINDOW_SECS = 3600` (1 hour floor). Reject with audit event if violated. Defense-in-depth pairing: add the same guard to the cloud-side manifest-signing service.
+
+---
+
+
+## ORPHAN-LOW-040 — `mqtt.rs` clones the `RootCertStore` instead of threading one `Arc<RootCertStore>` through both arms (Phase 0.1 refactor opportunity, 2026-04-30)
+
+**Status:** OPEN — owner: Okan-Wqm. Owner agent: Phase 1 follow-up batch (any). Deadline: opportunistic, no hard date.
+
+**Scope:** `sens-api-gateway/src/mqtt.rs` configure_tls.
+
+**Edge-expert surfaced:** the unified pipeline does `let root_store_arc = Arc::new(root_store.clone())` to feed the verifier (which needs `Arc<RootCertStore>` for shared ownership), then the HC-1 fallback path consumes the original `root_store` via `with_root_certificates(root_store)`. Two separate copies of identical cert anchors at runtime — for system-CA bundles this can be ~150 certs. Memory overhead is small (a few KB) but architecturally cleaner to thread one `Arc<RootCertStore>` through both arms. Not a security concern; minor refactor.
+
+**HOW to resolve:** restructure so root_store is built once into `Arc<RootCertStore>`, passed by clone-of-Arc (cheap) into both `build_suderra_verifier` and `with_root_certificates_arc` (rustls 0.23 has both `with_root_certificates(RootCertStore)` and `with_root_certificates_arc(Arc<RootCertStore>)`).
+
+
+## 2026-04-30 ORPHAN-SENS-GATEWAY-LORAWAN-001 — `lorawan` feature coupled portable protocol code to unavailable SX1302 vendor HAL
+
+**Status:** RESOLVED — fixed in `sens-api-gateway` by splitting the hardware build contract from the portable protocol feature.
+
+**Scope:** `sens-api-gateway/Cargo.toml`, `sens-api-gateway/build.rs`, `sens-api-gateway/src/lora/sx1302.rs`, release/clippy jobs that enable `--features lorawan`.
+
+**Observation:**
+
+The `lorawan` feature was serving two incompatible roles:
+
+- enabling portable LoRaWAN protocol code (`aes`, `cmac`, `lorawan` crate);
+- enabling the Semtech SX1302 C HAL build (`cc`, `bindgen`, `glob`, `vendor/sx1302_hal`).
+
+That meant CI and portable release builds could not compile the LoRaWAN protocol surface unless the proprietary/externally-provisioned SX1302 HAL source tree was present. The failure mode was not a normal missing optional dependency; `build.rs` attempted to generate bindings for C sources that are intentionally absent from the repository.
+
+**Why this creates production risk:**
+
+The old feature boundary made a pure protocol build depend on local hardware-vendor artifacts. A CI runner, laptop, or non-gateway build host could fail before Rust type checking reached the application layer. The result was a blind spot: protocol changes and release-only regressions were hidden behind an unrelated HAL availability failure.
+
+**Architectural fix:**
+
+The feature boundary is now explicit:
+
+- `lorawan` enables portable protocol support only.
+- `sx1302-vendor-hal` enables the real Semtech HAL and fails closed if `vendor/sx1302_hal` is absent.
+- `src/lora/sx1302.rs` uses the simulation backend unless `sx1302-vendor-hal` is selected.
+- `build.rs` is fallible without `expect()` and documents the hardware-vendor contract at the build boundary.
+
+**Related issue discovered on the same path:**
+
+The same CI pass exposed a second architectural drift: `main.rs` kept using pre-0.27 `opentelemetry-otlp` pipeline helpers (`new_exporter`, `new_pipeline`). That was not caused by LoRaWAN, but it became visible only after validating the full curated feature set. The fix replaces the removed helpers with explicit `SpanExporter` and `TracerProvider` construction so telemetry boot contracts remain visible and type-checked.
+
+**Closure path:**
+
+Future hardware-only work must opt into `sx1302-vendor-hal`; portable protocol CI must keep using `lorawan` without vendor C sources. Re-coupling the features would reintroduce the same build-host dependency leak.

@@ -670,3 +670,14 @@ path = "tests/invariants/audit_pipeline.rs"
 [[test]]
 name = "authenticated_user_sealed"
 path = "tests/invariants/authenticated_user_sealed.rs"
+
+# Phase 0.4 (PR-PRE) — cipher allowlist deployment-shape regression
+# detector. Tier-3 MAKE-IT-DETECTABLE seam pinning the source-level
+# contract for Phase 0.1 (rumqttc unified rustls) + Phase 0.2
+# (build_suderra_crypto_provider + builder_with_provider + TLS 1.3
+# pin) + Phase 0.3 (Warn-mode soft warning). Closes orphan findings
+# ORPHAN-CRITICAL-029, ORPHAN-MEDIUM-030, ORPHAN-HIGH-031,
+# ORPHAN-MEDIUM-032, ORPHAN-MEDIUM-033.
+[[test]]
+name = "cipher_allowlist_fleet_compat"
+path = "tests/invariants/cipher_allowlist_fleet_compat.rs"

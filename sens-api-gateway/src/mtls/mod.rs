@@ -46,6 +46,13 @@
 //! - Batch 8 `Sha256Digest` (reused for cert DER fingerprint)
 
 pub mod cipher;
+// Phase 0.2: handshake-time CryptoProvider that narrows rustls' default
+// cipher_suites to the Suderra TLS 1.3 allowlist. Closes orphan finding
+// ORPHAN-HIGH-031 — the verify_leaf_cert cipher gate is dead code at the
+// verifier-callback layer; the architecturally correct gate sits at
+// CryptoProvider construction so non-allowlist suites cannot even appear
+// in the ClientHello.
+pub mod crypto_provider;
 pub mod error;
 pub mod mode;
 pub mod pinning;
@@ -57,18 +64,18 @@ pub mod pinning;
 pub mod rustls_verifier;
 pub mod verify;
 
-pub use cipher::{CipherSuite, CIPHER_SUITE_ALLOWLIST};
+pub use cipher::{CIPHER_SUITE_ALLOWLIST, CipherSuite};
+pub use crypto_provider::{
+    build_suderra_crypto_provider, build_suderra_crypto_provider_or_default,
+};
 pub use error::MtlsVerifyError;
 pub use mode::{
-    MtlsMode, MAX_LEAF_CERT_AGE_DAYS_LEGACY, MAX_LEAF_CERT_AGE_DAYS_STRICT,
-    MAX_LEAF_CERT_AGE_DAYS_WARN,
+    MAX_LEAF_CERT_AGE_DAYS_LEGACY, MAX_LEAF_CERT_AGE_DAYS_STRICT, MAX_LEAF_CERT_AGE_DAYS_WARN,
+    MtlsMode,
 };
-pub use pinning::{
-    CertRotationStage, LeafCertFingerprint, PinnedLeafCert, PinnedLeafCertSet,
-};
+pub use pinning::{CertRotationStage, LeafCertFingerprint, PinnedLeafCert, PinnedLeafCertSet};
 pub use rustls_verifier::{
-    build_rotation_stage_from_pins_hex, build_suderra_verifier,
-    verify_cert_at_handshake, SuderraServerCertVerifier,
-    SuderraVerifierBuildError,
+    SuderraServerCertVerifier, SuderraVerifierBuildError, build_rotation_stage_from_pins_hex,
+    build_suderra_verifier, verify_cert_at_handshake,
 };
 pub use verify::verify_leaf_cert;

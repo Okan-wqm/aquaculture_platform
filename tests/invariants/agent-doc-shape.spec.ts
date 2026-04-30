@@ -135,4 +135,61 @@ describe('agent-doc-shape (CLAUDE-LOW-005/007/008 seals)', () => {
       );
     });
   });
+
+  describe('CLAUDE-MEDIUM-006 — settings.json declares PreToolUse Agent dispatch gate', () => {
+    it('hooks block carries a PreToolUse entry running the dispatch gate', () => {
+      const body = read('.claude/settings.json');
+      expect(body).toMatch(/"PreToolUse"/);
+      expect(body).toMatch(/agent-dispatch-gate\.ts/);
+    });
+  });
+
+  describe('CLAUDE-MEDIUM-007 — .claude/worktrees + dispatch-log gitignored', () => {
+    it('.gitignore contains both entries', () => {
+      const body = read('.gitignore');
+      expect(body).toMatch(/^\.claude\/worktrees\/$/m);
+      expect(body).toMatch(/^\.claude\/agents\/\.dispatch-log\.jsonl$/m);
+    });
+  });
+
+  describe('CLAUDE-MEDIUM-008 — agents.legacy README carries DO-NOT-READ warning', () => {
+    it('README.md opens with the archived/do-not-read blockquote', () => {
+      const body = read('.claude/agents.legacy/README.md');
+      // First 200 chars must mention the legacy/archived warning so a
+      // reader (or agent) opening the file can't miss it.
+      const head = body.slice(0, 200);
+      expect(head).toMatch(/ARCHIVED|DO NOT READ|DO-NOT-READ/i);
+    });
+  });
+
+  describe('CLAUDE-MEDIUM-009 — Phase 4.5 root-cause-auditor MUST-dispatch clause', () => {
+    it('orchestrator-phases.md carries the mechanical trigger clause', () => {
+      const body = read('.claude/shared/orchestrator-phases.md');
+      // The CLAUDE-MEDIUM-009 cure: the phase document must declare an
+      // unambiguous MUST-dispatch trigger anchored on (a) tier-claim
+      // presence, OR (b) prior-cycle arbiter IN-PROGRESS transition.
+      expect(body).toMatch(
+        /Mechanical trigger.*CLAUDE-MEDIUM-009.*Orchestrator MUST dispatch.*root-cause-auditor/s,
+      );
+    });
+  });
+
+  describe('CLAUDE-MEDIUM-010 — build-validator agent exists', () => {
+    it('the build-validator agent file is committed', () => {
+      const lines = execSync(`git ls-files .claude/agents/build-validator.md`, {
+        cwd: REPO_ROOT,
+        encoding: 'utf8',
+      })
+        .split('\n')
+        .filter(Boolean);
+      expect(lines).toContain('.claude/agents/build-validator.md');
+    });
+  });
+
+  describe('CLAUDE-MEDIUM-011 — .full-review state-file dir is gitignored', () => {
+    it('.gitignore contains the .full-review/ entry', () => {
+      const body = read('.gitignore');
+      expect(body).toMatch(/^\.full-review\/$/m);
+    });
+  });
 });

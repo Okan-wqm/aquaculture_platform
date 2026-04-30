@@ -10,9 +10,9 @@
 |----------|-------|
 | CRITICAL | 2 |
 | HIGH | 5 |
-| MEDIUM | 14 |
+| MEDIUM | 16 |
 | LOW | 1 |
-| **Total** | **22** |
+| **Total** | **24** |
 
 | Category | Count |
 |----------|-------|
@@ -20,7 +20,7 @@
 | Bug | 5 |
 | Performance | 1 |
 | Reliability | 2 |
-| Tooling | 5 |
+| Tooling | 7 |
 
 ---
 
@@ -313,6 +313,31 @@
   - Updated `ManifestBackedTypedAuthz` to attach co-approver evidence to `AuthorizationRequest`.
   - Left current `SensNodeManager` write calls passing `None` with a dated fail-closed comment until a signed OPC UA co-approval channel is wired.
   - Updated tests to prove the allow path with a distinct enrolled co-approver and to keep missing/effective permission denies explicit.
+
+### #13I - Migration Registration Invariant Treated Destructive Manual Migrations as Normal Auto-Run Migrations (MEDIUM/Tooling)
+- **Status**: FIXED-IN-INVARIANT on 2026-04-30.
+- **Files**:
+  - `tests/invariants/migration-registration-completeness.spec.ts`
+  - `apps/messaging-service/src/migrations/1782500000000-ConsolidateTenantSchemaData.ts`
+  - `apps/messaging-service/src/app.module.ts`
+- **Issue**: `migration-registration-completeness.spec.ts` required every migration class to appear in `AppModule` even when a migration explicitly declares itself destructive, production-irreversible, and manual-gated.
+- **Cause**: The invariant modeled only two valid migration-loading modes: glob-loaded and explicit auto-registration. It had no contract for code-shipped manual migrations that must not execute automatically before a backup and maintenance window.
+- **Impact**: The green-test path would have been to auto-register `ConsolidateTenantSchemaData1782500000000`, which could consolidate tenant schemas without the required operator ceremony.
+- **Fix Applied**:
+  - Kept the destructive migration out of `messaging-service` auto-registration.
+  - Added a strict gated-manual migration contract to the invariant: `GATED - NOT auto-registered`, destructive warning, production-irreversible warning, `pg_dump snapshot`, and explicit register-before-rollout operator step.
+  - The invariant still fails every unregistered normal migration.
+
+### #13J - Banned-Phrase Gate Flagged Removed-Code Quotes in Historical PR Commit Bodies (MEDIUM/Tooling)
+- **Status**: FIXED-IN-GATE on 2026-04-30.
+- **File**: `tools/gates/banned-phrase.ts`
+- **Issue**: CI range mode scanned every commit body in the PR and flagged an older commit message that quoted a removed legacy comment inside a Markdown code span.
+- **Cause**: The gate recognized double-quoted meta discussion but not Markdown inline-code spans. A commit that documented removal of a banned phrase could therefore be treated as introducing that phrase.
+- **Impact**: Long-lived PRs could be blocked by historical cure documentation even when file scans and new commit messages were clean.
+- **Fix Applied**:
+  - Generalized quoted-region detection to literal-region detection.
+  - Markdown backtick spans now receive the same meta-discussion treatment as double quotes.
+  - The gate still scans non-literal commit prose and added file lines for banned architectural hedge language.
 
 ---
 

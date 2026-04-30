@@ -144,6 +144,22 @@ function migrationFileToClassNames(rel: string): string[] {
   return out;
 }
 
+// 2026-04-30: Destructive data-consolidation migrations may be shipped as
+// manual code artefacts without being auto-registered. The invariant allows
+// that only when the migration file carries the full gated-execution contract:
+// explicit not-auto-registered marker, destructive/irreversible warning,
+// backup requirement, and the operator step that registers it before rollout.
+function isExplicitlyGatedManualMigration(rel: string): boolean {
+  const src = readFileSync(resolve(REPO_ROOT, rel), 'utf8');
+  return (
+    /GATED\s+[—-]\s+NOT auto-registered/i.test(src) &&
+    /destructive/i.test(src) &&
+    /production-irreversible/i.test(src) &&
+    /pg_dump snapshot/i.test(src) &&
+    /Register in app\.module\.ts migrations\[\] array/i.test(src)
+  );
+}
+
 describe('INVARIANT (ORPHAN-FARM-MIGRATION-REGISTRATION): every migration is registered in its AppModule', () => {
   const services = listServicesWithMigrations();
 
@@ -178,6 +194,9 @@ describe('INVARIANT (ORPHAN-FARM-MIGRATION-REGISTRATION): every migration is reg
       if (classes.length === 0) continue;
       const referenced = classes.some((cls) => appSrc.includes(cls));
       if (!referenced) {
+        if (isExplicitlyGatedManualMigration(migFile)) {
+          continue;
+        }
         missing.push(`${migFile} (class ${classes.join(', ')})`);
       }
     }

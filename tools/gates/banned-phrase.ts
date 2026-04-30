@@ -322,9 +322,9 @@ const ALLOW_IF_WINDOW_COMMIT = Infinity;
 
 /**
  * A match is meta-discussion (descriptive, not advocacy) when it sits
- * inside a balanced double-quoted region on the same line. Count of
- * unescaped `"` characters before `matchIndex` is odd when we are
- * inside quotes.
+ * inside a balanced double-quoted region or Markdown inline-code span
+ * on the same line. Count of unescaped delimiters before `matchIndex`
+ * is odd when we are inside that literal region.
  *
  * Architectural rationale: the gate's invariant is "no hedge language
  * advocating compromise". Words appearing inside `"..."` are by
@@ -333,16 +333,25 @@ const ALLOW_IF_WINDOW_COMMIT = Infinity;
  * This generalises the META_DISCUSSION_ALLOW_IF arrow patterns: any
  * double-quoted region containing the hit is descriptive context.
  *
- * Handles both " and ' as string delimiters (the regex parses strings
- * on either; this helper checks for " specifically since `'` appears
- * as apostrophe in English prose and would produce false positives).
+ * Handles double quotes and Markdown backticks. Single quotes are
+ * intentionally excluded because `'` appears as an apostrophe in English
+ * prose and would produce false positives.
  */
-function isInsideQuotedRegion(line: string, matchIndex: number): boolean {
+// 2026-04-30: PR range scans include historical commit bodies. When a
+// commit body quotes a removed code comment in a Markdown inline-code span,
+// the phrase is evidence of a cure, not a new architectural hedge.
+function isInsideLiteralRegion(line: string, matchIndex: number): boolean {
   let count = 0;
   for (let i = 0; i < matchIndex; i++) {
     if (line[i] === '"' && (i === 0 || line[i - 1] !== '\\')) count++;
   }
-  return count % 2 === 1;
+  if (count % 2 === 1) return true;
+
+  let backtickCount = 0;
+  for (let i = 0; i < matchIndex; i++) {
+    if (line[i] === '`' && (i === 0 || line[i - 1] !== '\\')) backtickCount++;
+  }
+  return backtickCount % 2 === 1;
 }
 
 function scanContent(content: string, sourceLabel: string, allowIfWindow: number): Violation[] {
@@ -352,7 +361,7 @@ function scanContent(content: string, sourceLabel: string, allowIfWindow: number
     for (const rule of BANNED_PHRASES) {
       const match = rule.phrase.exec(line);
       if (!match) continue;
-      if (isInsideQuotedRegion(line, match.index)) continue;
+      if (isInsideLiteralRegion(line, match.index)) continue;
       if (rule.allowIf) {
         let windowText: string;
         if (allowIfWindow === Infinity) {

@@ -33,10 +33,9 @@
 fn read_source(path: &str) -> String {
     std::fs::read_to_string(path).unwrap_or_else(|e| {
         panic!(
-            "BUG: cipher_allowlist_fleet_compat invariant cannot read {} — \
+            "BUG: cipher_allowlist_fleet_compat invariant cannot read {path} — \
              this test runs from sens-api-gateway/ working dir per cargo \
-             test convention. err={}",
-            path, e
+             test convention. err={e}"
         )
     })
 }
@@ -57,11 +56,10 @@ fn allowlist_contains_exactly_three_tls13_codepoints() {
     for codepoint in ["0x1301", "0x1302", "0x1303"] {
         assert!(
             src.contains(codepoint),
-            "ORPHAN-MTLS-005 VIOLATED: cipher.rs missing TLS 1.3 IANA codepoint {} — \
+            "ORPHAN-MEDIUM-033 VIOLATED: cipher.rs missing TLS 1.3 IANA codepoint {codepoint} — \
              allowlist must contain TLS_AES_128_GCM_SHA256 (0x1301), \
              TLS_AES_256_GCM_SHA384 (0x1302), TLS_CHACHA20_POLY1305_SHA256 (0x1303). \
-             RFC 8446 §9.1 mandates 0x1301 (AES_128_GCM_SHA256) for interop.",
-            codepoint
+             RFC 8446 §9.1 mandates 0x1301 (AES_128_GCM_SHA256) for interop."
         );
     }
     // Negative anchor: no TLS 1.2 ECDHE codepoint may appear. TLS 1.2
@@ -71,9 +69,8 @@ fn allowlist_contains_exactly_three_tls13_codepoints() {
     for forbidden in ["0xC02B", "0xC02C", "0xC02F", "0xC030"] {
         assert!(
             !src.contains(forbidden),
-            "ORPHAN-MTLS-005 VIOLATED: cipher.rs contains TLS 1.2 ECDHE codepoint {} — \
-             SL-2 baseline rejects TLS 1.2 to prevent cipher-suite downgrade attacks.",
-            forbidden
+            "ORPHAN-MEDIUM-033 VIOLATED: cipher.rs contains TLS 1.2 ECDHE codepoint {forbidden} — \
+             SL-2 baseline rejects TLS 1.2 to prevent cipher-suite downgrade attacks."
         );
     }
 }
@@ -103,10 +100,9 @@ fn allowlist_slice_has_three_variants() {
     let variant_count = block.matches("CipherSuite::").count();
     assert_eq!(
         variant_count, 3,
-        "ORPHAN-MEDIUM-033 VIOLATED: CIPHER_SUITE_ALLOWLIST contains {} CipherSuite::* variants, expected 3. \
+        "ORPHAN-MEDIUM-033 VIOLATED: CIPHER_SUITE_ALLOWLIST contains {variant_count} CipherSuite::* variants, expected 3. \
          Plan §5 Faz 2 item 7 + ADR-021 §10 specify exactly the 3-suite TLS 1.3 set. \
-         Block text:\n{}",
-        variant_count, block
+         Block text:\n{block}"
     );
 }
 

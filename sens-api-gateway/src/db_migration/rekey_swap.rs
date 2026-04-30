@@ -83,9 +83,7 @@
 use rusqlite::Connection;
 use std::path::PathBuf;
 
-use super::manifest::{
-    write_manifest, DbKeySourceManifest, DbMigrationError,
-};
+use super::manifest::{write_manifest, DbKeySourceManifest};
 use super::rekey::{pragma_rekey, RekeyError};
 
 /// Errors returned by `rekey_with_manifest_swap`.

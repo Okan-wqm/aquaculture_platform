@@ -192,4 +192,120 @@ describe('agent-doc-shape (CLAUDE-LOW-005/007/008 seals)', () => {
       expect(body).toMatch(/^\.full-review\/$/m);
     });
   });
+
+  describe('CLAUDE-HIGH-005 — product-audit orchestrator is split into shared phases + routing', () => {
+    it('the two shared files exist', () => {
+      const lines = execSync(
+        `git ls-files .claude/shared/product-audit-orchestrator-*.md`,
+        { cwd: REPO_ROOT, encoding: 'utf8' },
+      )
+        .split('\n')
+        .filter(Boolean);
+      expect(lines).toContain(
+        '.claude/shared/product-audit-orchestrator-phases.md',
+      );
+      expect(lines).toContain(
+        '.claude/shared/product-audit-orchestrator-routing.md',
+      );
+    });
+
+    it('main product-audit/orchestrator.md is at or under the 200-line cap', () => {
+      const body = read('.claude/agents/product-audit/orchestrator.md');
+      const lineCount = body.split('\n').length;
+      expect(lineCount).toBeLessThanOrEqual(200);
+    });
+  });
+
+  describe('CLAUDE-HIGH-006 — messaging-expert description scopes ai-service as delegated', () => {
+    it('description carries the "delegated from ai-safety-auditor" disambiguation', () => {
+      const body = read('.claude/agents/messaging-expert.md');
+      // The description must clarify ai-service is owned by
+      // ai-safety-auditor primary; messaging-expert is the secondary
+      // reviewer on the chat-persistence slice. Without the
+      // disambiguation, two agents claim the same surface and routing
+      // conflicts re-emerge.
+      expect(body).toMatch(/ai-safety-auditor/);
+      expect(body).toMatch(/delegated from ai-safety-auditor/);
+    });
+  });
+
+  describe('CLAUDE-HIGH-007 — routing-table glob-uniqueness invariant exists', () => {
+    it('agent-ownership-uniqueness.spec.ts declares the glob-uniqueness describe block', () => {
+      const body = read('tests/invariants/agent-ownership-uniqueness.spec.ts');
+      expect(body).toMatch(/CLAUDE-HIGH-007/);
+      expect(body).toMatch(/routing-table glob-uniqueness/);
+    });
+  });
+
+  describe('CLAUDE-HIGH-008 — orchestrator-routing-coverage carries reverse-roster check', () => {
+    it('orchestrator-routing-coverage.spec.ts declares the CLAUDE-HIGH-008 seal', () => {
+      const body = read('tests/invariants/orchestrator-routing-coverage.spec.ts');
+      expect(body).toMatch(/CLAUDE-HIGH-008/);
+    });
+  });
+
+  describe('CLAUDE-HIGH-009 — agent-size-limit covers Lane-B (product-audit/)', () => {
+    it('agent-size-limit.spec.ts scans the product-audit subdirectory', () => {
+      const body = read('tests/invariants/agent-size-limit.spec.ts');
+      // Must reference the product-audit path so Lane-B files are
+      // bound to the same 200-line cap as Lane-A.
+      expect(body).toMatch(/product-audit/);
+      expect(body).toMatch(/Lane-B/);
+    });
+  });
+
+  describe('CLAUDE-HIGH-010 — Lane-B output paths renamed to docs/product-audits', () => {
+    it('docs/product-audits/ exists and docs/test-audits/ does not', () => {
+      const lsAudits = execSync(`git ls-files docs/product-audits/ | head -1`, {
+        cwd: REPO_ROOT,
+        encoding: 'utf8',
+      }).trim();
+      // At least one entry under docs/product-audits/ confirms the rename landed.
+      expect(lsAudits.length).toBeGreaterThan(0);
+      const lsLegacy = execSync(`git ls-files docs/test-audits/`, {
+        cwd: REPO_ROOT,
+        encoding: 'utf8',
+      }).trim();
+      expect(lsLegacy).toBe('');
+    });
+  });
+
+  describe('CLAUDE-HIGH-011 — INVOCATION-PACK moved to docs/runbooks', () => {
+    it('docs/runbooks/product-audit-invocation.md exists; legacy auto-discovery copy does not', () => {
+      const newPath = execSync(
+        `git ls-files docs/runbooks/product-audit-invocation*.md`,
+        { cwd: REPO_ROOT, encoding: 'utf8' },
+      ).trim();
+      expect(newPath).toContain('docs/runbooks/product-audit-invocation.md');
+      const oldPath = execSync(
+        `git ls-files .claude/agents/product-audit/INVOCATION-PACK.md`,
+        { cwd: REPO_ROOT, encoding: 'utf8' },
+      ).trim();
+      expect(oldPath).toBe('');
+    });
+  });
+
+  describe('CLAUDE-HIGH-012 — maintenance agents isolated under _maintenance/', () => {
+    it('the _maintenance subdir contains the three maintenance agents', () => {
+      const lines = execSync(
+        `git ls-files .claude/agents/_maintenance/*.md`,
+        { cwd: REPO_ROOT, encoding: 'utf8' },
+      )
+        .split('\n')
+        .filter(Boolean);
+      const expected = [
+        '.claude/agents/_maintenance/prompt-writer.md',
+        '.claude/agents/_maintenance/implementation-planner.md',
+        '.claude/agents/_maintenance/gdpr-erasure-executor.md',
+      ];
+      for (const path of expected) {
+        expect(lines).toContain(path);
+      }
+    });
+
+    it('the maintenance-isolation invariant exists and is registered', () => {
+      const cfg = read('tests/invariants/jest.config.ts');
+      expect(cfg).toMatch(/maintenance-isolation\.spec\.ts/);
+    });
+  });
 });

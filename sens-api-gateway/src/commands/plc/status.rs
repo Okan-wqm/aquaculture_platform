@@ -41,11 +41,10 @@
 
 use serde_json::{Value, json};
 use std::time::Duration;
-use tracing::{error, info};
+use tracing::info;
 
 use crate::plc_programming::{
-    AdsClient, CodesysClient, EtherNetIpClient, OpcUaClient, PlcProgram, PlcProgrammer,
-    S7Client,
+    AdsClient, CodesysClient, EtherNetIpClient, OpcUaClient, PlcProgrammer, S7Client,
 };
 
 impl super::super::CommandHandler {

@@ -23,14 +23,12 @@
 
 use chrono::Utc;
 use serde_json::{Value, json};
-use std::fs;
 use std::time::Duration;
-use tracing::{debug, error, info, warn};
+use tracing::{error, info};
 
 use crate::st_validator::validate_st;
 
-use super::super::{CommandHandler, ProgramDefinition, ProgramState};
-use super::compute_effective_deploy_limits;
+use super::super::CommandHandler;
 
 impl CommandHandler {
     pub(in crate::commands) async fn cmd_get_program(&self) -> (bool, Value, Option<String>) {

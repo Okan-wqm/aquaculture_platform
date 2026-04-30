@@ -21,16 +21,10 @@
 //! table in commands/dispatch_lifecycle.rs can call them while
 //! external (non-commands) modules cannot.
 
-use chrono::Utc;
-use serde_json::{Value, json};
 use std::fs;
-use std::time::Duration;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, warn};
 
-use crate::st_validator::validate_st;
-
-use super::super::{CommandHandler, ProgramDefinition, ProgramState};
-use super::compute_effective_deploy_limits;
+use super::super::{CommandHandler, ProgramState};
 
 impl CommandHandler {
     pub(in crate::commands) fn load_program_state(&self) -> ProgramState {

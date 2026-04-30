@@ -13,7 +13,7 @@ use crate::AppState;
 use crate::gpio::PinState;
 use crate::interning::{intern_register_name, resolve};
 use crate::mqtt::{
-    DeviceStatus, GpioPinData, ModbusDeviceData, ModbusRegisterData, TelemetryMetrics,
+    GpioPinData, ModbusDeviceData, ModbusRegisterData, TelemetryMetrics,
 };
 
 /// Telemetry collector

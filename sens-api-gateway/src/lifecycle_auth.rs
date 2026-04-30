@@ -63,7 +63,7 @@
 
 #![cfg(feature = "health")]
 
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::UNIX_EPOCH;
 
 use hmac::{Hmac, Mac};
 use sha2::Sha256;

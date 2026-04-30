@@ -66,16 +66,6 @@ mod deploy;
 mod lifecycle;
 mod persistence;
 
-use chrono::Utc;
-use serde_json::{Value, json};
-use std::fs;
-use std::time::Duration;
-use tracing::{debug, error, info, warn};
-
-use crate::st_validator::validate_st;
-
-use super::{CommandHandler, ProgramDefinition, ProgramState};
-
 /// Batch 142 Faz 7: stricter-of-both license + config
 /// intersection for cmd_deploy_program gates.
 ///

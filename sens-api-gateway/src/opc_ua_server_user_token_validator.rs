@@ -1,5 +1,5 @@
 //! OPC UA user-token validator — composes [`UserTokenManifestStore`]
-//! hot-reload atom + the Batch #242 [`UserTokenEnrollment`] primitive
+//! hot-reload atom + the Batch #242 `UserTokenEnrollment` primitive
 //! to mint typed [`AuthenticatedUser`] values (Batch #245, Gap A-3b
 //! part 2).
 //!

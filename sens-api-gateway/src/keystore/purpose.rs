@@ -3,7 +3,7 @@
 //! **WHY:** Every derived key must be bound to a single purpose. A key used for
 //! audit HMAC MUST NOT accidentally be passed to SQLCipher rekey. The type
 //! system enforces this by threading [`KeyPurpose`] through the HKDF `info`
-//! parameter (domain separation) AND by tagging the returned [`KeyMaterial`]
+//! parameter (domain separation) AND by tagging the returned `KeyMaterial`
 //! with its purpose at the type level (typestate pattern, Batch 5).
 //!
 //! **Architectural root cause addressed:**

@@ -21,13 +21,13 @@ use crate::i2c::I2cDeviceConfig;
 use crate::plc_programming::PlcProgrammingConfig;
 
 // ============================================================================
-// Secret<String> Serialization Helpers (v1.2.2)
+// `Secret<String>` Serialization Helpers (v1.2.2)
 // ============================================================================
 
 /// Prefix used to identify base64-encoded credential fields in config.yaml
 const B64_PREFIX: &str = "b64:";
 
-/// Serialize Option<Secret<String>> — stores the value as base64 to avoid
+/// Serialize `Option<Secret<String>>` — stores the value as base64 to avoid
 /// accidental cleartext credential exposure via grep, diff, or backup tools.
 ///
 /// The `b64:` prefix allows the deserializer to distinguish encoded values
@@ -52,7 +52,7 @@ where
     }
 }
 
-/// Deserialize Option<Secret<String>> — handles both the new `b64:` encoded
+/// Deserialize `Option<Secret<String>>` — handles both the new `b64:` encoded
 /// form and any legacy cleartext values for backward compatibility.
 fn deserialize_secret_option<'de, D>(deserializer: D) -> Result<Option<Secret<String>>, D::Error>
 where
@@ -151,7 +151,7 @@ pub struct AgentConfig {
     /// Human-readable device code (e.g., "RPI-A1B2C3D4")
     pub device_code: String,
 
-    /// Provisioning token — zeroized on drop via Secret<String> (IEC 62443 FR4 / MED-30).
+    /// Provisioning token — zeroized on drop via `Secret<String>` (IEC 62443 FR4 / MED-30).
     /// Cleared from config after successful activation.
     #[serde(
         default,

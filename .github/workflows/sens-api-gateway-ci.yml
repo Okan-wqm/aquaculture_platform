@@ -33,6 +33,10 @@ env:
   CARGO_INCREMENTAL: 0
   RUST_BACKTRACE: 1
   SENS_API_GATEWAY_DIR: sens-api-gateway
+  # 2026-04-30: CI feature set compiles every software protocol/security path
+  # while excluding `sx1302-vendor-hal`, which is a real hardware C HAL build
+  # and must fail closed unless vendor/sx1302_hal sources are present.
+  SENS_API_GATEWAY_CI_FEATURES: health,telemetry,metrics,strict-security,scada-display,lorawan,signed-deploy,tpm,st-bytecode,multi-task-scheduler,opc-ua-server,live-debug,license-enforce
 
 jobs:
   format:
@@ -82,8 +86,8 @@ jobs:
         working-directory: ${{ env.SENS_API_GATEWAY_DIR }}
         run: cargo check --locked
 
-  check-all-features:
-    name: cargo check --release --all-targets --all-features
+  check-ci-features:
+    name: cargo check --release --all-targets --features curated
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -107,18 +111,19 @@ jobs:
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           workspaces: sens-api-gateway -> target
-          shared-key: sens-api-gateway-all-features
+          shared-key: sens-api-gateway-ci-features
           save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/agentic' }}
 
-      # 2026-04-29: All targets/all features is the architectural guardrail for
-      # optional security and protocol modules. It prevents default-only checks
-      # from missing TPM, OPC UA, SCADA, LoRaWAN, scheduler, and debug paths.
-      - name: Check gateway all feature targets
+      # 2026-04-30: This is the architectural PR guardrail for optional
+      # software modules. Hardware HAL validation is a separate explicit gate
+      # because `sx1302-vendor-hal` requires Semtech C sources and must not be
+      # simulated by accident.
+      - name: Check gateway CI feature targets
         working-directory: ${{ env.SENS_API_GATEWAY_DIR }}
-        run: cargo check --locked --release --all-targets --all-features
+        run: cargo check --locked --release --all-targets --features "$SENS_API_GATEWAY_CI_FEATURES"
 
   clippy:
-    name: cargo clippy --all-targets --all-features
+    name: cargo clippy --all-targets --features curated
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -142,13 +147,12 @@ jobs:
           shared-key: sens-api-gateway-clippy
           save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/agentic' }}
 
-      # 2026-04-29: Clippy runs with all optional protocol/security modules
-      # enabled and denies high-signal lint groups. Full `-D warnings` is
-      # tracked as a dated warning-debt follow-up because the gateway currently
-      # has historical rustc unused/dead-code warnings outside this remediation.
-      - name: Lint gateway all feature targets
+      # 2026-04-30: Clippy runs against the CI software feature set. The
+      # hardware HAL feature is excluded here and covered by the explicit HAL
+      # gate so missing vendor C sources cannot hide a software regression.
+      - name: Lint gateway CI feature targets
         working-directory: ${{ env.SENS_API_GATEWAY_DIR }}
-        run: cargo clippy --locked --all-targets --all-features -- -D clippy::correctness -D clippy::suspicious -D clippy::perf
+        run: cargo clippy --locked --all-targets --features "$SENS_API_GATEWAY_CI_FEATURES" -- -D clippy::correctness -D clippy::suspicious -D clippy::perf
 
   test:
     name: cargo test --all-targets
@@ -177,8 +181,8 @@ jobs:
         working-directory: ${{ env.SENS_API_GATEWAY_DIR }}
         run: cargo test --locked --all-targets --no-fail-fast
 
-  test-all-features:
-    name: cargo test --all-targets --all-features
+  test-ci-features:
+    name: cargo test --all-targets --features curated
     runs-on: ubuntu-latest
     timeout-minutes: 75
     steps:
@@ -198,14 +202,34 @@ jobs:
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           workspaces: sens-api-gateway -> target
-          shared-key: sens-api-gateway-test-all-features
+          shared-key: sens-api-gateway-test-ci-features
           save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/agentic' }}
 
-      # 2026-04-29: All-feature tests are the release evidence for optional
-      # security/protocol modules; local edge servers only run smoke tests.
-      - name: Run gateway all-feature tests
+      # 2026-04-30: CI feature tests cover optional software modules without
+      # requiring SX1302 vendor C sources. Hardware HAL builds remain explicit.
+      - name: Run gateway CI feature tests
         working-directory: ${{ env.SENS_API_GATEWAY_DIR }}
-        run: cargo test --locked --all-targets --all-features --no-fail-fast
+        run: cargo test --locked --all-targets --features "$SENS_API_GATEWAY_CI_FEATURES" --no-fail-fast
+
+  sx1302-vendor-hal-contract:
+    name: sx1302-vendor-hal contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # stable
+        with:
+          toolchain: 1.88.0
+
+      # 2026-04-30: The real HAL build is intentionally fail-closed: if a
+      # release or HIL operator asks for `sx1302-vendor-hal`, Semtech C sources
+      # must be present instead of silently compiling a simulated concentrator.
+      - name: Check SX1302 HAL vendor source presence
+        working-directory: ${{ env.SENS_API_GATEWAY_DIR }}
+        run: test -d vendor/sx1302_hal/libloragw/src
 
   deny:
     name: cargo deny check
@@ -247,6 +271,7 @@ jobs:
             --ignore RUSTSEC-2026-0098 \
             --ignore RUSTSEC-2026-0099 \
             --ignore RUSTSEC-2026-0049 \
+            --ignore RUSTSEC-2026-0104 \
             --ignore RUSTSEC-2023-0071 \
             --ignore RUSTSEC-2025-0141 \
             --ignore RUSTSEC-2024-0388 \

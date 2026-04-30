@@ -65,7 +65,7 @@
 //! - File permissions: 0640 owner:suderra group:adm. The
 //!   open() call sets the creation mode explicitly so a
 //!   misconfigured umask cannot widen the permissions.
-//! - Single-writer: Mutex<File> gates every append. No
+//! - Single-writer: `Mutex<File>` gates every append. No
 //!   async file IO — the write+fsync cost (10-50us SSD,
 //!   1-10ms SD card) is acceptable for the expected <100
 //!   events/sec load.

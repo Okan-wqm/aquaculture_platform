@@ -9,7 +9,7 @@
 //! ## Verification gates (fail-closed on ANY failure)
 //!
 //! 1. **Signature length + format** — already enforced at parse boundary
-//!    via [`Ed25519SignatureBytes`] validated newtype (EDGE-LOW-002).
+//!    via `Ed25519SignatureBytes` validated newtype (EDGE-LOW-002).
 //! 2. **Signature cryptographic verification** — ed25519 verify of
 //!    `signature` against `RbacManifest::canonical_bytes()` under the
 //!    `rbac_manifest_signing_key` public key (ADR-021 slot 2).

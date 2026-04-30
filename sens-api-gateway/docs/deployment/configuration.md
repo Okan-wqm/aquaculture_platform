@@ -186,7 +186,12 @@ lorawan:
   device_path: /dev/spidev0.0
 ```
 
-Compiled only when the binary was built with `cargo build --features lorawan` (`Cargo.toml:341`). If the binary was not built with this feature, the block is ignored at parse time — no failure, but an `info` log entry explains that the LoRa actor is not instantiated.
+Compiled only when the binary was built with `cargo build --features lorawan`.
+Native SX1302 hardware access additionally requires
+`SUDERRA_REQUIRE_SX1302_VENDOR_HAL=1 cargo build --features sx1302-vendor-hal`
+with `vendor/sx1302_hal/libloragw/src/*.c` present. If the binary was not built
+with `lorawan`, the block is ignored at parse time — no failure, but an `info`
+log entry explains that the LoRa actor is not instantiated.
 
 SIGHUP reload fully restarts the LoRa actor when `lorawan` block changes (`src/main.rs:807-847`).
 

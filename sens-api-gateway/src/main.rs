@@ -648,7 +648,7 @@ pub struct AppState {
     /// AppState construction. Downstream consumers
     /// (Phase 2 / Batch 84 audit-hmac-from-keystore,
     /// Phase 2 / Batch 85 SQLCipher-key-from-keystore)
-    /// clone the Arc<dyn Keystore> for per-purpose
+    /// clone the `Arc<dyn Keystore>` for per-purpose
     /// derivation via KeyPurpose::*.
     ///
     /// WHAT: `Option<Arc<dyn Keystore>>` — trait-object
@@ -3667,7 +3667,6 @@ fn init_logging() {
 fn init_opentelemetry(
     config: &config::AgentConfig,
 ) -> Option<opentelemetry_sdk::trace::TracerProvider> {
-    use opentelemetry::trace::TracerProvider;
     use opentelemetry_otlp::WithExportConfig;
     use opentelemetry_sdk::trace::Sampler;
 
@@ -3675,15 +3674,19 @@ fn init_opentelemetry(
 
     info!("Initializing OpenTelemetry OTLP export to {}", endpoint);
 
-    let exporter = opentelemetry_otlp::new_exporter()
-        .tonic()
-        .with_endpoint(endpoint);
+    // 2026-04-30: opentelemetry-otlp 0.27 removed the old
+    // `new_exporter()/new_pipeline()` API. Build the OTLP exporter and SDK
+    // provider explicitly so the `telemetry` feature compiles and registers the
+    // provider as the process-wide tracer source.
+    let exporter = opentelemetry_otlp::SpanExporter::builder()
+        .with_tonic()
+        .with_endpoint(endpoint)
+        .build();
 
-    match opentelemetry_otlp::new_pipeline()
-        .tracing()
-        .with_exporter(exporter)
-        .with_trace_config(
-            opentelemetry_sdk::trace::Config::default()
+    match exporter {
+        Ok(exporter) => {
+            let provider = opentelemetry_sdk::trace::TracerProvider::builder()
+                .with_batch_exporter(exporter, opentelemetry_sdk::runtime::Tokio)
                 .with_sampler(Sampler::TraceIdRatioBased(
                     config.telemetry.otlp.sample_ratio,
                 ))
@@ -3694,11 +3697,11 @@ fn init_opentelemetry(
                     ),
                     opentelemetry::KeyValue::new("service.version", env!("CARGO_PKG_VERSION")),
                     opentelemetry::KeyValue::new("device.id", config.device_id.clone()),
-                ])),
-        )
-        .install_batch(opentelemetry_sdk::runtime::Tokio)
-    {
-        Ok(provider) => {
+                ]))
+                .build();
+
+            opentelemetry::global::set_tracer_provider(provider.clone());
+
             info!(
                 "OpenTelemetry OTLP enabled: endpoint={}, service={}, sample_ratio={}",
                 endpoint, config.telemetry.otlp.service_name, config.telemetry.otlp.sample_ratio
@@ -5634,12 +5637,12 @@ async fn init_hardware(state: &Arc<RwLock<AppState>>) {
         if should_init {
             let lora_handle = {
                 let state_guard = state.read().await;
-                let lora_cfg = state_guard.config.lorawan.as_ref().ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "LoRaWAN config was Some when should_init was computed but is now None — \
-                         concurrent config update between lock acquisitions"
-                    )
-                })?;
+                let Some(lora_cfg) = state_guard.config.lorawan.as_ref() else {
+                    error!(
+                        "LoRaWAN init skipped: config disappeared between readiness check and handle creation"
+                    );
+                    return;
+                };
                 crate::lora::LoRaHandle::new(lora_cfg, state.clone())
             };
 

@@ -164,7 +164,7 @@ pub struct PcrSelection {
 impl PcrSelection {
     /// Canonical "firmware + secure-boot" selection.
     /// PCR[0..3] = UEFI firmware components; PCR[4..6] =
-    /// Option ROMs / boot loader; PCR[7] = SecureBoot
+    /// Option ROMs / boot loader; `PCR[7]` = SecureBoot
     /// db/dbx state.
     pub fn firmware_and_boot() -> Self {
         Self {

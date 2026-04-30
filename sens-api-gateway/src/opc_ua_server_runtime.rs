@@ -890,6 +890,7 @@ mod tests {
                 &self,
                 _user: &AuthenticatedUser,
                 _tag_name: &str,
+                _co_approver: Option<crate::authz::policy::CoApproverEvidence>,
                 _received_at: std::time::SystemTime,
             ) -> Result<AuthorizedContext, TypedAuthzError> {
                 Err(TypedAuthzError::EngineDenied(

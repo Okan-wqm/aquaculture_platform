@@ -45,7 +45,7 @@ use tracing::{debug, error, info, warn};
 use crate::AppState;
 use crate::config::LoRaWanConfig;
 use crate::io_poll::{IoDataPayload, IoTagData};
-use crate::process_image::{ProcessImage, TagQuality, TagSource};
+use crate::process_image::{TagQuality, TagSource};
 
 use self::mac::{DownlinkItem, LoRaMac, MacEvent};
 use self::session::SessionStore;
@@ -464,14 +464,12 @@ impl LoRaActor {
             return;
         }
 
-        let mac = match self.mac.as_mut() {
-            Some(m) => m,
-            None => return,
-        };
-
         // Her paketi MAC katmaninda isle
         for pkt in &packets {
-            let events = mac.process_uplink(pkt);
+            let events = match self.mac.as_mut() {
+                Some(mac) => mac.process_uplink(pkt),
+                None => return,
+            };
 
             for event in events {
                 self.handle_mac_event(event).await;
@@ -661,6 +659,7 @@ impl LoRaActor {
                 IoTagData {
                     value: serde_json::json!(value),
                     quality: quality_str,
+                    simulated: quality.is_simulated(),
                 },
             );
         }

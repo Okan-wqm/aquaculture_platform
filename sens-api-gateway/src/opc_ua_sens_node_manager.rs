@@ -783,7 +783,12 @@ impl NodeManager for SensNodeManager {
             let received_at = std::time::SystemTime::now();
             let authz_outcome = self
                 .authz
-                .authorize_write(&authn, &tag_node.tag_name, received_at)
+                // 2026-04-30: OPC UA session writes currently have no
+                // co-approver evidence channel. Passing `None` is intentional:
+                // the typed authz port and policy engine fail-closed for
+                // high-risk `OpcUaWrite` until a signed co-approval path is
+                // wired into the session/write request contract.
+                .authorize_write(&authn, &tag_node.tag_name, None, received_at)
                 .await;
             let _ctx = match authz_outcome {
                 Ok(ctx) => ctx,
@@ -905,6 +910,13 @@ impl NodeManager for SensNodeManager {
                     // map it defensively in case a future
                     // refactor adds it back.
                     opcua::types::StatusCode::BadUserAccessDenied
+                }
+                OpcUaWriteOutcome::RejectedAuditUnavailable { .. } => {
+                    // 2026-04-30: fail-closed audit policy. A write whose
+                    // durable audit intent/outcome cannot be recorded is a
+                    // server-side compliance failure, not an HMI permission or
+                    // range error.
+                    opcua::types::StatusCode::BadInternalError
                 }
                 OpcUaWriteOutcome::RejectedProcessImage { .. } => {
                     opcua::types::StatusCode::BadInternalError
@@ -2076,6 +2088,7 @@ mod tests {
                 &self,
                 _user: &AuthenticatedUser,
                 _tag_name: &str,
+                _co_approver: Option<crate::authz::policy::CoApproverEvidence>,
                 _received_at: std::time::SystemTime,
             ) -> Result<AuthorizedContext, TypedAuthzError> {
                 // Mock returns a deny variant; the metadata
@@ -2277,6 +2290,7 @@ mod tests {
                 &self,
                 _user: &AuthenticatedUser,
                 _tag_name: &str,
+                _co_approver: Option<crate::authz::policy::CoApproverEvidence>,
                 _received_at: std::time::SystemTime,
             ) -> Result<AuthorizedContext, TypedAuthzError> {
                 Err(TypedAuthzError::EngineDenied(

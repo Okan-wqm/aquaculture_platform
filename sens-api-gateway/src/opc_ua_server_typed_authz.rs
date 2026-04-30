@@ -85,7 +85,9 @@ use async_trait::async_trait;
 
 use crate::authz::context::{AuthorizationDecision, AuthorizationDenyReason, AuthorizedContext};
 use crate::authz::permission::{Permission, TagId, TenantId};
-use crate::authz::policy::{AuthorizationRequest, PolicyEngine, PolicyEngineError};
+use crate::authz::policy::{
+    AuthorizationRequest, CoApproverEvidence, PolicyEngine, PolicyEngineError,
+};
 
 use crate::opc_ua_server_session::{AuthenticatedUser, OpcUaActorResolver, SessionActorError};
 
@@ -144,6 +146,7 @@ pub trait TypedAuthzPort: Send + Sync {
         &self,
         user: &AuthenticatedUser,
         tag_name: &str,
+        co_approver: Option<CoApproverEvidence>,
         received_at: SystemTime,
     ) -> Result<AuthorizedContext, TypedAuthzError>;
 }
@@ -181,6 +184,7 @@ impl TypedAuthzPort for ManifestBackedTypedAuthz {
         &self,
         user: &AuthenticatedUser,
         tag_name: &str,
+        co_approver: Option<CoApproverEvidence>,
         received_at: SystemTime,
     ) -> Result<AuthorizedContext, TypedAuthzError> {
         // Step 1: resolver. Short-circuits anonymous + unenrolled
@@ -203,13 +207,20 @@ impl TypedAuthzPort for ManifestBackedTypedAuthz {
 
         // Step 3: build request. claimed_policy_version comes from
         // the closure so manifest hot-reload propagates instantly.
-        let request = AuthorizationRequest::new(
+        let mut request = AuthorizationRequest::new(
             actor,
             permission,
             self.tenant.clone(),
             (self.policy_version_fn)(),
             received_at,
         );
+        // 2026-04-30: OPC UA writes use the same enterprise two-person
+        // integrity contract as MQTT command envelopes. If the NodeManager
+        // cannot supply co-approver evidence yet, the policy engine denies
+        // high-risk writes fail-closed instead of silently downgrading authz.
+        if let Some(co_approver) = co_approver {
+            request = request.with_co_approver(co_approver);
+        }
 
         // Step 4: engine.authorize + map.
         match self.engine.authorize(request).await {
@@ -229,6 +240,7 @@ mod tests {
     };
     use crate::authz::manifest_runtime::RbacManifestStore;
     use crate::authz::permission::OperatorId;
+    use crate::authz::policy::Ed25519SignatureBytes;
     use std::time::{Duration, UNIX_EPOCH};
 
     fn canned_tenant() -> TenantId {
@@ -239,8 +251,23 @@ mod tests {
         OperatorId::new_from_verified([0x07u8; 16])
     }
 
+    fn canned_co_operator() -> OperatorId {
+        OperatorId::new_from_verified([0x08u8; 16])
+    }
+
     fn canned_pubkey() -> Ed25519PublicKeyBytes {
         Ed25519PublicKeyBytes::from_bytes([0xAAu8; 32])
+    }
+
+    fn canned_co_pubkey() -> Ed25519PublicKeyBytes {
+        Ed25519PublicKeyBytes::from_bytes([0xBBu8; 32])
+    }
+
+    fn canned_co_approver() -> CoApproverEvidence {
+        CoApproverEvidence {
+            actor: crate::authz::context::ActorIdentity::Operator(canned_co_operator()),
+            signature: Ed25519SignatureBytes::from_array([0xCCu8; 64]),
+        }
     }
 
     /// Manifest with the canned operator bound to a role that
@@ -251,11 +278,18 @@ mod tests {
             tenant_id: canned_tenant(),
             manifest_valid_from_unix_secs: 1_000_000_000,
             manifest_valid_until_unix_secs: 2_000_000_000,
-            operator_bindings: vec![OperatorBinding {
-                operator_id: canned_operator(),
-                pubkey: canned_pubkey(),
-                role_names: vec!["actuator_operator".into()],
-            }],
+            operator_bindings: vec![
+                OperatorBinding {
+                    operator_id: canned_operator(),
+                    pubkey: canned_pubkey(),
+                    role_names: vec!["actuator_operator".into()],
+                },
+                OperatorBinding {
+                    operator_id: canned_co_operator(),
+                    pubkey: canned_co_pubkey(),
+                    role_names: vec!["actuator_operator".into()],
+                },
+            ],
             roles: vec![CustomRole {
                 name: "actuator_operator".into(),
                 permissions: vec![Permission::OpcUaWrite {
@@ -312,7 +346,10 @@ mod tests {
     async fn anonymous_rejects_before_engine() {
         let a = adapter_with(manifest_with_opcua_write("do_pump"));
         let user = AuthenticatedUser::for_test_anonymous();
-        match a.authorize_write(&user, "do_pump", received_at()).await {
+        match a
+            .authorize_write(&user, "do_pump", None, received_at())
+            .await
+        {
             Err(TypedAuthzError::SessionRejected(SessionActorError::AnonymousSessionRejected)) => {}
             other => panic!(
                 "expected SessionRejected(AnonymousSessionRejected), got {:?}",
@@ -326,7 +363,10 @@ mod tests {
         let a = adapter_with(manifest_with_opcua_write("do_pump"));
         let stranger = OperatorId::new_from_verified([0xDEu8; 16]);
         let user = AuthenticatedUser::for_test_user_pass(stranger);
-        match a.authorize_write(&user, "do_pump", received_at()).await {
+        match a
+            .authorize_write(&user, "do_pump", None, received_at())
+            .await
+        {
             Err(TypedAuthzError::SessionRejected(SessionActorError::OperatorNotEnrolled)) => {}
             other => panic!(
                 "expected SessionRejected(OperatorNotEnrolled), got {:?}",
@@ -340,7 +380,7 @@ mod tests {
         let a = adapter_with(manifest_with_opcua_write("do_pump"));
         let user = AuthenticatedUser::for_test_user_pass(canned_operator());
         let ctx = a
-            .authorize_write(&user, "do_pump", received_at())
+            .authorize_write(&user, "do_pump", Some(canned_co_approver()), received_at())
             .await
             .expect("allow path");
         assert_eq!(
@@ -357,7 +397,10 @@ mod tests {
     async fn enrolled_without_permission_engine_denies() {
         let a = adapter_with(manifest_without_opcua_write());
         let user = AuthenticatedUser::for_test_user_pass(canned_operator());
-        match a.authorize_write(&user, "do_pump", received_at()).await {
+        match a
+            .authorize_write(&user, "do_pump", Some(canned_co_approver()), received_at())
+            .await
+        {
             Err(TypedAuthzError::EngineDenied(AuthorizationDenyReason::PermissionNotGranted)) => {}
             other => panic!(
                 "expected EngineDenied(PermissionNotGranted), got {:?}",
@@ -374,7 +417,12 @@ mod tests {
         let a = adapter_with(manifest_with_opcua_write("do_pump"));
         let user = AuthenticatedUser::for_test_user_pass(canned_operator());
         match a
-            .authorize_write(&user, "pond3_aerator", received_at())
+            .authorize_write(
+                &user,
+                "pond3_aerator",
+                Some(canned_co_approver()),
+                received_at(),
+            )
             .await
         {
             Err(TypedAuthzError::EngineDenied(AuthorizationDenyReason::PermissionNotGranted)) => {}
@@ -396,7 +444,10 @@ mod tests {
         let a =
             ManifestBackedTypedAuthz::new(resolver, engine, canned_tenant(), Arc::new(|| 10u64));
         let user = AuthenticatedUser::for_test_user_pass(canned_operator());
-        match a.authorize_write(&user, "do_pump", received_at()).await {
+        match a
+            .authorize_write(&user, "do_pump", None, received_at())
+            .await
+        {
             Err(TypedAuthzError::EngineError(PolicyEngineError::ManifestUnavailable)) => {}
             other => panic!(
                 "expected EngineError(ManifestUnavailable), got {:?}",
@@ -422,7 +473,7 @@ mod tests {
 
         // Call 1: allow.
         assert!(
-            a.authorize_write(&user, "do_pump", received_at())
+            a.authorize_write(&user, "do_pump", Some(canned_co_approver()), received_at())
                 .await
                 .is_ok()
         );
@@ -436,7 +487,10 @@ mod tests {
         store.test_set_manifest(revoked);
 
         // Call 2: OperatorNotEnrolled (resolver short-circuit).
-        match a.authorize_write(&user, "do_pump", received_at()).await {
+        match a
+            .authorize_write(&user, "do_pump", None, received_at())
+            .await
+        {
             Err(TypedAuthzError::SessionRejected(SessionActorError::OperatorNotEnrolled)) => {}
             other => panic!(
                 "expected OperatorNotEnrolled after revocation, got {:?}",
@@ -458,7 +512,10 @@ mod tests {
         let a = adapter_with(manifest_with_opcua_write("do_pump"));
         let cn = MachineIssuerCn::from_verified_cert_cn("auth-service".into()).unwrap();
         let user = AuthenticatedUser::for_test_x509(cn, canned_operator());
-        match a.authorize_write(&user, "do_pump", received_at()).await {
+        match a
+            .authorize_write(&user, "do_pump", Some(canned_co_approver()), received_at())
+            .await
+        {
             Err(TypedAuthzError::EngineDenied(AuthorizationDenyReason::PermissionNotGranted)) => {}
             other => panic!(
                 "expected EngineDenied(PermissionNotGranted) for x509-no-machine-table, got {:?}",
@@ -494,7 +551,7 @@ mod tests {
 
         // First call: version 10.
         let ctx = a
-            .authorize_write(&user, "do_pump", received_at())
+            .authorize_write(&user, "do_pump", Some(canned_co_approver()), received_at())
             .await
             .unwrap();
         assert_eq!(ctx.policy_version(), 10);
@@ -505,7 +562,10 @@ mod tests {
         // trigger the engine's StalePolicyVersion path. We set
         // claimed=9 < manifest's policy_version=10 → engine denies.
         counter.store(9, Ordering::SeqCst);
-        match a.authorize_write(&user, "do_pump", received_at()).await {
+        match a
+            .authorize_write(&user, "do_pump", Some(canned_co_approver()), received_at())
+            .await
+        {
             Err(TypedAuthzError::EngineDenied(AuthorizationDenyReason::StalePolicyVersion {
                 claimed,
                 highest_seen,

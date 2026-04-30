@@ -25,7 +25,7 @@ impl AtlasEzoDriver {
     /// 1. Write "R" command to trigger a reading
     /// 2. Wait for processing (600ms for most, 900ms for EC)
     /// 3. Read 32 bytes response
-    /// 4. Parse: byte[0] = status code, byte[1..] = ASCII float (null-terminated)
+    /// 4. Parse: `byte[0]` = status code, `byte[1..]` = ASCII float (null-terminated)
     pub async fn read_measurement(
         &self,
         device_name: &str,
@@ -75,8 +75,8 @@ impl AtlasEzoDriver {
     /// Parse EZO response bytes
     ///
     /// Response format:
-    /// - byte[0]: 1 = success, 2 = syntax error, 254 = pending, 255 = no data
-    /// - byte[1..]: null-terminated ASCII float string
+    /// - `byte[0]`: 1 = success, 2 = syntax error, 254 = pending, 255 = no data
+    /// - `byte[1..]`: null-terminated ASCII float string
     fn parse_ezo_response(&self, device_name: &str, data: &[u8]) -> (f64, TagQuality) {
         if data.is_empty() {
             warn!("EZO empty response buffer from '{}'", device_name);

@@ -7,8 +7,8 @@
 //! |---|-----|------------|
 //! | 1 | Aerator fail-safe `on_ac_loss_to_off` vs `fail-ON 90%` contradiction | [`FailSafe`] enum with per-`ActuatorSubClass` invariant (AerationSubClass::LifeSupport + FailSafe::Off → REJECT) |
 //! | 2 | `hardware_inventory.yaml` lookup mutable = class reclassification attack | Per-tuple signed `ActuatorClassBindingEntry` (ADR-024 §2 — lands in Faz 2 Sprint 6.2) |
-//! | 3 | `Chemistry` class single fail-OFF default catastrophic for O2 dosing | [`ChemistrySubClass`] split (`Nutrient`/`PhAdjust` fail-OFF; `LifeSupportDose` fail-HOLD-BOUNDED) |
-//! | 4 | Dual-Modbus `backup_path` = single-point-failure | [`DiversityClass`] enum + [`HardwiredSafetyOverride`] first-class variant |
+//! | 3 | `Chemistry` class single fail-OFF default catastrophic for O2 dosing | `ChemistrySubClass` split (`Nutrient`/`PhAdjust` fail-OFF; `LifeSupportDose` fail-HOLD-BOUNDED) |
+//! | 4 | Dual-Modbus `backup_path` = single-point-failure | [`DiversityClass`] enum + `HardwiredSafetyOverride` first-class variant |
 //!
 //! ## Scope of Batch 3
 //! **Pure type definitions — zero runtime behavior.** The v1 `SafeStateManager`

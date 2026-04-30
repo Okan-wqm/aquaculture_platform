@@ -188,14 +188,15 @@ pub fn decrypt_join_accept(app_key: &[u8; 16], encrypted: &[u8]) -> Vec<u8> {
 
     // Her 16-byte blok icin AES-ECB encrypt uygula (LoRaWAN'da decrypt = encrypt)
     for chunk in encrypted.chunks(16) {
-        let mut block = GenericArray::clone_from_slice(if chunk.len() < 16 {
+        let mut padded = [0u8; 16];
+        let block_slice = if chunk.len() < 16 {
             // Son blok 16 byte'dan kisaysa sifirla (pad)
-            let mut padded = [0u8; 16];
             padded[..chunk.len()].copy_from_slice(chunk);
-            &padded
+            &padded[..]
         } else {
             chunk
-        });
+        };
+        let mut block = GenericArray::clone_from_slice(block_slice);
         // DIKKAT: Burada encrypt kullaniyoruz, decrypt degil!
         // LoRaWAN spec: cihaz tarafinda encrypt ile cozum yapilir
         cipher.encrypt_block(&mut block);
@@ -214,13 +215,14 @@ pub fn encrypt_join_accept(app_key: &[u8; 16], plaintext: &[u8]) -> Vec<u8> {
     let mut encrypted = Vec::with_capacity(plaintext.len());
 
     for chunk in plaintext.chunks(16) {
-        let mut block = GenericArray::clone_from_slice(if chunk.len() < 16 {
-            let mut padded = [0u8; 16];
+        let mut padded = [0u8; 16];
+        let block_slice = if chunk.len() < 16 {
             padded[..chunk.len()].copy_from_slice(chunk);
-            &padded
+            &padded[..]
         } else {
             chunk
-        });
+        };
+        let mut block = GenericArray::clone_from_slice(block_slice);
         // Sunucu tarafi: AES-ECB decrypt ile sifreler
         cipher.decrypt_block(&mut block);
         encrypted.extend_from_slice(&block[..chunk.len()]);

@@ -29,7 +29,7 @@ use std::time::Instant;
 
 /// Single monotonic reference point shared by all resilience primitives.
 ///
-/// Using one static prevents the subtle race where multiple OnceLock<Instant>
+/// Using one static prevents the subtle race where multiple `OnceLock<Instant>`
 /// instances are initialised at slightly different wall-clock moments, causing
 /// the circuit breaker and rate limiter to measure elapsed time from different
 /// origins.  All callers in this crate import `crate::resilience::monotonic_millis`.

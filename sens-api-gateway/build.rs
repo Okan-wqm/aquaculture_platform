@@ -1,7 +1,7 @@
 // build.rs — LoRaWAN SX1302 HAL derleme betigi
 //
 // Semtech sx1302_hal C kutuphanesini statik olarak derler ve bindgen ile Rust FFI
-// binding uretir. Sadece `lorawan` feature aktifken calisir.
+// binding uretir. Sadece `sx1302-vendor-hal` feature aktifken calisir.
 //
 // NEDEN C FFI GEREKLI?
 // ====================
@@ -30,11 +30,13 @@
 // Bu yuzden FFI ile C HAL'i sarmalliyoruz (wrap).
 
 fn main() {
-    #[cfg(feature = "lorawan")]
+    println!("cargo:rustc-check-cfg=cfg(sx1302_vendor_hal)");
+
+    #[cfg(feature = "sx1302-vendor-hal")]
     build_sx1302_hal();
 }
 
-#[cfg(feature = "lorawan")]
+#[cfg(feature = "sx1302-vendor-hal")]
 fn build_sx1302_hal() {
     use std::env;
     use std::path::PathBuf;
@@ -63,19 +65,32 @@ fn build_sx1302_hal() {
     .collect();
 
     if c_sources.is_empty() {
-        // Vendor dizini henuz klonlanmamis — derleme uyarisi ver ama hata verme.
-        // Bu, CI/CD ortaminda lorawan feature'i olmadan da derleme yapilabilmesini saglar.
+        let require_hal =
+            env::var("SUDERRA_REQUIRE_SX1302_VENDOR_HAL").is_ok_and(|value| value == "1");
+        if require_hal {
+            panic!(
+                "SUDERRA_REQUIRE_SX1302_VENDOR_HAL=1 ama Semtech HAL C kaynaklari bulunamadi: {}. \
+                 Gercek donanim/release derlemesi icin vendor/sx1302_hal README talimatlariyla \
+                 HAL kaynaklarini saglayin.",
+                loragw_src.display()
+            );
+        }
+
         println!(
-            "cargo:warning=SX1302 HAL kaynak dosyalari bulunamadi: {}",
+            "cargo:warning=sx1302-vendor-hal feature aktif, fakat SX1302 HAL kaynak dosyalari bulunamadi: {}",
             loragw_src.display()
         );
         println!(
-            "cargo:warning=Gercek donanim destegi icin vendor/sx1302_hal dizinine \
-             Semtech HAL'ini klonlayin."
+            "cargo:warning=CI/all-features derlemesi Rust simulasyon backend'i ile devam edecek. \
+             Gercek donanim/release derlemesinde SUDERRA_REQUIRE_SX1302_VENDOR_HAL=1 kullanin."
         );
         println!("cargo:warning=Bkz: vendor/sx1302_hal/README.md");
+        println!("cargo:rerun-if-env-changed=SUDERRA_REQUIRE_SX1302_VENDOR_HAL");
+        println!("cargo:rerun-if-changed=vendor/sx1302_hal/");
         return;
     }
+
+    println!("cargo:rustc-cfg=sx1302_vendor_hal");
 
     // cc ile statik kutuphane olustur
     // SX1302 HAL, SPI uzerinden register okuma/yazma yapar.
@@ -118,8 +133,10 @@ fn build_sx1302_hal() {
         .allowlist_var("LGW_.*")
         // Rust enum olustur (C enum yerine)
         .rustified_enum("lgw_.*")
-        // Dokumantasyon yorumlarini dahil et
-        .generate_comments(true)
+        // Bindgen yorumlarini rustdoc'a tasima. Upstream C yorumlari rustdoc
+        // icin tasarlanmamistir ve `RUSTDOCFLAGS=-D warnings` kapisinda
+        // gereksiz link/HTML uyarilari uretebilir.
+        .generate_comments(false)
         .generate()
         .expect("bindgen FFI binding uretimi basarisiz");
 

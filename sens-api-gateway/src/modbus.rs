@@ -1281,7 +1281,7 @@ impl ModbusClient {
 /// provide no benefit - all operations need exclusive (&mut) access anyway.
 /// Multiple devices CAN be read in parallel since each has its own connection.
 pub struct ModbusManager {
-    /// Clients wrapped in Arc<Mutex> for parallel access (v1.2.0)
+    /// Clients wrapped in `Arc<Mutex>` for parallel access (v1.2.0)
     /// Note: Mutex is correct here - see struct-level docs for explanation
     clients: Vec<Arc<Mutex<ModbusClient>>>,
 }

@@ -1273,7 +1273,7 @@ impl AsyncOfflineQueue {
         }
     }
 
-    /// Create from an existing Arc<OfflineQueue>
+    /// Create from an existing `Arc<OfflineQueue>`
     pub fn from_arc(queue: std::sync::Arc<OfflineQueue>) -> Self {
         Self {
             inner: queue,

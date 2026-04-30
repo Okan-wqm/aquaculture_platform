@@ -96,7 +96,7 @@ pub struct DeployCommand {
 
 /// PLC authentication credentials
 /// Note: Debug is implemented manually to redact password from logs (IEC 62443 SL-2 compliance)
-/// Password wrapped in Secret<String> for automatic zeroize-on-drop.
+/// Password wrapped in `Secret<String>` for automatic zeroize-on-drop.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct PlcCredentials {
     pub username: Option<String>,

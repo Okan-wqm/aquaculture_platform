@@ -10,17 +10,17 @@
 |----------|-------|
 | CRITICAL | 2 |
 | HIGH | 5 |
-| MEDIUM | 8 |
+| MEDIUM | 14 |
 | LOW | 1 |
-| **Total** | **16** |
+| **Total** | **22** |
 
 | Category | Count |
 |----------|-------|
-| Security | 8 |
-| Bug | 4 |
+| Security | 9 |
+| Bug | 5 |
 | Performance | 1 |
 | Reliability | 2 |
-| Tooling | 1 |
+| Tooling | 5 |
 
 ---
 
@@ -212,6 +212,107 @@
   - Added a dedicated `sens-api-gateway` GitHub Actions workflow with format, default check, release all-feature check, all-target tests, all-feature tests, cargo-deny, cargo-audit, and rustdoc warnings-as-errors.
   - Clippy currently denies high-signal correctness/suspicious/perf groups instead of pretending the crate is ready for full `-D warnings`.
 - **Required Fix**: Run a dedicated warning-cleanup pass that classifies each warning as dead code, public feature-gated API, or missing test usage; then raise gateway CI to full rustc/clippy `-D warnings`.
+
+### #13C - LoRaWAN Protocol Feature Was Coupled to SX1302 Vendor HAL Sources (MEDIUM/Tooling+Architecture)
+- **Status**: FIXED-IN-CODE on 2026-04-30.
+- **Files**:
+  - `sens-api-gateway/Cargo.toml`
+  - `sens-api-gateway/build.rs`
+  - `sens-api-gateway/src/lora/sx1302.rs`
+  - `.github/workflows/sens-api-gateway-ci.yml`
+- **Issue**: `--all-features` enabled `lorawan`, and `lorawan` also enabled the Semtech SX1302 C HAL build. CI had protocol source code and headers but not `vendor/sx1302_hal/libloragw/src/*.c`, so `build.rs` returned without generating `sx1302_bindings.rs` and the Rust module failed on `include!(OUT_DIR/sx1302_bindings.rs)`.
+- **Cause**: One feature flag represented two different architectural concerns: LoRaWAN protocol/crypto support and physical SX1302 concentrator HAL integration.
+- **Impact**: Gateway PR CI could not validate optional software modules because a hardware-vendor source tree was missing. A stub would have hidden release/HIL risk; a broad skip would have left the feature untested.
+- **Fix Applied**:
+  - Split `sx1302-vendor-hal` from `lorawan`.
+  - Kept `lorawan` as a protocol/software feature.
+  - Made `sx1302-vendor-hal` fail closed when Semtech C sources are absent.
+  - Updated CI to compile the full software feature set while excluding the hardware HAL from PR checks.
+
+### #13D - Supply-Chain Policy Drift Between RustSec and SQLCipher Reality (MEDIUM/Tooling+Security)
+- **Status**: FIXED-IN-POLICY on 2026-04-30.
+- **Files**:
+  - `sens-api-gateway/.cargo/audit.toml`
+  - `sens-api-gateway/deny.toml`
+  - `.github/workflows/sens-api-gateway-ci.yml`
+- **Issue**: New `RUSTSEC-2026-0104` failed `cargo audit` and `cargo deny`, while `deny.toml` globally banned `openssl-sys` even though `rusqlite` intentionally uses `bundled-sqlcipher-vendored-openssl` for encrypted offline storage.
+- **Cause**: The policy files lagged behind both a new RustSec advisory and the explicit SQLCipher at-rest encryption dependency shape.
+- **Impact**: CI failed with a mix of real advisory risk and policy/architecture mismatch, making it unclear which failures require dependency replacement versus accepted, documented operational risk.
+- **Fix Applied**:
+  - Verified on 2026-04-30 that crates.io still reports `rumqttc 0.25.1` as the latest upstream release, so the `rustls-webpki` fix is upstream-blocked.
+  - Added `RUSTSEC-2026-0104` with owner, deadline, mitigation, and fork/replace path.
+  - Kept the high-level `openssl` TLS crate banned while removing the invalid `openssl-sys` ban; the FFI crate is required by SQLCipher at-rest encryption and cannot be safely skipped via cargo-deny duplicate traversal policy.
+
+### #13E - Performance Benchmark Workflow Mixed Frontend Lighthouse With Unbacked API Benchmark (MEDIUM/Tooling+Performance)
+- **Status**: FIXED-IN-CI on 2026-04-30.
+- **Files**:
+  - `.github/workflows/performance-benchmark.yml`
+  - `tests/performance/api-smoke.js`
+- **Issue**: The benchmark workflow could hang on broad frontend/app triggers and did not have a real backend API target/script contract for k6.
+- **Cause**: Lighthouse and backend API performance were modeled as one PR workflow even though only Lighthouse has a self-contained local target. Backend performance requires a live API base URL.
+- **Impact**: CI slot contention and false performance evidence: a backend benchmark could appear operational without exercising a real backend endpoint.
+- **Fix Applied**:
+  - Scoped PR benchmark triggers to `web/**`.
+  - Added a real k6 smoke script that requires `API_BASE_URL`.
+  - Moved API benchmark execution to `workflow_dispatch` with explicit `api_base_url`.
+  - Kept the benchmark fail-closed when no live API target is supplied.
+
+### #13F - Curated Optional Feature Gate Exposed Stale Compile Contracts (MEDIUM/Bug+Tooling)
+- **Status**: FIXED-IN-CODE on 2026-04-30.
+- **Files**:
+  - `sens-api-gateway/src/main.rs`
+  - `sens-api-gateway/src/opc_ua_sens_node_manager.rs`
+  - `sens-api-gateway/src/lora/crypto.rs`
+  - `sens-api-gateway/src/lora/mac.rs`
+  - `sens-api-gateway/src/lora/mod.rs`
+- **Issue**: The enterprise software feature set compiled by CI exposed stale optional-feature contracts: the OpenTelemetry exporter used a removed API, LoRa init tried to use `?` inside a unit-returning async function, LoRa MAC event handling held overlapping mutable borrows, optional telemetry data missed the `simulated` field, and OPC UA write outcome handling was non-exhaustive after audit-fail-closed was added.
+- **Cause**: Optional modules were previously validated indirectly or behind an `--all-features` gate that was already blocked by the SX1302 vendor HAL source issue. That allowed API drift and enum-contract drift to accumulate outside the default build.
+- **Impact**: Release builds enabling telemetry, LoRaWAN, TPM, ST bytecode, scheduler, OPC UA server, and license enforcement could fail to compile even though default `cargo check` passed.
+- **Fix Applied**:
+  - Updated OpenTelemetry initialization to the current `SpanExporter::builder().with_tonic()` pipeline.
+  - Reworked LoRa config validation to fail explicitly and return from the hardware init path instead of using `?` in a unit-returning function.
+  - Preserved MAC actor ownership boundaries so event handling no longer overlaps mutable borrows.
+  - Propagated the `simulated` data-quality field through LoRa I/O emission.
+  - Added exhaustive fail-closed handling for `RejectedAuditUnavailable` in OPC UA write mapping.
+
+### #13G - Rustdoc Warnings Were Not Clean Under Documentation CI (MEDIUM/Tooling+Docs)
+- **Status**: FIXED-IN-DOCS on 2026-04-30.
+- **Files**:
+  - `sens-api-gateway/src/atlas_ezo.rs`
+  - `sens-api-gateway/src/authz/verify.rs`
+  - `sens-api-gateway/src/authz/manifest_common.rs`
+  - `sens-api-gateway/src/plc_programming/codesys.rs`
+  - `sens-api-gateway/src/scripting/task_stats_publisher.rs`
+  - `sens-api-gateway/src/safe_state_v2.rs`
+  - `sens-api-gateway/src/keystore/purpose.rs`
+  - `sens-api-gateway/src/keystore/tpm_backed.rs`
+  - `sens-api-gateway/src/command_envelope/dispatcher.rs`
+  - `sens-api-gateway/src/command_envelope/handler.rs`
+  - `sens-api-gateway/src/updater/tryboot.rs`
+  - `sens-api-gateway/src/opc_ua_server_user_token_validator.rs`
+  - `sens-api-gateway/src/config.rs`
+- **Issue**: `RUSTDOCFLAGS='-D warnings' cargo doc --locked --no-deps --document-private-items` failed on unresolved intra-doc links and HTML parsing warnings in comments.
+- **Cause**: Documentation used bracketed protocol notation such as `byte[0]`, `PCR[7]`, `[all]`, and links to non-imported or non-associated symbols. Rustdoc interprets those as links under intra-doc link checking.
+- **Impact**: Documentation CI could fail independently of runtime correctness, and real API documentation regressions could be mixed with notation-only warnings.
+- **Fix Applied**:
+  - Converted protocol indices, config block names, and non-link symbol references to code spans.
+  - Kept real intra-doc links where the referenced item is resolvable and useful.
+  - Verified the full private-item documentation build with warnings denied.
+
+### #13H - OPC UA Typed Authz Could Not Carry Two-Person Evidence (MEDIUM/Security)
+- **Status**: FIXED-IN-CODE on 2026-04-30.
+- **Files**:
+  - `sens-api-gateway/src/opc_ua_server_typed_authz.rs`
+  - `sens-api-gateway/src/opc_ua_sens_node_manager.rs`
+  - `sens-api-gateway/src/opc_ua_server_runtime.rs`
+- **Issue**: `Permission::OpcUaWrite` requires two-person integrity, but `TypedAuthzPort::authorize_write` had no parameter for `CoApproverEvidence`. Tests expected an allow path that the policy engine correctly rejected with `TwoPersonIntegrityMissing`.
+- **Cause**: The typed OPC UA authz adapter was designed before the enterprise two-person gate became mandatory for high-risk write permissions, so its method contract lagged behind the policy engine contract.
+- **Impact**: OPC UA writes were fail-closed, but the interface had no architectural way to represent a future valid co-approved write. That would force downstream code either to remain permanently denied or to bypass the policy engine.
+- **Fix Applied**:
+  - Extended `TypedAuthzPort::authorize_write` with optional `CoApproverEvidence`.
+  - Updated `ManifestBackedTypedAuthz` to attach co-approver evidence to `AuthorizationRequest`.
+  - Left current `SensNodeManager` write calls passing `None` with a dated fail-closed comment until a signed OPC UA co-approval channel is wired.
+  - Updated tests to prove the allow path with a distinct enrolled co-approver and to keep missing/effective permission denies explicit.
 
 ---
 

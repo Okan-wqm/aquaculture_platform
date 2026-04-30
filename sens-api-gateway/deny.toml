@@ -42,6 +42,15 @@ ignore = [
     "RUSTSEC-2026-0098", # Name constraints for URI names incorrectly accepted
     "RUSTSEC-2026-0099", # Name constraints accepted for wildcard cert asserts
     "RUSTSEC-2026-0049", # CRLs not considered authoritative by Distribution Point
+    # -----------------------------------------------------------------
+    # EDGE-CI-007: rustls-webpki 0.102.8 CRL parser panic.
+    # Owner: platform-team. Deadline: 2026-07-01.
+    # 2026-04-30: crates.io reports rumqttc 0.25.1 as the latest release, so
+    # the upstream upgrade path is blocked. Same dependency root and mitigation
+    # as EDGE-CI-001; if no upstream release lands by deadline, fork rumqttc or
+    # replace the MQTT client.
+    # -----------------------------------------------------------------
+    "RUSTSEC-2026-0104",
 
     # -----------------------------------------------------------------
     # EDGE-CI-002: rsa 0.9.10 Marvin Attack — NO UPSTREAM FIX.
@@ -142,13 +151,14 @@ wildcards = "deny"
 
 # Deny specific problematic crates
 deny = [
-    # OpenSSL has portability issues - use rustls instead
+    # 2026-04-30: OpenSSL's high-level TLS crate remains denied so network TLS
+    # cannot regress from rustls. We do not ban `openssl-sys` globally because
+    # SQLCipher at-rest encryption intentionally reaches it through
+    # `rusqlite -> libsqlite3-sys` with the vendored SQLCipher/OpenSSL feature.
+    # Cargo-deny's `skip` is for duplicate-version traversal, not for overriding
+    # an explicit ban, so the architectural boundary must live at the crate ban.
     { name = "openssl", reason = "Use rustls for cross-platform TLS" },
-    { name = "openssl-sys", reason = "Use rustls for cross-platform TLS" },
 ]
-
-# Skip checking for build dependencies (less strict)
-skip = []
 
 # Skip checking tree for these crates
 skip-tree = []

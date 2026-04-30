@@ -545,7 +545,7 @@ impl ScriptEngine {
     /// v2.2: Now async to access shared storage
     /// v1.2.0: Use async get_active() with internal locking
     /// PERF-007: Use list_async() to avoid blocking the Tokio worker thread.
-    /// The sync list() acquires std::sync::Mutex<Connection> inline; if SQLite
+    /// The sync list() acquires `std::sync::Mutex<Connection>` inline; if SQLite
     /// is performing a WAL checkpoint or disk flush this blocks the entire thread,
     /// stalling MQTT/Modbus tasks on the 2-thread runtime.  list_async() offloads
     /// the blocking call to the spawn_blocking thread pool instead.

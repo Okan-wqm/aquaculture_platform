@@ -19,7 +19,7 @@
 //! - Batch 209 wiring has a stable seam to bind against
 //!
 //! Address space shape (plan §5 Faz 5 step 2):
-//! ```
+//! ```text
 //! Objects/Suderra/Tags/{browse_name}   → Variable node
 //! ```
 //! Writability is derived from `IoType`: DO/AO are writable,

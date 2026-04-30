@@ -31,9 +31,7 @@ use super::crypto::{
     verify_mic,
 };
 use super::session::SessionStore;
-use super::types::{
-    AppKey, DevAddr, DevEui, LoRaDeviceConfig, LoRaRegion, LoRaStats, RxPacket, TxPacket,
-};
+use super::types::{DevAddr, DevEui, LoRaDeviceConfig, LoRaRegion, LoRaStats, RxPacket, TxPacket};
 
 // ============================================================================
 // MAC Olaylari (Events)
@@ -1052,7 +1050,11 @@ impl LoRaMac {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lora::types::{ActivationMode, AppEui, CodecType, DeviceClass};
+    // 2026-04-30: Curated feature CI compiles LoRa MAC tests with the
+    // protocol-only `lorawan` feature. Keep test fixtures explicit about every
+    // LoRaWAN key newtype they construct instead of relying on parent-module
+    // incidental imports.
+    use crate::lora::types::{ActivationMode, AppEui, AppKey, CodecType, DeviceClass};
 
     fn make_test_mac() -> LoRaMac {
         let sessions = SessionStore::in_memory().expect("test session store");

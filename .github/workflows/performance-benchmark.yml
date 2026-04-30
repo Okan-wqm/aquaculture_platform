@@ -7,18 +7,26 @@ name: Performance Benchmark
 
 on:
   workflow_dispatch:
+    inputs:
+      api_base_url:
+        description: 'Base URL for the live API smoke benchmark, for example https://api.example.com'
+        required: false
+        type: string
   pull_request:
     branches: [ main, develop ]
     paths:
-      # ARCH-CI-013: Was 'frontend/**' and 'backend/**' — project uses web/** and apps/**
+      # 2026-04-30: This PR workflow is a frontend Lighthouse benchmark. Backend
+      # API performance requires a live target URL and runs only via
+      # workflow_dispatch, so app-only PRs no longer spend hours building an
+      # unrelated web shell or report a false API benchmark signal.
       - 'web/**'
-      - 'apps/**'
       - '.github/workflows/performance-benchmark.yml'
 
 jobs:
   lighthouse:
     name: Frontend Lighthouse CI
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     # SEC-CI-018: Skip on fork PRs to prevent execution of potentially malicious
     # package.json scripts contributed by fork authors (npm run preview runs project scripts)
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
@@ -35,17 +43,26 @@ jobs:
       - name: Install dependencies
         run: npm install --legacy-peer-deps --ignore-scripts --no-audit
 
-      - name: Build
-        run: npm run build
+      - name: Build Lighthouse frontend scope
+        run: |
+          npm run build --workspace=web/shared-ui
+          npm run build --workspace=web/shell
         env:
           NX_DAEMON: 'false'
           NX_NO_CLOUD: 'true'
 
       - name: Start server
         run: |
-          npm run preview &
+          npm run preview --workspace=web/shell -- --host 0.0.0.0 --port 4173 &
           echo $! > server.pid
-          sleep 5
+          for i in {1..30}; do
+            if curl --fail --silent --show-error http://localhost:4173/ >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::shell preview did not become ready on port 4173"
+          exit 1
 
       - name: Run Lighthouse
         # SEC-CI-002: pinned to SHA (was @v11).
@@ -65,13 +82,17 @@ jobs:
       - name: Stop server
         if: always()
         run: |
-          kill $(cat server.pid) || true
+          if [ -f server.pid ]; then
+            kill "$(cat server.pid)" || true
+          fi
 
   k6-api:
     name: Backend k6 API benchmark
     runs-on: ubuntu-latest
-    # SEC-CI-018: Skip on fork PRs (same guard as lighthouse job above)
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    timeout-minutes: 10
+    # 2026-04-30: API performance requires a live target. This job is manual
+    # only and refuses to run unless the operator supplies api_base_url.
+    if: github.event_name == 'workflow_dispatch' && inputs.api_base_url != ''
     steps:
       # SEC-CI-002: pinned to SHA
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -83,23 +104,14 @@ jobs:
         # GitHub refuses to resolve (supply-chain hygiene memory rule).
         uses: grafana/setup-k6-action@ffe7d7290dfa715e48c2ccc924d068444c94bde2 # v1.1.0
 
-      - name: Check if performance test script exists
-        id: check-script
-        run: |
-          if [ -f "tests/performance/api-smoke.js" ]; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-            echo "::warning::tests/performance/api-smoke.js not found — skipping k6 run."
-          fi
-
       - name: Run k6 tests
-        if: steps.check-script.outputs.exists == 'true'
+        env:
+          API_BASE_URL: ${{ inputs.api_base_url }}
         run: |
           k6 run tests/performance/api-smoke.js --vus 10 --duration 30s
 
       - name: Upload k6 results
-        if: steps.check-script.outputs.exists == 'true'
+        if: always()
         # SEC-CI-002: pinned to SHA (was @v3)
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.0
         with:
@@ -114,5 +126,6 @@ jobs:
       - name: Compose summary
         run: |
           echo "# Performance Benchmark Summary" >> $GITHUB_STEP_SUMMARY
-          echo "- Lighthouse and k6 benchmarks have completed." >> $GITHUB_STEP_SUMMARY
+          echo "- Lighthouse runs on web pull requests." >> $GITHUB_STEP_SUMMARY
+          echo "- k6 API benchmark runs only on workflow_dispatch with api_base_url." >> $GITHUB_STEP_SUMMARY
           echo "- Review uploaded artifacts for detailed results." >> $GITHUB_STEP_SUMMARY

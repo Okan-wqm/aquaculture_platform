@@ -62,6 +62,12 @@ pub mod pinning;
 // the verify callback; delegates X.509 chain trust +
 // hostname match to the rustls WebPkiServerVerifier.
 pub mod rustls_verifier;
+// Phase 1.1.1 (D-4 + D-6): hot-reloadable handle wrapping
+// SuderraServerCertVerifier so cmd_update_cert_pinning
+// (Phase 1.1.2) can apply a new pin set without restarting
+// the agent. Atomic Arc swap with pre-validation; failed
+// rebuilds preserve the running verifier.
+pub mod state_handle;
 pub mod verify;
 
 pub use cipher::{CIPHER_SUITE_ALLOWLIST, CipherSuite};
@@ -78,4 +84,5 @@ pub use rustls_verifier::{
     SuderraServerCertVerifier, SuderraVerifierBuildError, build_rotation_stage_from_pins_hex,
     build_suderra_verifier, verify_cert_at_handshake,
 };
+pub use state_handle::{MtlsRebuildError, MtlsVerifierState, RebuildOutcome};
 pub use verify::verify_leaf_cert;

@@ -56,8 +56,12 @@
 
 use std::sync::{Arc, RwLock};
 
-use rustls::client::danger::ServerCertVerifier;
+use rustls::DigitallySignedStruct;
+use rustls::SignatureScheme;
+use rustls::client::WebPkiServerVerifier;
+use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::crypto::WebPkiSupportedAlgorithms;
+use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 
 use super::mode::MtlsMode;
 use super::rustls_verifier::{
@@ -289,6 +293,139 @@ impl MtlsVerifierState {
     pub fn current_mode_and_pin_count(&self) -> Option<(MtlsMode, usize)> {
         let snap = self.config_snapshot.read().ok()?;
         Some((snap.mode, snap.pinned_fingerprints_hex.len()))
+    }
+}
+
+/// Rustls `ServerCertVerifier` that forwards every callback to the verifier
+/// currently held by an [`MtlsVerifierState`]. Installed at boot via
+/// `ClientConfig::dangerous().with_custom_certificate_verifier(...)` so that
+/// **every new TLS handshake** consults the up-to-the-millisecond verifier
+/// rather than a snapshot captured at boot. This is what makes
+/// `cmd_update_cert_pinning` (Phase 1.1.2) genuinely hot — the operator can
+/// rotate pins and the next MQTT reconnect / new HTTPS request picks up the
+/// new policy with no agent restart.
+///
+/// ## Why a delegating wrapper rather than re-installing the verifier
+///
+/// Rustls captures the `Arc<dyn ServerCertVerifier>` at `ClientConfig` build
+/// time. Replacing the verifier on a live `ClientConfig` requires either
+/// rebuilding the config (and reconnecting every MQTT/HTTPS client) or
+/// indirecting through a wrapper. The wrapper is the cheaper +
+/// architecturally cleaner shape: in-flight handshakes complete with the
+/// verifier they captured at the start of `verify_server_cert`, so there is
+/// no torn observation; the next handshake re-reads `state.current()` and
+/// gets whatever rebuild landed in between.
+///
+/// ## HC-1 fallthrough (Legacy + empty pins)
+///
+/// When `state.current()` returns `None` (Legacy mode + empty pin set), the
+/// wrapper delegates to a `WebPkiServerVerifier` constructed once at boot
+/// from the same trust anchors. This preserves the pre-Phase-0 contract
+/// that `mtls.mode=Legacy` + no pins behaves like the rustls default —
+/// chain trust + hostname match, no Suderra policy gates.
+///
+/// The fallback verifier is held as `Arc<WebPkiServerVerifier>` so the
+/// trait object doesn't allocate per-handshake.
+pub struct MtlsDelegatingVerifier {
+    state: Arc<MtlsVerifierState>,
+    fallback: Arc<WebPkiServerVerifier>,
+}
+
+impl std::fmt::Debug for MtlsDelegatingVerifier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MtlsDelegatingVerifier")
+            .field("state", &self.state)
+            .field("has_fallback", &true)
+            .finish()
+    }
+}
+
+impl MtlsDelegatingVerifier {
+    /// Construct the wrapper. The `fallback` verifier is consulted only when
+    /// `state.current()` returns `None` — i.e., the HC-1 Legacy + no-pins
+    /// path. Built at boot via [`build_fallback_webpki`].
+    pub fn new(state: Arc<MtlsVerifierState>, fallback: Arc<WebPkiServerVerifier>) -> Self {
+        Self { state, fallback }
+    }
+
+    /// Returns true if the current handshake would route through a Suderra
+    /// verifier vs. the HC-1 fallback. Used by the Phase 1.1.5 invariant
+    /// detector + boot-time logs.
+    pub fn currently_using_suderra_verifier(&self) -> bool {
+        self.state.has_verifier()
+    }
+}
+
+/// Build a fallback `WebPkiServerVerifier` from the same trust anchors used
+/// by the `MtlsVerifierState`. The fallback is consulted only on the HC-1
+/// Legacy + no-pins path — chain trust + hostname match, no Suderra policy
+/// gates. Production wires this once at boot inside `init_mqtt_*` /
+/// `init_cloud_https_*` and stores the resulting Arc inside
+/// [`MtlsDelegatingVerifier`].
+pub fn build_fallback_webpki(
+    root_store: Arc<rustls::RootCertStore>,
+    provider: Arc<rustls::crypto::CryptoProvider>,
+) -> Result<Arc<WebPkiServerVerifier>, String> {
+    WebPkiServerVerifier::builder_with_provider(root_store, provider)
+        .build()
+        .map(|v| v as Arc<WebPkiServerVerifier>)
+        .map_err(|e| format!("WebPkiServerVerifier fallback build failed: {e:?}"))
+}
+
+impl ServerCertVerifier for MtlsDelegatingVerifier {
+    fn verify_server_cert(
+        &self,
+        end_entity: &CertificateDer<'_>,
+        intermediates: &[CertificateDer<'_>],
+        server_name: &ServerName<'_>,
+        ocsp_response: &[u8],
+        now: UnixTime,
+    ) -> Result<ServerCertVerified, rustls::Error> {
+        match self.state.current() {
+            Some(suderra) => {
+                suderra.verify_server_cert(end_entity, intermediates, server_name, ocsp_response, now)
+            }
+            None => self
+                .fallback
+                .verify_server_cert(end_entity, intermediates, server_name, ocsp_response, now),
+        }
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        // Both branches use the same WebPkiSupportedAlgorithms via their
+        // inner verifier; delegating to whichever is current keeps the
+        // signature-verification path consistent with the chain-trust path.
+        match self.state.current() {
+            Some(suderra) => suderra.verify_tls12_signature(message, cert, dss),
+            None => self.fallback.verify_tls12_signature(message, cert, dss),
+        }
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        match self.state.current() {
+            Some(suderra) => suderra.verify_tls13_signature(message, cert, dss),
+            None => self.fallback.verify_tls13_signature(message, cert, dss),
+        }
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        // The supported scheme set is determined by the rustls
+        // CryptoProvider's signature_verification_algorithms, which is
+        // identical between the Suderra wrapper and the WebPki fallback.
+        match self.state.current() {
+            Some(suderra) => suderra.supported_verify_schemes(),
+            None => self.fallback.supported_verify_schemes(),
+        }
     }
 }
 

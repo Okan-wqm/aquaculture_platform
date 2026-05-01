@@ -84,5 +84,8 @@ pub use rustls_verifier::{
     SuderraServerCertVerifier, SuderraVerifierBuildError, build_rotation_stage_from_pins_hex,
     build_suderra_verifier, verify_cert_at_handshake,
 };
-pub use state_handle::{MtlsRebuildError, MtlsVerifierState, RebuildOutcome};
+pub use state_handle::{
+    MtlsDelegatingVerifier, MtlsRebuildError, MtlsVerifierState, RebuildOutcome,
+    build_fallback_webpki,
+};
 pub use verify::verify_leaf_cert;

@@ -61,6 +61,20 @@ pub struct MqttClient {
     /// None = no-op (HC-1 backward compat + test paths that
     /// don't spin up the health server).
     health_state: Option<crate::health::HealthState>,
+    /// Phase 1.1.4 (D-4 + D-6): hot-reload handle for the rustls
+    /// `SuderraServerCertVerifier`. `Some` when TLS is enabled (the
+    /// configure_tls path constructs it as part of building the
+    /// `ClientConfig`). `None` when `mqtt.tls.enabled == false` (no
+    /// TLS wired, no verifier needed).
+    ///
+    /// Exposed via [`MqttClient::mtls_verifier_state`] so
+    /// `cmd_update_cert_pinning` (Phase 1.1.2) can drive
+    /// [`MtlsVerifierState::rebuild`](crate::mtls::MtlsVerifierState::rebuild)
+    /// from the command-dispatch path. The handle wraps a
+    /// `MtlsDelegatingVerifier` already installed in the
+    /// `ClientConfig`, so a successful rebuild takes effect on the
+    /// next handshake without reconstructing the rustls config.
+    mtls_verifier_state: Option<Arc<crate::mtls::MtlsVerifierState>>,
 }
 
 /// Incoming message from MQTT
@@ -274,12 +288,20 @@ impl MqttClient {
         // that exhausts memory on the constrained edge device.
         options.set_max_packet_size(1_048_576, 1_048_576);
 
-        // Configure TLS transport if enabled (IEC 62443 SL2 FR4)
-        if config.mqtt.tls.enabled {
-            let tls_config = Self::configure_tls(&config.mqtt.tls, &config.mtls)?;
-            options.set_transport(tls_config);
-            info!("MQTT TLS enabled");
-        }
+        // Configure TLS transport if enabled (IEC 62443 SL2 FR4).
+        // Phase 1.1.4 (D-4 + D-6): configure_tls now also returns the
+        // `Arc<MtlsVerifierState>` it constructed so cmd_update_cert_pinning
+        // can drive rebuilds without reconstructing the rustls ClientConfig.
+        let mtls_verifier_state: Option<Arc<crate::mtls::MtlsVerifierState>> =
+            if config.mqtt.tls.enabled {
+                let (tls_config, mtls_state) =
+                    Self::configure_tls(&config.mqtt.tls, &config.mtls)?;
+                options.set_transport(tls_config);
+                info!("MQTT TLS enabled");
+                Some(mtls_state)
+            } else {
+                None
+            };
 
         // Set last will (offline status)
         let last_will_payload = serde_json::to_vec(&StatusMessage {
@@ -334,6 +356,7 @@ impl MqttClient {
             message_rx,
             event_loop_handle: Some(event_loop_handle),
             health_state,
+            mtls_verifier_state,
         };
 
         // Subscribe to command and config topics
@@ -930,6 +953,25 @@ impl MqttClient {
         &self.device_code
     }
 
+    /// Phase 1.1.4 (D-4 + D-6): hot-reload state handle for the rustls
+    /// `SuderraServerCertVerifier`. Returns `Some` when TLS is enabled
+    /// (the state handle was constructed in [`configure_tls`]) and `None`
+    /// when `mqtt.tls.enabled == false`.
+    ///
+    /// `cmd_update_cert_pinning` (Phase 1.1.2) clones this `Arc` and
+    /// drives [`MtlsVerifierState::rebuild`](crate::mtls::MtlsVerifierState::rebuild)
+    /// from the command-dispatch path. Because the verifier is installed
+    /// as a `MtlsDelegatingVerifier` wrapper that re-reads the state on
+    /// every handshake, rebuilds take effect on the next TLS connect
+    /// without ClientConfig reconstruction.
+    ///
+    /// [`configure_tls`]: Self::configure_tls
+    pub fn mtls_verifier_state(
+        &self,
+    ) -> Option<&Arc<crate::mtls::MtlsVerifierState>> {
+        self.mtls_verifier_state.as_ref()
+    }
+
     /// Configure TLS transport (IEC 62443 SL2 FR4: Data Confidentiality)
     ///
     /// Supports:
@@ -938,7 +980,7 @@ impl MqttClient {
     fn configure_tls(
         tls_config: &crate::config::MqttTlsConfig,
         mtls_config: &crate::config::MtlsConfig,
-    ) -> Result<Transport> {
+    ) -> Result<(Transport, Arc<crate::mtls::MtlsVerifierState>)> {
         use rumqttc::TlsConfiguration;
 
         // LOW/H-01: validate verify_hostname config is not set to false.
@@ -1107,27 +1149,53 @@ impl MqttClient {
         let suderra_provider = crate::mtls::build_suderra_crypto_provider();
         let sig_algs = suderra_provider.signature_verification_algorithms;
 
-        // Construct the SuderraServerCertVerifier — mode-aware policy gates that layer
-        // on top of WebPkiServerVerifier. The same root_store backs the inner WebPki
-        // chain trust check AND any explicit verifier path. Legacy-no-pins → None →
-        // fall through to the rustls default webpki verifier (HC-1 backward compat).
-        let root_store_arc = Arc::new(root_store.clone());
-        let suderra_verifier = crate::mtls::build_suderra_verifier(
-            mtls_config.mode,
-            sig_algs,
-            &mtls_config.pinned_leaf_fingerprints_hex,
-            root_store_arc,
-        )
-        .map_err(|e| {
-            anyhow::anyhow!(
-                "SuderraServerCertVerifier build failed (check mtls.mode + pinned_leaf_fingerprints_hex): {}",
-                e
+        // Phase 1.1.4 (D-4 + D-6): construct the hot-reloadable verifier
+        // state and install it as a delegating wrapper. The wrapper queries
+        // the state on every handshake, so cmd_update_cert_pinning's
+        // rebuild takes effect on the NEXT TLS connect with no
+        // ClientConfig reconstruction. Legacy + no-pins still flows
+        // through the inner fallback WebPkiServerVerifier (HC-1).
+        let root_store_arc = Arc::new(root_store);
+        let mtls_verifier_state = std::sync::Arc::new(
+            crate::mtls::MtlsVerifierState::new(
+                mtls_config.mode,
+                &mtls_config.pinned_leaf_fingerprints_hex,
+                sig_algs,
+                root_store_arc.clone(),
             )
-        })?;
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "MtlsVerifierState build failed (check mtls.mode + pinned_leaf_fingerprints_hex): {}",
+                    e
+                )
+            })?,
+        );
 
-        // Stage 1 — verifier slot: custom verifier (when configured) OR webpki default.
-        // The provider is set BEFORE `with_protocol_versions` so the cipher allowlist
-        // applies to the chosen TLS version's suite negotiation.
+        // Build the fallback WebPkiServerVerifier ONCE — it is consulted
+        // only when the state handle is in HC-1 fallthrough (Legacy + no
+        // pins). Constructed from the SAME root_store + provider used by
+        // the Suderra path so trust anchors are coherent across the two
+        // verifier branches.
+        let fallback = crate::mtls::build_fallback_webpki(
+            root_store_arc.clone(),
+            suderra_provider.clone(),
+        )
+        .map_err(|e| anyhow::anyhow!("WebPki fallback build failed: {e}"))?;
+
+        let delegating_verifier = std::sync::Arc::new(crate::mtls::MtlsDelegatingVerifier::new(
+            mtls_verifier_state.clone(),
+            fallback,
+        ));
+        info!(
+            "mTLS: MtlsDelegatingVerifier installed (mode={:?}, pins={}, suderra_active={})",
+            mtls_config.mode,
+            mtls_config.pinned_leaf_fingerprints_hex.len(),
+            mtls_verifier_state.has_verifier()
+        );
+
+        // Stage 1 — verifier slot: ALWAYS install the delegating wrapper.
+        // The provider is set BEFORE `with_protocol_versions` so the cipher
+        // allowlist applies to the chosen TLS version's suite negotiation.
         let cfg_builder = rumqttc::tokio_rustls::rustls::ClientConfig::builder_with_provider(
             suderra_provider,
         )
@@ -1138,22 +1206,9 @@ impl MqttClient {
                 e
             )
         })?;
-        let cfg_after_verifier = if let Some(verifier) = suderra_verifier {
-            info!(
-                "mTLS: SuderraServerCertVerifier installed (mode={:?}, pins={})",
-                mtls_config.mode,
-                mtls_config.pinned_leaf_fingerprints_hex.len()
-            );
-            cfg_builder
-                .dangerous()
-                .with_custom_certificate_verifier(verifier)
-        } else {
-            info!(
-                "mTLS: Suderra custom verifier NOT installed (mode={:?}, no pins — HC-1 default webpki only)",
-                mtls_config.mode
-            );
-            cfg_builder.with_root_certificates(root_store)
-        };
+        let cfg_after_verifier = cfg_builder
+            .dangerous()
+            .with_custom_certificate_verifier(delegating_verifier);
 
         // Stage 2 — client auth slot: mutual TLS when client cert + key are configured.
         // Honored on BOTH system-CA and custom-CA paths (Phase 0.1 unification).
@@ -1186,6 +1241,6 @@ impl MqttClient {
         client_config.alpn_protocols = vec![b"mqtt".to_vec()];
 
         let tls = TlsConfiguration::Rustls(Arc::new(client_config));
-        Ok(Transport::Tls(tls))
+        Ok((Transport::Tls(tls), mtls_verifier_state))
     }
 }

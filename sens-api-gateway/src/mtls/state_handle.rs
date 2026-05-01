@@ -102,6 +102,21 @@ pub enum MtlsRebuildError {
     /// The new config failed the verifier-build invariants (bad hex, Strict
     /// without pins, WebPki construction failure). Old verifier preserved.
     BuildFailed(SuderraVerifierBuildError),
+    /// The new config would weaken the running policy (e.g., Strict →
+    /// Warn, Strict → Legacy, or any non-empty pin set rotated to empty
+    /// pins). Pre-Phase-1.1.2 this gate is the architectural floor that
+    /// `cmd_update_cert_pinning` cannot bypass: no operator-driven rotation
+    /// — even with valid ed25519 signatures + two-person co-approver — can
+    /// silently disable the Suderra policy by rolling back to a permissive
+    /// mode. Tier-1 MAKE-IT-IMPOSSIBLE per the security review of
+    /// commit 23e35c25 (PR #227 review). See [`MtlsVerifierState::rebuild`]
+    /// for the transition table.
+    DowngradeRejected {
+        from_mode: MtlsMode,
+        to_mode: MtlsMode,
+        from_pin_count: usize,
+        to_pin_count: usize,
+    },
     /// The internal RwLock got poisoned by a previous panic during a
     /// write. Should never happen; if it does, the agent is in a corrupted
     /// state and should restart. Surfaced as a distinct variant so the
@@ -113,6 +128,17 @@ impl std::fmt::Display for MtlsRebuildError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::BuildFailed(e) => write!(f, "verifier build failed: {e}"),
+            Self::DowngradeRejected {
+                from_mode,
+                to_mode,
+                from_pin_count,
+                to_pin_count,
+            } => write!(
+                f,
+                "MtlsVerifierState::rebuild rejected downgrade {from_mode:?}/{from_pin_count} pins → {to_mode:?}/{to_pin_count} pins. \
+                 Suderra policy floor cannot be lowered without an explicit emergency \
+                 break-glass procedure (out-of-band, not via cmd_update_cert_pinning)."
+            ),
             Self::LockPoisoned => f.write_str(
                 "MtlsVerifierState RwLock poisoned (previous writer panicked); restart required",
             ),
@@ -211,6 +237,33 @@ impl MtlsVerifierState {
     /// Atomic-swap rebuild driven by `cmd_update_cert_pinning` (Phase
     /// 1.1.2). Pre-validates the new config before touching the inner
     /// pointer; on failure the previous verifier stays installed.
+    ///
+    /// # Tier-1 downgrade gate
+    ///
+    /// `rebuild` rejects any transition that would WEAKEN the running
+    /// policy floor. The transition table:
+    ///
+    /// | From mode → to mode | Pin count change | Verdict |
+    /// |---------------------|------------------|---------|
+    /// | Legacy → Legacy / Warn / Strict | non-empty → non-empty | OK (promotion or rotation) |
+    /// | Warn → Warn / Strict            | non-empty → non-empty | OK |
+    /// | Strict → Strict                 | non-empty → non-empty | OK (rotation) |
+    /// | ANY → ANY                       | non-empty → empty     | REJECTED ([`MtlsRebuildError::DowngradeRejected`]) |
+    /// | Strict → Warn / Legacy          | any                   | REJECTED |
+    /// | Warn → Legacy                   | any                   | REJECTED |
+    ///
+    /// This is Tier-1 MAKE-IT-IMPOSSIBLE for the silent-policy-disable
+    /// attack flagged by the security review of commit 23e35c25 (PR #227).
+    /// An attacker reaching `cmd_update_cert_pinning` (after Phase 1.1.2)
+    /// with valid ed25519 + co-approver signatures STILL cannot rotate
+    /// the live state to Legacy + empty pins — even before
+    /// `cmd_update_cert_pinning`'s own dispatcher-level checks fire,
+    /// `rebuild` rejects the transition. The only legitimate way to
+    /// roll back the policy floor is an out-of-band emergency
+    /// break-glass procedure (signed emergency policy file at
+    /// `/etc/suderra/emergency_policy.json.sig` per ADR-018 §5) that
+    /// requires physical or hardware-token access — outside this
+    /// command surface.
     pub fn rebuild(
         &self,
         new_mode: MtlsMode,
@@ -220,10 +273,8 @@ impl MtlsVerifierState {
             mode: new_mode,
             pinned_fingerprints_hex: new_pins_hex.to_vec(),
         };
-        // Delta detection — bit-identical config is a no-op. Holding the
-        // read lock through the comparison is fine because the snapshot is
-        // small (mode + hex strings) and we are not contending with other
-        // writers in steady state.
+        // Delta detection + downgrade gate. Snapshot the current config
+        // under the read lock so the gate runs against a consistent view.
         {
             let cur = self
                 .config_snapshot
@@ -231,6 +282,49 @@ impl MtlsVerifierState {
                 .map_err(|_| MtlsRebuildError::LockPoisoned)?;
             if *cur == new_snap {
                 return Ok(RebuildOutcome::NoChange);
+            }
+            let cur_strictness = cur.mode.wire_tag();
+            let new_strictness = new_mode.wire_tag();
+            let cur_pin_count = cur.pinned_fingerprints_hex.len();
+            let new_pin_count = new_pins_hex.len();
+            // Reject mode downgrade. wire_tag is 0 for Legacy, 1 for Warn,
+            // 2 for Strict — strictly increasing in policy strength.
+            if new_strictness < cur_strictness {
+                tracing::error!(
+                    target: "mtls.hotreload",
+                    from_mode = ?cur.mode,
+                    to_mode = ?new_mode,
+                    from_pins = cur_pin_count,
+                    to_pins = new_pin_count,
+                    "MtlsVerifierState::rebuild rejected mode downgrade"
+                );
+                return Err(MtlsRebuildError::DowngradeRejected {
+                    from_mode: cur.mode,
+                    to_mode: new_mode,
+                    from_pin_count: cur_pin_count,
+                    to_pin_count: new_pin_count,
+                });
+            }
+            // Reject pin-set emptying. A rotation that drops all pins
+            // collapses the rotation stage to "no accepted fingerprints"
+            // which routes Strict-mode handshakes to fail-closed AND
+            // Legacy/Warn handshakes to silent webpki fallthrough — both
+            // outcomes are operationally lethal.
+            if cur_pin_count > 0 && new_pin_count == 0 {
+                tracing::error!(
+                    target: "mtls.hotreload",
+                    from_mode = ?cur.mode,
+                    to_mode = ?new_mode,
+                    from_pins = cur_pin_count,
+                    to_pins = new_pin_count,
+                    "MtlsVerifierState::rebuild rejected pin-set empty rotation"
+                );
+                return Err(MtlsRebuildError::DowngradeRejected {
+                    from_mode: cur.mode,
+                    to_mode: new_mode,
+                    from_pin_count: cur_pin_count,
+                    to_pin_count: new_pin_count,
+                });
             }
         }
         // Pre-validate by constructing the new verifier first. If this
@@ -240,7 +334,16 @@ impl MtlsVerifierState {
             self.sig_algs,
             new_pins_hex,
             self.root_store_arc.clone(),
-        )?;
+        )
+        .inspect_err(|e| {
+            tracing::error!(
+                target: "mtls.hotreload",
+                to_mode = ?new_mode,
+                to_pins = new_pins_hex.len(),
+                error = ?e,
+                "MtlsVerifierState::rebuild build_suderra_verifier failed; old verifier preserved"
+            );
+        })?;
         // Two atomic swaps — verifier slot first, then snapshot. The
         // ordering matters for an observer that races with the rebuild:
         // they see either (old_verifier, old_snap) or (new_verifier,
@@ -261,6 +364,17 @@ impl MtlsVerifierState {
                 .map_err(|_| MtlsRebuildError::LockPoisoned)?;
             *snap = new_snap;
         }
+        // Audit trail: defense-in-depth tracing emit so even if the
+        // cmd_update_cert_pinning dispatcher (Phase 1.1.2) forgets to
+        // log, the rotation is forensically recoverable from structured
+        // logs. `target: "mtls.hotreload"` is the canonical subscriber
+        // tag for this subsystem (paired with the `error!` tags above).
+        tracing::info!(
+            target: "mtls.hotreload",
+            new_mode = ?new_mode,
+            new_pin_count = new_pins_hex.len(),
+            "MtlsVerifierState::rebuild applied (Tier-1 atomic swap)"
+        );
         Ok(RebuildOutcome::Rebuilt)
     }
 
@@ -366,9 +480,11 @@ pub fn build_fallback_webpki(
     root_store: Arc<rustls::RootCertStore>,
     provider: Arc<rustls::crypto::CryptoProvider>,
 ) -> Result<Arc<WebPkiServerVerifier>, String> {
+    // `builder_with_provider(...).build()` already returns `Arc<WebPkiServerVerifier>`
+    // per rustls 0.23 API — no cast needed (clippy `unnecessary_cast` would flag the
+    // identity coercion under `-D warnings`).
     WebPkiServerVerifier::builder_with_provider(root_store, provider)
         .build()
-        .map(|v| v as Arc<WebPkiServerVerifier>)
         .map_err(|e| format!("WebPkiServerVerifier fallback build failed: {e:?}"))
 }
 
@@ -537,10 +653,16 @@ mod tests {
         );
     }
 
-    /// A rebuild that fails (e.g. Strict → Strict with empty pins) must
-    /// NOT touch the inner verifier. The pre-Phase-1 wire would have
-    /// installed a poisoned verifier; the state handle's pre-validate
-    /// pattern guarantees the running fleet keeps the previous pin set.
+    /// A rebuild that fails MUST NOT touch the inner verifier. The
+    /// state handle's pre-validate pattern guarantees the running fleet
+    /// keeps the previous pin set.
+    ///
+    /// Strict + empty pins is now caught by the Tier-1 downgrade gate
+    /// (`DowngradeRejected{ to_pin_count: 0, .. }`) BEFORE
+    /// `build_suderra_verifier` runs — the gate is stricter than the
+    /// build-time check (defense-in-depth: the gate rejects ANY pin-set
+    /// emptying, regardless of mode). Use a non-pin-emptying invalid
+    /// config (malformed hex) to exercise the build-failed preserve path.
     #[test]
     fn rebuild_with_invalid_config_preserves_old_verifier() {
         let (sig_algs, root_store) = empty_anchors();
@@ -548,12 +670,17 @@ mod tests {
         let state =
             MtlsVerifierState::new(MtlsMode::Strict, &pins_v1, sig_algs, root_store).unwrap();
         let before = state.current().unwrap();
-        let result = state.rebuild(MtlsMode::Strict, &[]);
+        // Malformed hex (one fewer char than 64) — not a downgrade,
+        // falls through to build_suderra_verifier which rejects it.
+        let bad_pins = vec![
+            "0000000000000000000000000000000000000000000000000000000000000".to_string(),
+        ];
+        let result = state.rebuild(MtlsMode::Strict, &bad_pins);
         let after = state.current().unwrap();
         assert!(matches!(
             result,
             Err(MtlsRebuildError::BuildFailed(
-                SuderraVerifierBuildError::StrictModeRequiresPins
+                SuderraVerifierBuildError::InvalidFingerprintLength { .. }
             ))
         ));
         assert!(Arc::ptr_eq(&before, &after));
@@ -574,6 +701,99 @@ mod tests {
         let outcome = state.rebuild(MtlsMode::Warn, &pins).unwrap();
         assert_eq!(outcome, RebuildOutcome::Rebuilt);
         assert_eq!(state.current_mode_and_pin_count(), Some((MtlsMode::Warn, 1)));
+    }
+
+    /// Mode downgrade Strict → Warn MUST be rejected. Tier-1 floor against
+    /// the silent-policy-disable attack (security review of 23e35c25).
+    #[test]
+    fn rebuild_strict_to_warn_rejected_as_downgrade() {
+        let (sig_algs, root_store) = empty_anchors();
+        let pins = vec![PIN_A.to_string()];
+        let state = MtlsVerifierState::new(MtlsMode::Strict, &pins, sig_algs, root_store).unwrap();
+        let result = state.rebuild(MtlsMode::Warn, &pins);
+        assert!(matches!(
+            result,
+            Err(MtlsRebuildError::DowngradeRejected {
+                from_mode: MtlsMode::Strict,
+                to_mode: MtlsMode::Warn,
+                ..
+            })
+        ));
+        // State unchanged.
+        assert_eq!(
+            state.current_mode_and_pin_count(),
+            Some((MtlsMode::Strict, 1))
+        );
+    }
+
+    /// Mode downgrade Strict → Legacy MUST be rejected.
+    #[test]
+    fn rebuild_strict_to_legacy_rejected_as_downgrade() {
+        let (sig_algs, root_store) = empty_anchors();
+        let pins = vec![PIN_A.to_string()];
+        let state = MtlsVerifierState::new(MtlsMode::Strict, &pins, sig_algs, root_store).unwrap();
+        let result = state.rebuild(MtlsMode::Legacy, &pins);
+        assert!(matches!(
+            result,
+            Err(MtlsRebuildError::DowngradeRejected {
+                from_mode: MtlsMode::Strict,
+                to_mode: MtlsMode::Legacy,
+                ..
+            })
+        ));
+    }
+
+    /// Mode downgrade Warn → Legacy MUST be rejected.
+    #[test]
+    fn rebuild_warn_to_legacy_rejected_as_downgrade() {
+        let (sig_algs, root_store) = empty_anchors();
+        let pins = vec![PIN_A.to_string()];
+        let state = MtlsVerifierState::new(MtlsMode::Warn, &pins, sig_algs, root_store).unwrap();
+        let result = state.rebuild(MtlsMode::Legacy, &pins);
+        assert!(matches!(
+            result,
+            Err(MtlsRebuildError::DowngradeRejected {
+                from_mode: MtlsMode::Warn,
+                to_mode: MtlsMode::Legacy,
+                ..
+            })
+        ));
+    }
+
+    /// Pin-set emptying MUST be rejected even at the same mode (e.g.,
+    /// Warn + 1 pin → Warn + 0 pins). Empty pin set under Strict is
+    /// already rejected by build_suderra_verifier; under Warn it routes
+    /// to silent webpki fallthrough — both lethal.
+    #[test]
+    fn rebuild_drop_all_pins_rejected_as_downgrade() {
+        let (sig_algs, root_store) = empty_anchors();
+        let pins = vec![PIN_A.to_string()];
+        let state = MtlsVerifierState::new(MtlsMode::Warn, &pins, sig_algs, root_store).unwrap();
+        let result = state.rebuild(MtlsMode::Warn, &[]);
+        assert!(matches!(
+            result,
+            Err(MtlsRebuildError::DowngradeRejected {
+                from_pin_count: 1,
+                to_pin_count: 0,
+                ..
+            })
+        ));
+    }
+
+    /// Mode promotion (Legacy → Warn → Strict) IS allowed. The downgrade
+    /// gate is one-way — operators can ALWAYS tighten the policy floor.
+    #[test]
+    fn rebuild_legacy_to_strict_promotion_succeeds() {
+        let (sig_algs, root_store) = empty_anchors();
+        let pins = vec![PIN_A.to_string()];
+        let state =
+            MtlsVerifierState::new(MtlsMode::Legacy, &pins, sig_algs, root_store).unwrap();
+        let outcome = state.rebuild(MtlsMode::Strict, &pins).unwrap();
+        assert_eq!(outcome, RebuildOutcome::Rebuilt);
+        assert_eq!(
+            state.current_mode_and_pin_count(),
+            Some((MtlsMode::Strict, 1))
+        );
     }
 
     /// Concurrent reader during a rebuild captures EITHER the old verifier

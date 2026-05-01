@@ -696,3 +696,15 @@ path = "tests/invariants/authenticated_user_sealed.rs"
 [[test]]
 name = "cipher_allowlist_fleet_compat"
 path = "tests/invariants/cipher_allowlist_fleet_compat.rs"
+
+# Phase 1.1.5 (PR-196 Phase 1) — D-4 / D-6 unified-assembly closure
+# invariant. Tier-3 source-grep detector that pins the wire shape of
+# the hot-reload chain (MtlsVerifierState + MtlsDelegatingVerifier +
+# mqtt.rs::configure_tls + MqttClient::mtls_verifier_state accessor)
+# so a future refactor that "simplifies" any one component cannot
+# silently break hot-reload semantics. Closes ULTRA-HIGH-018 (D-4) +
+# ULTRA-HIGH-020 (D-6) when the full Phase 1 chain ships
+# (cmd_update_cert_pinning + HTTPS reqwest wire + audit emit).
+[[test]]
+name = "d4_d6_mtls_unified"
+path = "tests/invariants/d4_d6_mtls_unified.rs"

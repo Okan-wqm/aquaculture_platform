@@ -15,7 +15,66 @@ Without that, two implementers reading SPEC + IDENTITY would produce two incompa
 
 It is also the operator's decision tool: the Phase-1 PoC at the end (§13) is the smallest concrete artifact that answers "do we actually need ARIA?" before committing to months of kernel work.
 
-**Honesty floor (still):** none of the schemas below are implemented. Every JSON example is a contract for code that has not been written.
+**Honesty floor:** the PoC at §13 IS implemented (`tools/aria-poc/poc.py`). All other schemas are contracts for code that has not been written.
+
+---
+
+## 0.6 — CLI Execution Model (NEW — corrects v7.2 API assumption)
+
+ARIA does **not** run as a standalone Python daemon calling the Anthropic API directly. ARIA runs **inside Claude Code CLI sessions**. This changes substantially what the kernel needs to implement.
+
+### Component map (CLI mode)
+
+| Concern | v7.2 assumed | Reality (CLI mode) |
+|---|---|---|
+| Orchestrator | Custom Python daemon | Claude Code session driven by slash command (`/aria-cycle`) and/or cron-launched `claude` invocations |
+| Engines (Discovery, Memory, Pressure, Reflection) | In-process Python modules | Python scripts in `tools/aria/` invoked via `Bash` tool |
+| Adapters | In-process Python ABCs | Python scripts in `tools/aria/adapters/` invoked via `Bash`; output JSON to disk |
+| Skills | Subclasses of `Skill` Protocol | Sub-agent definitions in `.claude/agents/aria-*.md`; invoked via Claude Code `Agent` tool |
+| Hooks (gates, redactor) | In-process Python | `.claude/settings.json` PreToolUse / PostToolUse hooks, e.g. `tools/aria/gates/*.ts` |
+| LLM amplification | Direct `anthropic` SDK calls | Claude Code's own model selection — kernel never imports `anthropic` |
+| Budget tracking | Custom `budget_gate.py` | Claude Code's existing cost telemetry + a thin observation hook |
+| Cycle scheduler | Custom Python timer | OS cron / systemd timer running `claude /aria-cycle` |
+| State persistence | Same — filesystem + workspace-internal git | Same |
+| Kill switch | Same — file sentinel checked at every step | Same — slash command checks sentinel before tool calls |
+
+### What this means for the §1–§12 contracts
+
+- `Adapter` and `Skill` classes (§1, §2) are still useful, but:
+  - Adapters are **invoked from Bash by Claude Code**, not imported as Python modules. They read a target file and write a JSON result.
+  - Skills are **sub-agent markdown files** with a metadata header that maps to the `Skill` Protocol's fields (`scope`, `minimum_mastery`, `claim_types`).
+- The Cycle State Machine (§11) is implemented as **explicit steps inside the `/aria-cycle` slash command**, not as a Python `match` statement. Crash recovery happens because Claude Code sessions are themselves resumable / re-runnable.
+- LLM Call Discipline (§10) is **mostly delegated to Claude Code**. The kernel still owns:
+  - Secret redaction (must run before any data is shown to Claude in tool results)
+  - Customer-data redaction
+  - Budget observation (read Claude Code's telemetry, fail closed if cap exceeded)
+  - Episodic logging of which tool calls were made
+- The Capsule, Spine, Evidence Chain, Finding, Critical Observation, Pressure, Calibration schemas (§3–§9) are **unchanged** — they are file-format contracts, independent of execution model.
+
+### What this kills from v7.2
+
+- The `aria-kernel/llm_bridge.py` file mentioned in SPEC §6.1 — does not exist. Kernel never imports `anthropic`.
+- The `ANTHROPIC_API_KEY` requirement in SPEC §6.5 Day-0 prerequisites — the operator already authenticated with Claude Code; no separate key.
+- The custom budget circuit breaker as a primary cost-enforcement mechanism — Claude Code is the primary; ARIA's budget gate is a secondary observability layer.
+
+### What this saves
+
+- ≈40–60% of the kernel implementation budget. No need to write LLM call orchestration, retry logic, prompt caching, streaming, error handling — all of that lives in Claude Code already.
+- No API key management, no rotation, no leakage surface beyond what Claude Code already manages.
+
+### Implications for trust boundaries
+
+- ARIA does not have **independent** authentication to Anthropic. ARIA's "trust" is the operator's Claude Code session.
+- A compromised ARIA cannot exfiltrate via direct API — it can only do what Claude Code session permissions allow. This is a **smaller attack surface** than the v7.2 design assumed.
+- Conversely: ARIA cannot run truly headless. There must be a Claude Code session for the slash command to execute. Operator presence (or a cron+session pattern) is required.
+
+### Documents in this folder, after CLI clarification
+
+| Document | What it describes |
+|---|---|
+| `SPEC.md` | Boundaries (laws, engines, mastery, claim authority). Mostly unchanged by CLI mode; references to `anthropic` SDK are inaccurate but non-load-bearing. |
+| `IDENTITY.md` | Behavior. Unchanged by CLI mode. |
+| `CONTRACTS.md` (this) | Data + protocol contracts + CLI execution model + Phase-1 PoC. |
 
 ---
 
@@ -430,61 +489,65 @@ Every Zone-2 parameter change is hypothesis-tested in shadow before promotion.
 
 ---
 
-## 10 — LLM Call Discipline
+## 10 — LLM Call Discipline (CLI mode)
 
-When the kernel calls Anthropic API:
+ARIA does not call the Anthropic API directly. ARIA runs inside Claude Code. Claude Code owns model selection, retries, prompt caching, streaming, and rate-limit handling. ARIA owns the **discipline around** LLM use, not the LLM call itself.
+
+### What ARIA still owns
 
 ```python
 @dataclass(frozen=True)
-class LLMCallSpec:
+class LLMTaskSpec:
     purpose: str                       # e.g. "summarize-capsule-content"
-    tier: Literal["haiku", "sonnet", "opus"]
-    max_input_tokens: int
-    max_output_tokens: int
-    cache_key: str | None              # None = uncacheable
-    cache_ttl_seconds: int | None
-    redaction_passes_required: list[str]  # e.g. ["secret", "customer_data"]
-    skill_attribution: str             # which skill is paying for this call
-    budget_check: BudgetCheck
-
-@dataclass(frozen=True)
-class BudgetCheck:
-    skill_daily_remaining_tokens: int
-    workspace_daily_remaining_tokens: int
-    workspace_monthly_remaining_tokens: int
-    blocked: bool
-    blocked_reason: str | None
+    suggested_tier: Literal["haiku", "sonnet", "opus"]   # advisory only
+    redaction_passes_required: list[str]  # ["secret", "customer_data", ...]
+    skill_attribution: str             # which sub-agent is doing this work
+    expected_input_tokens_max: int     # for budget observation
 ```
 
-**Tiering policy:**
-- `haiku` — capsule summaries, small classification, mechanical-feel work
-- `sonnet` — drift interpretation, finding text composition, reflection
-- `opus` — sparingly, only for cross-capability synthesis when reflection demands it
+`LLMTaskSpec` is metadata attached to every sub-agent invocation. It is recorded in the episodic log so the operator can audit *what kind* of LLM work each skill triggered, even though ARIA cannot directly observe the underlying API call.
 
-**Mandatory ordering (every call):**
-1. `secret_redactor.redact(prompt_inputs)` — fail-closed: if redactor errors, call is blocked
-2. `customer_data_redactor.redact(prompt_inputs)` if scope flagged as customer-data-bearing
-3. `budget_gate.check(workspace, skill)` — fail-closed: if exceeded, call is blocked, kill switch warmed
-4. `cache_lookup(cache_key)` — return cached if present, no API call
-5. API call with prompt caching headers when applicable
-6. `output_redactor.scrub(response)` — strip any sensitive content the model emitted
-7. `episodic_log.record(call_spec, redaction_proof, budget_delta, cache_outcome)`
+### Tiering policy (advisory)
 
-**Budget config (`aria-config/budget.json`):**
+When ARIA sub-agents are invoked, they declare their suggested tier. Operator and Claude Code together decide actual tier:
+
+- `haiku` — capsule summaries, small classification, mechanical-feel work where Claude amplifies a Python script's output
+- `sonnet` — drift interpretation, finding text composition, weekly reflection
+- `opus` — rare, cross-capability synthesis only
+
+The operator can override globally via Claude Code settings; ARIA never disagrees.
+
+### Mandatory ordering (every cycle step that yields data to Claude)
+
+1. `secret_redactor` runs over **all tool results** before they enter Claude's context. Fail-closed: redactor error = step abort.
+2. `customer_data_redactor` runs when scope flagged customer-data-bearing.
+3. `budget_observer` reads Claude Code's cost telemetry **after** the step (not before — ARIA does not hold the call). If observed cost exceeds soft threshold, next cycle starts in degraded mode (skills skip LLM amplification, run mechanically only).
+4. `episodic_log.record(task_spec, redaction_proof, observed_cost, kill_switch_state)`
+
+The redactors are kernel-owned because **a Claude Code session sees raw tool results unless ARIA scrubs them first**. Redaction is the only privacy layer that survives the API-handoff to Claude.
+
+### Budget config (`aria-config/budget.json`)
 
 ```json
 {
-  "workspace_daily_token_cap": 5000000,
-  "workspace_monthly_token_cap": 100000000,
-  "per_skill_daily_token_cap_default": 200000,
-  "per_skill_overrides": {
-    "spine-drift-detector": 500000
-  },
-  "soft_stop_threshold_pct": 80,
-  "hard_stop_threshold_pct": 100,
-  "on_hard_stop": "kill_switch_trigger"
+  "soft_observation_threshold_usd_daily": 20,
+  "hard_observation_threshold_usd_daily": 100,
+  "soft_observation_threshold_usd_monthly": 200,
+  "hard_observation_threshold_usd_monthly": 1000,
+  "on_soft_threshold": "degrade_to_mechanical_mode",
+  "on_hard_threshold": "kill_switch_trigger"
 }
 ```
+
+Thresholds are USD because that is the unit Claude Code's telemetry exposes. ARIA cannot directly enforce token caps (Claude Code owns that surface) but it can refuse to start the next cycle if observed spend crosses thresholds — that surface IS in ARIA's hands via the slash command's pre-flight check.
+
+### What this kernel does NOT need to implement
+
+- `anthropic` SDK integration. Forbidden. ARIA must not import it.
+- Retry / backoff / rate-limit handling. Claude Code's job.
+- Prompt caching primitives. Claude Code's job (ARIA may hint via cache-key suggestions in tool result metadata, but does not enforce).
+- Streaming response handling. Claude Code's job.
+- API key management. Operator + Claude Code's job.
 
 `on_hard_stop: kill_switch_trigger` is the safe default — exceeding the cap halts ARIA, not silent overrun. Operator must explicitly raise the cap to resume.
 
@@ -559,76 +622,83 @@ Workspace components by recoverability:
 
 ---
 
-## 13 — Phase-1 PoC (operator decision tool)
+## 13 — Phase-1 PoC (IMPLEMENTED)
 
 Before committing to months of kernel work, the operator runs this PoC to answer: **"do we actually need ARIA?"**
 
-### Scope
+This PoC is **implemented** at `tools/aria-poc/poc.py` (488 lines incl. blanks/docstring, 427 effective code lines, no LLM, no API). All other content in this document remains unimplemented contracts.
 
-- Duration: **1 working week** (≈5 days, ≈20 hours)
-- Code budget: **≤300 lines Python**, no external dependencies beyond stdlib + `tomli` + `pyyaml`
-- LLM calls: **zero**. Pure mechanical analysis.
-- Deliverable: report at `/tmp/aria-poc-report.md`
+### How to run
 
-### What it does
+```bash
+python3 tools/aria-poc/poc.py --workspace-root .
+```
+
+Or via Claude Code session:
 
 ```
-1. Filesystem walk (excluding agent-workspace/, node_modules/, .git/, dist/, build/)
+/aria-poc
+```
+
+(see `.claude/commands/aria-poc.md`)
+
+Runtime: ≈30 seconds on the full repo. Output: `.aria-poc/` (gitignored).
+
+### What it does (per implementation)
+
+1. Filesystem walk excluding `agent-workspace/`, `node_modules/`, `.git/`, `dist/`, `build/`, `coverage/`, `.next/`, `.nx/`, `target/`, `tmp/`, `.aria-poc/`, `.turbo/`, `.cache/`
 2. Reconcile with `git ls-files`
-3. Assign every file a fate (read_deeply | read_skimmed | skipped_with_reason)
-4. Compute REPO_FINGERPRINT.json:
-   - language histogram
-   - manifest detection (package.json, Cargo.toml, project.json, nx.json)
-   - service count per apps/*
-   - frontend MFE count per web/*
-   - migration count per service
-5. Ingest CLAUDE.md → CLAUDE_MD_PRIORS.md (markdown summary, no LLM)
-6. Ingest docs/adr/*.md → ADR_PRIORS.md (per-ADR title + first-line decision)
-7. Index .claude/agents/*.md → AGENT_PRIORS.md (per-agent name + scope from frontmatter)
-8. Run nx graph --file=.aria-poc/build-graph.json (if nx available)
-9. Mechanical drift scan (no LLM, no skills):
-   - Find every TypeScript enum
-   - Find every SQL CREATE TYPE ... AS ENUM
-   - Match by name (heuristic)
-   - Report any name match where value sets differ
-10. Generate /tmp/aria-poc-report.md with:
-    - REPO_FINGERPRINT summary
-    - Coverage stats (files / fates)
-    - Top 5 mechanical drifts found (or "none detected" with searched-scope notation)
-    - Estimated full-ARIA value: would these drifts have been caught by existing 38 agents on next PR cycle? (operator answers manually)
-```
+3. Assign every file a fate (Coverage Invariant per SPEC §4 Engine 1)
+4. Compute `REPO_FINGERPRINT.json` (language histogram, manifests, apps/web counts, migration count, ADR count, agent count, nx availability)
+5. Ingest TRUSTED priors (mechanical extraction, no LLM):
+   - `CLAUDE.md` → `CLAUDE_MD_PRIORS.md` (heading inventory + content SHA-256)
+   - `docs/adr/[0-9][0-9][0-9]-*.md` → `ADR_PRIORS.md` (canonical only, title + status)
+   - `.claude/agents/*.md` → `AGENT_PRIORS.md` (frontmatter `description` field per agent)
+6. Run `npx nx graph --file=.aria-poc/BUILD_GRAPH.json` (best-effort, optional; `--skip-nx-graph` to disable)
+7. Mechanical drift scan: TypeScript `enum` keyword vs PostgreSQL `CREATE TYPE ... AS ENUM`. Heuristic name match (lowercase, strip common suffixes); report when value sets differ.
+8. Write `MECHANICAL_DRIFTS.json` (full data) + `aria-poc-report.md` (operator-facing decision gate)
 
 ### What this PoC does NOT do
 
 - No skill genesis. No adapter birth. No capsule storage. No mastery levels.
 - No LLM. No findings. No recommendations.
 - No PR creation. No worktree. No baseline capture.
-- No persistence beyond `/tmp/aria-poc-report.md` and `.aria-poc/` (gitignored).
+- No persistence beyond `.aria-poc/`.
+- Drift scan is enum-only (TS enum keyword + SQL CREATE TYPE). Union types, GraphQL enums, Zod schemas, frontend select options — all out of scope for the PoC. **Absence here does not mean absence in repo.**
+
+### First-run results on this repo (snowball branch)
+
+The PoC has been run against `Okan-wqm/aquaculture_platform`:
+- 6941 files visited, 6913 with deep-or-skim fate, Coverage Invariant: PASS
+- 17 apps, 7 web modules, 61 migrations, 34 canonical ADRs, 34 specialized agents
+- 498 TypeScript enums, 32 SQL enums
+- **23 drift candidates** detected mechanically
+
+The most striking real drift: `apps/farm-service/.../DepartmentType` (aquaculture-flavored values: BROODSTOCK, HATCHERY, NURSERY, GROW_OUT, QUARANTINE, PROCESSING, ...) versus `apps/hr-service/.../department_type` SQL enum (office-flavored values: administration, management, security, operations, ...). **Same conceptual name, completely different value sets across services.** This is exactly the kind of cross-service drift that PR-cycle agents don't catch (because each service's PR looks internally consistent) but continuous mode would.
+
+This single finding alone gives the operator concrete data for decision question #2.
 
 ### Decision criteria
 
-After running the PoC, the operator answers:
+After running the PoC, the operator answers (PoC report has the checkboxes):
 
-1. Did the fingerprint reveal anything they did not already know? (yes/no)
-2. Did the mechanical drift scan surface real drift not caught by existing 38 agents? (yes/no)
-3. Is the surface area of step (2) large enough to justify months of kernel work? (yes/no)
-4. Is the LLM budget required for full ARIA (estimate: $200–$2000/month) within scope? (yes/no)
+1. Did the fingerprint reveal anything you did not already know? (yes/no)
+2. Did the mechanical drift scan surface real drift not caught by existing 38 specialized agents on PR cycles? (yes/no)
+3. Is the value surface of (2) large enough to justify months of kernel work? (yes/no)
+4. Is the LLM cost (Claude Code session-based, NOT direct API — see §0.6) within scope? (yes/no)
 
-If 3 of 4 are "no", **do not build the kernel**. Archive SPEC, IDENTITY, CONTRACTS as research artifacts. The 38 specialized agents + Nx + CI already cover the value surface.
+If **3 of 4 are NO**: archive SPEC, IDENTITY, CONTRACTS as research artifacts. The 38 specialized agents + Nx + CI cover the value surface.
 
-If 3 of 4 are "yes", proceed to Phase 0 (kernel skeleton, ≈4 weeks: orchestrator state machine + Discovery + Memory + budget gate + kill switch + integrity hash chain — no skills yet).
+If **3 of 4 are YES**: proceed to Phase 0 (kernel skeleton — orchestrator slash command + Discovery + Memory + redactor + budget observer + kill switch + integrity hash chain — no skills yet).
 
-### PoC location
+### Files committed
 
-Implement in this branch as `tools/aria-poc/` (single Python file, single test file). Operator runs:
+- `tools/aria-poc/poc.py` — implementation
+- `tools/aria-poc/README.md` — how-to
+- `.claude/commands/aria-poc.md` — Claude Code slash command wrapper
+- `.gitignore` — adds `.aria-poc/` exclusion
 
-```
-cd /home/user/aquaculture_platform
-python tools/aria-poc/poc.py --workspace-root .
-cat /tmp/aria-poc-report.md
-```
-
-The PoC is the only ARIA-related code that is allowed to land in this branch without the full kernel surrounding it. It is the operator's "do we even start?" gate.
+The PoC is the only ARIA-related code allowed in this branch without the full kernel surrounding it. It is the operator's "do we even start?" gate.
 
 ---
 

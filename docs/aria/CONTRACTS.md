@@ -112,59 +112,101 @@ A different repository would produce a different set of `aria-*.md` files. The s
 
 ## 1 — Adapter Protocol
 
-Every adapter (TypeScript, SQL, Rust, config-file, etc.) implements this protocol. Adapters are how the kernel sees specific languages without baking them into the kernel.
+Adapter'lar ARIA'nın repo'yu okuduğu soyut arayüzlerdir. Her biri bir dilin/format'ın belirli bir pattern'ini deterministic + LLM-siz extract eder. Kernel hiçbir dile/framework'e doğrudan bağlanmaz; bağlanmayı adapter'lar üstlenir.
+
+> Aşağıdaki Python kod bloğu **adapter sözleşmesini** tanımlar. Her dil/format için yazılan Python script bu Protocol'ü uygular. `parse()` saf fonksiyondur: aynı (path, content) girdisi her zaman aynı `AdapterResult` döndürmeli; yan etki yok, network yok, eval yok.
 
 ```python
 class Adapter(Protocol):
-    name: str                    # e.g. "typescript-nestjs"
+    name: str                    # e.g. "typescript-nestjs-cqrs"
     version: str                 # semver, owned by adapter author
-    file_globs: list[str]        # e.g. ["**/*.ts", "**/*.tsx"]
-    excluded_globs: list[str]    # e.g. ["**/*.d.ts", "**/node_modules/**"]
+    file_globs: list[str]        # e.g. ["apps/*/src/**/*.ts"]
+    excluded_globs: list[str]    # e.g. ["**/*.d.ts", "**/__tests__/**"]
 
     def can_parse(self, path: Path) -> bool:
-        """Returns True if this adapter accepts this file. Cheap check
-        (extension + manifest sniff), no full parse."""
+        """Cheap accept check (extension + manifest sniff). No full parse."""
 
     def parse(self, path: Path, content: bytes) -> AdapterResult:
-        """Full structural parse. MUST be deterministic — same input
-        always produces same output. MUST be sandboxed — adapter
-        cannot read other files, cannot call network, cannot execute
-        repo code."""
+        """Full structural parse. Deterministic, sandboxed, no network, no eval."""
 
     def parse_window_signature(self, path: Path) -> str:
-        """Stable hash of the file features this adapter cares about.
-        Used by Mastery Downgrade Protocol (IDENTITY §12) to detect
-        when a file moved beyond the adapter's parse window."""
+        """Stable hash of features this adapter cares about. Used by Mastery
+        Downgrade Protocol (IDENTITY §12) to detect when a file moved beyond
+        the adapter's parse window."""
+```
 
+> Aşağıdaki dataclass adapter'ın çıktısını sabitler. Memory engine kapsül oluştururken **bu shape'i bekler**; herhangi bir adapter bu yapıyı bozarsa kernel reject eder.
+
+```python
 @dataclass(frozen=True)
 class AdapterResult:
-    symbols: list[Symbol]        # functions, classes, types, exports
-    imports: list[Import]        # what this file imports
-    exports: list[Export]        # what this file exports
+    symbols: list[Symbol]          # functions, classes, types, exports
+    imports: list[Import]          # what this file imports
+    exports: list[Export]          # what this file exports
     annotations: list[Annotation]  # decorators, attributes, pragmas
     parse_errors: list[ParseError]
-    parser_version: str          # for cache invalidation
+    parser_version: str            # for cache invalidation
     parsed_at: datetime
 ```
 
-**Adapter discipline:**
+### 1.1 — Bu repo'nun şekli: 14 pattern eksen
+
+ARIA'nın "su gibi şekil alması" iddiasının test edilebilir olması için adapter set'in bu 14 ekseni karşılaması zorunlu. Eksen-adapter eşleştirmesi §1.2'de.
+
+| # | Eksen | Pattern manifesti | Hangi servisleri etkiler |
+|---|---|---|---|
+| 1 | CQRS folder topology | `commands/ handlers/ queries/ query-handlers/` per domain | 17 backend |
+| 2 | Event contracts | `BaseEvent extends` + JSON Schema + upcaster chain | event-store + tüm event publisher'lar |
+| 3 | Outbox pattern | `@PublishToOutbox` + outbox table + consumer | 12 service |
+| 4 | Dual-alias | `@aquaculture/backend-common` ↔ `@platform/backend-common` aynı modül | tüm backend |
+| 5 | NATS BEGIN GENERATED | `services.yaml` SSoT → `nats.conf` generated region (ADR-015) | infrastructure |
+| 6 | Schema drift validator | `SchemaDriftModule.forRoot` per service, boot-time check (ADR-012) | 13 schema-owning |
+| 7 | Banned-phrase enforcement | `tools/gates/banned-phrase.ts` CI gate (CLAUDE.md) | tüm commit'ler |
+| 8 | Nx graph weighting | `nx.json` + `project.json` dependency depth | 17 backend + 7 frontend |
+| 9 | Tenant scoping discipline | `getScopedRepository()` + tenant_id where-clause + JWT trust anchor | tüm tenant-data services |
+| 10 | Sensor protocol register maps | Modbus / OPC UA / Atlas EZO register definitions | sens-api-gateway + sensor-service |
+| 11 | Path → agent mapping | `apps/auth-service/**` → `auth-security-expert`, vs. | 38+ agent ↔ 17+7+1 servis |
+| 12 | Sensor-ingestion sidecar | Rust sidecar + NATS publish + TS consumer (hybrid runtime) | hybrid TS+Rust |
+| 13 | TypeORM auto-mapping | snake_case column ↔ camelCase property (drift değil, framework convention) | tüm TypeORM kullanan |
+| 14 | NATS cert-CN identity | `services.yaml` + cert mint + `verify_and_map: true` (ADR-014/015) | NATS infrastructure |
+
+### 1.2 — First-day adapter set (15 adapter, repo-aware)
+
+Generic adapter (TypeScript-only / NestJS-only) yerine, her biri **belirli bir repo pattern'i** için yazılmıştır. Sıra üretim önceliği — pressure'a göre adapter doğum sırası.
+
+| # | Adapter | Globs | Ne çıkartır (pattern manifest) | Eksen | Tamamlayıcı agent(lar) |
+|---|---|---|---|---|---|
+| 1 | `typescript-nestjs-cqrs` | `apps/*/src/**/*.ts` minus `__tests__` | `@CommandHandler`, `@QueryHandler`, `@EventsHandler`, command/query/event class defs, `commandBus.execute()` call sites, **command → handler → event chain** | 1 | data-expert, contract-parity-enforcer |
+| 2 | `typescript-event-contracts` | `libs/event-contracts/src/**/*.ts` + event publisher call sites | `BaseEvent extends` interfaces, `createBaseEvent()` factory calls, JSON Schema validators, upcaster transformations, **PascalCase eventType enforcement** | 2 | data-expert, contract-parity-enforcer |
+| 3 | `typescript-outbox` | files importing `@platform/outbox` + `*.outbox.entity.ts` | `@PublishToOutbox` decorators, outbox entity registrations, publisher call paths, **entity → event → consumer matching** | 3 | data-expert, messaging-expert |
+| 4 | `typescript-dual-alias` | `tsconfig.json` paths + `import` statements across `apps/`, `libs/` | resolves `@aquaculture/*` ↔ `@platform/*` to **canonical single module identity**; mismatched imports = alias-drift, NOT module-drift | 4 | platform-kernel-expert |
+| 5 | `typescript-tenant-scoping` | files calling `getRepository\|getScopedRepository\|x-tenant-id` | `getScopedRepository()` vs forbidden `getRepository()`, tenant_id where-clause discipline, JWT-claim-vs-header trust path | 9 | tenant-isolation-auditor, auth-security-expert |
+| 6 | `typescript-nestjs` | residual `apps/*/src/**/*.ts` not covered by 1–5 | generic `@Module`, `@Controller`, `@Injectable`, `@Entity` (dual-alias-normalized), `@Body()`, **TypeORM camelCase↔snake_case framework convention** (NOT drift) | 13 | (generic NestJS) |
+| 7 | `sql-typeorm-migration` | `apps/*/src/database/migrations/*.ts` | migration class extends, schema declaration (per ADR-011), table CRUD, **timestamp ordering**, BEGIN-GENERATED region detection | 6 | database-reviewer, data-expert |
+| 8 | `sql-schema-invariants-delegation` | (no globs — orchestrator) | runs `e2e/tests/integration/schema-invariants.spec.ts` headlessly, parses pass/fail per invariant; **defers schema-drift detection to existing validator instead of duplicating** | 6 | database-reviewer |
+| 9 | `nats-services-yaml` | `infrastructure/nats/services.yaml` + `infrastructure/docker/nats/nats.conf` | services.yaml accounts list, nats.conf BEGIN-GENERATED region, **invariant: regenerate from services.yaml = exact byte match** | 5, 14 | infra-expert |
+| 10 | `rust-sensor-protocol` | `sens-api-gateway/src/protocols/**/*.rs` + sensor protocol .md docs | Modbus register map, OPC UA NodeIds, Atlas EZO command sets, **register definition ↔ TS DTO drift detection** | 10, 12 | edge-expert, sensor-expert |
+| 11 | `rust-sens-gateway-core` | `sens-api-gateway/src/**/*.rs` minus protocols | tokio runtime, async fn signatures, spawn/TaskTracker discipline, offline queue patterns, IEC 62443 surface markers | 10 | edge-expert, edge-industrial-auditor |
+| 12 | `nx-graph` | `nx.json` + `apps/*/project.json` + `web/modules/*/project.json` | parses `npx nx graph --json`, builds dependency depth map, **weights cross-service drift severity by graph distance** | 8 | infra-expert |
+| 13 | `agent-priors-mapper` | `.claude/agents/*.md` + `.claude/shared/orchestrator-routing-table.md` | agent name + scope from frontmatter, routing-table glob → agent mapping, **path → specialized-agent reference resolver** for finding `related_specialized_agent_domains` | 11 | (meta — no specialized agent owner) |
+| 14 | `config-yaml-toml` | residual `**/*.{yaml,yml,toml,json}` not covered above | manifest sniff, package.json/Cargo.toml metadata, helm values, terraform IaC | (none specific) | infra-expert |
+| 15 | `generic-bootstrap` | everything else | extension histogram, manifest detection, regex import extraction (≈70%) | (fallback) | (fallback) |
+
+> **Sayım:** 15 adapter, 14 ekseni karşılar (8 adapter ekseni doğrudan kapatır; 1 delegation-only; 1 meta; 2 generic NestJS+config; 2 jenerik fallback; 1 framework-convention adapter eksen 13'ü "drift değil" olarak işaretler).
+
+> **Day-0 öncelik sırası (pressure-driven):** 1 → 7 → 6 → 12 → 13 → 9 → 5 → 4 → 3 → 2 → 8 → 11 → 10 → 14 → 15. CQRS adapter ilk, çünkü 17 service'in tamamı bu pattern'de; Modbus en geç çünkü tek service'i etkiler. Pressure değişirse sıra değişebilir.
+
+### 1.3 — Adapter discipline
+
 - Pure function: `(path, content) -> AdapterResult`. No side effects.
 - No LLM calls. Adapters are mechanical.
 - Sandboxed: adapter process cannot exceed declared file scope.
 - Crash-isolated: an adapter crash on one file does not stop Discovery.
-- Reports parse errors as data, never raises into kernel.
-
-**First-day adapter set for this repo (per SPEC §5.3):**
-
-| Adapter | Globs | What it extracts |
-|---|---|---|
-| `typescript-nestjs` | `**/*.{ts,tsx}` minus `*.d.ts`, `node_modules` | NestJS decorators (`@Module`, `@Controller`, `@Entity`, `@Column`, `@Injectable`), TypeORM entities + `schema:` declarations, `getScopedRepository` calls |
-| `sql-typeorm-migration` | `apps/*/src/database/migrations/*.ts` | Schema declarations (per ADR-011), table CRUD, `BEGIN GENERATED`/`END GENERATED` regions for nats.conf-style |
-| `rust-sens-gateway` | `sens-api-gateway/**/*.rs` | Modules, traits, `#[tokio::main]`, async fn signatures, sensor protocol implementations |
-| `config-yaml-toml` | `**/*.{yaml,yml,toml,json}` filtered | nx project graph, services.yaml, nats.conf, package.json/Cargo.toml manifests |
-| `generic-bootstrap` | everything else | Extension histogram, manifest detection, regex import extraction (≈70% accuracy fallback per SPEC §4 Engine 1) |
+- Parse errors reported as data, never raised into kernel.
+- **Delegation > duplication:** if existing repo tooling (`SchemaDriftValidator`, `tools/gates/banned-phrase.ts`, `e2e/tests/integration/*-invariants.spec.ts`, `npx nx affected`) covers a check, the adapter wraps it instead of reimplementing. Reimplementation requires a `delegation-record.md` justifying why existing is insufficient.
 
 ---
+
 
 ## 2 — Skill Protocol
 

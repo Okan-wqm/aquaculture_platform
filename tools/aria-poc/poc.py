@@ -76,6 +76,12 @@ class FileFate:
     reason: str = ""
 
 
+# ─── walk_repo ───────────────────────────────────────────────────────────
+# Repo'yu kök dizinden itibaren gezer. EXCLUDED_DIRS'daki dizinleri
+# `dirs[:] = ...` slice trick'i ile yerinde filtreler — bu dizinlere hiç
+# inmez, CPU+IO tasarrufu sağlar. Çıktı: ARIA Discovery engine'in göreceği
+# tüm app dosyalarının Path listesi. agent-workspace, node_modules,
+# build artefakt'ları, .git burada filtreden geçer.
 def walk_repo(repo_root: Path) -> list[Path]:
     out: list[Path] = []
     for root, dirs, files in os.walk(repo_root):
@@ -86,6 +92,11 @@ def walk_repo(repo_root: Path) -> list[Path]:
     return out
 
 
+# ─── git_ls_files ────────────────────────────────────────────────────────
+# `git ls-files` subprocess çağırır → tracked dosya path'leri set'i. Walk
+# çıktısı ile karşılaştırılır: gap'leri GIT_RECONCILIATION.json açıklar
+# (in-git-but-not-walked = excluded-dir'da tracked; walked-but-not-in-git
+# = untracked). git yoksa boş set döner — sessizce degrade.
 def git_ls_files(repo_root: Path) -> set[str]:
     try:
         r = subprocess.run(
@@ -97,6 +108,11 @@ def git_ls_files(repo_root: Path) -> set[str]:
         return set()
 
 
+# ─── assign_fate ─────────────────────────────────────────────────────────
+# Coverage Invariant'ın çekirdeği: HER dosyaya bir fate atanır
+# (read_deeply | read_skimmed | skipped_with_reason). Bilinen manifest +
+# desteklenen dil = deeply; binary/asset = skipped; gerisi = skim.
+# Hiçbir dosya sessizce yok sayılmaz — gözlerden kaçmama disiplini.
 def assign_fate(path: Path, repo_root: Path) -> FileFate:
     rel = str(path.relative_to(repo_root))
     ext = path.suffix.lower()
@@ -108,6 +124,11 @@ def assign_fate(path: Path, repo_root: Path) -> FileFate:
     return FileFate(rel, "read_skimmed", "no specialized adapter")
 
 
+# ─── compute_fingerprint ─────────────────────────────────────────────────
+# Repo'nun "boyutunu" mekanik özetler: dil histogramı, manifest tipleri,
+# servis sayıları (apps/ + web/modules/), migration sayısı, ADR sayısı,
+# specialized agent sayısı, nx workspace var mı. Bu fingerprint operatöre
+# "bu repo neye benziyor" sorusuna LLM'siz cevap veren tek anchor.
 def compute_fingerprint(repo_root: Path, fates: list[FileFate]) -> Fingerprint:
     lang_hist: Counter[str] = Counter()
     manifests: set[str] = set()
@@ -159,6 +180,11 @@ def compute_fingerprint(repo_root: Path, fates: list[FileFate]) -> Fingerprint:
     )
 
 
+# ─── write_claude_md_priors ──────────────────────────────────────────────
+# CLAUDE.md TRUSTED prior olarak ingest edilir (SPEC §5.1). Mekanik
+# extraction: heading'leri çıkartır, content SHA-256'sını kaydeder. LLM
+# özeti yok; full ARIA gelince bu mekanik extract'in üstüne anlam
+# katmanı oturur. Şimdilik sadece "neyin ingestlendi" kanıtı.
 def write_claude_md_priors(repo_root: Path, out_dir: Path) -> Path | None:
     src = repo_root / "CLAUDE.md"
     if not src.exists():
@@ -178,6 +204,11 @@ def write_claude_md_priors(repo_root: Path, out_dir: Path) -> Path | None:
     return out
 
 
+# ─── write_adr_priors ────────────────────────────────────────────────────
+# docs/adr/[0-9][0-9][0-9]-*.md sadece (CLAUDE.md known-drift listesindeki
+# misfile'lar atlanır). Her ADR'den title + status mekanik regex ile
+# çıkartılır. Bu output ARIA için TRUSTED prior — full ARIA bunu Day 0'da
+# yükleyip mimari kararları belief olarak saklar.
 def write_adr_priors(repo_root: Path, out_dir: Path) -> tuple[Path | None, int]:
     adr_dir = repo_root / "docs" / "adr"
     if not adr_dir.exists():
@@ -199,6 +230,12 @@ def write_adr_priors(repo_root: Path, out_dir: Path) -> tuple[Path | None, int]:
     return out, len(canonical)
 
 
+# ─── write_agent_priors ──────────────────────────────────────────────────
+# 38+ specialized review agent'ın frontmatter'ından `description` çekilir.
+# AGENT_PRIORS.md, full ARIA'nın "bu drift hangi domain agent'ın işine
+# girer" sorusunu çözmek için kullanacağı path → agent mapping'in ham
+# malzemesi (CONTRACTS §1.2 #13 agent-priors-mapper). PoC sadece
+# mekanik index üretir; mapping'i full ARIA kuracak.
 def write_agent_priors(repo_root: Path, out_dir: Path) -> tuple[Path | None, int]:
     agents_dir = repo_root / ".claude" / "agents"
     if not agents_dir.exists():
@@ -238,6 +275,12 @@ def write_agent_priors(repo_root: Path, out_dir: Path) -> tuple[Path | None, int
     return out, len(files)
 
 
+# ─── run_nx_graph ────────────────────────────────────────────────────────
+# `npx nx graph --file=...` subprocess olarak çağırır. Çıktı: nx'in tam
+# project dependency graph'ı JSON formatında. Full ARIA bunu kullanarak
+# cross-service drift severity'sini dependency depth ile ağırlıklandırır
+# (SPEC §9.6 + CONTRACTS §1.2 #12 nx-graph adapter). nx yoksa False
+# döner — best-effort degrade.
 def run_nx_graph(repo_root: Path, out_dir: Path) -> bool:
     out_path = out_dir / "BUILD_GRAPH.json"
     try:
@@ -250,6 +293,13 @@ def run_nx_graph(repo_root: Path, out_dir: Path) -> bool:
         return False
 
 
+# ─── detect_ts_enums ─────────────────────────────────────────────────────
+# Pattern manifest: `enum Foo { A, B, C }` (export'lı veya değil).
+# Yorum satırlarını (// ve /* */) split öncesi temizler — Türkçe yorumlu
+# enum body'lerinde yorumların value gibi yakalanması bug'ı çözüldü.
+# Identifier regex (^[A-Za-z_][A-Za-z0-9_]*$) garbage'ı eler.
+# Bu, full ARIA'nın `typescript-nestjs-cqrs` adapter'ının (CONTRACTS §1.2
+# #1) bir alt parçası — burada izole + jenerik biçimde.
 def detect_ts_enums(repo_root: Path, fates: list[FileFate]) -> list[dict]:
     enums: list[dict] = []
     for f in fates:
@@ -286,6 +336,12 @@ def detect_ts_enums(repo_root: Path, fates: list[FileFate]) -> list[dict]:
     return enums
 
 
+# ─── detect_sql_enums ────────────────────────────────────────────────────
+# Pattern manifest: `CREATE TYPE foo AS ENUM ('a', 'b', 'c')` — sadece
+# apps/*/src/database/migrations/ altında. Bu repo'da tüm SQL enum'lar
+# TypeORM migration'larından geliyor (ADR-011 schema-per-tenant).
+# Full ARIA'nın `sql-typeorm-migration` adapter'ının (CONTRACTS §1.2 #7)
+# bir alt parçası.
 def detect_sql_enums(repo_root: Path, fates: list[FileFate]) -> list[dict]:
     enums: list[dict] = []
     for f in fates:
@@ -310,6 +366,17 @@ def detect_sql_enums(repo_root: Path, fates: list[FileFate]) -> list[dict]:
     return enums
 
 
+# ─── find_drifts ─────────────────────────────────────────────────────────
+# Drift detection iki katmanlı:
+#   1) İsim eşleştirme: tek-suffix strip (priority _enum > _status > _type
+#      > enum > status > type). Çoklu strip ETMEK YOK — eski kod
+#      DepartmentStatus + DepartmentType + department_type'i `department`'a
+#      collapse ediyordu, false positive üretiyordu.
+#   2) Value-set Jaccard similarity ≥ jaccard_threshold (default 0.3).
+#      Düşükse drifts_filtered'a düşer (görünür ama main listede değil).
+# Cross-service flag: TS path'in apps/X'i ile SQL path'in apps/X'i farklı
+# mı? (categorically more critical — PR-cycle agent'ları yakalayamaz).
+# Sıralama: cross-service ilk, sonra similarity desc.
 def find_drifts(ts_enums: list[dict], sql_enums: list[dict],
                 jaccard_threshold: float = 0.3) -> tuple[list[dict], list[dict]]:
     """Returns (drifts_above_threshold, drifts_filtered_out).
@@ -379,6 +446,11 @@ def find_drifts(ts_enums: list[dict], sql_enums: list[dict],
     return drifts_above, drifts_filtered
 
 
+# ─── write_fates_json ────────────────────────────────────────────────────
+# Coverage Invariant'ın diske yazılı kanıtı. Operatör "X dosyasını PoC
+# gerçekten gördü mü?" sorusunu jq ile cevaplayabilir. Önceki sürüm
+# sadece sayı veriyordu (audit zayıf); şimdi her dosya için
+# {path, fate, reason} JSON ledger.
 def write_fates_json(out_dir: Path, fates: list[FileFate]) -> Path:
     """Coverage Invariant proof — every file with its fate, queryable."""
     out = out_dir / "FATES.json"
@@ -392,6 +464,11 @@ def write_fates_json(out_dir: Path, fates: list[FileFate]) -> Path:
     return out
 
 
+# ─── write_skimmed_files ─────────────────────────────────────────────────
+# read_skimmed + skipped_with_reason dosyalarını listeler. PoC'nin
+# "körlük" alanı: hangi dosyalara mekanik adapter uygulamadı, hangi
+# dosyaları binary diye atladı. Coverage proof'un diğer yarısı
+# (deeply yapılan FATES.json'da, görmedikleri burada).
 def write_skimmed_files(out_dir: Path, fates: list[FileFate]) -> Path:
     """The list of files PoC did NOT analyze deeply — gap visibility."""
     skimmed = [f for f in fates if f.fate == "read_skimmed"]
@@ -413,6 +490,14 @@ def write_skimmed_files(out_dir: Path, fates: list[FileFate]) -> Path:
     return out
 
 
+# ─── write_git_reconciliation ────────────────────────────────────────────
+# filesystem walk'ı git ls-files ile karşılaştırır. İki yön:
+#   in_git_but_not_walked: tracked ama EXCLUDED_DIRS'da (örn. tracked
+#     dist/ veya .nx/ artefakt'ları) — Discovery engine bunları
+#     bilerek atlıyor.
+#   walked_but_not_in_git: untracked / yeni / gitignored — operatör'ün
+#     henüz commit etmediği dosyalar.
+# Önceki sürüm bu farkı sessiz geçiyordu (saklı blind spot).
 def write_git_reconciliation(out_dir: Path, fates: list[FileFate],
                              git_set: set[str]) -> tuple[Path, dict]:
     """Explain the gap between filesystem walk and git ls-files."""
@@ -438,6 +523,12 @@ def write_git_reconciliation(out_dir: Path, fates: list[FileFate],
     return out, summary
 
 
+# ─── scan_prior_audits ───────────────────────────────────────────────────
+# Her drift adayı için, drift'in TS+SQL enum adlarını
+# docs/audits/, docs/reviews/, docs/product-audits/ altında grep'ler.
+# Eşleşme varsa: bu drift zaten geçmiş audit'lerde kayıt — operatör
+# biliyor olabilir. Tekrar gürültüyü filtrelemek için. PoC %100
+# mekanik (keyword-only); full ARIA bunu structural compare yapacak.
 def scan_prior_audits(repo_root: Path, drifts: list[dict]) -> dict[str, list[str]]:
     """For each drift, scan docs/{audits,reviews,product-audits}/ for mention
     of the enum names. Mechanical grep — no LLM. Returns {drift_concept: [audit_refs]}.
@@ -472,6 +563,13 @@ def scan_prior_audits(repo_root: Path, drifts: list[dict]) -> dict[str, list[str
     return mentions
 
 
+# ─── write_report ────────────────────────────────────────────────────────
+# Operatöre gidecek tek dosya: aria-poc-report.md. Coverage Invariant +
+# Repository Fingerprint + TRUSTED priors + drift candidates (above
+# Jaccard threshold, cross-service flagged, prior-audit mention'lı) +
+# 4 soruluk decision gate. Drift listesi top 10 ile sınırlı (full
+# data MECHANICAL_DRIFTS.json'da). LLM yok, opinion yok — operatör
+# karar verir.
 def write_report(out_dir: Path, fp: Fingerprint, fates: list[FileFate],
                  drifts_above: list[dict], drifts_filtered: list[dict],
                  git_recon: dict, audit_mentions: dict[str, list[str]],
@@ -576,6 +674,19 @@ def write_report(out_dir: Path, fp: Fingerprint, fates: list[FileFate],
     return out
 
 
+# ─── main ────────────────────────────────────────────────────────────────
+# Phase 1-7 orkestrasyon:
+#   1. filesystem walk + git ls-files
+#   2. fates assignment + diske yazımı (FATES.json + SKIMMED_FILES.md)
+#   2.5 git ↔ filesystem reconciliation
+#   3. fingerprint compute + REPO_FINGERPRINT.json
+#   4. TRUSTED prior ingestion (CLAUDE.md, ADR'ler, agent index)
+#   5. nx graph (best-effort)
+#   6. mechanical drift scan (TS enum vs SQL enum) + filter + sort
+#   6.5 prior-audit mention scan
+#   7. INDEX.json manifest + aria-poc-report.md
+# Exit code: 0 if drift sayısı ≤ --fail-on-drifts; aksi halde 1
+# (CI integration için). Disiplinli sonlanma.
 def main() -> int:
     ap = argparse.ArgumentParser(description="ARIA Phase-1 PoC — operator decision tool")
     ap.add_argument("--workspace-root", default=".", help="Repo root (default: cwd)")

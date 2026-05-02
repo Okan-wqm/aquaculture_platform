@@ -579,6 +579,36 @@ The 38 agents in `.claude/agents/` run on review cycles (PR-triggered). ARIA run
 
 ARIA's findings reference relevant specialized-agent domains: "this would have been caught by `tenant-isolation-auditor` if a PR had been submitted; ARIA detected it via continuous monitoring". This makes ARIA additive, not replacement.
 
+### 9.6 — Existing-tool delegation matrix (NEW)
+
+ARIA does not reimplement repository tooling. It delegates. This rule prevents the second-implementation tax (two divergent banned-phrase checkers, two schema-drift validators, two affected-graphs) and keeps ARIA's surface area additive, not duplicative.
+
+| Existing tool | ARIA's relationship | Detail |
+|---|---|---|
+| `SchemaDriftValidator` (boot-time, libs/backend-common) | DELEGATE | `sql-schema-invariants-delegation` adapter (CONTRACTS §1.2 #8) calls this; ARIA's own spine-drift only covers cross-layer drift the existing validator doesn't see. |
+| `tools/gates/banned-phrase.ts` | DELEGATE | ARIA's `banned_phrase_gate` is a thin wrapper — Bash invokes the existing TS gate; no Python reimplementation. |
+| `e2e/tests/integration/schema-invariants.spec.ts` | DELEGATE | Run headlessly via the schema-invariants adapter; parse pass/fail; suppress drift candidates the existing test already enforces. |
+| `e2e/tests/integration/nats-invariants.spec.ts` | DELEGATE | `nats-services-yaml` adapter (#9) runs this; suppresses NATS-topology drift the existing test covers. |
+| `npx nx affected` | DELEGATE | L2 validation scope (§2 L2) calls `nx affected --target=test/lint/build`; ARIA does not compute its own affected-graph. |
+| `npx nx graph --json` | DELEGATE + AMPLIFY | `nx-graph` adapter (#12) consumes the JSON; ARIA adds dependency-depth-weighted severity on top, but never re-derives the graph. |
+| `tools/gates/finding-registry.ts` | INTEGRATE | ARIA findings (`F-*`) write into the existing finding registry, not a parallel one. |
+| `tools/gates/commit-msg-validator.ts` | DELEGATE | ARIA's own commit messages pass through this validator. The `Closes:` line discipline is shared. |
+| `tools/gates/tier-claim-lint.ts` | DELEGATE | ARIA's tier-N claims (when emitted in commits) pass through the existing linter. |
+| 38+ specialized review agents (`.claude/agents/*.md`) | COMPLEMENTARY | `agent-priors-mapper` adapter (#13) builds the path → agent reference table; ARIA findings cite via `related_specialized_agent_domains`. |
+| `.claude/shared/operating-modes.md` (CATCHER/TEACHER/WRITER) | RESPECT | ARIA-emitted artifacts comply with operating-mode output expectations; ARIA does not propose a fourth mode. |
+
+**Delegation discipline:** if ARIA wants to implement a check that an existing tool already covers, the implementer must first author `delegation-record.md` justifying why existing is insufficient. Without this record, the second implementation is rejected at the kernel. This is the rule that keeps ARIA from becoming "yet another linter".
+
+**What ARIA OWNS (not delegated):**
+- The kernel itself (orchestrator slash command, integrity hash chain, kill switch)
+- Skill genesis pipeline (REQUEST → SHADOW → ACTIVE → ARCHIVE)
+- Capsule / Spine / Evidence Chain / Finding / Observation / Debt schemas
+- Nuance Discrimination Protocol (IDENTITY §3.5)
+- Visible Problem Discipline (IDENTITY §3.6)
+- Continuous-mode detection that is impossible at PR-cycle time (drift between PRs, currency erosion, slow-burn contradiction accumulation)
+
+The line: **ARIA owns the META, delegates the CONCRETE.** Concrete invariant checks live in existing tools; ARIA orchestrates, contextualizes, and bridges between them.
+
 ---
 
 ## 10 — For the Operator

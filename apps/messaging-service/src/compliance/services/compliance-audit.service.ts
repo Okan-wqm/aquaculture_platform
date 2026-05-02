@@ -1,8 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, EntityManager } from 'typeorm';
+import { DataSource, EntityManager } from 'typeorm';
 
-import { tenantManagerRepo } from '@aquaculture/backend-common/database';
+import {
+  runInTenantTransaction,
+  tenantManagerRepo,
+} from '@aquaculture/backend-common/database';
 import {
   ComplianceAuditLog,
   ComplianceAction,
@@ -57,10 +59,7 @@ export interface AuditLogPage {
 export class ComplianceAuditService {
   private readonly logger = new Logger(ComplianceAuditService.name);
 
-  constructor(
-    @InjectRepository(ComplianceAuditLog)
-    private readonly auditRepo: Repository<ComplianceAuditLog>,
-  ) {}
+  constructor(private readonly dataSource: DataSource) {}
 
   /**
    * Log a single audit entry.
@@ -79,11 +78,8 @@ export class ComplianceAuditService {
     // can never carry a tenantId different from the caller's request scope.
     // Outside-transaction fallback (fire-and-forget) carries explicit
     // tenantId in the entry payload below.
-    const repo = manager
-      ? tenantManagerRepo(manager, ComplianceAuditLog, params.tenantId)
-      : this.auditRepo;
-
-    const doLog = async (): Promise<void> => {
+    const doLog = async (activeManager: EntityManager): Promise<void> => {
+      const repo = tenantManagerRepo(activeManager, ComplianceAuditLog, params.tenantId);
       const entry = repo.create({
         tenantId: params.tenantId,
         userId: params.userId,
@@ -99,11 +95,16 @@ export class ComplianceAuditService {
 
     if (manager) {
       // Transactional caller: propagate errors so the transaction can roll back
-      await doLog();
+      await doLog(manager);
     } else {
       // Fire-and-forget caller: catch errors to avoid disrupting the caller
       try {
-        await doLog();
+        await runInTenantTransaction(
+          this.dataSource,
+          'messaging',
+          params.tenantId,
+          (queryRunner) => doLog(queryRunner.manager),
+        );
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         this.logger.error(`Failed to write audit log: ${message}`);
@@ -119,19 +120,35 @@ export class ComplianceAuditService {
     if (entries.length === 0) return;
 
     try {
-      const entities = entries.map((params) =>
-        this.auditRepo.create({
-          tenantId: params.tenantId,
-          userId: params.userId,
-          action: params.action,
-          resourceType: params.resourceType,
-          resourceId: params.resourceId,
-          details: params.details,
-          ipAddress: params.ipAddress,
-          userAgent: params.userAgent,
-        }),
-      );
-      await this.auditRepo.save(entities);
+      const grouped = new Map<string, AuditLogParams[]>();
+      for (const entry of entries) {
+        const tenantEntries = grouped.get(entry.tenantId) ?? [];
+        tenantEntries.push(entry);
+        grouped.set(entry.tenantId, tenantEntries);
+      }
+
+      for (const [tenantId, tenantEntries] of grouped) {
+        await runInTenantTransaction(
+          this.dataSource,
+          'messaging',
+          tenantId,
+          async (queryRunner) => {
+            const repo = tenantManagerRepo(queryRunner.manager, ComplianceAuditLog, tenantId);
+            await repo.saveMany(
+              tenantEntries.map((params) => ({
+                tenantId: params.tenantId,
+                userId: params.userId,
+                action: params.action,
+                resourceType: params.resourceType,
+                resourceId: params.resourceId,
+                details: params.details,
+                ipAddress: params.ipAddress,
+                userAgent: params.userAgent,
+              })),
+            );
+          },
+        );
+      }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.error(`Failed to write batch audit log (${entries.length} entries): ${message}`);
@@ -147,56 +164,64 @@ export class ComplianceAuditService {
     limit: number,
     cursor: string | null,
   ): Promise<AuditLogPage> {
-    const qb = this.auditRepo
-      .createQueryBuilder('a')
-      .where('a."tenantId" = :tenantId', { tenantId: filters.tenantId });
+    return runInTenantTransaction(
+      this.dataSource,
+      'messaging',
+      filters.tenantId,
+      async (queryRunner) => {
+        const repo = queryRunner.manager.getRepository(ComplianceAuditLog);
+        const qb = repo
+          .createQueryBuilder('a')
+          .where('a."tenantId" = :tenantId', { tenantId: filters.tenantId });
 
-    if (filters.userId) {
-      qb.andWhere('a."userId" = :userId', { userId: filters.userId });
-    }
-    if (filters.action) {
-      qb.andWhere('a."action" = :action', { action: filters.action });
-    }
-    if (filters.resourceType) {
-      qb.andWhere('a."resourceType" = :resourceType', {
-        resourceType: filters.resourceType,
-      });
-    }
-    if (filters.startDate) {
-      qb.andWhere('a."createdAt" >= :startDate', { startDate: filters.startDate });
-    }
-    if (filters.endDate) {
-      qb.andWhere('a."createdAt" <= :endDate', { endDate: filters.endDate });
-    }
+        if (filters.userId) {
+          qb.andWhere('a."userId" = :userId', { userId: filters.userId });
+        }
+        if (filters.action) {
+          qb.andWhere('a."action" = :action', { action: filters.action });
+        }
+        if (filters.resourceType) {
+          qb.andWhere('a."resourceType" = :resourceType', {
+            resourceType: filters.resourceType,
+          });
+        }
+        if (filters.startDate) {
+          qb.andWhere('a."createdAt" >= :startDate', { startDate: filters.startDate });
+        }
+        if (filters.endDate) {
+          qb.andWhere('a."createdAt" <= :endDate', { endDate: filters.endDate });
+        }
 
-    // Cursor-based pagination
-    if (cursor) {
-      const decoded = this.decodeCursor(cursor);
-      qb.andWhere(
-        '(a."createdAt" < :cursorDate OR (a."createdAt" = :cursorDate AND a."id" < :cursorId))',
-        { cursorDate: decoded.createdAt, cursorId: decoded.id },
-      );
-    }
+        // Cursor-based pagination
+        if (cursor) {
+          const decoded = this.decodeCursor(cursor);
+          qb.andWhere(
+            '(a."createdAt" < :cursorDate OR (a."createdAt" = :cursorDate AND a."id" < :cursorId))',
+            { cursorDate: decoded.createdAt, cursorId: decoded.id },
+          );
+        }
 
-    qb.orderBy('a."createdAt"', 'DESC').addOrderBy('a."id"', 'DESC');
-    qb.take(limit + 1);
+        qb.orderBy('a."createdAt"', 'DESC').addOrderBy('a."id"', 'DESC');
+        qb.take(limit + 1);
 
-    const [items, totalCount] = await Promise.all([
-      qb.getMany(),
-      this.auditRepo
-        .createQueryBuilder('a')
-        .where('a."tenantId" = :tenantId', { tenantId: filters.tenantId })
-        .getCount(),
-    ]);
+        const [items, totalCount] = await Promise.all([
+          qb.getMany(),
+          repo
+            .createQueryBuilder('a')
+            .where('a."tenantId" = :tenantId', { tenantId: filters.tenantId })
+            .getCount(),
+        ]);
 
-    const hasMore = items.length > limit;
-    const page = hasMore ? items.slice(0, limit) : items;
-    const nextCursor =
-      page.length > 0
-        ? this.encodeCursor(page[page.length - 1]!)
-        : null;
+        const hasMore = items.length > limit;
+        const page = hasMore ? items.slice(0, limit) : items;
+        const nextCursor =
+          page.length > 0
+            ? this.encodeCursor(page[page.length - 1]!)
+            : null;
 
-    return { items: page, hasMore, cursor: nextCursor, totalCount };
+        return { items: page, hasMore, cursor: nextCursor, totalCount };
+      },
+    );
   }
 
   private encodeCursor(entry: ComplianceAuditLog): string {

@@ -1,5 +1,4 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { getRepositoryToken } from '@nestjs/typeorm';
 import { ComplianceAuditService } from '../compliance-audit.service';
 import {
   ComplianceAuditLog,
@@ -12,13 +11,27 @@ import {
   fakeUuid,
   resetUuidCounter,
   MockRepository,
-  TENANT_A,
 } from '../../../__tests__/test-helpers';
-import type { SelectQueryBuilder, ObjectLiteral } from 'typeorm';
+import { DataSource } from 'typeorm';
+import type { SelectQueryBuilder } from 'typeorm';
+
+const TENANT_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
 describe('ComplianceAuditService', () => {
   let service: ComplianceAuditService;
   let auditRepo: MockRepository<ComplianceAuditLog>;
+  let dataSource: jest.Mocked<Pick<DataSource, 'createQueryRunner'>>;
+  let queryRunner: {
+    connect: jest.Mock;
+    startTransaction: jest.Mock;
+    query: jest.Mock;
+    commitTransaction: jest.Mock;
+    rollbackTransaction: jest.Mock;
+    release: jest.Mock;
+    manager: {
+      getRepository: jest.Mock;
+    };
+  };
 
   const userId = fakeUuid('usr');
 
@@ -33,11 +46,25 @@ describe('ComplianceAuditService', () => {
     auditRepo.save.mockImplementation(
       (data: unknown) => Promise.resolve(data as ComplianceAuditLog),
     );
+    queryRunner = {
+      connect: jest.fn().mockResolvedValue(undefined),
+      startTransaction: jest.fn().mockResolvedValue(undefined),
+      query: jest.fn().mockResolvedValue(undefined),
+      commitTransaction: jest.fn().mockResolvedValue(undefined),
+      rollbackTransaction: jest.fn().mockResolvedValue(undefined),
+      release: jest.fn().mockResolvedValue(undefined),
+      manager: {
+        getRepository: jest.fn().mockReturnValue(auditRepo),
+      },
+    };
+    dataSource = {
+      createQueryRunner: jest.fn().mockReturnValue(queryRunner),
+    } as jest.Mocked<Pick<DataSource, 'createQueryRunner'>>;
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ComplianceAuditService,
-        { provide: getRepositoryToken(ComplianceAuditLog), useValue: auditRepo },
+        { provide: DataSource, useValue: dataSource },
       ],
     }).compile();
 
@@ -70,6 +97,10 @@ describe('ComplianceAuditService', () => {
       }),
     );
     expect(auditRepo.save).toHaveBeenCalled();
+    expect(queryRunner.query).toHaveBeenCalledWith(
+      `SELECT pg_catalog.set_config('search_path', $1, true)`,
+      ['"tenant_aaaaaaaaaaaa4aaa", "messaging", public'],
+    );
   });
 
   // -----------------------------------------------------------------------
@@ -227,7 +258,12 @@ describe('ComplianceAuditService', () => {
 
     await service.logBatch(entries);
 
-    expect(auditRepo.create).toHaveBeenCalledTimes(2);
+    expect(auditRepo.create).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ action: ComplianceAction.MESSAGE_SEND }),
+        expect.objectContaining({ action: ComplianceAction.MESSAGE_DELETE }),
+      ]),
+    );
     expect(auditRepo.save).toHaveBeenCalled();
   });
 });

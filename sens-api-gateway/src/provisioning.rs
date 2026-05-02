@@ -208,17 +208,36 @@ impl std::fmt::Debug for SelfRegisterResponse {
 impl ProvisioningClient {
     /// Create a new provisioning client
     pub fn new(state: Arc<RwLock<AppState>>) -> Result<Self> {
-        // Use system CA store for TLS verification. The cloud API uses Let's Encrypt
-        // certificates which rotate every 90 days, making CA pinning impractical.
+        // Phase 1.1.3a (closes ORPHAN-HIGH-035 cipher dimension): use the
+        // Suderra-narrowed `ClientConfig` so the cipher-suite allowlist
+        // (3 TLS 1.3 suites) + the protocol-version pin (TLS 1.3 only)
+        // apply to the provisioning HTTPS path. Pre-Phase-1.1.3 this
+        // endpoint inherited the process-global `install_default()` ring
+        // provider — UNRESTRICTED — and would advertise every TLS 1.2
+        // ECDHE suite in the ClientHello, leaving the device-bootstrap
+        // token exchange exposed to cipher-suite-downgrade attacks.
         //
         // Security is maintained through:
-        // - HTTPS with standard certificate validation (system CA store)
+        // - HTTPS with TLS 1.3 + Suderra cipher allowlist (this batch)
+        // - Standard certificate validation against system CA store
+        //   (Let's Encrypt, DigiCert, etc. — the cloud API rotates Let's
+        //   Encrypt every 90 days, so leaf-cert pinning is impractical at
+        //   this layer)
         // - Provisioning tokens are single-use and time-limited
         // - MQTT credentials are rotated on each activation
+        // - Redirect policy disabled (block cross-origin redirects that
+        //   could leak the bootstrap token)
+        //
+        // Suderra leaf-cert pinning at the cloud-API level (Phase 1.1.3b
+        // / ORPHAN-HIGH-043) requires per-endpoint cert knowledge from
+        // the cloud-side rotation manifest infrastructure — out of scope
+        // here.
+        let suderra_tls = crate::mtls::build_suderra_https_client_config()
+            .map_err(|e| anyhow::anyhow!("Failed to build Suderra HTTPS ClientConfig: {e}"))?;
         let http_client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
-            .tls_built_in_root_certs(true)
-            .redirect(reqwest::redirect::Policy::none()) // Block cross-origin redirects leaking token
+            .use_preconfigured_tls((*suderra_tls).clone())
+            .redirect(reqwest::redirect::Policy::none())
             .build()
             .context("Failed to create HTTP client")?;
 

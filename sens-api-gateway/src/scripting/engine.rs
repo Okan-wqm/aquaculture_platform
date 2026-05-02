@@ -1381,9 +1381,11 @@ impl ScriptEngine {
         if matches!(op, ComparisonOperator::Between) {
             if let Some(l) = left.as_f64() {
                 if let Some(arr) = right.as_array() {
-                    if arr.len() >= 2 {
-                        let min = arr[0].as_f64().unwrap_or(f64::MIN);
-                        let max = arr[1].as_f64().unwrap_or(f64::MAX);
+                    // 2026-05-01: BETWEEN comparisons consume JSON configuration; use
+                    // checked array destructuring to reject malformed ranges without panic.
+                    if let [min_value, max_value, ..] = arr.as_slice() {
+                        let min = min_value.as_f64().unwrap_or(f64::MIN);
+                        let max = max_value.as_f64().unwrap_or(f64::MAX);
                         return l >= min && l <= max;
                     }
                 }
@@ -1949,13 +1951,33 @@ impl ScriptEngine {
 
         // Use the engine's shared HTTP client (Arc-backed, connection pool shared across all
         // webhook actions and scan cycles).  Lazy-initialised on first call.
+        //
+        // Phase 1.1.3a (closes ORPHAN-HIGH-035 cipher dimension): the
+        // shared client now uses the Suderra-narrowed ClientConfig so
+        // operator-defined webhook URLs are exercised under the TLS 1.3
+        // + 3-suite cipher allowlist. Webhook destinations are
+        // operator-controlled (any HTTPS server), so Suderra leaf-cert
+        // pinning is intentionally NOT applied — the cipher allowlist
+        // is universally safe (TLS 1.3 is widely supported), but pinning
+        // would break the moment an operator's webhook destination
+        // rotates its cert.
         let client_arc = match &self.http_client {
             Some(c) => c.clone(),
             None => {
+                let suderra_tls = match crate::mtls::build_suderra_https_client_config() {
+                    Ok(c) => c,
+                    Err(e) => {
+                        return ActionResult::failure(
+                            ActionType::Webhook,
+                            format!("Failed to build Suderra HTTPS ClientConfig: {e}"),
+                        );
+                    }
+                };
                 let new_client = match reqwest::Client::builder()
                     .connect_timeout(std::time::Duration::from_secs(5))
                     .timeout(std::time::Duration::from_secs(10))
                     .pool_max_idle_per_host(2) // Limit idle connections
+                    .use_preconfigured_tls((*suderra_tls).clone())
                     .redirect(reqwest::redirect::Policy::none()) // Block redirect-based SSRF bypasses
                     .build()
                 {

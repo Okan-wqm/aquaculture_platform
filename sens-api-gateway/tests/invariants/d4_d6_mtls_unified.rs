@@ -210,3 +210,59 @@ fn d6_fallback_webpki_constructed_in_configure_tls() {
          handshakes panic in the wrapper."
     );
 }
+
+/// **ORPHAN-HIGH-035 cipher dimension closure (Phase 1.1.3a):** every
+/// reqwest HTTPS callsite MUST use `build_suderra_https_client_config`
+/// via `use_preconfigured_tls(...)`. A regression that drops this wire
+/// reverts the cipher policy on the cloud-bound HTTPS path back to the
+/// unrestricted ring provider — the bootstrap-token endpoint becomes
+/// vulnerable to TLS 1.2 cipher-suite-downgrade again.
+#[test]
+fn https_clients_use_suderra_config() {
+    for path in [
+        "src/provisioning.rs",
+        "src/commands/firmware.rs",
+        "src/scripting/engine.rs",
+    ] {
+        let src = read_source(path);
+        assert!(
+            src.contains("build_suderra_https_client_config"),
+            "ORPHAN-HIGH-035 cipher dimension VIOLATED: {path} does not call \
+             build_suderra_https_client_config. The HTTPS reqwest path must \
+             use the Suderra-narrowed ClientConfig so TLS 1.3 + 3-suite cipher \
+             allowlist apply uniformly across MQTT and HTTPS transports."
+        );
+        assert!(
+            src.contains("use_preconfigured_tls"),
+            "ORPHAN-HIGH-035 cipher dimension VIOLATED: {path} does not pass \
+             the Suderra ClientConfig via use_preconfigured_tls. Without this \
+             wire, reqwest defaults to its native cert-loader + the unrestricted \
+             rustls global default — Suderra cipher policy is bypassed."
+        );
+    }
+}
+
+/// **ORPHAN-HIGH-035 cipher dimension closure (Phase 1.1.3a):** the
+/// helper itself MUST exist + use TLS 1.3 + the Suderra crypto provider.
+/// Pins the source-level shape so an "optimization" that swaps in
+/// `rustls::ClientConfig::with_safe_defaults()` (which uses the
+/// unrestricted ring provider) is caught at test time.
+#[test]
+fn https_helper_uses_tls13_and_suderra_provider() {
+    let src = read_source("src/mtls/https_client_config.rs");
+    assert!(
+        src.contains("build_suderra_crypto_provider"),
+        "ORPHAN-HIGH-035 cipher dimension VIOLATED: \
+         src/mtls/https_client_config.rs does not invoke build_suderra_crypto_provider. \
+         The HTTPS factory must produce a ClientConfig narrowed to the 3-suite TLS 1.3 \
+         allowlist; using ring's default_provider re-admits TLS 1.2 ciphers."
+    );
+    assert!(
+        src.contains("with_protocol_versions(&[&rustls::version::TLS13])")
+            || src.contains("&[&rustls::version::TLS13]"),
+        "ORPHAN-HIGH-035 cipher dimension VIOLATED: \
+         src/mtls/https_client_config.rs does not pin protocol version to TLS 1.3. \
+         Even with the cipher allowlist narrowed, an explicit version pin is \
+         defense-in-depth against future rustls feature flags re-enabling TLS 1.2."
+    );
+}

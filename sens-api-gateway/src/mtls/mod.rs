@@ -53,6 +53,12 @@ pub mod cipher;
 // CryptoProvider construction so non-allowlist suites cannot even appear
 // in the ClientHello.
 pub mod crypto_provider;
+// Phase 1.1.3a: cipher-allowlist-only ClientConfig factory for HTTPS
+// reqwest clients (provisioning, firmware download, scripting webhooks,
+// telemetry posts). Closes the cipher dimension of ORPHAN-HIGH-035 —
+// HTTPS endpoints no longer inherit the unrestricted ring provider via
+// the install_default() global. Pinning dimension is Phase 1.1.3b.
+pub mod https_client_config;
 pub mod error;
 pub mod mode;
 pub mod pinning;
@@ -74,6 +80,7 @@ pub use cipher::{CIPHER_SUITE_ALLOWLIST, CipherSuite};
 pub use crypto_provider::{
     build_suderra_crypto_provider, build_suderra_crypto_provider_or_default,
 };
+pub use https_client_config::build_suderra_https_client_config;
 pub use error::MtlsVerifyError;
 pub use mode::{
     MAX_LEAF_CERT_AGE_DAYS_LEGACY, MAX_LEAF_CERT_AGE_DAYS_STRICT, MAX_LEAF_CERT_AGE_DAYS_WARN,

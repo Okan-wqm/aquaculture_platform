@@ -8,6 +8,7 @@ import { DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 
 import { TenantScopedRepository } from '@aquaculture/backend-common/database';
+import { withTenantContext } from '@aquaculture/backend-common/context';
 import { OutboxPublisher } from '@platform/outbox';
 import { createBaseEvent, BaseEvent } from '@platform/event-contracts';
 import { CreateChannelCommand } from './create-channel.command';
@@ -45,6 +46,10 @@ export class CreateChannelHandler
    * - AI: any authenticated user can create.
    */
   async execute(command: CreateChannelCommand): Promise<Channel> {
+    return withTenantContext(command.tenantId, () => this.executeInTenantContext(command));
+  }
+
+  private async executeInTenantContext(command: CreateChannelCommand): Promise<Channel> {
     const { tenantId, userId, input, userRole } = command;
 
     // ---------------------------------------------------------------

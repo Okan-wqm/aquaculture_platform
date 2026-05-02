@@ -7,6 +7,8 @@ import {
 } from '@nestjs/common';
 import { Observable, tap } from 'rxjs';
 import { GqlExecutionContext } from '@nestjs/graphql';
+import { withTenantContext } from '@aquaculture/backend-common/context';
+import { isValidUUID } from '@aquaculture/backend-common/database';
 
 import { ComplianceAuditService } from '../services/compliance-audit.service';
 import { ComplianceAction } from '../entities/compliance-audit-log.entity';
@@ -98,7 +100,7 @@ export class AuditLogInterceptor implements NestInterceptor {
         next: (result: unknown) => {
           // Fire and forget — do not await
           const resourceId = this.extractResourceId(result, args);
-          void this.auditService.log({
+          void this.logWithinTenant(tenantId, {
             tenantId,
             userId,
             action,
@@ -111,7 +113,7 @@ export class AuditLogInterceptor implements NestInterceptor {
         },
         error: (error: unknown) => {
           // Log failed mutations too
-          void this.auditService.log({
+          void this.logWithinTenant(tenantId, {
             tenantId,
             userId,
             action,
@@ -128,6 +130,18 @@ export class AuditLogInterceptor implements NestInterceptor {
         },
       }),
     );
+  }
+
+  private async logWithinTenant(
+    tenantId: string,
+    entry: Parameters<ComplianceAuditService['log']>[0],
+  ): Promise<void> {
+    if (!isValidUUID(tenantId)) {
+      this.logger.warn(`Skipping audit log for invalid tenantId: ${tenantId}`);
+      return;
+    }
+
+    await withTenantContext(tenantId, () => this.auditService.log(entry));
   }
 
   /**

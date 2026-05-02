@@ -242,6 +242,89 @@ fn https_clients_use_suderra_config() {
     }
 }
 
+/// **Phase 1.1.2 D-4 closure (operator surface):** the
+/// `cmd_update_cert_pinning` handler MUST exist + be wired into both
+/// the dispatch table AND the cmd→permission mapping. A regression that
+/// drops any of these wires reduces the operator-facing surface but
+/// leaves the architectural foundation (state handle + delegating
+/// wrapper + downgrade gate) — symptom: operators cannot drive
+/// rotations via MQTT, but the in-process `state.rebuild()` path still
+/// works. This invariant catches that drift on the same PR.
+#[test]
+fn d4_cmd_update_cert_pinning_handler_present() {
+    let src = read_source("src/commands/cert_pinning.rs");
+    assert!(
+        src.contains("pub(super) async fn cmd_update_cert_pinning"),
+        "ULTRA-HIGH-018 / D-4 OPERATOR SURFACE WIRE INVARIANT VIOLATED: \
+         src/commands/cert_pinning.rs does not define `cmd_update_cert_pinning`. \
+         The handler is the operator-facing MQTT entrypoint that drives \
+         MtlsVerifierState::rebuild — without it, hot-reload is reachable \
+         only from in-process callers (Phase 1.1.4), not from operators."
+    );
+    assert!(
+        src.contains("verifier_state.rebuild(new_mode, &pins_hex)"),
+        "ULTRA-HIGH-018 / D-4 OPERATOR SURFACE WIRE INVARIANT VIOLATED: \
+         cmd_update_cert_pinning does not call MtlsVerifierState::rebuild. \
+         The handler must drive rebuild() so the Tier-1 downgrade gate \
+         enforces the policy floor."
+    );
+}
+
+/// **Phase 1.1.2 D-4 closure (dispatch wire):** the
+/// `update_cert_pinning` command name MUST be in the
+/// `dispatch_lifecycle` match arm. A regression that comments out or
+/// removes the arm orphans the handler — code stays compiled but
+/// operators get a "command not found" error.
+#[test]
+fn d4_update_cert_pinning_dispatch_wire_present() {
+    let src = read_source("src/commands/dispatch_lifecycle.rs");
+    assert!(
+        src.contains("\"update_cert_pinning\"") && src.contains("cmd_update_cert_pinning"),
+        "ULTRA-HIGH-018 / D-4 DISPATCH WIRE INVARIANT VIOLATED: \
+         src/commands/dispatch_lifecycle.rs match table does not route \
+         \"update_cert_pinning\" → self.cmd_update_cert_pinning. The \
+         handler is unreachable from MQTT inbound commands."
+    );
+}
+
+/// **Phase 1.1.2 D-4 closure (RBAC permission gate):** the
+/// `update_cert_pinning` command MUST map to
+/// `Permission::ManageCertPinning` in the cmd→permission table.
+/// A regression that maps it to ManagePolicy (or omits it) collapses
+/// the HSM-slot separation that ADR-021 §1 reserves between RBAC and
+/// pinning rotations — an operator with RBAC authority would
+/// auto-inherit pinning authority.
+#[test]
+fn d4_update_cert_pinning_requires_manage_cert_pinning_permission() {
+    let src = read_source("src/commands/required_permission.rs");
+    assert!(
+        src.contains("\"update_cert_pinning\"")
+            && src.contains("Permission::ManageCertPinning"),
+        "ULTRA-HIGH-018 / D-4 RBAC GATE INVARIANT VIOLATED: \
+         src/commands/required_permission.rs does not map \"update_cert_pinning\" \
+         to Permission::ManageCertPinning. Mapping it to ManagePolicy collapses \
+         the HSM-slot separation; omitting it lets the command bypass the RBAC \
+         gate entirely."
+    );
+}
+
+/// **Phase 1.1.2 (Permission enum additive contract):** the new
+/// `ManageCertPinning` variant MUST exist on the Permission enum. Per
+/// the ADR-018 §6 additive-only invariant, this variant cannot be
+/// removed without bumping `min_edge_version` — the test pins its
+/// presence so a future "cleanup" PR cannot silently delete it.
+#[test]
+fn permission_manage_cert_pinning_variant_present() {
+    let src = read_source("src/authz/permission.rs");
+    assert!(
+        src.contains("ManageCertPinning"),
+        "ULTRA-HIGH-018 / Permission enum INVARIANT VIOLATED: \
+         src/authz/permission.rs does not declare the ManageCertPinning variant. \
+         ADR-018 §6 additive-only contract: variants cannot be removed without \
+         a min_edge_version bump."
+    );
+}
+
 /// **ORPHAN-HIGH-035 cipher dimension closure (Phase 1.1.3a):** the
 /// helper itself MUST exist + use TLS 1.3 + the Suderra crypto provider.
 /// Pins the source-level shape so an "optimization" that swaps in

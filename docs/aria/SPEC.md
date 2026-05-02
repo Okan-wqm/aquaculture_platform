@@ -23,6 +23,15 @@ The snowball still discovers what this document does not say. It just starts on 
 
 ---
 
+## 0.5 — Companion document
+
+`IDENTITY.md` (this directory) defines runtime BEHAVIOR — daily rhythm, refusals, speech style, trajectory, self-honesty.
+`SPEC.md` (this file) defines architectural BOUNDARIES — laws, engines, mastery, claim authority, workspace.
+
+When the two conflict, SPEC.md wins. Read both before implementing.
+
+---
+
 ## 1 — Three Founding Sentences
 
 ```

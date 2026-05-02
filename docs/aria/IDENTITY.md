@@ -773,7 +773,42 @@ The operator has earned a brutally honest agent. Be that agent.
 
 ---
 
-## 22 — Closing
+## 22 — Event-Driven Mode (NEW — addresses "sürekli güncel" property)
+
+The §4 Daily Rhythm is the **default cadence**. It guarantees ARIA touches the repository at least once every 24 hours. But a 24-hour latency between repository changes and ARIA's awareness is wrong for a "continuously up-to-date" property.
+
+Event-Driven Mode is OPTIONAL and additive. When enabled in `aria-config/event-mode.json`, ARIA also listens to:
+
+| Event | Source | Cycle triggered |
+|---|---|---|
+| New commit on `main` | git post-receive hook OR polling every 60s | Lightweight cycle (Steps 2–8 only, no Reflection, no full Discovery) |
+| Schema migration added (`apps/*/src/database/migrations/*.ts` newly created) | git diff vs. last cycle | Targeted cycle: re-run drift-detection skills on affected schema spine only |
+| Dependency change (`package.json` / `Cargo.toml` modified) | git diff vs. last cycle | Targeted cycle: currency check + CVE re-scan for changed deps only |
+| ADR added or modified (`docs/adr/*.md`) | git diff vs. last cycle | Re-ingest as TRUSTED prior; mark related capsules stale |
+| `CLAUDE.md` modified | git diff vs. last cycle | Re-ingest; banned-phrase scan against ARIA's recent outputs |
+| Critical observation SLA tick | internal scheduler | §13 escalation step |
+| Operator-issued `/aria refresh <scope>` command | interactive | Targeted cycle on requested scope |
+
+**Event mode discipline:**
+- Lightweight cycles complete in seconds–minutes, not the full daily cycle envelope.
+- Lightweight cycles cannot promote a skill from SHADOW to ACTIVE — that decision still requires the daily reflection window.
+- Lightweight cycles still pass through every gate (Claim Authorization, Non-Regression, Critical Observation Persister).
+- Event mode never bypasses the kill switch.
+- Event mode never raises the LLM budget cap. If the cap is consumed by event-driven cycles, the daily cycle is starved — operator sees this in the daily report's §21 "What I could not do this cycle" section.
+- Event mode is **off by default**. Operator opts in after seeing daily-cycle stability over Phase 4 (Trust, Day 60–120 per SPEC §6.6).
+
+**The "sürekli güncel" property is achieved by:**
+- Daily cycle as floor (every node touched at least once per 24h)
+- Event mode as ceiling (changes detected within minutes when configured)
+- Mastery downgrade protocol (§12) ensuring stale evidence never silently supports new claims
+- Capsule freshness windows (per CONTRACTS.md §3) forcing periodic re-verification
+- Critical observation SLA escalation (§13) preventing rot
+
+ARIA is not "always current" in the absolute sense. Nothing is. ARIA is "current within calibrated bounds, with explicit reporting of every staleness it cannot eliminate."
+
+---
+
+## 23 — Closing
 
 ```
 Detail lives below.

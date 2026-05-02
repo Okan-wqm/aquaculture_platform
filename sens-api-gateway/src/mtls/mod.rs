@@ -1,6 +1,13 @@
-// BATCH-001-CI-FIX-015: pre-staged types for Sprint 6.1-6.8 runtime wiring.
-// Re-exports are intentionally unused until the runtime consumers land.
-#![allow(unused_imports)]
+// BATCH-001-CI-FIX-015 (HISTORICAL): pre-staged types for Sprint 6.1-6.8
+// runtime wiring originally needed `#![allow(unused_imports)]` because the
+// re-exports were anchor-only. Phases 0.1-0.4 + Phase 1.1.1-1.1.5 +
+// Phase 1.1.3a wired all primitives into runtime consumers (mqtt.rs +
+// provisioning.rs + commands/firmware.rs + scripting/engine.rs +
+// tests/invariants/{cipher_allowlist_fleet_compat,d4_d6_mtls_unified}.rs),
+// so the blanket allow is no longer needed and is removed here. Per-item
+// `#[allow(dead_code)]` annotations cover the few remaining Batch-11
+// pre-staged items that are kept on the library surface for future
+// SignedCertPinningManifest wire (Phase 1.1.2 / ORPHAN-HIGH-042).
 
 //! # mTLS 3-stage rollout + leaf cert pinning (plan §5 Faz 2 item 7 + D-6)
 //!
@@ -76,10 +83,16 @@ pub mod rustls_verifier;
 pub mod state_handle;
 pub mod verify;
 
-pub use cipher::{CIPHER_SUITE_ALLOWLIST, CipherSuite};
-pub use crypto_provider::{
-    build_suderra_crypto_provider, build_suderra_crypto_provider_or_default,
-};
+pub use cipher::CIPHER_SUITE_ALLOWLIST;
+// `cipher::CipherSuite` is intentionally NOT re-exported at the `mtls`
+// namespace: internal consumers (crypto_provider.rs tests, future
+// SignedCertPinningManifest wire) reach it via `crate::mtls::cipher::CipherSuite`
+// — keeps the public API surface narrow per YAGNI.
+pub use crypto_provider::build_suderra_crypto_provider;
+// `build_suderra_crypto_provider_or_default` is the fail-soft variant
+// reserved for a future "log-only" cipher rollout stage; currently identical
+// to the strict variant. Kept defined in `crypto_provider.rs` but NOT
+// re-exported until a consumer needs the alternate semantics.
 pub use https_client_config::build_suderra_https_client_config;
 pub use error::MtlsVerifyError;
 pub use mode::{

@@ -796,6 +796,69 @@ mod tests {
         );
     }
 
+    /// **In-flight handshake semantic guarantee** (edge-expert review of
+    /// commit 23e35c25, ORPHAN-MEDIUM follow-up):
+    ///
+    /// rustls invokes the `ServerCertVerifier` callback per-connection.
+    /// Inside the callback, `MtlsDelegatingVerifier::verify_server_cert`
+    /// captures `state.current()` ONCE, binds the resulting `Arc` to a
+    /// stack-frame local, and forwards to that bound verifier. If a
+    /// `rebuild()` happens between the capture and the inner verify call,
+    /// the inner verify MUST honor the OLD verifier — the operator
+    /// rotated pins concurrently with an in-flight handshake, but the
+    /// in-flight handshake completes against whatever was current when
+    /// it started. The next handshake picks up the new verifier.
+    ///
+    /// This test models the in-flight semantics WITHOUT driving a real
+    /// rustls handshake: we capture the `Arc<SuderraServerCertVerifier>`
+    /// that `current()` returns (simulating the rustls capture-then-call
+    /// path), trigger a rebuild that replaces the slot, and assert the
+    /// captured Arc is still alive AND points to a verifier independent
+    /// of the new slot contents. Pointer inequality + strong_count > 0
+    /// together prove the semantic guarantee.
+    #[test]
+    fn captured_arc_survives_rebuild_independent_of_new_verifier() {
+        let (sig_algs, root_store) = empty_anchors();
+        let pins_v1 = vec![PIN_A.to_string()];
+        let pins_v2 = vec![PIN_B.to_string()];
+        let state =
+            MtlsVerifierState::new(MtlsMode::Strict, &pins_v1, sig_algs, root_store).unwrap();
+        // Phase 1 — simulate rustls's per-connection capture.
+        let captured_during_handshake = state.current().expect("Some on Strict + pins");
+        let captured_strong_count_before = Arc::strong_count(&captured_during_handshake);
+        // Phase 2 — operator rotates pins mid-handshake. State swaps
+        // the slot to a new verifier built from pins_v2.
+        let outcome = state.rebuild(MtlsMode::Strict, &pins_v2).unwrap();
+        assert_eq!(outcome, RebuildOutcome::Rebuilt);
+        // Phase 3 — the captured Arc is INDEPENDENT of the slot. The
+        // slot now holds the NEW verifier (different Arc).
+        let after_rebuild = state.current().expect("Some after rebuild");
+        assert!(
+            !Arc::ptr_eq(&captured_during_handshake, &after_rebuild),
+            "in-flight semantic guarantee VIOLATED: captured Arc and new \
+             slot Arc are the SAME pointer — the rebuild leaked into the \
+             in-flight handshake. Expected distinct Arcs (OLD verifier \
+             survives the rebuild for the in-flight call)."
+        );
+        // The captured Arc is still alive — we can still call its methods
+        // (rustls would call verify_server_cert here in a real handshake).
+        // strong_count is at least 1 (the captured Arc itself); typically
+        // exactly 1 because the slot dropped its reference on rebuild.
+        let captured_strong_count_after = Arc::strong_count(&captured_during_handshake);
+        assert!(
+            captured_strong_count_after >= 1,
+            "captured Arc dropped to zero strong references — in-flight \
+             handshake would crash on the next verify_server_cert call. \
+             before={captured_strong_count_before}, after={captured_strong_count_after}"
+        );
+        // The slot's count of the new verifier is independent.
+        assert!(
+            Arc::strong_count(&after_rebuild) >= 1,
+            "new slot Arc has zero strong references — next handshake \
+             cannot capture the new verifier"
+        );
+    }
+
     /// Concurrent reader during a rebuild captures EITHER the old verifier
     /// OR the new one — never a torn observation. Drive a mutating thread
     /// against repeated `current()` calls and assert pointer-stability

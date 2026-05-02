@@ -7,10 +7,13 @@ import {
 import { DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 
-import { TenantScopedRepository } from '@aquaculture/backend-common/database';
+import {
+  runInTenantTransaction,
+  TenantScopedRepository,
+} from '@aquaculture/backend-common/database';
 import { withTenantContext } from '@aquaculture/backend-common/context';
 import { OutboxPublisher } from '@platform/outbox';
-import { createBaseEvent, BaseEvent } from '@platform/event-contracts';
+import { createBaseEvent } from '@platform/event-contracts';
 import { CreateChannelCommand } from './create-channel.command';
 import { Channel, ChannelType } from '../entities/channel.entity';
 import { ChannelMember, ChannelMemberRole } from '../entities/channel-member.entity';
@@ -140,11 +143,7 @@ export class CreateChannelHandler
     peerIds: string[],
     dmPairKey: string,
   ): Promise<Channel> {
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-
-    try {
+    return runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) => {
       // SECURITY: tenantId MUST be set on every channel row for RLS and event routing.
       const channel = queryRunner.manager.create(Channel, {
         tenantId,
@@ -159,6 +158,7 @@ export class CreateChannelHandler
       // Both participants as MEMBER for DM
       const members = peerIds.map((uid) =>
         queryRunner.manager.create(ChannelMember, {
+          tenantId,
           channelId: savedChannel.id,
           userId: uid,
           role: ChannelMemberRole.MEMBER,
@@ -175,17 +175,10 @@ export class CreateChannelHandler
         memberIds: peerIds,
       },  queryRunner.manager);
 
-      await queryRunner.commitTransaction();
-
       this.logger.log(`Created DIRECT channel ${savedChannel.id}`);
       savedChannel.members = members;
       return savedChannel;
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
+    });
   }
 
   /**
@@ -203,11 +196,7 @@ export class CreateChannelHandler
 
     // TODO Phase 2: Validate all memberIds belong to same tenant via NATS request to auth-service.
 
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-
-    try {
+    return runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) => {
       // SECURITY: tenantId MUST be set on every channel row for RLS and event routing.
       const channel = queryRunner.manager.create(Channel, {
         tenantId,
@@ -224,6 +213,7 @@ export class CreateChannelHandler
       // Creator is OWNER, everyone else is MEMBER
       const members = memberIds.map((uid) =>
         queryRunner.manager.create(ChannelMember, {
+          tenantId,
           channelId: savedChannel.id,
           userId: uid,
           role:
@@ -243,18 +233,11 @@ export class CreateChannelHandler
         memberIds,
       },  queryRunner.manager);
 
-      await queryRunner.commitTransaction();
-
       this.logger.log(
         `Created ${input.type} channel ${savedChannel.id} with ${members.length} members`,
       );
       savedChannel.members = members;
       return savedChannel;
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
+    });
   }
 }

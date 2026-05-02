@@ -37,10 +37,12 @@
  * @see docs/reviews/messaging-expert/2026-04-14-ai-privacy-naming-drift.md
  */
 import { Injectable, Logger, Inject } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource } from 'typeorm';
 import Redis from 'ioredis';
-import { BypassRlsService } from '@aquaculture/backend-common/database';
+import {
+  BypassRlsService,
+  runInTenantTransaction,
+} from '@aquaculture/backend-common/database';
 import { REDIS_CLIENT } from '../../shared/redis.provider';
 import { TenantAiSetting } from '../entities/tenant-ai-setting.entity';
 import { UserAiConsent } from '../entities/user-ai-consent.entity';
@@ -68,10 +70,7 @@ export class AiPrivacyService {
   private readonly logger = new Logger(AiPrivacyService.name);
 
   constructor(
-    @InjectRepository(TenantAiSetting)
-    private readonly tenantAiSettings: Repository<TenantAiSetting>,
-    @InjectRepository(UserAiConsent)
-    private readonly userAiConsents: Repository<UserAiConsent>,
+    private readonly dataSource: DataSource,
     @Inject(REDIS_CLIENT)
     private readonly redis: Redis,
     private readonly bypassRls: BypassRlsService,
@@ -118,7 +117,13 @@ export class AiPrivacyService {
       return cached === 'true';
     }
 
-    const setting = await this.tenantAiSettings.findOne({ where: { tenantId } });
+    const setting = await runInTenantTransaction(
+      this.dataSource,
+      'messaging',
+      tenantId,
+      (queryRunner) =>
+        queryRunner.manager.findOne(TenantAiSetting, { where: { tenantId } }),
+    );
     const enabled = setting?.aiEnabled ?? false;
     await this.safeRedisSetEx(cacheKey, CACHE_TTL_SECONDS, String(enabled));
     return enabled;
@@ -137,9 +142,15 @@ export class AiPrivacyService {
       return cached === 'true';
     }
 
-    const consent = await this.userAiConsents.findOne({
-      where: { tenantId, userId },
-    });
+    const consent = await runInTenantTransaction(
+      this.dataSource,
+      'messaging',
+      tenantId,
+      (queryRunner) =>
+        queryRunner.manager.findOne(UserAiConsent, {
+          where: { tenantId, userId },
+        }),
+    );
     const consented = consent?.consented ?? false;
     await this.safeRedisSetEx(cacheKey, CACHE_TTL_SECONDS, String(consented));
     return consented;
@@ -151,9 +162,16 @@ export class AiPrivacyService {
    * write so the new value is observable on the next read.
    */
   async setTenantAiEnabled(tenantId: string, enabled: boolean): Promise<void> {
-    await this.tenantAiSettings.upsert(
-      { tenantId, aiEnabled: enabled },
-      { conflictPaths: ['tenantId'] },
+    await runInTenantTransaction(
+      this.dataSource,
+      'messaging',
+      tenantId,
+      (queryRunner) =>
+        queryRunner.manager.upsert(
+          TenantAiSetting,
+          { tenantId, aiEnabled: enabled },
+          { conflictPaths: ['tenantId'] },
+        ),
     );
     await this.safeRedisDel(`${TENANT_KEY_PREFIX}${tenantId}`);
     this.logger.log(`Tenant ${tenantId} AI flag set to: ${enabled}`);
@@ -171,9 +189,16 @@ export class AiPrivacyService {
     userId: string,
     consented: boolean,
   ): Promise<void> {
-    await this.userAiConsents.upsert(
-      { tenantId, userId, consented },
-      { conflictPaths: ['tenantId', 'userId'] },
+    await runInTenantTransaction(
+      this.dataSource,
+      'messaging',
+      tenantId,
+      (queryRunner) =>
+        queryRunner.manager.upsert(
+          UserAiConsent,
+          { tenantId, userId, consented },
+          { conflictPaths: ['tenantId', 'userId'] },
+        ),
     );
     await this.safeRedisDel(`${USER_KEY_PREFIX}${tenantId}:${userId}`);
 
@@ -229,15 +254,21 @@ export class AiPrivacyService {
       await this.bypassRls.withBypass(
         `ai-privacy:embedding-sweep:tenant=${tenantId}:user=${userId}`,
         async () => {
-          const result = await this.tenantAiSettings.query(
-            `UPDATE "messages" m
-             SET "embedding" = NULL
-             FROM "channels" c
-             WHERE m."channelId" = c."id"
-               AND c."tenantId" = $1
-               AND m."senderId" = $2
-               AND m."embedding" IS NOT NULL`,
-            [tenantId, userId],
+          const result = await runInTenantTransaction(
+            this.dataSource,
+            'messaging',
+            tenantId,
+            (queryRunner) =>
+              queryRunner.query(
+                `UPDATE "messages" m
+                 SET "embedding" = NULL
+                 FROM "channels" c
+                 WHERE m."channelId" = c."id"
+                   AND c."tenantId" = $1
+                   AND m."senderId" = $2
+                   AND m."embedding" IS NOT NULL`,
+                [tenantId, userId],
+              ),
           );
 
           // pg driver returns [rows, rowCount] for UPDATE.

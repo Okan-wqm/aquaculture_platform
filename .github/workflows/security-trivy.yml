@@ -66,9 +66,9 @@ jobs:
 
       - name: Pull pre-built image from GHCR
         run: |
-          # Use pre-built images instead of building (MUCH faster!)
-          docker pull "${IMAGE_NAMESPACE}/gateway-api:latest" || echo "Image not found, skipping"
-        continue-on-error: true
+          # Use pre-built images instead of building; a missing image is a
+          # supply-chain failure and must block the scan.
+          docker pull "${IMAGE_NAMESPACE}/gateway-api:latest"
 
       # SEC-CI-008: exit-code '1' ensures CVEs block the pipeline
       - name: Run Trivy on pre-built image

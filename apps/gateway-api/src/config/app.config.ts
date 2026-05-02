@@ -31,7 +31,8 @@ export const appConfig = registerAs('app', () => ({
 
   // Feature flags
   features: {
-    playground: process.env['NODE_ENV'] !== 'production',
+    // 2026-04-30: Deprecated GraphQL Playground is not exposed by config.
+    // WHY: gateway developer UI policy must not advertise unsupported runtime behavior.
     introspection: process.env['NODE_ENV'] !== 'production',
     subscriptions: process.env['ENABLE_SUBSCRIPTIONS'] === 'true',
     federation: process.env['ENABLE_FEDERATION'] !== 'false',

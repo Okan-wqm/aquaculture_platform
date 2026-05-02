@@ -63,15 +63,28 @@ export interface TenantRow {
 export class TestDatabase {
   private pool: Pool;
   private closed = false;
+  private readonly config: PoolConfig;
 
   constructor(connectionString?: string) {
-    const config: PoolConfig = {
+    this.config = {
       connectionString: connectionString ?? process.env.DATABASE_URL ?? DEFAULT_DATABASE_URL,
       max: 5,
       idleTimeoutMillis: 10_000,
       connectionTimeoutMillis: 5_000,
     };
-    this.pool = new Pool(config);
+    this.pool = new Pool(this.config);
+  }
+
+  async connect(): Promise<void> {
+    if (this.closed) {
+      this.pool = new Pool(this.config);
+      this.closed = false;
+    }
+    await this.query('SELECT 1');
+  }
+
+  async disconnect(): Promise<void> {
+    await this.close();
   }
 
   /**
@@ -229,6 +242,64 @@ export class TestDatabase {
     return result.rows[0]?.exists ?? false;
   }
 
+  async findById<T extends Record<string, unknown> = Record<string, unknown>>(
+    table: string,
+    id: string,
+    tenantId: string,
+  ): Promise<T | null> {
+    const safeTable = validateTestIdentifier(table);
+    const schemaName = this.getTenantSchemaName(tenantId);
+    const result = await this.query<T>(
+      `SELECT * FROM "${schemaName}"."${safeTable}" WHERE id = $1 LIMIT 1`,
+      [id],
+    );
+    return result.rows[0] ?? null;
+  }
+
+  async exists(table: string, id: string, tenantId: string): Promise<boolean> {
+    const safeTable = validateTestIdentifier(table);
+    const schemaName = this.getTenantSchemaName(tenantId);
+    const result = await this.query<{ exists: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1 FROM "${schemaName}"."${safeTable}" WHERE id = $1
+       ) AS exists`,
+      [id],
+    );
+    return result.rows[0]?.exists ?? false;
+  }
+
+  async cleanupTenant(tenantId: string, tables: string[]): Promise<void> {
+    const schemaName = this.getTenantSchemaName(tenantId);
+    for (const table of tables) {
+      const safeTable = validateTestIdentifier(table);
+      await this.query(`DELETE FROM "${schemaName}"."${safeTable}"`);
+    }
+  }
+
+  async getAuditLogs(
+    tenantId: string,
+    limit = 10,
+  ): Promise<Array<Record<string, unknown>>> {
+    const result = await this.query<Record<string, unknown>>(
+      `SELECT * FROM auth.audit_logs
+       WHERE "tenantId" = $1
+       ORDER BY "createdAt" DESC
+       LIMIT $2`,
+      [tenantId, limit],
+    );
+    return result.rows;
+  }
+
+  async getUserStatus(
+    userId: string,
+  ): Promise<{ status: string | null; isActive: boolean | null; email: string } | null> {
+    const result = await this.query<{ status: string | null; isActive: boolean | null; email: string }>(
+      `SELECT status, "isActive", email FROM auth.users WHERE id = $1`,
+      [userId],
+    );
+    return result.rows[0] ?? null;
+  }
+
   // ── Cleanup Helpers ───────────────────────────────────────
 
   /**
@@ -260,4 +331,76 @@ export class TestDatabase {
       [tenantId],
     );
   }
+}
+
+const sharedDb = new TestDatabase();
+
+function validateTestIdentifier(identifier: string): string {
+  if (!/^[a-z][a-z0-9_]*$/.test(identifier)) {
+    throw new Error(`Unsafe SQL identifier in E2E helper: ${identifier}`);
+  }
+  return identifier;
+}
+
+export function getTenantSchemaName(tenantId: string): string {
+  return sharedDb.getTenantSchemaName(tenantId);
+}
+
+export async function findTenantById(tenantId: string): Promise<TenantRow | null> {
+  return sharedDb.getTenantById(tenantId);
+}
+
+export async function findUserById(userId: string): Promise<UserRow | null> {
+  return sharedDb.getUserById(userId);
+}
+
+export async function findUserByEmail(email: string): Promise<UserRow | null> {
+  return sharedDb.getUserByEmail(email);
+}
+
+export async function findUserRoleAssignment(
+  tenantId: string,
+  userId: string,
+): Promise<Record<string, unknown> | null> {
+  const schemaName = getTenantSchemaName(tenantId);
+  const result = await sharedDb.query<Record<string, unknown>>(
+    `SELECT * FROM "${schemaName}"."user_role_assignments"
+     WHERE user_id = $1 AND is_active = true
+     LIMIT 1`,
+    [userId],
+  );
+  return result.rows[0] ?? null;
+}
+
+export async function deleteUserById(userId: string): Promise<void> {
+  await sharedDb.deleteUser(userId);
+}
+
+export async function query<T extends Record<string, unknown> = Record<string, unknown>>(
+  sql: string,
+  params?: unknown[],
+): Promise<T[]> {
+  const result = await sharedDb.query<T>(sql, params);
+  return result.rows;
+}
+
+export async function tenantSchemaExists(tenantId: string): Promise<boolean> {
+  return sharedDb.tenantSchemaExists(tenantId);
+}
+
+export async function getTenantSchemaTables(tenantId: string): Promise<string[]> {
+  const schemaName = getTenantSchemaName(tenantId);
+  const result = await sharedDb.query<{ table_name: string }>(
+    `SELECT table_name
+     FROM information_schema.tables
+     WHERE table_schema = $1
+       AND table_type = 'BASE TABLE'
+     ORDER BY table_name`,
+    [schemaName],
+  );
+  return result.rows.map((row) => row.table_name);
+}
+
+export async function closePool(): Promise<void> {
+  await sharedDb.close();
 }

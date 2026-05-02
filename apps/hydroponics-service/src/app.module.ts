@@ -76,6 +76,13 @@ const complexityCache = new Map<string, number>();
            *  The gateway already blocks batching, but subgraphs must also enforce this as
            *  defense-in-depth in case a subgraph becomes directly accessible. */
           allowBatchedHttpRequests: false,
+          /**
+           * 2026-04-30: Keep Apollo CSRF prevention explicit while Apollo Server 5
+           * migration is blocked by the Nest/Apollo peer graph.
+           * WHY: Apollo Server 4 remains in the dependency graph, so XS-Search
+           * class protections must be fail-closed at runtime.
+           */
+          csrfPrevention: true,
           validationRules: [depthLimit(10)],
           plugins: [
             {
@@ -115,12 +122,9 @@ const complexityCache = new Map<string, number>();
             },
           ],
           /**
-           * In @nestjs/graphql v13 (NestJS v11), the 'playground' option is internally
-           * mapped to Apollo Sandbox via ApolloServerPluginLandingPageLocalDefault.
-           * When false, ApolloServerPluginLandingPageDisabled is applied instead.
-           * Disabled in production for security (no introspection exposure).
+           * 2026-04-30: Deprecated GraphQL Playground is not enabled at runtime.
+           * WHY: subgraphs must not depend on deprecated Apollo developer UI behavior.
            */
-          playground: !isProduction && configService.get('GRAPHQL_PLAYGROUND', 'true') === 'true',
           /** SEC-NEW06: Disable introspection override — gateway handles introspection centrally.
            *  Subgraph introspection in production exposes internal schema details. */
           introspection: !isProduction,

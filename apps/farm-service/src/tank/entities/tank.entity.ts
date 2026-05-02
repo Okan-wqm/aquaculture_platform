@@ -190,7 +190,7 @@ export interface AerationInfo {
 
 @ObjectType()
 @Directive('@key(fields: "id")')
-@Entity('tanks', { schema: 'farm' })
+@Entity('tanks')
 @Index(['tenantId', 'code'], { unique: true })
 @Index(['tenantId', 'departmentId'])
 @Index(['tenantId', 'status'])

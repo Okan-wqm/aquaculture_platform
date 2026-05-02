@@ -33,7 +33,7 @@ jobs:
           node-version: '22'
 
       - name: Install dependencies
-        run: npm install --legacy-peer-deps --ignore-scripts --no-audit
+        run: npm ci --ignore-scripts --no-audit
 
       - name: Build
         run: npm run build

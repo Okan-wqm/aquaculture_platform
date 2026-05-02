@@ -1,0 +1,63 @@
+# 2026-04-30: Apollo Router PoC configuration.
+# WHY: Router must be self-hosted and boot from a static supergraph file so a
+# schema registry outage cannot become a runtime SPOF for /graphql traffic.
+
+supergraph:
+  listen: 0.0.0.0:4000
+  path: /graphql
+
+health_check:
+  listen: 0.0.0.0:8088
+  path: /health
+
+homepage:
+  enabled: false
+
+sandbox:
+  enabled: false
+
+include_subgraph_errors:
+  all: false
+
+headers:
+  all:
+    request:
+      - propagate:
+          named: authorization
+      - propagate:
+          named: cookie
+      - propagate:
+          named: x-tenant-id
+      - propagate:
+          named: x-correlation-id
+      - propagate:
+          named: traceparent
+      - propagate:
+          named: x-trace-id
+      - propagate:
+          named: x-span-id
+      - propagate:
+          named: x-parent-span-id
+
+coprocessor:
+  url: http://router-coprocessor:4010
+  router:
+    request:
+      headers: true
+      context: true
+    response:
+      headers: true
+      context: true
+  subgraph:
+    all:
+      request:
+        headers: true
+        context: true
+      response:
+        headers: true
+        context: true
+
+telemetry:
+  instrumentation:
+    spans:
+      mode: spec_compliant

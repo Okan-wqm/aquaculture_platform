@@ -7,40 +7,27 @@ import { NotFoundException } from '@nestjs/common';
 import { TransferBatchHandler } from '../../handlers/transfer-batch.handler';
 import { TransferBatchCommand } from '../../commands/transfer-batch.command';
 import { Batch, BatchStatus } from '../../entities/batch.entity';
+import { TankBatch } from '../../entities/tank-batch.entity';
+import { Equipment, EquipmentStatus } from '../../../equipment/entities/equipment.entity';
 import { createMockDataSource, createMockRepository } from '@aquaculture/testing';
 
 describe('TransferBatchHandler', () => {
   let handler: TransferBatchHandler;
   const { mockDataSource, mockQueryRunner, mockManager } = createMockDataSource();
-
-  // Outbox + capacity-service mocks. The capacity service is
-  // hard-enforcing on the transfer target (phase 1.1) so a
-  // resolved mock is the default; individual tests that want to
-  // assert a capacity-block path can override the mock.
-  const mockOutboxPublisher = {
-    enqueue: jest.fn().mockResolvedValue(undefined),
-  };
-  const mockTankCapacityService = {
-    enforce: jest.fn().mockResolvedValue(undefined),
-  };
+  const mockOutboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
 
   beforeEach(() => {
     jest.clearAllMocks();
-    // Handler constructor order (phase-D + phase-1.1 final):
-    //   dataSource, batchRepo, allocationRepo, operationRepo,
-    //   tankBatchRepo, equipmentRepo, tankRepo, equipmentTypeRepo,
-    //   outboxPublisher, tankCapacityService
     handler = new TransferBatchHandler(
       mockDataSource as any,
-      createMockRepository() as any, // batchRepository
-      createMockRepository() as any, // allocationRepository
-      createMockRepository() as any, // operationRepository
-      createMockRepository() as any, // tankBatchRepository
-      createMockRepository() as any, // equipmentRepository
-      createMockRepository() as any, // tankRepository
-      createMockRepository() as any, // equipmentTypeRepository
+      createMockRepository() as any,
+      createMockRepository() as any,
+      createMockRepository() as any,
+      createMockRepository() as any,
+      createMockRepository() as any,
+      createMockRepository() as any,
+      createMockRepository() as any,
       mockOutboxPublisher as any,
-      mockTankCapacityService as any,
     );
   });
 
@@ -63,49 +50,63 @@ describe('TransferBatchHandler', () => {
   it('should transfer batch between tanks', async () => {
     const batch = {
       id: 'batch-1', tenantId: TENANT, status: BatchStatus.GROWING,
+      batchNumber: 'B-001',
       currentQuantity: 5000, isActive: true,
       isOperational: () => true,
+      getCurrentAvgWeight: () => 50,
     } as unknown as Batch;
 
-    // Equipment-shaped mocks. Handler routes through
-    // `findTankOrEquipmentWithManager` which checks Equipment
-    // first and wraps the match in `{ equipment, isFromTanksTable: false }`.
     const sourceTank = {
       id: 'tank-1',
       tenantId: TENANT,
-      code: 'TANK-1',
-      isActive: true,
-      isDeleted: false,
-    };
+      code: 'T-001',
+      name: 'Source Tank',
+      status: EquipmentStatus.ACTIVE,
+      volume: 100,
+      currentBiomass: 25,
+      currentCount: 500,
+      hasCapacityFor: jest.fn().mockReturnValue(true),
+    } as unknown as Equipment;
     const destTank = {
       id: 'tank-2',
       tenantId: TENANT,
-      code: 'TANK-2',
-      isActive: true,
-      isDeleted: false,
-      maxBiomass: 10000,
+      code: 'T-002',
+      name: 'Destination Tank',
+      status: EquipmentStatus.ACTIVE,
       volume: 100,
       currentBiomass: 0,
       currentCount: 0,
-    };
-    // TankBatch shape (phase-1 multi-batch refactor): handler
-    // derives `availableQuantity` from
-    //   primaryBatchId === batchId ? totalQuantity
-    //                              : batchDetails[...].quantity
+      hasCapacityFor: jest.fn().mockReturnValue(true),
+      specifications: { maxDensity: 30 },
+    } as unknown as Equipment;
     const sourceTankBatch = {
-      batchId: 'batch-1',
+      id: 'source-tank-batch',
+      tenantId: TENANT,
       tankId: 'tank-1',
       primaryBatchId: 'batch-1',
+      primaryBatchNumber: 'B-001',
       totalQuantity: 500,
-      batchDetails: [],
+      currentQuantity: 500,
+      totalBiomassKg: 25,
+      currentBiomassKg: 25,
       avgWeightG: 50,
-    };
+      densityKgM3: 0.25,
+      isMixedBatch: false,
+      cleanerFishBiomassKg: 0,
+      cleanerFishQuantity: 0,
+      isOverCapacity: false,
+    } as TankBatch;
+    const destTankBatch = null;
 
-    mockManager.findOne
-      .mockResolvedValueOnce(batch)
-      .mockResolvedValueOnce(sourceTank)
-      .mockResolvedValueOnce(destTank)
-      .mockResolvedValueOnce(sourceTankBatch);
+    mockManager.findOne.mockImplementation((entity: unknown, options?: unknown) => {
+      const where = (options as { where?: { id?: string; tankId?: string } } | undefined)?.where;
+      if (entity === Batch) return Promise.resolve(batch);
+      if (entity === Equipment && where?.id === 'tank-1') return Promise.resolve(sourceTank);
+      if (entity === Equipment && where?.id === 'tank-2') return Promise.resolve(destTank);
+      if (entity === TankBatch && where?.tankId === 'tank-1') return Promise.resolve(sourceTankBatch);
+      if (entity === TankBatch && where?.tankId === 'tank-2') return Promise.resolve(destTankBatch);
+      return Promise.resolve(null);
+    });
     mockManager.save.mockImplementation((_cls: any, data: any) => Promise.resolve(data));
     mockQueryRunner.query.mockResolvedValue([{ total_quantity: 0, total_biomass: 0 }]);
 
@@ -115,6 +116,17 @@ describe('TransferBatchHandler', () => {
     }, USER));
 
     expect(mockQueryRunner.commitTransaction).toHaveBeenCalled();
+    expect(mockOutboxPublisher.enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'BatchTransferred',
+        tenantId: TENANT,
+        batchId: 'batch-1',
+        sourceTankId: 'tank-1',
+        destinationTankId: 'tank-2',
+        quantity: 100,
+      }),
+      mockManager,
+    );
     expect(mockQueryRunner.release).toHaveBeenCalled();
   });
 

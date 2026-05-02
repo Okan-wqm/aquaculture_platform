@@ -440,7 +440,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       // Also update the module store immediately so the retry uses the new token
       // without waiting for the next React render cycle.
-      syncAuthStore(newToken, freshTenantId, refreshAuthForInterceptor);
+      syncAuthStore(newToken, freshTenantId, refreshAuthForInterceptor, logoutRef.current);
 
       return true;
     } catch {
@@ -450,7 +450,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [state.tenantId]);
 
   useEffect(() => {
-    syncAuthStore(state.accessToken, state.tenantId, refreshAuthForInterceptor);
+    syncAuthStore(state.accessToken, state.tenantId, refreshAuthForInterceptor, logoutRef.current);
   }, [state.accessToken, state.tenantId, refreshAuthForInterceptor]);
 
   return (

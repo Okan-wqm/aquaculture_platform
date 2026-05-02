@@ -28,7 +28,7 @@ import {
 import { Site } from './site.entity';
 
 @ObjectType()
-@Entity('site_contacts', { schema: 'farm' })
+@Entity('site_contacts')
 @Index(['tenantId', 'siteId'])
 @Index(['siteId', 'isPrimary'])
 export class SiteContact {

@@ -76,7 +76,7 @@ registerEnumType(DepartmentStatus, {
 // ============================================================================
 
 @ObjectType()
-@Entity('departments', { schema: 'farm' })
+@Entity('departments')
 @Index(['tenantId', 'code'], { unique: true })
 @Index(['tenantId', 'siteId'])
 @Index(['tenantId', 'status'])

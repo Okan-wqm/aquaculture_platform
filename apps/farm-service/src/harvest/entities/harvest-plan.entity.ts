@@ -200,7 +200,7 @@ export interface QualityRequirements {
 // ============================================================================
 
 @ObjectType()
-@Entity('harvest_plans', { schema: 'farm' })
+@Entity('harvest_plans')
 @Index(['tenantId', 'batchId'])
 @Index(['tenantId', 'planCode'], { unique: true })
 @Index(['tenantId', 'status'])

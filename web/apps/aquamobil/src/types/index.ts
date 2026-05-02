@@ -372,6 +372,8 @@ export interface CreateWaterQualityInput {
   source: MeasurementSource;
   measuredBy?: string;
   parameters: WaterQualityParameters;
+  dynamicParameters?: Record<string, number | string | boolean>;
+  idempotencyKey?: string;
   notes?: string;
   weatherConditions?: string;
 }

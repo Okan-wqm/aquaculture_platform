@@ -210,7 +210,7 @@ export interface MeasurementConditions {
 // ============================================================================
 
 @ObjectType()
-@Entity('growth_measurements', { schema: 'farm' })
+@Entity('growth_measurements')
 @Index(['tenantId', 'batchId', 'measurementDate'])
 @Index(['tenantId', 'measurementDate'])
 @Index(['batchId', 'measurementDate'])

@@ -8,7 +8,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 
 import { BatchService, CreateBatchInput, AllocateBatchInput, RecordOperationInput } from '../../services/batch.service';
 import { Batch, BatchStatus } from '../../entities/batch.entity';
@@ -141,9 +141,52 @@ describe('BatchService', () => {
       findOne: jest.fn(),
     };
 
+    const mockQueryRunner = {
+      connect: jest.fn().mockResolvedValue(undefined),
+      startTransaction: jest.fn().mockResolvedValue(undefined),
+      commitTransaction: jest.fn().mockResolvedValue(undefined),
+      rollbackTransaction: jest.fn().mockResolvedValue(undefined),
+      release: jest.fn().mockResolvedValue(undefined),
+      manager: {
+        findOne: jest.fn((entity, options) => {
+          if (entity === Batch) return mockBatchRepository.findOne(options);
+          if (entity === Tank) return mockTankRepository.findOne(options);
+          if (entity === TankBatch) return mockTankBatchRepository.findOne(options);
+          return Promise.resolve(null);
+        }),
+        find: jest.fn((entity, options) => {
+          if (entity === TankAllocation) return mockAllocationRepository.find(options);
+          return Promise.resolve([]);
+        }),
+        create: jest.fn((entity, data) => {
+          if (entity === TankAllocation) return mockAllocationRepository.create(data);
+          if (entity === TankBatch) return mockTankBatchRepository.create(data);
+          return data;
+        }),
+        save: jest.fn((entityOrObject, maybeObject) => {
+          const objectToSave = maybeObject ?? entityOrObject;
+          if (objectToSave?.batchId && objectToSave?.tankId && objectToSave?.allocationType) {
+            return mockAllocationRepository.save(objectToSave);
+          }
+          if (objectToSave?.tankId && objectToSave?.totalQuantity !== undefined) {
+            return mockTankBatchRepository.save(objectToSave);
+          }
+          if (objectToSave?.batchNumber || objectToSave?.speciesId) {
+            return mockBatchRepository.save(objectToSave);
+          }
+          return Promise.resolve(objectToSave);
+        }),
+      },
+    };
+
+    const mockDataSource = {
+      createQueryRunner: jest.fn(() => mockQueryRunner),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         BatchService,
+        { provide: DataSource, useValue: mockDataSource },
         { provide: getRepositoryToken(Batch), useValue: mockBatchRepository },
         { provide: getRepositoryToken(TankAllocation), useValue: mockAllocationRepository },
         { provide: getRepositoryToken(TankBatch), useValue: mockTankBatchRepository },
@@ -388,6 +431,7 @@ describe('BatchService', () => {
         batchRepository.save.mockImplementation((b: unknown) => Promise.resolve(b as Batch));
 
         const input: AllocateBatchInput = {
+          tenantId: 'tenant-1',
           batchId: 'batch-123',
           tankId: 'tank-1',
           quantity: 5000,
@@ -399,8 +443,15 @@ describe('BatchService', () => {
         const result = await service.allocateBatchToTank(input);
 
         expect(result).toEqual(mockAllocation);
+        expect(batchRepository.findOne).toHaveBeenCalledWith({
+          where: { id: input.batchId, tenantId: input.tenantId, isActive: true },
+        });
+        expect(tankRepository.findOne).toHaveBeenCalledWith({
+          where: { id: input.tankId, tenantId: input.tenantId, isActive: true },
+        });
         expect(allocationRepository.create).toHaveBeenCalledWith(
           expect.objectContaining({
+            tenantId: input.tenantId,
             batchId: input.batchId,
             tankId: input.tankId,
             quantity: input.quantity,
@@ -412,6 +463,7 @@ describe('BatchService', () => {
         batchRepository.findOne.mockResolvedValue(null);
 
         const input: AllocateBatchInput = {
+          tenantId: 'tenant-1',
           batchId: 'non-existent',
           tankId: 'tank-1',
           quantity: 5000,
@@ -431,6 +483,7 @@ describe('BatchService', () => {
         tankRepository.findOne.mockResolvedValue(null);
 
         const input: AllocateBatchInput = {
+          tenantId: 'tenant-1',
           batchId: 'batch-123',
           tankId: 'non-existent',
           quantity: 5000,
@@ -459,6 +512,7 @@ describe('BatchService', () => {
         batchRepository.save.mockImplementation((b: unknown) => Promise.resolve(b as Batch));
 
         const input: AllocateBatchInput = {
+          tenantId: 'tenant-1',
           batchId: 'batch-123',
           tankId: 'tank-1',
           quantity: 5000,
@@ -494,6 +548,7 @@ describe('BatchService', () => {
         batchRepository.save.mockImplementation((b: unknown) => Promise.resolve(b as Batch));
 
         const input: AllocateBatchInput = {
+          tenantId: 'tenant-1',
           batchId: 'batch-123',
           tankId: 'tank-1',
           quantity: 5000,
@@ -879,6 +934,7 @@ describe('BatchService', () => {
       batchRepository.save.mockImplementation((b: unknown) => Promise.resolve(b as Batch));
 
       const input: AllocateBatchInput = {
+        tenantId: 'tenant-1',
         batchId: 'batch-123',
         tankId: 'tank-1',
         quantity: 1000,

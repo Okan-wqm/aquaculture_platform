@@ -56,12 +56,9 @@ jobs:
       - name: Install ts-node + deps
         # --ignore-scripts is MANDATORY per infra-expert supply-chain rule
         # (ua-parser-js / coa / rc preinstall-hook exfiltration vector class).
-        # --legacy-peer-deps matches repo-wide convention — @nestjs/apollo 13.2
-        # peer-depends on @apollo/server@^5 but the project pins @apollo/server@^4
-        # (see ci-full.yml, ci-affected.yml, deploy-*.yml — every workflow
-        # uses this flag). Convergence; the underlying peer-dep resolution is
-        # tracked separately.
-        run: npm ci --legacy-peer-deps --ignore-scripts --no-audit
+        # Dependency resolution must be peer-clean. This gate must fail if the
+        # workspace graph needs legacy peer fallback.
+        run: npm ci --ignore-scripts --no-audit
 
       - name: "Validate Closes trailers"
         run: npx ts-node --project tools/gates/tsconfig.json tools/gates/commit-msg-validator.ts --mode=range "${{ steps.range.outputs.base }}" "${{ steps.range.outputs.head }}"

@@ -11,18 +11,8 @@
  */
 import { DataSource, Repository, EntityManager } from 'typeorm';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
-import { DomainEventPublisher } from '../../common/services/domain-event-publisher.service';
-// Two handler families wire through different infrastructure
-// post-refactor:
-//   - RecordMortalityHandler: OutboxPublisher (phase A,
-//     transactional outbox) + BackdatePolicyService (phase 1.5)
-//   - ConsumeFeedInventoryHandler: optional NatsEventBus for
-//     fire-and-forget emission (preserved non-transactional
-//     shape; at-most-once is acceptable for inventory consumption
-//     signals)
-import type { OutboxPublisher } from '@platform/outbox';
-import type { NatsEventBus } from '@platform/event-bus';
-import { BackdatePolicyService } from '../../common/services/backdate-policy.service';
+import { OutboxPublisher } from '@platform/outbox';
+import { NatsEventBus } from '@platform/event-bus';
 
 // Handlers
 import { RecordMortalityHandler } from '../../batch/handlers/record-mortality.handler';
@@ -76,51 +66,18 @@ function createMockDataSource(queryRunner: ReturnType<typeof createMockQueryRunn
   } as unknown as DataSource;
 }
 
-/** Create a no-op DomainEventPublisher mock for unit tests. */
-function createMockEventPublisher(): DomainEventPublisher {
-  return {
-    publish: jest.fn().mockResolvedValue(undefined),
-  } as unknown as DomainEventPublisher;
-}
-
-/**
- * OutboxPublisher mock — `enqueue(event, manager)` resolves
- * silently. Used by RecordMortalityHandler et al. under the
- * phase-A transactional outbox.
- */
+/** Create a no-op OutboxPublisher mock for transactional domain events. */
 function createMockOutboxPublisher(): OutboxPublisher {
   return {
     enqueue: jest.fn().mockResolvedValue(undefined),
   } as unknown as OutboxPublisher;
 }
 
-/**
- * NatsEventBus mock — sibling of the outbox for handlers that
- * emit fire-and-forget (at-most-once is fine). Used by
- * ConsumeFeedInventoryHandler.
- */
+/** Create a no-op NATS event bus mock for post-commit notifications. */
 function createMockNatsEventBus(): NatsEventBus {
   return {
     publish: jest.fn().mockResolvedValue(undefined),
   } as unknown as NatsEventBus;
-}
-
-/**
- * BackdatePolicyService default-allow stub. The phase-1.5 gate
- * rejects stale writes; happy-path tests want every attempt
- * through. A compliance-path test that wants to exercise the
- * rejection builds its own stub.
- */
-function createMockBackdatePolicy(): BackdatePolicyService {
-  return {
-    getLimitForContext: jest.fn().mockReturnValue(14),
-    validate: jest.fn().mockReturnValue({
-      allowed: true,
-      backdatedDays: 0,
-      limitDays: 14,
-      context: 'mortality',
-    }),
-  } as unknown as BackdatePolicyService;
 }
 
 function createDefaultMockManager(): MockManagerType {
@@ -219,7 +176,6 @@ describe('Race Condition Protection: RecordMortalityHandler', () => {
       {} as Repository<Tank>,
       {} as Repository<EquipmentType>,
       createMockOutboxPublisher(),
-      createMockBackdatePolicy(),
     );
   });
 
@@ -608,7 +564,6 @@ describe('Race Condition Protection: Cross-handler concurrent safety', () => {
       {} as Repository<Tank>,
       {} as Repository<EquipmentType>,
       createMockOutboxPublisher(),
-      createMockBackdatePolicy(),
     );
 
     const command = new RecordMortalityCommand('tenant-exact', 'batch-exact', {

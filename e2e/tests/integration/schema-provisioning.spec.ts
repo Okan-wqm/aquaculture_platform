@@ -18,7 +18,9 @@ import {
   getTenantSchemaTables,
   getTenantSchemaName,
   closePool,
+  TestDatabase,
 } from '../../helpers/db.helper';
+import { MODULE_SCHEMAS } from '../../../libs/backend-common/src/database/schema-manager.service';
 
 /**
  * Minimum expected tables in a tenant schema.
@@ -31,8 +33,28 @@ const CORE_TENANT_TABLES = [
   'user_role_assignments',
 ];
 
+const DEFAULT_MODULE_TABLES = new Set(
+  MODULE_SCHEMAS.flatMap((moduleSchema) => moduleSchema.tables),
+);
+
+const SOURCE_ONLY_INFRASTRUCTURE_TABLES = new Set(
+  MODULE_SCHEMAS.flatMap((moduleSchema) => moduleSchema.infrastructureTables ?? []),
+);
+
+const PROTECTED_SOURCE_TABLES: Array<{ schema: string; table: string }> = [
+  { schema: 'farm', table: 'sites' },
+  { schema: 'farm', table: 'tanks' },
+  { schema: 'farm', table: 'water_quality_measurements' },
+  { schema: 'farm', table: 'stock_movements' },
+  { schema: 'hr', table: 'employees' },
+  { schema: 'hr', table: 'attendance_records' },
+  { schema: 'sensor', table: 'sensors' },
+  { schema: 'sensor', table: 'sensor_readings' },
+];
+
 describe('Schema Provisioning', () => {
   let superAdminToken: string;
+  const db = new TestDatabase();
   const createdTenantIds: string[] = [];
 
   beforeAll(async () => {
@@ -43,6 +65,7 @@ describe('Schema Provisioning', () => {
     for (const tenantId of createdTenantIds) {
       await teardownTenant(tenantId);
     }
+    await db.close();
     await closePool();
   });
 
@@ -70,6 +93,52 @@ describe('Schema Provisioning', () => {
     // Verify core tenant tables exist
     for (const expectedTable of CORE_TENANT_TABLES) {
       expect(tables).toContain(expectedTable);
+    }
+  });
+
+  it('should provision the default module business tables and exclude source-only infrastructure tables', async () => {
+    const tenant = await createTestTenant(superAdminToken);
+    createdTenantIds.push(tenant.id);
+
+    const tables = await getTenantSchemaTables(tenant.id);
+    const missingTables = [...DEFAULT_MODULE_TABLES].filter((table) => !tables.includes(table));
+    const clonedInfrastructureTables = [...SOURCE_ONLY_INFRASTRUCTURE_TABLES].filter((table) =>
+      tables.includes(table),
+    );
+
+    expect(missingTables).toEqual([]);
+    expect(clonedInfrastructureTables).toEqual([]);
+    expect(tables).toContain('typeorm_migrations');
+    expect(tables).not.toContain('farm_outbox');
+    expect(tables).not.toContain('hr_outbox');
+    expect(tables).not.toContain('migrations');
+  });
+
+  it('should keep source schemas free of tenant business rows after provisioning', async () => {
+    const tenant = await createTestTenant(superAdminToken);
+    createdTenantIds.push(tenant.id);
+
+    for (const { schema, table } of PROTECTED_SOURCE_TABLES) {
+      const tableExists = await db.tableExists(schema, table);
+      if (!tableExists) continue;
+
+      const tenantIdColumn = await db.query<{ exists: boolean }>(
+        `SELECT EXISTS (
+           SELECT 1
+           FROM information_schema.columns
+           WHERE table_schema = $1
+             AND table_name = $2
+             AND column_name = 'tenantId'
+         ) AS exists`,
+        [schema, table],
+      );
+      if (!tenantIdColumn.rows[0]?.exists) continue;
+
+      const count = await db.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM "${schema}"."${table}" WHERE "tenantId" = $1`,
+        [tenant.id],
+      );
+      expect(Number(count.rows[0]?.count ?? '0')).toBe(0);
     }
   });
 

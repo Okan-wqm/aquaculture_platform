@@ -1,3 +1,5 @@
+/// <reference lib="webworker" />
+
 /**
  * @module messaging-sw
  * @description Service worker extensions for the messaging feature.
@@ -7,7 +9,9 @@
  * @see ADR-012 section 7 (Offline / PWA)
  */
 
-declare const self: ServiceWorkerGlobalScope;
+export {};
+
+const sw = self as unknown as ServiceWorkerGlobalScope & typeof globalThis;
 
 // WHY: AquaMobil is mounted at /mobile (BrowserRouter basename). The service
 // worker must use the same base path when opening windows or matching existing
@@ -42,7 +46,7 @@ function handleSyncEvent(event: ExtendableEvent & { tag: string }): void {
 }
 
 async function notifyClientsToSync(): Promise<void> {
-  const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: false });
+  const clients = await sw.clients.matchAll({ type: 'window', includeUncontrolled: false });
   for (const client of clients) {
     // WHY: SYNC_COMPLETE is the event the OfflineProvider listens for.
     // Previously this posted SYNC_MESSAGES which was silently dropped,
@@ -79,7 +83,10 @@ function handlePushEvent(event: PushEvent): void {
   if (payload.data?.type !== 'CHAT_MESSAGE') return;
 
   const title = payload.title ?? 'New Message';
-  const options: NotificationOptions = {
+  const options: NotificationOptions & {
+    renotify?: boolean;
+    actions?: Array<{ action: string; title: string; icon?: string }>;
+  } = {
     body: payload.body ?? 'You have a new message',
     icon: '/icons/messaging-icon-192.png',
     badge: '/icons/messaging-badge-72.png',
@@ -97,7 +104,7 @@ function handlePushEvent(event: PushEvent): void {
 
   event.waitUntil(
     Promise.all([
-      self.registration.showNotification(title, options),
+      sw.registration.showNotification(title, options),
       updateBadgeCount(payload.badge ?? 0),
     ]),
   );
@@ -131,7 +138,7 @@ function handleNotificationClick(event: NotificationEvent): void {
     : `${APP_BASENAME}/messages`;
 
   event.waitUntil(
-    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+    sw.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
       // Focus an existing window if one is open
       for (const client of clients) {
         // WHY: Match against APP_BASENAME + /messages to avoid false positives
@@ -145,7 +152,7 @@ function handleNotificationClick(event: NotificationEvent): void {
         }
       }
       // Otherwise open a new window
-      return self.clients.openWindow(targetUrl);
+      return sw.clients.openWindow(targetUrl);
     }),
   );
 }
@@ -160,13 +167,16 @@ function handleNotificationClick(event: NotificationEvent): void {
  */
 async function updateBadgeCount(count: number): Promise<void> {
   try {
-    if ('setAppBadge' in navigator) {
+    const badgeNavigator = sw.navigator as unknown as {
+      setAppBadge?: (n: number) => Promise<void>;
+      clearAppBadge?: () => Promise<void>;
+    };
+
+    if (badgeNavigator.setAppBadge) {
       if (count > 0) {
-        await (navigator as unknown as { setAppBadge: (n: number) => Promise<void> })
-          .setAppBadge(count);
+        await badgeNavigator.setAppBadge(count);
       } else {
-        await (navigator as unknown as { clearAppBadge: () => Promise<void> })
-          .clearAppBadge();
+        await badgeNavigator.clearAppBadge?.();
       }
     }
   } catch {
@@ -233,10 +243,10 @@ async function staleWhileRevalidateStrategy(request: Request): Promise<Response>
 // Event Listener Registration
 // ============================================================================
 
-self.addEventListener('sync', handleSyncEvent as EventListener);
-self.addEventListener('push', handlePushEvent as EventListener);
-self.addEventListener('notificationclick', handleNotificationClick as EventListener);
-self.addEventListener('fetch', handleFetchEvent as EventListener);
+sw.addEventListener('sync', handleSyncEvent as EventListener);
+sw.addEventListener('push', handlePushEvent as EventListener);
+sw.addEventListener('notificationclick', handleNotificationClick as EventListener);
+sw.addEventListener('fetch', handleFetchEvent as EventListener);
 
 // ============================================================================
 // C-FE-01: Logout cache clearing
@@ -247,11 +257,11 @@ self.addEventListener('fetch', handleFetchEvent as EventListener);
 // This is wired in the auth store's logout action (authStore.logout()).
 // ============================================================================
 
-self.addEventListener('message', (event: ExtendableMessageEvent) => {
+sw.addEventListener('message', ((event: ExtendableMessageEvent) => {
   if ((event.data as { type?: string })?.type === 'LOGOUT') {
     event.waitUntil(clearMessagingCaches());
   }
-});
+}) as EventListener);
 
 async function clearMessagingCaches(): Promise<void> {
   const keys = await caches.keys();

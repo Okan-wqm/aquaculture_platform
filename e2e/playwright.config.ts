@@ -4,9 +4,10 @@ import { defineConfig } from '@playwright/test';
  * Playwright configuration for Aquaculture E2E tests.
  *
  * Projects:
- *   - security:    Authorization, authentication, tenant isolation tests
- *   - workflow:    Cross-service business workflow tests
- *   - integration: Service integration and data consistency tests
+ *   - security: Playwright-native HTTP/security tests.
+ *
+ * Node-style GraphQL/DB E2E suites use Jest via jest.config.ts. Keeping the
+ * runner boundary explicit prevents Playwright from loading Jest globals.
  *
  * Environment variables:
  *   - GATEWAY_URL:   Gateway GraphQL endpoint (default: http://localhost:4000)
@@ -36,18 +37,6 @@ export default defineConfig({
     {
       name: 'security',
       testDir: './tests/security',
-    },
-    {
-      name: 'workflow',
-      testDir: './tests/workflow',
-    },
-    {
-      name: 'integration',
-      testDir: './tests/integration',
-    },
-    {
-      name: 'hr-module',
-      testDir: './tests/modules/hr',
     },
   ],
 });

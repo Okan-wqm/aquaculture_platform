@@ -110,5 +110,4 @@ jobs:
           name: e2e-test-report-${{ github.run_number }}
           path: e2e/playwright-report/
           retention-days: 14
-        # Artifact upload failure is non-critical (storage issue, not test issue) — keep tolerant.
-        continue-on-error: true
+        # Report upload is part of the E2E evidence chain; failures should be visible.

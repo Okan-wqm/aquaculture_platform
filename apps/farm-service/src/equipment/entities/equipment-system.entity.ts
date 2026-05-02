@@ -19,7 +19,7 @@ import {
 import type { Equipment } from './equipment.entity';
 import type { System } from '../../system/entities/system.entity';
 
-@Entity('equipment_systems', { schema: 'farm' })
+@Entity('equipment_systems')
 @Unique(['equipmentId', 'systemId'])
 @Index(['tenantId', 'equipmentId'])
 @Index(['tenantId', 'systemId'])

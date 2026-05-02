@@ -43,7 +43,7 @@ WORKDIR /app
 # pulls everything this container needs.
 COPY package*.json ./
 RUN --mount=type=cache,target=/root/.npm,sharing=shared \
-    npm ci --legacy-peer-deps --omit=dev --ignore-scripts --no-audit && \
+    npm ci --omit=dev --ignore-scripts --no-audit && \
     chown -R nestjs:nodejs /app/node_modules
 
 # Bundle layout: host-built dist/apps/db-migrate/* mirrors the same

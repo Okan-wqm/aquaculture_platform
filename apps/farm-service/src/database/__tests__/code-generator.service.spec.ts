@@ -14,6 +14,10 @@ describe('CodeGeneratorService', () => {
     create: jest.fn(),
     save: jest.fn(),
     findOne: jest.fn(),
+    metadata: {
+      tableName: 'code_sequences',
+      findColumnWithPropertyName: jest.fn((propertyName: string) => ({ databaseName: propertyName })),
+    },
   };
 
   const mockQueryRunner = {
@@ -22,6 +26,7 @@ describe('CodeGeneratorService', () => {
     commitTransaction: jest.fn(),
     rollbackTransaction: jest.fn(),
     release: jest.fn(),
+    query: jest.fn(),
     manager: {
       findOne: jest.fn(),
       create: jest.fn(),
@@ -57,25 +62,12 @@ describe('CodeGeneratorService', () => {
   });
 
   describe('generateCode', () => {
-    const tenantId = 'tenant-123';
+    const tenantId = '4b529829-ea79-48da-982c-cd6fbec8ffb7';
     const currentYear = new Date().getFullYear();
 
     it('should generate code with correct format', async () => {
-      const mockSequence = {
-        id: 'seq-1',
-        tenantId,
-        entityType: 'Batch',
-        prefix: 'B',
-        year: currentYear,
-        lastSequence: 0,
-      };
-
-      mockQueryRunner.manager.findOne.mockResolvedValue(null);
-      mockQueryRunner.manager.create.mockReturnValue({ ...mockSequence, lastSequence: 0 });
-      mockQueryRunner.manager.save.mockImplementation((entity) => {
-        entity.lastSequence = 1;
-        return Promise.resolve(entity);
-      });
+      mockQueryRunner.query.mockResolvedValueOnce(undefined);
+      mockQueryRunner.query.mockResolvedValueOnce([{ sequence: 1 }]);
 
       const result = await service.generateCode({
         prefix: 'B',
@@ -86,22 +78,18 @@ describe('CodeGeneratorService', () => {
       expect(result.code).toBe(`B-${currentYear}-00001`);
       expect(result.sequence).toBe(1);
       expect(result.year).toBe(currentYear);
+      expect(mockQueryRunner.query).toHaveBeenCalledWith(
+        expect.stringContaining('SET LOCAL search_path'),
+      );
+      expect(mockQueryRunner.query).toHaveBeenCalledWith(
+        expect.stringContaining('ON CONFLICT'),
+        [tenantId, 'Batch', 'B', currentYear],
+      );
     });
 
     it('should increment existing sequence', async () => {
-      const existingSequence = {
-        id: 'seq-1',
-        tenantId,
-        entityType: 'Batch',
-        prefix: 'B',
-        year: currentYear,
-        lastSequence: 5,
-      };
-
-      mockQueryRunner.manager.findOne.mockResolvedValue(existingSequence);
-      mockQueryRunner.manager.save.mockImplementation((entity) => {
-        return Promise.resolve(entity);
-      });
+      mockQueryRunner.query.mockResolvedValueOnce(undefined);
+      mockQueryRunner.query.mockResolvedValueOnce([{ sequence: 6 }]);
 
       const result = await service.generateCode({
         prefix: 'B',
@@ -114,18 +102,8 @@ describe('CodeGeneratorService', () => {
     });
 
     it('should use custom padding', async () => {
-      mockQueryRunner.manager.findOne.mockResolvedValue(null);
-      mockQueryRunner.manager.create.mockReturnValue({
-        tenantId,
-        entityType: 'Tank',
-        prefix: 'TNK',
-        year: currentYear,
-        lastSequence: 0,
-      });
-      mockQueryRunner.manager.save.mockImplementation((entity) => {
-        entity.lastSequence = 1;
-        return Promise.resolve(entity);
-      });
+      mockQueryRunner.query.mockResolvedValueOnce(undefined);
+      mockQueryRunner.query.mockResolvedValueOnce([{ sequence: 1 }]);
 
       const result = await service.generateCode({
         prefix: 'TNK',
@@ -138,18 +116,8 @@ describe('CodeGeneratorService', () => {
     });
 
     it('should use custom separator', async () => {
-      mockQueryRunner.manager.findOne.mockResolvedValue(null);
-      mockQueryRunner.manager.create.mockReturnValue({
-        tenantId,
-        entityType: 'Site',
-        prefix: 'SITE',
-        year: currentYear,
-        lastSequence: 0,
-      });
-      mockQueryRunner.manager.save.mockImplementation((entity) => {
-        entity.lastSequence = 1;
-        return Promise.resolve(entity);
-      });
+      mockQueryRunner.query.mockResolvedValueOnce(undefined);
+      mockQueryRunner.query.mockResolvedValueOnce([{ sequence: 1 }]);
 
       const result = await service.generateCode({
         prefix: 'SITE',
@@ -162,7 +130,8 @@ describe('CodeGeneratorService', () => {
     });
 
     it('should rollback on error', async () => {
-      mockQueryRunner.manager.findOne.mockRejectedValue(new Error('DB Error'));
+      mockQueryRunner.query.mockResolvedValueOnce(undefined);
+      mockQueryRunner.query.mockRejectedValueOnce(new Error('DB Error'));
 
       await expect(
         service.generateCode({
@@ -175,22 +144,31 @@ describe('CodeGeneratorService', () => {
       expect(mockQueryRunner.rollbackTransaction).toHaveBeenCalled();
       expect(mockQueryRunner.release).toHaveBeenCalled();
     });
+
+    it('should reject invalid tenant IDs before deriving a schema name', async () => {
+      await expect(
+        service.generateCode({
+          prefix: 'B',
+          tenantId: 'tenant-123',
+          entityType: 'Batch',
+        }),
+      ).rejects.toThrow('Invalid tenantId format: tenant-123');
+
+      expect(mockQueryRunner.query).not.toHaveBeenCalledWith(
+        expect.stringContaining('SET LOCAL search_path'),
+      );
+      expect(mockQueryRunner.rollbackTransaction).toHaveBeenCalled();
+      expect(mockQueryRunner.release).toHaveBeenCalled();
+    });
   });
 
   describe('entity-specific generators', () => {
-    const tenantId = 'tenant-123';
+    const tenantId = '4b529829-ea79-48da-982c-cd6fbec8ffb7';
     const currentYear = new Date().getFullYear();
 
     beforeEach(() => {
-      mockQueryRunner.manager.findOne.mockResolvedValue(null);
-      mockQueryRunner.manager.create.mockImplementation((EntityClass, data) => ({
-        ...data,
-        lastSequence: 0,
-      }));
-      mockQueryRunner.manager.save.mockImplementation((entity) => {
-        entity.lastSequence = 1;
-        return Promise.resolve(entity);
-      });
+      mockQueryRunner.query.mockResolvedValueOnce(undefined);
+      mockQueryRunner.query.mockResolvedValueOnce([{ sequence: 1 }]);
     });
 
     it('generateBatchCode should use B prefix', async () => {

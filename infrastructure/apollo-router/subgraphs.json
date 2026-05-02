@@ -1,0 +1,62 @@
+{
+  "federationVersion": "=2.10.0",
+  "runtimeMode": "self-hosted-static-supergraph",
+  "subgraphs": [
+    {
+      "name": "auth",
+      "routingUrl": "http://auth-service:3000/graphql",
+      "schemaUrl": "http://auth-service:3000/graphql"
+    },
+    {
+      "name": "farm",
+      "routingUrl": "http://farm-service:3000/graphql",
+      "schemaUrl": "http://farm-service:3000/graphql"
+    },
+    {
+      "name": "sensor",
+      "routingUrl": "http://sensor-service:3000/graphql",
+      "schemaUrl": "http://sensor-service:3000/graphql"
+    },
+    {
+      "name": "alert",
+      "routingUrl": "http://alert-engine:3000/graphql",
+      "schemaUrl": "http://alert-engine:3000/graphql"
+    },
+    {
+      "name": "hr",
+      "routingUrl": "http://hr-service:3000/graphql",
+      "schemaUrl": "http://hr-service:3000/graphql"
+    },
+    {
+      "name": "billing",
+      "routingUrl": "http://billing-service:3000/graphql",
+      "schemaUrl": "http://billing-service:3000/graphql"
+    },
+    {
+      "name": "hydroponics",
+      "routingUrl": "http://hydroponics-service:3000/graphql",
+      "schemaUrl": "http://hydroponics-service:3000/graphql"
+    },
+    {
+      "name": "config",
+      "routingUrl": "http://config-service:3000/graphql",
+      "schemaUrl": "http://config-service:3000/graphql"
+    },
+    {
+      "name": "notification",
+      "routingUrl": "http://notification-service:3000/graphql",
+      "schemaUrl": "http://notification-service:3000/graphql"
+    },
+    {
+      "name": "messaging",
+      "routingUrl": "http://messaging-service:3000/graphql",
+      "schemaUrl": "http://messaging-service:3000/graphql"
+    }
+  ],
+  "excludedFederatedServices": [
+    {
+      "name": "ai-service",
+      "reason": "ai-service exposes ApolloFederationDriver but is not registered in the current production gateway; it must be promoted explicitly with composition, health, and tenant propagation tests."
+    }
+  ]
+}

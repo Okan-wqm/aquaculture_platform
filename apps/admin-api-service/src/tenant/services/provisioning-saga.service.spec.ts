@@ -2,9 +2,15 @@ import { Logger } from '@nestjs/common';
 
 import {
   ProvisioningSagaService,
-  SagaResult,
-  SagaStep,
 } from './provisioning-saga.service';
+
+function expectArrayItem<T>(items: readonly T[], index: number): T {
+  const item = items[index];
+  if (item === undefined) {
+    throw new Error(`Expected array item at index ${index}`);
+  }
+  return item;
+}
 
 describe('ProvisioningSagaService', () => {
   let saga: ProvisioningSagaService;
@@ -66,12 +72,10 @@ describe('ProvisioningSagaService', () => {
 
       expect(result.success).toBe(true);
       expect(result.steps).toHaveLength(1);
-      // `!` is safe after toHaveLength(1) narrows the array — but
-      // strict-tsc with noUncheckedIndexedAccess can't follow the
-      // narrowing through the matcher boundary.
-      expect(result.steps[0]!.name).toBe('fast_step');
-      expect(result.steps[0]!.status).toBe('completed');
-      expect(result.steps[0]!.duration).toBeGreaterThanOrEqual(0);
+      const step = expectArrayItem(result.steps, 0);
+      expect(step.name).toBe('fast_step');
+      expect(step.status).toBe('completed');
+      expect(step.duration).toBeGreaterThanOrEqual(0);
     });
 
     it('should return success when no steps are added', async () => {
@@ -161,10 +165,12 @@ describe('ProvisioningSagaService', () => {
       const result = await saga.run();
 
       expect(result.steps).toHaveLength(2);
-      expect(result.steps[0]!.status).toBe('compensated');
-      expect(result.steps[1]!.name).toBe('failing_step');
-      expect(result.steps[1]!.status).toBe('failed');
-      expect(result.steps[1]!.error).toBe('boom');
+      const compensatedStep = expectArrayItem(result.steps, 0);
+      const failedStep = expectArrayItem(result.steps, 1);
+      expect(compensatedStep.status).toBe('compensated');
+      expect(failedStep.name).toBe('failing_step');
+      expect(failedStep.status).toBe('failed');
+      expect(failedStep.error).toBe('boom');
     });
   });
 
@@ -195,11 +201,11 @@ describe('ProvisioningSagaService', () => {
       expect(result.success).toBe(false);
       expect(result.error).toBe('Execute 3 failed');
       expect(result.compensationErrors).toHaveLength(2);
-      expect(result.compensationErrors[0]).toEqual({
+      expect(expectArrayItem(result.compensationErrors, 0)).toEqual({
         step: 'step_2',
         error: 'Compensation 2 failed',
       });
-      expect(result.compensationErrors[1]).toEqual({
+      expect(expectArrayItem(result.compensationErrors, 1)).toEqual({
         step: 'step_1',
         error: 'Compensation 1 failed',
       });
@@ -238,7 +244,7 @@ describe('ProvisioningSagaService', () => {
         'compensate_1',
       ]);
       expect(result.compensationErrors).toHaveLength(1);
-      expect(result.compensationErrors[0]!.step).toBe('step_2');
+      expect(expectArrayItem(result.compensationErrors, 0).step).toBe('step_2');
     });
 
     it('should mark steps with failed compensation as "compensation_failed"', async () => {
@@ -255,8 +261,8 @@ describe('ProvisioningSagaService', () => {
 
       const result = await saga.run();
 
-      expect(result.steps[0]!.status).toBe('compensation_failed');
-      expect(result.steps[1]!.status).toBe('failed');
+      expect(expectArrayItem(result.steps, 0).status).toBe('compensation_failed');
+      expect(expectArrayItem(result.steps, 1).status).toBe('failed');
     });
   });
 

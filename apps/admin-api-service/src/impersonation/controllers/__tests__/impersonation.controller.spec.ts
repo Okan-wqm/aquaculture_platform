@@ -48,6 +48,11 @@ const mockImpersonationService = {
     id: 'session-1',
     status: ImpersonationStatus.TERMINATED,
   }),
+  extendSession: jest.fn().mockResolvedValue({
+    id: 'session-1',
+    status: ImpersonationStatus.ACTIVE,
+    expiresAt: new Date(Date.now() + 3600000),
+  }),
   validateSession: jest.fn().mockResolvedValue({ sessionId: 'session-1' }),
   getActiveSessions: jest.fn().mockResolvedValue([]),
   getActiveSessionCount: jest.fn().mockReturnValue(0),
@@ -689,7 +694,7 @@ describe('ImpersonationController', () => {
 
   describe('POST /impersonation/sessions/:id/extend', () => {
     it('should pass JWT user.id to extendSession for ownership check', async () => {
-      mockImpersonationService.extendSession = jest.fn().mockResolvedValue({
+      mockImpersonationService.extendSession.mockResolvedValueOnce({
         id: 'session-ext-1',
         status: ImpersonationStatus.ACTIVE,
         expiresAt: new Date(Date.now() + 7200000),
@@ -707,7 +712,7 @@ describe('ImpersonationController', () => {
     });
 
     it('should not allow client-injected admin ID on extend', async () => {
-      mockImpersonationService.extendSession = jest.fn().mockResolvedValue({
+      mockImpersonationService.extendSession.mockResolvedValueOnce({
         id: 'session-ext-1',
         status: ImpersonationStatus.ACTIVE,
       });
@@ -793,7 +798,10 @@ describe('ImpersonationController', () => {
       expect(res.body.valid).toBe(true);
       expect(res.body.context).toBeDefined();
       expect(res.body.context.sessionId).toBe('session-1');
-      expect(mockImpersonationService.validateSession).toHaveBeenCalledWith('test-token-abc');
+      expect(mockImpersonationService.validateSession).toHaveBeenCalledWith(
+        'test-token-abc',
+        expect.any(String),
+      );
     });
 
     it('should return valid=false when token is invalid', async () => {
@@ -916,10 +924,8 @@ describe('ImpersonationController', () => {
         .post('/impersonation/sessions/session-log-1/log-resource-access')
         .send({});
 
-      // Body is untyped (no DTO validation), so NestJS may pass it through.
-      // The service handles missing fields gracefully.
-      // If the controller adds DTO validation later, this should return 400.
-      expect(mockImpersonationService.logResourceAccess).toHaveBeenCalled();
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST);
+      expect(mockImpersonationService.logResourceAccess).not.toHaveBeenCalled();
     });
 
     it('should invoke PlatformAdminGuard', async () => {

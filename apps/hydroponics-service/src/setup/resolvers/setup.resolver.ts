@@ -160,7 +160,9 @@ export class SetupResolver {
     });
 
     if (!config) {
-      throw new NotFoundException(`Configuration with id "${id}" not found`);
+      // Delete is intentionally idempotent and tenant-scoped: a missing row
+      // returns false without revealing whether another tenant owns that ID.
+      return false;
     }
 
     // PLAT-HIGH-011: Ownership check for MODULE_USER role.

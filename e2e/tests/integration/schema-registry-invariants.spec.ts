@@ -62,10 +62,14 @@ describe('SCHEMA_REGISTRY ↔ init-schemas.sh invariants (MA4)', () => {
     const alterRe = /ALTER\s+SCHEMA\s+(\w+)\s+OWNER\s+TO\s+(\w+)\s*;/gi;
     let m: RegExpExecArray | null;
     while ((m = createRe.exec(generated)) !== null) {
-      createSchemas.set(m[1], m[2]);
+      const schema = m[1];
+      const role = m[2];
+      if (schema && role) createSchemas.set(schema, role);
     }
     while ((m = alterRe.exec(generated)) !== null) {
-      alterOwners.set(m[1], m[2]);
+      const schema = m[1];
+      const role = m[2];
+      if (schema && role) alterOwners.set(schema, role);
     }
   }
 

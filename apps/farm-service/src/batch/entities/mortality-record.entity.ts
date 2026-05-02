@@ -111,7 +111,7 @@ export interface MortalityDocument {
 // ============================================================================
 
 @ObjectType()
-@Entity('mortality_records', { schema: 'farm' })
+@Entity('mortality_records')
 @Index(['tenantId', 'batchId', 'recordDate'])
 @Index(['tenantId', 'cause'])
 @Index(['tenantId', 'severity'])

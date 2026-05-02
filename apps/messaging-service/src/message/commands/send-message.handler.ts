@@ -2,7 +2,7 @@ import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { Logger, BadRequestException, Inject } from '@nestjs/common';
 import { DataSource, Repository, IsNull } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID as uuidv4 } from 'crypto';
 import Redis from 'ioredis';
 
 import { OutboxPublisher } from '@platform/outbox';
@@ -103,9 +103,11 @@ export class SendMessageHandler implements ICommandHandler<SendMessageCommand, M
         select: ['userId'],
       });
 
-      // Build mentionable member list (userId + displayName)
-      // TODO: Resolve display names from auth-service via federation.
-      //       For now, userId is used as a fallback display name.
+      // Build mentionable member list (userId + displayName).
+      // 2026-05-02: Keep userId as the deterministic display identifier until
+      // auth-service exposes a federated profile lookup owned by the messaging
+      // read model. WHY: mention parsing must not call an ad-hoc remote lookup
+      // from the write transaction path.
       const mentionableMembers: MentionableMember[] = members.map((m) => ({
         userId: m.userId,
         displayName: m.userId, // Placeholder until user resolution

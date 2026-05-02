@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { AuditLogModule } from '../audit/audit.module';
 import { BillingModule } from '../billing/billing.module';
+import { DatabaseManagementModule } from '../database-management/database-management.module';
 import { TenantSchema } from '../database-management/entities/database-management.entity';
 import { ModuleAssignmentService } from '../modules/tenant-management/services/module-assignment.service';
 import { SettingsModule } from '../settings/settings.module';
@@ -68,6 +69,7 @@ const QueryHandlers = [
       TenantSchema,
     ]),
     AuditLogModule,
+    DatabaseManagementModule,
     SettingsModule,
     BillingModule,
     UsersModule,

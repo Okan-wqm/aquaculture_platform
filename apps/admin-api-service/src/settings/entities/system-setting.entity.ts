@@ -501,11 +501,13 @@ export const DEFAULT_SYSTEM_SETTINGS: DefaultSystemSettings[] = [
   },
   {
     key: 'feature.graphql_playground',
-    value: 'true',
+    // 2026-04-30: Deprecated GraphQL Playground is disabled by default.
+    // WHY: platform settings must not advertise an unsupported developer UI.
+    value: 'false',
     valueType: SettingValueType.BOOLEAN,
     category: SettingCategory.FEATURE_FLAG,
-    description: 'Enable GraphQL Playground',
-    displayName: 'GraphQL Playground',
+    description: 'Deprecated GraphQL Playground is disabled; use supported GraphQL tooling through the gateway policy.',
+    displayName: 'GraphQL Playground Disabled',
   },
   {
     key: 'feature.registration_enabled',

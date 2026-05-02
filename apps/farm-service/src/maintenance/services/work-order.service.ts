@@ -14,7 +14,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, Between, LessThan, MoreThan, Like, ILike, DataSource } from 'typeorm';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID as uuidv4 } from 'crypto';
 import {
   WorkOrder,
   WorkOrderStatus,

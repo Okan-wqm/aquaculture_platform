@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2020", "WebWorker"],
+    "types": [],
+    "noEmit": true
+  },
+  "include": ["src/pwa/messaging-sw.ts"],
+  "exclude": ["node_modules", "../../../node_modules"]
+}

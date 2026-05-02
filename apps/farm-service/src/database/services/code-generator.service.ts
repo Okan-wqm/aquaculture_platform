@@ -69,32 +69,12 @@ export class CodeGeneratorService {
       const tenantSchema = getTenantSchemaName(options.tenantId);
       await queryRunner.query(`SET LOCAL search_path TO "${tenantSchema}", farm, public`);
 
-      // Lock ile sequence kaydını bul veya oluştur
-      let sequence = await queryRunner.manager.findOne(CodeSequence, {
-        where: {
-          tenantId: options.tenantId,
-          entityType: options.entityType,
-          year,
-        },
-        lock: { mode: 'pessimistic_write' },
+      const sequence = await this.incrementSequenceAtomically(queryRunner, {
+        tenantId: options.tenantId,
+        entityType: options.entityType,
+        prefix: options.prefix,
+        year,
       });
-
-      if (!sequence) {
-        // Yeni sequence oluştur
-        sequence = queryRunner.manager.create(CodeSequence, {
-          tenantId: options.tenantId,
-          entityType: options.entityType,
-          prefix: options.prefix,
-          year,
-          lastSequence: 0,
-        });
-      }
-
-      // Sequence'i artır
-      sequence.lastSequence += 1;
-      sequence.lastGeneratedAt = new Date();
-
-      await queryRunner.manager.save(sequence);
       await queryRunner.commitTransaction();
 
       // Kodu formatla
@@ -116,6 +96,93 @@ export class CodeGeneratorService {
     } finally {
       await queryRunner.release();
     }
+  }
+
+  private async incrementSequenceAtomically(
+    queryRunner: ReturnType<DataSource['createQueryRunner']>,
+    input: {
+      tenantId: string;
+      entityType: string;
+      prefix: string;
+      year: number;
+    },
+  ): Promise<CodeSequence> {
+    const table = this.quoteIdentifier(this.sequenceRepository.metadata?.tableName ?? 'code_sequences');
+    const columns = this.sequenceColumnNames();
+    const setUpdatedAt = columns.updatedAt
+      ? `, ${columns.updatedAt} = NOW()`
+      : '';
+
+    // WHY: `findOne(... lock)` only locks an existing row. For the first code
+    // in a tenant/entity/year, concurrent requests would both see no row and
+    // race on insert. PostgreSQL upsert makes create-or-increment one atomic
+    // statement guarded by the unique tenant/entity/year constraint.
+    const rows: Array<{ sequence: number | string }> = await queryRunner.query(
+      `
+        INSERT INTO ${table}
+          (${columns.tenantId}, ${columns.entityType}, ${columns.prefix}, ${columns.year}, ${columns.lastSequence}, ${columns.lastGeneratedAt})
+        VALUES ($1, $2, $3, $4, 1, NOW())
+        ON CONFLICT (${columns.tenantId}, ${columns.entityType}, ${columns.year})
+        DO UPDATE SET
+          ${columns.lastSequence} = ${table}.${columns.lastSequence} + 1,
+          ${columns.prefix} = EXCLUDED.${columns.prefix},
+          ${columns.lastGeneratedAt} = NOW()
+          ${setUpdatedAt}
+        RETURNING ${columns.lastSequence} AS "sequence"
+      `,
+      [input.tenantId, input.entityType, input.prefix, input.year],
+    );
+
+    const lastSequence = Number(rows[0]?.sequence);
+    if (!Number.isInteger(lastSequence) || lastSequence < 1) {
+      throw new Error('Code sequence increment did not return a valid sequence');
+    }
+
+    return {
+      tenantId: input.tenantId,
+      entityType: input.entityType,
+      prefix: input.prefix,
+      year: input.year,
+      lastSequence,
+      lastGeneratedAt: new Date(),
+    } as CodeSequence;
+  }
+
+  private sequenceColumnNames(): {
+    tenantId: string;
+    entityType: string;
+    prefix: string;
+    year: string;
+    lastSequence: string;
+    lastGeneratedAt: string;
+    updatedAt?: string;
+  } {
+    return {
+      tenantId: this.sequenceColumn('tenantId'),
+      entityType: this.sequenceColumn('entityType'),
+      prefix: this.sequenceColumn('prefix'),
+      year: this.sequenceColumn('year'),
+      lastSequence: this.sequenceColumn('lastSequence'),
+      lastGeneratedAt: this.sequenceColumn('lastGeneratedAt'),
+      updatedAt: this.optionalSequenceColumn('updatedAt'),
+    };
+  }
+
+  private sequenceColumn(propertyName: keyof CodeSequence): string {
+    const column = this.optionalSequenceColumn(propertyName);
+    if (!column) {
+      throw new Error(`CodeSequence metadata is missing column "${String(propertyName)}"`);
+    }
+    return column;
+  }
+
+  private optionalSequenceColumn(propertyName: keyof CodeSequence): string | undefined {
+    const databaseName = this.sequenceRepository.metadata?.findColumnWithPropertyName(String(propertyName))?.databaseName;
+    return databaseName ? this.quoteIdentifier(databaseName) : undefined;
+  }
+
+  private quoteIdentifier(identifier: string): string {
+    return `"${identifier.replace(/"/g, '""')}"`;
   }
 
   /**

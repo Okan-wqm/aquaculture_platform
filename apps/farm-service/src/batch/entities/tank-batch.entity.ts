@@ -75,7 +75,7 @@ export interface CleanerFishDetail {
 // ============================================================================
 
 @ObjectType()
-@Entity('tank_batches', { schema: 'farm' })
+@Entity('tank_batches')
 @Index(['tenantId', 'tankId'], { unique: true })
 @Index(['tenantId', 'primaryBatchId'])
 export class TankBatch {

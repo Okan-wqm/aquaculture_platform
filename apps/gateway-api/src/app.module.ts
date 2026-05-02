@@ -356,7 +356,15 @@ class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayContext> {
           // SECURITY: Disable batched HTTP requests to prevent rate-limit bypass
           // A single HTTP request with many batched operations would count as 1 request
           allowBatchedHttpRequests: false,
-          playground: configService.get('NODE_ENV') !== 'production',
+          /**
+           * 2026-04-30: Keep Apollo CSRF prevention explicit while Apollo Server 5
+           * migration is blocked by the Nest/Apollo peer graph.
+           * WHY: Apollo Server 4 remains in the dependency graph, so XS-Search
+           * class protections must be fail-closed at runtime.
+           */
+          csrfPrevention: true,
+          // 2026-04-30: Deprecated GraphQL Playground is not enabled at runtime.
+          // WHY: gateway UI exposure must not rely on deprecated Apollo Playground behavior.
           // SECURITY: Disable introspection in production to prevent schema discovery attacks
           // Explicit env var allows overriding independently of NODE_ENV
           introspection: configService.get('GRAPHQL_INTROSPECTION', 'false') === 'true' ||

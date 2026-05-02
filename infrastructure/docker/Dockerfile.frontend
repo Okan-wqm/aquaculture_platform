@@ -20,8 +20,10 @@ COPY tsconfig*.json ./
 # -----------------------------------------------------------------------------
 FROM base AS deps
 
-# Install dependencies (skip husky prepare script)
-RUN npm ci --legacy-peer-deps --ignore-scripts
+# Install dependencies (skip husky prepare script).
+# 2026-04-30: Frontend images also obey root strict-peer-deps.
+# WHY: image builds must not mask dependency graph failures that CI would catch.
+RUN npm ci --ignore-scripts
 
 # -----------------------------------------------------------------------------
 # Stage 3: Builder

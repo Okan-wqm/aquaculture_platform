@@ -77,7 +77,7 @@ registerEnumType(TransferReason, {
 // ============================================================================
 
 @ObjectType()
-@Entity('batch_locations', { schema: 'farm' })
+@Entity('batch_locations')
 @Index(['tenantId', 'batchId', 'isCurrentLocation'])
 @Index(['tenantId', 'tankId', 'isCurrentLocation'])
 @Index(['tenantId', 'pondId', 'isCurrentLocation'])

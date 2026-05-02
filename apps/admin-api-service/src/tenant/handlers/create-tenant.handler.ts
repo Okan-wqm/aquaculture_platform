@@ -278,14 +278,15 @@ export class CreateTenantHandler
           `Assigned ${result.assignedModules.length} modules to tenant ${tenant.id}. Monthly price: $${result.totalMonthlyPrice}`,
         );
       } else {
-        this.logger.warn(
-          `Some modules failed to assign: ${result.failedModules.map((f) => f.moduleId).join(', ')}`,
+        throw new Error(
+          `Module assignment failed: ${result.failedModules.map((f) => f.moduleId).join(', ')}`,
         );
       }
     } catch (error) {
       this.logger.error(
         `Failed to assign modules to tenant ${tenant.id}: ${(error as Error).message}`,
       );
+      throw error;
     }
   }
 

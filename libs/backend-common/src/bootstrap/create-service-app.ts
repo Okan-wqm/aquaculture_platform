@@ -812,7 +812,9 @@ export async function createServiceApp(
   logger.log(`${serviceName} running on port ${port}`);
 
   if (hasGraphQL && !isProduction) {
-    logger.log(`GraphQL playground: http://localhost:${port}/graphql`);
+    // 2026-04-30: Do not advertise deprecated GraphQL Playground.
+    // WHY: local logs must reflect the supported GraphQL endpoint, not a disabled UI.
+    logger.log(`GraphQL endpoint: http://localhost:${port}/graphql`);
   }
 
   logger.log(`Health check: http://localhost:${port}/health`);

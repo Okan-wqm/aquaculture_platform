@@ -17,8 +17,10 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+import { invalidateSyncedOperationQueries } from '@/utils/offline-sync-invalidation';
+import { isRecoverableNetworkError } from '@/utils/network-error';
 import {
   ArrowLeft,
   ArrowDownToLine,
@@ -127,6 +129,7 @@ export function StockMovementPage() {
   const [searchParams] = useSearchParams();
   const { accessToken, tenantId, isAuthenticated } = useAuth();
   const { isOnline, addToQueue } = useOfflineQueue();
+  const queryClient = useQueryClient();
 
   // Parse movement type from URL, default to IN for safety
   const rawType = searchParams.get('type') ?? 'IN';
@@ -306,6 +309,9 @@ export function StockMovementPage() {
           RECORD_STOCK_MOVEMENT_MUTATION,
           { input },
         );
+        if (tenantId) {
+          await invalidateSyncedOperationQueries(queryClient, tenantId, ['recordStockMovement']);
+        }
       } else {
         // Queue for later sync when offline
         await addToQueue('recordStockMovement', input);
@@ -315,8 +321,9 @@ export function StockMovementPage() {
       setTimeout(() => navigate('/storage'), 1500);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to record stock movement';
-      // Fallback to offline queue on network errors
-      if (!isOnline || message.includes('network') || message.includes('fetch')) {
+      // Fallback only when an online transport failure occurred. If the offline
+      // queue itself failed, retrying the same queue write would hide the cause.
+      if (isOnline && isRecoverableNetworkError(error)) {
         try {
           await addToQueue('recordStockMovement', input);
           setShowSuccess(true);
@@ -334,7 +341,7 @@ export function StockMovementPage() {
   }, [
     selectedItem, selectedLocation, movementType, selectedItemType, selectedItemId,
     quantity, selectedLocationId, lotNumber, expiryDate, notes, isOnline,
-    addToQueue, navigate,
+    addToQueue, navigate, queryClient, tenantId,
   ]);
 
   // ---- Success screen ------------------------------------------------------

@@ -23,12 +23,14 @@ interface AuthStore {
   accessToken: string | null;
   tenantId: string | null;
   refreshAuth: (() => Promise<boolean>) | null;
+  logout: (() => Promise<void> | void) | null;
 }
 
 const authStore: AuthStore = {
   accessToken: null,
   tenantId: null,
   refreshAuth: null,
+  logout: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -68,10 +70,12 @@ export function syncAuthStore(
   accessToken: string | null,
   tenantId: string | null,
   refreshAuth: () => Promise<boolean>,
+  logout?: () => Promise<void> | void,
 ): void {
   authStore.accessToken = accessToken;
   authStore.tenantId = tenantId;
   authStore.refreshAuth = refreshAuth;
+  authStore.logout = logout ?? null;
   // WHY: Secondary resolution path — if a token arrives via sync (e.g.,
   // restoreSession resolved with a valid session), mark ready immediately
   // so pending requests don't wait on the useAuth.tsx finally block.

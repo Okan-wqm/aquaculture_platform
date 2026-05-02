@@ -49,7 +49,7 @@ export interface StorageLocation {
 }
 
 @ObjectType()
-@Entity('spare_parts', { schema: 'farm' })
+@Entity('spare_parts')
 @Index(['tenantId', 'partNumber'], { unique: true })
 @Index(['tenantId', 'code'], { unique: true })
 @Index(['tenantId', 'status'])

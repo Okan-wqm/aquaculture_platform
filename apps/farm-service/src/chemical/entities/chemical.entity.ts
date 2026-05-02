@@ -121,7 +121,7 @@ export interface ChemicalDocument {
 // ============================================================================
 
 @ObjectType()
-@Entity('chemicals', { schema: 'farm' })
+@Entity('chemicals')
 @Index(['tenantId', 'code'], { unique: true })
 @Index(['tenantId', 'name'], { unique: true })
 @Index(['tenantId', 'type'])

@@ -29,6 +29,8 @@ import { Batch } from '../entities/batch.entity';
 import { TankOperation, OperationType, CullReason } from '../entities/tank-operation.entity';
 import { TankBatch } from '../entities/tank-batch.entity';
 import { Equipment } from '../../equipment/entities/equipment.entity';
+import { Tank } from '../../tank/entities/tank.entity';
+import { findTankOrEquipmentWithManager } from '../utils/tank-lookup.util';
 import { toCullReasonCode } from '../../common/utils/reason-codecs';
 
 @Injectable()
@@ -74,15 +76,20 @@ export class RecordCullHandler implements ICommandHandler<RecordCullCommand, Bat
       }
       batch = foundBatch;
 
-      // Tank bul (Equipment entity kullanılıyor) — also locked
-      const tank = await queryRunner.manager.findOne(Equipment, {
-        where: { id: payload.tankId, tenantId, isActive: true },
-        lock: { mode: 'pessimistic_write' },
-      });
+      // Tank bul — cull must support the same canonical tank lookup as
+      // mortality: new tenants may store tanks in `equipment`, while existing
+      // tenants can still have production tanks in the legacy `tanks` table.
+      const tankLookup = await findTankOrEquipmentWithManager(
+        queryRunner.manager,
+        payload.tankId,
+        tenantId,
+        { mode: 'pessimistic_write' },
+      );
 
-      if (!tank) {
+      if (!tankLookup) {
         throw new NotFoundException(`Tank ${payload.tankId} bulunamadı`);
       }
+      const tank = tankLookup.equipment;
 
       // Validasyon — currentQuantity is now authoritative (read inside TX)
       if (payload.quantity > batch.currentQuantity) {
@@ -156,10 +163,24 @@ export class RecordCullHandler implements ICommandHandler<RecordCullCommand, Bat
         await queryRunner.manager.save(TankBatch, tankBatch);
       }
 
-      // Tank biomass güncelle (Math.max prevents negatives)
-      tank.currentBiomass = Math.max(0, Number(tank.currentBiomass || 0) - biomassKg);
-      tank.currentCount = Math.max(0, (tank.currentCount || 0) - payload.quantity);
-      await queryRunner.manager.save(Equipment, tank);
+      // Tank biomass güncelle (Math.max prevents negatives). Persist to the
+      // physical table where the tank was found; otherwise legacy tenants with
+      // `tanks` rows would get a successful cull whose visible tank totals never
+      // change in the frontend/mobile read model.
+      const newBiomass = Math.max(0, Number(tank.currentBiomass || 0) - biomassKg);
+      const newCount = Math.max(0, (tank.currentCount || 0) - payload.quantity);
+      if (tankLookup.isFromTanksTable && tankLookup.originalTank) {
+        await queryRunner.manager
+          .createQueryBuilder()
+          .update(Tank)
+          .set({ currentBiomass: newBiomass, currentCount: newCount })
+          .where('id = :id', { id: tankLookup.originalTank.id })
+          .execute();
+      } else {
+        tank.currentBiomass = newBiomass;
+        tank.currentCount = newCount;
+        await queryRunner.manager.save(Equipment, tank);
+      }
 
       // Enqueue CullRecordedEvent into the transactional outbox BEFORE commit.
       // The outbox row is part of the same transaction as the domain writes —

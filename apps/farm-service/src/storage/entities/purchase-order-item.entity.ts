@@ -5,7 +5,7 @@ import {
 import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import { PurchaseOrder } from './purchase-order.entity';
 
-@Entity('purchase_order_items', { schema: 'farm' })
+@Entity('purchase_order_items')
 @Index(['tenantId', 'purchaseOrderId'])
 export class PurchaseOrderItem {
   @PrimaryGeneratedColumn('uuid')

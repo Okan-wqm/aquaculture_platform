@@ -27,7 +27,7 @@ import { Feed } from './feed.entity';
 import type { Site } from '../../site/entities/site.entity';
 
 @ObjectType()
-@Entity('feed_sites', { schema: 'farm' })
+@Entity('feed_sites')
 @Unique(['feedId', 'siteId'])
 @Index(['tenantId', 'feedId'])
 @Index(['tenantId', 'siteId'])

@@ -315,7 +315,9 @@ describe('Sensor CRUD + Registration', () => {
 
       expect(res.errors).toBeDefined();
       expect(res.errors!.length).toBeGreaterThan(0);
-      expect(res.errors![0].message).toContain('already exists');
+      const [error] = res.errors!;
+      if (!error) throw new Error('Expected duplicate sensor type error');
+      expect(error.message).toContain('already exists');
     });
   });
 
@@ -587,7 +589,9 @@ describe('Sensor CRUD + Registration', () => {
       if (res.data?.sensor) {
         expect(res.data.sensor).toBeNull();
       } else if (res.errors) {
-        expect(res.errors[0].message).toContain('not found');
+        const [error] = res.errors;
+        if (!error) throw new Error('Expected not found error');
+        expect(error.message).toContain('not found');
       }
     });
   });
@@ -816,7 +820,9 @@ describe('Sensor CRUD + Registration', () => {
       if (res.data?.sensor) {
         expect(res.data.sensor).toBeNull();
       } else if (res.errors) {
-        expect(res.errors[0].message).toContain('not found');
+        const [error] = res.errors;
+        if (!error) throw new Error('Expected not found error');
+        expect(error.message).toContain('not found');
       }
     });
 

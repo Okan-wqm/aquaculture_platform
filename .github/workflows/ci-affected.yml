@@ -83,6 +83,7 @@ jobs:
               # (root cause of the @nx/eslint-plugin native-binding
               # red herring) landed and CI-Affected skipped the full
               # chain in 9s because has_changes=false.
+              - '.npmrc'
               - 'package.json'
               - 'package-lock.json'
       - id: check
@@ -124,7 +125,7 @@ jobs:
             nx-ci-${{ runner.os }}-
 
       - name: Install dependencies
-        run: npm install --legacy-peer-deps --ignore-scripts --no-audit
+        run: npm ci --ignore-scripts --no-audit
 
       # Graph invariant (ARCH-CI-012): catch ProjectsWithNoNameError and
       # similar graph-drift failures in the install job (~30s) instead of
@@ -210,7 +211,7 @@ jobs:
 
       - name: Fallback install if cache missed
         if: steps.cache-nm.outputs.cache-hit != 'true'
-        run: npm install --legacy-peer-deps --ignore-scripts --no-audit
+        run: npm ci --ignore-scripts --no-audit
 
       - name: Restore Nx cache
         uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
@@ -257,7 +258,7 @@ jobs:
 
       - name: Fallback install if cache missed
         if: steps.cache-nm.outputs.cache-hit != 'true'
-        run: npm install --legacy-peer-deps --ignore-scripts --no-audit
+        run: npm ci --ignore-scripts --no-audit
 
       - name: Restore Nx cache
         uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
@@ -327,7 +328,7 @@ jobs:
 
       - name: Fallback install if cache missed
         if: steps.cache-nm.outputs.cache-hit != 'true'
-        run: npm install --legacy-peer-deps --ignore-scripts --no-audit
+        run: npm ci --ignore-scripts --no-audit
 
       - name: Restore Nx cache
         uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
@@ -377,7 +378,7 @@ jobs:
 
       - name: Fallback install if cache missed
         if: steps.cache-nm.outputs.cache-hit != 'true'
-        run: npm install --legacy-peer-deps --ignore-scripts --no-audit
+        run: npm ci --ignore-scripts --no-audit
 
       - name: Restore Nx cache
         uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
@@ -427,7 +428,7 @@ jobs:
           key: nm-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
       - name: Fallback install if cache missed
         if: steps.cache-nm.outputs.cache-hit != 'true'
-        run: npm install --legacy-peer-deps --ignore-scripts --no-audit
+        run: npm ci --ignore-scripts --no-audit
       - name: Validate pagination schema types
         run: node scripts/validate-pagination-schema.js
 
@@ -509,9 +510,25 @@ jobs:
           key: nm-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
       - name: Fallback install if cache missed
         if: steps.cache-nm.outputs.cache-hit != 'true'
-        run: npm install --legacy-peer-deps --ignore-scripts --no-audit
+        run: npm ci --ignore-scripts --no-audit
+      - name: Validate dependency graph contracts
+        run: npm ls typeorm uuid @nestjs/apollo @apollo/server @apollo/gateway @opentelemetry/api @opentelemetry/sdk-node
       - name: Run npm audit
-        run: npm audit --audit-level=high --omit=dev || true
+        run: |
+          set +e
+          npm audit --audit-level=high --omit=dev --json > npm-audit-root.json
+          AUDIT_STATUS=$?
+          node scripts/ci/audit-source-map.mjs npm-audit-root.json npm-audit-source-map.md
+          exit "$AUDIT_STATUS"
+      - name: Upload npm audit source map
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: npm-audit-source-map-${{ github.run_number }}
+          path: |
+            npm-audit-root.json
+            npm-audit-source-map.md
+          retention-days: 14
 
   docs-check:
     needs: detect-changes

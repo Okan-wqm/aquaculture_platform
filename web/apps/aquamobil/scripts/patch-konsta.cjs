@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 /**
- * Patch konsta package.json to add root export
- * This is needed because konsta doesn't export "." which breaks Vite/Rollup
+ * Patch konsta package.json to add root export.
+ *
+ * WHY: aquamobil is an ES module package, but postinstall runs in Node before
+ * Vite sees the app. Keeping this installer as CommonJS makes dependency
+ * installation deterministic under `"type": "module"` instead of failing on
+ * `require is not defined`.
  */
 
 const fs = require('fs');

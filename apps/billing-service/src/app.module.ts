@@ -93,6 +93,13 @@ import { ModuleQuantities, ModuleLineItem } from './billing/entities/subscriptio
        *  defense-in-depth in case a subgraph becomes directly accessible. */
       allowBatchedHttpRequests: false,
       /**
+       * 2026-04-30: Keep Apollo CSRF prevention explicit while Apollo Server 5
+       * migration is blocked by the Nest/Apollo peer graph.
+       * WHY: Apollo Server 4 remains in the dependency graph, so XS-Search
+       * class protections must be fail-closed at runtime.
+       */
+      csrfPrevention: true,
+      /**
        * SECURITY (H-05): depthLimit(10) prevents deeply nested query DoS attacks.
        * Without depth limiting, an attacker can craft a deeply nested GraphQL query
        * that causes exponential resource consumption on the server.
@@ -112,13 +119,10 @@ import { ModuleQuantities, ModuleLineItem } from './billing/entities/subscriptio
         ],
       },
       /**
-       * In @nestjs/graphql v13 (NestJS v11), the 'playground' option is internally
-       * mapped to Apollo Sandbox via ApolloServerPluginLandingPageLocalDefault.
-       * When false, ApolloServerPluginLandingPageDisabled is applied instead.
-       * Disabled in production for security (no introspection exposure).
+       * 2026-04-30: Deprecated GraphQL Playground is not enabled at runtime.
+       * WHY: internal subgraphs must remain fail-closed and not reference deprecated UI paths.
        */
-      // SECURITY: Internal subgraph - always disable playground and introspection
-      playground: false,
+      // SECURITY: Internal subgraph - always disable introspection
       introspection: false,
       context: ({ req }: { req: Request }) => ({ req }),
     }),

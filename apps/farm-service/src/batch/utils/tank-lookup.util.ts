@@ -6,7 +6,7 @@
  *
  * @module Batch/Utils
  */
-import { Repository, EntityManager } from 'typeorm';
+import { Repository, EntityManager, FindOneOptions } from 'typeorm';
 import { Equipment, EquipmentStatus } from '../../equipment/entities/equipment.entity';
 import { Tank } from '../../tank/entities/tank.entity';
 import { EquipmentType, EquipmentCategory } from '../../equipment/entities/equipment-type.entity';
@@ -66,11 +66,15 @@ export async function findTankOrEquipmentWithManager(
   manager: EntityManager,
   tankId: string,
   tenantId: string,
+  lock?: FindOneOptions<Equipment>['lock'],
 ): Promise<TankLookupResult | null> {
   // 1. Check equipment table first (primary)
+  // Existence/biomass updates only need the equipment row itself. Avoid joining
+  // reference tables here so tenant-schema writes do not depend on optional
+  // lookup-table provisioning during critical stock operations.
   const equipment = await manager.findOne(Equipment, {
     where: { id: tankId, tenantId, isActive: true, isDeleted: false },
-    relations: ['equipmentType'],
+    ...(lock ? { lock } : {}),
   });
 
   if (equipment) {
@@ -80,6 +84,7 @@ export async function findTankOrEquipmentWithManager(
   // 2. Fallback to tanks table (legacy)
   const tank = await manager.findOne(Tank, {
     where: { id: tankId, tenantId, isActive: true },
+    ...(lock ? { lock } : {}),
   });
 
   if (tank) {

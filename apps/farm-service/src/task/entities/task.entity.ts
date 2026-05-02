@@ -123,7 +123,7 @@ registerEnumType(TaskStatus, {
 // ============================================================================
 
 @ObjectType()
-@Entity('tasks', { schema: 'farm' })
+@Entity('tasks')
 @Index(['tenantId', 'assignedTo', 'status'])
 @Index(['tenantId', 'dueDate'])
 @Index(['tenantId', 'status', 'priority'])

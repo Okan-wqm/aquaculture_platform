@@ -114,7 +114,7 @@ export class SecurityHeadersMiddleware implements NestMiddleware {
         ]
       : [
           "default-src 'self'",
-          "script-src 'self' 'unsafe-inline'", // GraphQL Playground needs this in dev
+          "script-src 'self' 'unsafe-inline'", // Dev-only inline scripts; GraphQL Playground is disabled.
           "style-src 'self' 'unsafe-inline'",
           "img-src 'self' data: https:",
           "font-src 'self' data:",

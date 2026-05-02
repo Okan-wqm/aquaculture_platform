@@ -12,7 +12,7 @@
  * Without a shared factory, each test file duplicates 30+ lines
  * of mock setup that must be kept in sync as the QueryRunner API evolves.
  */
-import { DataSource, QueryRunner, EntityManager, Repository } from 'typeorm';
+import { DataSource, QueryRunner, EntityManager, ObjectLiteral, Repository } from 'typeorm';
 
 export interface MockDataSourceResult {
   mockDataSource: jest.Mocked<DataSource>;
@@ -24,20 +24,22 @@ export function createMockDataSource(): MockDataSourceResult {
   const mockManager = {
     find: jest.fn().mockResolvedValue([]),
     findOne: jest.fn().mockResolvedValue(null),
-    save: jest.fn().mockImplementation((_entityClass: unknown, data: unknown) =>
-      Promise.resolve({ id: 'mock-id', ...(data as object) }),
+    save: jest.fn().mockImplementation((_entityClassOrEntity: unknown, maybeData?: unknown) =>
+      Promise.resolve(maybeData ?? _entityClassOrEntity),
     ),
-    create: jest.fn().mockImplementation((_entityClass: unknown, data: unknown) => data),
+    create: jest.fn().mockImplementation((_entityClassOrData: unknown, maybeData?: unknown) =>
+      maybeData ?? _entityClassOrData,
+    ),
     update: jest.fn().mockResolvedValue({ affected: 1 }),
     delete: jest.fn().mockResolvedValue({ affected: 1 }),
     getRepository: jest.fn().mockReturnValue({
       find: jest.fn().mockResolvedValue([]),
       findOne: jest.fn().mockResolvedValue(null),
       save: jest.fn().mockImplementation((data: unknown) => Promise.resolve(data)),
-      create: jest.fn().mockImplementation((data: unknown) => data),
-      update: jest.fn().mockResolvedValue({ affected: 1 }),
-      count: jest.fn().mockResolvedValue(0),
-    } as unknown as jest.Mocked<Repository<Record<string, unknown>>>),
+    create: jest.fn().mockImplementation((data: unknown) => data),
+    update: jest.fn().mockResolvedValue({ affected: 1 }),
+    count: jest.fn().mockResolvedValue(0),
+    } as unknown as jest.Mocked<Repository<ObjectLiteral>>),
   } as unknown as jest.Mocked<EntityManager>;
 
   const mockQueryRunner = {

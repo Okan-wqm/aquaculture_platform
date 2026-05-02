@@ -310,40 +310,176 @@ def detect_sql_enums(repo_root: Path, fates: list[FileFate]) -> list[dict]:
     return enums
 
 
-def find_drifts(ts_enums: list[dict], sql_enums: list[dict]) -> list[dict]:
+def find_drifts(ts_enums: list[dict], sql_enums: list[dict],
+                jaccard_threshold: float = 0.3) -> tuple[list[dict], list[dict]]:
+    """Returns (drifts_above_threshold, drifts_filtered_out).
+
+    Normalization strips at most ONE suffix (longest matching first) to avoid
+    DepartmentStatus + DepartmentType + department_type all collapsing to
+    'department' (over-aggressive collision per identified PoC eksik #5).
+
+    Jaccard similarity on lowercase value sets must exceed `jaccard_threshold`
+    to count as same concept. Below-threshold matches are still recorded
+    (for transparency / skill calibration) but split into a separate list.
+    """
+    suffixes_priority = ("_enum", "_status", "_type", "enum", "status", "type")
+
     def norm(name: str) -> str:
         n = name.lower()
-        for suffix in ("_enum", "enum", "_status", "status", "_type", "type"):
+        for suffix in suffixes_priority:
             if n.endswith(suffix) and len(n) > len(suffix):
-                n = n[: -len(suffix)]
-                break
+                return n[: -len(suffix)]
         return n
+
+    def jaccard(a: set, b: set) -> float:
+        if not a and not b:
+            return 1.0
+        return len(a & b) / max(len(a | b), 1)
+
+    def service_of(ref: str) -> str:
+        for prefix in ("apps/", "web/modules/"):
+            if prefix in ref:
+                tail = ref.split(prefix, 1)[1]
+                return prefix + tail.split("/", 1)[0]
+        return "unknown"
 
     by_norm_ts: dict[str, list[dict]] = {}
     for e in ts_enums:
         by_norm_ts.setdefault(norm(e["name"]), []).append(e)
 
-    drifts: list[dict] = []
+    drifts_above: list[dict] = []
+    drifts_filtered: list[dict] = []
     for sql in sql_enums:
         for ts in by_norm_ts.get(norm(sql["name"]), []):
             ts_vals = {v.lower() for v in ts["values"]}
             sql_vals = {v.lower() for v in sql["values"]}
-            if ts_vals != sql_vals:
-                drifts.append({
-                    "concept": norm(sql["name"]),
-                    "ts": ts,
-                    "sql": sql,
-                    "missing_in_ts": sorted(sql_vals - ts_vals),
-                    "missing_in_sql": sorted(ts_vals - sql_vals),
-                })
-    return drifts
+            if ts_vals == sql_vals:
+                continue  # no drift
+            similarity = jaccard(ts_vals, sql_vals)
+            ts_service = service_of(ts["ref"])
+            sql_service = service_of(sql["ref"])
+            entry = {
+                "concept": norm(sql["name"]),
+                "ts": ts,
+                "sql": sql,
+                "missing_in_ts": sorted(sql_vals - ts_vals),
+                "missing_in_sql": sorted(ts_vals - sql_vals),
+                "value_jaccard_similarity": round(similarity, 3),
+                "cross_service": ts_service != sql_service,
+                "ts_service": ts_service,
+                "sql_service": sql_service,
+            }
+            if similarity >= jaccard_threshold:
+                drifts_above.append(entry)
+            else:
+                entry["filter_reason"] = f"value_jaccard_similarity {round(similarity, 3)} below threshold {jaccard_threshold}; likely false-positive name collision"
+                drifts_filtered.append(entry)
+    # Sort: cross_service drifts first (they are categorically more critical)
+    drifts_above.sort(key=lambda d: (not d["cross_service"], -d["value_jaccard_similarity"]))
+    return drifts_above, drifts_filtered
+
+
+def write_fates_json(out_dir: Path, fates: list[FileFate]) -> Path:
+    """Coverage Invariant proof — every file with its fate, queryable."""
+    out = out_dir / "FATES.json"
+    out.write_text(
+        json.dumps(
+            [{"path": f.path, "fate": f.fate, "reason": f.reason} for f in fates],
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return out
+
+
+def write_skimmed_files(out_dir: Path, fates: list[FileFate]) -> Path:
+    """The list of files PoC did NOT analyze deeply — gap visibility."""
+    skimmed = [f for f in fates if f.fate == "read_skimmed"]
+    skipped = [f for f in fates if f.fate == "skipped_with_reason"]
+    lines = [f"# Files NOT deeply analyzed by PoC ({len(skimmed) + len(skipped)} total)\n\n"]
+    lines.append(f"## read_skimmed ({len(skimmed)})\n\n")
+    lines.append("_Files visited but no specialized adapter applied. Mechanical analysis incomplete on these._\n\n")
+    for f in skimmed[:200]:
+        lines.append(f"- `{f.path}` — {f.reason}\n")
+    if len(skimmed) > 200:
+        lines.append(f"- ... ({len(skimmed) - 200} more)\n")
+    lines.append(f"\n## skipped_with_reason ({len(skipped)})\n\n")
+    for f in skipped[:50]:
+        lines.append(f"- `{f.path}` — {f.reason}\n")
+    if len(skipped) > 50:
+        lines.append(f"- ... ({len(skipped) - 50} more)\n")
+    out = out_dir / "SKIMMED_FILES.md"
+    out.write_text("".join(lines), encoding="utf-8")
+    return out
+
+
+def write_git_reconciliation(out_dir: Path, fates: list[FileFate],
+                             git_set: set[str]) -> tuple[Path, dict]:
+    """Explain the gap between filesystem walk and git ls-files."""
+    walked = {f.path for f in fates}
+    in_git_not_walked = sorted(git_set - walked)
+    walked_not_in_git = sorted(walked - git_set)
+    summary = {
+        "filesystem_walked": len(walked),
+        "git_tracked": len(git_set),
+        "in_git_but_not_walked": len(in_git_not_walked),
+        "walked_but_not_in_git": len(walked_not_in_git),
+        "in_git_but_not_walked_samples": in_git_not_walked[:50],
+        "walked_but_not_in_git_samples": walked_not_in_git[:50],
+        "gap_explanation": (
+            "in_git_but_not_walked: tracked files inside an EXCLUDED_DIRS path "
+            "(e.g. tracked dist/ artefacts, .nx/ cache files) — Discovery "
+            "engine excludes these by design.  "
+            "walked_but_not_in_git: untracked files (new, gitignored, or local-only)."
+        ),
+    }
+    out = out_dir / "GIT_RECONCILIATION.json"
+    out.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    return out, summary
+
+
+def scan_prior_audits(repo_root: Path, drifts: list[dict]) -> dict[str, list[str]]:
+    """For each drift, scan docs/{audits,reviews,product-audits}/ for mention
+    of the enum names. Mechanical grep — no LLM. Returns {drift_concept: [audit_refs]}.
+    """
+    audit_roots = [
+        repo_root / "docs" / "audits",
+        repo_root / "docs" / "reviews",
+        repo_root / "docs" / "product-audits",
+    ]
+    audit_files: list[Path] = []
+    for root in audit_roots:
+        if root.exists():
+            audit_files.extend(p for p in root.rglob("*.md") if p.is_file())
+
+    mentions: dict[str, list[str]] = {}
+    for drift in drifts:
+        names = {drift["ts"]["name"], drift["sql"]["name"]}
+        hits: list[str] = []
+        for af in audit_files:
+            try:
+                text = af.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            for name in names:
+                if name in text:
+                    rel = af.relative_to(repo_root)
+                    line_num = text[: text.find(name)].count("\n") + 1
+                    hits.append(f"{rel}:{line_num} ({name})")
+                    break  # one hit per audit file is enough signal
+        if hits:
+            mentions[drift["concept"] + ":" + drift["ts"]["ref"]] = hits[:5]
+    return mentions
 
 
 def write_report(out_dir: Path, fp: Fingerprint, fates: list[FileFate],
-                 drifts: list[dict], artifacts: list[str]) -> Path:
+                 drifts_above: list[dict], drifts_filtered: list[dict],
+                 git_recon: dict, audit_mentions: dict[str, list[str]],
+                 artifacts: list[str]) -> Path:
     skipped = sum(1 for f in fates if f.fate == "skipped_with_reason")
     deeply = sum(1 for f in fates if f.fate == "read_deeply")
     skim = sum(1 for f in fates if f.fate == "read_skimmed")
+    cross_count = sum(1 for d in drifts_above if d.get("cross_service"))
     r: list[str] = []
     r.append("# ARIA Phase-1 PoC Report\n\n")
     r.append(f"**Captured:** {fp.captured_at}  \n")
@@ -354,9 +490,16 @@ def write_report(out_dir: Path, fp: Fingerprint, fates: list[FileFate],
     r.append("## 1. Coverage Invariant\n\n")
     r.append(f"- Files visited: {len(fates)}\n")
     r.append(f"  - read_deeply: {deeply}\n")
-    r.append(f"  - read_skimmed: {skim}\n")
+    r.append(f"  - read_skimmed: {skim} (see `SKIMMED_FILES.md` for list)\n")
     r.append(f"  - skipped_with_reason: {skipped}\n")
+    r.append(f"- Per-file fate ledger: `FATES.json`\n")
     r.append(f"- Coverage Invariant: {'PASS' if len(fates) > 0 else 'FAIL'} (every file has a fate)\n\n")
+
+    r.append("### 1.1 Git ↔ Filesystem reconciliation\n\n")
+    r.append(f"- Filesystem walked: {git_recon['filesystem_walked']}\n")
+    r.append(f"- Git tracked: {git_recon['git_tracked']}\n")
+    r.append(f"- In git but not walked: {git_recon['in_git_but_not_walked']} (excluded-dir files; see `GIT_RECONCILIATION.json`)\n")
+    r.append(f"- Walked but not in git: {git_recon['walked_but_not_in_git']} (untracked / new / gitignored)\n\n")
 
     r.append("## 2. Repository Fingerprint\n\n")
     r.append(f"- `apps/*` count: {fp.apps_count}\n")
@@ -382,19 +525,33 @@ def write_report(out_dir: Path, fp: Fingerprint, fates: list[FileFate],
     r.append("\n")
 
     r.append("## 4. Mechanical Drift Scan (TS `enum` vs SQL `CREATE TYPE ... AS ENUM`)\n\n")
-    if drifts:
-        r.append(f"Found **{len(drifts)} drift candidate(s)**. Each requires manual verification.\n\n")
-        for i, d in enumerate(drifts[:10], 1):
-            r.append(f"### Drift {i}: `{d['concept']}`\n\n")
-            r.append(f"- TS `{d['ts']['name']}` at `{d['ts']['ref']}` — values: `{d['ts']['values']}`\n")
-            r.append(f"- SQL `{d['sql']['name']}` at `{d['sql']['ref']}` — values: `{d['sql']['values']}`\n")
+    r.append(f"- **{len(drifts_above)} drift candidate(s) above Jaccard 0.3 threshold** "
+             f"(of which {cross_count} are CROSS-SERVICE — categorically more critical)\n")
+    r.append(f"- {len(drifts_filtered)} candidate(s) filtered out as likely false-positive name collisions "
+             "(below similarity threshold; full list in `MECHANICAL_DRIFTS.json`)\n\n")
+    if drifts_above:
+        r.append("Each above-threshold drift requires manual verification (Nuance Discrimination Protocol per IDENTITY §3.5).\n\n")
+        for i, d in enumerate(drifts_above[:10], 1):
+            badge = "🔴 CROSS-SERVICE" if d.get("cross_service") else "🟡 same-service"
+            r.append(f"### Drift {i}: `{d['concept']}` — {badge} (similarity {d['value_jaccard_similarity']})\n\n")
+            r.append(f"- TS `{d['ts']['name']}` @ `{d['ts']['ref']}` "
+                     f"({d.get('ts_service','?')}) — values: `{d['ts']['values']}`\n")
+            r.append(f"- SQL `{d['sql']['name']}` @ `{d['sql']['ref']}` "
+                     f"({d.get('sql_service','?')}) — values: `{d['sql']['values']}`\n")
             if d["missing_in_ts"]:
                 r.append(f"- Missing in TS: `{d['missing_in_ts']}`\n")
             if d["missing_in_sql"]:
                 r.append(f"- Missing in SQL: `{d['missing_in_sql']}`\n")
+            mention_key = d["concept"] + ":" + d["ts"]["ref"]
+            if mention_key in audit_mentions:
+                r.append("- Prior audit mentions:\n")
+                for ref in audit_mentions[mention_key]:
+                    r.append(f"  - `{ref}`\n")
+            else:
+                r.append("- No mention in `docs/audits|reviews|product-audits` — appears to be NEW signal\n")
             r.append("\n")
     else:
-        r.append("No drift candidates detected by mechanical scan.\n\n")
+        r.append("No above-threshold drift candidates detected.\n\n")
         r.append("**Absence claim discipline (per SPEC §7.2 Rule B):**\n")
         r.append("- Heuristic only matched TS `enum` keyword + SQL `CREATE TYPE ... AS ENUM`.\n")
         r.append("- Union types (`type FarmStatus = 'a' | 'b'`) NOT scanned.\n")
@@ -405,10 +562,10 @@ def write_report(out_dir: Path, fp: Fingerprint, fates: list[FileFate],
     r.append("## 5. Operator Decision Gate\n\n")
     r.append("Answer YES/NO to each (per CONTRACTS §13):\n\n")
     r.append("1. Did the fingerprint reveal anything you did not already know? `[ ]`\n")
-    r.append("2. Did the mechanical drift scan surface real drift not caught by existing 38 specialized agents on PR cycles? `[ ]`\n")
+    r.append("2. Did the mechanical drift scan surface real drift not caught by existing specialized agents on PR cycles? `[ ]`\n")
     r.append("3. Is the value surface of (2) large enough to justify months of kernel work? `[ ]`\n")
     r.append("4. Is the LLM cost (Claude Code session-based, NOT direct API — see CONTRACTS §0.6) within scope? `[ ]`\n\n")
-    r.append("**If 3 of 4 are NO:** archive SPEC/IDENTITY/CONTRACTS as research artifacts. Existing 38 agents + Nx + CI cover the value surface.  \n")
+    r.append("**If 3 of 4 are NO:** archive SPEC/IDENTITY/CONTRACTS as research artifacts. Existing agents + Nx + CI cover the value surface.  \n")
     r.append("**If 3 of 4 are YES:** proceed to Phase 0 — kernel skeleton (orchestrator state machine + Discovery + Memory + budget gate + kill switch + integrity hash chain). No skills yet.\n\n")
     r.append("---\n\n")
     r.append("_Generated by `tools/aria-poc/poc.py` (no LLM, no API)._  \n")
@@ -424,6 +581,11 @@ def main() -> int:
     ap.add_argument("--workspace-root", default=".", help="Repo root (default: cwd)")
     ap.add_argument("--out-dir", default=".aria-poc", help="Output dir relative to repo root")
     ap.add_argument("--skip-nx-graph", action="store_true", help="Skip nx graph subprocess call")
+    ap.add_argument("--jaccard-threshold", type=float, default=0.3,
+                    help="Drift name-match must exceed this value-set Jaccard similarity (default: 0.3)")
+    ap.add_argument("--fail-on-drifts", type=int, default=0,
+                    help="Exit code 1 when above-threshold drifts > N (default: 0 = fail on any drift). "
+                         "Set very high to disable CI-fail behaviour.")
     args = ap.parse_args()
 
     repo_root = Path(args.workspace_root).resolve()
@@ -438,8 +600,15 @@ def main() -> int:
     git_set = git_ls_files(repo_root)
     print(f"[aria-poc]   filesystem: {len(files)} files; git ls-files: {len(git_set)}")
 
-    print("[aria-poc] phase 2: assigning fates...")
+    print("[aria-poc] phase 2: assigning fates + persisting fates ledger...")
     fates = [assign_fate(p, repo_root) for p in files]
+    write_fates_json(out_dir, fates)
+    write_skimmed_files(out_dir, fates)
+
+    print("[aria-poc] phase 2.5: git ↔ filesystem reconciliation...")
+    _, git_recon = write_git_reconciliation(out_dir, fates, git_set)
+    print(f"[aria-poc]   in_git_not_walked={git_recon['in_git_but_not_walked']}; "
+          f"walked_not_in_git={git_recon['walked_but_not_in_git']}")
 
     print("[aria-poc] phase 3: computing fingerprint...")
     fp = compute_fingerprint(repo_root, fates)
@@ -471,16 +640,55 @@ def main() -> int:
     ts_enums = detect_ts_enums(repo_root, fates)
     sql_enums = detect_sql_enums(repo_root, fates)
     print(f"[aria-poc]   ts enums: {len(ts_enums)}; sql enums: {len(sql_enums)}")
-    drifts = find_drifts(ts_enums, sql_enums)
-    print(f"[aria-poc]   drift candidates: {len(drifts)}")
+    drifts_above, drifts_filtered = find_drifts(ts_enums, sql_enums, args.jaccard_threshold)
+    cross = sum(1 for d in drifts_above if d["cross_service"])
+    print(f"[aria-poc]   above-threshold drifts: {len(drifts_above)} (cross-service: {cross}); "
+          f"filtered (low similarity): {len(drifts_filtered)}")
+
+    print("[aria-poc] phase 6.5: scanning prior audit findings...")
+    audit_mentions = scan_prior_audits(repo_root, drifts_above)
+    print(f"[aria-poc]   drifts mentioned in prior audits: {len(audit_mentions)}")
+
     (out_dir / "MECHANICAL_DRIFTS.json").write_text(
-        json.dumps({"ts_enums": ts_enums, "sql_enums": sql_enums, "drifts": drifts}, indent=2),
+        json.dumps({
+            "ts_enums": ts_enums,
+            "sql_enums": sql_enums,
+            "drifts_above_threshold": drifts_above,
+            "drifts_filtered_below_threshold": drifts_filtered,
+            "jaccard_threshold": args.jaccard_threshold,
+            "prior_audit_mentions": audit_mentions,
+        }, indent=2),
+        encoding="utf-8",
+    )
+
+    # INDEX.json — manifest of generated artifacts (closes eksik #10)
+    artifacts_disk = sorted(p for p in out_dir.iterdir() if p.is_file())
+    (out_dir / "INDEX.json").write_text(
+        json.dumps({
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "artifacts": [
+                {
+                    "name": p.name,
+                    "size_bytes": p.stat().st_size,
+                    "sha256_first16": hashlib.sha256(p.read_bytes()).hexdigest()[:16],
+                }
+                for p in artifacts_disk
+                if p.name != "INDEX.json"
+            ],
+        }, indent=2),
         encoding="utf-8",
     )
 
     print("[aria-poc] phase 7: writing report...")
-    report = write_report(out_dir, fp, fates, drifts, artifacts)
+    report = write_report(out_dir, fp, fates, drifts_above, drifts_filtered,
+                          git_recon, audit_mentions, artifacts)
     print(f"[aria-poc] DONE. Report: {report}")
+
+    # Exit code discipline: above-threshold drifts > fail-on-drifts → exit 1
+    if len(drifts_above) > args.fail_on_drifts:
+        print(f"[aria-poc] EXIT 1: {len(drifts_above)} above-threshold drift(s) "
+              f"exceed --fail-on-drifts={args.fail_on_drifts}")
+        return 1
     return 0
 
 

@@ -68,6 +68,37 @@ ARIA does **not** run as a standalone Python daemon calling the Anthropic API di
 - A compromised ARIA cannot exfiltrate via direct API — it can only do what Claude Code session permissions allow. This is a **smaller attack surface** than the v7.2 design assumed.
 - Conversely: ARIA cannot run truly headless. There must be a Claude Code session for the slash command to execute. Operator presence (or a cron+session pattern) is required.
 
+### Skills are EMERGENT, not imposed
+
+**Critical principle (operator-enforced):** ARIA does not arrive with a pre-defined set of `.claude/agents/aria-*.md` sub-agent files. Doing so would put ARIA in a box — a fixed-shape system imposed on the repository, exactly the opposite of "the structure that takes the shape of the container".
+
+The right model:
+
+```
+Day 0: zero aria-* sub-agent files in .claude/agents/
+       ↓
+Pressure (Engine 3) detects a recurring problem ARIA cannot solve
+with existing tools (e.g. "spine drift between TS enums and SQL types
+recurring across services")
+       ↓
+Skill Genesis Pipeline (Engine 4):
+  1. Birth request (gap defined precisely)
+  2. Capability check (no existing tool covers it)
+  3. Draft from genesis template
+  4. Sandbox (3+ scenarios pass)
+  5. Shadow (14 days parallel comparison)
+  6. Metric gate (precision ≥ 0.85, zero critical FP, scope mastery sufficient)
+       ↓
+Promotion: skill becomes .claude/agents/aria-spine-drift.md
+           — born from this repo's actual pressure, not predefined
+       ↓
+Mortal: degraded performance → CALIBRATE → DEPRECATE → ARCHIVE
+```
+
+The kernel ships with no behavioral skills. It ships with: orchestrator slash command, redactor, banned-phrase gate, integrity check, kill switch — pure infrastructure. **What ARIA learns to detect, and how, comes from operating on this specific repository.**
+
+A different repository would produce a different set of `aria-*.md` files. The shape comes from the container.
+
 ### Documents in this folder, after CLI clarification
 
 | Document | What it describes |
@@ -75,6 +106,7 @@ ARIA does **not** run as a standalone Python daemon calling the Anthropic API di
 | `SPEC.md` | Boundaries (laws, engines, mastery, claim authority). Mostly unchanged by CLI mode; references to `anthropic` SDK are inaccurate but non-load-bearing. |
 | `IDENTITY.md` | Behavior. Unchanged by CLI mode. |
 | `CONTRACTS.md` (this) | Data + protocol contracts + CLI execution model + Phase-1 PoC. |
+| `.claude/knowledge/layer-1-aria.md` | Discoverable knowledge anchor for OTHER specialized agents — not ARIA's own configuration. |
 
 ---
 
@@ -490,6 +522,90 @@ Observations exist so that ARIA does not lose nuance-flagged signals to time, bu
 - They surface to operator at controlled cadence — never lost
 
 The "bug note" surface (per IDENTITY §3 + CONTRACTS §6 claim_type table) lives in **Findings**. Observations are the **pre-bug-note** intake queue, where nuance is sorted before escalation.
+
+---
+
+## 6.6 — Architectural Debt Record (NEW — short-term workaround = tracked debt)
+
+Every short-term action that does not permanently fix a verified problem creates an Architectural Debt record. No silent debt accumulation. No "we'll do it later" without owner + deadline. Per IDENTITY §3.6 Rule 3.
+
+```json
+{
+  "$schema": "aria/architectural-debt/v1",
+  "debt_id": "DEBT-2026-05-02-007",
+  "originating_finding_id": "F-247",
+  "originating_finding_evidence_chain_id": "chain_xy12...",
+  "verification_status": "VERIFIED",
+  "root_cause_summary": "Frontend FarmStatusSelect.tsx hard-codes 3 enum values; DB and backend define 4. The fourth ('archived') is intentionally hidden from end-user selection but the hiding mechanism is wrong: code copy not contract enforcement.",
+  "short_term_action_taken": {
+    "kind": "test_added" | "feature_flag" | "runtime_guard" | "api_narrowing" | "code_marker" | "no_action_yet",
+    "ref": "web/modules/farm-module/src/__tests__/farm-status-select.spec.ts:42",
+    "rationale": "Regression test asserts FarmStatusSelect renders exactly the 3 user-selectable values. If a fourth ever leaks through, test fails and forces awareness — but the underlying duplication remains."
+  },
+  "permanent_fix_required": "Replace hard-coded enum-value list in FarmStatusSelect.tsx with a derived list from FarmStatus enum filtered by an explicit predicate (e.g. `FarmStatus.userSelectable`). Remove the duplication; let the contract enforce the filter.",
+  "permanent_fix_owner": "frontend-platform-team",
+  "due_date": "2026-08-02T00:00:00Z",
+  "severity": "MEDIUM",
+  "current_status": "OPEN",
+  "status_history": [
+    {"status": "OPEN", "at": "2026-05-02T10:30:00Z", "by": "skill:spine-drift-detector"}
+  ],
+  "escalation_history": [],
+  "auto_close_forbidden": true,
+  "withdrawn_reason": null,
+  "schema_version": 1
+}
+```
+
+### Required fields (kernel rejects record without these)
+
+- `originating_finding_id` — every debt must trace to a Finding
+- `verification_status: VERIFIED` — debts cannot be created from PROVISIONAL findings
+- `root_cause_summary` — passes banned-phrase gate (no "for now", "pragmatic", "good enough", etc.)
+- `short_term_action_taken.kind` — one of the closed enum
+- `permanent_fix_required` — concrete description of what real fix needs
+- `permanent_fix_owner` — must be specific person OR specific team; not "the team", not "someone", not "TBD"
+- `due_date` — required; CRITICAL severity ≤30 days, HIGH ≤60 days, MEDIUM ≤90 days, LOW ≤180 days
+
+### Lifecycle (state machine, kernel-enforced)
+
+```
+[OPEN]
+  ↓ — someone declares working on it (commit referencing DEBT-id)
+[IN_PROGRESS]
+  ↓ — permanent fix shipped, original finding's evidence-chain re-verified passing
+[RESOLVED]
+
+[OPEN | IN_PROGRESS]
+  ↓ — current_date > due_date
+[OVERDUE]  ← daily-report headline; PR escalation comment if originating PR exists
+
+[any state]
+  ↓ — operator explicit action with recorded `withdrawn_reason`
+  ↓ — withdrawn_reason itself passes banned-phrase gate
+[WITHDRAWN]
+
+❌ NEVER:
+  auto-close on age
+  silent disappearance from reports
+  state change without operator action OR fix-shipped event
+```
+
+### Auto-close forbidden
+
+Setting `auto_close_forbidden: true` means: even if the originating finding is marked resolved by some other mechanism, the debt record itself stays alive until either:
+1. A commit explicitly closes it with `Closes: docs/aria/debts/DEBT-XXX.md`, OR
+2. Operator explicitly withdraws with `withdrawn_reason` (which passes banned-phrase gate)
+
+### Where debts live
+
+- Disk: `aria-debts/DEBT-*.json` (workspace-internal git-tracked)
+- Index: `aria-debts/_index.json` with current state of every debt
+- Source-side marker: `// aria-debt:DEBT-XXX` adjacent to the workaround code, so future readers see the debt directly
+- Daily report: every OPEN/IN_PROGRESS debt due within 7 days appears in its own section
+- Daily report: every OVERDUE debt is a headline line with age-since-overdue
+
+This schema closes the loop on IDENTITY §3.6: a workaround without a debt record is rejected at the kernel; a debt without an owner+deadline is rejected at the kernel; a debt past its deadline grows louder, never quieter; a debt cannot be retired without an explicit operator reason that itself follows the banned-phrase discipline.
 
 ---
 

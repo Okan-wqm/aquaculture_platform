@@ -339,12 +339,19 @@ async function clonePartitionedTable(
   tablename: string,
 ): Promise<void> {
   // Get column definitions from the source table
-  const columns: { column_name: string; data_type: string; udt_name: string; is_nullable: string; column_default: string | null; character_maximum_length: number | null }[] =
+  const columns: { column_name: string; full_data_type: string; is_nullable: string; column_default: string | null }[] =
     await dataSource.query(
-      `SELECT column_name, data_type, udt_name, is_nullable, column_default, character_maximum_length
-       FROM information_schema.columns
-       WHERE table_schema = $1 AND table_name = $2
-       ORDER BY ordinal_position`,
+      `SELECT
+         a.attname AS column_name,
+         format_type(a.atttypid, a.atttypmod) AS full_data_type,
+         CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END AS is_nullable,
+         pg_get_expr(d.adbin, d.adrelid) AS column_default
+       FROM pg_attribute a
+       LEFT JOIN pg_attrdef d ON a.attrelid = d.adrelid AND a.attnum = d.adnum
+       WHERE a.attrelid = ($1 || '.' || $2)::regclass
+         AND a.attnum > 0
+         AND NOT a.attisdropped
+       ORDER BY a.attnum`,
       [sourceSchema, tablename],
     );
 
@@ -359,13 +366,9 @@ async function clonePartitionedTable(
   if (columns.length === 0 || partKey.length === 0) return;
 
   const colDefs = columns.map((c) => {
-    let typeName = c.data_type === 'USER-DEFINED' ? c.udt_name : c.data_type;
-    if (c.character_maximum_length) {
-      typeName = `varchar(${c.character_maximum_length})`;
-    }
     const nullable = c.is_nullable === 'NO' ? ' NOT NULL' : '';
     const def = c.column_default ? ` DEFAULT ${c.column_default}` : '';
-    return `"${c.column_name}" ${typeName}${nullable}${def}`;
+    return `"${c.column_name}" ${c.full_data_type}${nullable}${def}`;
   });
 
   const partExpr = partKey[0]!.partition_expr;

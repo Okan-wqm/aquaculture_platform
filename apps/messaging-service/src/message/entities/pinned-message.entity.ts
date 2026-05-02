@@ -19,7 +19,7 @@ import { Channel } from '../../channel/entities/channel.entity';
 import { Message } from './message.entity';
 
 @ObjectType()
-@Entity('pinned_messages', { schema: 'messaging' })
+@Entity('pinned_messages')
 @Unique('uq_pin_channel_message', ['channelId', 'messageId'])
 @Index('idx_pins_channel', ['channelId', 'pinnedAt'])
 @Index('idx_pins_tenant', ['tenantId'])

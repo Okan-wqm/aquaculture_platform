@@ -10,7 +10,7 @@ import {
  * Per-tenant AI feature toggle. Controls whether AI analysis
  * (sentiment, embedding, chat bridge) is enabled for the tenant.
  */
-@Entity('tenant_ai_settings', { schema: 'messaging' })
+@Entity('tenant_ai_settings')
 export class TenantAiSetting {
   @PrimaryGeneratedColumn('uuid')
   id: string;

@@ -71,7 +71,7 @@ registerEnumType(ComplianceAction, { name: 'ComplianceAction' });
  * @see MSG-HIGH-021 (audit records immutability protection)
  */
 @ObjectType()
-@Entity('compliance_audit_log', { schema: 'messaging' })
+@Entity('compliance_audit_log')
 @Index('idx_compliance_audit_tenant_created', ['tenantId', 'createdAt'])
 @Index('idx_compliance_audit_user_created', ['userId', 'createdAt'])
 @Index('idx_compliance_audit_action_created', ['action', 'createdAt'])

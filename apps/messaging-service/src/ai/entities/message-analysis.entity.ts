@@ -57,7 +57,7 @@ export interface TopicResult {
 }
 
 @ObjectType()
-@Entity('message_analysis', { schema: 'messaging' })
+@Entity('message_analysis')
 @Check(`"analysisType" IN ('sentiment', 'entity', 'topic')`)
 @Index('idx_analysis_message', ['messageId'])
 @Index('idx_analysis_type', ['analysisType', 'analyzedAt'])

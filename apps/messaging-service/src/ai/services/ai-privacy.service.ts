@@ -7,8 +7,9 @@
  * # Architecture (ADR-011 + Tier-1 Make-Impossible)
  *
  * Reads + writes go through TypeORM repositories on the canonical
- * `TenantAiSetting` and `UserAiConsent` entities (both in the
- * `messaging` schema, decorated `@Entity('...', { schema: 'messaging' })`).
+ * `TenantAiSetting` and `UserAiConsent` entities. They intentionally do
+ * not declare an entity-level schema; TenantConnectionBootstrap routes
+ * each request to the tenant schema through PostgreSQL search_path.
  *
  * Repositories derive table names + column names + schema qualification
  * from entity metadata at compile time — drift between the SQL the
@@ -21,8 +22,7 @@
  *   - wrong column names (`aiAnalysisEnabled` ≠ `aiEnabled`)
  *   - wrong table names (`user_preferences` ≠ `user_ai_consents`)
  *   - wrong column names (`aiAnalysisConsent` ≠ `consented`)
- *   - missing schema qualification (post-P7 entity decoration broke
- *     unqualified `tenant_settings` resolution under search_path)
+ *   - missing tenant-aware schema routing checks
  *
  * Plus a `DELETE FROM embeddings_metadata WHERE userId = ...` that
  * targeted columns that don't exist (the table is a model registry,
@@ -31,8 +31,7 @@
  * so coverage was green while runtime was permanently broken (audit
  * theater anti-pattern). Refactor removes the dead block, replaces
  * the working raw query (vector-typed `messages.embedding` clearing)
- * with explicit schema-qualified SQL inside a `BypassRlsService`
- * scope (cross-tenant write requires bypass post-P4 RLS).
+ * with explicit tenant-routed SQL inside a `BypassRlsService` scope.
  *
  * @see ADR-012 section 12.5 (AI Privacy Framework)
  * @see docs/reviews/messaging-expert/2026-04-14-ai-privacy-naming-drift.md
@@ -198,9 +197,10 @@ export class AiPrivacyService {
    * `messages.embedding` is `vector(384)` (pgvector). TypeORM has no
    * first-class vector type and will not generate an UPDATE that NULLs
    * a vector column correctly via the repository API. Raw SQL is the
-   * minimal correct primitive — schema-qualified to `messaging.messages`
-   * and `messaging.channels` so it survives the post-P7 entity-decorated
-   * query path without relying on search_path resolution.
+   * minimal correct primitive. The query intentionally uses unqualified
+   * table names so TenantConnectionBootstrap's tenant-scoped search_path
+   * routes the sweep to the same physical tenant schema as repository
+   * reads and writes.
    *
    * # Why BypassRlsService
    *
@@ -230,9 +230,9 @@ export class AiPrivacyService {
         `ai-privacy:embedding-sweep:tenant=${tenantId}:user=${userId}`,
         async () => {
           const result = await this.tenantAiSettings.query(
-            `UPDATE "messaging"."messages" m
+            `UPDATE "messages" m
              SET "embedding" = NULL
-             FROM "messaging"."channels" c
+             FROM "channels" c
              WHERE m."channelId" = c."id"
                AND c."tenantId" = $1
                AND m."senderId" = $2

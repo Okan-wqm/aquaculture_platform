@@ -19,7 +19,7 @@ import { ObjectType, Field, ID } from '@nestjs/graphql';
  * @see ADR-012 Phase 3 (Compliance — Legal Hold Support)
  */
 @ObjectType()
-@Entity('legal_holds', { schema: 'messaging' })
+@Entity('legal_holds')
 @Index('idx_legal_hold_tenant_active', ['tenantId', 'isActive'])
 @Index('idx_legal_hold_channel', ['channelId'], { where: '"isActive" = true' })
 export class LegalHold {

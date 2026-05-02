@@ -208,13 +208,13 @@ describe('AiPrivacyService', () => {
       expect.stringMatching(/^ai-privacy:embedding-sweep:tenant=.+:user=.+$/),
       expect.any(Function),
     );
-    // Sweep query schema-qualified to messaging.* (post-P7 entity decoration)
+    // Sweep query must remain tenant-routed through search_path.
     expect(tenantRepo.query).toHaveBeenCalledWith(
-      expect.stringContaining('"messaging"."messages"'),
+      expect.stringContaining('UPDATE "messages"'),
       [TENANT_A, userId],
     );
     expect(tenantRepo.query).toHaveBeenCalledWith(
-      expect.stringContaining('"messaging"."channels"'),
+      expect.stringContaining('FROM "channels"'),
       [TENANT_A, userId],
     );
   });

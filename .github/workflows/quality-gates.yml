@@ -96,6 +96,10 @@ jobs:
         if: always()
         run: node scripts/ci/check-apollo-csrf-prevention.mjs
 
+      - name: Run messaging tenant routing gate
+        if: always()
+        run: node scripts/ci/check-messaging-tenant-entity-routing.mjs
+
       - name: Run Apollo Router static fallback gate
         if: always()
         run: node scripts/apollo-router/check-router-static-fallback.mjs

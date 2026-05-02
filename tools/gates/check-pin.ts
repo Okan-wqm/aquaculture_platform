@@ -85,7 +85,7 @@ function readPackageVersion(pkg: PinnedPkg): string {
   } catch (err) {
     process.stderr.write(
       `check-pin: cannot read ${path}: ${(err as Error).message}\n` +
-        '         Run `npm ci --legacy-peer-deps --ignore-scripts` to populate node_modules.\n',
+        '         Run `npm ci --ignore-scripts` to populate node_modules with strict peer checks.\n',
     );
     process.exit(2);
   }

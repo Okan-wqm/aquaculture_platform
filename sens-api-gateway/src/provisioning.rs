@@ -228,10 +228,32 @@ impl ProvisioningClient {
         // - Redirect policy disabled (block cross-origin redirects that
         //   could leak the bootstrap token)
         //
-        // Suderra leaf-cert pinning at the cloud-API level (Phase 1.1.3b
-        // / ORPHAN-HIGH-043) requires per-endpoint cert knowledge from
-        // the cloud-side rotation manifest infrastructure — out of scope
-        // here.
+        // ARCHITECTURAL DECISION (closes ORPHAN-HIGH-043 as not-applicable):
+        // Suderra leaf-cert pinning is INTENTIONALLY NOT applied to the
+        // cloud-API HTTPS path. Pre-1.1.3a we registered ORPHAN-HIGH-043 as
+        // a Phase 1.1.3b follow-up; investigation confirmed the cloud API
+        // uses Let's Encrypt (90-day automated rotation), making leaf-cert
+        // pinning operationally infeasible. The defenses we DO have are
+        // architecturally sufficient for the device-bootstrap threat model:
+        //
+        // - TLS 1.3 + 3-suite cipher allowlist (Phase 1.1.3a) — prevents
+        //   cipher-suite-downgrade attacks regardless of which Let's
+        //   Encrypt leaf is presented.
+        // - Standard PKI chain validation against ISRG Root X1 (in the
+        //   system native CA store) — Let's Encrypt's ACME issuance
+        //   protocol prevents domain-takeover impersonation absent a
+        //   coordinated DNS+ACME compromise.
+        // - Single-use time-limited bootstrap tokens (operator-supplied
+        //   via `mtls.provisioning_token` config field at first boot).
+        // - Redirect policy disabled (`Policy::none()`) — blocks
+        //   cross-origin token leakage via 3xx redirects.
+        //
+        // Pinning would be appropriate IF Suderra moved the cloud API to
+        // a Suderra-controlled CA hierarchy with a long-lived signing key.
+        // Until that architectural decision lands at the platform layer
+        // (cloud-side concern, not edge-agent), pinning here would be a
+        // yama — premature abstraction for an unrealistic operational
+        // scenario.
         let suderra_tls = crate::mtls::build_suderra_https_client_config()
             .map_err(|e| anyhow::anyhow!("Failed to build Suderra HTTPS ClientConfig: {e}"))?;
         let http_client = reqwest::Client::builder()

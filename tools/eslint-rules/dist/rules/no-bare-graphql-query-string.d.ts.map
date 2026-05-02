@@ -1,1 +1,1 @@
-{"version":3,"file":"no-bare-graphql-query-string.d.ts","sourceRoot":"","sources":["../../rules/no-bare-graphql-query-string.ts"],"names":[],"mappings":"AAAA;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;GA2CG;AAEH,OAAO,EAAE,WAAW,EAAY,MAAM,0BAA0B,CAAC;;AAiCjE,wBA2BG"}
+{"version":3,"file":"no-bare-graphql-query-string.d.ts","sourceRoot":"","sources":["../../rules/no-bare-graphql-query-string.ts"],"names":[],"mappings":"AAAA;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;GA2CG;AAEH,OAAO,EAAE,WAAW,EAAY,MAAM,0BAA0B,CAAC;;;;AAiCjE,wBA2BG"}

@@ -48,6 +48,8 @@
  *  - apps/ai-service/src/agent/agent-runner.service.ts (canonical wrapper)
  */
 import { ESLintUtils } from '@typescript-eslint/utils';
-declare const _default: ESLintUtils.RuleModule<"rawAnthropicImport", [], ESLintUtils.RuleListener>;
+declare const _default: ESLintUtils.RuleModule<"rawAnthropicImport", [], unknown, ESLintUtils.RuleListener> & {
+    name: string;
+};
 export default _default;
 //# sourceMappingURL=no-claude-sdk-raw-call.d.ts.map

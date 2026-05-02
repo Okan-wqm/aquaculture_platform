@@ -37,6 +37,8 @@
  *    https://prometheus.io/docs/practices/instrumentation/#do-not-overuse-labels
  */
 import { ESLintUtils } from '@typescript-eslint/utils';
-declare const _default: ESLintUtils.RuleModule<"unboundedCardinalityLabel", [], ESLintUtils.RuleListener>;
+declare const _default: ESLintUtils.RuleModule<"unboundedCardinalityLabel", [], unknown, ESLintUtils.RuleListener> & {
+    name: string;
+};
 export default _default;
 //# sourceMappingURL=no-high-cardinality-metric-label.d.ts.map

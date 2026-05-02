@@ -36,6 +36,8 @@ type Options = [
         exemptPatterns?: string[];
     }
 ];
-declare const _default: ESLintUtils.RuleModule<MessageIds, Options, ESLintUtils.RuleListener>;
+declare const _default: ESLintUtils.RuleModule<MessageIds, Options, unknown, ESLintUtils.RuleListener> & {
+    name: string;
+};
 export default _default;
 //# sourceMappingURL=require-entity-schema.d.ts.map

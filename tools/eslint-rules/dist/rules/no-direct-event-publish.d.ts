@@ -43,6 +43,8 @@
  */
 import { ESLintUtils } from '@typescript-eslint/utils';
 type MessageIds = 'directEventBusPublish' | 'directNatsClientPublish';
-declare const _default: ESLintUtils.RuleModule<MessageIds, [], ESLintUtils.RuleListener>;
+declare const _default: ESLintUtils.RuleModule<MessageIds, [], unknown, ESLintUtils.RuleListener> & {
+    name: string;
+};
 export default _default;
 //# sourceMappingURL=no-direct-event-publish.d.ts.map

@@ -274,5 +274,8 @@
     "typeorm": {
       "minimatch": "9.0.9"
     }
+  },
+  "optionalDependencies": {
+    "@swc/core-linux-x64-gnu": "1.15.10"
   }
 }

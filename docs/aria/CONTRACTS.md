@@ -358,7 +358,7 @@ Every finding's L1 compliance proof.
   "finding_id": "F-247",
   "severity": "HIGH" | "MEDIUM" | "LOW" | "INFORMATIONAL",
   "status": "OPEN" | "IN_PROGRESS" | "RESOLVED" | "SUPPRESSED" | "WITHDRAWN",
-  "claim_type": "spine_drift",
+  "claim_type": "spine_drift" | "naming_drift" | "convention_inconsistency" | "wrong_code" | "absence_in_scope" | "currency_gap" | "duplication" | "contradiction" | "test_disagreement" | "regression",
   "claim_summary": "FarmStatus enum drifts: DB has 4 values, frontend has 3",
   "certainty": "CONFIRMED" | "OBSERVED" | "SUSPECTED" | "UNCERTAIN" | "UNKNOWN",
   "evidence_chain_id": "chain_xy12...",
@@ -385,6 +385,25 @@ Every finding's L1 compliance proof.
 }
 ```
 
+### `claim_type` allowlist (semantics)
+
+The kernel rejects any finding emitted with a claim_type outside this list. New types require an ADR.
+
+| Claim type | What it captures | Min severity floor | Min evidence count |
+|---|---|---|---|
+| `spine_drift` | Same domain concept differs across layers (DB vs entity vs DTO vs frontend). | MEDIUM | 2 (one per drifted layer) |
+| `naming_drift` | Same concept named with different conventions across layers (`tenant_id` vs `tenantId` for the same column). | LOW | 2 |
+| `convention_inconsistency` | A convention used uniformly in N places, broken in M places, no documented reason. | LOW | 3 (consistent samples + violator) |
+| `wrong_code` | Bug — dead branch, unreachable return, swapped argument, missing await, swallowed exception, off-by-one, type-coerced equality with security implication. | MEDIUM | 1 (single code ref + reasoning) — this is the **bug note** category |
+| `absence_in_scope` | Capability expected to exist but evidence not found in searched scope. Confidence cap 0.7 per L1 absence-claim discipline. | INFORMATIONAL | searched-scope record + synonym list |
+| `currency_gap` | Dependency / pattern / library is N versions behind current stable. Informational only — recommendation requires L1 five-criteria gate. | INFORMATIONAL | 1 (registry + repo usage ref) |
+| `duplication` | Identical-or-near-identical code structure repeated ≥3 times. May be intentional. | LOW | 3 |
+| `contradiction` | Two evidences disagree (test asserts X, code does Y). | MEDIUM | 2 |
+| `test_disagreement` | Test name suggests behavior, test body asserts different behavior. | MEDIUM | 1 (test ref) |
+| `regression` | ARIA's own action's baseline comparison failed — emergency. | HIGH | baseline + comparison artifact |
+
+**Bug note as first-class concept.** A "bug note" is a Finding with `claim_type: "wrong_code"` and `severity: MEDIUM` (default). Single code-reference evidence is sufficient because the code IS the evidence. The operator's daily report includes a "Bug Notes" section listing all `wrong_code` findings opened since last cycle, with file:line + drill-down. This is the surface the user described as "ARIA depoyu gezerken bug notu alır".
+
 When `recommendation` is non-null, it MUST contain the five recommendation evidences (per IDENTITY §4 Step 8 Gate 3):
 
 ```json
@@ -398,6 +417,79 @@ When `recommendation` is non-null, it MUST contain the five recommendation evide
   "cve_bypass_criterion_5": false
 }
 ```
+
+---
+
+## 6.5 — Observation Schema (NEW — nuance-aware preliminary record)
+
+An Observation is what ARIA produces when a candidate **survives mechanical detection but does not survive Nuance Discrimination cleanly** (per IDENTITY §3.5). It is below the bar of a confirmed Finding but above pure noise.
+
+Observations exist so that ARIA does not lose nuance-flagged signals to time, but also does not promote them to bug notes prematurely.
+
+```json
+{
+  "$schema": "aria/observation/v1",
+  "observation_id": "OBS-2026-05-02-0017",
+  "claim_type": "naming_drift" | "convention_inconsistency" | "wrong_code" | "spine_drift" | "duplication" | "absence_in_scope",
+  "apparent_issue": "tenant_id (snake_case) in farm.farms vs tenantId (camelCase) in FarmController DTO",
+  "trigger_evidence": {
+    "type": "code_reference",
+    "ref": "apps/farm-service/src/farm/dto/create-farm.dto.ts:14"
+  },
+  "supporting_refs": [
+    "apps/farm-service/src/farm/migrations/0042-create-farm.ts:18"
+  ],
+  "nuance_check_results": {
+    "framework_convention": {
+      "checked": true,
+      "explanation_found": true,
+      "explanation": "TypeORM auto-maps snake_case columns to camelCase entity properties; this is the documented framework contract.",
+      "verdict": "DISMISSED_FRAMEWORK"
+    },
+    "documented_intent": {"checked": true, "explanation_found": false},
+    "adjacent_test_demand": {"checked": false, "skip_reason": "framework check sufficient"},
+    "versioning_context": {"checked": false},
+    "git_history_intent": {"checked": false},
+    "repo_side_comment": {"checked": false},
+    "prior_suppression": {"checked": false}
+  },
+  "verification_status": "DISMISSED" | "PENDING_OPERATOR_REVIEW" | "ESCALATED_TO_FINDING",
+  "rationale": "TypeORM camelCase property convention; not drift.",
+  "promote_to_finding_if": [],
+  "originating_skill": "naming-drift-detector@0.3.0",
+  "created_at": "2026-05-02T10:30:00Z",
+  "decided_at": "2026-05-02T10:30:00Z",
+  "decided_by": "nuance_discrimination_protocol",
+  "schema_version": 1
+}
+```
+
+**Observation lifecycle:**
+
+```
+[CANDIDATE_DETECTED] -> Nuance Discrimination Protocol (IDENTITY §3.5)
+   any check yields TRUSTED explanation -> [DISMISSED]
+   only repo-side comment plausible      -> [PENDING_OPERATOR_REVIEW]
+   no check explains it                  -> [ESCALATED_TO_FINDING] (becomes F-*)
+
+[PENDING_OPERATOR_REVIEW]:
+   operator confirms "intentional"  -> [DISMISSED] + suppression record for skill
+   operator confirms "real bug"     -> [ESCALATED_TO_FINDING] (becomes F-*)
+   operator silent for 14 days      -> [DISMISSED] (default; logged in episodic)
+```
+
+**Why Observations are not Findings:**
+- Findings require ≥2 independent evidences per L1; Observations require only the trigger evidence + nuance-check record
+- Findings carry severity that drives SLA timers; Observations don't
+- Findings appear in public daily reports; Observations appear only in the operator's "review queue" section
+- Findings can ground recommendations; Observations cannot
+
+**Why Observations are not noise:**
+- They persist (versioned in `aria-memory/`)
+- They count against skill calibration metrics (a skill producing 80% PENDING that all become DISMISSED is mis-calibrated)
+- They surface to operator at controlled cadence — never lost
+
+The "bug note" surface (per IDENTITY §3 + CONTRACTS §6 claim_type table) lives in **Findings**. Observations are the **pre-bug-note** intake queue, where nuance is sorted before escalation.
 
 ---
 

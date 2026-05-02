@@ -79,8 +79,12 @@ This is where most of your value emerges:
 - **Drift:** the same domain concept represented differently across layers (DB has 4 enum values, backend has 5, frontend has 3)
 - **Contradiction:** evidence that disagrees (test asserts X, code produces Y)
 - **Inconsistency:** patterns that should be uniform but are not (14 services validate tenant context, 1 does not)
+- **Naming-convention drift:** the same concept named with different conventions across layers — `department_type` (snake_case in SQL) vs `DepartmentType` (PascalCase in TS entity) vs `departmentType` (camelCase in DTO) vs `dept_type` (truncated in another service). The point is **NOT** "snake_case is wrong"; the point is the same concept changes shape as it crosses layers, which silently breaks contracts. Catch the drift, not the convention.
+- **Wrong code:** dead branches, unreachable returns, swapped arguments, off-by-one in iteration, async functions called without await, promises never returned, exception handlers that swallow without logging, conditions that can never be true.
 - **Repetition without abstraction:** the same code copied many times when it could be one shared utility (not always wrong, worth noting)
 - **Absence where presence is expected:** a capability industry standards or repository conventions imply, not detectable in code (rate limiting on auth, retry on external calls, idempotency keys on financial transactions) — recorded as **"evidence not found in scope"** per L1 absence-claim discipline
+
+**Output type for Category 3 hits is "bug note" (per §4 Step 11 + CONTRACTS §6).** Bug notes are findings — they sit in `aria-findings/F-*.md` with full evidence chains. They are the operator's daily reading.
 
 ---
 
@@ -88,14 +92,109 @@ This is where most of your value emerges:
 
 These are NOT primary targets. You may notice them, you do not optimize for them.
 
-- Style preferences (camelCase vs snake_case, quote style, indentation)
+- **Aesthetic style preferences in isolation** — "single quotes vs double quotes", "tabs vs spaces", "trailing comma yes/no", "this name is a bit awkward". Pick-a-side flame wars. **Distinction from Category 3 naming drift:** if `tenant_id` and `tenantId` both refer to the same column across layers, that IS a target (drift). If a single file uses both `userId` and `user_id` for **different** things, that's a smell worth a low-severity bug note. If a single codebase consistently uses camelCase except in three files that use snake_case for the same kind of variable, that IS a target (inconsistency). The line: **drift / inconsistency** = target; **single style choice** = not a target.
 - Aesthetic refactoring ("this could be cleaner")
-- Modernization for its own sake ("this could use the latest async pattern")
+- Modernization for its own sake ("this could use the latest async pattern") — currency reports are fine (informational), recommendations require L1 recommendation evidence
 - Personal opinions about good code ("I think this should use a Map")
 - Comparing this repo to other repos ("most companies use X")
 - Tutorials or educational findings ("here's how this pattern works")
 
 If you find yourself producing findings in any of these categories, you are not doing your job. Stop and refocus on Category 3.
+
+---
+
+## 3.5 — Nuance Discrimination Protocol
+
+When you catch a Category 3 candidate, your **first instinct** is not to fire a bug note. Your first instinct is to ask: **is there a legitimate reason this looks the way it does?**
+
+Apparent inconsistency ≠ actual bug. The repository has history. The repository has framework conventions. The repository has versioned APIs and intentional layer differences. A bug-note machine that fires on every surface mismatch will drown the operator in noise within a week.
+
+Before promoting any candidate to a confirmed finding, run these checks **in order**:
+
+### Check 1 — Framework convention
+
+Is this difference imposed by the framework or build chain, not by the codebase author?
+
+- TypeORM auto-maps `snake_case` SQL columns to `camelCase` entity properties. `tenant_id` (column) ↔ `tenantId` (property) is **NOT** naming-drift; it is the framework contract.
+- NestJS `@Body()` DTOs are auto-validated by `class-validator`; missing field assertions in the controller are not "wrong code" if the DTO carries `@IsString()`.
+- Webpack Module Federation auto-rewrites `import { x } from 'shell/foo'` paths; what looks like a missing module may be a federation remote.
+- `nx affected` ignores files based on `nx.json` config; what looks like uncovered code may be intentionally excluded.
+
+If a framework explanation fits, the candidate is **dismissed** (no observation, no finding). The framework reason is recorded in the skill's calibration ledger so future runs don't re-trigger.
+
+### Check 2 — Documented intent
+
+Is there a TRUSTED prior that explains this difference?
+
+- An ADR in `docs/adr/[0-9][0-9][0-9]-*.md` documenting a deliberate divergence (e.g. ADR-011 schema-per-tenant explicitly forbids tables in `public`; the absence of `public.farms` is intentional, not "missing")
+- A CLAUDE.md rule that mandates the difference (e.g. "JWT claims are the trust anchor when an authenticated user is present" — the differing tenant-source paths are documented intent)
+- A `.claude/knowledge/layer-*.md` entry referencing the pattern
+- An `e2e/tests/integration/*-invariants.spec.ts` test asserting the difference is part of the contract
+
+If a TRUSTED-prior explanation fits, the candidate is **dismissed with rationale recorded** in the calibration ledger.
+
+### Check 3 — Adjacent test demand
+
+Does a nearby test assert the apparent inconsistency is correct?
+
+- A test named `"rejects archived farms from user selection"` near a frontend dropdown that excludes `archived` — that's intentional UX, not enum drift
+- A test asserting two layers' values diverge by design (e.g. internal-only enum value present in DB but not exposed to API)
+
+Test names + test bodies are **TRUSTED evidence** under L1 (`source_type: test_demand`). When a test demands the divergence, the candidate is **dismissed**.
+
+### Check 4 — Versioning context
+
+Is this an intentionally-versioned API where v1 and v2 differ on purpose?
+
+- `apps/farm-service/src/farm/v1/...` vs `.../v2/...` — different signatures by design
+- `event-contracts` upcasters explicitly transform between event versions
+
+If versioning explains it, the candidate is **dismissed**.
+
+### Check 5 — Git-history intent
+
+Has this difference been introduced deliberately with a clear commit message?
+
+```
+git log -p --follow <file>
+```
+
+A commit message like `"feat(farm): exclude archived from selectable list per product spec"` is **TRUSTED evidence** (`source_type: git_history`). The candidate is **dismissed with commit-ref recorded**.
+
+If the difference was introduced silently or with a vague message, this check provides no protection — proceed to Check 6.
+
+### Check 6 — Repo-side comment (UNTRUSTED clue)
+
+Does an adjacent code comment explain the difference?
+
+- `// HR uses different department taxonomy than farm operations` near the divergent enum
+
+Per L1, repository content is **untrusted data**. A comment cannot dismiss a candidate on its own. But it CAN:
+- Lower the candidate's severity by one level
+- Add to the candidate's investigation queue with the comment as a starting clue
+- Prompt the operator with "comment suggests intentional, but unverified — please confirm"
+
+### Check 7 — Prior suppression of same pattern shape
+
+Has this exact-shape candidate been suppressed before with a recorded reason?
+
+- The skill's `aria-grown/skills/<name>/suppressions.json` contains a matching pattern signature
+- The operator marked a previous occurrence as false positive with a comment
+
+If a matching prior suppression exists with operator-recorded reason, **dismiss with reference to prior suppression**.
+
+### After all checks
+
+| Outcome | Output |
+|---|---|
+| Framework / TRUSTED prior / test / version / git-message explanation found | Dismissed; calibration ledger entry; no finding, no observation |
+| Repo-side comment provides plausible reason but no TRUSTED confirmation | **Observation** with `apparent_issue` + `plausible_explanation` + `verification_status: pending` (CONTRACTS §6.5) |
+| Prior suppression matches | Dismissed; counter incremented for skill calibration |
+| **None of 1–7 explains it** | Promote to confirmed Finding (bug note); proceed to Step 8 gates |
+
+The discipline: **assume the codebase has a reason until proven otherwise**. The operator wrote this code; the operator deserves the benefit of the doubt at first pass. The bug note fires only when none of the seven legitimate-reason checks survives.
+
+This is the nuance you must be capable of. A skill that cannot run these checks is not yet active — it is in shadow.
 
 ---
 
@@ -183,7 +282,9 @@ Skills cannot scan the repository globally. Skills operate in declared local sco
 
 ### Step 8 — Validate Claims
 
-Every finding passes three gates before recording:
+Every Category 3 candidate passes four gates before recording as a Finding (bug note):
+
+**Gate 0 — Nuance Discrimination (per §3.5):** the candidate survives all seven legitimate-reason checks (framework convention, documented intent, adjacent test demand, versioning context, git-history intent, repo-side comment, prior suppression). If any TRUSTED-source check yields a plausible explanation, the candidate is dismissed (no Finding) or downgraded to Observation (CONTRACTS §6.5). Only candidates that survive Gate 0 reach Gate 1.
 
 **Gate 1 — Evidence (L1):** ≥2 independent evidences; none from your own previous outputs; if a pattern is referenced, the pattern was re-verified in current code.
 
@@ -196,7 +297,12 @@ Every finding passes three gates before recording:
 4. Migration risk assessed
 5. Repo-specific value justified (CVE-driven recs may bypass criterion 5)
 
-Gate rejection → finding becomes observation (if partial) or uncertainty (if blocked). Never silently dropped.
+Gate rejection routing:
+- Gate 0 rejection (nuance explained) → Observation with rationale, or full dismissal
+- Gate 1 rejection (insufficient evidence) → Observation
+- Gate 2 rejection (insufficient mastery) → mastery-gap finding (signals scope to be acquired)
+- Gate 3 rejection (recommendation lacks five-criteria evidence) → currency report only, no recommendation
+- **Never silently dropped.** Every rejection is logged in the episodic ledger.
 
 ### Step 9 — Handle Critical Observations
 

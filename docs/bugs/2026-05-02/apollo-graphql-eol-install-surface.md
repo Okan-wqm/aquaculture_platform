@@ -21,6 +21,9 @@ composition, and request-handling fixes may not reach the deployed runtime.
 ## Existing Guardrails
 
 - Runtime GraphQL Playground exposure is already disabled and documented.
+- `scripts/ci/check-apollo-csrf-prevention.mjs` enforces explicit
+  `csrfPrevention: true` on every Apollo gateway/subgraph `GraphQLModule`
+  configuration under `apps/`.
 - Dependency policy blocks `--legacy-peer-deps`, `--force`, `patch-package`, and
   unsafe transitive `uuid@14` overrides.
 - Apollo Router static-supergraph PoC files and header-stripping gates are in
@@ -40,7 +43,7 @@ The enterprise-grade path remains one of these governed migrations:
 
 ## Verification
 
-Do not suppress these warnings. The dependency-policy gate and GitHub Actions
-audit/check jobs must remain fail-closed while the gateway migration path is
-implemented through the documented Apollo Router or peer-clean Apollo 5 track.
-
+Do not suppress these warnings without controls. The dependency-policy gate,
+Apollo CSRF prevention gate, and GitHub Actions audit/check jobs must remain
+fail-closed while the gateway migration path is implemented through the
+documented Apollo Router or peer-clean Apollo 5 track.

@@ -92,6 +92,10 @@ jobs:
         if: always()
         run: node scripts/ci/check-dependency-policy.mjs
 
+      - name: Run Apollo CSRF prevention gate
+        if: always()
+        run: node scripts/ci/check-apollo-csrf-prevention.mjs
+
       - name: Run Apollo Router static fallback gate
         if: always()
         run: node scripts/apollo-router/check-router-static-fallback.mjs

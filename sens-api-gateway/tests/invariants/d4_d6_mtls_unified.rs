@@ -325,6 +325,34 @@ fn permission_manage_cert_pinning_variant_present() {
     );
 }
 
+/// **ORPHAN-MEDIUM-036/037 closure (audit-sink HMAC chain emit):** the
+/// `action_for_command` table at `commands/audit_emit.rs::42` MUST have
+/// an explicit case for `"update_cert_pinning"` so the existing
+/// command-dispatch audit pipeline emits a specific
+/// `MqttCertRotated` / `MqttCertRotationRolledBack` action rather than
+/// the catch-all `CommandExecuted`. Without this mapping, audit-stream
+/// queries cannot distinguish a cert-pinning rotation event from any
+/// other command, which defeats forensic post-mortem.
+#[test]
+fn audit_emit_table_classifies_update_cert_pinning() {
+    let src = read_source("src/commands/audit_emit.rs");
+    assert!(
+        src.contains("\"update_cert_pinning\""),
+        "ORPHAN-MEDIUM-036/037 VIOLATED: src/commands/audit_emit.rs \
+         action_for_command table does not have an explicit case for \
+         \"update_cert_pinning\". Without it, audit emits fall through to \
+         CommandExecuted/CommandRejected — forensic queries cannot \
+         distinguish pin rotations from generic commands."
+    );
+    assert!(
+        src.contains("MqttCertRotated") && src.contains("MqttCertRotationRolledBack"),
+        "ORPHAN-MEDIUM-036/037 VIOLATED: src/commands/audit_emit.rs \
+         does not route to MqttCertRotated (success) and MqttCertRotationRolledBack \
+         (failure) actions. Both wire_tags are pre-staged in audit/entry.rs \
+         for this exact surface."
+    );
+}
+
 /// **ORPHAN-HIGH-035 cipher dimension closure (Phase 1.1.3a):** the
 /// helper itself MUST exist + use TLS 1.3 + the Suderra crypto provider.
 /// Pins the source-level shape so an "optimization" that swaps in

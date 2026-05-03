@@ -52,6 +52,33 @@ pub(super) fn action_for_command(cmd: &str, outcome: AuditOutcome) -> AuditActio
             }
         },
 
+        // Phase 1.1.2 D-4 mTLS leaf-cert pinning rotation. Closes
+        // ORPHAN-MEDIUM-036/037 audit-sink HMAC chain emit dimension by
+        // routing cmd_update_cert_pinning through the existing
+        // command-dispatch audit pipeline rather than wiring a bespoke
+        // emit inside the handler. The audit actions
+        // `MqttCertRotated` (wire_tag 26) and `MqttCertRotationRolledBack`
+        // (wire_tag 27) were pre-staged in `audit/entry.rs` for exactly
+        // this surface — they previously had no producer.
+        //
+        // Outcome mapping:
+        // - Success: rebuild() returned Rebuilt OR NoChange — both
+        //   indicate the operator's request was accepted by the Tier-1
+        //   gate, so MqttCertRotated is the right action regardless of
+        //   whether the verifier was actually swapped.
+        // - Failure / AuthorizationDenied: rebuild() returned
+        //   DowngradeRejected, BuildFailed, or LockPoisoned — operator
+        //   request was rejected. MqttCertRotationRolledBack is the
+        //   closest semantic match (the rotation attempt was unwound
+        //   before taking effect; the running fleet keeps the previous
+        //   pin set per the pre-validate-before-swap discipline).
+        "update_cert_pinning" => match outcome {
+            AuditOutcome::Success => AuditAction::MqttCertRotated,
+            AuditOutcome::Failure | AuditOutcome::AuthorizationDenied => {
+                AuditAction::MqttCertRotationRolledBack
+            }
+        },
+
         // Firmware lifecycle — legacy tarball OTA path.
         // Batch 119 gates this at mode=Enforcing; failure
         // outcomes under that mode still flow here + map to

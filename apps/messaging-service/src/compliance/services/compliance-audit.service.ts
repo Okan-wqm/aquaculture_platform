@@ -169,10 +169,13 @@ export class ComplianceAuditService {
       'messaging',
       filters.tenantId,
       async (queryRunner) => {
-        const repo = queryRunner.manager.getRepository(ComplianceAuditLog);
+        const repo = tenantManagerRepo(
+          queryRunner.manager,
+          ComplianceAuditLog,
+          filters.tenantId,
+        );
         const qb = repo
           .createQueryBuilder('a')
-          .where('a."tenantId" = :tenantId', { tenantId: filters.tenantId });
 
         if (filters.userId) {
           qb.andWhere('a."userId" = :userId', { userId: filters.userId });
@@ -208,7 +211,6 @@ export class ComplianceAuditService {
           qb.getMany(),
           repo
             .createQueryBuilder('a')
-            .where('a."tenantId" = :tenantId', { tenantId: filters.tenantId })
             .getCount(),
         ]);
 

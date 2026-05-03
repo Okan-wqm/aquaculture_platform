@@ -111,9 +111,7 @@ describe('CreateChannelHandler', () => {
   // -----------------------------------------------------------------------
   it('creates DIRECT channel between two users', async () => {
     // No existing DM
-    mockDataSource.getRepository = jest.fn().mockReturnValue({
-      findOne: jest.fn().mockResolvedValue(null),
-    });
+    queryRunner.manager.findOne.mockResolvedValueOnce(null);
 
     const input = makeInput({
       type: ChannelType.DIRECT,
@@ -135,9 +133,7 @@ describe('CreateChannelHandler', () => {
       members: [],
     });
 
-    mockDataSource.getRepository = jest.fn().mockReturnValue({
-      findOne: jest.fn().mockResolvedValue(existingChannel),
-    });
+    queryRunner.manager.findOne.mockResolvedValueOnce(existingChannel);
 
     const input = makeInput({
       type: ChannelType.DIRECT,
@@ -148,8 +144,9 @@ describe('CreateChannelHandler', () => {
     const result = await handler.execute(cmd);
 
     expect(result.id).toBe(existingChannel.id);
-    // No transaction started for idempotent return
-    expect(queryRunner.startTransaction).not.toHaveBeenCalled();
+    expect(queryRunner.startTransaction).toHaveBeenCalled();
+    expect(queryRunner.commitTransaction).toHaveBeenCalled();
+    expect(queryRunner.manager.save).not.toHaveBeenCalled();
   });
 
   // -----------------------------------------------------------------------

@@ -15,6 +15,7 @@ from aria_kernel import (
     run_cycle,
     run_cycle_diff,
     run_discovery,
+    update_memory,
     verify_integrity,
     withdraw_belief,
 )
@@ -71,7 +72,7 @@ def shadow_tool():
     }
 
 
-def candidate_tool():
+def candidate_tool(confidence=0.7):
     tool = shadow_tool()
     tool["tool_id"] = "candidate-tool"
     tool["runner"] = {
@@ -82,7 +83,7 @@ def candidate_tool():
                     {
                         "belief_id": "candidate:repo-shape",
                         "claim": "fixture repo exposes a candidate shape belief",
-                        "confidence": 0.7,
+                        "confidence": confidence,
                         "evidence_refs": ["src/app.ts"],
                         "source_tool_id": "candidate-tool",
                     },
@@ -213,6 +214,24 @@ class EnterpriseCycleTests(unittest.TestCase):
             first["repo-has-node-package-manifest"]["confidence"],
         )
 
+    def test_feedback_note_substring_does_not_adjust_without_affected_belief_ids(self):
+        register_tool(candidate_tool(), base_dir=self.tools_dir)
+        run_cycle(workspace_root=self.root, cycle_id="cycle-feedback-note-1", base_dir=self.tools_dir, shadow_only=True)
+        first = {row["belief_id"]: row for row in list_memory(kind="beliefs", base_dir=self.tools_dir)}
+        record_operator_feedback(
+            tool_id="operator",
+            run_id="manual",
+            finding_id="manual",
+            verdict="false_positive",
+            severity="critical",
+            note="candidate:repo-shape should not be adjusted through note substring matching",
+            affected_belief_ids=[],
+            base_dir=self.tools_dir,
+        )
+        run_cycle(workspace_root=self.root, cycle_id="cycle-feedback-note-2", base_dir=self.tools_dir, shadow_only=True)
+        second = {row["belief_id"]: row for row in list_memory(kind="beliefs", base_dir=self.tools_dir)}
+        self.assertGreater(second["candidate:repo-shape"]["confidence"], first["candidate:repo-shape"]["confidence"])
+
     def test_missing_concrete_evidence_becomes_stale_after_three_cycles(self):
         run_cycle(workspace_root=self.root, cycle_id="cycle-stale-1", base_dir=self.tools_dir)
         (self.root / "nx.json").unlink()
@@ -290,6 +309,17 @@ class EnterpriseCycleTests(unittest.TestCase):
         self.assertEqual(beliefs["candidate:repo-shape"]["source_tool_ids"], ["candidate-tool"])
         self.assertEqual(result["reflection"]["operator_facing_findings"], 0)
 
+    def test_adapter_candidate_confidence_does_not_override_existing_memory_score(self):
+        register_tool(candidate_tool(confidence=0.2), base_dir=self.tools_dir)
+        run_cycle(workspace_root=self.root, cycle_id="cycle-candidate-score-1", base_dir=self.tools_dir, shadow_only=True)
+        first = {row["belief_id"]: row for row in list_memory(kind="beliefs", base_dir=self.tools_dir)}
+        register_tool(candidate_tool(confidence=1.0), base_dir=self.tools_dir)
+        run_cycle(workspace_root=self.root, cycle_id="cycle-candidate-score-2", base_dir=self.tools_dir, shadow_only=True)
+        second = {row["belief_id"]: row for row in list_memory(kind="beliefs", base_dir=self.tools_dir)}
+        self.assertEqual(second["candidate:repo-shape"]["support_count"], 2)
+        self.assertGreater(second["candidate:repo-shape"]["confidence"], first["candidate:repo-shape"]["confidence"])
+        self.assertLess(second["candidate:repo-shape"]["confidence"], 0.5)
+
     def test_withdrawn_belief_is_sticky_against_candidate_recreation(self):
         register_tool(candidate_tool(), base_dir=self.tools_dir)
         run_cycle(workspace_root=self.root, cycle_id="cycle-withdraw-1", base_dir=self.tools_dir, shadow_only=True)
@@ -299,6 +329,67 @@ class EnterpriseCycleTests(unittest.TestCase):
         self.assertEqual(beliefs["candidate:repo-shape"]["status"], "withdrawn")
         contradictions = list_memory(kind="contradictions", base_dir=self.tools_dir)
         self.assertTrue(any(row["belief_id"] == "candidate:repo-shape" for row in contradictions))
+
+    def test_quarantined_adapter_source_propagates_to_memory_without_reopening_withdrawn(self):
+        tool = candidate_tool()
+        tool["status"] = "QUARANTINED"
+        register_tool(tool, base_dir=self.tools_dir)
+        for belief_id, status, revalidation_cycles in (
+            ("adapter:supported", "supported", 0),
+            ("adapter:withdrawn", "withdrawn", 0),
+            ("adapter:stale", "stale", 3),
+        ):
+            append_jsonl(
+                self.tools_dir / "memory/beliefs.jsonl",
+                {
+                    "schema_version": 1,
+                    "recorded_at": "2026-05-03T00:00:00+00:00",
+                    "updated_at": "2026-05-03T00:00:00+00:00",
+                    "belief_id": belief_id,
+                    "claim": f"{belief_id} claim",
+                    "confidence": 0.7,
+                    "status": status,
+                    "evidence_refs": ["src/app.ts"],
+                    "first_seen_cycle": "cycle-quarantine-0",
+                    "last_seen_cycle": "cycle-quarantine-0",
+                    "support_count": 1,
+                    "contradiction_count": 0,
+                    "needs_revalidation_cycles": revalidation_cycles,
+                    "source_tool_ids": ["candidate-tool"],
+                },
+            )
+        append_jsonl(
+            self.tools_dir / "runs.jsonl",
+            {
+                "schema_version": 1,
+                "recorded_at": "2026-05-03T00:00:00+00:00",
+                "run_id": "manual-quarantined-run",
+                "tool_id": "candidate-tool",
+                "cycle_id": "cycle-quarantine-1",
+                "status": "ok",
+                "memory_candidates": [
+                    {
+                        "belief_id": "adapter:new",
+                        "claim": "new quarantined candidate",
+                        "confidence": 0.9,
+                        "evidence_refs": ["src/app.ts"],
+                        "source_tool_id": "candidate-tool",
+                    },
+                ],
+            },
+        )
+        update_memory(cycle_id="cycle-quarantine-1", base_dir=self.tools_dir, include_discovery_beliefs=False)
+        beliefs = {row["belief_id"]: row for row in list_memory(kind="beliefs", base_dir=self.tools_dir)}
+        self.assertEqual(beliefs["adapter:supported"]["status"], "needs_revalidation")
+        self.assertEqual(beliefs["adapter:supported"]["quarantined_source_tool_ids"], ["candidate-tool"])
+        self.assertEqual(beliefs["adapter:withdrawn"]["status"], "withdrawn")
+        self.assertEqual(beliefs["adapter:stale"]["status"], "stale")
+        self.assertEqual(beliefs["adapter:stale"]["needs_revalidation_cycles"], 4)
+        self.assertNotIn("adapter:new", beliefs)
+        uncertainties = list_memory(kind="uncertainties", base_dir=self.tools_dir)
+        self.assertTrue(any(row["belief_id"] == "adapter:new" for row in uncertainties))
+        calibration = list_memory(kind="calibration", base_dir=self.tools_dir)
+        self.assertTrue(any(row["belief_id"] == "adapter:new" for row in calibration))
 
     def test_self_output_evidence_quarantines_tool_in_full_cycle(self):
         register_tool(self_output_tool(), base_dir=self.tools_dir)

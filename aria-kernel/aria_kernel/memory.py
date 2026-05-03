@@ -8,7 +8,7 @@ from typing import Any
 from .ledger import append_jsonl, load_jsonl
 from .feedback_store import load_feedback
 from .tool_health import runs_path
-from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
+from .tool_registry import GovernanceError, ensure_tools_dir, load_registry, utc_now
 
 SELF_OUTPUT_PREFIXES = ("aria-tools/", "agent-workspace/", ".aria-poc/")
 MEMORY_KINDS = ("beliefs", "observations", "uncertainties", "contradictions", "calibration")
@@ -79,7 +79,9 @@ def update_memory(
         )
         beliefs_written += 1
     if include_tool_candidates:
-        beliefs_written += _ingest_memory_candidates(root, cycle_id)
+        quarantined_tool_ids = _quarantined_tool_ids(root)
+        beliefs_written += _mark_quarantined_source_beliefs(root, cycle_id, quarantined_tool_ids)
+        beliefs_written += _ingest_memory_candidates(root, cycle_id, quarantined_tool_ids)
     return {
         "schema_version": 1,
         "cycle_id": cycle_id,
@@ -206,11 +208,12 @@ def _record_belief(
     support_count = int((existing or {}).get("support_count", 0)) + 1
     contradiction_count = len(contradictions)
     previous_confidence = float((existing or {}).get("confidence", confidence))
+    base_confidence = previous_confidence if existing else confidence
     needs_revalidation_cycles = 0
     if evidence_state["missing_concrete_refs"] or evidence_state["empty_glob_refs"]:
         needs_revalidation_cycles = int((existing or {}).get("needs_revalidation_cycles", 0)) + 1
     next_confidence = _bounded_confidence(
-        max(previous_confidence, confidence)
+        base_confidence
         + min(0.05, support_count * 0.005)
         + feedback_adjustment
         - needs_revalidation_cycles * 0.1
@@ -316,7 +319,65 @@ def _apply_diff_to_existing_beliefs(root: Path, cycle_id: str, diff: dict[str, A
     return written
 
 
-def _ingest_memory_candidates(root: Path, cycle_id: str) -> int:
+def _quarantined_tool_ids(root: Path) -> set[str]:
+    return {
+        str(tool.get("tool_id"))
+        for tool in load_registry(root).get("tools", [])
+        if tool.get("status") == "QUARANTINED" and str(tool.get("tool_id") or "").strip()
+    }
+
+
+def _mark_quarantined_source_beliefs(root: Path, cycle_id: str, quarantined_tool_ids: set[str]) -> int:
+    if not quarantined_tool_ids:
+        return 0
+    written = 0
+    for belief in latest_beliefs(load_jsonl(root / "memory" / "beliefs.jsonl")):
+        belief_id = str(belief.get("belief_id") or "")
+        if belief.get("status") == "withdrawn" or not belief_id:
+            continue
+        matched_tool_ids = sorted(set(_array_of_strings(belief.get("source_tool_ids"))) & quarantined_tool_ids)
+        if not matched_tool_ids:
+            continue
+        revalidation_cycles = int(belief.get("needs_revalidation_cycles", 0)) + 1
+        previous_status = str(belief.get("status") or "supported")
+        status = (
+            "stale"
+            if previous_status == "stale" or revalidation_cycles >= STALE_AFTER_REVALIDATION_CYCLES
+            else "needs_revalidation"
+        )
+        row = dict(belief)
+        row.update(
+            {
+                "recorded_at": utc_now(),
+                "updated_at": utc_now(),
+                "last_seen_cycle": cycle_id,
+                "status": status,
+                "needs_revalidation_cycles": revalidation_cycles,
+                "revalidation_reason": "source tool is quarantined",
+                "quarantined_source_tool_ids": matched_tool_ids,
+            },
+        )
+        append_jsonl(root / "memory" / "beliefs.jsonl", row)
+        _record_uncertainty(
+            root,
+            cycle_id=cycle_id,
+            belief_id=belief_id,
+            reason="belief source tool is quarantined",
+            evidence_refs=_array_of_strings(belief.get("evidence_refs")),
+        )
+        _record_calibration(
+            root,
+            cycle_id=cycle_id,
+            belief_id=belief_id,
+            source_tool_id=",".join(matched_tool_ids),
+            reason="existing belief requires revalidation because its source tool is quarantined",
+        )
+        written += 1
+    return written
+
+
+def _ingest_memory_candidates(root: Path, cycle_id: str, quarantined_tool_ids: set[str] | None = None) -> int:
+    quarantined_tool_ids = quarantined_tool_ids or set()
     written = 0
     for run in load_jsonl(runs_path(root)):
         if run.get("cycle_id") != cycle_id:
@@ -324,6 +385,23 @@ def _ingest_memory_candidates(root: Path, cycle_id: str) -> int:
         for candidate in _array_of_dicts(run.get("memory_candidates")):
             try:
                 source_tool_id = str(candidate.get("source_tool_id") or run.get("tool_id"))
+                if source_tool_id in quarantined_tool_ids:
+                    belief_id = str(candidate.get("belief_id", "<unknown>"))
+                    _record_uncertainty(
+                        root,
+                        cycle_id=cycle_id,
+                        belief_id=belief_id,
+                        reason="memory candidate skipped because source tool is quarantined",
+                        evidence_refs=_array_of_strings(candidate.get("evidence_refs")),
+                    )
+                    _record_calibration(
+                        root,
+                        cycle_id=cycle_id,
+                        belief_id=belief_id,
+                        source_tool_id=source_tool_id,
+                        reason="quarantined source tool emitted a memory candidate",
+                    )
+                    continue
                 existing = _latest_belief(root, str(candidate.get("belief_id", "")))
                 if existing and existing.get("status") == "withdrawn":
                     _record_contradiction(
@@ -399,6 +477,28 @@ def _record_contradiction(
     )
 
 
+def _record_calibration(
+    root: Path,
+    *,
+    cycle_id: str,
+    belief_id: str,
+    source_tool_id: str,
+    reason: str,
+) -> None:
+    append_jsonl(
+        root / "memory" / "calibration.jsonl",
+        {
+            "schema_version": 1,
+            "recorded_at": utc_now(),
+            "cycle_id": cycle_id,
+            "belief_id": belief_id,
+            "source_tool_id": source_tool_id,
+            "reason": reason,
+            "status": "open",
+        },
+    )
+
+
 def _open_contradictions_for(root: Path, belief_id: str) -> list[dict[str, Any]]:
     return [
         row
@@ -408,6 +508,11 @@ def _open_contradictions_for(root: Path, belief_id: str) -> list[dict[str, Any]]
 
 
 def _feedback_adjustment(root: Path, belief_id: str) -> float:
+    """Apply feedback only through exact affected_belief_ids.
+
+    Legacy rows are still loaded from operator-feedback.jsonl, but note/body
+    substring matches are intentionally ignored to avoid broad confidence drift.
+    """
     adjustment = 0.0
     for feedback in load_feedback(base_dir=root):
         affected = _array_of_strings(feedback.get("affected_belief_ids"))

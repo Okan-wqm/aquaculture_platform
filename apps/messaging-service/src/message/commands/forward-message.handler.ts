@@ -18,12 +18,12 @@ import {
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
-import { DataSource, Repository, IsNull } from 'typeorm';
-import { InjectRepository } from '@nestjs/typeorm';
+import { DataSource, IsNull } from 'typeorm';
 import { randomUUID as uuidv4 } from 'crypto';
 
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { OutboxPublisher } from '@platform/outbox';
-import { createBaseEvent, BaseEvent } from '@platform/event-contracts';
+import { createBaseEvent } from '@platform/event-contracts';
 import { ForwardMessageCommand } from './forward-message.command';
 import { Message } from '../entities/message.entity';
 import { MessageAttachment } from '../entities/message-attachment.entity';
@@ -37,10 +37,6 @@ export class ForwardMessageHandler
 
   constructor(
     private readonly dataSource: DataSource,
-    @InjectRepository(Message)
-    private readonly messageRepo: Repository<Message>,
-    @InjectRepository(ChannelMember)
-    private readonly channelMemberRepo: Repository<ChannelMember>,
     private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
@@ -53,53 +49,56 @@ export class ForwardMessageHandler
       targetChannelId,
     } = command;
 
-    // ── 1. Fetch source message ───────────────────────────────────────
-    const sourceMessage = await this.messageRepo.findOne({
-      where: { id: sourceMessageId, createdAt: sourceMessageCreatedAt },
-      relations: ['attachments'],
-    });
-
-    if (!sourceMessage || sourceMessage.isDeleted) {
-      throw new NotFoundException(
-        `Source message ${sourceMessageId} not found or has been deleted.`,
-      );
-    }
-
-    // ── 2. Validate dual-channel membership ───────────────────────────
-    const [sourceMembership, targetMembership] = await Promise.all([
-      this.channelMemberRepo.findOne({
-        where: {
-          channelId: sourceMessage.channelId,
-          userId,
-          leftAt: IsNull(),
-        },
-      }),
-      this.channelMemberRepo.findOne({
-        where: {
-          channelId: targetChannelId,
-          userId,
-          leftAt: IsNull(),
-        },
-      }),
-    ]);
-
-    if (!sourceMembership) {
-      throw new ForbiddenException(
-        'You are not a member of the source channel.',
-      );
-    }
-    if (!targetMembership) {
-      throw new ForbiddenException(
-        'You are not a member of the target channel.',
-      );
-    }
-
-    // ── 3. Forward within a transaction ───────────────────────────────
     const messageId = uuidv4();
     const now = new Date();
 
-    const forwardedMessage = await this.dataSource.transaction(
-      async (manager) => {
+    const forwardedMessage = await runInTenantTransaction(
+      this.dataSource,
+      'messaging',
+      tenantId,
+      async (queryRunner) => {
+        const { manager } = queryRunner;
+        const sourceMessage = await manager.findOne(Message, {
+          where: { tenantId, id: sourceMessageId, createdAt: sourceMessageCreatedAt },
+          relations: ['attachments'],
+        });
+
+        if (!sourceMessage || sourceMessage.isDeleted) {
+          throw new NotFoundException(
+            `Source message ${sourceMessageId} not found or has been deleted.`,
+          );
+        }
+
+        const [sourceMembership, targetMembership] = await Promise.all([
+          manager.findOne(ChannelMember, {
+            where: {
+              tenantId,
+              channelId: sourceMessage.channelId,
+              userId,
+              leftAt: IsNull(),
+            },
+          }),
+          manager.findOne(ChannelMember, {
+            where: {
+              tenantId,
+              channelId: targetChannelId,
+              userId,
+              leftAt: IsNull(),
+            },
+          }),
+        ]);
+
+        if (!sourceMembership) {
+          throw new ForbiddenException(
+            'You are not a member of the source channel.',
+          );
+        }
+        if (!targetMembership) {
+          throw new ForbiddenException(
+            'You are not a member of the target channel.',
+          );
+        }
+
         // 3a. Create forwarded message
         // SECURITY: tenantId MUST be set for RLS and event routing.
         const message = manager.create(Message, {
@@ -127,6 +126,7 @@ export class ForwardMessageHandler
         if (sourceMessage.attachments?.length > 0) {
           const attachments = sourceMessage.attachments.map((att) => {
             return manager.create(MessageAttachment, {
+              tenantId,
               messageId: savedMessage.id,
               messageCreatedAt: savedMessage.createdAt,
               storageKey: att.storageKey,

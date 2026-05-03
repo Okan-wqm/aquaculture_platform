@@ -1,12 +1,12 @@
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { Logger, NotFoundException, Inject } from '@nestjs/common';
-import { DataSource, Repository } from 'typeorm';
-import { InjectRepository } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import { randomUUID as uuidv4 } from 'crypto';
 import Redis from 'ioredis';
 
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { OutboxPublisher } from '@platform/outbox';
-import { createBaseEvent, BaseEvent } from '@platform/event-contracts';
+import { createBaseEvent } from '@platform/event-contracts';
 import { MarkReadCommand } from './mark-read.command';
 import { Message } from '../entities/message.entity';
 import { MessageReceipt, ReceiptStatus } from '../entities/message-receipt.entity';
@@ -27,12 +27,6 @@ export class MarkReadHandler implements ICommandHandler<MarkReadCommand, boolean
 
   constructor(
     private readonly dataSource: DataSource,
-    @InjectRepository(Message)
-    private readonly messageRepo: Repository<Message>,
-    @InjectRepository(MessageReceipt)
-    private readonly receiptRepo: Repository<MessageReceipt>,
-    @InjectRepository(ChannelMember)
-    private readonly channelMemberRepo: Repository<ChannelMember>,
     @Inject(REDIS_CLIENT)
     private readonly redis: Redis,
     private readonly outboxPublisher: OutboxPublisher,
@@ -41,22 +35,25 @@ export class MarkReadHandler implements ICommandHandler<MarkReadCommand, boolean
   async execute(command: MarkReadCommand): Promise<boolean> {
     const { tenantId, userId, channelId, messageId } = command;
 
-    // 1. Find the target message
-    const message = await this.messageRepo.findOne({
-      where: { id: messageId },
-    });
-    if (!message) {
-      throw new NotFoundException(`Message ${messageId} not found.`);
-    }
+    await runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) => {
+      const { manager } = queryRunner;
 
-    // 2. Transactional: update channel member lastReadAt + create/update receipt + outbox
-    await this.dataSource.transaction(async (manager) => {
+      // 1. Find the target message
+      const message = await manager.findOne(Message, {
+        where: { tenantId, id: messageId },
+      });
+      if (!message) {
+        throw new NotFoundException(`Message ${messageId} not found.`);
+      }
+
+      // 2. Transactional: update channel member lastReadAt + create/update receipt + outbox
       // 2a. Update channel_members.lastReadAt
       await manager
         .createQueryBuilder()
         .update(ChannelMember)
         .set({ lastReadAt: message.createdAt })
-        .where('"channelId" = :channelId AND "userId" = :userId', {
+        .where('"tenantId" = :tenantId AND "channelId" = :channelId AND "userId" = :userId', {
+          tenantId,
           channelId,
           userId,
         })
@@ -79,6 +76,7 @@ export class MarkReadHandler implements ICommandHandler<MarkReadCommand, boolean
       } else {
         const receipt = manager.create(MessageReceipt, {
           id: uuidv4(),
+          tenantId,
           messageId: message.id,
           messageCreatedAt: message.createdAt,
           userId,
@@ -121,19 +119,29 @@ export class MarkReadHandler implements ICommandHandler<MarkReadCommand, boolean
   ): Promise<void> {
     try {
       // Get the updated lastReadAt for this channel member
-      const member = await this.channelMemberRepo.findOne({
-        where: { channelId, userId },
-      });
+      const member = await runInTenantTransaction(
+        this.dataSource,
+        'messaging',
+        tenantId,
+        async (queryRunner) => queryRunner.manager.findOne(ChannelMember, {
+          where: { tenantId, channelId, userId },
+        }),
+      );
       if (!member || !member.lastReadAt) return;
 
       // Count messages after lastReadAt that the user hasn't sent
-      const unreadCount = await this.messageRepo
-        .createQueryBuilder('m')
+      const unreadCount = await runInTenantTransaction(
+        this.dataSource,
+        'messaging',
+        tenantId,
+        async (queryRunner) => queryRunner.manager
+          .createQueryBuilder(Message, 'm')
         .where('m."channelId" = :channelId', { channelId })
         .andWhere('m."createdAt" > :lastReadAt', { lastReadAt: member.lastReadAt })
         .andWhere('m."senderId" != :userId', { userId })
         .andWhere('m."isDeleted" = false')
-        .getCount();
+          .getCount(),
+      );
 
       const redisKey = `unread:${tenantId}:${userId}:${channelId}`;
       await this.redis.set(redisKey, unreadCount.toString());

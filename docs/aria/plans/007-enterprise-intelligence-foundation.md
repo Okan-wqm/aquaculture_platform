@@ -17,11 +17,12 @@ Plan 007 is split into sub-phases. The current implementation now covers Phase 0
 
 ## Phase 007b Foundation Scope
 
-- Operator feedback records `affected_belief_ids`; memory confidence no longer relies on substring matches in free-form notes.
+- Operator feedback records `affected_belief_ids`; memory confidence changes only through exact affected-belief ids. Legacy feedback rows are still loaded, but substring matches in free-form notes are intentionally ignored.
 - Tool output may include `belief_candidates`. The runner stores valid candidates in the run envelope as `memory_candidates`, and Memory ingests them after tool execution.
 - Candidate evidence must pass the same repo-evidence guard as native beliefs. Self-output evidence is rejected and recorded as uncertainty.
-- Repeated candidates are idempotent by `belief_id`: support count increases, evidence refs are unioned, and confidence remains governed by Memory scoring.
+- Repeated candidates are idempotent by `belief_id`: support count increases, evidence refs are unioned, and candidate confidence is only an initial prior. Existing confidence remains governed by Memory scoring, support, feedback, contradictions, and revalidation penalties.
 - `WITHDRAWN` beliefs are sticky. Adapter candidates with the same `belief_id` write a contradiction record and do not recreate the belief. Re-enabling requires explicit `memory unwithdraw`.
+- QUARANTINED adapter sources propagate into Memory. Non-withdrawn beliefs with matching `source_tool_ids` move to revalidation, stale beliefs remain stale, withdrawn beliefs stay closed, and same-cycle candidates from quarantined tools are skipped with uncertainty and calibration records.
 - Pressure items carry deterministic `score`, `score_components`, `candidate_tools`, `recommended_action`, and `blocked_by`.
 - `pressure explain --cycle-id <id> --pressure-id <id>` returns the scored item for operator drilldown.
 - Daily reflection reports coverage, beliefs, stale/revalidation state, top pressures, tool health, and next cycle plan.
@@ -58,6 +59,9 @@ The next cycle plan is deterministic: it is the top three unresolved pressure it
 - Glob evidence with zero matches records match-count history and enters revalidation.
 - TypeORM adapter output emits at least one valid belief candidate and Memory converts it into a belief.
 - Withdrawn adapter-sourced beliefs are not recreated automatically.
+- Feedback note/body text does not affect confidence unless the target belief is listed in `affected_belief_ids`.
+- Repeated adapter candidate confidence does not override the existing Memory confidence lifecycle.
+- QUARANTINED adapter sources revalidate supported beliefs, preserve withdrawn/stale state, and do not create new beliefs from quarantined candidates.
 - Pressure scoring is deterministic and `pressure explain` exposes every score component.
 - Reflection writes the six operator sections and the JSON reflection ledger remains the source of truth.
 - Integrity verification remains valid across memory and diff ledgers.

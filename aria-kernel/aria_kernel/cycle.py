@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from .cycle_diff import run_cycle_diff
 from .discovery import run_discovery
 from .ledger import append_jsonl
 from .memory import update_memory
@@ -51,8 +52,17 @@ def run_cycle(
         },
     )
     discovery = run_discovery(workspace_root=root, cycle_id=cycle_id, base_dir=base_dir)
+    diff = run_cycle_diff(cycle_id=cycle_id, base_dir=base_dir)
     if discovery_only:
-        return _finish(tools_root, cycle_id, {"discovery": _compact_discovery(discovery), "tool_decisions": []})
+        return _finish(
+            tools_root,
+            cycle_id,
+            {
+                "discovery": _compact_discovery(discovery),
+                "cycle_diff": _compact_diff(diff),
+                "tool_decisions": [],
+            },
+        )
 
     if _stop_requested(tools_root):
         return _stopped_after_checkpoint(tools_root, cycle_id, "discovery")
@@ -97,6 +107,7 @@ def run_cycle(
         cycle_id,
         {
             "discovery": _compact_discovery(discovery),
+            "cycle_diff": _compact_diff(diff),
             "memory": memory,
             "pressure": pressure,
             "reflection": reflection,
@@ -169,4 +180,13 @@ def _compact_discovery(discovery: dict[str, Any]) -> dict[str, Any]:
             "has_nx": fingerprint.get("has_nx"),
             "has_package_json": fingerprint.get("has_package_json"),
         },
+    }
+
+
+def _compact_diff(diff: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "baseline": diff.get("baseline"),
+        "previous_cycle_id": diff.get("previous_cycle_id"),
+        "summary": diff.get("summary", {}),
+        "fingerprint_delta": diff.get("fingerprint_delta", {}),
     }

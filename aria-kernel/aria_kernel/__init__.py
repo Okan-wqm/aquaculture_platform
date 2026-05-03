@@ -1,6 +1,7 @@
 """ARIA adapter and skill health governance kernel."""
 
 from .cycle import run_cycle
+from .cycle_diff import run_cycle_diff
 from .discovery import run_discovery
 from .integrity import verify_integrity
 from .memory import update_memory
@@ -34,6 +35,7 @@ __all__ = [
     "record_research_source",
     "register_tool",
     "run_cycle",
+    "run_cycle_diff",
     "run_discovery",
     "run_fixture_suite",
     "run_pressure",

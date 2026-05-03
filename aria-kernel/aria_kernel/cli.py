@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from .cycle import run_cycle
+from .cycle_diff import run_cycle_diff
 from .db_snapshot import write_schema_snapshot
 from .discovery import run_discovery
 from .feedback_store import list_findings, record_operator_feedback
@@ -63,6 +64,12 @@ def build_parser() -> argparse.ArgumentParser:
     discovery_run.add_argument("--workspace-root", default=".")
     discovery_run.add_argument("--cycle-id", required=True)
     discovery_run.set_defaults(func=cmd_discovery_run)
+
+    diff = subparsers.add_parser("diff")
+    diff_subparsers = diff.add_subparsers(dest="command", required=True)
+    diff_run = diff_subparsers.add_parser("run")
+    diff_run.add_argument("--cycle-id", required=True)
+    diff_run.set_defaults(func=cmd_diff_run)
 
     memory = subparsers.add_parser("memory")
     memory_subparsers = memory.add_subparsers(dest="command", required=True)
@@ -211,6 +218,7 @@ def cmd_bootstrap_init(args: argparse.Namespace) -> dict[str, Any]:
         "research",
         "proposals",
         "cycle-state",
+        "cycle-diff",
     ):
         (root / relative).mkdir(parents=True, exist_ok=True)
     return {
@@ -250,6 +258,10 @@ def cmd_discovery_run(args: argparse.Namespace) -> dict[str, Any]:
             "has_package_json": fingerprint.get("has_package_json"),
         },
     }
+
+
+def cmd_diff_run(args: argparse.Namespace) -> dict[str, Any]:
+    return run_cycle_diff(cycle_id=args.cycle_id, base_dir=args.tools_dir)
 
 
 def cmd_memory_update(args: argparse.Namespace) -> dict[str, Any]:

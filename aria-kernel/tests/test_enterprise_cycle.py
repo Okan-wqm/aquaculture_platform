@@ -13,11 +13,13 @@ from aria_kernel import (
     record_research_source,
     register_tool,
     run_cycle,
+    run_cycle_diff,
     run_discovery,
     verify_integrity,
 )
 from aria_kernel.cli import main
-from aria_kernel.memory import list_memory
+from aria_kernel.ledger import append_jsonl
+from aria_kernel.memory import list_memory, validate_repo_evidence
 from aria_kernel.pressure import run_pressure
 from aria_kernel.tool_registry import GovernanceError
 
@@ -125,7 +127,48 @@ class EnterpriseCycleTests(unittest.TestCase):
         run_cycle(workspace_root=self.root, cycle_id="cycle-memory", base_dir=self.tools_dir, discovery_only=False)
         beliefs = list_memory(kind="beliefs", base_dir=self.tools_dir)
         self.assertTrue(any(row.get("belief_id") == "repo-uses-nx" for row in beliefs))
-        self.assertTrue(all("aria-tools/" not in str(row.get("evidence", [])) for row in beliefs))
+        self.assertTrue(all("aria-tools/" not in str(row.get("evidence_refs", [])) for row in beliefs))
+
+    def test_memory_repeated_cycle_updates_latest_belief_state_without_duplicate_listing(self):
+        run_cycle(workspace_root=self.root, cycle_id="cycle-memory-1", base_dir=self.tools_dir)
+        run_cycle(workspace_root=self.root, cycle_id="cycle-memory-2", base_dir=self.tools_dir)
+        beliefs = [row for row in list_memory(kind="beliefs", base_dir=self.tools_dir) if row["belief_id"] == "repo-uses-nx"]
+        self.assertEqual(len(beliefs), 1)
+        self.assertEqual(beliefs[0]["first_seen_cycle"], "cycle-memory-1")
+        self.assertEqual(beliefs[0]["last_seen_cycle"], "cycle-memory-2")
+        self.assertEqual(beliefs[0]["support_count"], 2)
+
+    def test_memory_normalizes_v0_belief_rows(self):
+        append_jsonl(
+            self.tools_dir / "memory/beliefs.jsonl",
+            {
+                "schema_version": 1,
+                "recorded_at": "2026-05-03T00:00:00+00:00",
+                "cycle_id": "old-cycle",
+                "belief_id": "legacy-belief",
+                "claim": "legacy",
+                "confidence": 0.7,
+                "evidence": ["nx.json"],
+            },
+        )
+        belief = list_memory(kind="beliefs", base_dir=self.tools_dir)[0]
+        self.assertEqual(belief["evidence_refs"], ["nx.json"])
+        self.assertEqual(belief["status"], "supported")
+
+    def test_memory_rejects_self_output_evidence(self):
+        with self.assertRaisesRegex(GovernanceError, "self-output"):
+            validate_repo_evidence(["aria-tools/reports/daily/2026-05-03.md"])
+
+    def test_cycle_diff_records_changed_paths_between_discovery_runs(self):
+        run_discovery(workspace_root=self.root, cycle_id="cycle-diff-1", base_dir=self.tools_dir)
+        first = run_cycle_diff(cycle_id="cycle-diff-1", base_dir=self.tools_dir)
+        self.assertTrue(first["baseline"])
+        (self.root / "src/app.ts").write_text("export const app = false;\n", encoding="utf-8")
+        run_discovery(workspace_root=self.root, cycle_id="cycle-diff-2", base_dir=self.tools_dir)
+        second = run_cycle_diff(cycle_id="cycle-diff-2", base_dir=self.tools_dir)
+        self.assertFalse(second["baseline"])
+        self.assertEqual(second["summary"]["changed_count"], 1)
+        self.assertEqual(second["changed_paths"], ["src/app.ts"])
 
     def test_integrity_detects_tampered_ledger(self):
         run_cycle(workspace_root=self.root, cycle_id="cycle-integrity", base_dir=self.tools_dir, discovery_only=True)
@@ -167,8 +210,8 @@ class EnterpriseCycleTests(unittest.TestCase):
                 [
                     "--tools-dir",
                     str(self.tools_dir),
-                    "cycle",
-                    "run",
+                "cycle",
+                "run",
                     "--workspace-root",
                     str(self.root),
                     "--cycle-id",

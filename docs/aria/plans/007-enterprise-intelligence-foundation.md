@@ -51,7 +51,8 @@ Phase 007c starts with four SHADOW adapters: event-contracts, tenant-scoping, se
 
 - `event-contracts-adapter` runs in SHADOW and scope-locks reads to `libs/event-contracts/src/**/*.ts`.
 - It records observations for the base event contract, `BaseEvent`-derived event interfaces, schema catalogs, and validator dispatch functions.
-- It emits findings only for mechanical invariant breaks: missing branded `EventId`, missing required BaseEvent fields, missing `createBaseEvent`, or schema catalogs not wired to the runtime validator.
+- It emits findings only for mechanical invariant breaks: missing branded `EventId`, missing required BaseEvent fields, missing `createBaseEvent`, empty schema catalogs, or schema catalogs not wired to the runtime validator.
+- Adapter intelligence checks use AST/type-checker evidence, not text-only matching: `as const` catalog expressions are unwrapped, `BaseEvent` aliases are resolved, and validator wiring requires executable runtime references.
 - It emits the memory candidate `event-contracts:runtime-schema-validation-surface`.
 
 ## Later Phases
@@ -73,6 +74,8 @@ Phase 007c starts with four SHADOW adapters: event-contracts, tenant-scoping, se
 - QUARANTINED adapter sources revalidate supported beliefs, preserve withdrawn/stale state, and do not create new beliefs from quarantined candidates.
 - Event-contracts adapter runs in SHADOW without repository mutation and produces no operator-facing output.
 - Event-contracts fixture suite passes on the real repo baseline with no findings.
+- Event-contracts schema catalog observations count `as const` catalogs correctly: farm has 10, sensor has 1, and ingest-backend-policy has 1.
+- Event-contracts adapter detects aliased `BaseEvent` heritage clauses and rejects empty or import-only schema catalog wiring.
 - Pressure scoring is deterministic and `pressure explain` exposes every score component.
 - Reflection writes the six operator sections and the JSON reflection ledger remains the source of truth.
 - Integrity verification remains valid across memory and diff ledgers.

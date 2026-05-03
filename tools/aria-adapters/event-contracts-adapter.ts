@@ -8,6 +8,7 @@ type FindingRule =
   | 'event_id_brand_missing'
   | 'base_event_field_missing'
   | 'create_base_event_missing'
+  | 'schema_catalog_empty'
   | 'schema_catalog_not_wired_to_validator';
 
 interface AdapterInput {
@@ -73,6 +74,11 @@ interface SourceUnit {
   readonly sourceFile: ts.SourceFile;
 }
 
+interface AnalysisContext {
+  readonly checker: ts.TypeChecker;
+  readonly baseEventSymbol?: ts.Symbol;
+}
+
 const DEFAULT_ROOT = 'libs/event-contracts/src';
 const DEFAULT_CHECKS: readonly CheckName[] = [
   'base_event',
@@ -94,7 +100,12 @@ export function analyzeEventContracts(
   }
 
   const files = collectTypeScriptFiles(scanRoot);
-  const units = files.map((file) => readSourceUnit(file, workspaceRoot));
+  const program = createAnalysisProgram(files);
+  const units = files.map((file) => readSourceUnit(file, workspaceRoot, program));
+  const context: AnalysisContext = {
+    checker: program.getTypeChecker(),
+    baseEventSymbol: findBaseEventSymbol(units, program.getTypeChecker()),
+  };
   const result: AnalysisResult = {
     observations: [],
     findings: [],
@@ -105,7 +116,7 @@ export function analyzeEventContracts(
     analyzeBaseEvent(units, result);
   }
   if (checks.has('event_interfaces')) {
-    analyzeEventInterfaces(units, result);
+    analyzeEventInterfaces(units, result, context);
   }
   if (checks.has('schema_catalogs')) {
     analyzeSchemaCatalogs(units, result);
@@ -214,13 +225,13 @@ function analyzeBaseEvent(units: readonly SourceUnit[], result: AnalysisResult):
   }
 }
 
-function analyzeEventInterfaces(units: readonly SourceUnit[], result: AnalysisResult): void {
+function analyzeEventInterfaces(units: readonly SourceUnit[], result: AnalysisResult, context: AnalysisContext): void {
   for (const unit of units) {
     if (unit.relativePath.includes('/schemas/') || unit.relativePath.endsWith('/base-event.ts')) {
       continue;
     }
     visit(unit.sourceFile, (node) => {
-      if (!ts.isInterfaceDeclaration(node) || !extendsBaseEvent(node)) {
+      if (!ts.isInterfaceDeclaration(node) || !extendsBaseEvent(node, context)) {
         return;
       }
       const eventType = readEventTypeLiteral(node);
@@ -258,6 +269,18 @@ function analyzeSchemaCatalogs(units: readonly SourceUnit[], result: AnalysisRes
         name,
         eventCount,
       });
+      if (eventCount === 0) {
+        result.findings.push({
+          id: `event-contracts:${unit.relativePath}:schema-catalog-empty:${name}`,
+          rule: 'schema_catalog_empty',
+          severity: 'high',
+          path: unit.relativePath,
+          line: lineOf(unit.sourceFile, node),
+          message: `Schema catalog ${name} is empty; runtime event validation would silently cover no event types.`,
+          evidence: [{ path: unit.relativePath, line: lineOf(unit.sourceFile, node) }],
+          details: { catalog: name },
+        });
+      }
     });
   }
 }
@@ -285,11 +308,34 @@ function analyzeValidatorDispatch(units: readonly SourceUnit[], result: Analysis
     details: {
       validateFunctions: validateFunctions.sort(),
       schemaCatalogs: schemaCatalogs.sort(),
+      importedCatalogs: schemaCatalogs
+        .filter((catalog) => validatorCatalogLocalName(validator.sourceFile, catalog) !== null)
+        .sort(),
+      runtimeReferencedCatalogs: schemaCatalogs
+        .filter((catalog) => {
+          const localName = validatorCatalogLocalName(validator.sourceFile, catalog) ?? catalog;
+          return hasRuntimeIdentifierReference(validator.sourceFile, localName);
+        })
+        .sort(),
     },
   });
 
   for (const catalog of schemaCatalogs) {
-    if (!validator.text.includes(catalog)) {
+    const localName = validatorCatalogLocalName(validator.sourceFile, catalog);
+    const referenceName = localName ?? catalog;
+    const runtimeReferenced = hasRuntimeIdentifierReference(validator.sourceFile, referenceName);
+    const catalogObservation = result.observations.find(
+      (observation) => observation.type === 'event_schema_catalog' && observation.name === catalog,
+    );
+    if (catalogObservation) {
+      (catalogObservation as { details?: Record<string, unknown> }).details = {
+        ...catalogObservation.details,
+        importedByValidator: localName !== null,
+        runtimeReferencedByValidator: runtimeReferenced,
+        validatorReferenceName: referenceName,
+      };
+    }
+    if (!runtimeReferenced) {
       result.findings.push({
         id: `event-contracts:${validator.relativePath}:catalog-not-wired:${catalog}`,
         rule: 'schema_catalog_not_wired_to_validator',
@@ -298,20 +344,51 @@ function analyzeValidatorDispatch(units: readonly SourceUnit[], result: Analysis
         line: 1,
         message: `Schema catalog ${catalog} is not referenced by the runtime validator dispatcher.`,
         evidence: [{ path: validator.relativePath, line: 1 }],
-        details: { catalog },
+        details: {
+          catalog,
+          importedByValidator: localName !== null,
+          runtimeReferencedByValidator: false,
+          validatorReferenceName: referenceName,
+        },
       });
     }
   }
 }
 
-function readSourceUnit(path: string, workspaceRoot: string): SourceUnit {
+function createAnalysisProgram(files: readonly string[]): ts.Program {
+  return ts.createProgram([...files], {
+    target: ts.ScriptTarget.ES2022,
+    module: ts.ModuleKind.CommonJS,
+    moduleResolution: ts.ModuleResolutionKind.NodeJs,
+    esModuleInterop: true,
+    skipLibCheck: true,
+    strict: false,
+    noEmit: true,
+  });
+}
+
+function readSourceUnit(path: string, workspaceRoot: string, program: ts.Program): SourceUnit {
   const text = readFileSync(path, 'utf8');
   return {
     path,
     relativePath: normalizePath(relative(workspaceRoot, path)),
     text,
-    sourceFile: ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true),
+    sourceFile: program.getSourceFile(path) ?? ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true),
   };
+}
+
+function findBaseEventSymbol(units: readonly SourceUnit[], checker: ts.TypeChecker): ts.Symbol | undefined {
+  for (const unit of units) {
+    if (!unit.relativePath.endsWith('/base-event.ts') && unit.relativePath !== 'libs/event-contracts/src/base-event.ts') {
+      continue;
+    }
+    const baseEvent = findInterface(unit, 'BaseEvent');
+    if (!baseEvent) {
+      return undefined;
+    }
+    return checker.getSymbolAtLocation(baseEvent.name);
+  }
+  return undefined;
 }
 
 function findTypeAlias(unit: SourceUnit, name: string): ts.TypeAliasDeclaration | undefined {
@@ -344,10 +421,19 @@ function findFunction(unit: SourceUnit, name: string): ts.FunctionDeclaration | 
   return found;
 }
 
-function extendsBaseEvent(node: ts.InterfaceDeclaration): boolean {
+function extendsBaseEvent(node: ts.InterfaceDeclaration, context: AnalysisContext): boolean {
   return Boolean(
     node.heritageClauses?.some((clause) =>
-      clause.types.some((typeNode) => typeNode.expression.getText() === 'BaseEvent'),
+      clause.types.some((typeNode) => {
+        if (context.baseEventSymbol) {
+          const symbol = resolvedSymbolAt(context.checker, typeNode.expression);
+          if (sameSymbol(symbol, context.baseEventSymbol)) {
+            return true;
+          }
+        }
+        const expressionText = typeNode.expression.getText();
+        return expressionText === 'BaseEvent' || expressionText.endsWith('.BaseEvent');
+      }),
     ),
   );
 }
@@ -375,10 +461,116 @@ function interfaceProperties(node: ts.InterfaceDeclaration): ReadonlySet<string>
 }
 
 function countObjectLiteralProperties(node: ts.Expression | undefined): number {
-  if (!node || !ts.isObjectLiteralExpression(node)) {
+  const target = unwrapExpression(node);
+  if (!target || !ts.isObjectLiteralExpression(target)) {
     return 0;
   }
-  return node.properties.filter((property) => ts.isPropertyAssignment(property) || ts.isShorthandPropertyAssignment(property)).length;
+  return target.properties.filter((property) => ts.isPropertyAssignment(property) || ts.isShorthandPropertyAssignment(property)).length;
+}
+
+function unwrapExpression(node: ts.Expression | undefined): ts.Expression | undefined {
+  let current = node;
+  while (current) {
+    if (ts.isAsExpression(current) || ts.isSatisfiesExpression(current) || ts.isTypeAssertionExpression(current)) {
+      current = current.expression;
+      continue;
+    }
+    if (ts.isParenthesizedExpression(current) || ts.isNonNullExpression(current)) {
+      current = current.expression;
+      continue;
+    }
+    return current;
+  }
+  return undefined;
+}
+
+function validatorCatalogLocalName(sourceFile: ts.SourceFile, catalog: string): string | null {
+  for (const statement of sourceFile.statements) {
+    if (!ts.isImportDeclaration(statement) || statement.importClause?.isTypeOnly) {
+      continue;
+    }
+    const namedBindings = statement.importClause?.namedBindings;
+    if (!namedBindings || !ts.isNamedImports(namedBindings)) {
+      continue;
+    }
+    for (const element of namedBindings.elements) {
+      if (element.isTypeOnly) {
+        continue;
+      }
+      const importedName = element.propertyName?.text ?? element.name.text;
+      if (importedName === catalog) {
+        return element.name.text;
+      }
+    }
+  }
+  return null;
+}
+
+function hasRuntimeIdentifierReference(sourceFile: ts.SourceFile, name: string): boolean {
+  let found = false;
+  visit(sourceFile, (node) => {
+    if (found || !ts.isIdentifier(node) || node.text !== name) {
+      return;
+    }
+    if (isRuntimeIdentifier(node)) {
+      found = true;
+    }
+  });
+  return found;
+}
+
+function isRuntimeIdentifier(node: ts.Identifier): boolean {
+  let current: ts.Node = node;
+  while (current.parent) {
+    const parent = current.parent;
+    if (
+      ts.isImportDeclaration(parent) ||
+      ts.isImportClause(parent) ||
+      ts.isNamedImports(parent) ||
+      ts.isImportSpecifier(parent)
+    ) {
+      return false;
+    }
+    if (
+      ts.isTypeNode(parent) ||
+      ts.isTypeAliasDeclaration(parent) ||
+      ts.isInterfaceDeclaration(parent) ||
+      ts.isTypeQueryNode(parent) ||
+      ts.isImportTypeNode(parent)
+    ) {
+      return false;
+    }
+    if (ts.isVariableDeclaration(parent) && parent.name === current) {
+      return false;
+    }
+    current = parent;
+  }
+  return true;
+}
+
+function resolvedSymbolAt(checker: ts.TypeChecker, node: ts.Node): ts.Symbol | undefined {
+  const symbol = checker.getSymbolAtLocation(node);
+  if (!symbol) {
+    return undefined;
+  }
+  if ((symbol.flags & ts.SymbolFlags.Alias) !== 0) {
+    return checker.getAliasedSymbol(symbol);
+  }
+  return symbol;
+}
+
+function sameSymbol(left: ts.Symbol | undefined, right: ts.Symbol | undefined): boolean {
+  if (!left || !right) {
+    return false;
+  }
+  if (left === right) {
+    return true;
+  }
+  const leftDeclarations = left.getDeclarations() ?? [];
+  const rightDeclarations = right.getDeclarations() ?? [];
+  return leftDeclarations.some((leftDeclaration) =>
+    rightDeclarations.some((rightDeclaration) => leftDeclaration === rightDeclaration),
+  );
 }
 
 function compareById(a: { readonly id: string }, b: { readonly id: string }): number {

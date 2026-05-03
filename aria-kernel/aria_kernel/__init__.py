@@ -4,7 +4,7 @@ from .cycle import run_cycle
 from .cycle_diff import run_cycle_diff
 from .discovery import run_discovery
 from .integrity import verify_integrity
-from .memory import update_memory
+from .memory import unwithdraw_belief, update_memory, withdraw_belief
 from .pressure import run_pressure
 from .proposal import list_proposals, record_proposal
 from .quarantine import quarantine_tool
@@ -43,6 +43,8 @@ __all__ = [
     "run_tool",
     "promote_tool",
     "transition_tool",
+    "unwithdraw_belief",
     "update_memory",
     "verify_integrity",
+    "withdraw_belief",
 ]

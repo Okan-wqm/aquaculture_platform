@@ -13,8 +13,8 @@ from .discovery import run_discovery
 from .feedback_store import list_findings, record_operator_feedback
 from .fixture_runner import run_fixture_suite
 from .integrity import verify_integrity
-from .memory import list_memory, update_memory
-from .pressure import run_pressure
+from .memory import list_memory, unwithdraw_belief, update_memory, withdraw_belief
+from .pressure import explain_pressure, run_pressure
 from .proposal import list_proposals, record_proposal
 from .promotion import promote_tool
 from .quarantine import quarantine_tool
@@ -83,12 +83,24 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["beliefs", "observations", "uncertainties", "contradictions", "calibration"],
     )
     memory_list.set_defaults(func=cmd_memory_list)
+    memory_withdraw = memory_subparsers.add_parser("withdraw")
+    memory_withdraw.add_argument("--belief-id", required=True)
+    memory_withdraw.add_argument("--reason", required=True)
+    memory_withdraw.set_defaults(func=cmd_memory_withdraw)
+    memory_unwithdraw = memory_subparsers.add_parser("unwithdraw")
+    memory_unwithdraw.add_argument("--belief-id", required=True)
+    memory_unwithdraw.add_argument("--reason", required=True)
+    memory_unwithdraw.set_defaults(func=cmd_memory_unwithdraw)
 
     pressure = subparsers.add_parser("pressure")
     pressure_subparsers = pressure.add_subparsers(dest="command", required=True)
     pressure_run = pressure_subparsers.add_parser("run")
     pressure_run.add_argument("--cycle-id", required=True)
     pressure_run.set_defaults(func=cmd_pressure_run)
+    pressure_explain = pressure_subparsers.add_parser("explain")
+    pressure_explain.add_argument("--cycle-id", required=True)
+    pressure_explain.add_argument("--pressure-id", required=True)
+    pressure_explain.set_defaults(func=cmd_pressure_explain)
 
     reflection = subparsers.add_parser("reflection")
     reflection_subparsers = reflection.add_subparsers(dest="command", required=True)
@@ -196,6 +208,7 @@ def build_parser() -> argparse.ArgumentParser:
     feedback_record.add_argument("--verdict", required=True, choices=["true_positive", "false_positive"])
     feedback_record.add_argument("--severity", required=True, choices=["low", "medium", "high", "critical"])
     feedback_record.add_argument("--note", required=True)
+    feedback_record.add_argument("--affected-belief-ids", default=None, help="JSON array of belief ids")
     feedback_record.set_defaults(func=cmd_feedback_record)
 
     db = subparsers.add_parser("db")
@@ -272,8 +285,23 @@ def cmd_memory_list(args: argparse.Namespace) -> dict[str, Any]:
     return {"memory": list_memory(kind=args.kind, base_dir=args.tools_dir)}
 
 
+def cmd_memory_withdraw(args: argparse.Namespace) -> dict[str, Any]:
+    return withdraw_belief(belief_id=args.belief_id, reason=args.reason, base_dir=args.tools_dir)
+
+
+def cmd_memory_unwithdraw(args: argparse.Namespace) -> dict[str, Any]:
+    return unwithdraw_belief(belief_id=args.belief_id, reason=args.reason, base_dir=args.tools_dir)
+
+
 def cmd_pressure_run(args: argparse.Namespace) -> dict[str, Any]:
     return run_pressure(cycle_id=args.cycle_id, base_dir=args.tools_dir)
+
+
+def cmd_pressure_explain(args: argparse.Namespace) -> dict[str, Any]:
+    try:
+        return explain_pressure(cycle_id=args.cycle_id, pressure_id=args.pressure_id, base_dir=args.tools_dir)
+    except ValueError as exc:
+        raise GovernanceError(str(exc)) from exc
 
 
 def cmd_reflection_run(args: argparse.Namespace) -> dict[str, Any]:
@@ -380,6 +408,12 @@ def cmd_finding_list(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def cmd_feedback_record(args: argparse.Namespace) -> dict[str, Any]:
+    affected_belief_ids = None
+    if args.affected_belief_ids is not None:
+        try:
+            affected_belief_ids = json.loads(args.affected_belief_ids)
+        except json.JSONDecodeError as exc:
+            raise GovernanceError(f"--affected-belief-ids must be a JSON array: {exc}") from exc
     return record_operator_feedback(
         tool_id=args.tool_id,
         run_id=args.run_id,
@@ -387,6 +421,7 @@ def cmd_feedback_record(args: argparse.Namespace) -> dict[str, Any]:
         verdict=args.verdict,
         severity=args.severity,
         note=args.note,
+        affected_belief_ids=affected_belief_ids,
         base_dir=args.tools_dir,
     )
 

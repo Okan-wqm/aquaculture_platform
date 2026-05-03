@@ -188,5 +188,11 @@ assert.ok(output.read_paths.includes('libs/backend-common/src/database/schema-ma
 assert.ok(output.read_paths.includes('apps/farm-service/src/app.module.ts'));
 assert.ok(output.read_paths.includes('snapshot.json'));
 assert.equal(output.findings.every((finding) => Array.isArray(finding.evidence)), true);
+assert.equal(output.belief_candidates.length, 1);
+assert.equal(
+  output.belief_candidates[0]?.belief_id,
+  'typeorm:farm-service:entity-schema-surface',
+);
+assert.ok(output.belief_candidates[0]?.evidence_refs.includes('apps/farm-service/src/**/*.ts'));
 
 console.log('typeorm-entity-schema-adapter tests passed');

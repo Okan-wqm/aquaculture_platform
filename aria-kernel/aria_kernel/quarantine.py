@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
+from .ledger import append_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, get_tool, transition_tool, utc_now
 
 
@@ -16,9 +16,7 @@ def append_quarantine_event(
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     payload = {"schema_version": 1, "at": utc_now(), **event}
-    with quarantine_log_path(base_dir).open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(payload, sort_keys=True) + "\n")
-    return payload
+    return append_jsonl(quarantine_log_path(base_dir), payload)
 
 
 def quarantine_tool(

@@ -34,8 +34,17 @@ interface AriaOutput {
   readonly findings: readonly AdapterFinding[];
   readonly read_paths: readonly string[];
   readonly evidence_sources: readonly string[];
+  readonly belief_candidates: readonly MemoryCandidate[];
   readonly cost_units: number;
   readonly metadata: Record<string, unknown>;
+}
+
+interface MemoryCandidate {
+  readonly belief_id: string;
+  readonly claim: string;
+  readonly confidence: number;
+  readonly evidence_refs: readonly string[];
+  readonly source_tool_id: string;
 }
 
 interface AdapterObservation {
@@ -175,6 +184,19 @@ export function analyzeTypeOrmEntities(
     findings: result.findings,
     read_paths: Array.from(new Set(result.readPaths)).sort(),
     evidence_sources: evidenceSources,
+    belief_candidates: [
+      {
+        belief_id: 'typeorm:farm-service:entity-schema-surface',
+        claim: 'farm-service has a recurring TypeORM entity and migration surface for schema drift checks',
+        confidence: 0.85,
+        evidence_refs: [
+          'apps/farm-service/src/**/*.ts',
+          'apps/farm-service/src/database/migrations/*.ts',
+          MODULE_SCHEMA_PATH,
+        ],
+        source_tool_id: 'typeorm-entity-schema-adapter',
+      },
+    ],
     cost_units: Array.from(new Set(result.readPaths)).length,
     metadata: {
       adapter: 'typeorm-entity-schema-adapter',

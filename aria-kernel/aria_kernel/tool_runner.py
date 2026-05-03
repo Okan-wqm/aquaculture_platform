@@ -98,6 +98,7 @@ def run_tool(
             status = "evidence_error"
     raw_observations = output.get("observations", [])
     raw_findings = output.get("findings", [])
+    memory_candidates = _array_or_empty(output.get("belief_candidates"))
     can_emit = can_emit_operator_facing(tool_id, base_dir=base_dir)
     envelope = {
         "schema_version": 1,
@@ -112,6 +113,7 @@ def run_tool(
         "emitted_findings": _array_or_empty(raw_findings) if can_emit else [],
         "evidence_validation": evidence_validation,
         "operator_feedback_refs": [],
+        "memory_candidates": _valid_memory_candidates(memory_candidates, tool_id),
         "duration_ms": duration_ms,
         "cost_units": _non_negative_number(output.get("cost_units"), default=0),
         "runner": {
@@ -144,6 +146,8 @@ def _parse_tool_output(stdout: str, tool: dict[str, Any]) -> dict[str, Any] | No
     if "cost_units" in payload and _non_negative_number(payload["cost_units"], default=None) is None:
         return None
     if "metadata" in payload and not isinstance(payload["metadata"], dict):
+        return None
+    if "belief_candidates" in payload and not isinstance(payload["belief_candidates"], list):
         return None
     return payload
 
@@ -194,6 +198,36 @@ def _non_negative_number(value: Any, *, default: int | None) -> int | float | No
     if isinstance(value, (int, float)) and value >= 0:
         return value
     return None
+
+
+def _valid_memory_candidates(candidates: list[Any], tool_id: str) -> list[dict[str, Any]]:
+    valid = []
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        belief_id = candidate.get("belief_id")
+        claim = candidate.get("claim")
+        confidence = _non_negative_number(candidate.get("confidence"), default=None)
+        evidence_refs = candidate.get("evidence_refs")
+        if (
+            not isinstance(belief_id, str)
+            or not belief_id.strip()
+            or not isinstance(claim, str)
+            or not claim.strip()
+            or confidence is None
+            or not isinstance(evidence_refs, list)
+        ):
+            continue
+        valid.append(
+            {
+                "belief_id": belief_id,
+                "claim": claim,
+                "confidence": min(float(confidence), 1.0),
+                "evidence_refs": [str(ref) for ref in evidence_refs if isinstance(ref, str) and ref.strip()],
+                "source_tool_id": str(candidate.get("source_tool_id") or tool_id),
+            },
+        )
+    return valid
 
 
 def _decode_timeout_stream(value: bytes | str | None) -> str:

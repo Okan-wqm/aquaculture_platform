@@ -80,12 +80,15 @@ def record_operator_feedback(
     verdict: str,
     severity: str,
     note: str,
+    affected_belief_ids: list[str] | None = None,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     if verdict not in FEEDBACK_VERDICTS:
         raise GovernanceError(f"unknown feedback verdict: {verdict}")
     if severity not in FEEDBACK_SEVERITIES:
         raise GovernanceError(f"unknown feedback severity: {severity}")
+    if affected_belief_ids is not None and not _valid_string_list(affected_belief_ids):
+        raise GovernanceError("affected_belief_ids must be an array of non-empty strings")
     row = {
         "schema_version": 1,
         "recorded_at": utc_now(),
@@ -95,6 +98,7 @@ def record_operator_feedback(
         "verdict": verdict,
         "severity": severity,
         "note": note,
+        "affected_belief_ids": affected_belief_ids or [],
     }
     append_jsonl(feedback_path(base_dir), row)
     return row
@@ -109,6 +113,10 @@ def load_feedback(
     if tool_id is not None:
         rows = [row for row in rows if row.get("tool_id") == tool_id]
     return rows
+
+
+def _valid_string_list(value: Any) -> bool:
+    return isinstance(value, list) and all(isinstance(item, str) and item.strip() for item in value)
 
 
 def append_jsonl(path: Path, payload: dict[str, Any]) -> None:

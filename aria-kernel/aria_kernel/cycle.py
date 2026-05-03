@@ -67,7 +67,7 @@ def run_cycle(
     if _stop_requested(tools_root):
         return _stopped_after_checkpoint(tools_root, cycle_id, "discovery")
 
-    memory = update_memory(cycle_id=cycle_id, base_dir=base_dir)
+    memory = update_memory(cycle_id=cycle_id, base_dir=base_dir, include_tool_candidates=False)
     pressure = run_pressure(cycle_id=cycle_id, base_dir=base_dir)
     tool_decisions = []
     for tool in _cycle_tools(base_dir=base_dir, shadow_only=shadow_only):
@@ -101,6 +101,13 @@ def run_cycle(
                     },
                 ),
             )
+    candidate_memory = update_memory(
+        cycle_id=cycle_id,
+        base_dir=base_dir,
+        include_discovery_beliefs=False,
+        include_tool_candidates=True,
+    )
+    pressure = run_pressure(cycle_id=cycle_id, base_dir=base_dir)
     reflection = run_reflection(cycle_id=cycle_id, base_dir=base_dir)
     return _finish(
         tools_root,
@@ -109,6 +116,7 @@ def run_cycle(
             "discovery": _compact_discovery(discovery),
             "cycle_diff": _compact_diff(diff),
             "memory": memory,
+            "candidate_memory": candidate_memory,
             "pressure": pressure,
             "reflection": reflection,
             "tool_decisions": tool_decisions,

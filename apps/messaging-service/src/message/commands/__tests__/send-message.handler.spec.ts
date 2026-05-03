@@ -56,7 +56,7 @@ describe('SendMessageHandler', () => {
   let metricsService: { incrementMessages: jest.Mock };
   let outboxPublisher: { enqueue: jest.Mock };
 
-  const tenantId = 'tenant-0001-0001-0001-000000000001';
+  const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
   const channelId = fakeUuid('ch');
   const senderId = fakeUuid('usr');
   const idempotencyKey = fakeUuid('idem');
@@ -73,6 +73,7 @@ describe('SendMessageHandler', () => {
     // explicitly. Tests that exercise mention behaviour override.
     channelMemberRepo.find.mockResolvedValue([]);
     queryRunner = createMockQueryRunner();
+    queryRunner.manager.find.mockResolvedValue([]);
     mockDataSource = createMockDataSource(queryRunner);
     redisClient = createMockRedis();
 
@@ -165,14 +166,16 @@ describe('SendMessageHandler', () => {
     // implementation did GET-first; the rewrite is race-safe (atomic SET-NX).
     redisClient.set.mockResolvedValue(null);
     redisClient.get.mockResolvedValue(existingMsg.id);
-    messageRepo.findOne.mockResolvedValue(existingMsg);
+    queryRunner.manager.findOne.mockResolvedValue(existingMsg);
 
     const cmd = makeCmd();
     const result = await handler.execute(cmd);
 
     expect(result.id).toBe(existingMsg.id);
-    // No transaction when idempotency hit
-    expect(mockDataSource.transaction).not.toHaveBeenCalled();
+    expect(queryRunner.query).toHaveBeenCalledWith(
+      `SELECT pg_catalog.set_config('search_path', $1, true)`,
+      ['"tenant_aaaaaaaaaaaa4aaa", "messaging", public'],
+    );
   });
 
   // -----------------------------------------------------------------------

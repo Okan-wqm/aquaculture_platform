@@ -59,6 +59,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, IsNull } from 'typeorm';
 import { OutboxPublisher } from '@platform/outbox';
 import { createBaseEvent, BaseEvent } from '@platform/event-contracts';
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { ChannelMember, ChannelMemberRole } from '../../channel/entities/channel-member.entity';
 
 // ============================================================================
@@ -368,9 +369,10 @@ export class MessageResolver {
   async getPinnedMessages(
     @Args('channelId', { type: () => ID }) channelId: string,
     @CurrentUser() user: CurrentUserPayload,
+    @Tenant() tenantId: string,
   ): Promise<PinnedMessage[]> {
     // Validate membership
-    await this.validateChannelMembership(channelId, user.sub);
+    await this.validateChannelMembership(tenantId, channelId, user.sub);
 
     return this.pinnedMessageRepo.find({
       where: { channelId },
@@ -422,7 +424,7 @@ export class MessageResolver {
     @Tenant() tenantId: string,
   ): Promise<Message> {
     // Validate channel membership before sending
-    await this.validateChannelMembership(input.channelId, user.sub);
+    await this.validateChannelMembership(tenantId, input.channelId, user.sub);
 
     const message: Message = await this.commandBus.execute(
       new SendMessageCommand(
@@ -518,7 +520,7 @@ export class MessageResolver {
     @CurrentUser() user: CurrentUserPayload,
     @Tenant() tenantId: string,
   ): Promise<MediaUploadResponse> {
-    await this.validateChannelMembership(input.channelId, user.sub);
+    await this.validateChannelMembership(tenantId, input.channelId, user.sub);
 
     // Enforce storage quota before generating presigned URL
     await this.storageQuotaService.enforceQuota(tenantId, input.fileSize);
@@ -553,7 +555,7 @@ export class MessageResolver {
     @CurrentUser() user: CurrentUserPayload,
     @Tenant() tenantId: string,
   ): Promise<PinnedMessage> {
-    const membership = await this.validateChannelMembership(channelId, user.sub);
+    const membership = await this.validateChannelMembership(tenantId, channelId, user.sub);
     if (
       membership.role !== ChannelMemberRole.ADMIN &&
       membership.role !== ChannelMemberRole.OWNER
@@ -606,7 +608,7 @@ export class MessageResolver {
     @CurrentUser() user: CurrentUserPayload,
     @Tenant() tenantId: string,
   ): Promise<boolean> {
-    const membership = await this.validateChannelMembership(channelId, user.sub);
+    const membership = await this.validateChannelMembership(tenantId, channelId, user.sub);
     if (
       membership.role !== ChannelMemberRole.ADMIN &&
       membership.role !== ChannelMemberRole.OWNER
@@ -648,7 +650,7 @@ export class MessageResolver {
     }
 
     // Validate user is a member of the message's channel
-    await this.validateChannelMembership(message.channelId, user.sub);
+    await this.validateChannelMembership(tenantId, message.channelId, user.sub);
 
     return this.dataSource.transaction(async (manager) => {
       // Upsert reaction (unique constraint on messageId + userId + emoji)
@@ -884,12 +886,18 @@ export class MessageResolver {
    * @throws ForbiddenException if not a member
    */
   private async validateChannelMembership(
+    tenantId: string,
     channelId: string,
     userId: string,
   ): Promise<ChannelMember> {
-    const membership = await this.channelMemberRepo.findOne({
-      where: { channelId, userId },
-    });
+    const membership = await runInTenantTransaction(
+      this.dataSource,
+      'messaging',
+      tenantId,
+      async (queryRunner) => queryRunner.manager.findOne(ChannelMember, {
+        where: { tenantId, channelId, userId },
+      }),
+    );
     if (!membership || membership.leftAt !== null) {
       throw new ForbiddenException('You are not a member of this channel.');
     }

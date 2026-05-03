@@ -4,6 +4,9 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .ledger import append_jsonl as append_chained_jsonl
+from .ledger import load_jsonl as load_chained_jsonl
+from .ledger import rewrite_jsonl as rewrite_chained_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
@@ -109,25 +112,12 @@ def load_feedback(
 
 
 def append_jsonl(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(payload, sort_keys=True) + "\n")
+    append_chained_jsonl(path, payload)
 
 
 def rewrite_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as handle:
-        for row in rows:
-            handle.write(json.dumps(row, sort_keys=True) + "\n")
+    rewrite_chained_jsonl(path, rows)
 
 
 def load_jsonl(path: Path) -> list[dict[str, Any]]:
-    if not path.exists():
-        return []
-    rows: list[dict[str, Any]] = []
-    with path.open("r", encoding="utf-8") as handle:
-        for line in handle:
-            line = line.strip()
-            if line:
-                rows.append(json.loads(line))
-    return rows
+    return load_chained_jsonl(path)

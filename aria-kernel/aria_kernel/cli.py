@@ -6,13 +6,21 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from .cycle import run_cycle
 from .db_snapshot import write_schema_snapshot
+from .discovery import run_discovery
 from .feedback_store import list_findings, record_operator_feedback
 from .fixture_runner import run_fixture_suite
+from .integrity import verify_integrity
+from .memory import list_memory, update_memory
+from .pressure import run_pressure
+from .proposal import list_proposals, record_proposal
 from .promotion import promote_tool
 from .quarantine import quarantine_tool
+from .reflection import run_reflection
+from .research import list_research_sources, record_research_source
 from .tool_health import evaluate_health, record_run
-from .tool_registry import GovernanceError, list_tools, register_tool
+from .tool_registry import GovernanceError, ensure_tools_dir, list_tools, register_tool
 from .tool_runner import run_tool
 
 
@@ -33,6 +41,82 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="aria-kernel")
     parser.add_argument("--tools-dir", default=None, help="ARIA tools artifact directory")
     subparsers = parser.add_subparsers(dest="resource", required=True)
+
+    bootstrap = subparsers.add_parser("bootstrap")
+    bootstrap_subparsers = bootstrap.add_subparsers(dest="command", required=True)
+    bootstrap_init = bootstrap_subparsers.add_parser("init")
+    bootstrap_init.add_argument("--workspace-root", default=".")
+    bootstrap_init.set_defaults(func=cmd_bootstrap_init)
+
+    cycle = subparsers.add_parser("cycle")
+    cycle_subparsers = cycle.add_subparsers(dest="command", required=True)
+    cycle_run = cycle_subparsers.add_parser("run")
+    cycle_run.add_argument("--workspace-root", default=".")
+    cycle_run.add_argument("--cycle-id", required=True)
+    cycle_run.add_argument("--discovery-only", action="store_true")
+    cycle_run.add_argument("--shadow-only", action="store_true")
+    cycle_run.set_defaults(func=cmd_cycle_run)
+
+    discovery = subparsers.add_parser("discovery")
+    discovery_subparsers = discovery.add_subparsers(dest="command", required=True)
+    discovery_run = discovery_subparsers.add_parser("run")
+    discovery_run.add_argument("--workspace-root", default=".")
+    discovery_run.add_argument("--cycle-id", required=True)
+    discovery_run.set_defaults(func=cmd_discovery_run)
+
+    memory = subparsers.add_parser("memory")
+    memory_subparsers = memory.add_subparsers(dest="command", required=True)
+    memory_update = memory_subparsers.add_parser("update")
+    memory_update.add_argument("--cycle-id", required=True)
+    memory_update.set_defaults(func=cmd_memory_update)
+    memory_list = memory_subparsers.add_parser("list")
+    memory_list.add_argument(
+        "--kind",
+        required=True,
+        choices=["beliefs", "observations", "uncertainties", "contradictions", "calibration"],
+    )
+    memory_list.set_defaults(func=cmd_memory_list)
+
+    pressure = subparsers.add_parser("pressure")
+    pressure_subparsers = pressure.add_subparsers(dest="command", required=True)
+    pressure_run = pressure_subparsers.add_parser("run")
+    pressure_run.add_argument("--cycle-id", required=True)
+    pressure_run.set_defaults(func=cmd_pressure_run)
+
+    reflection = subparsers.add_parser("reflection")
+    reflection_subparsers = reflection.add_subparsers(dest="command", required=True)
+    reflection_run = reflection_subparsers.add_parser("run")
+    reflection_run.add_argument("--cycle-id", required=True)
+    reflection_run.set_defaults(func=cmd_reflection_run)
+
+    integrity = subparsers.add_parser("integrity")
+    integrity_subparsers = integrity.add_subparsers(dest="command", required=True)
+    integrity_verify = integrity_subparsers.add_parser("verify")
+    integrity_verify.set_defaults(func=cmd_integrity_verify)
+
+    proposal = subparsers.add_parser("proposal")
+    proposal_subparsers = proposal.add_subparsers(dest="command", required=True)
+    proposal_record = proposal_subparsers.add_parser("record")
+    proposal_record.add_argument("--kind", required=True)
+    proposal_record.add_argument("--title", required=True)
+    proposal_record.add_argument("--problem", required=True)
+    proposal_record.add_argument("--evidence", required=True, help="JSON array of repo evidence paths")
+    proposal_record.add_argument("--validation-command", required=True)
+    proposal_record.set_defaults(func=cmd_proposal_record)
+    proposal_list = proposal_subparsers.add_parser("list")
+    proposal_list.add_argument("--kind", default=None)
+    proposal_list.set_defaults(func=cmd_proposal_list)
+
+    research = subparsers.add_parser("research")
+    research_subparsers = research.add_subparsers(dest="command", required=True)
+    research_source = research_subparsers.add_parser("record-source")
+    research_source.add_argument("--url", required=True)
+    research_source.add_argument("--source-tier", required=True)
+    research_source.add_argument("--content-hash", required=True)
+    research_source.add_argument("--title", default="")
+    research_source.set_defaults(func=cmd_research_record_source)
+    research_list = research_subparsers.add_parser("list-sources")
+    research_list.set_defaults(func=cmd_research_list_sources)
 
     tool = subparsers.add_parser("tool")
     tool_subparsers = tool.add_subparsers(dest="command", required=True)
@@ -115,6 +199,110 @@ def build_parser() -> argparse.ArgumentParser:
     snapshot.add_argument("--database-url", default=None)
     snapshot.set_defaults(func=cmd_db_snapshot)
     return parser
+
+
+def cmd_bootstrap_init(args: argparse.Namespace) -> dict[str, Any]:
+    root = ensure_tools_dir(args.tools_dir)
+    for relative in (
+        "discovery",
+        "memory",
+        "pressure",
+        "reports/daily",
+        "research",
+        "proposals",
+        "cycle-state",
+    ):
+        (root / relative).mkdir(parents=True, exist_ok=True)
+    return {
+        "schema_version": 1,
+        "workspace_root": str(Path(args.workspace_root).resolve()),
+        "tools_dir": root.as_posix(),
+    }
+
+
+def cmd_cycle_run(args: argparse.Namespace) -> dict[str, Any]:
+    return run_cycle(
+        workspace_root=args.workspace_root,
+        cycle_id=args.cycle_id,
+        base_dir=args.tools_dir,
+        discovery_only=args.discovery_only,
+        shadow_only=args.shadow_only,
+    )
+
+
+def cmd_discovery_run(args: argparse.Namespace) -> dict[str, Any]:
+    discovery = run_discovery(workspace_root=args.workspace_root, cycle_id=args.cycle_id, base_dir=args.tools_dir)
+    fingerprint = discovery["fingerprint"]
+    return {
+        "schema_version": 1,
+        "cycle_id": args.cycle_id,
+        "artifact_dir": discovery["artifact_dir"],
+        "completion_proof": discovery["completion_proof"],
+        "fingerprint": {
+            "tracked_file_count": fingerprint.get("tracked_file_count"),
+            "service_count": fingerprint.get("service_count"),
+            "web_module_count": fingerprint.get("web_module_count"),
+            "platform_lib_count": fingerprint.get("platform_lib_count"),
+            "shared_lib_count": fingerprint.get("shared_lib_count"),
+            "adr_count": fingerprint.get("adr_count"),
+            "migration_count": fingerprint.get("migration_count"),
+            "has_nx": fingerprint.get("has_nx"),
+            "has_package_json": fingerprint.get("has_package_json"),
+        },
+    }
+
+
+def cmd_memory_update(args: argparse.Namespace) -> dict[str, Any]:
+    return update_memory(cycle_id=args.cycle_id, base_dir=args.tools_dir)
+
+
+def cmd_memory_list(args: argparse.Namespace) -> dict[str, Any]:
+    return {"memory": list_memory(kind=args.kind, base_dir=args.tools_dir)}
+
+
+def cmd_pressure_run(args: argparse.Namespace) -> dict[str, Any]:
+    return run_pressure(cycle_id=args.cycle_id, base_dir=args.tools_dir)
+
+
+def cmd_reflection_run(args: argparse.Namespace) -> dict[str, Any]:
+    return run_reflection(cycle_id=args.cycle_id, base_dir=args.tools_dir)
+
+
+def cmd_integrity_verify(args: argparse.Namespace) -> dict[str, Any]:
+    return verify_integrity(base_dir=args.tools_dir)
+
+
+def cmd_proposal_record(args: argparse.Namespace) -> dict[str, Any]:
+    try:
+        evidence = json.loads(args.evidence)
+    except json.JSONDecodeError as exc:
+        raise GovernanceError(f"--evidence must be a JSON array: {exc}") from exc
+    return record_proposal(
+        kind=args.kind,
+        title=args.title,
+        problem=args.problem,
+        evidence=evidence,
+        validation_command=args.validation_command,
+        base_dir=args.tools_dir,
+    )
+
+
+def cmd_proposal_list(args: argparse.Namespace) -> dict[str, Any]:
+    return {"proposals": list_proposals(base_dir=args.tools_dir, kind=args.kind)}
+
+
+def cmd_research_record_source(args: argparse.Namespace) -> dict[str, Any]:
+    return record_research_source(
+        url=args.url,
+        source_tier=args.source_tier,
+        content_hash=args.content_hash,
+        title=args.title,
+        base_dir=args.tools_dir,
+    )
+
+
+def cmd_research_list_sources(args: argparse.Namespace) -> dict[str, Any]:
+    return {"sources": list_research_sources(base_dir=args.tools_dir)}
 
 
 def cmd_register(args: argparse.Namespace) -> dict[str, Any]:

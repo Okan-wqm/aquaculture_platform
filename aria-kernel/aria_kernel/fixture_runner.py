@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .evidence_validator import validate_tool_output_evidence
+from .ledger import append_jsonl as append_chained_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, get_tool, utc_now
 from .tool_runner import _canonical_json_bytes, _decode_timeout_stream, _parse_tool_output
 
@@ -216,9 +217,7 @@ def read_json(path: Path) -> Any:
 
 
 def append_jsonl(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(payload, sort_keys=True) + "\n")
+    append_chained_jsonl(path, payload)
 
 
 def array_or_empty(value: Any) -> list[Any]:

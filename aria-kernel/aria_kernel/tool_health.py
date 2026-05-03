@@ -11,6 +11,8 @@ from .feedback_store import (
     mark_findings_need_revalidation,
     record_findings_for_run,
 )
+from .ledger import append_jsonl as append_chained_jsonl
+from .ledger import load_jsonl as load_chained_jsonl
 from .quarantine import quarantine_tool
 from .tool_registry import GovernanceError, ensure_tools_dir, get_tool, update_tool, utc_now
 
@@ -343,23 +345,13 @@ def feedback_severity(feedback: Any) -> str | None:
 
 
 def append_jsonl(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(payload, sort_keys=True) + "\n")
+    append_chained_jsonl(path, payload)
 
 
 def load_jsonl(path: Path, *, tool_id: str | None = None) -> list[dict[str, Any]]:
-    if not path.exists():
-        return []
-    rows = []
-    with path.open("r", encoding="utf-8") as handle:
-        for line in handle:
-            line = line.strip()
-            if not line:
-                continue
-            row = json.loads(line)
-            if tool_id is None or row.get("tool_id") == tool_id:
-                rows.append(row)
+    rows = load_chained_jsonl(path)
+    if tool_id is not None:
+        rows = [row for row in rows if row.get("tool_id") == tool_id]
     return rows
 
 

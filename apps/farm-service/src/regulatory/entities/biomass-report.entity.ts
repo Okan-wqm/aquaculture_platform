@@ -18,7 +18,7 @@
  *     evolves with the regulatory requirement set. The JSONB is typed
  *     by `BiomassReportPayload` so no caller touches `any`.
  *
- * Uniqueness: (tenant_id, site_id, report_month, report_year).
+ * Uniqueness: (tenantId, siteId, reportMonth, reportYear).
  * Re-submitting the same period updates the existing DRAFT row
  * instead of duplicating. Once status=SUBMITTED the row is immutable.
  */

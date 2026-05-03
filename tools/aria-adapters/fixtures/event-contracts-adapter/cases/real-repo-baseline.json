@@ -1,0 +1,16 @@
+{
+  "name": "real-repo-baseline",
+  "input": {
+    "root": "libs/event-contracts/src"
+  },
+  "expected": {
+    "status": "ok",
+    "required_observations": [
+      "event_contract_base",
+      "event_interface",
+      "event_schema_catalog",
+      "event_validator_dispatch"
+    ],
+    "max_findings": 0
+  }
+}

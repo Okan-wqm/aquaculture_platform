@@ -45,9 +45,18 @@ Plan 007 is split into sub-phases. The current implementation now covers Phase 0
 
 The next cycle plan is deterministic: it is the top three unresolved pressure items, preserving each pressure item's `recommended_action` and `candidate_tools`. No LLM step is involved.
 
+## Phase 007c Adapter Scope
+
+Phase 007c starts with four SHADOW adapters: event-contracts, tenant-scoping, security-boundary, and test-gap. The event-contracts adapter is first because `libs/event-contracts` already exposes branded `EventId`, `createBaseEvent`, JSON Schema catalogs, and runtime validator dispatch. This gives ARIA a low false-positive, high-leverage contract surface before broader service scans.
+
+- `event-contracts-adapter` runs in SHADOW and scope-locks reads to `libs/event-contracts/src/**/*.ts`.
+- It records observations for the base event contract, `BaseEvent`-derived event interfaces, schema catalogs, and validator dispatch functions.
+- It emits findings only for mechanical invariant breaks: missing branded `EventId`, missing required BaseEvent fields, missing `createBaseEvent`, or schema catalogs not wired to the runtime validator.
+- It emits the memory candidate `event-contracts:runtime-schema-validation-surface`.
+
 ## Later Phases
 
-- 007c: event-contracts, tenant-scoping, security-boundary, and test-gap SHADOW adapters.
+- 007c remaining: tenant-scoping, security-boundary, and test-gap SHADOW adapters.
 - 008: proposal generator, after stable memory and pressure operation.
 - 009: sandboxed web research execution tier.
 
@@ -62,6 +71,8 @@ The next cycle plan is deterministic: it is the top three unresolved pressure it
 - Feedback note/body text does not affect confidence unless the target belief is listed in `affected_belief_ids`.
 - Repeated adapter candidate confidence does not override the existing Memory confidence lifecycle.
 - QUARANTINED adapter sources revalidate supported beliefs, preserve withdrawn/stale state, and do not create new beliefs from quarantined candidates.
+- Event-contracts adapter runs in SHADOW without repository mutation and produces no operator-facing output.
+- Event-contracts fixture suite passes on the real repo baseline with no findings.
 - Pressure scoring is deterministic and `pressure explain` exposes every score component.
 - Reflection writes the six operator sections and the JSON reflection ledger remains the source of truth.
 - Integrity verification remains valid across memory and diff ledgers.

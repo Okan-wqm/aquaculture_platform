@@ -46,6 +46,7 @@ def run_fixture_suite(
         "tool_id": tool_id,
         "tool_version": tool.get("version"),
         "tool_manifest_hash": tool_manifest_hash(tool),
+        "fixture_set_hash": fixture_set_hash(fixture_dir),
         "cycle_id": cycle_id,
         "fixture_set": tool["fixture_set"],
         "passed": passed,
@@ -86,16 +87,21 @@ def latest_fixture_status(
     latest = rows[-1] if rows else {}
     version_matches = latest.get("tool_version") == tool.get("version")
     manifest_matches = latest.get("tool_manifest_hash") == tool_manifest_hash(tool)
+    fixture_dir = resolve_fixture_dir(tool, base_dir)
+    fixture_matches = True if latest and "fixture_set_hash" not in latest else latest.get("fixture_set_hash") == fixture_set_hash(fixture_dir)
     passed = latest.get("passed") is True
     return {
         "passed": passed,
-        "current_tool_passed": bool(passed and version_matches and manifest_matches),
+        "current_tool_passed": bool(passed and version_matches and manifest_matches and fixture_matches),
         "tool_version": latest.get("tool_version"),
         "current_tool_version": tool.get("version"),
         "tool_manifest_hash": latest.get("tool_manifest_hash"),
         "current_tool_manifest_hash": tool_manifest_hash(tool),
+        "fixture_set_hash": latest.get("fixture_set_hash"),
+        "current_fixture_set_hash": fixture_set_hash(fixture_dir),
         "version_matches": version_matches,
         "manifest_matches": manifest_matches,
+        "fixture_matches": fixture_matches,
         "fixture_baseline_passed": bool(latest.get("fixture_baseline_passed")),
         "semantic_fixture_passed": bool(latest.get("semantic_fixture_passed")),
         "latest": latest,
@@ -354,6 +360,17 @@ def tool_manifest_hash(tool: dict[str, Any]) -> str:
         if key not in {"created_at", "updated_at", "last_transition"}
     }
     return sha256(json.dumps(stable, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+
+
+def fixture_set_hash(fixture_dir: Path) -> str:
+    payload = []
+    if fixture_dir.exists():
+        for path in sorted(item for item in fixture_dir.rglob("*") if item.is_file()):
+            try:
+                payload.append((path.relative_to(fixture_dir).as_posix(), sha256(path.read_bytes())))
+            except OSError:
+                payload.append((path.relative_to(fixture_dir).as_posix(), "unreadable"))
+    return sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8"))
 
 
 def _default_fixture_lane(name: str) -> str:

@@ -37,9 +37,10 @@ from .cycle import run_cycle
 from .cycle_diff import run_cycle_diff
 from .db_snapshot import write_schema_snapshot
 from .discovery import run_discovery
-from .feedback_store import generate_judgment_sample, list_findings, list_judgment_samples, record_operator_feedback
+from .feedback_store import generate_ai_consensus, generate_judgment_sample, list_findings, list_judgment_samples, record_ai_feedback_file, record_operator_feedback
 from .fitness import generate_fitness_report, generate_recommendation_candidate, list_fitness_reports
 from .fixture_runner import run_fixture_suite
+from .goldset import list_goldset_proposals, propose_goldset
 from .impact import list_impact_plans, plan_impact
 from .impact_graph import list_impact_graphs, plan_downstream_impact
 from .integrity import verify_integrity
@@ -54,6 +55,7 @@ from .performance import (
 )
 from .pressure import explain_pressure, run_pressure
 from .pr_manager import list_pr_lifecycle_plans, list_pr_split_plans, open_pr_for_action, plan_pr_lifecycle, plan_pr_split
+from .pr_tracking import observe_pr_event, plan_incremental_cycle, plan_pr_impact
 from .proposal import approve_proposal, list_proposals, proposal_packet_from_task, record_proposal, record_proposal_from_amplification
 from .promotion import promote_tool
 from .quarantine import quarantine_tool
@@ -106,6 +108,9 @@ def build_parser() -> argparse.ArgumentParser:
     cycle_run.add_argument("--discovery-only", action="store_true")
     cycle_run.add_argument("--shadow-only", action="store_true")
     cycle_run.set_defaults(func=cmd_cycle_run)
+    cycle_incremental = cycle_subparsers.add_parser("plan-incremental")
+    cycle_incremental.add_argument("--cycle-id", required=True)
+    cycle_incremental.set_defaults(func=cmd_cycle_plan_incremental)
 
     discovery = subparsers.add_parser("discovery")
     discovery_subparsers = discovery.add_subparsers(dest="command", required=True)
@@ -129,7 +134,7 @@ def build_parser() -> argparse.ArgumentParser:
     memory_list.add_argument(
         "--kind",
         required=True,
-        choices=["beliefs", "observations", "uncertainties", "contradictions", "calibration"],
+        choices=["beliefs", "observations", "uncertainties", "contradictions", "calibration", "learning-events"],
     )
     memory_list.set_defaults(func=cmd_memory_list)
     memory_withdraw = memory_subparsers.add_parser("withdraw")
@@ -505,6 +510,25 @@ def build_parser() -> argparse.ArgumentParser:
     feedback_samples = feedback_subparsers.add_parser("samples")
     feedback_samples.add_argument("--tool-id", default=None)
     feedback_samples.set_defaults(func=cmd_feedback_samples)
+    feedback_record_ai = feedback_subparsers.add_parser("record-ai")
+    feedback_record_ai.add_argument("--file", required=True, help="JSON AI verdict payload")
+    feedback_record_ai.set_defaults(func=cmd_feedback_record_ai)
+    feedback_consensus = feedback_subparsers.add_parser("consensus")
+    feedback_consensus.add_argument("--tool-id", required=True)
+    feedback_consensus.add_argument("--cycle-id", default=None)
+    feedback_consensus.add_argument("--min-confidence", type=float, default=0.8)
+    feedback_consensus.set_defaults(func=cmd_feedback_consensus)
+
+    goldset = subparsers.add_parser("goldset")
+    goldset_subparsers = goldset.add_subparsers(dest="command", required=True)
+    goldset_propose = goldset_subparsers.add_parser("propose")
+    goldset_propose.add_argument("--tool-id", required=True)
+    goldset_propose.add_argument("--cycle-id", default=None)
+    goldset_propose.add_argument("--target-true-positives", type=int, default=20)
+    goldset_propose.add_argument("--target-known-false-positives", type=int, default=10)
+    goldset_propose.set_defaults(func=cmd_goldset_propose)
+    goldset_list = goldset_subparsers.add_parser("list")
+    goldset_list.set_defaults(func=cmd_goldset_list)
 
     pr = subparsers.add_parser("pr")
     pr_subparsers = pr.add_subparsers(dest="command", required=True)
@@ -512,6 +536,12 @@ def build_parser() -> argparse.ArgumentParser:
     pr_record.add_argument("--file", required=True, help="JSON PR lifecycle payload")
     pr_record.add_argument("--cycle-id", default=None)
     pr_record.set_defaults(func=cmd_pr_record_opened)
+    pr_observe = pr_subparsers.add_parser("observe")
+    pr_observe.add_argument("--file", required=True, help="JSON PR event payload")
+    pr_observe.set_defaults(func=cmd_pr_observe)
+    pr_impact = pr_subparsers.add_parser("impact")
+    pr_impact.add_argument("--cycle-id", required=True)
+    pr_impact.set_defaults(func=cmd_pr_impact)
     pr_open = pr_subparsers.add_parser("open")
     pr_open.add_argument("--proposal-id", required=True)
     pr_open.add_argument("--workspace-root", default=".")
@@ -628,6 +658,7 @@ def cmd_bootstrap_init(args: argparse.Namespace) -> dict[str, Any]:
         "observability",
         "cycle-state",
         "cycle-diff",
+        "goldsets",
     ):
         (root / relative).mkdir(parents=True, exist_ok=True)
     return {
@@ -645,6 +676,10 @@ def cmd_cycle_run(args: argparse.Namespace) -> dict[str, Any]:
         discovery_only=args.discovery_only,
         shadow_only=args.shadow_only,
     )
+
+
+def cmd_cycle_plan_incremental(args: argparse.Namespace) -> dict[str, Any]:
+    return plan_incremental_cycle(cycle_id=args.cycle_id, base_dir=args.tools_dir)
 
 
 def cmd_discovery_run(args: argparse.Namespace) -> dict[str, Any]:
@@ -1210,6 +1245,33 @@ def cmd_feedback_samples(args: argparse.Namespace) -> dict[str, Any]:
     return {"samples": list_judgment_samples(tool_id=args.tool_id, base_dir=args.tools_dir)}
 
 
+def cmd_feedback_record_ai(args: argparse.Namespace) -> dict[str, Any]:
+    return record_ai_feedback_file(file_payload=read_json(args.file), base_dir=args.tools_dir)
+
+
+def cmd_feedback_consensus(args: argparse.Namespace) -> dict[str, Any]:
+    return generate_ai_consensus(
+        tool_id=args.tool_id,
+        cycle_id=args.cycle_id,
+        min_confidence=args.min_confidence,
+        base_dir=args.tools_dir,
+    )
+
+
+def cmd_goldset_propose(args: argparse.Namespace) -> dict[str, Any]:
+    return propose_goldset(
+        tool_id=args.tool_id,
+        cycle_id=args.cycle_id,
+        target_true_positives=args.target_true_positives,
+        target_known_false_positives=args.target_known_false_positives,
+        base_dir=args.tools_dir,
+    )
+
+
+def cmd_goldset_list(args: argparse.Namespace) -> dict[str, Any]:
+    return {"proposals": list_goldset_proposals(base_dir=args.tools_dir)}
+
+
 def cmd_pr_record_opened(args: argparse.Namespace) -> dict[str, Any]:
     return record_pr_lifecycle(
         read_json(args.file),
@@ -1217,6 +1279,14 @@ def cmd_pr_record_opened(args: argparse.Namespace) -> dict[str, Any]:
         base_dir=args.tools_dir,
         cycle_id=args.cycle_id,
     )
+
+
+def cmd_pr_observe(args: argparse.Namespace) -> dict[str, Any]:
+    return observe_pr_event(payload=read_json(args.file), base_dir=args.tools_dir)
+
+
+def cmd_pr_impact(args: argparse.Namespace) -> dict[str, Any]:
+    return plan_pr_impact(cycle_id=args.cycle_id, base_dir=args.tools_dir)
 
 
 def cmd_pr_open(args: argparse.Namespace) -> dict[str, Any]:

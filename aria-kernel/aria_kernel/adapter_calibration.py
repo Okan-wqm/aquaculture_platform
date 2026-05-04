@@ -69,7 +69,7 @@ def _tool_report(tool_id: str, base_dir: str | Path | None) -> dict[str, Any]:
         blockers.append("fewer_than_5_shadow_runs")
     if clean_shadow_runs < 5:
         blockers.append("last_5_runs_not_clean")
-    if precision_status != "judged":
+    if precision_status not in ("human_judged", "ai_consensus_judged", "mixed_judged"):
         blockers.append("operator_precision_unjudged")
     elif precision < precision_min:
         blockers.append("precision_below_threshold")
@@ -90,7 +90,7 @@ def _tool_report(tool_id: str, base_dir: str | Path | None) -> dict[str, Any]:
         "clean_shadow_runs": clean_shadow_runs >= 5,
         "precision": precision,
         "precision_status": precision_status,
-        "operator_judged_precision": precision if precision_status == "judged" else None,
+        "operator_judged_precision": precision if precision_status in ("human_judged", "mixed_judged") else None,
         "precision_min": precision_min,
         "critical_false_positives": int(metrics.get("critical_false_positives", 0)),
         "active_ready": not blockers,

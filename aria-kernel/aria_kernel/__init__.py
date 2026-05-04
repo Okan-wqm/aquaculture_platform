@@ -38,13 +38,15 @@ from .performance import (
 from .pressure import run_pressure
 from .proposal import approve_proposal, list_proposals, record_proposal
 from .pr_manager import list_pr_lifecycle_plans, list_pr_split_plans, open_pr_for_action, plan_pr_lifecycle, plan_pr_split
+from .pr_tracking import observe_pr_event, plan_incremental_cycle, plan_pr_impact
 from .quarantine import quarantine_tool
 from .reflection import run_reflection
 from .research import fetch_research_source, list_research_fetches, list_research_policies, list_research_sources, record_research_policy, record_research_source
 from .self_modification import list_kernel_change_requests, request_kernel_change
 from .validation import compare_validation_groups, evaluate_validation_gate, list_validation_comparisons, list_validation_gates, list_validation_plans, list_validation_runs, run_validation_commands
 from .fixture_runner import latest_fixture_status, run_fixture_suite
-from .feedback_store import generate_judgment_sample, list_judgment_samples
+from .feedback_store import generate_ai_consensus, generate_judgment_sample, list_judgment_samples, record_ai_feedback_file
+from .goldset import list_goldset_proposals, propose_goldset
 from .promotion import promote_tool
 from .tool_health import can_emit_operator_facing, record_run
 from .tool_registry import (
@@ -78,6 +80,7 @@ __all__ = [
     "generate_architecture_options",
     "generate_adapter_calibration_report",
     "generate_fitness_report",
+    "generate_ai_consensus",
     "generate_judgment_sample",
     "generate_observability_dashboard",
     "generate_recommendation_candidate",
@@ -100,6 +103,7 @@ __all__ = [
     "list_cycle_metrics",
     "list_fitness_reports",
     "list_generated_diff_packets",
+    "list_goldset_proposals",
     "list_judgment_samples",
     "list_impact_graphs",
     "list_impact_plans",
@@ -119,9 +123,12 @@ __all__ = [
     "list_validation_plans",
     "list_validation_runs",
     "open_pr_for_action",
+    "observe_pr_event",
     "plan_pr_lifecycle",
     "plan_pr_split",
+    "plan_pr_impact",
     "plan_apply_worktree",
+    "plan_incremental_cycle",
     "plan_downstream_impact",
     "plan_impact",
     "prepare_agent_pr_lane",
@@ -134,6 +141,7 @@ __all__ = [
     "record_performance_baseline",
     "record_budget_usage",
     "record_run",
+    "record_ai_feedback_file",
     "record_proposal",
     "record_pr_lifecycle",
     "record_research_policy",
@@ -154,6 +162,7 @@ __all__ = [
     "run_reflection",
     "run_tool",
     "promote_tool",
+    "propose_goldset",
     "transition_tool",
     "unwithdraw_belief",
     "update_memory",

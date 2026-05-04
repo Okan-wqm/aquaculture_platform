@@ -11,7 +11,7 @@ from .tool_health import runs_path
 from .tool_registry import GovernanceError, ensure_tools_dir, load_registry, utc_now
 
 SELF_OUTPUT_PREFIXES = ("aria-tools/", "agent-workspace/", ".aria-poc/")
-MEMORY_KINDS = ("beliefs", "observations", "uncertainties", "contradictions", "calibration")
+MEMORY_KINDS = ("beliefs", "observations", "uncertainties", "contradictions", "calibration", "learning-events")
 BELIEF_STATUSES = ("supported", "contradicted", "needs_revalidation", "stale", "withdrawn")
 STALE_AFTER_REVALIDATION_CYCLES = 3
 
@@ -31,10 +31,13 @@ def update_memory(
     fates = _read_json(discovery_dir / "FATES.json")
     observations_written = 0
     if include_discovery_beliefs:
+        repo_state = _repo_state(root, cycle_id)
         observation = {
             "schema_version": 1,
             "recorded_at": utc_now(),
             "cycle_id": cycle_id,
+            "repo_state_id": repo_state.get("repo_state_id"),
+            "base_commit_sha": repo_state.get("base_commit_sha"),
             "kind": "repo_fingerprint",
             "tracked_file_count": fingerprint.get("tracked_file_count", 0),
             "service_count": fingerprint.get("service_count", 0),
@@ -205,6 +208,7 @@ def _record_belief(
     if not belief_id.strip() or not claim.strip():
         raise GovernanceError("memory candidate requires belief_id and claim")
     evidence_state = _evidence_state(root, evidence_refs, cycle_id)
+    repo_state = _repo_state(root, cycle_id)
     support_count = int((existing or {}).get("support_count", 0)) + 1
     contradiction_count = len(contradictions)
     previous_confidence = float((existing or {}).get("confidence", confidence))
@@ -228,10 +232,13 @@ def _record_belief(
         status = "stale"
     if next_confidence < 0.5 and status != "stale":
         status = "needs_revalidation"
+    verification_status = "verified" if status == "supported" else status
     row = {
-        "schema_version": 1,
+        "schema_version": 2,
         "recorded_at": utc_now(),
         "updated_at": utc_now(),
+        "repo_state_id": repo_state.get("repo_state_id"),
+        "base_commit_sha": repo_state.get("base_commit_sha"),
         "belief_id": belief_id,
         "claim": claim,
         "confidence": next_confidence,
@@ -243,10 +250,24 @@ def _record_belief(
         "contradiction_count": contradiction_count,
         "needs_revalidation_cycles": needs_revalidation_cycles,
         "evidence_state": evidence_state,
+        "evidence_hashes": _evidence_hashes(root, cycle_id, evidence_refs),
+        "verification_status": verification_status,
+        "verified_at": utc_now() if verification_status == "verified" else (existing or {}).get("verified_at"),
         "source_tool_ids": sorted(set(source_tool_ids or (existing or {}).get("source_tool_ids", []))),
         "glob_match_history": _next_glob_history(existing, cycle_id, evidence_state),
     }
     append_jsonl(root / "memory" / "beliefs.jsonl", row)
+    _record_learning_event(
+        root,
+        cycle_id=cycle_id,
+        event_type=_belief_event_type(existing, row),
+        target_type="belief",
+        target_id=belief_id,
+        repo_state_id=repo_state.get("repo_state_id"),
+        base_commit_sha=repo_state.get("base_commit_sha"),
+        evidence_hashes=row["evidence_hashes"],
+        details={"status": status, "confidence": next_confidence},
+    )
     return row
 
 
@@ -264,6 +285,11 @@ def _normalize_belief(row: dict[str, Any]) -> dict[str, Any]:
     normalized.setdefault("evidence_state", {})
     normalized.setdefault("glob_match_history", [])
     normalized.setdefault("source_tool_ids", [])
+    normalized.setdefault("repo_state_id", normalized.get("cycle_id"))
+    normalized.setdefault("base_commit_sha", None)
+    normalized.setdefault("evidence_hashes", [])
+    normalized.setdefault("verification_status", "verified" if normalized.get("status") == "supported" else normalized.get("status"))
+    normalized.setdefault("verified_at", normalized.get("updated_at") if normalized.get("status") == "supported" else None)
     return normalized
 
 
@@ -304,10 +330,22 @@ def _apply_diff_to_existing_beliefs(root: Path, cycle_id: str, diff: dict[str, A
                 "needs_revalidation_cycles": revalidation_cycles,
                 "stale_reason": "evidence changed, disappeared, or glob no longer matches",
                 "evidence_state": evidence_state,
+                "verification_status": "needs_revalidation",
                 "glob_match_history": _next_glob_history(belief, cycle_id, evidence_state, current_paths=current_paths),
             },
         )
         append_jsonl(root / "memory" / "beliefs.jsonl", row)
+        _record_learning_event(
+            root,
+            cycle_id=cycle_id,
+            event_type="evidence_invalidated",
+            target_type="belief",
+            target_id=str(belief.get("belief_id")),
+            repo_state_id=row.get("repo_state_id"),
+            base_commit_sha=row.get("base_commit_sha"),
+            evidence_hashes=_array_of_strings(row.get("evidence_hashes")),
+            details={"affected_evidence_refs": missing_refs + empty_globs, "status": status},
+        )
         _record_uncertainty(
             root,
             cycle_id=cycle_id,
@@ -499,6 +537,35 @@ def _record_calibration(
     )
 
 
+def _record_learning_event(
+    root: Path,
+    *,
+    cycle_id: str | None,
+    event_type: str,
+    target_type: str,
+    target_id: str,
+    repo_state_id: str | None,
+    base_commit_sha: str | None,
+    evidence_hashes: list[str],
+    details: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return append_jsonl(
+        root / "memory" / "learning-events.jsonl",
+        {
+            "schema_version": 1,
+            "recorded_at": utc_now(),
+            "cycle_id": cycle_id,
+            "event_type": event_type,
+            "target_type": target_type,
+            "target_id": target_id,
+            "repo_state_id": repo_state_id,
+            "base_commit_sha": base_commit_sha,
+            "evidence_hashes": evidence_hashes,
+            "details": details or {},
+        },
+    )
+
+
 def _open_contradictions_for(root: Path, belief_id: str) -> list[dict[str, Any]]:
     return [
         row
@@ -549,6 +616,41 @@ def _evidence_state(root: Path, evidence_refs: list[str], cycle_id: str) -> dict
         "glob_match_counts": glob_counts,
         "empty_glob_refs": sorted(ref for ref, count in glob_counts.items() if count == 0),
     }
+
+
+def _repo_state(root: Path, cycle_id: str) -> dict[str, Any]:
+    completion = _read_json(root / "discovery" / cycle_id / "COMPLETION_PROOF.json")
+    return {
+        "repo_state_id": completion.get("repo_state_id") or f"cycle:{cycle_id}",
+        "base_commit_sha": completion.get("base_commit_sha"),
+    }
+
+
+def _evidence_hashes(root: Path, cycle_id: str, evidence_refs: list[str]) -> list[str]:
+    fates = _read_json(root / "discovery" / cycle_id / "FATES.json")
+    files = fates.get("files", [])
+    by_path = {
+        str(row.get("path")): str(row.get("content_hash"))
+        for row in files
+        if isinstance(row, dict) and isinstance(row.get("path"), str) and isinstance(row.get("content_hash"), str)
+    } if isinstance(files, list) else {}
+    hashes: set[str] = set()
+    for ref in evidence_refs:
+        if _is_glob_ref(ref):
+            hashes.update(content_hash for path, content_hash in by_path.items() if fnmatch.fnmatch(path, ref))
+        elif ref in by_path:
+            hashes.add(by_path[ref])
+    return sorted(hashes)
+
+
+def _belief_event_type(existing: dict[str, Any] | None, row: dict[str, Any]) -> str:
+    if existing is None:
+        return "belief_proposed"
+    if existing.get("status") != row.get("status") or existing.get("claim") != row.get("claim"):
+        return "belief_corrected"
+    if row.get("status") == "supported":
+        return "belief_confirmed"
+    return "belief_proposed"
 
 
 def _is_glob_ref(ref: str) -> bool:

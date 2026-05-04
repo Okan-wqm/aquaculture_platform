@@ -254,9 +254,31 @@ impl std::error::Error for OpcUaServerStartError {}
 /// **Linked findings:** ULTRA-HIGH-035 RESOLVED via this
 /// batch (A-2b part 5 closure). Production wire is now end-
 /// to-end typed-authz with no anonymous-write surface.
+/// Phase B-1 (ADR-031) PKI runtime reference. Bundles the resolved
+/// `pki_dir` + the active 3-phase rollout mode for the [`build_server`]
+/// callsite.
+///
+/// `None` → pre-B-1 legacy wire (`trust_client_certs(true)` +
+/// `pki_dir(&config.own_pki_dir)`). Tests + first-boot deployments
+/// without a PkiStore-managed root use this path.
+///
+/// `Some` → B-1 wire (`trust_client_certs(mode.trust_unpinned_clients())`
+/// + `pki_dir(pki_runtime.root)`). Production wires this from
+/// [`init_opc_ua_server`] after constructing
+/// [`crate::opc_ua_server::pki_store::PkiStore`] +
+/// [`crate::opc_ua_server::cert_rotation::CertRotation`].
+pub struct PkiRuntimeRef<'a> {
+    /// PkiStore-managed PKI root. async-opcua reads `<root>/trusted/clients/`
+    /// + `<root>/rejected/` directly at handshake time.
+    pub root: &'a std::path::Path,
+    /// Active rollout mode. Drives the `trust_client_certs(...)` flag.
+    pub mode: crate::opc_ua_server::cert_rotation::OpcUaPkiMode,
+}
+
 pub fn build_server(
     config: &OpcUaServerConfig,
     sens_bundle: crate::opc_ua_sens_node_manager::SensRuntimeBundle,
+    pki_runtime: Option<PkiRuntimeRef<'_>>,
 ) -> Result<ServerBuilder, OpcUaServerStartError> {
     config
         .validate()
@@ -283,6 +305,25 @@ pub fn build_server(
     // parses via `parse_operator_token`. Pre-Batch-#294 had a
     // None branch falling back to `simple_node_manager` —
     // retired in this batch.
+    // Phase B-1 (ADR-031) PKI wire decision. The `trust_client_certs(...)`
+    // flag + `pki_dir(...)` source are now derived from the optional
+    // `pki_runtime` parameter:
+    //
+    // - `None`   → legacy wire: `trust_client_certs(true)` + `pki_dir(&config.own_pki_dir)`.
+    //              Test fixtures + pre-B-1 deployments without a PkiStore-managed
+    //              PKI root land here. Identical to pre-B-1 behavior.
+    //
+    // - `Some(r)` → B-1 wire: `trust_client_certs(r.mode.trust_unpinned_clients())` +
+    //              `pki_dir(r.root)`. The rollout mode (LegacyAccept /
+    //              WarnOnMismatch / StrictPinOnly) drives the trust flag.
+    //              In `StrictPinOnly` mode `trust_unpinned_clients() == false`
+    //              and async-opcua's built-in trust path consults ONLY the
+    //              PkiStore-managed `<root>/trusted/clients/` PEMs — Tier-1
+    //              MAKE-IT-IMPOSSIBLE for an unpinned cert to authenticate.
+    let (trust_unpinned, pki_dir_path): (bool, &std::path::Path) = match &pki_runtime {
+        Some(r) => (r.mode.trust_unpinned_clients(), r.root),
+        None => (true, std::path::Path::new(&config.own_pki_dir)),
+    };
     let mut builder = ServerBuilder::new()
         .application_name("suderra-edge")
         .application_uri(SUDERRA_NAMESPACE_URI)
@@ -290,8 +331,8 @@ pub fn build_server(
         .host(config.bind.clone())
         .port(config.port)
         .create_sample_keypair(true)
-        .trust_client_certs(true)
-        .pki_dir(&config.own_pki_dir)
+        .trust_client_certs(trust_unpinned)
+        .pki_dir(pki_dir_path)
         .add_endpoint("default", endpoint)
         .discovery_urls(vec![discovery_url])
         .with_node_manager(sens_bundle.node_manager_builder)
@@ -724,7 +765,39 @@ pub async fn start_opcua_server(
     let manager_kind =
         "SensNodeManager+SensAuthManager (typed-authz, virtual nodes)";
 
-    let builder = build_server(config, sens_bundle)?;
+    // Phase B-1 (ADR-031): construct the PkiStore + CertRotation +
+    // pass them into build_server via PkiRuntimeRef. The PkiStore
+    // owns the filesystem layout under `config.own_pki_dir`; the
+    // CertRotation tracks the active rollout phase. First-boot
+    // defaults to `LegacyAccept` so in-place upgrades from pre-B-1
+    // continue to behave identically until an explicit promotion
+    // command lands (Phase C `cmd_update_opc_ua_pki`).
+    //
+    // The device_code threading is Phase B-1.5 — for this batch we
+    // pass `config.bind` as a stable per-deployment identifier. A
+    // moved PkiStore (different bind addr on the same disk) would
+    // surface as a `LedgerCorrupted::device_code` mismatch on
+    // reload — safe-fail rather than silently merging two device
+    // identities into one ledger.
+    let pki_store = std::sync::Arc::new(
+        crate::opc_ua_server::pki_store::PkiStore::open_or_initialize(
+            std::path::Path::new(&config.own_pki_dir),
+            config.bind.clone(),
+        )
+        .map_err(|e| OpcUaServerStartError::ConfigInvalid(format!("PkiStore init failed: {e}")))?,
+    );
+    let cert_rotation = std::sync::Arc::new(
+        crate::opc_ua_server::cert_rotation::CertRotation::new(
+            pki_store.clone(),
+            None,
+        ),
+    );
+    let pki_runtime = PkiRuntimeRef {
+        root: pki_store.root(),
+        mode: cert_rotation.mode(),
+    };
+
+    let builder = build_server(config, sens_bundle, Some(pki_runtime))?;
     let (server, handle) = builder
         .build()
         .map_err(OpcUaServerStartError::BuilderFailed)?;
@@ -859,7 +932,7 @@ mod tests {
         // any network touch.
         let mut cfg = minimal_enabled_config();
         cfg.subscription_polling_interval_ms = 1;
-        match build_server(&cfg, deny_all_test_bundle()) {
+        match build_server(&cfg, deny_all_test_bundle(), None) {
             Err(OpcUaServerStartError::ConfigInvalid(msg)) => {
                 assert!(msg.contains("10ms floor"), "msg={}", msg);
             }
@@ -873,7 +946,7 @@ mod tests {
         let cfg = minimal_enabled_config();
         // ServerBuilder is opaque (no Debug, no PartialEq) so
         // the only assertion available is that Ok arrives.
-        if build_server(&cfg, deny_all_test_bundle()).is_err() {
+        if build_server(&cfg, deny_all_test_bundle(), None).is_err() {
             panic!("build_server rejected a valid config");
         }
     }
@@ -984,7 +1057,7 @@ mod tests {
     #[test]
     fn build_server_accepts_sens_builder_path() {
         let cfg = minimal_enabled_config();
-        if build_server(&cfg, deny_all_test_bundle()).is_err() {
+        if build_server(&cfg, deny_all_test_bundle(), None).is_err() {
             panic!(
                 "build_server rejected a valid config + SensRuntimeBundle"
             );

@@ -54,6 +54,14 @@
 
 #![allow(dead_code)]
 
+// Phase B-1 (ADR-031) — submodule declarations resolve to
+// `src/opc_ua_server/<name>.rs` per Rust's directory-with-mod-stem
+// convention. Pre-B-1 this file was the only `opc_ua_server` module;
+// Phase B-1 adds two PKI lifecycle primitives without restructuring
+// the existing OpcUaTagRegistry surface.
+pub mod cert_rotation;
+pub mod pki_store;
+
 use std::collections::BTreeMap;
 use std::sync::Arc;
 

@@ -708,3 +708,15 @@ path = "tests/invariants/cipher_allowlist_fleet_compat.rs"
 [[test]]
 name = "d4_d6_mtls_unified"
 path = "tests/invariants/d4_d6_mtls_unified.rs"
+
+# Phase B-1 (Batches #266-#268) — OPC UA PKI Lifecycle closure
+# invariant. Tier-3 source-grep detector that pins the wire shape of
+# the PkiStore + CertRotation + build_server PkiRuntimeRef chain so a
+# future refactor that hardcodes `trust_client_certs(true)` again
+# cannot silently regress the StrictPinOnly architectural floor. See
+# ADR-031 (`docs/adr/031-opc-ua-pki-lifecycle.md`) for the design
+# rationale; plan-intended ID was ADR-024 (renumbered because 024 is
+# already taken twice in `docs/adr/`).
+[[test]]
+name = "opc_ua_leaf_pin_enforced"
+path = "tests/invariants/opc_ua_leaf_pin_enforced.rs"

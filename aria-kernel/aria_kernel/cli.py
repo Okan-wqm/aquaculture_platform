@@ -7,29 +7,55 @@ from pathlib import Path
 from typing import Any
 
 from .apply_engine import plan_apply_worktree
+from .agent_genesis import (
+    approve_agent_pr,
+    draft_agent_from_gap,
+    evaluate_genesis_sandbox,
+    list_agent_drafts,
+    list_genesis_sandbox_runs,
+)
+from .agent_priors import latest_agent_priors, map_agent_priors
+from .architecture import (
+    generate_architecture_options,
+    list_architecture_option_sets,
+    list_architecture_reviews,
+    review_architecture_decision,
+)
 from .auto_merge import GhCliGitHubAdapter, evaluate_auto_merge, merge_if_green, record_pr_lifecycle
 from .budget import check_budget, list_budget_usage, record_budget_usage
+from .calibration import list_calibration_recommendations, recommend_calibration
+from .capability_gap import detect_capability_gaps, list_capability_gaps
 from .cycle import run_cycle
 from .cycle_diff import run_cycle_diff
 from .db_snapshot import write_schema_snapshot
 from .discovery import run_discovery
 from .feedback_store import list_findings, record_operator_feedback
+from .fitness import generate_fitness_report, generate_recommendation_candidate, list_fitness_reports
 from .fixture_runner import run_fixture_suite
 from .impact import list_impact_plans, plan_impact
+from .impact_graph import list_impact_graphs, plan_downstream_impact
 from .integrity import verify_integrity
 from .llm_bridge import amplify_proposal
 from .memory import list_memory, unwithdraw_belief, update_memory, withdraw_belief
+from .performance import (
+    compare_performance_baseline,
+    list_performance_baselines,
+    list_performance_comparisons,
+    record_performance_baseline,
+)
 from .pressure import explain_pressure, run_pressure
 from .pr_manager import open_pr_for_action
 from .proposal import approve_proposal, list_proposals, proposal_packet_from_task, record_proposal, record_proposal_from_amplification
 from .promotion import promote_tool
 from .quarantine import quarantine_tool
 from .reflection import run_reflection
-from .research import list_research_sources, record_research_source
+from .research import fetch_research_source, list_research_fetches, list_research_sources, record_research_source
+from .self_modification import list_kernel_change_requests, request_kernel_change
 from .task import explain_task, generate_task_candidates, latest_tasks
 from .tool_health import evaluate_health, record_run
 from .tool_registry import GovernanceError, ensure_tools_dir, list_tools, register_tool
 from .tool_runner import run_tool
+from .validation import list_validation_plans, list_validation_runs, run_validation_commands
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -178,9 +204,19 @@ def build_parser() -> argparse.ArgumentParser:
     impact_plan.add_argument("--changed-files", required=True, help="JSON array of changed paths")
     impact_plan.add_argument("--action-class", required=True)
     impact_plan.add_argument("--cycle-id", default=None)
+    impact_plan.add_argument("--workspace-root", default=None)
+    impact_plan.add_argument("--nx-graph-file", default=None)
     impact_plan.set_defaults(func=cmd_impact_plan)
+    impact_graph = impact_subparsers.add_parser("graph")
+    impact_graph.add_argument("--changed-files", required=True, help="JSON array of changed paths")
+    impact_graph.add_argument("--workspace-root", default=".")
+    impact_graph.add_argument("--cycle-id", default=None)
+    impact_graph.add_argument("--nx-graph-file", default=None)
+    impact_graph.set_defaults(func=cmd_impact_graph)
     impact_list = impact_subparsers.add_parser("list")
     impact_list.set_defaults(func=cmd_impact_list)
+    impact_graph_list = impact_subparsers.add_parser("list-graphs")
+    impact_graph_list.set_defaults(func=cmd_impact_graph_list)
 
     research = subparsers.add_parser("research")
     research_subparsers = research.add_subparsers(dest="command", required=True)
@@ -190,8 +226,146 @@ def build_parser() -> argparse.ArgumentParser:
     research_source.add_argument("--content-hash", required=True)
     research_source.add_argument("--title", default="")
     research_source.set_defaults(func=cmd_research_record_source)
+    research_fetch = research_subparsers.add_parser("fetch")
+    research_fetch.add_argument("--url", required=True)
+    research_fetch.add_argument("--source-tier", required=True)
+    research_fetch.add_argument("--title", default="")
+    research_fetch.set_defaults(func=cmd_research_fetch)
     research_list = research_subparsers.add_parser("list-sources")
     research_list.set_defaults(func=cmd_research_list_sources)
+    research_fetch_list = research_subparsers.add_parser("list-fetches")
+    research_fetch_list.set_defaults(func=cmd_research_list_fetches)
+
+    validation = subparsers.add_parser("validation")
+    validation_subparsers = validation.add_subparsers(dest="command", required=True)
+    validation_run = validation_subparsers.add_parser("run")
+    validation_run.add_argument("--commands", required=True, help="JSON array of approved validation commands")
+    validation_run.add_argument("--workspace-root", default=".")
+    validation_run.add_argument("--cycle-id", default=None)
+    validation_run.add_argument("--validation-plan-id", default=None)
+    validation_run.add_argument("--timeout-ms", type=int, default=120000)
+    validation_run.add_argument("--allow-dirty", action="store_true")
+    validation_run.set_defaults(func=cmd_validation_run)
+    validation_list = validation_subparsers.add_parser("list")
+    validation_list.set_defaults(func=cmd_validation_list)
+
+    performance = subparsers.add_parser("performance")
+    performance_subparsers = performance.add_subparsers(dest="command", required=True)
+    performance_record = performance_subparsers.add_parser("record-baseline")
+    performance_record.add_argument("--metric", required=True)
+    performance_record.add_argument("--value", type=float, required=True)
+    performance_record.add_argument("--unit", required=True)
+    performance_record.add_argument("--source", required=True)
+    performance_record.add_argument("--cycle-id", default=None)
+    performance_record.set_defaults(func=cmd_performance_record)
+    performance_compare = performance_subparsers.add_parser("compare")
+    performance_compare.add_argument("--metric", required=True)
+    performance_compare.add_argument("--current-value", type=float, required=True)
+    performance_compare.add_argument("--max-regression-pct", type=float, default=5.0)
+    performance_compare.add_argument("--cycle-id", default=None)
+    performance_compare.set_defaults(func=cmd_performance_compare)
+    performance_list = performance_subparsers.add_parser("list")
+    performance_list.set_defaults(func=cmd_performance_list)
+
+    fitness = subparsers.add_parser("fitness")
+    fitness_subparsers = fitness.add_subparsers(dest="command", required=True)
+    fitness_report = fitness_subparsers.add_parser("report")
+    fitness_report.add_argument("--cycle-id", required=True)
+    fitness_report.set_defaults(func=cmd_fitness_report)
+    fitness_recommend = fitness_subparsers.add_parser("recommend")
+    fitness_recommend.add_argument("--cycle-id", required=True)
+    fitness_recommend.add_argument("--title", required=True)
+    fitness_recommend.add_argument("--evidence-refs", required=True)
+    fitness_recommend.add_argument("--validation-refs", required=True)
+    fitness_recommend.add_argument("--research-refs", required=True)
+    fitness_recommend.add_argument("--impact-graph-refs", required=True)
+    fitness_recommend.add_argument("--repo-value", required=True)
+    fitness_recommend.set_defaults(func=cmd_fitness_recommend)
+    fitness_list = fitness_subparsers.add_parser("list")
+    fitness_list.set_defaults(func=cmd_fitness_list)
+
+    architecture = subparsers.add_parser("architecture")
+    architecture_subparsers = architecture.add_subparsers(dest="command", required=True)
+    architecture_review = architecture_subparsers.add_parser("review")
+    architecture_review.add_argument("--technology", required=True)
+    architecture_review.add_argument("--proposed-action", required=True)
+    architecture_review.add_argument("--evidence-refs", required=True)
+    architecture_review.add_argument("--root-cause", required=True)
+    architecture_review.add_argument("--authoritative-refs", default="[]")
+    architecture_review.add_argument("--repo-prior-refs", default="[]")
+    architecture_review.add_argument("--replacement-grounds", default="[]")
+    architecture_review.add_argument("--migration-plan", default="")
+    architecture_review.add_argument("--rollback-plan", default="")
+    architecture_review.add_argument("--abstraction-boundary", default="")
+    architecture_review.add_argument("--validation-commands", default="[]")
+    architecture_review.add_argument("--cleanup-task", default="")
+    architecture_review.add_argument("--cycle-id", default=None)
+    architecture_review.set_defaults(func=cmd_architecture_review)
+    architecture_options = architecture_subparsers.add_parser("options")
+    architecture_options.add_argument("--technology", required=True)
+    architecture_options.add_argument("--evidence-refs", required=True)
+    architecture_options.add_argument("--root-cause", required=True)
+    architecture_options.add_argument("--authoritative-refs", default="[]")
+    architecture_options.add_argument("--repo-prior-refs", default="[]")
+    architecture_options.add_argument("--replacement-grounds", default="[]")
+    architecture_options.add_argument("--cycle-id", default=None)
+    architecture_options.set_defaults(func=cmd_architecture_options)
+    architecture_list = architecture_subparsers.add_parser("list")
+    architecture_list.set_defaults(func=cmd_architecture_list)
+
+    calibration = subparsers.add_parser("calibration")
+    calibration_subparsers = calibration.add_subparsers(dest="command", required=True)
+    calibration_recommend = calibration_subparsers.add_parser("recommend")
+    calibration_recommend.add_argument("--cycle-id", required=True)
+    calibration_recommend.set_defaults(func=cmd_calibration_recommend)
+    calibration_list = calibration_subparsers.add_parser("list")
+    calibration_list.set_defaults(func=cmd_calibration_list)
+
+    agent_priors = subparsers.add_parser("agent-priors")
+    agent_priors_subparsers = agent_priors.add_subparsers(dest="command", required=True)
+    agent_priors_map = agent_priors_subparsers.add_parser("map")
+    agent_priors_map.add_argument("--workspace-root", default=".")
+    agent_priors_map.add_argument("--cycle-id", default=None)
+    agent_priors_map.set_defaults(func=cmd_agent_priors_map)
+    agent_priors_latest = agent_priors_subparsers.add_parser("latest")
+    agent_priors_latest.set_defaults(func=cmd_agent_priors_latest)
+
+    gaps = subparsers.add_parser("capability-gap")
+    gaps_subparsers = gaps.add_subparsers(dest="command", required=True)
+    gaps_detect = gaps_subparsers.add_parser("detect")
+    gaps_detect.add_argument("--cycle-id", required=True)
+    gaps_detect.set_defaults(func=cmd_capability_gap_detect)
+    gaps_list = gaps_subparsers.add_parser("list")
+    gaps_list.set_defaults(func=cmd_capability_gap_list)
+
+    genesis = subparsers.add_parser("agent-genesis")
+    genesis_subparsers = genesis.add_subparsers(dest="command", required=True)
+    genesis_draft = genesis_subparsers.add_parser("draft")
+    genesis_draft.add_argument("--gap-id", required=True)
+    genesis_draft.set_defaults(func=cmd_agent_genesis_draft)
+    genesis_sandbox = genesis_subparsers.add_parser("sandbox")
+    genesis_sandbox.add_argument("--draft-id", required=True)
+    genesis_sandbox.add_argument("--fixture-results", required=True, help="JSON array of fixture result objects")
+    genesis_sandbox.set_defaults(func=cmd_agent_genesis_sandbox)
+    genesis_approve = genesis_subparsers.add_parser("approve-pr")
+    genesis_approve.add_argument("--draft-id", required=True)
+    genesis_approve.add_argument("--operator-approval-ref", required=True)
+    genesis_approve.set_defaults(func=cmd_agent_genesis_approve)
+    genesis_list = genesis_subparsers.add_parser("list")
+    genesis_list.set_defaults(func=cmd_agent_genesis_list)
+
+    kernel = subparsers.add_parser("kernel-change")
+    kernel_subparsers = kernel.add_subparsers(dest="command", required=True)
+    kernel_request = kernel_subparsers.add_parser("request")
+    kernel_request.add_argument("--changed-files", required=True)
+    kernel_request.add_argument("--operator-approval-ref", required=True)
+    kernel_request.add_argument("--validation-refs", required=True)
+    kernel_request.add_argument("--full-shadow-cycle-ref", required=True)
+    kernel_request.add_argument("--rollback-plan", required=True)
+    kernel_request.add_argument("--cycle-id", default=None)
+    kernel_request.set_defaults(func=cmd_kernel_change_request)
+    kernel_list = kernel_subparsers.add_parser("list")
+    kernel_list.set_defaults(func=cmd_kernel_change_list)
 
     tool = subparsers.add_parser("tool")
     tool_subparsers = tool.add_subparsers(dest="command", required=True)
@@ -318,6 +492,15 @@ def cmd_bootstrap_init(args: argparse.Namespace) -> dict[str, Any]:
         "budget",
         "llm",
         "impact",
+        "validation",
+        "performance",
+        "fitness",
+        "calibration",
+        "agent-priors",
+        "capability-gaps",
+        "agent-genesis",
+        "genesis-sandbox",
+        "kernel-change",
         "apply",
         "cycle-state",
         "cycle-diff",
@@ -486,13 +669,33 @@ def cmd_impact_plan(args: argparse.Namespace) -> dict[str, Any]:
     return plan_impact(
         changed_files=changed_files,
         action_class=args.action_class,
+        workspace_root=args.workspace_root,
         cycle_id=args.cycle_id,
+        nx_graph_file=args.nx_graph_file,
+        base_dir=args.tools_dir,
+    )
+
+
+def cmd_impact_graph(args: argparse.Namespace) -> dict[str, Any]:
+    try:
+        changed_files = json.loads(args.changed_files)
+    except json.JSONDecodeError as exc:
+        raise GovernanceError(f"--changed-files must be a JSON array: {exc}") from exc
+    return plan_downstream_impact(
+        changed_files=changed_files,
+        workspace_root=args.workspace_root,
+        cycle_id=args.cycle_id,
+        nx_graph_file=args.nx_graph_file,
         base_dir=args.tools_dir,
     )
 
 
 def cmd_impact_list(args: argparse.Namespace) -> dict[str, Any]:
     return {"impact_plans": list_impact_plans(base_dir=args.tools_dir)}
+
+
+def cmd_impact_graph_list(args: argparse.Namespace) -> dict[str, Any]:
+    return {"impact_graphs": list_impact_graphs(base_dir=args.tools_dir)}
 
 
 def cmd_research_record_source(args: argparse.Namespace) -> dict[str, Any]:
@@ -505,8 +708,209 @@ def cmd_research_record_source(args: argparse.Namespace) -> dict[str, Any]:
     )
 
 
+def cmd_research_fetch(args: argparse.Namespace) -> dict[str, Any]:
+    return fetch_research_source(
+        url=args.url,
+        source_tier=args.source_tier,
+        title=args.title,
+        base_dir=args.tools_dir,
+    )
+
+
 def cmd_research_list_sources(args: argparse.Namespace) -> dict[str, Any]:
     return {"sources": list_research_sources(base_dir=args.tools_dir)}
+
+
+def cmd_research_list_fetches(args: argparse.Namespace) -> dict[str, Any]:
+    return {"fetches": list_research_fetches(base_dir=args.tools_dir)}
+
+
+def cmd_validation_run(args: argparse.Namespace) -> dict[str, Any]:
+    try:
+        commands = json.loads(args.commands)
+    except json.JSONDecodeError as exc:
+        raise GovernanceError(f"--commands must be a JSON array: {exc}") from exc
+    return run_validation_commands(
+        commands=commands,
+        workspace_root=args.workspace_root,
+        cycle_id=args.cycle_id,
+        validation_plan_id=args.validation_plan_id,
+        timeout_ms=args.timeout_ms,
+        require_clean_worktree=not args.allow_dirty,
+        base_dir=args.tools_dir,
+    )
+
+
+def cmd_validation_list(args: argparse.Namespace) -> dict[str, Any]:
+    return {
+        "plans": list_validation_plans(base_dir=args.tools_dir),
+        "runs": list_validation_runs(base_dir=args.tools_dir),
+    }
+
+
+def cmd_performance_record(args: argparse.Namespace) -> dict[str, Any]:
+    return record_performance_baseline(
+        metric=args.metric,
+        value=args.value,
+        unit=args.unit,
+        source=args.source,
+        cycle_id=args.cycle_id,
+        base_dir=args.tools_dir,
+    )
+
+
+def cmd_performance_compare(args: argparse.Namespace) -> dict[str, Any]:
+    return compare_performance_baseline(
+        metric=args.metric,
+        current_value=args.current_value,
+        max_regression_pct=args.max_regression_pct,
+        cycle_id=args.cycle_id,
+        base_dir=args.tools_dir,
+    )
+
+
+def cmd_performance_list(args: argparse.Namespace) -> dict[str, Any]:
+    return {
+        "baselines": list_performance_baselines(base_dir=args.tools_dir),
+        "comparisons": list_performance_comparisons(base_dir=args.tools_dir),
+    }
+
+
+def cmd_fitness_report(args: argparse.Namespace) -> dict[str, Any]:
+    return generate_fitness_report(cycle_id=args.cycle_id, base_dir=args.tools_dir)
+
+
+def cmd_fitness_recommend(args: argparse.Namespace) -> dict[str, Any]:
+    return generate_recommendation_candidate(
+        cycle_id=args.cycle_id,
+        title=args.title,
+        evidence_refs=_json_array_arg(args.evidence_refs, "--evidence-refs"),
+        validation_refs=_json_array_arg(args.validation_refs, "--validation-refs"),
+        research_refs=_json_array_arg(args.research_refs, "--research-refs"),
+        impact_graph_refs=_json_array_arg(args.impact_graph_refs, "--impact-graph-refs"),
+        repo_value=args.repo_value,
+        base_dir=args.tools_dir,
+    )
+
+
+def cmd_fitness_list(args: argparse.Namespace) -> dict[str, Any]:
+    return {"reports": list_fitness_reports(base_dir=args.tools_dir)}
+
+
+def cmd_architecture_review(args: argparse.Namespace) -> dict[str, Any]:
+    return review_architecture_decision(
+        technology=args.technology,
+        proposed_action=args.proposed_action,
+        evidence_refs=_json_array_arg(args.evidence_refs, "--evidence-refs"),
+        root_cause=args.root_cause,
+        authoritative_refs=_json_array_arg(args.authoritative_refs, "--authoritative-refs"),
+        repo_prior_refs=_json_array_arg(args.repo_prior_refs, "--repo-prior-refs"),
+        replacement_grounds=_json_array_arg(args.replacement_grounds, "--replacement-grounds"),
+        migration_plan=args.migration_plan,
+        rollback_plan=args.rollback_plan,
+        abstraction_boundary=args.abstraction_boundary,
+        validation_commands=_json_array_arg(args.validation_commands, "--validation-commands"),
+        cleanup_task=args.cleanup_task,
+        cycle_id=args.cycle_id,
+        base_dir=args.tools_dir,
+    )
+
+
+def cmd_architecture_options(args: argparse.Namespace) -> dict[str, Any]:
+    return generate_architecture_options(
+        technology=args.technology,
+        evidence_refs=_json_array_arg(args.evidence_refs, "--evidence-refs"),
+        root_cause=args.root_cause,
+        authoritative_refs=_json_array_arg(args.authoritative_refs, "--authoritative-refs"),
+        repo_prior_refs=_json_array_arg(args.repo_prior_refs, "--repo-prior-refs"),
+        replacement_grounds=_json_array_arg(args.replacement_grounds, "--replacement-grounds"),
+        cycle_id=args.cycle_id,
+        base_dir=args.tools_dir,
+    )
+
+
+def cmd_architecture_list(args: argparse.Namespace) -> dict[str, Any]:
+    return {
+        "reviews": list_architecture_reviews(base_dir=args.tools_dir),
+        "option_sets": list_architecture_option_sets(base_dir=args.tools_dir),
+    }
+
+
+def cmd_calibration_recommend(args: argparse.Namespace) -> dict[str, Any]:
+    return recommend_calibration(cycle_id=args.cycle_id, base_dir=args.tools_dir)
+
+
+def cmd_calibration_list(args: argparse.Namespace) -> dict[str, Any]:
+    return {"recommendations": list_calibration_recommendations(base_dir=args.tools_dir)}
+
+
+def cmd_agent_priors_map(args: argparse.Namespace) -> dict[str, Any]:
+    return map_agent_priors(
+        workspace_root=args.workspace_root,
+        cycle_id=args.cycle_id,
+        base_dir=args.tools_dir,
+    )
+
+
+def cmd_agent_priors_latest(args: argparse.Namespace) -> dict[str, Any]:
+    return {"agent_priors": latest_agent_priors(base_dir=args.tools_dir)}
+
+
+def cmd_capability_gap_detect(args: argparse.Namespace) -> dict[str, Any]:
+    return detect_capability_gaps(cycle_id=args.cycle_id, base_dir=args.tools_dir)
+
+
+def cmd_capability_gap_list(args: argparse.Namespace) -> dict[str, Any]:
+    return {"capability_gaps": list_capability_gaps(base_dir=args.tools_dir)}
+
+
+def cmd_agent_genesis_draft(args: argparse.Namespace) -> dict[str, Any]:
+    return draft_agent_from_gap(gap_id=args.gap_id, base_dir=args.tools_dir)
+
+
+def cmd_agent_genesis_sandbox(args: argparse.Namespace) -> dict[str, Any]:
+    try:
+        fixture_results = json.loads(args.fixture_results)
+    except json.JSONDecodeError as exc:
+        raise GovernanceError(f"--fixture-results must be a JSON array: {exc}") from exc
+    if not isinstance(fixture_results, list):
+        raise GovernanceError("--fixture-results must be a JSON array")
+    return evaluate_genesis_sandbox(
+        draft_id=args.draft_id,
+        fixture_results=fixture_results,
+        base_dir=args.tools_dir,
+    )
+
+
+def cmd_agent_genesis_approve(args: argparse.Namespace) -> dict[str, Any]:
+    return approve_agent_pr(
+        draft_id=args.draft_id,
+        operator_approval_ref=args.operator_approval_ref,
+        base_dir=args.tools_dir,
+    )
+
+
+def cmd_agent_genesis_list(args: argparse.Namespace) -> dict[str, Any]:
+    return {
+        "drafts": list_agent_drafts(base_dir=args.tools_dir),
+        "sandbox_runs": list_genesis_sandbox_runs(base_dir=args.tools_dir),
+    }
+
+
+def cmd_kernel_change_request(args: argparse.Namespace) -> dict[str, Any]:
+    return request_kernel_change(
+        changed_files=_json_array_arg(args.changed_files, "--changed-files"),
+        operator_approval_ref=args.operator_approval_ref,
+        validation_refs=_json_array_arg(args.validation_refs, "--validation-refs"),
+        full_shadow_cycle_ref=args.full_shadow_cycle_ref,
+        rollback_plan=args.rollback_plan,
+        cycle_id=args.cycle_id,
+        base_dir=args.tools_dir,
+    )
+
+
+def cmd_kernel_change_list(args: argparse.Namespace) -> dict[str, Any]:
+    return {"requests": list_kernel_change_requests(base_dir=args.tools_dir)}
 
 
 def cmd_register(args: argparse.Namespace) -> dict[str, Any]:
@@ -655,3 +1059,13 @@ def cmd_apply_plan_worktree(args: argparse.Namespace) -> dict[str, Any]:
 def read_json(path: str) -> Any:
     with Path(path).open("r", encoding="utf-8") as handle:
         return json.load(handle)
+
+
+def _json_array_arg(value: str, flag: str) -> list[str]:
+    try:
+        payload = json.loads(value)
+    except json.JSONDecodeError as exc:
+        raise GovernanceError(f"{flag} must be a JSON array: {exc}") from exc
+    if not isinstance(payload, list) or not all(isinstance(item, str) and item.strip() for item in payload):
+        raise GovernanceError(f"{flag} must be a JSON array of non-empty strings")
+    return payload

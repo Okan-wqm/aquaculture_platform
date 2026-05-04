@@ -1,21 +1,41 @@
 """ARIA adapter and skill health governance kernel."""
 
 from .apply_engine import plan_apply_worktree
+from .agent_genesis import approve_agent_pr, draft_agent_from_gap, evaluate_genesis_sandbox, list_agent_drafts
+from .agent_priors import latest_agent_priors, map_agent_priors, related_agents_for_paths
+from .architecture import (
+    generate_architecture_options,
+    list_architecture_option_sets,
+    list_architecture_reviews,
+    review_architecture_decision,
+)
 from .auto_merge import classify_changed_files, evaluate_auto_merge, merge_if_green, record_pr_lifecycle
 from .budget import check_budget, list_budget_usage, record_budget_usage
+from .calibration import list_calibration_recommendations, recommend_calibration
+from .capability_gap import detect_capability_gaps, latest_capability_gaps, list_capability_gaps
 from .cycle import run_cycle
 from .cycle_diff import run_cycle_diff
 from .discovery import run_discovery
 from .impact import list_impact_plans, plan_impact
+from .impact_graph import list_impact_graphs, plan_downstream_impact
 from .integrity import verify_integrity
 from .llm_bridge import amplify_proposal
 from .memory import unwithdraw_belief, update_memory, withdraw_belief
+from .fitness import generate_fitness_report, generate_recommendation_candidate, list_fitness_reports
+from .performance import (
+    compare_performance_baseline,
+    list_performance_baselines,
+    list_performance_comparisons,
+    record_performance_baseline,
+)
 from .pressure import run_pressure
 from .proposal import approve_proposal, list_proposals, record_proposal
 from .pr_manager import open_pr_for_action
 from .quarantine import quarantine_tool
 from .reflection import run_reflection
-from .research import list_research_sources, record_research_source
+from .research import fetch_research_source, list_research_fetches, list_research_sources, record_research_source
+from .self_modification import list_kernel_change_requests, request_kernel_change
+from .validation import list_validation_plans, list_validation_runs, run_validation_commands
 from .fixture_runner import run_fixture_suite
 from .promotion import promote_tool
 from .tool_health import can_emit_operator_facing, record_run
@@ -32,34 +52,66 @@ from .task import explain_task, generate_task_candidates, latest_tasks
 __all__ = [
     "GovernanceError",
     "amplify_proposal",
+    "approve_agent_pr",
     "approve_proposal",
     "can_emit_operator_facing",
     "check_budget",
     "classify_changed_files",
+    "compare_performance_baseline",
+    "detect_capability_gaps",
+    "draft_agent_from_gap",
     "evaluate_auto_merge",
+    "evaluate_genesis_sandbox",
     "explain_task",
+    "fetch_research_source",
+    "generate_architecture_options",
+    "generate_fitness_report",
+    "generate_recommendation_candidate",
     "generate_task_candidates",
     "get_tool",
+    "latest_agent_priors",
+    "latest_capability_gaps",
     "latest_tasks",
+    "list_agent_drafts",
+    "list_architecture_option_sets",
+    "list_architecture_reviews",
     "list_budget_usage",
+    "list_calibration_recommendations",
+    "list_capability_gaps",
+    "list_fitness_reports",
+    "list_impact_graphs",
     "list_impact_plans",
+    "list_kernel_change_requests",
+    "list_performance_baselines",
+    "list_performance_comparisons",
     "list_tools",
     "list_proposals",
+    "list_research_fetches",
     "list_research_sources",
+    "list_validation_plans",
+    "list_validation_runs",
     "open_pr_for_action",
     "plan_apply_worktree",
+    "plan_downstream_impact",
     "plan_impact",
     "quarantine_tool",
+    "map_agent_priors",
+    "record_performance_baseline",
     "record_budget_usage",
     "record_run",
     "record_proposal",
     "record_pr_lifecycle",
     "record_research_source",
+    "recommend_calibration",
     "register_tool",
+    "related_agents_for_paths",
+    "request_kernel_change",
+    "review_architecture_decision",
     "run_cycle",
     "run_cycle_diff",
     "run_discovery",
     "run_fixture_suite",
+    "run_validation_commands",
     "merge_if_green",
     "run_pressure",
     "run_reflection",

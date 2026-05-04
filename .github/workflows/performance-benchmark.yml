@@ -81,7 +81,7 @@ jobs:
         # SHA verified 2026-04-22 via `gh api repos/grafana/setup-k6-action/tags` —
         # real v1.1.0 commit SHA. The previous value was an invented SHA that
         # GitHub refuses to resolve (supply-chain hygiene memory rule).
-        uses: grafana/setup-k6-action@ffe7d7290dfa715e48c2ccc924d068444c94bde2 # v1.1.0
+        uses: grafana/setup-k6-action@db07bd9765aac508ef18982e52ab937fe633a065 # v1.2.1
 
       - name: Check if performance test script exists
         id: check-script

@@ -11,6 +11,7 @@ const webRoot = join(workspace, 'web/shell/src');
 mkdirSync(apiRoot, { recursive: true });
 mkdirSync(unguardedRoot, { recursive: true });
 mkdirSync(webRoot, { recursive: true });
+mkdirSync(join(workspace, '.claude', 'worktrees', 'stale', 'apps', 'bad-api', 'src'), { recursive: true });
 
 writeFileSync(
   join(apiRoot, 'app.module.ts'),
@@ -126,8 +127,23 @@ writeFileSync(
   `,
   'utf8',
 );
+writeFileSync(
+  join(workspace, '.claude', 'worktrees', 'stale', 'apps', 'bad-api', 'src', 'stale.controller.ts'),
+  `
+    import { Controller, Post } from '@nestjs/common';
+    import { Public } from './decorators';
+    @Controller('stale')
+    export class StaleController {
+      @Public()
+      @Post()
+      create() { return 'must-not-be-read'; }
+    }
+  `,
+  'utf8',
+);
 
 const output = analyzeSecurityBoundaries({ roots: ['apps/gateway-api/src', 'apps/unguarded-api/src', 'web/shell/src'] }, workspace);
+const directRootOutput = analyzeSecurityBoundaries({ roots: ['.'] }, workspace);
 
 assert.equal(output.metadata.adapter, 'security-boundary-adapter');
 assert.equal(output.observations.some((item) => item.type === 'security_boundary_endpoint'), true);
@@ -162,5 +178,7 @@ assert.equal(output.findings.some((finding) => finding.path.endsWith('/safe.reso
 assert.equal(output.findings.some((finding) => finding.path.endsWith('/safe-html.tsx')), false);
 assert.equal(output.findings.some((finding) => finding.path.endsWith('/comment-only-html.tsx')), false);
 assert.equal(output.observations.some((observation) => observation.path?.endsWith('/comment-only-html.tsx')), false);
+assert.equal(directRootOutput.read_paths.some((path) => path.includes('.claude/worktrees')), false);
+assert.equal(directRootOutput.findings.some((finding) => finding.message.includes('must-not-be-read')), false);
 
 console.log('security-boundary-adapter tests passed');

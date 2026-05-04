@@ -15,6 +15,7 @@ from .tool_registry import GovernanceError, get_tool
 
 
 MINIMUM_OUTPUT_FIELDS = ("observations", "findings", "read_paths", "evidence_sources")
+RAW_SAMPLE_LIMIT = 50
 
 
 def run_tool(
@@ -123,6 +124,7 @@ def run_tool(
             "stderr_hash": _sha256(stderr.encode("utf-8")),
             "raw_observations_count": len(_array_or_empty(raw_observations)),
             "raw_findings_count": len(_array_or_empty(raw_findings)),
+            "raw_findings_sample": _raw_finding_sample(_array_or_empty(raw_findings)),
         },
     }
     return record_run(envelope, base_dir=base_dir)
@@ -228,6 +230,14 @@ def _valid_memory_candidates(candidates: list[Any], tool_id: str) -> list[dict[s
             },
         )
     return valid
+
+
+def _raw_finding_sample(findings: list[Any]) -> list[dict[str, Any]]:
+    sample = []
+    for finding in findings[:RAW_SAMPLE_LIMIT]:
+        if isinstance(finding, dict):
+            sample.append(finding)
+    return sample
 
 
 def _decode_timeout_stream(value: bytes | str | None) -> str:

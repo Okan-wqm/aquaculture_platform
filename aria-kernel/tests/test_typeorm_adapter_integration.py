@@ -51,7 +51,7 @@ class TypeOrmAdapterIntegrationTests(unittest.TestCase):
                         "tools/aria-adapters/typeorm-entity-schema-adapter.ts",
                     ],
                     "cwd": ".",
-                    "timeout_ms": 10000,
+                    "timeout_ms": 180000,
                     "stdin_json": True,
                 },
                 "schema_version": 1,

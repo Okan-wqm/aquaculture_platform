@@ -45,13 +45,26 @@ def generate_fitness_report(
         "dependency_currency": _presence_score([row for row in research_sources if row.get("source_tier") in ("security_advisory", "vendor", "official")]),
         "operational_safety": _operational_score(validation_plans, impact_graphs),
     }
-    overall = round(sum(dimensions.values()) / len(DIMENSIONS), 3)
+    evidence_score = round(sum(dimensions.values()) / len(DIMENSIONS), 3)
+    trust_score = _trust_score(runs)
+    finding_debt = _finding_debt(runs)
+    overall = round(max(0.0, (evidence_score * 0.55) + (trust_score * 0.35) - (finding_debt * 0.10)), 3)
+    previous_reports = list_fitness_reports(base_dir=base_dir)
+    trend = _trend(previous_reports, dimensions, overall)
+    blockers = _blockers(dimensions)
     report = {
         "schema_version": 1,
         "recorded_at": utc_now(),
         "cycle_id": cycle_id,
         "overall_score": overall,
+        "evidence_score": evidence_score,
+        "trust_score": trust_score,
+        "finding_debt": finding_debt,
+        "score_explanation": "overall_score = evidence_score*0.55 + trust_score*0.35 - finding_debt*0.10",
         "dimensions": dimensions,
+        "trend": trend,
+        "blocked_by": blockers,
+        "recommended_next_action": _recommended_next_action(dimensions, blockers),
         "recommendation_ready": False,
         "evidence": {
             "adapter_runs": len(runs),
@@ -105,6 +118,41 @@ def list_fitness_reports(*, base_dir: str | Path | None = None) -> list[dict[str
     return load_jsonl(ensure_tools_dir(base_dir) / "fitness" / "fitness-reports.jsonl")
 
 
+def _trend(previous_reports: list[dict[str, Any]], dimensions: dict[str, float], overall: float) -> dict[str, Any]:
+    if not previous_reports:
+        return {"overall_delta": 0.0, "dimension_deltas": {}, "window": 0}
+    previous = previous_reports[-1]
+    previous_dimensions = previous.get("dimensions", {}) if isinstance(previous.get("dimensions"), dict) else {}
+    return {
+        "overall_delta": round(overall - float(previous.get("overall_score") or 0), 3),
+        "dimension_deltas": {
+            dimension: round(score - float(previous_dimensions.get(dimension, 0)), 3)
+            for dimension, score in dimensions.items()
+        },
+        "window": min(90, len(previous_reports)),
+    }
+
+
+def _blockers(dimensions: dict[str, float]) -> list[str]:
+    return [f"low_fitness:{dimension}" for dimension, score in sorted(dimensions.items()) if score <= 0.25]
+
+
+def _recommended_next_action(dimensions: dict[str, float], blockers: list[str]) -> dict[str, Any]:
+    if not blockers:
+        return {"action": "maintain", "dimension": None, "reason": "all fitness dimensions have evidence"}
+    lowest_dimension = sorted(dimensions.items(), key=lambda item: (item[1], item[0]))[0][0]
+    action_by_dimension = {
+        "dependency_currency": "run_research_policy_and_currency_adapter",
+        "performance_baseline": "record_performance_baseline",
+        "operational_safety": "run_validation_and_impact_graph",
+    }
+    return {
+        "action": action_by_dimension.get(lowest_dimension, "triage_adapter_or_capability_gap"),
+        "dimension": lowest_dimension,
+        "reason": f"{lowest_dimension} has the lowest evidence score",
+    }
+
+
 def _adapter_score(runs: list[dict[str, Any]], tool_id: str) -> float:
     latest = _latest_run(runs, tool_id)
     if latest is None or latest.get("status") != "ok":
@@ -138,3 +186,20 @@ def _latest_run(runs: list[dict[str, Any]], tool_id: str) -> dict[str, Any] | No
         if run.get("tool_id") == tool_id:
             return run
     return None
+
+
+def _trust_score(runs: list[dict[str, Any]]) -> float:
+    latest_by_tool: dict[str, dict[str, Any]] = {}
+    for run in runs:
+        if run.get("tool_id"):
+            latest_by_tool[str(run.get("tool_id"))] = run
+    if not latest_by_tool:
+        return 0.0
+    ok = sum(1 for run in latest_by_tool.values() if run.get("status") == "ok")
+    judged = sum(1 for run in latest_by_tool.values() if run.get("operator_feedback_refs"))
+    return round((ok / len(latest_by_tool) * 0.7) + (judged / len(latest_by_tool) * 0.3), 3)
+
+
+def _finding_debt(runs: list[dict[str, Any]]) -> float:
+    raw = sum(int(run.get("runner", {}).get("raw_findings_count") or 0) for run in runs if run.get("status") == "ok")
+    return round(min(raw, 500) / 500, 3)

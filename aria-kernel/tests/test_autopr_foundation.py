@@ -10,13 +10,16 @@ from aria_kernel import (
     amplify_proposal,
     approve_proposal,
     check_budget,
+    compare_validation_groups,
     generate_task_candidates,
+    gate_apply_action,
     open_pr_for_action,
     plan_apply_worktree,
     plan_impact,
     record_proposal,
     record_budget_usage,
     verify_integrity,
+    run_validation_commands,
 )
 from aria_kernel.ledger import append_jsonl
 from aria_kernel.proposal import proposal_packet_from_task, record_proposal_from_amplification
@@ -167,6 +170,28 @@ class AutoPrFoundationTests(unittest.TestCase):
             dry_run=True,
         )
         self.assertEqual(action["status"], "planned")
+        baseline = run_validation_commands(
+            commands=["python3 -m unittest --help"],
+            workspace_root=self.root,
+            validation_plan_id="baseline",
+            base_dir=self.tools_dir,
+        )
+        candidate = run_validation_commands(
+            commands=["python3 -m unittest --help"],
+            workspace_root=self.root,
+            validation_plan_id=proposal["proposal_id"],
+            base_dir=self.tools_dir,
+        )
+        comparison = compare_validation_groups(
+            baseline_ref=baseline["ledger_hash"],
+            worktree_ref=candidate["ledger_hash"],
+            base_dir=self.tools_dir,
+        )
+        gate_apply_action(
+            proposal_id=proposal["proposal_id"],
+            validation_comparison_ref=comparison["ledger_hash"],
+            base_dir=self.tools_dir,
+        )
         pr = open_pr_for_action(
             proposal_id=proposal["proposal_id"],
             workspace_root=self.root,

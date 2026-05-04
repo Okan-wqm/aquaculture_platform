@@ -1,5 +1,6 @@
 {
   "name": "real-repo-baseline",
+  "lane": "real_repo_baseline",
   "input": {
     "target": "farm-service",
     "root": "apps/farm-service/src",
@@ -16,6 +17,8 @@
       "module_schema",
       "migration_registry"
     ],
+    "raw_observations_count": 1618,
+    "raw_findings_count": 0,
     "max_findings": 0
   }
 }

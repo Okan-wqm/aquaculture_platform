@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import re
 import urllib.request
+from urllib.parse import urlparse
 from pathlib import Path
 from typing import Any
 
@@ -51,11 +52,15 @@ def fetch_research_source(
     title: str = "",
     base_dir: str | Path | None = None,
     content_override: str | bytes | None = None,
+    allowed_domains: list[str] | None = None,
 ) -> dict[str, Any]:
     if not (url.startswith("https://") or url.startswith("http://")):
         raise GovernanceError("research fetch URL must be http(s)")
     if source_tier not in SOURCE_TIERS:
         raise GovernanceError(f"unknown research source tier: {source_tier}")
+    policy = _source_policy(url=url, allowed_domains=allowed_domains or [], base_dir=base_dir)
+    if policy["status"] != "allowed":
+        raise GovernanceError("research fetch blocked by source policy")
     content_type = "text/plain"
     if content_override is None:
         payload, content_type = _fetch_url(url)
@@ -85,12 +90,65 @@ def fetch_research_source(
         "content_type": content_type,
         "sanitized_text": sanitized,
         "extracted_claims": _extract_claims(sanitized),
+        "source_policy": policy,
     }
     return append_jsonl(ensure_tools_dir(base_dir) / "research" / "fetches.jsonl", row)
 
 
 def list_research_fetches(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
     return load_jsonl(ensure_tools_dir(base_dir) / "research" / "fetches.jsonl")
+
+
+def record_research_policy(
+    *,
+    allowed_domains: list[str],
+    base_dir: str | Path | None = None,
+    cycle_id: str | None = None,
+) -> dict[str, Any]:
+    domains = _normalize_domains(allowed_domains)
+    if not domains:
+        raise GovernanceError("research policy requires at least one allowed domain")
+    row = {
+        "schema_version": 1,
+        "recorded_at": utc_now(),
+        "cycle_id": cycle_id,
+        "allowed_domains": domains,
+    }
+    return append_jsonl(ensure_tools_dir(base_dir) / "research" / "policies.jsonl", row)
+
+
+def list_research_policies(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
+    return load_jsonl(ensure_tools_dir(base_dir) / "research" / "policies.jsonl")
+
+
+def _source_policy(*, url: str, allowed_domains: list[str], base_dir: str | Path | None) -> dict[str, Any]:
+    configured_domains = _normalize_domains(allowed_domains)
+    if not configured_domains:
+        policies = list_research_policies(base_dir=base_dir)
+        if policies:
+            configured_domains = _normalize_domains(policies[-1].get("allowed_domains", []))
+    if not configured_domains:
+        return {"status": "allowed", "mode": "open"}
+    host = (urlparse(url).hostname or "").lower()
+    allowed = any(host == domain or host.endswith("." + domain) for domain in configured_domains)
+    return {
+        "status": "allowed" if allowed else "blocked",
+        "mode": "allowlist",
+        "host": host,
+        "allowed_domains": configured_domains,
+    }
+
+
+def _normalize_domains(domains: list[str]) -> list[str]:
+    normalized = []
+    for domain in domains:
+        value = str(domain).strip().lower()
+        if value.startswith("http://") or value.startswith("https://"):
+            value = urlparse(value).hostname or ""
+        value = value.lstrip(".")
+        if value:
+            normalized.append(value)
+    return sorted(set(normalized))
 
 
 def _fetch_url(url: str) -> tuple[bytes, str]:

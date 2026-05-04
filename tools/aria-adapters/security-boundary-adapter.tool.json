@@ -27,7 +27,7 @@
     "web/**/*.tsx",
     "tools/eslint-rules/**/*.ts"
   ],
-  "forbidden_read_globs": ["dist/**", "node_modules/**"],
+  "forbidden_read_globs": [".claude/**", ".git/**", "agent-workspace/**", ".aria-poc/**", "aria-tools/**", "node_modules/**", "dist/**", "coverage/**", "build/**", "tmp/**"],
   "claim_types": ["security_boundary"],
   "owner": "platform",
   "runner": {

@@ -17,7 +17,7 @@
     "apps/farm-service/src/**/*.ts",
     "libs/backend-common/src/database/schema-manager.service.ts"
   ],
-  "forbidden_read_globs": ["dist/**"],
+  "forbidden_read_globs": [".claude/**", ".git/**", "agent-workspace/**", ".aria-poc/**", "aria-tools/**", "node_modules/**", "dist/**", "coverage/**", "build/**", "tmp/**"],
   "claim_types": ["schema_drift"],
   "owner": "platform",
   "runner": {

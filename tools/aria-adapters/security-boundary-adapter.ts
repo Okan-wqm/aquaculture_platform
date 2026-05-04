@@ -1,7 +1,13 @@
 #!/usr/bin/env ts-node
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { relative, resolve, sep } from 'node:path';
+import { relative } from 'node:path';
 import ts from 'typescript';
+import {
+  collectFiles,
+  normalizeWorkspacePath,
+  readWorkspaceFile,
+  resolveInsideWorkspace as resolveAdapterPath,
+  workspacePathExists,
+} from './adapter-fs';
 
 type FindingRule =
   | 'public_write_endpoint_without_allowlist'
@@ -89,7 +95,7 @@ export function analyzeSecurityBoundaries(input: AdapterInput, workspaceRoot = p
   const allowlist = new Set((input.allowlist ?? []).map(normalizePath));
   const files = roots
     .map((root) => resolveInsideWorkspace(workspaceRoot, root))
-    .filter((root) => existsSync(root))
+    .filter((root) => workspacePathExists(root))
     .flatMap((root) => collectSourceFiles(root));
   const units = files.map((file) => readSourceUnit(file, workspaceRoot));
   const result: AnalysisResult = {
@@ -439,7 +445,7 @@ function nearestClass(node: ts.Node): ts.ClassDeclaration | undefined {
 }
 
 function readSourceUnit(path: string, workspaceRoot: string): SourceUnit {
-  const text = readFileSync(path, 'utf8');
+  const text = readWorkspaceFile(path);
   return {
     path,
     relativePath: normalizePath(relative(workspaceRoot, path)),
@@ -449,26 +455,11 @@ function readSourceUnit(path: string, workspaceRoot: string): SourceUnit {
 }
 
 function collectSourceFiles(root: string): readonly string[] {
-  const files: string[] = [];
-  const stack = [root];
-  while (stack.length > 0) {
-    const current = stack.pop();
-    if (!current) {
-      continue;
-    }
-    for (const entry of readdirSync(current, { withFileTypes: true })) {
-      const path = resolve(current, entry.name);
-      if (entry.isDirectory()) {
-        if (['__tests__', 'dist', 'node_modules', 'coverage'].includes(entry.name)) {
-          continue;
-        }
-        stack.push(path);
-      } else if (entry.isFile() && (entry.name.endsWith('.ts') || entry.name.endsWith('.tsx')) && !isTestFile(entry.name)) {
-        files.push(path);
-      }
-    }
-  }
-  return files.sort();
+  return collectFiles(root, {
+    extensions: ['.ts', '.tsx'],
+    includeExcludedDir: (name) => name === '__tests__',
+    includeFile: (name) => !isTestFile(name),
+  });
 }
 
 function isTestFile(name: string): boolean {
@@ -476,13 +467,7 @@ function isTestFile(name: string): boolean {
 }
 
 function resolveInsideWorkspace(workspaceRoot: string, requestedPath: string): string {
-  const root = resolve(workspaceRoot);
-  const resolved = resolve(root, requestedPath);
-  const relativePath = relative(root, resolved);
-  if (relativePath.startsWith('..') || relativePath === '..' || relativePath.includes(`..${sep}`)) {
-    throw new Error(`path escapes workspace root: ${requestedPath}`);
-  }
-  return resolved;
+  return resolveAdapterPath(workspaceRoot, requestedPath);
 }
 
 function lineOf(sourceFile: ts.SourceFile, node: ts.Node): number {
@@ -499,7 +484,7 @@ function compareById(a: { readonly id: string }, b: { readonly id: string }): nu
 }
 
 function normalizePath(path: string): string {
-  return path.split(sep).join('/');
+  return normalizeWorkspacePath(path);
 }
 
 function readStdin(): Promise<string> {

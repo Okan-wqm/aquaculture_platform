@@ -17,6 +17,7 @@ SOURCE_WEIGHTS = {
     "migration_surface_repeat": 30,
     "discovery_incomplete": 70,
     "contradiction": 70,
+    "shadow_raw_delta": 50,
 }
 
 
@@ -134,6 +135,22 @@ def run_pressure(
                     tool_id=str(run.get("tool_id")),
                 ),
             )
+        delta = _raw_finding_delta(run, cycle_id, root)
+        if run.get("status") == "ok" and delta > 0:
+            pressures.append(
+                _pressure(
+                    cycle_id=cycle_id,
+                    source="shadow_raw_delta",
+                    pressure_type="REPETITION",
+                    severity="medium",
+                    reason=f"raw SHADOW findings increased for {run.get('tool_id')}: +{delta}",
+                    evidence=_array_of_strings(run.get("read_paths"))[:20],
+                    occurrence_count=delta,
+                    candidate_tools=[str(run.get("tool_id"))],
+                    recommended_action="sample and judge increased SHADOW findings before calibration",
+                    tool_id=str(run.get("tool_id")),
+                ),
+            )
 
     pressures.sort(key=lambda item: (-float(item["score"]), str(item["pressure_id"])))
     payload = {
@@ -226,6 +243,20 @@ def _array_of_strings(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
     return [str(item) for item in value if isinstance(item, str) and item.strip()]
+
+
+def _raw_finding_delta(run: dict[str, Any], cycle_id: str, root: Path) -> int:
+    tool_id = run.get("tool_id")
+    previous = [
+        row
+        for row in load_jsonl(runs_path(root))
+        if row.get("tool_id") == tool_id and row.get("cycle_id") != cycle_id and str(row.get("cycle_id")) < cycle_id
+    ]
+    if not previous:
+        return 0
+    current_raw = int(run.get("runner", {}).get("raw_findings_count") or 0)
+    previous_raw = int(previous[-1].get("runner", {}).get("raw_findings_count") or 0)
+    return current_raw - previous_raw
 
 
 def _slug(value: str) -> str:

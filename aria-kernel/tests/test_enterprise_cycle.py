@@ -10,11 +10,13 @@ from pathlib import Path
 
 from aria_kernel import (
     record_proposal,
+    record_run,
     record_research_source,
     register_tool,
     run_cycle,
     run_cycle_diff,
     run_discovery,
+    run_reflection,
     update_memory,
     verify_integrity,
     withdraw_belief,
@@ -168,6 +170,30 @@ class EnterpriseCycleTests(unittest.TestCase):
             "## Next Cycle Plan",
         ):
             self.assertIn(heading, report)
+
+    def test_pressure_and_reflection_surface_raw_finding_delta(self):
+        tool = shadow_tool()
+        register_tool(tool, base_dir=self.tools_dir)
+        base_run = {
+            "schema_version": 1,
+            "tool_id": "fixture-shadow-tool",
+            "status": "ok",
+            "input_hash": "sha256:input",
+            "output_hash": "sha256:output",
+            "read_paths": ["src/app.ts"],
+            "emitted_observations": [],
+            "emitted_findings": [],
+            "evidence_validation": {"valid": True},
+            "operator_feedback_refs": [],
+            "duration_ms": 1,
+            "cost_units": 0,
+        }
+        record_run({**base_run, "run_id": "run-prev", "cycle_id": "cycle-1", "runner": {"raw_findings_count": 2, "raw_observations_count": 1}}, base_dir=self.tools_dir)
+        record_run({**base_run, "run_id": "run-current", "cycle_id": "cycle-2", "runner": {"raw_findings_count": 5, "raw_observations_count": 1}}, base_dir=self.tools_dir)
+        pressure = run_pressure(cycle_id="cycle-2", base_dir=self.tools_dir)
+        self.assertTrue(any(item["source"] == "shadow_raw_delta" for item in pressure["pressures"]))
+        reflection = run_reflection(cycle_id="cycle-2", base_dir=self.tools_dir)
+        self.assertEqual(reflection["tool_runtime"][0]["raw_finding_delta_vs_prev_cycle"], 3)
 
     def test_cycle_merges_tool_default_input(self):
         tool = shadow_tool()

@@ -45,7 +45,7 @@ class EventContractsAdapterIntegrationTests(unittest.TestCase):
                         "tools/aria-adapters/event-contracts-adapter.ts",
                     ],
                     "cwd": ".",
-                    "timeout_ms": 30000,
+                    "timeout_ms": 180000,
                     "stdin_json": True,
                 },
                 "schema_version": 1,

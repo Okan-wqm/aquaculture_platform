@@ -114,6 +114,20 @@ Sistem, bilimsel makale yüklenebilir bilgi tabanı mimarisi üzerine kuruludur.
 | Tedarikçi entegrasyonu | Planlanan |
 | Tedavi takvimi otomasyonu | Planlanan |
 
+### 2.8 Çoklu Bağımsız Tesis Yönetimi
+
+AquaPlatform, çok-tenantlı (multi-tenant) bir mimari üzerine kuruludur. Tek bir operasyonel organizasyon — bir üretim grubu, bölge ofisi veya holding — coğrafi olarak bağımsız birden fazla tesisi, lokasyonu ve bölgeyi aynı platform üzerinden yönetebilir. Tesisler arası veri, veritabanı seviyesinde izole tutulur.
+
+Pratikte bu şu anlama gelir:
+
+- Her tesisin kendi tankları, türleri, sensörleri, personeli ve raporları vardır.
+- Grup düzeyindeki yönetim, tüm tesisleri tek konsolide ekrandan görebilir; risk skorları, mortalite oranları, yem sapmaları ve bakım durumları tesisler arası eş zamanlı toplulaştırılır.
+- Bir tesiste devreye alınan dozaj reçetesi, hastalık uyarısı veya bakım prosedürü diğer tesislere şablon olarak kopyalanabilir.
+- Nöbetçi personel, ortak eskalasyon ladderı altında birden fazla tesisi tek vardiyada izleyebilir.
+- Bilgi tabanı güncellemeleri (yeni hastalık makaleleri, güncellenmiş eşikler) organizasyon altındaki tüm tesislerde aynı anda yürürlüğe girer.
+
+Sonuç olarak, aynı mortalite kontrol ve operasyonel disiplin tüm portföy genelinde sürdürülür; her tesisin kendi başına ayrı bir yönetim yapısı kurmasına gerek kalmaz.
+
 ---
 
 ## 3. Yapay Zekâ Mimarisi
@@ -180,7 +194,7 @@ Aşağıdaki maddeler, sistemin balık ölümünü doğrudan azaltma yönündeki
 
 ---
 
-## 6. Mortaliteye Dolaylı Etki Eden 16 Mekanizma
+## 6. Mortaliteye Dolaylı Etki Eden 17 Mekanizma
 
 Aşağıdaki maddeler, operatör hatasını veya gecikmeli kararı azaltarak mortaliteyi engelleyen mekanizmalardır.
 
@@ -200,6 +214,7 @@ Aşağıdaki maddeler, operatör hatasını veya gecikmeli kararı azaltarak mor
 33. Sistem küçük çevresel sapmaları anomali tespiti üzerinden erkenden işaretler.
 34. Sistem her tank için 48 saatlik risk skoru üretir.
 35. Sistem yöneticinin operasyonel veri toplama yükünü tek pano üzerinden azaltır.
+36. Sistem, birden fazla bağımsız tesisin aynı operasyonel disiplin ve mortalite kontrolü altında, veriler birbirine karışmadan yönetilmesini mümkün kılar.
 
 ---
 

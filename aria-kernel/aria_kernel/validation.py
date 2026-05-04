@@ -1,0 +1,214 @@
+from __future__ import annotations
+
+import hashlib
+import os
+import shlex
+import subprocess
+import time
+from pathlib import Path
+from typing import Any
+
+from .ledger import append_jsonl, load_jsonl
+from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
+
+
+ALLOWED_COMMANDS = (
+    ("npm", "run"),
+    ("npx", "nx"),
+    ("npx", "ts-node"),
+    ("python3", "-m", "aria_kernel"),
+    ("python3", "-m", "unittest"),
+)
+
+
+def run_validation_commands(
+    *,
+    commands: list[str],
+    workspace_root: str | Path,
+    base_dir: str | Path | None = None,
+    cycle_id: str | None = None,
+    validation_plan_id: str | None = None,
+    timeout_ms: int = 120_000,
+    require_clean_worktree: bool = True,
+) -> dict[str, Any]:
+    if not commands or not all(isinstance(command, str) and command.strip() for command in commands):
+        raise GovernanceError("validation commands must contain at least one non-empty command")
+    if timeout_ms <= 0:
+        raise GovernanceError("validation timeout_ms must be positive")
+    root = Path(workspace_root).resolve()
+    if not root.exists() or not root.is_dir():
+        raise GovernanceError(f"workspace root does not exist: {workspace_root}")
+    if require_clean_worktree and _dirty_worktree(root):
+        raise GovernanceError("validation requires a clean git worktree")
+
+    runs = []
+    for index, command in enumerate(commands):
+        runs.append(
+            _run_one(
+                command=command,
+                workspace_root=root,
+                base_dir=base_dir,
+                cycle_id=cycle_id,
+                validation_plan_id=validation_plan_id,
+                ordinal=index,
+                timeout_ms=timeout_ms,
+            ),
+        )
+    payload = {
+        "schema_version": 1,
+        "recorded_at": utc_now(),
+        "cycle_id": cycle_id,
+        "validation_plan_id": validation_plan_id,
+        "status": "ok" if all(run["status"] == "ok" for run in runs) else "failed",
+        "command_count": len(runs),
+        "run_refs": [run["ledger_hash"] for run in runs],
+    }
+    return append_jsonl(ensure_tools_dir(base_dir) / "validation" / "validation-plans.jsonl", payload)
+
+
+def list_validation_runs(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
+    return load_jsonl(ensure_tools_dir(base_dir) / "validation" / "validation-runs.jsonl")
+
+
+def list_validation_plans(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
+    return load_jsonl(ensure_tools_dir(base_dir) / "validation" / "validation-plans.jsonl")
+
+
+def _run_one(
+    *,
+    command: str,
+    workspace_root: Path,
+    base_dir: str | Path | None,
+    cycle_id: str | None,
+    validation_plan_id: str | None,
+    ordinal: int,
+    timeout_ms: int,
+) -> dict[str, Any]:
+    argv, env_updates = _parse_allowed_command(command)
+    started = time.monotonic()
+    status = "ok"
+    stdout = ""
+    stderr = ""
+    exit_code: int | None = None
+    timed_out = False
+    try:
+        completed = subprocess.run(
+            argv,
+            cwd=workspace_root,
+            env={**os.environ, **env_updates},
+            capture_output=True,
+            text=True,
+            timeout=timeout_ms / 1000,
+            check=False,
+            shell=False,
+        )
+        stdout = completed.stdout or ""
+        stderr = completed.stderr or ""
+        exit_code = completed.returncode
+        if completed.returncode != 0:
+            status = "failed"
+    except subprocess.TimeoutExpired as exc:
+        timed_out = True
+        status = "timeout"
+        stdout = _decode_timeout_stream(exc.stdout)
+        stderr = _decode_timeout_stream(exc.stderr)
+    duration_ms = int(round((time.monotonic() - started) * 1000))
+    row = {
+        "schema_version": 1,
+        "recorded_at": utc_now(),
+        "cycle_id": cycle_id,
+        "validation_plan_id": validation_plan_id,
+        "ordinal": ordinal,
+        "command": command,
+        "argv": argv,
+        "status": status,
+        "exit_code": exit_code,
+        "timed_out": timed_out,
+        "duration_ms": duration_ms,
+        "stdout_hash": _sha256(stdout.encode("utf-8")),
+        "stderr_hash": _sha256(stderr.encode("utf-8")),
+    }
+    return append_jsonl(ensure_tools_dir(base_dir) / "validation" / "validation-runs.jsonl", row)
+
+
+def _parse_allowed_command(command: str) -> tuple[list[str], dict[str, str]]:
+    if any(token in command for token in (";", "|", "&&", "||", ">", "<", "`", "$(")):
+        raise GovernanceError("validation command contains unsupported shell syntax")
+    try:
+        parts = shlex.split(command)
+    except ValueError as exc:
+        raise GovernanceError(f"validation command cannot be parsed: {exc}") from exc
+    if not parts:
+        raise GovernanceError("validation command must not be empty")
+    env_updates: dict[str, str] = {}
+    while parts and "=" in parts[0] and not parts[0].startswith("-"):
+        key, value = parts.pop(0).split("=", 1)
+        if key != "PYTHONPATH":
+            raise GovernanceError(f"validation command environment override is not allowed: {key}")
+        env_updates[key] = value
+    if not any(tuple(parts[: len(prefix)]) == prefix for prefix in ALLOWED_COMMANDS):
+        raise GovernanceError("validation command is not in the approved allowlist")
+    _validate_command_details(parts)
+    return parts, env_updates
+
+
+def _validate_command_details(parts: list[str]) -> None:
+    if parts[:2] == ["npm", "run"]:
+        if len(parts) < 3 or not _allowed_npm_script(parts[2]):
+            raise GovernanceError("npm validation script is not approved")
+    elif parts[:2] == ["npx", "nx"]:
+        if len(parts) < 3 or parts[2] not in ("affected", "run-many"):
+            raise GovernanceError("nx validation command must use affected or run-many")
+        joined = " ".join(parts[3:])
+        if not any(f"--target={target}" in joined or f"-t={target}" in joined for target in ("test", "lint", "build", "type-check")):
+            raise GovernanceError("nx validation target is not approved")
+    elif parts[:2] == ["npx", "ts-node"]:
+        if not any(part.startswith("tools/aria-adapters/") and part.endswith((".test.ts", ".spec.ts")) for part in parts):
+            raise GovernanceError("ts-node validation is limited to ARIA adapter tests")
+    elif parts[:3] == ["python3", "-m", "aria_kernel"]:
+        if parts[3:] != ["integrity", "verify"]:
+            raise GovernanceError("aria_kernel validation command is limited to integrity verify")
+    elif parts[:3] == ["python3", "-m", "unittest"]:
+        return
+
+
+def _allowed_npm_script(script: str) -> bool:
+    allowed_exact = {
+        "test",
+        "test:all",
+        "lint",
+        "lint:all",
+        "build",
+        "build:all",
+        "build:web",
+        "type-check",
+        "format:check",
+    }
+    return script in allowed_exact or script.startswith("gates:") or script.startswith("invariants:")
+
+
+def _dirty_worktree(root: Path) -> bool:
+    if not (root / ".git").exists():
+        return False
+    completed = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise GovernanceError("unable to inspect git worktree before validation")
+    return bool(completed.stdout.strip())
+
+
+def _decode_timeout_stream(value: str | bytes | None) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value
+
+
+def _sha256(payload: bytes) -> str:
+    return "sha256:" + hashlib.sha256(payload).hexdigest()

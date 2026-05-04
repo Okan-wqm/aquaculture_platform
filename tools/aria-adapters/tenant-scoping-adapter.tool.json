@@ -36,7 +36,7 @@
       "tools/aria-adapters/tenant-scoping-adapter.ts"
     ],
     "cwd": ".",
-    "timeout_ms": 60000,
+    "timeout_ms": 180000,
     "stdin_json": true
   },
   "schema_version": 1

@@ -8,6 +8,7 @@ from .apply_engine import list_apply_actions
 from .auto_merge import record_pr_lifecycle
 from .proposal import get_proposal
 from .tool_registry import GovernanceError
+from .validation import list_validation_plans
 
 
 REQUIRED_PR_SECTIONS = (
@@ -24,6 +25,7 @@ REQUIRED_PR_SECTIONS = (
 def build_pr_body(*, proposal: dict[str, Any], action: dict[str, Any]) -> str:
     evidence = "\n".join(f"- `{item}`" for item in proposal.get("evidence", []))
     validation = "\n".join(f"- `{item}`" for item in action.get("validation_commands", []))
+    validation_refs = "\n".join(f"- `{item}`" for item in action.get("validation_run_refs", []))
     return "\n".join(
         [
             "## Problem",
@@ -37,6 +39,9 @@ def build_pr_body(*, proposal: dict[str, Any], action: dict[str, Any]) -> str:
             "",
             "## Validation",
             validation or "- No validation commands recorded",
+            "",
+            "### Validation Evidence",
+            validation_refs or "- No validation run refs recorded",
             "",
             "## Baseline Comparison",
             f"- Base SHA: `{action.get('base_sha')}`",
@@ -64,6 +69,12 @@ def open_pr_for_action(
     action = _latest_action_for_proposal(proposal_id, base_dir)
     if not action:
         raise GovernanceError("no apply action exists for proposal")
+    action = dict(action)
+    latest_validation = _latest_validation_plan_for_proposal(proposal_id, base_dir)
+    if latest_validation:
+        action["validation_plan_ref"] = latest_validation.get("ledger_hash")
+        action["validation_plan_status"] = latest_validation.get("status")
+        action["validation_run_refs"] = latest_validation.get("run_refs", [])
     body = build_pr_body(proposal=proposal, action=action)
     _validate_pr_body(body)
     payload = {
@@ -98,6 +109,13 @@ def _latest_action_for_proposal(proposal_id: str, base_dir: str | Path | None) -
     for action in reversed(list_apply_actions(base_dir=base_dir)):
         if action.get("proposal_id") == proposal_id:
             return action
+    return None
+
+
+def _latest_validation_plan_for_proposal(proposal_id: str, base_dir: str | Path | None) -> dict[str, Any] | None:
+    for plan in reversed(list_validation_plans(base_dir=base_dir)):
+        if plan.get("validation_plan_id") == proposal_id:
+            return plan
     return None
 
 

@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .capability_gap import latest_capability_gaps
 from .feedback_store import list_findings
 from .ledger import append_jsonl, load_jsonl
 from .tool_health import runs_path
@@ -26,6 +27,9 @@ def generate_task_candidates(
         candidates.append(_candidate_from_pressure(cycle_id, pressure))
     for finding in list_findings(status="open", base_dir=base_dir):
         candidates.append(_candidate_from_finding(cycle_id, finding))
+    for gap in latest_capability_gaps(base_dir=base_dir):
+        if gap.get("cycle_id") == cycle_id:
+            candidates.append(_candidate_from_capability_gap(cycle_id, gap))
     for run in load_jsonl(runs_path(root)):
         if run.get("cycle_id") != cycle_id or run.get("status") != "ok":
             continue
@@ -127,6 +131,26 @@ def _candidate_from_shadow_summary(cycle_id: str, run: dict[str, Any], raw_count
         "validation_commands": ["PYTHONPATH=aria-kernel python3 -m unittest discover aria-kernel -p '*test*.py'"],
         "score": min(75, 30 + raw_count),
         "blocked_by": ["operator_feedback_required"],
+    }
+
+
+def _candidate_from_capability_gap(cycle_id: str, gap: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "task_id": _task_id(cycle_id, "capability_gap", str(gap.get("gap_id"))),
+        "cycle_id": cycle_id,
+        "source": "capability_gap",
+        "source_id": str(gap.get("gap_id")),
+        "source_authority": "capability_gap",
+        "title": str(gap.get("title") or gap.get("gap_id")),
+        "problem": str(gap.get("title") or gap.get("gap_id")),
+        "evidence_refs": _strings(gap.get("evidence_refs")),
+        "candidate_tools": [],
+        "related_specialized_agent_domains": _strings(gap.get("related_existing_agents")),
+        "risk_class": "agent_genesis",
+        "validation_commands": _strings(gap.get("candidate_validation_commands")),
+        "score": float(gap.get("score") or 0),
+        "blocked_by": _strings(gap.get("blocked_by")),
     }
 
 

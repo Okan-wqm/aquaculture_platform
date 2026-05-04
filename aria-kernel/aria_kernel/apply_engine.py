@@ -22,6 +22,8 @@ def plan_apply_worktree(
     proposal = get_proposal(proposal_id=proposal_id, base_dir=base_dir)
     if proposal.get("status") not in APPROVED_STATUSES:
         raise GovernanceError("proposal must be approved_for_apply before worktree planning")
+    if proposal.get("kind") == "self_change":
+        raise GovernanceError("kernel self-change proposals require the dedicated kernel-change lane")
     root = Path(workspace_root).resolve()
     base_sha = _git(root, ["rev-parse", "HEAD"])
     worktree_path = root / "aria-worktrees" / f"A-{proposal_id}"
@@ -36,6 +38,7 @@ def plan_apply_worktree(
         "dry_run": dry_run,
         "status": "planned" if dry_run else "worktree_created",
         "validation_commands": proposal.get("validation_scope", {}).get("commands", []),
+        "changed_files": proposal.get("evidence", []),
     }
     if not dry_run:
         worktree_path.parent.mkdir(parents=True, exist_ok=True)

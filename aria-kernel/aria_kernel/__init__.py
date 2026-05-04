@@ -18,10 +18,30 @@ from .auto_merge import classify_changed_files, evaluate_auto_merge, merge_if_gr
 from .budget import check_budget, list_budget_usage, record_budget_usage
 from .calibration import list_calibration_recommendations, recommend_calibration
 from .capability_gap import detect_capability_gaps, latest_capability_gaps, list_capability_gaps
+from .ci import (
+    evaluate_pr_ci_gate,
+    inventory_workflows,
+    list_agent_reviews,
+    list_ci_failures,
+    produce_ci_review,
+    record_agent_review_result,
+    record_ci_report,
+    record_remediation_proposal,
+    wait_pr_checks,
+)
 from .codegen import list_code_change_plans, list_generated_diff_packets, record_code_change_plan, record_generated_diff_packet
 from .cycle import run_cycle
 from .cycle_diff import run_cycle_diff
 from .discovery import run_discovery
+from .executor import (
+    apply_executor_packet,
+    executor_status,
+    record_executor_packet,
+    register_executor,
+    retry_pr,
+    review_executor_diff,
+)
+from .heartbeat import cycle_run_batch, heartbeat_status, heartbeat_tick
 from .impact import list_impact_plans, plan_impact
 from .impact_graph import list_impact_graphs, plan_downstream_impact
 from .integrity import verify_integrity
@@ -37,7 +57,17 @@ from .performance import (
 )
 from .pressure import run_pressure
 from .proposal import approve_proposal, list_proposals, record_proposal
-from .pr_manager import list_pr_lifecycle_plans, list_pr_split_plans, open_pr_for_action, plan_pr_lifecycle, plan_pr_split
+from .pr_manager import (
+    commit_prepared_branch,
+    list_pr_actions,
+    list_pr_lifecycle_plans,
+    list_pr_split_plans,
+    open_pr_for_action,
+    plan_pr_lifecycle,
+    plan_pr_split,
+    prepare_branch,
+    push_prepared_branch,
+)
 from .pr_tracking import observe_pr_event, plan_incremental_cycle, plan_pr_impact
 from .quarantine import quarantine_tool
 from .reflection import run_reflection
@@ -67,31 +97,39 @@ __all__ = [
     "can_emit_operator_facing",
     "check_budget",
     "classify_changed_files",
+    "commit_prepared_branch",
     "compare_performance_baseline",
     "compare_validation_groups",
+    "cycle_run_batch",
     "detect_capability_gaps",
     "draft_architecture_adr",
     "draft_agent_from_gap",
     "evaluate_auto_merge",
+    "evaluate_pr_ci_gate",
     "evaluate_genesis_sandbox",
     "evaluate_validation_gate",
     "explain_task",
+    "executor_status",
     "fetch_research_source",
     "generate_architecture_options",
     "generate_adapter_calibration_report",
     "generate_fitness_report",
     "generate_ai_consensus",
     "generate_judgment_sample",
+    "heartbeat_status",
+    "heartbeat_tick",
     "fixture_status_report",
     "generate_observability_dashboard",
     "generate_recommendation_candidate",
     "generate_task_candidates",
     "get_tool",
     "gate_apply_action",
+    "inventory_workflows",
     "latest_agent_priors",
     "latest_capability_gaps",
     "latest_tasks",
     "list_agent_drafts",
+    "list_agent_reviews",
     "list_adapter_calibration_reports",
     "list_architecture_adr_drafts",
     "list_architecture_evidence_packs",
@@ -101,6 +139,7 @@ __all__ = [
     "list_calibration_recommendations",
     "list_capability_gaps",
     "list_code_change_plans",
+    "list_ci_failures",
     "list_cycle_metrics",
     "list_fitness_reports",
     "list_generated_diff_packets",
@@ -114,6 +153,7 @@ __all__ = [
     "list_performance_comparisons",
     "list_pr_lifecycle_plans",
     "list_pr_split_plans",
+    "list_pr_actions",
     "list_tools",
     "list_proposals",
     "list_research_fetches",
@@ -133,11 +173,17 @@ __all__ = [
     "plan_downstream_impact",
     "plan_impact",
     "prepare_agent_pr_lane",
+    "prepare_branch",
+    "produce_ci_review",
+    "push_prepared_branch",
     "quarantine_tool",
     "map_agent_priors",
     "record_architecture_evidence_pack",
     "record_code_change_plan",
     "record_cycle_metrics",
+    "record_agent_review_result",
+    "record_ci_report",
+    "record_executor_packet",
     "record_generated_diff_packet",
     "record_performance_baseline",
     "record_budget_usage",
@@ -145,14 +191,18 @@ __all__ = [
     "record_ai_feedback_file",
     "record_operator_feedback_batch",
     "record_proposal",
+    "record_remediation_proposal",
     "record_pr_lifecycle",
     "record_research_policy",
     "record_research_source",
     "recommend_calibration",
     "register_tool",
+    "register_executor",
     "related_agents_for_paths",
     "request_kernel_change",
     "review_architecture_decision",
+    "review_executor_diff",
+    "retry_pr",
     "run_cycle",
     "run_cycle_diff",
     "run_discovery",
@@ -170,5 +220,7 @@ __all__ = [
     "unwithdraw_belief",
     "update_memory",
     "verify_integrity",
+    "wait_pr_checks",
+    "apply_executor_packet",
     "withdraw_belief",
 ]

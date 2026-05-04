@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import fnmatch
 from pathlib import Path
 from typing import Any
 
@@ -14,7 +15,7 @@ from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 FEEDBACK_VERDICTS = ("true_positive", "false_positive")
 FEEDBACK_SEVERITIES = ("low", "medium", "high", "critical")
 FEEDBACK_SOURCE_TYPES = ("human", "ai_judge", "ai_consensus")
-JUDGMENT_STRATEGIES = ("stratified_by_rule", "random")
+JUDGMENT_STRATEGIES = ("stratified_by_uncertainty", "stratified_by_rule", "random")
 DEFAULT_MIN_JUDGED_SAMPLES = 10
 CONSENSUS_MIN_CONFIDENCE = 0.80
 
@@ -374,7 +375,7 @@ def generate_judgment_sample(
     *,
     tool_id: str,
     sample_size: int,
-    strategy: str = "stratified_by_rule",
+    strategy: str = "stratified_by_uncertainty",
     cycle_id: str | None = None,
     min_judged_samples: int = DEFAULT_MIN_JUDGED_SAMPLES,
     base_dir: str | Path | None = None,
@@ -386,7 +387,7 @@ def generate_judgment_sample(
     if min_judged_samples <= 0:
         raise GovernanceError("feedback judge min_judged_samples must be positive")
     findings = _sampleable_raw_findings(tool_id=tool_id, cycle_id=cycle_id, base_dir=base_dir)
-    selected = _select_findings(findings, sample_size=sample_size, strategy=strategy)
+    selected = _select_findings(findings, sample_size=sample_size, strategy=strategy, base_dir=base_dir)
     row = {
         "schema_version": 1,
         "recorded_at": utc_now(),
@@ -520,9 +521,17 @@ def evidence_hash_for_finding(finding: dict[str, Any]) -> str:
     return "sha256:" + hashlib.sha256(json.dumps(stable, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
-def _select_findings(findings: list[dict[str, Any]], *, sample_size: int, strategy: str) -> list[dict[str, Any]]:
+def _select_findings(
+    findings: list[dict[str, Any]],
+    *,
+    sample_size: int,
+    strategy: str,
+    base_dir: str | Path | None,
+) -> list[dict[str, Any]]:
     if strategy == "random":
         return sorted(findings, key=lambda item: _stable_sort_key(item))[:sample_size]
+    if strategy == "stratified_by_uncertainty":
+        return _select_by_uncertainty(findings, sample_size=sample_size, base_dir=base_dir)
     by_rule: dict[str, list[dict[str, Any]]] = {}
     for finding in sorted(findings, key=lambda item: _stable_sort_key(item)):
         by_rule.setdefault(str(finding.get("rule") or "unknown"), []).append(finding)
@@ -535,6 +544,90 @@ def _select_findings(findings: list[dict[str, Any]], *, sample_size: int, strate
                 if len(selected) >= sample_size:
                     break
     return selected
+
+
+def _select_by_uncertainty(
+    findings: list[dict[str, Any]],
+    *,
+    sample_size: int,
+    base_dir: str | Path | None,
+) -> list[dict[str, Any]]:
+    belief_scores = _belief_uncertainty_scores(base_dir)
+    if not belief_scores:
+        return _select_findings(findings, sample_size=sample_size, strategy="stratified_by_rule", base_dir=base_dir)
+    ranked = []
+    for finding in findings:
+        score, belief_ids = _finding_uncertainty(finding, belief_scores)
+        enriched = dict(finding)
+        enriched["uncertainty_score"] = score
+        enriched["uncertain_belief_ids"] = belief_ids
+        ranked.append(enriched)
+    return sorted(ranked, key=lambda item: (-float(item.get("uncertainty_score") or 0.0), _stable_sort_key(item)))[:sample_size]
+
+
+def _belief_uncertainty_scores(base_dir: str | Path | None) -> list[dict[str, Any]]:
+    latest: dict[str, dict[str, Any]] = {}
+    for row in load_jsonl(ensure_tools_dir(base_dir) / "memory" / "beliefs.jsonl"):
+        belief_id = str(row.get("belief_id") or "")
+        if belief_id:
+            latest[belief_id] = row
+    scores = []
+    for belief_id, belief in latest.items():
+        refs = _optional_string_list(belief.get("evidence_refs")) or _optional_string_list(belief.get("evidence"))
+        if not refs:
+            continue
+        confidence = belief.get("confidence", 1.0)
+        try:
+            confidence_float = float(confidence)
+        except (TypeError, ValueError):
+            confidence_float = 1.0
+        status = str(belief.get("status") or "supported")
+        status_boost = {
+            "contradicted": 0.35,
+            "needs_revalidation": 0.25,
+            "stale": 0.3,
+            "withdrawn": 0.0,
+            "supported": 0.0,
+        }.get(status, 0.1)
+        uncertainty = max(0.0, min(1.0, 1.0 - confidence_float + status_boost))
+        if uncertainty <= 0:
+            continue
+        scores.append(
+            {
+                "belief_id": belief_id,
+                "uncertainty": uncertainty,
+                "evidence_refs": [ref.replace("\\", "/") for ref in refs],
+            },
+        )
+    return sorted(scores, key=lambda item: (-float(item["uncertainty"]), str(item["belief_id"])))
+
+
+def _finding_uncertainty(finding: dict[str, Any], belief_scores: list[dict[str, Any]]) -> tuple[float, list[str]]:
+    paths = _finding_paths(finding)
+    matched = []
+    score = 0.0
+    for belief in belief_scores:
+        refs = _optional_string_list(belief.get("evidence_refs"))
+        if any(_path_matches_ref(path, ref) for path in paths for ref in refs):
+            matched.append(str(belief.get("belief_id")))
+            score = max(score, float(belief.get("uncertainty") or 0.0))
+    return score, sorted(set(matched))
+
+
+def _finding_paths(finding: dict[str, Any]) -> list[str]:
+    paths = []
+    path = finding.get("path")
+    if isinstance(path, str) and path:
+        paths.append(path)
+    evidence = finding.get("evidence")
+    if isinstance(evidence, list):
+        paths.extend(str(item.get("path")) for item in evidence if isinstance(item, dict) and isinstance(item.get("path"), str))
+    return sorted(set(path.replace("\\", "/") for path in paths if path))
+
+
+def _path_matches_ref(path: str, ref: str) -> bool:
+    normalized = ref.replace("\\", "/")
+    return path == normalized or fnmatch.fnmatch(path, normalized) or path.startswith(normalized.rstrip("*"))
 
 
 def _stable_sort_key(item: dict[str, Any]) -> str:

@@ -34,6 +34,13 @@ EVIDENCE_PACK_FIELDS = (
     "migration_risk",
     "repo_value",
 )
+FIVE_EVIDENCE_VALIDATOR = (
+    ("repo_usage_map_refs", "blocking", "repo_fit_refs"),
+    ("authoritative_refs", "blocking", "authoritative_refs"),
+    ("current_stable_refs", "blocking", "current_stable_refs"),
+    ("migration_blast_radius", "blocking", "migration_risk"),
+    ("repo_value", "blocking", "repo_value"),
+)
 
 
 def review_architecture_decision(
@@ -180,17 +187,14 @@ def record_architecture_evidence_pack(
 ) -> dict[str, Any]:
     if not technology.strip():
         raise GovernanceError("architecture evidence pack requires technology")
-    missing = []
-    if not _dedupe(repo_fit_refs):
-        missing.append("repo_fit_refs")
-    if not _dedupe(current_stable_refs):
-        missing.append("current_stable_refs")
-    if not _dedupe(authoritative_refs):
-        missing.append("authoritative_refs")
-    if not migration_risk.strip():
-        missing.append("migration_risk")
-    if not repo_value.strip():
-        missing.append("repo_value")
+    validation = _five_evidence_validation(
+        repo_fit_refs=repo_fit_refs,
+        current_stable_refs=current_stable_refs,
+        authoritative_refs=authoritative_refs,
+        migration_risk=migration_risk,
+        repo_value=repo_value,
+    )
+    missing = [item["field"] for item in validation if item["blocking"] and item["status"] == "missing"]
     row = {
         "schema_version": 1,
         "recorded_at": utc_now(),
@@ -202,6 +206,7 @@ def record_architecture_evidence_pack(
         "authoritative_refs": _dedupe(authoritative_refs),
         "migration_risk": migration_risk.strip(),
         "repo_value": repo_value.strip(),
+        "five_evidence_validator": validation,
         "status": "complete" if not missing else "blocked",
         "blocked_by": [f"missing_{field}" for field in missing],
     }
@@ -276,6 +281,7 @@ def _render_adr(option_set: dict[str, Any], evidence_pack: dict[str, Any]) -> st
             str(option_set.get("root_cause", "")),
             "",
             "## Evidence",
+            "- Validator: repo_usage_map_refs, authoritative_refs, current_stable_refs, migration_blast_radius, repo_value",
             f"- Repo fit refs: {', '.join(evidence_pack.get('repo_fit_refs', []))}",
             f"- Current stable refs: {', '.join(evidence_pack.get('current_stable_refs', []))}",
             f"- Authoritative refs: {', '.join(evidence_pack.get('authoritative_refs', []))}",
@@ -398,6 +404,37 @@ def _blockers(
     if proposed_action == "emergency_patch" and not cleanup_task.strip():
         blockers.append("emergency_cleanup_required")
     return sorted(set(blockers))
+
+
+def _five_evidence_validation(
+    *,
+    repo_fit_refs: list[str],
+    current_stable_refs: list[str],
+    authoritative_refs: list[str],
+    migration_risk: str,
+    repo_value: str,
+) -> list[dict[str, Any]]:
+    values = {
+        "repo_fit_refs": _dedupe(repo_fit_refs),
+        "current_stable_refs": _dedupe(current_stable_refs),
+        "authoritative_refs": _dedupe(authoritative_refs),
+        "migration_risk": migration_risk.strip(),
+        "repo_value": repo_value.strip(),
+    }
+    rows = []
+    for field, mode, source_field in FIVE_EVIDENCE_VALIDATOR:
+        value = values[source_field]
+        present = bool(value)
+        rows.append(
+            {
+                "field": field,
+                "source_field": source_field,
+                "mode": mode,
+                "blocking": mode == "blocking",
+                "status": "present" if present else "missing",
+            },
+        )
+    return rows
 
 
 def _option(action: str, tradeoff: str, adoption: dict[str, Any]) -> dict[str, Any]:

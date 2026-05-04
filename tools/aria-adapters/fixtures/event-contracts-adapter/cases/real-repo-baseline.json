@@ -1,5 +1,6 @@
 {
   "name": "real-repo-baseline",
+  "lane": "real_repo_baseline",
   "input": {
     "root": "libs/event-contracts/src"
   },
@@ -11,6 +12,8 @@
       "event_schema_catalog",
       "event_validator_dispatch"
     ],
+    "raw_observations_count": 161,
+    "raw_findings_count": 0,
     "max_findings": 0
   }
 }

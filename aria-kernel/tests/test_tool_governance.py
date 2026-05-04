@@ -10,7 +10,9 @@ from pathlib import Path
 
 from aria_kernel import (
     GovernanceError,
+    generate_judgment_sample,
     get_tool,
+    latest_fixture_status,
     list_tools,
     promote_tool,
     record_run,
@@ -526,6 +528,7 @@ class ToolGovernanceTests(unittest.TestCase):
             base_dir=self.tools_dir,
         )
         self.assertTrue(result["passed"])
+        self.assertTrue(latest_fixture_status("ts-adapter", base_dir=self.tools_dir)["current_tool_passed"])
         promoted = promote_tool(
             "ts-adapter",
             "SHADOW",
@@ -533,6 +536,51 @@ class ToolGovernanceTests(unittest.TestCase):
             base_dir=self.tools_dir,
         )
         self.assertEqual(promoted["status"], "SHADOW")
+
+    def test_old_fixture_pass_is_not_current_after_tool_manifest_change(self):
+        fixture_root = self.tools_dir / "fixtures/ts-adapter/cases"
+        fixture_root.mkdir(parents=True)
+        (fixture_root / "clean.json").write_text(
+            json.dumps({"input": {}, "expected": {"status": "ok", "max_findings": 0}}),
+            encoding="utf-8",
+        )
+        register_tool(
+            valid_tool(status="CALIBRATE", runner=runner(fake_tool_argv(valid_tool_output(findings=[])))),
+            base_dir=self.tools_dir,
+        )
+        run_fixture_suite("ts-adapter", workspace_root=self.root, cycle_id="fixture-cycle", base_dir=self.tools_dir)
+        changed = valid_tool(
+            status="CALIBRATE",
+            version="1.0.1",
+            runner=runner(fake_tool_argv(valid_tool_output(findings=[]))),
+        )
+        register_tool(changed, base_dir=self.tools_dir)
+        status = latest_fixture_status("ts-adapter", base_dir=self.tools_dir)
+        self.assertTrue(status["passed"])
+        self.assertFalse(status["current_tool_passed"])
+        with self.assertRaisesRegex(GovernanceError, "current tool version"):
+            promote_tool("ts-adapter", "SHADOW", reason="stale fixture should not promote", base_dir=self.tools_dir)
+
+    def test_feedback_judge_samples_shadow_raw_findings_by_rule_bucket(self):
+        register_tool(valid_tool(status="SHADOW"), base_dir=self.tools_dir)
+        output = valid_tool_output(
+            findings=[
+                {"id": "f-1", "rule": "a", "severity": "medium", "path": "apps/farm-service/src/app.module.ts", "evidence": [{"path": "apps/farm-service/src/app.module.ts", "line": 1}]},
+                {"id": "f-2", "rule": "b", "severity": "medium", "path": "apps/farm-service/src/app.module.ts", "evidence": [{"path": "apps/farm-service/src/app.module.ts", "line": 1}]},
+                {"id": "f-3", "rule": "a", "severity": "medium", "path": "apps/farm-service/src/app.module.ts", "evidence": [{"path": "apps/farm-service/src/app.module.ts", "line": 1}]},
+            ],
+        )
+        register_tool(valid_tool(status="SHADOW", runner=runner(fake_tool_argv(output))), base_dir=self.tools_dir)
+        run_tool("ts-adapter", {}, "cycle-judge", workspace_root=self.root, base_dir=self.tools_dir)
+        sample = generate_judgment_sample(
+            tool_id="ts-adapter",
+            sample_size=2,
+            cycle_id="cycle-judge",
+            base_dir=self.tools_dir,
+        )
+        self.assertEqual(sample["status"], "pending")
+        self.assertEqual(sample["sampled_count"], 2)
+        self.assertEqual({item["rule"] for item in sample["items"]}, {"a", "b"})
 
     def test_operator_feedback_store_contributes_to_health_metrics(self):
         register_tool(valid_tool(), base_dir=self.tools_dir)

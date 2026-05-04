@@ -45,7 +45,10 @@ def generate_fitness_report(
         "dependency_currency": _presence_score([row for row in research_sources if row.get("source_tier") in ("security_advisory", "vendor", "official")]),
         "operational_safety": _operational_score(validation_plans, impact_graphs),
     }
-    overall = round(sum(dimensions.values()) / len(DIMENSIONS), 3)
+    evidence_score = round(sum(dimensions.values()) / len(DIMENSIONS), 3)
+    trust_score = _trust_score(runs)
+    finding_debt = _finding_debt(runs)
+    overall = round(max(0.0, (evidence_score * 0.55) + (trust_score * 0.35) - (finding_debt * 0.10)), 3)
     previous_reports = list_fitness_reports(base_dir=base_dir)
     trend = _trend(previous_reports, dimensions, overall)
     blockers = _blockers(dimensions)
@@ -54,6 +57,10 @@ def generate_fitness_report(
         "recorded_at": utc_now(),
         "cycle_id": cycle_id,
         "overall_score": overall,
+        "evidence_score": evidence_score,
+        "trust_score": trust_score,
+        "finding_debt": finding_debt,
+        "score_explanation": "overall_score = evidence_score*0.55 + trust_score*0.35 - finding_debt*0.10",
         "dimensions": dimensions,
         "trend": trend,
         "blocked_by": blockers,
@@ -179,3 +186,20 @@ def _latest_run(runs: list[dict[str, Any]], tool_id: str) -> dict[str, Any] | No
         if run.get("tool_id") == tool_id:
             return run
     return None
+
+
+def _trust_score(runs: list[dict[str, Any]]) -> float:
+    latest_by_tool: dict[str, dict[str, Any]] = {}
+    for run in runs:
+        if run.get("tool_id"):
+            latest_by_tool[str(run.get("tool_id"))] = run
+    if not latest_by_tool:
+        return 0.0
+    ok = sum(1 for run in latest_by_tool.values() if run.get("status") == "ok")
+    judged = sum(1 for run in latest_by_tool.values() if run.get("operator_feedback_refs"))
+    return round((ok / len(latest_by_tool) * 0.7) + (judged / len(latest_by_tool) * 0.3), 3)
+
+
+def _finding_debt(runs: list[dict[str, Any]]) -> float:
+    raw = sum(int(run.get("runner", {}).get("raw_findings_count") or 0) for run in runs if run.get("status") == "ok")
+    return round(min(raw, 500) / 500, 3)

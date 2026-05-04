@@ -117,7 +117,6 @@ def prepare_agent_pr_lane(
         raise GovernanceError("agent draft must be approved_for_agent_pr before PR lane preparation")
     target_path = str(draft.get("target_path") or "")
     name = str(draft.get("draft", {}).get("name") or "")
-    sandbox = _latest_sandbox(draft_id, base_dir)
     blockers = []
     if not target_path.startswith(".claude/agents/aria-") or not target_path.endswith(".md"):
         blockers.append("target_path_not_agent_scoped")
@@ -137,7 +136,7 @@ def prepare_agent_pr_lane(
         "target_path": target_path,
         "branch": f"aria/agent-genesis/{name}",
         "changed_files": [target_path],
-        "sandbox_ref": sandbox.get("ledger_hash") if sandbox else None,
+        "sandbox_ref": _latest_sandbox(draft_id, base_dir).get("ledger_hash") if _latest_sandbox(draft_id, base_dir) else None,
         "operator_approval_ref": draft.get("operator_approval_ref"),
         "status": "ready_for_pr" if not blockers else "blocked",
         "blocked_by": blockers,

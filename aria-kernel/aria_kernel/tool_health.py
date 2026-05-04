@@ -42,9 +42,16 @@ REQUIRED_RUN_FIELDS = (
     "schema_version",
 )
 DEFAULT_FORBIDDEN_READ_GLOBS = (
+    ".claude/**",
+    ".git/**",
     "agent-workspace/**",
     ".aria-poc/**",
     "aria-tools/**",
+    "node_modules/**",
+    "dist/**",
+    "coverage/**",
+    "build/**",
+    "tmp/**",
     "secrets/**",
     ".env",
     ".env.*",
@@ -281,10 +288,11 @@ def compute_metrics(
         )
     )
 
-    precision = 1.0 if judged == 0 else true_positive / max(true_positive + false_positive, 1)
+    precision = 0.0 if judged == 0 else true_positive / max(true_positive + false_positive, 1)
     return {
         "judged_samples": judged,
         "precision": precision,
+        "precision_status": "unjudged" if judged == 0 else "judged",
         "critical_false_positives": sum(1 for run in runs if has_critical_false_positive(run))
         + sum(
             1

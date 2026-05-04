@@ -6,8 +6,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from .adapter_calibration import generate_adapter_calibration_report, list_adapter_calibration_reports
-from .apply_engine import gate_apply_action, list_apply_validation_pipelines, plan_apply_worktree, run_apply_validation_pipeline
+from .apply_engine import gate_apply_action, plan_apply_worktree
 from .agent_genesis import (
     approve_agent_pr,
     draft_agent_from_gap,
@@ -29,22 +28,16 @@ from .architecture import (
     review_architecture_decision,
 )
 from .auto_merge import GhCliGitHubAdapter, evaluate_auto_merge, merge_if_green, record_pr_lifecycle
+from .adapter_calibration import generate_adapter_calibration_report, list_adapter_calibration_reports
 from .budget import check_budget, list_budget_usage, record_budget_usage
 from .calibration import list_calibration_recommendations, recommend_calibration
 from .capability_gap import detect_capability_gaps, list_capability_gaps
-from .codegen import (
-    apply_generated_diff_packet,
-    list_code_change_plans,
-    list_generated_diff_applications,
-    list_generated_diff_packets,
-    record_code_change_plan,
-    record_generated_diff_packet,
-)
+from .codegen import list_code_change_plans, list_generated_diff_packets, record_code_change_plan, record_generated_diff_packet
 from .cycle import run_cycle
 from .cycle_diff import run_cycle_diff
 from .db_snapshot import write_schema_snapshot
 from .discovery import run_discovery
-from .feedback_store import list_findings, record_operator_feedback
+from .feedback_store import generate_judgment_sample, list_findings, list_judgment_samples, record_operator_feedback
 from .fitness import generate_fitness_report, generate_recommendation_candidate, list_fitness_reports
 from .fixture_runner import run_fixture_suite
 from .impact import list_impact_plans, plan_impact
@@ -502,6 +495,16 @@ def build_parser() -> argparse.ArgumentParser:
     feedback_record.add_argument("--note", required=True)
     feedback_record.add_argument("--affected-belief-ids", default=None, help="JSON array of belief ids")
     feedback_record.set_defaults(func=cmd_feedback_record)
+    feedback_judge = feedback_subparsers.add_parser("judge")
+    feedback_judge.add_argument("--tool-id", required=True)
+    feedback_judge.add_argument("--sample-size", type=int, required=True)
+    feedback_judge.add_argument("--cycle-id", default=None)
+    feedback_judge.add_argument("--strategy", default="stratified_by_rule", choices=["stratified_by_rule", "random"])
+    feedback_judge.add_argument("--min-judged-samples", type=int, default=10)
+    feedback_judge.set_defaults(func=cmd_feedback_judge)
+    feedback_samples = feedback_subparsers.add_parser("samples")
+    feedback_samples.add_argument("--tool-id", default=None)
+    feedback_samples.set_defaults(func=cmd_feedback_samples)
 
     pr = subparsers.add_parser("pr")
     pr_subparsers = pr.add_subparsers(dest="command", required=True)
@@ -555,16 +558,6 @@ def build_parser() -> argparse.ArgumentParser:
     apply_gate.add_argument("--validation-comparison-ref", required=True)
     apply_gate.add_argument("--cycle-id", default=None)
     apply_gate.set_defaults(func=cmd_apply_gate)
-    apply_validate = apply_subparsers.add_parser("validate")
-    apply_validate.add_argument("--proposal-id", required=True)
-    apply_validate.add_argument("--baseline-workspace-root", required=True)
-    apply_validate.add_argument("--candidate-workspace-root", default=None)
-    apply_validate.add_argument("--commands", default=None, help="Optional JSON array overriding proposal validation commands")
-    apply_validate.add_argument("--cycle-id", default=None)
-    apply_validate.add_argument("--timeout-ms", type=int, default=120000)
-    apply_validate.set_defaults(func=cmd_apply_validate)
-    apply_list = apply_subparsers.add_parser("list")
-    apply_list.set_defaults(func=cmd_apply_list)
 
     codegen = subparsers.add_parser("codegen")
     codegen_subparsers = codegen.add_subparsers(dest="command", required=True)
@@ -588,11 +581,6 @@ def build_parser() -> argparse.ArgumentParser:
     codegen_diff.add_argument("--cycle-id", default=None)
     codegen_diff.add_argument("--run-apply-check", action="store_true")
     codegen_diff.set_defaults(func=cmd_codegen_record_diff)
-    codegen_apply = codegen_subparsers.add_parser("apply-diff")
-    codegen_apply.add_argument("--generated-diff-packet-id", required=True)
-    codegen_apply.add_argument("--cycle-id", default=None)
-    codegen_apply.add_argument("--allow-dirty", action="store_true")
-    codegen_apply.set_defaults(func=cmd_codegen_apply_diff)
     codegen_list = codegen_subparsers.add_parser("list")
     codegen_list.set_defaults(func=cmd_codegen_list)
 
@@ -1207,6 +1195,21 @@ def cmd_feedback_record(args: argparse.Namespace) -> dict[str, Any]:
     )
 
 
+def cmd_feedback_judge(args: argparse.Namespace) -> dict[str, Any]:
+    return generate_judgment_sample(
+        tool_id=args.tool_id,
+        sample_size=args.sample_size,
+        cycle_id=args.cycle_id,
+        strategy=args.strategy,
+        min_judged_samples=args.min_judged_samples,
+        base_dir=args.tools_dir,
+    )
+
+
+def cmd_feedback_samples(args: argparse.Namespace) -> dict[str, Any]:
+    return {"samples": list_judgment_samples(tool_id=args.tool_id, base_dir=args.tools_dir)}
+
+
 def cmd_pr_record_opened(args: argparse.Namespace) -> dict[str, Any]:
     return record_pr_lifecycle(
         read_json(args.file),
@@ -1298,28 +1301,6 @@ def cmd_apply_gate(args: argparse.Namespace) -> dict[str, Any]:
     )
 
 
-def cmd_apply_validate(args: argparse.Namespace) -> dict[str, Any]:
-    commands = _json_array_arg(args.commands, "--commands") if args.commands else None
-    return run_apply_validation_pipeline(
-        proposal_id=args.proposal_id,
-        baseline_workspace_root=args.baseline_workspace_root,
-        candidate_workspace_root=args.candidate_workspace_root,
-        commands=commands,
-        cycle_id=args.cycle_id,
-        timeout_ms=args.timeout_ms,
-        base_dir=args.tools_dir,
-    )
-
-
-def cmd_apply_list(args: argparse.Namespace) -> dict[str, Any]:
-    from .apply_engine import list_apply_actions
-
-    return {
-        "actions": list_apply_actions(base_dir=args.tools_dir),
-        "validation_pipelines": list_apply_validation_pipelines(base_dir=args.tools_dir),
-    }
-
-
 def cmd_codegen_record_plan(args: argparse.Namespace) -> dict[str, Any]:
     return record_code_change_plan(
         proposal_id=args.proposal_id,
@@ -1348,20 +1329,10 @@ def cmd_codegen_record_diff(args: argparse.Namespace) -> dict[str, Any]:
     )
 
 
-def cmd_codegen_apply_diff(args: argparse.Namespace) -> dict[str, Any]:
-    return apply_generated_diff_packet(
-        generated_diff_packet_id=args.generated_diff_packet_id,
-        cycle_id=args.cycle_id,
-        require_clean_worktree=not args.allow_dirty,
-        base_dir=args.tools_dir,
-    )
-
-
 def cmd_codegen_list(args: argparse.Namespace) -> dict[str, Any]:
     return {
         "plans": list_code_change_plans(base_dir=args.tools_dir),
         "generated_diff_packets": list_generated_diff_packets(base_dir=args.tools_dir),
-        "generated_diff_applications": list_generated_diff_applications(base_dir=args.tools_dir),
     }
 
 

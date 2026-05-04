@@ -15,6 +15,8 @@ def run_reflection(
 ) -> dict[str, Any]:
     root = ensure_tools_dir(base_dir)
     runs = [row for row in load_jsonl(runs_path(base_dir)) if row.get("cycle_id") == cycle_id]
+    all_runs = load_jsonl(runs_path(base_dir))
+    tool_runtime = _tool_runtime_table(runs, all_runs, cycle_id)
     pressure_payload = _load_pressure(root, cycle_id)
     pressures = pressure_payload.get("summary", {})
     auto_merge_decisions = [row for row in load_jsonl(root / "auto-merge-decisions.jsonl") if row.get("cycle_id") == cycle_id]
@@ -32,6 +34,7 @@ def run_reflection(
         "operator_facing_observations": sum(len(run.get("emitted_observations", [])) for run in runs),
         "suppressed_shadow_findings": sum(run.get("runner", {}).get("raw_findings_count", 0) for run in runs)
         - sum(len(run.get("emitted_findings", [])) for run in runs),
+        "tool_runtime": tool_runtime,
         "belief_summary": _belief_summary(beliefs),
         "pressure_summary": pressures,
         "top_pressures": top_pressures,
@@ -102,6 +105,15 @@ def _write_daily_report(root: Path, reflection: dict[str, Any]) -> None:
         f"- Suppressed SHADOW findings: {reflection['suppressed_shadow_findings']}",
         f"- Pressure: {reflection['pressure_summary']}",
         "",
+        "### Raw Adapter Runtime",
+        "",
+        "| Tool | Raw findings | Raw observations | Emitted findings | Emitted observations | Suppressed SHADOW findings | Delta vs previous cycle |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+        *[
+            "| {tool_id} | {raw_findings} | {raw_observations} | {emitted_findings} | {emitted_observations} | {suppressed_shadow_findings} | {raw_finding_delta_vs_prev_cycle} |".format(**row)
+            for row in reflection.get("tool_runtime", [])
+        ],
+        "",
         "## Auto-Merge",
         "",
         f"- Eligible: {reflection['auto_merge_summary'].get('eligible', 0)}",
@@ -144,6 +156,44 @@ def _tool_health(runs: list[dict[str, Any]]) -> dict[str, Any]:
         "tools": sorted({str(run.get("tool_id")) for run in runs if run.get("tool_id")}),
         "quarantine_signals": sum(1 for run in runs if run.get("status") in ("evidence_error", "scope_violation")),
     }
+
+
+def _tool_runtime_table(
+    runs: list[dict[str, Any]],
+    all_runs: list[dict[str, Any]],
+    cycle_id: str,
+) -> list[dict[str, Any]]:
+    rows = []
+    for run in sorted(runs, key=lambda item: str(item.get("tool_id"))):
+        tool_id = str(run.get("tool_id") or "")
+        raw_findings = int(run.get("runner", {}).get("raw_findings_count") or 0)
+        raw_observations = int(run.get("runner", {}).get("raw_observations_count") or 0)
+        emitted_findings = len(run.get("emitted_findings", [])) if isinstance(run.get("emitted_findings"), list) else 0
+        emitted_observations = len(run.get("emitted_observations", [])) if isinstance(run.get("emitted_observations"), list) else 0
+        previous = _previous_tool_run(all_runs, tool_id, cycle_id)
+        previous_raw = int(previous.get("runner", {}).get("raw_findings_count") or 0) if previous else 0
+        rows.append(
+            {
+                "tool_id": tool_id,
+                "raw_findings": raw_findings,
+                "raw_observations": raw_observations,
+                "emitted_findings": emitted_findings,
+                "emitted_observations": emitted_observations,
+                "suppressed_shadow_findings": max(0, raw_findings - emitted_findings),
+                "raw_finding_delta_vs_prev_cycle": raw_findings - previous_raw,
+                "previous_cycle_id": previous.get("cycle_id") if previous else None,
+            },
+        )
+    return rows
+
+
+def _previous_tool_run(all_runs: list[dict[str, Any]], tool_id: str, cycle_id: str) -> dict[str, Any] | None:
+    previous = [
+        run
+        for run in all_runs
+        if run.get("tool_id") == tool_id and run.get("cycle_id") != cycle_id and str(run.get("cycle_id")) < cycle_id
+    ]
+    return previous[-1] if previous else None
 
 
 def _auto_merge_summary(decisions: list[dict[str, Any]]) -> dict[str, int]:

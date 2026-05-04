@@ -86,16 +86,20 @@ def record_generated_diff_packet(
     plan = _find_plan(code_change_plan_id, base_dir)
     if plan.get("status") != "ready_for_review":
         raise GovernanceError("generated diff requires a ready_for_review code change plan")
-    files = _normalize_paths(changed_files)
-    if not files or not unified_diff.strip() or not rationale.strip():
-        raise GovernanceError("generated diff packet requires changed_files, unified_diff, and rationale")
+    if not unified_diff.strip():
+        raise GovernanceError("generated diff packet requires unified_diff")
+    if not rationale.strip():
+        raise GovernanceError("generated diff packet requires rationale")
     if not validation_commands or not all(isinstance(item, str) and item.strip() for item in validation_commands):
         raise GovernanceError("generated diff packet requires validation_commands")
+    files = _normalize_paths(changed_files)
+    if not files:
+        raise GovernanceError("generated diff packet requires changed_files")
     diff_files = _paths_from_unified_diff(unified_diff)
     blockers = []
+    intended = set(plan.get("intended_files", []))
     if set(files) != set(diff_files):
         blockers.append("changed_files_do_not_match_unified_diff")
-    intended = set(plan.get("intended_files", []))
     for path in files:
         if path not in intended:
             blockers.append(f"outside_code_change_plan:{path}")
@@ -130,70 +134,11 @@ def list_generated_diff_packets(*, base_dir: str | Path | None = None) -> list[d
     return load_jsonl(ensure_tools_dir(base_dir) / "codegen" / "generated-diff-packets.jsonl")
 
 
-def apply_generated_diff_packet(
-    *,
-    generated_diff_packet_id: str,
-    base_dir: str | Path | None = None,
-    cycle_id: str | None = None,
-    require_clean_worktree: bool = True,
-) -> dict[str, Any]:
-    packet = _find_packet(generated_diff_packet_id, base_dir)
-    blockers: list[str] = []
-    if packet.get("status") != "ready_for_candidate_worktree":
-        blockers.append("generated_diff_packet_not_ready")
-    worktree_path = Path(str(packet.get("worktree_path") or "")).resolve()
-    if not worktree_path.exists() or not worktree_path.is_dir():
-        blockers.append("worktree_path_missing")
-    elif require_clean_worktree and _git_status(worktree_path):
-        blockers.append("candidate_worktree_not_clean")
-    changed_files = _normalize_paths(packet.get("changed_files", []))
-    pre_hashes = _file_hashes(worktree_path, changed_files) if worktree_path.exists() else {}
-    apply_result = {"status": "skipped"}
-    if not blockers:
-        apply_result = _git_apply(worktree_path, str(packet["unified_diff"]))
-        if apply_result["status"] != "ok":
-            blockers.append("git_apply_failed")
-    post_hashes = _file_hashes(worktree_path, changed_files) if worktree_path.exists() else {}
-    git_diff = _git_diff(worktree_path, changed_files) if worktree_path.exists() else ""
-    row = {
-        "schema_version": 1,
-        "recorded_at": utc_now(),
-        "cycle_id": cycle_id,
-        "generated_diff_packet_id": packet.get("generated_diff_packet_id"),
-        "generated_diff_packet_ref": generated_diff_packet_id,
-        "code_change_plan_id": packet.get("code_change_plan_id"),
-        "proposal_id": packet.get("proposal_id"),
-        "worktree_path": worktree_path.as_posix(),
-        "changed_files": changed_files,
-        "pre_hashes": pre_hashes,
-        "post_hashes": post_hashes,
-        "git_diff_hash": _sha256(git_diff.encode("utf-8")),
-        "apply_result": apply_result,
-        "status": "patch_applied" if not blockers else "blocked",
-        "blocked_by": sorted(set(blockers)),
-    }
-    return append_jsonl(ensure_tools_dir(base_dir) / "codegen" / "generated-diff-applications.jsonl", row)
-
-
-def list_generated_diff_applications(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
-    return load_jsonl(ensure_tools_dir(base_dir) / "codegen" / "generated-diff-applications.jsonl")
-
-
 def _find_plan(code_change_plan_id: str, base_dir: str | Path | None) -> dict[str, Any]:
     for plan in reversed(list_code_change_plans(base_dir=base_dir)):
         if plan.get("code_change_plan_id") == code_change_plan_id or plan.get("ledger_hash") == code_change_plan_id:
             return plan
     raise GovernanceError(f"code change plan not found: {code_change_plan_id}")
-
-
-def _find_packet(generated_diff_packet_id: str, base_dir: str | Path | None) -> dict[str, Any]:
-    for packet in reversed(list_generated_diff_packets(base_dir=base_dir)):
-        if (
-            packet.get("generated_diff_packet_id") == generated_diff_packet_id
-            or packet.get("ledger_hash") == generated_diff_packet_id
-        ):
-            return packet
-    raise GovernanceError(f"generated diff packet not found: {generated_diff_packet_id}")
 
 
 def _scope_blockers(files: list[str], allowed_globs: list[str], forbidden_globs: list[str]) -> list[str]:
@@ -248,7 +193,7 @@ def _git_apply_check(worktree_path: Path, unified_diff: str) -> dict[str, Any]:
     completed = subprocess.run(
         ["git", "apply", "--check"],
         cwd=worktree_path,
-        input=_patch_text(unified_diff),
+        input=unified_diff,
         capture_output=True,
         text=True,
         check=False,
@@ -258,63 +203,6 @@ def _git_apply_check(worktree_path: Path, unified_diff: str) -> dict[str, Any]:
         "exit_code": completed.returncode,
         "stderr_hash": _sha256((completed.stderr or "").encode("utf-8")),
     }
-
-
-def _git_apply(worktree_path: Path, unified_diff: str) -> dict[str, Any]:
-    completed = subprocess.run(
-        ["git", "apply"],
-        cwd=worktree_path,
-        input=_patch_text(unified_diff),
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return {
-        "status": "ok" if completed.returncode == 0 else "failed",
-        "exit_code": completed.returncode,
-        "stderr_hash": _sha256((completed.stderr or "").encode("utf-8")),
-    }
-
-
-def _git_status(worktree_path: Path) -> str:
-    completed = subprocess.run(
-        ["git", "status", "--porcelain"],
-        cwd=worktree_path,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if completed.returncode != 0:
-        raise GovernanceError("unable to inspect candidate worktree status")
-    return completed.stdout.strip()
-
-
-def _git_diff(worktree_path: Path, changed_files: list[str]) -> str:
-    completed = subprocess.run(
-        ["git", "diff", "--", *changed_files],
-        cwd=worktree_path,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if completed.returncode != 0:
-        return ""
-    return completed.stdout or ""
-
-
-def _file_hashes(worktree_path: Path, changed_files: list[str]) -> dict[str, str]:
-    hashes = {}
-    for path in changed_files:
-        full_path = worktree_path / path
-        if not full_path.exists() or not full_path.is_file():
-            hashes[path] = "missing"
-        else:
-            hashes[path] = _sha256(full_path.read_bytes())
-    return hashes
-
-
-def _patch_text(unified_diff: str) -> str:
-    return unified_diff if unified_diff.endswith("\n") else unified_diff + "\n"
 
 
 def _sha256(payload: bytes) -> str:

@@ -1,16 +1,19 @@
 from __future__ import annotations
 
-import subprocess
 import tempfile
+import subprocess
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from aria_kernel import (
     approve_proposal,
-    apply_generated_diff_packet,
+    compare_validation_groups,
+    evaluate_validation_gate,
+    gate_apply_action,
     generate_adapter_calibration_report,
     generate_observability_dashboard,
+    list_generated_diff_packets,
     open_pr_for_action,
     plan_apply_worktree,
     plan_pr_lifecycle,
@@ -22,12 +25,13 @@ from aria_kernel import (
     record_proposal,
     record_run,
     register_tool,
-    run_apply_validation_pipeline,
+    run_validation_commands,
     verify_integrity,
 )
 from aria_kernel.agent_genesis import approve_agent_pr, evaluate_genesis_sandbox
-from aria_kernel.fixture_runner import fixture_runs_path
 from aria_kernel.ledger import append_jsonl
+from aria_kernel.fixture_runner import fixture_runs_path, tool_manifest_hash
+from aria_kernel.tool_registry import get_tool
 from aria_kernel.tool_registry import GovernanceError
 
 
@@ -56,28 +60,63 @@ class EnterprisePlan012DTo015Tests(unittest.TestCase):
             validation_command="python3 -m unittest --help",
             base_dir=self.tools_dir,
         )
-        approve_proposal(proposal_id=proposal["proposal_id"], operator_approval_ref="approval:012d", base_dir=self.tools_dir)
-        plan_apply_worktree(proposal_id=proposal["proposal_id"], workspace_root=self.root, base_dir=self.tools_dir)
-        with self.assertRaises(GovernanceError):
-            open_pr_for_action(proposal_id=proposal["proposal_id"], workspace_root=self.root, base_dir=self.tools_dir, dry_run=True)
-
-        pipeline = run_apply_validation_pipeline(
+        approve_proposal(
             proposal_id=proposal["proposal_id"],
-            baseline_workspace_root=self.root,
-            candidate_workspace_root=self.root,
+            operator_approval_ref="approval:012d",
             base_dir=self.tools_dir,
         )
-        self.assertEqual(pipeline["status"], "ready_for_pr")
-        pr = open_pr_for_action(proposal_id=proposal["proposal_id"], workspace_root=self.root, base_dir=self.tools_dir, dry_run=True)
+        plan_apply_worktree(
+            proposal_id=proposal["proposal_id"],
+            workspace_root=self.root,
+            base_dir=self.tools_dir,
+        )
+        with self.assertRaises(GovernanceError):
+            open_pr_for_action(
+                proposal_id=proposal["proposal_id"],
+                workspace_root=self.root,
+                base_dir=self.tools_dir,
+                dry_run=True,
+            )
+
+        baseline = run_validation_commands(
+            commands=["python3 -m unittest --help"],
+            workspace_root=self.root,
+            validation_plan_id="baseline",
+            base_dir=self.tools_dir,
+        )
+        candidate = run_validation_commands(
+            commands=["python3 -m unittest --help"],
+            workspace_root=self.root,
+            validation_plan_id=proposal["proposal_id"],
+            base_dir=self.tools_dir,
+        )
+        comparison = compare_validation_groups(
+            baseline_ref=baseline["ledger_hash"],
+            worktree_ref=candidate["ledger_hash"],
+            base_dir=self.tools_dir,
+        )
+        validation_gate = evaluate_validation_gate(
+            comparison_ref=comparison["ledger_hash"],
+            base_dir=self.tools_dir,
+        )
+        self.assertEqual(validation_gate["status"], "ready_for_pr")
+
+        gated = gate_apply_action(
+            proposal_id=proposal["proposal_id"],
+            validation_comparison_ref=comparison["ledger_hash"],
+            base_dir=self.tools_dir,
+        )
+        self.assertEqual(gated["status"], "ready_for_pr")
+        pr = open_pr_for_action(
+            proposal_id=proposal["proposal_id"],
+            workspace_root=self.root,
+            base_dir=self.tools_dir,
+            dry_run=True,
+        )
         self.assertEqual(pr["event"], "pr_dry_run")
         self.assertIn("Validation Evidence", pr["body"])
 
     def test_generated_diff_packet_is_limited_to_code_change_plan_scope(self):
-        source = self.root / "apps" / "api" / "src" / "app.ts"
-        source.parent.mkdir(parents=True)
-        source.write_text("old\n", encoding="utf-8")
-        subprocess.run(["git", "add", "apps/api/src/app.ts"], cwd=self.root, check=True)
-        subprocess.run(["git", "commit", "-m", "add app"], cwd=self.root, check=True, capture_output=True)
         plan = record_code_change_plan(
             proposal_id="proposal-scope",
             worktree_path=self.root.as_posix(),
@@ -107,12 +146,7 @@ class EnterprisePlan012DTo015Tests(unittest.TestCase):
             base_dir=self.tools_dir,
         )
         self.assertEqual(packet["status"], "ready_for_candidate_worktree")
-        application = apply_generated_diff_packet(
-            generated_diff_packet_id=packet["generated_diff_packet_id"],
-            base_dir=self.tools_dir,
-        )
-        self.assertEqual(application["status"], "patch_applied")
-        self.assertEqual(source.read_text(encoding="utf-8"), "new\n")
+        self.assertEqual(list_generated_diff_packets(base_dir=self.tools_dir)[-1]["generated_diff_packet_id"], packet["generated_diff_packet_id"])
 
         blocked = record_generated_diff_packet(
             code_change_plan_id=plan["code_change_plan_id"],
@@ -141,11 +175,28 @@ class EnterprisePlan012DTo015Tests(unittest.TestCase):
                 "forbidden_read_globs": [],
                 "claim_types": ["demo"],
                 "owner": "aria",
-                "runner": {"type": "subprocess", "argv": ["python3", "-m", "unittest", "--help"], "cwd": ".", "timeout_ms": 1000, "stdin_json": False},
+                "runner": {
+                    "type": "subprocess",
+                    "argv": ["python3", "-m", "unittest", "--help"],
+                    "cwd": ".",
+                    "timeout_ms": 1000,
+                    "stdin_json": False,
+                },
             },
             base_dir=self.tools_dir,
         )
-        append_jsonl(fixture_runs_path(self.tools_dir), {"schema_version": 1, "tool_id": "demo-adapter", "passed": True})
+        append_jsonl(
+            fixture_runs_path(self.tools_dir),
+            {
+                "schema_version": 1,
+                "tool_id": "demo-adapter",
+                "tool_version": "1.0.0",
+                "tool_manifest_hash": tool_manifest_hash(get_tool("demo-adapter", base_dir=self.tools_dir)),
+                "passed": True,
+                "fixture_baseline_passed": True,
+                "semantic_fixture_passed": True,
+            },
+        )
         for index in range(5):
             record_run(
                 {
@@ -160,69 +211,122 @@ class EnterprisePlan012DTo015Tests(unittest.TestCase):
                     "emitted_observations": [],
                     "emitted_findings": [],
                     "evidence_validation": {"valid": True},
-                    "operator_feedback_refs": [],
+                    "operator_feedback_refs": [{"kind": "true_positive", "severity": "medium"}],
                     "duration_ms": 1,
                     "cost_units": 0,
                     "runner": {"raw_findings_count": 0},
                 },
                 base_dir=self.tools_dir,
             )
-        report = generate_adapter_calibration_report(tool_ids=["demo-adapter"], base_dir=self.tools_dir)
+        report = generate_adapter_calibration_report(
+            tool_ids=["demo-adapter"],
+            base_dir=self.tools_dir,
+        )
         self.assertEqual(report["status"], "active_ready")
+        self.assertEqual(report["active_ready_count"], 1)
 
     def test_agent_genesis_pr_lane_blocks_existing_target(self):
         drafts_dir = self.tools_dir / "agent-genesis"
         drafts_dir.mkdir(parents=True)
-        append_jsonl(
-            drafts_dir / "drafts.jsonl",
-            {
-                "schema_version": 1,
-                "recorded_at": "2026-05-04T00:00:00+00:00",
-                "gap_id": "gap-1",
-                "draft_id": "draft-aria-demo",
-                "status": "draft_shadow",
-                "draft": {
-                    "name": "aria-demo",
-                    "purpose": "Demo",
-                    "scope_globs": ["apps/api/**"],
-                    "forbidden_globs": ["secrets/**"],
-                    "evidence_contract": "cite repo paths",
-                    "output_schema": {"required": ["findings"]},
-                    "validation_fixtures": [{"name": "a", "expected": "pass"}, {"name": "b", "expected": "pass"}, {"name": "c", "expected": "pass"}],
-                    "related_existing_agents": [],
-                },
-                "target_path": ".claude/agents/aria-demo.md",
+        draft = {
+            "schema_version": 1,
+            "recorded_at": "2026-05-04T00:00:00+00:00",
+            "gap_id": "gap-1",
+            "draft_id": "draft-aria-demo",
+            "status": "draft_shadow",
+            "draft": {
+                "name": "aria-demo",
+                "purpose": "Demo",
+                "scope_globs": ["apps/api/**"],
+                "forbidden_globs": ["secrets/**"],
+                "evidence_contract": "cite repo paths",
+                "output_schema": {"required": ["findings"]},
+                "validation_fixtures": [{"name": "a", "expected": "pass"}, {"name": "b", "expected": "pass"}, {"name": "c", "expected": "pass"}],
+                "related_existing_agents": [],
             },
+            "target_path": ".claude/agents/aria-demo.md",
+        }
+        append_jsonl(drafts_dir / "drafts.jsonl", draft)
+        evaluate_genesis_sandbox(
+            draft_id="draft-aria-demo",
+            fixture_results=[{"status": "pass"}, {"status": "pass"}, {"status": "pass"}],
+            base_dir=self.tools_dir,
         )
-        evaluate_genesis_sandbox(draft_id="draft-aria-demo", fixture_results=[{"status": "pass"}, {"status": "pass"}, {"status": "pass"}], base_dir=self.tools_dir)
-        approve_agent_pr(draft_id="draft-aria-demo", operator_approval_ref="approval:genesis", base_dir=self.tools_dir)
-        lane = prepare_agent_pr_lane(draft_id="draft-aria-demo", workspace_root=self.root, base_dir=self.tools_dir)
+        approve_agent_pr(
+            draft_id="draft-aria-demo",
+            operator_approval_ref="approval:genesis",
+            base_dir=self.tools_dir,
+        )
+        lane = prepare_agent_pr_lane(
+            draft_id="draft-aria-demo",
+            workspace_root=self.root,
+            base_dir=self.tools_dir,
+        )
         self.assertEqual(lane["status"], "ready_for_pr")
 
         target = self.root / ".claude" / "agents" / "aria-demo.md"
         target.parent.mkdir(parents=True)
         target.write_text("existing", encoding="utf-8")
-        blocked = prepare_agent_pr_lane(draft_id="draft-aria-demo", workspace_root=self.root, base_dir=self.tools_dir)
+        blocked = prepare_agent_pr_lane(
+            draft_id="draft-aria-demo",
+            workspace_root=self.root,
+            base_dir=self.tools_dir,
+        )
         self.assertEqual(blocked["status"], "blocked")
         self.assertIn("target_agent_already_exists", blocked["blocked_by"])
 
     def test_observability_and_pr_lifecycle_reports_are_recorded(self):
-        first = record_cycle_metrics(cycle_id="cycle-1", phase_durations_ms={"discovery": 10, "validation": 20}, artifact_count=3, status="ok", cost_units=1.5, base_dir=self.tools_dir)
-        second = record_cycle_metrics(cycle_id="cycle-2", phase_durations_ms={"discovery": 11, "validation": 30}, artifact_count=4, status="partial", cost_units=2.0, base_dir=self.tools_dir)
-        dashboard = generate_observability_dashboard(cycle_id="cycle-2", base_dir=self.tools_dir)
+        first = record_cycle_metrics(
+            cycle_id="cycle-1",
+            phase_durations_ms={"discovery": 10, "validation": 20},
+            artifact_count=3,
+            status="ok",
+            cost_units=1.5,
+            base_dir=self.tools_dir,
+        )
+        second = record_cycle_metrics(
+            cycle_id="cycle-2",
+            phase_durations_ms={"discovery": 11, "validation": 30},
+            artifact_count=4,
+            status="partial",
+            cost_units=2.0,
+            base_dir=self.tools_dir,
+        )
+        dashboard = generate_observability_dashboard(
+            cycle_id="cycle-2",
+            base_dir=self.tools_dir,
+        )
         self.assertEqual(first["total_duration_ms"], 30)
         self.assertEqual(second["total_duration_ms"], 41)
         self.assertEqual(dashboard["trend"]["duration_delta_ms"], 11)
 
         old = (datetime.now(timezone.utc) - timedelta(days=8)).isoformat()
         very_old = (datetime.now(timezone.utc) - timedelta(days=31)).isoformat()
-        lifecycle = plan_pr_lifecycle(open_prs=[{"number": 10, "updated_at": old}, {"number": 11, "updated_at": very_old}], base_dir=self.tools_dir)
+        lifecycle = plan_pr_lifecycle(
+            open_prs=[
+                {"number": 10, "updated_at": old, "title": "stale"},
+                {"number": 11, "updated_at": very_old, "title": "close"},
+            ],
+            base_dir=self.tools_dir,
+        )
         actions = {item["pr_number"]: item["action"] for item in lifecycle["actions"]}
         self.assertEqual(actions[10], "recommend_stale_comment")
         self.assertEqual(actions[11], "recommend_close")
 
-        proposal = record_proposal(kind="test_gap", title="Split large change", problem="Large scope requires multiple PRs", evidence=["apps/api/src/app.ts"], validation_command="python3 -m unittest --help", base_dir=self.tools_dir)
-        split = plan_pr_split(proposal_id=proposal["proposal_id"], changed_files=["apps/api/src/a.ts", "apps/farm-service/src/b.ts"], max_files_per_pr=1, base_dir=self.tools_dir)
+        proposal = record_proposal(
+            kind="test_gap",
+            title="Split large change",
+            problem="Large scope requires multiple PRs",
+            evidence=["apps/api/src/app.ts"],
+            validation_command="python3 -m unittest --help",
+            base_dir=self.tools_dir,
+        )
+        split = plan_pr_split(
+            proposal_id=proposal["proposal_id"],
+            changed_files=["apps/api/src/a.ts", "apps/farm-service/src/b.ts"],
+            max_files_per_pr=1,
+            base_dir=self.tools_dir,
+        )
         self.assertTrue(split["split_required"])
         self.assertTrue(verify_integrity(base_dir=self.tools_dir)["valid"])
 

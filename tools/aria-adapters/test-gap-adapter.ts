@@ -1,7 +1,13 @@
 #!/usr/bin/env ts-node
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { basename, dirname, join, relative, resolve, sep } from 'node:path';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 import ts from 'typescript';
+import {
+  collectFiles,
+  normalizeWorkspacePath,
+  readWorkspaceFile,
+  resolveInsideWorkspace as resolveAdapterPath,
+  workspacePathExists,
+} from './adapter-fs';
 
 type FindingRule =
   | 'high_risk_source_without_adjacent_test'
@@ -92,7 +98,7 @@ export function analyzeTestGaps(input: AdapterInput, workspaceRoot = process.cwd
   const allowlist = new Set((input.allowlist ?? []).map(normalizePath));
   const files = roots
     .map((root) => resolveInsideWorkspace(workspaceRoot, root))
-    .filter((root) => existsSync(root))
+    .filter((root) => workspacePathExists(root))
     .flatMap((root) => collectSourceAndTestFiles(root));
   const units = files.map((file) => readFileUnit(file, workspaceRoot));
   const tests = units.filter((unit) => unit.isTest);
@@ -358,11 +364,11 @@ function candidatePathVariants(candidate: string): string[] {
 
 function readPathAliases(workspaceRoot: string): readonly PathAlias[] {
   const path = resolve(workspaceRoot, 'tsconfig.base.json');
-  if (!existsSync(path)) {
+  if (!workspacePathExists(path)) {
     return [];
   }
   try {
-    const parsed = JSON.parse(readFileSync(path, 'utf8')) as {
+    const parsed = JSON.parse(readWorkspaceFile(path)) as {
       compilerOptions?: { paths?: Record<string, readonly string[]> };
     };
     return Object.entries(parsed.compilerOptions?.paths ?? {}).map(([key, targets]) => {
@@ -392,7 +398,7 @@ function exportedSymbols(sourceFile: ts.SourceFile): string[] {
 }
 
 function readFileUnit(path: string, workspaceRoot: string): FileUnit {
-  const text = readFileSync(path, 'utf8');
+  const text = readWorkspaceFile(path);
   return {
     path,
     relativePath: normalizePath(relative(workspaceRoot, path)),
@@ -403,26 +409,10 @@ function readFileUnit(path: string, workspaceRoot: string): FileUnit {
 }
 
 function collectSourceAndTestFiles(root: string): readonly string[] {
-  const files: string[] = [];
-  const stack = [root];
-  while (stack.length > 0) {
-    const current = stack.pop();
-    if (!current) {
-      continue;
-    }
-    for (const entry of readdirSync(current, { withFileTypes: true })) {
-      const path = resolve(current, entry.name);
-      if (entry.isDirectory()) {
-        if (['dist', 'node_modules', 'coverage'].includes(entry.name)) {
-          continue;
-        }
-        stack.push(path);
-      } else if (entry.isFile() && (entry.name.endsWith('.ts') || entry.name.endsWith('.tsx')) && !entry.name.endsWith('.d.ts')) {
-        files.push(path);
-      }
-    }
-  }
-  return files.sort();
+  return collectFiles(root, {
+    extensions: ['.ts', '.tsx'],
+    includeFile: (name) => !name.endsWith('.d.ts'),
+  });
 }
 
 function isTestFile(path: string): boolean {
@@ -431,13 +421,7 @@ function isTestFile(path: string): boolean {
 }
 
 function resolveInsideWorkspace(workspaceRoot: string, requestedPath: string): string {
-  const root = resolve(workspaceRoot);
-  const resolved = resolve(root, requestedPath);
-  const relativePath = relative(root, resolved);
-  if (relativePath.startsWith('..') || relativePath === '..' || relativePath.includes(`..${sep}`)) {
-    throw new Error(`path escapes workspace root: ${requestedPath}`);
-  }
-  return resolved;
+  return resolveAdapterPath(workspaceRoot, requestedPath);
 }
 
 function visit(node: ts.Node, visitor: (node: ts.Node) => void): void {
@@ -450,7 +434,7 @@ function compareById(a: { readonly id: string }, b: { readonly id: string }): nu
 }
 
 function normalizePath(path: string): string {
-  return path.split(sep).join('/');
+  return normalizeWorkspacePath(path);
 }
 
 function readStdin(): Promise<string> {

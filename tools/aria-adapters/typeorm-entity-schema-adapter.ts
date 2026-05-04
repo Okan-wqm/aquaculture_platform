@@ -1,7 +1,14 @@
 #!/usr/bin/env ts-node
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { relative, resolve, sep } from 'node:path';
+import { relative } from 'node:path';
 import ts from 'typescript';
+import {
+  collectFiles,
+  normalizeWorkspacePath,
+  readWorkspaceFile,
+  readWorkspaceJson,
+  resolveInsideWorkspace as resolveAdapterPath,
+  workspacePathExists,
+} from './adapter-fs';
 
 type CheckName = 'entity_schema' | 'module_schema' | 'migration_registry' | 'db_snapshot';
 type FindingRule =
@@ -153,7 +160,7 @@ export function analyzeTypeOrmEntities(
   const serviceName = input.serviceName ?? 'farm';
   const checks = new Set(input.checks ?? DEFAULT_CHECKS);
   const scanRoot = resolveInsideWorkspace(workspaceRoot, requestedRoot);
-  if (!existsSync(scanRoot)) {
+  if (!workspacePathExists(scanRoot)) {
     throw new Error(`scan root does not exist: ${requestedRoot}`);
   }
 
@@ -227,7 +234,7 @@ function analyzeFiles(
   const readPaths = files.map((file) => normalizePath(relative(workspaceRoot, file)));
 
   for (const file of files) {
-    const sourceText = readFileSync(file, 'utf8');
+    const sourceText = readWorkspaceFile(file);
     const sourceFile = ts.createSourceFile(file, sourceText, ts.ScriptTarget.Latest, true);
     const relativePath = normalizePath(relative(workspaceRoot, file));
     const allowlisted = allowlist.has(relativePath);
@@ -312,7 +319,7 @@ function analyzeModuleSchema(
   tableAllowlist: ReadonlySet<string>,
 ): void {
   const modulePath = resolveInsideWorkspace(workspaceRoot, MODULE_SCHEMA_PATH);
-  if (!existsSync(modulePath)) {
+  if (!workspacePathExists(modulePath)) {
     result.observations.push({
       id: 'module-schema:missing-source-file',
       type: 'module_schema_unavailable',
@@ -391,7 +398,7 @@ function analyzeModuleSchema(
 function analyzeMigrationRegistry(workspaceRoot: string, result: AnalysisResult): void {
   const appModulePath = resolveInsideWorkspace(workspaceRoot, APP_MODULE_PATH);
   const migrationsDir = resolveInsideWorkspace(workspaceRoot, MIGRATIONS_DIR);
-  if (!existsSync(appModulePath) || !existsSync(migrationsDir)) {
+  if (!workspacePathExists(appModulePath) || !workspacePathExists(migrationsDir)) {
     result.observations.push({
       id: 'migration-registry:unavailable',
       type: 'migration_registry_unavailable',
@@ -472,7 +479,7 @@ function analyzeDbSnapshot(
     return;
   }
   const snapshotPath = resolveInsideWorkspace(workspaceRoot, input.dbSnapshotPath);
-  if (!existsSync(snapshotPath)) {
+  if (!workspacePathExists(snapshotPath)) {
     throw new Error(`dbSnapshotPath does not exist: ${input.dbSnapshotPath}`);
   }
   addReadPath(result, workspaceRoot, snapshotPath);
@@ -751,7 +758,7 @@ function readModuleSchema(
   workspaceRoot: string,
   serviceName: string,
 ): ModuleSchemaRecord | null {
-  const sourceFile = ts.createSourceFile(path, readFileSync(path, 'utf8'), ts.ScriptTarget.Latest, true);
+  const sourceFile = ts.createSourceFile(path, readWorkspaceFile(path), ts.ScriptTarget.Latest, true);
   let found: ModuleSchemaRecord | null = null;
   visit(sourceFile, (node) => {
     if (found || !ts.isVariableDeclaration(node) || !ts.isIdentifier(node.name) || node.name.text !== 'MODULE_SCHEMAS') {
@@ -786,7 +793,7 @@ function readModuleSchema(
 }
 
 function readMigrationRegistry(path: string, workspaceRoot: string): MigrationRegistry {
-  const sourceFile = ts.createSourceFile(path, readFileSync(path, 'utf8'), ts.ScriptTarget.Latest, true);
+  const sourceFile = ts.createSourceFile(path, readWorkspaceFile(path), ts.ScriptTarget.Latest, true);
   const importedClasses = new Map<string, string>();
   const registeredClasses: string[] = [];
   let migrationsArrayLine = 1;
@@ -831,7 +838,7 @@ function readMigrationRegistry(path: string, workspaceRoot: string): MigrationRe
 }
 
 function readFirstExportedClass(path: string): string | null {
-  const sourceFile = ts.createSourceFile(path, readFileSync(path, 'utf8'), ts.ScriptTarget.Latest, true);
+  const sourceFile = ts.createSourceFile(path, readWorkspaceFile(path), ts.ScriptTarget.Latest, true);
   for (const statement of sourceFile.statements) {
     if (ts.isClassDeclaration(statement) && statement.name) {
       return statement.name.text;
@@ -841,7 +848,7 @@ function readFirstExportedClass(path: string): string | null {
 }
 
 function readJson(path: string): unknown {
-  return JSON.parse(readFileSync(path, 'utf8')) as unknown;
+  return readWorkspaceJson(path);
 }
 
 function readStringProperty(object: ts.ObjectLiteralExpression, propertyName: string): string | null {
@@ -906,43 +913,23 @@ function visit(node: ts.Node, visitor: (node: ts.Node) => void): void {
 }
 
 function collectEntityFiles(root: string): readonly string[] {
-  const files: string[] = [];
-  const stack = [root];
-  while (stack.length > 0) {
-    const current = stack.pop();
-    if (!current) {
-      continue;
-    }
-    for (const entry of readdirSync(current, { withFileTypes: true })) {
-      const path = resolve(current, entry.name);
-      if (entry.isDirectory()) {
-        stack.push(path);
-      } else if (entry.isFile() && entry.name.endsWith('.entity.ts')) {
-        files.push(path);
-      }
-    }
-  }
-  return files.sort();
+  return collectFiles(root, {
+    extensions: ['.entity.ts'],
+  });
 }
 
 function collectMigrationFiles(root: string): readonly string[] {
-  if (!existsSync(root)) {
+  if (!workspacePathExists(root)) {
     return [];
   }
-  return readdirSync(root, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && entry.name.endsWith('.ts') && !entry.name.endsWith('.spec.ts'))
-    .map((entry) => resolve(root, entry.name))
-    .sort();
+  return collectFiles(root, {
+    extensions: ['.ts'],
+    includeFile: (name) => !name.endsWith('.spec.ts') && !name.endsWith('.test.ts') && !name.endsWith('.d.ts'),
+  });
 }
 
 function resolveInsideWorkspace(workspaceRoot: string, requestedPath: string): string {
-  const root = resolve(workspaceRoot);
-  const resolved = resolve(root, requestedPath);
-  const relativePath = relative(root, resolved);
-  if (relativePath.startsWith('..') || relativePath === '..' || relativePath.includes(`..${sep}`)) {
-    throw new Error(`path escapes workspace root: ${requestedPath}`);
-  }
-  return resolved;
+  return resolveAdapterPath(workspaceRoot, requestedPath);
 }
 
 function addReadPath(result: AnalysisResult, workspaceRoot: string, path: string): void {
@@ -950,7 +937,7 @@ function addReadPath(result: AnalysisResult, workspaceRoot: string, path: string
 }
 
 function normalizePath(path: string): string {
-  return path.split(sep).join('/');
+  return normalizeWorkspacePath(path);
 }
 
 function readStdin(): Promise<string> {

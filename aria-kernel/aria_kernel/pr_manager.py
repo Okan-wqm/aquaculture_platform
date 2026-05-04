@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import subprocess
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -179,7 +179,14 @@ def plan_pr_split(
     index = 1
     for group, group_files in sorted(grouped.items()):
         for chunk in _chunks(group_files, max_files_per_pr):
-            prs.append({"sequence": index, "group": group, "files": chunk, "depends_on": []})
+            prs.append(
+                {
+                    "sequence": index,
+                    "group": group,
+                    "files": chunk,
+                    "depends_on": [index - 1] if index > 1 and group == "migration" else [],
+                },
+            )
             index += 1
     row = {
         "schema_version": 1,
@@ -225,8 +232,9 @@ def _validate_pr_body(body: str) -> None:
 def _parse_time(value: str) -> datetime | None:
     if not value:
         return None
+    candidate = value.replace("Z", "+00:00")
     try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(candidate)
     except ValueError:
         return None
     if parsed.tzinfo is None:
@@ -237,12 +245,18 @@ def _parse_time(value: str) -> datetime | None:
 def _split_group(path: str) -> str:
     if "/migrations/" in path or path.endswith("Migration.ts"):
         return "migration"
+    if path.startswith("apps/"):
+        parts = path.split("/")
+        return "/".join(parts[:2]) if len(parts) >= 2 else "apps"
+    if path.startswith("web/"):
+        parts = path.split("/")
+        return "/".join(parts[:2]) if len(parts) >= 2 else "web"
+    if path.startswith("libs/"):
+        parts = path.split("/")
+        return "/".join(parts[:2]) if len(parts) >= 2 else "libs"
     if path.startswith("platform/libs/"):
         parts = path.split("/")
         return "/".join(parts[:3]) if len(parts) >= 3 else "platform/libs"
-    if path.startswith(("apps/", "web/", "libs/")):
-        parts = path.split("/")
-        return "/".join(parts[:2]) if len(parts) >= 2 else parts[0]
     return path.split("/", 1)[0]
 
 

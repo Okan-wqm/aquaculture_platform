@@ -1,7 +1,13 @@
 #!/usr/bin/env ts-node
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { relative, resolve, sep } from 'node:path';
+import { relative } from 'node:path';
 import ts from 'typescript';
+import {
+  collectFiles,
+  normalizeWorkspacePath,
+  readWorkspaceFile,
+  resolveInsideWorkspace as resolveAdapterPath,
+  workspacePathExists,
+} from './adapter-fs';
 
 type CheckName = 'base_event' | 'event_interfaces' | 'schema_catalogs' | 'validator_dispatch';
 type FindingRule =
@@ -95,7 +101,7 @@ export function analyzeEventContracts(
   const requestedRoot = input.root ?? DEFAULT_ROOT;
   const checks = new Set(input.checks ?? DEFAULT_CHECKS);
   const scanRoot = resolveInsideWorkspace(workspaceRoot, requestedRoot);
-  if (!existsSync(scanRoot)) {
+  if (!workspacePathExists(scanRoot)) {
     throw new Error(`scan root does not exist: ${requestedRoot}`);
   }
 
@@ -368,7 +374,7 @@ function createAnalysisProgram(files: readonly string[]): ts.Program {
 }
 
 function readSourceUnit(path: string, workspaceRoot: string, program: ts.Program): SourceUnit {
-  const text = readFileSync(path, 'utf8');
+  const text = readWorkspaceFile(path);
   return {
     path,
     relativePath: normalizePath(relative(workspaceRoot, path)),
@@ -587,40 +593,18 @@ function visit(node: ts.Node, visitor: (node: ts.Node) => void): void {
 }
 
 function collectTypeScriptFiles(root: string): readonly string[] {
-  const files: string[] = [];
-  const stack = [root];
-  while (stack.length > 0) {
-    const current = stack.pop();
-    if (!current) {
-      continue;
-    }
-    for (const entry of readdirSync(current, { withFileTypes: true })) {
-      const path = resolve(current, entry.name);
-      if (entry.isDirectory()) {
-        if (entry.name === '__tests__') {
-          continue;
-        }
-        stack.push(path);
-      } else if (entry.isFile() && entry.name.endsWith('.ts') && !entry.name.endsWith('.spec.ts')) {
-        files.push(path);
-      }
-    }
-  }
-  return files.sort();
+  return collectFiles(root, {
+    extensions: ['.ts'],
+    includeFile: (name) => !name.endsWith('.spec.ts') && !name.endsWith('.test.ts') && !name.endsWith('.d.ts'),
+  });
 }
 
 function resolveInsideWorkspace(workspaceRoot: string, requestedPath: string): string {
-  const root = resolve(workspaceRoot);
-  const resolved = resolve(root, requestedPath);
-  const relativePath = relative(root, resolved);
-  if (relativePath.startsWith('..') || relativePath === '..' || relativePath.includes(`..${sep}`)) {
-    throw new Error(`path escapes workspace root: ${requestedPath}`);
-  }
-  return resolved;
+  return resolveAdapterPath(workspaceRoot, requestedPath);
 }
 
 function normalizePath(path: string): string {
-  return path.split(sep).join('/');
+  return normalizeWorkspacePath(path);
 }
 
 function readStdin(): Promise<string> {

@@ -1,7 +1,7 @@
 """ARIA adapter and skill health governance kernel."""
 
 from .adapter_calibration import generate_adapter_calibration_report, list_adapter_calibration_reports
-from .apply_engine import gate_apply_action, list_apply_validation_pipelines, plan_apply_worktree, run_apply_validation_pipeline
+from .apply_engine import gate_apply_action, plan_apply_worktree
 from .agent_genesis import approve_agent_pr, draft_agent_from_gap, evaluate_genesis_sandbox, list_agent_drafts, prepare_agent_pr_lane
 from .agent_priors import latest_agent_priors, map_agent_priors, related_agents_for_paths
 from .architecture import (
@@ -18,14 +18,7 @@ from .auto_merge import classify_changed_files, evaluate_auto_merge, merge_if_gr
 from .budget import check_budget, list_budget_usage, record_budget_usage
 from .calibration import list_calibration_recommendations, recommend_calibration
 from .capability_gap import detect_capability_gaps, latest_capability_gaps, list_capability_gaps
-from .codegen import (
-    apply_generated_diff_packet,
-    list_code_change_plans,
-    list_generated_diff_applications,
-    list_generated_diff_packets,
-    record_code_change_plan,
-    record_generated_diff_packet,
-)
+from .codegen import list_code_change_plans, list_generated_diff_packets, record_code_change_plan, record_generated_diff_packet
 from .cycle import run_cycle
 from .cycle_diff import run_cycle_diff
 from .discovery import run_discovery
@@ -50,7 +43,8 @@ from .reflection import run_reflection
 from .research import fetch_research_source, list_research_fetches, list_research_policies, list_research_sources, record_research_policy, record_research_source
 from .self_modification import list_kernel_change_requests, request_kernel_change
 from .validation import compare_validation_groups, evaluate_validation_gate, list_validation_comparisons, list_validation_gates, list_validation_plans, list_validation_runs, run_validation_commands
-from .fixture_runner import run_fixture_suite
+from .fixture_runner import latest_fixture_status, run_fixture_suite
+from .feedback_store import generate_judgment_sample, list_judgment_samples
 from .promotion import promote_tool
 from .tool_health import can_emit_operator_facing, record_run
 from .tool_registry import (
@@ -66,7 +60,6 @@ from .task import explain_task, generate_task_candidates, latest_tasks
 __all__ = [
     "GovernanceError",
     "amplify_proposal",
-    "apply_generated_diff_packet",
     "approve_agent_pr",
     "approve_proposal",
     "can_emit_operator_facing",
@@ -85,6 +78,7 @@ __all__ = [
     "generate_architecture_options",
     "generate_adapter_calibration_report",
     "generate_fitness_report",
+    "generate_judgment_sample",
     "generate_observability_dashboard",
     "generate_recommendation_candidate",
     "generate_task_candidates",
@@ -94,7 +88,6 @@ __all__ = [
     "latest_capability_gaps",
     "latest_tasks",
     "list_agent_drafts",
-    "list_apply_validation_pipelines",
     "list_adapter_calibration_reports",
     "list_architecture_adr_drafts",
     "list_architecture_evidence_packs",
@@ -106,8 +99,8 @@ __all__ = [
     "list_code_change_plans",
     "list_cycle_metrics",
     "list_fitness_reports",
-    "list_generated_diff_applications",
     "list_generated_diff_packets",
+    "list_judgment_samples",
     "list_impact_graphs",
     "list_impact_plans",
     "list_kernel_change_requests",
@@ -154,7 +147,7 @@ __all__ = [
     "run_cycle_diff",
     "run_discovery",
     "run_fixture_suite",
-    "run_apply_validation_pipeline",
+    "latest_fixture_status",
     "run_validation_commands",
     "merge_if_green",
     "run_pressure",

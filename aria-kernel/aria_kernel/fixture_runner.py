@@ -39,14 +39,20 @@ def run_fixture_suite(
         case_results.append(run_fixture_case(tool, case, case_path, fixture_dir, workspace_root))
 
     passed = all(case["passed"] for case in case_results)
+    lane_counts = _fixture_lane_counts(case_results)
     summary = {
         "schema_version": 1,
         "at": utc_now(),
         "tool_id": tool_id,
+        "tool_version": tool.get("version"),
+        "tool_manifest_hash": tool_manifest_hash(tool),
         "cycle_id": cycle_id,
         "fixture_set": tool["fixture_set"],
         "passed": passed,
         "case_count": len(case_results),
+        "fixture_lanes": lane_counts,
+        "fixture_baseline_passed": _lane_passed(case_results, "real_repo_baseline"),
+        "semantic_fixture_passed": _lane_passed(case_results, "semantic_regression"),
         "failed_cases": [case["name"] for case in case_results if not case["passed"]],
         "cases": case_results,
     }
@@ -59,8 +65,41 @@ def latest_fixture_pass(
     *,
     base_dir: str | os.PathLike[str] | None = None,
 ) -> bool:
+    return latest_fixture_status(tool_id, base_dir=base_dir)["passed"]
+
+
+def latest_current_fixture_pass(
+    tool_id: str,
+    *,
+    base_dir: str | os.PathLike[str] | None = None,
+) -> bool:
+    return latest_fixture_status(tool_id, base_dir=base_dir)["current_tool_passed"]
+
+
+def latest_fixture_status(
+    tool_id: str,
+    *,
+    base_dir: str | os.PathLike[str] | None = None,
+) -> dict[str, Any]:
     rows = load_fixture_runs(tool_id, base_dir=base_dir)
-    return bool(rows and rows[-1].get("passed") is True)
+    tool = get_tool(tool_id, base_dir)
+    latest = rows[-1] if rows else {}
+    version_matches = latest.get("tool_version") == tool.get("version")
+    manifest_matches = latest.get("tool_manifest_hash") == tool_manifest_hash(tool)
+    passed = latest.get("passed") is True
+    return {
+        "passed": passed,
+        "current_tool_passed": bool(passed and version_matches and manifest_matches),
+        "tool_version": latest.get("tool_version"),
+        "current_tool_version": tool.get("version"),
+        "tool_manifest_hash": latest.get("tool_manifest_hash"),
+        "current_tool_manifest_hash": tool_manifest_hash(tool),
+        "version_matches": version_matches,
+        "manifest_matches": manifest_matches,
+        "fixture_baseline_passed": bool(latest.get("fixture_baseline_passed")),
+        "semantic_fixture_passed": bool(latest.get("semantic_fixture_passed")),
+        "latest": latest,
+    }
 
 
 def load_fixture_runs(
@@ -90,6 +129,9 @@ def run_fixture_case(
     default_workspace_root: str | os.PathLike[str],
 ) -> dict[str, Any]:
     name = str(case.get("name") or case_path.stem)
+    lane = str(case.get("lane") or _default_fixture_lane(name))
+    if lane == "semantic_regression":
+        validate_semantic_regression_case(case, case_path)
     input_payload = case.get("input", {})
     workspace_root = resolve_case_workspace(case, fixture_dir, default_workspace_root)
     runner = tool.get("runner")
@@ -139,6 +181,7 @@ def run_fixture_case(
     passed, errors = evaluate_fixture_expectation(status, output or {}, expected)
     return {
         "name": name,
+        "lane": lane,
         "path": case_path.as_posix(),
         "passed": passed,
         "errors": errors,
@@ -184,7 +227,34 @@ def evaluate_fixture_expectation(
     max_findings = expected.get("max_findings")
     if isinstance(max_findings, int) and len(findings) > max_findings:
         errors.append(f"max_findings expected <= {max_findings} got {len(findings)}")
+    for field, actual in (
+        ("findings_count", len(findings)),
+        ("observations_count", len(observations)),
+        ("raw_findings_count", len(findings)),
+        ("raw_observations_count", len(observations)),
+    ):
+        expected_count = expected.get(field)
+        if isinstance(expected_count, int) and actual != expected_count:
+            errors.append(f"{field} expected {expected_count} got {actual}")
     return not errors, errors
+
+
+def validate_semantic_regression_case(case: dict[str, Any], case_path: Path) -> None:
+    curation = case.get("curation")
+    if not isinstance(curation, dict):
+        raise GovernanceError(f"semantic_regression fixture requires curation metadata: {case_path}")
+    curator = curation.get("curator")
+    gold_set = curation.get("gold_set")
+    if not isinstance(curator, str) or not curator.strip():
+        raise GovernanceError(f"semantic_regression fixture requires curation.curator: {case_path}")
+    if not isinstance(gold_set, dict):
+        raise GovernanceError(f"semantic_regression fixture requires curation.gold_set: {case_path}")
+    true_positive_count = gold_set.get("true_positive_count")
+    known_false_positive_count = gold_set.get("known_false_positive_count")
+    if not isinstance(true_positive_count, int) or true_positive_count < 1:
+        raise GovernanceError(f"semantic_regression fixture requires at least one true-positive gold item: {case_path}")
+    if not isinstance(known_false_positive_count, int) or known_false_positive_count < 0:
+        raise GovernanceError(f"semantic_regression fixture requires known_false_positive_count: {case_path}")
 
 
 def evaluate_required_observation_value(
@@ -275,3 +345,29 @@ def resolve_field(payload: dict[str, Any], field: str) -> Any:
 
 def sha256(payload: bytes) -> str:
     return "sha256:" + hashlib.sha256(payload).hexdigest()
+
+
+def tool_manifest_hash(tool: dict[str, Any]) -> str:
+    stable = {
+        key: value
+        for key, value in tool.items()
+        if key not in {"created_at", "updated_at", "last_transition"}
+    }
+    return sha256(json.dumps(stable, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+
+
+def _default_fixture_lane(name: str) -> str:
+    return "real_repo_baseline"
+
+
+def _fixture_lane_counts(case_results: list[dict[str, Any]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for case in case_results:
+        lane = str(case.get("lane") or "unknown")
+        counts[lane] = counts.get(lane, 0) + 1
+    return counts
+
+
+def _lane_passed(case_results: list[dict[str, Any]], lane: str) -> bool:
+    lane_cases = [case for case in case_results if case.get("lane") == lane]
+    return bool(lane_cases) and all(case.get("passed") is True for case in lane_cases)

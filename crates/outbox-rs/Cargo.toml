@@ -51,7 +51,7 @@ deadpool-postgres = { version = "0.14", features = ["rt_tokio_1"] }
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "test-util"] }
 # DebuggingRecorder for asserting metric emission in repository + dispatcher tests.
-metrics-util = { version = "0.19", features = ["debugging"] }
+metrics-util = { version = "0.20", features = ["debugging"] }
 
 [lints]
 workspace = true

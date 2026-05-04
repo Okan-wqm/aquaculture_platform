@@ -3,7 +3,10 @@ import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, LessThan, IsNull, EntityManager } from 'typeorm';
 import { Cron, CronExpression } from '@nestjs/schedule';
 
-import { tenantManagerRepo } from '@aquaculture/backend-common/database';
+import {
+  runInTenantTransaction,
+  tenantManagerRepo,
+} from '@aquaculture/backend-common/database';
 import { RetentionPolicy } from '../entities/retention-policy.entity';
 import { Message } from '../../message/entities/message.entity';
 import { LegalHoldService } from './legal-hold.service';
@@ -88,10 +91,12 @@ export class RetentionPolicyService {
    * Get all retention policies for a tenant (default + channel overrides).
    */
   async getPolicies(tenantId: string): Promise<RetentionPolicy[]> {
-    return this.policyRepo.find({
-      where: { tenantId },
-      order: { channelId: 'ASC', createdAt: 'ASC' },
-    });
+    return runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) =>
+      tenantManagerRepo(queryRunner.manager, RetentionPolicy, tenantId).find({
+        where: { tenantId },
+        order: { channelId: 'ASC', createdAt: 'ASC' },
+      }),
+    );
   }
 
   /**

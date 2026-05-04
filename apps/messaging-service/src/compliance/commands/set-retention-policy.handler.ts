@@ -3,6 +3,7 @@ import { Logger, BadRequestException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { OutboxPublisher } from '@platform/outbox';
 import { createBaseEvent, BaseEvent } from '@platform/event-contracts';
 import { SetRetentionPolicyCommand } from './set-retention-policy.command';
@@ -50,8 +51,10 @@ export class SetRetentionPolicyHandler
       );
     }
 
-    // Wrap policy + audit + outbox in a single transaction
-    return this.dataSource.transaction(async (manager) => {
+    // Wrap policy + audit + outbox in a single tenant-pinned transaction.
+    return runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) => {
+      const { manager } = queryRunner;
+
       // Create or update the policy — pass manager for transactional atomicity.
       // BEFORE: setPolicy() used its own injected repo, committing outside this transaction.
       const policy = await this.retentionService.setPolicy(
@@ -83,7 +86,7 @@ export class SetRetentionPolicyHandler
         policyId: policy.id,
         changedBy: userId,
         changedAt: new Date().toISOString(),
-      },  manager);
+      }, manager);
 
       this.logger.log(
         `Retention policy set: ${retentionDays} days for tenant=${tenantId}, channel=${channelId ?? 'all'}`,

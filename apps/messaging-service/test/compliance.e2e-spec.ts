@@ -324,7 +324,8 @@ describe('Compliance (E2E)', () => {
         .expect(200);
 
       expect(res.body.errors).toBeDefined();
-      expect(res.body.errors[0].message).toMatch(/forbidden/i);
+      expect(res.body.errors[0].message).toBe('Access denied');
+      expect(res.body.errors[0].extensions?.code).toBe('FORBIDDEN');
     });
 
     it('should reject legal hold mutation from MODULE_USER', async () => {
@@ -344,7 +345,8 @@ describe('Compliance (E2E)', () => {
         .expect(200);
 
       expect(res.body.errors).toBeDefined();
-      expect(res.body.errors[0].message).toMatch(/forbidden/i);
+      expect(res.body.errors[0].message).toBe('Access denied');
+      expect(res.body.errors[0].extensions?.code).toBe('FORBIDDEN');
     });
 
     it('should reject audit log query from MODULE_USER', async () => {
@@ -353,7 +355,8 @@ describe('Compliance (E2E)', () => {
         .expect(200);
 
       expect(res.body.errors).toBeDefined();
-      expect(res.body.errors[0].message).toMatch(/forbidden/i);
+      expect(res.body.errors[0].message).toBe('Access denied');
+      expect(res.body.errors[0].extensions?.code).toBe('FORBIDDEN');
     });
 
     it('should reject compliance stats query from MODULE_USER', async () => {
@@ -362,7 +365,8 @@ describe('Compliance (E2E)', () => {
         .expect(200);
 
       expect(res.body.errors).toBeDefined();
-      expect(res.body.errors[0].message).toMatch(/forbidden/i);
+      expect(res.body.errors[0].message).toBe('Access denied');
+      expect(res.body.errors[0].extensions?.code).toBe('FORBIDDEN');
     });
   });
 });

@@ -3,6 +3,7 @@ import { Logger, BadRequestException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { OutboxPublisher } from '@platform/outbox';
 import { createBaseEvent, BaseEvent } from '@platform/event-contracts';
 import { ToggleLegalHoldCommand } from './toggle-legal-hold.command';
@@ -55,8 +56,9 @@ export class ToggleLegalHoldHandler
       throw new BadRequestException('holdId is required to release a legal hold');
     }
 
-    // Wrap hold + audit + outbox in a single transaction
-    return this.dataSource.transaction(async (manager) => {
+    // Wrap hold + audit + outbox in a single tenant-pinned transaction.
+    return runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) => {
+      const { manager } = queryRunner;
       let hold: LegalHold;
 
       if (activate) {
@@ -114,7 +116,7 @@ export class ToggleLegalHoldHandler
         reason: hold.reason,
         toggledBy: userId,
         toggledAt: new Date().toISOString(),
-      },  manager);
+      }, manager);
 
       return hold;
     });

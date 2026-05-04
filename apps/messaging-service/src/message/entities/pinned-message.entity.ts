@@ -63,5 +63,6 @@ export class PinnedMessage {
     { name: 'messageId', referencedColumnName: 'id' },
     { name: 'messageCreatedAt', referencedColumnName: 'createdAt' },
   ])
+  @Field(() => Message)
   message: Message;
 }

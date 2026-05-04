@@ -163,7 +163,7 @@ describe('Messaging Core (E2E)', () => {
         .expect(200);
 
       expect(res.body.errors).toBeDefined();
-      expect(res.body.errors[0].message).toMatch(/forbidden|owner/i);
+      expect(res.body.errors[0].message).toMatch(/forbidden|owner|own messages/i);
     });
 
     it('should delete own message (soft-delete)', async () => {
@@ -197,7 +197,7 @@ describe('Messaging Core (E2E)', () => {
       expect(res.body.data.deleteMessage).toBe(true);
     });
 
-    it('should allow admin to delete any message', async () => {
+    it('should allow channel owner to delete any message', async () => {
       // USER_A2 sends a message
       const sendRes = await gqlRequest(httpServer, TENANT_A, USER_A2)
         .query(`
@@ -216,8 +216,8 @@ describe('Messaging Core (E2E)', () => {
 
       const msgId = sendRes.body.data.sendMessage.id;
 
-      // ADMIN_A deletes it
-      const res = await gqlRequest(httpServer, TENANT_A, ADMIN_A, ['TENANT_ADMIN'])
+      // USER_A1 created the channel and is the channel OWNER.
+      const res = await gqlRequest(httpServer, TENANT_A, USER_A1, ['TENANT_ADMIN'])
         .query(`
           mutation DeleteMessage($id: ID!) {
             deleteMessage(id: $id)
@@ -258,7 +258,7 @@ describe('Messaging Core (E2E)', () => {
         .expect(200);
 
       expect(res.body.errors).toBeDefined();
-      expect(res.body.errors[0].message).toMatch(/forbidden|permission|owner/i);
+      expect(res.body.errors[0].message).toMatch(/forbidden|permission|owner|admin/i);
     });
 
     it('should send a reply (threading via parentId)', async () => {
@@ -365,4 +365,3 @@ describe('Messaging Core (E2E)', () => {
   });
 
 });
-

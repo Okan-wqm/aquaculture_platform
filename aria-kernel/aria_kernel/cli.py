@@ -144,6 +144,7 @@ def build_parser() -> argparse.ArgumentParser:
     cycle_run.add_argument("--cycle-id", required=True)
     cycle_run.add_argument("--discovery-only", action="store_true")
     cycle_run.add_argument("--shadow-only", action="store_true")
+    cycle_run.add_argument("--snapshot-mode", choices=["committed", "working-tree"], default="committed")
     cycle_run.set_defaults(func=cmd_cycle_run)
     cycle_incremental = cycle_subparsers.add_parser("plan-incremental")
     cycle_incremental.add_argument("--cycle-id", required=True)
@@ -153,6 +154,7 @@ def build_parser() -> argparse.ArgumentParser:
     cycle_batch.add_argument("--count", type=int, required=True)
     cycle_batch.add_argument("--cycle-prefix", default="heartbeat")
     cycle_batch.add_argument("--discovery-only", action="store_true")
+    cycle_batch.add_argument("--snapshot-mode", choices=["committed", "working-tree"], default="committed")
     cycle_batch.set_defaults(func=cmd_cycle_run_batch)
 
     discovery = subparsers.add_parser("discovery")
@@ -160,6 +162,7 @@ def build_parser() -> argparse.ArgumentParser:
     discovery_run = discovery_subparsers.add_parser("run")
     discovery_run.add_argument("--workspace-root", default=".")
     discovery_run.add_argument("--cycle-id", required=True)
+    discovery_run.add_argument("--snapshot-mode", choices=["committed", "working-tree"], default="committed")
     discovery_run.set_defaults(func=cmd_discovery_run)
 
     diff = subparsers.add_parser("diff")
@@ -724,6 +727,7 @@ def build_parser() -> argparse.ArgumentParser:
     heartbeat_tick_parser.add_argument("--workspace-root", default=".")
     heartbeat_tick_parser.add_argument("--cycle-id", required=True)
     heartbeat_tick_parser.add_argument("--run-cycle", action="store_true")
+    heartbeat_tick_parser.add_argument("--snapshot-mode", choices=["committed", "working-tree"], default="committed")
     heartbeat_tick_parser.set_defaults(func=cmd_heartbeat_tick)
     heartbeat_status_parser = heartbeat_subparsers.add_parser("status")
     heartbeat_status_parser.set_defaults(func=cmd_heartbeat_status)
@@ -838,6 +842,7 @@ def cmd_cycle_run(args: argparse.Namespace) -> dict[str, Any]:
         base_dir=args.tools_dir,
         discovery_only=args.discovery_only,
         shadow_only=args.shadow_only,
+        snapshot_mode=args.snapshot_mode,
     )
 
 
@@ -851,12 +856,13 @@ def cmd_cycle_run_batch(args: argparse.Namespace) -> dict[str, Any]:
         count=args.count,
         cycle_prefix=args.cycle_prefix,
         discovery_only=args.discovery_only,
+        snapshot_mode=args.snapshot_mode,
         base_dir=args.tools_dir,
     )
 
 
 def cmd_discovery_run(args: argparse.Namespace) -> dict[str, Any]:
-    discovery = run_discovery(workspace_root=args.workspace_root, cycle_id=args.cycle_id, base_dir=args.tools_dir)
+    discovery = run_discovery(workspace_root=args.workspace_root, cycle_id=args.cycle_id, base_dir=args.tools_dir, snapshot_mode=args.snapshot_mode)
     fingerprint = discovery["fingerprint"]
     return {
         "schema_version": 1,
@@ -1684,6 +1690,7 @@ def cmd_heartbeat_tick(args: argparse.Namespace) -> dict[str, Any]:
         workspace_root=args.workspace_root,
         cycle_id=args.cycle_id,
         run_cycle_step=args.run_cycle,
+        snapshot_mode=args.snapshot_mode,
         base_dir=args.tools_dir,
     )
 

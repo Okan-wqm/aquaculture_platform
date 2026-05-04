@@ -3,6 +3,7 @@ import { relative } from 'node:path';
 import ts from 'typescript';
 import {
   collectFiles,
+  filterFilesBySnapshot,
   normalizeWorkspacePath,
   readWorkspaceFile,
   resolveInsideWorkspace as resolveAdapterPath,
@@ -20,6 +21,7 @@ type FindingRule =
 interface AdapterInput {
   readonly root?: string;
   readonly checks?: readonly CheckName[];
+  readonly repo_snapshot?: { readonly allowed_paths?: readonly string[]; readonly snapshot_hash?: string; readonly repo_state_id?: string };
 }
 
 interface EvidenceRef {
@@ -105,7 +107,7 @@ export function analyzeEventContracts(
     throw new Error(`scan root does not exist: ${requestedRoot}`);
   }
 
-  const files = collectTypeScriptFiles(scanRoot);
+  const files = filterFilesBySnapshot(collectTypeScriptFiles(scanRoot), workspaceRoot, input);
   const program = createAnalysisProgram(files);
   const units = files.map((file) => readSourceUnit(file, workspaceRoot, program));
   const context: AnalysisContext = {

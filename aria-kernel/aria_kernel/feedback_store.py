@@ -50,6 +50,11 @@ def record_raw_findings_for_run(
             continue
         fingerprint = finding_fingerprint(run["tool_id"], finding)
         suppressed = confirmed_false_positives.get(fingerprint)
+        status = "raw"
+        if run.get("status") in ("evidence_error", "scope_violation"):
+            status = "invalid_evidence"
+        elif suppressed:
+            status = "suppressed_false_positive"
         append_jsonl(
             raw_findings_path(base_dir),
             {
@@ -61,7 +66,7 @@ def record_raw_findings_for_run(
                 "finding_id": finding.get("id"),
                 "finding_fingerprint": fingerprint,
                 "evidence_hash": evidence_hash_for_finding(finding),
-                "status": "suppressed_false_positive" if suppressed else "raw",
+                "status": status,
                 "suppressed_by_feedback": suppressed,
                 "finding": finding,
             },
@@ -448,6 +453,8 @@ def _sampleable_raw_findings(
     for row in load_jsonl(raw_findings_path(base_dir)):
         if row.get("tool_id") != tool_id:
             continue
+        if row.get("status") == "invalid_evidence":
+            continue
         if cycle_id is not None and row.get("cycle_id") != cycle_id:
             continue
         finding = row.get("finding") if isinstance(row.get("finding"), dict) else {}
@@ -460,7 +467,7 @@ def _sampleable_raw_findings(
             continue
         candidates.append(_sample_item_from_finding(tool_id, run_id, row.get("cycle_id"), finding_id, finding, fingerprint))
     if candidates:
-        return candidates
+        return _cap_candidates_by_rule(candidates, limit=50)
     for run in load_jsonl(ensure_tools_dir(base_dir) / "runs.jsonl"):
         if run.get("tool_id") != tool_id or run.get("status") != "ok":
             continue
@@ -477,7 +484,19 @@ def _sampleable_raw_findings(
             if fingerprint in confirmed_false_positive_fingerprints:
                 continue
             candidates.append(_sample_item_from_finding(tool_id, run_id, run.get("cycle_id"), finding_id, finding, fingerprint))
-    return candidates
+    return _cap_candidates_by_rule(candidates, limit=50)
+
+
+def _cap_candidates_by_rule(candidates: list[dict[str, Any]], *, limit: int) -> list[dict[str, Any]]:
+    counts: dict[str, int] = {}
+    capped: list[dict[str, Any]] = []
+    for candidate in sorted(candidates, key=_stable_sort_key):
+        rule = str(candidate.get("rule") or "unknown")
+        if counts.get(rule, 0) >= limit:
+            continue
+        counts[rule] = counts.get(rule, 0) + 1
+        capped.append(candidate)
+    return capped
 
 
 def _sample_item_from_finding(
@@ -605,7 +624,13 @@ def _belief_uncertainty_scores(base_dir: str | Path | None) -> list[dict[str, An
 def _finding_uncertainty(finding: dict[str, Any], belief_scores: list[dict[str, Any]]) -> tuple[float, list[str]]:
     paths = _finding_paths(finding)
     matched = []
-    score = 0.0
+    confidence = finding.get("confidence", 1.0)
+    try:
+        score = max(0.0, min(1.0, 1.0 - float(confidence)))
+    except (TypeError, ValueError):
+        score = 0.0
+    severity_boost = {"critical": 0.2, "high": 0.12, "medium": 0.05, "low": 0.0}.get(str(finding.get("severity") or "").lower(), 0.0)
+    score = min(1.0, score + severity_boost)
     for belief in belief_scores:
         refs = _optional_string_list(belief.get("evidence_refs"))
         if any(_path_matches_ref(path, ref) for path in paths for ref in refs):

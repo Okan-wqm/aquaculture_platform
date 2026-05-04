@@ -358,7 +358,7 @@ class IncrementalLearningTests(unittest.TestCase):
             base_dir=self.tools_dir,
         )
         sample = generate_judgment_sample(tool_id="learning-adapter", sample_size=60, cycle_id="cycle-raw", base_dir=self.tools_dir)
-        self.assertEqual(sample["sampled_count"], 60)
+        self.assertEqual(sample["sampled_count"], 50)
         batch = record_operator_feedback_batch(
             sample_id=sample["sample_id"],
             verdict_payload={
@@ -369,7 +369,7 @@ class IncrementalLearningTests(unittest.TestCase):
             },
             base_dir=self.tools_dir,
         )
-        self.assertEqual(batch["recorded_count"], 60)
+        self.assertEqual(batch["recorded_count"], 50)
         self.assertTrue(all(row["finding_fingerprint"] for row in batch["feedback"]))
 
 

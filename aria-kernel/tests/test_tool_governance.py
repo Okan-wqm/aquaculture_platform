@@ -248,6 +248,7 @@ class ToolGovernanceTests(unittest.TestCase):
         self.assertTrue(run["output_hash"].startswith("sha256:"))
 
     def test_tool_runner_allowed_read_path_keeps_active_tool_healthy(self):
+        (self.root / "apps/farm-service/src/main.ts").write_text("export const main = true;\n", encoding="utf-8")
         register_tool(
             valid_tool(runner=runner(fake_tool_argv(valid_tool_output(read_paths=["apps/farm-service/src/main.ts"])))),
             base_dir=self.tools_dir,

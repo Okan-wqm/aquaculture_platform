@@ -26,6 +26,7 @@ def run_cycle(
     base_dir: str | os.PathLike[str] | None = None,
     discovery_only: bool = False,
     shadow_only: bool = False,
+    snapshot_mode: str = "committed",
 ) -> dict[str, Any]:
     root = Path(workspace_root).resolve()
     tools_root = ensure_tools_dir(base_dir)
@@ -62,6 +63,7 @@ def run_cycle(
             base_dir=base_dir,
             discovery_only=discovery_only,
             shadow_only=shadow_only,
+            snapshot_mode=snapshot_mode,
             started=started,
         )
     except Exception as exc:
@@ -87,9 +89,10 @@ def _run_cycle_body(
     base_dir: str | os.PathLike[str] | None,
     discovery_only: bool,
     shadow_only: bool,
+    snapshot_mode: str,
     started: float,
 ) -> dict[str, Any]:
-    discovery = run_discovery(workspace_root=root, cycle_id=cycle_id, base_dir=base_dir)
+    discovery = run_discovery(workspace_root=root, cycle_id=cycle_id, base_dir=base_dir, snapshot_mode=snapshot_mode)
     diff = run_cycle_diff(cycle_id=cycle_id, base_dir=base_dir)
     if discovery_only:
         return _finish(
@@ -120,6 +123,7 @@ def _run_cycle_body(
             "cycle_id": cycle_id,
             "workspace_root": root.as_posix(),
             "pressure_summary": pressure.get("summary", {}),
+            "repo_snapshot": discovery.get("snapshot", {}),
         }
         try:
             decision = run_tool(

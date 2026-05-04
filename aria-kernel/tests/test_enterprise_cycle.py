@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -13,10 +14,12 @@ from aria_kernel import (
     record_run,
     record_research_source,
     register_tool,
+    generate_judgment_sample,
     run_cycle,
     run_cycle_diff,
     run_discovery,
     run_reflection,
+    run_tool,
     update_memory,
     verify_integrity,
     withdraw_belief,
@@ -138,12 +141,83 @@ class EnterpriseCycleTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
+    def init_git_repo(self):
+        subprocess.run(["git", "init"], cwd=self.root, check=True, capture_output=True)
+        subprocess.run(["git", "config", "user.email", "aria@example.test"], cwd=self.root, check=True, capture_output=True)
+        subprocess.run(["git", "config", "user.name", "ARIA Test"], cwd=self.root, check=True, capture_output=True)
+        subprocess.run(["git", "add", "."], cwd=self.root, check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-m", "initial"], cwd=self.root, check=True, capture_output=True)
+
     def test_discovery_writes_fates_and_completion_proof(self):
         result = run_discovery(workspace_root=self.root, cycle_id="cycle-1", base_dir=self.tools_dir)
         self.assertTrue(result["completion_proof"]["complete"])
         paths = {row["path"] for row in result["fates"]}
         self.assertIn("src/app.ts", paths)
         self.assertTrue((self.tools_dir / "discovery/cycle-1/FATES.json").exists())
+        self.assertTrue((self.tools_dir / "discovery/cycle-1/SNAPSHOT.json").exists())
+
+    def test_committed_snapshot_blocks_dirty_git_workspace(self):
+        self.init_git_repo()
+        (self.root / "src/untracked.ts").write_text("export const dirty = true;\n", encoding="utf-8")
+        with self.assertRaisesRegex(GovernanceError, "workspace_dirty_blocked"):
+            run_discovery(workspace_root=self.root, cycle_id="cycle-dirty", base_dir=self.tools_dir)
+
+    def test_working_tree_snapshot_includes_untracked_files(self):
+        self.init_git_repo()
+        (self.root / "src/untracked.ts").write_text("export const dirty = true;\n", encoding="utf-8")
+        result = run_discovery(
+            workspace_root=self.root,
+            cycle_id="cycle-working-tree",
+            base_dir=self.tools_dir,
+            snapshot_mode="working-tree",
+        )
+        paths = {row["path"] for row in result["fates"]}
+        self.assertIn("src/untracked.ts", paths)
+        self.assertTrue(result["completion_proof"]["dirty_snapshot"])
+
+    def test_snapshot_outside_evidence_marks_run_invalid_and_unsampleable(self):
+        tool = shadow_tool()
+        tool["runner"] = {
+            "type": "subprocess",
+            "argv": fake_tool_argv(
+                tool_output(
+                    findings=[
+                        {
+                            "id": "outside",
+                            "rule": "fixture",
+                            "severity": "high",
+                            "path": "src/untracked.ts",
+                            "evidence": [{"path": "src/untracked.ts", "line": 1}],
+                        },
+                    ],
+                    read_paths=["src/untracked.ts"],
+                    evidence_sources=["src/untracked.ts"],
+                ),
+            ),
+            "cwd": ".",
+            "timeout_ms": 1000,
+            "stdin_json": True,
+        }
+        register_tool(tool, base_dir=self.tools_dir)
+        decision = run_tool(
+            "fixture-shadow-tool",
+            {"repo_snapshot": {"allowed_paths": ["src/app.ts"], "snapshot_mode": "committed", "snapshot_hash": "sha256:test"}},
+            "cycle-snapshot-invalid",
+            workspace_root=self.root,
+            base_dir=self.tools_dir,
+        )
+        self.assertEqual(decision["action"], "quarantine")
+        run = self.latest_run()
+        self.assertEqual(run["status"], "evidence_error")
+        raw = json.loads((self.tools_dir / "raw-findings.jsonl").read_text(encoding="utf-8").strip())
+        self.assertEqual(raw["status"], "invalid_evidence")
+        sample = generate_judgment_sample(
+            tool_id="fixture-shadow-tool",
+            sample_size=5,
+            cycle_id="cycle-snapshot-invalid",
+            base_dir=self.tools_dir,
+        )
+        self.assertEqual(sample["sampled_count"], 0)
 
     def test_full_shadow_cycle_runs_engines_and_suppresses_operator_emission(self):
         register_tool(shadow_tool(), base_dir=self.tools_dir)

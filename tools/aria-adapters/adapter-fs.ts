@@ -1,6 +1,17 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { relative, resolve, sep } from 'node:path';
 
+export interface RepoSnapshot {
+  readonly snapshot_mode?: string;
+  readonly repo_state_id?: string;
+  readonly snapshot_hash?: string;
+  readonly allowed_paths?: readonly string[];
+}
+
+export interface SnapshotInput {
+  readonly repo_snapshot?: RepoSnapshot;
+}
+
 export const ADAPTER_EXCLUDED_DIRS = new Set([
   '.aria-poc',
   '.claude',
@@ -56,6 +67,34 @@ export function collectFiles(
     }
   }
   return files.sort();
+}
+
+export function filterFilesBySnapshot(
+  files: readonly string[],
+  workspaceRoot: string,
+  input: SnapshotInput,
+): readonly string[] {
+  const allowed = snapshotAllowedPathSet(input);
+  if (!allowed) {
+    return files;
+  }
+  return files.filter((file) => allowed.has(normalizeWorkspacePath(relative(workspaceRoot, file))));
+}
+
+export function pathAllowedBySnapshot(workspaceRoot: string, requestedPath: string, input: SnapshotInput): boolean {
+  const allowed = snapshotAllowedPathSet(input);
+  if (!allowed) {
+    return true;
+  }
+  return allowed.has(normalizeWorkspacePath(relative(workspaceRoot, resolveInsideWorkspace(workspaceRoot, requestedPath))));
+}
+
+function snapshotAllowedPathSet(input: SnapshotInput): ReadonlySet<string> | undefined {
+  const paths = input.repo_snapshot?.allowed_paths;
+  if (!Array.isArray(paths)) {
+    return undefined;
+  }
+  return new Set(paths.map((path) => normalizeWorkspacePath(String(path))));
 }
 
 export function readWorkspaceFile(path: string): string {

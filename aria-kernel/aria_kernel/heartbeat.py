@@ -19,12 +19,13 @@ def heartbeat_tick(
     cycle_id: str,
     base_dir: str | Path | None = None,
     run_cycle_step: bool = False,
+    snapshot_mode: str = "committed",
 ) -> dict[str, Any]:
     root = ensure_tools_dir(base_dir)
     with _heartbeat_lock(root):
         actions = []
         if run_cycle_step:
-            actions.append({"action": "cycle", "result": run_cycle(workspace_root=workspace_root, cycle_id=cycle_id, base_dir=root)})
+            actions.append({"action": "cycle", "result": run_cycle(workspace_root=workspace_root, cycle_id=cycle_id, base_dir=root, snapshot_mode=snapshot_mode)})
         actions.extend(_refresh_fixtures(workspace_root=workspace_root, cycle_id=cycle_id, base_dir=root))
         actions.extend(_produce_judgment_work(cycle_id=cycle_id, base_dir=root))
         actions.append({"action": "calibration", "result": recommend_calibration(cycle_id=cycle_id, base_dir=root)})
@@ -60,6 +61,7 @@ def cycle_run_batch(
     cycle_prefix: str = "heartbeat",
     base_dir: str | Path | None = None,
     discovery_only: bool = False,
+    snapshot_mode: str = "committed",
 ) -> dict[str, Any]:
     if count <= 0:
         raise GovernanceError("cycle run-batch count must be positive")
@@ -75,6 +77,7 @@ def cycle_run_batch(
                     base_dir=root,
                     discovery_only=discovery_only,
                     shadow_only=False,
+                    snapshot_mode=snapshot_mode,
                 ),
             )
         row = {

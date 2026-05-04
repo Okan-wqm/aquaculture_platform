@@ -34,6 +34,8 @@ def run_reflection(
         "operator_facing_observations": sum(len(run.get("emitted_observations", [])) for run in runs),
         "suppressed_shadow_findings": sum(run.get("runner", {}).get("raw_findings_count", 0) for run in runs)
         - sum(len(run.get("emitted_findings", [])) for run in runs),
+        "invalid_evidence_count": _invalid_evidence_count(runs),
+        "snapshot_outside_path_count": _snapshot_outside_path_count(runs),
         "tool_runtime": tool_runtime,
         "belief_summary": _belief_summary(beliefs),
         "pressure_summary": pressures,
@@ -76,6 +78,9 @@ def _write_daily_report(root: Path, reflection: dict[str, Any]) -> None:
         "",
         f"- Tracked files: {reflection['coverage'].get('tracked_file_count', 0)}",
         f"- Discovery complete: {reflection['coverage'].get('complete', False)}",
+        f"- Snapshot mode: {reflection['coverage'].get('snapshot_mode', 'unknown')}",
+        f"- Dirty snapshot: {reflection['coverage'].get('dirty_snapshot', False)}",
+        f"- Dirty path count: {reflection['coverage'].get('dirty_path_count', 0)}",
         "",
         "## Beliefs",
         "",
@@ -103,14 +108,16 @@ def _write_daily_report(root: Path, reflection: dict[str, Any]) -> None:
         f"- Operator-facing findings: {reflection['operator_facing_findings']}",
         f"- Operator-facing observations: {reflection['operator_facing_observations']}",
         f"- Suppressed SHADOW findings: {reflection['suppressed_shadow_findings']}",
+        f"- Invalid evidence count: {reflection['invalid_evidence_count']}",
+        f"- Snapshot outside path count: {reflection['snapshot_outside_path_count']}",
         f"- Pressure: {reflection['pressure_summary']}",
         "",
         "### Raw Adapter Runtime",
         "",
-        "| Tool | Raw findings | Raw observations | Emitted findings | Emitted observations | Suppressed SHADOW findings | Delta vs previous cycle |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| Tool | Raw findings | Raw observations | Emitted findings | Emitted observations | Suppressed SHADOW findings | Invalid evidence | Delta vs previous cycle |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
         *[
-            "| {tool_id} | {raw_findings} | {raw_observations} | {emitted_findings} | {emitted_observations} | {suppressed_shadow_findings} | {raw_finding_delta_vs_prev_cycle} |".format(**row)
+            "| {tool_id} | {raw_findings} | {raw_observations} | {emitted_findings} | {emitted_observations} | {suppressed_shadow_findings} | {invalid_evidence_count} | {raw_finding_delta_vs_prev_cycle} |".format(**row)
             for row in reflection.get("tool_runtime", [])
         ],
         "",
@@ -180,11 +187,33 @@ def _tool_runtime_table(
                 "emitted_findings": emitted_findings,
                 "emitted_observations": emitted_observations,
                 "suppressed_shadow_findings": max(0, raw_findings - emitted_findings),
+                "invalid_evidence_count": _invalid_evidence_count([run]),
+                "snapshot_outside_path_count": _snapshot_outside_path_count([run]),
                 "raw_finding_delta_vs_prev_cycle": raw_findings - previous_raw,
                 "previous_cycle_id": previous.get("cycle_id") if previous else None,
             },
         )
     return rows
+
+
+def _invalid_evidence_count(runs: list[dict[str, Any]]) -> int:
+    return sum(1 for run in runs for error in _validation_errors(run) if str(error.get("code", "")).endswith("_outside_snapshot") or str(error.get("code")) in {"read_path_outside_snapshot", "evidence_outside_snapshot"})
+
+
+def _snapshot_outside_path_count(runs: list[dict[str, Any]]) -> int:
+    paths = set()
+    for run in runs:
+        for error in _validation_errors(run):
+            if str(error.get("code", "")).endswith("_outside_snapshot") or str(error.get("code")) in {"read_path_outside_snapshot", "evidence_outside_snapshot"}:
+                path = error.get("path")
+                if isinstance(path, str) and path:
+                    paths.add(path)
+    return len(paths)
+
+
+def _validation_errors(run: dict[str, Any]) -> list[dict[str, Any]]:
+    errors = run.get("evidence_validation", {}).get("errors", [])
+    return [error for error in errors if isinstance(error, dict)] if isinstance(errors, list) else []
 
 
 def _previous_tool_run(all_runs: list[dict[str, Any]], tool_id: str, cycle_id: str) -> dict[str, Any] | None:

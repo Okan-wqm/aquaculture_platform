@@ -10,7 +10,8 @@ from pathlib import Path
 from typing import Any
 
 from .evidence_validator import validate_tool_output_evidence
-from .tool_health import can_emit_operator_facing, record_run
+from .snapshot import build_repo_snapshot, ignored_dirty_path, normalize_path, snapshot_allowed_set
+from .tool_health import can_emit_operator_facing, find_scope_violations, record_run
 from .tool_registry import GovernanceError, get_tool
 
 
@@ -36,6 +37,12 @@ def run_tool(
         raise GovernanceError(f"unsupported runner type: {runner.get('type')}")
 
     root = Path(workspace_root or os.getcwd()).resolve()
+    repo_snapshot = _input_repo_snapshot(input_payload)
+    if repo_snapshot is None:
+        repo_snapshot = build_repo_snapshot(workspace_root=root, mode="working-tree", enforce_clean=False)
+    repo_snapshot = _snapshot_for_tool(tool, repo_snapshot)
+    if isinstance(input_payload, dict):
+        input_payload = {**input_payload, "repo_snapshot": repo_snapshot}
     cwd = (root / runner["cwd"]).resolve()
     try:
         cwd.relative_to(root)
@@ -93,10 +100,13 @@ def run_tool(
         "repository_mutation_attempt": mutated,
     }
     if status == "ok":
-        evidence_validation.update(validate_tool_output_evidence(tool, output, root))
+        evidence_validation.update(validate_tool_output_evidence(tool, output, root, repo_snapshot=repo_snapshot))
+        memory_errors = _memory_candidate_snapshot_errors(output.get("belief_candidates", []), repo_snapshot)
+        if memory_errors:
+            evidence_validation.setdefault("errors", [])
+            evidence_validation["errors"].extend(memory_errors)
+            evidence_validation["valid"] = False
         evidence_validation["repository_mutation_attempt"] = mutated
-        if evidence_validation.get("valid") is False:
-            status = "evidence_error"
     raw_observations = output.get("observations", [])
     raw_findings = output.get("findings", [])
     memory_candidates = _array_or_empty(output.get("belief_candidates"))
@@ -127,8 +137,66 @@ def run_tool(
             "raw_findings_count": len(_array_or_empty(raw_findings)),
             "raw_findings_sample": _raw_finding_sample(_array_or_empty(raw_findings)),
         },
+        "repo_snapshot": _compact_snapshot(repo_snapshot),
     }
     return record_run(envelope, base_dir=base_dir)
+
+
+def _input_repo_snapshot(input_payload: Any) -> dict[str, Any] | None:
+    if isinstance(input_payload, dict) and isinstance(input_payload.get("repo_snapshot"), dict):
+        return input_payload["repo_snapshot"]
+    return None
+
+
+def _compact_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "schema_version": snapshot.get("schema_version", 1),
+        "snapshot_mode": snapshot.get("snapshot_mode"),
+        "repo_state_id": snapshot.get("repo_state_id"),
+        "snapshot_hash": snapshot.get("snapshot_hash"),
+        "dirty_snapshot": snapshot.get("dirty_snapshot", False),
+        "tracked_file_count": snapshot.get("tracked_file_count"),
+    }
+
+
+def _snapshot_for_tool(tool: dict[str, Any], snapshot: dict[str, Any]) -> dict[str, Any]:
+    allowed = snapshot.get("allowed_paths")
+    if not isinstance(allowed, list):
+        return snapshot
+    filtered = [path for path in allowed if isinstance(path, str) and not find_scope_violations(tool, [path])]
+    narrowed = dict(snapshot)
+    narrowed["allowed_paths"] = sorted(filtered)
+    narrowed["tool_scope_path_count"] = len(filtered)
+    return narrowed
+
+
+def _memory_candidate_snapshot_errors(candidates: Any, repo_snapshot: dict[str, Any]) -> list[dict[str, Any]]:
+    if not isinstance(candidates, list):
+        return []
+    allowed = snapshot_allowed_set(repo_snapshot)
+    if not allowed:
+        return []
+    errors = []
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        for ref in _array_or_empty(candidate.get("evidence_refs")):
+            if not isinstance(ref, str) or _is_glob_ref(ref):
+                continue
+            normalized = ref.replace("\\", "/")
+            if normalized not in allowed:
+                errors.append(
+                    {
+                        "code": "memory_evidence_outside_snapshot",
+                        "belief_id": candidate.get("belief_id"),
+                        "path": normalized,
+                    },
+                )
+    return errors
+
+
+def _is_glob_ref(ref: str) -> bool:
+    return any(char in ref for char in "*?[]")
 
 
 def _parse_tool_output(stdout: str, tool: dict[str, Any]) -> dict[str, Any] | None:
@@ -165,8 +233,26 @@ def _workspace_snapshot(root: Path) -> Any:
             check=False,
         )
         if completed.returncode == 0:
-            return ("git", completed.stdout)
+            return ("git", _normalized_git_status(completed.stdout))
     return ("dir", _directory_snapshot(root))
+
+
+def _normalized_git_status(stdout: bytes) -> tuple[str, ...]:
+    entries = [entry.decode("utf-8", errors="replace") for entry in stdout.split(b"\0") if entry]
+    paths: list[str] = []
+    skip_next = False
+    for entry in entries:
+        if skip_next:
+            skip_next = False
+            continue
+        status = entry[:2]
+        path = entry[3:] if len(entry) > 3 else entry
+        if status.startswith("R") or status.startswith("C"):
+            skip_next = True
+        normalized = normalize_path(path)
+        if normalized and not ignored_dirty_path(normalized):
+            paths.append(f"{status} {normalized}")
+    return tuple(sorted(paths))
 
 
 def _directory_snapshot(root: Path) -> dict[str, tuple[int, str]]:

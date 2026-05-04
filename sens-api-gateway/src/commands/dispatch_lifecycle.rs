@@ -327,6 +327,11 @@ impl super::CommandHandler {
             "lora_downlink" => self.cmd_lora_downlink(&command.params).await,
             // RBAC manifest hot-reload (Batch 72 Sprint 6.1)
             "update_policy" => self.cmd_update_policy(&command.params).await,
+            // Phase 1.1.2 D-4 mTLS pinning rotation. Layered auth:
+            // envelope ed25519 sig (existing) + Permission::ManageCertPinning
+            // (RBAC gate, this batch) + Tier-1 downgrade gate inside
+            // MtlsVerifierState::rebuild (Phase 1.1.4B).
+            "update_cert_pinning" => self.cmd_update_cert_pinning(&command.params).await,
             // OPC UA user-token manifest hot-reload (Batch #249b Faz 5 A-3c)
             "update_user_token_manifest" => {
                 self.cmd_update_user_token_manifest(&command.params).await

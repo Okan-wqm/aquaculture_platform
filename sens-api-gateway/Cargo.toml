@@ -419,9 +419,13 @@ metrics = ["dep:metrics", "metrics-exporter-prometheus"]
 strict-security = []
 # SCADA display server (embedded web UI for local HMI/kiosk)
 scada-display = ["axum", "tower-http"]
-# LoRaWAN SX1302 concentrator support (requires vendor/sx1302_hal C sources)
-# EDGE-MEDIUM-003: dep:zeroize removed — zeroize is now a required dependency
-lorawan = ["dep:aes", "dep:cmac", "dep:lorawan", "dep:cc", "dep:bindgen", "dep:glob"]
+# LoRaWAN protocol support is pure Rust and portable across CI, simulators, and
+# edge hosts that do not ship the Semtech concentrator HAL.
+lorawan = ["dep:aes", "dep:cmac", "dep:lorawan"]
+# 2026-04-30: SX1302 vendor HAL is a separate hardware contract so protocol
+# crypto can be verified without silently compiling a simulated concentrator
+# path in production hardware builds.
+sx1302-vendor-hal = ["lorawan", "dep:cc", "dep:bindgen", "dep:glob"]
 
 # =============================================================================
 # ADR phase feature gates — Faz 2-11 staged rollout
@@ -500,6 +504,17 @@ tempfile = "3.10"
 #       precursor to cargo-fuzz targets (bytecode, envelope, policy, modbus parsers).
 criterion = { version = "0.5", features = ["html_reports"] }
 proptest = "1.5"
+
+# rcgen — pure-Rust X.509 cert generation for unit tests that need a valid
+# WebPki trust anchor. Phase 1.1.1 MtlsVerifierState tests need a non-empty
+# RootCertStore (WebPkiServerVerifier rejects empty stores at construction
+# with `NoRootAnchors`). Embedding hand-rolled DER would create a stale
+# fixture; rcgen generates a fresh self-signed CA cert at test start and
+# discards it after the run. Pure-Rust, no openssl shell-out, deterministic
+# enough for the boot-time invariants we exercise (we don't drive a real
+# handshake through this cert; the verifier builder just needs ANY valid
+# X.509 anchor to succeed).
+rcgen = "0.13"
 
 [profile.release]
 opt-level = "z"     # Optimize for size
@@ -670,3 +685,26 @@ path = "tests/invariants/audit_pipeline.rs"
 [[test]]
 name = "authenticated_user_sealed"
 path = "tests/invariants/authenticated_user_sealed.rs"
+
+# Phase 0.4 (PR-PRE) — cipher allowlist deployment-shape regression
+# detector. Tier-3 MAKE-IT-DETECTABLE seam pinning the source-level
+# contract for Phase 0.1 (rumqttc unified rustls) + Phase 0.2
+# (build_suderra_crypto_provider + builder_with_provider + TLS 1.3
+# pin) + Phase 0.3 (Warn-mode soft warning). Closes orphan findings
+# ORPHAN-CRITICAL-029, ORPHAN-MEDIUM-030, ORPHAN-HIGH-031,
+# ORPHAN-MEDIUM-032, ORPHAN-MEDIUM-033.
+[[test]]
+name = "cipher_allowlist_fleet_compat"
+path = "tests/invariants/cipher_allowlist_fleet_compat.rs"
+
+# Phase 1.1.5 (PR-196 Phase 1) — D-4 / D-6 unified-assembly closure
+# invariant. Tier-3 source-grep detector that pins the wire shape of
+# the hot-reload chain (MtlsVerifierState + MtlsDelegatingVerifier +
+# mqtt.rs::configure_tls + MqttClient::mtls_verifier_state accessor)
+# so a future refactor that "simplifies" any one component cannot
+# silently break hot-reload semantics. Closes ULTRA-HIGH-018 (D-4) +
+# ULTRA-HIGH-020 (D-6) when the full Phase 1 chain ships
+# (cmd_update_cert_pinning + HTTPS reqwest wire + audit emit).
+[[test]]
+name = "d4_d6_mtls_unified"
+path = "tests/invariants/d4_d6_mtls_unified.rs"

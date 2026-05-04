@@ -10,6 +10,7 @@ from .feedback_store import (
     load_feedback,
     mark_findings_need_revalidation,
     record_findings_for_run,
+    record_raw_findings_for_run,
 )
 from .ledger import append_jsonl as append_chained_jsonl
 from .ledger import load_jsonl as load_chained_jsonl
@@ -90,7 +91,9 @@ def record_run(
     if envelope["status"] == "ok" and envelope["evidence_validation"].get("valid") is False:
         envelope["status"] = "evidence_error"
 
+    raw_findings = envelope.pop("raw_findings", None)
     append_jsonl(runs_path(base_dir), {"recorded_at": utc_now(), **envelope})
+    record_raw_findings_for_run(envelope, raw_findings, base_dir=base_dir)
     record_findings_for_run(envelope, base_dir=base_dir)
     decision = evaluate_health(envelope["tool_id"], base_dir=base_dir, latest_run=envelope)
     append_jsonl(health_path(base_dir), decision)
@@ -255,6 +258,8 @@ def compute_metrics(
     true_positive = 0
     false_positive = 0
     non_critical_30d = 0
+    human_judged = 0
+    ai_consensus_judged = 0
     feedback_rows = load_feedback(tool_id=tool["tool_id"], base_dir=base_dir)
     feedback_by_run: dict[str, list[dict[str, Any]]] = {}
     for feedback in feedback_rows:
@@ -268,6 +273,11 @@ def compute_metrics(
             kind = feedback_kind(feedback)
             if kind in ("true_positive", "false_positive"):
                 judged += 1
+                source_type = str(feedback.get("source_type") or "human") if isinstance(feedback, dict) else "human"
+                if source_type == "ai_consensus":
+                    ai_consensus_judged += 1
+                elif source_type != "ai_judge":
+                    human_judged += 1
             if kind == "true_positive":
                 true_positive += 1
             if kind == "false_positive":
@@ -289,10 +299,16 @@ def compute_metrics(
     )
 
     precision = 0.0 if judged == 0 else true_positive / max(true_positive + false_positive, 1)
+    raw_findings = sum(
+        _count(run.get("emitted_findings")) + int(run.get("runner", {}).get("raw_findings_count") or 0)
+        for run in runs
+    )
     return {
         "judged_samples": judged,
         "precision": precision,
-        "precision_status": "unjudged" if judged == 0 else "judged",
+        "precision_status": _precision_status(judged, human_judged, ai_consensus_judged, raw_findings),
+        "human_judged_samples": human_judged,
+        "ai_consensus_judged_samples": ai_consensus_judged,
         "critical_false_positives": sum(1 for run in runs if has_critical_false_positive(run))
         + sum(
             1
@@ -307,6 +323,20 @@ def compute_metrics(
             1 for run in last_10 if run.get("evidence_validation", {}).get("contradicts_active_tool")
         ),
     }
+
+
+def _precision_status(judged: int, human_judged: int, ai_consensus_judged: int, raw_findings: int) -> str:
+    if judged == 0 and raw_findings == 0:
+        return "no_findings_to_judge"
+    if judged == 0:
+        return "unjudged"
+    if human_judged and ai_consensus_judged:
+        return "mixed_judged"
+    if human_judged:
+        return "human_judged"
+    if ai_consensus_judged:
+        return "ai_consensus_judged"
+    return "unjudged"
 
 
 def find_scope_violations(tool: dict[str, Any], read_paths: list[Any]) -> list[str]:

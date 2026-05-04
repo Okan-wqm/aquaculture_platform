@@ -14,6 +14,13 @@ from .tool_registry import GovernanceError, ensure_tools_dir, get_tool, utc_now
 from .tool_runner import _canonical_json_bytes, _decode_timeout_stream, _parse_tool_output
 
 
+SEMANTIC_FIXTURE_REQUIRED_TOOLS = {
+    "security-boundary-adapter",
+    "tenant-scoping-adapter",
+    "test-gap-adapter",
+}
+
+
 def fixture_runs_path(base_dir: str | Path | None = None) -> Path:
     return ensure_tools_dir(base_dir) / "fixture-runs.jsonl"
 
@@ -46,6 +53,7 @@ def run_fixture_suite(
         "tool_id": tool_id,
         "tool_version": tool.get("version"),
         "tool_manifest_hash": tool_manifest_hash(tool),
+        "fixture_set_hash": fixture_set_hash(fixture_dir),
         "cycle_id": cycle_id,
         "fixture_set": tool["fixture_set"],
         "passed": passed,
@@ -86,19 +94,76 @@ def latest_fixture_status(
     latest = rows[-1] if rows else {}
     version_matches = latest.get("tool_version") == tool.get("version")
     manifest_matches = latest.get("tool_manifest_hash") == tool_manifest_hash(tool)
+    fixture_dir = resolve_fixture_dir(tool, base_dir)
+    fixture_matches = True if latest and "fixture_set_hash" not in latest else latest.get("fixture_set_hash") == fixture_set_hash(fixture_dir)
     passed = latest.get("passed") is True
     return {
         "passed": passed,
-        "current_tool_passed": bool(passed and version_matches and manifest_matches),
+        "current_tool_passed": bool(passed and version_matches and manifest_matches and fixture_matches),
         "tool_version": latest.get("tool_version"),
         "current_tool_version": tool.get("version"),
         "tool_manifest_hash": latest.get("tool_manifest_hash"),
         "current_tool_manifest_hash": tool_manifest_hash(tool),
+        "fixture_set_hash": latest.get("fixture_set_hash"),
+        "current_fixture_set_hash": fixture_set_hash(fixture_dir),
         "version_matches": version_matches,
         "manifest_matches": manifest_matches,
+        "fixture_matches": fixture_matches,
         "fixture_baseline_passed": bool(latest.get("fixture_baseline_passed")),
         "semantic_fixture_passed": bool(latest.get("semantic_fixture_passed")),
         "latest": latest,
+    }
+
+
+def fixture_status_report(
+    tool_id: str,
+    *,
+    base_dir: str | os.PathLike[str] | None = None,
+) -> dict[str, Any]:
+    status = latest_fixture_status(tool_id, base_dir=base_dir)
+    semantic_required = tool_id in SEMANTIC_FIXTURE_REQUIRED_TOOLS
+    blockers = []
+    if not status["current_tool_passed"]:
+        blockers.append("latest_current_fixture_not_passed")
+    if not status["fixture_baseline_passed"]:
+        blockers.append("fixture_baseline_not_passed")
+    if semantic_required and not status["semantic_fixture_passed"]:
+        blockers.append("semantic_fixture_not_passed")
+    return {
+        "schema_version": 1,
+        "tool_id": tool_id,
+        "status": "current" if status["current_tool_passed"] else "stale_or_failed",
+        "current_tool_passed": status["current_tool_passed"],
+        "fixture_baseline_passed": status["fixture_baseline_passed"],
+        "semantic_fixture_passed": status["semantic_fixture_passed"],
+        "semantic_fixture_required": semantic_required,
+        "version_matches": status["version_matches"],
+        "manifest_matches": status["manifest_matches"],
+        "fixture_matches": status["fixture_matches"],
+        "blocked_by": blockers,
+        "refresh_command": f"aria-kernel fixture refresh --tool-id {tool_id} --workspace-root . --cycle-id <cycle-id>",
+        "latest": status["latest"],
+    }
+
+
+def refresh_fixture_suite(
+    tool_id: str,
+    *,
+    workspace_root: str | os.PathLike[str],
+    cycle_id: str,
+    base_dir: str | os.PathLike[str] | None = None,
+) -> dict[str, Any]:
+    before = latest_fixture_status(tool_id, base_dir=base_dir)
+    result = run_fixture_suite(tool_id, workspace_root=workspace_root, cycle_id=cycle_id, base_dir=base_dir)
+    after = latest_fixture_status(tool_id, base_dir=base_dir)
+    return {
+        "schema_version": 1,
+        "tool_id": tool_id,
+        "cycle_id": cycle_id,
+        "before": before,
+        "result": result,
+        "after": after,
+        "status": "current" if after["current_tool_passed"] else "stale_or_failed",
     }
 
 
@@ -354,6 +419,17 @@ def tool_manifest_hash(tool: dict[str, Any]) -> str:
         if key not in {"created_at", "updated_at", "last_transition"}
     }
     return sha256(json.dumps(stable, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+
+
+def fixture_set_hash(fixture_dir: Path) -> str:
+    payload = []
+    if fixture_dir.exists():
+        for path in sorted(item for item in fixture_dir.rglob("*") if item.is_file()):
+            try:
+                payload.append((path.relative_to(fixture_dir).as_posix(), sha256(path.read_bytes())))
+            except OSError:
+                payload.append((path.relative_to(fixture_dir).as_posix(), "unreadable"))
+    return sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8"))
 
 
 def _default_fixture_lane(name: str) -> str:

@@ -1,0 +1,286 @@
+from __future__ import annotations
+
+import fnmatch
+import json
+from pathlib import Path
+from typing import Any
+
+from .feedback_store import findings_path
+from .ledger import append_jsonl, load_jsonl, rewrite_jsonl
+from .memory import latest_beliefs
+from .tool_registry import GovernanceError, ensure_tools_dir, list_tools, utc_now
+
+
+PR_EVENTS = {"opened", "synchronize", "reopened", "closed", "merged"}
+
+
+def observe_pr_event(
+    *,
+    payload: dict[str, Any],
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise GovernanceError("PR event payload must be a JSON object")
+    event = str(payload.get("event") or "").strip()
+    if event not in PR_EVENTS:
+        raise GovernanceError(f"unknown PR event: {event}")
+    row = {
+        "schema_version": 1,
+        "recorded_at": utc_now(),
+        "pr_number": payload.get("pr_number"),
+        "event": event,
+        "base_sha": payload.get("base_sha"),
+        "head_sha": payload.get("head_sha"),
+        "merge_commit_sha": payload.get("merge_commit_sha"),
+        "changed_files": _string_list(payload.get("changed_files")),
+        "author": payload.get("author"),
+        "labels": _string_list(payload.get("labels")),
+        "merged_at": payload.get("merged_at"),
+        "source": payload.get("source", "operator_pr"),
+        "proposal_id": payload.get("proposal_id"),
+        "apply_ref": payload.get("apply_ref"),
+        "validation_refs": _string_list(payload.get("validation_refs")),
+    }
+    root = ensure_tools_dir(base_dir)
+    append_jsonl(root / "pr-events.jsonl", row)
+    if event == "merged" or row.get("merge_commit_sha"):
+        append_jsonl(root / "merge-events.jsonl", row)
+    return row
+
+
+def plan_pr_impact(
+    *,
+    cycle_id: str,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    root = ensure_tools_dir(base_dir)
+    event = _latest_pr_or_merge_event(root)
+    if event is None:
+        row = {
+            "schema_version": 1,
+            "recorded_at": utc_now(),
+            "cycle_id": cycle_id,
+            "status": "no_pr_event",
+            "changed_files": [],
+            "impacted_beliefs": [],
+            "carried_forward_beliefs": [],
+            "impacted_findings": [],
+            "impacted_adapters": [],
+            "actions": [],
+        }
+        return append_jsonl(root / "evidence-impact.jsonl", row)
+    changed_files = _string_list(event.get("changed_files"))
+    beliefs = latest_beliefs(load_jsonl(root / "memory" / "beliefs.jsonl"))
+    impacted_beliefs = []
+    carried_forward_beliefs = []
+    for belief in beliefs:
+        if belief.get("status") == "withdrawn":
+            continue
+        evidence_refs = _string_list(belief.get("evidence_refs"))
+        matched = _matched_refs(evidence_refs, changed_files)
+        item = {
+            "belief_id": belief.get("belief_id"),
+            "status_before": belief.get("status", "supported"),
+            "evidence_refs": evidence_refs,
+            "matched_refs": matched,
+        }
+        if matched:
+            impacted_beliefs.append(item)
+        else:
+            carried_forward_beliefs.append(item)
+    impacted_findings = _impacted_findings(root, changed_files)
+    impacted_adapters = _impacted_adapters(root, changed_files)
+    _mark_beliefs_for_revalidation(root, cycle_id, impacted_beliefs)
+    _mark_findings_for_revalidation(root, impacted_findings)
+    row = {
+        "schema_version": 1,
+        "recorded_at": utc_now(),
+        "cycle_id": cycle_id,
+        "status": "planned",
+        "pr_event": {
+            "pr_number": event.get("pr_number"),
+            "event": event.get("event"),
+            "base_sha": event.get("base_sha"),
+            "head_sha": event.get("head_sha"),
+            "merge_commit_sha": event.get("merge_commit_sha"),
+        },
+        "changed_files": changed_files,
+        "impacted_beliefs": impacted_beliefs,
+        "carried_forward_beliefs": carried_forward_beliefs,
+        "impacted_findings": impacted_findings,
+        "impacted_adapters": impacted_adapters,
+        "actions": _impact_actions(impacted_beliefs, impacted_findings, impacted_adapters),
+    }
+    return append_jsonl(root / "evidence-impact.jsonl", row)
+
+
+def plan_incremental_cycle(
+    *,
+    cycle_id: str,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    root = ensure_tools_dir(base_dir)
+    impacts = [row for row in load_jsonl(root / "evidence-impact.jsonl") if row.get("cycle_id") == cycle_id]
+    impact = impacts[-1] if impacts else plan_pr_impact(cycle_id=cycle_id, base_dir=root)
+    actions = list(impact.get("actions", []))
+    if not actions:
+        actions = ["carry_forward_confirmed_memory", "skip_unchanged_confirmed_false_positives"]
+    row = {
+        "schema_version": 1,
+        "recorded_at": utc_now(),
+        "cycle_id": cycle_id,
+        "mode": "incremental",
+        "changed_files": impact.get("changed_files", []),
+        "impacted_beliefs_count": len(impact.get("impacted_beliefs", [])),
+        "impacted_findings_count": len(impact.get("impacted_findings", [])),
+        "impacted_adapters_count": len(impact.get("impacted_adapters", [])),
+        "actions": actions,
+    }
+    return append_jsonl(root / "cycle-state" / "incremental-plans.jsonl", row)
+
+
+def _latest_pr_or_merge_event(root: Path) -> dict[str, Any] | None:
+    rows = load_jsonl(root / "merge-events.jsonl") + load_jsonl(root / "pr-events.jsonl")
+    return rows[-1] if rows else None
+
+
+def _mark_beliefs_for_revalidation(root: Path, cycle_id: str, impacted: list[dict[str, Any]]) -> None:
+    if not impacted:
+        return
+    impacted_ids = {str(item.get("belief_id")) for item in impacted}
+    for belief in latest_beliefs(load_jsonl(root / "memory" / "beliefs.jsonl")):
+        belief_id = str(belief.get("belief_id") or "")
+        if belief_id not in impacted_ids:
+            continue
+        row = dict(belief)
+        row.update(
+            {
+                "recorded_at": utc_now(),
+                "updated_at": utc_now(),
+                "last_seen_cycle": cycle_id,
+                "status": "needs_revalidation",
+                "verification_status": "needs_revalidation",
+                "needs_revalidation_cycles": int(row.get("needs_revalidation_cycles", 0)) + 1,
+                "revalidation_reason": "PR or merge changed evidence reference",
+            },
+        )
+        append_jsonl(root / "memory" / "beliefs.jsonl", row)
+        append_jsonl(
+            root / "memory" / "learning-events.jsonl",
+            {
+                "schema_version": 1,
+                "recorded_at": utc_now(),
+                "cycle_id": cycle_id,
+                "event_type": "evidence_invalidated",
+                "target_type": "belief",
+                "target_id": belief_id,
+                "repo_state_id": row.get("repo_state_id"),
+                "base_commit_sha": row.get("base_commit_sha"),
+                "evidence_hashes": _string_list(row.get("evidence_hashes")),
+                "details": {"reason": "PR or merge changed evidence reference"},
+            },
+        )
+
+
+def _mark_findings_for_revalidation(root: Path, impacted: list[dict[str, Any]]) -> None:
+    if not impacted:
+        return
+    keys = {(item.get("run_id"), item.get("finding_id")) for item in impacted}
+    rows = []
+    for row in load_jsonl(findings_path(root)):
+        if (row.get("run_id"), row.get("finding_id")) in keys and row.get("status") in ("open", "suppressed_false_positive"):
+            row = dict(row)
+            row["status"] = "needs_revalidation"
+            row["updated_at"] = utc_now()
+        rows.append(row)
+    rewrite_jsonl(findings_path(root), rows)
+
+
+def _impacted_findings(root: Path, changed_files: list[str]) -> list[dict[str, Any]]:
+    impacted = []
+    for row in load_jsonl(findings_path(root)):
+        finding = row.get("finding") if isinstance(row.get("finding"), dict) else {}
+        refs = _finding_refs(finding)
+        matched = _matched_refs(refs, changed_files)
+        if matched:
+            impacted.append(
+                {
+                    "tool_id": row.get("tool_id"),
+                    "run_id": row.get("run_id"),
+                    "finding_id": row.get("finding_id"),
+                    "finding_fingerprint": row.get("finding_fingerprint"),
+                    "matched_refs": matched,
+                },
+            )
+    return impacted
+
+
+def _impacted_adapters(root: Path, changed_files: list[str]) -> list[dict[str, Any]]:
+    impacted = []
+    for tool in list_tools(base_dir=root):
+        tool_id = str(tool.get("tool_id") or "")
+        fixture_set = str(tool.get("fixture_set") or "")
+        patterns = [
+            "aria-tools/registry.json",
+            "aria-tools/fixtures/**",
+            f"aria-tools/{fixture_set}/**",
+            f"{fixture_set}/**",
+        ]
+        matched = [path for path in changed_files if any(_matches(path, pattern) for pattern in patterns)]
+        if matched:
+            impacted.append({"tool_id": tool_id, "matched_files": sorted(set(matched)), "impact": "fixture_or_manifest_changed"})
+    return impacted
+
+
+def _impact_actions(
+    impacted_beliefs: list[dict[str, Any]],
+    impacted_findings: list[dict[str, Any]],
+    impacted_adapters: list[dict[str, Any]],
+) -> list[str]:
+    actions = []
+    if impacted_beliefs or impacted_findings:
+        actions.append("revalidate_impacted_evidence")
+    if impacted_adapters:
+        actions.append("rerun_impacted_adapter_fixtures")
+        actions.append("invalidate_ai_precision_cache")
+    if not actions:
+        actions.append("carry_forward_confirmed_memory")
+    return actions
+
+
+def _finding_refs(finding: dict[str, Any]) -> list[str]:
+    refs = []
+    if isinstance(finding.get("path"), str):
+        refs.append(finding["path"])
+    evidence = finding.get("evidence")
+    if isinstance(evidence, list):
+        refs.extend(str(item.get("path")) for item in evidence if isinstance(item, dict) and isinstance(item.get("path"), str))
+    return sorted(set(refs))
+
+
+def _matched_refs(evidence_refs: list[str], changed_files: list[str]) -> list[str]:
+    matched = []
+    for ref in evidence_refs:
+        for changed in changed_files:
+            if changed == ref or _matches(changed, ref) or _matches(ref, changed):
+                matched.append(ref)
+                break
+    return sorted(set(matched))
+
+
+def _matches(path: str, pattern: str) -> bool:
+    normalized_path = path.replace("\\", "/")
+    normalized_pattern = pattern.replace("\\", "/")
+    if fnmatch.fnmatch(normalized_path, normalized_pattern):
+        return True
+    if "/**/" in normalized_pattern:
+        return fnmatch.fnmatch(normalized_path, normalized_pattern.replace("/**/", "/"))
+    if normalized_pattern.endswith("/**"):
+        return normalized_path.startswith(normalized_pattern[:-3])
+    return False
+
+
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value if isinstance(item, str) and item.strip()]

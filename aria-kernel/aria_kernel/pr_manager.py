@@ -111,6 +111,118 @@ def open_pr_for_action(
     return record_pr_lifecycle(payload, event="opened", base_dir=base_dir)
 
 
+def prepare_branch(
+    *,
+    proposal_id: str,
+    workspace_root: str | Path,
+    base_dir: str | Path | None = None,
+    dry_run: bool = True,
+) -> dict[str, Any]:
+    proposal = get_proposal(proposal_id=proposal_id, base_dir=base_dir)
+    if proposal.get("status") != "approved_for_apply":
+        raise GovernanceError("proposal must be approved_for_apply before branch preparation")
+    action = _latest_action_for_proposal(proposal_id, base_dir)
+    if not action or action.get("status") != "ready_for_pr":
+        raise GovernanceError("branch preparation requires a ready_for_pr apply action")
+    root = Path(workspace_root).resolve()
+    branch = str(action.get("branch") or f"aria/{proposal_id}")
+    _validate_aria_branch(branch)
+    current_branch = _git(root, ["branch", "--show-current"])
+    if current_branch in ("snowball", "main", "master"):
+        base_sha = str(action.get("base_sha") or _git(root, ["rev-parse", "HEAD"]))
+    else:
+        base_sha = _git(root, ["rev-parse", "HEAD"])
+    row = {
+        "schema_version": 1,
+        "recorded_at": utc_now(),
+        "proposal_id": proposal_id,
+        "workspace_root": root.as_posix(),
+        "base_sha": base_sha,
+        "branch": branch,
+        "dry_run": dry_run,
+        "status": "planned" if dry_run else "branch_ready",
+    }
+    if not dry_run:
+        existing = _git(root, ["branch", "--list", branch])
+        if existing.strip():
+            _git(root, ["checkout", branch])
+        else:
+            _git(root, ["checkout", "-b", branch, base_sha])
+    return append_jsonl(ensure_tools_dir(base_dir) / "pr-actions.jsonl", {**row, "action": "prepare_branch"})
+
+
+def commit_prepared_branch(
+    *,
+    proposal_id: str,
+    workspace_root: str | Path,
+    message: str | None = None,
+    base_dir: str | Path | None = None,
+    dry_run: bool = True,
+) -> dict[str, Any]:
+    proposal = get_proposal(proposal_id=proposal_id, base_dir=base_dir)
+    if proposal.get("status") != "approved_for_apply":
+        raise GovernanceError("proposal must be approved_for_apply before commit")
+    branch_row = _latest_pr_action(proposal_id, "prepare_branch", base_dir)
+    if not branch_row:
+        raise GovernanceError("prepare-branch must run before commit")
+    branch = str(branch_row.get("branch") or "")
+    _validate_aria_branch(branch)
+    root = Path(workspace_root).resolve()
+    current_branch = _git(root, ["branch", "--show-current"])
+    if current_branch != branch and not dry_run:
+        raise GovernanceError(f"current branch must be {branch} before commit")
+    changed_files = _changed_files(root)
+    if not changed_files:
+        raise GovernanceError("no changes to commit")
+    commit_message = message or f"ARIA: {proposal.get('title') or proposal_id}"
+    row = {
+        "schema_version": 1,
+        "recorded_at": utc_now(),
+        "proposal_id": proposal_id,
+        "branch": branch,
+        "changed_files": changed_files,
+        "message": commit_message,
+        "dry_run": dry_run,
+        "status": "planned" if dry_run else "committed",
+        "commit_sha": None,
+    }
+    if not dry_run:
+        _git(root, ["add", *changed_files])
+        _git(root, ["commit", "-m", commit_message])
+        row["commit_sha"] = _git(root, ["rev-parse", "HEAD"])
+    return append_jsonl(ensure_tools_dir(base_dir) / "pr-actions.jsonl", {**row, "action": "commit"})
+
+
+def push_prepared_branch(
+    *,
+    proposal_id: str,
+    workspace_root: str | Path,
+    remote: str = "origin",
+    base_dir: str | Path | None = None,
+    dry_run: bool = True,
+) -> dict[str, Any]:
+    commit_row = _latest_pr_action(proposal_id, "commit", base_dir)
+    if not commit_row:
+        raise GovernanceError("commit must run before push")
+    branch = str(commit_row.get("branch") or "")
+    _validate_aria_branch(branch)
+    if branch in ("snowball", "main", "master"):
+        raise GovernanceError("base branch push is forbidden")
+    root = Path(workspace_root).resolve()
+    row = {
+        "schema_version": 1,
+        "recorded_at": utc_now(),
+        "proposal_id": proposal_id,
+        "branch": branch,
+        "remote": remote,
+        "dry_run": dry_run,
+        "status": "planned" if dry_run else "pushed",
+    }
+    if not dry_run:
+        _git(root, ["push", "-u", remote, branch])
+    return append_jsonl(ensure_tools_dir(base_dir) / "pr-actions.jsonl", {**row, "action": "push"})
+
+
 def plan_pr_lifecycle(
     *,
     open_prs: list[dict[str, Any]],
@@ -209,6 +321,10 @@ def list_pr_split_plans(*, base_dir: str | Path | None = None) -> list[dict[str,
     return load_jsonl(ensure_tools_dir(base_dir) / "pr-split-plans.jsonl")
 
 
+def list_pr_actions(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
+    return load_jsonl(ensure_tools_dir(base_dir) / "pr-actions.jsonl")
+
+
 def _latest_action_for_proposal(proposal_id: str, base_dir: str | Path | None) -> dict[str, Any] | None:
     for action in reversed(list_apply_actions(base_dir=base_dir)):
         if action.get("proposal_id") == proposal_id:
@@ -220,6 +336,13 @@ def _latest_validation_plan_for_proposal(proposal_id: str, base_dir: str | Path 
     for plan in reversed(list_validation_plans(base_dir=base_dir)):
         if plan.get("validation_plan_id") == proposal_id:
             return plan
+    return None
+
+
+def _latest_pr_action(proposal_id: str, action: str, base_dir: str | Path | None) -> dict[str, Any] | None:
+    for row in reversed(list_pr_actions(base_dir=base_dir)):
+        if row.get("proposal_id") == proposal_id and row.get("action") == action:
+            return row
     return None
 
 
@@ -258,6 +381,33 @@ def _split_group(path: str) -> str:
         parts = path.split("/")
         return "/".join(parts[:3]) if len(parts) >= 3 else "platform/libs"
     return path.split("/", 1)[0]
+
+
+def _validate_aria_branch(branch: str) -> None:
+    if not branch.startswith("aria/"):
+        raise GovernanceError("ARIA may only operate on aria/... branches")
+    if ".." in branch or branch.endswith("/") or branch.startswith("aria/../"):
+        raise GovernanceError("invalid ARIA branch name")
+
+
+def _changed_files(root: Path) -> list[str]:
+    output = _git(root, ["status", "--porcelain"])
+    files = []
+    for line in output.splitlines():
+        if not line:
+            continue
+        path = line[3:].strip()
+        if " -> " in path:
+            path = path.split(" -> ", 1)[1]
+        files.append(path)
+    return sorted(set(files))
+
+
+def _git(cwd: Path, args: list[str]) -> str:
+    completed = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=False)
+    if completed.returncode != 0:
+        raise GovernanceError(completed.stderr.strip() or completed.stdout.strip() or "git command failed")
+    return completed.stdout.strip()
 
 
 def _chunks(values: list[str], size: int) -> list[list[str]]:

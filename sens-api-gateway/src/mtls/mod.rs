@@ -1,6 +1,13 @@
-// BATCH-001-CI-FIX-015: pre-staged types for Sprint 6.1-6.8 runtime wiring.
-// Re-exports are intentionally unused until the runtime consumers land.
-#![allow(unused_imports)]
+// BATCH-001-CI-FIX-015 (HISTORICAL): pre-staged types for Sprint 6.1-6.8
+// runtime wiring originally needed `#![allow(unused_imports)]` because the
+// re-exports were anchor-only. Phases 0.1-0.4 + Phase 1.1.1-1.1.5 +
+// Phase 1.1.3a wired all primitives into runtime consumers (mqtt.rs +
+// provisioning.rs + commands/firmware.rs + scripting/engine.rs +
+// tests/invariants/{cipher_allowlist_fleet_compat,d4_d6_mtls_unified}.rs),
+// so the blanket allow is no longer needed and is removed here. Per-item
+// `#[allow(dead_code)]` annotations cover the few remaining Batch-11
+// pre-staged items that are kept on the library surface for future
+// SignedCertPinningManifest wire (Phase 1.1.2 / ORPHAN-HIGH-042).
 
 //! # mTLS 3-stage rollout + leaf cert pinning (plan §5 Faz 2 item 7 + D-6)
 //!
@@ -46,6 +53,19 @@
 //! - Batch 8 `Sha256Digest` (reused for cert DER fingerprint)
 
 pub mod cipher;
+// Phase 0.2: handshake-time CryptoProvider that narrows rustls' default
+// cipher_suites to the Suderra TLS 1.3 allowlist. Closes orphan finding
+// ORPHAN-HIGH-031 — the verify_leaf_cert cipher gate is dead code at the
+// verifier-callback layer; the architecturally correct gate sits at
+// CryptoProvider construction so non-allowlist suites cannot even appear
+// in the ClientHello.
+pub mod crypto_provider;
+// Phase 1.1.3a: cipher-allowlist-only ClientConfig factory for HTTPS
+// reqwest clients (provisioning, firmware download, scripting webhooks,
+// telemetry posts). Closes the cipher dimension of ORPHAN-HIGH-035 —
+// HTTPS endpoints no longer inherit the unrestricted ring provider via
+// the install_default() global. Pinning dimension is Phase 1.1.3b.
+pub mod https_client_config;
 pub mod error;
 pub mod mode;
 pub mod pinning;
@@ -55,20 +75,37 @@ pub mod pinning;
 // the verify callback; delegates X.509 chain trust +
 // hostname match to the rustls WebPkiServerVerifier.
 pub mod rustls_verifier;
+// Phase 1.1.1 (D-4 + D-6): hot-reloadable handle wrapping
+// SuderraServerCertVerifier so cmd_update_cert_pinning
+// (Phase 1.1.2) can apply a new pin set without restarting
+// the agent. Atomic Arc swap with pre-validation; failed
+// rebuilds preserve the running verifier.
+pub mod state_handle;
 pub mod verify;
 
-pub use cipher::{CipherSuite, CIPHER_SUITE_ALLOWLIST};
+pub use cipher::CIPHER_SUITE_ALLOWLIST;
+// `cipher::CipherSuite` is intentionally NOT re-exported at the `mtls`
+// namespace: internal consumers (crypto_provider.rs tests, future
+// SignedCertPinningManifest wire) reach it via `crate::mtls::cipher::CipherSuite`
+// — keeps the public API surface narrow per YAGNI.
+pub use crypto_provider::build_suderra_crypto_provider;
+// `build_suderra_crypto_provider_or_default` is the fail-soft variant
+// reserved for a future "log-only" cipher rollout stage; currently identical
+// to the strict variant. Kept defined in `crypto_provider.rs` but NOT
+// re-exported until a consumer needs the alternate semantics.
+pub use https_client_config::build_suderra_https_client_config;
 pub use error::MtlsVerifyError;
 pub use mode::{
-    MtlsMode, MAX_LEAF_CERT_AGE_DAYS_LEGACY, MAX_LEAF_CERT_AGE_DAYS_STRICT,
-    MAX_LEAF_CERT_AGE_DAYS_WARN,
+    MAX_LEAF_CERT_AGE_DAYS_LEGACY, MAX_LEAF_CERT_AGE_DAYS_STRICT, MAX_LEAF_CERT_AGE_DAYS_WARN,
+    MtlsMode,
 };
-pub use pinning::{
-    CertRotationStage, LeafCertFingerprint, PinnedLeafCert, PinnedLeafCertSet,
-};
+pub use pinning::{CertRotationStage, LeafCertFingerprint, PinnedLeafCert, PinnedLeafCertSet};
 pub use rustls_verifier::{
-    build_rotation_stage_from_pins_hex, build_suderra_verifier,
-    verify_cert_at_handshake, SuderraServerCertVerifier,
-    SuderraVerifierBuildError,
+    SuderraServerCertVerifier, SuderraVerifierBuildError, build_rotation_stage_from_pins_hex,
+    build_suderra_verifier, verify_cert_at_handshake,
+};
+pub use state_handle::{
+    MtlsDelegatingVerifier, MtlsRebuildError, MtlsVerifierState, RebuildOutcome,
+    build_fallback_webpki,
 };
 pub use verify::verify_leaf_cert;

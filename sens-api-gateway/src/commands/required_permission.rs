@@ -195,6 +195,19 @@ pub(crate) fn permission_for_command(cmd: &str, params: &Value) -> Option<Permis
         "update_policy" => Some(Permission::ManagePolicy),
 
         // -----------------------------------------------------------------
+        // mTLS leaf-cert pinning rotation (Phase 1.1.2 D-4).
+        // -----------------------------------------------------------------
+        // WHY ManageCertPinning specifically (not ManagePolicy): cloud-side
+        // signing ceremony reserves a separate HSM slot per ADR-021 §1 —
+        // operators with RBAC-rotation authority must not automatically
+        // inherit pinning-rotation authority. The Tier-1 downgrade gate
+        // inside MtlsVerifierState::rebuild (commit a2242f36) ensures that
+        // even an over-privileged operator can ONLY rotate pins or promote
+        // the mode floor, never weaken the policy. Distinct permission +
+        // distinct HSM slot is defense-in-depth.
+        "update_cert_pinning" => Some(Permission::ManageCertPinning),
+
+        // -----------------------------------------------------------------
         // Master-key rotation (Batch 100 Sprint 6.3).
         // -----------------------------------------------------------------
         // WHY ManagePolicy: master key is the CRYPTOGRAPHIC

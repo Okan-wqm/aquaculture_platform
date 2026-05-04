@@ -28,10 +28,14 @@ def run_discovery(
     missing = [fate["path"] for fate in fates if fate["fate"] == "unknown"]
     fingerprint = _repo_fingerprint(root, fates)
     service_map = _service_map(root)
+    commit_sha = _git_rev_parse(root, "HEAD")
+    repo_state_id = _repo_state_id(commit_sha, fates)
     completion_proof = {
         "schema_version": 1,
         "cycle_id": cycle_id,
         "generated_at": utc_now(),
+        "base_commit_sha": commit_sha,
+        "repo_state_id": repo_state_id,
         "tracked_file_count": len(tracked_files),
         "fated_file_count": len(fates),
         "unknown_count": len(missing),
@@ -72,6 +76,29 @@ def _tracked_files(root: Path) -> list[str]:
             continue
         files.append(rel)
     return sorted(files)
+
+
+def _git_rev_parse(root: Path, ref: str) -> str | None:
+    completed = subprocess.run(
+        ["git", "rev-parse", ref],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        return None
+    value = completed.stdout.strip()
+    return value or None
+
+
+def _repo_state_id(commit_sha: str | None, fates: list[dict[str, Any]]) -> str:
+    content = {
+        "commit_sha": commit_sha,
+        "files": [(row.get("path"), row.get("content_hash")) for row in fates],
+    }
+    digest = hashlib.sha256(json.dumps(content, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+    return f"repo-state:{digest}"
 
 
 def _file_fate(root: Path, relative_path: str) -> dict[str, Any]:

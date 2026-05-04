@@ -11,6 +11,16 @@
 //! - `TLS_AES_256_GCM_SHA384` — preferred on x86_64 with AES-NI.
 //! - `TLS_AES_128_GCM_SHA256` — fallback for constrained clients.
 //!
+//! Why TLS 1.3 CCM-mode suites are intentionally absent (ORPHAN-LOW-038):
+//! - `TLS_AES_128_CCM_SHA256` (0x1304) and `TLS_AES_128_CCM_8_SHA256`
+//!   (0x1305) are RFC 8446 §B.4 OPTIONAL suites. `ring`'s
+//!   `default_provider()` does NOT ship CCM-mode AEADs, so adding them
+//!   to the allowlist would not enable them — only confuse readers.
+//! - The Suderra fleet runs on RPi4/x86_64 hardware that has either
+//!   AES-NI (x86_64) or fast ChaCha20 (RPi4) — the no-AES-NI fast path
+//!   is already covered by ChaCha20-Poly1305. CCM is an
+//!   IoT-AES-only-hardware optimization the fleet does not need.
+//!
 //! Sprint 6.8 wires rustls `CipherSuite` constants to these enum variants
 //! and rejects any handshake that negotiates outside the allowlist.
 

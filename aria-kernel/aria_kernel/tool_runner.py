@@ -112,6 +112,7 @@ def run_tool(
         "read_paths": _array_or_empty(output.get("read_paths")),
         "emitted_observations": _array_or_empty(raw_observations) if can_emit else [],
         "emitted_findings": _array_or_empty(raw_findings) if can_emit else [],
+        "raw_findings": _array_or_empty(raw_findings),
         "evidence_validation": evidence_validation,
         "operator_feedback_refs": [],
         "memory_candidates": _valid_memory_candidates(memory_candidates, tool_id),

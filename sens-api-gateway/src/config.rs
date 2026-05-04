@@ -3911,6 +3911,22 @@ impl AgentConfig {
             }
         }
 
+        // 2026-04-30: Warn-mode with no accepted pins is operationally valid but
+        // noisy: every TLS handshake creates a non-blocking pinning violation.
+        // Keeping this as a boot-time coherence warning prevents false incident
+        // interpretation without weakening Strict-mode fail-closed validation.
+        if matches!(self.mtls.mode, crate::mtls::MtlsMode::Warn)
+            && self.mtls.pinned_leaf_fingerprints_hex.is_empty()
+        {
+            warn!(
+                "Config coherence (soft): mtls.mode=Warn with empty pinned_leaf_fingerprints_hex - \
+                 every TLS handshake will emit a pinning-violation audit event (mode is non-blocking, \
+                 but the audit stream will gain one entry per connect). To silence: either supply \
+                 leaf-cert SHA-256 pin(s) in mtls.pinned_leaf_fingerprints_hex, or downgrade \
+                 mtls.mode to Legacy during initial rollout."
+            );
+        }
+
         Ok(())
     }
 

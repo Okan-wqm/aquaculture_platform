@@ -73,6 +73,11 @@ pub use program_def::{ProgramDefinition, ProgramState};
 mod mqtt_dispatch;
 mod dispatch_lifecycle;
 mod config_dispatch;
+// Phase 1.1.2 (D-4 mTLS pinning rotation): cmd_update_cert_pinning
+// drives MtlsVerifierState::rebuild from the MQTT command dispatcher.
+// See cert_pinning.rs for the full layered-auth rationale (envelope
+// signature + RBAC permission + Tier-1 downgrade gate).
+mod cert_pinning;
 
 // Imports for the post-extraction mod.rs body
 // (CommandHandler struct + new() + tests).

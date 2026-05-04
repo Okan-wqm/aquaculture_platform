@@ -524,7 +524,13 @@ pub(super) fn is_valid_github_repo(repo: &str) -> bool {
             && !s.starts_with('.')
             && !s.contains("..")
     };
-    valid_chars(parts[0]) && valid_chars(parts[1])
+    let Some(owner) = parts.first() else {
+        return false;
+    };
+    let Some(repo_name) = parts.get(1) else {
+        return false;
+    };
+    valid_chars(owner) && valid_chars(repo_name)
 }
 
 /// Validate that a version/tag string contains only safe
@@ -570,8 +576,19 @@ pub(super) async fn resolve_firmware_version(
 pub(super) async fn fetch_latest_agent_tag(repo: &str) -> anyhow::Result<String> {
     let url = format!("https://api.github.com/repos/{}/releases", repo);
 
+    // Phase 1.1.3a (closes ORPHAN-HIGH-035 cipher dimension): apply the
+    // Suderra TLS 1.3 + cipher allowlist to the GitHub releases API
+    // call. This endpoint hits `api.github.com` (DigiCert / public CA
+    // chain) — Suderra leaf-cert pinning is intentionally NOT applied
+    // because GitHub rotates its certs independently of the Suderra
+    // signing ceremony. Cipher-allowlist + TLS 1.3 pin are still
+    // operative — defense-in-depth against cipher-suite-downgrade
+    // attacks even on non-Suderra-controlled HTTPS endpoints.
+    let suderra_tls = crate::mtls::build_suderra_https_client_config()
+        .map_err(|e| anyhow::anyhow!("Failed to build Suderra HTTPS ClientConfig: {e}"))?;
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
+        .use_preconfigured_tls((*suderra_tls).clone())
         .build()?;
 
     let response = client

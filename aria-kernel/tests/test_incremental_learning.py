@@ -6,15 +6,17 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from aria_kernel import record_run, register_tool, run_discovery, run_cycle_diff, update_memory
+from aria_kernel import promote_tool, record_run, register_tool, run_discovery, run_cycle_diff, update_memory
+from aria_kernel.adapter_calibration import generate_adapter_calibration_report
 from aria_kernel.feedback_store import (
     finding_fingerprint,
     generate_ai_consensus,
     generate_judgment_sample,
+    record_operator_feedback_batch,
     record_ai_feedback_file,
     record_operator_feedback,
 )
-from aria_kernel.fixture_runner import latest_fixture_status, run_fixture_suite
+from aria_kernel.fixture_runner import fixture_status_report, latest_fixture_status, refresh_fixture_suite, run_fixture_suite
 from aria_kernel.goldset import propose_goldset
 from aria_kernel.memory import list_memory
 from aria_kernel.pr_tracking import observe_pr_event, plan_pr_impact
@@ -205,6 +207,10 @@ class IncrementalLearningTests(unittest.TestCase):
         status = latest_fixture_status("learning-adapter", base_dir=self.tools_dir)
         self.assertFalse(status["current_tool_passed"])
         self.assertFalse(status["fixture_matches"])
+        report = fixture_status_report("learning-adapter", base_dir=self.tools_dir)
+        self.assertEqual(report["status"], "stale_or_failed")
+        refreshed = refresh_fixture_suite("learning-adapter", workspace_root=self.root, cycle_id="fixture-2", base_dir=self.tools_dir)
+        self.assertEqual(refreshed["status"], "current")
 
     def test_confirmed_false_positive_fingerprint_is_not_resampled_while_unchanged(self):
         register_tool(tool_definition(), base_dir=self.tools_dir)
@@ -250,6 +256,121 @@ class IncrementalLearningTests(unittest.TestCase):
             base_dir=self.tools_dir,
         )
         self.assertEqual(ready["status"], "ready")
+
+    def test_zero_finding_adapter_can_promote_with_operator_approval(self):
+        fixture_root = self.tools_dir / "fixtures/learning-adapter/cases"
+        fixture_root.mkdir(parents=True)
+        (fixture_root / "clean.json").write_text(
+            json.dumps({"input": {}, "expected": {"status": "ok", "max_findings": 0}}),
+            encoding="utf-8",
+        )
+        register_tool(tool_definition(), base_dir=self.tools_dir)
+        run_fixture_suite("learning-adapter", workspace_root=self.root, cycle_id="fixture-zero", base_dir=self.tools_dir)
+        for idx in range(5):
+            record_run(
+                run_envelope(
+                    run_id=f"zero-{idx}",
+                    cycle_id=f"cycle-{idx}",
+                    runner={"raw_findings_count": 0, "raw_findings_sample": []},
+                ),
+                base_dir=self.tools_dir,
+            )
+
+        report = generate_adapter_calibration_report(tool_ids=["learning-adapter"], cycle_id="cal-zero", base_dir=self.tools_dir)
+        self.assertEqual(report["reports"][0]["precision_status"], "no_findings_to_judge")
+        self.assertNotIn("operator_precision_unjudged", report["reports"][0]["blocked_by"])
+        promoted = promote_tool(
+            "learning-adapter",
+            "ACTIVE",
+            reason="operator approved zero-finding adapter",
+            operator_approval_ref="ops-zero-ack",
+            base_dir=self.tools_dir,
+        )
+        self.assertEqual(promoted["status"], "ACTIVE")
+
+    def test_noisy_adapter_readiness_uses_stable_runs_not_zero_raw_findings(self):
+        fixture_root = self.tools_dir / "fixtures/learning-adapter/cases"
+        fixture_root.mkdir(parents=True)
+        (fixture_root / "clean.json").write_text(
+            json.dumps({"input": {}, "expected": {"status": "ok", "required_findings": ["r"]}}),
+            encoding="utf-8",
+        )
+        register_tool(
+            tool_definition(
+                runner={
+                    **tool_definition()["runner"],
+                    "argv": fake_tool_argv(
+                        {
+                            "observations": [],
+                            "findings": [{"id": "f-1", "rule": "r", "path": "src/app.ts", "evidence": [{"path": "src/app.ts", "line": 1}]}],
+                            "read_paths": ["src/app.ts"],
+                            "evidence_sources": ["src/app.ts"],
+                            "cost_units": 1,
+                        },
+                    ),
+                },
+            ),
+            base_dir=self.tools_dir,
+        )
+        run_fixture_suite("learning-adapter", workspace_root=self.root, cycle_id="fixture-noisy", base_dir=self.tools_dir)
+        finding = {"id": "f-1", "rule": "r", "path": "src/app.ts", "message": "real", "evidence": [{"path": "src/app.ts", "line": 1}]}
+        for idx in range(5):
+            record_run(
+                run_envelope(
+                    run_id=f"noisy-{idx}",
+                    cycle_id=f"cycle-{idx}",
+                    runner={"raw_findings_count": 1, "raw_findings_sample": [finding]},
+                    raw_findings=[finding],
+                ),
+                base_dir=self.tools_dir,
+            )
+        record_operator_feedback(
+            tool_id="learning-adapter",
+            run_id="noisy-0",
+            finding_id="f-1",
+            verdict="true_positive",
+            severity="medium",
+            note="confirmed",
+            finding_fingerprint=finding_fingerprint("learning-adapter", finding),
+            base_dir=self.tools_dir,
+        )
+
+        report = generate_adapter_calibration_report(tool_ids=["learning-adapter"], cycle_id="cal-noisy", base_dir=self.tools_dir)
+        blocked_by = report["reports"][0]["blocked_by"]
+        self.assertEqual(report["reports"][0]["precision_status"], "human_judged")
+        self.assertNotIn("last_5_runs_not_clean", blocked_by)
+        self.assertNotIn("last_5_runs_not_stable", blocked_by)
+        self.assertTrue(report["reports"][0]["active_ready"])
+
+    def test_raw_finding_ledger_and_batch_feedback_cover_more_than_run_sample_limit(self):
+        register_tool(tool_definition(), base_dir=self.tools_dir)
+        findings = [
+            {"id": f"f-{idx}", "rule": "r", "path": "src/app.ts", "message": f"finding {idx}", "evidence": [{"path": "src/app.ts", "line": 1}]}
+            for idx in range(60)
+        ]
+        record_run(
+            run_envelope(
+                run_id="raw-60",
+                cycle_id="cycle-raw",
+                runner={"raw_findings_count": 60, "raw_findings_sample": findings[:50]},
+                raw_findings=findings,
+            ),
+            base_dir=self.tools_dir,
+        )
+        sample = generate_judgment_sample(tool_id="learning-adapter", sample_size=60, cycle_id="cycle-raw", base_dir=self.tools_dir)
+        self.assertEqual(sample["sampled_count"], 60)
+        batch = record_operator_feedback_batch(
+            sample_id=sample["sample_id"],
+            verdict_payload={
+                "verdicts": [
+                    {"finding_id": item["finding_id"], "verdict": "true_positive", "severity": "medium", "note": "batch"}
+                    for item in sample["items"]
+                ],
+            },
+            base_dir=self.tools_dir,
+        )
+        self.assertEqual(batch["recorded_count"], 60)
+        self.assertTrue(all(row["finding_fingerprint"] for row in batch["feedback"]))
 
 
 if __name__ == "__main__":

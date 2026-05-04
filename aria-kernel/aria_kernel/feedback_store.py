@@ -31,6 +31,42 @@ def judgment_samples_path(base_dir: str | Path | None = None) -> Path:
     return ensure_tools_dir(base_dir) / "judgment-samples.jsonl"
 
 
+def raw_findings_path(base_dir: str | Path | None = None) -> Path:
+    return ensure_tools_dir(base_dir) / "raw-findings.jsonl"
+
+
+def record_raw_findings_for_run(
+    run: dict[str, Any],
+    findings: list[Any] | None = None,
+    base_dir: str | Path | None = None,
+) -> None:
+    raw_findings = findings if isinstance(findings, list) else run.get("runner", {}).get("raw_findings_sample", [])
+    if not isinstance(raw_findings, list) or not raw_findings:
+        return
+    confirmed_false_positives = _confirmed_false_positive_fingerprints(base_dir)
+    for finding in raw_findings:
+        if not isinstance(finding, dict):
+            continue
+        fingerprint = finding_fingerprint(run["tool_id"], finding)
+        suppressed = confirmed_false_positives.get(fingerprint)
+        append_jsonl(
+            raw_findings_path(base_dir),
+            {
+                "schema_version": 1,
+                "recorded_at": utc_now(),
+                "tool_id": run["tool_id"],
+                "run_id": run["run_id"],
+                "cycle_id": run.get("cycle_id"),
+                "finding_id": finding.get("id"),
+                "finding_fingerprint": fingerprint,
+                "evidence_hash": evidence_hash_for_finding(finding),
+                "status": "suppressed_false_positive" if suppressed else "raw",
+                "suppressed_by_feedback": suppressed,
+                "finding": finding,
+            },
+        )
+
+
 def record_findings_for_run(run: dict[str, Any], base_dir: str | Path | None = None) -> None:
     findings = run.get("emitted_findings", [])
     if not isinstance(findings, list) or not findings:
@@ -141,6 +177,71 @@ def record_operator_feedback(
     }
     append_jsonl(feedback_path(base_dir), row)
     return row
+
+
+def record_operator_feedback_batch(
+    *,
+    sample_id: str,
+    verdict_payload: Any,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    sample = _sample_by_id(sample_id, base_dir)
+    if sample is None:
+        raise GovernanceError(f"unknown judgment sample: {sample_id}")
+    verdicts = verdict_payload.get("verdicts") if isinstance(verdict_payload, dict) else verdict_payload
+    if not isinstance(verdicts, list):
+        raise GovernanceError("batch verdict file must be an array or an object with verdicts array")
+    sample_items = sample.get("items", [])
+    if not isinstance(sample_items, list):
+        raise GovernanceError("judgment sample has invalid items")
+    by_key = {
+        _batch_key(item): item
+        for item in sample_items
+        if isinstance(item, dict) and item.get("run_id") and item.get("finding_id")
+    }
+    by_finding_id: dict[str, list[dict[str, Any]]] = {}
+    for item in sample_items:
+        if isinstance(item, dict) and item.get("finding_id"):
+            by_finding_id.setdefault(str(item.get("finding_id")), []).append(item)
+    seen: set[tuple[str, str]] = set()
+    normalized = []
+    for verdict in verdicts:
+        if not isinstance(verdict, dict):
+            raise GovernanceError("batch verdict entries must be JSON objects")
+        key = _resolve_batch_verdict_key(verdict, by_finding_id)
+        if key not in by_key:
+            raise GovernanceError(f"batch verdict does not match sample item: {key[0]} {key[1]}")
+        if key in seen:
+            raise GovernanceError(f"duplicate batch verdict for sample item: {key[0]} {key[1]}")
+        seen.add(key)
+        normalized.append((verdict, by_key[key]))
+    missing = sorted(set(by_key) - seen)
+    if missing:
+        first = missing[0]
+        raise GovernanceError(f"batch verdict missing sample item: {first[0]} {first[1]}")
+
+    rows = []
+    for verdict, item in normalized:
+        rows.append(
+            record_operator_feedback(
+                tool_id=str(item.get("tool_id") or sample.get("tool_id") or ""),
+                run_id=str(item.get("run_id") or ""),
+                finding_id=str(item.get("finding_id") or ""),
+                verdict=str(verdict.get("verdict") or ""),
+                severity=str(verdict.get("severity") or item.get("severity") or "medium"),
+                note=str(verdict.get("note") or verdict.get("rationale") or "batch operator verdict"),
+                affected_belief_ids=_optional_string_list(verdict.get("affected_belief_ids")),
+                evidence_refs=_optional_string_list(verdict.get("evidence_refs")) or _evidence_refs_from_item(item),
+                rationale=str(verdict.get("rationale") or ""),
+                judgment_group_id=str(verdict.get("judgment_group_id") or sample_id),
+                finding_fingerprint=str(item.get("finding_fingerprint") or ""),
+                base_dir=base_dir,
+            ),
+        )
+    stored_sample = dict(sample)
+    stored_sample["status"] = "recorded"
+    stored_sample["recorded_feedback_count"] = len(rows)
+    return {"schema_version": 1, "sample_id": sample_id, "recorded_count": len(rows), "feedback": rows}
 
 
 def record_ai_feedback_file(
@@ -300,8 +401,9 @@ def generate_judgment_sample(
         "items": selected,
         "instructions": {
             "verdicts": list(FEEDBACK_VERDICTS),
-            "lane": "record one operator-feedback verdict per sampled finding_id",
+            "lane": "record one operator-feedback verdict per sampled finding_id, or submit the full sample through record-batch",
             "cli": "aria-kernel feedback record --tool-id ... --run-id ... --finding-id ... --verdict true_positive|false_positive",
+            "batch_cli": f"aria-kernel feedback record-batch --sample-id {_sample_id(tool_id, cycle_id, selected)} --file verdicts.json",
         },
     }
     append_jsonl(judgment_samples_path(base_dir), row)
@@ -342,6 +444,22 @@ def _sampleable_raw_findings(
     }
     confirmed_false_positive_fingerprints = _confirmed_false_positive_fingerprints(base_dir)
     candidates = []
+    for row in load_jsonl(raw_findings_path(base_dir)):
+        if row.get("tool_id") != tool_id:
+            continue
+        if cycle_id is not None and row.get("cycle_id") != cycle_id:
+            continue
+        finding = row.get("finding") if isinstance(row.get("finding"), dict) else {}
+        finding_id = str(row.get("finding_id") or finding.get("id") or "")
+        run_id = str(row.get("run_id") or "")
+        if not finding_id or not run_id or (run_id, finding_id) in existing_feedback:
+            continue
+        fingerprint = str(row.get("finding_fingerprint") or finding_fingerprint(tool_id, finding))
+        if fingerprint in confirmed_false_positive_fingerprints:
+            continue
+        candidates.append(_sample_item_from_finding(tool_id, run_id, row.get("cycle_id"), finding_id, finding, fingerprint))
+    if candidates:
+        return candidates
     for run in load_jsonl(ensure_tools_dir(base_dir) / "runs.jsonl"):
         if run.get("tool_id") != tool_id or run.get("status") != "ok":
             continue
@@ -357,21 +475,30 @@ def _sampleable_raw_findings(
             fingerprint = finding_fingerprint(tool_id, finding)
             if fingerprint in confirmed_false_positive_fingerprints:
                 continue
-            candidates.append(
-                {
-                    "tool_id": tool_id,
-                    "run_id": run_id,
-                    "cycle_id": run.get("cycle_id"),
-                    "finding_id": finding_id,
-                    "rule": str(finding.get("rule") or "unknown"),
-                    "severity": str(finding.get("severity") or "medium"),
-                    "path": str(finding.get("path") or ""),
-                    "message": str(finding.get("message") or ""),
-                    "evidence": finding.get("evidence", []) if isinstance(finding.get("evidence"), list) else [],
-                    "finding_fingerprint": fingerprint,
-                },
-            )
+            candidates.append(_sample_item_from_finding(tool_id, run_id, run.get("cycle_id"), finding_id, finding, fingerprint))
     return candidates
+
+
+def _sample_item_from_finding(
+    tool_id: str,
+    run_id: str,
+    cycle_id: Any,
+    finding_id: str,
+    finding: dict[str, Any],
+    fingerprint: str,
+) -> dict[str, Any]:
+    return {
+        "tool_id": tool_id,
+        "run_id": run_id,
+        "cycle_id": cycle_id,
+        "finding_id": finding_id,
+        "rule": str(finding.get("rule") or "unknown"),
+        "severity": str(finding.get("severity") or "medium"),
+        "path": str(finding.get("path") or ""),
+        "message": str(finding.get("message") or ""),
+        "evidence": finding.get("evidence", []) if isinstance(finding.get("evidence"), list) else [],
+        "finding_fingerprint": fingerprint,
+    }
 
 
 def finding_fingerprint(tool_id: str, finding: dict[str, Any]) -> str:
@@ -424,6 +551,43 @@ def _sample_id(tool_id: str, cycle_id: str | None, items: list[dict[str, Any]]) 
         ).encode("utf-8"),
     ).hexdigest()[:12]
     return f"judge-{digest}"
+
+
+def _sample_by_id(sample_id: str, base_dir: str | Path | None) -> dict[str, Any] | None:
+    for row in reversed(load_jsonl(judgment_samples_path(base_dir))):
+        if row.get("sample_id") == sample_id:
+            return row
+    return None
+
+
+def _batch_key(item: dict[str, Any]) -> tuple[str, str]:
+    return (str(item.get("run_id") or ""), str(item.get("finding_id") or ""))
+
+
+def _batch_verdict_key(verdict: dict[str, Any]) -> tuple[str, str]:
+    run_id = str(verdict.get("run_id") or "")
+    finding_id = str(verdict.get("finding_id") or "")
+    return (run_id, finding_id)
+
+
+def _resolve_batch_verdict_key(verdict: dict[str, Any], by_finding_id: dict[str, list[dict[str, Any]]]) -> tuple[str, str]:
+    key = _batch_verdict_key(verdict)
+    if key[0] or not key[1]:
+        return key
+    matches = by_finding_id.get(key[1], [])
+    if len(matches) != 1:
+        raise GovernanceError(f"batch verdict finding_id is ambiguous without run_id: {key[1]}")
+    return _batch_key(matches[0])
+
+
+def _evidence_refs_from_item(item: dict[str, Any]) -> list[str]:
+    refs = []
+    if isinstance(item.get("path"), str) and item["path"]:
+        refs.append(item["path"])
+    evidence = item.get("evidence")
+    if isinstance(evidence, list):
+        refs.extend(str(entry.get("path")) for entry in evidence if isinstance(entry, dict) and isinstance(entry.get("path"), str))
+    return sorted(set(refs))
 
 
 def _valid_string_list(value: Any) -> bool:

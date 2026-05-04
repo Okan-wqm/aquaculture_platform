@@ -37,9 +37,17 @@ from .cycle import run_cycle
 from .cycle_diff import run_cycle_diff
 from .db_snapshot import write_schema_snapshot
 from .discovery import run_discovery
-from .feedback_store import generate_ai_consensus, generate_judgment_sample, list_findings, list_judgment_samples, record_ai_feedback_file, record_operator_feedback
+from .feedback_store import (
+    generate_ai_consensus,
+    generate_judgment_sample,
+    list_findings,
+    list_judgment_samples,
+    record_ai_feedback_file,
+    record_operator_feedback,
+    record_operator_feedback_batch,
+)
 from .fitness import generate_fitness_report, generate_recommendation_candidate, list_fitness_reports
-from .fixture_runner import run_fixture_suite
+from .fixture_runner import fixture_status_report, refresh_fixture_suite, run_fixture_suite
 from .goldset import list_goldset_proposals, propose_goldset
 from .impact import list_impact_plans, plan_impact
 from .impact_graph import list_impact_graphs, plan_downstream_impact
@@ -481,6 +489,14 @@ def build_parser() -> argparse.ArgumentParser:
     fixture_run.add_argument("--workspace-root", required=True)
     fixture_run.add_argument("--cycle-id", required=True)
     fixture_run.set_defaults(func=cmd_fixture_run)
+    fixture_status = fixture_subparsers.add_parser("status")
+    fixture_status.add_argument("--tool-id", required=True)
+    fixture_status.set_defaults(func=cmd_fixture_status)
+    fixture_refresh = fixture_subparsers.add_parser("refresh")
+    fixture_refresh.add_argument("--tool-id", required=True)
+    fixture_refresh.add_argument("--workspace-root", required=True)
+    fixture_refresh.add_argument("--cycle-id", required=True)
+    fixture_refresh.set_defaults(func=cmd_fixture_refresh)
 
     finding = subparsers.add_parser("finding")
     finding_subparsers = finding.add_subparsers(dest="command", required=True)
@@ -500,6 +516,10 @@ def build_parser() -> argparse.ArgumentParser:
     feedback_record.add_argument("--note", required=True)
     feedback_record.add_argument("--affected-belief-ids", default=None, help="JSON array of belief ids")
     feedback_record.set_defaults(func=cmd_feedback_record)
+    feedback_record_batch = feedback_subparsers.add_parser("record-batch")
+    feedback_record_batch.add_argument("--sample-id", required=True)
+    feedback_record_batch.add_argument("--file", required=True, help="JSON batch verdict payload")
+    feedback_record_batch.set_defaults(func=cmd_feedback_record_batch)
     feedback_judge = feedback_subparsers.add_parser("judge")
     feedback_judge.add_argument("--tool-id", required=True)
     feedback_judge.add_argument("--sample-size", type=int, required=True)
@@ -1207,6 +1227,19 @@ def cmd_fixture_run(args: argparse.Namespace) -> dict[str, Any]:
     )
 
 
+def cmd_fixture_status(args: argparse.Namespace) -> dict[str, Any]:
+    return fixture_status_report(args.tool_id, base_dir=args.tools_dir)
+
+
+def cmd_fixture_refresh(args: argparse.Namespace) -> dict[str, Any]:
+    return refresh_fixture_suite(
+        args.tool_id,
+        workspace_root=args.workspace_root,
+        cycle_id=args.cycle_id,
+        base_dir=args.tools_dir,
+    )
+
+
 def cmd_finding_list(args: argparse.Namespace) -> dict[str, Any]:
     return {"findings": list_findings(tool_id=args.tool_id, status=args.status, base_dir=args.tools_dir)}
 
@@ -1226,6 +1259,14 @@ def cmd_feedback_record(args: argparse.Namespace) -> dict[str, Any]:
         severity=args.severity,
         note=args.note,
         affected_belief_ids=affected_belief_ids,
+        base_dir=args.tools_dir,
+    )
+
+
+def cmd_feedback_record_batch(args: argparse.Namespace) -> dict[str, Any]:
+    return record_operator_feedback_batch(
+        sample_id=args.sample_id,
+        verdict_payload=read_json(args.file),
         base_dir=args.tools_dir,
     )
 

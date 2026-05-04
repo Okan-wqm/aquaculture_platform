@@ -53,6 +53,7 @@ def generate_observability_dashboard(
         "cycle_id": cycle_id,
         "latest_cycle": latest,
         "trend": _metrics_trend(metrics),
+        "operator_message": _operator_message(metrics),
         "validation": {
             "run_count": len(validation_runs),
             "failed_count": sum(1 for run in validation_runs if run.get("status") not in ("ok",)),
@@ -98,3 +99,11 @@ def _metrics_trend(metrics: list[dict[str, Any]]) -> dict[str, Any]:
         "duration_delta_ms": int(latest.get("total_duration_ms") or 0) - int(previous.get("total_duration_ms") or 0),
         "cost_units_delta": round(float(latest.get("cost_units") or 0.0) - float(previous.get("cost_units") or 0.0), 3),
     }
+
+
+def _operator_message(metrics: list[dict[str, Any]]) -> str:
+    if not metrics:
+        return "insufficient_history: no recorded cycle metrics yet"
+    if len(metrics) == 1:
+        return "insufficient_history: trend will be available after the next recorded cycle"
+    return "trend_available"

@@ -10,6 +10,7 @@ from .feedback_store import (
     load_feedback,
     mark_findings_need_revalidation,
     record_findings_for_run,
+    record_raw_findings_for_run,
 )
 from .ledger import append_jsonl as append_chained_jsonl
 from .ledger import load_jsonl as load_chained_jsonl
@@ -90,7 +91,9 @@ def record_run(
     if envelope["status"] == "ok" and envelope["evidence_validation"].get("valid") is False:
         envelope["status"] = "evidence_error"
 
+    raw_findings = envelope.pop("raw_findings", None)
     append_jsonl(runs_path(base_dir), {"recorded_at": utc_now(), **envelope})
+    record_raw_findings_for_run(envelope, raw_findings, base_dir=base_dir)
     record_findings_for_run(envelope, base_dir=base_dir)
     decision = evaluate_health(envelope["tool_id"], base_dir=base_dir, latest_run=envelope)
     append_jsonl(health_path(base_dir), decision)
@@ -296,7 +299,10 @@ def compute_metrics(
     )
 
     precision = 0.0 if judged == 0 else true_positive / max(true_positive + false_positive, 1)
-    raw_findings = sum(_count(run.get("emitted_findings")) + _count(run.get("runner", {}).get("raw_findings_sample")) for run in runs)
+    raw_findings = sum(
+        _count(run.get("emitted_findings")) + int(run.get("runner", {}).get("raw_findings_count") or 0)
+        for run in runs
+    )
     return {
         "judged_samples": judged,
         "precision": precision,

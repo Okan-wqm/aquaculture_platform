@@ -44,8 +44,8 @@ from .reflection import run_reflection
 from .research import fetch_research_source, list_research_fetches, list_research_policies, list_research_sources, record_research_policy, record_research_source
 from .self_modification import list_kernel_change_requests, request_kernel_change
 from .validation import compare_validation_groups, evaluate_validation_gate, list_validation_comparisons, list_validation_gates, list_validation_plans, list_validation_runs, run_validation_commands
-from .fixture_runner import latest_fixture_status, run_fixture_suite
-from .feedback_store import generate_ai_consensus, generate_judgment_sample, list_judgment_samples, record_ai_feedback_file
+from .fixture_runner import fixture_status_report, latest_fixture_status, refresh_fixture_suite, run_fixture_suite
+from .feedback_store import generate_ai_consensus, generate_judgment_sample, list_judgment_samples, record_ai_feedback_file, record_operator_feedback_batch
 from .goldset import list_goldset_proposals, propose_goldset
 from .promotion import promote_tool
 from .tool_health import can_emit_operator_facing, record_run
@@ -82,6 +82,7 @@ __all__ = [
     "generate_fitness_report",
     "generate_ai_consensus",
     "generate_judgment_sample",
+    "fixture_status_report",
     "generate_observability_dashboard",
     "generate_recommendation_candidate",
     "generate_task_candidates",
@@ -142,6 +143,7 @@ __all__ = [
     "record_budget_usage",
     "record_run",
     "record_ai_feedback_file",
+    "record_operator_feedback_batch",
     "record_proposal",
     "record_pr_lifecycle",
     "record_research_policy",
@@ -155,6 +157,7 @@ __all__ = [
     "run_cycle_diff",
     "run_discovery",
     "run_fixture_suite",
+    "refresh_fixture_suite",
     "latest_fixture_status",
     "run_validation_commands",
     "merge_if_green",

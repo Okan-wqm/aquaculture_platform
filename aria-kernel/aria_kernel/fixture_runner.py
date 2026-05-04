@@ -14,6 +14,13 @@ from .tool_registry import GovernanceError, ensure_tools_dir, get_tool, utc_now
 from .tool_runner import _canonical_json_bytes, _decode_timeout_stream, _parse_tool_output
 
 
+SEMANTIC_FIXTURE_REQUIRED_TOOLS = {
+    "security-boundary-adapter",
+    "tenant-scoping-adapter",
+    "test-gap-adapter",
+}
+
+
 def fixture_runs_path(base_dir: str | Path | None = None) -> Path:
     return ensure_tools_dir(base_dir) / "fixture-runs.jsonl"
 
@@ -105,6 +112,58 @@ def latest_fixture_status(
         "fixture_baseline_passed": bool(latest.get("fixture_baseline_passed")),
         "semantic_fixture_passed": bool(latest.get("semantic_fixture_passed")),
         "latest": latest,
+    }
+
+
+def fixture_status_report(
+    tool_id: str,
+    *,
+    base_dir: str | os.PathLike[str] | None = None,
+) -> dict[str, Any]:
+    status = latest_fixture_status(tool_id, base_dir=base_dir)
+    semantic_required = tool_id in SEMANTIC_FIXTURE_REQUIRED_TOOLS
+    blockers = []
+    if not status["current_tool_passed"]:
+        blockers.append("latest_current_fixture_not_passed")
+    if not status["fixture_baseline_passed"]:
+        blockers.append("fixture_baseline_not_passed")
+    if semantic_required and not status["semantic_fixture_passed"]:
+        blockers.append("semantic_fixture_not_passed")
+    return {
+        "schema_version": 1,
+        "tool_id": tool_id,
+        "status": "current" if status["current_tool_passed"] else "stale_or_failed",
+        "current_tool_passed": status["current_tool_passed"],
+        "fixture_baseline_passed": status["fixture_baseline_passed"],
+        "semantic_fixture_passed": status["semantic_fixture_passed"],
+        "semantic_fixture_required": semantic_required,
+        "version_matches": status["version_matches"],
+        "manifest_matches": status["manifest_matches"],
+        "fixture_matches": status["fixture_matches"],
+        "blocked_by": blockers,
+        "refresh_command": f"aria-kernel fixture refresh --tool-id {tool_id} --workspace-root . --cycle-id <cycle-id>",
+        "latest": status["latest"],
+    }
+
+
+def refresh_fixture_suite(
+    tool_id: str,
+    *,
+    workspace_root: str | os.PathLike[str],
+    cycle_id: str,
+    base_dir: str | os.PathLike[str] | None = None,
+) -> dict[str, Any]:
+    before = latest_fixture_status(tool_id, base_dir=base_dir)
+    result = run_fixture_suite(tool_id, workspace_root=workspace_root, cycle_id=cycle_id, base_dir=base_dir)
+    after = latest_fixture_status(tool_id, base_dir=base_dir)
+    return {
+        "schema_version": 1,
+        "tool_id": tool_id,
+        "cycle_id": cycle_id,
+        "before": before,
+        "result": result,
+        "after": after,
+        "status": "current" if after["current_tool_passed"] else "stale_or_failed",
     }
 
 

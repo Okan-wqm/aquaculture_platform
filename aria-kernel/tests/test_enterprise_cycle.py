@@ -159,6 +159,8 @@ class EnterpriseCycleTests(unittest.TestCase):
         self.assertEqual(run["status"], "ok")
         self.assertEqual(run["emitted_findings"], [])
         self.assertGreater(run["runner"]["raw_findings_count"], 0)
+        self.assertEqual(result["cycle_metrics"]["status"], "ok")
+        self.assertEqual(result["observability_dashboard"]["latest_cycle"]["cycle_id"], "cycle-shadow")
         self.assertTrue((self.tools_dir / "reports/daily").exists())
         report = next((self.tools_dir / "reports/daily").glob("*.md")).read_text(encoding="utf-8")
         for heading in (
@@ -170,6 +172,20 @@ class EnterpriseCycleTests(unittest.TestCase):
             "## Next Cycle Plan",
         ):
             self.assertIn(heading, report)
+
+    def test_integrity_flags_started_cycle_without_terminal_event(self):
+        append_jsonl(
+            self.tools_dir / "cycles.jsonl",
+            {
+                "schema_version": 1,
+                "at": "2026-05-04T00:00:00+00:00",
+                "cycle_id": "stale-cycle",
+                "event": "started",
+            },
+        )
+        result = verify_integrity(base_dir=self.tools_dir)
+        self.assertFalse(result["valid"])
+        self.assertEqual(result["cycle_lifecycle"]["incomplete_cycles"][0]["cycle_id"], "stale-cycle")
 
     def test_pressure_and_reflection_surface_raw_finding_delta(self):
         tool = shadow_tool()

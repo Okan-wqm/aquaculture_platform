@@ -46,12 +46,18 @@ def generate_fitness_report(
         "operational_safety": _operational_score(validation_plans, impact_graphs),
     }
     overall = round(sum(dimensions.values()) / len(DIMENSIONS), 3)
+    previous_reports = list_fitness_reports(base_dir=base_dir)
+    trend = _trend(previous_reports, dimensions, overall)
+    blockers = _blockers(dimensions)
     report = {
         "schema_version": 1,
         "recorded_at": utc_now(),
         "cycle_id": cycle_id,
         "overall_score": overall,
         "dimensions": dimensions,
+        "trend": trend,
+        "blocked_by": blockers,
+        "recommended_next_action": _recommended_next_action(dimensions, blockers),
         "recommendation_ready": False,
         "evidence": {
             "adapter_runs": len(runs),
@@ -103,6 +109,41 @@ def generate_recommendation_candidate(
 
 def list_fitness_reports(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
     return load_jsonl(ensure_tools_dir(base_dir) / "fitness" / "fitness-reports.jsonl")
+
+
+def _trend(previous_reports: list[dict[str, Any]], dimensions: dict[str, float], overall: float) -> dict[str, Any]:
+    if not previous_reports:
+        return {"overall_delta": 0.0, "dimension_deltas": {}, "window": 0}
+    previous = previous_reports[-1]
+    previous_dimensions = previous.get("dimensions", {}) if isinstance(previous.get("dimensions"), dict) else {}
+    return {
+        "overall_delta": round(overall - float(previous.get("overall_score") or 0), 3),
+        "dimension_deltas": {
+            dimension: round(score - float(previous_dimensions.get(dimension, 0)), 3)
+            for dimension, score in dimensions.items()
+        },
+        "window": min(90, len(previous_reports)),
+    }
+
+
+def _blockers(dimensions: dict[str, float]) -> list[str]:
+    return [f"low_fitness:{dimension}" for dimension, score in sorted(dimensions.items()) if score <= 0.25]
+
+
+def _recommended_next_action(dimensions: dict[str, float], blockers: list[str]) -> dict[str, Any]:
+    if not blockers:
+        return {"action": "maintain", "dimension": None, "reason": "all fitness dimensions have evidence"}
+    lowest_dimension = sorted(dimensions.items(), key=lambda item: (item[1], item[0]))[0][0]
+    action_by_dimension = {
+        "dependency_currency": "run_research_policy_and_currency_adapter",
+        "performance_baseline": "record_performance_baseline",
+        "operational_safety": "run_validation_and_impact_graph",
+    }
+    return {
+        "action": action_by_dimension.get(lowest_dimension, "triage_adapter_or_capability_gap"),
+        "dimension": lowest_dimension,
+        "reason": f"{lowest_dimension} has the lowest evidence score",
+    }
 
 
 def _adapter_score(runs: list[dict[str, Any]], tool_id: str) -> float:

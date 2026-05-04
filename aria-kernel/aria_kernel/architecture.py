@@ -27,6 +27,13 @@ REPLACEMENT_GROUNDS = (
 )
 
 PATCH_ACTIONS = ("fix_in_place", "emergency_patch")
+EVIDENCE_PACK_FIELDS = (
+    "repo_fit_refs",
+    "current_stable_refs",
+    "authoritative_refs",
+    "migration_risk",
+    "repo_value",
+)
 
 
 def review_architecture_decision(
@@ -160,12 +167,132 @@ def generate_architecture_options(
     return append_jsonl(ensure_tools_dir(base_dir) / "architecture" / "option-sets.jsonl", row)
 
 
+def record_architecture_evidence_pack(
+    *,
+    technology: str,
+    repo_fit_refs: list[str],
+    current_stable_refs: list[str],
+    authoritative_refs: list[str],
+    migration_risk: str,
+    repo_value: str,
+    base_dir: str | Path | None = None,
+    cycle_id: str | None = None,
+) -> dict[str, Any]:
+    if not technology.strip():
+        raise GovernanceError("architecture evidence pack requires technology")
+    missing = []
+    if not _dedupe(repo_fit_refs):
+        missing.append("repo_fit_refs")
+    if not _dedupe(current_stable_refs):
+        missing.append("current_stable_refs")
+    if not _dedupe(authoritative_refs):
+        missing.append("authoritative_refs")
+    if not migration_risk.strip():
+        missing.append("migration_risk")
+    if not repo_value.strip():
+        missing.append("repo_value")
+    row = {
+        "schema_version": 1,
+        "recorded_at": utc_now(),
+        "cycle_id": cycle_id,
+        "evidence_pack_id": _review_id(technology.strip(), "evidence_pack", repo_fit_refs + current_stable_refs + authoritative_refs),
+        "technology": technology.strip(),
+        "repo_fit_refs": _dedupe(repo_fit_refs),
+        "current_stable_refs": _dedupe(current_stable_refs),
+        "authoritative_refs": _dedupe(authoritative_refs),
+        "migration_risk": migration_risk.strip(),
+        "repo_value": repo_value.strip(),
+        "status": "complete" if not missing else "blocked",
+        "blocked_by": [f"missing_{field}" for field in missing],
+    }
+    return append_jsonl(ensure_tools_dir(base_dir) / "architecture" / "evidence-packs.jsonl", row)
+
+
+def draft_architecture_adr(
+    *,
+    option_set_ref: str,
+    evidence_pack_ref: str,
+    base_dir: str | Path | None = None,
+    cycle_id: str | None = None,
+) -> dict[str, Any]:
+    option_set = _find_by_ref(list_architecture_option_sets(base_dir=base_dir), option_set_ref, "option_set_id")
+    evidence_pack = _find_by_ref(list_architecture_evidence_packs(base_dir=base_dir), evidence_pack_ref, "evidence_pack_id")
+    if option_set is None:
+        raise GovernanceError(f"architecture option set not found: {option_set_ref}")
+    if evidence_pack is None:
+        raise GovernanceError(f"architecture evidence pack not found: {evidence_pack_ref}")
+    blockers = []
+    if evidence_pack.get("status") != "complete":
+        blockers.append("architecture_evidence_pack_incomplete")
+    if option_set.get("technology") != evidence_pack.get("technology"):
+        blockers.append("architecture_ref_mismatch")
+    content = _render_adr(option_set, evidence_pack)
+    row = {
+        "schema_version": 1,
+        "recorded_at": utc_now(),
+        "cycle_id": cycle_id,
+        "adr_draft_id": _review_id(str(option_set.get("technology")), "adr_draft", [option_set_ref, evidence_pack_ref]),
+        "technology": option_set.get("technology"),
+        "option_set_ref": option_set_ref,
+        "evidence_pack_ref": evidence_pack_ref,
+        "recommended_action": option_set.get("recommended_action"),
+        "status": "ready_for_operator" if not blockers else "blocked",
+        "blocked_by": blockers,
+        "content": content,
+    }
+    return append_jsonl(ensure_tools_dir(base_dir) / "architecture" / "adr-drafts.jsonl", row)
+
+
 def list_architecture_reviews(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
     return load_jsonl(ensure_tools_dir(base_dir) / "architecture" / "reviews.jsonl")
 
 
 def list_architecture_option_sets(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
     return load_jsonl(ensure_tools_dir(base_dir) / "architecture" / "option-sets.jsonl")
+
+
+def list_architecture_evidence_packs(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
+    return load_jsonl(ensure_tools_dir(base_dir) / "architecture" / "evidence-packs.jsonl")
+
+
+def list_architecture_adr_drafts(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
+    return load_jsonl(ensure_tools_dir(base_dir) / "architecture" / "adr-drafts.jsonl")
+
+
+def _find_by_ref(rows: list[dict[str, Any]], ref: str, id_field: str) -> dict[str, Any] | None:
+    for row in reversed(rows):
+        if row.get("ledger_hash") == ref or row.get(id_field) == ref:
+            return row
+    return None
+
+
+def _render_adr(option_set: dict[str, Any], evidence_pack: dict[str, Any]) -> str:
+    options = "\n".join(f"- {item['action']}: {item['tradeoff']}" for item in option_set.get("options", []) if isinstance(item, dict))
+    return "\n".join(
+        [
+            f"# ADR: {option_set.get('technology')} architecture decision",
+            "",
+            "## Problem",
+            str(option_set.get("root_cause", "")),
+            "",
+            "## Evidence",
+            f"- Repo fit refs: {', '.join(evidence_pack.get('repo_fit_refs', []))}",
+            f"- Current stable refs: {', '.join(evidence_pack.get('current_stable_refs', []))}",
+            f"- Authoritative refs: {', '.join(evidence_pack.get('authoritative_refs', []))}",
+            f"- Migration risk: {evidence_pack.get('migration_risk')}",
+            f"- Repo value: {evidence_pack.get('repo_value')}",
+            "",
+            "## Options",
+            options,
+            "",
+            "## Recommendation",
+            str(option_set.get("recommended_action", "")),
+            "",
+            "## Rollback",
+            "Rollback plan must be attached by the operator before acceptance.",
+            "",
+        ],
+    )
 
 
 def _normalize_input(

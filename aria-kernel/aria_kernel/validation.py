@@ -66,12 +66,64 @@ def run_validation_commands(
     return append_jsonl(ensure_tools_dir(base_dir) / "validation" / "validation-plans.jsonl", payload)
 
 
+def compare_validation_groups(
+    *,
+    baseline_ref: str,
+    worktree_ref: str,
+    base_dir: str | Path | None = None,
+    cycle_id: str | None = None,
+) -> dict[str, Any]:
+    if not baseline_ref.strip() or not worktree_ref.strip():
+        raise GovernanceError("baseline_ref and worktree_ref are required")
+    plans = list_validation_plans(base_dir=base_dir)
+    baseline = _find_plan(plans, baseline_ref)
+    worktree = _find_plan(plans, worktree_ref)
+    if baseline is None:
+        raise GovernanceError(f"baseline validation plan not found: {baseline_ref}")
+    if worktree is None:
+        raise GovernanceError(f"worktree validation plan not found: {worktree_ref}")
+    regression_status = _regression_status(baseline, worktree)
+    row = {
+        "schema_version": 1,
+        "recorded_at": utc_now(),
+        "cycle_id": cycle_id,
+        "baseline_ref": baseline_ref,
+        "worktree_ref": worktree_ref,
+        "baseline_status": baseline.get("status"),
+        "worktree_status": worktree.get("status"),
+        "regression_status": regression_status,
+        "blocked_by": [] if regression_status in ("no_regression", "improved") else ["validation_regression"],
+    }
+    return append_jsonl(ensure_tools_dir(base_dir) / "validation" / "validation-comparisons.jsonl", row)
+
+
 def list_validation_runs(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
     return load_jsonl(ensure_tools_dir(base_dir) / "validation" / "validation-runs.jsonl")
 
 
 def list_validation_plans(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
     return load_jsonl(ensure_tools_dir(base_dir) / "validation" / "validation-plans.jsonl")
+
+
+def list_validation_comparisons(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
+    return load_jsonl(ensure_tools_dir(base_dir) / "validation" / "validation-comparisons.jsonl")
+
+
+def _find_plan(plans: list[dict[str, Any]], plan_ref: str) -> dict[str, Any] | None:
+    for plan in reversed(plans):
+        if plan.get("ledger_hash") == plan_ref or plan.get("validation_plan_id") == plan_ref:
+            return plan
+    return None
+
+
+def _regression_status(baseline: dict[str, Any], worktree: dict[str, Any]) -> str:
+    if baseline.get("status") == "ok" and worktree.get("status") != "ok":
+        return "regression"
+    if baseline.get("status") != "ok" and worktree.get("status") == "ok":
+        return "improved"
+    if baseline.get("status") == worktree.get("status"):
+        return "no_regression"
+    return "changed"
 
 
 def _run_one(

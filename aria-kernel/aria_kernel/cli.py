@@ -16,15 +16,20 @@ from .agent_genesis import (
 )
 from .agent_priors import latest_agent_priors, map_agent_priors
 from .architecture import (
+    draft_architecture_adr,
     generate_architecture_options,
+    list_architecture_adr_drafts,
+    list_architecture_evidence_packs,
     list_architecture_option_sets,
     list_architecture_reviews,
+    record_architecture_evidence_pack,
     review_architecture_decision,
 )
 from .auto_merge import GhCliGitHubAdapter, evaluate_auto_merge, merge_if_green, record_pr_lifecycle
 from .budget import check_budget, list_budget_usage, record_budget_usage
 from .calibration import list_calibration_recommendations, recommend_calibration
 from .capability_gap import detect_capability_gaps, list_capability_gaps
+from .codegen import list_code_change_plans, record_code_change_plan
 from .cycle import run_cycle
 from .cycle_diff import run_cycle_diff
 from .db_snapshot import write_schema_snapshot
@@ -49,13 +54,20 @@ from .proposal import approve_proposal, list_proposals, proposal_packet_from_tas
 from .promotion import promote_tool
 from .quarantine import quarantine_tool
 from .reflection import run_reflection
-from .research import fetch_research_source, list_research_fetches, list_research_sources, record_research_source
+from .research import (
+    fetch_research_source,
+    list_research_fetches,
+    list_research_policies,
+    list_research_sources,
+    record_research_policy,
+    record_research_source,
+)
 from .self_modification import list_kernel_change_requests, request_kernel_change
 from .task import explain_task, generate_task_candidates, latest_tasks
 from .tool_health import evaluate_health, record_run
 from .tool_registry import GovernanceError, ensure_tools_dir, list_tools, register_tool
 from .tool_runner import run_tool
-from .validation import list_validation_plans, list_validation_runs, run_validation_commands
+from .validation import compare_validation_groups, list_validation_comparisons, list_validation_plans, list_validation_runs, run_validation_commands
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -230,11 +242,18 @@ def build_parser() -> argparse.ArgumentParser:
     research_fetch.add_argument("--url", required=True)
     research_fetch.add_argument("--source-tier", required=True)
     research_fetch.add_argument("--title", default="")
+    research_fetch.add_argument("--allowed-domains", default="[]")
     research_fetch.set_defaults(func=cmd_research_fetch)
+    research_policy = research_subparsers.add_parser("record-policy")
+    research_policy.add_argument("--allowed-domains", required=True)
+    research_policy.add_argument("--cycle-id", default=None)
+    research_policy.set_defaults(func=cmd_research_policy)
     research_list = research_subparsers.add_parser("list-sources")
     research_list.set_defaults(func=cmd_research_list_sources)
     research_fetch_list = research_subparsers.add_parser("list-fetches")
     research_fetch_list.set_defaults(func=cmd_research_list_fetches)
+    research_policy_list = research_subparsers.add_parser("list-policies")
+    research_policy_list.set_defaults(func=cmd_research_list_policies)
 
     validation = subparsers.add_parser("validation")
     validation_subparsers = validation.add_subparsers(dest="command", required=True)
@@ -246,6 +265,11 @@ def build_parser() -> argparse.ArgumentParser:
     validation_run.add_argument("--timeout-ms", type=int, default=120000)
     validation_run.add_argument("--allow-dirty", action="store_true")
     validation_run.set_defaults(func=cmd_validation_run)
+    validation_compare = validation_subparsers.add_parser("compare")
+    validation_compare.add_argument("--baseline-ref", required=True)
+    validation_compare.add_argument("--worktree-ref", required=True)
+    validation_compare.add_argument("--cycle-id", default=None)
+    validation_compare.set_defaults(func=cmd_validation_compare)
     validation_list = validation_subparsers.add_parser("list")
     validation_list.set_defaults(func=cmd_validation_list)
 
@@ -310,6 +334,20 @@ def build_parser() -> argparse.ArgumentParser:
     architecture_options.add_argument("--replacement-grounds", default="[]")
     architecture_options.add_argument("--cycle-id", default=None)
     architecture_options.set_defaults(func=cmd_architecture_options)
+    architecture_evidence = architecture_subparsers.add_parser("evidence-pack")
+    architecture_evidence.add_argument("--technology", required=True)
+    architecture_evidence.add_argument("--repo-fit-refs", required=True)
+    architecture_evidence.add_argument("--current-stable-refs", required=True)
+    architecture_evidence.add_argument("--authoritative-refs", required=True)
+    architecture_evidence.add_argument("--migration-risk", required=True)
+    architecture_evidence.add_argument("--repo-value", required=True)
+    architecture_evidence.add_argument("--cycle-id", default=None)
+    architecture_evidence.set_defaults(func=cmd_architecture_evidence_pack)
+    architecture_adr = architecture_subparsers.add_parser("draft-adr")
+    architecture_adr.add_argument("--option-set-ref", required=True)
+    architecture_adr.add_argument("--evidence-pack-ref", required=True)
+    architecture_adr.add_argument("--cycle-id", default=None)
+    architecture_adr.set_defaults(func=cmd_architecture_draft_adr)
     architecture_list = architecture_subparsers.add_parser("list")
     architecture_list.set_defaults(func=cmd_architecture_list)
 
@@ -476,6 +514,22 @@ def build_parser() -> argparse.ArgumentParser:
     apply_plan.add_argument("--workspace-root", default=".")
     apply_plan.add_argument("--execute", action="store_true")
     apply_plan.set_defaults(func=cmd_apply_plan_worktree)
+
+    codegen = subparsers.add_parser("codegen")
+    codegen_subparsers = codegen.add_subparsers(dest="command", required=True)
+    codegen_plan = codegen_subparsers.add_parser("record-plan")
+    codegen_plan.add_argument("--proposal-id", required=True)
+    codegen_plan.add_argument("--worktree-path", required=True)
+    codegen_plan.add_argument("--intended-files", required=True)
+    codegen_plan.add_argument("--allowed-globs", required=True)
+    codegen_plan.add_argument("--pre-hashes", required=True)
+    codegen_plan.add_argument("--post-hashes", required=True)
+    codegen_plan.add_argument("--validation-refs", required=True)
+    codegen_plan.add_argument("--forbidden-globs", default="[]")
+    codegen_plan.add_argument("--cycle-id", default=None)
+    codegen_plan.set_defaults(func=cmd_codegen_record_plan)
+    codegen_list = codegen_subparsers.add_parser("list")
+    codegen_list.set_defaults(func=cmd_codegen_list)
     return parser
 
 
@@ -502,6 +556,7 @@ def cmd_bootstrap_init(args: argparse.Namespace) -> dict[str, Any]:
         "genesis-sandbox",
         "kernel-change",
         "apply",
+        "codegen",
         "cycle-state",
         "cycle-diff",
     ):
@@ -713,6 +768,15 @@ def cmd_research_fetch(args: argparse.Namespace) -> dict[str, Any]:
         url=args.url,
         source_tier=args.source_tier,
         title=args.title,
+        allowed_domains=_json_array_optional_arg(args.allowed_domains, "--allowed-domains"),
+        base_dir=args.tools_dir,
+    )
+
+
+def cmd_research_policy(args: argparse.Namespace) -> dict[str, Any]:
+    return record_research_policy(
+        allowed_domains=_json_array_arg(args.allowed_domains, "--allowed-domains"),
+        cycle_id=args.cycle_id,
         base_dir=args.tools_dir,
     )
 
@@ -723,6 +787,10 @@ def cmd_research_list_sources(args: argparse.Namespace) -> dict[str, Any]:
 
 def cmd_research_list_fetches(args: argparse.Namespace) -> dict[str, Any]:
     return {"fetches": list_research_fetches(base_dir=args.tools_dir)}
+
+
+def cmd_research_list_policies(args: argparse.Namespace) -> dict[str, Any]:
+    return {"policies": list_research_policies(base_dir=args.tools_dir)}
 
 
 def cmd_validation_run(args: argparse.Namespace) -> dict[str, Any]:
@@ -741,10 +809,20 @@ def cmd_validation_run(args: argparse.Namespace) -> dict[str, Any]:
     )
 
 
+def cmd_validation_compare(args: argparse.Namespace) -> dict[str, Any]:
+    return compare_validation_groups(
+        baseline_ref=args.baseline_ref,
+        worktree_ref=args.worktree_ref,
+        cycle_id=args.cycle_id,
+        base_dir=args.tools_dir,
+    )
+
+
 def cmd_validation_list(args: argparse.Namespace) -> dict[str, Any]:
     return {
         "plans": list_validation_plans(base_dir=args.tools_dir),
         "runs": list_validation_runs(base_dir=args.tools_dir),
+        "comparisons": list_validation_comparisons(base_dir=args.tools_dir),
     }
 
 
@@ -829,10 +907,34 @@ def cmd_architecture_options(args: argparse.Namespace) -> dict[str, Any]:
     )
 
 
+def cmd_architecture_evidence_pack(args: argparse.Namespace) -> dict[str, Any]:
+    return record_architecture_evidence_pack(
+        technology=args.technology,
+        repo_fit_refs=_json_array_arg(args.repo_fit_refs, "--repo-fit-refs"),
+        current_stable_refs=_json_array_arg(args.current_stable_refs, "--current-stable-refs"),
+        authoritative_refs=_json_array_arg(args.authoritative_refs, "--authoritative-refs"),
+        migration_risk=args.migration_risk,
+        repo_value=args.repo_value,
+        cycle_id=args.cycle_id,
+        base_dir=args.tools_dir,
+    )
+
+
+def cmd_architecture_draft_adr(args: argparse.Namespace) -> dict[str, Any]:
+    return draft_architecture_adr(
+        option_set_ref=args.option_set_ref,
+        evidence_pack_ref=args.evidence_pack_ref,
+        cycle_id=args.cycle_id,
+        base_dir=args.tools_dir,
+    )
+
+
 def cmd_architecture_list(args: argparse.Namespace) -> dict[str, Any]:
     return {
         "reviews": list_architecture_reviews(base_dir=args.tools_dir),
         "option_sets": list_architecture_option_sets(base_dir=args.tools_dir),
+        "evidence_packs": list_architecture_evidence_packs(base_dir=args.tools_dir),
+        "adr_drafts": list_architecture_adr_drafts(base_dir=args.tools_dir),
     }
 
 
@@ -1056,6 +1158,25 @@ def cmd_apply_plan_worktree(args: argparse.Namespace) -> dict[str, Any]:
     )
 
 
+def cmd_codegen_record_plan(args: argparse.Namespace) -> dict[str, Any]:
+    return record_code_change_plan(
+        proposal_id=args.proposal_id,
+        worktree_path=args.worktree_path,
+        intended_files=_json_array_arg(args.intended_files, "--intended-files"),
+        allowed_globs=_json_array_arg(args.allowed_globs, "--allowed-globs"),
+        pre_hashes=_json_object_arg(args.pre_hashes, "--pre-hashes"),
+        post_hashes=_json_object_arg(args.post_hashes, "--post-hashes"),
+        validation_refs=_json_array_arg(args.validation_refs, "--validation-refs"),
+        forbidden_globs=_json_array_optional_arg(args.forbidden_globs, "--forbidden-globs"),
+        cycle_id=args.cycle_id,
+        base_dir=args.tools_dir,
+    )
+
+
+def cmd_codegen_list(args: argparse.Namespace) -> dict[str, Any]:
+    return {"plans": list_code_change_plans(base_dir=args.tools_dir)}
+
+
 def read_json(path: str) -> Any:
     with Path(path).open("r", encoding="utf-8") as handle:
         return json.load(handle)
@@ -1068,4 +1189,24 @@ def _json_array_arg(value: str, flag: str) -> list[str]:
         raise GovernanceError(f"{flag} must be a JSON array: {exc}") from exc
     if not isinstance(payload, list) or not all(isinstance(item, str) and item.strip() for item in payload):
         raise GovernanceError(f"{flag} must be a JSON array of non-empty strings")
+    return payload
+
+
+def _json_array_optional_arg(value: str, flag: str) -> list[str]:
+    try:
+        payload = json.loads(value)
+    except json.JSONDecodeError as exc:
+        raise GovernanceError(f"{flag} must be a JSON array: {exc}") from exc
+    if not isinstance(payload, list) or not all(isinstance(item, str) and item.strip() for item in payload):
+        raise GovernanceError(f"{flag} must be a JSON array of strings")
+    return payload
+
+
+def _json_object_arg(value: str, flag: str) -> dict[str, str]:
+    try:
+        payload = json.loads(value)
+    except json.JSONDecodeError as exc:
+        raise GovernanceError(f"{flag} must be a JSON object: {exc}") from exc
+    if not isinstance(payload, dict) or not all(isinstance(key, str) and isinstance(item, str) for key, item in payload.items()):
+        raise GovernanceError(f"{flag} must be a JSON object with string values")
     return payload

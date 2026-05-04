@@ -109,6 +109,19 @@ Geleneksel düzen: Hastalık çıkar, balık ölmeye başlar, sonra reaksiyon ve
 
 Sistem her uyarıyı **kaynaklı** verir — hangi makaleye, hangi araştırmaya dayandığı görünür. Yönetici ne yaptığını ve neden yaptığını bilir. Bu, sektörde "kara kutu AI" satışlarından temelden ayrışır.
 
+**Uyarı + Tedavi Paketi Birlikte Gelir:**
+
+Sistem hastalık riskini söylemekle kalmaz; aynı uyarının altında **tam tedavi paketini** de operatöre sunar:
+
+- **Önerilen ilaçlar ve dozlar** — bilimsel literatür ve resmi tedavi kılavuzlarına dayalı; tür-spesifik, ağırlık-spesifik, hastalık-spesifik
+- **İlaç çekilme süresi (withdrawal period)** — tedavi sonrası hasada kaç gün kala balık tüketilebilir; gıda güvenliği için kritik
+- **İlaç-ilaç ve ilaç-su kalitesi etkileşim uyarıları** — yanlış kombinasyon balığı öldürür
+- **Yetkili balık veterineri yönlendirmesi** — bölgedeki sertifikalı veterinerlerin iletişim bilgileri; sistem doğrudan bağlar
+- **Tedarikçi entegrasyonu** — önerilen ilacı stokta olan en yakın tedarikçi; teklif alma ve sipariş tetikleme tek tuşla
+- **Tedavi takvimi otomasyonu** — başlangıç-bitiş tarihi, doz aralığı, kontrol gözlemleri planı
+
+Yönetici uyarıyı aldığı an "ilacı nereden bulurum, kim uygular, ne kadar bekleyeceğim" sorularına cevabı **aynı ekranda** görür. Tek tuşla veteriner çağırır, ilacı sipariş eder, tedavi takvimi sisteme düşer.
+
 **Bilgi Tabanı Mimarisi (Sürekli Genişletilebilir):**
 
 AquaPlatform **bilimsel makale yüklenebilir bilgi tabanı** üzerine kurulmuştur. Sisteme:
@@ -125,12 +138,19 @@ zamanla yüklenir. Sistem bu bilgi tabanından besleniyor — yeni bir hastalık
 | Özellik | Durum |
 |---|---|
 | Hastalık olay kaydı (semptom kategorileri, davranışsal/fiziksel/solunum) | Üretimde |
+| Tedavi kaydı + ilaç + tedavi süresi + başlangıç-bitiş tarihi | Üretimde |
+| İlaç çekilme süresi takibi (withdrawal period — gıda güvenliği) | Üretimde |
 | Hasta tankın hasat ve transfer blokları | Üretimde |
 | Çevresel parametre takibi (sıcaklık, oksijen, amonyak vb.) | Üretimde |
 | Çapraz-domain korelasyon motoru (su kalitesi ↔ mortalite ↔ büyüme) | Üretimde |
 | Bilimsel kaynaklı hastalık-koşul kütüphanesi (sıcaklık şoku → BCWD vb.) | Roadmap (bilgi tabanı çerçevesi mevcut, hastalık-koşul makaleleri yüklenecek) |
 | Otomatik tahmine dayalı hastalık uyarısı (bilimsel atıflı) | Roadmap |
 | Tür-spesifik hastalık risk skorlaması | Roadmap |
+| Bilimsel kanıtlı ilaç ve doz öneri kütüphanesi (hastalık → ilaç + doz) | Roadmap |
+| İlaç-ilaç + ilaç-su kalitesi etkileşim uyarısı | Roadmap |
+| Yetkili balık veterineri dizini ve doğrudan iletişim | Roadmap |
+| Tedarikçi (ilaç + ekipman) entegrasyonu, tek tuş sipariş | Roadmap |
+| Tedavi takvimi otomasyonu (doz aralıkları, kontrol gözlemleri) | Roadmap |
 
 > **Yatırımcıya net mesaj:** *AquaPlatform sadece bir yazılım değildir; **sürekli zenginleşen bilimsel bilgi tabanıdır**. Yeni bir araştırma yayınlandığında çiftliğin koruma seviyesi otomatik yükselir. Çiftlik sahibinin kendi başına 200 makale okuyup eşik tablosu çıkarmasına gerek kalmaz.*
 
@@ -285,7 +305,7 @@ Sistem operatör hatasını, gecikmiş kararı, eksik bilgiyi yok ederek mortali
 > - **Karada:** Anlık kimya reçetesi + birleşik faz diyagramı + ekipman atfı + adım adım kontrollü dozaj
 > - **Denizde:** Çift kaynaklı uydu izleme — Sentinel-2 (optik) + Copernicus Marine CMEMS (sıcaklık/akıntı modeli) — alg patlaması ve sıcaklık şoku erken uyarısı
 > - **Çiftlik genelinde:** Lot-karışım izlenebilirliği + ekipman bakım yönetimi + AI denetim
-> - **Hastalık önleme:** Bilimsel kaynaklı tahmine dayalı erken uyarı (çevresel tetikleyici → tür-spesifik hastalık riski; sürekli makale-yüklenebilir bilgi tabanı)
+> - **Hastalık önleme + tedavi paketi:** Bilimsel kaynaklı tahmine dayalı erken uyarı (çevresel tetikleyici → tür-spesifik hastalık riski) + önerilen ilaç ve doz + ilaç çekilme süresi + yetkili veteriner dizini + tedarikçi entegrasyonu (tek tuş sipariş); sürekli makale-yüklenebilir bilgi tabanı
 > - **Cep büyüklüğünde:** Mobil saha hattı + 2 saniye push bildirim + offline kayıt + cep AI asistanı
 > - **Uzman krizine cevap:** AI dijital kimyager + dijital veteriner + dijital akuakültür mühendisi
 > - **Hayat garantisi:** Kritik alarm asla kaybolmayan mimari

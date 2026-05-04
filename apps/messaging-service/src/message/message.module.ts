@@ -27,6 +27,8 @@ import { QueryHandlers } from './queries';
 // Services
 import { MessageService } from './services/message.service';
 import { MediaService } from './services/media.service';
+import { S3StorageObjectVerifier } from './services/s3-storage-object-verifier.service';
+import { STORAGE_OBJECT_VERIFIER } from './services/storage-object-verifier.port';
 import { MentionService } from './services/mention.service';
 import { ThumbnailService } from './services/thumbnail.service';
 import { StorageQuotaService } from './services/storage-quota.service';
@@ -71,6 +73,11 @@ import { MessageResolver } from './resolvers/message.resolver';
     // Domain services
     MessageService,
     MediaService,
+    S3StorageObjectVerifier,
+    {
+      provide: STORAGE_OBJECT_VERIFIER,
+      useExisting: S3StorageObjectVerifier,
+    },
     MentionService,
     ThumbnailService,
     StorageQuotaService,

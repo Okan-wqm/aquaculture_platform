@@ -24,6 +24,7 @@ import { getTenantSchemaName } from '@aquaculture/backend-common/database';
 import { requestContextStorage } from '@aquaculture/backend-common/logging';
 import { NatsEventBus } from '@platform/event-bus';
 import { REDIS_CLIENT } from '../src/shared/redis.provider';
+import { STORAGE_OBJECT_VERIFIER } from '../src/message/services/storage-object-verifier.port';
 
 // ── Test Constants ──────────────────────────────────────────────────────────
 
@@ -134,6 +135,13 @@ export async function createE2eTestApp(
     onModuleDestroy: jest.fn().mockResolvedValue(undefined),
   };
 
+  const mockStorageObjectVerifier = {
+    verifyObject: jest.fn().mockResolvedValue({
+      contentLength: 1024,
+      contentType: 'application/octet-stream',
+    }),
+  };
+
   const moduleFixture: TestingModule = await Test.createTestingModule({
     imports: [AppModule],
   })
@@ -145,6 +153,10 @@ export async function createE2eTestApp(
     // Override it to prevent NATS connection attempt on module init.
     .overrideProvider(NatsEventBus)
     .useValue(mockEventBus)
+    // Media E2E should prove messaging contracts without invoking AWS SDK's
+    // runtime transport in Jest VM. Production keeps the S3 verifier provider.
+    .overrideProvider(STORAGE_OBJECT_VERIFIER)
+    .useValue(mockStorageObjectVerifier)
     .compile();
 
   const app = moduleFixture.createNestApplication();

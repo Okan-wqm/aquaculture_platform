@@ -18,13 +18,13 @@ import {
   Parent,
   Context,
 } from '@nestjs/graphql';
-import { UseGuards, Logger } from '@nestjs/common';
+import { UseGuards, Logger, NotFoundException } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
-import { DataSource, IsNull, Repository } from 'typeorm';
-import { InjectRepository } from '@nestjs/typeorm';
+import { DataSource, IsNull } from 'typeorm';
 import DataLoader from 'dataloader';
 import { Tenant, CurrentUser, CurrentUserPayload, Roles, Role } from '@aquaculture/backend-common/decorators';
 import { TenantGuard } from '@aquaculture/backend-common/guards';
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 
 // Entities
 import { Channel, ChannelType } from '../entities/channel.entity';
@@ -46,9 +46,6 @@ import { ArchiveChannelCommand } from '../commands/archive-channel.command';
 // Queries
 import { GetChannelsQuery } from '../queries/get-channels.query';
 import { GetChannelQuery } from '../queries/get-channel.query';
-
-// Service
-import { ChannelService } from '../services/channel.service';
 
 // Handler result types
 import { GetChannelsResult } from '../queries/get-channels.handler';
@@ -85,12 +82,7 @@ export class ChannelResolver {
   constructor(
     private readonly commandBus: CommandBus,
     private readonly queryBus: QueryBus,
-    private readonly channelService: ChannelService,
     private readonly dataSource: DataSource,
-    @InjectRepository(ChannelMember)
-    private readonly memberRepo: Repository<ChannelMember>,
-    @InjectRepository(Message)
-    private readonly messageRepo: Repository<Message>,
     private readonly presenceService: PresenceService,
   ) {}
 
@@ -258,21 +250,32 @@ export class ChannelResolver {
   @Mutation(() => ChannelMember, { description: 'Update notification preference for a channel' })
   @Roles(Role.MODULE_USER)
   async updateNotificationPreference(
-    @Tenant() _tenantId: string,
+    @Tenant() tenantId: string,
     @CurrentUser() user: CurrentUserPayload,
     @Args('channelId', { type: () => ID }) channelId: string,
     @Args('preference', { type: () => NotificationPreference })
     preference: NotificationPreference,
   ): Promise<ChannelMember> {
-    const member = await this.channelService.validateChannelAccess(
-      channelId,
-      user.sub,
+    const member = await runInTenantTransaction(
+      this.dataSource,
+      'messaging',
+      tenantId,
+      async (queryRunner) => {
+        const activeMember = await queryRunner.manager.findOne(ChannelMember, {
+          where: { tenantId, channelId, userId: user.sub, leftAt: IsNull() },
+        });
+
+        if (!activeMember) {
+          throw new NotFoundException(
+            `User ${user.sub} is not an active member of channel ${channelId}`,
+          );
+        }
+
+        activeMember.notificationPreference = preference;
+        return queryRunner.manager.save(ChannelMember, activeMember);
+      },
     );
 
-    member.notificationPreference = preference;
-    await this.dataSource.transaction(async (manager) => {
-      await manager.save(ChannelMember, member);
-    });
 
     this.logger.log(
       `User ${user.sub} updated notification preference to ${preference} in channel ${channelId}`,
@@ -294,12 +297,13 @@ export class ChannelResolver {
   @ResolveField(() => Message, { name: 'lastMessage', nullable: true, description: 'Most recent message in the channel' })
   async resolveLastMessage(
     @Parent() channel: Channel,
+    @Tenant() tenantId: string,
     @Context() ctx: { lastMessageLoader?: DataLoader<string, Message | null> },
   ): Promise<Message | null> {
     if (!ctx.lastMessageLoader) {
       ctx.lastMessageLoader = new DataLoader<string, Message | null>(
         async (channelIds: readonly string[]) => {
-          return this.batchLoadLastMessages([...channelIds]);
+          return this.batchLoadLastMessages(tenantId, [...channelIds]);
         },
         { cache: true },
       );
@@ -316,6 +320,7 @@ export class ChannelResolver {
   @ResolveField(() => [ChannelMember], { name: 'members', nullable: true, description: 'Active channel members' })
   async resolveMembers(
     @Parent() channel: Channel,
+    @Tenant() tenantId: string,
     @Context() ctx: { membersLoader?: DataLoader<string, ChannelMember[]> },
   ): Promise<ChannelMember[]> {
     // If already loaded (e.g. single-channel query), return directly
@@ -326,7 +331,7 @@ export class ChannelResolver {
     if (!ctx.membersLoader) {
       ctx.membersLoader = new DataLoader<string, ChannelMember[]>(
         async (channelIds: readonly string[]) => {
-          return this.batchLoadMembers([...channelIds]);
+          return this.batchLoadMembers(tenantId, [...channelIds]);
         },
         { cache: true },
       );
@@ -343,6 +348,7 @@ export class ChannelResolver {
   async resolveUnreadCount(
     @Parent() channel: Channel & { unreadCount?: number },
     @CurrentUser() user: CurrentUserPayload,
+    @Tenant() tenantId: string,
   ): Promise<number> {
     // Already computed by GetChannelsHandler
     if (channel.unreadCount !== undefined && channel.unreadCount !== null) {
@@ -350,22 +356,23 @@ export class ChannelResolver {
     }
 
     // Compute on-demand for single-channel view
-    const membership = await this.memberRepo.findOne({
-      where: { channelId: channel.id, userId: user.sub, leftAt: IsNull() },
-      select: ['lastReadAt'],
+    return runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) => {
+      const membership = await queryRunner.manager.findOne(ChannelMember, {
+        where: { tenantId, channelId: channel.id, userId: user.sub, leftAt: IsNull() },
+        select: ['lastReadAt'],
+      });
+
+      if (!membership) return 0;
+
+      const lastReadAt = membership.lastReadAt ?? new Date('1970-01-01');
+      return queryRunner.manager
+        .createQueryBuilder(Message, 'm')
+        .where('m."tenantId" = :tenantId', { tenantId })
+        .andWhere('m."channelId" = :channelId', { channelId: channel.id })
+        .andWhere('m."isDeleted" = false')
+        .andWhere('m."createdAt" > :lastReadAt', { lastReadAt })
+        .getCount();
     });
-
-    if (!membership) return 0;
-
-    const lastReadAt = membership.lastReadAt ?? new Date('1970-01-01');
-    const count = await this.messageRepo
-      .createQueryBuilder('m')
-      .where('m."channelId" = :channelId', { channelId: channel.id })
-      .andWhere('m."isDeleted" = false')
-      .andWhere('m."createdAt" > :lastReadAt', { lastReadAt })
-      .getCount();
-
-    return count;
   }
 
   /**
@@ -376,16 +383,19 @@ export class ChannelResolver {
   @ResolveField(() => Int, { name: 'memberCount', nullable: true, description: 'Active member count' })
   async resolveMemberCount(
     @Parent() channel: Channel & { memberCount?: number },
+    @Tenant() tenantId: string,
   ): Promise<number> {
     // Already computed by GetChannelsHandler
     if (channel.memberCount !== undefined && channel.memberCount !== null) {
       return channel.memberCount;
     }
 
-    // Compute on-demand
-    return this.memberRepo.count({
-      where: { channelId: channel.id, leftAt: IsNull() },
-    });
+    // Compute on-demand in the tenant schema, not through the source repository.
+    return runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) =>
+      queryRunner.manager.count(ChannelMember, {
+        where: { tenantId, channelId: channel.id, leftAt: IsNull() },
+      }),
+    );
   }
 
   // ==========================================================================
@@ -400,18 +410,23 @@ export class ChannelResolver {
    * @param channelIds - Array of channel UUIDs to load last messages for
    * @returns Array of Message|null in the same order as channelIds
    */
-  private async batchLoadLastMessages(channelIds: string[]): Promise<(Message | null)[]> {
+  private async batchLoadLastMessages(tenantId: string, channelIds: string[]): Promise<(Message | null)[]> {
     if (channelIds.length === 0) return [];
 
-    // Use DISTINCT ON to get the latest message per channel in one query
-    const messages = await this.messageRepo
-      .createQueryBuilder('m')
-      .where('m."channelId" IN (:...channelIds)', { channelIds })
-      .andWhere('m."isDeleted" = false')
-      .orderBy('m."channelId"', 'ASC')
-      .addOrderBy('m."createdAt"', 'DESC')
-      .distinctOn(['m."channelId"'])
-      .getMany();
+    const messages = await runInTenantTransaction(
+      this.dataSource,
+      'messaging',
+      tenantId,
+      async (queryRunner) => queryRunner.manager
+        .createQueryBuilder(Message, 'm')
+        .where('m."tenantId" = :tenantId', { tenantId })
+        .andWhere('m."channelId" IN (:...channelIds)', { channelIds })
+        .andWhere('m."isDeleted" = false')
+        .orderBy('m."channelId"', 'ASC')
+        .addOrderBy('m."createdAt"', 'DESC')
+        .distinctOn(['m."channelId"'])
+        .getMany(),
+    );
 
     // Build lookup map
     const messageByChannel = new Map<string, Message>();
@@ -428,13 +443,18 @@ export class ChannelResolver {
    * @param channelIds - Array of channel UUIDs
    * @returns Array of ChannelMember arrays in the same order as channelIds
    */
-  private async batchLoadMembers(channelIds: string[]): Promise<ChannelMember[][]> {
+  private async batchLoadMembers(tenantId: string, channelIds: string[]): Promise<ChannelMember[][]> {
     if (channelIds.length === 0) return [];
 
-    const allMembers = await this.memberRepo.find({
-      where: channelIds.map((channelId) => ({ channelId, leftAt: IsNull() })),
-      order: { joinedAt: 'ASC' },
-    });
+    const allMembers = await runInTenantTransaction(
+      this.dataSource,
+      'messaging',
+      tenantId,
+      async (queryRunner) => queryRunner.manager.find(ChannelMember, {
+        where: channelIds.map((channelId) => ({ tenantId, channelId, leftAt: IsNull() })),
+        order: { joinedAt: 'ASC' },
+      }),
+    );
 
     // Group by channel
     const membersByChannel = new Map<string, ChannelMember[]>();

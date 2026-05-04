@@ -171,8 +171,10 @@ export interface MockQueryRunnerManager {
   save: jest.Mock;
   findOne: jest.Mock;
   find: jest.Mock;
+  count: jest.Mock;
   update: jest.Mock;
   delete: jest.Mock;
+  createQueryBuilder: jest.Mock;
 }
 
 export interface MockQueryRunner {
@@ -191,8 +193,10 @@ export function createMockQueryRunnerManager(): MockQueryRunnerManager {
     save: jest.fn().mockImplementation((_Entity: unknown, data: unknown) => Promise.resolve(data)),
     findOne: jest.fn(),
     find: jest.fn(),
+    count: jest.fn(),
     update: jest.fn(),
     delete: jest.fn(),
+    createQueryBuilder: jest.fn(),
   };
 }
 

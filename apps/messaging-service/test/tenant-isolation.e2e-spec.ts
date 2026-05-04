@@ -254,8 +254,8 @@ describe('Tenant Isolation (E2E) — SECURITY-CRITICAL', () => {
     const schemaA = getTenantSchemaName(TENANT_A);
 
     // Check outbox entries in TENANT_A schema
-    const outboxRows: { payload: string; event_type: string }[] = await dataSource.query(
-      `SELECT payload::text, event_type FROM "${schemaA}"."messaging_outbox" LIMIT 5`,
+    const outboxRows: { payload: string; eventType: string }[] = await dataSource.query(
+      `SELECT payload::text, "eventType" FROM "${schemaA}"."messaging_outbox" LIMIT 5`,
     );
 
     // Every outbox event payload must reference TENANT_A

@@ -1,13 +1,16 @@
-import { Injectable, Logger, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Inject, Injectable, Logger, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   S3Client,
   PutObjectCommand,
   GetObjectCommand,
-  HeadObjectCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { randomUUID as uuidv4 } from 'crypto';
+import {
+  STORAGE_OBJECT_VERIFIER,
+  StorageObjectVerifier,
+} from './storage-object-verifier.port';
 
 /** Result of generating a presigned upload URL */
 export interface MediaUploadResult {
@@ -73,7 +76,11 @@ export class MediaService {
   private readonly s3Client: S3Client;
   private readonly bucket: string;
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(
+    configService: ConfigService,
+    @Inject(STORAGE_OBJECT_VERIFIER)
+    private readonly storageObjectVerifier: StorageObjectVerifier,
+  ) {
     this.s3Client = new S3Client({
       endpoint: configService.get<string>('MINIO_ENDPOINT', 'http://localhost:9000'),
       region: configService.get<string>('MINIO_REGION', 'us-east-1'),
@@ -196,24 +203,7 @@ export class MediaService {
       );
     }
 
-    try {
-      const head = await this.s3Client.send(
-        new HeadObjectCommand({ Bucket: this.bucket, Key: storageKey }),
-      );
-      return {
-        contentLength: head.ContentLength ?? 0,
-        contentType: head.ContentType ?? 'application/octet-stream',
-      };
-    } catch (err) {
-      const code = (err as { Code?: string; name?: string }).Code ?? (err as Error).name;
-      if (code === 'NotFound' || code === 'NoSuchKey') {
-        throw new BadRequestException(
-          `Attachment not found or upload incomplete: ${storageKey}`,
-        );
-      }
-      this.logger.error(`HeadObject failed for ${storageKey}: ${(err as Error).message}`);
-      throw new BadRequestException(`Could not verify attachment: ${storageKey}`);
-    }
+    return this.storageObjectVerifier.verifyObject(storageKey);
   }
 
   /**

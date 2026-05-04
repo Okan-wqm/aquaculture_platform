@@ -1,8 +1,8 @@
 import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
 import { Logger, ForbiddenException, BadRequestException } from '@nestjs/common';
-import { Repository, IsNull } from 'typeorm';
-import { InjectRepository } from '@nestjs/typeorm';
+import { DataSource, IsNull } from 'typeorm';
 
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { GetMessagesSinceQuery } from './get-messages-since.query';
 import { Message } from '../entities/message.entity';
 import { ChannelMember } from '../../channel/entities/channel-member.entity';
@@ -31,10 +31,7 @@ export class GetMessagesSinceHandler
   private readonly logger = new Logger(GetMessagesSinceHandler.name);
 
   constructor(
-    @InjectRepository(Message)
-    private readonly messageRepo: Repository<Message>,
-    @InjectRepository(ChannelMember)
-    private readonly channelMemberRepo: Repository<ChannelMember>,
+    private readonly dataSource: DataSource,
   ) {}
 
   async execute(query: GetMessagesSinceQuery): Promise<Message[]> {
@@ -50,30 +47,31 @@ export class GetMessagesSinceHandler
       );
     }
 
-    // 1. Validate channel membership (within tenant schema via search_path)
-    const membership = await this.channelMemberRepo.findOne({
-      where: { channelId, userId, leftAt: IsNull() },
+    return runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) => {
+      const membership = await queryRunner.manager.findOne(ChannelMember, {
+        where: { tenantId, channelId, userId, leftAt: IsNull() },
+      });
+      if (!membership) {
+        throw new ForbiddenException('You are not a member of this channel.');
+      }
+
+      const messages = await queryRunner.manager
+        .createQueryBuilder(Message, 'm')
+        .leftJoinAndSelect('m.attachments', 'att')
+        .where('m."tenantId" = :tenantId', { tenantId })
+        .andWhere('m."channelId" = :channelId', { channelId })
+        .andWhere('m."createdAt" > :since', { since })
+        .andWhere('m."isDeleted" = false')
+        .orderBy('m."createdAt"', 'ASC')
+        .addOrderBy('m."id"', 'ASC')
+        .take(SYNC_LIMIT)
+        .getMany();
+
+      this.logger.debug(
+        `GetMessagesSince: tenant=${tenantId}, channel=${channelId}, since=${since.toISOString()}, returned=${messages.length}`,
+      );
+
+      return messages;
     });
-    if (!membership) {
-      throw new ForbiddenException('You are not a member of this channel.');
-    }
-
-    // 2. Fetch messages since timestamp (tenant-scoped via search_path)
-    const messages = await this.messageRepo
-      .createQueryBuilder('m')
-      .leftJoinAndSelect('m.attachments', 'att')
-      .where('m."channelId" = :channelId', { channelId })
-      .andWhere('m."createdAt" > :since', { since })
-      .andWhere('m."isDeleted" = false')
-      .orderBy('m."createdAt"', 'ASC')
-      .addOrderBy('m."id"', 'ASC')
-      .take(SYNC_LIMIT)
-      .getMany();
-
-    this.logger.debug(
-      `GetMessagesSince: tenant=${tenantId}, channel=${channelId}, since=${since.toISOString()}, returned=${messages.length}`,
-    );
-
-    return messages;
   }
 }

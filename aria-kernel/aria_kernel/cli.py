@@ -37,9 +37,27 @@ from .cycle import run_cycle
 from .cycle_diff import run_cycle_diff
 from .db_snapshot import write_schema_snapshot
 from .discovery import run_discovery
-from .feedback_store import generate_judgment_sample, list_findings, list_judgment_samples, record_operator_feedback
+from .executor import (
+    apply_executor_packet,
+    executor_status,
+    record_executor_packet,
+    register_executor,
+    retry_pr,
+    review_executor_diff,
+)
+from .feedback_store import (
+    generate_ai_consensus,
+    generate_judgment_sample,
+    list_findings,
+    list_judgment_samples,
+    record_ai_feedback_file,
+    record_operator_feedback,
+    record_operator_feedback_batch,
+)
 from .fitness import generate_fitness_report, generate_recommendation_candidate, list_fitness_reports
-from .fixture_runner import run_fixture_suite
+from .fixture_runner import fixture_status_report, refresh_fixture_suite, run_fixture_suite
+from .goldset import list_goldset_proposals, propose_goldset
+from .heartbeat import cycle_run_batch, heartbeat_status, heartbeat_tick
 from .impact import list_impact_plans, plan_impact
 from .impact_graph import list_impact_graphs, plan_downstream_impact
 from .integrity import verify_integrity
@@ -53,7 +71,28 @@ from .performance import (
     record_performance_baseline,
 )
 from .pressure import explain_pressure, run_pressure
-from .pr_manager import list_pr_lifecycle_plans, list_pr_split_plans, open_pr_for_action, plan_pr_lifecycle, plan_pr_split
+from .ci import (
+    inventory_workflows,
+    list_agent_reviews,
+    list_ci_failures,
+    produce_ci_review,
+    record_agent_review_result,
+    record_ci_report,
+    record_remediation_proposal,
+    wait_pr_checks,
+)
+from .pr_manager import (
+    commit_prepared_branch,
+    list_pr_actions,
+    list_pr_lifecycle_plans,
+    list_pr_split_plans,
+    open_pr_for_action,
+    plan_pr_lifecycle,
+    plan_pr_split,
+    prepare_branch,
+    push_prepared_branch,
+)
+from .pr_tracking import observe_pr_event, plan_incremental_cycle, plan_pr_impact
 from .proposal import approve_proposal, list_proposals, proposal_packet_from_task, record_proposal, record_proposal_from_amplification
 from .promotion import promote_tool
 from .quarantine import quarantine_tool
@@ -106,6 +145,15 @@ def build_parser() -> argparse.ArgumentParser:
     cycle_run.add_argument("--discovery-only", action="store_true")
     cycle_run.add_argument("--shadow-only", action="store_true")
     cycle_run.set_defaults(func=cmd_cycle_run)
+    cycle_incremental = cycle_subparsers.add_parser("plan-incremental")
+    cycle_incremental.add_argument("--cycle-id", required=True)
+    cycle_incremental.set_defaults(func=cmd_cycle_plan_incremental)
+    cycle_batch = cycle_subparsers.add_parser("run-batch")
+    cycle_batch.add_argument("--workspace-root", default=".")
+    cycle_batch.add_argument("--count", type=int, required=True)
+    cycle_batch.add_argument("--cycle-prefix", default="heartbeat")
+    cycle_batch.add_argument("--discovery-only", action="store_true")
+    cycle_batch.set_defaults(func=cmd_cycle_run_batch)
 
     discovery = subparsers.add_parser("discovery")
     discovery_subparsers = discovery.add_subparsers(dest="command", required=True)
@@ -129,7 +177,7 @@ def build_parser() -> argparse.ArgumentParser:
     memory_list.add_argument(
         "--kind",
         required=True,
-        choices=["beliefs", "observations", "uncertainties", "contradictions", "calibration"],
+        choices=["beliefs", "observations", "uncertainties", "contradictions", "calibration", "learning-events"],
     )
     memory_list.set_defaults(func=cmd_memory_list)
     memory_withdraw = memory_subparsers.add_parser("withdraw")
@@ -476,6 +524,14 @@ def build_parser() -> argparse.ArgumentParser:
     fixture_run.add_argument("--workspace-root", required=True)
     fixture_run.add_argument("--cycle-id", required=True)
     fixture_run.set_defaults(func=cmd_fixture_run)
+    fixture_status = fixture_subparsers.add_parser("status")
+    fixture_status.add_argument("--tool-id", required=True)
+    fixture_status.set_defaults(func=cmd_fixture_status)
+    fixture_refresh = fixture_subparsers.add_parser("refresh")
+    fixture_refresh.add_argument("--tool-id", required=True)
+    fixture_refresh.add_argument("--workspace-root", required=True)
+    fixture_refresh.add_argument("--cycle-id", required=True)
+    fixture_refresh.set_defaults(func=cmd_fixture_refresh)
 
     finding = subparsers.add_parser("finding")
     finding_subparsers = finding.add_subparsers(dest="command", required=True)
@@ -495,28 +551,90 @@ def build_parser() -> argparse.ArgumentParser:
     feedback_record.add_argument("--note", required=True)
     feedback_record.add_argument("--affected-belief-ids", default=None, help="JSON array of belief ids")
     feedback_record.set_defaults(func=cmd_feedback_record)
+    feedback_record_batch = feedback_subparsers.add_parser("record-batch")
+    feedback_record_batch.add_argument("--sample-id", required=True)
+    feedback_record_batch.add_argument("--file", required=True, help="JSON batch verdict payload")
+    feedback_record_batch.set_defaults(func=cmd_feedback_record_batch)
     feedback_judge = feedback_subparsers.add_parser("judge")
     feedback_judge.add_argument("--tool-id", required=True)
     feedback_judge.add_argument("--sample-size", type=int, required=True)
     feedback_judge.add_argument("--cycle-id", default=None)
-    feedback_judge.add_argument("--strategy", default="stratified_by_rule", choices=["stratified_by_rule", "random"])
+    feedback_judge.add_argument(
+        "--strategy",
+        default="stratified_by_uncertainty",
+        choices=["stratified_by_uncertainty", "stratified_by_rule", "random"],
+    )
     feedback_judge.add_argument("--min-judged-samples", type=int, default=10)
     feedback_judge.set_defaults(func=cmd_feedback_judge)
     feedback_samples = feedback_subparsers.add_parser("samples")
     feedback_samples.add_argument("--tool-id", default=None)
     feedback_samples.set_defaults(func=cmd_feedback_samples)
+    feedback_record_ai = feedback_subparsers.add_parser("record-ai")
+    feedback_record_ai.add_argument("--file", required=True, help="JSON AI verdict payload")
+    feedback_record_ai.set_defaults(func=cmd_feedback_record_ai)
+    feedback_consensus = feedback_subparsers.add_parser("consensus")
+    feedback_consensus.add_argument("--tool-id", required=True)
+    feedback_consensus.add_argument("--cycle-id", default=None)
+    feedback_consensus.add_argument("--min-confidence", type=float, default=0.8)
+    feedback_consensus.set_defaults(func=cmd_feedback_consensus)
+
+    goldset = subparsers.add_parser("goldset")
+    goldset_subparsers = goldset.add_subparsers(dest="command", required=True)
+    goldset_propose = goldset_subparsers.add_parser("propose")
+    goldset_propose.add_argument("--tool-id", required=True)
+    goldset_propose.add_argument("--cycle-id", default=None)
+    goldset_propose.add_argument("--target-true-positives", type=int, default=20)
+    goldset_propose.add_argument("--target-known-false-positives", type=int, default=10)
+    goldset_propose.set_defaults(func=cmd_goldset_propose)
+    goldset_list = goldset_subparsers.add_parser("list")
+    goldset_list.set_defaults(func=cmd_goldset_list)
 
     pr = subparsers.add_parser("pr")
     pr_subparsers = pr.add_subparsers(dest="command", required=True)
+    pr_prepare = pr_subparsers.add_parser("prepare-branch")
+    pr_prepare.add_argument("--proposal-id", required=True)
+    pr_prepare.add_argument("--workspace-root", default=".")
+    pr_prepare.add_argument("--execute", action="store_true")
+    pr_prepare.set_defaults(func=cmd_pr_prepare_branch)
+    pr_commit = pr_subparsers.add_parser("commit")
+    pr_commit.add_argument("--proposal-id", required=True)
+    pr_commit.add_argument("--workspace-root", default=".")
+    pr_commit.add_argument("--message", default=None)
+    pr_commit.add_argument("--execute", action="store_true")
+    pr_commit.set_defaults(func=cmd_pr_commit)
+    pr_push = pr_subparsers.add_parser("push")
+    pr_push.add_argument("--proposal-id", required=True)
+    pr_push.add_argument("--workspace-root", default=".")
+    pr_push.add_argument("--remote", default="origin")
+    pr_push.add_argument("--execute", action="store_true")
+    pr_push.set_defaults(func=cmd_pr_push)
     pr_record = pr_subparsers.add_parser("record-opened")
     pr_record.add_argument("--file", required=True, help="JSON PR lifecycle payload")
     pr_record.add_argument("--cycle-id", default=None)
     pr_record.set_defaults(func=cmd_pr_record_opened)
+    pr_observe = pr_subparsers.add_parser("observe")
+    pr_observe.add_argument("--file", required=True, help="JSON PR event payload")
+    pr_observe.set_defaults(func=cmd_pr_observe)
+    pr_impact = pr_subparsers.add_parser("impact")
+    pr_impact.add_argument("--cycle-id", required=True)
+    pr_impact.set_defaults(func=cmd_pr_impact)
     pr_open = pr_subparsers.add_parser("open")
     pr_open.add_argument("--proposal-id", required=True)
     pr_open.add_argument("--workspace-root", default=".")
     pr_open.add_argument("--dry-run", action="store_true")
     pr_open.set_defaults(func=cmd_pr_open)
+    pr_wait = pr_subparsers.add_parser("wait-checks")
+    pr_wait.add_argument("--pr-number", type=int, default=None)
+    pr_wait.add_argument("--input", default=None, help="JSON snapshot with policy, pr, github, and workflow_inventory fields")
+    pr_wait.add_argument("--policy-file", default=None)
+    pr_wait.add_argument("--workspace-root", default=".")
+    pr_wait.add_argument("--cycle-id", default=None)
+    pr_wait.set_defaults(func=cmd_pr_wait_checks)
+    pr_ci_report = pr_subparsers.add_parser("ci-report")
+    pr_ci_report.add_argument("--input", required=True, help="JSON snapshot with pr, github, and optional workflow_inventory fields")
+    pr_ci_report.add_argument("--changed-files", default=None, help="JSON array of changed paths")
+    pr_ci_report.add_argument("--cycle-id", default=None)
+    pr_ci_report.set_defaults(func=cmd_pr_ci_report)
     pr_lifecycle = pr_subparsers.add_parser("lifecycle-plan")
     pr_lifecycle.add_argument("--open-prs", required=True, help="JSON array of open PR snapshots")
     pr_lifecycle.add_argument("--cycle-id", default=None)
@@ -537,6 +655,78 @@ def build_parser() -> argparse.ArgumentParser:
     pr_merge.add_argument("--workspace-root", default=".")
     pr_merge.add_argument("--dry-run", action="store_true")
     pr_merge.set_defaults(func=cmd_pr_merge_if_green)
+
+    ci = subparsers.add_parser("ci")
+    ci_subparsers = ci.add_subparsers(dest="command", required=True)
+    ci_inventory = ci_subparsers.add_parser("inventory-workflows")
+    ci_inventory.add_argument("--workspace-root", default=".")
+    ci_inventory.add_argument("--cycle-id", default=None)
+    ci_inventory.set_defaults(func=cmd_ci_inventory_workflows)
+    ci_list = ci_subparsers.add_parser("list")
+    ci_list.set_defaults(func=cmd_ci_list)
+
+    agent_message = subparsers.add_parser("agent-message")
+    agent_message_subparsers = agent_message.add_subparsers(dest="command", required=True)
+    agent_review = agent_message_subparsers.add_parser("produce-ci-review")
+    agent_review.add_argument("--ci-failure-id", required=True)
+    agent_review.add_argument("--cycle-id", default=None)
+    agent_review.set_defaults(func=cmd_agent_message_produce_ci_review)
+    agent_result = agent_message_subparsers.add_parser("record-result")
+    agent_result.add_argument("--file", required=True)
+    agent_result.set_defaults(func=cmd_agent_message_record_result)
+    agent_remediation = agent_message_subparsers.add_parser("record-remediation-proposal")
+    agent_remediation.add_argument("--ci-failure-id", required=True)
+    agent_remediation.add_argument("--title", required=True)
+    agent_remediation.add_argument("--problem", required=True)
+    agent_remediation.add_argument("--architectural-solution", required=True)
+    agent_remediation.add_argument("--evidence-refs", required=True)
+    agent_remediation.add_argument("--validation-commands", required=True)
+    agent_remediation.add_argument("--agent-review-refs", required=True)
+    agent_remediation.add_argument("--cycle-id", default=None)
+    agent_remediation.set_defaults(func=cmd_agent_message_record_remediation)
+
+    executor = subparsers.add_parser("executor")
+    executor_subparsers = executor.add_subparsers(dest="command", required=True)
+    executor_register = executor_subparsers.add_parser("register")
+    executor_register.add_argument("--file", required=True)
+    executor_register.set_defaults(func=cmd_executor_register)
+    executor_packet = executor_subparsers.add_parser("record-packet")
+    executor_packet.add_argument("--file", required=True)
+    executor_packet.add_argument("--cycle-id", default=None)
+    executor_packet.set_defaults(func=cmd_executor_record_packet)
+    executor_review = executor_subparsers.add_parser("review-diff")
+    executor_review.add_argument("--packet-id", required=True)
+    executor_review.add_argument("--reviewer", required=True)
+    executor_review.add_argument("--verdict", required=True, choices=["approved", "rejected"])
+    executor_review.add_argument("--evidence-refs", required=True)
+    executor_review.add_argument("--cycle-id", default=None)
+    executor_review.set_defaults(func=cmd_executor_review_diff)
+    executor_apply = executor_subparsers.add_parser("apply")
+    executor_apply.add_argument("--packet-id", required=True)
+    executor_apply.add_argument("--workspace-root", default=".")
+    executor_apply.add_argument("--cycle-id", default=None)
+    executor_apply.add_argument("--execute", action="store_true")
+    executor_apply.set_defaults(func=cmd_executor_apply)
+    executor_retry = executor_subparsers.add_parser("retry-pr")
+    executor_retry.add_argument("--packet-id", required=True)
+    executor_retry.add_argument("--pr-number", type=int, required=True)
+    executor_retry.add_argument("--workspace-root", default=".")
+    executor_retry.add_argument("--cycle-id", default=None)
+    executor_retry.add_argument("--execute", action="store_true")
+    executor_retry.set_defaults(func=cmd_executor_retry_pr)
+    executor_status_parser = executor_subparsers.add_parser("status")
+    executor_status_parser.add_argument("--pr-number", type=int, default=None)
+    executor_status_parser.set_defaults(func=cmd_executor_status)
+
+    heartbeat = subparsers.add_parser("heartbeat")
+    heartbeat_subparsers = heartbeat.add_subparsers(dest="command", required=True)
+    heartbeat_tick_parser = heartbeat_subparsers.add_parser("tick")
+    heartbeat_tick_parser.add_argument("--workspace-root", default=".")
+    heartbeat_tick_parser.add_argument("--cycle-id", required=True)
+    heartbeat_tick_parser.add_argument("--run-cycle", action="store_true")
+    heartbeat_tick_parser.set_defaults(func=cmd_heartbeat_tick)
+    heartbeat_status_parser = heartbeat_subparsers.add_parser("status")
+    heartbeat_status_parser.set_defaults(func=cmd_heartbeat_status)
 
     db = subparsers.add_parser("db")
     db_subparsers = db.add_subparsers(dest="command", required=True)
@@ -628,6 +818,10 @@ def cmd_bootstrap_init(args: argparse.Namespace) -> dict[str, Any]:
         "observability",
         "cycle-state",
         "cycle-diff",
+        "goldsets",
+        "ci",
+        "heartbeat",
+        "executor",
     ):
         (root / relative).mkdir(parents=True, exist_ok=True)
     return {
@@ -644,6 +838,20 @@ def cmd_cycle_run(args: argparse.Namespace) -> dict[str, Any]:
         base_dir=args.tools_dir,
         discovery_only=args.discovery_only,
         shadow_only=args.shadow_only,
+    )
+
+
+def cmd_cycle_plan_incremental(args: argparse.Namespace) -> dict[str, Any]:
+    return plan_incremental_cycle(cycle_id=args.cycle_id, base_dir=args.tools_dir)
+
+
+def cmd_cycle_run_batch(args: argparse.Namespace) -> dict[str, Any]:
+    return cycle_run_batch(
+        workspace_root=args.workspace_root,
+        count=args.count,
+        cycle_prefix=args.cycle_prefix,
+        discovery_only=args.discovery_only,
+        base_dir=args.tools_dir,
     )
 
 
@@ -1172,6 +1380,19 @@ def cmd_fixture_run(args: argparse.Namespace) -> dict[str, Any]:
     )
 
 
+def cmd_fixture_status(args: argparse.Namespace) -> dict[str, Any]:
+    return fixture_status_report(args.tool_id, base_dir=args.tools_dir)
+
+
+def cmd_fixture_refresh(args: argparse.Namespace) -> dict[str, Any]:
+    return refresh_fixture_suite(
+        args.tool_id,
+        workspace_root=args.workspace_root,
+        cycle_id=args.cycle_id,
+        base_dir=args.tools_dir,
+    )
+
+
 def cmd_finding_list(args: argparse.Namespace) -> dict[str, Any]:
     return {"findings": list_findings(tool_id=args.tool_id, status=args.status, base_dir=args.tools_dir)}
 
@@ -1195,6 +1416,14 @@ def cmd_feedback_record(args: argparse.Namespace) -> dict[str, Any]:
     )
 
 
+def cmd_feedback_record_batch(args: argparse.Namespace) -> dict[str, Any]:
+    return record_operator_feedback_batch(
+        sample_id=args.sample_id,
+        verdict_payload=read_json(args.file),
+        base_dir=args.tools_dir,
+    )
+
+
 def cmd_feedback_judge(args: argparse.Namespace) -> dict[str, Any]:
     return generate_judgment_sample(
         tool_id=args.tool_id,
@@ -1210,6 +1439,33 @@ def cmd_feedback_samples(args: argparse.Namespace) -> dict[str, Any]:
     return {"samples": list_judgment_samples(tool_id=args.tool_id, base_dir=args.tools_dir)}
 
 
+def cmd_feedback_record_ai(args: argparse.Namespace) -> dict[str, Any]:
+    return record_ai_feedback_file(file_payload=read_json(args.file), base_dir=args.tools_dir)
+
+
+def cmd_feedback_consensus(args: argparse.Namespace) -> dict[str, Any]:
+    return generate_ai_consensus(
+        tool_id=args.tool_id,
+        cycle_id=args.cycle_id,
+        min_confidence=args.min_confidence,
+        base_dir=args.tools_dir,
+    )
+
+
+def cmd_goldset_propose(args: argparse.Namespace) -> dict[str, Any]:
+    return propose_goldset(
+        tool_id=args.tool_id,
+        cycle_id=args.cycle_id,
+        target_true_positives=args.target_true_positives,
+        target_known_false_positives=args.target_known_false_positives,
+        base_dir=args.tools_dir,
+    )
+
+
+def cmd_goldset_list(args: argparse.Namespace) -> dict[str, Any]:
+    return {"proposals": list_goldset_proposals(base_dir=args.tools_dir)}
+
+
 def cmd_pr_record_opened(args: argparse.Namespace) -> dict[str, Any]:
     return record_pr_lifecycle(
         read_json(args.file),
@@ -1219,12 +1475,75 @@ def cmd_pr_record_opened(args: argparse.Namespace) -> dict[str, Any]:
     )
 
 
+def cmd_pr_observe(args: argparse.Namespace) -> dict[str, Any]:
+    return observe_pr_event(payload=read_json(args.file), base_dir=args.tools_dir)
+
+
+def cmd_pr_impact(args: argparse.Namespace) -> dict[str, Any]:
+    return plan_pr_impact(cycle_id=args.cycle_id, base_dir=args.tools_dir)
+
+
+def cmd_pr_prepare_branch(args: argparse.Namespace) -> dict[str, Any]:
+    return prepare_branch(
+        proposal_id=args.proposal_id,
+        workspace_root=args.workspace_root,
+        base_dir=args.tools_dir,
+        dry_run=not args.execute,
+    )
+
+
+def cmd_pr_commit(args: argparse.Namespace) -> dict[str, Any]:
+    return commit_prepared_branch(
+        proposal_id=args.proposal_id,
+        workspace_root=args.workspace_root,
+        message=args.message,
+        base_dir=args.tools_dir,
+        dry_run=not args.execute,
+    )
+
+
+def cmd_pr_push(args: argparse.Namespace) -> dict[str, Any]:
+    return push_prepared_branch(
+        proposal_id=args.proposal_id,
+        workspace_root=args.workspace_root,
+        remote=args.remote,
+        base_dir=args.tools_dir,
+        dry_run=not args.execute,
+    )
+
+
 def cmd_pr_open(args: argparse.Namespace) -> dict[str, Any]:
     return open_pr_for_action(
         proposal_id=args.proposal_id,
         workspace_root=args.workspace_root,
         base_dir=args.tools_dir,
         dry_run=args.dry_run,
+    )
+
+
+def cmd_pr_wait_checks(args: argparse.Namespace) -> dict[str, Any]:
+    policy = read_json(args.policy_file) if args.policy_file else None
+    snapshot = read_json(args.input) if args.input else None
+    return wait_pr_checks(
+        pr_number=args.pr_number,
+        snapshot=snapshot,
+        workspace_root=args.workspace_root,
+        policy=policy,
+        cycle_id=args.cycle_id,
+        base_dir=args.tools_dir,
+    )
+
+
+def cmd_pr_ci_report(args: argparse.Namespace) -> dict[str, Any]:
+    payload = read_json(args.input)
+    changed_files = _json_array_optional_arg(args.changed_files, "--changed-files") if args.changed_files else None
+    return record_ci_report(
+        pr=payload["pr"],
+        github=payload.get("github", {}),
+        changed_files=changed_files,
+        workflow_inventory=payload.get("workflow_inventory"),
+        cycle_id=args.cycle_id,
+        base_dir=args.tools_dir,
     )
 
 
@@ -1273,6 +1592,104 @@ def cmd_pr_merge_if_green(args: argparse.Namespace) -> dict[str, Any]:
         cycle_id=args.cycle_id,
         dry_run=args.dry_run,
     )
+
+
+def cmd_ci_inventory_workflows(args: argparse.Namespace) -> dict[str, Any]:
+    return inventory_workflows(
+        workspace_root=args.workspace_root,
+        cycle_id=args.cycle_id,
+        base_dir=args.tools_dir,
+    )
+
+
+def cmd_ci_list(args: argparse.Namespace) -> dict[str, Any]:
+    return {
+        "failures": list_ci_failures(base_dir=args.tools_dir),
+        "agent_reviews": list_agent_reviews(base_dir=args.tools_dir),
+    }
+
+
+def cmd_agent_message_produce_ci_review(args: argparse.Namespace) -> dict[str, Any]:
+    return produce_ci_review(
+        ci_failure_id=args.ci_failure_id,
+        cycle_id=args.cycle_id,
+        base_dir=args.tools_dir,
+    )
+
+
+def cmd_agent_message_record_result(args: argparse.Namespace) -> dict[str, Any]:
+    return record_agent_review_result(review=read_json(args.file), base_dir=args.tools_dir)
+
+
+def cmd_agent_message_record_remediation(args: argparse.Namespace) -> dict[str, Any]:
+    return record_remediation_proposal(
+        ci_failure_id=args.ci_failure_id,
+        title=args.title,
+        problem=args.problem,
+        architectural_solution=args.architectural_solution,
+        evidence_refs=_json_array_arg(args.evidence_refs, "--evidence-refs"),
+        validation_commands=_json_array_arg(args.validation_commands, "--validation-commands"),
+        agent_review_refs=_json_array_arg(args.agent_review_refs, "--agent-review-refs"),
+        cycle_id=args.cycle_id,
+        base_dir=args.tools_dir,
+    )
+
+
+def cmd_executor_register(args: argparse.Namespace) -> dict[str, Any]:
+    return register_executor(read_json(args.file), base_dir=args.tools_dir)
+
+
+def cmd_executor_record_packet(args: argparse.Namespace) -> dict[str, Any]:
+    return record_executor_packet(read_json(args.file), cycle_id=args.cycle_id, base_dir=args.tools_dir)
+
+
+def cmd_executor_review_diff(args: argparse.Namespace) -> dict[str, Any]:
+    return review_executor_diff(
+        packet_id=args.packet_id,
+        reviewer=args.reviewer,
+        verdict=args.verdict,
+        evidence_refs=_json_array_arg(args.evidence_refs, "--evidence-refs"),
+        cycle_id=args.cycle_id,
+        base_dir=args.tools_dir,
+    )
+
+
+def cmd_executor_apply(args: argparse.Namespace) -> dict[str, Any]:
+    return apply_executor_packet(
+        packet_id=args.packet_id,
+        workspace_root=args.workspace_root,
+        cycle_id=args.cycle_id,
+        execute=args.execute,
+        base_dir=args.tools_dir,
+    )
+
+
+def cmd_executor_retry_pr(args: argparse.Namespace) -> dict[str, Any]:
+    return retry_pr(
+        packet_id=args.packet_id,
+        pr_number=args.pr_number,
+        workspace_root=args.workspace_root,
+        cycle_id=args.cycle_id,
+        execute=args.execute,
+        base_dir=args.tools_dir,
+    )
+
+
+def cmd_executor_status(args: argparse.Namespace) -> dict[str, Any]:
+    return executor_status(pr_number=args.pr_number, base_dir=args.tools_dir)
+
+
+def cmd_heartbeat_tick(args: argparse.Namespace) -> dict[str, Any]:
+    return heartbeat_tick(
+        workspace_root=args.workspace_root,
+        cycle_id=args.cycle_id,
+        run_cycle_step=args.run_cycle,
+        base_dir=args.tools_dir,
+    )
+
+
+def cmd_heartbeat_status(args: argparse.Namespace) -> dict[str, Any]:
+    return heartbeat_status(base_dir=args.tools_dir)
 
 
 def cmd_db_snapshot(args: argparse.Namespace) -> dict[str, Any]:

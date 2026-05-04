@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from .adapter_calibration import generate_adapter_calibration_report, list_adapter_calibration_reports
-from .apply_engine import gate_apply_action, plan_apply_worktree
+from .apply_engine import gate_apply_action, list_apply_validation_pipelines, plan_apply_worktree, run_apply_validation_pipeline
 from .agent_genesis import (
     approve_agent_pr,
     draft_agent_from_gap,
@@ -32,7 +32,14 @@ from .auto_merge import GhCliGitHubAdapter, evaluate_auto_merge, merge_if_green,
 from .budget import check_budget, list_budget_usage, record_budget_usage
 from .calibration import list_calibration_recommendations, recommend_calibration
 from .capability_gap import detect_capability_gaps, list_capability_gaps
-from .codegen import list_code_change_plans, list_generated_diff_packets, record_code_change_plan, record_generated_diff_packet
+from .codegen import (
+    apply_generated_diff_packet,
+    list_code_change_plans,
+    list_generated_diff_applications,
+    list_generated_diff_packets,
+    record_code_change_plan,
+    record_generated_diff_packet,
+)
 from .cycle import run_cycle
 from .cycle_diff import run_cycle_diff
 from .db_snapshot import write_schema_snapshot
@@ -548,6 +555,16 @@ def build_parser() -> argparse.ArgumentParser:
     apply_gate.add_argument("--validation-comparison-ref", required=True)
     apply_gate.add_argument("--cycle-id", default=None)
     apply_gate.set_defaults(func=cmd_apply_gate)
+    apply_validate = apply_subparsers.add_parser("validate")
+    apply_validate.add_argument("--proposal-id", required=True)
+    apply_validate.add_argument("--baseline-workspace-root", required=True)
+    apply_validate.add_argument("--candidate-workspace-root", default=None)
+    apply_validate.add_argument("--commands", default=None, help="Optional JSON array overriding proposal validation commands")
+    apply_validate.add_argument("--cycle-id", default=None)
+    apply_validate.add_argument("--timeout-ms", type=int, default=120000)
+    apply_validate.set_defaults(func=cmd_apply_validate)
+    apply_list = apply_subparsers.add_parser("list")
+    apply_list.set_defaults(func=cmd_apply_list)
 
     codegen = subparsers.add_parser("codegen")
     codegen_subparsers = codegen.add_subparsers(dest="command", required=True)
@@ -571,6 +588,11 @@ def build_parser() -> argparse.ArgumentParser:
     codegen_diff.add_argument("--cycle-id", default=None)
     codegen_diff.add_argument("--run-apply-check", action="store_true")
     codegen_diff.set_defaults(func=cmd_codegen_record_diff)
+    codegen_apply = codegen_subparsers.add_parser("apply-diff")
+    codegen_apply.add_argument("--generated-diff-packet-id", required=True)
+    codegen_apply.add_argument("--cycle-id", default=None)
+    codegen_apply.add_argument("--allow-dirty", action="store_true")
+    codegen_apply.set_defaults(func=cmd_codegen_apply_diff)
     codegen_list = codegen_subparsers.add_parser("list")
     codegen_list.set_defaults(func=cmd_codegen_list)
 
@@ -1276,6 +1298,28 @@ def cmd_apply_gate(args: argparse.Namespace) -> dict[str, Any]:
     )
 
 
+def cmd_apply_validate(args: argparse.Namespace) -> dict[str, Any]:
+    commands = _json_array_arg(args.commands, "--commands") if args.commands else None
+    return run_apply_validation_pipeline(
+        proposal_id=args.proposal_id,
+        baseline_workspace_root=args.baseline_workspace_root,
+        candidate_workspace_root=args.candidate_workspace_root,
+        commands=commands,
+        cycle_id=args.cycle_id,
+        timeout_ms=args.timeout_ms,
+        base_dir=args.tools_dir,
+    )
+
+
+def cmd_apply_list(args: argparse.Namespace) -> dict[str, Any]:
+    from .apply_engine import list_apply_actions
+
+    return {
+        "actions": list_apply_actions(base_dir=args.tools_dir),
+        "validation_pipelines": list_apply_validation_pipelines(base_dir=args.tools_dir),
+    }
+
+
 def cmd_codegen_record_plan(args: argparse.Namespace) -> dict[str, Any]:
     return record_code_change_plan(
         proposal_id=args.proposal_id,
@@ -1304,10 +1348,20 @@ def cmd_codegen_record_diff(args: argparse.Namespace) -> dict[str, Any]:
     )
 
 
+def cmd_codegen_apply_diff(args: argparse.Namespace) -> dict[str, Any]:
+    return apply_generated_diff_packet(
+        generated_diff_packet_id=args.generated_diff_packet_id,
+        cycle_id=args.cycle_id,
+        require_clean_worktree=not args.allow_dirty,
+        base_dir=args.tools_dir,
+    )
+
+
 def cmd_codegen_list(args: argparse.Namespace) -> dict[str, Any]:
     return {
         "plans": list_code_change_plans(base_dir=args.tools_dir),
         "generated_diff_packets": list_generated_diff_packets(base_dir=args.tools_dir),
+        "generated_diff_applications": list_generated_diff_applications(base_dir=args.tools_dir),
     }
 
 

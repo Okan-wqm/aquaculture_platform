@@ -17,8 +17,11 @@ Phase 012D-015 extends those foundations into the first enterprise autonomy spin
 - PR opening rejects ungated apply actions; PR bodies carry validation gate refs and local validation evidence.
 - Adapter calibration reports check fixture pass, five clean SHADOW runs, precision, and critical false positives before ACTIVE readiness.
 - Generated diff packets must match the approved intended files and allowed globs before candidate worktree application.
+- Generated diff packets can be applied only to their candidate worktree; the application ledger records pre/post hashes and git diff hash.
+- Apply validation can run baseline and candidate validations, compare them, and promote the apply action to `ready_for_pr`.
 - Agent genesis PR lanes are scoped to `.claude/agents/aria-*.md` and block duplicate existing agent targets.
 - Observability records cycle durations, artifact count, cost units, validation duration, and PR stale/split recommendations.
+- Auto-merge requires local validation gate and integrity evidence in addition to GitHub checks/reviews/conversations.
 
 ## Acceptance
 
@@ -29,9 +32,11 @@ Phase 012D-015 extends those foundations into the first enterprise autonomy spin
 - Code-change plans block kernel, infra, secret, and migration scopes by default.
 - A candidate apply action cannot open a PR until `validation gate -> apply gate -> ready_for_pr` is complete.
 - Generated diffs touching files outside `CodeChangePlan.intended_files` are blocked before write.
+- A generated diff application mutates only the candidate worktree and records pre/post file hashes.
 - Adapter calibration marks ACTIVE-ready only after fixture pass and five clean SHADOW runs.
 - Agent genesis can prepare a PR lane only after sandbox pass and operator approval.
 - Observability dashboards expose cycle trend, validation totals, and cost summary.
+- Low-risk auto-merge is blocked when validation gate or integrity evidence is missing.
 
 ## Assumptions
 

@@ -22,6 +22,10 @@ def pr(**overrides):
         "head_sha": "abc123",
         "changed_files": ["docs/aria/plans/008-auto-merge.md"],
         "reviews": [],
+        "validation_gate_status": "ready_for_pr",
+        "validation_gate_ref": "validation-gate:ok",
+        "integrity_valid": True,
+        "integrity_ref": "integrity:ok",
     }
     payload.update(overrides)
     return payload
@@ -178,6 +182,24 @@ class AutoMergeTests(unittest.TestCase):
                         "eligible"
                     ],
                 )
+
+    def test_local_validation_and_integrity_are_required_for_auto_merge(self):
+        cases = [
+            (pr(validation_gate_status=None, validation_gate_ref=None), github(), "local validation gate missing"),
+            (pr(validation_gate_status="blocked"), github(), "local validation gate not ready"),
+            (pr(integrity_valid=None, integrity_ref=None), github(), "integrity status missing"),
+            (pr(integrity_valid=False), github(), "integrity verification failed"),
+        ]
+        for pr_payload, github_payload, reason in cases:
+            with self.subTest(reason=reason):
+                decision = evaluate_auto_merge(
+                    pr=pr_payload,
+                    github=github_payload,
+                    policy=enabled_policy(),
+                    base_dir=self.tools_dir,
+                )
+                self.assertFalse(decision["eligible"])
+                self.assertIn(reason, decision["reasons"])
 
     def test_merge_if_green_uses_squash_and_records_merged(self):
         adapter = FakeGitHubAdapter(pr(), github(), latest_heads=["abc123", "abc123"])

@@ -7,7 +7,7 @@ from typing import Any
 from .ledger import append_jsonl, load_jsonl
 from .proposal import get_proposal
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
-from .validation import evaluate_validation_gate, list_validation_gates
+from .validation import compare_validation_groups, evaluate_validation_gate, list_validation_gates, run_validation_commands
 
 
 APPROVED_STATUSES = ("approved_for_apply",)
@@ -94,6 +94,75 @@ def latest_ready_apply_action(*, proposal_id: str, base_dir: str | Path | None =
         if gate.get("ledger_hash") == gate_ref and gate.get("status") == "ready_for_pr":
             return action
     return None
+
+
+def run_apply_validation_pipeline(
+    *,
+    proposal_id: str,
+    baseline_workspace_root: str | Path,
+    candidate_workspace_root: str | Path | None = None,
+    commands: list[str] | None = None,
+    base_dir: str | Path | None = None,
+    cycle_id: str | None = None,
+    timeout_ms: int = 120_000,
+) -> dict[str, Any]:
+    action = _latest_action_for_proposal(proposal_id, base_dir)
+    if action is None:
+        raise GovernanceError("no apply action exists for proposal")
+    validation_commands = commands or action.get("validation_commands", [])
+    if not validation_commands:
+        raise GovernanceError("apply validation pipeline requires validation commands")
+    candidate_root = Path(candidate_workspace_root or str(action.get("worktree_path") or "")).resolve()
+    if not candidate_root.exists() or not candidate_root.is_dir():
+        raise GovernanceError("candidate workspace root does not exist")
+    baseline = run_validation_commands(
+        commands=validation_commands,
+        workspace_root=baseline_workspace_root,
+        base_dir=base_dir,
+        cycle_id=cycle_id,
+        validation_plan_id=f"{proposal_id}:baseline",
+        timeout_ms=timeout_ms,
+        require_clean_worktree=True,
+    )
+    candidate = run_validation_commands(
+        commands=validation_commands,
+        workspace_root=candidate_root,
+        base_dir=base_dir,
+        cycle_id=cycle_id,
+        validation_plan_id=f"{proposal_id}:candidate",
+        timeout_ms=timeout_ms,
+        require_clean_worktree=False,
+    )
+    comparison = compare_validation_groups(
+        baseline_ref=baseline["ledger_hash"],
+        worktree_ref=candidate["ledger_hash"],
+        base_dir=base_dir,
+        cycle_id=cycle_id,
+    )
+    gated = gate_apply_action(
+        proposal_id=proposal_id,
+        validation_comparison_ref=comparison["ledger_hash"],
+        base_dir=base_dir,
+        cycle_id=cycle_id,
+    )
+    row = {
+        "schema_version": 1,
+        "recorded_at": utc_now(),
+        "cycle_id": cycle_id,
+        "proposal_id": proposal_id,
+        "apply_action_ref": action.get("ledger_hash"),
+        "baseline_validation_ref": baseline["ledger_hash"],
+        "candidate_validation_ref": candidate["ledger_hash"],
+        "validation_comparison_ref": comparison["ledger_hash"],
+        "validation_gate_ref": gated.get("validation_gate_ref"),
+        "status": gated["status"],
+        "blocked_by": gated.get("blocked_by", []),
+    }
+    return append_jsonl(ensure_tools_dir(base_dir) / "apply" / "validation-pipelines.jsonl", row)
+
+
+def list_apply_validation_pipelines(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
+    return load_jsonl(ensure_tools_dir(base_dir) / "apply" / "validation-pipelines.jsonl")
 
 
 def _latest_action_for_proposal(proposal_id: str, base_dir: str | Path | None) -> dict[str, Any] | None:

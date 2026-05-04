@@ -71,6 +71,8 @@ DEFAULT_POLICY: dict[str, Any] = {
         "**/Dockerfile",
     ],
     "require_unresolved_conversations": True,
+    "require_validation_gate": True,
+    "require_integrity": True,
 }
 
 
@@ -190,6 +192,18 @@ def evaluate_auto_merge(
         reasons.append("PR head SHA changed since evaluation target was recorded")
     if not risk["eligible"]:
         reasons.append(f"diff risk is {risk['risk_class']}")
+    validation_gate = _validation_gate_result(pr, github)
+    if active_policy.get("require_validation_gate", True):
+        if not validation_gate["readable"]:
+            reasons.append("local validation gate missing")
+        elif validation_gate["status"] != "ready_for_pr":
+            reasons.append("local validation gate not ready")
+    integrity = _integrity_result(pr, github)
+    if active_policy.get("require_integrity", True):
+        if not integrity["readable"]:
+            reasons.append("integrity status missing")
+        elif integrity["valid"] is not True:
+            reasons.append("integrity verification failed")
 
     required = _required_checks(github)
     if not required["readable"]:
@@ -235,10 +249,14 @@ def evaluate_auto_merge(
         "check_result": check_result,
         "review_result": review_result,
         "conversation_result": conversation_result,
+        "validation_gate": validation_gate,
+        "integrity": integrity,
         "policy": {
             "enabled": active_policy["enabled"],
             "base_branch": active_policy["base_branch"],
             "merge_method": active_policy["merge_method"],
+            "require_validation_gate": active_policy.get("require_validation_gate", True),
+            "require_integrity": active_policy.get("require_integrity", True),
         },
     }
     _append_decision(base_dir, decision)
@@ -628,6 +646,33 @@ def _conversation_result(github: dict[str, Any]) -> dict[str, Any]:
     if isinstance(conversations, int):
         return {"readable": True, "unresolved_count": conversations}
     return {"readable": False, "unresolved_count": 0}
+
+
+def _validation_gate_result(pr: dict[str, Any], github: dict[str, Any]) -> dict[str, Any]:
+    payload = github.get("validation_gate", pr.get("validation_gate", None))
+    if isinstance(payload, dict):
+        status = payload.get("status")
+        return {
+            "readable": payload.get("readable", True) is True,
+            "status": status,
+            "ref": payload.get("ref") or payload.get("ledger_hash") or payload.get("validation_gate_ref"),
+        }
+    status = pr.get("validation_gate_status")
+    ref = pr.get("validation_gate_ref")
+    if isinstance(status, str) and status:
+        return {"readable": True, "status": status, "ref": ref}
+    return {"readable": False, "status": None, "ref": None}
+
+
+def _integrity_result(pr: dict[str, Any], github: dict[str, Any]) -> dict[str, Any]:
+    payload = github.get("integrity", pr.get("integrity", None))
+    if isinstance(payload, dict):
+        valid = payload.get("valid")
+        return {"readable": payload.get("readable", True) is True, "valid": valid is True, "ref": payload.get("ref")}
+    valid = pr.get("integrity_valid")
+    if isinstance(valid, bool):
+        return {"readable": True, "valid": valid, "ref": pr.get("integrity_ref")}
+    return {"readable": False, "valid": False, "ref": None}
 
 
 def _check_success(run: dict[str, Any]) -> bool:

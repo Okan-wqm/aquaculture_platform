@@ -1,7 +1,7 @@
 """ARIA adapter and skill health governance kernel."""
 
 from .adapter_calibration import generate_adapter_calibration_report, list_adapter_calibration_reports
-from .apply_engine import gate_apply_action, plan_apply_worktree
+from .apply_engine import gate_apply_action, list_apply_validation_pipelines, plan_apply_worktree, run_apply_validation_pipeline
 from .agent_genesis import approve_agent_pr, draft_agent_from_gap, evaluate_genesis_sandbox, list_agent_drafts, prepare_agent_pr_lane
 from .agent_priors import latest_agent_priors, map_agent_priors, related_agents_for_paths
 from .architecture import (
@@ -18,7 +18,14 @@ from .auto_merge import classify_changed_files, evaluate_auto_merge, merge_if_gr
 from .budget import check_budget, list_budget_usage, record_budget_usage
 from .calibration import list_calibration_recommendations, recommend_calibration
 from .capability_gap import detect_capability_gaps, latest_capability_gaps, list_capability_gaps
-from .codegen import list_code_change_plans, list_generated_diff_packets, record_code_change_plan, record_generated_diff_packet
+from .codegen import (
+    apply_generated_diff_packet,
+    list_code_change_plans,
+    list_generated_diff_applications,
+    list_generated_diff_packets,
+    record_code_change_plan,
+    record_generated_diff_packet,
+)
 from .cycle import run_cycle
 from .cycle_diff import run_cycle_diff
 from .discovery import run_discovery
@@ -59,6 +66,7 @@ from .task import explain_task, generate_task_candidates, latest_tasks
 __all__ = [
     "GovernanceError",
     "amplify_proposal",
+    "apply_generated_diff_packet",
     "approve_agent_pr",
     "approve_proposal",
     "can_emit_operator_facing",
@@ -86,6 +94,7 @@ __all__ = [
     "latest_capability_gaps",
     "latest_tasks",
     "list_agent_drafts",
+    "list_apply_validation_pipelines",
     "list_adapter_calibration_reports",
     "list_architecture_adr_drafts",
     "list_architecture_evidence_packs",
@@ -97,6 +106,7 @@ __all__ = [
     "list_code_change_plans",
     "list_cycle_metrics",
     "list_fitness_reports",
+    "list_generated_diff_applications",
     "list_generated_diff_packets",
     "list_impact_graphs",
     "list_impact_plans",
@@ -144,6 +154,7 @@ __all__ = [
     "run_cycle_diff",
     "run_discovery",
     "run_fixture_suite",
+    "run_apply_validation_pipeline",
     "run_validation_commands",
     "merge_if_green",
     "run_pressure",

@@ -8,9 +8,7 @@ from pathlib import Path
 
 from aria_kernel import (
     approve_proposal,
-    compare_validation_groups,
-    evaluate_validation_gate,
-    gate_apply_action,
+    apply_generated_diff_packet,
     generate_adapter_calibration_report,
     generate_observability_dashboard,
     open_pr_for_action,
@@ -24,7 +22,7 @@ from aria_kernel import (
     record_proposal,
     record_run,
     register_tool,
-    run_validation_commands,
+    run_apply_validation_pipeline,
     verify_integrity,
 )
 from aria_kernel.agent_genesis import approve_agent_pr, evaluate_genesis_sandbox
@@ -63,37 +61,23 @@ class EnterprisePlan012DTo015Tests(unittest.TestCase):
         with self.assertRaises(GovernanceError):
             open_pr_for_action(proposal_id=proposal["proposal_id"], workspace_root=self.root, base_dir=self.tools_dir, dry_run=True)
 
-        baseline = run_validation_commands(
-            commands=["python3 -m unittest --help"],
-            workspace_root=self.root,
-            validation_plan_id="baseline",
-            base_dir=self.tools_dir,
-        )
-        candidate = run_validation_commands(
-            commands=["python3 -m unittest --help"],
-            workspace_root=self.root,
-            validation_plan_id=proposal["proposal_id"],
-            base_dir=self.tools_dir,
-        )
-        comparison = compare_validation_groups(
-            baseline_ref=baseline["ledger_hash"],
-            worktree_ref=candidate["ledger_hash"],
-            base_dir=self.tools_dir,
-        )
-        validation_gate = evaluate_validation_gate(comparison_ref=comparison["ledger_hash"], base_dir=self.tools_dir)
-        self.assertEqual(validation_gate["status"], "ready_for_pr")
-
-        gated = gate_apply_action(
+        pipeline = run_apply_validation_pipeline(
             proposal_id=proposal["proposal_id"],
-            validation_comparison_ref=comparison["ledger_hash"],
+            baseline_workspace_root=self.root,
+            candidate_workspace_root=self.root,
             base_dir=self.tools_dir,
         )
-        self.assertEqual(gated["status"], "ready_for_pr")
+        self.assertEqual(pipeline["status"], "ready_for_pr")
         pr = open_pr_for_action(proposal_id=proposal["proposal_id"], workspace_root=self.root, base_dir=self.tools_dir, dry_run=True)
         self.assertEqual(pr["event"], "pr_dry_run")
         self.assertIn("Validation Evidence", pr["body"])
 
     def test_generated_diff_packet_is_limited_to_code_change_plan_scope(self):
+        source = self.root / "apps" / "api" / "src" / "app.ts"
+        source.parent.mkdir(parents=True)
+        source.write_text("old\n", encoding="utf-8")
+        subprocess.run(["git", "add", "apps/api/src/app.ts"], cwd=self.root, check=True)
+        subprocess.run(["git", "commit", "-m", "add app"], cwd=self.root, check=True, capture_output=True)
         plan = record_code_change_plan(
             proposal_id="proposal-scope",
             worktree_path=self.root.as_posix(),
@@ -123,6 +107,12 @@ class EnterprisePlan012DTo015Tests(unittest.TestCase):
             base_dir=self.tools_dir,
         )
         self.assertEqual(packet["status"], "ready_for_candidate_worktree")
+        application = apply_generated_diff_packet(
+            generated_diff_packet_id=packet["generated_diff_packet_id"],
+            base_dir=self.tools_dir,
+        )
+        self.assertEqual(application["status"], "patch_applied")
+        self.assertEqual(source.read_text(encoding="utf-8"), "new\n")
 
         blocked = record_generated_diff_packet(
             code_change_plan_id=plan["code_change_plan_id"],

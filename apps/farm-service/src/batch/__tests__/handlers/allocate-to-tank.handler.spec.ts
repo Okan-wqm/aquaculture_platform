@@ -14,6 +14,14 @@ describe('AllocateToTankHandler', () => {
   let handler: AllocateToTankHandler;
   const { mockDataSource, mockQueryRunner, mockManager } = createMockDataSource();
   const mockOutboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
+  const mockTankCapacityService = {
+    enforce: jest.fn().mockReturnValue({
+      tankVolumeM3: 100,
+      projectedDensityKgM3: 1,
+      utilizationPercent: 10,
+      isOverCapacity: false,
+    }),
+  };
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -24,6 +32,7 @@ describe('AllocateToTankHandler', () => {
       createMockRepository() as any,
       mockDataSource as any,
       mockOutboxPublisher as any,
+      mockTankCapacityService as any,
     );
   });
 

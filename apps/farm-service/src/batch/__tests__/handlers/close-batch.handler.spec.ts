@@ -15,6 +15,12 @@ describe('CloseBatchHandler', () => {
   const { mockDataSource, mockQueryRunner, mockManager } = createMockDataSource();
   const mockBatchRepo = createMockRepository<Batch>();
   const mockOutboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
+  const mockHarvestEligibility = {
+    checkEligibility: jest.fn().mockResolvedValue({
+      eligible: true,
+      blockingEvents: [],
+    }),
+  };
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -22,6 +28,7 @@ describe('CloseBatchHandler', () => {
       mockDataSource as any,
       mockBatchRepo as any,
       mockOutboxPublisher as any,
+      mockHarvestEligibility as any,
     );
   });
 

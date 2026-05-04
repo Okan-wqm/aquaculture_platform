@@ -118,7 +118,7 @@ export class GetMessagesHandler implements IQueryHandler<GetMessagesQuery, Messa
       }
 
       // Order by createdAt DESC, id DESC for stable keyset pagination
-      qb.orderBy('m."createdAt"', 'DESC').addOrderBy('m."id"', 'DESC');
+      qb.orderBy('m.createdAt', 'DESC').addOrderBy('m.id', 'DESC');
 
       // Fetch one extra row to determine hasMore
       qb.take(limit + 1);

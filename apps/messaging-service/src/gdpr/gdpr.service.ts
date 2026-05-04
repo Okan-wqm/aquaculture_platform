@@ -143,8 +143,8 @@ export class GdprService {
             .where('m."tenantId" = :tenantId', { tenantId })
             .andWhere('m."senderId" = :userId', { userId })
             .andWhere('m."isDeleted" = false')
-            .orderBy('m."createdAt"', 'ASC')
-            .addOrderBy('m."id"', 'ASC')
+            .orderBy('m.createdAt', 'ASC')
+            .addOrderBy('m.id', 'ASC')
             .take(CHUNK_SIZE);
 
           if (lastCursor) {

@@ -55,6 +55,13 @@ describe('CreateBatchHandler', () => {
       sequence: 42,
       year: 2024,
     });
+    const mockTankCapacityService = {
+      enforce: jest.fn().mockReturnValue({
+        projectedDensityKgM3: 1,
+        utilizationPercent: 10,
+        isOverCapacity: false,
+      }),
+    };
     mockManager.save.mockImplementation((_entityClass: unknown, data: unknown) =>
       Promise.resolve({ id: 'batch-new-123', ...(data as object) }),
     );
@@ -67,6 +74,7 @@ describe('CreateBatchHandler', () => {
       mockEquipmentRepository as any,
       mockCodeGenerator,
       mockOutboxPublisher as any,
+      mockTankCapacityService as any,
     );
   });
 

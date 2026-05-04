@@ -305,8 +305,8 @@ export class MessageResolver {
         );
       }
 
-      qb.orderBy('m."createdAt"', 'ASC')
-        .addOrderBy('m."id"', 'ASC')
+      qb.orderBy('m.createdAt', 'ASC')
+        .addOrderBy('m.id', 'ASC')
         .take(cappedLimit + 1);
 
       const messages = await qb.getMany();

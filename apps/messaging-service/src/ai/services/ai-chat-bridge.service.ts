@@ -298,7 +298,7 @@ export class AiChatBridgeService {
       .where('m."channelId" = :channelId', { channelId })
       .andWhere('m."isDeleted" = false')
       .andWhere('m."content" IS NOT NULL')
-      .orderBy('m."createdAt"', 'DESC')
+      .orderBy('m.createdAt', 'DESC')
       .take(MAX_CONTEXT_MESSAGES)
       .getMany();
 

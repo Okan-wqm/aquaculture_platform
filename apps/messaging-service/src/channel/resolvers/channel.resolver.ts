@@ -422,8 +422,8 @@ export class ChannelResolver {
         .where('m."tenantId" = :tenantId', { tenantId })
         .andWhere('m."channelId" IN (:...channelIds)', { channelIds })
         .andWhere('m."isDeleted" = false')
-        .orderBy('m."channelId"', 'ASC')
-        .addOrderBy('m."createdAt"', 'DESC')
+        .orderBy('m.channelId', 'ASC')
+        .addOrderBy('m.createdAt', 'DESC')
         .distinctOn(['m."channelId"'])
         .getMany(),
     );

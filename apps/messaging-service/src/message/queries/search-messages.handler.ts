@@ -83,7 +83,7 @@ export class SearchMessagesHandler
           `ts_rank(to_tsvector('english', m."content"), plainto_tsquery('english', :searchQuery))`,
           'DESC',
         )
-        .addOrderBy('m."createdAt"', 'DESC')
+        .addOrderBy('m.createdAt', 'DESC')
         .take(limit)
         .getMany();
 

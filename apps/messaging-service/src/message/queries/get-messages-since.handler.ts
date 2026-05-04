@@ -62,8 +62,8 @@ export class GetMessagesSinceHandler
         .andWhere('m."channelId" = :channelId', { channelId })
         .andWhere('m."createdAt" > :since', { since })
         .andWhere('m."isDeleted" = false')
-        .orderBy('m."createdAt"', 'ASC')
-        .addOrderBy('m."id"', 'ASC')
+        .orderBy('m.createdAt', 'ASC')
+        .addOrderBy('m.id', 'ASC')
         .take(SYNC_LIMIT)
         .getMany();
 

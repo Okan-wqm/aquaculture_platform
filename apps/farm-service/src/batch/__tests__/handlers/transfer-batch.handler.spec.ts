@@ -15,6 +15,14 @@ describe('TransferBatchHandler', () => {
   let handler: TransferBatchHandler;
   const { mockDataSource, mockQueryRunner, mockManager } = createMockDataSource();
   const mockOutboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
+  const mockTankCapacityService = {
+    enforce: jest.fn().mockReturnValue({
+      tankVolumeM3: 100,
+      projectedDensityKgM3: 1,
+      utilizationPercent: 10,
+      isOverCapacity: false,
+    }),
+  };
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -28,6 +36,7 @@ describe('TransferBatchHandler', () => {
       createMockRepository() as any,
       createMockRepository() as any,
       mockOutboxPublisher as any,
+      mockTankCapacityService as any,
     );
   });
 

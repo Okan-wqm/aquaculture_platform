@@ -135,6 +135,13 @@ describe('RecordMortalityHandler', () => {
     const queryRunner = createMockQueryRunner(manager);
     const dataSource = createMockDataSource(queryRunner);
     const outboxPublisher = outboxPublisherOverride ?? createMockOutboxPublisher();
+    const backdatePolicy = {
+      validate: jest.fn().mockReturnValue({
+        backdatedDays: 0,
+        limitDays: 14,
+        isBackdated: false,
+      }),
+    };
 
     const handler = new RecordMortalityHandler(
       dataSource,
@@ -146,6 +153,7 @@ describe('RecordMortalityHandler', () => {
       {} as Repository<Tank>,
       {} as Repository<EquipmentType>,
       outboxPublisher,
+      backdatePolicy as any,
     );
 
     return { handler, manager, queryRunner, outboxPublisher };

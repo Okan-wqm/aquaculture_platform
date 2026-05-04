@@ -1,0 +1,15 @@
+{
+  "name": "real-repo-baseline",
+  "input": {
+    "roots": ["apps", "libs", "platform/libs"]
+  },
+  "expected": {
+    "status": "ok",
+    "required_observations": [
+      "tenant_source",
+      "tenant_repository_call",
+      "tenant_guard_registration"
+    ],
+    "max_findings": 150
+  }
+}

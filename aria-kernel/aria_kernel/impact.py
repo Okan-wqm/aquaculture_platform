@@ -1,0 +1,87 @@
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+from .ledger import append_jsonl, load_jsonl
+from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
+
+
+def plan_impact(
+    *,
+    changed_files: list[str],
+    action_class: str,
+    base_dir: str | Path | None = None,
+    cycle_id: str | None = None,
+) -> dict[str, Any]:
+    if not changed_files or not all(isinstance(item, str) and item.strip() for item in changed_files):
+        raise GovernanceError("changed_files must contain at least one path")
+    normalized = [item.replace("\\", "/").lstrip("./") for item in changed_files]
+    risk_class = _risk_class(normalized, action_class)
+    validations = _validation_commands(risk_class, normalized)
+    blocked_by = [] if risk_class not in ("unknown", "forbidden") else ["operator_scope_decision_required"]
+    row = {
+        "schema_version": 1,
+        "recorded_at": utc_now(),
+        "cycle_id": cycle_id,
+        "action_class": action_class,
+        "changed_files": normalized,
+        "risk_class": risk_class,
+        "validation_commands": validations,
+        "blocked_by": blocked_by,
+        "affected_projects_hint": _affected_projects_hint(normalized),
+    }
+    return append_jsonl(ensure_tools_dir(base_dir) / "impact" / "impact-plans.jsonl", row)
+
+
+def list_impact_plans(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
+    return load_jsonl(ensure_tools_dir(base_dir) / "impact" / "impact-plans.jsonl")
+
+
+def _risk_class(paths: list[str], action_class: str) -> str:
+    if any(_matches(path, ("infra/", "docker/", ".github/workflows/")) for path in paths):
+        return "forbidden"
+    if any("/migrations/" in path or "Migration" in path for path in paths):
+        return "migration"
+    if any(_matches(path, ("apps/", "libs/", "platform/libs/", "web/")) and "/src/" in path for path in paths):
+        if any(token in path.lower() for path in paths for token in ("auth", "tenant", "security", "billing")):
+            return "auth_tenant_data"
+        return "runtime"
+    if all(path.endswith(".md") or path.startswith("docs/") for path in paths):
+        return "docs_only"
+    if action_class in ("formatting_only", "documentation_update"):
+        return "low"
+    return "unknown"
+
+
+def _validation_commands(risk_class: str, paths: list[str]) -> list[str]:
+    if risk_class == "docs_only":
+        return ["npm run gates:banned-phrase"]
+    if risk_class == "migration":
+        return ["npm run gates:migration-sql", "npm run invariants:fast", "npm run type-check"]
+    if risk_class == "auth_tenant_data":
+        return ["npm run test", "npm run lint", "npm run type-check", "npm run invariants:full"]
+    if risk_class == "runtime":
+        return ["npm run test", "npm run lint", "npm run build", "npm run type-check"]
+    if risk_class == "low":
+        return ["npm run format:check", "npm run gates:all"]
+    return ["npm run test", "npm run lint", "npm run build", "npm run type-check"]
+
+
+def _affected_projects_hint(paths: list[str]) -> list[str]:
+    projects = []
+    for path in paths:
+        parts = path.split("/")
+        if len(parts) >= 2 and parts[0] in ("apps", "libs"):
+            projects.append(parts[1])
+        elif len(parts) >= 3 and parts[0] == "web" and parts[1] == "modules":
+            projects.append(parts[2])
+        elif len(parts) >= 2 and parts[0] == "web":
+            projects.append(parts[1])
+        elif len(parts) >= 3 and parts[0] == "platform" and parts[1] == "libs":
+            projects.append(parts[2])
+    return sorted(set(projects))
+
+
+def _matches(path: str, prefixes: tuple[str, ...]) -> bool:
+    return any(path.startswith(prefix) for prefix in prefixes)

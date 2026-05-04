@@ -1,315 +1,212 @@
-# AquaPlatform — Balık Ölümünü Nasıl Önler?
+# AquaPlatform — Mortalite Azaltma Mekanizmaları
 
-> Hiç teknik bilmeyen birine anlatır gibi yazılmıştır. Yatırımcılar, ortaklar ve karar alıcılar içindir.
-
----
-
-## Sektörün Acı Gerçeği
-
-Su ürünleri yetiştiriciliğinde yatırımın en büyük düşmanı **mortalitedir** — yani balıkların ölmesidir. Endüstri ortalaması yıllık %15–30 arasındadır. Stok, yem, işçilik ve enerjiye yatırılan tüm sermaye, ölü balıkla birlikte sıfırlanır.
-
-Sektörde bugüne kadar gelen yazılımlar bu sorunu **gözleyip ekrana yazan** araçlardır — sıcaklık 28°C, pH 7.4, oksijen 5.2. Operatöre "hadi bul" derler.
-
-**AquaPlatform gözlemiyor — hesap yapıyor, reçete yazıyor, müdahale ediyor, yönetiyor.**
-
-Bu belge, sistemin balık ölümünü hangi mekanizmalarla, hangi farklılaştırıcı özelliklerle azalttığını teknik olmayan bir okuyucuya anlatır.
+> Yatırımcılar, ortaklar ve karar alıcılar için hazırlanmış teknik olmayan referans belgesidir. Sistemin balık ölümünü azaltma yönündeki kapasitesi, mevcut ve planlanan modüller üzerinden anlatılır.
 
 ---
 
-## Tek Cümle Özet
+## 1. Bağlam
 
-> *AquaPlatform, çiftliğe **dijital kimyager + dijital veteriner + uydu-gözcüsü + saha-cebi-asistanı** dört uzmanı tek pakette getirir. Bu uzmanlar tatile çıkmaz, hastalanmaz, istifa etmez. Tek aboneliğin değeri, dört uzmanın yıllık maaşına karşılık gelir.*
+Su ürünleri yetiştiriciliğinde mortalite, işletme kârlılığını belirleyen birincil değişkendir. Endüstri ortalaması yıllık %15–30 aralığındadır. Stok, yem, işçilik ve enerji maliyetleri, kayıp balıkla birlikte geri dönülemez biçimde silinir.
+
+AquaPlatform, mortalite zincirini birden fazla noktadan kıran bir SaaS yazılımıdır. Aşağıdaki bölümler sistemin kapasitesini operasyonel terimlerle açıklar; teknik referanslar minimum tutulmuştur.
 
 ---
 
-## AquaPlatform'un Yedi Ayırt Edici Özelliği
+## 2. Temel Özellikler
 
-Pazarda "akıllı pano" satan onlarca rakip vardır. AquaPlatform aşağıdaki yedi özellikle ayrışır.
+### 2.1 Su Kimyası Reçete Motoru
 
-### 1. Anlık Su Kimyası Reçete Motoru
+Sistem; sıcaklık, pH, alkalinite, tuzluluk ve toplam amonyak gibi parametrelerden yola çıkarak amonyağın zehirli formunu (NH₃), karbondioksit ve hidrojen sülfür konsantrasyonlarını bilimsel literatürün referans denklemleriyle hesaplar. Sonuç, operatöre ham veri olarak değil, somut dozaj reçetesi olarak sunulur:
 
-Rakipler suyu ölçer ve "pH 7.4" diye gösterir. AquaPlatform aynı bilgiyi alır, **ne yapılması gerektiğini söyler**:
+> *"Tank A için 12.4 kg sodyum bikarbonat eklenmesi gerekir. Sonuç: pH 7.2 → 7.4, NH₃ güvenli sınırda kalır, CO₂ kritik bölgenin dışına çıkar."*
 
-> *"Şu tanka 12.4 kg sodyum bikarbonat at. pH 7.2'den 7.4'e gelecek, amonyağın zehirli formu güvenli sınırda kalacak, karbondioksit kritik bölgeden çıkacak."*
+Reçete motoru, su sıcaklığı, asit-baz dengesi ve tuzluluk birlikte değiştiğinde toksisite eşiklerini eş zamanlı yeniden hesaplar.
 
-Sistem suyun anlık termodinamik dengesini çözer; amonyağın zehirli formu, karbondioksit ve hidrojen sülfür gibi öldürücü bileşenlerin tehlike sınırına ne kadar yaklaştığını **gerçek bilimsel formüllerle** hesaplar. Akademik literatürün referans denklemleri sistemde **çalışan kod** olarak durur — pazarlama vaadi değildir.
+### 2.2 Birleşik Faz Diyagramı
 
-**Yatırımcıya:** *Çiftliğin kimyager maaşını ve kimyager hatasını sıfırlar.*
+NH₃, CO₂ ve H₂S zehirlilik bölgeleri, aynı tuvalde alkalinite-DIC eksenleri üzerinde birlikte çizilir:
 
-### 2. Birleşik Faz Diyagramı (Deffeyes)
+- Yeşil bölge: güvenli işletme aralığı
+- Kırmızı bölgeler: zehirlilik eşiklerinin aşıldığı alanlar
+- Mavi nokta: tankın anlık durumu
+- Hedef nokta: ulaşılması istenen su kimyası
+- Yön okları: ilave edilecek kimyasalın tankı hangi yöne çekeceği
 
-Rakipler beş ayrı pencere açar — pH grafiği, oksijen grafiği, amonyak grafiği, alkalinite grafiği, karbondioksit grafiği. Operatör hangisinin hangisini etkilediğini kafadan bağlar — ya da bağlayamaz.
+Operatör, beş ayrı parametre grafiğini zihninde birleştirmek yerine tankın güvenli bölgeye olan uzaklığını tek bir görselden okur.
 
-AquaPlatform tek tuvalde her şeyi gösterir:
-- **Yeşil bölge** = güvenli işletme zonu
-- **Kırmızı bölgeler** = amonyak, karbondioksit ve hidrojen sülfür zehirlenme tehlikesi
-- **Mavi yıldız** = tankın şu andaki durumu
-- **Siyah X** = tankın gitmesi gereken yer
-- **Oklar** = hangi kimyasalı eklersen tankı hangi yöne çekersin
+### 2.3 Optimum Bölge Yönetimi
 
-Operatör tek bakışta hem nerede olduğunu, hem nereye gideceğini, hem nasıl gideceğini görür. Bu görsel araç sektörde **akademik makaledir, üründe değildir** — biz yazılıma soktuk.
+Sistem, tankı güvenli faz bölgesi içinde tutmayı hedefler. Sapma başladığı an çoklu kimyasal seçenekli geri-dönüş planı üretir; her seçenek için gram cinsinden miktar, uygulanabilirlik notu ve risk skoru verilir. Operatör en uygun yolu seçer.
 
-### 3. Optimum Bölge Yönetimi ve Otomatik Geri-Dönüş Reçetesi
+Reçete tek seferde değil, adım adım uygulanır:
 
-Sistem tankı sürekli **güvenli faz bölgesi** içinde tutmayı hedefler. Tank o bölgeden çıkmaya başlar başlamaz:
-- Çoklu kimyasal seçeneğiyle geri-dönüş planı üretir (sodyum bikarbonat, kalsiyum hidroksit, sodyum karbonat, sodyum hidroksit, kireç, hidroklorik asit, karbondioksit enjeksiyon, degassing — 6+ farklı reçete)
-- Her birinin gram cinsinden miktarını verir
-- Her birinin uygulanabilirliğini ve riskini puanlar
-- En güvenli olanı en üstte gösterir
+1. Sistem reçeteyi alt-adımlara böler ve her adımın tahmini sonucunu önceden gösterir.
+2. Operatör birinci adımı uygular.
+3. Yeni su örneği ölçülüp sisteme girilir.
+4. Sistem tahminle gerçek sonucu karşılaştırır; sapma varsa kalan adımlar yeniden hesaplanır.
+5. Döngü tamamlanana kadar devam eder.
 
-Operatör en güvenli yolu otomatik üstte görür ve onu seçer.
+Bu çalışma biçimi, tek seferde aşırı doz uygulanmasının doğurabileceği pH veya alkalinite şokunu yapısal olarak engeller.
 
-### 4. Ekipman Atfı — Hangi Ekipman Suçlu, Hangisi Çözecek
+### 2.4 Ekipman Atfı
 
-Her reçete **gereken ekipman** listesini taşır:
-- "CO₂ Dozlama" → CO₂ tüpü, dozlama hattı, pH kontrol sensörü
-- "Degassing — CO₂ Giderme" → degassing ünitesi, havalandırma
-- "Sodyum Bikarbonat" → kimyasal stoku, dozaj pompası, tartı
+Sistemin önerdiği her reçete, kullanılacak ekipmanın listesiyle birlikte gelir (CO₂ tüpü, dozlama hattı, degassing ünitesi, dozaj pompası vb.). Bunun yanında sapmaya yol açan ekipman (örn. devre dışı kalmış degassing ünitesi, durmuş aerator) operatöre bildirilir. Hatalı ekipman bulma süresi bu atıf sayesinde kısalır.
 
-Sistem hem **sapmaya hangi ekipmanın sebep olduğunu** (ör. degassing ünitesi devre dışı kalmış, karbondioksit birikmiş) hem de **hangi ekipmanla düzeltileceğini** operatöre adıyla söyler. Operatör nereye koşacağını bilir, vakit kaybetmez.
+### 2.5 Uydudan Çevresel İzleme (Deniz Kafes Çiftlikleri)
 
-### 5. Uydudan Çift Kaynaklı Çevresel İzleme (Deniz Kafes Çiftlikleri)
+Sistemde iki ayrı uydu kaynağı entegredir:
 
-Kafes üreticisinin en büyük korkusu **zararlı alg patlamasıdır**. Bir gecede tüm bir sezonu silebilir. İkincisi **anormal su sıcaklığıdır** — soğuk veya sıcak şokta balık ölür, hastalanır, yem yemez.
+- **Sentinel-2 / Copernicus Data Space Ecosystem (optik):** Çiftlik koordinatlarındaki kıyı suyunun gerçek görüntüsü; klorofil yoğunluğu, alg patlaması belirtileri, su rengi anomalileri.
+- **Copernicus Marine CMEMS (model):** Deniz Yüzey Sıcaklığı (SST), tuzluluk ve akıntı tahmini.
 
-Geleneksel önlem: tekneyle gözlem + şans. AquaPlatform iki ayrı uydu kaynağıyla bu körlüğü kapatır:
+Optik kaynak mevcut durumu, model kaynak yaklaşan durumu sağlar. Yaklaşan zararlı alg patlaması veya sıcaklık anomalisi 48–72 saat öncesinden öngörülür; kafes operasyonu (ağ derinliği, hasat zamanı) buna göre ayarlanabilir.
 
-**Kaynak 1 — Sentinel-2 / Copernicus Data Space (Optik Uydu):**
-- Çiftlik koordinatlarındaki kıyı suyunun **gerçek görüntüsünü** çeker
-- Klorofil yoğunluğu, alg patlaması belirtileri, su rengi anomalileri
-- Tenant başına şifrelenmiş kimlik bilgileri, izole erişim
-- Görüntü farm haritasına bindirilir, operatör çiftliğin üzerine uydudan bakar
+### 2.6 Lot Bazlı İzlenebilirlik
 
-**Kaynak 2 — Copernicus Marine CMEMS (Model Bazlı):**
-- Deniz Yüzey Sıcaklığı (SST), tuzluluk, akıntı modelleri
-- Saatlik güncellenen tahmin verisi
-- Yaklaşan sıcaklık şoku, akıntı değişimi, oksijen anomalisi önceden görülür
+Yem ve kimyasal lotları girişten tüketime kadar dakika hassasiyetinde izlenir. İki lotun bir siloda karışması "MIX-LOT1-LOT2" olarak işaretlenir. Bir mortalite olayı sonrası kaynağa, AB gıda güvenliği kapsamındaki 2 saatlik geri-izlenebilirlik standardına uygun şekilde ulaşılır. Bozuk veya süresi geçmiş lotun çiftlik genelindeki etki alanı sınırlanır.
 
-İki kaynak birlikte çalışır. Optik uydu **ne olduğunu** gösterir, model uydu **ne olacağını** söyler. Patlama veya sıcaklık şoku yaklaşıyorsa **48–72 saat önceden** kafes operatörüne haber gider; ağ derinleştirilir, hasat öne alınır, can kurtarılır.
+### 2.7 Bilimsel Bilgi Tabanlı Hastalık Erken Uyarısı
 
-Bu özellik rakiplerin %95'inde **hiç yoktur**.
+Balık hastalıkları büyük ölçüde çevresel tetikleyicilere bağlıdır. Örneğin:
 
-### 6. Lot-Karışım Tespiti ve İzlenebilirlik
+- Su sıcaklığının uzun süre düşük seyretmesi, somonlarda Soğuk Su Hastalığı (BCWD) ve IPN riskini artırır.
+- Sıcaklığın 18°C üzerine çıkması, levrek/çipurada Vibriozis riskini artırır.
+- Düşük oksijen ve yüksek amonyak birlikteliği bağışıklık sistemini zayıflatır.
+- Tuzluluk şokları mantar enfeksiyonlarına zemin hazırlayabilir.
 
-Mortalitenin görünmez sebepleri çoğunlukla **lojistik ve depo** kaynaklıdır: süresi geçmiş yem, yanlış sıcaklıkta saklanmış stok, karışmış lotlar.
+AquaPlatform, çevresel parametrelerin bu tür risk paternlerine girdiği durumlarda yöneticiye bilimsel kaynaklı uyarı sunmayı hedefler:
 
-AquaPlatform her yem ve kimyasal lotunu **dakikası dakikasına** izler. İki farklı lot bir siloda karışırsa sistem "MIX-LOT1-LOT2" olarak işaretler. Bir mortalite çıktığında geriye dönülür, kaynağa AB gıda güvenliği seviyesinde **2 saatlik geri-izlenebilirlikle** ulaşılır. Bozuk yem kaynaklı toplu ölüm engellenir.
+> *"Tank 7'de su sıcaklığı 5 gündür 8°C altındadır. Yetiştirilen tür Atlantik somonudur. Mevcut literatür (Holt 1972, Starliper 2011) bu koşullarda BCWD riskinin yükseldiğini belgeler."*
 
-### 7. Bilimsel Kanıt Tabanlı Hastalık Erken Uyarısı
+Uyarı, dayanak kaynak referansıyla birlikte sunulur; bu sayede aktarılan bilgi izlenebilir bir bilimsel temele oturur.
 
-Sektörde balık hastalıkları çoğunlukla **çevresel bir tetikleyiciye** bağlıdır:
-- Su sıcaklığı uzun süre düşük kalırsa somonlarda **Soğuk Su Hastalığı (BCWD)** ve **IPN (Bulaşıcı Pankreatik Nekrozu)** riski yükselir
-- Sıcaklık 18°C üstüne çıkarsa levrek/çipurada **Vibriozis** riski yükselir
-- Düşük oksijen + yüksek amonyak kombinasyonu balıkta bağışıklığı kırar, **bakteriyel enfeksiyonlar** açılır
-- Tuzluluk şoku **mantar enfeksiyonlarına** zemin hazırlar
+**Tedavi Paketi:**
 
-Geleneksel düzen: Hastalık çıkar, balık ölmeye başlar, sonra reaksiyon verilir. AquaPlatform bunun tersini hedefler — **hastalık çıkmadan tahmin eder ve uyarır:**
+Sistem, hastalık riskini bildirmenin yanında ilgili tedavi bilgisini de tek ekranda toplamayı hedefler:
 
-> *"Tank 7'de su sıcaklığı 5 gündür 8°C altında kalıyor. Yetiştirilen tür Atlantik somonu. Bilimsel literatür (kaynak: Holt 1972, Starliper 2011) bu koşullarda BCWD riskinin %X arttığını gösteriyor. Önerilen aksiyon: profilaktik takip, tank gözlemi, antimikrobiyel hazırlık."*
+- Önerilen ilaçlar ve dozlar (tür, ağırlık, hastalık özelinde)
+- İlaç çekilme süresi (withdrawal period — gıda güvenliği kapsamında zorunlu)
+- İlaç-ilaç ve ilaç-su kalitesi etkileşim uyarıları
+- Yetkili balık veterineri dizini ve doğrudan iletişim
+- Tedarikçi entegrasyonu üzerinden ilaç tedariki
+- Tedavi takvimi (doz aralıkları, kontrol gözlemleri)
 
-Sistem her uyarıyı **kaynaklı** verir — hangi makaleye, hangi araştırmaya dayandığı görünür. Yönetici ne yaptığını ve neden yaptığını bilir. Bu, sektörde "kara kutu AI" satışlarından temelden ayrışır.
+**Bilgi Tabanı Yapısı:**
 
-**Uyarı + Tedavi Paketi Birlikte Gelir:**
+Sistem, bilimsel makale yüklenebilir bilgi tabanı mimarisi üzerine kuruludur. Tür-spesifik hastalık-koşul ilişkileri, çevresel tetikleyici eşikleri, büyüme eğrileri ve tedavi protokolleri zaman içinde sisteme eklenir. Yeni bir araştırmanın yüklenmesi, tüm tenant'ların korumasını eş zamanlı günceller.
 
-Sistem hastalık riskini söylemekle kalmaz; aynı uyarının altında **tam tedavi paketini** de operatöre sunar:
+**Mevcut ve Planlanan Modüller:**
 
-- **Önerilen ilaçlar ve dozlar** — bilimsel literatür ve resmi tedavi kılavuzlarına dayalı; tür-spesifik, ağırlık-spesifik, hastalık-spesifik
-- **İlaç çekilme süresi (withdrawal period)** — tedavi sonrası hasada kaç gün kala balık tüketilebilir; gıda güvenliği için kritik
-- **İlaç-ilaç ve ilaç-su kalitesi etkileşim uyarıları** — yanlış kombinasyon balığı öldürür
-- **Yetkili balık veterineri yönlendirmesi** — bölgedeki sertifikalı veterinerlerin iletişim bilgileri; sistem doğrudan bağlar
-- **Tedarikçi entegrasyonu** — önerilen ilacı stokta olan en yakın tedarikçi; teklif alma ve sipariş tetikleme tek tuşla
-- **Tedavi takvimi otomasyonu** — başlangıç-bitiş tarihi, doz aralığı, kontrol gözlemleri planı
-
-Yönetici uyarıyı aldığı an "ilacı nereden bulurum, kim uygular, ne kadar bekleyeceğim" sorularına cevabı **aynı ekranda** görür. Tek tuşla veteriner çağırır, ilacı sipariş eder, tedavi takvimi sisteme düşer.
-
-**Bilgi Tabanı Mimarisi (Sürekli Genişletilebilir):**
-
-AquaPlatform **bilimsel makale yüklenebilir bilgi tabanı** üzerine kurulmuştur. Sisteme:
-- Tür-spesifik hastalık-koşul ilişki haritaları
-- Çevresel tetikleyici eşikleri ve süreleri
-- Büyüme eğrileri ve fizyolojik stres parametreleri
-- Yem kalitesi-bağışıklık ilişkileri
-- Yeni türler için makale-tabanlı parametre setleri
-
-zamanla yüklenir. Sistem bu bilgi tabanından besleniyor — yeni bir hastalık makalesi yüklendiğinde **tüm tenantlar** o gün itibarıyla o korelasyondan korunur. Çiftlik bir kez sisteme bağlandı mı, **bilim ilerledikçe çiftliğin koruma kalkanı da güçlenir**.
-
-**Şeffaflık — Mevcut ve Roadmap Ayrımı:**
-
-| Özellik | Durum |
+| Modül | Durum |
 |---|---|
-| Hastalık olay kaydı (semptom kategorileri, davranışsal/fiziksel/solunum) | Üretimde |
-| Tedavi kaydı + ilaç + tedavi süresi + başlangıç-bitiş tarihi | Üretimde |
-| İlaç çekilme süresi takibi (withdrawal period — gıda güvenliği) | Üretimde |
+| Hastalık olay kaydı (semptom kategorileri) | Üretimde |
+| Tedavi kaydı, ilaç adı, başlangıç-bitiş tarihi | Üretimde |
+| İlaç çekilme süresi takibi | Üretimde |
 | Hasta tankın hasat ve transfer blokları | Üretimde |
-| Çevresel parametre takibi (sıcaklık, oksijen, amonyak vb.) | Üretimde |
-| Çapraz-domain korelasyon motoru (su kalitesi ↔ mortalite ↔ büyüme) | Üretimde |
-| Bilimsel kaynaklı hastalık-koşul kütüphanesi (sıcaklık şoku → BCWD vb.) | Roadmap (bilgi tabanı çerçevesi mevcut, hastalık-koşul makaleleri yüklenecek) |
-| Otomatik tahmine dayalı hastalık uyarısı (bilimsel atıflı) | Roadmap |
-| Tür-spesifik hastalık risk skorlaması | Roadmap |
-| Bilimsel kanıtlı ilaç ve doz öneri kütüphanesi (hastalık → ilaç + doz) | Roadmap |
-| İlaç-ilaç + ilaç-su kalitesi etkileşim uyarısı | Roadmap |
-| Yetkili balık veterineri dizini ve doğrudan iletişim | Roadmap |
-| Tedarikçi (ilaç + ekipman) entegrasyonu, tek tuş sipariş | Roadmap |
-| Tedavi takvimi otomasyonu (doz aralıkları, kontrol gözlemleri) | Roadmap |
-
-> **Yatırımcıya net mesaj:** *AquaPlatform sadece bir yazılım değildir; **sürekli zenginleşen bilimsel bilgi tabanıdır**. Yeni bir araştırma yayınlandığında çiftliğin koruma seviyesi otomatik yükselir. Çiftlik sahibinin kendi başına 200 makale okuyup eşik tablosu çıkarmasına gerek kalmaz.*
+| Çevresel parametre takibi | Üretimde |
+| Çapraz-domain korelasyon motoru | Üretimde |
+| Bilimsel kaynaklı hastalık-koşul kütüphanesi | Planlanan |
+| Otomatik tahmine dayalı hastalık uyarısı | Planlanan |
+| Tür-spesifik hastalık risk skorlaması | Planlanan |
+| İlaç ve doz öneri kütüphanesi | Planlanan |
+| İlaç-ilaç + ilaç-su kalitesi etkileşimi | Planlanan |
+| Yetkili veteriner dizini | Planlanan |
+| Tedarikçi entegrasyonu | Planlanan |
+| Tedavi takvimi otomasyonu | Planlanan |
 
 ---
 
-## Uzman Açığı Krizini AI Çözer
+## 3. Yapay Zekâ Mimarisi
 
-Sektörün sessiz felaketi: **kalifiye eleman bulunamamasıdır.** Kıyıdan uzak çiftliklerde balık biyologu, su kimyageri, akuakültür mühendisi, balık veterineri yok denecek kadar azdır. Olanlar pahalıdır, gelmek istemez, kalmaz.
+Sistemde yapay zekâ, kimya hesaplarını veya doz miktarlarını kendisi üretmez. Tüm sayısal hesaplamalar; bisection algoritmaları, Millero (1995, 2010) dissosiasyon sabitleri ve karbonat sistem denklemlerinden oluşan deterministik araçlar tarafından yapılır. Yapay zekâ bu araçları çağırır ve sonucu olduğu gibi aktarır.
 
-AquaPlatform uzmanlığı koda gömer. Çiftlikteki herhangi bir operatör — 6 ay deneyimli bir genç bile — cebindeki sistem üzerinden uzman seviyesinde aksiyon alır:
+Bu mimari iki sonucu doğurur:
 
-| Eksik Uzman | AquaPlatform'da Karşılığı |
-|---|---|
-| Su Kimyageri | Reçeteli dozaj asistanı (gram cinsinden, çoklu seçenek) |
-| Balık Veterineri | Kök-neden analizi (yem-su-bakım-stok zincirini geriye yürüten AI) |
-| Akuakültür Mühendisi | Günlük operasyon brifingi (her sabah çiftlik geneli risk-anomali-aksiyon raporu) |
-| Saha Şefi | Türkçe sohbet asistanı (operatör tankın başında danışır, somut talimat alır) |
-| Yem Uzmanı | FCR izleme ve sapma alarmı (yem dönüşüm oranı plandan kayarsa otomatik uyarı) |
+1. Üretilen sayılar, aynı girdi için her zaman aynıdır; kanıtlanabilir ve tekrarlanabilirdir.
+2. Dil modelinin halüsinasyon riski, mortalite-kritik dozaj kararlarına taşınmaz.
 
-**Önemli ayrım:** Sistemdeki AI **kimya hesabını kendi kafasından söylemez**. Hesabı deterministik matematiksel araçlar yapar; AI sadece sonucu anlatır. Bilimsel formüller ne diyorsa onu söyler — uydurmaz, hayal etmez. Bu mimari **LLM halüsinasyon bariyeridir** ve hayati öneme sahiptir, çünkü yanlış gram balığı öldürür.
+Yapay zekâ; günlük operasyon brifingi, kök-neden analizi, anomali tespiti ve operatör asistanı rollerinde kullanılır. Bu rollerde de altta her zaman deterministik araçlar çalışır.
 
 ---
 
-## Mobil Saha Hattı — Cebinizdeki Uzman
+## 4. Operatör ve Saha Bileşenleri
 
-Mortaliteyi durduran tek faktör **dakikalardır**. Bir oksijen düşüşüne 5 dakikada müdahale edersen kurtarırsın, 30 dakika geç kalırsan yüzlerce balık gider. Bu hat mobil uygulamanın hattıdır.
+### 4.1 Mobil Uygulama (AquaMobil)
 
-**AquaMobil özellikleri:**
-- **2 saniyelik push bildirim:** Kritik alarm operatörün telefonunda anında titreşim yapar.
-- **Saha su kalitesi kaydı:** Operatör tank başında ölçtüğü değeri girer, sistem **anında doğrular**; kritik sapma kırmızı uyarı çıkarır.
-- **Saha mortalite kaydı:** 13 hazır kategori (hastalık, oksijen, amonyak vb.) ile temiz veri, AI'a hazır.
-- **Yem kayıt + sapma tespiti:** Plandan ±%20 sapma anında alarm üretir; aşırı yemleme görünür hale gelir.
-- **Çevrimdışı kuyruk:** Sinyal olmayan kafeste/uzak çiftlikte veri telefonda saklanır, sinyal gelince otomatik senkronize olur. Hiçbir kayıt kaybolmaz.
-- **AI sohbet asistanı:** Operatör "ne yapayım?" diye sorar, sistem aksiyon kartıyla cevap verir. 6 ay deneyimli bir operatör 30 yıllık uzman gibi karar verebilir.
-- **Mobil iş emri kapatma + foto kanıt:** Bakım yapıldı denip yapılmamış işler ortadan kalkar.
+- Kritik alarmlar, push bildirim altyapısı üzerinden operatörün cihazına saniyeler içinde ulaşır.
+- Saha su kalitesi ölçümleri tank başında girilir; sistem değerleri anında doğrular ve sınır dışı değerleri işaretler.
+- Mortalite kayıtları 13 hazır kategori üzerinden alınır; serbest metin yerine yapısal veri toplanır.
+- Yem kayıtlarında plandan ±%20 sapma otomatik uyarı üretir.
+- İnternet bağlantısı yoksa veriler cihazda tutulur, bağlantı yeniden kurulduğunda senkronize olur.
+- Sahada operatör, ilgili AI asistanından somut talimat isteyebilir.
+- Mobil iş emirleri fotoğraf kanıtıyla kapatılır.
 
----
+### 4.2 İK ve Yetkilendirme
 
-## Kontrollü Dozaj — Adım Adım Hesap-Uygula-Ölç-Doğrula
+- Sertifikası dolmuş personel, kritik göreve sistemsel olarak atanmaz.
+- Vardiya yönetimi, eskalasyon ladderı ile birlikte çalışır: alarm operatör tarafından zamanında ele alınmazsa yöneticiye yönlendirilir.
+- Personel kompetansı, eğitim-sertifika izleme servisi üzerinden takip edilir.
 
-Sistem reçeteyi tek seferde değil, **kontrollü bir döngü** olarak işletir:
+### 4.3 Ekipman Bakımı
 
-1. **Hesap** — Sistem reçeteyi adımlara böler ve her adımın tahmini sonucunu önceden gösterir.
-2. **Onay** — Operatör simülasyonu görür, "ikinci adımda pH 7.8'e fırlayacak" uyarısını dozaj başlamadan alır.
-3. **Uygulama** — Operatör birinci adımı uygular.
-4. **Ölçüm** — Yeni su örneği cihazla ölçülür ve sisteme girilir.
-5. **Karşılaştırma** — Sistem tahminle gerçek sonucu karşılaştırır, sapma varsa kalan adımları **yeniden hesaplar**.
-6. **Bir sonraki adım** — Güncel reçete ile döngü tekrarlanır.
-
-Tek seferde aşırı doz felaketi yaşanmaz. Risk küçük adımlara dağıtılır.
-
-**Şeffaflık — Tam-Otomatik Roadmap'tedir:**
-
-| Halka | Durum |
-|---|---|
-| Reçete hesabı (matematiksel, deterministik) | Üretimde |
-| Çoklu-adım simülasyonu | Üretimde |
-| Operatöre adım adım talimat | Üretimde |
-| Dozaj sonrası gerçek ölçüm girişi (mobil/web) | Üretimde |
-| Tahmin ↔ gerçek karşılaştırma + reçete güncelleme | Üretimde |
-| Dozaj pompasının sistemden otomatik tetiklenmesi | Roadmap |
-| Tam PID-stil insansız kapalı döngü | Roadmap (kritik dozajda regülasyon insan onayını şart koşar) |
+- Pompa, havalandırıcı ve filtre için tekrarlı bakım takvimleri otomatik iş emri üretir.
+- Bakım çıktısı fotoğraf kanıtı ile dokümante edilir.
 
 ---
 
-## Doğrudan Mortalite Önleme — Plain Language
+## 5. Mortaliteye Doğrudan Etki Eden 19 Mekanizma
 
-Sistem aktif müdahale eder, ölümü başlamadan durdurur.
+Aşağıdaki maddeler, sistemin balık ölümünü doğrudan azaltma yönündeki kapasitesini operasyonel dilde özetler.
 
-**1. AquaPlatform tankın suyunu kesintisiz ölçer.** Suyun durumu kötüleşmeye başladığı an haber verir.
-
-**2. AquaPlatform suyun içindeki zehirli maddeleri hesaplar.** Sıcaklığa, asit-baz seviyesine ve tuzluluğa göre amonyak, karbondioksit ve hidrojen sülfürün tehlike sınırına ne kadar yaklaştığını söyler.
-
-**3. AquaPlatform reçete yazar.** Şu tanka şu kadar gram sodyum bikarbonat at der. Yanlış doz yüzünden balık ölmez.
-
-**4. AquaPlatform birden fazla kimyasal seçeneği sunar.** Aynı problemi çözmek için altıya yakın farklı kimyasal yolu listeler ve şu an en güvenli olan budur der.
-
-**5. AquaPlatform reçeteyi adım adım verir.** Hepsini bir defada değil, küçük dozlar halinde uygular. Her adımdan sonra suyu yeniden ölçtürür.
-
-**6. AquaPlatform doz öncesi sonucu önceden gösterir.** Operatör uygulamadan önce sonucu görür, hatadan döner.
-
-**7. AquaPlatform doz sonrası gerçek ölçümle tahmini karşılaştırır.** Beklediği sonuç gelmediyse reçeteyi yeniden hesaplar.
-
-**8. AquaPlatform tek bir grafikte tüm zehirli maddeleri birlikte gösterir.** Operatör beş ayrı ekrana bakmak zorunda kalmaz.
-
-**9. AquaPlatform "güvenli bölge" çizer.** Tank o bölgeden çıkmaya başlar başlamaz uyarır.
-
-**10. AquaPlatform sapmaya hangi ekipmanın sebep olduğunu söyler.** Operatör nereye koşacağını bilir, vakit kaybetmez.
-
-**11. AquaPlatform balığın türüne göre limitleri otomatik ayarlar.** Somonun limiti ile çipuranın limiti farklıdır; sistem doğrusunu uygular.
-
-**12. AquaPlatform tanka kapasitesinin üstünde balık koymaya izin vermez.** Aşırı stoklamadan kaynaklanan toplu ölümleri kökünden engeller.
-
-**13. AquaPlatform havalandırıcıyı kendisi açıp kapayabilir.** Oksijen düştüğünde insan beklemeden devreye sokar.
-
-**14. AquaPlatform kritik alarmları asla kaybetmez.** Sunucu çökse, internet kopsa bile alarm sistemde durur, ağ açılınca operatöre ulaşır.
-
-**15. AquaPlatform hasta tanktan başka tanka balık geçişini engeller.** Hastalık zincirini sistemsel olarak keser.
-
-**16. AquaPlatform operatörün cebine 2 saniyede bildirim gönderir.** Müdahale dakikalar içinde başlar.
-
-**17. AquaPlatform sahada girilen ölçüm değerini anında doğrular.** Yanlış veriden doğan yanlış kararlar olmaz.
-
-**18. AquaPlatform internet olmasa bile çalışır.** Hiçbir kayıt kaybolmaz.
-
-**19. AquaPlatform aşırı yemlemeyi yakalar.** Aşırı yem bozulup amonyak yapar; sistem bu zinciri başında kırar.
+1. Sistem tankın suyunu kesintisiz ölçer ve değerlerin bozulmaya başladığı anda uyarı üretir.
+2. Sistem suyun içindeki zehirli maddeleri sıcaklık, asit-baz seviyesi ve tuzluluk değerleriyle birlikte değerlendirir.
+3. Sistem hangi kimyasaldan ne kadar eklenmesi gerektiğini gram cinsinden hesaplar.
+4. Sistem aynı problem için birden fazla kimyasal seçeneği sunar ve en güvenli olanı işaretler.
+5. Sistem reçeteyi tek seferde değil, kontrollü alt-adımlara böler.
+6. Sistem her adımın tahmini sonucunu önceden gösterir.
+7. Sistem doz sonrası gerçek ölçümle tahmini karşılaştırır ve sapma durumunda reçeteyi yeniden hesaplar.
+8. Sistem tüm zehirli maddelerin durumunu tek bir grafikte birleştirir.
+9. Sistem güvenli işletme bölgesini çizer ve tank bu bölgeden çıkmaya başladığında uyarır.
+10. Sistem sapmaya yol açan ekipmanı operatöre bildirir.
+11. Sistem yetiştirilen türe göre limitleri otomatik uygular.
+12. Sistem tank kapasitesinin üstünde stoklamaya izin vermez.
+13. Sistem havalandırıcının açılıp kapanmasını uzaktan tetikleyebilir.
+14. Sistem kritik alarmları kayıp riskine karşı kalıcı kuyrukta saklar.
+15. Sistem hasta tanktan başka tanka balık geçişini engeller.
+16. Sistem kritik alarmı operatörün cihazına saniyeler içinde iletir.
+17. Sistem sahada girilen ölçüm değerini anında doğrular.
+18. Sistem internet bağlantısı yokken de kayıt almaya devam eder.
+19. Sistem aşırı yemleme sapmasını otomatik uyarıyla işaretler.
 
 ---
 
-## Dolaylı Mortalite Önleme — Plain Language
+## 6. Mortaliteye Dolaylı Etki Eden 16 Mekanizma
 
-Sistem operatör hatasını, gecikmiş kararı, eksik bilgiyi yok ederek mortaliteyi engeller.
+Aşağıdaki maddeler, operatör hatasını veya gecikmeli kararı azaltarak mortaliteyi engelleyen mekanizmalardır.
 
-**20. AquaPlatform bir mortalite olduğunda nedenini araştırır.** "3 gün önce yem fazla verildi, dün amonyak yükseldi, bugün balık öldü" der. Aynı hatanın tekrarını engeller.
-
-**21. AquaPlatform her sabah çiftliğin günlük raporunu kendisi yazar.** Yönetici hangi tankın risk altında olduğunu hazır görür.
-
-**22. AquaPlatform operatörün cebinde uzman gibi davranır.** Çiftlik uzman bulamazsa bile operasyon donmaz.
-
-**23. AquaPlatform yapay zekânın kafadan atmasını engeller.** Sistem matematiksel hesabı kendisi yapar, dil modeline güvenmez.
-
-**24. AquaPlatform yem stoklarını izler.** Yem bitmeden 7 gün önce sipariş uyarısı verir.
-
-**25. AquaPlatform bozuk veya süresi geçmiş yemi takip eder.** Zehirli yem kaynaklı ölüm engellenir.
-
-**26. AquaPlatform ekipmanın bakım zamanını otomatik hatırlatır.** Pompa, havalandırıcı, filtre arızadan önce bakıma alınır.
-
-**27. AquaPlatform sertifikası bitmiş personeli kritik göreve aldırmaz.** Eğitimsiz operatörün tek başına müdahale etmesi engellenir.
-
-**28. AquaPlatform alarmlara cevap vermeyen kişiyi yöneticiye yönlendirir.** Hiçbir uyarı sahipsiz kalmaz.
-
-**29. AquaPlatform uydudan denizi izler.** Açık deniz çiftliklerinde alg patlamasını uzaydan tespit edip önceden haber verir.
-
-**30. AquaPlatform havayı sürekli takip eder.** Yaklaşan fırtına, ani sıcaklık değişimi sisteme önceden girer.
-
-**31. AquaPlatform ölü balık kayıtlarını hazır kategorilerle alır.** Veri temiz olur, AI bu veriden öğrenir.
-
-**32. AquaPlatform bakımın gerçekten yapıldığını fotoğrafla doğrular.** "Yapıldı" denip yapılmamış bakım ortadan kalkar.
-
-**33. AquaPlatform anormal davranan tankı kendisi fark eder.** İnsan gözünün kaçırdığı erken sinyaller sisteme takılır.
-
-**34. AquaPlatform tankın 48 saat sonraki riskini puanlar.** Yönetici hangi tankın yarın tehlikede olduğunu bugünden görür.
-
-**35. AquaPlatform yöneticinin operasyon yükünü yarıya indirir.** Kazanılan saatler stratejik kararlara ve sahaya gider; bu da daha iyi bakılan, daha az ölen bir çiftlik demektir.
+20. Sistem mortalite olayının nedenini geriye dönük olarak analiz eder.
+21. Sistem her sabah çiftlik geneli risk-anomali raporunu yöneticiye iletir.
+22. Sistem operatöre, sahada uzman seviyesinde aksiyon önerisi sunar.
+23. Sistem yapay zekâ kaynaklı sayısal hata üretmez; tüm hesaplar deterministik araçlardan gelir.
+24. Sistem yem stok seviyesini izler ve stoğun bitmesinden önce sipariş uyarısı verir.
+25. Sistem süresi geçmiş veya bozulmuş yem lotunu tüketim akışından izole edebilir.
+26. Sistem ekipman bakım takvimini otomatik yönetir.
+27. Sistem sertifikası dolmuş personeli kritik göreve atamaz.
+28. Sistem alarmların hiç sahipsiz kalmaması için eskalasyon kuralları işletir.
+29. Sistem deniz kafes çiftliklerinde uydu üzerinden çevresel risk takibi yapar.
+30. Sistem hava durumu verisini operasyon planına entegre eder.
+31. Sistem mortalite kayıtlarını 13 hazır kategori üzerinden alır; veri kalitesini korur.
+32. Sistem bakım iş emirlerini fotoğraf kanıtıyla kapatır.
+33. Sistem küçük çevresel sapmaları anomali tespiti üzerinden erkenden işaretler.
+34. Sistem her tank için 48 saatlik risk skoru üretir.
+35. Sistem yöneticinin operasyonel veri toplama yükünü tek pano üzerinden azaltır.
 
 ---
 
-## Yatırımcı Özeti
+## 7. Şeffaflık Notu
 
-> AquaPlatform, balık-mortalite zincirinin **35 noktasını** birden hedefleyen ve sektördeki çoğu yazılımın yapmadığı **7 ayırt edici özelliği** bir arada sunan tek SaaS'tır.
->
-> - **Karada:** Anlık kimya reçetesi + birleşik faz diyagramı + ekipman atfı + adım adım kontrollü dozaj
-> - **Denizde:** Çift kaynaklı uydu izleme — Sentinel-2 (optik) + Copernicus Marine CMEMS (sıcaklık/akıntı modeli) — alg patlaması ve sıcaklık şoku erken uyarısı
-> - **Çiftlik genelinde:** Lot-karışım izlenebilirliği + ekipman bakım yönetimi + AI denetim
-> - **Hastalık önleme + tedavi paketi:** Bilimsel kaynaklı tahmine dayalı erken uyarı (çevresel tetikleyici → tür-spesifik hastalık riski) + önerilen ilaç ve doz + ilaç çekilme süresi + yetkili veteriner dizini + tedarikçi entegrasyonu (tek tuş sipariş); sürekli makale-yüklenebilir bilgi tabanı
-> - **Cep büyüklüğünde:** Mobil saha hattı + 2 saniye push bildirim + offline kayıt + cep AI asistanı
-> - **Uzman krizine cevap:** AI dijital kimyager + dijital veteriner + dijital akuakültür mühendisi
-> - **Hayat garantisi:** Kritik alarm asla kaybolmayan mimari
->
-> **Tek bir orta-büyük üreticide beklenen etki:** mortalitede %5–15 azalma, kimyacı/operasyon maliyetinde belirgin düşüş, yöneticinin haftalık operasyonel yükünde ~%50 azalma. Tipik geri ödeme süresi: 3–6 ay.
->
-> **Kapanış:** *Rakipler "akıllı pano" satıyor. Biz **dijital uzman ekibi** satıyoruz — kimyager + veteriner + uzay-gözcüsü + saha-cebi-asistanı. Tek aboneliğin değeri, dört uzmanın yıllık maaşıdır — ve bu uzmanlar tatile çıkmaz, hastalanmaz, istifa etmez.*
+Bu belge, sistemin mevcut kapasitesini ve roadmap'teki modülleri ayrı tutar. "Üretimde" başlığı altındaki modüller şu an çalışmaktadır; "Planlanan" başlığı altındakiler aktif geliştirme içindedir.
+
+Mortalite azaltmaya ilişkin niceliksel etki (yüzde olarak azalma, geri ödeme süresi vb.) çiftliğe özel pilot ölçümlerle belirlenir; bu belgede genel rakam taahhüdü verilmemiştir. Ölçüm metodolojisi ve pilot süreç ayrıca belgelenmektedir.
+
+Sistemin balık ölümünü hangi mekanizmalarla azalttığı ve hangi alanlarda hâlâ gelişim aşamasında olduğu yukarıda nesnel biçimde özetlenmiştir. Operasyonel kullanıcı, dilediği modülün çalışma şekline ait ayrıntılı teknik dokümantasyona ürün ekibinden ulaşabilir.

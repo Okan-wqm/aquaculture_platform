@@ -68,6 +68,38 @@ ARIA does **not** run as a standalone Python daemon calling the Anthropic API di
 - A compromised ARIA cannot exfiltrate via direct API — it can only do what Claude Code session permissions allow. This is a **smaller attack surface** than the v7.2 design assumed.
 - Conversely: ARIA cannot run truly headless. There must be a Claude Code session for the slash command to execute. Operator presence (or a cron+session pattern) is required.
 
+### 0.7 — Low-Risk Auto-Merge Lane
+
+The Level 3 auto-merge lane is a PR lifecycle protocol, not general autonomy. It is disabled by default and can only squash merge ARIA-owned PRs into `snowball`.
+
+**Policy schema:**
+
+```json
+{
+  "schema_version": 1,
+  "enabled": false,
+  "base_branch": "snowball",
+  "merge_method": "squash",
+  "require_unresolved_conversations": true,
+  "allowed_low_risk_globs": ["docs/**", "aria-kernel/tests/**", "tools/aria-adapters/**/*.test.ts"],
+  "hard_forbidden_globs": ["aria-kernel/aria_kernel/**", "infra/**", ".github/workflows/**", "**/migrations/**"],
+  "runtime_forbidden_globs": ["apps/**/src/**", "web/**/src/**", "libs/**/src/**", "platform/libs/**/src/**"]
+}
+```
+
+**Decision inputs:**
+- PR metadata: number, base branch, latest head SHA, changed files, task/proposal IDs.
+- Diff classifier output: `low`, `forbidden`, `mixed`, or `unknown`.
+- GitHub branch protection required checks for `snowball`.
+- Check-run/status snapshot for the exact PR head SHA.
+- Review state and unresolved conversation state.
+
+**Decision outputs:** appended to `aria-tools/auto-merge-decisions.jsonl` as `eligible`, `blocked`, `merged`, or `failed`. PR lifecycle events are appended to `aria-tools/pr-lifecycle.jsonl`.
+
+**Fail-closed rules:** disabled policy, non-`snowball` base, non-squash method, unreadable branch protection, empty required checks, missing GitHub auth/API, pending/failing/missing required checks, changed head SHA, requested changes, unreadable unresolved conversations, unresolved conversations, forbidden paths, unknown paths, or mixed-risk paths all block merge.
+
+The merge adapter boundary is mockable. Production execution uses `gh pr merge --squash --match-head-commit <sha>` and never direct pushes.
+
 ### Skills are EMERGENT, not imposed
 
 **Critical principle (operator-enforced):** ARIA does not arrive with a pre-defined set of `.claude/agents/aria-*.md` sub-agent files. Doing so would put ARIA in a box — a fixed-shape system imposed on the repository, exactly the opposite of "the structure that takes the shape of the container".
@@ -914,7 +946,7 @@ Runtime: ≈30 seconds on the full repo. Output: `.aria-poc/` (gitignored).
 - No LLM. No findings. No recommendations.
 - No PR creation. No worktree. No baseline capture.
 - No persistence beyond `.aria-poc/`.
-- Drift scan is enum-only (TS enum keyword + SQL CREATE TYPE). Union types, GraphQL enums, Zod schemas, frontend select options — all out of scope for the PoC. **Absence here does not mean absence in repo.**
+- Drift scan is enum-only (TS enum keyword + SQL CREATE TYPE). Union types, GraphQL enums, Zod schemas, and frontend select options are excluded from the PoC per Plan 005. **Absence here does not mean absence in repo.**
 
 ### First-run results on this repo (snowball branch)
 

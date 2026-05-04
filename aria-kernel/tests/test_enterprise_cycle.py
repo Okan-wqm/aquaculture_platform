@@ -31,6 +31,18 @@ def fake_tool_argv(output):
     return [sys.executable, "-c", f"import json; print({json.dumps(json.dumps(output))})"]
 
 
+def echo_input_tool_argv():
+    script = (
+        "import json, sys; "
+        "payload=json.load(sys.stdin); "
+        "out={'observations':[{'id':'obs-1','type':'fixture','details':payload}],"
+        "'findings':[],'read_paths':['src/app.ts'],'evidence_sources':[],"
+        "'cost_units':1,'metadata':{'fixture':True}}; "
+        "print(json.dumps(out))"
+    )
+    return [sys.executable, "-c", script]
+
+
 def tool_output(**overrides):
     payload = {
         "observations": [{"id": "obs-1", "type": "fixture"}],
@@ -156,6 +168,32 @@ class EnterpriseCycleTests(unittest.TestCase):
             "## Next Cycle Plan",
         ):
             self.assertIn(heading, report)
+
+    def test_cycle_merges_tool_default_input(self):
+        tool = shadow_tool()
+        tool["status"] = "ACTIVE"
+        tool["default_input"] = {"roots": ["src"], "mode": "fixture"}
+        tool["runner"] = {
+            "type": "subprocess",
+            "argv": echo_input_tool_argv(),
+            "cwd": ".",
+            "timeout_ms": 1000,
+            "stdin_json": True,
+        }
+        register_tool(tool, base_dir=self.tools_dir)
+        run_cycle(
+            workspace_root=self.root,
+            cycle_id="cycle-default-input",
+            base_dir=self.tools_dir,
+            shadow_only=False,
+        )
+        run = self.latest_run()
+        details = run["emitted_observations"][0]["details"]
+        self.assertEqual(run["runner"]["raw_observations_count"], 1)
+        self.assertEqual(details["roots"], ["src"])
+        self.assertEqual(details["mode"], "fixture")
+        self.assertEqual(details["cycle_id"], "cycle-default-input")
+        self.assertIn("pressure_summary", details)
         self.assertTrue(verify_integrity(base_dir=self.tools_dir)["valid"])
 
     def test_cycle_honors_stop_file_before_start(self):

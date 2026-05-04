@@ -73,7 +73,11 @@ def run_cycle(
     for tool in _cycle_tools(base_dir=base_dir, shadow_only=shadow_only):
         if _stop_requested(tools_root):
             return _stopped_after_checkpoint(tools_root, cycle_id, f"before tool {tool['tool_id']}")
+        default_input = tool.get("default_input", {})
+        if not isinstance(default_input, dict):
+            default_input = {}
         input_payload = {
+            **default_input,
             "cycle_id": cycle_id,
             "workspace_root": root.as_posix(),
             "pressure_summary": pressure.get("summary", {}),

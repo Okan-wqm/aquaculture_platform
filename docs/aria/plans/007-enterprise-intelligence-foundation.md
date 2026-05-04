@@ -2,7 +2,7 @@
 
 ## Summary
 
-Plan 007 is split into sub-phases. The current implementation now covers Phase 007a plus the bounded 007b foundation: Memory v1, cycle diff feedback, adapter-driven belief candidates, deterministic pressure scoring, and richer reflection. Adapter expansion, proposal generation, and web research execution remain later plans.
+Plan 007 is split into sub-phases. The current implementation now covers Phase 007a plus the bounded 007b foundation: Memory v1, cycle diff feedback, adapter-driven belief candidates, deterministic pressure scoring, and richer reflection. Phase 007c expands SHADOW adapter coverage. Proposal generation and web research execution remain later plans.
 
 ## Phase 007a Scope
 
@@ -17,12 +17,11 @@ Plan 007 is split into sub-phases. The current implementation now covers Phase 0
 
 ## Phase 007b Foundation Scope
 
-- Operator feedback records `affected_belief_ids`; memory confidence changes only through exact affected-belief ids. Legacy feedback rows are still loaded, but substring matches in free-form notes are intentionally ignored.
+- Operator feedback records `affected_belief_ids`; memory confidence no longer relies on substring matches in free-form notes.
 - Tool output may include `belief_candidates`. The runner stores valid candidates in the run envelope as `memory_candidates`, and Memory ingests them after tool execution.
 - Candidate evidence must pass the same repo-evidence guard as native beliefs. Self-output evidence is rejected and recorded as uncertainty.
-- Repeated candidates are idempotent by `belief_id`: support count increases, evidence refs are unioned, and candidate confidence is only an initial prior. Existing confidence remains governed by Memory scoring, support, feedback, contradictions, and revalidation penalties.
+- Repeated candidates are idempotent by `belief_id`: support count increases, evidence refs are unioned, and confidence remains governed by Memory scoring.
 - `WITHDRAWN` beliefs are sticky. Adapter candidates with the same `belief_id` write a contradiction record and do not recreate the belief. Re-enabling requires explicit `memory unwithdraw`.
-- QUARANTINED adapter sources propagate into Memory. Non-withdrawn beliefs with matching `source_tool_ids` move to revalidation, stale beliefs remain stale, withdrawn beliefs stay closed, and same-cycle candidates from quarantined tools are skipped with uncertainty and calibration records.
 - Pressure items carry deterministic `score`, `score_components`, `candidate_tools`, `recommended_action`, and `blocked_by`.
 - `pressure explain --cycle-id <id> --pressure-id <id>` returns the scored item for operator drilldown.
 - Daily reflection reports coverage, beliefs, stale/revalidation state, top pressures, tool health, and next cycle plan.
@@ -45,19 +44,17 @@ Plan 007 is split into sub-phases. The current implementation now covers Phase 0
 
 The next cycle plan is deterministic: it is the top three unresolved pressure items, preserving each pressure item's `recommended_action` and `candidate_tools`. No LLM step is involved.
 
-## Phase 007c Adapter Scope
+## Phase 007c Adapter Expansion
 
-Phase 007c starts with four SHADOW adapters: event-contracts, tenant-scoping, security-boundary, and test-gap. The event-contracts adapter is first because `libs/event-contracts` already exposes branded `EventId`, `createBaseEvent`, JSON Schema catalogs, and runtime validator dispatch. This gives ARIA a low false-positive, high-leverage contract surface before broader service scans.
-
-- `event-contracts-adapter` runs in SHADOW and scope-locks reads to `libs/event-contracts/src/**/*.ts`.
-- It records observations for the base event contract, `BaseEvent`-derived event interfaces, schema catalogs, and validator dispatch functions.
-- It emits findings only for mechanical invariant breaks: missing branded `EventId`, missing required BaseEvent fields, missing `createBaseEvent`, empty schema catalogs, or schema catalogs not wired to the runtime validator.
-- Adapter intelligence checks use AST/type-checker evidence, not text-only matching: `as const` catalog expressions are unwrapped, `BaseEvent` aliases are resolved, and validator wiring requires executable runtime references.
-- It emits the memory candidate `event-contracts:runtime-schema-validation-surface`.
+- `event-contracts-adapter` remains SHADOW and uses AST/type-checker evidence for schema catalog counts, BaseEvent alias resolution, and validator runtime wiring.
+- `tenant-scoping-adapter` runs in SHADOW and uses TypeChecker-backed repository/DataSource evidence plus tenant-owned entity catalogs before emitting findings.
+- `security-boundary-adapter` runs in SHADOW and evaluates endpoints against service-level global `APP_GUARD` context before reporting missing guard boundaries.
+- `test-gap-adapter` runs in SHADOW and maps high-risk source files through direct import/adjacent test evidence; symbol-only mentions are weak observations, not coverage proof.
+- Tool definitions may declare `default_input`; cycle execution merges it into the runtime payload so full-repo SHADOW runs use calibrated scan roots/options.
+- Adapter intelligence checks use AST/type-checker evidence where symbol-level precision matters; text-only matches are supporting signals, not the primary proof for findings.
 
 ## Later Phases
 
-- 007c remaining: tenant-scoping, security-boundary, and test-gap SHADOW adapters.
 - 008: proposal generator, after stable memory and pressure operation.
 - 009: sandboxed web research execution tier.
 
@@ -69,15 +66,14 @@ Phase 007c starts with four SHADOW adapters: event-contracts, tenant-scoping, se
 - Glob evidence with zero matches records match-count history and enters revalidation.
 - TypeORM adapter output emits at least one valid belief candidate and Memory converts it into a belief.
 - Withdrawn adapter-sourced beliefs are not recreated automatically.
-- Feedback note/body text does not affect confidence unless the target belief is listed in `affected_belief_ids`.
-- Repeated adapter candidate confidence does not override the existing Memory confidence lifecycle.
-- QUARANTINED adapter sources revalidate supported beliefs, preserve withdrawn/stale state, and do not create new beliefs from quarantined candidates.
-- Event-contracts adapter runs in SHADOW without repository mutation and produces no operator-facing output.
-- Event-contracts fixture suite passes on the real repo baseline with no findings.
-- Event-contracts schema catalog observations count `as const` catalogs correctly: farm has 10, sensor has 1, and ingest-backend-policy has 1.
-- Event-contracts adapter detects aliased `BaseEvent` heritage clauses and rejects empty or import-only schema catalog wiring.
 - Pressure scoring is deterministic and `pressure explain` exposes every score component.
 - Reflection writes the six operator sections and the JSON reflection ledger remains the source of truth.
 - Integrity verification remains valid across memory and diff ledgers.
 - Self-output evidence in a full cycle quarantines the tool while integrity verification stays green.
 - No app code mutation is allowed by ARIA cycles.
+- Event-contracts schema catalog observations count `as const` catalogs correctly: farm has 10, sensor has 1, and ingest-backend-policy has 1.
+- Event-contracts detects aliased BaseEvent heritage clauses and rejects empty or import-only schema catalog wiring.
+- Tenant-scoping, security-boundary, and test-gap adapters run in SHADOW without operator-facing emissions or repository mutation.
+- 007c adapters produce real-repo baseline observations for tenant sources, security boundaries, and high-risk test-gap coverage summaries.
+- 007c adapters stay within calibrated budget caps on a full SHADOW cycle: tenant-scoping <= 3500 cost units, security-boundary <= 5000, and test-gap <= 5500.
+- Post-hardening real-repo SHADOW findings remain bounded for calibration: tenant-scoping <= 150, security-boundary <= 150, and test-gap <= 250.

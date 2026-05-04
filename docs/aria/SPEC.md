@@ -87,7 +87,7 @@ Everything v7.1 split across L1–L7 derives from these three. The kernel enforc
 2. Isolated git worktree (`aria-worktrees/A-<id>/`); developer working tree never mutated.
 3. Validation scope record justifying which targets are run and what is **not** covered.
 4. Re-measure on worktree; compare to baseline; reject on any new failure.
-5. Surface as Pull Request; **human merge required** (no auto-merge, ever).
+5. Surface as Pull Request; **human merge required** unless the PR is explicitly eligible for the bounded Level 3 low-risk `snowball` auto-merge lane in §8.1.
 
 **Compliance artifact:**
 - `baselines/BL-<action_id>.json`
@@ -122,7 +122,7 @@ Everything v7.1 split across L1–L7 derives from these three. The kernel enforc
 ✗ Never manipulates customer data
 ✗ Never executes production database migrations
 ✗ Never flips production feature flags
-✗ Never auto-merges any pull request
+✗ Never auto-merges any pull request except the fail-closed Level 3 low-risk `snowball` lane defined in §8.1
 ✗ Never modifies its own kernel files (enforced via hash-chain, §6)
 ✗ Never modifies aria-immutable/
 ✗ Never promotes its own trust level
@@ -456,7 +456,7 @@ A recommendation is a finding with stricter evidence. The five v7.1 L5 criteria 
 
 ## 8 — Operational Discipline
 
-### 8.1 — Trust Levels (three only)
+### 8.1 — Trust Levels
 
 ```
 LEVEL 0 — Read-only (default, ≥30 days minimum)
@@ -478,7 +478,26 @@ LEVEL 2 — Auto-PR for refactors + L1-grounded recommendations
         upgrade PRs (when all 5 recommendation evidences present).
   Human merge mandatory.
 
-NO LEVEL 3. NO FULL AUTONOMY.
+LEVEL 3 — Low-Risk Auto-Merge (disabled by default)
+  Adds: squash merge authority only for ARIA-owned PRs targeting
+        `snowball` and only when the auto-merge policy is explicitly
+        enabled, the diff classifier returns low risk, branch protection
+        required checks for the latest PR head SHA are all green, review
+        state has no requested changes, and unresolved conversation state
+        is readable and clear.
+  Allows: docs, test-only changes, ARIA adapter/tooling tests, lint/
+          format-only changes, and ARIA plan documents.
+  Forbids: runtime app behavior, auth/security boundary changes, tenant
+           or data-layer changes, migrations, infra/deploy/workflow files,
+           secrets/config, billing/pricing, production deployment logic,
+           and `aria-kernel/aria_kernel/**` runtime changes.
+  Fails closed: policy disabled, non-`snowball` base, non-squash method,
+                unreadable branch protection, empty/unknown required
+                checks, missing GitHub auth/API, changed PR head SHA,
+                unknown or mixed-risk diff, requested changes, or
+                unreadable unresolved conversation state all block merge.
+
+NO FULL AUTONOMY.
 Hard Limits (§2 L3) hold at every level.
 ```
 
@@ -520,7 +539,7 @@ ARIA findings live under `docs/reviews/aria/{YYYY-MM-DD}-{topic}.md`. Every fix 
 TRIGGER A: Active CVE in reachable Tier-1 dep
   → CRITICAL · drop everything · critical observation + finding
 TRIGGER B: CVE match, reachability unknown
-  → HIGH · investigation task, finding deferred
+  → HIGH · investigation task; finding held per §8.2 until reachability is established
 TRIGGER C: Dev-only or non-reachable transitive
   → MEDIUM · currency finding
 TRIGGER D: Non-CTS dep

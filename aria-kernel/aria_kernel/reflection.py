@@ -17,6 +17,7 @@ def run_reflection(
     runs = [row for row in load_jsonl(runs_path(base_dir)) if row.get("cycle_id") == cycle_id]
     pressure_payload = _load_pressure(root, cycle_id)
     pressures = pressure_payload.get("summary", {})
+    auto_merge_decisions = [row for row in load_jsonl(root / "auto-merge-decisions.jsonl") if row.get("cycle_id") == cycle_id]
     beliefs = _latest_by_id(load_jsonl(root / "memory" / "beliefs.jsonl"), "belief_id")
     top_pressures = pressure_payload.get("pressures", [])[:3] if isinstance(pressure_payload.get("pressures"), list) else []
     reflection = {
@@ -35,6 +36,7 @@ def run_reflection(
         "pressure_summary": pressures,
         "top_pressures": top_pressures,
         "tool_health": _tool_health(runs),
+        "auto_merge_summary": _auto_merge_summary(auto_merge_decisions),
         "next_cycle_plan": [
             {
                 "pressure_id": item.get("pressure_id"),
@@ -100,6 +102,13 @@ def _write_daily_report(root: Path, reflection: dict[str, Any]) -> None:
         f"- Suppressed SHADOW findings: {reflection['suppressed_shadow_findings']}",
         f"- Pressure: {reflection['pressure_summary']}",
         "",
+        "## Auto-Merge",
+        "",
+        f"- Eligible: {reflection['auto_merge_summary'].get('eligible', 0)}",
+        f"- Blocked: {reflection['auto_merge_summary'].get('blocked', 0)}",
+        f"- Merged: {reflection['auto_merge_summary'].get('merged', 0)}",
+        f"- Failed: {reflection['auto_merge_summary'].get('failed', 0)}",
+        "",
         "## Next Cycle Plan",
         "",
         *[
@@ -134,6 +143,15 @@ def _tool_health(runs: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "tools": sorted({str(run.get("tool_id")) for run in runs if run.get("tool_id")}),
         "quarantine_signals": sum(1 for run in runs if run.get("status") in ("evidence_error", "scope_violation")),
+    }
+
+
+def _auto_merge_summary(decisions: list[dict[str, Any]]) -> dict[str, int]:
+    return {
+        "eligible": sum(1 for row in decisions if row.get("decision") == "eligible"),
+        "blocked": sum(1 for row in decisions if row.get("decision") == "blocked"),
+        "merged": sum(1 for row in decisions if row.get("decision") == "merged"),
+        "failed": sum(1 for row in decisions if row.get("decision") == "failed"),
     }
 
 

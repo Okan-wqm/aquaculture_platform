@@ -132,6 +132,17 @@ class ToolGovernanceTests(unittest.TestCase):
         self.assertEqual(registered["tool_id"], "ts-adapter")
         self.assertEqual(list_tools("ACTIVE", base_dir=self.tools_dir)[0]["tool_id"], "ts-adapter")
 
+    def test_registry_accepts_default_input_object(self):
+        registered = register_tool(
+            valid_tool(default_input={"roots": ["apps/farm-service/src"]}),
+            base_dir=self.tools_dir,
+        )
+        self.assertEqual(registered["default_input"], {"roots": ["apps/farm-service/src"]})
+
+    def test_registry_rejects_non_object_default_input(self):
+        with self.assertRaisesRegex(GovernanceError, "default_input"):
+            register_tool(valid_tool(default_input=["bad"]), base_dir=self.tools_dir)
+
     def test_registry_accepts_valid_skill_definition(self):
         registered = register_tool(
             valid_tool(tool_id="drift-skill", kind="skill", claim_types=["drift"]),
@@ -469,13 +480,42 @@ class ToolGovernanceTests(unittest.TestCase):
         fixture_root = self.tools_dir / "fixtures/ts-adapter/cases"
         fixture_root.mkdir(parents=True)
         (fixture_root / "clean.json").write_text(
-            json.dumps({"input": {}, "expected": {"status": "ok", "max_findings": 0}}),
+            json.dumps(
+                {
+                    "input": {},
+                    "expected": {
+                        "status": "ok",
+                        "required_observation_values": [
+                            {
+                                "type": "schema_catalog",
+                                "name": "FARM_EVENT_SCHEMAS",
+                                "eventCount": 10,
+                            }
+                        ],
+                        "max_findings": 0,
+                    },
+                }
+            ),
             encoding="utf-8",
         )
         register_tool(
             valid_tool(
                 status="CALIBRATE",
-                runner=runner(fake_tool_argv(valid_tool_output(findings=[]))),
+                runner=runner(
+                    fake_tool_argv(
+                        valid_tool_output(
+                            observations=[
+                                {
+                                    "id": "obs-schema-catalog",
+                                    "type": "schema_catalog",
+                                    "name": "FARM_EVENT_SCHEMAS",
+                                    "eventCount": 10,
+                                }
+                            ],
+                            findings=[],
+                        )
+                    )
+                ),
             ),
             base_dir=self.tools_dir,
         )

@@ -6,20 +6,27 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from .apply_engine import plan_apply_worktree
+from .auto_merge import GhCliGitHubAdapter, evaluate_auto_merge, merge_if_green, record_pr_lifecycle
+from .budget import check_budget, list_budget_usage, record_budget_usage
 from .cycle import run_cycle
 from .cycle_diff import run_cycle_diff
 from .db_snapshot import write_schema_snapshot
 from .discovery import run_discovery
 from .feedback_store import list_findings, record_operator_feedback
 from .fixture_runner import run_fixture_suite
+from .impact import list_impact_plans, plan_impact
 from .integrity import verify_integrity
+from .llm_bridge import amplify_proposal
 from .memory import list_memory, unwithdraw_belief, update_memory, withdraw_belief
 from .pressure import explain_pressure, run_pressure
-from .proposal import list_proposals, record_proposal
+from .pr_manager import open_pr_for_action
+from .proposal import approve_proposal, list_proposals, proposal_packet_from_task, record_proposal, record_proposal_from_amplification
 from .promotion import promote_tool
 from .quarantine import quarantine_tool
 from .reflection import run_reflection
 from .research import list_research_sources, record_research_source
+from .task import explain_task, generate_task_candidates, latest_tasks
 from .tool_health import evaluate_health, record_run
 from .tool_registry import GovernanceError, ensure_tools_dir, list_tools, register_tool
 from .tool_runner import run_tool
@@ -122,9 +129,58 @@ def build_parser() -> argparse.ArgumentParser:
     proposal_record.add_argument("--evidence", required=True, help="JSON array of repo evidence paths")
     proposal_record.add_argument("--validation-command", required=True)
     proposal_record.set_defaults(func=cmd_proposal_record)
+    proposal_generate = proposal_subparsers.add_parser("generate")
+    proposal_generate.add_argument("--task-id", required=True)
+    proposal_generate.add_argument("--kind", required=True)
+    proposal_generate.add_argument("--llm-response", required=True, help="JSON file containing validated LLM response")
+    proposal_generate.add_argument("--estimated-usd", type=float, default=0.0)
+    proposal_generate.set_defaults(func=cmd_proposal_generate)
+    proposal_approve = proposal_subparsers.add_parser("approve")
+    proposal_approve.add_argument("--proposal-id", required=True)
+    proposal_approve.add_argument("--operator-approval-ref", required=True)
+    proposal_approve.set_defaults(func=cmd_proposal_approve)
     proposal_list = proposal_subparsers.add_parser("list")
     proposal_list.add_argument("--kind", default=None)
     proposal_list.set_defaults(func=cmd_proposal_list)
+
+    task = subparsers.add_parser("task")
+    task_subparsers = task.add_subparsers(dest="command", required=True)
+    task_generate = task_subparsers.add_parser("generate")
+    task_generate.add_argument("--cycle-id", required=True)
+    task_generate.add_argument("--limit", type=int, default=10)
+    task_generate.set_defaults(func=cmd_task_generate)
+    task_list = task_subparsers.add_parser("list")
+    task_list.set_defaults(func=cmd_task_list)
+    task_explain = task_subparsers.add_parser("explain")
+    task_explain.add_argument("--task-id", required=True)
+    task_explain.set_defaults(func=cmd_task_explain)
+
+    budget = subparsers.add_parser("budget")
+    budget_subparsers = budget.add_subparsers(dest="command", required=True)
+    budget_check = budget_subparsers.add_parser("check")
+    budget_check.add_argument("--action", required=True)
+    budget_check.add_argument("--estimated-usd", type=float, required=True)
+    budget_check.set_defaults(func=cmd_budget_check)
+    budget_record = budget_subparsers.add_parser("record")
+    budget_record.add_argument("--action", required=True)
+    budget_record.add_argument("--provider", required=True)
+    budget_record.add_argument("--model", required=True)
+    budget_record.add_argument("--input-tokens", type=int, default=0)
+    budget_record.add_argument("--output-tokens", type=int, default=0)
+    budget_record.add_argument("--estimated-usd", type=float, required=True)
+    budget_record.set_defaults(func=cmd_budget_record)
+    budget_list = budget_subparsers.add_parser("list")
+    budget_list.set_defaults(func=cmd_budget_list)
+
+    impact = subparsers.add_parser("impact")
+    impact_subparsers = impact.add_subparsers(dest="command", required=True)
+    impact_plan = impact_subparsers.add_parser("plan")
+    impact_plan.add_argument("--changed-files", required=True, help="JSON array of changed paths")
+    impact_plan.add_argument("--action-class", required=True)
+    impact_plan.add_argument("--cycle-id", default=None)
+    impact_plan.set_defaults(func=cmd_impact_plan)
+    impact_list = impact_subparsers.add_parser("list")
+    impact_list.set_defaults(func=cmd_impact_list)
 
     research = subparsers.add_parser("research")
     research_subparsers = research.add_subparsers(dest="command", required=True)
@@ -211,6 +267,26 @@ def build_parser() -> argparse.ArgumentParser:
     feedback_record.add_argument("--affected-belief-ids", default=None, help="JSON array of belief ids")
     feedback_record.set_defaults(func=cmd_feedback_record)
 
+    pr = subparsers.add_parser("pr")
+    pr_subparsers = pr.add_subparsers(dest="command", required=True)
+    pr_record = pr_subparsers.add_parser("record-opened")
+    pr_record.add_argument("--file", required=True, help="JSON PR lifecycle payload")
+    pr_record.add_argument("--cycle-id", default=None)
+    pr_record.set_defaults(func=cmd_pr_record_opened)
+    pr_open = pr_subparsers.add_parser("open")
+    pr_open.add_argument("--proposal-id", required=True)
+    pr_open.add_argument("--workspace-root", default=".")
+    pr_open.add_argument("--dry-run", action="store_true")
+    pr_open.set_defaults(func=cmd_pr_open)
+    pr_merge = pr_subparsers.add_parser("merge-if-green")
+    pr_merge.add_argument("--pr-number", type=int, default=None)
+    pr_merge.add_argument("--input", default=None, help="JSON snapshot with policy, pr, and github fields")
+    pr_merge.add_argument("--policy-file", default=None)
+    pr_merge.add_argument("--cycle-id", default=None)
+    pr_merge.add_argument("--workspace-root", default=".")
+    pr_merge.add_argument("--dry-run", action="store_true")
+    pr_merge.set_defaults(func=cmd_pr_merge_if_green)
+
     db = subparsers.add_parser("db")
     db_subparsers = db.add_subparsers(dest="command", required=True)
     snapshot = db_subparsers.add_parser("snapshot")
@@ -218,6 +294,14 @@ def build_parser() -> argparse.ArgumentParser:
     snapshot.add_argument("--output", required=True)
     snapshot.add_argument("--database-url", default=None)
     snapshot.set_defaults(func=cmd_db_snapshot)
+
+    apply = subparsers.add_parser("apply")
+    apply_subparsers = apply.add_subparsers(dest="command", required=True)
+    apply_plan = apply_subparsers.add_parser("plan-worktree")
+    apply_plan.add_argument("--proposal-id", required=True)
+    apply_plan.add_argument("--workspace-root", default=".")
+    apply_plan.add_argument("--execute", action="store_true")
+    apply_plan.set_defaults(func=cmd_apply_plan_worktree)
     return parser
 
 
@@ -230,6 +314,11 @@ def cmd_bootstrap_init(args: argparse.Namespace) -> dict[str, Any]:
         "reports/daily",
         "research",
         "proposals",
+        "tasks",
+        "budget",
+        "llm",
+        "impact",
+        "apply",
         "cycle-state",
         "cycle-diff",
     ):
@@ -327,8 +416,83 @@ def cmd_proposal_record(args: argparse.Namespace) -> dict[str, Any]:
     )
 
 
+def cmd_proposal_generate(args: argparse.Namespace) -> dict[str, Any]:
+    tasks = {task["task_id"]: task for task in latest_tasks(base_dir=args.tools_dir) if isinstance(task, dict)}
+    if args.task_id not in tasks:
+        raise GovernanceError(f"task not found in latest task set: {args.task_id}")
+    task = tasks[args.task_id]
+    packet = proposal_packet_from_task(task)
+    amplification = amplify_proposal(
+        packet=packet,
+        response=read_json(args.llm_response),
+        estimated_usd=args.estimated_usd,
+        base_dir=args.tools_dir,
+    )
+    return record_proposal_from_amplification(task=task, amplification=amplification, kind=args.kind, base_dir=args.tools_dir)
+
+
+def cmd_proposal_approve(args: argparse.Namespace) -> dict[str, Any]:
+    return approve_proposal(
+        proposal_id=args.proposal_id,
+        operator_approval_ref=args.operator_approval_ref,
+        base_dir=args.tools_dir,
+    )
+
+
 def cmd_proposal_list(args: argparse.Namespace) -> dict[str, Any]:
     return {"proposals": list_proposals(base_dir=args.tools_dir, kind=args.kind)}
+
+
+def cmd_task_generate(args: argparse.Namespace) -> dict[str, Any]:
+    return generate_task_candidates(cycle_id=args.cycle_id, limit=args.limit, base_dir=args.tools_dir)
+
+
+def cmd_task_list(args: argparse.Namespace) -> dict[str, Any]:
+    return {"tasks": latest_tasks(base_dir=args.tools_dir)}
+
+
+def cmd_task_explain(args: argparse.Namespace) -> dict[str, Any]:
+    try:
+        return explain_task(task_id=args.task_id, base_dir=args.tools_dir)
+    except ValueError as exc:
+        raise GovernanceError(str(exc)) from exc
+
+
+def cmd_budget_check(args: argparse.Namespace) -> dict[str, Any]:
+    return check_budget(action=args.action, estimated_usd=args.estimated_usd, base_dir=args.tools_dir)
+
+
+def cmd_budget_record(args: argparse.Namespace) -> dict[str, Any]:
+    return record_budget_usage(
+        action=args.action,
+        provider=args.provider,
+        model=args.model,
+        input_tokens=args.input_tokens,
+        output_tokens=args.output_tokens,
+        estimated_usd=args.estimated_usd,
+        base_dir=args.tools_dir,
+    )
+
+
+def cmd_budget_list(args: argparse.Namespace) -> dict[str, Any]:
+    return {"usage": list_budget_usage(base_dir=args.tools_dir)}
+
+
+def cmd_impact_plan(args: argparse.Namespace) -> dict[str, Any]:
+    try:
+        changed_files = json.loads(args.changed_files)
+    except json.JSONDecodeError as exc:
+        raise GovernanceError(f"--changed-files must be a JSON array: {exc}") from exc
+    return plan_impact(
+        changed_files=changed_files,
+        action_class=args.action_class,
+        cycle_id=args.cycle_id,
+        base_dir=args.tools_dir,
+    )
+
+
+def cmd_impact_list(args: argparse.Namespace) -> dict[str, Any]:
+    return {"impact_plans": list_impact_plans(base_dir=args.tools_dir)}
 
 
 def cmd_research_record_source(args: argparse.Namespace) -> dict[str, Any]:
@@ -426,11 +590,65 @@ def cmd_feedback_record(args: argparse.Namespace) -> dict[str, Any]:
     )
 
 
+def cmd_pr_record_opened(args: argparse.Namespace) -> dict[str, Any]:
+    return record_pr_lifecycle(
+        read_json(args.file),
+        event="opened",
+        base_dir=args.tools_dir,
+        cycle_id=args.cycle_id,
+    )
+
+
+def cmd_pr_open(args: argparse.Namespace) -> dict[str, Any]:
+    return open_pr_for_action(
+        proposal_id=args.proposal_id,
+        workspace_root=args.workspace_root,
+        base_dir=args.tools_dir,
+        dry_run=args.dry_run,
+    )
+
+
+def cmd_pr_merge_if_green(args: argparse.Namespace) -> dict[str, Any]:
+    policy = read_json(args.policy_file) if args.policy_file else None
+    if args.input:
+        payload = read_json(args.input)
+        active_policy = payload.get("policy", policy)
+        if not args.dry_run:
+            raise GovernanceError("--input snapshots can only be evaluated with --dry-run")
+        return evaluate_auto_merge(
+            pr=payload["pr"],
+            github=payload.get("github", {}),
+            policy=active_policy,
+            base_dir=args.tools_dir,
+            cycle_id=args.cycle_id,
+            dry_run=True,
+        )
+    if args.pr_number is None:
+        raise GovernanceError("--pr-number is required when --input is not provided")
+    return merge_if_green(
+        adapter=GhCliGitHubAdapter(cwd=args.workspace_root),
+        pr_number=args.pr_number,
+        policy=policy,
+        base_dir=args.tools_dir,
+        cycle_id=args.cycle_id,
+        dry_run=args.dry_run,
+    )
+
+
 def cmd_db_snapshot(args: argparse.Namespace) -> dict[str, Any]:
     return write_schema_snapshot(
         service=args.service,
         output=args.output,
         database_url=args.database_url,
+    )
+
+
+def cmd_apply_plan_worktree(args: argparse.Namespace) -> dict[str, Any]:
+    return plan_apply_worktree(
+        proposal_id=args.proposal_id,
+        workspace_root=args.workspace_root,
+        base_dir=args.tools_dir,
+        dry_run=not args.execute,
     )
 
 

@@ -30,7 +30,7 @@
       "tools/aria-adapters/typeorm-entity-schema-adapter.ts"
     ],
     "cwd": ".",
-    "timeout_ms": 10000,
+    "timeout_ms": 30000,
     "stdin_json": true
   },
   "schema_version": 1

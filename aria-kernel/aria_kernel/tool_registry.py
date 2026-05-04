@@ -121,6 +121,8 @@ def validate_tool_definition(tool: dict[str, Any]) -> dict[str, Any]:
         raise GovernanceError("forbidden_read_globs must be an array")
     if not isinstance(candidate["claim_types"], list) or not candidate["claim_types"]:
         raise GovernanceError("claim_types must be a non-empty array")
+    if "default_input" in candidate and not isinstance(candidate["default_input"], dict):
+        raise GovernanceError("default_input must be a JSON object when provided")
 
     thresholds = dict(DEFAULT_HEALTH_THRESHOLDS)
     thresholds.update(candidate["health_thresholds"])

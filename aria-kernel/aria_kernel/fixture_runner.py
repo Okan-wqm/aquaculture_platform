@@ -177,10 +177,50 @@ def evaluate_fixture_expectation(
     for observation_type in expected.get("required_observations", []):
         if observation_type not in observation_types:
             errors.append(f"required observation type missing: {observation_type}")
+    for expectation in array_or_empty(expected.get("required_observation_values")):
+        error = evaluate_required_observation_value(observations, expectation)
+        if error:
+            errors.append(error)
     max_findings = expected.get("max_findings")
     if isinstance(max_findings, int) and len(findings) > max_findings:
         errors.append(f"max_findings expected <= {max_findings} got {len(findings)}")
     return not errors, errors
+
+
+def evaluate_required_observation_value(
+    observations: list[Any],
+    expectation: Any,
+) -> str | None:
+    if not isinstance(expectation, dict):
+        return "required_observation_values entries must be JSON objects"
+    observation_type = expectation.get("type")
+    if not isinstance(observation_type, str) or not observation_type:
+        return "required_observation_values entry missing selector field: type"
+    expected_name = expectation.get("name")
+    if expected_name is not None and not isinstance(expected_name, str):
+        return f"required_observation_values entry for {observation_type} has non-string name"
+
+    expected_fields = {
+        key: value
+        for key, value in expectation.items()
+        if key not in {"type", "name"}
+    }
+    candidates = [
+        item
+        for item in observations
+        if isinstance(item, dict)
+        and item.get("type") == observation_type
+        and (expected_name is None or item.get("name") == expected_name)
+    ]
+    if not candidates:
+        selector = observation_type if expected_name is None else f"{observation_type}/{expected_name}"
+        return f"required observation selector missing: {selector}"
+    for candidate in candidates:
+        if all(resolve_field(candidate, key) == value for key, value in expected_fields.items()):
+            return None
+    selector = observation_type if expected_name is None else f"{observation_type}/{expected_name}"
+    expected_pairs = ", ".join(f"{key}={value!r}" for key, value in sorted(expected_fields.items()))
+    return f"required observation values missing for {selector}: {expected_pairs}"
 
 
 def resolve_fixture_dir(tool: dict[str, Any], base_dir: str | os.PathLike[str] | None) -> Path:
@@ -222,6 +262,15 @@ def append_jsonl(path: Path, payload: dict[str, Any]) -> None:
 
 def array_or_empty(value: Any) -> list[Any]:
     return value if isinstance(value, list) else []
+
+
+def resolve_field(payload: dict[str, Any], field: str) -> Any:
+    current: Any = payload
+    for part in field.split("."):
+        if not isinstance(current, dict) or part not in current:
+            return None
+        current = current[part]
+    return current
 
 
 def sha256(payload: bytes) -> str:

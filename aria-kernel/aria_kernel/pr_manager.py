@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from .apply_engine import list_apply_actions
 from .auto_merge import record_pr_lifecycle
+from .ledger import append_jsonl, load_jsonl
 from .proposal import get_proposal
-from .tool_registry import GovernanceError
+from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 from .validation import list_validation_plans
 
 
@@ -69,6 +71,10 @@ def open_pr_for_action(
     action = _latest_action_for_proposal(proposal_id, base_dir)
     if not action:
         raise GovernanceError("no apply action exists for proposal")
+    if action.get("status") != "ready_for_pr":
+        raise GovernanceError("apply action must pass validation gate before PR open")
+    if not action.get("validation_gate_ref"):
+        raise GovernanceError("PR open requires validation_gate_ref")
     action = dict(action)
     latest_validation = _latest_validation_plan_for_proposal(proposal_id, base_dir)
     if latest_validation:
@@ -105,6 +111,97 @@ def open_pr_for_action(
     return record_pr_lifecycle(payload, event="opened", base_dir=base_dir)
 
 
+def plan_pr_lifecycle(
+    *,
+    open_prs: list[dict[str, Any]],
+    base_dir: str | Path | None = None,
+    cycle_id: str | None = None,
+    stale_after_days: int = 7,
+    close_after_days: int = 30,
+) -> dict[str, Any]:
+    if stale_after_days <= 0 or close_after_days <= stale_after_days:
+        raise GovernanceError("PR lifecycle days must be positive and close_after_days must exceed stale_after_days")
+    now = datetime.now(timezone.utc)
+    actions = []
+    for pr in open_prs:
+        number = pr.get("number")
+        if not isinstance(number, int):
+            raise GovernanceError("open PR entries require numeric number")
+        updated_at = _parse_time(str(pr.get("updated_at") or pr.get("updatedAt") or ""))
+        if updated_at is None:
+            raise GovernanceError("open PR entries require updated_at timestamp")
+        age_days = (now - updated_at).days
+        if age_days >= close_after_days:
+            action = "recommend_close"
+        elif age_days >= stale_after_days:
+            action = "recommend_stale_comment"
+        else:
+            action = "observe"
+        actions.append(
+            {
+                "pr_number": number,
+                "age_days": age_days,
+                "action": action,
+                "title": pr.get("title"),
+                "proposal_id": pr.get("proposal_id"),
+            },
+        )
+    row = {
+        "schema_version": 1,
+        "recorded_at": utc_now(),
+        "cycle_id": cycle_id,
+        "stale_after_days": stale_after_days,
+        "close_after_days": close_after_days,
+        "actions": actions,
+        "status": "recommendation_only",
+    }
+    return append_jsonl(ensure_tools_dir(base_dir) / "pr-lifecycle-plans.jsonl", row)
+
+
+def plan_pr_split(
+    *,
+    proposal_id: str,
+    changed_files: list[str],
+    base_dir: str | Path | None = None,
+    cycle_id: str | None = None,
+    max_files_per_pr: int = 12,
+) -> dict[str, Any]:
+    if max_files_per_pr <= 0:
+        raise GovernanceError("max_files_per_pr must be positive")
+    proposal = get_proposal(proposal_id=proposal_id, base_dir=base_dir)
+    files = [_normalize_path(path) for path in changed_files if isinstance(path, str) and path.strip()]
+    if not files:
+        raise GovernanceError("PR split planning requires changed_files")
+    grouped: dict[str, list[str]] = {}
+    for path in sorted(set(files)):
+        grouped.setdefault(_split_group(path), []).append(path)
+    prs = []
+    index = 1
+    for group, group_files in sorted(grouped.items()):
+        for chunk in _chunks(group_files, max_files_per_pr):
+            prs.append({"sequence": index, "group": group, "files": chunk, "depends_on": []})
+            index += 1
+    row = {
+        "schema_version": 1,
+        "recorded_at": utc_now(),
+        "cycle_id": cycle_id,
+        "proposal_id": proposal_id,
+        "proposal_title": proposal.get("title"),
+        "split_required": len(prs) > 1,
+        "prs": prs,
+        "status": "planned",
+    }
+    return append_jsonl(ensure_tools_dir(base_dir) / "pr-split-plans.jsonl", row)
+
+
+def list_pr_lifecycle_plans(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
+    return load_jsonl(ensure_tools_dir(base_dir) / "pr-lifecycle-plans.jsonl")
+
+
+def list_pr_split_plans(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
+    return load_jsonl(ensure_tools_dir(base_dir) / "pr-split-plans.jsonl")
+
+
 def _latest_action_for_proposal(proposal_id: str, base_dir: str | Path | None) -> dict[str, Any] | None:
     for action in reversed(list_apply_actions(base_dir=base_dir)):
         if action.get("proposal_id") == proposal_id:
@@ -123,3 +220,35 @@ def _validate_pr_body(body: str) -> None:
     missing = [section for section in REQUIRED_PR_SECTIONS if f"## {section}" not in body]
     if missing:
         raise GovernanceError("PR body missing required sections: " + ", ".join(missing))
+
+
+def _parse_time(value: str) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _split_group(path: str) -> str:
+    if "/migrations/" in path or path.endswith("Migration.ts"):
+        return "migration"
+    if path.startswith("platform/libs/"):
+        parts = path.split("/")
+        return "/".join(parts[:3]) if len(parts) >= 3 else "platform/libs"
+    if path.startswith(("apps/", "web/", "libs/")):
+        parts = path.split("/")
+        return "/".join(parts[:2]) if len(parts) >= 2 else parts[0]
+    return path.split("/", 1)[0]
+
+
+def _chunks(values: list[str], size: int) -> list[list[str]]:
+    return [values[index : index + size] for index in range(0, len(values), size)]
+
+
+def _normalize_path(path: str) -> str:
+    return path.replace("\\", "/").lstrip("./")

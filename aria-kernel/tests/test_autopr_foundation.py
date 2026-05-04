@@ -10,12 +10,15 @@ from aria_kernel import (
     amplify_proposal,
     approve_proposal,
     check_budget,
+    compare_validation_groups,
+    gate_apply_action,
     generate_task_candidates,
     open_pr_for_action,
     plan_apply_worktree,
     plan_impact,
     record_proposal,
     record_budget_usage,
+    run_validation_commands,
     verify_integrity,
 )
 from aria_kernel.ledger import append_jsonl
@@ -148,7 +151,7 @@ class AutoPrFoundationTests(unittest.TestCase):
             title="Fixture proposal",
             problem="Fixture problem",
             evidence=["src/app.ts"],
-            validation_command="npm run test",
+            validation_command="python3 -m unittest --help",
             source_authority="deterministic_pressure",
             risk_class="runtime",
             status="ready_for_operator",
@@ -167,6 +170,29 @@ class AutoPrFoundationTests(unittest.TestCase):
             dry_run=True,
         )
         self.assertEqual(action["status"], "planned")
+        baseline = run_validation_commands(
+            commands=["python3 -m unittest --help"],
+            workspace_root=self.root,
+            validation_plan_id="baseline",
+            base_dir=self.tools_dir,
+        )
+        candidate = run_validation_commands(
+            commands=["python3 -m unittest --help"],
+            workspace_root=self.root,
+            validation_plan_id=proposal["proposal_id"],
+            base_dir=self.tools_dir,
+        )
+        comparison = compare_validation_groups(
+            baseline_ref=baseline["ledger_hash"],
+            worktree_ref=candidate["ledger_hash"],
+            base_dir=self.tools_dir,
+        )
+        gated = gate_apply_action(
+            proposal_id=proposal["proposal_id"],
+            validation_comparison_ref=comparison["ledger_hash"],
+            base_dir=self.tools_dir,
+        )
+        self.assertEqual(gated["status"], "ready_for_pr")
         pr = open_pr_for_action(
             proposal_id=proposal["proposal_id"],
             workspace_root=self.root,

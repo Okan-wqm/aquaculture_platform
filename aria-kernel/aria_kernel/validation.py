@@ -97,6 +97,39 @@ def compare_validation_groups(
     return append_jsonl(ensure_tools_dir(base_dir) / "validation" / "validation-comparisons.jsonl", row)
 
 
+def evaluate_validation_gate(
+    *,
+    comparison_ref: str,
+    base_dir: str | Path | None = None,
+    cycle_id: str | None = None,
+    require_worktree_ok: bool = True,
+) -> dict[str, Any]:
+    if not comparison_ref.strip():
+        raise GovernanceError("comparison_ref is required")
+    comparison = _find_comparison(list_validation_comparisons(base_dir=base_dir), comparison_ref)
+    if comparison is None:
+        raise GovernanceError(f"validation comparison not found: {comparison_ref}")
+    blockers: list[str] = []
+    if comparison.get("regression_status") not in ("no_regression", "improved"):
+        blockers.append("validation_regression")
+    if require_worktree_ok and comparison.get("worktree_status") != "ok":
+        blockers.append("candidate_validation_not_green")
+    row = {
+        "schema_version": 1,
+        "recorded_at": utc_now(),
+        "cycle_id": cycle_id,
+        "comparison_ref": comparison_ref,
+        "baseline_ref": comparison.get("baseline_ref"),
+        "worktree_ref": comparison.get("worktree_ref"),
+        "baseline_status": comparison.get("baseline_status"),
+        "worktree_status": comparison.get("worktree_status"),
+        "regression_status": comparison.get("regression_status"),
+        "status": "ready_for_pr" if not blockers else "blocked",
+        "blocked_by": sorted(set(blockers)),
+    }
+    return append_jsonl(ensure_tools_dir(base_dir) / "validation" / "validation-gates.jsonl", row)
+
+
 def list_validation_runs(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
     return load_jsonl(ensure_tools_dir(base_dir) / "validation" / "validation-runs.jsonl")
 
@@ -109,10 +142,21 @@ def list_validation_comparisons(*, base_dir: str | Path | None = None) -> list[d
     return load_jsonl(ensure_tools_dir(base_dir) / "validation" / "validation-comparisons.jsonl")
 
 
+def list_validation_gates(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
+    return load_jsonl(ensure_tools_dir(base_dir) / "validation" / "validation-gates.jsonl")
+
+
 def _find_plan(plans: list[dict[str, Any]], plan_ref: str) -> dict[str, Any] | None:
     for plan in reversed(plans):
         if plan.get("ledger_hash") == plan_ref or plan.get("validation_plan_id") == plan_ref:
             return plan
+    return None
+
+
+def _find_comparison(comparisons: list[dict[str, Any]], comparison_ref: str) -> dict[str, Any] | None:
+    for comparison in reversed(comparisons):
+        if comparison.get("ledger_hash") == comparison_ref:
+            return comparison
     return None
 
 

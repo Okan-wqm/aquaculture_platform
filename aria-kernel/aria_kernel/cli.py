@@ -6,13 +6,16 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from .apply_engine import plan_apply_worktree
+from .adapter_calibration import generate_adapter_calibration_report, list_adapter_calibration_reports
+from .apply_engine import gate_apply_action, plan_apply_worktree
 from .agent_genesis import (
     approve_agent_pr,
     draft_agent_from_gap,
     evaluate_genesis_sandbox,
     list_agent_drafts,
+    list_agent_pr_lanes,
     list_genesis_sandbox_runs,
+    prepare_agent_pr_lane,
 )
 from .agent_priors import latest_agent_priors, map_agent_priors
 from .architecture import (
@@ -29,7 +32,7 @@ from .auto_merge import GhCliGitHubAdapter, evaluate_auto_merge, merge_if_green,
 from .budget import check_budget, list_budget_usage, record_budget_usage
 from .calibration import list_calibration_recommendations, recommend_calibration
 from .capability_gap import detect_capability_gaps, list_capability_gaps
-from .codegen import list_code_change_plans, record_code_change_plan
+from .codegen import list_code_change_plans, list_generated_diff_packets, record_code_change_plan, record_generated_diff_packet
 from .cycle import run_cycle
 from .cycle_diff import run_cycle_diff
 from .db_snapshot import write_schema_snapshot
@@ -42,6 +45,7 @@ from .impact_graph import list_impact_graphs, plan_downstream_impact
 from .integrity import verify_integrity
 from .llm_bridge import amplify_proposal
 from .memory import list_memory, unwithdraw_belief, update_memory, withdraw_belief
+from .observability import generate_observability_dashboard, list_cycle_metrics, list_observability_dashboards, record_cycle_metrics
 from .performance import (
     compare_performance_baseline,
     list_performance_baselines,
@@ -49,7 +53,7 @@ from .performance import (
     record_performance_baseline,
 )
 from .pressure import explain_pressure, run_pressure
-from .pr_manager import open_pr_for_action
+from .pr_manager import list_pr_lifecycle_plans, list_pr_split_plans, open_pr_for_action, plan_pr_lifecycle, plan_pr_split
 from .proposal import approve_proposal, list_proposals, proposal_packet_from_task, record_proposal, record_proposal_from_amplification
 from .promotion import promote_tool
 from .quarantine import quarantine_tool
@@ -67,7 +71,7 @@ from .task import explain_task, generate_task_candidates, latest_tasks
 from .tool_health import evaluate_health, record_run
 from .tool_registry import GovernanceError, ensure_tools_dir, list_tools, register_tool
 from .tool_runner import run_tool
-from .validation import compare_validation_groups, list_validation_comparisons, list_validation_plans, list_validation_runs, run_validation_commands
+from .validation import compare_validation_groups, evaluate_validation_gate, list_validation_comparisons, list_validation_gates, list_validation_plans, list_validation_runs, run_validation_commands
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -270,6 +274,10 @@ def build_parser() -> argparse.ArgumentParser:
     validation_compare.add_argument("--worktree-ref", required=True)
     validation_compare.add_argument("--cycle-id", default=None)
     validation_compare.set_defaults(func=cmd_validation_compare)
+    validation_gate = validation_subparsers.add_parser("gate")
+    validation_gate.add_argument("--comparison-ref", required=True)
+    validation_gate.add_argument("--cycle-id", default=None)
+    validation_gate.set_defaults(func=cmd_validation_gate)
     validation_list = validation_subparsers.add_parser("list")
     validation_list.set_defaults(func=cmd_validation_list)
 
@@ -356,6 +364,10 @@ def build_parser() -> argparse.ArgumentParser:
     calibration_recommend = calibration_subparsers.add_parser("recommend")
     calibration_recommend.add_argument("--cycle-id", required=True)
     calibration_recommend.set_defaults(func=cmd_calibration_recommend)
+    calibration_adapter = calibration_subparsers.add_parser("adapter-report")
+    calibration_adapter.add_argument("--tool-ids", required=True, help="JSON array of adapter tool ids")
+    calibration_adapter.add_argument("--cycle-id", default=None)
+    calibration_adapter.set_defaults(func=cmd_calibration_adapter_report)
     calibration_list = calibration_subparsers.add_parser("list")
     calibration_list.set_defaults(func=cmd_calibration_list)
 
@@ -389,6 +401,11 @@ def build_parser() -> argparse.ArgumentParser:
     genesis_approve.add_argument("--draft-id", required=True)
     genesis_approve.add_argument("--operator-approval-ref", required=True)
     genesis_approve.set_defaults(func=cmd_agent_genesis_approve)
+    genesis_pr_lane = genesis_subparsers.add_parser("prepare-pr-lane")
+    genesis_pr_lane.add_argument("--draft-id", required=True)
+    genesis_pr_lane.add_argument("--workspace-root", default=".")
+    genesis_pr_lane.add_argument("--cycle-id", default=None)
+    genesis_pr_lane.set_defaults(func=cmd_agent_genesis_prepare_pr_lane)
     genesis_list = genesis_subparsers.add_parser("list")
     genesis_list.set_defaults(func=cmd_agent_genesis_list)
 
@@ -490,6 +507,18 @@ def build_parser() -> argparse.ArgumentParser:
     pr_open.add_argument("--workspace-root", default=".")
     pr_open.add_argument("--dry-run", action="store_true")
     pr_open.set_defaults(func=cmd_pr_open)
+    pr_lifecycle = pr_subparsers.add_parser("lifecycle-plan")
+    pr_lifecycle.add_argument("--open-prs", required=True, help="JSON array of open PR snapshots")
+    pr_lifecycle.add_argument("--cycle-id", default=None)
+    pr_lifecycle.add_argument("--stale-after-days", type=int, default=7)
+    pr_lifecycle.add_argument("--close-after-days", type=int, default=30)
+    pr_lifecycle.set_defaults(func=cmd_pr_lifecycle_plan)
+    pr_split = pr_subparsers.add_parser("split-plan")
+    pr_split.add_argument("--proposal-id", required=True)
+    pr_split.add_argument("--changed-files", required=True, help="JSON array of changed paths")
+    pr_split.add_argument("--cycle-id", default=None)
+    pr_split.add_argument("--max-files-per-pr", type=int, default=12)
+    pr_split.set_defaults(func=cmd_pr_split_plan)
     pr_merge = pr_subparsers.add_parser("merge-if-green")
     pr_merge.add_argument("--pr-number", type=int, default=None)
     pr_merge.add_argument("--input", default=None, help="JSON snapshot with policy, pr, and github fields")
@@ -514,6 +543,11 @@ def build_parser() -> argparse.ArgumentParser:
     apply_plan.add_argument("--workspace-root", default=".")
     apply_plan.add_argument("--execute", action="store_true")
     apply_plan.set_defaults(func=cmd_apply_plan_worktree)
+    apply_gate = apply_subparsers.add_parser("gate")
+    apply_gate.add_argument("--proposal-id", required=True)
+    apply_gate.add_argument("--validation-comparison-ref", required=True)
+    apply_gate.add_argument("--cycle-id", default=None)
+    apply_gate.set_defaults(func=cmd_apply_gate)
 
     codegen = subparsers.add_parser("codegen")
     codegen_subparsers = codegen.add_subparsers(dest="command", required=True)
@@ -528,8 +562,32 @@ def build_parser() -> argparse.ArgumentParser:
     codegen_plan.add_argument("--forbidden-globs", default="[]")
     codegen_plan.add_argument("--cycle-id", default=None)
     codegen_plan.set_defaults(func=cmd_codegen_record_plan)
+    codegen_diff = codegen_subparsers.add_parser("record-diff")
+    codegen_diff.add_argument("--code-change-plan-id", required=True)
+    codegen_diff.add_argument("--unified-diff-file", required=True)
+    codegen_diff.add_argument("--changed-files", required=True)
+    codegen_diff.add_argument("--rationale", required=True)
+    codegen_diff.add_argument("--validation-commands", required=True)
+    codegen_diff.add_argument("--cycle-id", default=None)
+    codegen_diff.add_argument("--run-apply-check", action="store_true")
+    codegen_diff.set_defaults(func=cmd_codegen_record_diff)
     codegen_list = codegen_subparsers.add_parser("list")
     codegen_list.set_defaults(func=cmd_codegen_list)
+
+    observability = subparsers.add_parser("observability")
+    observability_subparsers = observability.add_subparsers(dest="command", required=True)
+    observability_record = observability_subparsers.add_parser("record-cycle")
+    observability_record.add_argument("--cycle-id", required=True)
+    observability_record.add_argument("--phase-durations-ms", required=True)
+    observability_record.add_argument("--artifact-count", type=int, required=True)
+    observability_record.add_argument("--status", required=True)
+    observability_record.add_argument("--cost-units", type=float, default=0.0)
+    observability_record.set_defaults(func=cmd_observability_record_cycle)
+    observability_dashboard = observability_subparsers.add_parser("dashboard")
+    observability_dashboard.add_argument("--cycle-id", required=True)
+    observability_dashboard.set_defaults(func=cmd_observability_dashboard)
+    observability_list = observability_subparsers.add_parser("list")
+    observability_list.set_defaults(func=cmd_observability_list)
     return parser
 
 
@@ -557,6 +615,7 @@ def cmd_bootstrap_init(args: argparse.Namespace) -> dict[str, Any]:
         "kernel-change",
         "apply",
         "codegen",
+        "observability",
         "cycle-state",
         "cycle-diff",
     ):
@@ -818,11 +877,20 @@ def cmd_validation_compare(args: argparse.Namespace) -> dict[str, Any]:
     )
 
 
+def cmd_validation_gate(args: argparse.Namespace) -> dict[str, Any]:
+    return evaluate_validation_gate(
+        comparison_ref=args.comparison_ref,
+        cycle_id=args.cycle_id,
+        base_dir=args.tools_dir,
+    )
+
+
 def cmd_validation_list(args: argparse.Namespace) -> dict[str, Any]:
     return {
         "plans": list_validation_plans(base_dir=args.tools_dir),
         "runs": list_validation_runs(base_dir=args.tools_dir),
         "comparisons": list_validation_comparisons(base_dir=args.tools_dir),
+        "gates": list_validation_gates(base_dir=args.tools_dir),
     }
 
 
@@ -942,8 +1010,19 @@ def cmd_calibration_recommend(args: argparse.Namespace) -> dict[str, Any]:
     return recommend_calibration(cycle_id=args.cycle_id, base_dir=args.tools_dir)
 
 
+def cmd_calibration_adapter_report(args: argparse.Namespace) -> dict[str, Any]:
+    return generate_adapter_calibration_report(
+        tool_ids=_json_array_arg(args.tool_ids, "--tool-ids"),
+        cycle_id=args.cycle_id,
+        base_dir=args.tools_dir,
+    )
+
+
 def cmd_calibration_list(args: argparse.Namespace) -> dict[str, Any]:
-    return {"recommendations": list_calibration_recommendations(base_dir=args.tools_dir)}
+    return {
+        "recommendations": list_calibration_recommendations(base_dir=args.tools_dir),
+        "adapter_reports": list_adapter_calibration_reports(base_dir=args.tools_dir),
+    }
 
 
 def cmd_agent_priors_map(args: argparse.Namespace) -> dict[str, Any]:
@@ -992,10 +1071,20 @@ def cmd_agent_genesis_approve(args: argparse.Namespace) -> dict[str, Any]:
     )
 
 
+def cmd_agent_genesis_prepare_pr_lane(args: argparse.Namespace) -> dict[str, Any]:
+    return prepare_agent_pr_lane(
+        draft_id=args.draft_id,
+        workspace_root=args.workspace_root,
+        cycle_id=args.cycle_id,
+        base_dir=args.tools_dir,
+    )
+
+
 def cmd_agent_genesis_list(args: argparse.Namespace) -> dict[str, Any]:
     return {
         "drafts": list_agent_drafts(base_dir=args.tools_dir),
         "sandbox_runs": list_genesis_sandbox_runs(base_dir=args.tools_dir),
+        "pr_lanes": list_agent_pr_lanes(base_dir=args.tools_dir),
     }
 
 
@@ -1114,6 +1203,26 @@ def cmd_pr_open(args: argparse.Namespace) -> dict[str, Any]:
     )
 
 
+def cmd_pr_lifecycle_plan(args: argparse.Namespace) -> dict[str, Any]:
+    return plan_pr_lifecycle(
+        open_prs=_json_object_array_arg(args.open_prs, "--open-prs"),
+        cycle_id=args.cycle_id,
+        stale_after_days=args.stale_after_days,
+        close_after_days=args.close_after_days,
+        base_dir=args.tools_dir,
+    )
+
+
+def cmd_pr_split_plan(args: argparse.Namespace) -> dict[str, Any]:
+    return plan_pr_split(
+        proposal_id=args.proposal_id,
+        changed_files=_json_array_arg(args.changed_files, "--changed-files"),
+        cycle_id=args.cycle_id,
+        max_files_per_pr=args.max_files_per_pr,
+        base_dir=args.tools_dir,
+    )
+
+
 def cmd_pr_merge_if_green(args: argparse.Namespace) -> dict[str, Any]:
     policy = read_json(args.policy_file) if args.policy_file else None
     if args.input:
@@ -1158,6 +1267,15 @@ def cmd_apply_plan_worktree(args: argparse.Namespace) -> dict[str, Any]:
     )
 
 
+def cmd_apply_gate(args: argparse.Namespace) -> dict[str, Any]:
+    return gate_apply_action(
+        proposal_id=args.proposal_id,
+        validation_comparison_ref=args.validation_comparison_ref,
+        cycle_id=args.cycle_id,
+        base_dir=args.tools_dir,
+    )
+
+
 def cmd_codegen_record_plan(args: argparse.Namespace) -> dict[str, Any]:
     return record_code_change_plan(
         proposal_id=args.proposal_id,
@@ -1173,8 +1291,48 @@ def cmd_codegen_record_plan(args: argparse.Namespace) -> dict[str, Any]:
     )
 
 
+def cmd_codegen_record_diff(args: argparse.Namespace) -> dict[str, Any]:
+    return record_generated_diff_packet(
+        code_change_plan_id=args.code_change_plan_id,
+        unified_diff=Path(args.unified_diff_file).read_text(encoding="utf-8"),
+        changed_files=_json_array_arg(args.changed_files, "--changed-files"),
+        rationale=args.rationale,
+        validation_commands=_json_array_arg(args.validation_commands, "--validation-commands"),
+        cycle_id=args.cycle_id,
+        run_apply_check=args.run_apply_check,
+        base_dir=args.tools_dir,
+    )
+
+
 def cmd_codegen_list(args: argparse.Namespace) -> dict[str, Any]:
-    return {"plans": list_code_change_plans(base_dir=args.tools_dir)}
+    return {
+        "plans": list_code_change_plans(base_dir=args.tools_dir),
+        "generated_diff_packets": list_generated_diff_packets(base_dir=args.tools_dir),
+    }
+
+
+def cmd_observability_record_cycle(args: argparse.Namespace) -> dict[str, Any]:
+    return record_cycle_metrics(
+        cycle_id=args.cycle_id,
+        phase_durations_ms=_json_number_object_arg(args.phase_durations_ms, "--phase-durations-ms"),
+        artifact_count=args.artifact_count,
+        status=args.status,
+        cost_units=args.cost_units,
+        base_dir=args.tools_dir,
+    )
+
+
+def cmd_observability_dashboard(args: argparse.Namespace) -> dict[str, Any]:
+    return generate_observability_dashboard(cycle_id=args.cycle_id, base_dir=args.tools_dir)
+
+
+def cmd_observability_list(args: argparse.Namespace) -> dict[str, Any]:
+    return {
+        "cycle_metrics": list_cycle_metrics(base_dir=args.tools_dir),
+        "dashboards": list_observability_dashboards(base_dir=args.tools_dir),
+        "pr_lifecycle_plans": list_pr_lifecycle_plans(base_dir=args.tools_dir),
+        "pr_split_plans": list_pr_split_plans(base_dir=args.tools_dir),
+    }
 
 
 def read_json(path: str) -> Any:
@@ -1209,4 +1367,26 @@ def _json_object_arg(value: str, flag: str) -> dict[str, str]:
         raise GovernanceError(f"{flag} must be a JSON object: {exc}") from exc
     if not isinstance(payload, dict) or not all(isinstance(key, str) and isinstance(item, str) for key, item in payload.items()):
         raise GovernanceError(f"{flag} must be a JSON object with string values")
+    return payload
+
+
+def _json_number_object_arg(value: str, flag: str) -> dict[str, int | float]:
+    try:
+        payload = json.loads(value)
+    except json.JSONDecodeError as exc:
+        raise GovernanceError(f"{flag} must be a JSON object: {exc}") from exc
+    if not isinstance(payload, dict) or not all(
+        isinstance(key, str) and isinstance(item, (int, float)) for key, item in payload.items()
+    ):
+        raise GovernanceError(f"{flag} must be a JSON object with numeric values")
+    return payload
+
+
+def _json_object_array_arg(value: str, flag: str) -> list[dict[str, Any]]:
+    try:
+        payload = json.loads(value)
+    except json.JSONDecodeError as exc:
+        raise GovernanceError(f"{flag} must be a JSON array: {exc}") from exc
+    if not isinstance(payload, list) or not all(isinstance(item, dict) for item in payload):
+        raise GovernanceError(f"{flag} must be a JSON array of objects")
     return payload

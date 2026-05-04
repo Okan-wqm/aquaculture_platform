@@ -105,12 +105,57 @@ def approve_agent_pr(
     return append_jsonl(ensure_tools_dir(base_dir) / "agent-genesis" / "drafts.jsonl", row)
 
 
+def prepare_agent_pr_lane(
+    *,
+    draft_id: str,
+    workspace_root: str | Path,
+    base_dir: str | Path | None = None,
+    cycle_id: str | None = None,
+) -> dict[str, Any]:
+    draft = _find_draft(draft_id, base_dir)
+    if draft.get("status") != "approved_for_agent_pr":
+        raise GovernanceError("agent draft must be approved_for_agent_pr before PR lane preparation")
+    target_path = str(draft.get("target_path") or "")
+    name = str(draft.get("draft", {}).get("name") or "")
+    sandbox = _latest_sandbox(draft_id, base_dir)
+    blockers = []
+    if not target_path.startswith(".claude/agents/aria-") or not target_path.endswith(".md"):
+        blockers.append("target_path_not_agent_scoped")
+    if not name.startswith("aria-"):
+        blockers.append("agent_name_not_aria_scoped")
+    root = Path(workspace_root).resolve()
+    if (root / target_path).exists():
+        blockers.append("target_agent_already_exists")
+    if draft.get("draft", {}).get("related_existing_agents"):
+        blockers.append("related_existing_agent_requires_owner_review")
+    row = {
+        "schema_version": 1,
+        "recorded_at": utc_now(),
+        "cycle_id": cycle_id,
+        "draft_id": draft_id,
+        "gap_id": draft.get("gap_id"),
+        "target_path": target_path,
+        "branch": f"aria/agent-genesis/{name}",
+        "changed_files": [target_path],
+        "sandbox_ref": sandbox.get("ledger_hash") if sandbox else None,
+        "operator_approval_ref": draft.get("operator_approval_ref"),
+        "status": "ready_for_pr" if not blockers else "blocked",
+        "blocked_by": blockers,
+        "body_sections": ["Problem", "Evidence", "Solution", "Validation", "Rollback", "Provenance"],
+    }
+    return append_jsonl(ensure_tools_dir(base_dir) / "agent-genesis" / "pr-lanes.jsonl", row)
+
+
 def list_agent_drafts(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
     return load_jsonl(ensure_tools_dir(base_dir) / "agent-genesis" / "drafts.jsonl")
 
 
 def list_genesis_sandbox_runs(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
     return load_jsonl(ensure_tools_dir(base_dir) / "genesis-sandbox" / "runs.jsonl")
+
+
+def list_agent_pr_lanes(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
+    return load_jsonl(ensure_tools_dir(base_dir) / "agent-genesis" / "pr-lanes.jsonl")
 
 
 def _find_gap(gap_id: str, base_dir: str | Path | None) -> dict[str, Any]:

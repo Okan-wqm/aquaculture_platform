@@ -2489,7 +2489,7 @@ Until either is done, this orphan entry is the canonical record of the pattern's
 
 ## ORPHAN-HIGH-035 — `install_default()` global CryptoProvider state writes the unrestricted ring provider; HTTPS outbound (provisioning, firmware, scripting cloud calls) does not honor the cipher allowlist (Phase 1.1.3 follow-up, 2026-04-30)
 
-**Status:** OPEN — owner: Okan-Wqm. Owner agent: Phase 1.1.3 / PR-196 (mTLS D-4/D-6 unified, edge-expert primary). Deadline: PR-196 merge close, by 2026-05-30 latest.
+**Status:** RESOLVED — Phase 1.1.5 (PR #227, 2026-05-04). `mqtt.rs::install_default()` removed. `commands/firmware.rs::download_file` (the missed 4th reqwest callsite — `fetch_latest_agent_tag` was already wired in Phase 1.1.3a but `download_file` was not) now plumbs `build_suderra_https_client_config` via `use_preconfigured_tls`. Two new invariants pin the closure: `no_install_default_in_non_test_code` (source-grep ban on `default_provider().install_default()`) and `every_reqwest_client_builder_uses_preconfigured_tls` (1:1 callsite parity per file). Tier-1 MAKE-IT-IMPOSSIBLE — a future regression that bypasses the allowlist surfaces as a rustls-panic-at-builder-call rather than silent TLS 1.2 downgrade exposure.
 
 **Scope:** `sens-api-gateway/src/mqtt.rs:963` (install_default), `sens-api-gateway/src/firmware.rs:591`, `sens-api-gateway/src/provisioning.rs:218`, `sens-api-gateway/src/scripting/engine.rs:1963`.
 
@@ -2506,7 +2506,7 @@ Until either is done, this orphan entry is the canonical record of the pattern's
 
 ## ORPHAN-MEDIUM-036 — `parse_errs > 0` on custom CA bundle load is partial-fix logged only; full audit-sink HMAC chain emit deferred (Phase 0.1 partial fix, 2026-04-30)
 
-**Status:** OPEN — owner: Okan-Wqm. Owner agent: Phase 1.1.3 / PR-196. Deadline: 2026-05-30.
+**Status:** RESOLVED — Phase 1.1.5 (PR #227, 2026-05-04). `mqtt.rs::configure_tls` partial-load arm now calls `crate::audit::try_emit_mtls_forensic_event` with the new `MtlsCaBundleParsePartial` AuditAction (wire_tag 31) alongside the existing `tracing::error!`. Architectural channel: process-global audit-sink accessor (`current_audit_sink`) installed at boot in `state.rs::init_audit_sink` so the cross-cutting forensic-emit surface (which has no AppState reference at configure_tls time) reaches the ADR-020 HMAC chain unconditionally. Invariants `ca_bundle_partial_load_emits_audit_event` + `audit_global_accessors_present` pin the closure.
 
 **Scope:** `sens-api-gateway/src/mqtt.rs` (custom-CA PEM parse loop, around line 1037-1066).
 
@@ -2519,7 +2519,7 @@ Until either is done, this orphan entry is the canonical record of the pattern's
 
 ## ORPHAN-MEDIUM-037 — Strict-mode handshake reject relies on `tracing::error!` only; explicit audit-sink emit for HMAC chain coverage is needed (Phase 0 follow-up, 2026-04-30)
 
-**Status:** OPEN — owner: Okan-Wqm. Owner agent: Phase 1.1.4 / PR-196 (mTLS unified assembly, audit emit completeness). Deadline: PR-196 merge close, by 2026-05-30.
+**Status:** RESOLVED — Phase 1.1.5 (PR #227, 2026-05-04). `SuderraServerCertVerifier::verify_server_cert` Strict-reject arm now calls `crate::audit::try_emit_mtls_forensic_event` with the new `MtlsHandshakeRejectStrict` AuditAction (wire_tag 30). Structured detail per the orphan-finding spec: `{ leaf_fingerprint_prefix (8 hex chars from SHA-256), mode, reason, chain_depth }`. The handshake-abort below the emit remains the primary security action; audit-sink emit is forensic post-mortem evidence anchored in the HMAC chain. Architectural channel: process-global accessor pattern shared with ORPHAN-MEDIUM-036 — verifier callback has no AppState path; the global is installed once at `init_audit_sink`. Invariants `strict_reject_arm_emits_audit_event` + `audit_global_accessors_present` + `boot_installs_global_audit_accessors` pin the closure end-to-end.
 
 **Scope:** `sens-api-gateway/src/mtls/rustls_verifier.rs:205-213` (Strict-mode reject arm).
 
@@ -2543,7 +2543,7 @@ Until either is done, this orphan entry is the canonical record of the pattern's
 
 ## ORPHAN-HIGH-039 — `cmd_update_cert_pinning` MUST validate `bridge_until_unix_secs > now + min_bridge_window_secs` to prevent fleet bridge-stranding via past-time bridge windows (Phase 1.1.2, 2026-04-30)
 
-**Status:** OPEN — owner: Okan-Wqm. Owner agent: Phase 1.1.2 / PR-196 (mTLS cmd_update_cert_pinning author). Deadline: PR-196 merge close, by 2026-05-30.
+**Status:** RESOLVED — Phase 1.1.5 (PR #227, 2026-05-04). `pinning.rs` now exposes `MIN_BRIDGE_WINDOW_SECS: i64 = 3600` const + `validate_bridge_window(bridge_until, now) -> Result<(), BridgeWindowError>` validator + `CertRotationStage::try_bridge_rotation` smart constructor. `build_rotation_stage_from_pins_hex` routes its 2-pin path through the smart constructor; the architectural channel is established BEFORE the Phase 1.2 signed-manifest deser path that exposes operator-controlled `bridge_until` lands. Invariant `bridge_window_floor_enforced_at_construction_sites` pins the discipline: any future BridgeRotation construction site outside `pinning.rs` (rustls_verifier.rs, commands/cert_pinning.rs, future apply_signed_manifest.rs) MUST go through `try_bridge_rotation` rather than direct enum-variant construction. 7 unit tests cover the validator boundary cases (exact floor rejected, 1s past floor accepted, past-time rejected, negative-now rejected, saturating-add no-wrap, smart-constructor wire integrity, Display contains floor const).
 
 **Scope:** `sens-api-gateway/src/commands/cert_pinning.rs` (TBD — Phase 1.1.2 introduces this file), and `sens-api-gateway/src/mtls/pinning.rs:107-133` (`accepted_fingerprints` BridgeRotation collapse logic).
 
@@ -2556,7 +2556,7 @@ Until either is done, this orphan entry is the canonical record of the pattern's
 
 ## ORPHAN-LOW-040 — `mqtt.rs` clones the `RootCertStore` instead of threading one `Arc<RootCertStore>` through both arms (Phase 0.1 refactor opportunity, 2026-04-30)
 
-**Status:** OPEN — owner: Okan-Wqm. Owner agent: Phase 1 follow-up batch (any). Deadline: opportunistic, no hard date.
+**Status:** RESOLVED — Phase 1.1.4 (organic, before Phase 1.1.5 audit). The unified `mqtt.rs::configure_tls` pipeline now builds `let root_store_arc = Arc::new(root_store)` once + clones the `Arc` (cheap reference-count bump) into BOTH `MtlsVerifierState::new` AND `build_fallback_webpki`. The pre-Phase-1.1.4 HC-1-fallback path that consumed the bare `RootCertStore` (forcing the `root_store.clone()` of all anchors) was eliminated when `MtlsDelegatingVerifier` wrapped both branches under a single delegating verifier. No standalone closure commit — the refactor was load-bearing for Phase 1.1.4 D-6 unified assembly and the `Arc<RootCertStore>` shape fell out as a positive side effect. Verified at Phase 1.1.5 audit (`mqtt.rs::configure_tls` reads as `let root_store_arc = Arc::new(root_store);` then `root_store_arc.clone()` on both wires).
 
 **Scope:** `sens-api-gateway/src/mqtt.rs` configure_tls.
 

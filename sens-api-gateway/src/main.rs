@@ -1986,7 +1986,61 @@ impl AppState {
             key_source_label
         );
 
-        self.audit_sink = Some(std::sync::Arc::new(sink));
+        let sink_arc = std::sync::Arc::new(sink);
+
+        // Phase 1.1.5 / ORPHAN-MEDIUM-036/037 closure — install the
+        // process-global audit sink + agent tenant for cross-cutting
+        // forensic emit (mTLS handshake reject, CA bundle parse partial).
+        //
+        // Command-dispatch handlers reach the sink via
+        // `state.audit_sink.as_ref()` (the Arc stored on AppState below);
+        // surfaces with no AppState access (rustls verifier callback,
+        // pre-MqttClient configure_tls) reach it via
+        // `crate::audit::current_audit_sink()`.
+        //
+        // `install_global_*` returns `Err` if already installed — should
+        // never happen because `init_audit_sink` is called exactly once
+        // per process. Surface as a `warn!` rather than fail-fast so a
+        // re-init in pathological configurations (e.g., test harness
+        // re-running boot sequence) does not trip the agent. The Arc on
+        // AppState remains the authoritative reference for command paths.
+        if let Err(_existing) = crate::audit::install_global_audit_sink(sink_arc.clone()) {
+            tracing::warn!(
+                "audit::install_global_audit_sink: global already installed — \
+                 boot sequence may have run twice (test harness?). The first \
+                 install remains authoritative."
+            );
+        }
+        if let Some(tenant_str) = self.config.tenant_id.as_ref() {
+            // Tenant id in config is a UUID-like string; convert to the
+            // 16-byte TenantId using `uuid::Uuid::from_str` then
+            // `as_bytes()`. Failure here means the agent config has an
+            // unparseable tenant_id which is a fatal misconfig — surface
+            // as warn (audit chain still works with placeholder tenant).
+            match uuid::Uuid::parse_str(tenant_str) {
+                Ok(parsed) => {
+                    let tenant = crate::authz::permission::TenantId::new_from_verified(
+                        *parsed.as_bytes(),
+                    );
+                    if let Err(_existing) = crate::audit::install_global_agent_tenant(tenant) {
+                        tracing::warn!(
+                            "audit::install_global_agent_tenant: already installed (re-init?)"
+                        );
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        tenant_id_raw = %tenant_str,
+                        "audit::install_global_agent_tenant: tenant_id is not a valid UUID — \
+                         forensic events will use the zero-tenant placeholder. Fix \
+                         config.tenant_id to enable per-tenant queries on mTLS forensic events."
+                    );
+                }
+            }
+        }
+
+        self.audit_sink = Some(sink_arc);
         Ok(())
     }
 

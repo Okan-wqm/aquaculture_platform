@@ -995,10 +995,34 @@ impl MqttClient {
             ));
         }
 
-        // rustls 0.23+ requires explicit CryptoProvider when both ring and aws-lc-rs
-        // are compiled in. Install ring (portable, good ARM cross-compilation support).
-        // install_default() returns Err if already installed — ignore that.
-        let _ = rumqttc::tokio_rustls::rustls::crypto::ring::default_provider().install_default();
+        // Phase 1.1.5 (ORPHAN-HIGH-035 closure) — `install_default()` removed.
+        //
+        // Pre-Phase-1.1.5 this site planted `rustls::crypto::ring::default_provider()`
+        // (the UNRESTRICTED ring provider, every TLS 1.2 ECDHE suite included)
+        // as the process-wide default. The Suderra cipher allowlist (TLS 1.3 +
+        // 3 AEAD suites) was applied only to MQTT via explicit
+        // `ClientConfig::builder_with_provider(suderra_provider)` further down
+        // this function. Every HTTPS reqwest callsite that didn't carry an
+        // explicit provider would inherit the unrestricted default — silently
+        // exposing `provisioning.rs::activate` (single-use device-bootstrap
+        // token exchange — edge-expert flagged as the highest-attack-surface
+        // HTTPS callsite), `firmware.rs::download_file`, and
+        // `scripting/engine.rs` HTTP webhooks to TLS 1.2 cipher-suite-downgrade
+        // attacks regardless of how carefully MQTT was hardened.
+        //
+        // Tier-1 MAKE-IT-IMPOSSIBLE (Phase 1.1.5): every TLS callsite in the
+        // agent now MUST go through one of these two factories:
+        //   - `crate::mtls::build_suderra_crypto_provider()` for the rustls
+        //     `ClientConfig::builder_with_provider(...)` path (MQTT transport).
+        //   - `crate::mtls::build_suderra_https_client_config()` for reqwest's
+        //     `use_preconfigured_tls(...)` path (HTTPS to cloud APIs).
+        //
+        // If a future caller skips both and writes
+        // `rustls::ClientConfig::builder()` without a provider arg, rustls
+        // panics at the builder call ("no process-level CryptoProvider
+        // available") — fail-fast at boot/dev/CI rather than silent bypass in
+        // production. The `d4_d6_mtls_unified::no_install_default_in_non_test_code`
+        // invariant is the source-grep detector that catches a regression.
 
         // Read CA certificate for server verification
         let ca_cert = if let Some(ref ca_path) = tls_config.ca_cert_path {
@@ -1127,6 +1151,22 @@ impl MqttClient {
                     parse_errs = parse_errs,
                     "Custom CA bundle partially loaded — operator action required \
                      (see preceding mtls_ca_bundle_entry_rejected / mtls_ca_bundle_parse_error events)"
+                );
+                // Phase 1.1.5 / ORPHAN-MEDIUM-036 closure: ALSO emit through
+                // the ADR-020 audit-sink HMAC chain. The `tracing::error!`
+                // above is structured-log-only — whether a subscriber bridges
+                // error-level to audit is deployment-config-dependent. The
+                // explicit audit emit here makes the partial-load event
+                // forensically queryable offline via the audit-verify CLI
+                // independent of the active tracing subscriber.
+                let detail = serde_json::json!({
+                    "added": added,
+                    "parse_errs": parse_errs,
+                });
+                crate::audit::try_emit_mtls_forensic_event(
+                    crate::audit::AuditAction::MtlsCaBundleParsePartial,
+                    "mtls.ca_bundle.partial_load",
+                    detail,
                 );
             } else {
                 info!("Loaded {} custom CA certificate(s) for MQTT TLS", added);

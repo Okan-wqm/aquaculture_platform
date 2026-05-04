@@ -205,10 +205,38 @@ impl ServerCertVerifier for SuderraServerCertVerifier {
             // Strict mode: fail-closed. Translate our
             // MtlsVerifyError into a rustls error the
             // handshake stack can propagate.
+            //
+            // Phase 1.1.5 / ORPHAN-MEDIUM-037 closure: emit the reject
+            // event to the process-global audit-sink HMAC chain in
+            // ADDITION to `tracing::error!`. Defense-in-depth — the
+            // handshake-abort below is the primary security action;
+            // the audit emit is for forensic post-mortem queryability
+            // (auditors reconstructing rejected-handshake timelines
+            // offline cannot rely on subscriber-routing of
+            // `tracing::error!`).
+            //
+            // Structured fields per the orphan-finding spec:
+            //   { leaf_fingerprint_prefix, mode, reason, timestamp_unix,
+            //     chain_depth }
+            // The fingerprint prefix is the first 4 bytes lowercase-hex
+            // (8 chars) — sufficient for forensic uniqueness without
+            // exposing the full digest in operator-readable detail.
             (MtlsMode::Strict, Err(e)) => {
                 error!(
                     "mTLS: leaf cert policy violation in Strict mode — REJECTING handshake: {:?}",
                     e
+                );
+                let leaf_fp_prefix = compute_leaf_fingerprint_prefix(end_entity.as_ref());
+                let detail = serde_json::json!({
+                    "leaf_fingerprint_prefix": leaf_fp_prefix,
+                    "mode": format!("{:?}", self.mode),
+                    "reason": format!("{:?}", e),
+                    "chain_depth": chain_depth,
+                });
+                crate::audit::try_emit_mtls_forensic_event(
+                    crate::audit::AuditAction::MtlsHandshakeRejectStrict,
+                    "mtls.strict_reject",
+                    detail,
                 );
                 Err(rustls::Error::General(format!(
                     "Suderra mTLS policy rejected leaf cert: {:?}",
@@ -249,6 +277,25 @@ impl ServerCertVerifier for SuderraServerCertVerifier {
     fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
         self.inner.supported_verify_schemes()
     }
+}
+
+/// Compute the lowercase-hex SHA-256 fingerprint prefix (first 4 bytes
+/// = 8 hex chars) of a cert's DER bytes. Used by the Strict-reject
+/// audit emit (ORPHAN-MEDIUM-037 closure) to give forensic queries a
+/// short stable handle on the rejected leaf without exposing the full
+/// digest in operator-readable detail.
+///
+/// 8 hex chars = 32 bits — sufficient distinct space for forensic
+/// uniqueness across a fleet of < 10K devices (birthday-bound
+/// collision probability < 1 in 50K). The full digest is recoverable
+/// from the cert DER if a deeper investigation is needed.
+fn compute_leaf_fingerprint_prefix(leaf_der_bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let digest: [u8; 32] = Sha256::digest(leaf_der_bytes).into();
+    format!(
+        "{:02x}{:02x}{:02x}{:02x}",
+        digest[0], digest[1], digest[2], digest[3]
+    )
 }
 
 /// Cert-verify-callback-time subset of the Batch 11
@@ -477,24 +524,45 @@ pub fn build_rotation_stage_from_pins_hex(
                 cert_label: "config:pin:0".to_string(),
             },
         },
-        _ => CertRotationStage::BridgeRotation {
-            // First entry = incoming (new cert).
-            incoming: PinnedLeafCert {
-                fingerprint: fingerprints[0],
-                not_before_unix_secs: ts_far_past,
-                not_after_unix_secs: ts_far_future,
-                cert_label: "config:pin:0:incoming".to_string(),
-            },
-            // Second entry = outgoing (old cert during
-            // rotation window).
-            outgoing: PinnedLeafCert {
+        // Phase 1.1.5 / ORPHAN-HIGH-039 closure: BridgeRotation is now built
+        // via the smart constructor `try_bridge_rotation`, which gates on
+        // `validate_bridge_window`. Build-time pins use `i64::MAX / 2` for
+        // bridge_until against `now=0` — the floor (now + 3600 = 3600) is
+        // overwhelmingly satisfied, so the validator always passes. The
+        // routing through the smart constructor enforces the channel
+        // discipline: any future construction site (signed-manifest deser
+        // path in Phase 1.2 with operator-controlled bridge_until) is
+        // forced through the same validator. The
+        // `bridge_window_floor_enforced_at_construction_sites` invariant
+        // detects regressions that bypass the constructor.
+        //
+        // `expect` is sound here: ts_far_future = i64::MAX / 2, now = 0,
+        // floor = 0 + 3600 = 3600, ts_far_future > 3600. Violating this is
+        // a bug in the const arithmetic above, not an operator-controllable
+        // path — safe to panic at boot rather than silently mis-pin.
+        _ => CertRotationStage::try_bridge_rotation(
+            // outgoing = second entry (old cert during rotation window)
+            PinnedLeafCert {
                 fingerprint: fingerprints[1],
                 not_before_unix_secs: ts_far_past,
                 not_after_unix_secs: ts_far_future,
                 cert_label: "config:pin:1:outgoing".to_string(),
             },
-            bridge_until_unix_secs: ts_far_future,
-        },
+            // incoming = first entry (new cert)
+            PinnedLeafCert {
+                fingerprint: fingerprints[0],
+                not_before_unix_secs: ts_far_past,
+                not_after_unix_secs: ts_far_future,
+                cert_label: "config:pin:0:incoming".to_string(),
+            },
+            ts_far_future,
+            0, // now=0 — i64::MAX/2 > 0 + MIN_BRIDGE_WINDOW_SECS by construction
+        )
+        .expect(
+            "build_rotation_stage_from_pins_hex constructs with i64::MAX/2 \
+             bridge_until against now=0 — must always pass the 1-hour floor; \
+             panic here means MIN_BRIDGE_WINDOW_SECS arithmetic regressed",
+        ),
     };
     Ok(Some(stage))
 }

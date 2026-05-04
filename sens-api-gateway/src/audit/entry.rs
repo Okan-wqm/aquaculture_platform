@@ -161,6 +161,23 @@ pub enum AuditAction {
     // -- Operational --
     ShutdownInitiated,
     BootCompleted,
+
+    // -- mTLS forensic surface (Phase 1.1.5 / ORPHAN-MEDIUM-036/037 closure) --
+    /// Strict-mode handshake rejected by SuderraServerCertVerifier policy
+    /// gates (chain depth, validity window, age cap, fingerprint pinning).
+    /// Forensic post-mortem queryability for handshake-abort events that
+    /// happen OUTSIDE the command-dispatch pipeline. Not a security
+    /// boundary — the handshake-abort is the primary security action;
+    /// this audit emit is for HMAC-chain-anchored forensic evidence so
+    /// auditors can reconstruct the rejected-handshake timeline offline.
+    MtlsHandshakeRejectStrict,
+    /// Custom CA bundle parse loop completed with partial success
+    /// (`parse_errs > 0 && added > 0`). Pre-Phase-1.1.5 the partial-fix
+    /// path emitted only `tracing::error!`; this audit-action wires the
+    /// same event through the HMAC chain. Operators running tampered
+    /// or operator-typo'd CA bundle files see the partial-load event in
+    /// the audit stream alongside the running cert anchors snapshot.
+    MtlsCaBundleParsePartial,
 }
 
 impl AuditAction {
@@ -199,6 +216,12 @@ impl AuditAction {
             Self::MqttCertRotationRolledBack => 27,
             Self::ShutdownInitiated => 28,
             Self::BootCompleted => 29,
+            // Phase 1.1.5 / ORPHAN-MEDIUM-036/037 — append at next free
+            // wire_tag. Wire-stability contract per the doc comment above:
+            // these tags are byte discriminators in canonical bytes; never
+            // reorder, never reuse a removed tag's number.
+            Self::MtlsHandshakeRejectStrict => 30,
+            Self::MtlsCaBundleParsePartial => 31,
         }
     }
 }
@@ -672,6 +695,9 @@ mod tests {
         assert_eq!(AuditAction::MqttCertRotationRolledBack.wire_tag(), 27);
         assert_eq!(AuditAction::ShutdownInitiated.wire_tag(), 28);
         assert_eq!(AuditAction::BootCompleted.wire_tag(), 29);
+        // Phase 1.1.5 / ORPHAN-MEDIUM-036/037 — pin appended variants.
+        assert_eq!(AuditAction::MtlsHandshakeRejectStrict.wire_tag(), 30);
+        assert_eq!(AuditAction::MtlsCaBundleParsePartial.wire_tag(), 31);
     }
 
     /// WHY (EDGE-HIGH-001 closure): AuditResource wire_tag stability pin.

@@ -58,7 +58,9 @@
 // `src/opc_ua_server/<name>.rs` per Rust's directory-with-mod-stem
 // convention. Pre-B-1 this file was the only `opc_ua_server` module;
 // Phase B-1 adds two PKI lifecycle primitives without restructuring
-// the existing OpcUaTagRegistry surface.
+// the existing OpcUaTagRegistry surface. Phase B-2 (Plan §B-2 Batches
+// #269-#270) adds the FailedAuthWindow brute-force throttle primitive.
+pub mod auth_throttle;
 pub mod cert_rotation;
 pub mod pki_store;
 

@@ -128,22 +128,37 @@ use crate::opc_ua_server_user_token_validator::{
 pub struct SensAuthManager {
     validator: Arc<UserTokenValidator>,
     policies: Vec<UserTokenPolicy>,
+    /// Phase B-2 (Batch #270 closure) — brute-force throttle.
+    /// Type-level invariant: SensAuthManager cannot be constructed
+    /// without the throttle (`Self::new` requires the Arc); a future
+    /// refactor that "removes" the throttle would have to also remove
+    /// the field, which is detected by the
+    /// `opc_ua_auth_throttle_enforced` invariant test.
+    ///
+    /// Per-username throttle (NOT per-IP — async-opcua 0.18's
+    /// AuthManager trait does not expose ClientAddr; per-IP gap is
+    /// tracked at ORPHAN-MEDIUM-051). See
+    /// `crate::opc_ua_server::auth_throttle` module preamble for the
+    /// architectural decision record.
+    throttle: Arc<crate::opc_ua_server::auth_throttle::FailedAuthWindow>,
 }
 
 #[cfg(feature = "opc-ua-server")]
 impl SensAuthManager {
-    /// Construct a new SensAuthManager from the Batch #245
-    /// validator Arc.
-    ///
-    /// **Wire status (Batch #266):** reachable only via
-    /// `#[cfg(feature = "opc-ua-server")]` builds. Production
-    /// wire (Batch #267) calls this at boot after
-    /// `init_user_token_manifest_store` has populated the
-    /// manifest store + the validator wraps it.
-    pub fn new(validator: Arc<UserTokenValidator>) -> Self {
+    /// Construct a new SensAuthManager from the validator Arc + the
+    /// brute-force throttle Arc. The throttle parameter is mandatory
+    /// (Tier-1 architectural floor — every SensAuthManager carries a
+    /// throttle gate). Production wire constructs the
+    /// `FailedAuthWindow` from `OpcUaServerConfig.max_failed_auth_per_60s`
+    /// at boot.
+    pub fn new(
+        validator: Arc<UserTokenValidator>,
+        throttle: Arc<crate::opc_ua_server::auth_throttle::FailedAuthWindow>,
+    ) -> Self {
         Self {
             validator,
             policies: Self::default_policies(),
+            throttle,
         }
     }
 
@@ -252,6 +267,46 @@ impl AuthManager for SensAuthManager {
         username: &str,
         password: &Password,
     ) -> Result<UserToken, Error> {
+        // Phase B-2 (Batch #270) — pre-check throttle BEFORE running
+        // Argon2id. If the username is already throttled in this
+        // 60-second window, return BadUserAccessDenied immediately.
+        // The Argon2id verifier is the threat — a brute-force loop
+        // running unthrottled would saturate the edge agent's CPU
+        // budget at ~50ms per attempt × 1000 attempts = 50 seconds of
+        // CPU starvation per minute. The throttle bounds this at
+        // cap × Argon2id-cost per window per username.
+        let throttle_key =
+            crate::opc_ua_server::auth_throttle::AuthThrottleKey::for_username(username);
+        if let crate::opc_ua_server::auth_throttle::ThrottleDecision::Throttled {
+            count,
+            retry_after,
+        } = self.throttle.peek_decision(&throttle_key)
+        {
+            tracing::warn!(
+                target: "opc_ua.auth_throttle",
+                throttle_key = %throttle_key.as_str(),
+                count = count,
+                retry_after_secs = retry_after.as_secs(),
+                "SensAuthManager: session-establish REJECTED — \
+                 brute-force throttle active for username (Phase B-2)"
+            );
+            crate::audit::try_emit_mtls_forensic_event(
+                crate::audit::AuditAction::OpcUaAuthThrottled,
+                "opc_ua.auth.throttle.denied",
+                serde_json::json!({
+                    "throttle_key": throttle_key.as_str(),
+                    "count": count,
+                    "retry_after_secs": retry_after.as_secs(),
+                    "reason": "pre_check_throttle_active",
+                }),
+            );
+            return Err(Error::new(
+                StatusCode::BadUserAccessDenied,
+                "Authentication temporarily denied — too many failed attempts \
+                 for this username. Retry after the throttle window expires.",
+            ));
+        }
+
         let password_secret =
             secrecy::Secret::new(password.get().as_bytes().to_vec());
 
@@ -274,6 +329,11 @@ impl AuthManager for SensAuthManager {
                         ));
                     }
                 };
+                // Phase B-2 — clear the throttle counter on success.
+                // An operator who typoed N < cap times then succeeded
+                // should not carry the failure history into their next
+                // typing burst.
+                self.throttle.clear_on_success(&throttle_key);
                 let token_str = format_operator_token(&op);
                 tracing::info!(
                     "SensAuthManager: UserName/Password session \
@@ -297,6 +357,28 @@ impl AuthManager for SensAuthManager {
                 // Generic message — same response for unknown
                 // username + wrong password (Batch #242 validator
                 // collapse). Username enumeration defense.
+                //
+                // Phase B-2 — record_failure for the throttle. If
+                // this attempt pushes the count to the cap, the next
+                // attempt for the same username will skip Argon2id
+                // entirely (peek_decision at the top of this method).
+                let decision = self.throttle.record_failure(&throttle_key);
+                if let crate::opc_ua_server::auth_throttle::ThrottleDecision::Throttled {
+                    count,
+                    retry_after,
+                } = decision
+                {
+                    crate::audit::try_emit_mtls_forensic_event(
+                        crate::audit::AuditAction::OpcUaAuthThrottled,
+                        "opc_ua.auth.throttle.cap_reached",
+                        serde_json::json!({
+                            "throttle_key": throttle_key.as_str(),
+                            "count": count,
+                            "retry_after_secs": retry_after.as_secs(),
+                            "reason": "credential_mismatch_burst",
+                        }),
+                    );
+                }
                 tracing::warn!(
                     "SensAuthManager: credential_mismatch \
                      (username + password did not match an enrolled \
@@ -308,6 +390,11 @@ impl AuthManager for SensAuthManager {
                 ))
             }
             Err(UserTokenValidatorError::BadUsernameFormat) => {
+                // Phase B-2 — bad-username-format also counts toward
+                // the throttle. A client systematically probing with
+                // malformed usernames (e.g., NFKC bypass attempts) is
+                // a brute-force surface even though no Argon2id runs.
+                let _ = self.throttle.record_failure(&throttle_key);
                 tracing::warn!(
                     "SensAuthManager: client supplied bad username \
                      format (empty / NFKC-rejected / oversize)"
@@ -322,6 +409,7 @@ impl AuthManager for SensAuthManager {
             // log so a future validator extension that surfaces
             // them through this path is visible.
             Err(other) => {
+                let _ = self.throttle.record_failure(&throttle_key);
                 tracing::error!(
                     "SensAuthManager: unexpected validator error \
                      on user-pass path: {}",

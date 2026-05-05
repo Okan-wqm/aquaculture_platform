@@ -205,6 +205,15 @@ pub enum AuditAction {
     /// at the command-handler level via the existing dispatch audit
     /// pipeline.
     OpcUaPkiPhaseTransition,
+    /// OPC UA session-establish authentication exceeded the
+    /// `FailedAuthWindow` cap (`OpcUaServerConfig.max_failed_auth_per_60s`,
+    /// default 20). Phase B-2 / Batch #270 closure. Emitted by the
+    /// SensAuthManager wrapper when an `authenticate_*_identity_token`
+    /// call returns `BadUserAccessDenied` because the throttle was
+    /// already in `Throttled` state. Forensic queryability for
+    /// brute-force attempts at the OPC UA surface — paired with
+    /// `MtlsHandshakeRejectStrict` for the TLS-layer reject events.
+    OpcUaAuthThrottled,
 }
 
 impl AuditAction {
@@ -253,6 +262,8 @@ impl AuditAction {
             Self::OpcUaCertTrusted => 32,
             Self::OpcUaCertRevoked => 33,
             Self::OpcUaPkiPhaseTransition => 34,
+            // Phase B-2 / Batch #270 — brute-force throttle wire.
+            Self::OpcUaAuthThrottled => 35,
         }
     }
 }
@@ -733,6 +744,8 @@ mod tests {
         assert_eq!(AuditAction::OpcUaCertTrusted.wire_tag(), 32);
         assert_eq!(AuditAction::OpcUaCertRevoked.wire_tag(), 33);
         assert_eq!(AuditAction::OpcUaPkiPhaseTransition.wire_tag(), 34);
+        // Phase B-2 — brute-force throttle wire.
+        assert_eq!(AuditAction::OpcUaAuthThrottled.wire_tag(), 35);
     }
 
     /// WHY (EDGE-HIGH-001 closure): AuditResource wire_tag stability pin.

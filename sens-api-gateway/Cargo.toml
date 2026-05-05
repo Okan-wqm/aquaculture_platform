@@ -720,3 +720,15 @@ path = "tests/invariants/d4_d6_mtls_unified.rs"
 [[test]]
 name = "opc_ua_leaf_pin_enforced"
 path = "tests/invariants/opc_ua_leaf_pin_enforced.rs"
+
+# Phase B-2 (Batches #269-#270) — OPC UA brute-force throttle closure
+# invariant. Tier-3 source-grep detector that pins the FailedAuthWindow
+# primitive + the Tier-1 architectural floor on SensAuthManager
+# (`Arc<FailedAuthWindow>` field + peek_decision pre-check + record_failure
+# on every Err path + clear_on_success on Ok). A regression that drops
+# any of these wires would silently regress brute-force defense — every
+# failed attempt would pay the Argon2id cost regardless of throttle state,
+# and credential brute-force would saturate the agent's CPU budget.
+[[test]]
+name = "opc_ua_auth_throttle_enforced"
+path = "tests/invariants/opc_ua_auth_throttle_enforced.rs"

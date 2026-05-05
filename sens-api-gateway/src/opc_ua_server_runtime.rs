@@ -709,9 +709,20 @@ pub async fn init_opc_ua_server(
             audit_port,
         );
 
+    // Phase B-2 (Batch #270) — construct the FailedAuthWindow from
+    // the operator-configured cap. The throttle is the architectural
+    // floor against credential brute-force on the OPC UA
+    // session-establish path; SensAuthManager::new takes the Arc by
+    // value, type-level enforcing every auth path goes through the
+    // throttle (the `opc_ua_auth_throttle_enforced` invariant pins
+    // the wire shape).
+    let throttle = crate::opc_ua_server::auth_throttle::FailedAuthWindow::new(
+        config.max_failed_auth_per_60s,
+    );
     let auth_manager = Arc::new(
         crate::opc_ua_sens_auth_manager::SensAuthManager::new(
             validator,
+            throttle,
         ),
     );
 
@@ -1063,8 +1074,12 @@ mod tests {
             Arc::new(NoCommitPi),
             Arc::new(NoAudit),
         );
+        // Phase B-2 — test fixture default throttle (cap=20 matches
+        // OpcUaServerConfig::default). Tests don't exercise the
+        // throttle; production cap comes from config.
+        let throttle = crate::opc_ua_server::auth_throttle::FailedAuthWindow::new(20);
         let auth_manager =
-            Arc::new(SensAuthManager::new(validator));
+            Arc::new(SensAuthManager::new(validator, throttle));
         SensRuntimeBundle::new(builder, auth_manager)
     }
 

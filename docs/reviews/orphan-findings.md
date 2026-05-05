@@ -2727,3 +2727,36 @@ The finding is named here so the deferred primitive has a tracked target rather 
 3. **Architectural symmetry:** the own-cert age policy mirrors the trusted-client age policy (mtls/mode.rs). Same operator mental model spans both transports.
 
 The finding is named here so the Phase B-1.5 batch has a tracked target rather than discovering this gap during a security review of the production OPC UA fleet.
+
+
+## ORPHAN-MEDIUM-051 — OPC UA brute-force throttle is per-username, NOT per-IP; cross-account credential-spray from a single source not detected (Phase B-2 architectural decision, 2026-05-05)
+
+**Status:** OPEN — owner: Okan-Wqm. Owner agent: Phase B-2.5 / future PR. Deadline: gated on either an upstream `async-opcua` PR exposing `ClientAddr` in the AuthManager trait OR a TCP-listener interceptor at the runtime layer.
+
+**Scope:** `sens-api-gateway/src/opc_ua_server/auth_throttle.rs::FailedAuthWindow` + `sens-api-gateway/src/opc_ua_sens_auth_manager.rs::authenticate_username_identity_token`.
+
+**Edge-expert surfaced:** Plan §B-2 specifies "per `ClientAddr` sliding window". async-opcua 0.18's `AuthManager` trait does NOT expose the client TCP address at the `authenticate_*_identity_token` callsite — only the `username: &str` (UserName/Password path) or the cert thumbprint (X.509 path). Per-IP throttling at this layer is structurally impossible without an upstream API change. This is the same architectural class as ORPHAN-HIGH-045 (per-handshake `ClientCertVerifier` callback hook gap) — both surface async-opcua 0.18 trait limits at agent-side callsites that need richer context.
+
+**What Phase B-2 delivers (per-username throttle):**
+
+- An attacker pounding `admin:wrong-pass` 100 times sees a hard cap at 20/60s, regardless of source IP. Argon2id CPU exhaustion is bounded.
+- An operator typoing 3 times and succeeding on the 4th does not get locked out (clear_on_success).
+
+**What Phase B-2 misses (per-IP gap):**
+
+- An attacker rotating through 1000 distinct usernames at 1 attempt each within 60 seconds is NOT throttled per-username (each username has only 1 failure). The CPU exhaustion at 1000 × Argon2id-cost per minute happens despite the throttle.
+- The `OpcUaServerConfig.max_failed_auth_per_60s` field name is a misnomer for this case — it's actually per-username, not per-IP.
+
+**HOW to resolve (two architectural paths, same class as ORPHAN-HIGH-045):**
+
+1. **Upstream `async-opcua` PR** — extend the `AuthManager::authenticate_*_identity_token` signatures with a `client_addr: SocketAddr` parameter. Suderra's `SensAuthManager` then consumes it + builds an additional `AuthThrottleKey::for_addr(addr)` bucket. Both per-username + per-IP throttles coexist (independent buckets, both must clear). Pros: clean architectural shape, upstream contribution. Cons: PR review timeline outside our control.
+
+2. **TCP-listener interceptor at the runtime layer** — wrap the `tokio::net::TcpListener` accept path BEFORE `ServerBuilder::build()` consumes it. The interceptor extracts the peer SocketAddr at accept time + stashes it in a `tokio::task_local!` scope that the AuthManager method body can read. Pros: agent-side fully owned. Cons: depends on async-opcua exposing the listener for operator override; if not, requires forking the crate.
+
+**Why this is logged as MEDIUM (not HIGH):**
+
+- Per-username throttle delivers ~80% of the security goal — the most common credential brute-force attack pattern is account-targeted (one username, many password guesses). Cross-account spray is a more sophisticated attacker.
+- The per-attempt Argon2id cost + the global `max_sessions=10` cap (Batch 228) provide a coarse upper bound on CPU exhaustion even without per-IP throttling.
+- Closure path is the same as ORPHAN-HIGH-045 (async-opcua hook gap class) — fixing one likely fixes both.
+
+The architectural decision is documented in `auth_throttle.rs` preamble + this orphan finding so future planners + auditors see the gap explicitly.

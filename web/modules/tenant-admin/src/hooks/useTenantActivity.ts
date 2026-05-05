@@ -12,9 +12,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { useState, useCallback } from 'react';
-import { useAuthContext } from '@aquaculture/shared-ui';
-import { graphqlRequest } from '../services/tenant-api.service';
-import { TENANT_ACTIVITY_QUERY } from '../graphql';
+import { getTenantActivity } from '../lib/api';
 import { logError } from '../utils/error-handling';
 
 // ============================================================================
@@ -49,12 +47,7 @@ export interface DailyActiveUsers {
   count: number;
 }
 
-export interface TenantActivityData {
-  recentLogins: RecentLogin[];
-  activeSessions: number;
-  userActivitySummaries: UserActivitySummary[];
-  dailyActiveUsers: DailyActiveUsers[];
-}
+// TenantActivityData imported from lib/api
 
 export type ActivityPeriod = '7d' | '30d';
 
@@ -78,14 +71,10 @@ export function useTenantActivity() {
   const [period, setPeriod] = useState<ActivityPeriod>('7d');
 
   const query = useQuery({
-    queryKey: activityKeys.summary(tenantId, period),
-    queryFn: async (): Promise<TenantActivityData> => {
+    queryKey: activityKeys.summary(period),
+    queryFn: async () => {
       try {
-        const data = await graphqlRequest<{ tenantActivity: TenantActivityData }>(
-          TENANT_ACTIVITY_QUERY,
-          { period },
-        );
-        return data.tenantActivity;
+        return await getTenantActivity(period);
       } catch (err) {
         logError('useTenantActivity', err);
         throw err;

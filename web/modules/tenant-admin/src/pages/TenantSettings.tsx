@@ -10,14 +10,15 @@ import {
   Lock,
 } from 'lucide-react';
 import { useAuthContext } from '@aquaculture/shared-ui';
+import { useMyTenant, useUpdateTenantSettings } from '../hooks/useTenantData';
 import {
-  useMyTenant,
-  useUpdateTenantSettings,
-  useNotificationPreferences,
-  useUpdateNotificationPreferences,
-  useMobileUsersData,
-  useUpdateMobileUserSettings,
-} from '../hooks/useTenantData';
+  getTenantUsers,
+  getNotificationPreferences,
+  updateNotificationPreferences,
+  getMobileUsersSettings,
+  updateMobileUserSettings,
+} from '../lib/api';
+import type { User, MobileUserSettingsData } from '../lib/types';
 import { logError } from '../utils/error-handling';
 
 /**
@@ -30,25 +31,8 @@ interface SettingsSection {
   icon: React.ReactNode;
 }
 
-/**
- * Mobile user settings from API
- */
-interface MobileUserSettingsData {
-  id: string;
-  userId: string;
-  tenantId: string;
-  isMobileEnabled: boolean;
-  allowedFeatures: {
-    mortality: boolean;
-    cull: boolean;
-    harvest: boolean;
-    feeding: boolean;
-    waterQuality: boolean;
-    tankView: boolean;
-  };
-}
-
-// TenantUser type is now provided by useMobileUsersData hook (TenantUserBasic)
+// MobileUserSettingsData and User types imported from lib/types
+type TenantUser = User;
 
 /**
  * Settings sections
@@ -150,19 +134,27 @@ const TenantSettings: React.FC = () => {
 
   // Populate notification prefs when data arrives
   useEffect(() => {
-    if (notifData) {
-      setNotifPrefs({
-        emailEnabled: notifData.emailEnabled,
-        smsEnabled: notifData.smsEnabled,
-        pushEnabled: notifData.pushEnabled,
-        quietHoursStart: notifData.quietHoursStart || '',
-        quietHoursEnd: notifData.quietHoursEnd || '',
-        quietHoursTimezone: notifData.quietHoursTimezone || 'Europe/Istanbul',
-        alertNotifications: notifData.alertNotifications,
-        taskNotifications: notifData.taskNotifications,
-        systemNotifications: notifData.systemNotifications,
-      });
-      setNotifDirty(false);
+    if (activeSection === 'notifications') {
+      setNotifLoading(true);
+      getNotificationPreferences()
+        .then((p) => {
+          setNotifPrefs({
+            emailEnabled: p.emailEnabled,
+            smsEnabled: p.smsEnabled,
+            pushEnabled: p.pushEnabled,
+            quietHoursStart: p.quietHoursStart || '',
+            quietHoursEnd: p.quietHoursEnd || '',
+            quietHoursTimezone: p.quietHoursTimezone || 'Europe/Istanbul',
+            alertNotifications: p.alertNotifications,
+            taskNotifications: p.taskNotifications,
+            systemNotifications: p.systemNotifications,
+          });
+          setNotifDirty(false);
+        })
+        .catch((err) => {
+          logError('TenantSettings.loadNotificationPreferences', err);
+        })
+        .finally(() => setNotifLoading(false));
     }
   }, [notifData]);
 
@@ -174,7 +166,7 @@ const TenantSettings: React.FC = () => {
   const saveNotificationPreferences = async () => {
     setSaveError(null);
     try {
-      await updateNotifPrefsMutation.mutateAsync({
+      await updateNotificationPreferences({
         emailEnabled: notifPrefs.emailEnabled,
         smsEnabled: notifPrefs.smsEnabled,
         pushEnabled: notifPrefs.pushEnabled,
@@ -213,7 +205,31 @@ const TenantSettings: React.FC = () => {
   const mobileSaving = updateMobileSettingsMutation.isPending;
   const [dirtyUserIds, setDirtyUserIds] = useState<Set<string>>(new Set());
 
-  // Sync settings from query
+  const loadMobileData = useCallback(async () => {
+    setMobileLoading(true);
+    setMobileError(null);
+    try {
+      // Load users and mobile settings in parallel
+      const [usersResult, settingsResult] = await Promise.all([
+        getTenantUsers(),
+        getMobileUsersSettings(),
+      ]);
+
+      setMobileUsers((usersResult || []) as TenantUser[]);
+
+      const settingsMap = new Map<string, MobileUserSettingsData>();
+      for (const s of settingsResult || []) {
+        settingsMap.set(s.userId, s);
+      }
+      setMobileSettings(settingsMap);
+      setDirtyUserIds(new Set());
+    } catch (err) {
+      setMobileError((err as Error).message);
+    } finally {
+      setMobileLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (mobileData?.settings) {
       setMobileSettings(mobileData.settings);
@@ -271,7 +287,7 @@ const TenantSettings: React.FC = () => {
       await Promise.all(
         Array.from(dirtyUserIds).map((userId) => {
           const settings = getUserSettings(userId);
-          return updateMobileSettingsMutation.mutateAsync({
+          return updateMobileUserSettings({
             userId,
             isMobileEnabled: settings.isMobileEnabled,
             mortality: settings.allowedFeatures.mortality,

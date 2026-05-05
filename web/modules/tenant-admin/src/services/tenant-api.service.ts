@@ -18,22 +18,42 @@ import { apiClient } from './api-client';
 // Re-export ALL types from lib/types
 // ============================================================================
 
-export interface Tenant {
-  id: string;
-  name: string;
-  slug: string;
-  description?: string;
-  logoUrl?: string;
-  contactEmail: string;
-  contactPhone?: string;
-  address?: string;
-  status: 'PENDING' | 'ACTIVE' | 'SUSPENDED' | 'CANCELLED';
-  plan: 'trial' | 'starter' | 'professional' | 'enterprise';
-  maxUsers: number;
-  settings?: Record<string, unknown>;
-  createdAt: string;
-  updatedAt: string;
-}
+export type {
+  Tenant,
+  TenantStats,
+  Module,
+  TenantModule,
+  MyModule,
+  ModuleUsageStat,
+  User,
+  TenantDatabaseInfo,
+  TableInfo,
+  ColumnInfo,
+  IndexInfo,
+  TableSchemaInfo,
+  GetTableDataInput,
+  TableDataResult,
+  TenantRole,
+  CreateTenantRoleInput,
+  UpdateTenantRoleInput,
+  TenantPlan,
+  TenantStatus,
+  UserRole,
+  UserStatus,
+  SubscriptionInfo,
+  EdgeDeviceListItem,
+  DeviceStats,
+  DeviceEvent,
+  NotificationPreferences,
+  MobileUserSettingsData,
+  TenantKeyResponse,
+  TenantProvisioningKey,
+  PermissionCategory,
+  PanelPermissions,
+  TenantRolePermissions,
+  PermissionAction,
+  PermissionResource,
+} from '../lib/types';
 
 // ============================================================================
 // Re-export ALL API functions from lib/api
@@ -42,7 +62,6 @@ export interface Tenant {
 export {
   getMyTenant,
   getTenantStats,
-  updateTenant,
   updateTenantSettings,
   getTenantUsers,
   createTenantUser,
@@ -85,21 +104,6 @@ export {
   createProvisioningKey,
   listProvisioningKeys,
   revokeProvisioningKey,
-  // Communication
-  getMyThreads,
-  getThreadMessages,
-  sendMessage,
-  createThread,
-  closeThread,
-  reopenThread,
-  getMyTickets,
-  getTicketComments,
-  createTicket,
-  addTicketComment,
-  rateTicket,
-  getMyAnnouncements,
-  viewAnnouncement,
-  acknowledgeAnnouncement,
 } from '../lib/api';
 
 export type {

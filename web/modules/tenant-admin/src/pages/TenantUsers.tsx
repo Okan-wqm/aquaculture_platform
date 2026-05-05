@@ -22,17 +22,20 @@ import { UserFilters } from '../components/users/UserFilters';
 import { BulkActions } from '../components/users/BulkActions';
 import { UserListSection, type DisplayUser } from '../components/users/UserListSection';
 import { useTenantRoles } from '../hooks/useTenantRoles';
-import { graphqlRequest } from '../services/tenant-api.service';
 import {
-  TENANT_USERS_QUERY,
-  CREATE_TENANT_USER_MUTATION,
-  UPDATE_USER_MUTATION,
-  DELETE_USER_MUTATION,
-  DEACTIVATE_TENANT_USER_MUTATION,
-} from '../graphql/user-queries';
+  getTenantUsers as fetchUsers,
+  updateTenantUser,
+  createTenantUser,
+  deleteTenantUser,
+  deactivateTenantUser,
+} from '../lib/api';
+import type { User as ApiUserType } from '../lib/types';
 import { logError } from '../utils/error-handling';
 import { formatRelativeTime } from '../utils/date-utils';
 import { DeleteConfirmModal } from '../components/common';
+
+// ApiUser = the User type returned by the GraphQL endpoint
+type ApiUser = ApiUserType;
 
 /**
  * User type for display
@@ -139,6 +142,8 @@ function transformUser(apiUser: ApiUser): User {
   };
 }
 
+// Query strings removed -- now using typed API functions from lib/api
+
 /**
  * TenantUsers Page
  *
@@ -191,20 +196,26 @@ const TenantUsers: React.FC = () => {
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, [searchQuery]);
 
-  // TanStack Query for users
-  const {
-    data: rawUsers = [],
-    isLoading: loading,
-    error: queryError,
-  } = useTenantUsersRaw({
-    limit: pageSize,
-    offset: page * pageSize,
-    status: statusFilter !== 'all' ? statusFilter : undefined,
-    role: roleFilter !== 'all' ? roleFilter : undefined,
-  });
+  const loadUsers = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const options: { limit: number; offset: number; status?: string; role?: string } = {
+        limit: pageSize,
+        offset: page * pageSize,
+      };
+      if (statusFilter !== 'all') options.status = statusFilter;
+      if (roleFilter !== 'all') options.role = roleFilter;
 
-  const error = queryError ? (queryError as Error).message : null;
-  const users = rawUsers.map(transformUser);
+      const apiUsers = await fetchUsers(options);
+      setUsers((apiUsers || []).map(transformUser));
+    } catch (err) {
+      logError('TenantUsers.loadUsers', err);
+      setError((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }, [page, pageSize, statusFilter, roleFilter]);
 
   // Mutations
   const createUserMutation = useCreateTenantUser();
@@ -226,16 +237,19 @@ const TenantUsers: React.FC = () => {
     setSaveError(null);
     try {
       if (editingUser) {
-        await updateUserMutation.mutateAsync({
-          userId: editingUser.id,
-          input: { firstName: data.firstName, lastName: data.lastName, roleId: data.roleId, accessType: data.accessType },
+        // Update existing user
+        await updateTenantUser(editingUser.id, {
+          firstName: data.firstName,
+          lastName: data.lastName,
+          roleId: data.roleId,
         });
       } else {
-        await createUserMutation.mutateAsync({
+        // Create new user
+        await createTenantUser({
           firstName: data.firstName,
           lastName: data.lastName,
           email: data.email,
-          roleId: data.roleId || '',
+          roleId: data.roleId,
           sendInvitation: data.sendInvitation ?? true,
         });
       }
@@ -252,7 +266,7 @@ const TenantUsers: React.FC = () => {
     if (!deletingUser) return;
     setDeleteError(null);
     try {
-      await deleteUserMutation.mutateAsync(deletingUser.id);
+      await deleteTenantUser(deletingUser.id);
       setDeletingUser(null);
     } catch (err) {
       logError('TenantUsers.handleDelete', err);
@@ -266,7 +280,9 @@ const TenantUsers: React.FC = () => {
     setDeactivateError(null);
     try {
       await Promise.all(
-        selectedUsers.map((userId) => deactivateUserMutation.mutateAsync(userId))
+        selectedUsers.map((userId) =>
+          deactivateTenantUser(userId)
+        )
       );
       setSelectedUsers([]);
     } catch (err) {

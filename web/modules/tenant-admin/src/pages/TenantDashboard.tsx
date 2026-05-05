@@ -16,8 +16,7 @@ import {
 } from 'lucide-react';
 import { getMyModules, getTenantUsers, getMySubscription } from '../lib/api';
 import type { User, MyModule } from '../lib/types';
-import { resolveModuleCode } from '../lib/constants';
-import { useTenantStats, useModuleUsageStats } from '../hooks/useTenantData';
+import { useTenantStats } from '../hooks/useTenantData';
 import { formatRelativeTime, formatDate } from '../utils/date-utils';
 
 /**
@@ -153,8 +152,10 @@ const TenantDashboard: React.FC = () => {
     queryFn: async () => {
       const modules = await getMyModules();
       return (modules || []).map((m: MyModule): ModuleStatus => {
-        // MED-15: registry lookup
-        const code = m.code || resolveModuleCode(m.name || '');
+        const code = m.name?.toLowerCase().includes('farm') ? 'farm'
+          : m.name?.toLowerCase().includes('hr') || m.name?.toLowerCase().includes('insan') ? 'hr'
+          : m.name?.toLowerCase().includes('sensor') || m.name?.toLowerCase().includes('sens') ? 'sensor'
+          : 'default';
         return {
           id: m.id,
           name: m.name,

@@ -17,47 +17,14 @@ import {
   assignModuleManager,
   removeModuleManager,
   updateTenantSettings,
-  graphqlRequest,
-  type Tenant,
-  type TenantStats,
-  type TenantModule,
-  type User,
-  type TenantDatabaseInfo,
-  type TableSchemaInfo,
-  type TableDataResult,
-  type GetTableDataInput,
-} from '../services/tenant-api.service';
-import {
-  messagingApi,
-  announcementsApi,
-  ticketsApi,
-  type MessageThread,
-  type Message,
-  type Announcement,
-  type SupportTicket as ApiSupportTicket,
-  type TicketComment as ApiTicketComment,
-  type TicketCategory as ApiTicketCategory,
-} from '../services/tenantApi';
-import {
-  EDGE_DEVICES_QUERY,
-  DEVICE_EVENTS_QUERY,
-  MY_MODULES_ID_QUERY,
-  MODULE_USAGE_STATS_QUERY,
-  TENANT_USERS_QUERY as TENANT_USERS_GQL,
-  GET_NOTIFICATION_PREFERENCES_QUERY,
-  UPDATE_NOTIFICATION_PREFERENCES_MUTATION,
-  GET_MOBILE_USERS_SETTINGS_QUERY,
-  UPDATE_MOBILE_USER_SETTINGS_MUTATION,
-  CREATE_TENANT_USER_MUTATION,
-  UPDATE_USER_MUTATION,
-  DELETE_USER_MUTATION,
-  DEACTIVATE_TENANT_USER_MUTATION,
-  APPROVE_DEVICE_MUTATION,
-  PING_DEVICE_MUTATION,
-  REBOOT_DEVICE_MUTATION,
-  MAINTENANCE_DEVICE_MUTATION,
-  DECOMMISSION_DEVICE_MUTATION,
-} from '../graphql';
+} from '../lib/api';
+import type {
+  Tenant,
+  TenantStats,
+  TenantModule,
+  User,
+  TenantDatabaseInfo,
+} from '../lib/types';
 
 // ============================================================================
 // Query Keys

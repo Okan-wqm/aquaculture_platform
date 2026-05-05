@@ -19,14 +19,8 @@ import {
   Cpu,
   Database,
 } from 'lucide-react';
-import { useQueryClient } from '@tanstack/react-query';
-import {
-  useTenantDatabase,
-  useTableSchema,
-  useTableData,
-  tenantKeys,
-} from '../hooks/useTenantData';
-import type { ColumnInfo, IndexInfo } from '../services/tenant-api.service';
+import { getTenantDatabase, getTableSchema, getTableData } from '../lib/api';
+import type { TenantDatabaseInfo, ColumnInfo, IndexInfo, TableDataResult } from '../lib/types';
 import { TableSchemaModal } from '../components/TableSchemaModal';
 import { TableDataModal } from '../components/TableDataModal';
 

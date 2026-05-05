@@ -7,7 +7,9 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { useAuthContext } from '@aquaculture/shared-ui';
-import { useAssignModuleManager, useTenantUsers, useModuleIds, useModuleUsageStats } from '../hooks/useTenantData';
+import { useAssignModuleManager } from '../hooks/useTenantData';
+import { useTenantUsers } from '../hooks/useTenantData';
+import { getMyModuleIds, getModuleUsageStats } from '../lib/api';
 import { logError } from '../utils/error-handling';
 
 /** Module route mapping -- correct dashboard routes. */
@@ -344,6 +346,9 @@ const ModuleDetailsModal: React.FC<{
   );
 };
 
+// ModuleUsageStat imported via lib/api (getModuleUsageStats return type)
+import type { ModuleUsageStat } from '../lib/types';
+
 /**
  * TenantModules Page
  *
@@ -367,10 +372,31 @@ const TenantModules: React.FC = () => {
   const [selectedModule, setSelectedModule] = useState<DisplayModule | null>(null);
 
   // BUG-019: Fetch real module UUIDs from GraphQL — AuthContext only carries code/name/route
-  const { data: moduleIdByCode = {} } = useModuleIds();
+  const [moduleIdByCode, setModuleIdByCode] = useState<Record<string, string>>({});
+  useEffect(() => {
+    getMyModuleIds()
+      .then((modules) => {
+        const map: Record<string, string> = {};
+        (modules || []).forEach((m) => { if (m.code) map[m.code] = m.id; });
+        setModuleIdByCode(map);
+      })
+      .catch((err) => logError('TenantModules.fetchModuleIds', err));
+  }, []);
 
   // Wave 4: Fetch module usage stats (graceful fallback if backend not ready)
-  const { data: usageStats = {} } = useModuleUsageStats();
+  const [usageStats, setUsageStats] = useState<Record<string, ModuleUsageStat>>({});
+  useEffect(() => {
+    getModuleUsageStats()
+      .then((stats) => {
+        const map: Record<string, ModuleUsageStat> = {};
+        (stats || []).forEach((s) => { map[s.moduleCode] = s; });
+        setUsageStats(map);
+      })
+      .catch((err) => {
+        // Graceful fallback -- usage stats are optional enrichment
+        logError('TenantModules.fetchUsageStats', err);
+      });
+  }, []);
 
   // Transform AuthContext modules to DisplayModule format
   const modules = useMemo<DisplayModule[]>(() => {

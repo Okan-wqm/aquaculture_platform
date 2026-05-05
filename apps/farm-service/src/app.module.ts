@@ -172,13 +172,19 @@ import { AddFarmOutboxNotifyTrigger1782100000000 } from './database/migrations/1
 // and a `dist/migrations/*.js` glob would match zero files at runtime.
 import { MovePublicTablesToFarm1786000000000 } from './database/migrations/1786000000000-MovePublicTablesToFarm';
 import { AddFarmOutboxModernColumns1786200000000 } from './database/migrations/1786200000000-AddFarmOutboxModernColumns';
-import { AddDomainRetentionFunctions1787000000000 } from './database/migrations/1787000000000-AddDomainRetentionFunctions';
-import { AddStorageInventoryReceivedDate1787100000000 } from './database/migrations/1787100000000-AddStorageInventoryReceivedDate';
-import { AddStorageLotMixesGinIndex1787200000000 } from './database/migrations/1787200000000-AddStorageLotMixesGinIndex';
-import { AddRecurringTemplateTimezone1787300000000 } from './database/migrations/1787300000000-AddRecurringTemplateTimezone';
-import { AddDailyBatchFeedingMaterializedView1787400000000 } from './database/migrations/1787400000000-AddDailyBatchFeedingMaterializedView';
-import { AddDailyTankWaterQualityMaterializedView1787500000000 } from './database/migrations/1787500000000-AddDailyTankWaterQualityMaterializedView';
-import { WireSupplierSitesAndSiteContacts1788100000000 } from './database/migrations/1788100000000-WireSupplierSitesAndSiteContacts';
+// Phase 7.4 — cross-service correlation column on water_quality_measurements
+// pointing back at the sensor_readings row that produced it. Sibling migrations
+// 1786000000000–1788100000000 are picked up by the aqua-db-migrate orchestrator
+// via glob; only the explicit list below is consulted by farm-service's
+// in-process MigrationRunnerService when DATABASE_MIGRATIONS_RUN=true (dev / E2E).
+// Future hygiene PR: backfill the omitted 1787*/1788* entries here too.
+import { AddWaterQualitySensorReadingCorrelation1788200000000 } from './database/migrations/1788200000000-AddWaterQualitySensorReadingCorrelation';
+// FARM-MEDIUM-005 — partial UNIQUE + lookup indexes for the relatedSensorReadingId
+// column. Split from the column-add migration because CREATE INDEX without
+// CONCURRENTLY against pre-existing per-tenant copies of water_quality_measurements
+// would take ACCESS EXCLUSIVE and stall writers. See migration's docblock for
+// the runtime tenant-schema discovery + transaction=false rationale.
+import { AddWaterQualitySensorReadingCorrelationIndexes1788210000000 } from './database/migrations/1788210000000-AddWaterQualitySensorReadingCorrelationIndexes';
 
 @Module({
   imports: [
@@ -232,13 +238,8 @@ import { WireSupplierSitesAndSiteContacts1788100000000 } from './database/migrat
             // ascending timestamp order matches the runner's apply order.
             MovePublicTablesToFarm1786000000000,
             AddFarmOutboxModernColumns1786200000000,
-            AddDomainRetentionFunctions1787000000000,
-            AddStorageInventoryReceivedDate1787100000000,
-            AddStorageLotMixesGinIndex1787200000000,
-            AddRecurringTemplateTimezone1787300000000,
-            AddDailyBatchFeedingMaterializedView1787400000000,
-            AddDailyTankWaterQualityMaterializedView1787500000000,
-            WireSupplierSitesAndSiteContacts1788100000000,
+            AddWaterQualitySensorReadingCorrelation1788200000000,
+            AddWaterQualitySensorReadingCorrelationIndexes1788210000000,
           ],
           // INFRA-CRITICAL-020 contract: env-aware migration timing.
           // - Production: DATABASE_MIGRATIONS_RUN=false (default). The

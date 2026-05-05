@@ -316,6 +316,34 @@ export class WaterQualityMeasurement {
   @Column({ type: 'jsonb', nullable: true })
   sensorInfo?: SensorInfo;
 
+  /**
+   * Phase 7.4 — back-reference to the `sensor_readings` row in
+   * sensor-service that produced this WQ measurement.
+   *
+   * Null when the measurement was logged manually (operator entry),
+   * imported in bulk historically, or pre-dates the cross-service
+   * correlation feature. When set, the audit UI can render a
+   * "view source reading" link that the gateway resolves through
+   * sensor-service.
+   *
+   * Cardinality is N:1 — multiple sensor readings can independently
+   * exist, but a given sensor reading produces at most one WQ
+   * measurement. The partial unique index
+   * `idx_wq_related_sensor_reading_uniq` enforces it at the DB.
+   *
+   * The FK is INTENTIONALLY NOT declared at the DB layer — the
+   * sensor-service owns the `sensor_readings` table in a different
+   * schema namespace, and the correlation is informational rather
+   * than invariant (sensor readings can be retention-deleted while
+   * derived WQ measurements survive). See migration
+   * 1788200000000-AddWaterQualitySensorReadingCorrelation.ts for
+   * the architectural rationale.
+   */
+  @Field(() => ID, { nullable: true })
+  @Column('uuid', { nullable: true })
+  @Index()
+  relatedSensorReadingId?: string;
+
   // -------------------------------------------------------------------------
   // BATCH İLİŞKİSİ (opsiyonel)
   // -------------------------------------------------------------------------

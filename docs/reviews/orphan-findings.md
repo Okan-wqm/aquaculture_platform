@@ -2781,3 +2781,33 @@ The architectural decision is documented in `auth_throttle.rs` preamble + this o
 3. **Periodic active-session reconciliation** — agent boots a 30s tick task that polls `ServerHandle::active_sessions()` (if exposed) + diffs against `active_leases`; drops leases whose UserToken no longer corresponds to a running session. Pros: works without a callback. Cons: 30s lag between session-close + lease release; race between poll + close that briefly keeps the lease alive.
 
 The TTL=1h fail-safe is the load-bearing release path until one of (1)/(2)/(3) lands. The architectural shape is documented in `session_quota.rs` preamble + this finding.
+
+
+## ORPHAN-MEDIUM-053 — OPC UA SubscriptionBridge production notifier deferred to Phase B-4.5; LoggingNotifier consumes broadcast but does not propagate to async-opcua subscription state (Phase B-4 architectural decision, 2026-05-05)
+
+**Status:** OPEN — owner: Okan-Wqm. Owner agent: Phase B-4.5 / future PR. Deadline: gated on async-opcua 0.18 subscription notification API verification (locally blocked by 8GB RAM ceiling on the opc-ua-server feature compile; CI compiles the full feature set).
+
+**Scope:** `sens-api-gateway/src/opc_ua_server/subscription_bridge.rs::LoggingNotifier` + the `NodeChangeNotifier` production impl that Phase B-4.5 will introduce.
+
+**Edge-expert surfaced:** Phase B-4 ships the SubscriptionBridge primitive — broadcast consumer + dispatch loop + cancel-token + RAII shutdown. The bridge consumes `ProcessImage::subscribe_changes()` broadcast at production rate, drains the buffer (preventing the producer's Lagged counter from accumulating), and dispatches each TagChange via `LoggingNotifier`. The `LoggingNotifier` records every change via `tracing::trace!` `target = "opc_ua.subscription"` but does NOT propagate to async-opcua's subscription state. HMI subscription latency therefore remains bound by the polling interval (`subscription_polling_interval_ms`, default 100ms) — Phase B-4's architectural primitive lands but the user-visible latency improvement waits for B-4.5.
+
+**Why this is acceptable for Phase B-4:**
+
+- **The architectural seam is established.** `NodeChangeNotifier` trait is the single integration point. Phase B-4.5 swaps in a `SensNodeManagerNotifier` impl that calls async-opcua's `record_value_change` (or whatever 0.18 exposes); zero changes to the bridge or its tests are required.
+- **The broadcast::Receiver drains in production.** Without B-4 the producer would log Lagged at every burst > 1024 events; with B-4 the bridge consumes the buffer continuously.
+- **HMI freshness for READS is already up-to-date.** The pre-B-4 SensNodeManager virtual-node read path consults `process_image.get_tag()` live on every browse/read — a `Read` request returns fresh data with no staleness. Phase B-4 specifically targets the SUBSCRIPTION path where async-opcua's internal sampling sets the latency floor.
+- **Operator-readable observability is delivered.** The LoggingNotifier emits structured trace events with browse_name + value + quality + source + timestamp — operators can audit the change firehose end-to-end while the production notifier is being verified.
+
+**HOW to resolve (Phase B-4.5):**
+
+1. **Verify async-opcua 0.18 subscription notification API.** Likely candidates: `NodeManager::record_value_change(node_id, variant, source_timestamp)`, `ServerHandle::notify_subscription(node_id, variant)`, or a context-bound notifier installed at NodeManager construction. Verification requires an `--features opc-ua-server` compile (locally blocked by RAM; CI runs the full set).
+
+2. **Implement `SensNodeManagerNotifier`** at `sens-api-gateway/src/opc_ua_server/subscription_bridge.rs` (or a new sibling `sens_node_manager_notifier.rs`). Holds an `Arc<SensNodeManager>` (the production NodeManager) + the namespace_index (resolved at boot). `notify(browse_name, change)` looks up the node_id via the registry + namespace_index, builds the OPC UA `Variant` from `change.new_value` (with appropriate type coercion based on the registered `OpcUaTagNode.data_type`), and calls the verified API.
+
+3. **Swap the production wire** in `init_opc_ua_server` — replace `Arc::new(LoggingNotifier)` with `Arc::new(SensNodeManagerNotifier::new(sens_node_manager.clone(), namespace_index))`. The bridge spawn shape is unchanged.
+
+4. **E2E verification** — `tests/e2e/opc_ua_subscription_hmi.rs` (Plan §B-4 E2E entry) drives a real UaExpert client at 100ms publish interval + measures p99 latency from `ProcessImage::write_tag` → DataChangeNotification receipt. SLO: p99 < 50ms (Plan §B-4 invariant).
+
+5. **Update `opc_ua_subscription_freshness.rs` invariant** — add an assertion that the production code path references `SensNodeManagerNotifier` rather than `LoggingNotifier` in the boot wire, so a regression that reverts to LoggingNotifier surfaces at test time.
+
+**Closure path discipline:** this is a clean follow-on, not a yama. The Phase B-4 commit ships the primitive + the trait + the spawn + the lifecycle integration; Phase B-4.5 ships the production notifier impl. Each phase is independently testable + invariant-pinned. The only consequence of B-4 without B-4.5 is that subscription latency stays at the pre-B-4 polling-bound floor — a no-regression baseline rather than a security-active gap.

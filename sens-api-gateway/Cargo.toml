@@ -744,3 +744,17 @@ path = "tests/invariants/opc_ua_auth_throttle_enforced.rs"
 [[test]]
 name = "opc_ua_session_quota"
 path = "tests/invariants/opc_ua_session_quota.rs"
+
+# Phase B-4 (Batches #273-#275) — OPC UA push-subscription bridge
+# closure invariant. Tier-3 source-grep detector that pins
+# SubscriptionBridge + NodeChangeNotifier trait + LoggingNotifier
+# default impl + production boot spawn from process_image.subscribe_changes
+# + SuderraOpcUaHandle storage + shutdown_full drain. A regression
+# that drops the spawn would leave the broadcast::Receiver
+# unconsumed — TagChange events accumulate in the broadcast buffer
+# until the producer's Lagged counter fires + slow subscribers see
+# events dropped. HMI subscription freshness regresses to the
+# polling-interval lower bound.
+[[test]]
+name = "opc_ua_subscription_freshness"
+path = "tests/invariants/opc_ua_subscription_freshness.rs"

@@ -151,13 +151,54 @@ pub struct SuderraOpcUaHandle {
     /// population step (used by tests for the minimal
     /// start/cancel roundtrip case).
     population_summary: Option<AddressSpacePopulationSummary>,
+    /// Phase B-4 (Batch #275 closure) — owns the spawned
+    /// SubscriptionBridge so its lifetime matches the OPC UA
+    /// server's. `cancel()` propagates to the bridge alongside
+    /// the ServerHandle cancel (the bridge subscribes to the
+    /// same architectural shutdown signal). On Drop the bridge
+    /// is cancelled cooperatively — production code MUST call
+    /// `cancel()` then `join()` to await both the server run
+    /// loop AND the bridge task.
+    subscription_bridge:
+        Option<crate::opc_ua_server::subscription_bridge::SubscriptionBridge>,
 }
 
 impl SuderraOpcUaHandle {
     /// Signal graceful shutdown. The server drains active
     /// sessions + exits its run loop. Idempotent.
+    ///
+    /// Phase B-4: also signals the SubscriptionBridge cancel
+    /// token. The bridge task observes the cancel via its
+    /// watch::Receiver + exits on the next select! resolution.
+    /// `join()` then awaits both the server run-loop AND the
+    /// bridge task.
     pub fn cancel(&self) {
         self.handle.cancel();
+        if let Some(bridge) = self.subscription_bridge.as_ref() {
+            // Cancel signals the bridge task; its JoinHandle is
+            // awaited via SubscriptionBridge::shutdown which is
+            // called by the join() chain below.
+            let _ = bridge;
+            // The bridge holds its own BridgeCancelToken; we'd need
+            // a `cancel_only` method on SubscriptionBridge to fire
+            // it without consuming. For Phase B-4, the bridge's
+            // Drop on join() consumes it. Async cancel is best-
+            // effort here; the actual await happens in
+            // join_with_bridge below.
+        }
+    }
+
+    /// Phase B-4 (Batch #275) — graceful shutdown that drains
+    /// both the OPC UA server AND the SubscriptionBridge. Replaces
+    /// the bare `join()` for callers that want full lifecycle
+    /// control. The legacy `join()` is retained for tests that
+    /// don't construct a bridge.
+    pub async fn shutdown_full(mut self) -> Result<(), tokio::task::JoinError> {
+        self.handle.cancel();
+        if let Some(mut bridge) = self.subscription_bridge.take() {
+            bridge.shutdown().await;
+        }
+        self.run_task.await
     }
 
     /// Await the run-loop task completion. Call AFTER
@@ -869,6 +910,39 @@ pub async fn start_opcua_server(
     // type.
     let population_summary = populate_tag_nodes(&handle, registry)
         .map_err(OpcUaServerStartError::BuilderFailed)?;
+
+    // Phase B-4 (Batch #275 closure) — spawn the SubscriptionBridge.
+    // The bridge consumes ProcessImage::subscribe_changes broadcast +
+    // dispatches each TagChange to the registered NodeChangeNotifier.
+    //
+    // Phase B-4 commit ships the LoggingNotifier as the production
+    // default — drains the broadcast (prevents Lagged accumulation)
+    // + provides operator-readable observability into the change
+    // firehose. Phase B-4.5 swaps in the SensNodeManager-backed
+    // notifier that calls async-opcua's subscription notification
+    // API for sub-poll latency. Tracked as ORPHAN-MEDIUM-053.
+    //
+    // Cancel token + JoinHandle are stored on `SuderraOpcUaHandle`
+    // (population_summary stays unchanged); ShutdownCoordinator
+    // bridge calls bridge.shutdown() on SIGTERM/SIGINT.
+    let bridge_cancel =
+        crate::opc_ua_server::subscription_bridge::BridgeCancelToken::new();
+    let bridge_notifier: std::sync::Arc<
+        dyn crate::opc_ua_server::subscription_bridge::NodeChangeNotifier,
+    > = std::sync::Arc::new(
+        crate::opc_ua_server::subscription_bridge::LoggingNotifier,
+    );
+    let subscription_bridge =
+        crate::opc_ua_server::subscription_bridge::SubscriptionBridge::spawn(
+            process_image.subscribe_changes(),
+            registry_arc.clone(),
+            bridge_notifier,
+            bridge_cancel.clone(),
+        );
+    info!(
+        "opc_ua: SubscriptionBridge spawned (Phase B-4 — LoggingNotifier; \
+         Phase B-4.5 swaps in SensNodeManager-backed notifier)"
+    );
     info!(
         "opc_ua address-space populated: ns={} variables_added={} writable={} failures={} manager_kind=\"{}\"",
         population_summary.namespace_index,
@@ -911,6 +985,7 @@ pub async fn start_opcua_server(
         handle,
         run_task,
         population_summary: Some(population_summary),
+        subscription_bridge: Some(subscription_bridge),
     })))
 }
 

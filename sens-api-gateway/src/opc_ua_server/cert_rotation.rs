@@ -61,7 +61,7 @@
 
 use std::sync::{Arc, RwLock};
 
-use super::pki_store::{PkiStore, PkiStoreError};
+use super::pki_store::{LedgerEntry, PkiStore, PkiStoreError};
 
 /// 3-phase rollout state. Stable wire shape — variant order is the
 /// strictness ordering (Legacy < Warn < Strict).
@@ -216,18 +216,12 @@ impl std::fmt::Debug for CertRotation {
 }
 
 impl CertRotation {
-    /// Boot-time construction. `initial_mode` lets callers override the
-    /// loaded-from-ledger mode for hermetic test contexts; production
-    /// passes `None` to use the ledger-recovered mode. First-boot
-    /// (no PhaseTransition entries on the ledger yet) defaults to
-    /// `LegacyAccept`.
-    ///
-    /// NOTE: Phase B-1 does NOT yet recover the mode by walking the
-    /// ledger — the ledger walker is Phase B-1.5 (paired with the
-    /// rollback-window primitive). For Phase B-1, `initial_mode = None`
-    /// + first-boot deployments yields `LegacyAccept`; pre-B-1 upgrades
-    /// continue to behave identically until an explicit promotion
-    /// command lands.
+    /// Test-time / hermetic constructor. `initial_mode` is the mode the
+    /// instance starts in — production callers should prefer
+    /// [`Self::load_from_pki_store`] which recovers the mode from the
+    /// ledger walk. First-boot deployments with no `PhaseTransition`
+    /// entry on the ledger default to `LegacyAccept` per the
+    /// in-place-upgrade contract.
     pub fn new(
         pki_store: Arc<PkiStore>,
         initial_mode: Option<OpcUaPkiMode>,
@@ -236,6 +230,39 @@ impl CertRotation {
             pki_store,
             state: RwLock::new(initial_mode.unwrap_or(OpcUaPkiMode::LegacyAccept)),
         }
+    }
+
+    /// Production boot-time constructor — Phase B-1.5 closure.
+    ///
+    /// Walks the on-disk PkiStore ledger via
+    /// [`PkiStore::ledger_entries`], scans for the most recent
+    /// `LedgerEntry::PhaseTransition`, and parses its `to_mode` wire
+    /// label back into [`OpcUaPkiMode`]. If no `PhaseTransition` is
+    /// recorded (first-boot or upgrade-in-place from pre-B-1), the
+    /// instance starts in `LegacyAccept`.
+    ///
+    /// Returns `Err(CertRotationError::LedgerWriteFailed)` only if the
+    /// ledger walk itself fails (chain corruption, IO error). An
+    /// unparseable `to_mode` string in the ledger is also surfaced
+    /// here — the wire labels are stable per
+    /// [`OpcUaPkiMode::wire_label`], so an unparseable value indicates
+    /// a tampered ledger or a wire-label drift that the operator must
+    /// investigate.
+    ///
+    /// Pre-Phase-B-1.5 callers used `CertRotation::new(_, None)` which
+    /// always defaulted to `LegacyAccept` regardless of any prior
+    /// promotion. Production now uses this walker so a promoted fleet
+    /// stays promoted across agent restarts.
+    pub fn load_from_pki_store(
+        pki_store: Arc<PkiStore>,
+    ) -> Result<Self, CertRotationError> {
+        let entries = pki_store.ledger_entries()?;
+        let recovered_mode = scan_last_phase_transition(&entries)?;
+        let initial = recovered_mode.unwrap_or(OpcUaPkiMode::LegacyAccept);
+        Ok(Self {
+            pki_store,
+            state: RwLock::new(initial),
+        })
     }
 
     /// Active mode. Cheap — read-lock + Copy.
@@ -293,6 +320,40 @@ impl CertRotation {
             .map_err(|_| CertRotationError::LockPoisoned)?;
         *guard = new_mode;
         Ok(TransitionOutcome::Applied)
+    }
+}
+
+/// Reverse-scan the ledger entries for the most recent
+/// `LedgerEntry::PhaseTransition`. Returns `Ok(Some(mode))` if found,
+/// `Ok(None)` for first-boot ledgers (only Genesis + cert-trust
+/// entries), or `Err(CertRotationError)` if the recorded `to_mode`
+/// wire label is unparseable.
+fn scan_last_phase_transition(
+    entries: &[LedgerEntry],
+) -> Result<Option<OpcUaPkiMode>, CertRotationError> {
+    for entry in entries.iter().rev() {
+        if let LedgerEntry::PhaseTransition { to_mode, .. } = entry {
+            return parse_wire_label(to_mode).map(Some);
+        }
+    }
+    Ok(None)
+}
+
+/// Parse a wire-label string back into [`OpcUaPkiMode`]. Stable round-
+/// trip with [`OpcUaPkiMode::wire_label`] — drift between the two
+/// surfaces this function as the failure point at boot rather than
+/// silently converting unknown labels to LegacyAccept.
+fn parse_wire_label(label: &str) -> Result<OpcUaPkiMode, CertRotationError> {
+    match label {
+        "legacy_accept" => Ok(OpcUaPkiMode::LegacyAccept),
+        "warn_on_mismatch" => Ok(OpcUaPkiMode::WarnOnMismatch),
+        "strict_pin_only" => Ok(OpcUaPkiMode::StrictPinOnly),
+        other => Err(CertRotationError::LedgerWriteFailed(format!(
+            "unparseable phase-transition wire label `{other}` — \
+             must be one of: legacy_accept, warn_on_mismatch, \
+             strict_pin_only. Tampered ledger or wire-label drift \
+             between OpcUaPkiMode::wire_label() and parse_wire_label()."
+        ))),
     }
 }
 
@@ -533,5 +594,91 @@ mod tests {
     fn fingerprint_module_link() {
         let fp = CertFingerprint::from_der(b"x");
         assert_eq!(fp.as_hex().len(), 64);
+    }
+
+    // ====================================================================
+    // Phase B-1.5 — load_from_pki_store ledger walker tests
+    // ====================================================================
+
+    /// First-boot ledger (only Genesis entry, no PhaseTransition) yields
+    /// `LegacyAccept` — the in-place-upgrade contract from pre-Phase-B-1.
+    #[test]
+    fn load_from_pki_store_first_boot_returns_legacy_accept() {
+        let (_tmp, pki, _rot_old) = fresh_rotation_with_n_pins(0);
+        // No transitions recorded — only Genesis.
+        let rot = CertRotation::load_from_pki_store(pki.clone())
+            .expect("walker must succeed on first-boot ledger");
+        assert_eq!(rot.mode(), OpcUaPkiMode::LegacyAccept);
+    }
+
+    /// After a promotion to Warn, the walker recovers Warn on next boot.
+    #[test]
+    fn load_from_pki_store_recovers_warn_after_promotion() {
+        let (_tmp, pki, rot) = fresh_rotation_with_n_pins(1);
+        rot.transition_to(OpcUaPkiMode::WarnOnMismatch)
+            .expect("promote to warn");
+        // Drop the in-memory CertRotation; reload from ledger.
+        drop(rot);
+        let rot2 = CertRotation::load_from_pki_store(pki.clone())
+            .expect("reload from ledger");
+        assert_eq!(rot2.mode(), OpcUaPkiMode::WarnOnMismatch);
+    }
+
+    /// After Legacy → Warn → Strict, walker recovers Strict (most recent
+    /// PhaseTransition wins).
+    #[test]
+    fn load_from_pki_store_recovers_strict_after_full_promotion() {
+        let (_tmp, pki, rot) = fresh_rotation_with_n_pins(1);
+        rot.transition_to(OpcUaPkiMode::WarnOnMismatch)
+            .expect("warn");
+        rot.transition_to(OpcUaPkiMode::StrictPinOnly)
+            .expect("strict");
+        drop(rot);
+        let rot2 = CertRotation::load_from_pki_store(pki.clone())
+            .expect("reload");
+        assert_eq!(rot2.mode(), OpcUaPkiMode::StrictPinOnly);
+    }
+
+    /// Cert-trust entries between phase transitions don't affect the
+    /// walker — only the most recent PhaseTransition matters.
+    #[test]
+    fn load_from_pki_store_ignores_cert_entries_after_phase() {
+        let (_tmp, pki, rot) = fresh_rotation_with_n_pins(1);
+        rot.transition_to(OpcUaPkiMode::WarnOnMismatch)
+            .expect("warn");
+        // Add another cert AFTER the transition — should not change
+        // the recovered mode.
+        pki.add_trusted_cert(b"POST_TRANSITION_CERT", "post".to_string())
+            .expect("add post-transition cert");
+        drop(rot);
+        let rot2 = CertRotation::load_from_pki_store(pki.clone())
+            .expect("reload");
+        assert_eq!(rot2.mode(), OpcUaPkiMode::WarnOnMismatch);
+    }
+
+    /// `parse_wire_label` round-trips with [`OpcUaPkiMode::wire_label`]
+    /// for all 3 variants — drift between the two functions surfaces
+    /// at test time.
+    #[test]
+    fn parse_wire_label_round_trips_all_variants() {
+        for m in [
+            OpcUaPkiMode::LegacyAccept,
+            OpcUaPkiMode::WarnOnMismatch,
+            OpcUaPkiMode::StrictPinOnly,
+        ] {
+            let parsed = parse_wire_label(m.wire_label())
+                .expect("round-trip must succeed");
+            assert_eq!(parsed, m);
+        }
+    }
+
+    /// An unknown wire label surfaces as
+    /// `CertRotationError::LedgerWriteFailed` — fail-closed boot rather
+    /// than silently treating it as `LegacyAccept`.
+    #[test]
+    fn parse_wire_label_rejects_unknown_string() {
+        let err = parse_wire_label("future_phase_v2")
+            .expect_err("unknown label must fail");
+        assert!(matches!(err, CertRotationError::LedgerWriteFailed(_)));
     }
 }

@@ -197,18 +197,30 @@ pub fn current_agent_tenant() -> Option<TenantId> {
     AUDIT_AGENT_TENANT_GLOBAL.get().copied()
 }
 
-/// Build an [`AuditEntry`] for a structural-mTLS surface event and emit
-/// it via the process-global audit sink + tracing as defense-in-depth.
+/// Build an [`AuditEntry`] for a cross-cutting forensic-surface event
+/// and emit it via the process-global audit sink + tracing as
+/// defense-in-depth.
 ///
-/// Calling pattern at the cross-cutting emit sites:
+/// Calling pattern at the cross-cutting emit sites — any code path
+/// that needs to emit an audit-chain entry without an AppState reference:
 /// - Strict-mode handshake reject in [`crate::mtls::SuderraServerCertVerifier`].
 /// - Custom CA bundle partial parse in [`crate::mqtt::MqttClient::configure_tls`].
+/// - OPC UA PkiStore mutations (cert trusted, cert revoked, phase
+///   transition) in [`crate::opc_ua_server::pki_store::PkiStore`].
 ///
-/// Both sites have NO command-correlation-id (the events are not tied
-/// to an inbound MQTT command); the helper synthesizes a UUIDv4 so the
-/// `correlation_id` REQUIRED-field invariant of `AuditEntry::canonical_bytes`
-/// is satisfied. Operators correlate the synthesized id with the
-/// associated `tracing::error!` line by timestamp + label.
+/// All these sites have NO command-correlation-id (the events are not
+/// tied to an inbound MQTT command); the helper synthesizes a UUIDv4 so
+/// the `correlation_id` REQUIRED-field invariant of
+/// `AuditEntry::canonical_bytes` is satisfied. Operators correlate the
+/// synthesized id with the associated `tracing::error!` line by
+/// timestamp + label.
+///
+/// **Function name retained for `mtls` prefix despite generic intent**
+/// — the original Phase 1.1.5 closure named it specifically; renaming
+/// would churn 4+ callsites + 4 invariant assertions for marginal
+/// value. The doc comment establishes the intent (forensic surface,
+/// not mTLS-specific) so future readers don't think this function is
+/// scoped to mTLS only.
 ///
 /// Failure handling — audit emission MUST NOT abort the caller's
 /// security path. If the sink rejects the entry (chain-failed,

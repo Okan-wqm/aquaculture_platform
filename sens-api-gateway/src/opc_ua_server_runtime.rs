@@ -497,6 +497,20 @@ pub struct OpcUaInitDeps<'a> {
     pub user_token_manifest_store:
         Arc<crate::authz::user_token_manifest_runtime::UserTokenManifestStore>,
     pub license: &'a EdgeLicenseLimits,
+    /// Phase B-1.5 (ADR-031 §1 device-binding closure) — the agent's
+    /// stable hardware/deployment identity, threaded from
+    /// `AgentConfig.device_code`. Recorded in the [`crate::opc_ua_server::pki_store::PkiStore`]
+    /// genesis ledger entry to bind the on-disk PKI state to a physical
+    /// device. A PkiStore ledger reload that observes a different
+    /// `device_code` returns `LedgerCorrupted::device_code` — fail-closed
+    /// detection for filesystem-image cloning between devices.
+    ///
+    /// Phase B-1 placeholder used `config.bind` (host:port string) which
+    /// changes if the operator re-binds the OPC UA listener — a legitimate
+    /// rotation would have surfaced as a fake "moved device" alarm. This
+    /// field uses `device_code` (machine UID minted at provisioning,
+    /// stable across re-bindings) — proper architectural shape.
+    pub device_code: &'a str,
 }
 
 /// Gate-chained startup: operator config switch → Faz 7
@@ -549,6 +563,7 @@ pub async fn init_opc_ua_server(
         rbac_manifest_store,
         user_token_manifest_store,
         license,
+        device_code,
     } = deps;
     // Gate 1: operator off-switch.
     if !config.enabled {
@@ -765,32 +780,37 @@ pub async fn start_opcua_server(
     let manager_kind =
         "SensNodeManager+SensAuthManager (typed-authz, virtual nodes)";
 
-    // Phase B-1 (ADR-031): construct the PkiStore + CertRotation +
-    // pass them into build_server via PkiRuntimeRef. The PkiStore
-    // owns the filesystem layout under `config.own_pki_dir`; the
-    // CertRotation tracks the active rollout phase. First-boot
-    // defaults to `LegacyAccept` so in-place upgrades from pre-B-1
-    // continue to behave identically until an explicit promotion
-    // command lands (Phase C `cmd_update_opc_ua_pki`).
+    // Phase B-1 (ADR-031) — construct PkiStore + CertRotation + pass into
+    // build_server via PkiRuntimeRef.
     //
-    // The device_code threading is Phase B-1.5 — for this batch we
-    // pass `config.bind` as a stable per-deployment identifier. A
-    // moved PkiStore (different bind addr on the same disk) would
-    // surface as a `LedgerCorrupted::device_code` mismatch on
-    // reload — safe-fail rather than silently merging two device
-    // identities into one ledger.
+    // Phase B-1.5 closure (this batch) — `device_code` is now threaded
+    // from `OpcUaInitDeps.device_code` (= AgentConfig.device_code, the
+    // stable machine UID minted at provisioning). Pre-Phase-B-1.5 used
+    // `config.bind` placeholder — see ADR-031 §1 + the Phase B-1 commit
+    // message's "NOT in scope" note for the architectural shape that
+    // closes here. A re-bound OPC UA listener no longer trips a
+    // false-positive "moved device" alarm; only filesystem-image cloning
+    // between physical devices does.
+    //
+    // CertRotation::load_from_pki_store walks the ledger to recover the
+    // last applied PhaseTransition entry — boot-time mode reflects the
+    // operator's most recent promotion rather than the pre-Phase-B-1.5
+    // hardcoded `LegacyAccept` placeholder. First-boot deployments with
+    // no PhaseTransition recorded still default to LegacyAccept (the
+    // pre-Phase-B-1 TOFU shape), satisfying the in-place-upgrade
+    // contract.
     let pki_store = std::sync::Arc::new(
         crate::opc_ua_server::pki_store::PkiStore::open_or_initialize(
             std::path::Path::new(&config.own_pki_dir),
-            config.bind.clone(),
+            device_code.to_string(),
         )
         .map_err(|e| OpcUaServerStartError::ConfigInvalid(format!("PkiStore init failed: {e}")))?,
     );
     let cert_rotation = std::sync::Arc::new(
-        crate::opc_ua_server::cert_rotation::CertRotation::new(
+        crate::opc_ua_server::cert_rotation::CertRotation::load_from_pki_store(
             pki_store.clone(),
-            None,
-        ),
+        )
+        .map_err(|e| OpcUaServerStartError::ConfigInvalid(format!("CertRotation load failed: {e}")))?,
     );
     let pki_runtime = PkiRuntimeRef {
         root: pki_store.root(),
@@ -1345,6 +1365,11 @@ mod tests {
                     ::UserTokenManifestStore::new(),
             ),
             license,
+            // Phase B-1.5 — `device_code` is the stable hardware/deployment
+            // identity recorded in the PkiStore genesis ledger entry.
+            // Tests use a fixed code so a re-run against the same temp dir
+            // does not trip the moved-device detection.
+            device_code: "test-device-fixture",
         }
     }
 

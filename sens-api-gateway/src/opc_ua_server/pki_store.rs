@@ -367,6 +367,17 @@ impl PkiStore {
     ///
     /// Rejects if the fingerprint was previously revoked (architectural
     /// floor — see [`PkiStoreError::FingerprintWasRevoked`]).
+    ///
+    /// Phase B-1.5 audit-sink wire — on successful add the operation
+    /// emits an `OpcUaCertTrusted` AuditEntry through the ADR-020
+    /// audit-sink HMAC chain (alongside the PkiStore's own SHA-256
+    /// ledger). Two parallel forensic chains:
+    /// - PkiStore JSONL ledger — fail-closed-on-tamper at boot reload.
+    /// - audit-sink chain — fail-closed-on-tamper at offline verify
+    ///   via `audit-verify` CLI.
+    /// Operators querying the audit chain see OpcUa cert events
+    /// alongside mTLS cert events + RBAC manifest changes — single
+    /// timeline.
     pub fn add_trusted_cert(
         &self,
         cert_der: &[u8],
@@ -398,8 +409,17 @@ impl PkiStore {
 
         self.append_locked(LedgerEntry::CertTrusted {
             fingerprint_hex: fingerprint.as_hex().to_string(),
-            cert_label,
+            cert_label: cert_label.clone(),
         })?;
+        // Phase B-1.5 audit-sink emit (ADR-020 cross-chain).
+        crate::audit::try_emit_mtls_forensic_event(
+            crate::audit::AuditAction::OpcUaCertTrusted,
+            "opc_ua.pki.cert_trusted",
+            serde_json::json!({
+                "fingerprint_prefix": fingerprint.filename_prefix(),
+                "cert_label": cert_label,
+            }),
+        );
         Ok(fingerprint)
     }
 
@@ -442,14 +462,29 @@ impl PkiStore {
 
         self.append_locked(LedgerEntry::CertRevoked {
             fingerprint_hex: fingerprint.as_hex().to_string(),
-            reason,
+            reason: reason.clone(),
         })?;
+        // Phase B-1.5 audit-sink emit (ADR-020 cross-chain).
+        crate::audit::try_emit_mtls_forensic_event(
+            crate::audit::AuditAction::OpcUaCertRevoked,
+            "opc_ua.pki.cert_revoked",
+            serde_json::json!({
+                "fingerprint_prefix": fingerprint.filename_prefix(),
+                "reason": reason,
+            }),
+        );
         Ok(())
     }
 
     /// Append a phase-transition ledger entry. Called by [`crate::opc_ua_server::cert_rotation`]
     /// when [`crate::opc_ua_server::cert_rotation::CertRotation::transition_to`] applies a new
     /// rollout phase.
+    ///
+    /// Phase B-1.5 audit-sink wire — emits `OpcUaPkiPhaseTransition`
+    /// alongside the PkiStore ledger entry. Operators querying the
+    /// audit chain see the rollout timeline (Legacy → Warn → Strict
+    /// promotions, plus rejected downgrade attempts that the caller
+    /// emits separately at the dispatch layer).
     pub fn append_phase_transition(
         &self,
         from_mode: &str,
@@ -458,7 +493,16 @@ impl PkiStore {
         self.append_locked(LedgerEntry::PhaseTransition {
             from_mode: from_mode.to_string(),
             to_mode: to_mode.to_string(),
-        })
+        })?;
+        crate::audit::try_emit_mtls_forensic_event(
+            crate::audit::AuditAction::OpcUaPkiPhaseTransition,
+            "opc_ua.pki.phase_transition",
+            serde_json::json!({
+                "from_mode": from_mode,
+                "to_mode": to_mode,
+            }),
+        );
+        Ok(())
     }
 
     /// Number of distinct trusted fingerprints currently active.
@@ -468,6 +512,64 @@ impl PkiStore {
             .lock()
             .map_err(|_| PkiStoreError::LockPoisoned)?;
         Ok(guard.snapshot.trusted.len())
+    }
+
+    /// Walk the on-disk ledger + return ALL `LedgerEntry` records in
+    /// chronological order. Used by [`crate::opc_ua_server::cert_rotation::CertRotation::load_from_pki_store`]
+    /// to recover the most recent applied phase transition at boot.
+    ///
+    /// The walk re-reads the file rather than caching all entries
+    /// in-memory — entries-per-device is bounded by operator activity
+    /// (typically < 100 entries over a device's lifetime), and the
+    /// walker is invoked once at boot. A streaming iterator-shaped API
+    /// would be marginal complexity for negligible benefit at expected
+    /// fleet sizes.
+    ///
+    /// Chain integrity is RE-VERIFIED on the walk (same logic as
+    /// `reload_snapshot`) — if a tamper is detected between boot's
+    /// initial reload + this call, the error surfaces here. Concurrent
+    /// in-process mutations append AFTER the file pointer this walker
+    /// reads, so the walker observes a consistent prefix.
+    pub fn ledger_entries(&self) -> Result<Vec<LedgerEntry>, PkiStoreError> {
+        let ledger_path = self.root.join("rotation_ledger.jsonl");
+        let f = File::open(&ledger_path).map_err(|e| {
+            PkiStoreError::OpenFailed(format!("open ledger for walk: {e}"))
+        })?;
+        let reader = BufReader::new(f);
+        let mut entries = Vec::new();
+        let mut expected_seq = 1u64;
+        let mut expected_prev = LedgerHash::genesis();
+        for (line_no, line_res) in reader.lines().enumerate() {
+            let line = line_res.map_err(|e| {
+                PkiStoreError::LedgerCorrupted(format!(
+                    "walk read line {line_no}: {e}"
+                ))
+            })?;
+            if line.is_empty() {
+                continue;
+            }
+            let parsed: LedgerLine = serde_json::from_str(&line).map_err(|e| {
+                PkiStoreError::LedgerCorrupted(format!(
+                    "walk parse line {line_no}: {e}"
+                ))
+            })?;
+            if parsed.sequence != expected_seq {
+                return Err(PkiStoreError::LedgerCorrupted(format!(
+                    "walk sequence gap at line {line_no}: expected \
+                     {expected_seq}, got {}",
+                    parsed.sequence
+                )));
+            }
+            if parsed.prev_hash_hex != expected_prev.as_hex() {
+                return Err(PkiStoreError::LedgerCorrupted(format!(
+                    "walk prev_hash mismatch at line {line_no}"
+                )));
+            }
+            entries.push(parsed.entry);
+            expected_seq += 1;
+            expected_prev = LedgerHash(parsed.current_hash_hex);
+        }
+        Ok(entries)
     }
 
     // ------------------------------------------------------------------

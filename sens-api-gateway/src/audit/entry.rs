@@ -178,6 +178,33 @@ pub enum AuditAction {
     /// or operator-typo'd CA bundle files see the partial-load event in
     /// the audit stream alongside the running cert anchors snapshot.
     MtlsCaBundleParsePartial,
+
+    // -- OPC UA PKI lifecycle (Phase B-1.5 / ULTRA-HIGH-072 closure) --
+    /// Trusted client cert added to the OPC UA PkiStore via
+    /// `PkiStore::add_trusted_cert`. The PkiStore has its own SHA-256
+    /// JSONL ledger anchored by a domain-separation tag; this
+    /// AuditAction wires the same event through the ADR-020 audit-sink
+    /// HMAC chain so a single audit-verify CLI run reconstructs the
+    /// full mTLS + OPC UA PKI rotation timeline. Defense-in-depth:
+    /// PkiStore ledger is fail-closed-on-tamper at boot; audit-sink
+    /// chain is fail-closed-on-tamper at offline verify.
+    OpcUaCertTrusted,
+    /// Trusted client cert revoked from the PkiStore. Architectural
+    /// floor — once revoked, the fingerprint is forever-banned per
+    /// ADR-031 §1 (re-add returns `FingerprintWasRevoked`). The audit
+    /// emit captures the operator-supplied revocation reason for
+    /// forensic queryability.
+    OpcUaCertRevoked,
+    /// 3-phase rollout transition (LegacyAccept / WarnOnMismatch /
+    /// StrictPinOnly) applied via `CertRotation::transition_to`. Both
+    /// successful applies + the no-op rebuilds emit (the no-op carries
+    /// the same `from_mode == to_mode` pair so audit-stream consumers
+    /// can distinguish "operator pushed redundant manifest" from
+    /// "operator promoted floor"). Rejected transitions (downgrade,
+    /// Strict-with-empty-pins) do NOT emit — the rejection is logged
+    /// at the command-handler level via the existing dispatch audit
+    /// pipeline.
+    OpcUaPkiPhaseTransition,
 }
 
 impl AuditAction {
@@ -222,6 +249,10 @@ impl AuditAction {
             // reorder, never reuse a removed tag's number.
             Self::MtlsHandshakeRejectStrict => 30,
             Self::MtlsCaBundleParsePartial => 31,
+            // Phase B-1.5 / ULTRA-HIGH-072 — OPC UA PKI lifecycle wires.
+            Self::OpcUaCertTrusted => 32,
+            Self::OpcUaCertRevoked => 33,
+            Self::OpcUaPkiPhaseTransition => 34,
         }
     }
 }
@@ -698,6 +729,10 @@ mod tests {
         // Phase 1.1.5 / ORPHAN-MEDIUM-036/037 — pin appended variants.
         assert_eq!(AuditAction::MtlsHandshakeRejectStrict.wire_tag(), 30);
         assert_eq!(AuditAction::MtlsCaBundleParsePartial.wire_tag(), 31);
+        // Phase B-1.5 / ULTRA-HIGH-072 — OPC UA PKI lifecycle wires.
+        assert_eq!(AuditAction::OpcUaCertTrusted.wire_tag(), 32);
+        assert_eq!(AuditAction::OpcUaCertRevoked.wire_tag(), 33);
+        assert_eq!(AuditAction::OpcUaPkiPhaseTransition.wire_tag(), 34);
     }
 
     /// WHY (EDGE-HIGH-001 closure): AuditResource wire_tag stability pin.

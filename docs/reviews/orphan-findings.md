@@ -2600,3 +2600,130 @@ The same CI pass exposed a second architectural drift: `main.rs` kept using pre-
 **Closure path:**
 
 Future hardware-only work must opt into `sx1302-vendor-hal`; portable protocol CI must keep using `lorawan` without vendor C sources. Re-coupling the features would reintroduce the same build-host dependency leak.
+
+
+## ORPHAN-HIGH-045 — async-opcua 0.18 has no `ClientCertVerifier` callback hook on `ServerBuilder`; per-handshake `OpcUaCertRejected` audit emit has no insertion point (Phase B-1 gap, 2026-05-04)
+
+**Status:** OPEN — owner: Okan-Wqm. Owner agent: Phase B-2 / future PR (pre-Faz B-2 main batch). Deadline: opportunistic, no hard date — gated on either an upstream async-opcua PR or a session-establishment interceptor at the runtime layer.
+
+**Scope:** `sens-api-gateway/src/opc_ua_server_runtime.rs::build_server` + the `async-opcua = "0.18"` crate's `ServerBuilder` API.
+
+**Edge-expert surfaced:** ADR-031 §4 specifies an `OpcUaCertRejected` AuditAction emitted from the per-handshake reject path — analog of the mTLS module's `MtlsHandshakeRejectStrict` (ORPHAN-MEDIUM-037 closure). Phase B-1 ships the architectural state machine (PkiStore + CertRotation + StrictPinOnly mode) but the per-handshake REJECT EMIT is structurally unreachable at the agent layer because async-opcua 0.18's `ServerBuilder` exposes `pki_dir(&Path)` + `trust_client_certs(bool)` without a custom verifier callback. async-opcua's built-in trust path consumes `<pki_root>/trusted/clients/` + `<pki_root>/rejected/` PEMs and emits its own `tracing::error!` line on reject — but does not call any user-supplied closure that could touch the AuditSink.
+
+**Impact:** in `StrictPinOnly` mode, an unpinned cert IS rejected (handshake abort is the primary security action — load-bearing). The forensic emit on the reject is shimmed via async-opcua's tracing line, NOT a direct ADR-020 audit-sink HMAC chain entry. Operators relying on offline `audit-verify` CLI to reconstruct rejected-handshake timelines would not see OPC UA rejects in the chain. Cross-transport mTLS audit consistency (mTLS module ships per-handshake emit via Phase 1.1.5 ORPHAN-MEDIUM-037) is the comparison point — OPC UA forensic surface lags MQTT.
+
+**HOW to resolve (two architectural paths, decided in Phase B-2):**
+
+1. **Upstream async-opcua PR** — add `with_client_cert_verifier(impl Fn(&Cert) -> ClientCertDecision + Send + Sync)` callback to `ServerBuilder`. Suderra implements the closure to forward `(fingerprint, decision)` pairs to `audit::try_emit_mtls_forensic_event`. Pros: clean architectural shape, contributes upstream. Cons: PR review + merge timeline outside our control.
+
+2. **Session-establishment interceptor at the runtime layer** — wrap the `(server, handle)` returned by `ServerBuilder::build()` with a layer that drives the audit emit BEFORE async-opcua's internal accept/reject. async-opcua 0.18 exposes `ServerHandle::on_session_establish` or similar (verify in the API doc); the wrapper subscribes + emits to the audit chain on every session reject event. Pros: agent-side fully owned. Cons: depends on async-opcua exposing the hook surface; if not, falls back to wrapping the underlying `tokio::net::TcpListener` accept path which is brittle.
+
+The decision is recorded in ADR-031 §5 "Open items"; the upstream-PR path is preferred. If the PR lands within 4 weeks of Phase B-2 start, that's the closure; if not, the interceptor approach is the fallback.
+
+---
+
+## ORPHAN-MEDIUM-046 — PkiStore `initialize_own_keypair` uses hardcoded `suderra-edge.local` SAN; not bound to device_code (Phase B-1 placeholder, 2026-05-04)
+
+**Status:** RESOLVED-NOT-APPLICABLE-NOW (architectural decision documented). The own-cert SAN binding is a Phase B-1.5 / Phase C concern — operator-controlled cert mint via signed manifest infrastructure, not an agent-side change.
+
+**Scope:** `sens-api-gateway/src/opc_ua_server/pki_store.rs::initialize_own_keypair`.
+
+**Edge-expert surfaced:** Phase B-1 mints the OPC UA server's own keypair on first boot via `rcgen::generate_simple_self_signed(vec!["suderra-edge.local".to_string()])`. The SAN string is hardcoded — multiple devices in a fleet would all advertise the same SAN. HMIs that perform hostname verification against the cert's SAN field would either accept all devices as one identity (poor) or reject when the hostname mismatches (also poor).
+
+**Why this is intentional for Phase B-1:** the agent does NOT mint operator-trusted certs via `rcgen`. The pre-B-1 path used `async-opcua::create_sample_keypair(true)` which has the SAME architectural shape (deterministic placeholder SAN). Phase B-1's `rcgen` mint is a like-for-like replacement preserving the pre-B-1 contract — operators who want HMI-verifiable certs ALWAYS provide their own via the `<pki_root>/own/cert.der` + `key.pem` files (the `initialize_own_keypair` path is the bootstrap-fallback for first-boot before operator provisioning).
+
+**HOW to resolve (Phase B-1.5+):**
+
+The cleanest architectural shape is to plumb a cloud-signed `opc_ua_own_cert_manifest_v1` payload through the `cmd_update_opc_ua_pki` MQTT command (Phase C). The manifest carries `(device_code, cert_der, key_blob)` minted by the cloud-side ceremony per ADR-021. The agent's `initialize_own_keypair` becomes a fallback for the unlikely case that the manifest never arrives — the SAN binding moves to the cloud-side ceremony where device_code is the canonical input. Until Phase C, operators continue to provide their own cert via filesystem (the pre-B-1 path).
+
+This finding is filed for completeness — no agent-side change is the right architectural call until Phase C ships. **STATUS RESOLVED via design decision — no further action.**
+
+---
+
+## ORPHAN-LOW-047 — Operator migration tool `suderra-agent --opcua-keypair-migrate` CLI flag deferred (Phase B-1 commit message commitment, 2026-05-04)
+
+**Status:** OPEN — owner: Okan-Wqm. Owner agent: Phase B-1.5 / future PR. Deadline: opportunistic — gated on the first operator upgrade-in-place from a pre-B-1 agent that shipped under `async-opcua::create_sample_keypair(true)` self-generated keys.
+
+**Scope:** Phase B-1 commit message named the migration tool but did not deliver it. Pre-B-1 agents that auto-generated their own keypair via async-opcua's built-in `create_sample_keypair(true)` write to `<config.own_pki_dir>/private/private.pem` + `<config.own_pki_dir>/own/cert.der` (location varies by async-opcua version). Phase B-1's PkiStore writes to `<root>/own/key.pem` + `<root>/own/cert.der` — different filesystem layout. An in-place upgrade boots into PkiStore::open_or_initialize which sees no PkiStore-managed keypair, mints a fresh one, and the OPC UA server presents a DIFFERENT SAN/fingerprint to HMIs across the upgrade — every HMI's pinned-cert config breaks.
+
+**HOW to resolve:**
+
+Add `suderra-agent --opcua-keypair-migrate` flag that:
+
+1. Detects the pre-B-1 keypair location via known variants (async-opcua 0.16 / 0.17 / 0.18 paths).
+2. Copies the cert + key into the PkiStore-managed `<root>/own/` location.
+3. Records the migration in a new `LedgerEntry::OwnKeypairMigrated { source_path, source_async_opcua_version }` ledger variant.
+4. Idempotent — running twice is a no-op.
+5. Boot-time check: if `<root>/own/cert.der` is absent AND `--opcua-keypair-migrate` was not run AND the legacy paths exist, agent fails-fast at boot with operator-actionable error message.
+
+The flag is delivered when an operator with a real pre-B-1 fleet asks for it — until then this finding documents the upgrade-in-place gap so operators planning migrations can see the full picture.
+
+---
+
+## ORPHAN-MEDIUM-048 — Phase C `opc_ua_pki_manifest_v1` deser path NOT implemented; `cmd_update_opc_ua_pki` MQTT command absent (Phase B-1 architectural commitment, 2026-05-04)
+
+**Status:** OPEN — owner: Okan-Wqm. Owner agent: Phase C / future PR. Deadline: gated on the cloud-side manifest signing ceremony (ADR-021 §1) being available — an agent-side `cmd_update_opc_ua_pki` handler without the cloud-side signed payload has nothing to verify against.
+
+**Scope:** `sens-api-gateway/src/commands/cert_pinning.rs` analog for OPC UA — does not yet exist. The architectural placeholder is the `CertRotation::transition_to` API that the future command handler will drive.
+
+**Edge-expert surfaced:** Phase B-1 ships the AGENT-side state machine (PkiStore + CertRotation + Tier-1 downgrade gate + Strict-with-empty-pin-set gate). What's missing is the operator-facing surface — an MQTT command with the same envelope-auth + RBAC permission gate + audit emit pattern as Phase 1.1.2's `cmd_update_cert_pinning`. The architectural shape is settled; only the wire is pending.
+
+**HOW to resolve (Phase C):**
+
+1. **Cloud-side first:** mint `opc_ua_pki_manifest_v1` payload format — ed25519-signed JSON with `{ device_code, target_mode, trusted_certs[], revoked_certs[], policy_version }`. HSM key separation: cloud-side OPC UA PKI signing key MUST be a distinct HSM slot from the RBAC manifest signing key (per ADR-021 §1).
+
+2. **Agent-side wire:**
+   - New `commands/opc_ua_pki.rs::cmd_update_opc_ua_pki` handler — verify signature against the OPC UA PKI signing pubkey from the running RBAC manifest (or a separate `opc_ua_pki_pubkey_hex` config field), JTI replay defense, parse target_mode + cert lists.
+   - Apply: for each cert in `trusted_certs[]`, call `PkiStore::add_trusted_cert`; for each in `revoked_certs[]`, `PkiStore::revoke_cert`; finally `CertRotation::transition_to(target_mode)`.
+   - The Tier-1 downgrade gate inside `CertRotation::transition_to` enforces the policy floor — even an authenticated cloud manifest cannot silently roll the fleet back.
+   - Audit: ORPHAN-MEDIUM-048 closure emits the cloud-driven manifest application alongside the per-mutation OpcUaCertTrusted / OpcUaCertRevoked / OpcUaPkiPhaseTransition entries (Phase B-1.5 audit-sink wire).
+
+3. **Permission enum:** add `Permission::ManageOpcUaPki` (analog of `Permission::ManageCertPinning` from Phase 1.1.2). HSM-slot separation on the cloud side mirrors at the RBAC layer — operators with `ManageCertPinning` (MQTT mTLS authority) do NOT auto-inherit `ManageOpcUaPki` (OPC UA PKI authority).
+
+The finding is named here so future Phase C planners see the AGENT-side architectural readiness + the cloud-side blocking dependency in one place.
+
+---
+
+## ORPHAN-MEDIUM-049 — 72-hour rollback window primitive deferred from Phase B-1 (ADR-031 §2 commitment, 2026-05-04)
+
+**Status:** OPEN — owner: Okan-Wqm. Owner agent: Phase B-1.5 / future PR. Deadline: paired with the Phase C `cmd_update_opc_ua_pki` handler (a rollback-window primitive without an operator surface that exercises rollback is dead code).
+
+**Scope:** `sens-api-gateway/src/opc_ua_server/cert_rotation.rs` + `pki_store.rs::ledger_entries`.
+
+**Architectural design (ADR-031 §2):** within 72 hours of a failed `PhaseTransition`, an operator can push an out-of-band "emergency rollback" manifest that REVERSES the most recent transition. Beyond 72h, the rollback discipline is "mint a fresh leaf + new rotation" — the ledger never deletes history. The 72h window is a deliberate trade-off: short enough to deter operators from treating downgrades as routine, long enough to absorb a real rollback ceremony's coordination time.
+
+**HOW to resolve (Phase B-1.5 primitive + Phase C wire):**
+
+1. **Primitive:** new `cert_rotation.rs::rollback_window_check(now_unix_secs) -> RollbackEligibility` that walks the ledger via `PkiStore::ledger_entries`, locates the most recent `LedgerEntry::PhaseTransition`, computes elapsed time, returns `Eligible { previous_mode, expires_at_unix }` if `now < transition_ts + 72*3600` else `Expired`.
+
+2. **API:** new `CertRotation::rollback_to_previous(now)` that:
+   - Calls `rollback_window_check`; rejects with `RollbackWindowExpired` if not eligible.
+   - Computes `previous_mode` from the second-most-recent PhaseTransition (or LegacyAccept if only one transition recorded).
+   - **Bypasses** the Tier-1 downgrade gate — rollback IS a downgrade by definition. Architectural justification: the rollback path requires the same envelope-auth + RBAC permission gate as a forward transition AT THE COMMAND-DISPATCH LAYER, so the bypass is auditable + operator-controlled, not silently weakening the floor.
+   - Emits a distinct `LedgerEntry::PhaseRollback { rolled_back_to, original_transition_seq }` so audit-stream consumers can distinguish rollbacks from forward transitions.
+
+3. **Wire:** Phase C's `cmd_update_opc_ua_pki` handler accepts an optional `rollback: true` flag in the manifest payload. When set, the handler dispatches to `rollback_to_previous` instead of `transition_to`. The 72h floor is the architectural gate; even a signed manifest cannot rollback past the window.
+
+The finding is named here so the deferred primitive has a tracked target rather than a vague "future Phase B-1.5" comment in the ADR text.
+
+---
+
+## ORPHAN-MEDIUM-050 — Phase B-1 own-cert validity not bounded by SL-2 max-age policy (Phase B-1 review, 2026-05-04)
+
+**Status:** OPEN — owner: Okan-Wqm. Owner agent: Phase B-1.5 / future PR. Deadline: opportunistic.
+
+**Scope:** `sens-api-gateway/src/opc_ua_server/pki_store.rs::initialize_own_keypair`.
+
+**Edge-expert surfaced:** the mTLS module (`mtls/mode.rs`) ships `MAX_LEAF_CERT_AGE_DAYS_LEGACY/WARN/STRICT` policy cap — the rustls verifier rejects leaf certs older than the mode-dependent threshold. The OPC UA `PkiStore::initialize_own_keypair` path uses `rcgen::generate_simple_self_signed` which defaults to a far-future `not_after` (rcgen's default validity is on the order of years). There is no equivalent age-cap policy enforced on the OWN cert.
+
+**Why this matters:** the own-cert is what the OPC UA server presents to HMIs. A long-lived self-signed own-cert means a single key compromise persists for years — the operator has no rotation discipline at the OWN-CERT layer (only at the trusted-clients layer via `add_trusted_cert` / `revoke_cert`). A symmetric architectural shape would require the OWN cert to also age-rotate.
+
+**HOW to resolve (Phase B-1.5):**
+
+1. **Configurable validity:** new `PkiStore::initialize_own_keypair` parameter `validity_days: u32` derived from `OpcUaPkiMode::own_cert_max_age_days()` (analog of `MtlsMode::max_leaf_cert_age_days`). LegacyAccept = 365 days, WarnOnMismatch = 180, StrictPinOnly = 90.
+
+2. **Boot-time age check:** when reloading existing PkiStore (not first-boot), read `<root>/own/cert.der`, parse `not_before` via x509-parser, compare to `now`. If age exceeds the active mode's threshold, log a warn + flip the agent into a "expired-own-cert" state where the OPC UA server refuses to start until the operator runs `--opcua-rotate-own-keypair`. Fail-closed so operators see the rotation requirement.
+
+3. **Architectural symmetry:** the own-cert age policy mirrors the trusted-client age policy (mtls/mode.rs). Same operator mental model spans both transports.
+
+The finding is named here so the Phase B-1.5 batch has a tracked target rather than discovering this gap during a security review of the production OPC UA fleet.

@@ -4961,6 +4961,7 @@ async fn run_agent(
             rbac_store_for_opcua,
             user_token_store_for_opcua,
             tenant_id_str,
+            device_code_string,
         ) = {
             let s = state.read().await;
             (
@@ -4972,6 +4973,12 @@ async fn run_agent(
                 s.rbac_manifest_store.clone(),
                 s.user_token_manifest_store.clone(),
                 s.tenant_id.clone(),
+                // Phase B-1.5 (ADR-031 §1) — capture device_code BEFORE the
+                // read-guard scope closes. Cloned String avoids an
+                // await-spanning borrow into AppState. The device_code is
+                // recorded in the PkiStore genesis ledger entry to bind the
+                // on-disk PKI state to a physical device.
+                s.config.device_code.clone(),
             )
         };
         // Convert UUID-string tenant_id → TenantId bytes.
@@ -4993,6 +5000,7 @@ async fn run_agent(
                 rbac_manifest_store: rbac_store_for_opcua,
                 user_token_manifest_store: user_token_store_for_opcua,
                 license: &license_for_opcua,
+                device_code: &device_code_string,
             },
         )
         .await

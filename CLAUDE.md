@@ -286,6 +286,24 @@ Every fix commit must formally reference the review finding it closes. Otherwise
 @docs/architecture/  — Architecture diagrams (note: contains misfiled ADR-* files — see above)
 @docs/guides/        — Developer guides (SCADA, VFD)
 
+## ARIA Snowball (continuous-mode meta-system, scoped to `snowball` branch)
+
+ARIA is a repository-shaped intelligence experiment that runs between PR cycles,
+complementary to the specialized review agents that run on PR cycles.
+
+- `@docs/aria/SPEC.md` — boundaries (laws, engines, mastery, claim authority)
+- `@docs/aria/IDENTITY.md` — behavior (daily rhythm, refusals, nuance protocol, debt discipline)
+- `@docs/aria/CONTRACTS.md` — schemas, adapter contracts, CLI execution model, and Phase-1 PoC
+- `@.claude/knowledge/layer-1-aria.md` — discoverable anchor for other agents
+- `tools/aria-poc/poc.py` — zero-LLM operator decision tool
+- `/aria-poc` — Claude Code slash command wrapper
+
+Branch policy: ARIA work lives on `snowball`. Do not merge or push ARIA work to
+`main` without an explicit operator decision after the PoC decision gate.
+
+ARIA is not one of the specialized agents. It is a meta-layer: observes first,
+records evidence, and lets skills emerge from recurring repo pressure.
+
 ---
 
 # CRITICAL — Final check (primacy/recency reinforcement)

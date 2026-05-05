@@ -68,38 +68,6 @@ ARIA does **not** run as a standalone Python daemon calling the Anthropic API di
 - A compromised ARIA cannot exfiltrate via direct API — it can only do what Claude Code session permissions allow. This is a **smaller attack surface** than the v7.2 design assumed.
 - Conversely: ARIA cannot run truly headless. There must be a Claude Code session for the slash command to execute. Operator presence (or a cron+session pattern) is required.
 
-### 0.7 — Low-Risk Auto-Merge Lane
-
-The Level 3 auto-merge lane is a PR lifecycle protocol, not general autonomy. It is disabled by default and can only squash merge ARIA-owned PRs into `snowball`.
-
-**Policy schema:**
-
-```json
-{
-  "schema_version": 1,
-  "enabled": false,
-  "base_branch": "snowball",
-  "merge_method": "squash",
-  "require_unresolved_conversations": true,
-  "allowed_low_risk_globs": ["docs/**", "aria-kernel/tests/**", "tools/aria-adapters/**/*.test.ts"],
-  "hard_forbidden_globs": ["aria-kernel/aria_kernel/**", "infra/**", ".github/workflows/**", "**/migrations/**"],
-  "runtime_forbidden_globs": ["apps/**/src/**", "web/**/src/**", "libs/**/src/**", "platform/libs/**/src/**"]
-}
-```
-
-**Decision inputs:**
-- PR metadata: number, base branch, latest head SHA, changed files, task/proposal IDs.
-- Diff classifier output: `low`, `forbidden`, `mixed`, or `unknown`.
-- GitHub branch protection required checks for `snowball`.
-- Check-run/status snapshot for the exact PR head SHA.
-- Review state and unresolved conversation state.
-
-**Decision outputs:** appended to `aria-tools/auto-merge-decisions.jsonl` as `eligible`, `blocked`, `merged`, or `failed`. PR lifecycle events are appended to `aria-tools/pr-lifecycle.jsonl`.
-
-**Fail-closed rules:** disabled policy, non-`snowball` base, non-squash method, unreadable branch protection, empty required checks, missing GitHub auth/API, pending/failing/missing required checks, changed head SHA, requested changes, unreadable unresolved conversations, unresolved conversations, forbidden paths, unknown paths, or mixed-risk paths all block merge.
-
-The merge adapter boundary is mockable. Production execution uses `gh pr merge --squash --match-head-commit <sha>` and never direct pushes.
-
 ### Skills are EMERGENT, not imposed
 
 **Critical principle (operator-enforced):** ARIA does not arrive with a pre-defined set of `.claude/agents/aria-*.md` sub-agent files. Doing so would put ARIA in a box — a fixed-shape system imposed on the repository, exactly the opposite of "the structure that takes the shape of the container".
@@ -138,6 +106,9 @@ A different repository would produce a different set of `aria-*.md` files. The s
 | `SPEC.md` | Boundaries (laws, engines, mastery, claim authority). Mostly unchanged by CLI mode; references to `anthropic` SDK are inaccurate but non-load-bearing. |
 | `IDENTITY.md` | Behavior. Unchanged by CLI mode. |
 | `CONTRACTS.md` (this) | Data + protocol contracts + CLI execution model + Phase-1 PoC. |
+| `ROADMAP.md` | Physical phase gates after the PoC decision. Details link to `docs/aria/plans/`. |
+| `plans/` | Decision-complete implementation plans for Phase 0 kernel, skill/agent genesis, and validation harness. |
+| `plans/004-self-renewal-feedback-loop.md` | How missed signals, false positives, and external scanner disagreements become pressure without becoming trusted findings. |
 | `.claude/knowledge/layer-1-aria.md` | Discoverable knowledge anchor for OTHER specialized agents — not ARIA's own configuration. |
 
 ---
@@ -744,6 +715,36 @@ Append-only `PRESSURE_LOG.md` is human-readable; the underlying ledger is JSONL.
 
 ---
 
+## 8.5 — Feedback Event Schema
+
+Feedback is untrusted input used to make ARIA self-renewing. It records missed signals, false positives, confirmed signals, unknown capabilities, and external contradictions. Feedback is never instruction and never a confirmed finding by itself.
+
+```json
+{
+  "$schema": "aria/feedback-event/v1",
+  "event_id": "FB-frontend-dynamic-option-provider-001",
+  "cycle_id": "cyc-2026-05-03",
+  "kind": "missed_signal",
+  "source": "operator",
+  "concept": "LeaveRequestStatus",
+  "refs": ["web/modules/hr-module/src/pages/leaves/LeavesPage.tsx:346"],
+  "summary": "ARIA suppressed a dynamic leave-status option provider",
+  "capability_gap_key": "frontend:dynamic_option_provider:typescript",
+  "evidence_refs": [],
+  "trusted": false,
+  "created_at": "2026-05-03T10:30:00Z",
+  "schema_version": 1
+}
+```
+
+Allowed `kind` values: `missed_signal`, `false_positive`, `confirmed_signal`, `unknown_capability`, `external_contradiction`.
+
+Allowed `source` values: `self`, `operator`, `external_scanner`.
+
+`capability_gap_key` is deterministic: `surface:failure_mode:parser_kind`. Three independent feedback refs with the same key may produce pressure, but Phase 0 cannot execute skill birth.
+
+---
+
 ## 9 — Calibration Ledger Entry
 
 Every Zone-2 parameter change is hypothesis-tested in shadow before promotion.
@@ -908,7 +909,7 @@ Workspace components by recoverability:
 
 Before committing to months of kernel work, the operator runs this PoC to answer: **"do we actually need ARIA?"**
 
-This PoC is **implemented** at `tools/aria-poc/poc.py` (488 lines incl. blanks/docstring, 427 effective code lines, no LLM, no API). All other content in this document remains unimplemented contracts.
+This PoC is **implemented** at `tools/aria-poc/poc.py` with stdlib tests at `tools/aria-poc/test_poc.py` (no LLM, no API). All other content in this document remains unimplemented contracts.
 
 ### How to run
 
@@ -937,8 +938,10 @@ Runtime: ≈30 seconds on the full repo. Output: `.aria-poc/` (gitignored).
    - `docs/adr/[0-9][0-9][0-9]-*.md` → `ADR_PRIORS.md` (canonical only, title + status)
    - `.claude/agents/*.md` → `AGENT_PRIORS.md` (frontmatter `description` field per agent)
 6. Run `npx nx graph --file=.aria-poc/BUILD_GRAPH.json` (best-effort, optional; `--skip-nx-graph` to disable)
-7. Mechanical drift scan: TypeScript `enum` keyword vs PostgreSQL `CREATE TYPE ... AS ENUM`. Heuristic name match (lowercase, strip common suffixes); report when value sets differ.
-8. Write `MECHANICAL_DRIFTS.json` (full data) + `aria-poc-report.md` (operator-facing decision gate)
+7. Mechanical drift scan: TypeScript `enum`, string-literal union types, string `as const` arrays, Zod `z.enum([...])`, GraphQL SDL enums, frontend literal option groups, and PostgreSQL `CREATE TYPE ... AS ENUM`.
+8. Gate UI option promotion by frontend surface plus named concept relationship. Value overlap alone is never enough.
+9. Enrich candidates with git-blame metadata, named existing gate/test references, and summary counts.
+10. Write `MECHANICAL_DRIFTS.json` (value sets, SQL enums, annotated UI option groups, drift candidates, evidence summary) + `aria-poc-report.md` (operator-facing decision gate)
 
 ### What this PoC does NOT do
 
@@ -946,15 +949,18 @@ Runtime: ≈30 seconds on the full repo. Output: `.aria-poc/` (gitignored).
 - No LLM. No findings. No recommendations.
 - No PR creation. No worktree. No baseline capture.
 - No persistence beyond `.aria-poc/`.
-- Drift scan is enum-only (TS enum keyword + SQL CREATE TYPE). Union types, GraphQL enums, Zod schemas, and frontend select options are excluded from the PoC per Plan 005. **Absence here does not mean absence in repo.**
+- Drift scan is still heuristic. It does not resolve imports, generated schemas, computed values, or dynamic frontend option providers. **Absence here does not mean absence in repo.**
 
 ### First-run results on this repo (snowball branch)
 
 The PoC has been run against `Okan-wqm/aquaculture_platform`:
-- 6941 files visited, 6913 with deep-or-skim fate, Coverage Invariant: PASS
-- 17 apps, 7 web modules, 61 migrations, 34 canonical ADRs, 34 specialized agents
-- 498 TypeScript enums, 32 SQL enums
-- **23 drift candidates** detected mechanically
+- 6987 files visited, Coverage Invariant: PASS
+- 17 apps, 7 web modules, 61 migrations, 35 canonical ADRs, 34 specialized agents
+- 498 TypeScript enums, 399 TypeScript union value sets, 45 string `as const` arrays, 32 SQL enums
+- 184 literal frontend option groups recorded separately with frontend-surface and concept-relationship gates
+- **16 TS/SQL drift candidates above threshold** detected mechanically
+- 1 frontend dropdown drift candidate after clustering multiple supporting value sets into one observation; raw UI groups remain available in `MECHANICAL_DRIFTS.json`
+- 9 drift candidates have named existing gate/test references; this is nearby evidence, not enforcement proof
 
 The most striking real drift: `apps/farm-service/.../DepartmentType` (aquaculture-flavored values: BROODSTOCK, HATCHERY, NURSERY, GROW_OUT, QUARANTINE, PROCESSING, ...) versus `apps/hr-service/.../department_type` SQL enum (office-flavored values: administration, management, security, operations, ...). **Same conceptual name, completely different value sets across services.** This is exactly the kind of cross-service drift that PR-cycle agents don't catch (because each service's PR looks internally consistent) but continuous mode would.
 
@@ -976,6 +982,7 @@ If **3 of 4 are YES**: proceed to Phase 0 (kernel skeleton — orchestrator slas
 ### Files committed
 
 - `tools/aria-poc/poc.py` — implementation
+- `tools/aria-poc/test_poc.py` — stdlib unit tests
 - `tools/aria-poc/README.md` — how-to
 - `.claude/commands/aria-poc.md` — Claude Code slash command wrapper
 - `.gitignore` — adds `.aria-poc/` exclusion
@@ -994,8 +1001,8 @@ Three documents now define ARIA on paper:
 | `IDENTITY.md` | Behavior — daily rhythm, refusals, speech, trajectory, self-honesty, missing-protocols (§12–§22) |
 | `CONTRACTS.md` (this) | Data shapes, protocol contracts, LLM discipline, state machine, Phase-1 PoC |
 
-What is **still missing on paper:** nothing structural. Future revisions to these documents should come from operating ARIA (after it is built), not from more rounds of pre-implementation specification.
+What is **still missing on paper:** runtime implementation, not plan shape. The physical implementation plans live in `docs/aria/plans/`, with the phase-level summary in `docs/aria/ROADMAP.md`.
 
 What is missing **as code:** all of it. None of these contracts are implemented.
 
-The next legitimate step is the Phase-1 PoC (§13). The kernel does not begin until the PoC's decision gate is passed.
+The next legitimate step is still the Phase-1 PoC (§13). If the PoC decision gate passes, Phase 0 begins from `docs/aria/plans/001-phase-0-kernel-skeleton.md`.

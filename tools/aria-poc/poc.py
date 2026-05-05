@@ -35,6 +35,7 @@ LANGUAGE_BY_EXT: dict[str, str] = {
     ".yaml": "yaml", ".yml": "yaml",
     ".json": "json", ".toml": "toml",
     ".sh": "shell", ".html": "html", ".css": "css", ".scss": "scss",
+    ".graphql": "graphql", ".gql": "graphql",
 }
 
 MANIFEST_FILES: set[str] = {
@@ -47,10 +48,40 @@ TS_ENUM_PATTERN = re.compile(
     r"(?:export\s+)?enum\s+(\w+)\s*\{([^}]+)\}",
     re.MULTILINE | re.DOTALL,
 )
+TS_UNION_PATTERN = re.compile(
+    r"(?:export\s+)?type\s+(\w+)\s*=\s*((?:\s*['\"][^'\"]+['\"]\s*(?:\|\s*)?)+)\s*;?",
+    re.MULTILINE,
+)
+TS_CONST_ARRAY_PATTERN = re.compile(
+    r"(?:export\s+)?const\s+(\w+)\s*=\s*(\[(?:\s*['\"][^'\"]+['\"]\s*,?)+\s*\])\s+as\s+const",
+    re.MULTILINE | re.DOTALL,
+)
+ZOD_ENUM_PATTERN = re.compile(
+    r"(?:export\s+)?const\s+(\w+)\s*=\s*z\.enum\s*\(\s*(\[[\s\S]*?\])\s*\)",
+    re.MULTILINE | re.DOTALL,
+)
+GRAPHQL_ENUM_PATTERN = re.compile(
+    r"\benum\s+(\w+)\s*\{([^}]+)\}",
+    re.MULTILINE | re.DOTALL,
+)
 SQL_ENUM_PATTERN = re.compile(
     r"CREATE\s+TYPE\s+(\w+)\s+AS\s+ENUM\s*\(([^)]+)\)",
     re.IGNORECASE | re.DOTALL,
 )
+UI_SAFE_CONCEPT_TOKENS: tuple[str, ...] = (
+    "status", "type", "state", "phase", "category", "priority",
+    "severity", "kind", "mode",
+)
+UI_IGNORED_VALUES: set[str] = {"", "all", "any", "none", "null", "undefined"}
+NAME_STOPWORDS: set[str] = {
+    "option", "options", "select", "selector", "filter", "filters",
+    "menu", "items", "item", "dropdown", "field", "input", "value",
+    "values", "list", "set", "sets", "request",
+}
+GENERIC_CONCEPT_TOKENS: set[str] = {
+    "status", "type", "state", "phase", "category", "priority",
+    "severity", "kind", "mode", "enum",
+}
 
 
 @dataclasses.dataclass
@@ -85,11 +116,140 @@ class FileFate:
 def walk_repo(repo_root: Path) -> list[Path]:
     out: list[Path] = []
     for root, dirs, files in os.walk(repo_root):
-        dirs[:] = [d for d in dirs if d not in EXCLUDED_DIRS and not d.startswith(".git")]
+        dirs[:] = [d for d in dirs if d not in EXCLUDED_DIRS]
         rp = Path(root)
         for f in files:
+            if f == ".git":
+                continue
             out.append(rp / f)
     return out
+
+
+def normalize_concept_name(name: str) -> str:
+    """Normalize related enum/type/option names without collapsing repeatedly."""
+    n = re.sub(r"[^a-zA-Z0-9_]", "_", name).lower()
+    n = re.sub(r"_+", "_", n).strip("_")
+    suffixes_priority = (
+        "_options", "_statuses", "_status", "_types", "_type",
+        "_states", "_state", "_phases", "_phase", "_categories",
+        "_category", "_priorities", "_priority", "_severities",
+        "_severity", "_kinds", "_kind", "_modes", "_mode",
+        "_enum", "_select", "_filter", "_filters",
+        "options", "statuses", "status", "types", "type", "states",
+        "state", "phases", "phase", "categories", "category",
+        "priorities", "priority", "severities", "severity", "kinds",
+        "kind", "modes", "mode", "enum", "select", "filter", "filters",
+    )
+    for suffix in suffixes_priority:
+        if n.endswith(suffix) and len(n) > len(suffix):
+            return n[: -len(suffix)].strip("_")
+    return n
+
+
+def lower_values(values: list[str]) -> set[str]:
+    return {v.lower() for v in values if v.lower() not in UI_IGNORED_VALUES}
+
+
+def jaccard(a: set[str], b: set[str]) -> float:
+    if not a and not b:
+        return 1.0
+    return len(a & b) / max(len(a | b), 1)
+
+
+def split_name_tokens(name: str) -> set[str]:
+    """Tokenize identifiers without making value overlap a relationship."""
+    spaced = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", name)
+    spaced = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", spaced)
+    raw = re.split(r"[^A-Za-z0-9]+", spaced.lower())
+    return {t for t in raw if t and t not in NAME_STOPWORDS}
+
+
+def concept_tokens(name: str) -> set[str]:
+    tokens = split_name_tokens(name)
+    normalized = normalize_concept_name(name)
+    tokens.update(split_name_tokens(normalized))
+    return tokens
+
+
+def meaningful_concept_tokens(name: str) -> set[str]:
+    return concept_tokens(name) - GENERIC_CONCEPT_TOKENS
+
+
+def compact_concept_key(name: str) -> str:
+    return normalize_concept_name(name).replace("_", "")
+
+
+def surface_of_path(path: str) -> str:
+    """Coarse repo-shape classifier used to keep adapters on their surface."""
+    if is_test_source_path(path):
+        return "test"
+    if (
+        "/generated/" in path
+        or "/__generated__/" in path
+        or path.startswith(("dist/", "build/", ".nx/", "coverage/"))
+        or path.endswith((".d.ts", ".map"))
+    ):
+        return "generated"
+    if path.startswith(("docs/", ".claude/")) or path in {"CLAUDE.md", "AGENTS.md"}:
+        return "docs"
+    if "/database/migrations/" in path or "/migrations/" in path:
+        return "migration"
+    if path.startswith(("web/modules/", "web/apps/", "web/shared-ui/")):
+        if path.endswith((".tsx", ".jsx")):
+            return "frontend_ui"
+        return "frontend_source"
+    if path.startswith("apps/"):
+        return "backend_app"
+    if path.startswith(("platform/libs/", "libs/")):
+        return "shared_lib"
+    return "unknown"
+
+
+def service_of(ref: str) -> str:
+    path = ref.split(":", 1)[0]
+    for prefix in ("web/apps/", "web/modules/", "web/shared-ui/", "apps/", "platform/libs/", "libs/"):
+        if path.startswith(prefix):
+            tail = path[len(prefix):]
+            return prefix + tail.split("/", 1)[0]
+    return "unknown"
+
+
+def surrounding_symbol(text: str, index: int) -> str:
+    """Best-effort component/function name for UI option groups."""
+    window = text[max(0, index - 3000):index]
+    matches = list(re.finditer(
+        r"(?:export\s+default\s+)?function\s+(\w+)\s*\(|(?:export\s+)?const\s+(\w+)\s*[:=]",
+        window,
+    ))
+    if not matches:
+        return "unknown"
+    last = matches[-1]
+    return (last.group(1) or last.group(2) or "unknown").strip()
+
+
+def attr_value(attrs: str, name: str) -> str:
+    m = re.search(rf"\b{name}\s*=\s*['\"]([^'\"]+)['\"]", attrs)
+    return m.group(1).strip() if m else ""
+
+
+def extract_literal_values(text: str) -> list[str]:
+    """Extract string literals from option/value object shapes."""
+    values: list[str] = []
+    values.extend(re.findall(r"\bvalue\s*:\s*['\"]([^'\"]+)['\"]", text))
+    values.extend(re.findall(r"<(?:option|MenuItem)\b[^>]*\bvalue\s*=\s*['\"]([^'\"]+)['\"]", text))
+    if not values:
+        values.extend(re.findall(r"['\"]([A-Za-z0-9_./:-]+)['\"]", text))
+    cleaned = [v.strip() for v in values if v.strip().lower() not in UI_IGNORED_VALUES]
+    return sorted(set(cleaned))
+
+
+def is_test_source_path(path: str) -> bool:
+    return (
+        "/__tests__/" in path
+        or "/tests/" in path
+        or path.startswith("e2e/")
+        or path.endswith((".spec.ts", ".spec.tsx", ".test.ts", ".test.tsx"))
+    )
 
 
 # ─── git_ls_files ────────────────────────────────────────────────────────
@@ -305,7 +465,7 @@ def detect_ts_enums(repo_root: Path, fates: list[FileFate]) -> list[dict]:
     for f in fates:
         if not f.path.endswith((".ts", ".tsx")):
             continue
-        if f.path.endswith(".d.ts") or "/__tests__/" in f.path:
+        if f.path.endswith(".d.ts") or is_test_source_path(f.path):
             continue
         full = repo_root / f.path
         try:
@@ -332,8 +492,233 @@ def detect_ts_enums(repo_root: Path, fates: list[FileFate]) -> list[dict]:
                 "name": name,
                 "values": sorted(set(values)),
                 "ref": f"{f.path}:{line}",
+                "kind": "enum",
+                "surface": surface_of_path(f.path),
             })
     return enums
+
+
+# ─── detect_ts_union_types ───────────────────────────────────────────────
+# Pattern manifest: `type FooStatus = 'a' | 'b' | 'c'`. Modern TS code
+# often uses literal unions instead of enum. The detector only accepts pure
+# string-literal unions with 2+ values; wider unions stay invisible rather
+# than producing noisy partial data.
+def detect_ts_union_types(repo_root: Path, fates: list[FileFate]) -> list[dict]:
+    unions: list[dict] = []
+    for f in fates:
+        if not f.path.endswith((".ts", ".tsx")):
+            continue
+        if f.path.endswith(".d.ts") or is_test_source_path(f.path):
+            continue
+        full = repo_root / f.path
+        try:
+            text = full.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for m in TS_UNION_PATTERN.finditer(text):
+            name = m.group(1)
+            body = m.group(2)
+            values = re.findall(r"['\"]([^'\"]+)['\"]", body)
+            values = sorted(set(v.strip() for v in values if v.strip()))
+            if len(values) < 2:
+                continue
+            line = text[: m.start()].count("\n") + 1
+            unions.append({
+                "name": name,
+                "values": values,
+                "ref": f"{f.path}:{line}",
+                "kind": "union",
+                "surface": surface_of_path(f.path),
+            })
+    return unions
+
+
+def detect_ts_const_arrays(repo_root: Path, fates: list[FileFate]) -> list[dict]:
+    """Pattern: `export const FooValues = ['a', 'b'] as const`."""
+    sets: list[dict] = []
+    for f in fates:
+        if not f.path.endswith((".ts", ".tsx")):
+            continue
+        if f.path.endswith(".d.ts") or is_test_source_path(f.path):
+            continue
+        full = repo_root / f.path
+        try:
+            text = full.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for m in TS_CONST_ARRAY_PATTERN.finditer(text):
+            name = m.group(1)
+            values = extract_literal_values(m.group(2))
+            if len(values) < 2:
+                continue
+            line = text[: m.start()].count("\n") + 1
+            sets.append({
+                "name": name,
+                "values": values,
+                "ref": f"{f.path}:{line}",
+                "kind": "const_array",
+                "surface": surface_of_path(f.path),
+            })
+    return sets
+
+
+def detect_zod_enums(repo_root: Path, fates: list[FileFate]) -> list[dict]:
+    """Pattern: `const FooSchema = z.enum(['a', 'b'])`."""
+    sets: list[dict] = []
+    for f in fates:
+        if not f.path.endswith((".ts", ".tsx")):
+            continue
+        if f.path.endswith(".d.ts") or is_test_source_path(f.path):
+            continue
+        full = repo_root / f.path
+        try:
+            text = full.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for m in ZOD_ENUM_PATTERN.finditer(text):
+            name = m.group(1)
+            values = extract_literal_values(m.group(2))
+            if len(values) < 2:
+                continue
+            line = text[: m.start()].count("\n") + 1
+            sets.append({
+                "name": name,
+                "values": values,
+                "ref": f"{f.path}:{line}",
+                "kind": "zod_enum",
+                "surface": surface_of_path(f.path),
+            })
+    return sets
+
+
+def detect_graphql_enums(repo_root: Path, fates: list[FileFate]) -> list[dict]:
+    """Pattern: GraphQL SDL `enum Foo { A B C }`."""
+    sets: list[dict] = []
+    for f in fates:
+        if not f.path.endswith((".graphql", ".gql")):
+            continue
+        if is_test_source_path(f.path):
+            continue
+        full = repo_root / f.path
+        try:
+            text = full.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for m in GRAPHQL_ENUM_PATTERN.finditer(text):
+            name = m.group(1)
+            body = re.sub(r"#[^\n]*", "", m.group(2))
+            values = []
+            for raw in re.split(r"[\s,]+", body):
+                v = raw.strip()
+                if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", v):
+                    values.append(v)
+            values = sorted(set(values))
+            if len(values) < 2:
+                continue
+            line = text[: m.start()].count("\n") + 1
+            sets.append({
+                "name": name,
+                "values": values,
+                "ref": f"{f.path}:{line}",
+                "kind": "graphql_enum",
+                "surface": surface_of_path(f.path),
+            })
+    return sets
+
+
+# ─── detect_ui_option_groups ─────────────────────────────────────────────
+# Pattern manifest: frontend literal option groups. This is intentionally
+# conservative: it records many groups for visibility, but drift promotion
+# later requires a safe concept token + value overlap. Generic timezone,
+# sort, and "all" filters should stay as raw option groups, not findings.
+def detect_ui_option_groups(repo_root: Path, fates: list[FileFate]) -> list[dict]:
+    groups: list[dict] = []
+    for f in fates:
+        if surface_of_path(f.path) != "frontend_ui":
+            continue
+        full = repo_root / f.path
+        try:
+            text = full.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+
+        # Native select blocks.
+        for m in re.finditer(r"<select\b(?P<attrs>[^>]*)>(?P<body>.*?)</select>", text, re.DOTALL):
+            attrs = m.group("attrs")
+            body = m.group("body")
+            values = extract_literal_values(body)
+            if len(values) < 2:
+                continue
+            symbol = surrounding_symbol(text, m.start())
+            name = attr_value(attrs, "name") or attr_value(attrs, "id") or symbol
+            line = text[: m.start()].count("\n") + 1
+            groups.append({
+                "name": name,
+                "component": symbol,
+                "values": values,
+                "ref": f"{f.path}:{line}",
+                "kind": "ui_option_group",
+                "source": "select",
+                "surface": surface_of_path(f.path),
+            })
+
+        # Inline component options={[{ value: 'x' }, ...]} blocks.
+        for m in re.finditer(r"\boptions\s*=\s*\{\s*(\[[\s\S]*?\])\s*\}", text):
+            body = m.group(1)
+            values = extract_literal_values(body)
+            if len(values) < 2:
+                continue
+            symbol = surrounding_symbol(text, m.start())
+            line = text[: m.start()].count("\n") + 1
+            groups.append({
+                "name": f"{symbol}Options",
+                "component": symbol,
+                "values": values,
+                "ref": f"{f.path}:{line}",
+                "kind": "ui_option_group",
+                "source": "inline_options",
+                "surface": surface_of_path(f.path),
+            })
+
+        # Named option arrays: const statusOptions = [...]
+        option_name = r"\w*(?:Options|Statuses|Types|States|Phases|Categories|Priorities|Severities|Kinds|Modes)\w*"
+        const_pattern = re.compile(rf"\bconst\s+({option_name})\s*=\s*(\[[\s\S]*?\]);?", re.DOTALL)
+        for m in const_pattern.finditer(text):
+            name = m.group(1)
+            body = m.group(2)
+            values = extract_literal_values(body)
+            if len(values) < 2:
+                continue
+            symbol = surrounding_symbol(text, m.start())
+            line = text[: m.start()].count("\n") + 1
+            groups.append({
+                "name": name,
+                "component": symbol,
+                "values": values,
+                "ref": f"{f.path}:{line}",
+                "kind": "ui_option_group",
+                "source": "const_options",
+                "surface": surface_of_path(f.path),
+            })
+
+        # Material UI-style sibling MenuItem values, grouped by component.
+        menu_values = extract_literal_values("\n".join(
+            re.findall(r"<MenuItem\b[^>]*>.*?</MenuItem>", text, flags=re.DOTALL)
+        ))
+        if len(menu_values) >= 2:
+            first = text.find("<MenuItem")
+            symbol = surrounding_symbol(text, first)
+            line = text[: first].count("\n") + 1
+            groups.append({
+                "name": f"{symbol}MenuItems",
+                "component": symbol,
+                "values": menu_values,
+                "ref": f"{f.path}:{line}",
+                "kind": "ui_option_group",
+                "source": "menu_items",
+                "surface": surface_of_path(f.path),
+            })
+    return groups
 
 
 # ─── detect_sql_enums ────────────────────────────────────────────────────
@@ -362,6 +747,8 @@ def detect_sql_enums(repo_root: Path, fates: list[FileFate]) -> list[dict]:
                 "name": name,
                 "values": sorted(set(values)),
                 "ref": f"{f.path}:{line}",
+                "kind": "sql_enum",
+                "surface": surface_of_path(f.path),
             })
     return enums
 
@@ -389,44 +776,23 @@ def find_drifts(ts_enums: list[dict], sql_enums: list[dict],
     to count as same concept. Below-threshold matches are still recorded
     (for transparency / skill calibration) but split into a separate list.
     """
-    suffixes_priority = ("_enum", "_status", "_type", "enum", "status", "type")
-
-    def norm(name: str) -> str:
-        n = name.lower()
-        for suffix in suffixes_priority:
-            if n.endswith(suffix) and len(n) > len(suffix):
-                return n[: -len(suffix)]
-        return n
-
-    def jaccard(a: set, b: set) -> float:
-        if not a and not b:
-            return 1.0
-        return len(a & b) / max(len(a | b), 1)
-
-    def service_of(ref: str) -> str:
-        for prefix in ("apps/", "web/modules/"):
-            if prefix in ref:
-                tail = ref.split(prefix, 1)[1]
-                return prefix + tail.split("/", 1)[0]
-        return "unknown"
-
     by_norm_ts: dict[str, list[dict]] = {}
     for e in ts_enums:
-        by_norm_ts.setdefault(norm(e["name"]), []).append(e)
+        by_norm_ts.setdefault(normalize_concept_name(e["name"]), []).append(e)
 
     drifts_above: list[dict] = []
     drifts_filtered: list[dict] = []
     for sql in sql_enums:
-        for ts in by_norm_ts.get(norm(sql["name"]), []):
-            ts_vals = {v.lower() for v in ts["values"]}
-            sql_vals = {v.lower() for v in sql["values"]}
+        for ts in by_norm_ts.get(normalize_concept_name(sql["name"]), []):
+            ts_vals = lower_values(ts["values"])
+            sql_vals = lower_values(sql["values"])
             if ts_vals == sql_vals:
                 continue  # no drift
             similarity = jaccard(ts_vals, sql_vals)
             ts_service = service_of(ts["ref"])
             sql_service = service_of(sql["ref"])
             entry = {
-                "concept": norm(sql["name"]),
+                "concept": normalize_concept_name(sql["name"]),
                 "ts": ts,
                 "sql": sql,
                 "missing_in_ts": sorted(sql_vals - ts_vals),
@@ -444,6 +810,165 @@ def find_drifts(ts_enums: list[dict], sql_enums: list[dict],
     # Sort: cross_service drifts first (they are categorically more critical)
     drifts_above.sort(key=lambda d: (not d["cross_service"], -d["value_jaccard_similarity"]))
     return drifts_above, drifts_filtered
+
+
+def ui_group_has_safe_name(group: dict) -> bool:
+    raw = f"{group.get('name', '')} {group.get('component', '')}".lower()
+    return any(token in raw for token in UI_SAFE_CONCEPT_TOKENS)
+
+
+def relationship_reason(ui: dict, source: dict) -> str | None:
+    ui_norm = normalize_concept_name(ui["name"])
+    source_norm = normalize_concept_name(source["name"])
+    if ui_norm and source_norm and (ui_norm == source_norm or ui_norm in source_norm or source_norm in ui_norm):
+        return "normalized_name_match"
+    ui_tokens = meaningful_concept_tokens(f"{ui.get('name', '')} {ui.get('component', '')}")
+    source_tokens = meaningful_concept_tokens(source["name"])
+    shared = sorted(ui_tokens & source_tokens)
+    if shared:
+        return "shared_concept_tokens:" + ",".join(shared)
+    ui_file = ui["ref"].split(":", 1)[0]
+    source_file = source["ref"].split(":", 1)[0]
+    if ui_file == source_file:
+        return "same_file"
+    return None
+
+
+def related_by_name_or_overlap(ui: dict, source: dict, threshold: float) -> bool:
+    reason = relationship_reason(ui, source)
+    if reason in {"normalized_name_match", "same_file"} or (reason or "").startswith("shared_concept_tokens:"):
+        return True
+    return False
+
+
+def nearest_value_sets(ui: dict, sources: list[dict], limit: int = 3) -> list[dict]:
+    rows: list[dict] = []
+    ui_vals = lower_values(ui["values"])
+    for source in sources:
+        source_vals = lower_values(source["values"])
+        reason = relationship_reason(ui, source)
+        similarity = jaccard(ui_vals, source_vals)
+        rows.append({
+            "name": source["name"],
+            "kind": source.get("kind", "sql_enum"),
+            "ref": source["ref"],
+            "surface": source.get("surface", "unknown"),
+            "relationship": reason,
+            "value_jaccard_similarity": round(similarity, 3),
+        })
+    rows.sort(key=lambda r: (r["relationship"] is None, -r["value_jaccard_similarity"], r["ref"]))
+    return rows[:limit]
+
+
+def annotate_ui_option_groups(ts_value_sets: list[dict], sql_enums: list[dict],
+                              ui_option_groups: list[dict],
+                              jaccard_threshold: float = 0.5) -> tuple[list[dict], list[dict]]:
+    annotated: list[dict] = []
+    drifts: list[dict] = []
+    sources = [*ts_value_sets, *sql_enums]
+    for ui in ui_option_groups:
+        enriched = dict(ui)
+        enriched["nearest_value_sets"] = nearest_value_sets(ui, sources)
+        enriched["promotion_status"] = "suppressed"
+        enriched["promotion_reason"] = "not_evaluated"
+        if not ui_group_has_safe_name(ui):
+            enriched["promotion_reason"] = "unsafe_name"
+            annotated.append(enriched)
+            continue
+        ui_vals = lower_values(ui["values"])
+        if len(ui_vals) < 2:
+            enriched["promotion_reason"] = "too_few_values"
+            annotated.append(enriched)
+            continue
+
+        related_sources = [
+            source for source in sources
+            if relationship_reason(ui, source) is not None
+        ]
+        if not related_sources:
+            enriched["promotion_reason"] = "no_related_value_set"
+            annotated.append(enriched)
+            continue
+
+        promoted = False
+        low_similarity_seen = False
+        equal_seen = False
+        for source in related_sources:
+            source_vals = lower_values(source["values"])
+            similarity = jaccard(ui_vals, source_vals)
+            if ui_vals == source_vals:
+                equal_seen = True
+                continue
+            if similarity < jaccard_threshold:
+                low_similarity_seen = True
+                continue
+            reason = relationship_reason(ui, source) or "unknown"
+            drift = {
+                "claim_type": "frontend_dropdown_drift",
+                "concept": normalize_concept_name(source["name"]),
+                "ui": enriched,
+                "source": source,
+                "source_kind": source.get("kind", "sql_enum"),
+                "relationship": reason,
+                "missing_in_ui": sorted(source_vals - ui_vals),
+                "missing_in_source": sorted(ui_vals - source_vals),
+                "value_jaccard_similarity": round(similarity, 3),
+                "cross_service": service_of(ui["ref"]) != service_of(source["ref"]),
+                "ui_service": service_of(ui["ref"]),
+                "source_service": service_of(source["ref"]),
+            }
+            drifts.append(drift)
+            promoted = True
+
+        if promoted:
+            enriched["promotion_status"] = "promoted"
+            enriched["promotion_reason"] = "related_value_set_drift"
+        elif equal_seen:
+            enriched["promotion_reason"] = "matches_related_value_set"
+        elif low_similarity_seen:
+            enriched["promotion_reason"] = "low_similarity"
+        else:
+            enriched["promotion_reason"] = "no_drift"
+        annotated.append(enriched)
+
+    drifts.sort(key=lambda d: (not d["cross_service"], -d["value_jaccard_similarity"], d["ui"]["ref"]))
+    seen: dict[tuple[str, str], dict] = {}
+    unique: list[dict] = []
+    for d in drifts:
+        source_summary = {
+            "name": d["source"]["name"],
+            "kind": d["source_kind"],
+            "ref": d["source"]["ref"],
+            "relationship": d["relationship"],
+            "value_jaccard_similarity": d["value_jaccard_similarity"],
+            "missing_in_ui": d["missing_in_ui"],
+            "missing_in_source": d["missing_in_source"],
+        }
+        key = (d["ui"]["ref"], compact_concept_key(d["concept"]))
+        if key not in seen:
+            d["supporting_sources"] = [source_summary]
+            seen[key] = d
+            unique.append(d)
+        else:
+            existing = seen[key]
+            existing["supporting_sources"].append(source_summary)
+            existing["missing_in_ui"] = sorted(set(existing["missing_in_ui"]) | set(d["missing_in_ui"]))
+            existing["missing_in_source"] = sorted(set(existing["missing_in_source"]) | set(d["missing_in_source"]))
+            existing["cross_service"] = existing["cross_service"] or d["cross_service"]
+    return annotated, unique
+
+
+# ─── find_frontend_dropdown_drifts ───────────────────────────────────────
+# UI option groups are noisy by nature, so they never join the main
+# TS↔SQL drift list directly. Promotion requires (1) a safe concept name
+# and (2) a related TS/SQL value set by name or strong value overlap.
+def find_frontend_dropdown_drifts(ts_value_sets: list[dict], sql_enums: list[dict],
+                                  ui_option_groups: list[dict],
+                                  jaccard_threshold: float = 0.5) -> list[dict]:
+    _, drifts = annotate_ui_option_groups(
+        ts_value_sets, sql_enums, ui_option_groups, jaccard_threshold,
+    )
+    return drifts
 
 
 # ─── write_fates_json ────────────────────────────────────────────────────
@@ -563,6 +1088,158 @@ def scan_prior_audits(repo_root: Path, drifts: list[dict]) -> dict[str, list[str
     return mentions
 
 
+def drift_key(drift: dict) -> str:
+    if drift.get("claim_type") == "frontend_dropdown_drift":
+        return drift["concept"] + ":" + drift["ui"]["ref"]
+    return drift["concept"] + ":" + drift["ts"]["ref"]
+
+
+def parse_ref(ref: str) -> tuple[str, int] | None:
+    path, sep, line = ref.rpartition(":")
+    if not sep:
+        return None
+    try:
+        return path, int(line)
+    except ValueError:
+        return None
+
+
+def git_blame_ref(repo_root: Path, ref: str) -> dict:
+    parsed = parse_ref(ref)
+    if not parsed:
+        return {"available": False, "reason": "ref_without_line"}
+    path, line = parsed
+    if not (repo_root / path).exists():
+        return {"available": False, "reason": "file_missing"}
+    try:
+        r = subprocess.run(
+            ["git", "-C", str(repo_root), "blame", "-L", f"{line},{line}", "--porcelain", "--", path],
+            capture_output=True, text=True, check=True, timeout=30,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired) as exc:
+        return {"available": False, "reason": exc.__class__.__name__}
+    lines = r.stdout.splitlines()
+    if not lines:
+        return {"available": False, "reason": "empty_blame"}
+    first = lines[0].split()
+    sha = first[0] if first else ""
+    meta: dict[str, str | bool] = {"available": True, "commit": sha}
+    for line_text in lines[1:]:
+        if line_text.startswith("author-time "):
+            try:
+                ts = int(line_text.split(" ", 1)[1])
+                meta["author_date"] = datetime.fromtimestamp(ts, timezone.utc).date().isoformat()
+            except ValueError:
+                pass
+        elif line_text.startswith("summary "):
+            meta["summary"] = line_text.split(" ", 1)[1]
+    return meta
+
+
+def attach_git_blame(repo_root: Path, drifts: list[dict]) -> None:
+    for drift in drifts:
+        if drift.get("claim_type") == "frontend_dropdown_drift":
+            drift["git_blame"] = {
+                "ui": git_blame_ref(repo_root, drift["ui"]["ref"]),
+                "source": git_blame_ref(repo_root, drift["source"]["ref"]),
+            }
+        else:
+            drift["git_blame"] = {
+                "ts": git_blame_ref(repo_root, drift["ts"]["ref"]),
+                "sql": git_blame_ref(repo_root, drift["sql"]["ref"]),
+            }
+
+
+def scan_existing_gate_refs(repo_root: Path, drifts: list[dict]) -> dict[str, list[str]]:
+    roots = [
+        repo_root / "tests" / "invariants",
+        repo_root / "e2e" / "tests",
+        repo_root / ".github" / "workflows",
+    ]
+    gate_files: list[Path] = []
+    for root in roots:
+        if root.exists():
+            gate_files.extend(
+                p for p in root.rglob("*")
+                if p.is_file() and p.suffix.lower() in {".ts", ".tsx", ".js", ".yml", ".yaml", ".md"}
+            )
+
+    refs: dict[str, list[str]] = {}
+    for drift in drifts:
+        if drift.get("claim_type") == "frontend_dropdown_drift":
+            names = {
+                drift["concept"],
+                drift["ui"]["name"],
+                drift["source"]["name"],
+            }
+        else:
+            names = {
+                drift["concept"],
+                drift["ts"]["name"],
+                drift["sql"]["name"],
+            }
+        needles = set()
+        for name in names:
+            normalized = normalize_concept_name(name)
+            tokens = concept_tokens(name)
+            if len(name) >= 6 and (any(c.isupper() for c in name) or "_" in name or "-" in name):
+                needles.add(name)
+            if len(normalized) >= 8:
+                needles.add(normalized)
+            if len(tokens - GENERIC_CONCEPT_TOKENS) >= 2:
+                needles.add(" ".join(sorted(tokens - GENERIC_CONCEPT_TOKENS)))
+        hits: list[str] = []
+        for gf in gate_files:
+            try:
+                text = gf.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            lower_text = text.lower()
+            for needle in sorted(needles, key=len, reverse=True):
+                idx = lower_text.find(needle.lower())
+                if idx == -1:
+                    continue
+                rel = gf.relative_to(repo_root)
+                line_num = text[:idx].count("\n") + 1
+                hits.append(f"{rel}:{line_num} ({needle})")
+                break
+            if len(hits) >= 5:
+                break
+        if hits:
+            refs[drift_key(drift)] = hits
+            drift["existing_gate_refs"] = hits
+        else:
+            drift["existing_gate_refs"] = []
+    return refs
+
+
+def build_summary(value_sets: list[dict], ui_option_groups: list[dict],
+                  drifts_above: list[dict], frontend_dropdown_drifts: list[dict],
+                  audit_mentions: dict[str, list[str]]) -> dict:
+    ui_promotions = Counter(g.get("promotion_reason", "unknown") for g in ui_option_groups)
+    ui_status = Counter(g.get("promotion_status", "unknown") for g in ui_option_groups)
+    all_drifts = [*drifts_above, *frontend_dropdown_drifts]
+    prior_mentioned = sum(1 for d in all_drifts if drift_key(d) in audit_mentions)
+    gate_referenced = sum(1 for d in all_drifts if d.get("existing_gate_refs"))
+    novel = sum(
+        1 for d in all_drifts
+        if drift_key(d) not in audit_mentions and not d.get("existing_gate_refs")
+    )
+    return {
+        "value_set_counts_by_kind": dict(Counter(v.get("kind", "unknown") for v in value_sets)),
+        "ui_promotion_counts": {
+            "by_status": dict(ui_status),
+            "by_reason": dict(ui_promotions),
+        },
+        "novelty_counts": {
+            "total_candidates": len(all_drifts),
+            "prior_audit_mentioned": prior_mentioned,
+            "existing_gate_referenced": gate_referenced,
+            "new_looking": novel,
+        },
+    }
+
+
 # ─── write_report ────────────────────────────────────────────────────────
 # Operatöre gidecek tek dosya: aria-poc-report.md. Coverage Invariant +
 # Repository Fingerprint + TRUSTED priors + drift candidates (above
@@ -571,8 +1248,10 @@ def scan_prior_audits(repo_root: Path, drifts: list[dict]) -> dict[str, list[str
 # data MECHANICAL_DRIFTS.json'da). LLM yok, opinion yok — operatör
 # karar verir.
 def write_report(out_dir: Path, fp: Fingerprint, fates: list[FileFate],
+                 ts_value_sets: list[dict], ui_option_groups: list[dict],
                  drifts_above: list[dict], drifts_filtered: list[dict],
-                 git_recon: dict, audit_mentions: dict[str, list[str]],
+                 frontend_dropdown_drifts: list[dict], git_recon: dict,
+                 audit_mentions: dict[str, list[str]], summary: dict,
                  artifacts: list[str]) -> Path:
     skipped = sum(1 for f in fates if f.fate == "skipped_with_reason")
     deeply = sum(1 for f in fates if f.fate == "read_deeply")
@@ -622,7 +1301,10 @@ def write_report(out_dir: Path, fp: Fingerprint, fates: list[FileFate],
         r.append(f"- `{art}`\n")
     r.append("\n")
 
-    r.append("## 4. Mechanical Drift Scan (TS `enum` vs SQL `CREATE TYPE ... AS ENUM`)\n\n")
+    value_set_counts = summary.get("value_set_counts_by_kind", {})
+    r.append("## 4. Mechanical Drift Scan (TS value sets vs SQL `CREATE TYPE ... AS ENUM`)\n\n")
+    r.append(f"- TS/schema value sets scanned: {len(ts_value_sets)} — `{value_set_counts}`\n")
+    r.append(f"- UI option groups recorded: {len(ui_option_groups)} (reported separately; high-confidence promotion only)\n")
     r.append(f"- **{len(drifts_above)} drift candidate(s) above Jaccard 0.3 threshold** "
              f"(of which {cross_count} are CROSS-SERVICE — categorically more critical)\n")
     r.append(f"- {len(drifts_filtered)} candidate(s) filtered out as likely false-positive name collisions "
@@ -630,9 +1312,9 @@ def write_report(out_dir: Path, fp: Fingerprint, fates: list[FileFate],
     if drifts_above:
         r.append("Each above-threshold drift requires manual verification (Nuance Discrimination Protocol per IDENTITY §3.5).\n\n")
         for i, d in enumerate(drifts_above[:10], 1):
-            badge = "🔴 CROSS-SERVICE" if d.get("cross_service") else "🟡 same-service"
+            badge = "CROSS-SERVICE" if d.get("cross_service") else "same-service"
             r.append(f"### Drift {i}: `{d['concept']}` — {badge} (similarity {d['value_jaccard_similarity']})\n\n")
-            r.append(f"- TS `{d['ts']['name']}` @ `{d['ts']['ref']}` "
+            r.append(f"- TS {d['ts'].get('kind', 'enum')} `{d['ts']['name']}` @ `{d['ts']['ref']}` "
                      f"({d.get('ts_service','?')}) — values: `{d['ts']['values']}`\n")
             r.append(f"- SQL `{d['sql']['name']}` @ `{d['sql']['ref']}` "
                      f"({d.get('sql_service','?')}) — values: `{d['sql']['values']}`\n")
@@ -647,17 +1329,56 @@ def write_report(out_dir: Path, fp: Fingerprint, fates: list[FileFate],
                     r.append(f"  - `{ref}`\n")
             else:
                 r.append("- No mention in `docs/audits|reviews|product-audits` — appears to be NEW signal\n")
+            if d.get("existing_gate_refs"):
+                r.append("- Existing gate/test refs:\n")
+                for ref in d["existing_gate_refs"]:
+                    r.append(f"  - `{ref}`\n")
+            if d.get("git_blame"):
+                r.append(f"- Git blame: `{d['git_blame']}`\n")
             r.append("\n")
     else:
         r.append("No above-threshold drift candidates detected.\n\n")
         r.append("**Absence claim discipline (per SPEC §7.2 Rule B):**\n")
-        r.append("- Heuristic only matched TS `enum` keyword + SQL `CREATE TYPE ... AS ENUM`.\n")
-        r.append("- Union types (`type FarmStatus = 'a' | 'b'`) NOT scanned.\n")
-        r.append("- Frontend select/dropdown options NOT scanned.\n")
-        r.append("- GraphQL/Zod schemas NOT scanned.\n")
+        r.append("- Heuristic matched TS `enum`, TS string-literal `type` unions, and SQL `CREATE TYPE ... AS ENUM`.\n")
+        r.append("- It also scans TS `as const` arrays, Zod `z.enum([...])`, and GraphQL SDL enums.\n")
+        r.append("- Frontend select/dropdown options are recorded separately and promoted only with confidence gates.\n")
+        r.append("- Dynamic frontend option providers are still not traced.\n")
         r.append("- Confidence cap on absence claim: 0.7.\n\n")
 
-    r.append("## 5. Operator Decision Gate\n\n")
+    r.append("## 5. UI Option Group Scan (high-confidence candidates only)\n\n")
+    r.append(f"- UI option groups recorded: {len(ui_option_groups)}\n")
+    r.append(f"- Frontend dropdown drift candidate(s): {len(frontend_dropdown_drifts)}\n\n")
+    promotion_counts = summary.get("ui_promotion_counts", {})
+    if promotion_counts:
+        r.append(f"- Promotion counts: `{promotion_counts}`\n\n")
+    if frontend_dropdown_drifts:
+        for i, d in enumerate(frontend_dropdown_drifts[:10], 1):
+            badge = "CROSS-SERVICE" if d.get("cross_service") else "same-service"
+            r.append(f"### UI Drift {i}: `{d['concept']}` — {badge} (similarity {d['value_jaccard_similarity']})\n\n")
+            r.append(f"- UI `{d['ui']['name']}` @ `{d['ui']['ref']}` "
+                     f"({d.get('ui_service','?')}) — values: `{d['ui']['values']}`\n")
+            r.append(f"- Source {d['source_kind']} `{d['source']['name']}` @ `{d['source']['ref']}` "
+                     f"({d.get('source_service','?')}) — values: `{d['source']['values']}`\n")
+            if d["missing_in_ui"]:
+                r.append(f"- Missing in UI: `{d['missing_in_ui']}`\n")
+            if d["missing_in_source"]:
+                r.append(f"- Missing in source: `{d['missing_in_source']}`\n")
+            r.append(f"- Relationship: `{d.get('relationship', 'unknown')}`\n")
+            if d.get("existing_gate_refs"):
+                r.append("- Existing gate/test refs:\n")
+                for ref in d["existing_gate_refs"]:
+                    r.append(f"  - `{ref}`\n")
+            if d.get("git_blame"):
+                r.append(f"- Git blame: `{d['git_blame']}`\n")
+            r.append("- Manual verification required before treating this as a finding.\n\n")
+    else:
+        r.append("No high-confidence UI dropdown drift candidates detected.\n\n")
+
+    r.append("## 5.1 Decision Evidence Summary\n\n")
+    r.append(f"- Novelty counts: `{summary.get('novelty_counts', {})}`\n")
+    r.append("- Raw `ui_option_groups` include `promotion_status`, `promotion_reason`, and `nearest_value_sets` in `MECHANICAL_DRIFTS.json`.\n\n")
+
+    r.append("## 6. Operator Decision Gate\n\n")
     r.append("Answer YES/NO to each (per CONTRACTS §13):\n\n")
     r.append("1. Did the fingerprint reveal anything you did not already know? `[ ]`\n")
     r.append("2. Did the mechanical drift scan surface real drift not caught by existing specialized agents on PR cycles? `[ ]`\n")
@@ -682,7 +1403,7 @@ def write_report(out_dir: Path, fp: Fingerprint, fates: list[FileFate],
 #   3. fingerprint compute + REPO_FINGERPRINT.json
 #   4. TRUSTED prior ingestion (CLAUDE.md, ADR'ler, agent index)
 #   5. nx graph (best-effort)
-#   6. mechanical drift scan (TS enum vs SQL enum) + filter + sort
+#   6. mechanical drift scan (TS enum/union vs SQL enum + UI options)
 #   6.5 prior-audit mention scan
 #   7. INDEX.json manifest + aria-poc-report.md
 # Exit code: 0 if drift sayısı ≤ --fail-on-drifts; aksi halde 1
@@ -749,25 +1470,54 @@ def main() -> int:
 
     print("[aria-poc] phase 6: mechanical drift scan...")
     ts_enums = detect_ts_enums(repo_root, fates)
+    ts_unions = detect_ts_union_types(repo_root, fates)
+    ts_const_arrays = detect_ts_const_arrays(repo_root, fates)
+    zod_enums = detect_zod_enums(repo_root, fates)
+    graphql_enums = detect_graphql_enums(repo_root, fates)
+    ts_value_sets = [*ts_enums, *ts_unions, *ts_const_arrays, *zod_enums, *graphql_enums]
     sql_enums = detect_sql_enums(repo_root, fates)
-    print(f"[aria-poc]   ts enums: {len(ts_enums)}; sql enums: {len(sql_enums)}")
-    drifts_above, drifts_filtered = find_drifts(ts_enums, sql_enums, args.jaccard_threshold)
+    ui_option_groups = detect_ui_option_groups(repo_root, fates)
+    print(f"[aria-poc]   ts enums: {len(ts_enums)}; ts unions: {len(ts_unions)}; "
+          f"const arrays: {len(ts_const_arrays)}; zod enums: {len(zod_enums)}; "
+          f"graphql enums: {len(graphql_enums)}; sql enums: {len(sql_enums)}; "
+          f"ui option groups: {len(ui_option_groups)}")
+    drifts_above, drifts_filtered = find_drifts(ts_value_sets, sql_enums, args.jaccard_threshold)
+    ui_option_groups, frontend_dropdown_drifts = annotate_ui_option_groups(
+        ts_value_sets, sql_enums, ui_option_groups, max(args.jaccard_threshold, 0.5),
+    )
     cross = sum(1 for d in drifts_above if d["cross_service"])
     print(f"[aria-poc]   above-threshold drifts: {len(drifts_above)} (cross-service: {cross}); "
           f"filtered (low similarity): {len(drifts_filtered)}")
+    print(f"[aria-poc]   frontend dropdown drifts: {len(frontend_dropdown_drifts)}")
 
     print("[aria-poc] phase 6.5: scanning prior audit findings...")
+    all_candidate_drifts = [*drifts_above, *frontend_dropdown_drifts]
     audit_mentions = scan_prior_audits(repo_root, drifts_above)
+    existing_gate_refs = scan_existing_gate_refs(repo_root, all_candidate_drifts)
+    attach_git_blame(repo_root, all_candidate_drifts)
+    summary = build_summary(ts_value_sets, ui_option_groups, drifts_above,
+                            frontend_dropdown_drifts, audit_mentions)
     print(f"[aria-poc]   drifts mentioned in prior audits: {len(audit_mentions)}")
+    print(f"[aria-poc]   drifts referenced by existing gates/tests: {len(existing_gate_refs)}")
 
     (out_dir / "MECHANICAL_DRIFTS.json").write_text(
         json.dumps({
             "ts_enums": ts_enums,
+            "ts_unions": ts_unions,
+            "ts_const_arrays": ts_const_arrays,
+            "zod_enums": zod_enums,
+            "graphql_enums": graphql_enums,
+            "ts_value_sets": ts_value_sets,
+            "value_sets": [*ts_value_sets, *sql_enums],
             "sql_enums": sql_enums,
+            "ui_option_groups": ui_option_groups,
             "drifts_above_threshold": drifts_above,
             "drifts_filtered_below_threshold": drifts_filtered,
+            "frontend_dropdown_drifts": frontend_dropdown_drifts,
             "jaccard_threshold": args.jaccard_threshold,
             "prior_audit_mentions": audit_mentions,
+            "existing_gate_refs": existing_gate_refs,
+            "summary": summary,
         }, indent=2),
         encoding="utf-8",
     )
@@ -791,8 +1541,9 @@ def main() -> int:
     )
 
     print("[aria-poc] phase 7: writing report...")
-    report = write_report(out_dir, fp, fates, drifts_above, drifts_filtered,
-                          git_recon, audit_mentions, artifacts)
+    report = write_report(out_dir, fp, fates, ts_value_sets, ui_option_groups,
+                          drifts_above, drifts_filtered, frontend_dropdown_drifts,
+                          git_recon, audit_mentions, summary, artifacts)
     print(f"[aria-poc] DONE. Report: {report}")
 
     # Exit code discipline: above-threshold drifts > fail-on-drifts → exit 1

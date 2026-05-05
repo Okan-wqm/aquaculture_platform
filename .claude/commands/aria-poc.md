@@ -24,12 +24,12 @@ python3 tools/aria-poc/poc.py --workspace-root .
 
 3. Surface the four decision-gate questions to the operator. Do **not** answer them yourself — these are operator judgment calls that depend on knowledge outside the repository (LLM budget, organizational priorities, prior agent ROI).
 
-4. Show the operator the top 5 drift candidates from `.aria-poc/MECHANICAL_DRIFTS.json` so they can sanity-check whether the PoC found anything novel vs. what the existing 38 specialized agents would have caught.
+4. Show the operator the top 5 TS/SQL drift candidates from `.aria-poc/MECHANICAL_DRIFTS.json` so they can sanity-check whether the PoC found anything novel vs. what the existing specialized agents would have caught. Also report `summary`, `ui_option_groups` promotion counts, and any clustered `frontend_dropdown_drifts`; UI groups are raw evidence, not findings.
 
 ## Constraints
 
 - **Zero LLM calls** during the PoC run itself. The PoC is mechanical Python.
-- **Do not interpret findings** — you are running the tool, not analysing it. The operator interprets.
+- **Do not over-interpret candidates** — you are running the tool, not deciding architecture. The operator interprets.
 - **Do not propose fixes** for drifts found. The PoC is a decision gate, not a remediation pass.
 - **Do not commit** `.aria-poc/` outputs (already gitignored).
 

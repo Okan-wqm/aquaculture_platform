@@ -21,8 +21,10 @@ This PoC answers **"do we even need ARIA?"** in one week of zero-LLM mechanical 
    - `docs/adr/[0-9][0-9][0-9]-*.md` → `ADR_PRIORS.md` (canonical only, title + status)
    - `.claude/agents/*.md` → `AGENT_PRIORS.md` (frontmatter description per agent)
 6. Run `npx nx graph` (best-effort, optional)
-7. Mechanical drift scan: TypeScript `enum` keyword vs PostgreSQL `CREATE TYPE ... AS ENUM`. Heuristic name match; report any name match where value sets differ.
-8. Generate `.aria-poc/aria-poc-report.md` with the operator decision gate.
+7. Mechanical drift scan: TypeScript `enum`, string-literal union types, string `as const` arrays, Zod `z.enum([...])`, GraphQL SDL enums, frontend literal option groups, and PostgreSQL `CREATE TYPE ... AS ENUM`.
+8. Promote UI option groups only when they sit on a frontend UI surface and relate to a named value-set concept. Value overlap alone is not enough.
+9. Enrich candidates with git-blame metadata, named gate/test references, and summary counts.
+10. Generate `.aria-poc/aria-poc-report.md` with the operator decision gate.
 
 ## Run
 
@@ -53,7 +55,7 @@ Optional flags:
 | `ADR_PRIORS.md` | Per-ADR title + status |
 | `AGENT_PRIORS.md` | Per-agent description |
 | `BUILD_GRAPH.json` | Nx project graph (if available) |
-| `MECHANICAL_DRIFTS.json` | TS enums, SQL enums, drift candidates |
+| `MECHANICAL_DRIFTS.json` | Value sets, SQL enums, annotated UI option groups, drift candidates, evidence summary |
 
 ## Decision gate (per CONTRACTS §13)
 
@@ -73,12 +75,13 @@ After running, answer YES/NO to each:
 - No LLM. No findings. No recommendations.
 - No PR creation. No worktree. No baseline capture.
 - No persistence beyond `.aria-poc/`.
+- No AST import tracing. Dynamic UI option providers and computed enum adapters remain invisible.
 
 ## Code budget
 
-- ≈630 lines (≈540 effective code lines, rest blank + docstring)
+- ≈1,500 lines (including stdlib tests and comments)
 - Stdlib + pyyaml only
-- Single file: `poc.py`
+- Source: `poc.py`; tests: `test_poc.py`
 - Runs in ≈30 seconds on the full repo
 
 ## Known limitations (treated as proto-debt records per IDENTITY §3.6)
@@ -86,28 +89,33 @@ After running, answer YES/NO to each:
 The PoC ships with these **known gaps**. Each is recorded here in proto-debt form to demonstrate the discipline (CONTRACTS §6.6). When full ARIA exists, these become real `aria-debts/DEBT-*.json` records with kernel-enforced lifecycles.
 
 ```
-DEBT-POC-001 — Drift scan limited to TS `enum` keyword + SQL CREATE TYPE
-  root_cause: TypeScript repos increasingly use union types
-              (`type FarmStatus = 'active' | 'inactive'`) and Zod schemas
-              instead of `enum`. PoC misses these entirely.
-  short_term: regex confined to `enum` keyword, accepts incomplete coverage
-  permanent_fix: extend detector to union literal types + Zod .enum() + GraphQL enums
-  owner: poc-maintainer
-  due: 2026-08-01
-  severity: MEDIUM (~30% of real drift surface invisible to PoC)
-
-DEBT-POC-002 — No frontend dropdown / select-options scan
-  root_cause: drift between SQL enum and FrontendStatusSelect.tsx
-              hard-coded options is a known pattern in this repo (see
-              FarmStatusSelect.tsx canonical example), but PoC doesn't scan
-              JSX/TSX option lists.
-  short_term: limited to symbol-table-visible enums
-  permanent_fix: add JSX literal-array detector for `<option value="...">`
-                 patterns and `<Select options={...}>` patterns
+DEBT-POC-001 — Dynamic frontend dropdown providers remain invisible
+  root_cause: drift between SQL enum and frontend status selectors is a
+              known pattern in this repo. PoC now records literal
+              `<option>`, `<MenuItem>`, `options={[...]}`, and named
+              option arrays, but dynamic providers loaded from API data or
+              computed constants still require a real adapter.
+  short_term: literal UI option groups only; high-confidence promotion gate
+              prevents broad false positives
+  permanent_fix: add AST-based JSX/TS adapter that traces imported option
+                 providers and component props
   owner: poc-maintainer
   due: 2026-08-15
-  severity: HIGH (this is exactly the surface the operator described in early
-                  conversation as "FarmStatusSelect render 3 of 4 enum values")
+  severity: HIGH (literal version of the operator's "FarmStatusSelect renders
+                  3 of 4 enum values" case is covered; dynamic forms are not)
+
+DEBT-POC-002 — Value-set adapters are regex-level, not AST-level
+  root_cause: PoC must stay zero-dependency and cheap. It scans TS enum,
+              union literals, string `as const` arrays, Zod enum calls, and
+              GraphQL SDL enums mechanically, but it does not resolve imports,
+              aliases, generated schema files, or computed values.
+  short_term: every extracted value-set carries `kind`, `ref`, and `surface`;
+              absence claims stay capped
+  permanent_fix: first full ARIA adapter should be a TS/JS AST adapter with
+                 import tracing and repo-calibrated false-positive metrics
+  owner: full-aria-implementer
+  due: blocked-on-phase-0
+  severity: MEDIUM
 
 DEBT-POC-003 — Jaccard threshold is hand-tuned (0.3)
   root_cause: false-positive vs missed-drift trade-off chosen mechanically
@@ -133,19 +141,7 @@ DEBT-POC-004 — Prior-audit scan is keyword-only
   due: blocked-on-phase-0
   severity: LOW (operator manually verifies "appears to be NEW signal" claims)
 
-DEBT-POC-005 — No git-blame age data on drifts
-  root_cause: when both sides of a drift are flagged, knowing which side
-              was added later (and whether the other side was updated
-              correspondingly) is decision-relevant evidence operator
-              currently must compute manually.
-  short_term: report shows file:line refs only
-  permanent_fix: per-drift git-blame for both sides; "TS added 2024-08-15,
-                 SQL updated 2026-04-12" → late-arriving-SQL signal
-  owner: poc-maintainer
-  due: 2026-09-01
-  severity: LOW
-
-DEBT-POC-006 — schema-invariants test not executed
+DEBT-POC-005 — schema-invariants test not executed
   root_cause: repo has `e2e/tests/integration/schema-invariants.spec.ts`
               that may already enforce the contract surface. PoC reports
               drift candidates without checking whether the existing test
@@ -156,6 +152,18 @@ DEBT-POC-006 — schema-invariants test not executed
   owner: poc-maintainer
   due: 2026-08-30
   severity: MEDIUM (potential duplicate signal noise)
+
+DEBT-POC-006 — Existing gate references are named-contract search only
+  root_cause: PoC should not run the full test suite or infer semantic
+              coverage. It scans invariant/e2e/workflow files for named enum
+              contracts, not for arbitrary missing values.
+  short_term: `existing_gate_refs` is evidence of nearby named coverage,
+              not proof that the drift is already enforced
+  permanent_fix: Phase 0 validation spine should map findings to runnable
+                 affected tests and store pass/fail evidence
+  owner: full-aria-implementer
+  due: blocked-on-phase-0
+  severity: LOW
 ```
 
 These proto-debts demonstrate the discipline: **every known limitation has root cause + short-term action + permanent fix + owner + deadline.** No "we'll handle later". No "out of scope". No "for now". Per IDENTITY §3.6 Rule 2, the discipline applies even to the PoC's own README.
@@ -172,3 +180,11 @@ The previous version of this PoC had the following gaps, identified in operator 
 - ✅ Cross-service drift flag: `cross_service: bool` per drift, sorted to top of report (was: same-priority listing; now 5 cross-service drifts headline-flagged)
 - ✅ Skimmed-files visibility: `SKIMMED_FILES.md` lists every read_skimmed file (was: 181-file count without enumeration)
 - ✅ Artifact manifest: `INDEX.json` with checksums per generated file (was: no manifest)
+- ✅ `.github/` coverage: filesystem walk no longer excludes `.github/**` by accident
+- ✅ TS union literal scan: `type XStatus = 'a' | 'b'` now participates in value-set drift
+- ✅ Literal UI option scan: `<option>`, `<MenuItem>`, inline `options`, and named option arrays are recorded with frontend-surface and concept-relationship gates
+- ✅ Value-set surface expansion: string `as const` arrays, Zod `z.enum([...])`, and GraphQL SDL enums now participate in the value-set ledger
+- ✅ UI promotion metadata: raw UI groups now include `promotion_status`, `promotion_reason`, and `nearest_value_sets`
+- ✅ Decision evidence: drift candidates now include git-blame metadata and named existing gate/test refs
+- ✅ Summary: `MECHANICAL_DRIFTS.json` now includes value-set kind counts, UI promotion counts, and novelty counts
+- ✅ PoC unit tests: stdlib `unittest` coverage added for discovery, value-set extraction, UI grouping, relationship matching, and false-positive suppression

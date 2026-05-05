@@ -9,6 +9,9 @@ import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+import { invalidateSyncedOperationQueries } from '@/utils/offline-sync-invalidation';
+import { isRecoverableNetworkError } from '@/utils/network-error';
+import type { CreateWaterQualityInput } from '@/types';
 
 // ============================================================================
 // TYPES
@@ -33,28 +36,6 @@ interface EquipmentParameterConfig {
 }
 
 type FieldValue = number | string | boolean;
-
-/**
- * Measurement entry for a single parameter in a water quality record.
- * The backend accepts these as dynamic parameters keyed by parameterCode.
- */
-interface MeasurementEntry {
-  parameterCode: string;
-  value: number | string;
-}
-
-/**
- * Typed input for the CreateWaterQualityMeasurement mutation.
- * Replaces Record<string, unknown> to ensure compile-time safety.
- */
-interface CreateWqMeasurementInput {
-  equipmentId: string;
-  measuredAt: string;
-  idempotencyKey: string;
-  measurements: MeasurementEntry[];
-  notes?: string;
-  weatherConditions?: string;
-}
 
 // ============================================================================
 // GRAPHQL
@@ -115,12 +96,13 @@ export function WaterQualityRecordPage() {
   const navigate = useNavigate();
   const { equipmentId: routeEquipmentId } = useParams<{ equipmentId?: string }>();
   const { accessToken, tenantId, isAuthenticated } = useAuth();
-  const { isOnline } = useOfflineQueue();
+  const { isOnline, addToQueue } = useOfflineQueue();
   const queryClient = useQueryClient();
 
   const [selectedEquipmentId, setSelectedEquipmentId] = useState(routeEquipmentId || '');
   const [showSuccess, setShowSuccess] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [isQueueSubmitting, setIsQueueSubmitting] = useState(false);
 
   useEffect(() => {
     if (routeEquipmentId) setSelectedEquipmentId(routeEquipmentId);
@@ -198,12 +180,14 @@ export function WaterQualityRecordPage() {
 
   // -- Create mutation -------------------------------------------------------
   const { mutateAsync: createMeasurement, isPending: isSubmitting } = useMutation({
-    mutationFn: async (input: CreateWqMeasurementInput) =>
+    mutationFn: async (input: CreateWaterQualityInput) =>
       graphqlRequest<{ createWaterQualityMeasurement: { id: string; overallStatus: string; hasAlarm: boolean } }>(
         CREATE_WQ_MUTATION, { input },
       ),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'equipment-params', selectedEquipmentId) });
+    onSuccess: async () => {
+      if (tenantId) {
+        await invalidateSyncedOperationQueries(queryClient, tenantId, ['createWaterQuality']);
+      }
     },
   });
 
@@ -211,29 +195,52 @@ export function WaterQualityRecordPage() {
   const handleSubmit = useCallback(
     async (values: Record<string, FieldValue>, notes: string, weatherConditions?: string) => {
       setSubmitError(null);
-      const measurements: MeasurementEntry[] = Object.entries(values).map(([parameterCode, value]) => ({
-        parameterCode,
-        value: typeof value === 'boolean' ? String(value) : value,
-      }));
-      const input: CreateWqMeasurementInput = {
+      const dynamicParameters = Object.fromEntries(
+        Object.entries(values).map(([parameterCode, value]) => [
+          parameterCode,
+          value,
+        ]),
+      ) as Record<string, number | string | boolean>;
+      const input: CreateWaterQualityInput = {
         equipmentId: selectedEquipmentId,
         measuredAt: new Date().toISOString(),
+        source: 'MANUAL',
         idempotencyKey: crypto.randomUUID(),
-        measurements,
+        parameters: {},
+        dynamicParameters,
         ...(notes.trim() ? { notes: notes.trim() } : {}),
         ...(weatherConditions?.trim() ? { weatherConditions: weatherConditions.trim() } : {}),
       };
+      setIsQueueSubmitting(true);
       try {
-        await createMeasurement(input);
+        if (isOnline) {
+          await createMeasurement(input);
+        } else {
+          await addToQueue('createWaterQuality', input);
+        }
         addMRU(selectedEquipmentId);
         setShowSuccess(true);
         setTimeout(() => navigate('/'), 1500);
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to record measurement';
+        if (isRecoverableNetworkError(error)) {
+          try {
+            await addToQueue('createWaterQuality', input);
+            addMRU(selectedEquipmentId);
+            setShowSuccess(true);
+            setTimeout(() => navigate('/'), 1500);
+            return;
+          } catch (queueError) {
+            setSubmitError(queueError instanceof Error ? queueError.message : 'Failed to queue measurement');
+            return;
+          }
+        }
         setSubmitError(message);
+      } finally {
+        setIsQueueSubmitting(false);
       }
     },
-    [selectedEquipmentId, createMeasurement, navigate],
+    [selectedEquipmentId, isOnline, createMeasurement, addToQueue, navigate],
   );
 
   const handleEquipmentChange = useCallback(
@@ -334,7 +341,7 @@ export function WaterQualityRecordPage() {
             variant="mobile"
             parameters={parameterConfigs}
             onSubmit={handleSubmit}
-            isSubmitting={isSubmitting}
+            isSubmitting={isSubmitting || isQueueSubmitting}
             error={submitError}
             showWeather
           />

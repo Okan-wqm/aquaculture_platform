@@ -21,6 +21,7 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 // lets us test useTaskActions logic without the provider infrastructure.
 const mockAddToQueue = vi.fn();
 let mockIsOnline = true;
+const mockInvalidateQueries = vi.fn();
 
 vi.mock('../useOfflineQueue', () => ({
   useOfflineQueue: () => ({
@@ -37,6 +38,22 @@ vi.mock('../useOfflineQueue', () => ({
     getSyncStatus: vi.fn().mockReturnValue('pending'),
   }),
 }));
+
+vi.mock('../useAuth', () => ({
+  useAuth: () => ({
+    tenantId: 'tenant-1',
+  }),
+}));
+
+vi.mock('@tanstack/react-query', async () => {
+  const actual = await vi.importActual<typeof import('@tanstack/react-query')>('@tanstack/react-query');
+  return {
+    ...actual,
+    useQueryClient: () => ({
+      invalidateQueries: mockInvalidateQueries,
+    }),
+  };
+});
 
 // Mock authenticated-fetch
 const mockGraphqlRequest = vi.fn();
@@ -68,6 +85,7 @@ describe('useTaskActions — offline regression coverage', () => {
     vi.clearAllMocks();
     mockIsOnline = true;
     mockAddToQueue.mockResolvedValue('op-queued-123');
+    mockInvalidateQueries.mockResolvedValue(undefined);
   });
 
   // ========================================================================
@@ -121,6 +139,9 @@ describe('useTaskActions — offline regression coverage', () => {
       expect(actionResult.wasQueued).toBe(false);
       expect(actionResult.operationId).toBeUndefined();
       expect(mockGraphqlRequest).toHaveBeenCalled();
+      expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: ['tenant', 'tenant-1', 'myTasks'] });
+      expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: ['tenant', 'tenant-1', 'taskStats'] });
+      expect(mockInvalidateQueries).toHaveBeenCalledWith({ queryKey: ['tenant', 'tenant-1', 'dailyOpsCounts'] });
       expect(mockAddToQueue).not.toHaveBeenCalled();
     });
 

@@ -13,43 +13,30 @@ import { createMockDataSource, createMockRepository } from '@aquaculture/testing
 describe('RecordCullHandler', () => {
   let handler: RecordCullHandler;
   const { mockDataSource, mockQueryRunner, mockManager } = createMockDataSource();
-
-  // Phase D: DomainEventPublisher → OutboxPublisher; mock enqueues
-  // silently for the happy path.
-  const mockOutboxPublisher = {
-    enqueue: jest.fn().mockResolvedValue(undefined),
-  };
+  const mockOutboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
 
   beforeEach(() => {
     jest.clearAllMocks();
-    // Handler constructor (phase-D final):
-    //   dataSource, batchRepo, operationRepo, tankBatchRepo,
-    //   equipmentRepo, outboxPublisher
     handler = new RecordCullHandler(
       mockDataSource as any,
-      createMockRepository() as any, // batchRepository
-      createMockRepository() as any, // operationRepository
-      createMockRepository() as any, // tankBatchRepository
-      createMockRepository() as any, // equipmentRepository
+      createMockRepository() as any,
+      createMockRepository() as any,
+      createMockRepository() as any,
+      createMockRepository() as any,
       mockOutboxPublisher as any,
     );
   });
 
   const TENANT = 'tenant-1';
   const USER = 'user-1';
-
-  // CullReason enum renamed: DEFORMITY → DEFORMED, RUNTS → POOR_GROWTH
-  // (more neutral terminology; matches the entity column enum).
-  // RecordCullPayload gained required `culledAt: Date` so every
-  // payload here includes the timestamp the handler stores.
-  const CULL_TS = new Date('2026-04-10T09:00:00Z');
+  const CULLED_AT = new Date('2026-04-29T10:00:00.000Z');
 
   it('should throw NotFoundException when batch not found', async () => {
     mockManager.findOne.mockResolvedValueOnce(null);
 
     await expect(
       handler.execute(new RecordCullCommand(TENANT, 'batch-1', {
-        tankId: 'tank-1', quantity: 10, reason: CullReason.DEFORMED, culledAt: CULL_TS,
+        tankId: 'tank-1', quantity: 10, reason: CullReason.DEFORMED, culledAt: CULLED_AT,
       }, USER)),
     ).rejects.toThrow(NotFoundException);
 
@@ -62,35 +49,42 @@ describe('RecordCullHandler', () => {
       id: 'batch-1', tenantId: TENANT, status: BatchStatus.GROWING,
       currentQuantity: 1000, cullCount: 0, isActive: true,
       isOperational: () => true,
-      // Handler reads avg weight + biomass via instance methods —
-      // stub them so the biomass calculation produces a defined
-      // number (payload.avgWeightG isn't set in this test).
       getCurrentAvgWeight: () => 50,
-      getCurrentBiomass: () => 50,
-      getRetentionRate: () => 100,
+      getRetentionRate: () => 95,
     } as unknown as Batch;
 
-    // Equipment-shaped tank mock — handler routes through
-    // `findTankOrEquipmentWithManager` which checks Equipment first.
     const tank = {
       id: 'tank-1',
       tenantId: TENANT,
-      code: 'TANK-1',
-      isActive: true,
-      isDeleted: false,
-      currentBiomass: 0,
-      currentCount: 0,
+      volume: 100,
+      currentBiomass: 50,
+      currentCount: 1000,
     };
-    // TankBatch shape (phase-1 multi-batch refactor): handler
-    // derives primary vs. multi-batch detail quantity.
     const tankBatch = {
-      batchId: 'batch-1',
+      id: 'tank-batch-1',
+      tenantId: TENANT,
       tankId: 'tank-1',
       primaryBatchId: 'batch-1',
+      primaryBatchNumber: 'B-001',
       totalQuantity: 500,
-      batchDetails: [],
       avgWeightG: 50,
-    };
+      totalBiomassKg: 25,
+      currentQuantity: 500,
+      currentBiomassKg: 25,
+      densityKgM3: 0.25,
+      isMixedBatch: false,
+      cleanerFishBiomassKg: 0,
+      cleanerFishQuantity: 0,
+      isOverCapacity: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      calculateDensity: jest.fn(),
+      isEmpty: jest.fn(),
+      canAddBatch: jest.fn(),
+      hasCleanerFish: jest.fn(),
+      getTotalBiomassIncludingCleanerFish: jest.fn(),
+      getCleanerFishRatio: jest.fn(),
+    } satisfies TankBatch;
 
     // findOne calls: batch, tank, tankBatch
     mockManager.findOne
@@ -101,9 +95,21 @@ describe('RecordCullHandler', () => {
     mockManager.save.mockImplementation((_cls: any, data: any) => Promise.resolve(data));
 
     const result = await handler.execute(new RecordCullCommand(TENANT, 'batch-1', {
-      tankId: 'tank-1', quantity: 50, reason: CullReason.DEFORMED, culledAt: CULL_TS,
+      tankId: 'tank-1', quantity: 50, reason: CullReason.DEFORMED, culledAt: CULLED_AT,
     }, USER));
 
+    expect(result.currentQuantity).toBe(950);
+    expect(result.cullCount).toBe(50);
+    expect(mockOutboxPublisher.enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'CullRecorded',
+        tenantId: TENANT,
+        batchId: 'batch-1',
+        tankId: 'tank-1',
+        quantity: 50,
+      }),
+      mockManager,
+    );
     expect(mockQueryRunner.commitTransaction).toHaveBeenCalled();
     expect(mockQueryRunner.release).toHaveBeenCalled();
   });
@@ -113,7 +119,7 @@ describe('RecordCullHandler', () => {
 
     await expect(
       handler.execute(new RecordCullCommand(TENANT, 'batch-1', {
-        tankId: 'tank-1', quantity: 10, reason: CullReason.POOR_GROWTH, culledAt: CULL_TS,
+        tankId: 'tank-1', quantity: 10, reason: CullReason.SMALL_SIZE, culledAt: CULLED_AT,
       }, USER)),
     ).rejects.toThrow();
 

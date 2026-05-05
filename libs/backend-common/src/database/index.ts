@@ -10,6 +10,7 @@ export * from './tenant-aware.repository';
 // Tenant-Scoped Repository (AsyncLocalStorage-based, works in HTTP + MQTT + cron + NATS)
 export * from './tenant-scoped-repository';
 export * from './tenant-scoped-repository.module';
+export * from './tenant-transaction';
 
 // Transformers
 export * from './decimal-transformer';

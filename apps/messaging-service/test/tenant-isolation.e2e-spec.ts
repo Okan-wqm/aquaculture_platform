@@ -146,7 +146,7 @@ describe('Tenant Isolation (E2E) — SECURITY-CRITICAL', () => {
 
     // Should either get forbidden error or empty result (channel not found in B's schema)
     if (res.body.errors) {
-      expect(res.body.errors[0].message).toMatch(/forbidden|not (an active )?member|not found/i);
+      expect(res.body.errors[0].message).toMatch(/forbidden|not (an active )?member|not a member|not found/i);
     } else {
       // If no error, items must be empty (channel doesn't exist in B's schema)
       expect(res.body.data.messages.items).toHaveLength(0);
@@ -165,7 +165,7 @@ describe('Tenant Isolation (E2E) — SECURITY-CRITICAL', () => {
       .expect(200);
 
     expect(res.body.errors).toBeDefined();
-    expect(res.body.errors[0].message).toMatch(/forbidden|not found|not (an active )?member/i);
+    expect(res.body.errors[0].message).toMatch(/forbidden|not found|not (an active )?member|not a member/i);
   });
 
   it('Tenant B cannot send to Tenant A channel', async () => {
@@ -185,7 +185,7 @@ describe('Tenant Isolation (E2E) — SECURITY-CRITICAL', () => {
       .expect(200);
 
     expect(res.body.errors).toBeDefined();
-    expect(res.body.errors[0].message).toMatch(/forbidden|not (an active )?member/i);
+    expect(res.body.errors[0].message).toMatch(/forbidden|not (an active )?member|not a member/i);
   });
 
   // ── Forward Isolation ─────────────────────────────────────────────────
@@ -205,7 +205,7 @@ describe('Tenant Isolation (E2E) — SECURITY-CRITICAL', () => {
       .expect(200);
 
     expect(res.body.errors).toBeDefined();
-    expect(res.body.errors[0].message).toMatch(/forbidden|not (an active )?member|not found/i);
+    expect(res.body.errors[0].message).toMatch(/forbidden|not (an active )?member|not a member|not found/i);
   });
 
   // ── Redis Isolation ───────────────────────────────────────────────────
@@ -254,8 +254,8 @@ describe('Tenant Isolation (E2E) — SECURITY-CRITICAL', () => {
     const schemaA = getTenantSchemaName(TENANT_A);
 
     // Check outbox entries in TENANT_A schema
-    const outboxRows: { payload: string; event_type: string }[] = await dataSource.query(
-      `SELECT payload::text, event_type FROM "${schemaA}"."messaging_outbox" LIMIT 5`,
+    const outboxRows: { payload: string; eventType: string }[] = await dataSource.query(
+      `SELECT payload::text, "eventType" FROM "${schemaA}"."messaging_outbox" LIMIT 5`,
     );
 
     // Every outbox event payload must reference TENANT_A

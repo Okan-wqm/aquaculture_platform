@@ -160,6 +160,22 @@ interface TreatmentRecipe {
   insight: string;                     // Türkçe özet
 }
 
+interface DeffeyesDosingRecipe {
+  steps: Array<{ reagentName: string; formula: string; amountKg: number }>;
+  finalPH: number;
+  finalCO2mgL: number;
+  feasible: boolean;
+}
+
+interface DeffeyesAnalysis {
+  currentPoint: { DIC: number; ALK: number };
+  safeZone: { topLeft: { DIC: number; ALK: number }; topRight: { DIC: number; ALK: number }; bottomLeft: { DIC: number; ALK: number }; bottomRight: { DIC: number; ALK: number } } | null;
+  targetPoint: { DIC: number; ALK: number } | null;
+  isInsideSafeZone: boolean;
+  dosingRecipes: DeffeyesDosingRecipe[];
+  insight: string;
+}
+
 // ─── Sabiterler ──────────────────────────────────────────────────────────
 
 // Nitrifikasyon alkalinite tüketimi:
@@ -658,19 +674,7 @@ export async function handler(params: z.infer<typeof inputSchema>): Promise<Tool
   // Bu, tam Deffeyes geometrik hesabıdır — R CarbCalc portudur.
   // ──────────────────────────────────────────────────────────────────────
 
-  let deffeyesAnalysis: {
-    currentPoint: { DIC: number; ALK: number };
-    safeZone: { topLeft: { DIC: number; ALK: number }; topRight: { DIC: number; ALK: number }; bottomLeft: { DIC: number; ALK: number }; bottomRight: { DIC: number; ALK: number } } | null;
-    targetPoint: { DIC: number; ALK: number } | null;
-    isInsideSafeZone: boolean;
-    dosingRecipes: Array<{
-      steps: Array<{ reagentName: string; formula: string; amountKg: number }>;
-      finalPH: number;
-      finalCO2mgL: number;
-      feasible: boolean;
-    }>;
-    insight: string;
-  } | null = null;
+  let deffeyesAnalysis: DeffeyesAnalysis | null = null;
 
   try {
     // Mevcut reagentleri REAGENTS listesinden bul
@@ -727,7 +731,7 @@ export async function handler(params: z.infer<typeof inputSchema>): Promise<Tool
     }
 
     // Otomatik reçete hesabı — mevcut reagentlerle hedefe ulaşma
-    const dosingRecipes: typeof deffeyesAnalysis extends null ? never : NonNullable<typeof deffeyesAnalysis>['dosingRecipes'] = [];
+    const dosingRecipes: DeffeyesDosingRecipe[] = [];
 
     if (targetPointResult && !isInsideSafeZone) {
       // Mevcut reagent isimlerini bul

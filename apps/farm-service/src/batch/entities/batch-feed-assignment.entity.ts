@@ -39,7 +39,7 @@ export interface FeedAssignmentEntry {
 }
 
 @ObjectType()
-@Entity('batch_feed_assignments', { schema: 'farm' })
+@Entity('batch_feed_assignments')
 @Index(['tenantId', 'batchId'], { unique: true })
 @Index(['tenantId', 'isActive'])
 export class BatchFeedAssignment {

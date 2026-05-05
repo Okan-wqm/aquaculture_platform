@@ -228,7 +228,10 @@ export class GraphQLClient {
         throw new GraphQLError(
           `Partial GraphQL failure: ${response.errors.length} errors occurred. ` +
           `Data may be incomplete. Errors: ${errorMessages}`,
-          { extensions: { code: 'PARTIAL_FAILURE', errorCount: response.errors.length } },
+          [{
+            message: errorMessages,
+            extensions: { code: 'PARTIAL_FAILURE', errorCount: response.errors.length },
+          }],
         );
       }
       // Tam hata — data yok, hata fırlat

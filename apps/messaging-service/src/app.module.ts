@@ -72,6 +72,8 @@ import { MessageAnalysis } from './ai/entities/message-analysis.entity';
 import { MessageEntityReference } from './ai/entities/message-entity-reference.entity';
 import { KnowledgeEntry } from './ai/entities/knowledge-entry.entity';
 import { EmbeddingsMetadata } from './ai/entities/embeddings-metadata.entity';
+import { TenantAiSetting } from './ai/entities/tenant-ai-setting.entity';
+import { UserAiConsent } from './ai/entities/user-ai-consent.entity';
 
 // Migrations — imported as class references so webpack bundles them into main.js.
 // Glob paths ('dist/migrations/*.js') do NOT work with NX webpack builds because
@@ -99,6 +101,8 @@ import { AddTenantIdToMessageChildren1782300000000 } from './migrations/17823000
 // on messaging source schema. Tenant-schema clones receive the same policy
 // via TenantRlsSyncService (wired by RlsModule.forPoolService syncTenantSchemas: true).
 import { EnableRowLevelSecurity1782400000000 } from './migrations/1782400000000-EnableRowLevelSecurity';
+import { AlignMessagingEntityDrift1782600000000 } from './migrations/1782600000000-AlignMessagingEntityDrift';
+import { AlignAiConsentColumns1782700000000 } from './migrations/1782700000000-AlignAiConsentColumns';
 
 // Feature modules
 import { HealthModule } from './health/health.module';
@@ -164,6 +168,8 @@ const complexityCache = new Map<string, number>();
             MessageEntityReference,
             KnowledgeEntry,
             EmbeddingsMetadata,
+            TenantAiSetting,
+            UserAiConsent,
           ],
           // Class references (NOT glob paths) — webpack bundles all into main.js,
           // so 'dist/migrations/*.js' would match zero files at runtime.
@@ -180,6 +186,8 @@ const complexityCache = new Map<string, number>();
             AddMissingOutboxColumns1782200000000,
             AddTenantIdToMessageChildren1782300000000,
             EnableRowLevelSecurity1782400000000,
+            AlignMessagingEntityDrift1782600000000,
+            AlignAiConsentColumns1782700000000,
           ],
         }),
     }),
@@ -196,6 +204,13 @@ const complexityCache = new Map<string, number>();
            *  The gateway already blocks batching, but subgraphs must also enforce this as
            *  defense-in-depth in case a subgraph becomes directly accessible. */
           allowBatchedHttpRequests: false,
+          /**
+           * 2026-04-30: Keep Apollo CSRF prevention explicit while Apollo Server 5
+           * migration is blocked by the Nest/Apollo peer graph.
+           * WHY: Apollo Server 4 remains in the dependency graph, so XS-Search
+           * class protections must be fail-closed at runtime.
+           */
+          csrfPrevention: true,
           autoSchemaFile: {
             federation: 2,
             path: join('/tmp', 'messaging-schema.graphql'),
@@ -240,9 +255,8 @@ const complexityCache = new Map<string, number>();
               }),
             },
           ],
-          playground:
-            !isProduction &&
-            configService.get('GRAPHQL_PLAYGROUND', 'true') === 'true',
+          // 2026-04-30: Deprecated GraphQL Playground is not enabled at runtime.
+          // WHY: messaging subgraph developer UI must not rely on deprecated Apollo Playground behavior.
           introspection:
             !isProduction ||
             configService.get('GRAPHQL_INTROSPECTION', 'false') === 'true',

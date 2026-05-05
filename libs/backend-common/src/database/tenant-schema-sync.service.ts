@@ -30,6 +30,7 @@ export class TenantSchemaSyncService implements OnApplicationBootstrap {
   constructor(private readonly dataSource: DataSource) {}
 
   async onApplicationBootstrap(): Promise<void> {
+    const strictMode = this.isStrictMode();
     try {
       const report = await this.syncAllTenantSchemas();
       if (report.tablesCreated > 0 || report.columnsAdded > 0) {
@@ -42,9 +43,18 @@ export class TenantSchemaSyncService implements OnApplicationBootstrap {
       }
       if (report.errors.length > 0) {
         this.logger.error(`Sync errors: ${report.errors.join('; ')}`);
+        if (strictMode) {
+          throw new Error(
+            `Tenant schema sync failed in strict mode: ${report.errors.join('; ')}`,
+          );
+        }
       }
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
+      if (strictMode) {
+        this.logger.error(`Tenant schema sync failed (fatal): ${msg}`);
+        throw error;
+      }
       this.logger.error(`Tenant schema sync failed (non-fatal): ${msg}`);
     }
   }
@@ -183,5 +193,12 @@ export class TenantSchemaSyncService implements OnApplicationBootstrap {
       .map((s: string) => s.trim().replace(/"/g, ''))
       .filter((s: string) => s && s !== 'public' && s !== '"$user"' && s !== '$user');
     return schemas.length > 0 ? (schemas[0] as string) : null;
+  }
+
+  private isStrictMode(): boolean {
+    // WHY 2026-04-29: schema-per-tenant services must not start after a failed
+    // tenant DDL sync in deploy/test gates. Leaving strict mode env-driven keeps
+    // local legacy environments observable without hiding production drift.
+    return process.env['TENANT_SCHEMA_SYNC_STRICT'] === 'true';
   }
 }

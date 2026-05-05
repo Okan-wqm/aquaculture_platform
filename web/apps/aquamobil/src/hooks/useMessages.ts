@@ -23,6 +23,7 @@ import { useAuth } from './useAuth';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import { cacheData, getCachedData } from '@/pwa/offline-queue';
 import { GET_MESSAGES } from '@/graphql/messaging-operations';
+import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 import type { Message, MessagePage } from '@/types/messaging';
 
 /** Messages per page (cursor-based). */
@@ -83,7 +84,9 @@ export function useMessages(
 ) {
   const { isAuthenticated, tenantId } = useAuth();
 
-  const queryKey = ['messaging', 'messages', channelId, tenantId];
+  // WHY 2026-04-29: message pages participate in tenant-switch cleanup and
+  // offline-sync invalidation, so their keys must live under the tenant prefix.
+  const queryKey = createTenantQueryKey(tenantId, 'messaging', 'messages', channelId);
 
   const query = useInfiniteQuery({
     queryKey,

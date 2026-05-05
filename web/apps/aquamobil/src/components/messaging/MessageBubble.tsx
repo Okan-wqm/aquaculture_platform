@@ -205,13 +205,6 @@ function renderRichText(
   return parts;
 }
 
-/**
- * Strip <mention> tags for plain text display (e.g., in forwarded previews).
- */
-function stripMentionTags(text: string): string {
-  return text.replace(/<mention userId="[^"]+">([^<]+)<\/mention>/g, '$1');
-}
-
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------

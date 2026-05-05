@@ -1,6 +1,6 @@
 import * as crypto from 'crypto';
 
-import { Injectable, Logger, NotImplementedException, Optional } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { SchemaManagerService, DEFAULT_TENANT_MODULES } from '@aquaculture/backend-common/database';
 import { Repository, DataSource } from 'typeorm';
@@ -9,6 +9,7 @@ import {
   TenantSchema,
   SchemaStatus,
 } from '../../database-management/entities/database-management.entity';
+import { BackupRestoreService } from '../../database-management/services/backup-restore.service';
 import { EmailSenderService } from '../../settings/services/email-sender.service';
 import { TenantConfigurationService } from '../../settings/services/tenant-configuration.service';
 import { RoleTemplateService } from '../../users/services/role-template.service';
@@ -34,6 +35,7 @@ export interface ProvisioningResult {
   tenantId: string;
   steps: ProvisioningStep[];
   error?: string;
+  warnings?: string[];
   compensationErrors?: Array<{ step: string; error: string }>;
   adminUser?: {
     userId: string;
@@ -98,6 +100,7 @@ export class TenantProvisioningService {
     private readonly tenantConfigurationService: TenantConfigurationService,
     private readonly roleTemplateService: RoleTemplateService,
     private readonly userPermissionsService: UserPermissionsService,
+    private readonly backupRestoreService: BackupRestoreService,
     @Optional()
     private readonly emailSenderService?: EmailSenderService,
   ) {
@@ -187,6 +190,7 @@ export class TenantProvisioningService {
     // Build the saga with steps + compensating actions
     const saga = new ProvisioningSagaService();
     let adminUser: ProvisioningResult['adminUser'] | undefined;
+    const warnings: string[] = [];
 
     // Step: Assign modules (optional, before schema creation)
     // TODO(NATS-MIGRATION): Replace with NATS AssignTenantModulesCommand
@@ -305,9 +309,9 @@ export class TenantProvisioningService {
 
           if (!adminResult.success) {
             // Admin creation failure is non-fatal — log and continue
-            this.logger.warn(
-              `Could not create first admin for tenant ${tenantId}: ${adminResult.error}`,
-            );
+            const warning = `Could not create first admin for tenant ${tenantId}: ${adminResult.error}`;
+            warnings.push(warning);
+            this.logger.warn(warning);
             return;
           }
 
@@ -350,6 +354,7 @@ export class TenantProvisioningService {
       'activate_tenant',
       async () => {
         tenant.status = TenantStatus.ACTIVE;
+        tenant.lastActivityAt = new Date();
         await this.tenantRepository.save(tenant);
       },
       async () => {
@@ -390,6 +395,7 @@ export class TenantProvisioningService {
       tenantId,
       steps: provisioningSteps,
       error: sagaResult.error,
+      warnings: warnings.length > 0 ? warnings : undefined,
       compensationErrors: sagaResult.compensationErrors.length > 0 ? sagaResult.compensationErrors : undefined,
       adminUser: sagaResult.success ? adminUser : undefined,
     };
@@ -566,15 +572,14 @@ export class TenantProvisioningService {
           `Creating schema with assigned modules: ${modulesToCreate.join(', ')}`,
         );
       } else {
-        this.logger.warn(
-          `No assigned modules found for tenant ${tenant.id}, falling back to all modules`,
+        this.logger.log(
+          `No assigned modules found for tenant ${tenant.id}; using platform default modules: ${modulesToCreate.join(', ')}`,
         );
       }
     } catch (error) {
-      this.logger.warn(
-        `Failed to query assigned modules for tenant ${tenant.id}, falling back to all modules: ${(error as Error).message}`,
+      throw new Error(
+        `Failed to resolve assigned modules for tenant ${tenant.id}: ${(error as Error).message}`,
       );
-      modulesToCreate = DEFAULT_TENANT_MODULES;
     }
 
     // Create tenant schema with the determined module tables
@@ -888,14 +893,40 @@ export class TenantProvisioningService {
   }
 
   private async backupTenantData(tenant: Tenant): Promise<void> {
-    throw new NotImplementedException(
-      `Tenant data backup not yet implemented for tenant ${tenant.id}. Track: BACKLOG-001`,
-    );
+    const backup = await this.backupRestoreService.createBackup({
+      tenantId: tenant.id,
+      backupType: 'full',
+      compress: true,
+      encrypt: false,
+      retentionDays: 365,
+    });
+
+    if (backup.status !== 'completed') {
+      throw new Error(
+        `Tenant backup did not complete before deprovisioning: ${backup.status}`,
+      );
+    }
   }
 
   private async removeTenantResources(tenant: Tenant): Promise<void> {
-    throw new NotImplementedException(
-      `Tenant resource removal not yet implemented for tenant ${tenant.id}. Track: BACKLOG-002`,
+    // Deprovisioning must remove auth/admin side resources only after a
+    // completed schema backup. Tenant business data is removed by dropping the
+    // tenant schema in cleanupTenantSchema().
+    await this.dataSource.query(
+      `DELETE FROM auth.invitations WHERE "tenantId" = $1`,
+      [tenant.id],
+    );
+    await this.dataSource.query(
+      `UPDATE auth.users SET "isActive" = false, "updatedAt" = NOW() WHERE "tenantId" = $1`,
+      [tenant.id],
+    );
+    await this.dataSource.query(
+      `DELETE FROM auth.tenant_modules WHERE "tenantId" = $1`,
+      [tenant.id],
+    );
+    await this.dataSource.query(
+      `DELETE FROM auth.tenant_roles WHERE "tenantId" = $1`,
+      [tenant.id],
     );
   }
 
@@ -1057,9 +1088,7 @@ export class TenantProvisioningService {
         [tenantId, moduleIds],
       );
     } catch (error) {
-      this.logger.warn(
-        `Could not assign modules to tenant ${tenantId}: ${(error as Error).message}`,
-      );
+      throw new Error(`Could not assign modules to tenant ${tenantId}: ${(error as Error).message}`);
     }
   }
 

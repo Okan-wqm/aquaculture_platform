@@ -51,10 +51,14 @@ describe('Cleaner Fish E2E', () => {
     }>(`query { availableTanks { id code name } }`);
 
     if (tanks.availableTanks && tanks.availableTanks.length >= 2) {
-      tankAId = tanks.availableTanks[0].id as string;
-      tankBId = tanks.availableTanks[1].id as string;
+      const [tankA, tankB] = tanks.availableTanks;
+      if (!tankA || !tankB) throw new Error('Expected two available tanks');
+      tankAId = tankA.id as string;
+      tankBId = tankB.id as string;
     } else if (tanks.availableTanks && tanks.availableTanks.length >= 1) {
-      tankAId = tanks.availableTanks[0].id as string;
+      const [tankA] = tanks.availableTanks;
+      if (!tankA) throw new Error('Expected one available tank');
+      tankAId = tankA.id as string;
     }
   });
 

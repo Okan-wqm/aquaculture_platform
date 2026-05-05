@@ -1,8 +1,9 @@
 import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
 import { Logger, BadRequestException } from '@nestjs/common';
-import { Repository, DataSource } from 'typeorm';
-import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { DataSource, EntityManager } from 'typeorm';
+import { InjectDataSource } from '@nestjs/typeorm';
 
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { SearchMessagesQuery } from './search-messages.query';
 import { Message } from '../entities/message.entity';
 import { ChannelMember } from '../../channel/entities/channel-member.entity';
@@ -28,10 +29,6 @@ export class SearchMessagesHandler
   private readonly logger = new Logger(SearchMessagesHandler.name);
 
   constructor(
-    @InjectRepository(Message)
-    private readonly messageRepo: Repository<Message>,
-    @InjectRepository(ChannelMember)
-    private readonly channelMemberRepo: Repository<ChannelMember>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
   ) {}
@@ -52,26 +49,29 @@ export class SearchMessagesHandler
       );
     }
 
-    // 1. Get channels the user is a member of (within tenant schema via search_path)
-    const memberChannelIds = await this.getUserChannelIds(userId, channelId);
-    if (memberChannelIds.length === 0) {
-      return [];
-    }
+    return runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) => {
+      // 1. Get channels the user is a member of inside the tenant schema.
+      const memberChannelIds = await this.getUserChannelIds(
+        queryRunner.manager,
+        tenantId,
+        userId,
+        channelId,
+      );
+      if (memberChannelIds.length === 0) {
+        return [];
+      }
 
-    // 2. Full-text search with 90-day partition pruning + statement timeout
-    //    (tenant-scoped via search_path)
-    const defaultSince = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+      // 2. Full-text search with 90-day partition pruning + transaction-local timeout.
+      const defaultSince = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
 
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    try {
       await queryRunner.query(
         `SET LOCAL statement_timeout = '${SearchMessagesHandler.SEARCH_TIMEOUT_MS}'`,
       );
       const messages = await queryRunner.manager
         .createQueryBuilder(Message, 'm')
         .leftJoinAndSelect('m.attachments', 'att')
-        .where('m."channelId" IN (:...channelIds)', { channelIds: memberChannelIds })
+        .where('m."tenantId" = :tenantId', { tenantId })
+        .andWhere('m."channelId" IN (:...channelIds)', { channelIds: memberChannelIds })
         .andWhere('m."isDeleted" = false')
         .andWhere('m."content" IS NOT NULL')
         .andWhere('m."createdAt" > :since', { since: defaultSince })
@@ -83,7 +83,7 @@ export class SearchMessagesHandler
           `ts_rank(to_tsvector('english', m."content"), plainto_tsquery('english', :searchQuery))`,
           'DESC',
         )
-        .addOrderBy('m."createdAt"', 'DESC')
+        .addOrderBy('m.createdAt', 'DESC')
         .take(limit)
         .getMany();
 
@@ -91,9 +91,7 @@ export class SearchMessagesHandler
         `SearchMessages: tenant=${tenantId}, query="${searchQuery}", results=${messages.length}`,
       );
       return messages;
-    } finally {
-      await queryRunner.release();
-    }
+    });
   }
 
   /**
@@ -104,13 +102,16 @@ export class SearchMessagesHandler
    * so it only returns channel memberships from the current tenant's schema.
    */
   private async getUserChannelIds(
+    manager: EntityManager,
+    tenantId: string,
     userId: string,
     channelId: string | null,
   ): Promise<string[]> {
-    const qb = this.channelMemberRepo
-      .createQueryBuilder('cm')
+    const qb = manager
+      .createQueryBuilder(ChannelMember, 'cm')
       .select('cm."channelId"')
-      .where('cm."userId" = :userId', { userId })
+      .where('cm."tenantId" = :tenantId', { tenantId })
+      .andWhere('cm."userId" = :userId', { userId })
       .andWhere('cm."leftAt" IS NULL');
 
     if (channelId) {

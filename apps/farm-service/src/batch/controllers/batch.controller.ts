@@ -308,6 +308,7 @@ export class BatchController {
     }
 
     const input: AllocateBatchInput = {
+      tenantId,
       batchId,
       tankId: dto.tankId,
       quantity: dto.quantity,

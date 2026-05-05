@@ -15,8 +15,10 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+import { invalidateSyncedOperationQueries } from '@/utils/offline-sync-invalidation';
+import { isRecoverableNetworkError } from '@/utils/network-error';
 import {
   ArrowLeft,
   ArrowLeftRight,
@@ -98,6 +100,7 @@ export function StockTransferPage() {
   const navigate = useNavigate();
   const { accessToken, tenantId, isAuthenticated } = useAuth();
   const { isOnline, addToQueue } = useOfflineQueue();
+  const queryClient = useQueryClient();
 
   // Wizard state
   const [step, setStep] = useState(1);
@@ -213,6 +216,9 @@ export function StockTransferPage() {
           TRANSFER_STOCK_MUTATION,
           { input },
         );
+        if (tenantId) {
+          await invalidateSyncedOperationQueries(queryClient, tenantId, ['transferStock']);
+        }
       } else {
         await addToQueue('transferStock', input);
       }
@@ -221,7 +227,9 @@ export function StockTransferPage() {
       setTimeout(() => navigate('/storage'), 1500);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to transfer stock';
-      if (!isOnline || message.includes('network') || message.includes('fetch')) {
+      // Fallback only when an online transport failure occurred. Offline queue
+      // write failures should surface instead of being retried recursively.
+      if (isOnline && isRecoverableNetworkError(error)) {
         try {
           await addToQueue('transferStock', input);
           setShowSuccess(true);
@@ -239,6 +247,7 @@ export function StockTransferPage() {
   }, [
     selectedItem, fromLocation, toLocation, selectedItemType, selectedItemId,
     fromLocationId, toLocationId, quantity, isOnline, addToQueue, navigate,
+    queryClient, tenantId,
   ]);
 
   // ---- Success screen ------------------------------------------------------

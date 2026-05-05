@@ -36,7 +36,7 @@ jobs:
             ${{ runner.os }}-node-
 
       - name: Install npm dependencies
-        run: npm install --legacy-peer-deps --ignore-scripts --no-audit
+        run: npm ci --ignore-scripts --no-audit
 
       # SEC-CI-009/SEC-CI-002: Pinned to SHA (was @master)
       - name: Run Snyk to check for vulnerabilities

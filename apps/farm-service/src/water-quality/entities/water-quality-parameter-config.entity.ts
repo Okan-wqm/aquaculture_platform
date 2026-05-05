@@ -95,7 +95,7 @@ export type SpeciesLimits = Record<string, SpeciesLimitEntry>;
 // ============================================================================
 
 @ObjectType()
-@Entity('water_quality_parameter_configs', { schema: 'farm' })
+@Entity('water_quality_parameter_configs')
 @Index(['tenantId', 'code'], { unique: true })
 @Index(['tenantId', 'isActive', 'displayOrder'])
 @Index(['tenantId', 'group'])

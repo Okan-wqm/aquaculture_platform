@@ -9,8 +9,9 @@ import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { Logger, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { DataSource, IsNull } from 'typeorm';
 
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { OutboxPublisher } from '@platform/outbox';
-import { createBaseEvent, BaseEvent } from '@platform/event-contracts';
+import { createBaseEvent } from '@platform/event-contracts';
 import { ArchiveChannelCommand } from './archive-channel.command';
 import { Channel } from '../entities/channel.entity';
 import { ChannelMember, ChannelMemberRole } from '../entities/channel-member.entity';
@@ -35,10 +36,12 @@ export class ArchiveChannelHandler
   async execute(command: ArchiveChannelCommand): Promise<boolean> {
     const { tenantId, userId, channelId } = command;
 
-    return this.dataSource.transaction(async (manager) => {
+    return runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) => {
+      const { manager } = queryRunner;
+
       // 1. Load channel
       const channel = await manager.findOne(Channel, {
-        where: { id: channelId },
+        where: { tenantId, id: channelId },
       });
       if (!channel) {
         throw new NotFoundException(`Channel ${channelId} not found`);
@@ -50,7 +53,7 @@ export class ArchiveChannelHandler
 
       // 2. Authorize: caller must be OWNER or ADMIN in this channel
       const membership = await manager.findOne(ChannelMember, {
-        where: { channelId, userId, leftAt: IsNull() },
+        where: { tenantId, channelId, userId, leftAt: IsNull() },
       });
       if (!membership) {
         throw new ForbiddenException('You are not a member of this channel');

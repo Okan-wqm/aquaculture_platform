@@ -22,7 +22,7 @@ registerEnumType(ReceiptStatus, { name: 'ReceiptStatus' });
  * TypeORM synchronize=false; migrations only.
  */
 @ObjectType()
-@Entity('message_receipts', { schema: 'messaging' })
+@Entity('message_receipts')
 @Check(`"status" IN ('delivered', 'read')`)
 @Index('idx_receipts_user_status', ['userId', 'status'])
 @Index('idx_receipts_message', ['messageId'])

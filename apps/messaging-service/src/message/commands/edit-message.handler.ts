@@ -1,10 +1,10 @@
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { Logger, ForbiddenException, NotFoundException } from '@nestjs/common';
-import { DataSource, Repository } from 'typeorm';
-import { InjectRepository } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { OutboxPublisher } from '@platform/outbox';
-import { createBaseEvent, BaseEvent } from '@platform/event-contracts';
+import { createBaseEvent } from '@platform/event-contracts';
 import { EditMessageCommand } from './edit-message.command';
 import { Message } from '../entities/message.entity';
 import { sanitizeContent } from '../../shared/sanitize';
@@ -22,32 +22,32 @@ export class EditMessageHandler implements ICommandHandler<EditMessageCommand, M
 
   constructor(
     private readonly dataSource: DataSource,
-    @InjectRepository(Message)
-    private readonly messageRepo: Repository<Message>,
     private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
   async execute(command: EditMessageCommand): Promise<Message> {
     const { tenantId, userId, messageId, newContent } = command;
 
-    // 1. Find the message
-    const message = await this.messageRepo.findOne({
-      where: { id: messageId, isDeleted: false },
-    });
-    if (!message) {
-      throw new NotFoundException(`Message ${messageId} not found.`);
-    }
+    const updatedMessage = await runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) => {
+      const { manager } = queryRunner;
 
-    // 2. Validate ownership
-    if (message.senderId !== userId) {
-      throw new ForbiddenException('You can only edit your own messages.');
-    }
+      // 1. Find the message
+      const message = await manager.findOne(Message, {
+        where: { tenantId, id: messageId, isDeleted: false },
+      });
+      if (!message) {
+        throw new NotFoundException(`Message ${messageId} not found.`);
+      }
 
-    // 3. Sanitize content
-    const sanitized = sanitizeContent(newContent);
+      // 2. Validate ownership
+      if (message.senderId !== userId) {
+        throw new ForbiddenException('You can only edit your own messages.');
+      }
 
-    // 4. Transactional update: message + outbox
-    const updatedMessage = await this.dataSource.transaction(async (manager) => {
+      // 3. Sanitize content
+      const sanitized = sanitizeContent(newContent);
+
+      // 4. Transactional update: message + outbox
       message.content = sanitized;
       message.editedAt = new Date();
       const saved = await manager.save(Message, message);

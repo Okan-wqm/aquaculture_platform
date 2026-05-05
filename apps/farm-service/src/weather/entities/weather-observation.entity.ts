@@ -25,7 +25,7 @@ registerEnumType(WeatherDataType, {
 });
 
 @ObjectType()
-@Entity('weather_observations', { schema: 'farm' })
+@Entity('weather_observations')
 @Unique('uq_weather_obs', ['tenantId', 'siteId', 'observedAt', 'dataType'])
 @Index(['tenantId'])
 @Index(['tenantId', 'siteId', 'observedAt'])

@@ -43,6 +43,8 @@
  *  - https://the-guild.dev/graphql/codegen/plugins/typescript/typed-document-node
  */
 import { ESLintUtils } from '@typescript-eslint/utils';
-declare const _default: ESLintUtils.RuleModule<"bareGqlTag", [], ESLintUtils.RuleListener>;
+declare const _default: ESLintUtils.RuleModule<"bareGqlTag", [], unknown, ESLintUtils.RuleListener> & {
+    name: string;
+};
 export default _default;
 //# sourceMappingURL=no-bare-graphql-query-string.d.ts.map

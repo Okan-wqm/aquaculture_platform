@@ -308,6 +308,7 @@ describe('Tenant Admin — Security (HIGH-01, HIGH-03)', () => {
         // Backend should either reject or clamp to max
         const hasError = result.errors && result.errors.length > 0;
         const wasClamped = result.data?.createTenantProvisioningKey?.maxDevices !== undefined &&
+          result.data.createTenantProvisioningKey?.maxDevices !== null &&
           result.data.createTenantProvisioningKey.maxDevices <= 100;
         // Either way is acceptable — what matters is the frontend enforcement
         expect(hasError || wasClamped || true).toBe(true);

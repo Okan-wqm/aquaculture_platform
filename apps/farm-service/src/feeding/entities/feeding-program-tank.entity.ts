@@ -72,7 +72,7 @@ registerEnumType(ProgramEquipmentType, {
 // ============================================================================
 
 @ObjectType()
-@Entity('feeding_program_tanks', { schema: 'farm' })
+@Entity('feeding_program_tanks')
 @Index(['feedingProgramId', 'equipmentId'], { unique: true })
 @Index(['tenantId', 'feedingProgramId'])
 @Index(['tenantId', 'equipmentId'])

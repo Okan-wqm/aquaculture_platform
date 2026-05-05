@@ -51,7 +51,10 @@ export class SourceSchemaWriteGuardService implements OnModuleInit {
     }
 
     const referenceSet = new Set(mod.referenceDataTables ?? []);
-    const protectedTables = mod.tables.filter(t => !referenceSet.has(t));
+    const infrastructureSet = new Set(mod.infrastructureTables ?? []);
+    const protectedTables = mod.tables.filter(
+      t => !referenceSet.has(t) && !infrastructureSet.has(t),
+    );
 
     if (protectedTables.length === 0) {
       this.logger.log(`No non-reference tables to protect in "${sourceSchema}"`);
@@ -166,7 +169,9 @@ export class SourceSchemaWriteGuardService implements OnModuleInit {
 
     this.logger.log(
       `Write guards installed: ${installed} tables protected in "${sourceSchema}" ` +
-      `(${referenceSet.size} reference tables excluded, ${skipped} not-yet-created skipped)`,
+      `(${referenceSet.size} reference tables excluded, ` +
+      `${infrastructureSet.size} infrastructure tables excluded, ` +
+      `${skipped} not-yet-created skipped)`,
     );
   }
 

@@ -82,12 +82,20 @@ import { TenantModule } from './modules/tenant/tenant.module';
            *  defense-in-depth in case a subgraph becomes directly accessible. */
           allowBatchedHttpRequests: false,
           /**
+           * 2026-04-30: Keep Apollo CSRF prevention explicit while Apollo Server 5
+           * migration is blocked by the Nest/Apollo peer graph.
+           * WHY: Apollo Server 4 remains in the dependency graph, so XS-Search
+           * class protections must be fail-closed at runtime.
+           */
+          csrfPrevention: true,
+          /**
            * SECURITY (H-05): depthLimit(10) prevents deeply nested query DoS attacks.
            * Without depth limiting, an attacker can craft a deeply nested GraphQL query
            * that causes exponential resource consumption on the server.
-           */
+          */
           validationRules: [depthLimit(10)],
-          playground: !isProduction,
+          // 2026-04-30: Deprecated GraphQL Playground is not enabled at runtime.
+          // WHY: auth developer UI must not rely on deprecated Apollo Playground behavior.
           // SECURITY: Disable introspection in production to prevent schema discovery
           introspection: !isProduction,
           context: ({ req, res }: { req: Request; res: Response }) => ({ req, res }),

@@ -7,33 +7,29 @@ import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { AllocateToTankHandler } from '../../handlers/allocate-to-tank.handler';
 import { AllocateToTankCommand, AllocationType } from '../../commands/allocate-to-tank.command';
 import { Batch, BatchStatus } from '../../entities/batch.entity';
+import { EquipmentStatus } from '../../../equipment/entities/equipment.entity';
 import { createMockDataSource, createMockRepository } from '@aquaculture/testing';
 
 describe('AllocateToTankHandler', () => {
   let handler: AllocateToTankHandler;
   const { mockDataSource, mockQueryRunner, mockManager } = createMockDataSource();
-
-  // Mocks for the two services the handler depends on. The
-  // outbox publisher is invoked inside the cascade's transaction;
-  // the capacity service guards the tank-allocation invariant
-  // (density + biomass) that phase 1.1 made hard-enforcing.
-  const mockOutboxPublisher = {
-    enqueue: jest.fn().mockResolvedValue(undefined),
-  };
+  const mockOutboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
   const mockTankCapacityService = {
-    enforce: jest.fn().mockResolvedValue(undefined),
+    enforce: jest.fn().mockReturnValue({
+      tankVolumeM3: 100,
+      projectedDensityKgM3: 1,
+      utilizationPercent: 10,
+      isOverCapacity: false,
+    }),
   };
 
   beforeEach(() => {
     jest.clearAllMocks();
-    // Handler constructor order (phase-D + phase-1.1 final):
-    //   batchRepo, allocationRepo, tankBatchRepo, equipmentRepo,
-    //   dataSource, outboxPublisher, tankCapacityService
     handler = new AllocateToTankHandler(
-      createMockRepository() as any, // batchRepository
-      createMockRepository() as any, // allocationRepository
-      createMockRepository() as any, // tankBatchRepository
-      createMockRepository() as any, // equipmentRepository
+      createMockRepository() as any,
+      createMockRepository() as any,
+      createMockRepository() as any,
+      createMockRepository() as any,
       mockDataSource as any,
       mockOutboxPublisher as any,
       mockTankCapacityService as any,
@@ -63,14 +59,23 @@ describe('AllocateToTankHandler', () => {
       isOperational: () => true,
     } as unknown as Batch;
 
-    const tank = {
-      id: 'tank-1', tenantId: TENANT, status: 'ACTIVE',
-      maxBiomass: 10000, volume: 100,
+    const equipment = {
+      id: 'tank-1',
+      tenantId: TENANT,
+      code: 'T-001',
+      name: 'Tank 001',
+      status: EquipmentStatus.ACTIVE,
+      currentBiomass: 0,
+      currentCount: 0,
+      volume: 100,
+      specifications: { maxBiomass: 10000, maxDensity: 30, volume: 100 },
+      hasCapacityFor: jest.fn().mockReturnValue(true),
     };
 
     mockManager.findOne
       .mockResolvedValueOnce(batch)
-      .mockResolvedValueOnce(tank);
+      .mockResolvedValueOnce(equipment)
+      .mockResolvedValueOnce(null);
     mockManager.save.mockImplementation((_cls: any, data: any) => Promise.resolve(data));
     mockQueryRunner.query.mockResolvedValue([{ total_quantity: 0, total_biomass: 0 }]);
 
@@ -80,6 +85,7 @@ describe('AllocateToTankHandler', () => {
     }, USER));
 
     expect(mockQueryRunner.commitTransaction).toHaveBeenCalled();
+    expect(mockOutboxPublisher.enqueue).toHaveBeenCalled();
     expect(mockQueryRunner.release).toHaveBeenCalled();
   });
 

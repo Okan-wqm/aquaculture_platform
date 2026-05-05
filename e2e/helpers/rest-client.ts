@@ -9,7 +9,7 @@
 export interface RestResponse<T = Record<string, unknown>> {
   status: number;
   statusText: string;
-  headers: Headers;
+  headers: Headers | Record<string, string>;
   data: T;
 }
 
@@ -48,11 +48,33 @@ export class RestTestError extends Error {
  *   const health = await client.get<HealthResponse>('/health');
  */
 export class RestTestClient {
+  private readonly playwrightRequest?: PlaywrightAPIRequestContext;
+  private readonly baseUrl: string;
+  private readonly token?: string;
+  private readonly tenantId?: string;
+
+  constructor(request: unknown);
   constructor(
-    private readonly baseUrl: string,
-    private readonly token?: string,
-    private readonly tenantId?: string,
-  ) {}
+    baseUrl: string,
+    token?: string,
+    tenantId?: string,
+  );
+  constructor(
+    baseUrlOrRequest: string | unknown,
+    token?: string,
+    tenantId?: string,
+  ) {
+    if (typeof baseUrlOrRequest === 'string') {
+      this.baseUrl = baseUrlOrRequest;
+      this.token = token;
+      this.tenantId = tenantId;
+    } else {
+      this.playwrightRequest = baseUrlOrRequest as PlaywrightAPIRequestContext;
+      this.baseUrl = process.env['BASE_URL'] ?? process.env['GATEWAY_URL'] ?? 'http://localhost:3000';
+      this.token = token;
+      this.tenantId = tenantId;
+    }
+  }
 
   /**
    * Send a GET request.
@@ -123,18 +145,16 @@ export class RestTestClient {
     options?: RestRequestOptions,
   ): Promise<Response> {
     const url = this.buildUrl(path, options?.params);
+    const headers = this.buildHeaders(options);
 
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      ...options?.headers,
-    };
-
-    if (this.token) {
-      headers['Authorization'] = `Bearer ${this.token}`;
-    }
-
-    if (this.tenantId) {
-      headers['x-tenant-id'] = this.tenantId;
+    if (this.playwrightRequest) {
+      const response = await this.playwrightRequest.fetch(url, {
+        method,
+        data: body,
+        headers,
+        timeout: options?.timeout ?? 10_000,
+      });
+      return playwrightResponseToFetchResponse(response);
     }
 
     const controller = new AbortController();
@@ -151,6 +171,23 @@ export class RestTestClient {
     } finally {
       clearTimeout(timeoutId);
     }
+  }
+
+  private buildHeaders(options?: RestRequestOptions): Record<string, string> {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...options?.headers,
+    };
+
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`;
+    }
+
+    if (this.tenantId) {
+      headers['x-tenant-id'] = this.tenantId;
+    }
+
+    return headers;
   }
 
   /**
@@ -219,4 +256,35 @@ export class RestTestClient {
 
     return url.toString();
   }
+}
+
+interface PlaywrightAPIRequestContext {
+  fetch(
+    url: string,
+    options?: {
+      method?: string;
+      data?: unknown;
+      headers?: Record<string, string>;
+      timeout?: number;
+    },
+  ): Promise<PlaywrightAPIResponse>;
+}
+
+interface PlaywrightAPIResponse {
+  body(): Promise<Buffer>;
+  status(): number;
+  statusText(): string;
+  headers(): Record<string, string>;
+}
+
+async function playwrightResponseToFetchResponse(
+  response: PlaywrightAPIResponse,
+): Promise<Response> {
+  const body = new Uint8Array(await response.body());
+
+  return new Response(body, {
+    status: response.status(),
+    statusText: response.statusText(),
+    headers: response.headers(),
+  });
 }

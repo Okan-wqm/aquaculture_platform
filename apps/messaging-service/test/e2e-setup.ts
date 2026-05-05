@@ -24,6 +24,7 @@ import { getTenantSchemaName } from '@aquaculture/backend-common/database';
 import { requestContextStorage } from '@aquaculture/backend-common/logging';
 import { NatsEventBus } from '@platform/event-bus';
 import { REDIS_CLIENT } from '../src/shared/redis.provider';
+import { STORAGE_OBJECT_VERIFIER } from '../src/message/services/storage-object-verifier.port';
 
 // ── Test Constants ──────────────────────────────────────────────────────────
 
@@ -134,6 +135,13 @@ export async function createE2eTestApp(
     onModuleDestroy: jest.fn().mockResolvedValue(undefined),
   };
 
+  const mockStorageObjectVerifier = {
+    verifyObject: jest.fn().mockResolvedValue({
+      contentLength: 1024,
+      contentType: 'application/octet-stream',
+    }),
+  };
+
   const moduleFixture: TestingModule = await Test.createTestingModule({
     imports: [AppModule],
   })
@@ -145,6 +153,10 @@ export async function createE2eTestApp(
     // Override it to prevent NATS connection attempt on module init.
     .overrideProvider(NatsEventBus)
     .useValue(mockEventBus)
+    // Media E2E should prove messaging contracts without invoking AWS SDK's
+    // runtime transport in Jest VM. Production keeps the S3 verifier provider.
+    .overrideProvider(STORAGE_OBJECT_VERIFIER)
+    .useValue(mockStorageObjectVerifier)
     .compile();
 
   const app = moduleFixture.createNestApplication();
@@ -339,12 +351,19 @@ async function clonePartitionedTable(
   tablename: string,
 ): Promise<void> {
   // Get column definitions from the source table
-  const columns: { column_name: string; data_type: string; udt_name: string; is_nullable: string; column_default: string | null; character_maximum_length: number | null }[] =
+  const columns: { column_name: string; full_data_type: string; is_nullable: string; column_default: string | null }[] =
     await dataSource.query(
-      `SELECT column_name, data_type, udt_name, is_nullable, column_default, character_maximum_length
-       FROM information_schema.columns
-       WHERE table_schema = $1 AND table_name = $2
-       ORDER BY ordinal_position`,
+      `SELECT
+         a.attname AS column_name,
+         format_type(a.atttypid, a.atttypmod) AS full_data_type,
+         CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END AS is_nullable,
+         pg_get_expr(d.adbin, d.adrelid) AS column_default
+       FROM pg_attribute a
+       LEFT JOIN pg_attrdef d ON a.attrelid = d.adrelid AND a.attnum = d.adnum
+       WHERE a.attrelid = ($1 || '.' || $2)::regclass
+         AND a.attnum > 0
+         AND NOT a.attisdropped
+       ORDER BY a.attnum`,
       [sourceSchema, tablename],
     );
 
@@ -359,13 +378,9 @@ async function clonePartitionedTable(
   if (columns.length === 0 || partKey.length === 0) return;
 
   const colDefs = columns.map((c) => {
-    let typeName = c.data_type === 'USER-DEFINED' ? c.udt_name : c.data_type;
-    if (c.character_maximum_length) {
-      typeName = `varchar(${c.character_maximum_length})`;
-    }
     const nullable = c.is_nullable === 'NO' ? ' NOT NULL' : '';
     const def = c.column_default ? ` DEFAULT ${c.column_default}` : '';
-    return `"${c.column_name}" ${typeName}${nullable}${def}`;
+    return `"${c.column_name}" ${c.full_data_type}${nullable}${def}`;
   });
 
   const partExpr = partKey[0]!.partition_expr;

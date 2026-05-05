@@ -12,7 +12,7 @@
  */
 
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { renderHook, waitFor, act } from '@testing-library/react';
+import { renderHook, waitFor } from '@testing-library/react';
 import { createElement, type ReactNode } from 'react';
 
 // --------------------------------------------------------------------------
@@ -61,7 +61,7 @@ vi.mock('../useAuth', () => ({
 // Import after mocks
 import { MobilePermissionsProvider, useMobilePermissions } from '../useMobilePermissions';
 import type { MobileFeature } from '../useMobilePermissions';
-import { get, set } from 'idb-keyval';
+import { set } from 'idb-keyval';
 import { syncAuthStore } from '@/services/authenticated-fetch';
 
 // --------------------------------------------------------------------------

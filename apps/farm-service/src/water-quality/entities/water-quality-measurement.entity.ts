@@ -176,7 +176,7 @@ export interface SensorInfo {
 // ============================================================================
 
 @ObjectType()
-@Entity('water_quality_measurements', { schema: 'farm' })
+@Entity('water_quality_measurements')
 @Index(['tenantId', 'tankId', 'measuredAt'])
 @Index(['tenantId', 'pondId', 'measuredAt'])
 @Index(['tenantId', 'measuredAt'])

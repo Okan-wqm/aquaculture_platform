@@ -17,7 +17,7 @@ import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import { StorageItemType } from './storage-inventory.entity';
 import { InventoryCount } from './inventory-count.entity';
 
-@Entity('inventory_count_items', { schema: 'farm' })
+@Entity('inventory_count_items')
 @Index(['tenantId', 'inventoryCountId'])
 export class InventoryCountItem {
   @PrimaryGeneratedColumn('uuid')

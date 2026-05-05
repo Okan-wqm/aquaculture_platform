@@ -35,6 +35,7 @@ export interface CreateBatchInput {
 }
 
 export interface AllocateBatchInput {
+  tenantId: string;
   batchId: string;
   tankId: string;
   quantity: number;
@@ -257,12 +258,16 @@ export class BatchService {
     await queryRunner.startTransaction();
 
     try {
-      const batch = await queryRunner.manager.findOne(Batch, { where: { id: input.batchId } });
+      const batch = await queryRunner.manager.findOne(Batch, {
+        where: { id: input.batchId, tenantId: input.tenantId, isActive: true },
+      });
       if (!batch) {
         throw new NotFoundException(`Batch ${input.batchId} bulunamadı`);
       }
 
-      const tank = await queryRunner.manager.findOne(Tank, { where: { id: input.tankId } });
+      const tank = await queryRunner.manager.findOne(Tank, {
+        where: { id: input.tankId, tenantId: input.tenantId, isActive: true },
+      });
       if (!tank) {
         throw new NotFoundException(`Tank ${input.tankId} bulunamadı`);
       }
@@ -273,7 +278,7 @@ export class BatchService {
 
       // Allocation kaydı oluştur
       const allocation = queryRunner.manager.create(TankAllocation, {
-        tenantId: batch.tenantId,
+        tenantId: input.tenantId,
         batchId: input.batchId,
         tankId: input.tankId,
         allocationType: input.allocationType,
@@ -290,7 +295,7 @@ export class BatchService {
       const savedAllocation = await queryRunner.manager.save(allocation);
 
       // TankBatch güncelle veya oluştur (within transaction)
-      await this.updateTankBatchWithManager(queryRunner.manager, batch.tenantId, input.tankId, input.batchId);
+      await this.updateTankBatchWithManager(queryRunner.manager, input.tenantId, input.tankId, input.batchId);
 
       // Batch durumunu ACTIVE yap
       if (batch.status === BatchStatus.QUARANTINE) {
@@ -337,13 +342,17 @@ export class BatchService {
       }
 
       // Validate source tank
-      const sourceTank = await queryRunner.manager.findOne(Tank, { where: { id: sourceTankId } });
+      const sourceTank = await queryRunner.manager.findOne(Tank, {
+        where: { id: sourceTankId, tenantId, isActive: true },
+      });
       if (!sourceTank) {
         throw new NotFoundException(`Kaynak tank ${sourceTankId} bulunamadı`);
       }
 
       // Validate destination tank
-      const destinationTank = await queryRunner.manager.findOne(Tank, { where: { id: destinationTankId } });
+      const destinationTank = await queryRunner.manager.findOne(Tank, {
+        where: { id: destinationTankId, tenantId, isActive: true },
+      });
       if (!destinationTank) {
         throw new NotFoundException(`Hedef tank ${destinationTankId} bulunamadı`);
       }
@@ -509,7 +518,7 @@ export class BatchService {
       relations: ['batch'],
     });
 
-    const tank = await this.tankRepository.findOne({ where: { id: tankId } });
+    const tank = await this.tankRepository.findOne({ where: { id: tankId, tenantId, isActive: true } });
 
     if (!tankBatch) {
       tankBatch = this.tankBatchRepository.create({
@@ -584,7 +593,7 @@ export class BatchService {
       relations: ['batch'],
     });
 
-    const tank = await manager.findOne(Tank, { where: { id: tankId } });
+    const tank = await manager.findOne(Tank, { where: { id: tankId, tenantId, isActive: true } });
 
     if (!tankBatch) {
       tankBatch = manager.create(TankBatch, {
@@ -650,7 +659,9 @@ export class BatchService {
    */
   async recordOperation(input: RecordOperationInput): Promise<TankOperation> {
     const batch = await this.findBatchById(input.batchId, input.tenantId);
-    const tank = await this.tankRepository.findOne({ where: { id: input.tankId } });
+    const tank = await this.tankRepository.findOne({
+      where: { id: input.tankId, tenantId: input.tenantId, isActive: true },
+    });
 
     if (!tank) {
       throw new NotFoundException(`Tank ${input.tankId} bulunamadı`);

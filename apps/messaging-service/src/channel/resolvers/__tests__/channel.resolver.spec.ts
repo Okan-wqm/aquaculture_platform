@@ -40,11 +40,15 @@ import { DataSource } from 'typeorm';
 import { Channel, ChannelType } from '../../entities/channel.entity';
 import { ChannelMember, ChannelMemberRole, NotificationPreference } from '../../entities/channel-member.entity';
 import { ChannelService } from '../../services/channel.service';
+import { PresenceService } from '../../../presence/presence.service';
 import { ChannelResolver } from '../channel.resolver';
 import {
   createMockChannel,
   createMockChannelMember,
+  createMockDataSource,
+  createMockQueryRunner,
   fakeUuid,
+  MockQueryRunner,
   resetUuidCounter,
 } from '../../../__tests__/test-helpers';
 
@@ -53,8 +57,9 @@ import { CommandBus, QueryBus } from '@nestjs/cqrs';
 
 describe('ChannelResolver', () => {
   let resolver: ChannelResolver;
+  let queryRunner: MockQueryRunner;
 
-  const tenantId = 'tenant-0001-0001-0001-000000000001';
+  const tenantId = '00000000-0000-4000-8000-000000000001';
   const userId = fakeUuid('usr');
 
   const mockChannelService = {
@@ -77,6 +82,7 @@ describe('ChannelResolver', () => {
   beforeEach(async () => {
     resetUuidCounter();
     jest.clearAllMocks();
+    queryRunner = createMockQueryRunner();
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -84,7 +90,8 @@ describe('ChannelResolver', () => {
         { provide: CommandBus, useValue: { execute: mockCommandBusExecute } },
         { provide: QueryBus, useValue: { execute: mockQueryBusExecute } },
         { provide: ChannelService, useValue: mockChannelService },
-        { provide: DataSource, useValue: {} },
+        { provide: DataSource, useValue: createMockDataSource(queryRunner) },
+        { provide: PresenceService, useValue: { getOnlineUsers: jest.fn() } },
       ],
     }).compile();
 
@@ -165,21 +172,22 @@ describe('ChannelResolver', () => {
   // updateNotificationPreference mutation
   // -----------------------------------------------------------------------
   it('updateNotificationPreference updates preference', async () => {
+    const channelId = fakeUuid('ch');
     const member = createMockChannelMember({
+      tenantId,
+      channelId,
+      userId,
       notificationPreference: NotificationPreference.ALL,
     });
-    mockChannelService.validateChannelAccess.mockResolvedValue(member);
-    mockChannelService.saveMember.mockImplementation(async (m: ChannelMember) => m);
-
-    const channelId = fakeUuid('ch');
+    queryRunner.manager.findOne.mockResolvedValue(member);
+    queryRunner.manager.save.mockImplementation(async (_Entity: unknown, data: unknown) => data);
 
     const result = await resolver.updateNotificationPreference(
       tenantId, mockUser() as never, channelId, NotificationPreference.MENTIONS,
     );
 
-    expect(mockChannelService.validateChannelAccess).toHaveBeenCalledWith(
-      channelId, userId,
-    );
+    expect(queryRunner.manager.findOne).toHaveBeenCalled();
+    expect(queryRunner.manager.save).toHaveBeenCalled();
     expect(result.notificationPreference).toBe(NotificationPreference.MENTIONS);
   });
 });

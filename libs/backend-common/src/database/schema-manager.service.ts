@@ -394,6 +394,10 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     moduleName: 'messaging',
     sourceSchema: 'messaging',
     referenceDataTables: [],
+    infrastructureTables: [
+      'messaging_outbox',
+      'embeddings_metadata',
+    ],
     tables: [
       // Core messaging tables (migration 1711800000000)
       'channels',
@@ -403,12 +407,10 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'message_receipts',
       'message_reactions',
       'pinned_messages',
-      'messaging_outbox',
       // AI tables (migration 1711800000001)
       'message_analysis',
       'message_entity_references',
       'knowledge_entries',
-      'embeddings_metadata',
       // Compliance tables (migration 1711800000003)
       'retention_policies',
       'legal_holds',
@@ -663,6 +665,25 @@ export class SchemaManagerService {
     const tablesCreated: string[] = [];
     const referenceDataCopied: { table: string; rows: number }[] = [];
     const errors: string[] = [];
+    const unknownModules = modules.filter((moduleName) =>
+      !MODULE_SCHEMAS.some((schema) => schema.moduleName === moduleName),
+    );
+
+    if (modules.length === 0 || unknownModules.length > 0) {
+      return {
+        success: false,
+        status: ProvisioningStatus.FAILED,
+        schemaName,
+        tablesCreated: [],
+        referenceDataCopied: [],
+        errors: [
+          modules.length === 0
+            ? 'No tenant modules requested for schema provisioning'
+            : `Unknown tenant module(s): ${unknownModules.join(', ')}`,
+        ],
+        duration: Date.now() - startTime,
+      };
+    }
 
     // Validate schema name as additional safety
     if (!this.isValidSchemaName(schemaName)) {
@@ -759,6 +780,13 @@ export class SchemaManagerService {
         }
       }
 
+      if (errors.length > 0) {
+        // A tenant schema is an isolation boundary. Leaving it partially built
+        // makes later reads/writes nondeterministic, so table DDL drift must
+        // fail the whole provisioning transaction and trigger cleanup below.
+        throw new Error(`Tenant schema table provisioning failed: ${errors.join('; ')}`);
+      }
+
       // 3. Copy reference data for requested modules
       for (const moduleName of modules) {
         const refTables = REFERENCE_DATA_TABLES[moduleName];
@@ -783,6 +811,12 @@ export class SchemaManagerService {
             this.logger.warn(errorMsg);
           }
         }
+      }
+
+      if (errors.length > 0) {
+        // Reference data is part of the tenant's initial consistency contract;
+        // silently continuing would create tenants that differ by creation time.
+        throw new Error(`Tenant schema reference data provisioning failed: ${errors.join('; ')}`);
       }
 
       // 4. Grant permissions to the application role (or current user as fallback)
@@ -828,6 +862,12 @@ export class SchemaManagerService {
           this.logger.warn(msg);
           errors.push(msg);
         }
+      }
+
+      if (errors.length > 0) {
+        // Migration history is required so service boot does not replay old
+        // migrations into cloned tenant tables and break startup later.
+        throw new Error(`Tenant schema migration history provisioning failed: ${errors.join('; ')}`);
       }
 
       // Update cache
@@ -1383,7 +1423,11 @@ export class SchemaManagerService {
           WHERE tenant_id = $1
           ON CONFLICT DO NOTHING
         `, [tenantId]);
-      } catch {
+      } catch (snakeCaseError) {
+        if (!this.isUndefinedColumnError(snakeCaseError)) {
+          throw snakeCaseError;
+        }
+
         await this.dataSource.query(`
           INSERT INTO "${safeSchemaName}"."${safeTableName}"
           SELECT * FROM "${safeSourceSchema}"."${safeTableName}"
@@ -1407,6 +1451,11 @@ export class SchemaManagerService {
       this.logger.error(errorMsg);
       return { rowsMigrated: 0, error: errorMsg };
     }
+  }
+
+  private isUndefinedColumnError(error: unknown): boolean {
+    const dbError = error as { code?: string; message?: string };
+    return dbError.code === '42703' || dbError.message?.includes('column "tenant_id" does not exist') === true;
   }
 
   /**

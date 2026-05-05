@@ -186,7 +186,7 @@ export interface RelatedAsset {
 // ============================================================================
 
 @ObjectType()
-@Entity('work_orders', { schema: 'farm' })
+@Entity('work_orders')
 @Index(['tenantId', 'status', 'priority'])
 @Index(['tenantId', 'workOrderCode'], { unique: true })
 @Index(['tenantId', 'assignedTo', 'status'])

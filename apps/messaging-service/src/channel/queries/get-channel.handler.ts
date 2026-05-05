@@ -4,10 +4,10 @@ import {
   NotFoundException,
   ForbiddenException,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, IsNull } from 'typeorm';
+import { DataSource, IsNull } from 'typeorm';
 import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
 
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { GetChannelQuery } from './get-channel.query';
 import { Channel } from '../entities/channel.entity';
 import { ChannelMember } from '../entities/channel-member.entity';
@@ -20,10 +20,7 @@ export class GetChannelHandler
   private readonly logger = new Logger(GetChannelHandler.name);
 
   constructor(
-    @InjectRepository(Channel)
-    private readonly channelRepo: Repository<Channel>,
-    @InjectRepository(ChannelMember)
-    private readonly memberRepo: Repository<ChannelMember>,
+    private readonly dataSource: DataSource,
   ) {}
 
   /**
@@ -31,39 +28,41 @@ export class GetChannelHandler
    * The requesting user must be an active member of the channel.
    */
   async execute(query: GetChannelQuery): Promise<Channel> {
-    const { userId, channelId } = query;
+    const { tenantId, userId, channelId } = query;
 
-    const channel = await this.channelRepo.findOne({
-      where: { id: channelId },
-    });
+    return runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) => {
+      const channel = await queryRunner.manager.findOne(Channel, {
+        where: { tenantId, id: channelId },
+      });
 
-    if (!channel) {
-      throw new NotFoundException(`Channel ${channelId} not found`);
-    }
+      if (!channel) {
+        throw new NotFoundException(`Channel ${channelId} not found`);
+      }
 
-    // Verify user is an active member
-    const membership = await this.memberRepo.findOne({
-      where: { channelId, userId, leftAt: IsNull() },
-    });
+      // Verify user is an active member
+      const membership = await queryRunner.manager.findOne(ChannelMember, {
+        where: { tenantId, channelId, userId, leftAt: IsNull() },
+      });
 
-    if (!membership) {
-      throw new ForbiddenException(
-        'You are not an active member of this channel',
+      if (!membership) {
+        throw new ForbiddenException(
+          'You are not an active member of this channel',
+        );
+      }
+
+      // Load all active members
+      const activeMembers = await queryRunner.manager.find(ChannelMember, {
+        where: { tenantId, channelId, leftAt: IsNull() },
+        order: { joinedAt: 'ASC' },
+      });
+
+      channel.members = activeMembers;
+
+      this.logger.debug(
+        `Fetched channel ${channelId} with ${activeMembers.length} active members`,
       );
-    }
 
-    // Load all active members
-    const activeMembers = await this.memberRepo.find({
-      where: { channelId, leftAt: IsNull() },
-      order: { joinedAt: 'ASC' },
+      return channel;
     });
-
-    channel.members = activeMembers;
-
-    this.logger.debug(
-      `Fetched channel ${channelId} with ${activeMembers.length} active members`,
-    );
-
-    return channel;
   }
 }

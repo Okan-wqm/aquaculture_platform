@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
+import { invalidateSyncedOperationQueries } from '@/utils/offline-sync-invalidation';
 import {
   queueOperation,
   getPendingOperations,
@@ -418,19 +418,14 @@ export function OfflineProvider({ children }: { children: ReactNode }) {
       });
 
       // WHY: After a successful queue sync, invalidate React Query caches for
-      // the operation types that were synced. This is the read-after-write
-      // convergence mechanism: the queue is the single write path, so this is
-      // the only place that needs to trigger cache invalidation for queued ops.
-      // Without this, MyLeavesPage (and similar pages) would show stale data
-      // until their staleTime expires, even though the server already accepted
-      // the mutation.
-      const syncedLeaveOps = preSyncOps.filter(
-        (op) => op.type === 'createLeaveRequest' && !remainingIds.has(op.id),
-      );
-      if (syncedLeaveOps.length > 0) {
-        void queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'leaveRequests') });
-        void queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'leaveBalances') });
-      }
+      // the operation types that were confirmed by the backend. The queue is the
+      // single offline write path, so this is the convergence point that makes
+      // DB-committed farm data visible in list/card/detail screens immediately
+      // instead of waiting for staleTime or offline cache expiry.
+      const syncedOperationTypes = preSyncOps
+        .filter((op) => !remainingIds.has(op.id))
+        .map((op) => op.type);
+      await invalidateSyncedOperationQueries(queryClient, tenantId, syncedOperationTypes);
 
       // BUG-07: Reset the reconnect guard after a successful sync so that
       // new items queued while online will trigger auto-sync on next effect run.

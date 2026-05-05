@@ -63,7 +63,9 @@ describe('Batch Performance & Metrics E2E', () => {
       `query { availableTanks { id code name } }`,
     );
     if (tanks.availableTanks && tanks.availableTanks.length > 0) {
-      tankId = tanks.availableTanks[0].id as string;
+      const [firstTank] = tanks.availableTanks;
+      if (!firstTank) throw new Error('Expected at least one available tank');
+      tankId = firstTank.id as string;
 
       // Tank'a allocation yap
       await gqlExpectSuccess(
@@ -282,6 +284,7 @@ describe('Batch Performance & Metrics E2E', () => {
         // Mortality kaydedildiyse event olmali
         expect(data.batchHistory.length).toBeGreaterThanOrEqual(1);
         const mortalityEvent = data.batchHistory[0];
+        if (!mortalityEvent) throw new Error('Expected mortality event in batch history');
         expect(mortalityEvent.eventType).toBe('MORTALITY');
       }
     });

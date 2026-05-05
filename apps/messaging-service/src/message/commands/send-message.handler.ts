@@ -1,12 +1,12 @@
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { Logger, BadRequestException, Inject } from '@nestjs/common';
-import { DataSource, Repository, IsNull } from 'typeorm';
-import { InjectRepository } from '@nestjs/typeorm';
-import { v4 as uuidv4 } from 'uuid';
+import { DataSource, IsNull } from 'typeorm';
+import { randomUUID as uuidv4 } from 'crypto';
 import Redis from 'ioredis';
 
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { OutboxPublisher } from '@platform/outbox';
-import { createBaseEvent, BaseEvent } from '@platform/event-contracts';
+import { createBaseEvent } from '@platform/event-contracts';
 import { SendMessageCommand } from './send-message.command';
 import { Message, MessageContentType } from '../entities/message.entity';
 import { MessageAttachment } from '../entities/message-attachment.entity';
@@ -37,12 +37,6 @@ export class SendMessageHandler implements ICommandHandler<SendMessageCommand, M
 
   constructor(
     private readonly dataSource: DataSource,
-    @InjectRepository(Message)
-    private readonly messageRepo: Repository<Message>,
-    @InjectRepository(MessageAttachment)
-    private readonly attachmentRepo: Repository<MessageAttachment>,
-    @InjectRepository(ChannelMember)
-    private readonly channelMemberRepo: Repository<ChannelMember>,
     @Inject(REDIS_CLIENT)
     private readonly redis: Redis,
     private readonly mentionService: MentionService,
@@ -72,10 +66,15 @@ export class SendMessageHandler implements ICommandHandler<SendMessageCommand, M
       this.logger.debug(`Idempotent hit for key=${idempotencyKey}, returning existing message`);
       const existingMessageId = await this.safeRedisGet(idemKey);
       if (existingMessageId && existingMessageId !== 'pending') {
-        const existing = await this.messageRepo.findOne({
-          where: { id: existingMessageId },
-          relations: ['attachments'],
-        });
+        const existing = await runInTenantTransaction(
+          this.dataSource,
+          'messaging',
+          tenantId,
+          async (queryRunner) => queryRunner.manager.findOne(Message, {
+            where: { tenantId, id: existingMessageId },
+            relations: ['attachments'],
+          }),
+        );
         if (existing) {
           return existing;
         }
@@ -93,30 +92,6 @@ export class SendMessageHandler implements ICommandHandler<SendMessageCommand, M
           'Message content contains disallowed URL schemes. Only http:// and https:// are permitted.',
         );
       }
-    }
-
-    // ── 2b. Parse @mentions from content ─────────────────────────────
-    let mentionedUserIds: string[] = [];
-    if (sanitizedContent) {
-      const members = await this.channelMemberRepo.find({
-        where: { channelId, leftAt: IsNull() },
-        select: ['userId'],
-      });
-
-      // Build mentionable member list (userId + displayName)
-      // TODO: Resolve display names from auth-service via federation.
-      //       For now, userId is used as a fallback display name.
-      const mentionableMembers: MentionableMember[] = members.map((m) => ({
-        userId: m.userId,
-        displayName: m.userId, // Placeholder until user resolution
-      }));
-
-      const mentionResult = this.mentionService.parseMentions(
-        sanitizedContent,
-        mentionableMembers,
-      );
-      sanitizedContent = mentionResult.processedContent;
-      mentionedUserIds = mentionResult.mentionedUserIds;
     }
 
     // ── 2c. Voice note metadata ───────────────────────────────────────
@@ -148,7 +123,34 @@ export class SendMessageHandler implements ICommandHandler<SendMessageCommand, M
     const messageId = uuidv4();
     const now = new Date();
 
-    const createdMessage = await this.dataSource.transaction(async (manager) => {
+    const createdMessage = await runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) => {
+      const { manager } = queryRunner;
+      let mentionedUserIds: string[] = [];
+
+      if (sanitizedContent) {
+        const members = await manager.find(ChannelMember, {
+          where: { tenantId, channelId, leftAt: IsNull() },
+          select: ['userId'],
+        });
+
+        // Build mentionable member list (userId + displayName).
+        // 2026-05-02: Keep userId as the deterministic display identifier until
+        // auth-service exposes a federated profile lookup owned by the messaging
+        // read model. WHY: mention parsing must not call an ad-hoc remote lookup
+        // from the write transaction path.
+        const mentionableMembers: MentionableMember[] = members.map((m) => ({
+          userId: m.userId,
+          displayName: m.userId, // Placeholder until user resolution
+        }));
+
+        const mentionResult = this.mentionService.parseMentions(
+          sanitizedContent,
+          mentionableMembers,
+        );
+        sanitizedContent = mentionResult.processedContent;
+        mentionedUserIds = mentionResult.mentionedUserIds;
+      }
+
       // 4a. INSERT message
       // Build enriched metadata with mentions and voice duration
       const enrichedMetadata: Record<string, unknown> = { ...(metadata ?? {}) };
@@ -182,6 +184,7 @@ export class SendMessageHandler implements ICommandHandler<SendMessageCommand, M
         const attachments = attachmentKeys.map((storageKey) => {
           const meta = attachmentMeta.get(storageKey);
           return manager.create(MessageAttachment, {
+            tenantId,
             messageId: savedMessage.id,
             messageCreatedAt: savedMessage.createdAt,
             storageKey,

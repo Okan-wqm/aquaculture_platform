@@ -25,6 +25,8 @@ jobs:
     steps:
       # SEC-CI-002: pinned to SHA
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
 
       - name: Setup Node
         # SEC-CI-002: pinned to SHA (was @v3)
@@ -33,10 +35,26 @@ jobs:
           node-version: '22'
 
       - name: Install dependencies
-        run: npm install --legacy-peer-deps --ignore-scripts --no-audit
+        run: npm ci --ignore-scripts --no-audit
+
+      - name: Determine Nx affected refs
+        id: nx-refs
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+            HEAD="${{ github.event.pull_request.head.sha }}"
+          else
+            BASE="${{ github.event.before }}"
+            HEAD="${{ github.sha }}"
+            if [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+              BASE="$(git rev-parse HEAD~1)"
+            fi
+          fi
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+          echo "head=$HEAD" >> "$GITHUB_OUTPUT"
 
       - name: Build
-        run: npm run build
+        run: npm run build -- --base="${{ steps.nx-refs.outputs.base }}" --head="${{ steps.nx-refs.outputs.head }}"
         env:
           NX_DAEMON: 'false'
           NX_NO_CLOUD: 'true'
@@ -65,7 +83,9 @@ jobs:
       - name: Stop server
         if: always()
         run: |
-          kill $(cat server.pid) || true
+          if [ -f server.pid ]; then
+            kill "$(cat server.pid)" || true
+          fi
 
   k6-api:
     name: Backend k6 API benchmark

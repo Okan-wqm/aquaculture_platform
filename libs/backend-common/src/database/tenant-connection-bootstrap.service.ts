@@ -2,6 +2,7 @@ import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { getRequestContext } from '../logging/request-context';
 import { validateTenantSchemaName } from './schema-manager.service';
+import { getTenantSchemaName, isValidUUID } from './tenant-schema.utils';
 
 /**
  * Tenant schema regex — only matches tenant_<16 hex chars>.
@@ -22,7 +23,10 @@ const TENANT_SCHEMA_REGEX = /^tenant_[a-f0-9]{16}$/;
  *   - When a tenant context is present in AsyncLocalStorage, the search_path
  *     becomes `"tenant_<uuid>", <sourceSchema>, public` so per-request queries
  *     find tenant data first, falling back to the source schema for shared
- *     reference data.
+ *     reference data. The checkout derives the schema from either
+ *     `schemaName` or the canonical `tenantId` in AsyncLocalStorage; this keeps
+ *     GraphQL/CQRS async hops tenant-routed even when an intermediate layer
+ *     drops the middleware-derived schemaName field but preserves tenantId.
  *
  *   - When NO tenant context is present (non-request code paths: the NestJS
  *     bootstrap phase, SourceSchemaBootstrapService, MigrationRunnerService,
@@ -99,7 +103,7 @@ export function createTenantConnectionBootstrap(sourceSchema: string) {
             let schemaName: string | undefined;
             try {
               const ctx = getRequestContext();
-              schemaName = ctx?.schemaName;
+              schemaName = resolveTenantSchemaName(ctx?.schemaName, ctx?.tenantId);
             } catch {
               // Not in request context (migrations, startup) — use default
             }
@@ -143,7 +147,7 @@ export function createTenantConnectionBootstrap(sourceSchema: string) {
           let schemaName: string | undefined;
           try {
             const ctx = getRequestContext();
-            schemaName = ctx?.schemaName;
+            schemaName = resolveTenantSchemaName(ctx?.schemaName, ctx?.tenantId);
           } catch {
             // Not in request context
           }
@@ -182,4 +186,19 @@ export function createTenantConnectionBootstrap(sourceSchema: string) {
   }
 
   return TenantConnectionBootstrapImpl;
+}
+
+function resolveTenantSchemaName(
+  schemaName: string | undefined,
+  tenantId: string | undefined,
+): string | undefined {
+  if (schemaName && TENANT_SCHEMA_REGEX.test(schemaName)) {
+    return schemaName;
+  }
+
+  if (tenantId && isValidUUID(tenantId)) {
+    return getTenantSchemaName(tenantId);
+  }
+
+  return undefined;
 }

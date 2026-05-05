@@ -2,9 +2,10 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+import { OutboxPublisher } from '@platform/outbox';
 import { Message } from '../../entities/message.entity';
 import { ChannelMemberRole } from '../../../channel/entities/channel-member.entity';
-import { MessagingOutbox } from '../../../outbox/messaging-outbox.entity';
+import { LegalHoldService } from '../../../compliance/services/legal-hold.service';
 import { DeleteMessageHandler } from '../delete-message.handler';
 import { DeleteMessageCommand } from '../delete-message.command';
 import {
@@ -23,8 +24,10 @@ describe('DeleteMessageHandler', () => {
   let messageRepo: MockRepository<Message>;
   let queryRunner: MockQueryRunner;
   let mockDataSource: ReturnType<typeof createMockDataSource>;
+  let legalHoldService: { isUnderLegalHold: jest.Mock };
+  let outboxPublisher: { enqueue: jest.Mock };
 
-  const tenantId = 'tenant-0001-0001-0001-000000000001';
+  const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
   const channelId = fakeUuid('ch');
   const messageId = fakeUuid('msg');
   const senderId = fakeUuid('usr');
@@ -36,12 +39,16 @@ describe('DeleteMessageHandler', () => {
     messageRepo = createMockRepository<Message>();
     queryRunner = createMockQueryRunner();
     mockDataSource = createMockDataSource(queryRunner);
+    legalHoldService = { isUnderLegalHold: jest.fn().mockResolvedValue(false) };
+    outboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         DeleteMessageHandler,
         { provide: DataSource, useValue: mockDataSource },
         { provide: getRepositoryToken(Message), useValue: messageRepo },
+        { provide: LegalHoldService, useValue: legalHoldService },
+        { provide: OutboxPublisher, useValue: outboxPublisher },
       ],
     }).compile();
 
@@ -57,7 +64,7 @@ describe('DeleteMessageHandler', () => {
   // -----------------------------------------------------------------------
   it('owner can delete own message (soft-delete)', async () => {
     const msg = createMockMessage({ id: messageId, channelId, senderId: actorId });
-    messageRepo.findOne.mockResolvedValue(msg);
+    queryRunner.manager.findOne.mockResolvedValue(msg);
 
     const cmd = new DeleteMessageCommand(tenantId, actorId, messageId, null);
 
@@ -76,7 +83,7 @@ describe('DeleteMessageHandler', () => {
   // -----------------------------------------------------------------------
   it('channel ADMIN can delete any message', async () => {
     const msg = createMockMessage({ id: messageId, channelId, senderId }); // someone else's message
-    messageRepo.findOne.mockResolvedValue(msg);
+    queryRunner.manager.findOne.mockResolvedValue(msg);
 
     const cmd = new DeleteMessageCommand(tenantId, actorId, messageId, ChannelMemberRole.ADMIN);
 
@@ -86,7 +93,7 @@ describe('DeleteMessageHandler', () => {
 
   it('channel OWNER can delete any message', async () => {
     const msg = createMockMessage({ id: messageId, channelId, senderId });
-    messageRepo.findOne.mockResolvedValue(msg);
+    queryRunner.manager.findOne.mockResolvedValue(msg);
 
     const cmd = new DeleteMessageCommand(tenantId, actorId, messageId, ChannelMemberRole.OWNER);
 
@@ -99,7 +106,7 @@ describe('DeleteMessageHandler', () => {
   // -----------------------------------------------------------------------
   it('regular MEMBER cannot delete others messages', async () => {
     const msg = createMockMessage({ id: messageId, channelId, senderId }); // someone else
-    messageRepo.findOne.mockResolvedValue(msg);
+    queryRunner.manager.findOne.mockResolvedValue(msg);
 
     const cmd = new DeleteMessageCommand(tenantId, actorId, messageId, ChannelMemberRole.MEMBER);
 
@@ -114,7 +121,7 @@ describe('DeleteMessageHandler', () => {
     const msg = createMockMessage({
       id: messageId, channelId, senderId: actorId, content: originalContent,
     });
-    messageRepo.findOne.mockResolvedValue(msg);
+    queryRunner.manager.findOne.mockResolvedValue(msg);
 
     const cmd = new DeleteMessageCommand(tenantId, actorId, messageId, null);
 
@@ -132,25 +139,28 @@ describe('DeleteMessageHandler', () => {
   // -----------------------------------------------------------------------
   it('writes MessageDeleted event to outbox', async () => {
     const msg = createMockMessage({ id: messageId, channelId, senderId: actorId });
-    messageRepo.findOne.mockResolvedValue(msg);
+    queryRunner.manager.findOne.mockResolvedValue(msg);
 
     const cmd = new DeleteMessageCommand(tenantId, actorId, messageId, null);
 
     await handler.execute(cmd);
 
-    const outboxSave = queryRunner.manager.save.mock.calls.find(
-      (c) => c[0] === MessagingOutbox,
+    expect(outboxPublisher.enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'MessageDeleted',
+        tenantId,
+        channelId,
+        messageId,
+      }),
+      queryRunner.manager,
     );
-    expect(outboxSave).toBeDefined();
-    const outboxData = outboxSave![1] as Partial<MessagingOutbox>;
-    expect(outboxData.eventType).toBe('MessageDeleted');
   });
 
   // -----------------------------------------------------------------------
   // Not found
   // -----------------------------------------------------------------------
   it('throws NotFoundException when message not found', async () => {
-    messageRepo.findOne.mockResolvedValue(null);
+    queryRunner.manager.findOne.mockResolvedValue(null);
 
     const cmd = new DeleteMessageCommand(tenantId, actorId, messageId, null);
 

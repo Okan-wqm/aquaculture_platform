@@ -80,7 +80,7 @@ registerEnumType(InventoryStatus, {
 // ============================================================================
 
 @ObjectType()
-@Entity('feed_inventory', { schema: 'farm' })
+@Entity('feed_inventory')
 @Index(['tenantId', 'feedId', 'siteId'])
 @Index(['tenantId', 'siteId', 'status'])
 @Index(['tenantId', 'lotNumber'])

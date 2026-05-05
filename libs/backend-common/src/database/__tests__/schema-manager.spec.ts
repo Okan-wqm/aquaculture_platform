@@ -263,6 +263,27 @@ describe('SchemaManagerService', () => {
       expect(result.duration).toBeGreaterThanOrEqual(0);
     });
 
+    it('should fail closed when an unknown module is requested', async () => {
+      const result = await service.createTenantSchema(tenantId, ['farm', 'unknown-module']);
+
+      expect(result.success).toBe(false);
+      expect(result.errors).toContain('Unknown tenant module(s): unknown-module');
+      expect(mockQuery).not.toHaveBeenCalledWith(
+        expect.stringContaining('pg_advisory_lock'),
+        expect.anything(),
+      );
+    });
+
+    it('should fail closed when no module is requested', async () => {
+      const result = await service.createTenantSchema(tenantId, []);
+
+      expect(result.success).toBe(false);
+      expect(result.errors).toContain('No tenant modules requested for schema provisioning');
+      expect(mockQuery).not.toHaveBeenCalledWith(
+        expect.stringContaining('CREATE SCHEMA'),
+      );
+    });
+
     it('should drop schema on failure (rollback)', async () => {
       let schemaCreated = false;
 
@@ -771,7 +792,6 @@ describe('SchemaManagerService', () => {
       // Implementation uses pg_catalog.set_config (not SET search_path TO)
       expect(mockQuery).toHaveBeenCalledWith(
         expect.stringContaining('set_config'),
-        undefined
       );
     });
   });
@@ -829,6 +849,33 @@ describe('SchemaManagerService', () => {
 
       expect(result.rowsMigrated).toBe(0);
       expect(result.error).toContain('Insert failed');
+    });
+
+    it('should only fall back to camelCase tenantId when tenant_id column is absent', async () => {
+      const undefinedColumnError = Object.assign(
+        new Error('column "tenant_id" does not exist'),
+        { code: '42703' },
+      );
+
+      mockQuery
+        .mockResolvedValueOnce([{ count: '0' }])
+        .mockRejectedValueOnce(undefinedColumnError)
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ count: '25' }]);
+
+      const result = await service.migrateDataToTenantSchema(
+        tenantId,
+        'public',
+        'legacy_farms'
+      );
+
+      expect(result.rowsMigrated).toBe(25);
+
+      const insertCalls = mockQuery.mock.calls.filter(
+        call => call[0].includes('INSERT INTO')
+      );
+      expect(insertCalls[0][0]).toContain('WHERE tenant_id = $1');
+      expect(insertCalls[1][0]).toContain('WHERE "tenantId" = $1');
     });
 
     it('should use ON CONFLICT DO NOTHING for idempotent migration', async () => {

@@ -7,8 +7,9 @@
  * # Architecture (ADR-011 + Tier-1 Make-Impossible)
  *
  * Reads + writes go through TypeORM repositories on the canonical
- * `TenantAiSetting` and `UserAiConsent` entities (both in the
- * `messaging` schema, decorated `@Entity('...', { schema: 'messaging' })`).
+ * `TenantAiSetting` and `UserAiConsent` entities. They intentionally do
+ * not declare an entity-level schema; TenantConnectionBootstrap routes
+ * each request to the tenant schema through PostgreSQL search_path.
  *
  * Repositories derive table names + column names + schema qualification
  * from entity metadata at compile time — drift between the SQL the
@@ -21,8 +22,7 @@
  *   - wrong column names (`aiAnalysisEnabled` ≠ `aiEnabled`)
  *   - wrong table names (`user_preferences` ≠ `user_ai_consents`)
  *   - wrong column names (`aiAnalysisConsent` ≠ `consented`)
- *   - missing schema qualification (post-P7 entity decoration broke
- *     unqualified `tenant_settings` resolution under search_path)
+ *   - missing tenant-aware schema routing checks
  *
  * Plus a `DELETE FROM embeddings_metadata WHERE userId = ...` that
  * targeted columns that don't exist (the table is a model registry,
@@ -31,17 +31,18 @@
  * so coverage was green while runtime was permanently broken (audit
  * theater anti-pattern). Refactor removes the dead block, replaces
  * the working raw query (vector-typed `messages.embedding` clearing)
- * with explicit schema-qualified SQL inside a `BypassRlsService`
- * scope (cross-tenant write requires bypass post-P4 RLS).
+ * with explicit tenant-routed SQL inside a `BypassRlsService` scope.
  *
  * @see ADR-012 section 12.5 (AI Privacy Framework)
  * @see docs/reviews/messaging-expert/2026-04-14-ai-privacy-naming-drift.md
  */
 import { Injectable, Logger, Inject } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource } from 'typeorm';
 import Redis from 'ioredis';
-import { BypassRlsService } from '@aquaculture/backend-common/database';
+import {
+  BypassRlsService,
+  runInTenantTransaction,
+} from '@aquaculture/backend-common/database';
 import { REDIS_CLIENT } from '../../shared/redis.provider';
 import { TenantAiSetting } from '../entities/tenant-ai-setting.entity';
 import { UserAiConsent } from '../entities/user-ai-consent.entity';
@@ -69,10 +70,7 @@ export class AiPrivacyService {
   private readonly logger = new Logger(AiPrivacyService.name);
 
   constructor(
-    @InjectRepository(TenantAiSetting)
-    private readonly tenantAiSettings: Repository<TenantAiSetting>,
-    @InjectRepository(UserAiConsent)
-    private readonly userAiConsents: Repository<UserAiConsent>,
+    private readonly dataSource: DataSource,
     @Inject(REDIS_CLIENT)
     private readonly redis: Redis,
     private readonly bypassRls: BypassRlsService,
@@ -119,7 +117,13 @@ export class AiPrivacyService {
       return cached === 'true';
     }
 
-    const setting = await this.tenantAiSettings.findOne({ where: { tenantId } });
+    const setting = await runInTenantTransaction(
+      this.dataSource,
+      'messaging',
+      tenantId,
+      (queryRunner) =>
+        queryRunner.manager.findOne(TenantAiSetting, { where: { tenantId } }),
+    );
     const enabled = setting?.aiEnabled ?? false;
     await this.safeRedisSetEx(cacheKey, CACHE_TTL_SECONDS, String(enabled));
     return enabled;
@@ -138,9 +142,15 @@ export class AiPrivacyService {
       return cached === 'true';
     }
 
-    const consent = await this.userAiConsents.findOne({
-      where: { tenantId, userId },
-    });
+    const consent = await runInTenantTransaction(
+      this.dataSource,
+      'messaging',
+      tenantId,
+      (queryRunner) =>
+        queryRunner.manager.findOne(UserAiConsent, {
+          where: { tenantId, userId },
+        }),
+    );
     const consented = consent?.consented ?? false;
     await this.safeRedisSetEx(cacheKey, CACHE_TTL_SECONDS, String(consented));
     return consented;
@@ -152,9 +162,16 @@ export class AiPrivacyService {
    * write so the new value is observable on the next read.
    */
   async setTenantAiEnabled(tenantId: string, enabled: boolean): Promise<void> {
-    await this.tenantAiSettings.upsert(
-      { tenantId, aiEnabled: enabled },
-      { conflictPaths: ['tenantId'] },
+    await runInTenantTransaction(
+      this.dataSource,
+      'messaging',
+      tenantId,
+      (queryRunner) =>
+        queryRunner.manager.upsert(
+          TenantAiSetting,
+          { tenantId, aiEnabled: enabled },
+          { conflictPaths: ['tenantId'] },
+        ),
     );
     await this.safeRedisDel(`${TENANT_KEY_PREFIX}${tenantId}`);
     this.logger.log(`Tenant ${tenantId} AI flag set to: ${enabled}`);
@@ -172,9 +189,16 @@ export class AiPrivacyService {
     userId: string,
     consented: boolean,
   ): Promise<void> {
-    await this.userAiConsents.upsert(
-      { tenantId, userId, consented },
-      { conflictPaths: ['tenantId', 'userId'] },
+    await runInTenantTransaction(
+      this.dataSource,
+      'messaging',
+      tenantId,
+      (queryRunner) =>
+        queryRunner.manager.upsert(
+          UserAiConsent,
+          { tenantId, userId, consented },
+          { conflictPaths: ['tenantId', 'userId'] },
+        ),
     );
     await this.safeRedisDel(`${USER_KEY_PREFIX}${tenantId}:${userId}`);
 
@@ -198,9 +222,10 @@ export class AiPrivacyService {
    * `messages.embedding` is `vector(384)` (pgvector). TypeORM has no
    * first-class vector type and will not generate an UPDATE that NULLs
    * a vector column correctly via the repository API. Raw SQL is the
-   * minimal correct primitive — schema-qualified to `messaging.messages`
-   * and `messaging.channels` so it survives the post-P7 entity-decorated
-   * query path without relying on search_path resolution.
+   * minimal correct primitive. The query intentionally uses unqualified
+   * table names so TenantConnectionBootstrap's tenant-scoped search_path
+   * routes the sweep to the same physical tenant schema as repository
+   * reads and writes.
    *
    * # Why BypassRlsService
    *
@@ -229,15 +254,21 @@ export class AiPrivacyService {
       await this.bypassRls.withBypass(
         `ai-privacy:embedding-sweep:tenant=${tenantId}:user=${userId}`,
         async () => {
-          const result = await this.tenantAiSettings.query(
-            `UPDATE "messaging"."messages" m
-             SET "embedding" = NULL
-             FROM "messaging"."channels" c
-             WHERE m."channelId" = c."id"
-               AND c."tenantId" = $1
-               AND m."senderId" = $2
-               AND m."embedding" IS NOT NULL`,
-            [tenantId, userId],
+          const result = await runInTenantTransaction(
+            this.dataSource,
+            'messaging',
+            tenantId,
+            (queryRunner) =>
+              queryRunner.query(
+                `UPDATE "messages" m
+                 SET "embedding" = NULL
+                 FROM "channels" c
+                 WHERE m."channelId" = c."id"
+                   AND c."tenantId" = $1
+                   AND m."senderId" = $2
+                   AND m."embedding" IS NOT NULL`,
+                [tenantId, userId],
+              ),
           );
 
           // pg driver returns [rows, rowCount] for UPDATE.

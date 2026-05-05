@@ -1,0 +1,37 @@
+name: Apollo Router Security
+
+on:
+  workflow_dispatch:
+    inputs:
+      router_url:
+        description: 'Apollo Router /graphql URL to security-test'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  router-security-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        # 2026-04-30: This workflow is a security gate; dependency resolution
+        # must be peer-clean and must not use legacy-peer-deps or force.
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Static fallback contract
+        run: npm run apollo-router:check-fallback
+
+      - name: Header stripping pen-test
+        env:
+          ROUTER_PENTEST_URL: ${{ inputs.router_url }}
+          ROUTER_PENTEST_TOKEN: ${{ secrets.ROUTER_PENTEST_TOKEN }}
+        run: npm run apollo-router:pentest-headers

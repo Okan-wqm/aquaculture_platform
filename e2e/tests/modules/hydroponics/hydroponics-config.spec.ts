@@ -13,6 +13,7 @@ import { getMetadataArgsStorage } from 'typeorm';
 import { Reflector } from '@nestjs/core';
 import { SetupResolver } from '../../../../apps/hydroponics-service/src/setup/resolvers/setup.resolver';
 import { HydroponicsConfig } from '../../../../apps/hydroponics-service/src/setup/entities/hydroponics-config.entity';
+import { CurrentUserPayload } from '../../../../libs/backend-common/src/decorators/current-user.decorator';
 import { ROLES_KEY, Role } from '../../../../libs/backend-common/src/decorators/roles.decorator';
 
 // =============================================================================
@@ -29,6 +30,13 @@ function nextUuid(): string {
 
 const TENANT_A = '11111111-1111-4111-a111-111111111111';
 const TENANT_B = '22222222-2222-4222-a222-222222222222';
+const TENANT_ADMIN_USER: CurrentUserPayload = {
+  sub: '00000000-0000-4000-a000-000000000001',
+  email: 'tenant-admin@test.local',
+  tenantId: TENANT_A,
+  role: Role.TENANT_ADMIN,
+  roles: [Role.TENANT_ADMIN],
+};
 
 /**
  * In-memory store that mimics a TypeORM Repository<HydroponicsConfig>.
@@ -292,7 +300,11 @@ describe('HydroponicsConfig E2E', () => {
       TENANT_A,
     );
 
-    const result = await resolver.deleteHydroponicsConfiguration(created.id, TENANT_A);
+    const result = await resolver.deleteHydroponicsConfiguration(
+      created.id,
+      TENANT_A,
+      TENANT_ADMIN_USER,
+    );
     expect(result).toBe(true);
 
     // Verify list is empty
@@ -307,6 +319,7 @@ describe('HydroponicsConfig E2E', () => {
     const result = await resolver.deleteHydroponicsConfiguration(
       'ffffffff-ffff-4fff-afff-ffffffffffff',
       TENANT_A,
+      TENANT_ADMIN_USER,
     );
 
     expect(result).toBe(false);

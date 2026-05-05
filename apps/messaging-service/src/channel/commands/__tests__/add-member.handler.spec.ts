@@ -5,9 +5,9 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+import { OutboxPublisher } from '@platform/outbox';
 import { Channel, ChannelType } from '../../entities/channel.entity';
 import { ChannelMember, ChannelMemberRole } from '../../entities/channel-member.entity';
-import { MessagingOutbox } from '../../../outbox/messaging-outbox.entity';
 import { AddMemberHandler } from '../add-member.handler';
 import { AddMemberCommand } from '../add-member.command';
 import {
@@ -24,8 +24,9 @@ describe('AddMemberHandler', () => {
   let handler: AddMemberHandler;
   let queryRunner: MockQueryRunner;
   let mockDataSource: ReturnType<typeof createMockDataSource>;
+  let outboxPublisher: { enqueue: jest.Mock };
 
-  const tenantId = 'tenant-0001-0001-0001-000000000001';
+  const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
   const channelId = fakeUuid('ch');
   const actorId = fakeUuid('usr');
   const targetUserId = fakeUuid('usr');
@@ -35,11 +36,13 @@ describe('AddMemberHandler', () => {
 
     queryRunner = createMockQueryRunner();
     mockDataSource = createMockDataSource(queryRunner);
+    outboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AddMemberHandler,
         { provide: DataSource, useValue: mockDataSource },
+        { provide: OutboxPublisher, useValue: outboxPublisher },
       ],
     }).compile();
 
@@ -88,7 +91,12 @@ describe('AddMemberHandler', () => {
 
     expect(result).toBeDefined();
     expect(result.userId).toBe(targetUserId);
+    expect(result.tenantId).toBe(tenantId);
     expect(queryRunner.commitTransaction).toHaveBeenCalled();
+    expect(queryRunner.query).toHaveBeenCalledWith(
+      `SELECT pg_catalog.set_config('search_path', $1, true)`,
+      ['"tenant_aaaaaaaaaaaa4aaa", "messaging", public'],
+    );
   });
 
   it('OWNER can add member with ADMIN role', async () => {
@@ -227,14 +235,14 @@ describe('AddMemberHandler', () => {
     const cmd = new AddMemberCommand(tenantId, actorId, channelId, targetUserId, ChannelMemberRole.MEMBER);
     await handler.execute(cmd);
 
-    // Find the outbox save call
-    // Handler calls: manager.save(manager.create(MessagingOutbox, {...}))
-    // Mock create returns the data, so save may get it as first or second arg
-    const outboxCall = queryRunner.manager.save.mock.calls.find((call) => {
-      const candidate = call.length === 1 ? call[0] : call[1];
-      const data = candidate as Record<string, unknown>;
-      return data && data['eventType'] === 'ChannelMemberAdded';
-    });
-    expect(outboxCall).toBeDefined();
+    expect(outboxPublisher.enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'ChannelMemberAdded',
+        tenantId,
+        channelId,
+        userId: targetUserId,
+      }),
+      queryRunner.manager,
+    );
   });
 });

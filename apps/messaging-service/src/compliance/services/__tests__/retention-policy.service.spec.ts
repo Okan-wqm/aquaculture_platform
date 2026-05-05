@@ -24,7 +24,7 @@ describe('RetentionPolicyService', () => {
   let messageRepo: MockRepository<Message>;
   let mockDataSource: ReturnType<typeof createMockDataSource>;
   let queryRunner: MockQueryRunner;
-  let legalHoldService: jest.Mocked<Pick<LegalHoldService, 'isUnderLegalHold'>>;
+  let legalHoldService: jest.Mocked<Pick<LegalHoldService, 'isUnderLegalHold' | 'getHeldChannelIds'>>;
   let auditService: jest.Mocked<Pick<ComplianceAuditService, 'log'>>;
 
   const userId = fakeUuid('usr');
@@ -37,7 +37,10 @@ describe('RetentionPolicyService', () => {
     messageRepo = createMockRepository<Message>();
     queryRunner = createMockQueryRunner();
     mockDataSource = createMockDataSource(queryRunner);
-    legalHoldService = { isUnderLegalHold: jest.fn().mockResolvedValue(false) };
+    legalHoldService = {
+      isUnderLegalHold: jest.fn().mockResolvedValue(false),
+      getHeldChannelIds: jest.fn().mockResolvedValue([]),
+    };
     auditService = { log: jest.fn().mockResolvedValue(undefined) };
 
     policyRepo.create.mockImplementation(
@@ -128,23 +131,22 @@ describe('RetentionPolicyService', () => {
   // -----------------------------------------------------------------------
   // Nightly cleanup deletes expired messages
   // -----------------------------------------------------------------------
-  it('deletes expired messages during nightly cleanup', async () => {
+  it('drops expired message chunks during tenant-wide nightly cleanup', async () => {
     const policy = createMockRetentionPolicy({ retentionDays: 90 });
     policyRepo.find.mockResolvedValue([policy]);
     legalHoldService.isUnderLegalHold.mockResolvedValue(false);
 
-    // Simulate DELETE returning [[], 5] (5 messages deleted)
-    queryRunner.query.mockResolvedValue([[], 5]);
+    queryRunner.query.mockResolvedValue([{ drop_chunks: 'chunk_1' }]);
 
     await service.executeRetentionCleanup();
 
-    // Should have run DELETE queries via queryRunner
+    // Tenant-wide cleanup uses the TimescaleDB fast path.
     const queryCalls = queryRunner.query.mock.calls;
-    const deleteCall = queryCalls.find((call) => {
+    const dropCall = queryCalls.find((call) => {
       const sql = call[0] as string;
-      return sql.includes('DELETE FROM messages');
+      return sql.includes("drop_chunks('messages'");
     });
-    expect(deleteCall).toBeDefined();
+    expect(dropCall).toBeDefined();
   });
 
   // -----------------------------------------------------------------------
@@ -167,20 +169,25 @@ describe('RetentionPolicyService', () => {
   // -----------------------------------------------------------------------
   // Cascades deletion to attachments
   // -----------------------------------------------------------------------
-  it('deletes attachments before deleting messages', async () => {
+  it('drops attachment chunks before message chunks', async () => {
     const policy = createMockRetentionPolicy({ retentionDays: 30 });
     policyRepo.find.mockResolvedValue([policy]);
     legalHoldService.isUnderLegalHold.mockResolvedValue(false);
-    queryRunner.query.mockResolvedValue([[], 0]);
+    queryRunner.query.mockResolvedValue([]);
 
     await service.executeRetentionCleanup();
 
     const queryCalls = queryRunner.query.mock.calls;
-    const attachmentDelete = queryCalls.find((call) => {
+    const attachmentDropIndex = queryCalls.findIndex((call) => {
       const sql = call[0] as string;
-      return sql.includes('DELETE FROM message_attachments');
+      return sql.includes("drop_chunks('message_attachments'");
     });
-    expect(attachmentDelete).toBeDefined();
+    const messageDropIndex = queryCalls.findIndex((call) => {
+      const sql = call[0] as string;
+      return sql.includes("drop_chunks('messages'");
+    });
+    expect(attachmentDropIndex).toBeGreaterThanOrEqual(0);
+    expect(messageDropIndex).toBeGreaterThan(attachmentDropIndex);
   });
 
   // -----------------------------------------------------------------------

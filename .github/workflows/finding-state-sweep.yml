@@ -53,9 +53,9 @@ jobs:
           node-version: '22'
 
       - name: Install dependencies (ts-node only)
-        # --legacy-peer-deps matches repo-wide npm ci convention per
-        # PROC-MEDIUM-003 closure.
-        run: npm ci --legacy-peer-deps --ignore-scripts --no-audit
+        # Dependency resolution must be peer-clean; do not hide package graph
+        # conflicts in reporting jobs.
+        run: npm ci --ignore-scripts --no-audit
 
       - name: Compute sweep plan (dry run)
         id: plan

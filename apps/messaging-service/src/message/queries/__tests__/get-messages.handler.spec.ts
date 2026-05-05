@@ -1,52 +1,51 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { getRepositoryToken } from '@nestjs/typeorm';
 import { ForbiddenException } from '@nestjs/common';
+import { DataSource, SelectQueryBuilder } from 'typeorm';
 import { Message } from '../../entities/message.entity';
 import { ChannelMember } from '../../../channel/entities/channel-member.entity';
-import { GetMessagesHandler, MessagePage } from '../get-messages.handler';
+import { GetMessagesHandler } from '../get-messages.handler';
 import { GetMessagesQuery } from '../get-messages.query';
 import {
   createMockMessage,
   createMockChannelMember,
-  createMockRepository,
   createMockQueryBuilder,
+  createMockQueryRunner,
+  createMockDataSource,
   fakeUuid,
   resetUuidCounter,
-  MockRepository,
+  MockQueryRunner,
 } from '../../../__tests__/test-helpers';
-import { SelectQueryBuilder } from 'typeorm';
 
 describe('GetMessagesHandler', () => {
   let handler: GetMessagesHandler;
-  let messageRepo: MockRepository<Message>;
-  let memberRepo: MockRepository<ChannelMember>;
+  let queryRunner: MockQueryRunner;
+  let mockDataSource: ReturnType<typeof createMockDataSource>;
   let qb: jest.Mocked<SelectQueryBuilder<Message>>;
 
-  const tenantId = 'tenant-0001-0001-0001-000000000001';
+  const tenantId = '00000000-0000-4000-8000-000000000001';
   const channelId = fakeUuid('ch');
   const userId = fakeUuid('usr');
 
   beforeEach(async () => {
     resetUuidCounter();
 
-    messageRepo = createMockRepository<Message>();
-    memberRepo = createMockRepository<ChannelMember>();
+    queryRunner = createMockQueryRunner();
+    mockDataSource = createMockDataSource(queryRunner);
     qb = createMockQueryBuilder<Message>();
 
-    messageRepo.createQueryBuilder.mockReturnValue(qb as unknown as SelectQueryBuilder<Message>);
+    queryRunner.manager.createQueryBuilder.mockReturnValue(qb as unknown as SelectQueryBuilder<Message>);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         GetMessagesHandler,
-        { provide: getRepositoryToken(Message), useValue: messageRepo },
-        { provide: getRepositoryToken(ChannelMember), useValue: memberRepo },
+        { provide: DataSource, useValue: mockDataSource },
       ],
     }).compile();
 
     handler = module.get(GetMessagesHandler);
 
     // Default: user is a channel member (leftAt: undefined means active in IsNull() check)
-    memberRepo.findOne.mockResolvedValue(
+    queryRunner.manager.findOne.mockResolvedValue(
       createMockChannelMember({ channelId, userId, leftAt: null }),
     );
   });
@@ -94,8 +93,8 @@ describe('GetMessagesHandler', () => {
   // Membership check
   // -----------------------------------------------------------------------
   it('validates user is channel member', async () => {
-    memberRepo.findOne.mockReset();
-    memberRepo.findOne.mockResolvedValue(null);
+    queryRunner.manager.findOne.mockReset();
+    queryRunner.manager.findOne.mockResolvedValue(null);
 
     const query = new GetMessagesQuery(tenantId, userId, channelId, 20, null, null, null);
 

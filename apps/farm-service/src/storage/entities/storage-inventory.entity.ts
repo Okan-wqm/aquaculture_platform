@@ -25,7 +25,7 @@ registerEnumType(StorageItemType, {
   description: 'Type of item in storage',
 });
 
-@Entity('storage_inventory', { schema: 'farm' })
+@Entity('storage_inventory')
 @Index(['tenantId', 'storageLocationId', 'itemType', 'itemId', 'lotNumber'], { unique: true })
 @Index(['itemType', 'itemId'])
 export class StorageInventory {

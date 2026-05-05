@@ -37,11 +37,12 @@ ARG SERVICE_NAME
 # Copy package files for production dependency installation
 COPY package*.json ./
 
-# Install ONLY production dependencies
-# This is much faster than full install + build
-# BuildKit cache mount preserves npm cache between builds
+# Install ONLY production dependencies.
+# 2026-04-30: Docker images must use the same strict peer-dependency policy as CI.
+# WHY: --legacy-peer-deps can hide Apollo/TypeORM peer graph conflicts that CI and
+# production must see before an image is published.
 RUN --mount=type=cache,target=/root/.npm,sharing=shared \
-    npm ci --legacy-peer-deps --omit=dev --ignore-scripts --no-audit && \
+    npm ci --omit=dev --ignore-scripts --no-audit && \
     chown -R nestjs:nodejs /app/node_modules
 
 # Copy the pre-built service from host's dist folder

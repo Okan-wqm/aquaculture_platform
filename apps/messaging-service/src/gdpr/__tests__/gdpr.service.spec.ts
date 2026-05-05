@@ -1,24 +1,22 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { getRepositoryToken } from '@nestjs/typeorm';
 import { BadRequestException } from '@nestjs/common';
-import { DataSource } from 'typeorm';
-import { Message, MessageContentType } from '../../message/entities/message.entity';
-import { MessagingOutbox } from '../../outbox/messaging-outbox.entity';
+import { DataSource, SelectQueryBuilder } from 'typeorm';
+import { OutboxPublisher } from '@platform/outbox';
+import { Message } from '../../message/entities/message.entity';
 import { REDIS_CLIENT } from '../../shared/redis.provider';
 import { GdprService } from '../gdpr.service';
 import { LegalHoldService } from '../../compliance/services/legal-hold.service';
 import { ComplianceAuditService } from '../../compliance/services/compliance-audit.service';
+import { MessagingMetricsService } from '../../metrics/messaging-metrics.service';
 import {
   createMockMessage,
-  createMockAttachment,
-  createMockRepository,
+  createMockQueryBuilder,
   createMockQueryRunner,
   createMockDataSource,
   createMockRedis,
   createMockNatsClient,
   fakeUuid,
   resetUuidCounter,
-  MockRepository,
   MockQueryRunner,
   MockRedis,
   MockNatsClient,
@@ -27,36 +25,43 @@ import { of } from 'rxjs';
 
 describe('GdprService', () => {
   let service: GdprService;
-  let messageRepo: MockRepository<Message>;
-  let outboxRepo: MockRepository<MessagingOutbox>;
   let queryRunner: MockQueryRunner;
   let mockDataSource: ReturnType<typeof createMockDataSource>;
   let redisClient: MockRedis;
   let natsClient: MockNatsClient;
+  let outboxPublisher: { enqueue: jest.Mock };
+  let messageQb: jest.Mocked<SelectQueryBuilder<Message>>;
 
-  const tenantId = 'tenant-0001-0001-0001-000000000001';
+  const tenantId = '00000000-0000-4000-8000-000000000001';
   const userId = fakeUuid('usr');
 
   beforeEach(async () => {
     resetUuidCounter();
 
-    messageRepo = createMockRepository<Message>();
-    outboxRepo = createMockRepository<MessagingOutbox>();
     queryRunner = createMockQueryRunner();
     mockDataSource = createMockDataSource(queryRunner);
     redisClient = createMockRedis();
     natsClient = createMockNatsClient();
+    outboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
+    messageQb = createMockQueryBuilder<Message>();
+    queryRunner.manager.createQueryBuilder.mockReturnValue(messageQb as unknown as SelectQueryBuilder<Message>);
+    queryRunner.query.mockImplementation(async (sql: string) => {
+      if (sql.includes('SELECT id, "createdAt" FROM messages')) {
+        return [{ id: fakeUuid('msg'), createdAt: new Date('2026-03-10T12:00:00Z') }];
+      }
+      return [];
+    });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         GdprService,
-        { provide: getRepositoryToken(Message), useValue: messageRepo },
-        { provide: getRepositoryToken(MessagingOutbox), useValue: outboxRepo },
         { provide: DataSource, useValue: mockDataSource },
         { provide: REDIS_CLIENT, useValue: redisClient },
         { provide: 'NATS_SERVICE', useValue: natsClient },
         { provide: LegalHoldService, useValue: { isUnderLegalHold: jest.fn().mockResolvedValue(false) } },
         { provide: ComplianceAuditService, useValue: { log: jest.fn().mockResolvedValue(undefined) } },
+        { provide: MessagingMetricsService, useValue: { incrementGdprErasure: jest.fn() } },
+        { provide: OutboxPublisher, useValue: outboxPublisher },
       ],
     }).compile();
 
@@ -75,14 +80,14 @@ describe('GdprService', () => {
       createMockMessage({ senderId: userId, content: 'Hello', attachments: [] }),
       createMockMessage({ senderId: userId, content: 'World', attachments: [] }),
     ];
-    messageRepo.find.mockResolvedValue(messages);
+    messageQb.getMany.mockResolvedValue(messages);
     redisClient.get.mockResolvedValue(null); // no recent export
 
     const result = await service.exportMyMessages(userId, tenantId);
 
     expect(result).toBeDefined();
-    expect(result).toHaveLength(2);
-    expect(typeof result[0].content).toBe('string');
+    expect(result.messages).toHaveLength(2);
+    expect(typeof result.messages[0]?.content).toBe('string');
   });
 
   // -----------------------------------------------------------------------
@@ -173,19 +178,10 @@ describe('GdprService', () => {
 
     await service.anonymizeMyData(userId, tenantId, 'correct-password');
 
-    const queryCalls = queryRunner.query.mock.calls;
-    // The INSERT uses $1 for eventType and $2 for JSON payload
-    const outboxInsert = queryCalls.find((call) => {
-      const sql = call[0] as string;
-      const params = call[1] as string[] | undefined;
-      // Check if this is the outbox INSERT (event type is in params, not SQL)
-      if (sql.includes('messaging_outbox')) {
-        // params[0] should be 'UserDataAnonymized'
-        return params && params[0] === 'UserDataAnonymized';
-      }
-      return false;
-    });
-    expect(outboxInsert).toBeDefined();
+    expect(outboxPublisher.enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({ eventType: 'UserDataAnonymized', tenantId, userId }),
+      queryRunner.manager,
+    );
   });
 
   // -----------------------------------------------------------------------

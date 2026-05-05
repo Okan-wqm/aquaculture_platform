@@ -1,6 +1,9 @@
 import { useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useOfflineQueue } from './useOfflineQueue';
+import { useAuth } from './useAuth';
 import { graphqlRequest } from '@/services/authenticated-fetch';
+import { invalidateSyncedOperationQueries } from '@/utils/offline-sync-invalidation';
 import {
   COMPLETE_TASK,
   START_TASK,
@@ -25,6 +28,8 @@ export function useTaskActions(): {
   addNote: (taskId: string, text: string) => Promise<TaskActionResult>;
 } {
   const { addToQueue, isOnline } = useOfflineQueue();
+  const { tenantId } = useAuth();
+  const queryClient = useQueryClient();
 
   const completeTask = useCallback(
     async (taskId: string): Promise<TaskActionResult> => {
@@ -34,6 +39,9 @@ export function useTaskActions(): {
       if (isOnline) {
         try {
           await graphqlRequest(COMPLETE_TASK, { id: taskId });
+          if (tenantId) {
+            await invalidateSyncedOperationQueries(queryClient, tenantId, ['completeTask']);
+          }
           return { wasQueued: false };
         } catch {
           // Network error despite isOnline — fall through to queue
@@ -42,7 +50,7 @@ export function useTaskActions(): {
       const operationId = await addToQueue('completeTask', { id: taskId });
       return { wasQueued: true, operationId };
     },
-    [addToQueue, isOnline],
+    [addToQueue, isOnline, queryClient, tenantId],
   );
 
   const startTask = useCallback(
@@ -50,6 +58,9 @@ export function useTaskActions(): {
       if (isOnline) {
         try {
           await graphqlRequest(START_TASK, { id: taskId });
+          if (tenantId) {
+            await invalidateSyncedOperationQueries(queryClient, tenantId, ['startTask']);
+          }
           return { wasQueued: false };
         } catch {
           // Network error despite isOnline — fall through to queue
@@ -58,7 +69,7 @@ export function useTaskActions(): {
       const operationId = await addToQueue('startTask', { id: taskId });
       return { wasQueued: true, operationId };
     },
-    [addToQueue, isOnline],
+    [addToQueue, isOnline, queryClient, tenantId],
   );
 
   const toggleChecklistItem = useCallback(

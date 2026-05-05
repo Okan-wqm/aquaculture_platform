@@ -8,8 +8,9 @@ import {
 import { DataSource, IsNull } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { OutboxPublisher } from '@platform/outbox';
-import { createBaseEvent, BaseEvent } from '@platform/event-contracts';
+import { createBaseEvent } from '@platform/event-contracts';
 import { AddMemberCommand } from './add-member.command';
 import { Channel, ChannelType } from '../entities/channel.entity';
 import { ChannelMember, ChannelMemberRole } from '../entities/channel-member.entity';
@@ -56,14 +57,10 @@ export class AddMemberHandler
   async execute(command: AddMemberCommand): Promise<ChannelMember> {
     const { tenantId, actorUserId, channelId, targetUserId, role } = command;
 
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-
-    try {
+    return runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) => {
       // Load channel
       const channel = await queryRunner.manager.findOne(Channel, {
-        where: { id: channelId },
+        where: { id: channelId, tenantId },
       });
 
       if (!channel) {
@@ -80,7 +77,7 @@ export class AddMemberHandler
 
       // Verify actor is an active member and get their role
       const actorMember = await queryRunner.manager.findOne(ChannelMember, {
-        where: { channelId, userId: actorUserId, leftAt: IsNull() },
+        where: { tenantId, channelId, userId: actorUserId, leftAt: IsNull() },
       });
 
       if (!actorMember) {
@@ -102,7 +99,7 @@ export class AddMemberHandler
 
       // Check if target is already a member
       const existingMember = await queryRunner.manager.findOne(ChannelMember, {
-        where: { channelId, userId: targetUserId },
+        where: { tenantId, channelId, userId: targetUserId },
       });
 
       let member: ChannelMember;
@@ -115,6 +112,7 @@ export class AddMemberHandler
         }
 
         // Re-activate the membership
+        existingMember.tenantId = tenantId;
         existingMember.leftAt = null;
         existingMember.role = role;
         member = await queryRunner.manager.save(ChannelMember, existingMember);
@@ -123,6 +121,7 @@ export class AddMemberHandler
         );
       } else {
         const newMember = queryRunner.manager.create(ChannelMember, {
+          tenantId,
           channelId,
           userId: targetUserId,
           role,
@@ -142,13 +141,7 @@ export class AddMemberHandler
         addedBy: actorUserId,
       },  queryRunner.manager);
 
-      await queryRunner.commitTransaction();
       return member;
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
+    });
   }
 }

@@ -1,9 +1,12 @@
 import { Injectable, Logger, ForbiddenException, Inject, Optional } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, IsNull, EntityManager } from 'typeorm';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { DataSource, Repository, IsNull, EntityManager } from 'typeorm';
 import Redis from 'ioredis';
 
-import { tenantManagerRepo } from '@aquaculture/backend-common/database';
+import {
+  runInTenantTransaction,
+  tenantManagerRepo,
+} from '@aquaculture/backend-common/database';
 import { LegalHold } from '../entities/legal-hold.entity';
 import { REDIS_CLIENT } from '../../shared/redis.provider';
 
@@ -26,6 +29,8 @@ export class LegalHoldService {
     private readonly holdRepo: Repository<LegalHold>,
     @Optional() @Inject(REDIS_CLIENT)
     private readonly redis?: Redis,
+    @Optional() @InjectDataSource()
+    private readonly dataSource?: DataSource,
   ) {}
 
   /**
@@ -169,15 +174,41 @@ export class LegalHoldService {
     tenantId: string,
     channelId: string | null,
   ): Promise<boolean> {
+    if (this.dataSource) {
+      return runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) =>
+        this.isUnderLegalHoldWithManager(queryRunner.manager, tenantId, channelId),
+      );
+    }
+
+    return this.isUnderLegalHoldWithRepo(this.holdRepo, tenantId, channelId);
+  }
+
+  private async isUnderLegalHoldWithManager(
+    manager: EntityManager,
+    tenantId: string,
+    channelId: string | null,
+  ): Promise<boolean> {
+    return this.isUnderLegalHoldWithRepo(
+      tenantManagerRepo(manager, LegalHold, tenantId),
+      tenantId,
+      channelId,
+    );
+  }
+
+  private async isUnderLegalHoldWithRepo(
+    repo: Pick<Repository<LegalHold>, 'findOne'>,
+    tenantId: string,
+    channelId: string | null,
+  ): Promise<boolean> {
     // Check tenant-wide hold first
-    const tenantHold = await this.holdRepo.findOne({
+    const tenantHold = await repo.findOne({
       where: { tenantId, channelId: IsNull(), isActive: true },
     });
     if (tenantHold && !this.isExpired(tenantHold)) return true;
 
     // If a specific channel is requested, also check channel-level hold
     if (channelId) {
-      const channelHold = await this.holdRepo.findOne({
+      const channelHold = await repo.findOne({
         where: { tenantId, channelId, isActive: true },
       });
       if (channelHold && !this.isExpired(channelHold)) return true;
@@ -206,10 +237,18 @@ export class LegalHoldService {
    * O(1) query — returns only the channelId column, not full hold records.
    */
   async getHeldChannelIds(tenantId: string): Promise<string[]> {
-    const holds = await this.holdRepo.find({
-      where: { tenantId, isActive: true },
-      select: ['channelId'],
-    });
+    const holds = this.dataSource
+      ? await runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) =>
+          tenantManagerRepo(queryRunner.manager, LegalHold, tenantId).find({
+            where: { tenantId, isActive: true },
+            select: ['channelId'],
+          }),
+        )
+      : await this.holdRepo.find({
+          where: { tenantId, isActive: true },
+          select: ['channelId'],
+        });
+
     return holds
       .filter((h) => h.channelId !== null)
       .map((h) => h.channelId as string);
@@ -219,16 +258,31 @@ export class LegalHoldService {
    * Get all legal holds for a tenant (active and released).
    */
   async getHolds(tenantId: string): Promise<LegalHold[]> {
-    return this.holdRepo.find({
-      where: { tenantId },
-      order: { startedAt: 'DESC' },
-    });
+    if (this.dataSource) {
+      return runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) =>
+        tenantManagerRepo(queryRunner.manager, LegalHold, tenantId).find({
+          where: { tenantId },
+          order: { startedAt: 'DESC' },
+        }),
+      );
+    }
+
+    return this.holdRepo.find({ where: { tenantId }, order: { startedAt: 'DESC' } });
   }
 
   /**
    * Get only active legal holds for a tenant.
    */
   async getActiveHolds(tenantId: string): Promise<LegalHold[]> {
+    if (this.dataSource) {
+      return runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) =>
+        tenantManagerRepo(queryRunner.manager, LegalHold, tenantId).find({
+          where: { tenantId, isActive: true },
+          order: { startedAt: 'DESC' },
+        }),
+      );
+    }
+
     return this.holdRepo.find({
       where: { tenantId, isActive: true },
       order: { startedAt: 'DESC' },

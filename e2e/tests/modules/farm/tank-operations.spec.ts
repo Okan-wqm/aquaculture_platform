@@ -60,10 +60,14 @@ describe('Tank Operations E2E', () => {
     }>(`query { availableTanks { id code name } }`);
 
     if (tanks.availableTanks && tanks.availableTanks.length >= 2) {
-      tankId = tanks.availableTanks[0].id as string;
-      destTankId = tanks.availableTanks[1].id as string;
+      const [sourceTank, destinationTank] = tanks.availableTanks;
+      if (!sourceTank || !destinationTank) throw new Error('Expected two available tanks');
+      tankId = sourceTank.id as string;
+      destTankId = destinationTank.id as string;
     } else if (tanks.availableTanks && tanks.availableTanks.length >= 1) {
-      tankId = tanks.availableTanks[0].id as string;
+      const [sourceTank] = tanks.availableTanks;
+      if (!sourceTank) throw new Error('Expected one available tank');
+      tankId = sourceTank.id as string;
     }
 
     // Tank'a allocate et
@@ -147,6 +151,7 @@ describe('Tank Operations E2E', () => {
 
       expect(data.batchHistory.length).toBeGreaterThanOrEqual(1);
       const lastMortality = data.batchHistory[0];
+      if (!lastMortality) throw new Error('Expected mortality event in batch history');
       expect(lastMortality.eventType).toBe('MORTALITY');
     });
   });
@@ -210,7 +215,9 @@ describe('Tank Operations E2E', () => {
       );
 
       expect(data.batchHistory.length).toBeGreaterThanOrEqual(1);
-      expect(data.batchHistory[0].eventType).toBe('CULL');
+      const [cullEvent] = data.batchHistory;
+      if (!cullEvent) throw new Error('Expected cull event in batch history');
+      expect(cullEvent.eventType).toBe('CULL');
     });
   });
 

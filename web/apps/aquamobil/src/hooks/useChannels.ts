@@ -68,7 +68,9 @@ export function useChannels(socketRef?: React.RefObject<{ on: (event: string, ha
 
   const accumulatedChannelsRef = useRef<ChannelPage['items']>([]);
 
-  const queryKey = ['messaging', 'channels', tenantId, offset];
+  // WHY 2026-04-29: every tenant-scoped React Query key must use the common
+  // factory so tenant switches and sync invalidation target the same cache tree.
+  const queryKey = createTenantQueryKey(tenantId, 'messaging', 'channels', offset);
 
   const query = useQuery({
     queryKey,
@@ -109,7 +111,7 @@ export function useChannels(socketRef?: React.RefObject<{ on: (event: string, ha
     return () => {
       socket.off('channelUpdated', handleChannelUpdated);
     };
-  }, [socketRef, queryClient]);
+  }, [socketRef, queryClient, tenantId]);
 
   const hasMore = (query.data?.total ?? 0) > offset + PAGE_SIZE;
 

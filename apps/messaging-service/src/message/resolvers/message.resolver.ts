@@ -55,10 +55,10 @@ import { GdprService } from '../../gdpr/gdpr.service';
 import { PresenceService } from '../../presence/presence.service';
 
 // Repositories
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, IsNull } from 'typeorm';
+import { DataSource, IsNull } from 'typeorm';
 import { OutboxPublisher } from '@platform/outbox';
 import { createBaseEvent, BaseEvent } from '@platform/event-contracts';
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { ChannelMember, ChannelMemberRole } from '../../channel/entities/channel-member.entity';
 
 // ============================================================================
@@ -199,14 +199,6 @@ export class MessageResolver {
     private readonly gdprService: GdprService,
     private readonly presenceService: PresenceService,
     private readonly dataSource: DataSource,
-    @InjectRepository(ChannelMember)
-    private readonly channelMemberRepo: Repository<ChannelMember>,
-    @InjectRepository(PinnedMessage)
-    private readonly pinnedMessageRepo: Repository<PinnedMessage>,
-    @InjectRepository(MessageReaction)
-    private readonly reactionRepo: Repository<MessageReaction>,
-    @InjectRepository(Message)
-    private readonly messageRepo: Repository<Message>,
     private readonly outboxPublisher: OutboxPublisher,
   ) {}
 
@@ -265,69 +257,72 @@ export class MessageResolver {
     @CurrentUser() user: CurrentUserPayload,
     @Tenant() tenantId: string,
   ): Promise<AllMessagesSinceResponse> {
-    // Get all channels the user is an active member of, excluding archived
-    const memberships = await this.channelMemberRepo
-      .createQueryBuilder('cm')
-      .innerJoin('channels', 'c', 'c."id" = cm."channelId"')
-      .where('cm."userId" = :userId', { userId: user.sub })
-      .andWhere('cm."leftAt" IS NULL')
-      .andWhere('c."isArchived" = false')
-      .select('cm."channelId"', 'channelId')
-      .getRawMany<{ channelId: string }>();
-    const channelIds = memberships.map((m) => m.channelId);
+    return runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) => {
+      const memberships = await queryRunner.manager
+        .createQueryBuilder(ChannelMember, 'cm')
+        .innerJoin('channels', 'c', 'c."tenantId" = :tenantId AND c."id" = cm."channelId"', { tenantId })
+        .where('cm."tenantId" = :tenantId', { tenantId })
+        .andWhere('cm."userId" = :userId', { userId: user.sub })
+        .andWhere('cm."leftAt" IS NULL')
+        .andWhere('c."isArchived" = false')
+        .select('cm."channelId"', 'channelId')
+        .getRawMany<{ channelId: string }>();
+      const channelIds = memberships.map((m) => m.channelId);
 
-    if (channelIds.length === 0) {
-      return { messages: [], syncToken: null, hasMore: false };
-    }
-
-    // Parse sync token for cursor-based continuation
-    let cursorDate = since;
-    let cursorId: string | null = null;
-    if (syncToken) {
-      try {
-        const decoded = JSON.parse(
-          Buffer.from(syncToken, 'base64url').toString('utf-8'),
-        ) as { createdAt: string; id: string };
-        cursorDate = new Date(decoded.createdAt);
-        cursorId = decoded.id;
-      } catch {
-        this.logger.warn('Invalid sync token, falling back to since param');
+      if (channelIds.length === 0) {
+        return { messages: [], syncToken: null, hasMore: false };
       }
-    }
 
-    const cappedLimit = Math.min(limit, 500);
+      // Parse sync token for cursor-based continuation
+      let cursorDate = since;
+      let cursorId: string | null = null;
+      if (syncToken) {
+        try {
+          const decoded = JSON.parse(
+            Buffer.from(syncToken, 'base64url').toString('utf-8'),
+          ) as { createdAt: string; id: string };
+          cursorDate = new Date(decoded.createdAt);
+          cursorId = decoded.id;
+        } catch {
+          this.logger.warn('Invalid sync token, falling back to since param');
+        }
+      }
 
-    const qb = this.messageRepo
-      .createQueryBuilder('m')
-      .leftJoinAndSelect('m.attachments', 'att')
-      .where('m."channelId" IN (:...channelIds)', { channelIds })
-      .andWhere('m."isDeleted" = false')
-      .andWhere('m."createdAt" > :cursorDate', { cursorDate });
+      const cappedLimit = Math.min(limit, 500);
 
-    if (cursorId) {
-      qb.andWhere(
-        '(m."createdAt" > :cursorDate OR (m."createdAt" = :cursorDate AND m."id" > :cursorId))',
-        { cursorDate, cursorId },
-      );
-    }
+      const qb = queryRunner.manager
+        .createQueryBuilder(Message, 'm')
+        .leftJoinAndSelect('m.attachments', 'att')
+        .where('m."tenantId" = :tenantId', { tenantId })
+        .andWhere('m."channelId" IN (:...channelIds)', { channelIds })
+        .andWhere('m."isDeleted" = false')
+        .andWhere('m."createdAt" > :cursorDate', { cursorDate });
 
-    qb.orderBy('m."createdAt"', 'ASC')
-      .addOrderBy('m."id"', 'ASC')
-      .take(cappedLimit + 1);
+      if (cursorId) {
+        qb.andWhere(
+          '(m."createdAt" > :cursorDate OR (m."createdAt" = :cursorDate AND m."id" > :cursorId))',
+          { cursorDate, cursorId },
+        );
+      }
 
-    const messages = await qb.getMany();
-    const hasMore = messages.length > cappedLimit;
-    const items = hasMore ? messages.slice(0, cappedLimit) : messages;
+      qb.orderBy('m.createdAt', 'ASC')
+        .addOrderBy('m.id', 'ASC')
+        .take(cappedLimit + 1);
 
-    let nextSyncToken: string | null = null;
-    if (items.length > 0) {
-      const last = items[items.length - 1]!;
-      nextSyncToken = Buffer.from(
-        JSON.stringify({ createdAt: last.createdAt.toISOString(), id: last.id }),
-      ).toString('base64url');
-    }
+      const messages = await qb.getMany();
+      const hasMore = messages.length > cappedLimit;
+      const items = hasMore ? messages.slice(0, cappedLimit) : messages;
 
-    return { messages: items, syncToken: nextSyncToken, hasMore };
+      let nextSyncToken: string | null = null;
+      if (items.length > 0) {
+        const last = items[items.length - 1]!;
+        nextSyncToken = Buffer.from(
+          JSON.stringify({ createdAt: last.createdAt.toISOString(), id: last.id }),
+        ).toString('base64url');
+      }
+
+      return { messages: items, syncToken: nextSyncToken, hasMore };
+    });
   }
 
   /**
@@ -368,15 +363,18 @@ export class MessageResolver {
   async getPinnedMessages(
     @Args('channelId', { type: () => ID }) channelId: string,
     @CurrentUser() user: CurrentUserPayload,
+    @Tenant() tenantId: string,
   ): Promise<PinnedMessage[]> {
     // Validate membership
-    await this.validateChannelMembership(channelId, user.sub);
+    await this.validateChannelMembership(tenantId, channelId, user.sub);
 
-    return this.pinnedMessageRepo.find({
-      where: { channelId },
-      relations: ['message'],
-      order: { pinnedAt: 'DESC' },
-    });
+    return runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) =>
+      queryRunner.manager.find(PinnedMessage, {
+        where: { tenantId, channelId },
+        relations: ['message'],
+        order: { pinnedAt: 'DESC' },
+      }),
+    );
   }
 
   /**
@@ -422,7 +420,7 @@ export class MessageResolver {
     @Tenant() tenantId: string,
   ): Promise<Message> {
     // Validate channel membership before sending
-    await this.validateChannelMembership(input.channelId, user.sub);
+    await this.validateChannelMembership(tenantId, input.channelId, user.sub);
 
     const message: Message = await this.commandBus.execute(
       new SendMessageCommand(
@@ -475,14 +473,23 @@ export class MessageResolver {
     @Tenant() tenantId: string,
   ): Promise<boolean> {
     // Get the message to find its channel, then check user's role
-    const message = await this.messageRepo.findOne({ where: { id: messageId } });
-    if (!message) {
-      throw new NotFoundException(`Message ${messageId} not found.`);
-    }
+    const membership = await runInTenantTransaction(
+      this.dataSource,
+      'messaging',
+      tenantId,
+      async (queryRunner) => {
+        const message = await queryRunner.manager.findOne(Message, {
+          where: { tenantId, id: messageId },
+        });
+        if (!message) {
+          throw new NotFoundException(`Message ${messageId} not found.`);
+        }
 
-    const membership = await this.channelMemberRepo.findOne({
-      where: { channelId: message.channelId, userId: user.sub, leftAt: IsNull() },
-    });
+        return queryRunner.manager.findOne(ChannelMember, {
+          where: { tenantId, channelId: message.channelId, userId: user.sub, leftAt: IsNull() },
+        });
+      },
+    );
 
     return this.commandBus.execute(
       new DeleteMessageCommand(
@@ -518,7 +525,7 @@ export class MessageResolver {
     @CurrentUser() user: CurrentUserPayload,
     @Tenant() tenantId: string,
   ): Promise<MediaUploadResponse> {
-    await this.validateChannelMembership(input.channelId, user.sub);
+    await this.validateChannelMembership(tenantId, input.channelId, user.sub);
 
     // Enforce storage quota before generating presigned URL
     await this.storageQuotaService.enforceQuota(tenantId, input.fileSize);
@@ -553,7 +560,7 @@ export class MessageResolver {
     @CurrentUser() user: CurrentUserPayload,
     @Tenant() tenantId: string,
   ): Promise<PinnedMessage> {
-    const membership = await this.validateChannelMembership(channelId, user.sub);
+    const membership = await this.validateChannelMembership(tenantId, channelId, user.sub);
     if (
       membership.role !== ChannelMemberRole.ADMIN &&
       membership.role !== ChannelMemberRole.OWNER
@@ -561,22 +568,25 @@ export class MessageResolver {
       throw new ForbiddenException('Only ADMIN or OWNER can pin messages.');
     }
 
-    const message = await this.messageRepo.findOne({ where: { id: messageId } });
-    if (!message) {
-      throw new NotFoundException(`Message ${messageId} not found.`);
-    }
+    return runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) => {
+      const { manager } = queryRunner;
+      const message = await manager.findOne(Message, {
+        where: { tenantId, id: messageId, channelId, isDeleted: false },
+      });
+      if (!message) {
+        throw new NotFoundException(`Message ${messageId} not found.`);
+      }
 
-    // Wrap pin in a transaction with outbox event
-    return this.dataSource.transaction(async (manager) => {
       // Check if already pinned
       const existing = await manager.findOne(PinnedMessage, {
-        where: { channelId, messageId },
+        where: { tenantId, channelId, messageId },
       });
       if (existing) {
         return existing;
       }
 
       const pinned = manager.create(PinnedMessage, {
+        tenantId,
         channelId,
         messageId,
         messageCreatedAt: message.createdAt,
@@ -606,7 +616,7 @@ export class MessageResolver {
     @CurrentUser() user: CurrentUserPayload,
     @Tenant() tenantId: string,
   ): Promise<boolean> {
-    const membership = await this.validateChannelMembership(channelId, user.sub);
+    const membership = await this.validateChannelMembership(tenantId, channelId, user.sub);
     if (
       membership.role !== ChannelMemberRole.ADMIN &&
       membership.role !== ChannelMemberRole.OWNER
@@ -614,8 +624,9 @@ export class MessageResolver {
       throw new ForbiddenException('Only ADMIN or OWNER can unpin messages.');
     }
 
-    return this.dataSource.transaction(async (manager) => {
-      const result = await manager.delete(PinnedMessage, { channelId, messageId });
+    return runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) => {
+      const { manager } = queryRunner;
+      const result = await manager.delete(PinnedMessage, { tenantId, channelId, messageId });
       if ((result.affected ?? 0) > 0) {
         await this.outboxPublisher.enqueue({
           ...createBaseEvent('MessageUnpinned', tenantId),
@@ -642,24 +653,32 @@ export class MessageResolver {
     if (!emoji || emoji.length > 32) {
       throw new BadRequestException('Emoji must be between 1 and 32 characters.');
     }
-    const message = await this.messageRepo.findOne({ where: { id: messageId } });
-    if (!message) {
-      throw new NotFoundException(`Message ${messageId} not found.`);
-    }
+    return runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) => {
+      const { manager } = queryRunner;
+      const message = await manager.findOne(Message, {
+        where: { tenantId, id: messageId, isDeleted: false },
+      });
+      if (!message) {
+        throw new NotFoundException(`Message ${messageId} not found.`);
+      }
 
-    // Validate user is a member of the message's channel
-    await this.validateChannelMembership(message.channelId, user.sub);
+      const membership = await manager.findOne(ChannelMember, {
+        where: { tenantId, channelId: message.channelId, userId: user.sub, leftAt: IsNull() },
+      });
+      if (!membership) {
+        throw new ForbiddenException('You are not a member of this channel.');
+      }
 
-    return this.dataSource.transaction(async (manager) => {
       // Upsert reaction (unique constraint on messageId + userId + emoji)
       const existing = await manager.findOne(MessageReaction, {
-        where: { messageId, userId: user.sub, emoji },
+        where: { tenantId, messageId, userId: user.sub, emoji },
       });
       if (existing) {
         return true; // Already reacted with this emoji
       }
 
       const reaction = manager.create(MessageReaction, {
+        tenantId,
         messageId,
         messageCreatedAt: message.createdAt,
         userId: user.sub,
@@ -690,8 +709,24 @@ export class MessageResolver {
     @CurrentUser() user: CurrentUserPayload,
     @Tenant() tenantId: string,
   ): Promise<boolean> {
-    return this.dataSource.transaction(async (manager) => {
+    return runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) => {
+      const { manager } = queryRunner;
+      const message = await manager.findOne(Message, {
+        where: { tenantId, id: messageId, isDeleted: false },
+      });
+      if (!message) {
+        throw new NotFoundException(`Message ${messageId} not found.`);
+      }
+
+      const membership = await manager.findOne(ChannelMember, {
+        where: { tenantId, channelId: message.channelId, userId: user.sub, leftAt: IsNull() },
+      });
+      if (!membership) {
+        throw new ForbiddenException('You are not a member of this channel.');
+      }
+
       const result = await manager.delete(MessageReaction, {
+        tenantId,
         messageId,
         userId: user.sub,
         emoji,
@@ -803,19 +838,25 @@ export class MessageResolver {
    * Generates presigned download URLs for each attachment.
    */
   @ResolveField(() => [MessageAttachment], { name: 'attachments' })
-  async resolveAttachments(@Parent() message: Message): Promise<MessageAttachment[]> {
+  async resolveAttachments(
+    @Parent() message: Message,
+    @Tenant() tenantId: string,
+  ): Promise<MessageAttachment[]> {
     if (message.attachments && message.attachments.length > 0) {
       return message.attachments;
     }
 
-    // Lazy load if not already joined
-    const attachments = await this.messageRepo
-      .createQueryBuilder('m')
-      .relation(Message, 'attachments')
-      .of({ id: message.id, createdAt: message.createdAt })
-      .loadMany<MessageAttachment>();
-
-    return attachments;
+    return runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) =>
+      queryRunner.manager.find(MessageAttachment, {
+        where: {
+          tenantId,
+          messageId: message.id,
+          messageCreatedAt: message.createdAt,
+          isDeleted: false,
+        },
+        order: { createdAt: 'ASC' },
+      }),
+    );
   }
 
   /**
@@ -823,19 +864,24 @@ export class MessageResolver {
    * Returns delivery/read tracking data for each recipient.
    */
   @ResolveField(() => [MessageReceipt], { name: 'receipts', nullable: true, description: 'Read/delivery receipts for this message' })
-  async resolveReceipts(@Parent() message: Message): Promise<MessageReceipt[]> {
+  async resolveReceipts(
+    @Parent() message: Message,
+    @Tenant() tenantId: string,
+  ): Promise<MessageReceipt[]> {
     if (message.receipts && message.receipts.length > 0) {
       return message.receipts;
     }
 
-    // Lazy load if not already joined
-    const receipts = await this.messageRepo
-      .createQueryBuilder('m')
-      .relation(Message, 'receipts')
-      .of({ id: message.id, createdAt: message.createdAt })
-      .loadMany<MessageReceipt>();
-
-    return receipts;
+    return runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) =>
+      queryRunner.manager.find(MessageReceipt, {
+        where: {
+          tenantId,
+          messageId: message.id,
+          messageCreatedAt: message.createdAt,
+        },
+        order: { receiptCreatedAt: 'ASC' },
+      }),
+    );
   }
 
   /**
@@ -847,10 +893,13 @@ export class MessageResolver {
   async resolveReactionSummary(
     @Parent() message: Message,
     @CurrentUser() user: CurrentUserPayload,
+    @Tenant() tenantId: string,
   ): Promise<ReactionSummary[]> {
-    const reactions = await this.reactionRepo.find({
-      where: { messageId: message.id },
-    });
+    const reactions = await runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) =>
+      queryRunner.manager.find(MessageReaction, {
+        where: { tenantId, messageId: message.id },
+      }),
+    );
 
     if (reactions.length === 0) return [];
 
@@ -884,12 +933,18 @@ export class MessageResolver {
    * @throws ForbiddenException if not a member
    */
   private async validateChannelMembership(
+    tenantId: string,
     channelId: string,
     userId: string,
   ): Promise<ChannelMember> {
-    const membership = await this.channelMemberRepo.findOne({
-      where: { channelId, userId },
-    });
+    const membership = await runInTenantTransaction(
+      this.dataSource,
+      'messaging',
+      tenantId,
+      async (queryRunner) => queryRunner.manager.findOne(ChannelMember, {
+        where: { tenantId, channelId, userId },
+      }),
+    );
     if (!membership || membership.leftAt !== null) {
       throw new ForbiddenException('You are not a member of this channel.');
     }

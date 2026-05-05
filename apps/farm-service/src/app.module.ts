@@ -30,7 +30,17 @@ interface GraphQLContextRequest extends Request {
   user?: {
     sub: string;
     roles: string[];
+    /**
+     * 2026-04-30: tenant-aware DataLoader creation must use the authenticated
+     * gateway-normalized tenant, not a spoofable raw header.
+     */
+    tenantId?: string;
   };
+  /**
+   * 2026-04-30: TenantContextMiddleware normalizes the request tenant here;
+   * keeping it in the contract prevents unsafe casts around tenant routing.
+   */
+  tenantId?: string;
 }
 import { createTenantConnectionBootstrap, TenantSchemaSyncService, SourceSchemaWriteGuardService, RlsModule, SchemaDriftModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common/database';
 import { createTenantSchemaMiddleware } from '@aquaculture/backend-common/middleware';
@@ -162,16 +172,7 @@ import { AddFarmOutboxLeaseColumns1782000000000 } from './database/migrations/17
 import { AddFarmOutboxNotifyTrigger1782100000000 } from './database/migrations/1782100000000-AddFarmOutboxNotifyTrigger';
 import { MovePublicTablesToFarm1786000000000 } from './database/migrations/1786000000000-MovePublicTablesToFarm';
 import { AddFarmOutboxModernColumns1786200000000 } from './database/migrations/1786200000000-AddFarmOutboxModernColumns';
-import { AddDomainRetentionFunctions1787000000000 } from './database/migrations/1787000000000-AddDomainRetentionFunctions';
-import { AddStorageInventoryReceivedDate1787100000000 } from './database/migrations/1787100000000-AddStorageInventoryReceivedDate';
-import { CreateStorageLotMixes1787150000000 } from './database/migrations/1787150000000-CreateStorageLotMixes';
-import { AddStorageLotMixesGinIndex1787200000000 } from './database/migrations/1787200000000-AddStorageLotMixesGinIndex';
-import { AddRecurringTemplateTimezone1787300000000 } from './database/migrations/1787300000000-AddRecurringTemplateTimezone';
-import { AddDailyBatchFeedingMaterializedView1787400000000 } from './database/migrations/1787400000000-AddDailyBatchFeedingMaterializedView';
-import { AddDailyTankWaterQualityMaterializedView1787500000000 } from './database/migrations/1787500000000-AddDailyTankWaterQualityMaterializedView';
-import { WireSupplierSitesAndSiteContacts1788100000000 } from './database/migrations/1788100000000-WireSupplierSitesAndSiteContacts';
-import { DedupeEquipmentTypesByCode1788200000000 } from './database/migrations/1788200000000-DedupeEquipmentTypesByCode';
-import { AddBiomassReports1788300000000 } from './database/migrations/1788300000000-AddBiomassReports';
+import { AlignCodeSequencesSchema1786900000000 } from './database/migrations/1786900000000-AlignCodeSequencesSchema';
 
 @Module({
   imports: [
@@ -223,16 +224,7 @@ import { AddBiomassReports1788300000000 } from './database/migrations/1788300000
             AddFarmOutboxNotifyTrigger1782100000000,
             MovePublicTablesToFarm1786000000000,
             AddFarmOutboxModernColumns1786200000000,
-            AddDomainRetentionFunctions1787000000000,
-            AddStorageInventoryReceivedDate1787100000000,
-            CreateStorageLotMixes1787150000000,
-            AddStorageLotMixesGinIndex1787200000000,
-            AddRecurringTemplateTimezone1787300000000,
-            AddDailyBatchFeedingMaterializedView1787400000000,
-            AddDailyTankWaterQualityMaterializedView1787500000000,
-            WireSupplierSitesAndSiteContacts1788100000000,
-            DedupeEquipmentTypesByCode1788200000000,
-            AddBiomassReports1788300000000,
+            AlignCodeSequencesSchema1786900000000,
           ],
           // INFRA-CRITICAL-020 contract: env-aware migration timing.
           // - Production: DATABASE_MIGRATIONS_RUN=false (default). The
@@ -262,11 +254,20 @@ import { AddBiomassReports1788300000000 } from './database/migrations/1788300000
          *  defense-in-depth in case a subgraph becomes directly accessible. */
         allowBatchedHttpRequests: false,
         /**
+         * 2026-04-30: Keep Apollo CSRF prevention explicit while Apollo Server 5
+         * migration is blocked by the Nest/Apollo peer graph.
+         * WHY: Apollo Server 4 remains in the dependency graph, so XS-Search
+         * class protections must be fail-closed at runtime.
+         */
+        csrfPrevention: true,
+        /**
          * SECURITY (H-05): depthLimit(10) prevents deeply nested query DoS attacks.
          * Without depth limiting, an attacker can craft a deeply nested GraphQL query
          * that causes exponential resource consumption on the server.
          */
         validationRules: [depthLimit(10)],
+        // 2026-04-30: Deprecated GraphQL Playground is not enabled at runtime.
+        // WHY: farm subgraph developer UI must not rely on deprecated Apollo Playground behavior.
         /**
          * Phase 5.4 of the "Farm modülü kalan kör noktalar" plan.
          * depthLimit rejects queries that NEST too deeply but does
@@ -330,7 +331,6 @@ import { AddBiomassReports1788300000000 } from './database/migrations/1788300000
             }),
           },
         ],
-        playground: configService.get('NODE_ENV') !== 'production',
         // SECURITY: Disable introspection in production
         introspection: configService.get('NODE_ENV') !== 'production',
         context: ({ req }: { req: GraphQLContextRequest }) => {
@@ -363,9 +363,15 @@ import { AddBiomassReports1788300000000 } from './database/migrations/1788300000
             };
           }
 
-          // Create per-request DataLoaders for equipment batch metrics (N+1 → bulk)
-          const tenantHeader = req.headers['x-tenant-id'];
-          const tenantId = typeof tenantHeader === 'string' ? tenantHeader : undefined;
+          // Create per-request DataLoaders for equipment batch metrics (N+1 → bulk).
+          // SECURITY: loader tenant must come from authenticated/normalized request
+          // context, never directly from spoofable client headers.
+          const tenantId =
+            typeof req.user?.tenantId === 'string'
+              ? req.user.tenantId
+              : typeof req.tenantId === 'string'
+                ? req.tenantId
+                : undefined;
           let loaders;
           if (tenantId) {
             const schema = getTenantSchemaName(tenantId);

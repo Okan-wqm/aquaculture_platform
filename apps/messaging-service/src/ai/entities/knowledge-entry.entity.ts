@@ -41,7 +41,7 @@ export interface KnowledgeEntityRef {
 }
 
 @ObjectType()
-@Entity('knowledge_entries', { schema: 'messaging' })
+@Entity('knowledge_entries')
 @Index('idx_knowledge_category', ['category', 'createdAt'])
 @Index('idx_knowledge_tenant', ['tenantId'])
 export class KnowledgeEntry {

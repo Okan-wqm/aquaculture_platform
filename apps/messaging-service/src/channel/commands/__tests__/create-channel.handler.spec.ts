@@ -1,10 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ForbiddenException, BadRequestException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+import { OutboxPublisher } from '@platform/outbox';
 import { Channel, ChannelType } from '../../entities/channel.entity';
 import { ChannelMember, ChannelMemberRole } from '../../entities/channel-member.entity';
 import { ChannelService } from '../../services/channel.service';
-import { MessagingOutbox } from '../../../outbox/messaging-outbox.entity';
+import { MessagingMetricsService } from '../../../metrics/messaging-metrics.service';
 import { CreateChannelHandler } from '../create-channel.handler';
 import { CreateChannelCommand } from '../create-channel.command';
 import { CreateChannelInput } from '../../dto/create-channel.input';
@@ -22,8 +23,10 @@ describe('CreateChannelHandler', () => {
   let queryRunner: MockQueryRunner;
   let mockDataSource: ReturnType<typeof createMockDataSource>;
   let channelService: { buildDmPairKey: jest.Mock };
+  let metricsService: { incrementChannelsCreated: jest.Mock };
+  let outboxPublisher: { enqueue: jest.Mock };
 
-  const tenantId = 'tenant-0001-0001-0001-000000000001';
+  const tenantId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
   const creatorId = fakeUuid('usr');
   const memberA = fakeUuid('usr');
   const memberB = fakeUuid('usr');
@@ -49,6 +52,8 @@ describe('CreateChannelHandler', () => {
         return `${sorted[0]}|${sorted[1]}`;
       }),
     };
+    metricsService = { incrementChannelsCreated: jest.fn() };
+    outboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
 
     // Default: manager.save returns the data it received (with an id)
     let saveCounter = 0;
@@ -65,6 +70,8 @@ describe('CreateChannelHandler', () => {
         CreateChannelHandler,
         { provide: DataSource, useValue: mockDataSource },
         { provide: ChannelService, useValue: channelService },
+        { provide: MessagingMetricsService, useValue: metricsService },
+        { provide: OutboxPublisher, useValue: outboxPublisher },
       ],
     }).compile();
 
@@ -104,9 +111,7 @@ describe('CreateChannelHandler', () => {
   // -----------------------------------------------------------------------
   it('creates DIRECT channel between two users', async () => {
     // No existing DM
-    mockDataSource.getRepository = jest.fn().mockReturnValue({
-      findOne: jest.fn().mockResolvedValue(null),
-    });
+    queryRunner.manager.findOne.mockResolvedValueOnce(null);
 
     const input = makeInput({
       type: ChannelType.DIRECT,
@@ -128,9 +133,7 @@ describe('CreateChannelHandler', () => {
       members: [],
     });
 
-    mockDataSource.getRepository = jest.fn().mockReturnValue({
-      findOne: jest.fn().mockResolvedValue(existingChannel),
-    });
+    queryRunner.manager.findOne.mockResolvedValueOnce(existingChannel);
 
     const input = makeInput({
       type: ChannelType.DIRECT,
@@ -141,8 +144,9 @@ describe('CreateChannelHandler', () => {
     const result = await handler.execute(cmd);
 
     expect(result.id).toBe(existingChannel.id);
-    // No transaction started for idempotent return
-    expect(queryRunner.startTransaction).not.toHaveBeenCalled();
+    expect(queryRunner.startTransaction).toHaveBeenCalled();
+    expect(queryRunner.commitTransaction).toHaveBeenCalled();
+    expect(queryRunner.manager.save).not.toHaveBeenCalled();
   });
 
   // -----------------------------------------------------------------------
@@ -199,22 +203,10 @@ describe('CreateChannelHandler', () => {
 
     await handler.execute(cmd);
 
-    // The handler calls: manager.save(manager.create(MessagingOutbox, {...}))
-    // Our mock create returns the data, so save receives it as first arg
-    const outboxSaveCall = queryRunner.manager.save.mock.calls.find(
-      (call) => {
-        // Check both patterns: save(Entity, data) and save(data)
-        const candidate = call.length === 1 ? call[0] : call[1];
-        const data = candidate as Record<string, unknown>;
-        return data && data['eventType'] === 'ChannelCreated';
-      },
+    expect(outboxPublisher.enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({ eventType: 'ChannelCreated' }),
+      queryRunner.manager,
     );
-    expect(outboxSaveCall).toBeDefined();
-    const outboxData = (outboxSaveCall!.length === 1
-      ? outboxSaveCall![0]
-      : outboxSaveCall![1]) as Partial<MessagingOutbox>;
-    expect(outboxData.eventType).toBe('ChannelCreated');
-    expect(outboxData.payload).toBeDefined();
   });
 
   // -----------------------------------------------------------------------

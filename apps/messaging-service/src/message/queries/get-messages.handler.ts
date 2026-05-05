@@ -1,8 +1,8 @@
 import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
 import { Logger, ForbiddenException, BadRequestException } from '@nestjs/common';
-import { Repository, IsNull } from 'typeorm';
-import { InjectRepository } from '@nestjs/typeorm';
+import { DataSource, IsNull } from 'typeorm';
 
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { GetMessagesQuery } from './get-messages.query';
 import { Message } from '../entities/message.entity';
 import { ChannelMember } from '../../channel/entities/channel-member.entity';
@@ -65,10 +65,7 @@ export class GetMessagesHandler implements IQueryHandler<GetMessagesQuery, Messa
   private readonly logger = new Logger(GetMessagesHandler.name);
 
   constructor(
-    @InjectRepository(Message)
-    private readonly messageRepo: Repository<Message>,
-    @InjectRepository(ChannelMember)
-    private readonly channelMemberRepo: Repository<ChannelMember>,
+    private readonly dataSource: DataSource,
   ) {}
 
   async execute(query: GetMessagesQuery): Promise<MessagePage> {
@@ -84,57 +81,59 @@ export class GetMessagesHandler implements IQueryHandler<GetMessagesQuery, Messa
       );
     }
 
-    // 1. Validate channel membership (within tenant schema via search_path)
-    const membership = await this.channelMemberRepo.findOne({
-      where: { channelId, userId, leftAt: IsNull() },
-    });
-    if (!membership) {
-      throw new ForbiddenException('You are not a member of this channel.');
-    }
+    return runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) => {
+      // Tenant-pinned query path matches the send/edit/delete command path.
+      const membership = await queryRunner.manager.findOne(ChannelMember, {
+        where: { tenantId, channelId, userId, leftAt: IsNull() },
+      });
+      if (!membership) {
+        throw new ForbiddenException('You are not a member of this channel.');
+      }
 
-    // 2. Build query with keyset pagination (tenant-scoped via search_path)
-    const qb = this.messageRepo
-      .createQueryBuilder('m')
-      .leftJoinAndSelect('m.attachments', 'att')
-      .where('m."channelId" = :channelId', { channelId })
-      .andWhere('m."isDeleted" = false');
+      const qb = queryRunner.manager
+        .createQueryBuilder(Message, 'm')
+        .leftJoinAndSelect('m.attachments', 'att')
+        .where('m."tenantId" = :tenantId', { tenantId })
+        .andWhere('m."channelId" = :channelId', { channelId })
+        .andWhere('m."isDeleted" = false');
 
-    // Apply cursor (keyset)
-    if (cursor) {
-      const decoded = decodeCursor(cursor);
-      qb.andWhere(
-        '(m."createdAt" < :cursorDate OR (m."createdAt" = :cursorDate AND m."id" < :cursorId))',
-        {
-          cursorDate: decoded.createdAt,
-          cursorId: decoded.id,
-        },
+      // Apply cursor (keyset)
+      if (cursor) {
+        const decoded = decodeCursor(cursor);
+        qb.andWhere(
+          '(m."createdAt" < :cursorDate OR (m."createdAt" = :cursorDate AND m."id" < :cursorId))',
+          {
+            cursorDate: decoded.createdAt,
+            cursorId: decoded.id,
+          },
+        );
+      }
+
+      // Apply date filters
+      if (before) {
+        qb.andWhere('m."createdAt" < :before', { before });
+      }
+      if (after) {
+        qb.andWhere('m."createdAt" > :after', { after });
+      }
+
+      // Order by createdAt DESC, id DESC for stable keyset pagination
+      qb.orderBy('m.createdAt', 'DESC').addOrderBy('m.id', 'DESC');
+
+      // Fetch one extra row to determine hasMore
+      qb.take(limit + 1);
+
+      const messages = await qb.getMany();
+
+      const hasMore = messages.length > limit;
+      const items = hasMore ? messages.slice(0, limit) : messages;
+      const nextCursor = items.length > 0 ? encodeCursor(items[items.length - 1]!) : null;
+
+      this.logger.debug(
+        `GetMessages: tenant=${tenantId}, channel=${channelId}, returned=${items.length}, hasMore=${hasMore}`,
       );
-    }
 
-    // Apply date filters
-    if (before) {
-      qb.andWhere('m."createdAt" < :before', { before });
-    }
-    if (after) {
-      qb.andWhere('m."createdAt" > :after', { after });
-    }
-
-    // Order by createdAt DESC, id DESC for stable keyset pagination
-    qb.orderBy('m."createdAt"', 'DESC').addOrderBy('m."id"', 'DESC');
-
-    // Fetch one extra row to determine hasMore
-    qb.take(limit + 1);
-
-    const messages = await qb.getMany();
-
-    const hasMore = messages.length > limit;
-    const items = hasMore ? messages.slice(0, limit) : messages;
-    const nextCursor = items.length > 0 ? encodeCursor(items[items.length - 1]!) : null;
-
-    this.logger.debug(
-      `GetMessages: tenant=${tenantId}, channel=${channelId}, returned=${items.length}, hasMore=${hasMore}`,
-    );
-
-    return { items, hasMore, cursor: nextCursor };
+      return { items, hasMore, cursor: nextCursor };
+    });
   }
 }

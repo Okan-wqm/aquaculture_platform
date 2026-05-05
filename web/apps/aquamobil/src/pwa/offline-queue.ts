@@ -119,18 +119,11 @@ function extractResourceId(type: OperationType, payload: OperationPayload): stri
   if (type === 'markMessagesRead') {
     return `${p['channelId']}:${p['messageId']}`;
   }
-  // WHY: Leave requests dedup by leaveTypeId+startDate+endDate — this is the
-  // natural composite identity of a leave request. Using employeeId alone would
-  // block ALL leave submissions after the first, and the old code had no
-  // employeeId in the payload anyway so dedup never fired.
-  if (type === 'createLeaveRequest') {
-    return `${p['leaveTypeId']}:${p['startDate']}:${p['endDate']}`;
-  }
   // Most farm operations identify by batchId+tankId
   if (p['batchId'] && p['tankId']) {
     return `${p['batchId']}:${p['tankId']}`;
   }
-  // HR operations (clock in/out) identify by employeeId
+  // HR operations identify by employeeId
   if (p['employeeId']) {
     return String(p['employeeId']);
   }

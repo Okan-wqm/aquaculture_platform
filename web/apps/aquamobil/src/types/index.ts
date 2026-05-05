@@ -209,28 +209,18 @@ export interface LeaveRequest {
   startDate: string;
   endDate: string;
   totalDays: number;
-  isHalfDayStart: boolean;
-  isHalfDayEnd: boolean;
-  halfDayPeriod?: 'am' | 'pm';
+  isHalfDay: boolean;
   reason?: string;
   status: LeaveRequestStatus;
   createdAt: string;
 }
 
-// WHY: This interface matches the backend CreateLeaveRequestInput DTO exactly.
-// The backend requires employeeId + totalDays and uses isHalfDayStart/isHalfDayEnd
-// (not a single isHalfDay boolean). halfDayPeriod is an enum ('am' | 'pm').
 export interface CreateLeaveRequestInput {
-  employeeId: string;
   leaveTypeId: string;
   startDate: string;
   endDate: string;
-  totalDays: number;
-  isHalfDayStart?: boolean;
-  isHalfDayEnd?: boolean;
-  halfDayPeriod?: 'am' | 'pm';
+  isHalfDay?: boolean;
   reason?: string;
-  contactDuringLeave?: string;
 }
 
 // Offline queue types
@@ -239,7 +229,7 @@ export type OperationType = 'recordMortality' | 'recordCull' | 'createHarvestRec
 /** Messaging offline payloads — sendMessage uses SendMessageInput, editMessage uses { id, content },
  * deleteMessage uses { id }, markMessagesRead uses { channelId, messageId }. */
 export type MessagingOfflinePayload =
-  | { channelId: string; content: string | null; contentType: string; idempotencyKey: string; parentId?: string; attachmentKeys?: string[]; metadata?: Record<string, unknown> }
+  | { channelId: string; content: string | null; contentType: string; idempotencyKey: string; parentId?: string; attachmentKeys?: string[] }
   | { id: string; content: string }
   | { id: string }
   | { channelId: string; messageId: string };

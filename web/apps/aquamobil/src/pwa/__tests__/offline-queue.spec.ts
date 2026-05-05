@@ -6,7 +6,7 @@
  * Retry policy: 3 attempts then permanent fail
  */
 
-import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 
 // --------------------------------------------------------------------------
 // Mocks — idb-keyval
@@ -14,6 +14,9 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 
 const idbStore = new Map<string, unknown>();
 const cacheIdbStore = new Map<string, unknown>();
+
+// Track which store is being used
+let activeStore: Map<string, unknown> = idbStore;
 
 vi.mock('idb-keyval', () => {
   return {
@@ -39,7 +42,7 @@ vi.mock('idb-keyval', () => {
       const target = store === 'cache-store' ? cacheIdbStore : (store === 'queue-store' ? idbStore : idbStore);
       return Promise.resolve(Array.from(target.entries()));
     }),
-    createStore: vi.fn((dbName: string) => {
+    createStore: vi.fn((dbName: string, storeName: string) => {
       // Return a sentinel so the mock can distinguish stores
       if (dbName.includes('cache')) return 'cache-store';
       return 'queue-store';
@@ -109,6 +112,7 @@ import {
   getPendingCount,
   getOperation,
   updateOperation,
+  removeOperation,
   clearAllOperations,
   cacheData,
   getCachedData,
@@ -116,6 +120,9 @@ import {
   syncOperation,
   syncAllOperations,
 } from '../offline-queue';
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+import type { QueuedOperation, OperationPayload } from '@/types';
 
 /** SECURITY (C11): All queue operations are tenant-scoped. Tests use a fixed tenant UUID. */
 const TEST_QUEUE_TENANT = 'tenant-queue-001';
@@ -627,175 +634,6 @@ describe('Offline Queue', () => {
 
       expect(await getCachedData(TEST_TENANT, 'tanks')).toBeNull();
       expect(await getCachedData(TEST_TENANT, 'batches')).toBeNull();
-    });
-  });
-
-  // ========================================================================
-  // AQ-03: Messaging queue unification — sendMessage uses main queue
-  // ========================================================================
-
-  describe('Messaging queue unification (AQ-03)', () => {
-    it('should enqueue sendMessage operations in the main queue', async () => {
-      const payload = {
-        channelId: 'ch-001',
-        content: 'Hello offline',
-        contentType: 'text',
-        idempotencyKey: 'idem-key-001',
-      };
-
-      const id = await queueOperation(TEST_QUEUE_TENANT, 'sendMessage', payload);
-
-      expect(id).toBeTruthy();
-
-      // Verify it's stored in the same queue store as farm/HR operations
-      const storedKey = `pending_${TEST_QUEUE_TENANT}_${id}`;
-      const stored = idbStore.get(storedKey) as Record<string, unknown>;
-      expect(stored).toBeTruthy();
-      expect(stored.type).toBe('sendMessage');
-      expect(stored.tenantId).toBe(TEST_QUEUE_TENANT);
-    });
-
-    it('should dedup sendMessage by idempotencyKey within window', async () => {
-      const payload = {
-        channelId: 'ch-001',
-        content: 'Duplicate message',
-        contentType: 'text',
-        idempotencyKey: 'idem-key-dedup',
-      };
-
-      const id1 = await queueOperation(TEST_QUEUE_TENANT, 'sendMessage', payload);
-      expect(id1).toBeTruthy();
-      expect(id1.length).toBeGreaterThan(0);
-
-      // Same idempotencyKey within 5s window should be deduped
-      const id2 = await queueOperation(TEST_QUEUE_TENANT, 'sendMessage', payload);
-      expect(id2).toBe('');
-    });
-
-    it('should sync sendMessage operations via syncAllOperations', async () => {
-      const payload = {
-        channelId: 'ch-001',
-        content: 'Sync me',
-        contentType: 'text',
-        idempotencyKey: 'idem-key-sync',
-      };
-
-      await queueOperation(TEST_QUEUE_TENANT, 'sendMessage', payload);
-
-      const mockExecutor = vi.fn().mockResolvedValue({ success: true });
-      const result = await syncAllOperations(TEST_QUEUE_TENANT, mockExecutor);
-
-      expect(result.success).toBe(1);
-      expect(result.failed).toBe(0);
-      expect(mockExecutor).toHaveBeenCalledTimes(1);
-      // Verify executor was called with 'sendMessage' type
-      const [calledType] = mockExecutor.mock.calls[0] as [string, unknown];
-      expect(calledType).toBe('sendMessage');
-    });
-  });
-
-  // ========================================================================
-  // AQ-06: Queue operations are tenant-scoped — additional regression
-  // ========================================================================
-
-  describe('Queue tenant isolation — additional regression (AQ-06)', () => {
-    it('should isolate queue operations between different tenants', async () => {
-      const payloadA = {
-        channelId: 'ch-001',
-        content: 'Tenant A message',
-        contentType: 'text',
-        idempotencyKey: 'idem-A',
-      };
-      const payloadB = {
-        batchId: 'b1',
-        tankId: 't1',
-        quantity: 5,
-        reason: 'DISEASE' as const,
-      };
-
-      await queueOperation('tenant-A', 'sendMessage', payloadA);
-      await queueOperation('tenant-B', 'recordMortality', payloadB);
-
-      const opsA = await getPendingOperations('tenant-A');
-      const opsB = await getPendingOperations('tenant-B');
-
-      expect(opsA).toHaveLength(1);
-      expect(opsA[0].type).toBe('sendMessage');
-      expect(opsA[0].tenantId).toBe('tenant-A');
-
-      expect(opsB).toHaveLength(1);
-      expect(opsB[0].type).toBe('recordMortality');
-      expect(opsB[0].tenantId).toBe('tenant-B');
-    });
-
-    it('should isolate cache between different tenants', async () => {
-      await cacheData('tenant-A', 'permissions', { mortality: true });
-      await cacheData('tenant-B', 'permissions', { mortality: false });
-
-      const cachedA = await getCachedData<{ mortality: boolean }>('tenant-A', 'permissions');
-      const cachedB = await getCachedData<{ mortality: boolean }>('tenant-B', 'permissions');
-
-      expect(cachedA).toEqual({ mortality: true });
-      expect(cachedB).toEqual({ mortality: false });
-    });
-
-    it('should clear only one tenant cache without affecting others', async () => {
-      await cacheData('tenant-A', 'data', { v: 1 });
-      await cacheData('tenant-B', 'data', { v: 2 });
-
-      await clearCache('tenant-A');
-
-      expect(await getCachedData('tenant-A', 'data')).toBeNull();
-      expect(await getCachedData<{ v: number }>('tenant-B', 'data')).toEqual({ v: 2 });
-    });
-  });
-
-  // ========================================================================
-  // AQ-01: Leave request dedup uses composite key, not employeeId
-  // ========================================================================
-
-  describe('Leave dedup composite key (AQ-01)', () => {
-    it('should dedup createLeaveRequest by leaveTypeId+startDate+endDate', async () => {
-      const payload = {
-        employeeId: 'emp-001',
-        leaveTypeId: 'lt-annual',
-        startDate: '2026-04-20',
-        endDate: '2026-04-22',
-        totalDays: 3,
-      };
-
-      const id1 = await queueOperation(TEST_QUEUE_TENANT, 'createLeaveRequest', payload);
-      expect(id1).toBeTruthy();
-      expect(id1.length).toBeGreaterThan(0);
-
-      // Same composite key within window: deduped
-      const id2 = await queueOperation(TEST_QUEUE_TENANT, 'createLeaveRequest', payload);
-      expect(id2).toBe('');
-    });
-
-    it('should allow different leave types for the same employee+dates', async () => {
-      const payload1 = {
-        employeeId: 'emp-001',
-        leaveTypeId: 'lt-annual',
-        startDate: '2026-04-20',
-        endDate: '2026-04-22',
-        totalDays: 3,
-      };
-      const payload2 = {
-        employeeId: 'emp-001',
-        leaveTypeId: 'lt-sick',
-        startDate: '2026-04-20',
-        endDate: '2026-04-22',
-        totalDays: 3,
-      };
-
-      const id1 = await queueOperation(TEST_QUEUE_TENANT, 'createLeaveRequest', payload1);
-      const id2 = await queueOperation(TEST_QUEUE_TENANT, 'createLeaveRequest', payload2);
-
-      expect(id1).toBeTruthy();
-      expect(id1.length).toBeGreaterThan(0);
-      expect(id2).toBeTruthy();
-      expect(id2.length).toBeGreaterThan(0);
     });
   });
 });

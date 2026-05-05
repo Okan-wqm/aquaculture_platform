@@ -6,58 +6,8 @@
  */
 
 import { graphqlMutation, graphqlQuery, graphqlRequest, GraphQLResponse } from './graphql-client';
-import { decodeJwt, generateTenantAdminToken } from './jwt.helper';
-import { TestDatabase } from './db.helper';
-import { randomUUID } from 'crypto';
-
-// ============================================================
-// Test Tenant Fixture (synchronous, no external calls)
-// ============================================================
-
-/**
- * Pre-built fixture for tests that need a tenant admin token
- * without making real API calls. Uses locally-signed JWTs.
- */
-export interface TestTenantFixture {
-  /** Tenant ID (random UUID) */
-  tenantId: string;
-  /** Admin user ID (random UUID) */
-  adminUserId: string;
-  /** Signed JWT with TENANT_ADMIN role */
-  adminToken: string;
-  /** Admin email */
-  adminEmail: string;
-}
-
-/**
- * Generate a test tenant fixture with a locally-signed TENANT_ADMIN JWT.
- *
- * This does NOT create anything in the database — it only generates
- * identifiers and a signed JWT that the gateway will accept.
- * Use for tests that call the GraphQL API directly.
- */
-export function generateTenantFixture(overrides?: {
-  tenantId?: string;
-  adminUserId?: string;
-  adminEmail?: string;
-}): TestTenantFixture {
-  const tenantId = overrides?.tenantId ?? randomUUID();
-  const adminUserId = overrides?.adminUserId ?? randomUUID();
-  const adminEmail = overrides?.adminEmail ?? `admin-${tenantId.slice(0, 8)}@e2e-test.local`;
-
-  const adminToken = generateTenantAdminToken({
-    userId: adminUserId,
-    email: adminEmail,
-    tenantId,
-  });
-
-  return {
-    tenantId,
-    adminUserId,
-    adminToken,
-    adminEmail,
-  };
-}
+import { decodeJwt } from './jwt.helper';
+import { deleteTenant, deleteUserById, findUserByEmail, closePool } from './db.helper';
 
 // ============================================================
 // SUPER_ADMIN Authentication
@@ -497,16 +447,13 @@ export async function deleteTenantUser(
 // ============================================================
 
 /**
- * Full teardown: delete tenant and its schema via direct DB access.
+ * Full teardown: delete tenant, its schema, and close DB pool.
  */
 export async function teardownTenant(tenantId: string): Promise<void> {
-  const db = new TestDatabase();
   try {
-    await db.deleteTenant(tenantId);
+    await deleteTenant(tenantId);
   } catch (error) {
     console.warn(`Teardown warning for tenant ${tenantId}: ${(error as Error).message}`);
-  } finally {
-    await db.close();
   }
 }
 
@@ -514,18 +461,10 @@ export async function teardownTenant(tenantId: string): Promise<void> {
  * Full teardown and close DB connections.
  */
 export async function teardownAll(tenantIds: string[]): Promise<void> {
-  const db = new TestDatabase();
-  try {
-    for (const id of tenantIds) {
-      try {
-        await db.deleteTenant(id);
-      } catch (error) {
-        console.warn(`Teardown warning for tenant ${id}: ${(error as Error).message}`);
-      }
-    }
-  } finally {
-    await db.close();
+  for (const id of tenantIds) {
+    await teardownTenant(id);
   }
+  await closePool();
 }
 
 /**

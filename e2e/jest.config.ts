@@ -1,16 +1,16 @@
-export default {
-  displayName: 'e2e',
+import type { Config } from 'jest';
+
+const config: Config = {
+  displayName: 'e2e-integration',
   testEnvironment: 'node',
   transform: {
-    '^.+\\.[tj]s$': ['ts-jest', { tsconfig: '<rootDir>/tsconfig.json' }],
+    '^.+\\.tsx?$': ['ts-jest', { tsconfig: '<rootDir>/tsconfig.json' }],
   },
+  testMatch: ['<rootDir>/tests/integration/**/*.spec.ts'],
   moduleFileExtensions: ['ts', 'js', 'json'],
-  testMatch: ['<rootDir>/tests/**/*.spec.ts'],
-  moduleNameMapper: {
-    '^@platform/backend-common$': '<rootDir>/../libs/backend-common/src/index.ts',
-    '^@platform/shared$': '<rootDir>/../libs/shared/src/index.ts',
-    '^@platform/event-contracts$': '<rootDir>/../libs/event-contracts/src/index.ts',
-    '^@platform/storage$': '<rootDir>/../libs/storage/src/index.ts',
-    '^@platform/testing$': '<rootDir>/../libs/testing/src/index.ts',
-  },
+  testTimeout: 60000,
+  // Run integration tests serially -- they share DB state
+  maxWorkers: 1,
 };
+
+export default config;

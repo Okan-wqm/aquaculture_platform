@@ -1,269 +1,112 @@
-import jwt from 'jsonwebtoken';
-import { randomUUID } from 'crypto';
+/**
+ * JWT Helper for E2E Integration Tests
+ *
+ * Provides utilities for JWT token generation, parsing, and expiration
+ * simulation for integration tests.
+ */
+
+import * as crypto from 'crypto';
 
 /**
- * JWT secret for E2E tests.
- * In CI, this MUST match the secret configured for the gateway/auth services.
+ * JWT payload structure matching the platform's token service.
  */
-const JWT_SECRET =
-  process.env.JWT_SECRET || 'test-secret-that-is-at-least-32-characters-long!!';
-
-/**
- * Platform role hierarchy — mirrors @platform/backend-common Role enum.
- * Using string literal union instead of importing to keep e2e decoupled.
- */
-export type TestRole =
-  | 'SUPER_ADMIN'
-  | 'TENANT_ADMIN'
-  | 'MODULE_MANAGER'
-  | 'MODULE_USER';
-
-/**
- * Options for generating a test JWT token.
- * All fields optional — sensible defaults are applied.
- */
-export interface TestTokenOptions {
-  /** User ID (sub claim). Defaults to random UUID. */
-  userId?: string;
-  /** User email. Defaults to `e2e-{uuid}@test.aquaculture.io`. */
-  email?: string;
-  /** Primary role. Defaults to TENANT_ADMIN. */
-  role?: TestRole;
-  /** Tenant ID. Null for SUPER_ADMIN. Defaults to random UUID. */
-  tenantId?: string | null;
-  /** Assigned module codes. Defaults to all platform modules. */
-  modules?: string[];
-  /** Resource-level permissions. Defaults to empty array. */
-  resourcePermissions?: string[];
-  /** Token expiration (ms/zeit format). Defaults to '1h'. */
-  expiresIn?: string;
-  /** Whether to include jti claim. Defaults to true. */
-  includeJti?: boolean;
-  /** Token type (access/refresh). Defaults to 'access'. */
-  type?: 'access' | 'refresh';
-  /** Custom additional claims. */
-  customClaims?: Record<string, unknown>;
-}
-
-/**
- * JWT payload structure matching the platform's auth-service TokenService.
- * Mirrors apps/auth-service/src/modules/authentication/services/token.service.ts
- */
-export interface TestJwtPayload {
+export interface JwtPayload {
   sub: string;
   email: string;
-  role: TestRole;
-  roles: TestRole[];
+  role: string;
+  roles: string[];
   tenantId: string | null;
-  modules: string[];
-  resourcePermissions: string[];
-  type: 'access' | 'refresh';
+  modules?: string[];
+  resourcePermissions?: string[];
   jti?: string;
   iat?: number;
   exp?: number;
-  iss: string;
-  aud: string;
+  aud?: string;
 }
 
-/** All platform module codes */
-const ALL_MODULES = [
-  'sensor',
-  'farm',
-  'hr',
-  'hydroponics',
-  'billing',
-  'alert',
-  'config',
-] as const;
+/**
+ * Decode a JWT token without verification (for test assertions only).
+ * DO NOT use this for authentication -- it skips signature verification.
+ */
+export function decodeJwt(token: string): JwtPayload {
+  const parts = token.split('.');
+  if (parts.length !== 3) {
+    throw new Error('Invalid JWT format');
+  }
+  const payloadPart = parts[1];
+  if (!payloadPart) {
+    throw new Error('Invalid JWT: missing payload');
+  }
+  const payload = Buffer.from(payloadPart, 'base64url').toString('utf-8');
+  return JSON.parse(payload) as JwtPayload;
+}
 
 /**
- * Generate a signed JWT token for E2E testing.
+ * Create a fake expired JWT for testing purposes.
+ * Uses HS256 algorithm with a test secret -- the real auth service
+ * must be running for valid token tests.
  *
- * This creates tokens directly (without calling auth-service) so tests
- * can run independently of the authentication service.
- *
- * The payload mirrors the real JwtPayload from token.service.ts:
- *   sub, email, role, roles, tenantId, modules, resourcePermissions, jti, iss, aud
+ * SECURITY: This is for E2E tests ONLY. The token will be rejected
+ * by the real auth service unless the secret matches.
  */
-export function generateTestToken(options: TestTokenOptions = {}): string {
-  const userId = options.userId ?? randomUUID();
-  const role = options.role ?? 'TENANT_ADMIN';
+export function createExpiredJwt(
+  payload: Partial<JwtPayload>,
+  secret: string = 'test-secret-for-e2e-only',
+): string {
+  const header = { alg: 'HS256', typ: 'JWT' };
+  const now = Math.floor(Date.now() / 1000);
 
-  // SUPER_ADMIN has no tenant, others default to a random tenant
-  const tenantId =
-    options.tenantId !== undefined
-      ? options.tenantId
-      : role === 'SUPER_ADMIN'
-        ? null
-        : randomUUID();
-
-  const payload: Record<string, unknown> = {
-    sub: userId,
-    email: options.email ?? `e2e-${userId.slice(0, 8)}@test.aquaculture.io`,
-    role,
-    roles: [role],
-    tenantId,
-    modules: options.modules ?? [...ALL_MODULES],
-    resourcePermissions: options.resourcePermissions ?? [],
-    type: options.type ?? 'access',
-    ...options.customClaims,
+  const fullPayload: JwtPayload = {
+    sub: payload.sub || crypto.randomUUID(),
+    email: payload.email || 'expired@test.com',
+    role: payload.role || 'MODULE_USER',
+    roles: payload.roles || [payload.role || 'MODULE_USER'],
+    tenantId: payload.tenantId ?? null,
+    jti: payload.jti || crypto.randomUUID(),
+    iat: now - 7200, // 2 hours ago
+    exp: now - 3600, // 1 hour ago (expired)
+    aud: payload.aud || 'aquaculture-platform',
   };
 
-  // Include jti by default (matches production behavior)
-  const includeJti = options.includeJti ?? true;
-  if (includeJti) {
-    payload['jti'] = randomUUID();
-  }
+  const encodedHeader = Buffer.from(JSON.stringify(header)).toString('base64url');
+  const encodedPayload = Buffer.from(JSON.stringify(fullPayload)).toString('base64url');
+  const signature = crypto
+    .createHmac('sha256', secret)
+    .update(`${encodedHeader}.${encodedPayload}`)
+    .digest('base64url');
 
-  return jwt.sign(payload, JWT_SECRET, {
-    expiresIn: options.expiresIn ?? '1h',
-    issuer: 'aquaculture-platform',
-    audience: 'aquaculture-platform',
-  });
+  return `${encodedHeader}.${encodedPayload}.${signature}`;
 }
 
 /**
- * Generate an expired JWT token for testing auth rejection.
+ * Check if a JWT token is expired based on its exp claim.
  */
-export function generateExpiredToken(
-  options: TestTokenOptions = {},
-): string {
-  return generateTestToken({ ...options, expiresIn: '-1s' });
+export function isTokenExpired(token: string): boolean {
+  const payload = decodeJwt(token);
+  if (!payload.exp) return false;
+  return payload.exp < Math.floor(Date.now() / 1000);
 }
 
 /**
- * Generate a token without jti claim for testing jti-required guards.
+ * Extract the tenant ID from a JWT token.
  */
-export function generateTokenWithoutJti(
-  options: TestTokenOptions = {},
-): string {
-  return generateTestToken({ ...options, includeJti: false });
+export function extractTenantId(token: string): string | null {
+  const payload = decodeJwt(token);
+  return payload.tenantId;
 }
 
 /**
- * Generate a token signed with a wrong secret for testing signature validation.
- */
-export function generateTokenWithWrongSecret(
-  options: TestTokenOptions = {},
-): string {
-  const userId = options.userId ?? randomUUID();
-  const role = options.role ?? 'TENANT_ADMIN';
-
-  const payload: Record<string, unknown> = {
-    sub: userId,
-    email: options.email ?? `e2e-${userId.slice(0, 8)}@test.aquaculture.io`,
-    role,
-    roles: [role],
-    tenantId: options.tenantId ?? randomUUID(),
-    modules: options.modules ?? [...ALL_MODULES],
-    resourcePermissions: options.resourcePermissions ?? [],
-    type: options.type ?? 'access',
-    jti: randomUUID(),
-  };
-
-  return jwt.sign(payload, 'wrong-secret-that-does-not-match-the-real-one!!!', {
-    expiresIn: options.expiresIn ?? '1h',
-    issuer: 'aquaculture-platform',
-    audience: 'aquaculture-platform',
-  });
-}
-
-/**
- * Decode a JWT token without verification (useful for debugging).
- */
-export function decodeTestToken(token: string): TestJwtPayload | null {
-  const decoded = jwt.decode(token);
-  if (!decoded || typeof decoded === 'string') {
-    return null;
-  }
-  return decoded as TestJwtPayload;
-}
-
-/**
- * Verify a JWT token with the test secret.
- * Returns the payload or throws if invalid.
- */
-export function verifyTestToken(token: string): TestJwtPayload {
-  return jwt.verify(token, JWT_SECRET, {
-    issuer: 'aquaculture-platform',
-    audience: 'aquaculture-platform',
-  }) as TestJwtPayload;
-}
-
-// ============================================================================
-// Role-specific token helpers (convenience wrappers)
-// ============================================================================
-
-/** Options for role-specific token generators */
-export interface RoleTokenOptions {
-  /** User ID (sub claim). Defaults to random UUID. */
-  userId?: string;
-  /** Alias for userId (sub claim). */
-  sub?: string;
-  /** User email. */
-  email?: string;
-  /** Tenant ID. */
-  tenantId?: string;
-  /** Assigned module codes. */
-  modules?: string[];
-  /** Resource permissions. */
-  resourcePermissions?: string[];
-  /** Token expiration. */
-  expiresIn?: string;
-}
-
-/**
- * Generate a MODULE_USER token.
- * Convenience wrapper around generateTestToken with role: 'MODULE_USER'.
- */
-export function generateModuleUserToken(options: RoleTokenOptions = {}): string {
-  return generateTestToken({
-    userId: options.sub ?? options.userId,
-    email: options.email,
-    role: 'MODULE_USER',
-    tenantId: options.tenantId,
-    modules: options.modules,
-    resourcePermissions: options.resourcePermissions,
-    expiresIn: options.expiresIn,
-  });
-}
-
-/**
- * Generate a TENANT_ADMIN token.
- * Convenience wrapper around generateTestToken with role: 'TENANT_ADMIN'.
- */
-export function generateTenantAdminToken(options: RoleTokenOptions = {}): string {
-  return generateTestToken({
-    userId: options.sub ?? options.userId,
-    email: options.email,
-    role: 'TENANT_ADMIN',
-    tenantId: options.tenantId,
-    modules: options.modules,
-    resourcePermissions: options.resourcePermissions,
-    expiresIn: options.expiresIn,
-  });
-}
-
-/**
- * Decode a JWT token without verification.
- * Alias for decodeTestToken — used by tenant.fixture.ts and integration tests.
- */
-export function decodeJwt(token: string): TestJwtPayload | null {
-  return decodeTestToken(token);
-}
-
-/**
- * Extract resource permissions from a JWT token without verification.
+ * Extract resource permissions from a JWT token.
  */
 export function extractResourcePermissions(token: string): string[] {
-  const payload = decodeTestToken(token);
-  return payload?.resourcePermissions ?? [];
+  const payload = decodeJwt(token);
+  return payload.resourcePermissions || [];
 }
 
 /**
- * Create an expired JWT for auth rejection tests.
- * Alias for generateExpiredToken — used by integration tests.
+ * Extract the user ID from a JWT token.
  */
-export function createExpiredJwt(options: TestTokenOptions = {}): string {
-  return generateExpiredToken(options);
+export function extractUserId(token: string): string {
+  const payload = decodeJwt(token);
+  return payload.sub;
 }

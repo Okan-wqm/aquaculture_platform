@@ -1630,14 +1630,10 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
     const tIdx = this.findBoundingIndex(temperatures, temperature);
     const wIdx = this.findBoundingIndex(weights, weightG);
 
-<<<<<<< HEAD
-    // Nearest-neighbor interpolation; bilinear upgrade tracked separately as an accuracy refinement.
-=======
     // Nearest-neighbor interpolation. A full bilinear kernel would
     // blend the four surrounding grid points instead of snapping to
     // the closest one; kept simple here because the FCR lookup table
     // is dense enough that nearest-neighbor error is <1% of target.
->>>>>>> 28dc583b (feat(farm): final getRepository cleanup (feeding-scheduler + feeding-program.resolver); close AUDIT-HIGH-002)
     const tI = Math.max(0, Math.min(tIdx, temperatures.length - 1));
     const wI = Math.max(0, Math.min(wIdx, weights.length - 1));
 

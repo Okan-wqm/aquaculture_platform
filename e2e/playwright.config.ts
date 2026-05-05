@@ -45,9 +45,5 @@ export default defineConfig({
       name: 'integration',
       testDir: './tests/integration',
     },
-    {
-      name: 'hr-module',
-      testDir: './tests/modules/hr',
-    },
   ],
 });

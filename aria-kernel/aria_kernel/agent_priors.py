@@ -23,10 +23,18 @@ def map_agent_priors(
     if not agents_dir.exists():
         raise GovernanceError(".claude/agents directory was not found")
     agents = []
-    for path in sorted(agents_dir.glob("*.md")):
+    seen_names: dict[str, Path] = {}
+    for path in sorted(agents_dir.rglob("*.md")):
         if path.name == "README.md":
             continue
-        agents.append(_parse_agent(path, root))
+        agent = _parse_agent(path, root)
+        if agent is None:
+            continue
+        name = agent["name"]
+        if name in seen_names:
+            raise GovernanceError(f"reviewer_name_conflict: {name}")
+        seen_names[name] = path
+        agents.append(agent)
     row = {
         "schema_version": 1,
         "recorded_at": utc_now(),
@@ -35,6 +43,25 @@ def map_agent_priors(
         "agents": agents,
     }
     return append_jsonl(ensure_tools_dir(base_dir) / "agent-priors" / "agent-map.jsonl", row)
+
+
+def reviewer_names(*, workspace_root: str | Path) -> set[str]:
+    root = Path(workspace_root).resolve()
+    agents_dir = root / ".claude" / "agents"
+    if not agents_dir.exists():
+        raise GovernanceError(".claude/agents directory was not found")
+    names: dict[str, Path] = {}
+    for path in sorted(agents_dir.rglob("*.md")):
+        if path.name == "README.md":
+            continue
+        content = path.read_text(encoding="utf-8", errors="ignore")
+        name = _frontmatter_value(content, "name")
+        if not _valid_agent_name(name):
+            continue
+        if name in names:
+            raise GovernanceError(f"reviewer_name_conflict: {name}")
+        names[name] = path
+    return set(names)
 
 
 def latest_agent_priors(*, base_dir: str | Path | None = None) -> dict[str, Any] | None:
@@ -59,10 +86,12 @@ def related_agents_for_paths(
     return sorted(related)
 
 
-def _parse_agent(path: Path, root: Path) -> dict[str, Any]:
+def _parse_agent(path: Path, root: Path) -> dict[str, Any] | None:
     content = path.read_text(encoding="utf-8", errors="ignore")
+    name = _frontmatter_value(content, "name")
+    if not _valid_agent_name(name):
+        return None
     description = _frontmatter_value(content, "description")
-    name = path.stem
     scope_globs = sorted(set(_extract_scope_globs(content)))
     if not scope_globs:
         scope_globs = _default_scope_for_agent(name)
@@ -78,8 +107,25 @@ def _parse_agent(path: Path, root: Path) -> dict[str, Any]:
 
 
 def _frontmatter_value(content: str, key: str) -> str:
-    match = re.search(rf"(?m)^{re.escape(key)}:\s*(.+)$", content)
+    frontmatter = _frontmatter(content)
+    match = re.search(rf"(?m)^{re.escape(key)}:\s*(.+)$", frontmatter)
     return match.group(1).strip().strip('"') if match else ""
+
+
+def _frontmatter(content: str) -> str:
+    lines = content.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return ""
+    collected = []
+    for line in lines[1:]:
+        if line.strip() == "---":
+            return "\n".join(collected)
+        collected.append(line)
+    return ""
+
+
+def _valid_agent_name(name: str) -> bool:
+    return bool(re.match(r"^[a-z][a-z0-9-]{1,80}$", name or ""))
 
 
 def _extract_scope_globs(content: str) -> list[str]:

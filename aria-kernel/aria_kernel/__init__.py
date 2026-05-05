@@ -4,7 +4,7 @@ from .adapter_calibration import generate_adapter_calibration_report, list_adapt
 from .constants import OUTPUT_CONTRACT_COMPAT_FINDING_ID, OUTPUT_CONTRACT_COMPAT_REMOVAL_VERSION
 from .apply_engine import gate_apply_action, plan_apply_worktree
 from .agent_genesis import approve_agent_pr, draft_agent_from_gap, evaluate_genesis_sandbox, list_agent_drafts, prepare_agent_pr_lane
-from .agent_priors import latest_agent_priors, map_agent_priors, related_agents_for_paths
+from .agent_priors import latest_agent_priors, map_agent_priors, related_agents_for_paths, reviewer_names
 from .architecture import (
     draft_architecture_adr,
     generate_architecture_options,
@@ -56,6 +56,18 @@ from .performance import (
     list_performance_comparisons,
     record_performance_baseline,
 )
+from .plan_convergence import (
+    abandon_plan,
+    content_hash,
+    evaluate_plan,
+    fold_plan_state,
+    plan_status,
+    reap_stale_tasks,
+    record_critique,
+    record_revision,
+    request_critics,
+    start_plan,
+)
 from .pressure import run_pressure
 from .proposal import approve_proposal, list_proposals, record_proposal
 from .pr_manager import (
@@ -95,23 +107,27 @@ __all__ = [
     "amplify_proposal",
     "approve_agent_pr",
     "approve_proposal",
+    "abandon_plan",
     "can_emit_operator_facing",
     "check_budget",
     "classify_changed_files",
     "commit_prepared_branch",
     "compare_performance_baseline",
     "compare_validation_groups",
+    "content_hash",
     "cycle_run_batch",
     "detect_capability_gaps",
     "draft_architecture_adr",
     "draft_agent_from_gap",
     "evaluate_auto_merge",
     "evaluate_pr_ci_gate",
+    "evaluate_plan",
     "evaluate_genesis_sandbox",
     "evaluate_validation_gate",
     "explain_task",
     "executor_status",
     "fetch_research_source",
+    "fold_plan_state",
     "generate_architecture_options",
     "generate_adapter_calibration_report",
     "generate_fitness_report",
@@ -171,6 +187,7 @@ __all__ = [
     "plan_pr_lifecycle",
     "plan_pr_split",
     "plan_pr_impact",
+    "plan_status",
     "plan_apply_worktree",
     "plan_incremental_cycle",
     "plan_downstream_impact",
@@ -190,6 +207,7 @@ __all__ = [
     "record_generated_diff_packet",
     "record_performance_baseline",
     "record_budget_usage",
+    "record_critique",
     "record_run",
     "record_ai_feedback_file",
     "record_operator_feedback_batch",
@@ -198,13 +216,17 @@ __all__ = [
     "record_pr_lifecycle",
     "record_research_policy",
     "record_research_source",
+    "record_revision",
     "recommend_calibration",
     "register_tool",
     "register_executor",
     "related_agents_for_paths",
+    "reap_stale_tasks",
     "request_kernel_change",
+    "request_critics",
     "review_architecture_decision",
     "review_executor_diff",
+    "reviewer_names",
     "retry_pr",
     "run_cycle",
     "run_cycle_diff",
@@ -217,6 +239,7 @@ __all__ = [
     "run_pressure",
     "run_reflection",
     "run_tool",
+    "start_plan",
     "promote_tool",
     "propose_goldset",
     "transition_tool",

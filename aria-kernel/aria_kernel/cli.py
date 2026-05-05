@@ -70,6 +70,16 @@ from .performance import (
     list_performance_comparisons,
     record_performance_baseline,
 )
+from .plan_convergence import (
+    abandon_plan,
+    evaluate_plan,
+    plan_status,
+    reap_stale_tasks,
+    record_critique,
+    record_revision,
+    request_critics,
+    start_plan,
+)
 from .pressure import explain_pressure, run_pressure
 from .ci import (
     inventory_workflows,
@@ -212,6 +222,42 @@ def build_parser() -> argparse.ArgumentParser:
     integrity_subparsers = integrity.add_subparsers(dest="command", required=True)
     integrity_verify = integrity_subparsers.add_parser("verify")
     integrity_verify.set_defaults(func=cmd_integrity_verify)
+
+    plan = subparsers.add_parser("plan")
+    plan_subparsers = plan.add_subparsers(dest="command", required=True)
+    plan_start = plan_subparsers.add_parser("start")
+    plan_start.add_argument("--plan-id", required=True)
+    plan_start.add_argument("--initial-revision-id", required=True)
+    plan_start.add_argument("--file", required=True)
+    plan_start.set_defaults(func=cmd_plan_start)
+    plan_request = plan_subparsers.add_parser("request-critics")
+    plan_request.add_argument("--plan-id", required=True)
+    plan_request.add_argument("--file", required=True)
+    plan_request.set_defaults(func=cmd_plan_request_critics)
+    plan_critique = plan_subparsers.add_parser("record-critique")
+    plan_critique.add_argument("--plan-id", required=True)
+    plan_critique.add_argument("--file", required=True)
+    plan_critique.add_argument("--workspace-root", default=".")
+    plan_critique.set_defaults(func=cmd_plan_record_critique)
+    plan_reap = plan_subparsers.add_parser("reap-stale-tasks")
+    plan_reap.add_argument("--plan-id", required=True)
+    plan_reap.add_argument("--round-number", type=int, required=True)
+    plan_reap.set_defaults(func=cmd_plan_reap_stale_tasks)
+    plan_revision = plan_subparsers.add_parser("record-revision")
+    plan_revision.add_argument("--plan-id", required=True)
+    plan_revision.add_argument("--file", required=True)
+    plan_revision.set_defaults(func=cmd_plan_record_revision)
+    plan_evaluate = plan_subparsers.add_parser("evaluate")
+    plan_evaluate.add_argument("--plan-id", required=True)
+    plan_evaluate.add_argument("--round-number", type=int, required=True)
+    plan_evaluate.set_defaults(func=cmd_plan_evaluate)
+    plan_abandon = plan_subparsers.add_parser("abandon")
+    plan_abandon.add_argument("--plan-id", required=True)
+    plan_abandon.add_argument("--reason", required=True)
+    plan_abandon.set_defaults(func=cmd_plan_abandon)
+    plan_status_parser = plan_subparsers.add_parser("status")
+    plan_status_parser.add_argument("--plan-id", required=True)
+    plan_status_parser.set_defaults(func=cmd_plan_status)
 
     proposal = subparsers.add_parser("proposal")
     proposal_subparsers = proposal.add_subparsers(dest="command", required=True)
@@ -923,6 +969,68 @@ def cmd_reflection_run(args: argparse.Namespace) -> dict[str, Any]:
 
 def cmd_integrity_verify(args: argparse.Namespace) -> dict[str, Any]:
     return verify_integrity(base_dir=args.tools_dir)
+
+
+def cmd_plan_start(args: argparse.Namespace) -> dict[str, Any]:
+    return start_plan(
+        plan_id=args.plan_id,
+        initial_revision_id=args.initial_revision_id,
+        plan_content=read_json(args.file),
+        base_dir=args.tools_dir,
+    )
+
+
+def cmd_plan_request_critics(args: argparse.Namespace) -> dict[str, Any]:
+    return request_critics(
+        plan_id=args.plan_id,
+        request=read_json(args.file),
+        base_dir=args.tools_dir,
+    )
+
+
+def cmd_plan_record_critique(args: argparse.Namespace) -> dict[str, Any]:
+    return record_critique(
+        plan_id=args.plan_id,
+        critique=read_json(args.file),
+        workspace_root=args.workspace_root,
+        base_dir=args.tools_dir,
+    )
+
+
+def cmd_plan_reap_stale_tasks(args: argparse.Namespace) -> dict[str, Any]:
+    return reap_stale_tasks(
+        plan_id=args.plan_id,
+        round_number=args.round_number,
+        base_dir=args.tools_dir,
+    )
+
+
+def cmd_plan_record_revision(args: argparse.Namespace) -> dict[str, Any]:
+    return record_revision(
+        plan_id=args.plan_id,
+        revision=read_json(args.file),
+        base_dir=args.tools_dir,
+    )
+
+
+def cmd_plan_evaluate(args: argparse.Namespace) -> dict[str, Any]:
+    return evaluate_plan(
+        plan_id=args.plan_id,
+        round_number=args.round_number,
+        base_dir=args.tools_dir,
+    )
+
+
+def cmd_plan_abandon(args: argparse.Namespace) -> dict[str, Any]:
+    return abandon_plan(
+        plan_id=args.plan_id,
+        reason=args.reason,
+        base_dir=args.tools_dir,
+    )
+
+
+def cmd_plan_status(args: argparse.Namespace) -> dict[str, Any]:
+    return plan_status(plan_id=args.plan_id, base_dir=args.tools_dir)
 
 
 def cmd_proposal_record(args: argparse.Namespace) -> dict[str, Any]:

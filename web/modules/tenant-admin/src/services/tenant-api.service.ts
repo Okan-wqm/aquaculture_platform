@@ -18,49 +18,22 @@ import { apiClient } from './api-client';
 // Re-export ALL types from lib/types
 // ============================================================================
 
-export type {
-  Tenant,
-  TenantStats,
-  Module,
-  TenantModule,
-  MyModule,
-  ModuleUsageStat,
-  User,
-  TenantDatabaseInfo,
-  TableInfo,
-  ColumnInfo,
-  IndexInfo,
-  TableSchemaInfo,
-  GetTableDataInput,
-  TableDataResult,
-  TenantRole,
-  CreateTenantRoleInput,
-  UpdateTenantRoleInput,
-  TenantPlan,
-  TenantStatus,
-  UserRole,
-  UserStatus,
-  SubscriptionInfo,
-  EdgeDeviceListItem,
-  DeviceStats,
-  DeviceEvent,
-  NotificationPreferences,
-  MobileUserSettingsData,
-  TenantKeyResponse,
-  TenantProvisioningKey,
-  PermissionCategory,
-  PanelPermissions,
-  TenantRolePermissions,
-  PermissionAction,
-  PermissionResource,
-  // Communication types
-  MessageThread,
-  Message,
-  Announcement,
-  ApiSupportTicket,
-  ApiTicketComment,
-  ApiTicketCategory,
-} from '../lib/types';
+export interface Tenant {
+  id: string;
+  name: string;
+  slug: string;
+  description?: string;
+  logoUrl?: string;
+  contactEmail: string;
+  contactPhone?: string;
+  address?: string;
+  status: 'PENDING' | 'ACTIVE' | 'SUSPENDED' | 'CANCELLED';
+  plan: 'trial' | 'starter' | 'professional' | 'enterprise';
+  maxUsers: number;
+  settings?: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
 
 // ============================================================================
 // Re-export ALL API functions from lib/api

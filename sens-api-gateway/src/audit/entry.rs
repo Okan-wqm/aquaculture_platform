@@ -165,6 +165,68 @@ pub enum AuditAction {
     // -- Operational --
     ShutdownInitiated,
     BootCompleted,
+
+    // -- mTLS forensic surface (Phase 1.1.5 / ORPHAN-MEDIUM-036/037 closure) --
+    /// Strict-mode handshake rejected by SuderraServerCertVerifier policy
+    /// gates (chain depth, validity window, age cap, fingerprint pinning).
+    /// Forensic post-mortem queryability for handshake-abort events that
+    /// happen OUTSIDE the command-dispatch pipeline. Not a security
+    /// boundary — the handshake-abort is the primary security action;
+    /// this audit emit is for HMAC-chain-anchored forensic evidence so
+    /// auditors can reconstruct the rejected-handshake timeline offline.
+    MtlsHandshakeRejectStrict,
+    /// Custom CA bundle parse loop completed with partial success
+    /// (`parse_errs > 0 && added > 0`). Pre-Phase-1.1.5 the partial-fix
+    /// path emitted only `tracing::error!`; this audit-action wires the
+    /// same event through the HMAC chain. Operators running tampered
+    /// or operator-typo'd CA bundle files see the partial-load event in
+    /// the audit stream alongside the running cert anchors snapshot.
+    MtlsCaBundleParsePartial,
+
+    // -- OPC UA PKI lifecycle (Phase B-1.5 / ULTRA-HIGH-072 closure) --
+    /// Trusted client cert added to the OPC UA PkiStore via
+    /// `PkiStore::add_trusted_cert`. The PkiStore has its own SHA-256
+    /// JSONL ledger anchored by a domain-separation tag; this
+    /// AuditAction wires the same event through the ADR-020 audit-sink
+    /// HMAC chain so a single audit-verify CLI run reconstructs the
+    /// full mTLS + OPC UA PKI rotation timeline. Defense-in-depth:
+    /// PkiStore ledger is fail-closed-on-tamper at boot; audit-sink
+    /// chain is fail-closed-on-tamper at offline verify.
+    OpcUaCertTrusted,
+    /// Trusted client cert revoked from the PkiStore. Architectural
+    /// floor — once revoked, the fingerprint is forever-banned per
+    /// ADR-031 §1 (re-add returns `FingerprintWasRevoked`). The audit
+    /// emit captures the operator-supplied revocation reason for
+    /// forensic queryability.
+    OpcUaCertRevoked,
+    /// 3-phase rollout transition (LegacyAccept / WarnOnMismatch /
+    /// StrictPinOnly) applied via `CertRotation::transition_to`. Both
+    /// successful applies + the no-op rebuilds emit (the no-op carries
+    /// the same `from_mode == to_mode` pair so audit-stream consumers
+    /// can distinguish "operator pushed redundant manifest" from
+    /// "operator promoted floor"). Rejected transitions (downgrade,
+    /// Strict-with-empty-pins) do NOT emit — the rejection is logged
+    /// at the command-handler level via the existing dispatch audit
+    /// pipeline.
+    OpcUaPkiPhaseTransition,
+    /// OPC UA session-establish authentication exceeded the
+    /// `FailedAuthWindow` cap (`OpcUaServerConfig.max_failed_auth_per_60s`,
+    /// default 20). Phase B-2 / Batch #270 closure. Emitted by the
+    /// SensAuthManager wrapper when an `authenticate_*_identity_token`
+    /// call returns `BadUserAccessDenied` because the throttle was
+    /// already in `Throttled` state. Forensic queryability for
+    /// brute-force attempts at the OPC UA surface — paired with
+    /// `MtlsHandshakeRejectStrict` for the TLS-layer reject events.
+    OpcUaAuthThrottled,
+    /// Phase B-3 / Batch #272 closure. Emitted when
+    /// `SessionQuota::try_acquire` rejects a session-establish call
+    /// because either the per-tenant or per-user cap was reached.
+    /// Distinguished from `OpcUaAuthThrottled` (brute-force reject)
+    /// — quota-exceeded means the credential AUTHENTICATED but the
+    /// fairness gate prevents a parallel session. Operators querying
+    /// the audit chain see "compromised user starves others" patterns
+    /// here.
+    OpcUaSessionQuotaExceeded,
 }
 
 impl AuditAction {
@@ -203,6 +265,20 @@ impl AuditAction {
             Self::MqttCertRotationRolledBack => 27,
             Self::ShutdownInitiated => 28,
             Self::BootCompleted => 29,
+            // Phase 1.1.5 / ORPHAN-MEDIUM-036/037 — append at next free
+            // wire_tag. Wire-stability contract per the doc comment above:
+            // these tags are byte discriminators in canonical bytes; never
+            // reorder, never reuse a removed tag's number.
+            Self::MtlsHandshakeRejectStrict => 30,
+            Self::MtlsCaBundleParsePartial => 31,
+            // Phase B-1.5 / ULTRA-HIGH-072 — OPC UA PKI lifecycle wires.
+            Self::OpcUaCertTrusted => 32,
+            Self::OpcUaCertRevoked => 33,
+            Self::OpcUaPkiPhaseTransition => 34,
+            // Phase B-2 / Batch #270 — brute-force throttle wire.
+            Self::OpcUaAuthThrottled => 35,
+            // Phase B-3 / Batch #272 — session quota wire.
+            Self::OpcUaSessionQuotaExceeded => 36,
         }
     }
 }
@@ -690,6 +766,17 @@ mod tests {
         assert_eq!(AuditAction::MqttCertRotationRolledBack.wire_tag(), 27);
         assert_eq!(AuditAction::ShutdownInitiated.wire_tag(), 28);
         assert_eq!(AuditAction::BootCompleted.wire_tag(), 29);
+        // Phase 1.1.5 / ORPHAN-MEDIUM-036/037 — pin appended variants.
+        assert_eq!(AuditAction::MtlsHandshakeRejectStrict.wire_tag(), 30);
+        assert_eq!(AuditAction::MtlsCaBundleParsePartial.wire_tag(), 31);
+        // Phase B-1.5 / ULTRA-HIGH-072 — OPC UA PKI lifecycle wires.
+        assert_eq!(AuditAction::OpcUaCertTrusted.wire_tag(), 32);
+        assert_eq!(AuditAction::OpcUaCertRevoked.wire_tag(), 33);
+        assert_eq!(AuditAction::OpcUaPkiPhaseTransition.wire_tag(), 34);
+        // Phase B-2 — brute-force throttle wire.
+        assert_eq!(AuditAction::OpcUaAuthThrottled.wire_tag(), 35);
+        // Phase B-3 — session quota wire.
+        assert_eq!(AuditAction::OpcUaSessionQuotaExceeded.wire_tag(), 36);
     }
 
     /// WHY (EDGE-HIGH-001 closure): AuditResource wire_tag stability pin.

@@ -806,5 +806,80 @@ path = "tests/invariants/authenticated_user_sealed.rs"
 # Grep-based detector — fails CI if a future refactor
 # mis-orders the boot sequence.
 [[test]]
-name = "d3_boot_order"
-path = "tests/invariants/d3_boot_order.rs"
+name = "cipher_allowlist_fleet_compat"
+path = "tests/invariants/cipher_allowlist_fleet_compat.rs"
+
+# Phase 1.1.5 (PR-196 Phase 1) — D-4 / D-6 unified-assembly closure
+# invariant. Tier-3 source-grep detector that pins the wire shape of
+# the hot-reload chain (MtlsVerifierState + MtlsDelegatingVerifier +
+# mqtt.rs::configure_tls + MqttClient::mtls_verifier_state accessor)
+# so a future refactor that "simplifies" any one component cannot
+# silently break hot-reload semantics. Closes ULTRA-HIGH-018 (D-4) +
+# ULTRA-HIGH-020 (D-6) when the full Phase 1 chain ships
+# (cmd_update_cert_pinning + HTTPS reqwest wire + audit emit).
+[[test]]
+name = "d4_d6_mtls_unified"
+path = "tests/invariants/d4_d6_mtls_unified.rs"
+
+# Phase B-1 (Batches #266-#268) — OPC UA PKI Lifecycle closure
+# invariant. Tier-3 source-grep detector that pins the wire shape of
+# the PkiStore + CertRotation + build_server PkiRuntimeRef chain so a
+# future refactor that hardcodes `trust_client_certs(true)` again
+# cannot silently regress the StrictPinOnly architectural floor. See
+# ADR-031 (`docs/adr/031-opc-ua-pki-lifecycle.md`) for the design
+# rationale; plan-intended ID was ADR-024 (renumbered because 024 is
+# already taken twice in `docs/adr/`).
+[[test]]
+name = "opc_ua_leaf_pin_enforced"
+path = "tests/invariants/opc_ua_leaf_pin_enforced.rs"
+
+# Phase B-2 (Batches #269-#270) — OPC UA brute-force throttle closure
+# invariant. Tier-3 source-grep detector that pins the FailedAuthWindow
+# primitive + the Tier-1 architectural floor on SensAuthManager
+# (`Arc<FailedAuthWindow>` field + peek_decision pre-check + record_failure
+# on every Err path + clear_on_success on Ok). A regression that drops
+# any of these wires would silently regress brute-force defense — every
+# failed attempt would pay the Argon2id cost regardless of throttle state,
+# and credential brute-force would saturate the agent's CPU budget.
+[[test]]
+name = "opc_ua_auth_throttle_enforced"
+path = "tests/invariants/opc_ua_auth_throttle_enforced.rs"
+
+# Phase B-3 (Batches #271-#272) — OPC UA session quota closure
+# invariant. Tier-3 source-grep detector that pins the SessionQuota
+# primitive + RAII SessionLease + SensAuthManager `Arc<SessionQuota>`
+# field + try_acquire callsite after Argon2id success + audit emit on
+# OpcUaSessionQuotaExceeded + config field validators. A regression
+# that drops the try_acquire callsite would silently regress the
+# fairness floor — a single compromised user could again monopolize
+# all `max_sessions=10` slots, starving other operators.
+[[test]]
+name = "opc_ua_session_quota"
+path = "tests/invariants/opc_ua_session_quota.rs"
+
+# Phase B-4 (Batches #273-#275) — OPC UA push-subscription bridge
+# closure invariant. Tier-3 source-grep detector that pins
+# SubscriptionBridge + NodeChangeNotifier trait + LoggingNotifier
+# default impl + production boot spawn from process_image.subscribe_changes
+# + SuderraOpcUaHandle storage + shutdown_full drain. A regression
+# that drops the spawn would leave the broadcast::Receiver
+# unconsumed — TagChange events accumulate in the broadcast buffer
+# until the producer's Lagged counter fires + slow subscribers see
+# events dropped. HMI subscription freshness regresses to the
+# polling-interval lower bound.
+[[test]]
+name = "opc_ua_subscription_freshness"
+path = "tests/invariants/opc_ua_subscription_freshness.rs"
+
+# Phase B-5 (Batches #276-#277) — OPC UA live-reload primitive closure
+# invariant. Tier-3 source-grep detector that pins OpcUaLifecycle +
+# RwLock<Option<Arc<...>>> internal shape + reload/install/current API
+# + ReloadOutcome four-state taxonomy + ReloadError fail-closed
+# contract + shutdown_full drain-before-swap discipline + lifecycle
+# submodule declaration + ADR-032 (plan-intended ID was ADR-025 —
+# renumbered). A regression that collapses the lock shape, drops the
+# drain step, or removes a state variant would silently regress the
+# FR6 continuity contract.
+[[test]]
+name = "opc_ua_reload_drains_writes"
+path = "tests/invariants/opc_ua_reload_drains_writes.rs"

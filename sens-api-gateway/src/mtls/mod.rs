@@ -76,7 +76,10 @@ pub use mode::{
     MAX_LEAF_CERT_AGE_DAYS_LEGACY, MAX_LEAF_CERT_AGE_DAYS_STRICT, MAX_LEAF_CERT_AGE_DAYS_WARN,
     MtlsMode,
 };
-pub use pinning::{CertRotationStage, LeafCertFingerprint, PinnedLeafCert, PinnedLeafCertSet};
+pub use pinning::{
+    BridgeWindowError, CertRotationStage, LeafCertFingerprint, MIN_BRIDGE_WINDOW_SECS,
+    PinnedLeafCert, PinnedLeafCertSet, validate_bridge_window,
+};
 pub use rustls_verifier::{
     SuderraServerCertVerifier, SuderraVerifierBuildError, build_rotation_stage_from_pins_hex,
     build_suderra_verifier, verify_cert_at_handshake,

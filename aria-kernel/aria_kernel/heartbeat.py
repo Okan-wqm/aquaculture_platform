@@ -25,17 +25,7 @@ def heartbeat_tick(
     with _heartbeat_lock(root):
         actions = []
         if run_cycle_step:
-            actions.append(
-                {
-                    "action": "cycle",
-                    "result": run_cycle(
-                        workspace_root=workspace_root,
-                        cycle_id=cycle_id,
-                        base_dir=root,
-                        snapshot_mode=snapshot_mode,
-                    ),
-                },
-            )
+            actions.append({"action": "cycle", "result": run_cycle(workspace_root=workspace_root, cycle_id=cycle_id, base_dir=root, snapshot_mode=snapshot_mode)})
         actions.extend(_refresh_fixtures(workspace_root=workspace_root, cycle_id=cycle_id, base_dir=root))
         actions.extend(_produce_judgment_work(cycle_id=cycle_id, base_dir=root))
         actions.append({"action": "calibration", "result": recommend_calibration(cycle_id=cycle_id, base_dir=root)})

@@ -54,6 +54,25 @@
 
 #![allow(dead_code)]
 
+// Phase B-1 (ADR-031) — submodule declarations resolve to
+// `src/opc_ua_server/<name>.rs` per Rust's directory-with-mod-stem
+// convention. Pre-B-1 this file was the only `opc_ua_server` module;
+// Phase B-1 adds two PKI lifecycle primitives without restructuring
+// the existing OpcUaTagRegistry surface. Phase B-2 (Plan §B-2 Batches
+// #269-#270) adds the FailedAuthWindow brute-force throttle primitive.
+pub mod auth_throttle;
+pub mod cert_rotation;
+pub mod pki_store;
+// Phase B-3 (Plan §B-3 Batch #271-#272) — per-tenant + per-user session
+// quota primitive with RAII SessionLease decrement.
+pub mod session_quota;
+// Phase B-4 (Plan §B-4 Batch #273-#275) — push-subscription bridge from
+// ProcessImage::subscribe_changes broadcast → OPC UA subscription state.
+pub mod subscription_bridge;
+// Phase B-5 (Plan §B-5 Batch #276-#277) — live config reload via drain +
+// atomic swap. ADR-032 (plan-intended ID was ADR-025 — renumbered).
+pub mod lifecycle;
+
 use std::collections::BTreeMap;
 use std::sync::Arc;
 

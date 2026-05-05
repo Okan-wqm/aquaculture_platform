@@ -377,3 +377,348 @@ fn https_helper_uses_tls13_and_suderra_provider() {
          defense-in-depth against future rustls feature flags re-enabling TLS 1.2."
     );
 }
+
+/// **Phase 1.1.5 / ORPHAN-HIGH-035 final closure (install_default ban):**
+///
+/// Pre-Phase-1.1.5 `mqtt.rs::configure_tls` called
+/// `rustls::crypto::ring::default_provider().install_default()` at the top
+/// of the function. That planted the UNRESTRICTED ring provider (every
+/// TLS 1.2 ECDHE suite) as the process-wide rustls default. Every HTTPS
+/// reqwest callsite that did not explicitly carry a Suderra-narrowed
+/// provider would silently inherit the unrestricted set — bypassing the
+/// cipher allowlist on HTTPS regardless of how carefully MQTT was
+/// hardened. ORPHAN-HIGH-035 documented the gap.
+///
+/// Phase 1.1.5 removes the call. This invariant is the Tier-3
+/// MAKE-IT-DETECTABLE source-grep detector that catches a regression
+/// where a future change re-introduces `default_provider().install_default()`
+/// for "convenience" (e.g., to silence a `rustls::Error::NoCryptoProvider`
+/// panic surfaced by a new bare `ClientConfig::builder()` call). The
+/// architecturally-correct fix for such a panic is to plumb the call
+/// through `build_suderra_crypto_provider` (rustls path) or
+/// `build_suderra_https_client_config` (reqwest path), NOT to plant a
+/// permissive default.
+///
+/// Doc-comment usage of the identifier "install_default" is allowed
+/// (this very comment uses it) — the detector targets the exact
+/// method-chain expression `default_provider().install_default()`,
+/// which is the only way to plant the unrestricted provider and which
+/// does not appear in prose.
+#[test]
+fn no_install_default_in_non_test_code() {
+    let banned = "default_provider().install_default()";
+    let surfaces = [
+        "src/mqtt.rs",
+        "src/main.rs",
+        "src/provisioning.rs",
+        "src/commands/firmware.rs",
+        "src/scripting/engine.rs",
+        "src/mtls/crypto_provider.rs",
+        "src/mtls/https_client_config.rs",
+        "src/mtls/state_handle.rs",
+        "src/mtls/rustls_verifier.rs",
+        "src/mtls/mod.rs",
+    ];
+    for path in surfaces {
+        let src = read_source(path);
+        assert!(
+            !src.contains(banned),
+            "Phase 1.1.5 / ORPHAN-HIGH-035 INSTALL_DEFAULT BAN VIOLATED: \
+             {path} contains the banned method-chain expression \
+             `{banned}`. This call plants the unrestricted ring \
+             CryptoProvider as the process-wide default — every TLS 1.2 \
+             ECDHE suite is then advertised on any reqwest::Client::builder() \
+             callsite that does not carry an explicit Suderra-narrowed provider. \
+             The architecturally-correct fix is to plumb the new TLS callsite \
+             through build_suderra_crypto_provider (rustls path) or \
+             build_suderra_https_client_config (reqwest path). If a panic \
+             from rustls about a missing CryptoProvider surfaced, that is \
+             the SIGNAL that a callsite is bypassing the allowlist — fix \
+             the callsite, do not plant a permissive default."
+        );
+    }
+}
+
+/// **Phase 1.1.5 / ORPHAN-MEDIUM-037 closure (Strict-reject audit emit):**
+///
+/// `SuderraServerCertVerifier::verify_server_cert` Strict-mode reject
+/// arm previously emitted only `tracing::error!` — the orphan finding
+/// flagged that subscribers bridging error-level to audit are
+/// deployment-config-dependent, leaving forensic post-mortem
+/// queryability dependent on a deployment-specific tracing wire.
+///
+/// Phase 1.1.5 adds the explicit audit-sink emit through the
+/// process-global accessor (`crate::audit::try_emit_mtls_forensic_event`)
+/// so the reject lands in the ADR-020 HMAC chain unconditionally. The
+/// chain is offline-verifiable + tamper-evident — the architectural
+/// floor for forensic evidence on a security-critical handshake-abort
+/// surface.
+///
+/// This invariant pins the wire shape: the Strict-reject arm at
+/// `(MtlsMode::Strict, Err(e))` MUST contain a call to
+/// `try_emit_mtls_forensic_event` with the
+/// `MtlsHandshakeRejectStrict` action discriminator. A regression that
+/// removes the audit emit — even unintentionally during an
+/// "optimization" of the verify_server_cert hot path — fails this
+/// test on the same PR.
+#[test]
+fn strict_reject_arm_emits_audit_event() {
+    let src = read_source("src/mtls/rustls_verifier.rs");
+    assert!(
+        src.contains("try_emit_mtls_forensic_event"),
+        "ORPHAN-MEDIUM-037 VIOLATED: src/mtls/rustls_verifier.rs does not \
+         call `try_emit_mtls_forensic_event`. The Strict-mode reject arm \
+         must emit through the ADR-020 audit-sink HMAC chain alongside \
+         the existing `tracing::error!` line — without it, forensic \
+         post-mortem queries depend on a deployment-specific tracing \
+         subscriber bridge."
+    );
+    assert!(
+        src.contains("MtlsHandshakeRejectStrict"),
+        "ORPHAN-MEDIUM-037 VIOLATED: src/mtls/rustls_verifier.rs does not \
+         reference the `MtlsHandshakeRejectStrict` AuditAction variant. \
+         The reject emit must use the dedicated discriminator (wire_tag \
+         30) so audit-verify CLI queries can distinguish handshake-reject \
+         events from generic `Failure` outcomes."
+    );
+}
+
+/// **Phase 1.1.5 / ORPHAN-MEDIUM-036 closure (CA bundle parse audit emit):**
+///
+/// `mqtt.rs::configure_tls` custom-CA parse loop previously emitted
+/// `tracing::error!` for `parse_errs > 0 && added > 0` partial-load
+/// events. Same gap as ORPHAN-MEDIUM-037 — subscribers bridging error
+/// to audit are deployment-config-dependent.
+///
+/// Phase 1.1.5 adds the explicit audit-sink emit through the same
+/// `try_emit_mtls_forensic_event` helper. This invariant pins the
+/// wire — a regression that removes the emit fails this test on the
+/// same PR.
+#[test]
+fn ca_bundle_partial_load_emits_audit_event() {
+    let src = read_source("src/mqtt.rs");
+    assert!(
+        src.contains("MtlsCaBundleParsePartial"),
+        "ORPHAN-MEDIUM-036 VIOLATED: src/mqtt.rs does not reference the \
+         `MtlsCaBundleParsePartial` AuditAction variant. The CA-bundle \
+         partial-load arm (`parse_errs > 0`) must emit through the \
+         audit-sink HMAC chain so operators see partial-load events in \
+         the chain alongside the `tracing::error!` line."
+    );
+    assert!(
+        src.contains("try_emit_mtls_forensic_event"),
+        "ORPHAN-MEDIUM-036 VIOLATED: src/mqtt.rs does not call \
+         `try_emit_mtls_forensic_event`. The architectural emit channel \
+         requires this single helper — direct `AuditSink::append` calls \
+         would bypass the global-accessor + tenant-fallback discipline."
+    );
+}
+
+/// **Phase 1.1.5 / ORPHAN-MEDIUM-036/037 closure (global audit accessors):**
+///
+/// The cross-cutting forensic-emit surfaces (rustls verifier callback,
+/// configure_tls CA parse) reach the audit sink via two
+/// process-global accessors installed once at boot in
+/// `state.rs::init_audit_sink`. The accessor symbols MUST exist on the
+/// audit module surface; a regression that "simplifies" the API by
+/// removing them collapses both 036 and 037 closures simultaneously
+/// (the verifier + configure_tls would have nothing to call).
+#[test]
+fn audit_global_accessors_present() {
+    let src = read_source("src/audit/mod.rs");
+    assert!(
+        src.contains("pub fn install_global_audit_sink("),
+        "ORPHAN-MEDIUM-036/037 VIOLATED: src/audit/mod.rs does not define \
+         `install_global_audit_sink`. The cross-cutting forensic-emit \
+         surfaces have no install path."
+    );
+    assert!(
+        src.contains("pub fn current_audit_sink("),
+        "ORPHAN-MEDIUM-036/037 VIOLATED: src/audit/mod.rs does not define \
+         `current_audit_sink`. The forensic-emit helper has no read path."
+    );
+    assert!(
+        src.contains("pub fn try_emit_mtls_forensic_event("),
+        "ORPHAN-MEDIUM-036/037 VIOLATED: src/audit/mod.rs does not define \
+         `try_emit_mtls_forensic_event`. Both 036 (CA bundle parse) and \
+         037 (Strict reject) sites depend on this single helper."
+    );
+}
+
+/// **Phase 1.1.5 / ORPHAN-MEDIUM-036/037 closure (boot-time install):**
+///
+/// `state.rs::init_audit_sink` MUST install both global accessors
+/// alongside the AppState.audit_sink Arc. A regression that wires the
+/// AppState reference but forgets the global install would leave the
+/// command-dispatch pipeline emitting normally (via AppState) while
+/// the cross-cutting surfaces silently route through the
+/// "global not installed" tracing-only fallback. This invariant pins
+/// the install-time wire so both code paths land in the chain.
+#[test]
+fn boot_installs_global_audit_accessors() {
+    let src = read_source("src/main.rs");
+    assert!(
+        src.contains("install_global_audit_sink"),
+        "ORPHAN-MEDIUM-036/037 VIOLATED: src/main.rs does not call \
+         `install_global_audit_sink` after the AuditSink Arc is built. \
+         Cross-cutting forensic surfaces would silently fall through to \
+         tracing-only emit."
+    );
+    assert!(
+        src.contains("install_global_agent_tenant"),
+        "ORPHAN-MEDIUM-036/037 VIOLATED: src/main.rs does not call \
+         `install_global_agent_tenant`. Forensic AuditEntry events would \
+         carry the zero-tenant placeholder, breaking per-tenant audit \
+         queries."
+    );
+}
+
+/// **Phase 1.1.5 / ORPHAN-HIGH-039 closure (BridgeRotation construction
+/// channel discipline):**
+///
+/// `CertRotationStage::BridgeRotation { outgoing, incoming, bridge_until_unix_secs }`
+/// is structurally lethal if `bridge_until_unix_secs` lands in the past
+/// or within the 1-hour fleet-rotation floor. `accepted_fingerprints(now)`
+/// collapses the post-window stage to "accept only `incoming`" — if the
+/// `incoming` fingerprint is wrong (operator typo, malicious push,
+/// fingerprint-mint bug), every TLS handshake fails-closed in Strict
+/// mode → fleet strands simultaneously.
+///
+/// Phase 1.1.5 introduces [`pinning::validate_bridge_window`] +
+/// [`CertRotationStage::try_bridge_rotation`] as the single architectural
+/// channel for BridgeRotation construction. This invariant pins the
+/// channel discipline: every prod source file that constructs
+/// BridgeRotation MUST go through `try_bridge_rotation` rather than
+/// direct enum-variant construction. The exception list is short and
+/// audited: pinning.rs (defines the variant + tests it), tests/ (free to
+/// construct directly to exercise the validator).
+///
+/// Adding a new construction site without going through
+/// `try_bridge_rotation` would surface the literal substring
+/// `CertRotationStage::BridgeRotation {` (or
+/// `Self::BridgeRotation {` inside `impl CertRotationStage`) in a prod
+/// file outside the allowlist — this test fails on the same PR.
+#[test]
+fn bridge_window_floor_enforced_at_construction_sites() {
+    // Source files that legitimately construct BridgeRotation directly:
+    //   - src/mtls/pinning.rs: defines the variant + the
+    //     `try_bridge_rotation` smart constructor itself.
+    // Every OTHER prod source file MUST use the smart constructor.
+    let prod_surfaces_must_use_constructor = [
+        "src/mtls/rustls_verifier.rs",
+        "src/mtls/state_handle.rs",
+        "src/commands/cert_pinning.rs",
+        "src/commands/apply_signed_manifest.rs",
+        "src/commands/verify_signed_manifest.rs",
+    ];
+    let banned = "CertRotationStage::BridgeRotation {";
+    for path in prod_surfaces_must_use_constructor {
+        // Some files may not exist yet (Phase 1.2 deser path is
+        // forthcoming) — read_source panics on missing file, which is
+        // fine; this invariant is the safety net that catches the
+        // construction-site addition on the same PR.
+        let src = std::fs::read_to_string(path).unwrap_or_default();
+        if src.is_empty() {
+            // File absent — nothing to check yet. The `try_bridge_rotation`
+            // exists invariant below catches the symbol-presence
+            // requirement; if a future PR adds a brand-new file with a
+            // direct construct, the file will be in the codebase and
+            // this loop iteration will catch it.
+            continue;
+        }
+        assert!(
+            !src.contains(banned),
+            "ORPHAN-HIGH-039 BRIDGE WINDOW CHANNEL VIOLATED: {path} contains \
+             direct enum-variant construction `{banned}`. The architectural \
+             contract (Phase 1.1.5) is that BridgeRotation MUST be \
+             constructed via `CertRotationStage::try_bridge_rotation(...)` \
+             so the 1-hour fleet-rotation floor (validate_bridge_window) \
+             applies uniformly. Direct construction bypasses the floor — a \
+             past-time bridge_until from a poisoned signed-manifest deser \
+             path would strand the fleet. Replace the direct construction \
+             with try_bridge_rotation, threading the real now_unix_secs \
+             from SystemTime::now()."
+        );
+    }
+}
+
+/// **Phase 1.1.5 / ORPHAN-HIGH-039 closure (smart constructor presence):**
+///
+/// The smart constructor + validator + floor const MUST exist on the
+/// pinning module surface. A regression that "simplifies" the API by
+/// removing `try_bridge_rotation` (returning the public surface to
+/// direct enum-variant construction) collapses the
+/// `bridge_window_floor_enforced_at_construction_sites` invariant above
+/// — every prod callsite would silently fall back to direct construction
+/// + the validator stops being callable.
+#[test]
+fn bridge_window_validator_and_constructor_present() {
+    let src = read_source("src/mtls/pinning.rs");
+    assert!(
+        src.contains("pub const MIN_BRIDGE_WINDOW_SECS: i64"),
+        "ORPHAN-HIGH-039 floor const MISSING from src/mtls/pinning.rs — \
+         the validator chain has nothing to enforce."
+    );
+    assert!(
+        src.contains("pub fn validate_bridge_window("),
+        "ORPHAN-HIGH-039 validator MISSING from src/mtls/pinning.rs — \
+         the smart constructor + every future signed-manifest deser path \
+         depend on this single SSoT."
+    );
+    assert!(
+        src.contains("pub fn try_bridge_rotation("),
+        "ORPHAN-HIGH-039 smart constructor MISSING from src/mtls/pinning.rs \
+         — without it, prod callsites have no architectural channel for \
+         BridgeRotation construction."
+    );
+}
+
+/// **Phase 1.1.5 / ORPHAN-HIGH-035 final closure (reqwest callsite parity):**
+///
+/// `https_clients_use_suderra_config` (above) verifies AT LEAST ONE
+/// `use_preconfigured_tls` per file. That is a coarse detector — a
+/// regression that adds a SECOND `reqwest::Client::builder()` call to
+/// the same file WITHOUT the suderra_tls wire would pass that earlier
+/// invariant (the original site still has it). The pre-Phase-1.1.5
+/// state of `commands/firmware.rs::download_file` was exactly this
+/// shape: `fetch_latest_agent_tag` carried `use_preconfigured_tls`,
+/// `download_file` did not — both lived in the same file, the earlier
+/// invariant was green, but firmware OTA tarball + checksum downloads
+/// were silently bypassing the cipher allowlist.
+///
+/// This invariant pins per-file PARITY: every `reqwest::Client::builder()`
+/// occurrence MUST be matched 1:1 by a `use_preconfigured_tls`
+/// occurrence in the same file. A new HTTPS callsite that forgets the
+/// wire fails this test on the same PR.
+///
+/// Counting is naïve string-match — Rust syntax means the literal
+/// `reqwest::Client::builder()` appears at every callsite (no
+/// macro-rewriting applies here), and `use_preconfigured_tls` is
+/// uniquely the reqwest builder method that consumes a pre-built
+/// `rustls::ClientConfig`. False positives in comments are unlikely
+/// because the literal `reqwest::Client::builder()` parens make it
+/// look like an expression, not prose.
+#[test]
+fn every_reqwest_client_builder_uses_preconfigured_tls() {
+    let surfaces = [
+        "src/provisioning.rs",
+        "src/commands/firmware.rs",
+        "src/scripting/engine.rs",
+    ];
+    for path in surfaces {
+        let src = read_source(path);
+        let builder_count = src.matches("reqwest::Client::builder()").count();
+        let preconfigured_count = src.matches("use_preconfigured_tls").count();
+        assert_eq!(
+            builder_count, preconfigured_count,
+            "Phase 1.1.5 / ORPHAN-HIGH-035 PARITY VIOLATED: {path} has \
+             {builder_count} `reqwest::Client::builder()` callsite(s) but \
+             only {preconfigured_count} `use_preconfigured_tls` wire(s). \
+             Every reqwest builder MUST consume \
+             `(*build_suderra_https_client_config()?).clone()` via \
+             `use_preconfigured_tls(...)` — without it, reqwest defaults \
+             to its native cert-loader plus the unrestricted rustls global \
+             default, bypassing the Suderra cipher allowlist."
+        );
+    }
+}

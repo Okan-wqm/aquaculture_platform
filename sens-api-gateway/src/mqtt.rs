@@ -954,10 +954,34 @@ impl MqttClient {
             ));
         }
 
-        // rustls 0.23+ requires explicit CryptoProvider when both ring and aws-lc-rs
-        // are compiled in. Install ring (portable, good ARM cross-compilation support).
-        // install_default() returns Err if already installed — ignore that.
-        let _ = rumqttc::tokio_rustls::rustls::crypto::ring::default_provider().install_default();
+        // Phase 1.1.5 (ORPHAN-HIGH-035 closure) — `install_default()` removed.
+        //
+        // Pre-Phase-1.1.5 this site planted `rustls::crypto::ring::default_provider()`
+        // (the UNRESTRICTED ring provider, every TLS 1.2 ECDHE suite included)
+        // as the process-wide default. The Suderra cipher allowlist (TLS 1.3 +
+        // 3 AEAD suites) was applied only to MQTT via explicit
+        // `ClientConfig::builder_with_provider(suderra_provider)` further down
+        // this function. Every HTTPS reqwest callsite that didn't carry an
+        // explicit provider would inherit the unrestricted default — silently
+        // exposing `provisioning.rs::activate` (single-use device-bootstrap
+        // token exchange — edge-expert flagged as the highest-attack-surface
+        // HTTPS callsite), `firmware.rs::download_file`, and
+        // `scripting/engine.rs` HTTP webhooks to TLS 1.2 cipher-suite-downgrade
+        // attacks regardless of how carefully MQTT was hardened.
+        //
+        // Tier-1 MAKE-IT-IMPOSSIBLE (Phase 1.1.5): every TLS callsite in the
+        // agent now MUST go through one of these two factories:
+        //   - `crate::mtls::build_suderra_crypto_provider()` for the rustls
+        //     `ClientConfig::builder_with_provider(...)` path (MQTT transport).
+        //   - `crate::mtls::build_suderra_https_client_config()` for reqwest's
+        //     `use_preconfigured_tls(...)` path (HTTPS to cloud APIs).
+        //
+        // If a future caller skips both and writes
+        // `rustls::ClientConfig::builder()` without a provider arg, rustls
+        // panics at the builder call ("no process-level CryptoProvider
+        // available") — fail-fast at boot/dev/CI rather than silent bypass in
+        // production. The `d4_d6_mtls_unified::no_install_default_in_non_test_code`
+        // invariant is the source-grep detector that catches a regression.
 
         // Read CA certificate for server verification
         let ca_cert = if let Some(ref ca_path) = tls_config.ca_cert_path {
@@ -1037,14 +1061,107 @@ impl MqttClient {
             // to the rustls default webpki verifier — HC-1
             // backward compat.
             //
-            // Root-store is shared between the default
-            // builder AND the SuderraServerCertVerifier's
-            // inner WebPkiServerVerifier so X.509 chain
-            // trust uses the SAME anchors either path.
-            let root_store_arc = Arc::new(root_store.clone());
-            let provider = rumqttc::tokio_rustls::rustls::crypto::ring::default_provider();
-            let sig_algs = provider.signature_verification_algorithms;
-            let suderra_verifier = crate::mtls::build_suderra_verifier(
+            // ORPHAN-MEDIUM-036 partial fix: per-entry parse failures emit at `error!`
+            // severity (not `warn!`) so structured-log subscribers treating error-level
+            // as audit-relevant capture them. A summary `error!` after the loop surfaces
+            // partial-load explicitly. The full audit-sink HMAC-chain emit (per ADR-020)
+            // lands in Phase 1.1.3 — that's the architectural completion that requires
+            // importing the audit-sink API into this site. The current change is the
+            // minimum architectural surfacing required so silent partial CA-bundle load
+            // is no longer possible at any structured-log subscriber. IEC 62443 FR3
+            // (System Integrity) compliance.
+            use rustls::pki_types::CertificateDer;
+            use rustls::pki_types::pem::PemObject;
+            let mut added = 0usize;
+            let mut parse_errs = 0usize;
+            for cert_result in CertificateDer::pem_slice_iter(&ca_cert) {
+                match cert_result {
+                    Ok(cert) => match root_store.add(cert) {
+                        Ok(()) => added += 1,
+                        Err(e) => {
+                            tracing::error!(
+                                event_type = "mtls_ca_bundle_entry_rejected",
+                                reason = ?e,
+                                "Failed to add custom CA certificate to root store"
+                            );
+                            parse_errs += 1;
+                        }
+                    },
+                    Err(e) => {
+                        tracing::error!(
+                            event_type = "mtls_ca_bundle_parse_error",
+                            reason = ?e,
+                            "Failed to parse custom CA PEM entry"
+                        );
+                        parse_errs += 1;
+                    }
+                }
+            }
+            if root_store.is_empty() {
+                return Err(anyhow::anyhow!(
+                    "Custom CA file contained no valid certificates ({} parse errors). \
+                     Ensure the file is PEM-encoded with one or more CERTIFICATE blocks.",
+                    parse_errs
+                ));
+            }
+            if parse_errs > 0 {
+                // Partial-load: at least one PEM block parsed, but not all. Surface as
+                // `error!` so the structured-log pipeline treats this as an integrity
+                // event, not background noise. Operator should investigate which
+                // entries failed (preceding error-level events) and rotate the bundle.
+                tracing::error!(
+                    event_type = "mtls_ca_bundle_partial_load",
+                    added = added,
+                    parse_errs = parse_errs,
+                    "Custom CA bundle partially loaded — operator action required \
+                     (see preceding mtls_ca_bundle_entry_rejected / mtls_ca_bundle_parse_error events)"
+                );
+                // Phase 1.1.5 / ORPHAN-MEDIUM-036 closure: ALSO emit through
+                // the ADR-020 audit-sink HMAC chain. The `tracing::error!`
+                // above is structured-log-only — whether a subscriber bridges
+                // error-level to audit is deployment-config-dependent. The
+                // explicit audit emit here makes the partial-load event
+                // forensically queryable offline via the audit-verify CLI
+                // independent of the active tracing subscriber.
+                let detail = serde_json::json!({
+                    "added": added,
+                    "parse_errs": parse_errs,
+                });
+                crate::audit::try_emit_mtls_forensic_event(
+                    crate::audit::AuditAction::MtlsCaBundleParsePartial,
+                    "mtls.ca_bundle.partial_load",
+                    detail,
+                );
+            } else {
+                info!("Loaded {} custom CA certificate(s) for MQTT TLS", added);
+            }
+        }
+
+        // PHASE 0.2 — handshake-time cipher allowlist gate.
+        //
+        // The Suderra CryptoProvider is `rustls::crypto::ring::default_provider`
+        // with `cipher_suites` narrowed to `CIPHER_SUITE_ALLOWLIST` (3 TLS 1.3
+        // suites). rustls negotiates from this slice, so non-allowlist suites
+        // cannot appear in the ClientHello — Tier-1 MAKE-IT-IMPOSSIBLE for
+        // cipher-suite downgrade. Replaces the dead-code Gate 4 in
+        // `verify_leaf_cert` (cipher isn't finalized at the ServerCertVerifier
+        // callback). Closes ORPHAN-HIGH-031.
+        //
+        // `signature_verification_algorithms` comes from the SAME provider so
+        // SuderraServerCertVerifier and the rustls handshake share signature
+        // algorithm policy.
+        let suderra_provider = crate::mtls::build_suderra_crypto_provider();
+        let sig_algs = suderra_provider.signature_verification_algorithms;
+
+        // Phase 1.1.4 (D-4 + D-6): construct the hot-reloadable verifier
+        // state and install it as a delegating wrapper. The wrapper queries
+        // the state on every handshake, so cmd_update_cert_pinning's
+        // rebuild takes effect on the NEXT TLS connect with no
+        // ClientConfig reconstruction. Legacy + no-pins still flows
+        // through the inner fallback WebPkiServerVerifier (HC-1).
+        let root_store_arc = Arc::new(root_store);
+        let mtls_verifier_state = std::sync::Arc::new(
+            crate::mtls::MtlsVerifierState::new(
                 mtls_config.mode,
                 sig_algs,
                 &mtls_config.pinned_leaf_fingerprints_hex,

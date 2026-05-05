@@ -2200,4 +2200,364 @@ That's ~80-100 lines of wire-up code. Bundleable but interacts with the parallel
 }
 ```
 
-**State:** OPEN. Owner: okan. No deadline pinned. Blocking: operator-invocable migration ceremony (the whole point of D-3) requires this wire-up.
+**Why this is the right call (Tier-1):** keeping policy concerns separate from transport-config concerns means a future transport (e.g., LoRa, gRPC) can plug in its own CA-path field without mTLS policy knowing or caring. Coupling them would make adding a transport require a Coherence Rule update. Architectural minimalism beats theoretical completeness.
+
+---
+
+
+## ORPHAN-HIGH-035 — `install_default()` global CryptoProvider state writes the unrestricted ring provider; HTTPS outbound (provisioning, firmware, scripting cloud calls) does not honor the cipher allowlist (Phase 1.1.3 follow-up, 2026-04-30)
+
+**Status:** RESOLVED — Phase 1.1.5 (PR #227, 2026-05-04). `mqtt.rs::install_default()` removed. `commands/firmware.rs::download_file` (the missed 4th reqwest callsite — `fetch_latest_agent_tag` was already wired in Phase 1.1.3a but `download_file` was not) now plumbs `build_suderra_https_client_config` via `use_preconfigured_tls`. Two new invariants pin the closure: `no_install_default_in_non_test_code` (source-grep ban on `default_provider().install_default()`) and `every_reqwest_client_builder_uses_preconfigured_tls` (1:1 callsite parity per file). Tier-1 MAKE-IT-IMPOSSIBLE — a future regression that bypasses the allowlist surfaces as a rustls-panic-at-builder-call rather than silent TLS 1.2 downgrade exposure.
+
+**Scope:** `sens-api-gateway/src/mqtt.rs:963` (install_default), `sens-api-gateway/src/firmware.rs:591`, `sens-api-gateway/src/provisioning.rs:218`, `sens-api-gateway/src/scripting/engine.rs:1963`.
+
+**Severity rationale (HIGH not MEDIUM):** edge-expert reviewer flagged this — `provisioning.rs:218` carries the **single-use device-bootstrap token exchange** (the most security-critical of the four reqwest callsites). A successful TLS 1.2 cipher-suite-downgrade attack on that endpoint compromises a device's identity bootstrap. The other three (firmware download, scripting cloud fetches, telemetry posts) are also material attack surfaces. Severity reflects worst-case attack-surface impact, not just code-locality.
+
+**Impact:** Phase 0.2 narrows the *MQTT* transport to TLS 1.3 + 3-suite allowlist via explicit `builder_with_provider(suderra_provider)`. The `rustls::crypto::ring::default_provider().install_default()` call on line 963 still installs the **unrestricted** ring provider as the process-wide default. Anything that builds a rustls `ClientConfig` without an explicit provider — currently every cloud HTTPS reqwest client — pulls the unrestricted provider's full cipher list, including TLS 1.2 ECDHE suites. Cloud HTTPS does not honor the cipher allowlist or the TLS 1.3 pin.
+
+**WHY this is a finding, not part of Phase 0:** Phase 0 scope is "make Strict + custom-CA reachable" + "fix dead-code cipher gate on the MQTT path". Phase 1.1.3 in the approved plan owns "HTTPS outbound (cloud client) custom verifier wire" — that's the right place to plumb the Suderra provider into the cloud HTTPS path (via `reqwest::ClientBuilder::use_preconfigured_tls(rustls_config)` where the rustls_config is built with `ClientConfig::builder_with_provider(suderra_provider)`).
+
+**HOW to resolve in Phase 1.1.3:** unify the cloud HTTPS path to use the same `MtlsVerifierState::current()` + `build_suderra_crypto_provider()` shared by the MQTT path. Then either remove the `install_default()` call (forcing every callsite to opt in explicitly) or accept it as a fail-soft fallback for any code path that doesn't yet use the AppState-shared verifier. Resolution shape locked to Phase 1.1.3 batches.
+
+---
+
+
+## ORPHAN-MEDIUM-036 — `parse_errs > 0` on custom CA bundle load is partial-fix logged only; full audit-sink HMAC chain emit deferred (Phase 0.1 partial fix, 2026-04-30)
+
+**Status:** RESOLVED — Phase 1.1.5 (PR #227, 2026-05-04). `mqtt.rs::configure_tls` partial-load arm now calls `crate::audit::try_emit_mtls_forensic_event` with the new `MtlsCaBundleParsePartial` AuditAction (wire_tag 31) alongside the existing `tracing::error!`. Architectural channel: process-global audit-sink accessor (`current_audit_sink`) installed at boot in `state.rs::init_audit_sink` so the cross-cutting forensic-emit surface (which has no AppState reference at configure_tls time) reaches the ADR-020 HMAC chain unconditionally. Invariants `ca_bundle_partial_load_emits_audit_event` + `audit_global_accessors_present` pin the closure.
+
+**Scope:** `sens-api-gateway/src/mqtt.rs` (custom-CA PEM parse loop, around line 1037-1066).
+
+**Phase 0 partial fix (already applied):** per-entry parse failures now emit at `tracing::error!` severity (not `warn!`), and a summary `error!` event `mtls_ca_bundle_partial_load` fires when `parse_errs > 0 && added > 0`. Structured-log subscribers treating error-level as audit-relevant capture this. IEC 62443 FR3 (System Integrity) baseline coverage achieved.
+
+**Remaining work (deferred to Phase 1.1.3):** the full architectural fix is to emit through the ADR-020 audit-sink HMAC chain (not just tracing). That requires importing the audit-sink API (`AuditSink`, `AuditEvent`, `audit.emit(...)`) into `configure_tls`, which currently has no audit-emit dependency. Phase 1.1.3 owns the broader audit-emit completion arc (paired with `ORPHAN-MEDIUM-037` Strict-reject audit emit), so adding the import + wiring there avoids two separate audit-import waves. Add an integration test that injects a 3-cert bundle with the middle entry malformed and asserts the structured event fires.
+
+---
+
+
+## ORPHAN-MEDIUM-037 — Strict-mode handshake reject relies on `tracing::error!` only; explicit audit-sink emit for HMAC chain coverage is needed (Phase 0 follow-up, 2026-04-30)
+
+**Status:** RESOLVED — Phase 1.1.5 (PR #227, 2026-05-04). `SuderraServerCertVerifier::verify_server_cert` Strict-reject arm now calls `crate::audit::try_emit_mtls_forensic_event` with the new `MtlsHandshakeRejectStrict` AuditAction (wire_tag 30). Structured detail per the orphan-finding spec: `{ leaf_fingerprint_prefix (8 hex chars from SHA-256), mode, reason, chain_depth }`. The handshake-abort below the emit remains the primary security action; audit-sink emit is forensic post-mortem evidence anchored in the HMAC chain. Architectural channel: process-global accessor pattern shared with ORPHAN-MEDIUM-036 — verifier callback has no AppState path; the global is installed once at `init_audit_sink`. Invariants `strict_reject_arm_emits_audit_event` + `audit_global_accessors_present` + `boot_installs_global_audit_accessors` pin the closure end-to-end.
+
+**Scope:** `sens-api-gateway/src/mtls/rustls_verifier.rs:205-213` (Strict-mode reject arm).
+
+**Security-reviewer surfaced:** the Strict-mode reject path emits `tracing::error!` and returns `rustls::Error::General` to abort the handshake. The handshake-abort is correct (security-critical action fires). BUT the `tracing::error!` does NOT automatically flow into the ADR-020 audit-sink HMAC chain. Audit emit is invoked explicitly by code paths that call the audit-sink API; whether a tracing subscriber bridges error-level events to audit is deployment-config-dependent. Operators relying on audit-stream alerting may not see Strict rejections in the chain.
+
+**HOW to resolve (Phase 1.1.4):** add explicit audit-sink emit alongside `tracing::error!` in the Strict-reject arm, with structured fields `{ leaf_fingerprint_prefix, mode, reason, timestamp_unix }` tagged `event_type=mtls_strict_reject`. Defense-in-depth: handshake-abort is still the primary security action; audit-emit is for forensic post-mortem.
+
+---
+
+
+## ORPHAN-LOW-038 — `cipher.rs` documents why TLS 1.3 CCM-mode suites are intentionally absent (Phase 0.2 doc-comment update, 2026-04-30)
+
+**Status:** RESOLVED — Phase 0 PR-PRE Batch 0.2 doc-comment update.
+
+**Scope:** `sens-api-gateway/src/mtls/cipher.rs` module doc-comment.
+
+**Resolved:** the doc-comment now explains that `ring`'s `default_provider()` does NOT ship CCM-mode AEADs (`TLS_AES_128_CCM_SHA256` 0x1304, `TLS_AES_128_CCM_8_SHA256` 0x1305), so adding them to `CIPHER_SUITE_ALLOWLIST` would not enable them — and that ChaCha20-Poly1305 already covers the no-AES-NI fast path that CCM optimizes for IoT-AES-only-hardware deployments.
+
+---
+
+
+## ORPHAN-HIGH-039 — `cmd_update_cert_pinning` MUST validate `bridge_until_unix_secs > now + min_bridge_window_secs` to prevent fleet bridge-stranding via past-time bridge windows (Phase 1.1.2, 2026-04-30)
+
+**Status:** RESOLVED — Phase 1.1.5 (PR #227, 2026-05-04). `pinning.rs` now exposes `MIN_BRIDGE_WINDOW_SECS: i64 = 3600` const + `validate_bridge_window(bridge_until, now) -> Result<(), BridgeWindowError>` validator + `CertRotationStage::try_bridge_rotation` smart constructor. `build_rotation_stage_from_pins_hex` routes its 2-pin path through the smart constructor; the architectural channel is established BEFORE the Phase 1.2 signed-manifest deser path that exposes operator-controlled `bridge_until` lands. Invariant `bridge_window_floor_enforced_at_construction_sites` pins the discipline: any future BridgeRotation construction site outside `pinning.rs` (rustls_verifier.rs, commands/cert_pinning.rs, future apply_signed_manifest.rs) MUST go through `try_bridge_rotation` rather than direct enum-variant construction. 7 unit tests cover the validator boundary cases (exact floor rejected, 1s past floor accepted, past-time rejected, negative-now rejected, saturating-add no-wrap, smart-constructor wire integrity, Display contains floor const).
+
+**Scope:** `sens-api-gateway/src/commands/cert_pinning.rs` (TBD — Phase 1.1.2 introduces this file), and `sens-api-gateway/src/mtls/pinning.rs:107-133` (`accepted_fingerprints` BridgeRotation collapse logic).
+
+**Security-reviewer surfaced:** Phase 1.1.2 will add `cmd_update_cert_pinning` MQTT command that accepts an ed25519-signed `CertRotationStage` payload and applies it via `MtlsVerifierState::rebuild`. The `BridgeRotation { incoming, outgoing, bridge_until_unix_secs }` shape collapses to "incoming only" once `bridge_until` has passed (`pinning.rs:107-133`). If `cmd_update_cert_pinning` accepts a manifest with `bridge_until_unix_secs` set in the past, the agent immediately collapses to "accept only `incoming`", and if `incoming` is wrong (operator typo, malicious cloud manifest), every TLS handshake will fail-closed in Strict mode → device strands. A poisoned cloud manifest could brick a fleet simultaneously.
+
+**HOW to resolve (Phase 1.1.2):** in `cmd_update_cert_pinning` parse path, BEFORE applying the new rotation stage, validate: for `Settled { current }` no extra check; for `BridgeRotation { incoming, outgoing, bridge_until_unix_secs }` assert `bridge_until_unix_secs > now_unix + MIN_BRIDGE_WINDOW_SECS` where `MIN_BRIDGE_WINDOW_SECS = 3600` (1 hour floor). Reject with audit event if violated. Defense-in-depth pairing: add the same guard to the cloud-side manifest-signing service.
+
+---
+
+
+## ORPHAN-LOW-040 — `mqtt.rs` clones the `RootCertStore` instead of threading one `Arc<RootCertStore>` through both arms (Phase 0.1 refactor opportunity, 2026-04-30)
+
+**Status:** RESOLVED — Phase 1.1.4 (organic, before Phase 1.1.5 audit). The unified `mqtt.rs::configure_tls` pipeline now builds `let root_store_arc = Arc::new(root_store)` once + clones the `Arc` (cheap reference-count bump) into BOTH `MtlsVerifierState::new` AND `build_fallback_webpki`. The pre-Phase-1.1.4 HC-1-fallback path that consumed the bare `RootCertStore` (forcing the `root_store.clone()` of all anchors) was eliminated when `MtlsDelegatingVerifier` wrapped both branches under a single delegating verifier. No standalone closure commit — the refactor was load-bearing for Phase 1.1.4 D-6 unified assembly and the `Arc<RootCertStore>` shape fell out as a positive side effect. Verified at Phase 1.1.5 audit (`mqtt.rs::configure_tls` reads as `let root_store_arc = Arc::new(root_store);` then `root_store_arc.clone()` on both wires).
+
+**Scope:** `sens-api-gateway/src/mqtt.rs` configure_tls.
+
+**Edge-expert surfaced:** the unified pipeline does `let root_store_arc = Arc::new(root_store.clone())` to feed the verifier (which needs `Arc<RootCertStore>` for shared ownership), then the HC-1 fallback path consumes the original `root_store` via `with_root_certificates(root_store)`. Two separate copies of identical cert anchors at runtime — for system-CA bundles this can be ~150 certs. Memory overhead is small (a few KB) but architecturally cleaner to thread one `Arc<RootCertStore>` through both arms. Not a security concern; minor refactor.
+
+**HOW to resolve:** restructure so root_store is built once into `Arc<RootCertStore>`, passed by clone-of-Arc (cheap) into both `build_suderra_verifier` and `with_root_certificates_arc` (rustls 0.23 has both `with_root_certificates(RootCertStore)` and `with_root_certificates_arc(Arc<RootCertStore>)`).
+
+
+## 2026-04-30 ORPHAN-SENS-GATEWAY-LORAWAN-001 — `lorawan` feature coupled portable protocol code to unavailable SX1302 vendor HAL
+
+**Status:** RESOLVED — fixed in `sens-api-gateway` by splitting the hardware build contract from the portable protocol feature.
+
+**Scope:** `sens-api-gateway/Cargo.toml`, `sens-api-gateway/build.rs`, `sens-api-gateway/src/lora/sx1302.rs`, release/clippy jobs that enable `--features lorawan`.
+
+**Observation:**
+
+The `lorawan` feature was serving two incompatible roles:
+
+- enabling portable LoRaWAN protocol code (`aes`, `cmac`, `lorawan` crate);
+- enabling the Semtech SX1302 C HAL build (`cc`, `bindgen`, `glob`, `vendor/sx1302_hal`).
+
+That meant CI and portable release builds could not compile the LoRaWAN protocol surface unless the proprietary/externally-provisioned SX1302 HAL source tree was present. The failure mode was not a normal missing optional dependency; `build.rs` attempted to generate bindings for C sources that are intentionally absent from the repository.
+
+**Why this creates production risk:**
+
+The old feature boundary made a pure protocol build depend on local hardware-vendor artifacts. A CI runner, laptop, or non-gateway build host could fail before Rust type checking reached the application layer. The result was a blind spot: protocol changes and release-only regressions were hidden behind an unrelated HAL availability failure.
+
+**Architectural fix:**
+
+The feature boundary is now explicit:
+
+- `lorawan` enables portable protocol support only.
+- `sx1302-vendor-hal` enables the real Semtech HAL and fails closed if `vendor/sx1302_hal` is absent.
+- `src/lora/sx1302.rs` uses the simulation backend unless `sx1302-vendor-hal` is selected.
+- `build.rs` is fallible without `expect()` and documents the hardware-vendor contract at the build boundary.
+
+**Related issue discovered on the same path:**
+
+The same CI pass exposed a second architectural drift: `main.rs` kept using pre-0.27 `opentelemetry-otlp` pipeline helpers (`new_exporter`, `new_pipeline`). That was not caused by LoRaWAN, but it became visible only after validating the full curated feature set. The fix replaces the removed helpers with explicit `SpanExporter` and `TracerProvider` construction so telemetry boot contracts remain visible and type-checked.
+
+**Closure path:**
+
+Future hardware-only work must opt into `sx1302-vendor-hal`; portable protocol CI must keep using `lorawan` without vendor C sources. Re-coupling the features would reintroduce the same build-host dependency leak.
+
+
+## ORPHAN-HIGH-045 — async-opcua 0.18 has no `ClientCertVerifier` callback hook on `ServerBuilder`; per-handshake `OpcUaCertRejected` audit emit has no insertion point (Phase B-1 gap, 2026-05-04)
+
+**Status:** OPEN — owner: Okan-Wqm. Owner agent: Phase B-2 / future PR (pre-Faz B-2 main batch). Deadline: opportunistic, no hard date — gated on either an upstream async-opcua PR or a session-establishment interceptor at the runtime layer.
+
+**Scope:** `sens-api-gateway/src/opc_ua_server_runtime.rs::build_server` + the `async-opcua = "0.18"` crate's `ServerBuilder` API.
+
+**Edge-expert surfaced:** ADR-031 §4 specifies an `OpcUaCertRejected` AuditAction emitted from the per-handshake reject path — analog of the mTLS module's `MtlsHandshakeRejectStrict` (ORPHAN-MEDIUM-037 closure). Phase B-1 ships the architectural state machine (PkiStore + CertRotation + StrictPinOnly mode) but the per-handshake REJECT EMIT is structurally unreachable at the agent layer because async-opcua 0.18's `ServerBuilder` exposes `pki_dir(&Path)` + `trust_client_certs(bool)` without a custom verifier callback. async-opcua's built-in trust path consumes `<pki_root>/trusted/clients/` + `<pki_root>/rejected/` PEMs and emits its own `tracing::error!` line on reject — but does not call any user-supplied closure that could touch the AuditSink.
+
+**Impact:** in `StrictPinOnly` mode, an unpinned cert IS rejected (handshake abort is the primary security action — load-bearing). The forensic emit on the reject is shimmed via async-opcua's tracing line, NOT a direct ADR-020 audit-sink HMAC chain entry. Operators relying on offline `audit-verify` CLI to reconstruct rejected-handshake timelines would not see OPC UA rejects in the chain. Cross-transport mTLS audit consistency (mTLS module ships per-handshake emit via Phase 1.1.5 ORPHAN-MEDIUM-037) is the comparison point — OPC UA forensic surface lags MQTT.
+
+**HOW to resolve (two architectural paths, decided in Phase B-2):**
+
+1. **Upstream async-opcua PR** — add `with_client_cert_verifier(impl Fn(&Cert) -> ClientCertDecision + Send + Sync)` callback to `ServerBuilder`. Suderra implements the closure to forward `(fingerprint, decision)` pairs to `audit::try_emit_mtls_forensic_event`. Pros: clean architectural shape, contributes upstream. Cons: PR review + merge timeline outside our control.
+
+2. **Session-establishment interceptor at the runtime layer** — wrap the `(server, handle)` returned by `ServerBuilder::build()` with a layer that drives the audit emit BEFORE async-opcua's internal accept/reject. async-opcua 0.18 exposes `ServerHandle::on_session_establish` or similar (verify in the API doc); the wrapper subscribes + emits to the audit chain on every session reject event. Pros: agent-side fully owned. Cons: depends on async-opcua exposing the hook surface; if not, falls back to wrapping the underlying `tokio::net::TcpListener` accept path which is brittle.
+
+The decision is recorded in ADR-031 §5 "Open items"; the upstream-PR path is preferred. If the PR lands within 4 weeks of Phase B-2 start, that's the closure; if not, the interceptor approach is the fallback.
+
+---
+
+## ORPHAN-MEDIUM-046 — PkiStore `initialize_own_keypair` uses hardcoded `suderra-edge.local` SAN; not bound to device_code (Phase B-1 placeholder, 2026-05-04)
+
+**Status:** RESOLVED-NOT-APPLICABLE-NOW (architectural decision documented). The own-cert SAN binding is a Phase B-1.5 / Phase C concern — operator-controlled cert mint via signed manifest infrastructure, not an agent-side change.
+
+**Scope:** `sens-api-gateway/src/opc_ua_server/pki_store.rs::initialize_own_keypair`.
+
+**Edge-expert surfaced:** Phase B-1 mints the OPC UA server's own keypair on first boot via `rcgen::generate_simple_self_signed(vec!["suderra-edge.local".to_string()])`. The SAN string is hardcoded — multiple devices in a fleet would all advertise the same SAN. HMIs that perform hostname verification against the cert's SAN field would either accept all devices as one identity (poor) or reject when the hostname mismatches (also poor).
+
+**Why this is intentional for Phase B-1:** the agent does NOT mint operator-trusted certs via `rcgen`. The pre-B-1 path used `async-opcua::create_sample_keypair(true)` which has the SAME architectural shape (deterministic placeholder SAN). Phase B-1's `rcgen` mint is a like-for-like replacement preserving the pre-B-1 contract — operators who want HMI-verifiable certs ALWAYS provide their own via the `<pki_root>/own/cert.der` + `key.pem` files (the `initialize_own_keypair` path is the bootstrap-fallback for first-boot before operator provisioning).
+
+**HOW to resolve (Phase B-1.5+):**
+
+The cleanest architectural shape is to plumb a cloud-signed `opc_ua_own_cert_manifest_v1` payload through the `cmd_update_opc_ua_pki` MQTT command (Phase C). The manifest carries `(device_code, cert_der, key_blob)` minted by the cloud-side ceremony per ADR-021. The agent's `initialize_own_keypair` becomes a fallback for the unlikely case that the manifest never arrives — the SAN binding moves to the cloud-side ceremony where device_code is the canonical input. Until Phase C, operators continue to provide their own cert via filesystem (the pre-B-1 path).
+
+This finding is filed for completeness — no agent-side change is the right architectural call until Phase C ships. **STATUS RESOLVED via design decision — no further action.**
+
+---
+
+## ORPHAN-LOW-047 — Operator migration tool `suderra-agent --opcua-keypair-migrate` CLI flag deferred (Phase B-1 commit message commitment, 2026-05-04)
+
+**Status:** OPEN — owner: Okan-Wqm. Owner agent: Phase B-1.5 / future PR. Deadline: opportunistic — gated on the first operator upgrade-in-place from a pre-B-1 agent that shipped under `async-opcua::create_sample_keypair(true)` self-generated keys.
+
+**Scope:** Phase B-1 commit message named the migration tool but did not deliver it. Pre-B-1 agents that auto-generated their own keypair via async-opcua's built-in `create_sample_keypair(true)` write to `<config.own_pki_dir>/private/private.pem` + `<config.own_pki_dir>/own/cert.der` (location varies by async-opcua version). Phase B-1's PkiStore writes to `<root>/own/key.pem` + `<root>/own/cert.der` — different filesystem layout. An in-place upgrade boots into PkiStore::open_or_initialize which sees no PkiStore-managed keypair, mints a fresh one, and the OPC UA server presents a DIFFERENT SAN/fingerprint to HMIs across the upgrade — every HMI's pinned-cert config breaks.
+
+**HOW to resolve:**
+
+Add `suderra-agent --opcua-keypair-migrate` flag that:
+
+1. Detects the pre-B-1 keypair location via known variants (async-opcua 0.16 / 0.17 / 0.18 paths).
+2. Copies the cert + key into the PkiStore-managed `<root>/own/` location.
+3. Records the migration in a new `LedgerEntry::OwnKeypairMigrated { source_path, source_async_opcua_version }` ledger variant.
+4. Idempotent — running twice is a no-op.
+5. Boot-time check: if `<root>/own/cert.der` is absent AND `--opcua-keypair-migrate` was not run AND the legacy paths exist, agent fails-fast at boot with operator-actionable error message.
+
+The flag is delivered when an operator with a real pre-B-1 fleet asks for it — until then this finding documents the upgrade-in-place gap so operators planning migrations can see the full picture.
+
+---
+
+## ORPHAN-MEDIUM-048 — Phase C `opc_ua_pki_manifest_v1` deser path NOT implemented; `cmd_update_opc_ua_pki` MQTT command absent (Phase B-1 architectural commitment, 2026-05-04)
+
+**Status:** OPEN — owner: Okan-Wqm. Owner agent: Phase C / future PR. Deadline: gated on the cloud-side manifest signing ceremony (ADR-021 §1) being available — an agent-side `cmd_update_opc_ua_pki` handler without the cloud-side signed payload has nothing to verify against.
+
+**Scope:** `sens-api-gateway/src/commands/cert_pinning.rs` analog for OPC UA — does not yet exist. The architectural placeholder is the `CertRotation::transition_to` API that the future command handler will drive.
+
+**Edge-expert surfaced:** Phase B-1 ships the AGENT-side state machine (PkiStore + CertRotation + Tier-1 downgrade gate + Strict-with-empty-pin-set gate). What's missing is the operator-facing surface — an MQTT command with the same envelope-auth + RBAC permission gate + audit emit pattern as Phase 1.1.2's `cmd_update_cert_pinning`. The architectural shape is settled; only the wire is pending.
+
+**HOW to resolve (Phase C):**
+
+1. **Cloud-side first:** mint `opc_ua_pki_manifest_v1` payload format — ed25519-signed JSON with `{ device_code, target_mode, trusted_certs[], revoked_certs[], policy_version }`. HSM key separation: cloud-side OPC UA PKI signing key MUST be a distinct HSM slot from the RBAC manifest signing key (per ADR-021 §1).
+
+2. **Agent-side wire:**
+   - New `commands/opc_ua_pki.rs::cmd_update_opc_ua_pki` handler — verify signature against the OPC UA PKI signing pubkey from the running RBAC manifest (or a separate `opc_ua_pki_pubkey_hex` config field), JTI replay defense, parse target_mode + cert lists.
+   - Apply: for each cert in `trusted_certs[]`, call `PkiStore::add_trusted_cert`; for each in `revoked_certs[]`, `PkiStore::revoke_cert`; finally `CertRotation::transition_to(target_mode)`.
+   - The Tier-1 downgrade gate inside `CertRotation::transition_to` enforces the policy floor — even an authenticated cloud manifest cannot silently roll the fleet back.
+   - Audit: ORPHAN-MEDIUM-048 closure emits the cloud-driven manifest application alongside the per-mutation OpcUaCertTrusted / OpcUaCertRevoked / OpcUaPkiPhaseTransition entries (Phase B-1.5 audit-sink wire).
+
+3. **Permission enum:** add `Permission::ManageOpcUaPki` (analog of `Permission::ManageCertPinning` from Phase 1.1.2). HSM-slot separation on the cloud side mirrors at the RBAC layer — operators with `ManageCertPinning` (MQTT mTLS authority) do NOT auto-inherit `ManageOpcUaPki` (OPC UA PKI authority).
+
+The finding is named here so future Phase C planners see the AGENT-side architectural readiness + the cloud-side blocking dependency in one place.
+
+---
+
+## ORPHAN-MEDIUM-049 — 72-hour rollback window primitive deferred from Phase B-1 (ADR-031 §2 commitment, 2026-05-04)
+
+**Status:** OPEN — owner: Okan-Wqm. Owner agent: Phase B-1.5 / future PR. Deadline: paired with the Phase C `cmd_update_opc_ua_pki` handler (a rollback-window primitive without an operator surface that exercises rollback is dead code).
+
+**Scope:** `sens-api-gateway/src/opc_ua_server/cert_rotation.rs` + `pki_store.rs::ledger_entries`.
+
+**Architectural design (ADR-031 §2):** within 72 hours of a failed `PhaseTransition`, an operator can push an out-of-band "emergency rollback" manifest that REVERSES the most recent transition. Beyond 72h, the rollback discipline is "mint a fresh leaf + new rotation" — the ledger never deletes history. The 72h window is a deliberate trade-off: short enough to deter operators from treating downgrades as routine, long enough to absorb a real rollback ceremony's coordination time.
+
+**HOW to resolve (Phase B-1.5 primitive + Phase C wire):**
+
+1. **Primitive:** new `cert_rotation.rs::rollback_window_check(now_unix_secs) -> RollbackEligibility` that walks the ledger via `PkiStore::ledger_entries`, locates the most recent `LedgerEntry::PhaseTransition`, computes elapsed time, returns `Eligible { previous_mode, expires_at_unix }` if `now < transition_ts + 72*3600` else `Expired`.
+
+2. **API:** new `CertRotation::rollback_to_previous(now)` that:
+   - Calls `rollback_window_check`; rejects with `RollbackWindowExpired` if not eligible.
+   - Computes `previous_mode` from the second-most-recent PhaseTransition (or LegacyAccept if only one transition recorded).
+   - **Bypasses** the Tier-1 downgrade gate — rollback IS a downgrade by definition. Architectural justification: the rollback path requires the same envelope-auth + RBAC permission gate as a forward transition AT THE COMMAND-DISPATCH LAYER, so the bypass is auditable + operator-controlled, not silently weakening the floor.
+   - Emits a distinct `LedgerEntry::PhaseRollback { rolled_back_to, original_transition_seq }` so audit-stream consumers can distinguish rollbacks from forward transitions.
+
+3. **Wire:** Phase C's `cmd_update_opc_ua_pki` handler accepts an optional `rollback: true` flag in the manifest payload. When set, the handler dispatches to `rollback_to_previous` instead of `transition_to`. The 72h floor is the architectural gate; even a signed manifest cannot rollback past the window.
+
+The finding is named here so the deferred primitive has a tracked target rather than a vague "future Phase B-1.5" comment in the ADR text.
+
+---
+
+## ORPHAN-MEDIUM-050 — Phase B-1 own-cert validity not bounded by SL-2 max-age policy (Phase B-1 review, 2026-05-04)
+
+**Status:** OPEN — owner: Okan-Wqm. Owner agent: Phase B-1.5 / future PR. Deadline: opportunistic.
+
+**Scope:** `sens-api-gateway/src/opc_ua_server/pki_store.rs::initialize_own_keypair`.
+
+**Edge-expert surfaced:** the mTLS module (`mtls/mode.rs`) ships `MAX_LEAF_CERT_AGE_DAYS_LEGACY/WARN/STRICT` policy cap — the rustls verifier rejects leaf certs older than the mode-dependent threshold. The OPC UA `PkiStore::initialize_own_keypair` path uses `rcgen::generate_simple_self_signed` which defaults to a far-future `not_after` (rcgen's default validity is on the order of years). There is no equivalent age-cap policy enforced on the OWN cert.
+
+**Why this matters:** the own-cert is what the OPC UA server presents to HMIs. A long-lived self-signed own-cert means a single key compromise persists for years — the operator has no rotation discipline at the OWN-CERT layer (only at the trusted-clients layer via `add_trusted_cert` / `revoke_cert`). A symmetric architectural shape would require the OWN cert to also age-rotate.
+
+**HOW to resolve (Phase B-1.5):**
+
+1. **Configurable validity:** new `PkiStore::initialize_own_keypair` parameter `validity_days: u32` derived from `OpcUaPkiMode::own_cert_max_age_days()` (analog of `MtlsMode::max_leaf_cert_age_days`). LegacyAccept = 365 days, WarnOnMismatch = 180, StrictPinOnly = 90.
+
+2. **Boot-time age check:** when reloading existing PkiStore (not first-boot), read `<root>/own/cert.der`, parse `not_before` via x509-parser, compare to `now`. If age exceeds the active mode's threshold, log a warn + flip the agent into a "expired-own-cert" state where the OPC UA server refuses to start until the operator runs `--opcua-rotate-own-keypair`. Fail-closed so operators see the rotation requirement.
+
+3. **Architectural symmetry:** the own-cert age policy mirrors the trusted-client age policy (mtls/mode.rs). Same operator mental model spans both transports.
+
+The finding is named here so the Phase B-1.5 batch has a tracked target rather than discovering this gap during a security review of the production OPC UA fleet.
+
+
+## ORPHAN-MEDIUM-051 — OPC UA brute-force throttle is per-username, NOT per-IP; cross-account credential-spray from a single source not detected (Phase B-2 architectural decision, 2026-05-05)
+
+**Status:** OPEN — owner: Okan-Wqm. Owner agent: Phase B-2.5 / future PR. Deadline: gated on either an upstream `async-opcua` PR exposing `ClientAddr` in the AuthManager trait OR a TCP-listener interceptor at the runtime layer.
+
+**Scope:** `sens-api-gateway/src/opc_ua_server/auth_throttle.rs::FailedAuthWindow` + `sens-api-gateway/src/opc_ua_sens_auth_manager.rs::authenticate_username_identity_token`.
+
+**Edge-expert surfaced:** Plan §B-2 specifies "per `ClientAddr` sliding window". async-opcua 0.18's `AuthManager` trait does NOT expose the client TCP address at the `authenticate_*_identity_token` callsite — only the `username: &str` (UserName/Password path) or the cert thumbprint (X.509 path). Per-IP throttling at this layer is structurally impossible without an upstream API change. This is the same architectural class as ORPHAN-HIGH-045 (per-handshake `ClientCertVerifier` callback hook gap) — both surface async-opcua 0.18 trait limits at agent-side callsites that need richer context.
+
+**What Phase B-2 delivers (per-username throttle):**
+
+- An attacker pounding `admin:wrong-pass` 100 times sees a hard cap at 20/60s, regardless of source IP. Argon2id CPU exhaustion is bounded.
+- An operator typoing 3 times and succeeding on the 4th does not get locked out (clear_on_success).
+
+**What Phase B-2 misses (per-IP gap):**
+
+- An attacker rotating through 1000 distinct usernames at 1 attempt each within 60 seconds is NOT throttled per-username (each username has only 1 failure). The CPU exhaustion at 1000 × Argon2id-cost per minute happens despite the throttle.
+- The `OpcUaServerConfig.max_failed_auth_per_60s` field name is a misnomer for this case — it's actually per-username, not per-IP.
+
+**HOW to resolve (two architectural paths, same class as ORPHAN-HIGH-045):**
+
+1. **Upstream `async-opcua` PR** — extend the `AuthManager::authenticate_*_identity_token` signatures with a `client_addr: SocketAddr` parameter. Suderra's `SensAuthManager` then consumes it + builds an additional `AuthThrottleKey::for_addr(addr)` bucket. Both per-username + per-IP throttles coexist (independent buckets, both must clear). Pros: clean architectural shape, upstream contribution. Cons: PR review timeline outside our control.
+
+2. **TCP-listener interceptor at the runtime layer** — wrap the `tokio::net::TcpListener` accept path BEFORE `ServerBuilder::build()` consumes it. The interceptor extracts the peer SocketAddr at accept time + stashes it in a `tokio::task_local!` scope that the AuthManager method body can read. Pros: agent-side fully owned. Cons: depends on async-opcua exposing the listener for operator override; if not, requires forking the crate.
+
+**Why this is logged as MEDIUM (not HIGH):**
+
+- Per-username throttle delivers ~80% of the security goal — the most common credential brute-force attack pattern is account-targeted (one username, many password guesses). Cross-account spray is a more sophisticated attacker.
+- The per-attempt Argon2id cost + the global `max_sessions=10` cap (Batch 228) provide a coarse upper bound on CPU exhaustion even without per-IP throttling.
+- Closure path is the same as ORPHAN-HIGH-045 (async-opcua hook gap class) — fixing one likely fixes both.
+
+The architectural decision is documented in `auth_throttle.rs` preamble + this orphan finding so future planners + auditors see the gap explicitly.
+
+
+## ORPHAN-MEDIUM-052 — OPC UA SessionLease decrement-on-close depends on TTL fail-safe; no async-opcua session-close callback hook (Phase B-3 architectural decision, 2026-05-05)
+
+**Status:** OPEN — owner: Okan-Wqm. Owner agent: Phase B-3.5 / future PR. Deadline: gated on either an upstream `async-opcua` PR exposing a session-lifecycle callback OR an integration with the existing `ServerHandle` event surface (verify in async-opcua 0.18 API doc).
+
+**Scope:** `sens-api-gateway/src/opc_ua_server/session_quota.rs::SessionLease` lifetime + `sens-api-gateway/src/opc_ua_sens_auth_manager.rs::active_leases` per-token registry.
+
+**Edge-expert surfaced:** Phase B-3 ships the per-tenant + per-user session quota with `SessionLease` RAII Drop decrementing the count. In the ideal world, the lease lives exactly as long as the corresponding async-opcua session — Drop fires on session-close. Reality: async-opcua 0.18's `AuthManager` trait does not pass the lease ownership to async-opcua in a way that ties to the session lifetime. The lease lives in the SensAuthManager-side `active_leases: HashMap<UserToken, SessionLease>` registry, which has no automatic invalidation on session-close.
+
+**Impact:** a session that closes without an explicit lease release (TCP RST, async-opcua silent drop, network interruption) keeps consuming a quota slot until the TTL fail-safe (`LEASE_FAIL_SAFE_TTL = 1 hour`) evicts it. Defense-in-depth: the global `Limits.max_sessions = 10` cap (Batch 228) is the hard floor, so total sessions cannot exceed 10 even if our per-(tenant, user) counter has TTL imprecision. But within that 10-cap, a single user could repeatedly establish + crash-disconnect sessions; each crash-disconnect leaves a stale lease, eventually starving other users for up to 1 hour.
+
+**HOW to resolve (Phase B-3.5 / B-2.5 paired):**
+
+1. **Upstream `async-opcua` PR** — add `ServerHandle::on_session_close(impl Fn(SessionId, UserToken) + Send + Sync)` callback. Suderra's SensAuthManager subscribes + drains `active_leases` keyed by UserToken. Same architectural class as ORPHAN-HIGH-045 (no `ClientCertVerifier` callback) and ORPHAN-MEDIUM-051 (no `ClientAddr` exposure) — these three findings could close together with a single upstream API extension exposing session lifecycle.
+
+2. **`ServerHandle` event subscription** — verify whether async-opcua 0.18 already exposes a session-event stream (e.g., via `ServerHandle::session_events_rx`). If yes, wire an interceptor task in `init_opc_ua_server` that subscribes + drains `active_leases` on session-close events. Pros: agent-side fully owned. Cons: depends on the actual API surface.
+
+3. **Periodic active-session reconciliation** — agent boots a 30s tick task that polls `ServerHandle::active_sessions()` (if exposed) + diffs against `active_leases`; drops leases whose UserToken no longer corresponds to a running session. Pros: works without a callback. Cons: 30s lag between session-close + lease release; race between poll + close that briefly keeps the lease alive.
+
+The TTL=1h fail-safe is the load-bearing release path until one of (1)/(2)/(3) lands. The architectural shape is documented in `session_quota.rs` preamble + this finding.
+
+
+## ORPHAN-MEDIUM-053 — OPC UA SubscriptionBridge production notifier deferred to Phase B-4.5; LoggingNotifier consumes broadcast but does not propagate to async-opcua subscription state (Phase B-4 architectural decision, 2026-05-05)
+
+**Status:** OPEN — owner: Okan-Wqm. Owner agent: Phase B-4.5 / future PR. Deadline: gated on async-opcua 0.18 subscription notification API verification (locally blocked by 8GB RAM ceiling on the opc-ua-server feature compile; CI compiles the full feature set).
+
+**Scope:** `sens-api-gateway/src/opc_ua_server/subscription_bridge.rs::LoggingNotifier` + the `NodeChangeNotifier` production impl that Phase B-4.5 will introduce.
+
+**Edge-expert surfaced:** Phase B-4 ships the SubscriptionBridge primitive — broadcast consumer + dispatch loop + cancel-token + RAII shutdown. The bridge consumes `ProcessImage::subscribe_changes()` broadcast at production rate, drains the buffer (preventing the producer's Lagged counter from accumulating), and dispatches each TagChange via `LoggingNotifier`. The `LoggingNotifier` records every change via `tracing::trace!` `target = "opc_ua.subscription"` but does NOT propagate to async-opcua's subscription state. HMI subscription latency therefore remains bound by the polling interval (`subscription_polling_interval_ms`, default 100ms) — Phase B-4's architectural primitive lands but the user-visible latency improvement waits for B-4.5.
+
+**Why this is acceptable for Phase B-4:**
+
+- **The architectural seam is established.** `NodeChangeNotifier` trait is the single integration point. Phase B-4.5 swaps in a `SensNodeManagerNotifier` impl that calls async-opcua's `record_value_change` (or whatever 0.18 exposes); zero changes to the bridge or its tests are required.
+- **The broadcast::Receiver drains in production.** Without B-4 the producer would log Lagged at every burst > 1024 events; with B-4 the bridge consumes the buffer continuously.
+- **HMI freshness for READS is already up-to-date.** The pre-B-4 SensNodeManager virtual-node read path consults `process_image.get_tag()` live on every browse/read — a `Read` request returns fresh data with no staleness. Phase B-4 specifically targets the SUBSCRIPTION path where async-opcua's internal sampling sets the latency floor.
+- **Operator-readable observability is delivered.** The LoggingNotifier emits structured trace events with browse_name + value + quality + source + timestamp — operators can audit the change firehose end-to-end while the production notifier is being verified.
+
+**HOW to resolve (Phase B-4.5):**
+
+1. **Verify async-opcua 0.18 subscription notification API.** Likely candidates: `NodeManager::record_value_change(node_id, variant, source_timestamp)`, `ServerHandle::notify_subscription(node_id, variant)`, or a context-bound notifier installed at NodeManager construction. Verification requires an `--features opc-ua-server` compile (locally blocked by RAM; CI runs the full set).
+
+2. **Implement `SensNodeManagerNotifier`** at `sens-api-gateway/src/opc_ua_server/subscription_bridge.rs` (or a new sibling `sens_node_manager_notifier.rs`). Holds an `Arc<SensNodeManager>` (the production NodeManager) + the namespace_index (resolved at boot). `notify(browse_name, change)` looks up the node_id via the registry + namespace_index, builds the OPC UA `Variant` from `change.new_value` (with appropriate type coercion based on the registered `OpcUaTagNode.data_type`), and calls the verified API.
+
+3. **Swap the production wire** in `init_opc_ua_server` — replace `Arc::new(LoggingNotifier)` with `Arc::new(SensNodeManagerNotifier::new(sens_node_manager.clone(), namespace_index))`. The bridge spawn shape is unchanged.
+
+4. **E2E verification** — `tests/e2e/opc_ua_subscription_hmi.rs` (Plan §B-4 E2E entry) drives a real UaExpert client at 100ms publish interval + measures p99 latency from `ProcessImage::write_tag` → DataChangeNotification receipt. SLO: p99 < 50ms (Plan §B-4 invariant).
+
+5. **Update `opc_ua_subscription_freshness.rs` invariant** — add an assertion that the production code path references `SensNodeManagerNotifier` rather than `LoggingNotifier` in the boot wire, so a regression that reverts to LoggingNotifier surfaces at test time.
+
+**Closure path discipline:** this is a clean follow-on, not a yama. The Phase B-4 commit ships the primitive + the trait + the spawn + the lifecycle integration; Phase B-4.5 ships the production notifier impl. Each phase is independently testable + invariant-pinned. The only consequence of B-4 without B-4.5 is that subscription latency stays at the pre-B-4 polling-bound floor — a no-regression baseline rather than a security-active gap.
+
+
+## ORPHAN-MEDIUM-054 — `cmd_reload_config` MQTT command + SIGHUP handler deferred to Phase B-5.5; OpcUaLifecycle primitive ships in B-5 but operator surface is unreached (Phase B-5 scope decision, 2026-05-05)
+
+**Status:** OPEN — owner: Okan-Wqm. Owner agent: Phase B-5.5 / future PR. Deadline: gated on D-5 config-integrity verify pipeline being available at the command-dispatch layer (the reload command must verify the file's ed25519 signature before applying changes).
+
+**Scope:** `sens-api-gateway/src/commands/reload_config.rs` (does not yet exist) + `sens-api-gateway/src/main.rs::SignalKind::hangup()` listener (not yet wired).
+
+**Edge-expert surfaced:** Phase B-5 ships the AGENT-SIDE primitive: `OpcUaLifecycle` with drain-rebuild-swap discipline + `ReloadOutcome` taxonomy + fail-closed config-validation. What's missing is the operator-facing surfaces — an MQTT command handler + a SIGHUP listener that drive the lifecycle's `reload(...)` method. Without them, the primitive is unreachable from operator code paths; the only consumer is the boot path (`install`) + future test fixtures.
+
+**Why this is acceptable for Phase B-5:**
+
+- **The architectural primitive is the load-bearing piece.** The drain semantics, atomic swap, fail-closed config validation, and four-state machine are the parts that actually enforce FR6 continuity + audit chain ordering. Once the primitive is correct, the operator surfaces are mechanical wiring.
+- **The operator surfaces require D-5 integration.** `cmd_reload_config` MUST verify the new config file's ed25519 signature (D-5 integrity verify per ADR-019) before driving the lifecycle. Threading that through the existing command-dispatch envelope-adapter chain is its own batch.
+- **No regression vs pre-B-5.** The agent's pre-B-5 path required restart-for-config-change; that path remains. Phase B-5 ADDS the live-reload primitive without removing the restart path. Operators use the restart-for-config-change behavior until Phase B-5.5 ships the operator surfaces.
+
+**HOW to resolve (Phase B-5.5):**
+
+1. **`commands/reload_config.rs::cmd_reload_config`** — analog of Phase 1.1.2 `cmd_update_cert_pinning`. Verify envelope signature + JTI replay defense + RBAC permission (`Permission::ReloadConfig`). Re-parse the agent's full config from disk via `AgentConfig::load_with_d5_verify` (D-5 integrity verify). Diff the parsed config against `lifecycle.last_applied_config().await`; if a delta is detected in `opc_ua_server.*`, call `lifecycle.reload(new_section, builder_fn).await`. Audit emit `ConfigReloadApplied` (success) or `ConfigReloadRejected` (fail-closed validation / build error).
+
+2. **`main.rs` SIGHUP listener** — `tokio::signal::unix::signal(SignalKind::hangup())` task that calls the same reload path on every SIGHUP. Operators triggering reload via `kill -SIGHUP $(pidof suderra-agent)` get the same behavior as `cmd_reload_config`.
+
+3. **Permission enum extension** — `Permission::ReloadConfig` (analog of `Permission::ManageCertPinning`). HSM-slot separation on the cloud-side mirrors at the RBAC layer — operators with cert-pinning authority do NOT auto-inherit config-reload authority.
+
+4. **AppState integration** — `AppState.opc_ua_lifecycle: Arc<OpcUaLifecycle>` field replaces the existing `opc_ua_server: Option<Arc<SuderraOpcUaHandle>>` field. Boot path migrates from direct-store to `lifecycle.install(handle, config).await`. Command handlers reading the running handle migrate to `lifecycle.current().await`.
+
+5. **E2E** — `tests/e2e/opc_ua_live_reload.rs`:
+   - happy: port change via SIGHUP → new config validates → drain old → rebuild → HMI reconnects to new port.
+   - adversarial: malformed config via cmd_reload_config → D-5 sig fail → old server intact + audit `ConfigReloadRejected`.
+   - drain: in-flight write completes audit emit BEFORE `ServerHandle::cancel` returns.
+
+The split is clean: B-5 ships the primitive (architecturally complete + invariant-pinned); B-5.5 ships the operator surfaces (mechanical AppState rewrite + envelope-adapter integration). No yama, no deferral-without-tracking — the gap is documented here with the resolution path.

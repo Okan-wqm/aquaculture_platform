@@ -9,7 +9,7 @@
  */
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThan } from 'typeorm';
+import { EntityManager, Repository, LessThan } from 'typeorm';
 import { AuditLog, AuditAction, AuditChanges, AuditMetadata } from '../entities/audit-log.entity';
 import { AuditRedactionService } from './audit-redaction.service';
 
@@ -221,6 +221,86 @@ export class AuditLogService {
   }
 
   /**
+   * Transactional variant — write the audit row through a caller-
+   * supplied EntityManager so the row commits or rolls back atomically
+   * with the operational change it records.
+   *
+   * The repository-bound `log()` is fire-and-forget and uses its own
+   * connection; if the caller's transaction rolls back, the audit
+   * row would still persist and lie about an event that didn't
+   * actually happen. For audit trails of high-stakes operations
+   * (capacity overrides, deletes, restores) the transactional
+   * variant is mandatory.
+   */
+  async logWithManager(
+    manager: EntityManager,
+    params: LogAuditParams,
+  ): Promise<AuditLog> {
+    const redactedChanges = this.redactionService.redactChanges(params.changes);
+    const redactedMetadata = this.redactionService.redactMetadata(params.metadata);
+
+    const auditLog = manager.create(AuditLog, {
+      tenantId: params.tenantId,
+      entityType: params.entityType,
+      entityId: params.entityId,
+      action: params.action,
+      userId: params.userId,
+      userName: params.userName,
+      changes: redactedChanges,
+      metadata: redactedMetadata,
+      entityVersion: params.entityVersion,
+      summary: params.summary || this.generateSummary(params),
+    });
+
+    // Inside a transaction we WANT failures to surface — silent swallow
+    // would leave the operational write committed without its audit row.
+    return manager.save(AuditLog, auditLog);
+  }
+
+  /**
+   * Capacity-blocked admin-override logu.
+   *
+   * Recorded when an operator (SUPER_ADMIN / TENANT_ADMIN) consciously
+   * placed fish into a tank that exceeded its configured biomass or
+   * density cap. The TankCapacityService.enforce() call returned
+   * isOverCapacity=true under 'admin-override' mode and the handler
+   * persisted the over-stocking flag on the TankBatch row.
+   *
+   * The audit row captures *what was attempted, why the service let it
+   * through, and what the post-write state looks like* — i.e. the
+   * minimal information needed to trace which operator decided to
+   * overstock when, by how much, and against which tank.
+   *
+   * `entityType` is the entity that was written under the override —
+   * typically `'TankBatch'` (created/updated by allocate-to-tank or
+   * transfer-batch). `changes.metadata.capacity` carries the
+   * CapacityCalculation snapshot; `metadata.tankId` /
+   * `metadata.equipmentId` cross-reference the tank in question.
+   */
+  async logCapacityBlocked(
+    tenantId: string,
+    entityType: string,
+    entityId: string,
+    capacitySnapshot: Record<string, unknown>,
+    userId?: string,
+    userName?: string,
+    metadata?: AuditMetadata,
+  ): Promise<AuditLog> {
+    return this.log({
+      tenantId,
+      entityType,
+      entityId,
+      action: AuditAction.CAPACITY_BLOCKED,
+      userId,
+      userName,
+      changes: {
+        after: capacitySnapshot,
+      },
+      metadata,
+    });
+  }
+
+  /**
    * Audit logları sorgula
    */
   async query(params: AuditLogQuery): Promise<{ data: AuditLog[]; total: number }> {
@@ -349,6 +429,7 @@ export class AuditLogService {
       [AuditAction.DELETE]: 'deleted',
       [AuditAction.SOFT_DELETE]: 'soft deleted',
       [AuditAction.RESTORE]: 'restored',
+      [AuditAction.CAPACITY_BLOCKED]: 'over-capacity (admin override)',
     };
 
     const changedFields = params.changes?.changedFields;

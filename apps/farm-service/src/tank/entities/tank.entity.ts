@@ -571,27 +571,6 @@ export class Tank {
   }
 
   /**
-   * Kapasiteyi kontrol eder
-   */
-  hasCapacityFor(biomassToAdd: number): boolean {
-    const newBiomass = Number(this.currentBiomass) + biomassToAdd;
-
-    // Biomass limiti kontrolü
-    if (newBiomass > Number(this.maxBiomass)) {
-      return false;
-    }
-
-    // Yoğunluk limiti kontrolü
-    const effectiveVolume = this.waterVolume || this.volume;
-    const newDensity = newBiomass / effectiveVolume;
-    if (newDensity > Number(this.maxDensity)) {
-      return false;
-    }
-
-    return true;
-  }
-
-  /**
    * Eklenebilecek maksimum biomass'ı hesaplar
    */
   getAvailableCapacity(): number {

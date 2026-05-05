@@ -371,39 +371,6 @@ export class Equipment {
   }
 
   /**
-   * Kapasiteyi kontrol eder.
-   *
-   * @deprecated Use TankCapacityService.enforce() instead.
-   * The entity method cannot enforce admin overrides, cannot cooperate
-   * with the audit log interceptor, and duplicates the status/biomass/
-   * density invariant. Kept for backward compatibility with callers
-   * that have not been migrated; new code must go through
-   * `apps/farm-service/src/tank/services/tank-capacity.service.ts`.
-   * To be removed in a follow-up commit once all callers are migrated.
-   */
-  hasCapacityFor(biomassToAdd: number): boolean {
-    if (!this.canHoldFish()) return false;
-    const specs = this.specifications as TankSpecifications;
-    const newBiomass = (this.currentBiomass || 0) + biomassToAdd;
-
-    // Biomass limiti kontrolü
-    if (newBiomass > (specs?.maxBiomass || 0)) {
-      return false;
-    }
-
-    // Yoğunluk limiti kontrolü
-    const effectiveVolume = this.volume || 0;
-    if (effectiveVolume > 0) {
-      const newDensity = newBiomass / effectiveVolume;
-      if (newDensity > (specs?.maxDensity || 0)) {
-        return false;
-      }
-    }
-
-    return true;
-  }
-
-  /**
    * Eklenebilecek maksimum biomass'ı hesaplar
    */
   getAvailableCapacity(): number {

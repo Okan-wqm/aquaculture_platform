@@ -17,7 +17,6 @@ import { useQueryClient } from '@tanstack/react-query';
 
 import { InstallerKeyModal } from '../components/devices/InstallerKeyModal';
 import { useEdgeDevices, tenantKeys } from '../hooks/useTenantData';
-import { formatRelativeTime } from '../utils/date-utils';
 
 const stateColors: Record<string, string> = {
   active: 'bg-emerald-100 text-emerald-800',
@@ -74,6 +73,10 @@ const EdgeDevicesPage: React.FC = () => {
 
   const getStateCount = (state: string) =>
     stats?.byState?.find((s: { state: string; count: number }) => s.state === state)?.count || 0;
+
+  const handleRefresh = () => {
+    queryClient.invalidateQueries({ queryKey: tenantKeys.devices() });
+  };
 
   const handleRefresh = () => {
     queryClient.invalidateQueries({ queryKey: tenantKeys.devices() });

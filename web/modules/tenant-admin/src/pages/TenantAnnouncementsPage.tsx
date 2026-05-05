@@ -80,13 +80,13 @@ export const TenantAnnouncementsPage: React.FC = () => {
 
   // Transform raw announcements with local state
   const announcements = useMemo<ExtendedAnnouncement[]>(() =>
-    rawAnnouncements.map((ann: Announcement) => ({
+    rawAnnouncements.map(ann => ({
       ...ann,
       type: mapAnnouncementType(ann.type),
-      isRead: ann.hasViewed ?? localState[ann.id]?.isRead ?? false,
-      isAcknowledged: ann.hasAcknowledged ?? localState[ann.id]?.isAcknowledged ?? false,
-      acknowledgedAt: localState[ann.id]?.acknowledgedAt,
-      requiresAcknowledgment: ann.requiresAcknowledgment ?? ann.priority === 'high',
+      isRead: (ann as ExtendedAnnouncement).isRead ?? localState[ann.id]?.isRead ?? false,
+      isAcknowledged: (ann as ExtendedAnnouncement).isAcknowledged ?? localState[ann.id]?.isAcknowledged ?? false,
+      acknowledgedAt: (ann as ExtendedAnnouncement).acknowledgedAt ?? localState[ann.id]?.acknowledgedAt,
+      requiresAcknowledgment: ann.priority === 'high',
     })),
   [rawAnnouncements, localState]);
 

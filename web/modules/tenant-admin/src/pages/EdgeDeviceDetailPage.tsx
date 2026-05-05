@@ -167,18 +167,12 @@ const EdgeDeviceDetailPage: React.FC = () => {
   const [showDecommissionModal, setShowDecommissionModal] = useState(false);
   const [showRebootModal, setShowRebootModal] = useState(false);
 
-  // MED-23: Paginated device events
-  const EVENTS_PAGE_SIZE = 20;
-  const [eventsLimit, setEventsLimit] = useState(EVENTS_PAGE_SIZE);
+  // TanStack Query hooks
   const deviceActionMutation = useDeviceAction();
-  const { data: eventsData, refetch: refetchEvents } = useDeviceEvents(
+  const { data: events = [], refetch: refetchEvents } = useDeviceEvents(
     deviceId || '',
     activeTab === 'events',
-    eventsLimit,
   );
-  const events = eventsData?.items ?? [];
-  const eventsTotal = eventsData?.total ?? 0;
-  const hasMoreEvents = events.length < eventsTotal;
 
   const actionLoading = deviceActionMutation.isPending ? actionName : null;
 

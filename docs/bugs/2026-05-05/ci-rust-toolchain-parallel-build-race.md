@@ -3,11 +3,12 @@
 ## Affected Area
 - `.github/workflows/ci-affected.yml`
 - `.github/workflows/performance-benchmark.yml`
+- `ci-affected` lint/type-check/test/build jobs
 - `crates/event-contracts-rs/project.json`
 - `crates/protocol-codec/project.json`
 
 ## Observed Issue
-GitHub Actions `build` failed when Nx ran Rust crate builds in parallel. One crate reported that `cargo` was not applicable to the pinned toolchain, while another reported rustup rename/download state errors under `~/.rustup`. The Lighthouse workflow has the same risk because it runs the affected Nx build graph before serving frontend assets.
+GitHub Actions `build` failed when Nx ran Rust crate builds in parallel. One crate reported that `cargo` was not applicable to the pinned toolchain, while another reported rustup rename/download state errors under `~/.rustup`. The Lighthouse workflow has the same risk because it runs the affected Nx build graph before serving frontend assets. The `type-check` and `test` jobs have the same class of failure when affected Rust targets start before the pinned toolchain is installed.
 
 ## Root Cause
 Nx can start multiple cargo-backed build targets concurrently. If the pinned Rust toolchain from `rust-toolchain.toml` is not installed before that parallel execution starts, multiple cargo/rustup processes can attempt to install or mutate the same toolchain directory at the same time. A workflow-level toolchain action without explicit toolchain/components/targets is not enough because cargo can still trigger rustup during Nx execution.
@@ -20,4 +21,4 @@ Install the pinned Rust toolchain once in every CI job that can run Rust-backed 
 - Full validation must run in GitHub Actions where the workflow installs the pinned toolchain before Nx build.
 
 ## Status
-Fixed in affected and Lighthouse workflows on 2026-05-05; pending GitHub Actions confirmation.
+Fixed in affected lint/type-check/test/build and Lighthouse workflows on 2026-05-05; pending GitHub Actions confirmation.

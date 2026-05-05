@@ -22,14 +22,14 @@ import { UserFilters } from '../components/users/UserFilters';
 import { BulkActions } from '../components/users/BulkActions';
 import { UserListSection, type DisplayUser } from '../components/users/UserListSection';
 import { useTenantRoles } from '../hooks/useTenantRoles';
+import { graphqlRequest } from '../services/tenant-api.service';
 import {
-  useTenantUsersRaw,
-  useCreateTenantUser,
-  useUpdateTenantUser,
-  useDeleteTenantUser,
-  useDeactivateTenantUser,
-  tenantKeys,
-} from '../hooks/useTenantData';
+  TENANT_USERS_QUERY,
+  CREATE_TENANT_USER_MUTATION,
+  UPDATE_USER_MUTATION,
+  DELETE_USER_MUTATION,
+  DEACTIVATE_TENANT_USER_MUTATION,
+} from '../graphql/user-queries';
 import { logError } from '../utils/error-handling';
 import { formatRelativeTime } from '../utils/date-utils';
 import { DeleteConfirmModal } from '../components/common';

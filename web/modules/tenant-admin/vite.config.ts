@@ -27,7 +27,29 @@ export default defineConfig({
         ...getCoreSharedConfig(),
         'lucide-react': {
           singleton: true,
-          strictVersion: true,
+          requiredVersion: '^18.2.0',
+        },
+        'react-dom': {
+          singleton: true,
+          requiredVersion: '^18.2.0',
+        },
+        'react-router-dom': {
+          singleton: true,
+          requiredVersion: '^6.21.0',
+        },
+        '@tanstack/react-query': {
+          singleton: true,
+          requiredVersion: '^5.17.0',
+        },
+        // CRITICAL: AuthContext ve TenantContext için zorunlu
+        // Bu olmadan useAuthContext() "must be used within AuthProvider" hatası verir
+        '@aquaculture/shared-ui': {
+          singleton: true,
+          import: true,
+          requiredVersion: '^1.0.0',
+        },
+        'lucide-react': {
+          singleton: true,
           requiredVersion: '^0.469.0',
         },
       },

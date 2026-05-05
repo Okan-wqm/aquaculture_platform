@@ -12,16 +12,17 @@ import { Request } from 'express';
 import { GraphQLError } from 'graphql';
 import depthLimit from 'graphql-depth-limit';
 import {
-  fieldExtensionsEstimator,
-  getComplexity,
-  simpleEstimator,
-} from 'graphql-query-complexity';
-import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
-import { SourceSchemaBootstrapService } from '@aquaculture/backend-common/database';
-import { TenantGuard, RolesGuard, ServiceIdentityGuard } from '@aquaculture/backend-common/guards';
-import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
-import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware } from '@aquaculture/backend-common/middleware';
-import { ThrottlerModule } from '@aquaculture/backend-common/security';
+  TenantContextMiddleware,
+  CorrelationIdMiddleware,
+  RequestContextMiddleware,
+  TenantGuard,
+  RolesGuard,
+  UserContextMiddleware,
+  SourceSchemaBootstrapService,
+  ServiceIdentityGuard,
+  ThrottlerModule,
+  PlatformJwtModule,
+} from '@aquaculture/backend-common';
 
 /**
  * Extended request interface for GraphQL context

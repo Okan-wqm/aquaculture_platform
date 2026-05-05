@@ -28,12 +28,27 @@ import {
   getComplexity,
   simpleEstimator,
 } from 'graphql-query-complexity';
-import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
-import { SourceSchemaBootstrapService, createTenantConnectionBootstrap, createMigrationRunnerService, TenantSchemaSyncService, SourceSchemaWriteGuardService, RlsModule, SchemaDriftModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common/database';
-import { RolesGuard, TenantGuard, ServiceIdentityGuard } from '@aquaculture/backend-common/guards';
-import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
-import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware, createTenantSchemaMiddleware } from '@aquaculture/backend-common/middleware';
-import { ThrottlerModule, ThrottlerGuard, SlidingWindowStrategy } from '@aquaculture/backend-common/security';
+import {
+  TenantContextMiddleware,
+  CorrelationIdMiddleware,
+  RequestContextMiddleware,
+  UserContextMiddleware,
+  RolesGuard,
+  TenantGuard,
+  ThrottlerModule,
+  ThrottlerGuard,
+  SlidingWindowStrategy,
+  ServiceIdentityGuard,
+  SourceSchemaBootstrapService,
+  createTenantSchemaMiddleware,
+  createTenantConnectionBootstrap,
+  createMigrationRunnerService,
+  TenantSchemaSyncService,
+  SourceSchemaWriteGuardService,
+  RlsModule,
+  SchemaDriftModule,
+  PlatformJwtModule,
+} from '@aquaculture/backend-common';
 
 // Tenant infrastructure — 'messaging' source schema for template tables
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('messaging');

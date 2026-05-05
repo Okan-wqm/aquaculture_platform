@@ -48,7 +48,7 @@ import { getJwtVerifyOptions } from './jwt-verification.utils';
  * ----------------------------------------------------------------------------
  *
  * ```typescript
- * import { PlatformJwtModule } from '@aquaculture/backend-common/platform-jwt.module.ts';
+ * import { PlatformJwtModule } from '@aquaculture/backend-common';
  *
  * @Module({
  *   imports: [

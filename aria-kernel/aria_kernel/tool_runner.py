@@ -52,7 +52,7 @@ def run_tool(
         raise GovernanceError(f"runner.cwd does not exist: {runner['cwd']}")
 
     input_bytes = _canonical_json_bytes(input_payload)
-    before = _workspace_snapshot(root)
+    before = _workspace_snapshot(root, tool)
     started = time.monotonic()
     stdout = ""
     stderr = ""
@@ -90,7 +90,7 @@ def run_tool(
         status = "crash"
 
     duration_ms = int(round((time.monotonic() - started) * 1000))
-    after = _workspace_snapshot(root)
+    after = _workspace_snapshot(root, tool)
     mutated = before != after
 
     if output is None:
@@ -155,7 +155,11 @@ def _compact_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
         "repo_state_id": snapshot.get("repo_state_id"),
         "snapshot_hash": snapshot.get("snapshot_hash"),
         "dirty_snapshot": snapshot.get("dirty_snapshot", False),
+        "file_counts": snapshot.get("file_counts", {}),
         "tracked_file_count": snapshot.get("tracked_file_count"),
+        "legacy_tracked_file_count": snapshot.get("legacy_tracked_file_count", snapshot.get("tracked_file_count")),
+        "tool_scope_allowed_count": snapshot.get("tool_scope_allowed_count"),
+        "tool_scope_path_count": snapshot.get("tool_scope_path_count"),
     }
 
 
@@ -166,6 +170,7 @@ def _snapshot_for_tool(tool: dict[str, Any], snapshot: dict[str, Any]) -> dict[s
     filtered = [path for path in allowed if isinstance(path, str) and not find_scope_violations(tool, [path])]
     narrowed = dict(snapshot)
     narrowed["allowed_paths"] = sorted(filtered)
+    narrowed["tool_scope_allowed_count"] = len(filtered)
     narrowed["tool_scope_path_count"] = len(filtered)
     return narrowed
 
@@ -223,7 +228,7 @@ def _parse_tool_output(stdout: str, tool: dict[str, Any]) -> dict[str, Any] | No
     return payload
 
 
-def _workspace_snapshot(root: Path) -> Any:
+def _workspace_snapshot(root: Path, tool: dict[str, Any] | None = None) -> Any:
     git_dir = root / ".git"
     if git_dir.exists():
         completed = subprocess.run(
@@ -233,11 +238,11 @@ def _workspace_snapshot(root: Path) -> Any:
             check=False,
         )
         if completed.returncode == 0:
-            return ("git", _normalized_git_status(completed.stdout))
+            return ("git", _normalized_git_status(completed.stdout, tool))
     return ("dir", _directory_snapshot(root))
 
 
-def _normalized_git_status(stdout: bytes) -> tuple[str, ...]:
+def _normalized_git_status(stdout: bytes, tool: dict[str, Any] | None = None) -> tuple[str, ...]:
     entries = [entry.decode("utf-8", errors="replace") for entry in stdout.split(b"\0") if entry]
     paths: list[str] = []
     skip_next = False
@@ -250,9 +255,18 @@ def _normalized_git_status(stdout: bytes) -> tuple[str, ...]:
         if status.startswith("R") or status.startswith("C"):
             skip_next = True
         normalized = normalize_path(path)
-        if normalized and not ignored_dirty_path(normalized):
+        if normalized and not ignored_dirty_path(normalized) and _mutation_path_in_tool_scope(tool, normalized):
             paths.append(f"{status} {normalized}")
     return tuple(sorted(paths))
+
+
+def _mutation_path_in_tool_scope(tool: dict[str, Any] | None, path: str) -> bool:
+    if not isinstance(tool, dict):
+        return True
+    scoped = tool.get("allowed_read_globs") or tool.get("declared_scope")
+    if not isinstance(scoped, list) or not scoped:
+        return True
+    return not find_scope_violations(tool, [path])
 
 
 def _directory_snapshot(root: Path) -> dict[str, tuple[int, str]]:

@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from .ledger import append_jsonl
+from .snapshot import file_counts_from_payload
 from .tool_registry import ensure_tools_dir, utc_now
 
 
@@ -17,6 +18,7 @@ FINGERPRINT_FIELDS = (
     "adr_count",
     "migration_count",
 )
+FILE_COUNT_FIELDS = ("git_tracked", "working_tree", "allowed", "generated", "unknown", "fated")
 
 
 def run_cycle_diff(
@@ -33,6 +35,8 @@ def run_cycle_diff(
     previous_fingerprint = (
         _read_json(root / "discovery" / previous_cycle_id / "REPO_FINGERPRINT.json") if previous_cycle_id else {}
     )
+    current_file_counts = file_counts_from_payload(current_fingerprint, fallback_fated=len(current_fates))
+    previous_file_counts = file_counts_from_payload(previous_fingerprint, fallback_fated=len(previous_fates)) if previous_cycle_id else {}
 
     added = sorted(path for path in current_fates if path not in previous_fates) if previous_cycle_id else []
     removed = sorted(path for path in previous_fates if path not in current_fates) if previous_cycle_id else []
@@ -56,9 +60,13 @@ def run_cycle_diff(
             "added_count": len(added),
             "removed_count": len(removed),
             "changed_count": len(changed),
+            "file_counts": current_file_counts,
             "tracked_file_count": len(current_fates),
+            "legacy_tracked_file_count": len(current_fates),
+            "fated_file_count": len(current_fates),
         },
         "fingerprint_delta": _fingerprint_delta(current_fingerprint, previous_fingerprint),
+        "file_counts_delta": _file_counts_delta(current_file_counts, previous_file_counts),
         "added_paths": added,
         "removed_paths": removed,
         "changed_paths": changed,
@@ -97,13 +105,25 @@ def _load_fates(discovery_dir: Path) -> dict[str, dict[str, Any]]:
 
 def _fingerprint_delta(current: dict[str, Any], previous: dict[str, Any]) -> dict[str, int]:
     if not previous:
-        return {field: 0 for field in FINGERPRINT_FIELDS}
+        delta = {field: 0 for field in FINGERPRINT_FIELDS}
+        delta["file_counts"] = {field: 0 for field in FILE_COUNT_FIELDS}
+        return delta
     delta = {}
     for field in FINGERPRINT_FIELDS:
         current_value = current.get(field, 0)
         previous_value = previous.get(field, 0)
         delta[field] = _as_int(current_value) - _as_int(previous_value)
+    delta["file_counts"] = _file_counts_delta(
+        file_counts_from_payload(current),
+        file_counts_from_payload(previous),
+    )
     return delta
+
+
+def _file_counts_delta(current: dict[str, int], previous: dict[str, int]) -> dict[str, int]:
+    if not previous:
+        return {field: 0 for field in FILE_COUNT_FIELDS}
+    return {field: _as_int(current.get(field)) - _as_int(previous.get(field)) for field in FILE_COUNT_FIELDS}
 
 
 def _as_int(value: Any) -> int:

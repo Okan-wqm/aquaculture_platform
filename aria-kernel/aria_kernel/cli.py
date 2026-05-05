@@ -870,7 +870,10 @@ def cmd_discovery_run(args: argparse.Namespace) -> dict[str, Any]:
         "artifact_dir": discovery["artifact_dir"],
         "completion_proof": discovery["completion_proof"],
         "fingerprint": {
+            "file_counts": fingerprint.get("file_counts", {}),
             "tracked_file_count": fingerprint.get("tracked_file_count"),
+            "legacy_tracked_file_count": fingerprint.get("legacy_tracked_file_count", fingerprint.get("tracked_file_count")),
+            "fated_file_count": fingerprint.get("fated_file_count"),
             "service_count": fingerprint.get("service_count"),
             "web_module_count": fingerprint.get("web_module_count"),
             "platform_lib_count": fingerprint.get("platform_lib_count"),

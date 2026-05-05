@@ -15,13 +15,12 @@ DIRTY_IGNORE_PREFIXES = (
     "aria-tools/",
     "aria-kernel/aria_kernel/__pycache__/",
     "aria-kernel/tests/__pycache__/",
+    "aria-kernel/aria_kernel.egg-info/",
     "aria-kernel/.pytest_cache/",
     ".nx/cache/",
     "node_modules/",
 )
-DIRTY_IGNORE_EXACT = {
-    "aria-kernel/aria_kernel.egg-info/",
-}
+DIRTY_IGNORE_EXACT: set[str] = set()
 GENERATED_PREFIXES = ("dist/", "coverage/", ".nx/cache/", "node_modules/")
 GENERATED_PARTS = ("/dist/", "/coverage/", "/.nx/cache/", "/node_modules/")
 
@@ -41,23 +40,39 @@ def build_repo_snapshot(
     if mode == "committed" and enforce_clean and dirty_blockers:
         raise GovernanceError(f"workspace_dirty_blocked: {', '.join(dirty_blockers[:20])}")
 
+    git_tracked_paths: list[str] = []
+    working_tree_paths: list[str] = []
     if git_available:
-        tracked = _git_lines(root, ["ls-files"])
-        paths = tracked
+        git_tracked_paths = _git_lines(root, ["ls-files"])
+        working_tree_paths = sorted(set(git_tracked_paths + _git_lines(root, ["ls-files", "--others", "--exclude-standard"])))
+        paths = git_tracked_paths
         if mode == "working-tree":
-            paths = sorted(set(tracked + _git_lines(root, ["ls-files", "--others", "--exclude-standard"])))
+            paths = working_tree_paths
     else:
         paths = _filesystem_paths(root)
+        git_tracked_paths = paths
+        working_tree_paths = paths
 
     fates = [_file_fate(root, path) for path in paths]
     allowed_paths = sorted(row["path"] for row in fates if row.get("fate") == "tracked")
+    file_counts = _file_counts(
+        git_tracked_paths=git_tracked_paths,
+        working_tree_paths=working_tree_paths,
+        allowed_paths=allowed_paths,
+        fates=fates,
+    )
+    legacy_tracked_file_count = file_counts["allowed"]
     snapshot = {
         "schema_version": 1,
         "generated_at": utc_now(),
         "snapshot_mode": mode,
         "dirty_snapshot": mode == "working-tree" and bool(dirty_blockers),
         "base_commit_sha": _git_rev_parse(root, "HEAD") if git_available else None,
-        "tracked_file_count": len([row for row in fates if row.get("fate") == "tracked"]),
+        "file_counts": file_counts,
+        "tracked_file_count": legacy_tracked_file_count,
+        "legacy_tracked_file_count": legacy_tracked_file_count,
+        "fated_file_count": file_counts["fated"],
+        "unknown_count": file_counts["unknown"],
         "allowed_paths": allowed_paths,
         "dirty_paths": dirty_blockers,
         "generated_paths": sorted(row["path"] for row in fates if row.get("fate") == "generated"),
@@ -75,6 +90,24 @@ def snapshot_allowed_set(snapshot: dict[str, Any] | None) -> set[str]:
     if not isinstance(allowed, list):
         return set()
     return {normalize_path(path) for path in allowed if isinstance(path, str) and path.strip()}
+
+
+def file_counts_from_payload(payload: dict[str, Any], *, fallback_fated: int | None = None) -> dict[str, int]:
+    counts = payload.get("file_counts")
+    if isinstance(counts, dict):
+        return _normalize_file_counts(counts)
+    legacy = _as_int(payload.get("legacy_tracked_file_count"), _as_int(payload.get("tracked_file_count"), fallback_fated or 0))
+    fated = _as_int(payload.get("fated_file_count"), fallback_fated if fallback_fated is not None else legacy)
+    generated = _as_int(payload.get("generated_file_count"), 0)
+    unknown = _as_int(payload.get("unknown_count"), 0)
+    return {
+        "git_tracked": legacy,
+        "working_tree": fated,
+        "allowed": legacy,
+        "generated": generated,
+        "unknown": unknown,
+        "fated": fated,
+    }
 
 
 def normalize_path(raw_path: Any) -> str:
@@ -126,6 +159,38 @@ def _dirty_paths(root: Path) -> list[str]:
 def ignored_dirty_path(path: str) -> bool:
     normalized = normalize_path(path)
     return normalized in DIRTY_IGNORE_EXACT or any(normalized.startswith(prefix) for prefix in DIRTY_IGNORE_PREFIXES)
+
+
+def _file_counts(
+    *,
+    git_tracked_paths: list[str],
+    working_tree_paths: list[str],
+    allowed_paths: list[str],
+    fates: list[dict[str, Any]],
+) -> dict[str, int]:
+    return {
+        "git_tracked": len(git_tracked_paths),
+        "working_tree": len(working_tree_paths),
+        "allowed": len(allowed_paths),
+        "generated": sum(1 for row in fates if row.get("fate") == "generated"),
+        "unknown": sum(1 for row in fates if row.get("fate") == "unknown"),
+        "fated": len(fates),
+    }
+
+
+def _normalize_file_counts(raw_counts: dict[str, Any]) -> dict[str, int]:
+    return {
+        "git_tracked": _as_int(raw_counts.get("git_tracked"), 0),
+        "working_tree": _as_int(raw_counts.get("working_tree"), 0),
+        "allowed": _as_int(raw_counts.get("allowed"), 0),
+        "generated": _as_int(raw_counts.get("generated"), 0),
+        "unknown": _as_int(raw_counts.get("unknown"), 0),
+        "fated": _as_int(raw_counts.get("fated"), 0),
+    }
+
+
+def _as_int(value: Any, default: int) -> int:
+    return value if isinstance(value, int) else default
 
 
 def _run_git(root: Path, args: list[str]) -> subprocess.CompletedProcess[str]:

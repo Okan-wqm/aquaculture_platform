@@ -7,11 +7,12 @@ from typing import Any
 
 from .cycle_diff import run_cycle_diff
 from .discovery import run_discovery
-from .ledger import append_jsonl
+from .ledger import append_jsonl, load_jsonl
 from .memory import update_memory
 from .observability import generate_observability_dashboard, record_cycle_metrics
 from .pressure import run_pressure
 from .reflection import run_reflection
+from .tool_health import runs_path
 from .tool_registry import GovernanceError, ensure_tools_dir, list_tools, utc_now
 from .tool_runner import run_tool
 
@@ -101,7 +102,9 @@ def _run_cycle_body(
             {
                 "discovery": _compact_discovery(discovery),
                 "cycle_diff": _compact_diff(diff),
+                "tool_governance_decisions": [],
                 "tool_decisions": [],
+                "tool_run_summary": [],
             },
             started,
         )
@@ -111,7 +114,7 @@ def _run_cycle_body(
 
     memory = update_memory(cycle_id=cycle_id, base_dir=base_dir, include_tool_candidates=False)
     pressure = run_pressure(cycle_id=cycle_id, base_dir=base_dir)
-    tool_decisions = []
+    tool_governance_decisions = []
     for tool in _cycle_tools(base_dir=base_dir, shadow_only=shadow_only):
         if _stop_requested(tools_root):
             return _stopped_after_checkpoint(tools_root, cycle_id, f"before tool {tool['tool_id']}")
@@ -133,9 +136,9 @@ def _run_cycle_body(
                 workspace_root=root,
                 base_dir=base_dir,
             )
-            tool_decisions.append(decision)
+            tool_governance_decisions.append(decision)
         except GovernanceError as exc:
-            tool_decisions.append(
+            tool_governance_decisions.append(
                 _record_cycle_event(
                     tools_root,
                     {
@@ -156,6 +159,7 @@ def _run_cycle_body(
     )
     pressure = run_pressure(cycle_id=cycle_id, base_dir=base_dir)
     reflection = run_reflection(cycle_id=cycle_id, base_dir=base_dir)
+    tool_run_summary = _tool_run_summary(base_dir, cycle_id)
     return _finish(
         tools_root,
         cycle_id,
@@ -166,7 +170,9 @@ def _run_cycle_body(
             "candidate_memory": candidate_memory,
             "pressure": pressure,
             "reflection": reflection,
-            "tool_decisions": tool_decisions,
+            "tool_governance_decisions": tool_governance_decisions,
+            "tool_decisions": tool_governance_decisions,
+            "tool_run_summary": tool_run_summary,
         },
         started,
     )
@@ -184,6 +190,8 @@ def _cycle_tools(*, base_dir: str | os.PathLike[str] | None, shadow_only: bool) 
 
 
 def _finish(tools_root: Path, cycle_id: str, payload: dict[str, Any], started: float) -> dict[str, Any]:
+    governance_decisions = payload.get("tool_governance_decisions", payload.get("tool_decisions", []))
+    governance_decision_count = len(governance_decisions) if isinstance(governance_decisions, list) else 0
     row = _record_cycle_event(
         tools_root,
         {
@@ -191,7 +199,8 @@ def _finish(tools_root: Path, cycle_id: str, payload: dict[str, Any], started: f
             "at": utc_now(),
             "cycle_id": cycle_id,
             "event": "completed",
-            "tool_decision_count": len(payload.get("tool_decisions", [])),
+            "tool_governance_decision_count": governance_decision_count,
+            "tool_decision_count": governance_decision_count,
         },
     )
     metrics = _record_cycle_observability(
@@ -264,7 +273,10 @@ def _compact_discovery(discovery: dict[str, Any]) -> dict[str, Any]:
         "artifact_dir": discovery.get("artifact_dir"),
         "completion_proof": completion,
         "fingerprint": {
+            "file_counts": fingerprint.get("file_counts", {}),
             "tracked_file_count": fingerprint.get("tracked_file_count"),
+            "legacy_tracked_file_count": fingerprint.get("legacy_tracked_file_count", fingerprint.get("tracked_file_count")),
+            "fated_file_count": fingerprint.get("fated_file_count"),
             "service_count": fingerprint.get("service_count"),
             "web_module_count": fingerprint.get("web_module_count"),
             "platform_lib_count": fingerprint.get("platform_lib_count"),
@@ -284,3 +296,41 @@ def _compact_diff(diff: dict[str, Any]) -> dict[str, Any]:
         "summary": diff.get("summary", {}),
         "fingerprint_delta": diff.get("fingerprint_delta", {}),
     }
+
+
+def _tool_run_summary(base_dir: str | os.PathLike[str] | None, cycle_id: str) -> list[dict[str, Any]]:
+    rows = [row for row in load_jsonl(runs_path(base_dir)) if row.get("cycle_id") == cycle_id]
+    summary = []
+    for run in sorted(rows, key=lambda item: str(item.get("tool_id"))):
+        runner = run.get("runner", {}) if isinstance(run.get("runner"), dict) else {}
+        repo_snapshot = run.get("repo_snapshot", {}) if isinstance(run.get("repo_snapshot"), dict) else {}
+        summary.append(
+            {
+                "tool_id": run.get("tool_id"),
+                "status": run.get("status"),
+                "raw_findings_count": int(runner.get("raw_findings_count") or 0),
+                "raw_observations_count": int(runner.get("raw_observations_count") or 0),
+                "emitted_findings_count": len(run.get("emitted_findings", [])) if isinstance(run.get("emitted_findings"), list) else 0,
+                "emitted_observations_count": len(run.get("emitted_observations", [])) if isinstance(run.get("emitted_observations"), list) else 0,
+                "invalid_evidence_count": _invalid_evidence_count(run),
+                "cost_units": run.get("cost_units", 0),
+                "duration_ms": run.get("duration_ms", 0),
+                "snapshot_hash": repo_snapshot.get("snapshot_hash"),
+            },
+        )
+    return summary
+
+
+def _invalid_evidence_count(run: dict[str, Any]) -> int:
+    errors = run.get("evidence_validation", {}).get("errors", [])
+    if not isinstance(errors, list):
+        return 0
+    return sum(
+        1
+        for error in errors
+        if isinstance(error, dict)
+        and (
+            str(error.get("code", "")).endswith("_outside_snapshot")
+            or str(error.get("code")) in {"read_path_outside_snapshot", "evidence_outside_snapshot"}
+        )
+    )

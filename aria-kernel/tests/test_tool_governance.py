@@ -105,7 +105,8 @@ def fake_tool_argv(output, *, exit_code=0, mutate=False, sleep_seconds=0):
     if sleep_seconds:
         statements.append(f"time.sleep({sleep_seconds})")
     if mutate:
-        statements.append("pathlib.Path('mutated.txt').write_text('changed', encoding='utf-8')")
+        statements.append("pathlib.Path('apps/farm-service/src/mutated.ts').parent.mkdir(parents=True, exist_ok=True)")
+        statements.append("pathlib.Path('apps/farm-service/src/mutated.ts').write_text('changed', encoding='utf-8')")
     statements.append(f"print({json.dumps(json.dumps(output))})")
     if exit_code:
         statements.append(f"sys.exit({exit_code})")

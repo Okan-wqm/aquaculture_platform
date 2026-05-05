@@ -21,7 +21,9 @@ def run_discovery(
     snapshot = build_repo_snapshot(workspace_root=root, mode=snapshot_mode, enforce_clean=True)
     fates = snapshot["fates"]
     missing = [fate["path"] for fate in fates if fate["fate"] == "unknown"]
-    fingerprint = _repo_fingerprint(root, fates)
+    file_counts = snapshot["file_counts"]
+    legacy_tracked_file_count = file_counts["allowed"]
+    fingerprint = _repo_fingerprint(root, fates, file_counts)
     service_map = _service_map(root)
     completion_proof = {
         "schema_version": 1,
@@ -33,9 +35,11 @@ def run_discovery(
         "snapshot_mode": snapshot.get("snapshot_mode"),
         "dirty_snapshot": snapshot.get("dirty_snapshot", False),
         "dirty_path_count": len(snapshot.get("dirty_paths", [])),
-        "tracked_file_count": len(snapshot.get("allowed_paths", [])),
-        "fated_file_count": len(fates),
-        "unknown_count": len(missing),
+        "file_counts": file_counts,
+        "tracked_file_count": legacy_tracked_file_count,
+        "legacy_tracked_file_count": legacy_tracked_file_count,
+        "fated_file_count": file_counts["fated"],
+        "unknown_count": file_counts["unknown"],
         "missing_fates": missing,
         "complete": len(snapshot.get("allowed_paths", [])) <= len(fates) and not missing,
     }
@@ -56,12 +60,16 @@ def run_discovery(
     }
 
 
-def _repo_fingerprint(root: Path, fates: list[dict[str, Any]]) -> dict[str, Any]:
+def _repo_fingerprint(root: Path, fates: list[dict[str, Any]], file_counts: dict[str, int]) -> dict[str, Any]:
     language_histogram = Counter(str(fate.get("suffix") or "<none>") for fate in fates)
+    legacy_tracked_file_count = len(fates)
     return {
         "schema_version": 1,
         "generated_at": utc_now(),
-        "tracked_file_count": len(fates),
+        "file_counts": file_counts,
+        "tracked_file_count": legacy_tracked_file_count,
+        "legacy_tracked_file_count": legacy_tracked_file_count,
+        "fated_file_count": file_counts["fated"],
         "language_histogram": dict(sorted(language_histogram.items())),
         "service_count": len(_children(root / "apps")),
         "web_module_count": len(_children(root / "web")),

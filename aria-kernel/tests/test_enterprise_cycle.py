@@ -4,12 +4,14 @@ import json
 import subprocess
 import sys
 import tempfile
+import tomllib
 import unittest
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
 
 from aria_kernel import (
+    OUTPUT_CONTRACT_COMPAT_REMOVAL_VERSION,
     record_proposal,
     record_run,
     record_research_source,
@@ -24,6 +26,7 @@ from aria_kernel import (
     verify_integrity,
     withdraw_belief,
 )
+from aria_kernel.constants import OUTPUT_CONTRACT_COMPAT_FINDING_ID
 from aria_kernel.cli import main
 from aria_kernel.feedback_store import record_operator_feedback
 from aria_kernel.ledger import append_jsonl
@@ -174,6 +177,23 @@ class EnterpriseCycleTests(unittest.TestCase):
         paths = {row["path"] for row in result["fates"]}
         self.assertIn("src/untracked.ts", paths)
         self.assertTrue(result["completion_proof"]["dirty_snapshot"])
+        git_tracked = subprocess.check_output(["git", "ls-files"], cwd=self.root, text=True).splitlines()
+        working_tree = subprocess.check_output(["git", "ls-files", "-co", "--exclude-standard"], cwd=self.root, text=True).splitlines()
+        counts = result["completion_proof"]["file_counts"]
+        self.assertEqual(counts["git_tracked"], len(git_tracked))
+        self.assertEqual(counts["working_tree"], len(working_tree))
+        self.assertEqual(counts["allowed"], len([row for row in result["fates"] if row["fate"] == "tracked"]))
+        self.assertEqual(counts["fated"], len(result["fates"]))
+        self.assertEqual(result["completion_proof"]["tracked_file_count"], counts["allowed"])
+        self.assertEqual(result["completion_proof"]["legacy_tracked_file_count"], counts["allowed"])
+        snapshot_payload = json.loads((self.tools_dir / "discovery/cycle-working-tree/SNAPSHOT.json").read_text(encoding="utf-8"))
+        fingerprint_payload = json.loads((self.tools_dir / "discovery/cycle-working-tree/REPO_FINGERPRINT.json").read_text(encoding="utf-8"))
+        self.assertEqual(snapshot_payload["file_counts"], counts)
+        self.assertEqual(snapshot_payload["tracked_file_count"], counts["allowed"])
+        self.assertEqual(snapshot_payload["legacy_tracked_file_count"], counts["allowed"])
+        self.assertEqual(fingerprint_payload["file_counts"], counts)
+        self.assertEqual(fingerprint_payload["tracked_file_count"], counts["fated"])
+        self.assertEqual(fingerprint_payload["legacy_tracked_file_count"], counts["fated"])
 
     def test_snapshot_outside_evidence_marks_run_invalid_and_unsampleable(self):
         tool = shadow_tool()
@@ -228,6 +248,16 @@ class EnterpriseCycleTests(unittest.TestCase):
             shadow_only=True,
         )
         self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["tool_governance_decisions"], result["tool_decisions"])
+        self.assertEqual(result["event"]["tool_governance_decision_count"], 1)
+        self.assertEqual(result["event"]["tool_decision_count"], 1)
+        self.assertEqual(len(result["tool_run_summary"]), 1)
+        summary = result["tool_run_summary"][0]
+        self.assertEqual(summary["raw_findings_count"], 1)
+        self.assertEqual(summary["raw_observations_count"], 1)
+        self.assertEqual(summary["emitted_findings_count"], 0)
+        self.assertNotIn("raw_findings", summary)
+        self.assertNotIn("emitted_findings", summary)
         self.assertEqual(result["reflection"]["tool_run_count"], 1)
         run = self.latest_run()
         self.assertEqual(run["status"], "ok")
@@ -237,6 +267,11 @@ class EnterpriseCycleTests(unittest.TestCase):
         self.assertEqual(result["observability_dashboard"]["latest_cycle"]["cycle_id"], "cycle-shadow")
         self.assertTrue((self.tools_dir / "reports/daily").exists())
         report = next((self.tools_dir / "reports/daily").glob("*.md")).read_text(encoding="utf-8")
+        self.assertNotIn("Tracked files", report)
+        self.assertIn("Git tracked", report)
+        self.assertIn("Working-tree", report)
+        self.assertIn("Allowed", report)
+        self.assertIn("Fated", report)
         for heading in (
             "## Coverage",
             "## Beliefs",
@@ -260,6 +295,48 @@ class EnterpriseCycleTests(unittest.TestCase):
         result = verify_integrity(base_dir=self.tools_dir)
         self.assertFalse(result["valid"])
         self.assertEqual(result["cycle_lifecycle"]["incomplete_cycles"][0]["cycle_id"], "stale-cycle")
+
+    def test_integrity_accepts_old_and_new_cycle_terminal_shapes(self):
+        append_jsonl(
+            self.tools_dir / "cycles.jsonl",
+            {
+                "schema_version": 1,
+                "at": "2026-05-04T00:00:00+00:00",
+                "cycle_id": "old-shape",
+                "event": "started",
+            },
+        )
+        append_jsonl(
+            self.tools_dir / "cycles.jsonl",
+            {
+                "schema_version": 1,
+                "at": "2026-05-04T00:01:00+00:00",
+                "cycle_id": "old-shape",
+                "event": "completed",
+                "tool_decision_count": 1,
+            },
+        )
+        append_jsonl(
+            self.tools_dir / "cycles.jsonl",
+            {
+                "schema_version": 1,
+                "at": "2026-05-04T00:02:00+00:00",
+                "cycle_id": "new-shape",
+                "event": "started",
+            },
+        )
+        append_jsonl(
+            self.tools_dir / "cycles.jsonl",
+            {
+                "schema_version": 1,
+                "at": "2026-05-04T00:03:00+00:00",
+                "cycle_id": "new-shape",
+                "event": "completed",
+                "tool_governance_decision_count": 1,
+                "tool_decision_count": 1,
+            },
+        )
+        self.assertTrue(verify_integrity(base_dir=self.tools_dir)["valid"])
 
     def test_pressure_and_reflection_surface_raw_finding_delta(self):
         tool = shadow_tool()
@@ -310,6 +387,11 @@ class EnterpriseCycleTests(unittest.TestCase):
         self.assertEqual(details["mode"], "fixture")
         self.assertEqual(details["cycle_id"], "cycle-default-input")
         self.assertIn("pressure_summary", details)
+        snapshot = details["repo_snapshot"]
+        self.assertEqual(snapshot["tool_scope_allowed_count"], snapshot["tool_scope_path_count"])
+        self.assertIn("file_counts", run["repo_snapshot"])
+        self.assertEqual(run["repo_snapshot"]["tracked_file_count"], run["repo_snapshot"]["legacy_tracked_file_count"])
+        self.assertEqual(run["repo_snapshot"]["tool_scope_allowed_count"], run["repo_snapshot"]["tool_scope_path_count"])
         self.assertTrue(verify_integrity(base_dir=self.tools_dir)["valid"])
 
     def test_cycle_honors_stop_file_before_start(self):
@@ -343,6 +425,9 @@ class EnterpriseCycleTests(unittest.TestCase):
 
     def test_memory_belief_uses_repo_evidence_not_self_output(self):
         run_cycle(workspace_root=self.root, cycle_id="cycle-memory", base_dir=self.tools_dir, discovery_only=False)
+        observation = json.loads((self.tools_dir / "memory/observations.jsonl").read_text(encoding="utf-8").splitlines()[0])
+        self.assertIn("file_counts", observation)
+        self.assertEqual(observation["tracked_file_count"], observation["legacy_tracked_file_count"])
         beliefs = list_memory(kind="beliefs", base_dir=self.tools_dir)
         self.assertTrue(any(row.get("belief_id") == "repo-uses-nx" for row in beliefs))
         self.assertTrue(all("aria-tools/" not in str(row.get("evidence_refs", [])) for row in beliefs))
@@ -565,7 +650,26 @@ class EnterpriseCycleTests(unittest.TestCase):
         second = run_cycle_diff(cycle_id="cycle-diff-2", base_dir=self.tools_dir)
         self.assertFalse(second["baseline"])
         self.assertEqual(second["summary"]["changed_count"], 1)
+        self.assertIn("file_counts", second["summary"])
+        self.assertIn("file_counts", second["fingerprint_delta"])
         self.assertEqual(second["changed_paths"], ["src/app.ts"])
+
+    def test_cycle_diff_reads_legacy_previous_artifact_shape(self):
+        legacy_dir = self.tools_dir / "discovery/cycle-legacy"
+        legacy_dir.mkdir(parents=True)
+        (legacy_dir / "FATES.json").write_text(
+            json.dumps({"schema_version": 1, "cycle_id": "cycle-legacy", "files": [{"path": "src/app.ts", "content_hash": "old"}]}),
+            encoding="utf-8",
+        )
+        (legacy_dir / "REPO_FINGERPRINT.json").write_text(
+            json.dumps({"schema_version": 1, "tracked_file_count": 1, "service_count": 0}),
+            encoding="utf-8",
+        )
+        run_discovery(workspace_root=self.root, cycle_id="cycle-new", base_dir=self.tools_dir)
+        diff = run_cycle_diff(cycle_id="cycle-new", base_dir=self.tools_dir)
+        self.assertEqual(diff["previous_cycle_id"], "cycle-legacy")
+        self.assertIn("file_counts", diff["summary"])
+        self.assertIn("file_counts_delta", diff)
 
     def test_integrity_detects_tampered_ledger(self):
         run_cycle(workspace_root=self.root, cycle_id="cycle-integrity", base_dir=self.tools_dir, discovery_only=True)
@@ -620,6 +724,25 @@ class EnterpriseCycleTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(integrity_code, 0)
 
+    def test_output_contract_compat_alias_version_gate(self):
+        pyproject = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text(encoding="utf-8"))
+        current_version = _version_tuple(pyproject["project"]["version"])
+        removal_version = _version_tuple(OUTPUT_CONTRACT_COMPAT_REMOVAL_VERSION)
+        self.assertLess(
+            current_version,
+            removal_version,
+            f"{OUTPUT_CONTRACT_COMPAT_FINDING_ID} violation: {current_version} >= {OUTPUT_CONTRACT_COMPAT_REMOVAL_VERSION}; compat aliases must be removed",
+        )
+
+    def test_output_contract_compat_finding_is_registered(self):
+        registry = Path(__file__).parents[2] / "docs/reviews/_registry/findings.jsonl"
+        rows = [json.loads(line) for line in registry.read_text(encoding="utf-8").splitlines() if line.strip()]
+        finding = next(row for row in rows if row["id"] == OUTPUT_CONTRACT_COMPAT_FINDING_ID)
+        self.assertEqual(finding["state"], "OPEN")
+        self.assertEqual(finding["deadline"], "2026-06-05")
+        self.assertEqual(finding["owner_agent"], "platform-kernel-expert")
+        self.assertEqual(finding["severity"], "MEDIUM")
+
     def test_cli_exposes_memory_withdraw_and_pressure_explain(self):
         migration_dir = self.root / "apps/farm-service/src/database/migrations"
         migration_dir.mkdir(parents=True)
@@ -660,6 +783,10 @@ class EnterpriseCycleTests(unittest.TestCase):
     def latest_run(self):
         rows = (self.tools_dir / "runs.jsonl").read_text(encoding="utf-8").strip().splitlines()
         return json.loads(rows[-1])
+
+
+def _version_tuple(value: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in value.split("."))
 
 
 if __name__ == "__main__":

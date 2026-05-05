@@ -69,30 +69,32 @@ function listComposeServices(composeFile: string): string[] {
     console.error(`::error::compose file not found at ${composeFile}`);
     process.exit(2);
   }
-  // The droplet/prod compose files use `${VAR:?required}` references
-  // for every secret. Without an env file, `docker compose config`
-  // fails on the first interpolation regardless of whether we care
-  // about the values. Emit a throwaway dummy env (sibling to the one
-  // preflight-validate.ts writes) so compose can resolve the file
-  // and emit the service list we actually want.
-  const { envPath, cleanup } = writeDummyEnvForCompose(composeFile);
+  // Parse the compose file directly instead of shelling out to
+  // `docker compose config --services`. The compose CLI tries to
+  // interpolate `${VAR:?msg}` references and aborts when CI has no
+  // matching env var present — even though this validator only needs
+  // the service-name list (no interpolation, no resolution of
+  // extends:, no merging across multiple compose files).
+  //
+  // Direct YAML parse is correct for our use case because:
+  //   - droplet.yml is a single compose file (no `-f` chaining).
+  //   - No service uses `extends:` (verified via grep at the time of
+  //     this rewrite); if that ever changes, the validator must be
+  //     updated to follow the extends graph, but the architectural
+  //     contract — "every service in compose has a criticality entry"
+  //     — operates on the literal service names, not the resolved
+  //     merged config.
+  //
+  // Removing the docker dependency here also lets the validator run
+  // in any CI runner without docker, which the previous shape
+  // implicitly required.
+  let parsed: unknown;
   try {
-    const out = execFileSync(
-      'docker',
-      ['compose', '-f', composeFile, '--env-file', envPath, 'config', '--services'],
-      { encoding: 'utf8' },
-    );
-    return out
-      .split('\n')
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .sort();
+    parsed = yaml.load(readFileSync(composeFile, 'utf8'));
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`::error::compose YAML parse failed: ${msg}`);
     process.exit(2);
-  } finally {
-    cleanup();
   }
   if (
     !parsed ||

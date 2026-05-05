@@ -18,7 +18,6 @@
  *   1  drift detected
  *   2  invocation error
  */
-import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import yaml from 'js-yaml';
 import { writeDummyEnvForCompose } from './lib/compose-dummy-env.ts';
@@ -65,27 +64,38 @@ function listComposeServices(composeFile: string): string[] {
     console.error(`::error::compose file not found at ${composeFile}`);
     process.exit(2);
   }
-  // Same `${VAR:?required}` interpolation issue as the criticality
-  // manifest validator — emit a dummy env so compose can resolve the
-  // file without needing the real secrets.
-  const { envPath, cleanup } = writeDummyEnvForCompose(composeFile);
+  // Parse the compose YAML directly instead of shelling out to
+  // `docker compose config --services`. The compose CLI tries to
+  // interpolate `${VAR:?msg}` references and aborts when CI has no
+  // matching env var present, even though this validator only needs
+  // the literal service-name list. See validate-criticality-manifest.ts
+  // for the full architectural rationale (single compose file, no
+  // `extends:` graph to resolve, contract operates on literal names).
+  let parsed: unknown;
   try {
-    const out = execFileSync(
-      'docker',
-      ['compose', '-f', composeFile, '--env-file', envPath, 'config', '--services'],
-      { encoding: 'utf8' },
-    );
-    return out
-      .split('\n')
-      .map((s) => s.trim())
-      .filter(Boolean);
+    parsed = yaml.load(readFileSync(composeFile, 'utf8'));
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error(`::error::docker compose config failed: ${msg}`);
+    console.error(`::error::compose YAML parse failed: ${msg}`);
     process.exit(2);
   } finally {
     cleanup();
   }
+  if (
+    !parsed ||
+    typeof parsed !== 'object' ||
+    !('services' in parsed) ||
+    typeof (parsed as { services: unknown }).services !== 'object' ||
+    (parsed as { services: unknown }).services === null
+  ) {
+    console.error(
+      `::error::compose file ${composeFile} has no \`services\` mapping`,
+    );
+    process.exit(2);
+  }
+  return Object.keys(
+    (parsed as { services: Record<string, unknown> }).services,
+  );
 }
 
 function main(): void {

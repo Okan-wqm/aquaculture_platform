@@ -78,18 +78,8 @@ services:
     reason: ingests live telemetry; missing a window loses production data
 
   - name: sensor-ingestion
-    level: required
-    reason: >-
-      ADR-025 / ADR-027 strangler-fig Rust sidecar — co-equal producer
-      of events.{tenantId}.SensorReading alongside the NestJS
-      sensor-service. Per-tenant `[ingest_backend]` flag selects which
-      backend processes a tenant's stream, so the impact-of-absence is
-      per-tenant: flag-enabled tenants lose live telemetry, flag-off
-      tenants are unaffected because sensor-service still covers them.
-      Held at `required` (not `critical`) while the migration is mid-
-      rollout — flip to `critical` once the flag is on for ≥ 50% of
-      production tenants, since at that point sensor-service is no
-      longer a complete fallback for the fleet.
+    level: critical
+    reason: Rust sidecar that decodes sensor payloads and publishes to NATS — without it sensor-service has no source of telemetry to consume. Same data-loss profile as sensor-service.
 
   - name: hr-service
     level: warning

@@ -53,7 +53,7 @@ def build_repo_snapshot(
         git_tracked_paths = paths
         working_tree_paths = paths
 
-    fates = [_file_fate(root, path) for path in paths]
+    fates = [_file_fate(root, path, committed=mode == "committed" and git_available) for path in paths]
     allowed_paths = sorted(row["path"] for row in fates if row.get("fate") == "tracked")
     file_counts = _file_counts(
         git_tracked_paths=git_tracked_paths,
@@ -197,6 +197,10 @@ def _run_git(root: Path, args: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["git", *args], cwd=root, capture_output=True, text=True, check=False)
 
 
+def _run_git_bytes(root: Path, args: list[str]) -> subprocess.CompletedProcess[bytes]:
+    return subprocess.run(["git", *args], cwd=root, capture_output=True, text=False, check=False)
+
+
 def _filesystem_paths(root: Path) -> list[str]:
     paths: list[str] = []
     for path in root.rglob("*"):
@@ -209,7 +213,7 @@ def _filesystem_paths(root: Path) -> list[str]:
     return sorted(paths)
 
 
-def _file_fate(root: Path, relative_path: str) -> dict[str, Any]:
+def _file_fate(root: Path, relative_path: str, *, committed: bool = False) -> dict[str, Any]:
     normalized = normalize_path(relative_path)
     fate = "tracked"
     if normalized.startswith(GENERATED_PREFIXES) or any(part in normalized for part in GENERATED_PARTS):
@@ -220,6 +224,13 @@ def _file_fate(root: Path, relative_path: str) -> dict[str, Any]:
         "fate": fate,
         "suffix": path.suffix,
     }
+    if committed:
+        completed = _run_git_bytes(root, ["show", f"HEAD:{normalized}"])
+        if completed.returncode == 0:
+            data = completed.stdout
+            row["size_bytes"] = len(data)
+            row["content_hash"] = _sha256(data)
+            return row
     if path.exists() and path.is_file():
         try:
             row["size_bytes"] = path.stat().st_size

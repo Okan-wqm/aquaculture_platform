@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from collections import Counter
 from pathlib import Path
 from typing import Any
 
 from .snapshot import build_repo_snapshot
-from .tool_registry import ensure_tools_dir, utc_now
+from .tool_registry import append_tools_governance, ensure_tools_binding, ensure_tools_dir, utc_now
 
 
 def run_discovery(
@@ -18,7 +19,17 @@ def run_discovery(
     snapshot_mode: str = "committed",
 ) -> dict[str, Any]:
     root = Path(workspace_root).resolve()
-    snapshot = build_repo_snapshot(workspace_root=root, mode=snapshot_mode, enforce_clean=True)
+    tools_root = ensure_tools_binding(base_dir, workspace_root=root)
+    snapshot = build_repo_snapshot(workspace_root=root, mode=snapshot_mode, enforce_clean=False)
+    if snapshot_mode == "committed" and snapshot.get("dirty_paths"):
+        dirty_paths = snapshot.get("dirty_paths", [])
+        message = f"warning: committed snapshot ignores {len(dirty_paths)} dirty/staged path(s)"
+        print(message, file=sys.stderr)
+        append_tools_governance(
+            tools_root,
+            "discovery_dirty_tree_skipped",
+            {"dirty_files_count": len(dirty_paths), "head_sha": snapshot.get("base_commit_sha")},
+        )
     fates = snapshot["fates"]
     missing = [fate["path"] for fate in fates if fate["fate"] == "unknown"]
     file_counts = snapshot["file_counts"]
@@ -44,7 +55,7 @@ def run_discovery(
         "complete": len(snapshot.get("allowed_paths", [])) <= len(fates) and not missing,
     }
 
-    output_dir = ensure_tools_dir(base_dir) / "discovery" / cycle_id
+    output_dir = tools_root / "discovery" / cycle_id
     _write_json(output_dir / "FATES.json", {"schema_version": 1, "cycle_id": cycle_id, "files": fates})
     _write_json(output_dir / "SNAPSHOT.json", {key: value for key, value in snapshot.items() if key != "fates"})
     _write_json(output_dir / "REPO_FINGERPRINT.json", fingerprint)

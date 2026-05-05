@@ -97,3 +97,6 @@ Only threshold-exceeding pressure can enter the Phase 1 genesis pipeline. The Ph
 - External contradiction emits `CONTRADICTION` pressure with `drives: ["investigation_task"]`.
 - Repeated false-positive feedback emits calibration pressure and never skill-birth pressure.
 - Ledger mutation or truncation is detected.
+# v9 Contract Note
+
+Feedback and pressure ledgers use v2 event contracts. Import is all-or-nothing, defaults source to `operator`, and only explicit `external_scanner` source produces immediate contradiction pressure. Pressure evidence deduplication is based on the set fingerprint of feedback v2 event IDs; legacy IDs are preserved only for audit and rollback.

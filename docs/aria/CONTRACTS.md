@@ -5,6 +5,22 @@
 > **Authority:** Subordinate to SPEC.md
 > **Length budget:** ≤700 lines
 
+## 0.1 — Snowball v9 Root Contract
+
+The kernel now has two separately bound v2 roots:
+
+- Workspace root: `~/.aria/workspaces/<repo_hash>/`, or `--workspace-base` for tests/CI. It owns feedback, pressure, workspace governance, and `aria-state/integrity_index.json`.
+- Tools root: `--tools-dir`, `ARIA_TOOLS_DIR`, or `aria-tools`. It owns runs, health, cycle lifecycle, tools governance, and `integrity_index.json`.
+
+Both roots have `repo_identity.json`. Workspace identity records `aria_workspace_contract_version: 2`; tools identity records `aria_tools_contract_version: 2`, `bound_repo_hash`, and `bound_repo_root`. `integrity verify` reports nested `workspace` and `tools` sections and returns drift when identities, versions, or covered ledger hashes disagree.
+
+Covered ledgers are:
+
+- Workspace: `unknowns`, `missed_signals`, `external_feedback`, `pressure`, `governance`.
+- Tools: `runs`, `health`, `cycles`, `governance`.
+
+Feedback and pressure rows use v2 schemas. Feedback IDs are stable `FB-...-<sha16>` values from canonical identity. Pressure dedup is based only on `pressure_evidence_fingerprints_emitted`, computed from primitive, subtype, and the set of feedback event IDs.
+
 ---
 
 ## 0 — Why this document exists

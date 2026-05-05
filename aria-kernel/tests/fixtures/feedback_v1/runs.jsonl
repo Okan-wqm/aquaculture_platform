@@ -1,0 +1,1 @@
+{"schema_version":1,"run_id":"run-v1","tool_id":"fixture-tool","cycle_id":"cycle-v1","status":"ok","input_hash":"sha256:input","output_hash":"sha256:output","read_paths":["src/app.ts"],"emitted_observations":[],"emitted_findings":[],"evidence_validation":{"valid":true},"operator_feedback_refs":[],"duration_ms":1,"cost_units":0}

@@ -7,6 +7,12 @@
 > **Target:** `Okan-wqm/aquaculture_platform`
 > **Length budget:** ≤900 lines. Detail belongs in implementation, not specification.
 
+## 0.1 — v9 Enterprise Hardening Delta
+
+Snowball v9 preserves the two-root operating model: workspace state and tools state are independent contract owners. Mutating workspace commands require workspace v2; mutating tools commands require tools v2. `integrity verify` is read-only, verifies both roots together, and exits non-zero on drift.
+
+`discovery run --snapshot-mode committed` reads the HEAD-tracked snapshot. Dirty or staged paths are ignored for the snapshot, reported on stderr, and recorded as a tools governance event. Workspace cycle artifacts remain immutable files under workspace state, while lifecycle integrity is tracked by tools `cycles.jsonl`.
+
 ---
 
 ## 0 — Why v7.2 exists

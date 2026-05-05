@@ -7,3 +7,6 @@ dependencies = []
 
 [project.scripts]
 aria-kernel = "aria_kernel.cli:main"
+
+[tool.setuptools.package-data]
+aria_kernel = ["data/*.json"]

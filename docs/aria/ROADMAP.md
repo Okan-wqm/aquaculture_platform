@@ -11,6 +11,18 @@ ARIA is currently a specification set plus a mechanical PoC:
 
 The PoC is an operator decision gate. It fingerprints the repo, records file fates, ingests trusted priors mechanically, scans value-set drift, and writes `.aria-poc/` output. It does not implement the kernel.
 
+## Snowball v9 Hardening
+
+The Phase 0 kernel now includes the enterprise hardening spine required before broader self-renewal work:
+
+- v2 workspace/tools identities and binding checks;
+- separate workspace/tools integrity indexes;
+- covered governance ledgers in both roots;
+- v2 feedback and pressure schemas with legacy ID preservation;
+- explicit workspace and tools migration/rollback commands;
+- committed discovery snapshots that ignore dirty working-tree state with governance evidence;
+- CI smoke for unittest, discovery, and nested integrity verification.
+
 ## Phase 0 Entry Condition
 
 Phase 0 starts only after the PoC decision gate says ARIA is worth building.

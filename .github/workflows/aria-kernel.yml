@@ -1,0 +1,37 @@
+name: aria-kernel
+
+on:
+  pull_request:
+    paths:
+      - "aria-kernel/**"
+      - "docs/aria/**"
+      - ".github/workflows/aria-kernel.yml"
+  push:
+    branches:
+      - snowball
+    paths:
+      - "aria-kernel/**"
+      - "docs/aria/**"
+      - ".github/workflows/aria-kernel.yml"
+
+concurrency:
+  group: aria-kernel-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  aria-kernel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m unittest discover aria-kernel -p '*test*.py'
+      - run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m aria_kernel discovery run --workspace-root . --workspace-base ./.aria-ci/workspaces --tools-dir ./aria-tools --cycle-id ci-${{ github.run_id }} --snapshot-mode committed
+      - run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m aria_kernel integrity verify --workspace-root . --workspace-base ./.aria-ci/workspaces --tools-dir ./aria-tools

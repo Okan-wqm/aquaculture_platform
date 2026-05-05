@@ -16,6 +16,7 @@ from .ledger import append_jsonl as append_chained_jsonl
 from .ledger import load_jsonl as load_chained_jsonl
 from .quarantine import quarantine_tool
 from .tool_registry import GovernanceError, ensure_tools_dir, get_tool, update_tool, utc_now
+from .tool_registry import append_tools_governance, update_tools_index
 
 
 RUN_STATUSES = (
@@ -25,6 +26,7 @@ RUN_STATUSES = (
     "evidence_error",
     "crash",
     "budget_exceeded",
+    "tool_unhealthy",
 )
 REQUIRED_RUN_FIELDS = (
     "run_id",
@@ -97,6 +99,13 @@ def record_run(
     record_findings_for_run(envelope, base_dir=base_dir)
     decision = evaluate_health(envelope["tool_id"], base_dir=base_dir, latest_run=envelope)
     append_jsonl(health_path(base_dir), decision)
+    if envelope["status"] == "tool_unhealthy":
+        append_tools_governance(
+            ensure_tools_dir(base_dir),
+            "tool_unhealthy",
+            {"tool_name": envelope["tool_id"], "reason": envelope.get("runner", {}).get("stderr_sample", "tool unhealthy")},
+        )
+    update_tools_index(ensure_tools_dir(base_dir))
     return decision
 
 
@@ -221,6 +230,8 @@ def immediate_quarantine_reason(tool: dict[str, Any], run: dict[str, Any]) -> st
         return "repository mutation attempt"
     if run["status"] == "crash" and run["evidence_validation"].get("ledger_corruption"):
         return "crash corrupted ledger state"
+    if run["status"] == "tool_unhealthy":
+        return "tool runner unhealthy"
     if has_critical_false_positive(run):
         return "operator-confirmed critical false positive"
     return None

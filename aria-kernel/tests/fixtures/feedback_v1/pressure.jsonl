@@ -1,0 +1,1 @@
+{"$schema":"aria/pressure-event/v1","event_id":"PE-legacy-dynamic-option","primitive":"CONTRADICTION","subtype":"external_feedback_disagrees","capability_gap_key":"frontend:dynamic_option_provider:tsx","feedback_event_ids":["FB-external-dynamic-option"],"schema_version":1}

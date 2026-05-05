@@ -62,24 +62,30 @@ def run_tool(
     output: dict[str, Any] | None = None
 
     try:
-        completed = subprocess.run(
-            runner["argv"],
-            cwd=cwd,
-            input=input_bytes.decode("utf-8") if runner.get("stdin_json") else None,
-            capture_output=True,
-            text=True,
-            timeout=runner["timeout_ms"] / 1000,
-            shell=False,
-        )
-        stdout = completed.stdout or ""
-        stderr = completed.stderr or ""
-        exit_code = completed.returncode
-        if completed.returncode != 0:
-            status = "crash"
+        if _runner_missing_node_deps(cwd, runner["argv"]):
+            stderr = "missing repo-local node dependency: node_modules/ts-node/dist/bin.js"
+            status = "tool_unhealthy"
+            exit_code = None
+            output = {}
         else:
-            output = _parse_tool_output(stdout, tool)
-            if output is None:
-                status = "schema_error"
+            completed = subprocess.run(
+                runner["argv"],
+                cwd=cwd,
+                input=input_bytes.decode("utf-8") if runner.get("stdin_json") else None,
+                capture_output=True,
+                text=True,
+                timeout=runner["timeout_ms"] / 1000,
+                shell=False,
+            )
+            stdout = completed.stdout or ""
+            stderr = completed.stderr or ""
+            exit_code = completed.returncode
+            if completed.returncode != 0:
+                status = "crash"
+            else:
+                output = _parse_tool_output(stdout, tool)
+                if output is None:
+                    status = "schema_error"
     except subprocess.TimeoutExpired as exc:
         stdout = _decode_timeout_stream(exc.stdout)
         stderr = _decode_timeout_stream(exc.stderr)
@@ -87,7 +93,7 @@ def run_tool(
         status = "budget_exceeded"
     except OSError as exc:
         stderr = str(exc)
-        status = "crash"
+        status = "tool_unhealthy" if getattr(exc, "filename", None) else "crash"
 
     duration_ms = int(round((time.monotonic() - started) * 1000))
     after = _workspace_snapshot(root, tool)
@@ -133,6 +139,7 @@ def run_tool(
             "exit_code": exit_code,
             "timed_out": timed_out,
             "stderr_hash": _sha256(stderr.encode("utf-8")),
+            "stderr_sample": stderr[:4096],
             "raw_observations_count": len(_array_or_empty(raw_observations)),
             "raw_findings_count": len(_array_or_empty(raw_findings)),
             "raw_findings_sample": _raw_finding_sample(_array_or_empty(raw_findings)),
@@ -347,3 +354,9 @@ def _decode_timeout_stream(value: bytes | str | None) -> str:
     if isinstance(value, bytes):
         return value.decode("utf-8", errors="replace")
     return value
+
+
+def _runner_missing_node_deps(cwd: Path, argv: list[str]) -> bool:
+    if len(argv) >= 2 and argv[0] == "node" and argv[1] == "./node_modules/ts-node/dist/bin.js":
+        return not (cwd / "node_modules" / "ts-node" / "dist" / "bin.js").exists()
+    return False

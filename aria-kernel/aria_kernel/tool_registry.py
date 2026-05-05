@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import json
 import os
+import hashlib
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .ledger import append_jsonl, write_index
+from .workspace import governance_event, repo_hash
 
-SCHEMA_VERSION = 1
+
+SCHEMA_VERSION = 2
 TOOL_STATUSES = (
     "DRAFT",
     "SANDBOX",
@@ -65,7 +69,84 @@ def ensure_tools_dir(base_dir: str | os.PathLike[str] | None = None) -> Path:
     root = tools_dir(base_dir)
     root.mkdir(parents=True, exist_ok=True)
     (root / "fixtures").mkdir(parents=True, exist_ok=True)
+    for path in covered_tool_ledgers(root).values():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch(exist_ok=True)
+    identity_file = root / "repo_identity.json"
+    if not identity_file.exists():
+        identity = {
+            "aria_tools_contract_version": 2,
+            "bound_repo_hash": None,
+            "bound_repo_root": None,
+            "schema_version": 2,
+        }
+        identity_file.write_text(json.dumps(identity, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        append_tools_governance(root, "tools_root_bootstrapped", {"schema_from": None, "schema_to": 2})
+    update_tools_index(root)
     return root
+
+
+def ensure_tools_binding(
+    base_dir: str | os.PathLike[str] | None = None,
+    *,
+    workspace_root: str | os.PathLike[str] | None = None,
+) -> Path:
+    root = ensure_tools_dir(base_dir)
+    if workspace_root is None:
+        return root
+    repo_root = Path(workspace_root).resolve()
+    identity_file = root / "repo_identity.json"
+    identity = json.loads(identity_file.read_text(encoding="utf-8"))
+    expected_hash = repo_hash(repo_root)
+    if identity.get("bound_repo_hash") in (None, ""):
+        identity["bound_repo_hash"] = expected_hash
+        identity["bound_repo_root"] = str(repo_root)
+        identity["aria_tools_contract_version"] = 2
+        identity["schema_version"] = 2
+        identity_file.write_text(json.dumps(identity, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        append_tools_governance(root, "tools_root_bound", {"bound_repo_hash": expected_hash, "bound_repo_root": str(repo_root)})
+    return root
+
+
+def tools_contract_version(base_dir: str | os.PathLike[str] | None = None) -> int:
+    identity_file = tools_dir(base_dir) / "repo_identity.json"
+    if not identity_file.exists():
+        return 0
+    try:
+        identity = json.loads(identity_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return 0
+    return int(identity.get("aria_tools_contract_version") or identity.get("schema_version") or 1)
+
+
+def require_tools_v2(base_dir: str | os.PathLike[str] | None = None) -> None:
+    if tools_contract_version(base_dir) < 2:
+        raise GovernanceError("tools_migration_required")
+
+
+def covered_tool_ledgers(root: Path) -> dict[str, Path]:
+    return {
+        "runs": root / "runs.jsonl",
+        "health": root / "health.jsonl",
+        "cycles": root / "cycles.jsonl",
+        "governance": root / "governance.jsonl",
+    }
+
+
+def update_tools_index(root: Path) -> None:
+    write_index(root / "integrity_index.json", {}, covered_tool_ledgers(root))
+
+
+def append_tools_governance(
+    base_dir: str | os.PathLike[str] | Path,
+    kind: str,
+    details: dict[str, Any],
+) -> dict[str, Any]:
+    root = Path(base_dir)
+    root.mkdir(parents=True, exist_ok=True)
+    row = append_jsonl(root / "governance.jsonl", governance_event(kind=kind, details=details))
+    update_tools_index(root)
+    return row
 
 
 def load_registry(base_dir: str | os.PathLike[str] | None = None) -> dict[str, Any]:
@@ -147,6 +228,8 @@ def validate_runner_definition(runner: Any) -> dict[str, Any]:
         raise GovernanceError("runner.argv must be a non-empty array")
     if not all(isinstance(part, str) and part.strip() for part in argv):
         raise GovernanceError("runner.argv must contain only non-empty strings")
+    if len(argv) >= 2 and argv[0] == "npx" and argv[1] == "ts-node":
+        candidate["argv"] = ["node", "./node_modules/ts-node/dist/bin.js", *argv[2:]]
     cwd = candidate.get("cwd")
     if not isinstance(cwd, str) or not cwd.strip():
         raise GovernanceError("runner.cwd must be a non-empty string")

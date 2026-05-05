@@ -1,0 +1,25 @@
+{
+  "added_paths": [],
+  "baseline": true,
+  "changed_paths": [],
+  "cycle_id": "manual-2026-05-04-snowball-final-check",
+  "fingerprint_delta": {
+    "adr_count": 0,
+    "migration_count": 0,
+    "platform_lib_count": 0,
+    "service_count": 0,
+    "shared_lib_count": 0,
+    "tracked_file_count": 0,
+    "web_module_count": 0
+  },
+  "generated_at": "2026-05-04T07:33:31+00:00",
+  "previous_cycle_id": null,
+  "removed_paths": [],
+  "schema_version": 1,
+  "summary": {
+    "added_count": 0,
+    "changed_count": 0,
+    "removed_count": 0,
+    "tracked_file_count": 7058
+  }
+}

@@ -1307,20 +1307,9 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      # NATS MUST be healthy before observability starts — NatsEventBus.onModuleInit
-      # throws (and crashes the process) if the broker isn't accepting TLS handshakes.
-      # Adding the healthy-gate prevents a restart-loop race where observability boots
-      # seconds before nats finishes loading certs.
-      nats:
-        condition: service_healthy
       # WS10: ADR-016 Phase E Phase 1 — schema pre-applied by aqua-db-migrate.
       db-migrate:
         condition: service_completed_successfully
-    volumes:
-      # Per-service mTLS client cert + CA bundle — cert CN `observability_service`
-      # is the NATS user identity (verify_and_map in nats.conf).
-      - *nats-ca-mount
-      - *nats-clients-mount
     # Attached to aqua-internal only — no published ports, not reachable from external network
     networks:
       - aqua-internal

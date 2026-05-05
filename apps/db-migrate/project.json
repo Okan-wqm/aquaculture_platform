@@ -29,13 +29,6 @@
           "apps/db-migrate/**/*.{ts,tsx}"
         ]
       }
-    },
-    "test": {
-      "executor": "@nx/jest:jest",
-      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
-      "options": {
-        "jestConfig": "apps/db-migrate/jest.config.cts"
-      }
     }
   }
 }

@@ -53,35 +53,14 @@
  *   2 — invocation error (missing env var, unreadable configuration,
  *       postgres unreachable).
  */
-// MUST be the FIRST import in the runtime entrypoint. Activates Node's
-// `Reflect.getMetadata()` / `Reflect.defineMetadata()` API used by every
-// class-level decorator (`@TenantFanOut`, `@ExpandContract`, `@MigrationMeta`,
-// `@CompatibleWithAppVersion`) the enterprise-refactor plan ships in Phase 6
-// and later. Without this import, decorator metadata is silently a no-op at
-// runtime — the orchestrator's class-map dispatch (plan v3 R7) would observe
-// empty metadata on every migration class and fall through to a legacy
-// code path, giving the illusion that decorators work while they don't.
-//
-// Plan v3 lists this as CRITICAL kick-off prereq (R29). Every other
-// aqua-* service already imports reflect-metadata from its own main.ts
-// (grep "reflect-metadata" across apps/). aqua-db-migrate was the lone
-// exception because it was born before the plan existed.
-//
-// Safe to land BEFORE any decorator is authored: the import is inert
-// without `Reflect.decorate()` call sites. Prereq-first-deploy pattern
-// — we deploy this now, the decorators that rely on it ship later
-// phases, the contract is already in place when they do.
-import 'reflect-metadata';
-
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import { parseArgs, type ParsedArgs } from './cli-args';
+import type { DataSourceOptions } from 'typeorm';
+
 import { SCHEMA_REGISTRY } from './schema-registry';
 import {
-  rollbackSchemaMigrations,
   runSchemaMigrations,
-  type RollbackSchemaResult,
   type RunSchemaOptions,
   type RunSchemaResult,
 } from './migration-orchestrator';
@@ -145,15 +124,8 @@ function envOr(name: string, fallback: string): string {
  * used by every backend service (DATABASE_SSL / DATABASE_SSL_CA /
  * DATABASE_SSL_REJECT_UNAUTHORIZED). Default: disabled, to match the
  * local-dev compose.
- *
- * Return type binds to the consumer (RunSchemaOptions.database.ssl).
- * The previous `DataSourceOptions['ssl']` annotation failed to type-
- * check because DataSourceOptions is a union of every TypeORM driver's
- * connection type, and `ssl` is not a member of every branch — so the
- * property access resolves to never. Tying the annotation to the actual
- * consumer makes the contract explicit and internally consistent.
  */
-function buildSsl(): NonNullable<RunSchemaOptions['database']['ssl']> {
+function buildSsl(): DataSourceOptions['ssl'] {
   const enabled = envOr('DATABASE_SSL', 'false') === 'true';
   if (!enabled) return false;
   const caPath = process.env['DATABASE_SSL_CA'];
@@ -166,27 +138,10 @@ function buildSsl(): NonNullable<RunSchemaOptions['database']['ssl']> {
 }
 
 async function main(): Promise<number> {
-  // Parse CLI flags FIRST — a malformed invocation should fail
-  // before any side effect (env probing, log banner, DB connect).
-  let argv: ParsedArgs;
-  try {
-    argv = parseArgs(process.argv.slice(2));
-  } catch (err: unknown) {
-    log({
-      level: 'error',
-      message: err instanceof Error ? err.message : String(err),
-    });
-    return 2;
-  }
-
-  const rollbackMode = argv.down !== undefined;
   log({
     level: 'info',
-    message: rollbackMode
-      ? `aqua-db-migrate starting (rollback: --down ${argv.down} --schema ${argv.schema})`
-      : 'aqua-db-migrate starting',
+    message: 'aqua-db-migrate starting',
     schemaCount: SCHEMA_REGISTRY.length,
-    rollbackMode,
   });
 
   // Production hard-fail boundary — mirrors
@@ -251,79 +206,15 @@ async function main(): Promise<number> {
     root,
   });
 
-  // ── Rollback path (ORPHAN-020) — --down N --schema <name> ──
-  //
-  // Targets ONE schema registry entry. Tenant fan-out is NOT
-  // invoked on rollback (see rollbackSchemaMigrations docblock).
-  // Operators roll back per-tenant by invoking this CLI against
-  // each tenant schema by name.
-  if (rollbackMode) {
-    const entry = SCHEMA_REGISTRY.find((e) => e.schema === argv.schema);
-    if (entry === undefined) {
-      log({
-        level: 'error',
-        message:
-          `[db-migrate] --schema "${argv.schema}" is not in SCHEMA_REGISTRY. ` +
-          `Valid values: ${SCHEMA_REGISTRY.map((e) => e.schema).join(', ')}`,
-      });
-      return 2;
-    }
-    try {
-      const migrations = entry.migrationsGlob.map((g) => resolve(root, g));
-      const entities = entry.entitiesGlob?.map((g) => resolve(root, g));
-      // Non-null assertion is safe here — rollbackMode is true iff
-      // argv.down !== undefined (parseArgs invariant).
-      const rollbackResult: RollbackSchemaResult =
-        await rollbackSchemaMigrations(
-          {
-            schema: entry.schema,
-            role: entry.role,
-            migrations,
-            ...(entities ? { entities } : {}),
-            database,
-            log,
-          },
-          { count: argv.down as number },
-        );
-      log({
-        level: 'info',
-        message: 'aqua-db-migrate rollback complete',
-        schema: rollbackResult.schema,
-        reverted: rollbackResult.reverted,
-        durationMs: rollbackResult.durationMs,
-      });
-      return 0;
-    } catch (err: unknown) {
-      log({
-        level: 'error',
-        message: 'Schema rollback failed — aborting',
-        schema: entry.schema,
-        service: entry.service,
-        error: err instanceof Error ? err.message : String(err),
-        stack: err instanceof Error ? err.stack : undefined,
-      });
-      return 1;
-    }
-  }
-
   const results: RunSchemaResult[] = [];
   for (const entry of SCHEMA_REGISTRY) {
     try {
       // Resolve each schema's migration glob against the bundle root so
       // the process works regardless of the process.cwd() at invocation.
       const migrations = entry.migrationsGlob.map((g) => resolve(root, g));
-      // Phase H: opt-in entity glob resolution. When the slot declares
-      // `entitiesGlob` in SCHEMA_REGISTRY, the orchestrator loads those
-      // entities so migrations can introspect canonical metadata
-      // (RdbmsSchemaBuilder.log() catch-up sync). Resolved against
-      // bundleRoot like migration globs — TypeORM's loader runs from
-      // its own cwd, so relative paths match zero files.
-      const entities = entry.entitiesGlob?.map((g) => resolve(root, g));
       const result = await runSchemaMigrations({
         schema: entry.schema,
-        role: entry.role,
         migrations,
-        ...(entities ? { entities } : {}),
         database,
         log,
       });

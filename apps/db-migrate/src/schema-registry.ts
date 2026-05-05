@@ -64,7 +64,7 @@
  *
  * # Why a static registry instead of auto-discovery
  *
- * A filesystem glob walk (e.g. `apps/<svc>/src/**\/migrations/*.ts`) would
+ * A filesystem glob walk (e.g. `apps/*\/src/**\/migrations/*.ts`) would
  * look simpler, but it makes ORDERING implicit on directory enumeration
  * order — different filesystems (ext4, xfs, overlayfs) return entries
  * in different orders, and a deploy that worked on a dev box could race
@@ -92,16 +92,6 @@ export interface SchemaRegistryEntry {
   /** PostgreSQL schema name. Must match @Entity schema: option (ADR-011). */
   schema: string;
   /**
-   * Database role that owns this schema. Must match a CREATE ROLE
-   * statement in infrastructure/docker/init-scripts/00-init-schemas.sh.
-   * `scripts/schema-registry/generate-init-schemas.ts` codegen reads
-   * this field to emit the GENERATED CREATE SCHEMA + ALTER OWNER block.
-   *
-   * Omit for `public` (PostgreSQL auto-creates it; owned by the
-   * superuser — no CREATE SCHEMA statement is emitted).
-   */
-  role?: string;
-  /**
    * Glob pattern (RELATIVE TO THIS CONTAINER'S WORKDIR at runtime) pointing
    * at the migration files. Supports both .ts (dev run) and .js (container
    * run) via the `{.ts,.js}` suffix — TypeORM evaluates the appropriate one
@@ -111,38 +101,6 @@ export interface SchemaRegistryEntry {
    * into a predictable path. See `infrastructure/docker/Dockerfile.db-migrate`.
    */
   migrationsGlob: string[];
-  /**
-   * Optional entity file glob(s). When present, the orchestrator loads
-   * these entities into the per-slot DataSource so migrations can derive
-   * DDL from canonical @Entity / @Column metadata (e.g. via
-   * `RdbmsSchemaBuilder.log()` for catch-up sync migrations).
-   *
-   * # Why opt-in
-   *
-   * Default behaviour (undefined) loads NO entities — the DataSource is
-   * migration-only, identical to the pre-Phase-H runtime. Loading entities
-   * adds bundle weight + cold-start cost per slot, so each slot opts in
-   * only when its migrations need entity metadata.
-   *
-   * # Foreign-schema contamination defense
-   *
-   * After load, the orchestrator filters `dataSource.entityMetadatas`
-   * down to entities whose declared `schema` matches this slot's
-   * `schema` field. This rejects cross-schema entities (e.g. admin-api's
-   * read-only billing entities) that would otherwise pollute the
-   * metadata graph and break entity-driven schema-builder migrations.
-   * The rejected list is logged with a warn record so misconfigured
-   * opt-ins are visible in deploy output.
-   *
-   * # tsconfig coupling
-   *
-   * Adding a slot's entitiesGlob ALSO requires extending
-   * `apps/db-migrate/tsconfig.build.json` to include the entity files in
-   * the compiled bundle. The orchestrator imports the compiled `.js`
-   * paths at runtime — if the build doesn't emit them, the dynamic
-   * require fails with MODULE_NOT_FOUND.
-   */
-  entitiesGlob?: string[];
   /**
    * Human-readable rationale for the ordering slot. Logged on first pass
    * so operators reading deploy output see the reasoning without having
@@ -161,7 +119,6 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
   {
     service: 'auth-service',
     schema: 'auth',
-    role: 'auth_service',
     migrationsGlob: [
       'apps/auth-service/src/migrations/*{.ts,.js}',
     ],
@@ -175,7 +132,6 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
   {
     service: 'farm-service',
     schema: 'farm',
-    role: 'farm_service',
     migrationsGlob: [
       'apps/farm-service/src/database/migrations/*{.ts,.js}',
     ],
@@ -186,7 +142,6 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
   {
     service: 'sensor-service',
     schema: 'sensor',
-    role: 'sensor_service',
     migrationsGlob: [
       'apps/sensor-service/src/database/migrations/*{.ts,.js}',
     ],
@@ -199,19 +154,8 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
   {
     service: 'hr-service',
     schema: 'hr',
-    role: 'hr_service',
     migrationsGlob: [
       'apps/hr-service/src/database/migrations/*{.ts,.js}',
-    ],
-    // Phase H opt-in: hr's catch-up migration `SyncHrEntitiesToDb` derives
-    // DDL from `connection.entityMetadatas` via RdbmsSchemaBuilder.log().
-    // Without entitiesGlob the orchestrator's DataSource has zero entity
-    // metadata and the migration aborts (INFRA-CRITICAL-031, root cause
-    // of the 9ff64feb→c1bb0864 revert). Loading hr's entity tree closes
-    // the gap; the post-init filter rejects any non-hr entity to keep
-    // the metadata graph clean.
-    entitiesGlob: [
-      'apps/hr-service/src/**/*.entity.{ts,js}',
     ],
     reason:
       'Schema-per-tenant service. Source-schema migrations clone into ' +
@@ -221,7 +165,6 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
   {
     service: 'messaging-service',
     schema: 'messaging',
-    role: 'messaging_service',
     migrationsGlob: [
       'apps/messaging-service/src/migrations/*{.ts,.js}',
       'apps/messaging-service/src/database/migrations/*{.ts,.js}',
@@ -233,7 +176,6 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
   {
     service: 'hydroponics-service',
     schema: 'hydroponics',
-    role: 'hydroponics_service',
     migrationsGlob: [
       'apps/hydroponics-service/src/database/migrations/*{.ts,.js}',
     ],
@@ -247,7 +189,6 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
   {
     service: 'alert-engine',
     schema: 'alert',
-    role: 'alert_service',
     migrationsGlob: [
       'apps/alert-engine/src/database/migrations/*{.ts,.js}',
     ],
@@ -259,7 +200,6 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
   {
     service: 'billing-service',
     schema: 'billing',
-    role: 'billing_service',
     migrationsGlob: [
       'apps/billing-service/src/database/migrations/*{.ts,.js}',
     ],
@@ -271,7 +211,6 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
   {
     service: 'notification-service',
     schema: 'notification',
-    role: 'notification_service',
     migrationsGlob: [
       'apps/notification-service/src/database/migrations/*{.ts,.js}',
     ],
@@ -282,7 +221,6 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
   {
     service: 'ai-service',
     schema: 'ai',
-    role: 'ai_service',
     migrationsGlob: [
       'apps/ai-service/src/database/migrations/*{.ts,.js}',
     ],
@@ -295,7 +233,6 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
   {
     service: 'admin-api-service',
     schema: 'admin',
-    role: 'admin_service',
     migrationsGlob: [
       'apps/admin-api-service/src/migrations/*{.ts,.js}',
     ],
@@ -306,8 +243,6 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
   {
     service: 'config-service',
     schema: 'public',
-    // No dedicated role — `public` is auto-created by PostgreSQL and
-    // owned by the superuser. config-service connects as POSTGRES_USER.
     migrationsGlob: [
       'apps/config-service/src/database/migrations/*{.ts,.js}',
     ],
@@ -319,7 +254,6 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
   {
     service: 'observability-service',
     schema: 'observability',
-    role: 'observability_service',
     migrationsGlob: [
       // no migrations yet; placeholder for the first migration addition
       'apps/observability-service/src/database/migrations/*{.ts,.js}',
@@ -332,7 +266,6 @@ export const SCHEMA_REGISTRY: readonly SchemaRegistryEntry[] = [
   {
     service: 'event-store-service',
     schema: 'event_store',
-    role: 'event_store_service',
     migrationsGlob: [
       'apps/event-store-service/src/migrations/*{.ts,.js}',
     ],

@@ -22,8 +22,10 @@ import { MigrationLogger } from '@aquaculture/backend-common/database';
  *
  * industry_templates is also in MODULE_SCHEMAS[sensor].referenceDataTables
  * but has no tenantId column — not in the original 14-table RLS scope.
- * Separately tracked — not blocking the current teardown because SET
- * SCHEMA for a non-tenant table is a trivial follow-up.
+ * Separately tracked under the reference-data consolidation plan; not
+ * blocking the current teardown because SET SCHEMA for a non-tenant
+ * table is a trivial follow-up (see ORPHAN-REF-DATA-001 in
+ * docs/reviews/orphan-findings.md).
  *
  * # See farm-service migration 1786000000000 for full architectural
  *   rationale (SET SCHEMA semantics, sequence handling, RLS policy

@@ -16,7 +16,6 @@ import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { listTenantSchemas } from '@aquaculture/backend-common/database';
-import { DateTime } from 'luxon';
 import { NatsEventBus } from '@platform/event-bus';
 import { createBaseEvent } from '@platform/event-contracts';
 import { RecurringTemplate, RecurrenceFrequency } from '../entities/recurring-template.entity';

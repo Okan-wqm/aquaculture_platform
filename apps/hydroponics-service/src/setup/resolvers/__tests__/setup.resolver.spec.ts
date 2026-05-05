@@ -9,9 +9,7 @@
 
 import { Reflector } from '@nestjs/core';
 import { Test, TestingModule } from '@nestjs/testing';
-import { getRepositoryToken } from '@nestjs/typeorm';
-import { ROLES_KEY } from '@aquaculture/backend-common';
-import { HydroponicsConfig } from '../../entities/hydroponics-config.entity';
+import { ROLES_KEY } from '@aquaculture/backend-common/decorators';
 import { SetupResolver } from '../setup.resolver';
 
 describe('SetupResolver', () => {

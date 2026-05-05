@@ -10,8 +10,7 @@ import {
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import * as crypto from 'crypto';
 import { Repository, DataSource } from 'typeorm';
-import { SchemaManagerService, tenantManagerRepo } from '@aquaculture/backend-common/database';
-import { Role } from '@aquaculture/backend-common/decorators';
+import { SchemaManagerService, Role, tenantManagerRepo } from '@platform/backend-common';
 import { IEventBus } from '@platform/event-bus';
 import { UserInvitedEvent, createBaseEvent } from '@platform/event-contracts';
 

@@ -24,7 +24,6 @@ import { DataSource, IsNull } from 'typeorm';
 import DataLoader from 'dataloader';
 import { Tenant, CurrentUser, CurrentUserPayload, Roles, Role } from '@aquaculture/backend-common/decorators';
 import { TenantGuard } from '@aquaculture/backend-common/guards';
-import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 
 // Entities
 import { Channel, ChannelType } from '../entities/channel.entity';

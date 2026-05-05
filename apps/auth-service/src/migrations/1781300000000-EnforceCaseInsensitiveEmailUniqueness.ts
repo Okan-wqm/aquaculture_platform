@@ -44,9 +44,9 @@ import { MigrationLogger } from '@aquaculture/backend-common/database';
  * aborts before any schema change happens. Operators then:
  *
  *   1. Investigate each duplicate pair manually
- *   2. Merge the two accounts (data migration — not performed by this
- *      DDL migration because row-selection requires domain knowledge
- *      about which row to keep and which to retire)
+ *   2. Merge the two accounts (data migration not performed by this
+ *      DDL migration because row-selection requires domain knowledge about
+ *      which row to keep and which to retire)
  *   3. Re-run the migration
  *
  * This is the only safe pattern for introducing a tighter constraint

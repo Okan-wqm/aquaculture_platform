@@ -8,7 +8,7 @@
  */
 import { Resolver, Query, Mutation, Args, ID, Int, ObjectType, Field, GraphQLISODateTime } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
-import { CurrentTenant, CurrentUser, Role, Roles } from '@aquaculture/backend-common/decorators';
+import { CurrentTenant, CurrentUser } from '@aquaculture/backend-common/decorators';
 import { TenantGuard } from '@aquaculture/backend-common/guards';
 import { StandardPaginatedResponse, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import GraphQLJSON from 'graphql-type-json';

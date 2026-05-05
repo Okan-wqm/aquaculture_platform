@@ -30,10 +30,10 @@ import GraphQLJSON from 'graphql-type-json';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, DataSource } from 'typeorm';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
+import { TenantScopedRepository } from '@aquaculture/backend-common/database';
 import { Tenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
 import { RolesGuard } from '@aquaculture/backend-common/guards';
 import { StandardPaginatedResponse } from '@aquaculture/backend-common/pagination';
-import { TenantScopedRepository } from '@aquaculture/backend-common/database';
 import { Feed } from '../../feed/entities/feed.entity';
 import { SubEquipment } from '../../equipment/entities/sub-equipment.entity';
 

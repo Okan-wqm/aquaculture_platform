@@ -18,16 +18,6 @@ import {
 } from '@nestjs/graphql';
 import { Logger, UseInterceptors } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
-import {
-  IsBoolean,
-  IsDate,
-  IsInt,
-  IsOptional,
-  IsString,
-  IsUUID,
-  MaxLength,
-  Min,
-} from 'class-validator';
 import { Tenant, CurrentUser, CurrentUserPayload, Roles, Role } from '@aquaculture/backend-common/decorators';
 
 import { RetentionPolicy } from '../entities/retention-policy.entity';

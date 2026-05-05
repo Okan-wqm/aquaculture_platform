@@ -17,7 +17,7 @@
  */
 import { Resolver, Query, Args, ID } from '@nestjs/graphql';
 import { Logger } from '@nestjs/common';
-import { CurrentTenant, Role, Roles } from '@aquaculture/backend-common/decorators';
+import { CurrentTenant } from '@aquaculture/backend-common/decorators';
 import { AiInsightsService } from './services/ai-insights.service';
 import {
   TankRiskAssessment,

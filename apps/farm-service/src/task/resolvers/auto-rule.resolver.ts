@@ -14,7 +14,7 @@ import {
 } from '@nestjs/graphql';
 import { Logger, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
-import { CurrentTenant, CurrentUser, Role, Roles } from '@aquaculture/backend-common/decorators';
+import { CurrentTenant, CurrentUser } from '@aquaculture/backend-common/decorators';
 import { AutoRule } from '../entities/auto-rule.entity';
 import { AutoRuleService } from '../services/auto-rule.service';
 import { CreateAutoRuleInput } from '../dto/create-auto-rule.dto';

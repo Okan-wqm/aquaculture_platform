@@ -11,11 +11,6 @@ import { join } from 'path';
 import { Request } from 'express';
 import { GraphQLError } from 'graphql';
 import depthLimit from 'graphql-depth-limit';
-import {
-  fieldExtensionsEstimator,
-  getComplexity,
-  simpleEstimator,
-} from 'graphql-query-complexity';
 import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
 import { SourceSchemaBootstrapService } from '@aquaculture/backend-common/database';
 import { TenantGuard, RolesGuard, ServiceIdentityGuard } from '@aquaculture/backend-common/guards';

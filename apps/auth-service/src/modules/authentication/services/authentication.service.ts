@@ -16,7 +16,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { BypassRlsService } from '@aquaculture/backend-common/database';
 import { Role } from '@aquaculture/backend-common/decorators';
 import { requestContextStorage, getRequestContext } from '@aquaculture/backend-common/logging';
-import { TimingSafeService, ISessionManager, ITokenBlacklist, SESSION_MANAGER, TOKEN_BLACKLIST, SecurityEventService } from '@aquaculture/backend-common/security';
+import { TimingSafeService, ISessionManager, ITokenBlacklist, SESSION_MANAGER, TOKEN_BLACKLIST } from '@aquaculture/backend-common/security';
 import { IEventBus } from '@platform/event-bus';
 import { createBaseEvent } from '@platform/event-contracts';
 import { DataSource, Repository } from 'typeorm';

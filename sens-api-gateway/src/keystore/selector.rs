@@ -60,11 +60,11 @@ use std::sync::Arc;
 
 use tracing::{info, warn};
 
-use super::Keystore;
 use super::acceptance::FileBackedAcceptance;
 use super::error::{KeystoreError, KeystoreErrorKind};
 use super::file_backed::{Argon2idParams, FileBackedKeystore};
 use super::tpm_backed::{TpmDevice, TpmKeystore, TpmKeystoreConfig};
+use super::Keystore;
 
 /// Trait abstraction for "construct a TPM device if one is
 /// available on this host". Returns `None` when no TPM is
@@ -75,7 +75,10 @@ use super::tpm_backed::{TpmDevice, TpmKeystore, TpmKeystoreConfig};
 /// (that's `TpmKeystore::open`'s responsibility); it only
 /// ensures device-level reachability.
 pub trait TpmDeviceFactory: Send + Sync + 'static {
-    fn try_create(&self, config: &TpmKeystoreConfig) -> Option<Arc<dyn TpmDevice>>;
+    fn try_create(
+        &self,
+        config: &TpmKeystoreConfig,
+    ) -> Option<Arc<dyn TpmDevice>>;
 }
 
 /// `NullTpmDeviceFactory` — always returns None. Used by
@@ -84,7 +87,10 @@ pub trait TpmDeviceFactory: Send + Sync + 'static {
 pub struct NullTpmDeviceFactory;
 
 impl TpmDeviceFactory for NullTpmDeviceFactory {
-    fn try_create(&self, _config: &TpmKeystoreConfig) -> Option<Arc<dyn TpmDevice>> {
+    fn try_create(
+        &self,
+        _config: &TpmKeystoreConfig,
+    ) -> Option<Arc<dyn TpmDevice>> {
         None
     }
 }
@@ -188,7 +194,9 @@ impl KeystoreSelectorConfig {
         match self.policy {
             FallbackPolicy::TpmOnly => {
                 if self.tpm_config.is_none() {
-                    return Err("policy=TpmOnly requires tpm_config Some".to_string());
+                    return Err(
+                        "policy=TpmOnly requires tpm_config Some".to_string(),
+                    );
                 }
             }
             FallbackPolicy::FileBackedOnly => {
@@ -196,9 +204,11 @@ impl KeystoreSelectorConfig {
             }
             FallbackPolicy::PreferTpmFallbackToFileBackedOnTpmUnavailable => {
                 if self.tpm_config.is_none() {
-                    return Err("policy=PreferTpmFallbackToFileBackedOnTpmUnavailable \
+                    return Err(
+                        "policy=PreferTpmFallbackToFileBackedOnTpmUnavailable \
                          requires tpm_config Some (preferred path unreachable)"
-                        .to_string());
+                            .to_string(),
+                    );
                 }
                 self.require_file_backed_complete(
                     "policy=PreferTpmFallbackToFileBackedOnTpmUnavailable",
@@ -212,9 +222,9 @@ impl KeystoreSelectorConfig {
         }
         // FileBacked params validation (when present).
         if self.file_backed_passphrase_path.is_some() {
-            self.file_backed_argon2_params
-                .validate()
-                .map_err(|e| format!("file_backed_argon2_params invalid: {}", e))?;
+            self.file_backed_argon2_params.validate().map_err(|e| {
+                format!("file_backed_argon2_params invalid: {}", e)
+            })?;
         }
         Ok(())
     }
@@ -227,7 +237,10 @@ impl KeystoreSelectorConfig {
             ));
         }
         if self.file_backed_salt_path.is_none() {
-            return Err(format!("{} requires file_backed_salt_path Some", label));
+            return Err(format!(
+                "{} requires file_backed_salt_path Some",
+                label
+            ));
         }
         if self.file_backed_acceptance.is_none() {
             return Err(format!(
@@ -251,7 +264,10 @@ pub struct KeystoreSelector<'a, F: TpmDeviceFactory> {
 }
 
 impl<'a, F: TpmDeviceFactory> KeystoreSelector<'a, F> {
-    pub fn new(config: KeystoreSelectorConfig, tpm_factory: &'a F) -> Result<Self, KeystoreError> {
+    pub fn new(
+        config: KeystoreSelectorConfig,
+        tpm_factory: &'a F,
+    ) -> Result<Self, KeystoreError> {
         config.validate().map_err(|e| {
             KeystoreError::new(
                 KeystoreErrorKind::Configuration,
@@ -303,18 +319,22 @@ impl<'a, F: TpmDeviceFactory> KeystoreSelector<'a, F> {
     }
 
     fn try_file_backed_strict(self) -> Result<Arc<dyn Keystore>, KeystoreError> {
-        let passphrase = self.config.file_backed_passphrase_path.ok_or_else(|| {
-            KeystoreError::new(
-                KeystoreErrorKind::Configuration,
-                "FileBackedOnly policy but passphrase_path is None \
+        let passphrase = self
+            .config
+            .file_backed_passphrase_path
+            .ok_or_else(|| {
+                KeystoreError::new(
+                    KeystoreErrorKind::Configuration,
+                    "FileBackedOnly policy but passphrase_path is None \
                      (validate() bug?)"
-                    .to_string(),
-            )
-        })?;
+                        .to_string(),
+                )
+            })?;
         let salt = self.config.file_backed_salt_path.ok_or_else(|| {
             KeystoreError::new(
                 KeystoreErrorKind::Configuration,
-                "FileBackedOnly policy but salt_path is None (validate() bug?)".to_string(),
+                "FileBackedOnly policy but salt_path is None (validate() bug?)"
+                    .to_string(),
             )
         })?;
         let acceptance = self.config.file_backed_acceptance.ok_or_else(|| {
@@ -413,7 +433,10 @@ mod tests {
     }
 
     impl TpmDeviceFactory for MockTpmDeviceFactory {
-        fn try_create(&self, _config: &TpmKeystoreConfig) -> Option<Arc<dyn TpmDevice>> {
+        fn try_create(
+            &self,
+            _config: &TpmKeystoreConfig,
+        ) -> Option<Arc<dyn TpmDevice>> {
             let device = if self.pre_provisioned {
                 MockTpmDevice::pre_provisioned(self.master, self.counter)
             } else {
@@ -426,7 +449,10 @@ mod tests {
     /// Always-None factory — simulates "no TPM reachable".
     struct UnreachableTpmDeviceFactory;
     impl TpmDeviceFactory for UnreachableTpmDeviceFactory {
-        fn try_create(&self, _config: &TpmKeystoreConfig) -> Option<Arc<dyn TpmDevice>> {
+        fn try_create(
+            &self,
+            _config: &TpmKeystoreConfig,
+        ) -> Option<Arc<dyn TpmDevice>> {
             None
         }
     }
@@ -485,21 +511,17 @@ mod tests {
     fn fallback_policy_explanation_strings_pinned() {
         // Audit-stable identifiers — operator dashboards key
         // on these.
-        assert!(
-            FallbackPolicy::TpmOnly
-                .policy_explanation()
-                .contains("TPM-only")
-        );
+        assert!(FallbackPolicy::TpmOnly
+            .policy_explanation()
+            .contains("TPM-only"));
         assert!(
             FallbackPolicy::PreferTpmFallbackToFileBackedOnTpmUnavailable
                 .policy_explanation()
                 .contains("Prefer TPM")
         );
-        assert!(
-            FallbackPolicy::FileBackedOnly
-                .policy_explanation()
-                .contains("FileBacked only")
-        );
+        assert!(FallbackPolicy::FileBackedOnly
+            .policy_explanation()
+            .contains("FileBacked only"));
     }
 
     #[test]
@@ -704,8 +726,14 @@ mod tests {
         // MasterUnsealFailed(rollback_detected).
         struct TamperingFactory;
         impl TpmDeviceFactory for TamperingFactory {
-            fn try_create(&self, _: &TpmKeystoreConfig) -> Option<Arc<dyn TpmDevice>> {
-                let dev = MockTpmDevice::pre_provisioned([0u8; 32], NvCounterValue(2));
+            fn try_create(
+                &self,
+                _: &TpmKeystoreConfig,
+            ) -> Option<Arc<dyn TpmDevice>> {
+                let dev = MockTpmDevice::pre_provisioned(
+                    [0u8; 32],
+                    NvCounterValue(2),
+                );
                 dev.force_on_chip_counter(NvCounterValue(9));
                 Some(Arc::new(dev))
             }

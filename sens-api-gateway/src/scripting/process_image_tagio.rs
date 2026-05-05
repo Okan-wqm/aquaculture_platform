@@ -166,7 +166,10 @@ impl TagIo for SnapshotTagIo {
                 if raw > i64::MAX as f64 || raw < i64::MIN as f64 {
                     return Err(TagIoError::Internal {
                         tag: tag_name.to_string(),
-                        reason: format!("value {} out of INT range", raw),
+                        reason: format!(
+                            "value {} out of INT range",
+                            raw
+                        ),
                     });
                 }
                 Ok(StValue::Int(raw as i64))
@@ -174,7 +177,11 @@ impl TagIo for SnapshotTagIo {
         }
     }
 
-    fn write_tag(&self, tag_name: &str, value: StValue) -> Result<(), TagIoError> {
+    fn write_tag(
+        &self,
+        tag_name: &str,
+        value: StValue,
+    ) -> Result<(), TagIoError> {
         // Type match against declared type — Bool/Int/Real
         // must align with the compiler's tag catalog.
         // Unknown tags default to Real.
@@ -239,12 +246,15 @@ pub fn stvalue_to_f64_for_process_image(v: &StValue) -> f64 {
 /// Last-resort default is Real — matches the overwhelming
 /// common aquaculture sensor case (pH, DO, temp, flow,
 /// depth all Real).
-pub fn infer_st_value_type(data_type: &str, io_type: crate::process_image::IoType) -> StValueType {
+pub fn infer_st_value_type(
+    data_type: &str,
+    io_type: crate::process_image::IoType,
+) -> StValueType {
     let lowered = data_type.trim().to_ascii_lowercase();
     match lowered.as_str() {
         "bool" | "boolean" | "bit" => return StValueType::Bool,
-        "int" | "int16" | "int32" | "integer" | "word" | "dword" | "uint" | "uint16" | "uint32"
-        | "sint" | "dint" => return StValueType::Int,
+        "int" | "int16" | "int32" | "integer" | "word" | "dword"
+        | "uint" | "uint16" | "uint32" | "sint" | "dint" => return StValueType::Int,
         "real" | "float" | "float32" | "float64" | "double" | "lreal" => {
             return StValueType::Real;
         }
@@ -342,11 +352,14 @@ pub async fn commit_pending_writes(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use super::super::bytecode::{Bytecode, Opcode};
     use super::super::bytecode_vm::{ScriptVm, VmOutcome};
-    use super::*;
 
-    fn mk_bc(opcodes: Vec<Opcode>, allowed: Vec<String>) -> Bytecode {
+    fn mk_bc(
+        opcodes: Vec<Opcode>,
+        allowed: Vec<String>,
+    ) -> Bytecode {
         Bytecode {
             program_id: "t".into(),
             program_name: "t".into(),
@@ -365,7 +378,10 @@ mod tests {
     fn read_real_tag_returns_real_stvalue() {
         let snap = HashMap::from([("water_temp".to_string(), 22.5)]);
         let io = SnapshotTagIo::new_reals_only(snap);
-        assert_eq!(io.read_tag("water_temp"), Ok(StValue::Real(22.5)));
+        assert_eq!(
+            io.read_tag("water_temp"),
+            Ok(StValue::Real(22.5))
+        );
     }
 
     #[test]
@@ -386,7 +402,8 @@ mod tests {
     #[test]
     fn read_int_tag_returns_int_stvalue() {
         let snap = HashMap::from([("cycle_count".to_string(), 42.0)]);
-        let types = HashMap::from([("cycle_count".to_string(), StValueType::Int)]);
+        let types =
+            HashMap::from([("cycle_count".to_string(), StValueType::Int)]);
         let io = SnapshotTagIo::new(snap, types);
         assert_eq!(io.read_tag("cycle_count"), Ok(StValue::Int(42)));
     }
@@ -431,8 +448,10 @@ mod tests {
     #[test]
     fn write_buffers_into_pending_writes() {
         let io = SnapshotTagIo::new_reals_only(HashMap::new());
-        io.write_tag("feeder_rate", StValue::Real(2.5)).expect("ok");
-        io.write_tag("aerator_pwm", StValue::Real(0.3)).expect("ok");
+        io.write_tag("feeder_rate", StValue::Real(2.5))
+            .expect("ok");
+        io.write_tag("aerator_pwm", StValue::Real(0.3))
+            .expect("ok");
         assert_eq!(io.pending_write_count(), 2);
         let drained = io.drain_pending_writes();
         assert_eq!(drained.len(), 2);
@@ -446,7 +465,9 @@ mod tests {
     #[test]
     fn write_type_mismatch_rejects() {
         let snap = HashMap::new();
-        let types = HashMap::from([("pump_run".to_string(), StValueType::Bool)]);
+        let types = HashMap::from([
+            ("pump_run".to_string(), StValueType::Bool),
+        ]);
         let io = SnapshotTagIo::new(snap, types);
         match io.write_tag("pump_run", StValue::Real(1.0)) {
             Err(TagIoError::TypeMismatch { tag, expected, got }) => {
@@ -461,18 +482,30 @@ mod tests {
 
     #[test]
     fn stvalue_to_f64_for_bool_maps_zero_and_one() {
-        assert_eq!(stvalue_to_f64_for_process_image(&StValue::Bool(false)), 0.0);
-        assert_eq!(stvalue_to_f64_for_process_image(&StValue::Bool(true)), 1.0);
+        assert_eq!(
+            stvalue_to_f64_for_process_image(&StValue::Bool(false)),
+            0.0
+        );
+        assert_eq!(
+            stvalue_to_f64_for_process_image(&StValue::Bool(true)),
+            1.0
+        );
     }
 
     #[test]
     fn stvalue_to_f64_for_int_casts_as_f64() {
-        assert_eq!(stvalue_to_f64_for_process_image(&StValue::Int(42)), 42.0);
+        assert_eq!(
+            stvalue_to_f64_for_process_image(&StValue::Int(42)),
+            42.0
+        );
     }
 
     #[test]
     fn stvalue_to_f64_for_real_passes_through() {
-        assert_eq!(stvalue_to_f64_for_process_image(&StValue::Real(3.14)), 3.14);
+        assert_eq!(
+            stvalue_to_f64_for_process_image(&StValue::Real(3.14)),
+            3.14
+        );
     }
 
     // ====================================================================
@@ -489,12 +522,18 @@ mod tests {
 
     #[test]
     fn infer_bool_from_data_type_string() {
-        assert_eq!(infer_st_value_type("bool", IoType::AI), StValueType::Bool);
+        assert_eq!(
+            infer_st_value_type("bool", IoType::AI),
+            StValueType::Bool
+        );
         assert_eq!(
             infer_st_value_type("BOOLEAN", IoType::AI),
             StValueType::Bool
         );
-        assert_eq!(infer_st_value_type("Bit", IoType::AI), StValueType::Bool);
+        assert_eq!(
+            infer_st_value_type("Bit", IoType::AI),
+            StValueType::Bool
+        );
     }
 
     #[test]
@@ -523,13 +562,22 @@ mod tests {
 
     #[test]
     fn infer_fallback_to_io_type_when_data_type_unrecognized() {
-        assert_eq!(infer_st_value_type("", IoType::DI), StValueType::Bool);
+        assert_eq!(
+            infer_st_value_type("", IoType::DI),
+            StValueType::Bool
+        );
         assert_eq!(
             infer_st_value_type("unknown", IoType::DO),
             StValueType::Bool
         );
-        assert_eq!(infer_st_value_type("", IoType::AI), StValueType::Real);
-        assert_eq!(infer_st_value_type("wibble", IoType::AO), StValueType::Real);
+        assert_eq!(
+            infer_st_value_type("", IoType::AI),
+            StValueType::Real
+        );
+        assert_eq!(
+            infer_st_value_type("wibble", IoType::AO),
+            StValueType::Real
+        );
     }
 
     #[tokio::test]
@@ -611,9 +659,18 @@ mod tests {
         .await;
 
         let catalog = declared_types_from_process_image(&pi).await;
-        assert_eq!(catalog.get("water_temp"), Some(&StValueType::Real));
-        assert_eq!(catalog.get("pump_on"), Some(&StValueType::Bool));
-        assert_eq!(catalog.get("feeder_count"), Some(&StValueType::Int));
+        assert_eq!(
+            catalog.get("water_temp"),
+            Some(&StValueType::Real)
+        );
+        assert_eq!(
+            catalog.get("pump_on"),
+            Some(&StValueType::Bool)
+        );
+        assert_eq!(
+            catalog.get("feeder_count"),
+            Some(&StValueType::Int)
+        );
         assert_eq!(catalog.len(), 3);
     }
 
@@ -701,13 +758,9 @@ mod tests {
                 Opcode::LoadTag {
                     name: "water_temp".into(),
                 },
-                Opcode::PushConst {
-                    value: StValue::Real(5.0),
-                },
+                Opcode::PushConst { value: StValue::Real(5.0) },
                 Opcode::AddReal,
-                Opcode::WriteTag {
-                    name: "setpoint".into(),
-                },
+                Opcode::WriteTag { name: "setpoint".into() },
                 Opcode::Return,
             ],
             vec!["setpoint".into()],
@@ -732,7 +785,8 @@ mod tests {
         // AddReal → 25.0
         // WriteTag(setpoint)  (allowlist includes setpoint)
         // Return
-        let snap = HashMap::from([("water_temp".to_string(), 20.0)]);
+        let snap =
+            HashMap::from([("water_temp".to_string(), 20.0)]);
         let io = SnapshotTagIo::new_reals_only(snap);
 
         let b = mk_bc(
@@ -740,9 +794,7 @@ mod tests {
                 Opcode::LoadTag {
                     name: "water_temp".into(),
                 },
-                Opcode::PushConst {
-                    value: StValue::Real(5.0),
-                },
+                Opcode::PushConst { value: StValue::Real(5.0) },
                 Opcode::AddReal,
                 Opcode::WriteTag {
                     name: "setpoint".into(),

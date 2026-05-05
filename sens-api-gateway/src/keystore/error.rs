@@ -157,6 +157,9 @@ impl fmt::Display for KeyDerivationError {
             Self::HkdfFailure(msg) => {
                 write!(f, "hkdf library failure: {}", msg)
             }
+            Self::HkdfFailure(msg) => {
+                write!(f, "hkdf library failure: {}", msg)
+            }
         }
     }
 }

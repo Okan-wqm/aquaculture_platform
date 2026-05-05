@@ -48,15 +48,6 @@ ignore = [
     "RUSTSEC-2026-0098", # Name constraints for URI names incorrectly accepted
     "RUSTSEC-2026-0099", # Name constraints accepted for wildcard cert asserts
     "RUSTSEC-2026-0049", # CRLs not considered authoritative by Distribution Point
-    # 2026-04-30 / Finding: EDGE-CI-007
-    # Owner: platform-team. Deadline: 2026-07-01.
-    # WHAT: rustls-webpki 0.102.8 can panic while parsing certificate
-    # revocation lists (RUSTSEC-2026-0104).
-    # WHY ACCEPTED TEMPORARILY: crates.io reports rumqttc 0.25.1 as the latest
-    # upstream release on 2026-04-30, so there is no compatible first-party
-    # upgrade yet. This shares the same transitive dependency and mitigation as
-    # EDGE-CI-001; deadline action is fork rumqttc or replace the MQTT client.
-    "RUSTSEC-2026-0104", # Reachable panic in certificate revocation list parsing
 
     # -----------------------------------------------------------------
     # rsa 0.9.10 Marvin Attack (RUSTSEC-2023-0071) — NO UPSTREAM FIX

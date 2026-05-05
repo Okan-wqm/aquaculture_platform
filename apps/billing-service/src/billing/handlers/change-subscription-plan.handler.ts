@@ -12,6 +12,7 @@ import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { NatsEventBus } from '@platform/event-bus';
 import { createBaseEvent, SubscriptionUpdatedEvent } from '@platform/event-contracts';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { Money } from '@aquaculture/backend-common/monetary';
 import { RedisService } from '@aquaculture/backend-common/redis';
 import { ChangeSubscriptionPlanCommand } from '../commands/change-subscription-plan.command';

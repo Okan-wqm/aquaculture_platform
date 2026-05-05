@@ -63,7 +63,7 @@ pub use chain::{
 
 pub use sink::{AuditHmacKey, AuditSink, AuditSinkError};
 
-pub use verify::{VerifyInput, VerifyOutcome, verify_audit_log};
+pub use verify::{verify_audit_log, VerifyInput, VerifyOutcome};
 
 pub use entry::{
     AuditAction, AuditActor, AuditEntry, AuditEntryCanonicalBytesError, AuditOutcome, AuditPhase,

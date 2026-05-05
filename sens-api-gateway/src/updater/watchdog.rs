@@ -92,7 +92,8 @@ use super::bootloader::BootloaderHandle;
 use super::partition::{PartitionRoll, SlotState};
 use super::partition_store::PartitionStore;
 use crate::audit::{
-    AuditAction, AuditActor, AuditEntry, AuditOutcome, AuditPhase, AuditResource, AuditSink,
+    AuditAction, AuditActor, AuditEntry, AuditOutcome, AuditPhase, AuditResource,
+    AuditSink,
 };
 use crate::authz::permission::TenantId;
 
@@ -122,7 +123,12 @@ impl WatchdogAuditCtx {
         }
     }
 
-    fn emit(&self, phase: AuditPhase, outcome: AuditOutcome, detail: String) {
+    fn emit(
+        &self,
+        phase: AuditPhase,
+        outcome: AuditOutcome,
+        detail: String,
+    ) {
         let Some(sink) = self.sink.as_ref() else {
             return;
         };
@@ -134,7 +140,10 @@ impl WatchdogAuditCtx {
             timestamp_nanos: now.subsec_nanos(),
             correlation_id: format!("watchdog-{}", now.as_nanos()),
             phase,
-            actor: AuditActor::new(format!("system:cold_boot_watchdog:{}", self.device_id)),
+            actor: AuditActor::new(format!(
+                "system:cold_boot_watchdog:{}",
+                self.device_id
+            )),
             tenant: self.tenant,
             policy_version: 0,
             two_person_integrity_verified: false,
@@ -298,10 +307,7 @@ pub fn watchdog_tick(
         Ok(new_state) => {
             error!(
                 "cold-boot watchdog: FIRED — rolled back failed={:?} restored_active={:?} new_state={:?} bootloader_backend={}",
-                failed,
-                restored_active,
-                new_state,
-                bootloader.backend_name()
+                failed, restored_active, new_state, bootloader.backend_name()
             );
 
             // Batch 112 Sprint 6.5: pair software rollback
@@ -473,9 +479,9 @@ pub async fn run_cold_boot_watchdog(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use super::super::bootloader::{BootloaderError, NoopBootloaderHandle};
     use super::super::partition::AbPartition;
-    use super::*;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     fn tmp_store() -> Arc<PartitionStore> {
@@ -513,15 +519,24 @@ mod tests {
     }
 
     impl BootloaderHandle for RecordingBootloader {
-        fn set_next_boot_slot(&self, _slot: AbPartition) -> Result<(), BootloaderError> {
+        fn set_next_boot_slot(
+            &self,
+            _slot: AbPartition,
+        ) -> Result<(), BootloaderError> {
             Ok(())
         }
 
-        fn clear_pending_boot(&self, _slot: AbPartition) -> Result<(), BootloaderError> {
+        fn clear_pending_boot(
+            &self,
+            _slot: AbPartition,
+        ) -> Result<(), BootloaderError> {
             Ok(())
         }
 
-        fn rollback_next_boot(&self, to_slot: AbPartition) -> Result<(), BootloaderError> {
+        fn rollback_next_boot(
+            &self,
+            to_slot: AbPartition,
+        ) -> Result<(), BootloaderError> {
             self.rollback_calls.fetch_add(1, Ordering::SeqCst);
             *self.last_rollback_slot.lock().unwrap() = Some(to_slot);
             if self.fail_rollback.load(Ordering::SeqCst) {
@@ -559,9 +574,7 @@ mod tests {
         let store = tmp_store();
         store
             .apply_roll(
-                PartitionRoll::InitialInstall {
-                    target: AbPartition::A,
-                },
+                PartitionRoll::InitialInstall { target: AbPartition::A },
                 3600, // 1 hour — well in the future
             )
             .expect("install");
@@ -582,9 +595,7 @@ mod tests {
         let store = tmp_store();
         store
             .apply_roll(
-                PartitionRoll::InitialInstall {
-                    target: AbPartition::A,
-                },
+                PartitionRoll::InitialInstall { target: AbPartition::A },
                 0, // already-expired deadline
             )
             .expect("install");
@@ -609,19 +620,12 @@ mod tests {
         let bootloader = RecordingBootloader::new();
         store
             .apply_roll(
-                PartitionRoll::InitialInstall {
-                    target: AbPartition::A,
-                },
+                PartitionRoll::InitialInstall { target: AbPartition::A },
                 3600,
             )
             .expect("install");
         store
-            .apply_roll(
-                PartitionRoll::Confirm {
-                    slot: AbPartition::A,
-                },
-                3600,
-            )
+            .apply_roll(PartitionRoll::Confirm { slot: AbPartition::A }, 3600)
             .expect("confirm");
         store
             .apply_roll(
@@ -670,19 +674,12 @@ mod tests {
         let bootloader = RecordingBootloader::new();
         store
             .apply_roll(
-                PartitionRoll::InitialInstall {
-                    target: AbPartition::A,
-                },
+                PartitionRoll::InitialInstall { target: AbPartition::A },
                 3600,
             )
             .expect("install");
         store
-            .apply_roll(
-                PartitionRoll::Confirm {
-                    slot: AbPartition::A,
-                },
-                3600,
-            )
+            .apply_roll(PartitionRoll::Confirm { slot: AbPartition::A }, 3600)
             .expect("confirm");
         store
             .apply_roll(
@@ -718,7 +715,8 @@ mod tests {
         // Drop sink so the BufWriter flushes before we read.
         drop(sink);
 
-        let log_content = std::fs::read_to_string(&audit_path).expect("read audit log");
+        let log_content =
+            std::fs::read_to_string(&audit_path).expect("read audit log");
         let lines: Vec<&str> = log_content
             .lines()
             .filter(|l| !l.trim().is_empty())
@@ -728,8 +726,8 @@ mod tests {
         let pre_line = lines[0];
         let post_line = lines[1];
         assert!(
-            pre_line.contains("\"action\":\"firmware_deploy_rollback\"")
-                || pre_line.contains("FirmwareDeployRollback"),
+            pre_line.contains("\"action\":\"firmware_deploy_rollback\"") ||
+            pre_line.contains("FirmwareDeployRollback"),
             "pre line should carry firmware_deploy_rollback action; got: {}",
             pre_line
         );
@@ -770,19 +768,12 @@ mod tests {
         let bootloader = RecordingBootloader::new();
         store
             .apply_roll(
-                PartitionRoll::InitialInstall {
-                    target: AbPartition::A,
-                },
+                PartitionRoll::InitialInstall { target: AbPartition::A },
                 3600,
             )
             .expect("install");
         store
-            .apply_roll(
-                PartitionRoll::Confirm {
-                    slot: AbPartition::A,
-                },
-                3600,
-            )
+            .apply_roll(PartitionRoll::Confirm { slot: AbPartition::A }, 3600)
             .expect("confirm");
         store
             .apply_roll(
@@ -809,7 +800,8 @@ mod tests {
         let hs = HealthState::new();
         if matches!(
             outcome,
-            WatchdogTickOutcome::RolledBack | WatchdogTickOutcome::RolledBackBootloaderFailed
+            WatchdogTickOutcome::RolledBack
+                | WatchdogTickOutcome::RolledBackBootloaderFailed
         ) {
             hs.inc_firmware_rollback();
             if let Ok(snap) = store.snapshot() {
@@ -851,19 +843,12 @@ mod tests {
         let bootloader = RecordingBootloader::new();
         store
             .apply_roll(
-                PartitionRoll::InitialInstall {
-                    target: AbPartition::A,
-                },
+                PartitionRoll::InitialInstall { target: AbPartition::A },
                 3600,
             )
             .expect("install");
         store
-            .apply_roll(
-                PartitionRoll::Confirm {
-                    slot: AbPartition::A,
-                },
-                3600,
-            )
+            .apply_roll(PartitionRoll::Confirm { slot: AbPartition::A }, 3600)
             .expect("confirm");
         store
             .apply_roll(
@@ -893,19 +878,12 @@ mod tests {
         let bootloader = RecordingBootloader::with_rollback_failure();
         store
             .apply_roll(
-                PartitionRoll::InitialInstall {
-                    target: AbPartition::A,
-                },
+                PartitionRoll::InitialInstall { target: AbPartition::A },
                 3600,
             )
             .expect("install");
         store
-            .apply_roll(
-                PartitionRoll::Confirm {
-                    slot: AbPartition::A,
-                },
-                3600,
-            )
+            .apply_roll(PartitionRoll::Confirm { slot: AbPartition::A }, 3600)
             .expect("confirm");
         store
             .apply_roll(
@@ -924,7 +902,10 @@ mod tests {
             &bootloader,
             &WatchdogAuditCtx::disabled("test-dev".into()),
         );
-        assert_eq!(outcome, WatchdogTickOutcome::RolledBackBootloaderFailed);
+        assert_eq!(
+            outcome,
+            WatchdogTickOutcome::RolledBackBootloaderFailed
+        );
 
         // Software state IS rolled back even though hardware
         // side failed — that's the split-brain the outcome

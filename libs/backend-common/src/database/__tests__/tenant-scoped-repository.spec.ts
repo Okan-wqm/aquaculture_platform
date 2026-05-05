@@ -500,7 +500,7 @@ describe('tenantManagerRepo() — factory contract', () => {
     const context: RequestContext = {
       tenantId: contextTenantId,
       userId: 'user-1',
-      correlationId: 'req-1',
+      requestId: 'req-1',
     };
     await requestContextStorage.run(context, async () => {
       const repo = callFactory(explicitTenantId);
@@ -515,7 +515,7 @@ describe('tenantManagerRepo() — factory contract', () => {
     const context: RequestContext = {
       tenantId: contextTenantId,
       userId: 'user-1',
-      correlationId: 'req-1',
+      requestId: 'req-1',
     };
     await requestContextStorage.run(context, async () => {
       const repo = callFactory(); // no explicit

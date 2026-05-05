@@ -73,11 +73,13 @@
 
 use std::fmt;
 
-#[cfg(test)]
-use argon2::password_hash::{PasswordHasher, SaltString};
 use argon2::{
-    Argon2,
     password_hash::{PasswordHash, PasswordVerifier},
+    Argon2,
+};
+#[cfg(test)]
+use argon2::{
+    password_hash::{PasswordHasher, SaltString},
 };
 use secrecy::{ExposeSecret, Secret};
 use unicode_normalization::UnicodeNormalization;
@@ -159,8 +161,10 @@ impl Argon2idHash {
     /// parseable by the `argon2` crate — a malformed string fails
     /// here, not at first verify attempt.
     pub fn from_phc(phc: String) -> Result<Self, UserTokenError> {
-        PasswordHash::new(&phc).map_err(|e| UserTokenError::HashFormatInvalid {
-            reason: format!("{:?}", e),
+        PasswordHash::new(&phc).map_err(|e| {
+            UserTokenError::HashFormatInvalid {
+                reason: format!("{:?}", e),
+            }
         })?;
         Ok(Self(phc))
     }
@@ -171,17 +175,21 @@ impl Argon2idHash {
     /// so unit tests can exercise the verify path without bundling
     /// canned PHC strings that would rot on crate upgrades.
     #[cfg(test)]
-    pub(crate) fn for_test_hash(password: &[u8], salt_b64: &str) -> Result<Self, UserTokenError> {
-        let salt =
-            SaltString::from_b64(salt_b64).map_err(|e| UserTokenError::HashFormatInvalid {
-                reason: format!("salt: {:?}", e),
-            })?;
-        let argon = Argon2::default();
-        let hash = argon.hash_password(password, &salt).map_err(|e| {
+    pub(crate) fn for_test_hash(
+        password: &[u8],
+        salt_b64: &str,
+    ) -> Result<Self, UserTokenError> {
+        let salt = SaltString::from_b64(salt_b64).map_err(|e| {
             UserTokenError::HashFormatInvalid {
-                reason: format!("hash: {:?}", e),
+                reason: format!("salt: {:?}", e),
             }
         })?;
+        let argon = Argon2::default();
+        let hash = argon
+            .hash_password(password, &salt)
+            .map_err(|e| UserTokenError::HashFormatInvalid {
+                reason: format!("hash: {:?}", e),
+            })?;
         Ok(Self(hash.to_string()))
     }
 
@@ -189,8 +197,10 @@ impl Argon2idHash {
     /// `Ok(())` on match, `Err(CredentialMismatch)` on non-match
     /// (constant-time via the argon2 crate's internal compare).
     fn verify(&self, password: &[u8]) -> Result<(), UserTokenError> {
-        let parsed = PasswordHash::new(&self.0).map_err(|e| UserTokenError::HashFormatInvalid {
-            reason: format!("re-parse: {:?}", e),
+        let parsed = PasswordHash::new(&self.0).map_err(|e| {
+            UserTokenError::HashFormatInvalid {
+                reason: format!("re-parse: {:?}", e),
+            }
         })?;
         Argon2::default()
             .verify_password(password, &parsed)
@@ -312,7 +322,10 @@ impl UserTokenEnrollment {
         password: &Secret<Vec<u8>>,
     ) -> Result<OperatorId, UserTokenError> {
         let normalized = NormalizedUsername::from_raw(raw_username)?;
-        let found = self.user_pass.iter().find(|b| b.username == normalized);
+        let found = self
+            .user_pass
+            .iter()
+            .find(|b| b.username == normalized);
         match found {
             Some(binding) => {
                 binding.credential_hash.verify(password.expose_secret())?;
@@ -363,17 +376,18 @@ impl UserTokenEnrollment {
     /// post-verify build step — it trusts the body came from the
     /// verifier and focuses exclusively on typed-newtype validation +
     /// duplicate detection.
-    pub fn from_manifest(manifest: &UserTokenManifest) -> Result<Self, EnrollmentBuildError> {
+    pub fn from_manifest(
+        manifest: &UserTokenManifest,
+    ) -> Result<Self, EnrollmentBuildError> {
         let mut user_pass: Vec<OperatorUserPassBinding> =
             Vec::with_capacity(manifest.user_pass_bindings.len());
 
         for raw in &manifest.user_pass_bindings {
-            let username = NormalizedUsername::from_raw(&raw.username_normalized).map_err(|e| {
-                EnrollmentBuildError::UsernameInvalid {
+            let username = NormalizedUsername::from_raw(&raw.username_normalized)
+                .map_err(|e| EnrollmentBuildError::UsernameInvalid {
                     operator_id: raw.operator_id.clone(),
                     reason: e,
-                }
-            })?;
+                })?;
 
             // Duplicate-normalized-username check — run BEFORE the
             // Argon2id parse (which is the expensive step) so a signer
@@ -385,12 +399,12 @@ impl UserTokenEnrollment {
             }
 
             let credential_hash =
-                Argon2idHash::from_phc(raw.argon2id_phc.clone()).map_err(|e| {
-                    EnrollmentBuildError::HashInvalid {
+                Argon2idHash::from_phc(raw.argon2id_phc.clone()).map_err(
+                    |e| EnrollmentBuildError::HashInvalid {
                         operator_id: raw.operator_id.clone(),
                         reason: e,
-                    }
-                })?;
+                    },
+                )?;
 
             user_pass.push(OperatorUserPassBinding {
                 username,
@@ -403,12 +417,12 @@ impl UserTokenEnrollment {
             Vec::with_capacity(manifest.x509_bindings.len());
 
         for raw in &manifest.x509_bindings {
-            let issuer_cn =
-                MachineIssuerCn::from_verified_cert_cn(raw.issuer_cn.clone()).map_err(|_| {
-                    EnrollmentBuildError::IssuerCnInvalid {
-                        operator_id: raw.operator_id.clone(),
-                    }
-                })?;
+            let issuer_cn = MachineIssuerCn::from_verified_cert_cn(
+                raw.issuer_cn.clone(),
+            )
+            .map_err(|_| EnrollmentBuildError::IssuerCnInvalid {
+                operator_id: raw.operator_id.clone(),
+            })?;
 
             // Duplicate-issuer-CN check — same ambiguity defense as
             // user-pass duplicates; runs before the DER parse.
@@ -419,12 +433,12 @@ impl UserTokenEnrollment {
             }
 
             let trust_anchor =
-                X509CertDer::from_der(raw.trust_anchor_der.clone()).map_err(|e| {
-                    EnrollmentBuildError::TrustAnchorInvalid {
+                X509CertDer::from_der(raw.trust_anchor_der.clone()).map_err(
+                    |e| EnrollmentBuildError::TrustAnchorInvalid {
                         operator_id: raw.operator_id.clone(),
                         reason: e,
-                    }
-                })?;
+                    },
+                )?;
 
             x509.push(MachineIssuerX509Binding {
                 issuer_cn,
@@ -463,25 +477,14 @@ impl UserTokenEnrollment {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UserTokenError {
     UsernameEmpty,
-    UsernameTooShort {
-        got: usize,
-    },
-    UsernameTooLong {
-        got: usize,
-    },
-    HashFormatInvalid {
-        reason: String,
-    },
+    UsernameTooShort { got: usize },
+    UsernameTooLong { got: usize },
+    HashFormatInvalid { reason: String },
     /// Wrong password OR unknown username. The two paths collapse
     /// into one variant by design — username enumeration defence.
     CredentialMismatch,
-    X509DerTooShort {
-        got: usize,
-        min: usize,
-    },
-    X509NotDerSequence {
-        got_prefix: u8,
-    },
+    X509DerTooShort { got: usize, min: usize },
+    X509NotDerSequence { got_prefix: u8 },
     X509IssuerNotEnrolled,
     X509TrustAnchorMismatch,
 }
@@ -491,18 +494,10 @@ impl fmt::Display for UserTokenError {
         match self {
             Self::UsernameEmpty => f.write_str("username empty after normalization"),
             Self::UsernameTooShort { got } => {
-                write!(
-                    f,
-                    "username too short ({} < {} bytes)",
-                    got, MIN_USERNAME_BYTES
-                )
+                write!(f, "username too short ({} < {} bytes)", got, MIN_USERNAME_BYTES)
             }
             Self::UsernameTooLong { got } => {
-                write!(
-                    f,
-                    "username too long ({} > {} bytes)",
-                    got, MAX_USERNAME_BYTES
-                )
+                write!(f, "username too long ({} > {} bytes)", got, MAX_USERNAME_BYTES)
             }
             Self::HashFormatInvalid { reason } => {
                 write!(f, "argon2 hash format invalid: {}", reason)
@@ -572,10 +567,7 @@ pub enum EnrollmentBuildError {
 impl fmt::Display for EnrollmentBuildError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::UsernameInvalid {
-                operator_id,
-                reason,
-            } => {
+            Self::UsernameInvalid { operator_id, reason } => {
                 write!(
                     f,
                     "user_pass_binding_username_invalid (operator_id={:?}): {}",
@@ -583,10 +575,7 @@ impl fmt::Display for EnrollmentBuildError {
                     reason
                 )
             }
-            Self::HashInvalid {
-                operator_id,
-                reason,
-            } => {
+            Self::HashInvalid { operator_id, reason } => {
                 write!(
                     f,
                     "user_pass_binding_hash_invalid (operator_id={:?}): {}",
@@ -595,7 +584,11 @@ impl fmt::Display for EnrollmentBuildError {
                 )
             }
             Self::DuplicateNormalizedUsername { username } => {
-                write!(f, "duplicate_normalized_username (username={})", username)
+                write!(
+                    f,
+                    "duplicate_normalized_username (username={})",
+                    username
+                )
             }
             Self::IssuerCnInvalid { operator_id } => {
                 write!(
@@ -607,10 +600,7 @@ impl fmt::Display for EnrollmentBuildError {
             Self::DuplicateIssuerCn { issuer_cn } => {
                 write!(f, "duplicate_issuer_cn (issuer_cn={})", issuer_cn)
             }
-            Self::TrustAnchorInvalid {
-                operator_id,
-                reason,
-            } => {
+            Self::TrustAnchorInvalid { operator_id, reason } => {
                 write!(
                     f,
                     "x509_binding_trust_anchor_invalid (operator_id={:?}): {}",
@@ -827,10 +817,7 @@ mod tests {
         let pw = Secret::new(b"hunter2".to_vec());
         match e.verify_user_pass("bob", &pw) {
             Err(UserTokenError::CredentialMismatch) => {}
-            other => panic!(
-                "unknown username must yield CredentialMismatch, got {:?}",
-                other
-            ),
+            other => panic!("unknown username must yield CredentialMismatch, got {:?}", other),
         }
     }
 
@@ -943,7 +930,10 @@ mod tests {
                 E::X509DerTooShort { got: 10, min: 128 },
                 "x509 DER too short",
             ),
-            (E::X509NotDerSequence { got_prefix: 0x02 }, "SEQUENCE"),
+            (
+                E::X509NotDerSequence { got_prefix: 0x02 },
+                "SEQUENCE",
+            ),
             (E::X509IssuerNotEnrolled, "not enrolled"),
             (E::X509TrustAnchorMismatch, "trust anchor"),
         ];
@@ -1018,7 +1008,10 @@ mod tests {
 
         // Roundtrip: built enrollment should verify the alice password.
         let op = e
-            .verify_user_pass("alice", &Secret::new(b"pw-alice".to_vec()))
+            .verify_user_pass(
+                "alice",
+                &Secret::new(b"pw-alice".to_vec()),
+            )
             .unwrap();
         assert_eq!(op, canned_operator());
 
@@ -1040,7 +1033,10 @@ mod tests {
 
         // Every auth attempt against an empty enrollment must fail
         // with CredentialMismatch.
-        let r = e.verify_user_pass("alice", &Secret::new(b"pw-alice".to_vec()));
+        let r = e.verify_user_pass(
+            "alice",
+            &Secret::new(b"pw-alice".to_vec()),
+        );
         assert_eq!(r, Err(UserTokenError::CredentialMismatch));
     }
 
@@ -1067,7 +1063,8 @@ mod tests {
         m.user_pass_bindings[0].username_normalized = "a".repeat(200);
         let err = UserTokenEnrollment::from_manifest(&m).unwrap_err();
         match err {
-            EnrollmentBuildError::UsernameInvalid { reason, .. } => match reason {
+            EnrollmentBuildError::UsernameInvalid { reason, .. } => match reason
+            {
                 UserTokenError::UsernameTooLong { got } => {
                     assert_eq!(got, 200);
                 }
@@ -1182,12 +1179,14 @@ mod tests {
         m.x509_bindings[0].trust_anchor_der = canned_der(0x30, 64);
         let err = UserTokenEnrollment::from_manifest(&m).unwrap_err();
         match err {
-            EnrollmentBuildError::TrustAnchorInvalid { reason, .. } => match reason {
-                UserTokenError::X509DerTooShort { got, .. } => {
-                    assert_eq!(got, 64);
+            EnrollmentBuildError::TrustAnchorInvalid { reason, .. } => {
+                match reason {
+                    UserTokenError::X509DerTooShort { got, .. } => {
+                        assert_eq!(got, 64);
+                    }
+                    other => panic!("wrong inner reason: {:?}", other),
                 }
-                other => panic!("wrong inner reason: {:?}", other),
-            },
+            }
             other => panic!("wrong variant: {:?}", other),
         }
     }
@@ -1249,8 +1248,11 @@ mod tests {
             other_operator()
         );
         assert_eq!(
-            e.resolve_x509(&canned_cn("ignition-hmi-01"), &canned_der(0x30, 256))
-                .unwrap(),
+            e.resolve_x509(
+                &canned_cn("ignition-hmi-01"),
+                &canned_der(0x30, 256)
+            )
+            .unwrap(),
             other_operator()
         );
         assert_eq!(

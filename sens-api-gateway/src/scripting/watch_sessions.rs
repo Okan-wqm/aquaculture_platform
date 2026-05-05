@@ -125,25 +125,21 @@ pub enum WatchError {
 impl std::fmt::Display for WatchError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::IntervalTooShort {
-                requested_ms,
-                floor_ms,
-            } => write!(
+            Self::IntervalTooShort { requested_ms, floor_ms } => write!(
                 f,
                 "watch: interval {} ms below floor {} ms",
                 requested_ms, floor_ms
             ),
-            Self::TtlTooLong {
-                requested_secs,
-                cap_secs,
-            } => write!(
+            Self::TtlTooLong { requested_secs, cap_secs } => write!(
                 f,
                 "watch: ttl {} s exceeds cap {} s",
                 requested_secs, cap_secs
             ),
-            Self::TooManyConcurrentSessions { current, cap } => {
-                write!(f, "watch: {} active >= cap {}", current, cap)
-            }
+            Self::TooManyConcurrentSessions { current, cap } => write!(
+                f,
+                "watch: {} active >= cap {}",
+                current, cap
+            ),
             Self::NotFound { session_id } => {
                 write!(f, "watch: session {} not found", session_id)
             }
@@ -217,14 +213,14 @@ impl WatchSessionRegistry {
 
     /// Remove one session. Returns the removed
     /// session for audit.
-    pub async fn unsubscribe(&self, session_id: &Uuid) -> Result<WatchSession, WatchError> {
+    pub async fn unsubscribe(
+        &self,
+        session_id: &Uuid,
+    ) -> Result<WatchSession, WatchError> {
         let mut inner = self.inner.write().await;
-        inner
-            .entries
-            .remove(session_id)
-            .ok_or(WatchError::NotFound {
-                session_id: *session_id,
-            })
+        inner.entries.remove(session_id).ok_or(WatchError::NotFound {
+            session_id: *session_id,
+        })
     }
 
     /// Read-only snapshot of one session.
@@ -234,8 +230,14 @@ impl WatchSessionRegistry {
 
     /// Read-only list of every active session.
     pub async fn list(&self) -> Vec<WatchSession> {
-        let mut entries: Vec<WatchSession> =
-            self.inner.read().await.entries.values().cloned().collect();
+        let mut entries: Vec<WatchSession> = self
+            .inner
+            .read()
+            .await
+            .entries
+            .values()
+            .cloned()
+            .collect();
         entries.sort_by_key(|s| s.created_at);
         entries
     }
@@ -262,7 +264,9 @@ impl WatchSessionRegistry {
         let now_secs = now_ms / 1000;
         let mut inner = self.inner.write().await;
         // Drop expired first.
-        inner.entries.retain(|_, s| s.expires_at_unix > now_secs);
+        inner
+            .entries
+            .retain(|_, s| s.expires_at_unix > now_secs);
         inner
             .entries
             .values()
@@ -325,7 +329,11 @@ fn unix_ms_now() -> i64 {
 /// (topic, payload) pairs into a Vec for assertion.
 #[async_trait::async_trait]
 pub trait WatchPublishSink: Send + Sync {
-    async fn publish(&self, topic: &str, payload: Vec<u8>) -> Result<(), String>;
+    async fn publish(
+        &self,
+        topic: &str,
+        payload: Vec<u8>,
+    ) -> Result<(), String>;
 }
 
 /// Publisher summary returned when the task exits.
@@ -398,7 +406,10 @@ pub async fn run_watch_publisher_task(
                         );
                     }
                     None => {
-                        tag_values.insert(tag_name.clone(), serde_json::json!(null));
+                        tag_values.insert(
+                            tag_name.clone(),
+                            serde_json::json!(null),
+                        );
                     }
                 }
             }
@@ -637,7 +648,11 @@ mod tests {
 
     #[async_trait::async_trait]
     impl WatchPublishSink for RecordingSink {
-        async fn publish(&self, topic: &str, payload: Vec<u8>) -> Result<(), String> {
+        async fn publish(
+            &self,
+            topic: &str,
+            payload: Vec<u8>,
+        ) -> Result<(), String> {
             let fail = *self.fail_mode.lock().unwrap();
             if fail {
                 return Err("simulated publish failure".to_string());
@@ -653,12 +668,22 @@ mod tests {
     #[tokio::test]
     async fn publisher_emits_payload_for_due_session() {
         let pi = ProcessImage::new();
-        pi.update_tag_raw("water_temp", 22.5, TagQuality::Good, TagSource::I2c)
-            .await;
+        pi.update_tag_raw(
+            "water_temp",
+            22.5,
+            TagQuality::Good,
+            TagSource::I2c,
+        )
+        .await;
 
         let reg = std::sync::Arc::new(WatchSessionRegistry::new());
         let session_id = reg
-            .subscribe(vec!["water_temp".into()], 500, 60, "operator-alice".into())
+            .subscribe(
+                vec!["water_temp".into()],
+                500,
+                60,
+                "operator-alice".into(),
+            )
             .await
             .expect("ok");
 
@@ -690,7 +715,8 @@ mod tests {
         assert!(!messages.is_empty(), "at least one payload should be sent");
         let (topic, payload) = &messages[0];
         assert!(topic.ends_with(&session_id.to_string()));
-        let parsed: serde_json::Value = serde_json::from_slice(payload).expect("json");
+        let parsed: serde_json::Value =
+            serde_json::from_slice(payload).expect("json");
         assert_eq!(parsed["session_id"], session_id.to_string());
         assert!(parsed["tags"]["water_temp"].is_object());
         assert_eq!(parsed["tags"]["water_temp"]["value"], 22.5);
@@ -701,9 +727,14 @@ mod tests {
         let pi = ProcessImage::new();
         // No tag written.
         let reg = std::sync::Arc::new(WatchSessionRegistry::new());
-        reg.subscribe(vec!["ghost_tag".into()], 200, 60, "op".into())
-            .await
-            .expect("ok");
+        reg.subscribe(
+            vec!["ghost_tag".into()],
+            200,
+            60,
+            "op".into(),
+        )
+        .await
+        .expect("ok");
         let sink = std::sync::Arc::new(RecordingSink::default());
 
         let (tx, rx) = tokio::sync::watch::channel(false);
@@ -728,7 +759,8 @@ mod tests {
 
         let messages = sink.messages.lock().unwrap();
         let (_, payload) = &messages[0];
-        let parsed: serde_json::Value = serde_json::from_slice(payload).expect("json");
+        let parsed: serde_json::Value =
+            serde_json::from_slice(payload).expect("json");
         // Missing tag serializes as null.
         assert!(parsed["tags"]["ghost_tag"].is_null());
     }
@@ -793,10 +825,13 @@ mod tests {
 
         tokio::time::sleep(std::time::Duration::from_millis(30)).await;
         tx.send(true).expect("signal");
-        let summary = tokio::time::timeout(std::time::Duration::from_secs(1), handle)
-            .await
-            .expect("no timeout")
-            .expect("join");
+        let summary = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            handle,
+        )
+        .await
+        .expect("no timeout")
+        .expect("join");
         assert_eq!(summary.sessions_published, 0);
     }
 

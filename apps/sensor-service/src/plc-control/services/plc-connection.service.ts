@@ -454,10 +454,9 @@ export class PlcConnectionService {
   /**
    * Validate OPC UA endpoint URL.
    * Blocks private/loopback IP addresses to prevent SSRF.
-   * Note: only numeric IPs are blocked at this application layer.
-   * Hostname-to-IP resolution is enforced at the network policy /
-   * egress-firewall layer, not via async DNS lookup here — keeping
-   * this validator synchronous and fast.
+   * Note: only numeric IPs are blocked at this layer; hostname-to-IP
+   * resolution is enforced at the network policy / egress-firewall
+   * layer (keeps this validator synchronous).
    */
   private validateEndpointUrl(url: string): void {
     if (!url.startsWith('opc.tcp://')) {

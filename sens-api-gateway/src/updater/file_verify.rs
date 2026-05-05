@@ -82,33 +82,24 @@ pub enum FileVerifyError {
     DigestMismatch { path: PathBuf },
     /// IO error reading the file (permission denied,
     /// unreadable block, etc.).
-    IoError { path: PathBuf, error: String },
+    IoError {
+        path: PathBuf,
+        error: String,
+    },
 }
 
 impl std::fmt::Display for FileVerifyError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::NotFound { path } => write!(f, "file not found: {}", path.display()),
-            Self::PathEscaped { path } => {
-                write!(f, "path escaped manifest root: {}", path.display())
-            }
-            Self::SizeMismatch {
-                path,
-                expected,
-                actual,
-            } => write!(
+            Self::PathEscaped { path } => write!(f, "path escaped manifest root: {}", path.display()),
+            Self::SizeMismatch { path, expected, actual } => write!(
                 f,
                 "size mismatch for {}: expected {} bytes, actual {} bytes",
-                path.display(),
-                expected,
-                actual
+                path.display(), expected, actual
             ),
-            Self::DigestMismatch { path } => {
-                write!(f, "sha256 digest mismatch for {}", path.display())
-            }
-            Self::IoError { path, error } => {
-                write!(f, "io error for {}: {}", path.display(), error)
-            }
+            Self::DigestMismatch { path } => write!(f, "sha256 digest mismatch for {}", path.display()),
+            Self::IoError { path, error } => write!(f, "io error for {}: {}", path.display(), error),
         }
     }
 }
@@ -196,12 +187,10 @@ pub fn verify_file_against_entry(
     let mut hasher = Sha256::new();
     let mut buf = vec![0u8; STREAM_CHUNK_BYTES];
     loop {
-        let n = reader
-            .read(&mut buf)
-            .map_err(|e| FileVerifyError::IoError {
-                path: resolved.clone(),
-                error: format!("read: {}", e),
-            })?;
+        let n = reader.read(&mut buf).map_err(|e| FileVerifyError::IoError {
+            path: resolved.clone(),
+            error: format!("read: {}", e),
+        })?;
         if n == 0 {
             break;
         }
@@ -244,7 +233,10 @@ impl BatchVerifyReport {
 /// checking `all_ok()` + rejecting the apply when any
 /// file failed. Fail-closed discipline: a single failure
 /// is sufficient to abort.
-pub fn verify_all_files(manifest_root: &Path, manifest: &FirmwareManifest) -> BatchVerifyReport {
+pub fn verify_all_files(
+    manifest_root: &Path,
+    manifest: &FirmwareManifest,
+) -> BatchVerifyReport {
     let mut verified = 0usize;
     let mut failed = Vec::new();
     for entry in &manifest.files {
@@ -261,8 +253,8 @@ pub fn verify_all_files(manifest_root: &Path, manifest: &FirmwareManifest) -> Ba
 
 #[cfg(test)]
 mod tests {
-    use super::super::manifest::{FileDigest, Sha256Digest};
     use super::*;
+    use super::super::manifest::{FileDigest, Sha256Digest};
     use sha2::{Digest, Sha256};
     use std::io::Write;
 
@@ -329,14 +321,7 @@ mod tests {
         let (mut entry, _) = write_and_hash(&root, "bin/agent", b"hello");
         entry.digest.size_bytes = 999; // claim wrong size
         let err = verify_file_against_entry(&root, &entry).expect_err("must reject");
-        assert!(matches!(
-            err,
-            FileVerifyError::SizeMismatch {
-                expected: 999,
-                actual: 5,
-                ..
-            }
-        ));
+        assert!(matches!(err, FileVerifyError::SizeMismatch { expected: 999, actual: 5, .. }));
         std::fs::remove_dir_all(&root).ok();
     }
 

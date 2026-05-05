@@ -69,14 +69,14 @@
 //! flag source-compile deploys distinctly (different audit
 //! UX — operators need to see WHICH compile pipeline ran).
 
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use tracing::{info, warn};
 
 use super::CommandHandler;
 use crate::process_image::TagConfig;
-use crate::scripting::bytecode::StValueType;
 use crate::scripting::bytecode_compiler::TagDescriptor;
-use crate::scripting::bytecode_deploy::{DeployError, compile_and_deploy_signed_source};
+use crate::scripting::bytecode::StValueType;
+use crate::scripting::bytecode_deploy::{compile_and_deploy_signed_source, DeployError};
 use crate::scripting::st_source_sig::SignedStSource;
 use crate::security::sanitize_for_log;
 
@@ -99,8 +99,8 @@ fn tag_config_to_descriptor(cfg: &TagConfig) -> TagDescriptor {
     use crate::process_image::IoType;
     let st_type = match cfg.data_type.trim().to_ascii_lowercase().as_str() {
         "bool" | "boolean" => StValueType::Bool,
-        "int" | "int32" | "int16" | "dint" | "uint" | "uint32" | "udint" | "uint16" | "int64"
-        | "lint" | "uint64" | "ulint" => StValueType::Int,
+        "int" | "int32" | "int16" | "dint" | "uint" | "uint32" | "udint"
+        | "uint16" | "int64" | "lint" | "uint64" | "ulint" => StValueType::Int,
         "real" | "lreal" | "double" | "float" => StValueType::Real,
         // Unknown declared types fall back to Real — matches
         // the canonical map_suderra_data_type fallback used
@@ -164,7 +164,10 @@ impl CommandHandler {
                 return (
                     false,
                     json!(null),
-                    Some("deploy_st_source: missing required param `signed_st_source`".to_string()),
+                    Some(
+                        "deploy_st_source: missing required param `signed_st_source`"
+                            .to_string(),
+                    ),
                 );
             }
         };
@@ -215,57 +218,42 @@ impl CommandHandler {
             crate::license::DeployProgramBudget::StProgramCountExceeded { configured, cap } => {
                 warn!(
                     "deploy_st_source rejected: ST program cap (pending={} cap={} tier={})",
-                    configured,
-                    cap,
-                    license.tier.as_str(),
+                    configured, cap, license.tier.as_str(),
                 );
                 return (
                     false,
                     json!(null),
                     Some(format!(
                         "deploy_st_source: license ST program cap reached (pending={} cap={} tier={}) — delete an existing program or upgrade tier",
-                        configured,
-                        cap,
-                        license.tier.as_str(),
+                        configured, cap, license.tier.as_str(),
                     )),
                 );
             }
             crate::license::DeployProgramBudget::FbInstanceCountExceeded { configured, cap } => {
                 warn!(
                     "deploy_st_source rejected: FB instance cap (pending={} cap={} tier={})",
-                    configured,
-                    cap,
-                    license.tier.as_str(),
+                    configured, cap, license.tier.as_str(),
                 );
                 return (
                     false,
                     json!(null),
                     Some(format!(
                         "deploy_st_source: license FB instance cap reached (pending={} cap={} tier={}) — reduce FB usage or upgrade tier",
-                        configured,
-                        cap,
-                        license.tier.as_str(),
+                        configured, cap, license.tier.as_str(),
                     )),
                 );
             }
-            crate::license::DeployProgramBudget::ScanCycleBelowFloor {
-                configured_ms,
-                min_ms,
-            } => {
+            crate::license::DeployProgramBudget::ScanCycleBelowFloor { configured_ms, min_ms } => {
                 warn!(
                     "deploy_st_source rejected: scan_cycle below tier floor (configured_ms={} min_ms={} tier={})",
-                    configured_ms,
-                    min_ms,
-                    license.tier.as_str(),
+                    configured_ms, min_ms, license.tier.as_str(),
                 );
                 return (
                     false,
                     json!(null),
                     Some(format!(
                         "deploy_st_source: scan_cycle_ms ({}) below license min ({}ms) for tier={} — raise scripting.default_scan_cycle_ms or upgrade tier",
-                        configured_ms,
-                        min_ms,
-                        license.tier.as_str(),
+                        configured_ms, min_ms, license.tier.as_str(),
                     )),
                 );
             }
@@ -276,7 +264,10 @@ impl CommandHandler {
         // references; an unresolved tag surfaces as a
         // CompileError at gate 4.
         let tag_configs = pi.get_configs().await;
-        let tags: Vec<TagDescriptor> = tag_configs.iter().map(tag_config_to_descriptor).collect();
+        let tags: Vec<TagDescriptor> = tag_configs
+            .iter()
+            .map(tag_config_to_descriptor)
+            .collect();
 
         // Verify closure — same shape as cmd_deploy_bytecode_program.
         let verify_closure = |msg: &[u8], sig_bytes: &[u8; 64]| {
@@ -355,10 +346,7 @@ impl CommandHandler {
                     DeployError::TenantMismatch { expected, got } => {
                         format!("tenant mismatch (expected={:?}, got={:?})", expected, got)
                     }
-                    DeployError::StSourceParseFailed {
-                        error_count,
-                        first_error,
-                    } => {
+                    DeployError::StSourceParseFailed { error_count, first_error } => {
                         format!(
                             "ST source parse failed ({} error(s); first: {})",
                             error_count,
@@ -374,18 +362,12 @@ impl CommandHandler {
                     // verify_signed_bytecode here). Defensive exhaustive
                     // match catches a future variant addition at
                     // compile time.
-                    DeployError::SignatureInvalid | DeployError::CanonicalEncoding { .. } => {
-                        format!(
-                            "unexpected bytecode-path variant in st-source deploy: {}",
-                            e
-                        )
+                    DeployError::SignatureInvalid
+                    | DeployError::CanonicalEncoding { .. } => {
+                        format!("unexpected bytecode-path variant in st-source deploy: {}", e)
                     }
                 };
-                (
-                    false,
-                    json!(null),
-                    Some(format!("deploy_st_source: {}", reason)),
-                )
+                (false, json!(null), Some(format!("deploy_st_source: {}", reason)))
             }
         }
     }

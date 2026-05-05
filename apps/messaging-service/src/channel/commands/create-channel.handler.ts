@@ -7,8 +7,7 @@ import {
 import { DataSource } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 
-import { runInTenantTransaction } from '@aquaculture/backend-common/database';
-import { withTenantContext } from '@aquaculture/backend-common/context';
+import { TenantScopedRepository } from '@aquaculture/backend-common/database';
 import { OutboxPublisher } from '@platform/outbox';
 import { createBaseEvent } from '@platform/event-contracts';
 import { CreateChannelCommand } from './create-channel.command';
@@ -93,6 +92,29 @@ export class CreateChannelHandler
 
       const dmPairKey = this.channelService.buildDmPairKey(peerIds[0], peerIds[1]);
 
+      // ---------------------------------------------------------------
+      // Check for existing DM (return it instead of creating duplicate).
+      // The DataSource-scoped repo wraps via TenantScopedRepository so
+      // the lookup auto-filters by tenantId — without this wrapper a
+      // dmPairKey collision across tenants would silently return the
+      // wrong tenant's DM (the entity's unique index on dmPairKey is
+      // composite with tenantId; the original raw `where: { dmPairKey }`
+      // relied on the index but did not enforce tenant filtering at the
+      // ORM layer).
+      const channelRepo = TenantScopedRepository.create(this.dataSource, Channel, tenantId);
+      const existingDm = await channelRepo.findOne({
+        where: { dmPairKey },
+        relations: ['members'],
+      });
+
+      if (existingDm) {
+        this.logger.debug(
+          `Returning existing DM channel ${existingDm.id} for pair ${dmPairKey}`,
+        );
+        return existingDm;
+      }
+
+      // Create DM inside transaction
       const dmChannel = await this.createDirectChannel(tenantId, userId, peerIds, dmPairKey);
       this.metricsService.incrementChannelsCreated(tenantId, ChannelType.DIRECT);
       return dmChannel;

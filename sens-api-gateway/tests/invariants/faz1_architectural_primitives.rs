@@ -176,7 +176,9 @@ fn uh_005_simple_node_manager_not_constructed_in_production() {
         .filter(|(_, l)| {
             let trimmed = l.trim_start();
             // Skip comment lines.
-            !trimmed.starts_with("//") && !trimmed.starts_with("///") && !trimmed.starts_with("//!")
+            !trimmed.starts_with("//")
+                && !trimmed.starts_with("///")
+                && !trimmed.starts_with("//!")
         })
         .filter(|(_, l)| l.contains("SimpleNodeManagerImpl::new"))
         .count();

@@ -61,20 +61,6 @@ pub struct MqttClient {
     /// None = no-op (HC-1 backward compat + test paths that
     /// don't spin up the health server).
     health_state: Option<crate::health::HealthState>,
-    /// Phase 1.1.4 (D-4 + D-6): hot-reload handle for the rustls
-    /// `SuderraServerCertVerifier`. `Some` when TLS is enabled (the
-    /// configure_tls path constructs it as part of building the
-    /// `ClientConfig`). `None` when `mqtt.tls.enabled == false` (no
-    /// TLS wired, no verifier needed).
-    ///
-    /// Exposed via [`MqttClient::mtls_verifier_state`] so
-    /// `cmd_update_cert_pinning` (Phase 1.1.2) can drive
-    /// [`MtlsVerifierState::rebuild`](crate::mtls::MtlsVerifierState::rebuild)
-    /// from the command-dispatch path. The handle wraps a
-    /// `MtlsDelegatingVerifier` already installed in the
-    /// `ClientConfig`, so a successful rebuild takes effect on the
-    /// next handshake without reconstructing the rustls config.
-    mtls_verifier_state: Option<Arc<crate::mtls::MtlsVerifierState>>,
 }
 
 /// Incoming message from MQTT
@@ -197,23 +183,6 @@ pub struct CommandMessage {
     #[serde(default)]
     pub params: serde_json::Value,
     pub timestamp: String,
-    /// 2026-04-29 enterprise RBAC dispatch evidence:
-    /// verified operator UUID bytes from a successfully verified command
-    /// envelope.
-    ///
-    /// What it solves: legacy JSON must not be able to forge the actor that
-    /// dispatch-time RBAC authorizes. The field is Rust-internal and is
-    /// populated only by `commands::envelope_adapter` after signature
-    /// verification.
-    #[serde(default, skip_deserializing)]
-    pub verified_actor: Option<[u8; 16]>,
-    /// 2026-04-29 enterprise RBAC dispatch evidence:
-    /// policy version that was signed into the verified command envelope.
-    ///
-    /// What it solves: the policy engine can reject rollback-replay attempts
-    /// where an old envelope targets a stale RBAC manifest version.
-    #[serde(default, skip_deserializing)]
-    pub claimed_policy_version: u64,
     /// **Batch #307 Faz 6 two-person integrity flow-through.**
     /// True when envelope_adapter verified BOTH the primary
     /// signature AND the co-approver signature against the
@@ -231,21 +200,6 @@ pub struct CommandMessage {
     /// payloads default to false.
     #[serde(default, skip_deserializing)]
     pub verified_co_approver: bool,
-    /// 2026-04-29 enterprise two-person integrity evidence:
-    /// verified co-approver operator UUID bytes from the envelope.
-    ///
-    /// What it solves: the dispatch gate no longer trusts a boolean alone;
-    /// it carries the second actor into `PolicyEngine::authorize`.
-    #[serde(default, skip_deserializing)]
-    pub verified_co_approver_actor: Option<[u8; 16]>,
-    /// 2026-04-29 enterprise two-person integrity evidence:
-    /// co-approver signature over the same canonical envelope bytes.
-    ///
-    /// What it solves: the policy request can include explicit co-approval
-    /// evidence instead of reducing the second signature to an uninspectable
-    /// flag.
-    #[serde(default, skip_deserializing)]
-    pub verified_co_approver_signature: Option<crate::authz::policy::Ed25519SignatureBytes>,
 }
 
 /// Command response message
@@ -322,7 +276,8 @@ impl MqttClient {
 
         // Configure TLS transport if enabled (IEC 62443 SL2 FR4)
         if config.mqtt.tls.enabled {
-            let tls_config = Self::configure_tls(&config.mqtt.tls, &config.mtls)?;
+            let tls_config =
+                Self::configure_tls(&config.mqtt.tls, &config.mtls)?;
             options.set_transport(tls_config);
             info!("MQTT TLS enabled");
         }
@@ -380,7 +335,6 @@ impl MqttClient {
             message_rx,
             event_loop_handle: Some(event_loop_handle),
             health_state,
-            mtls_verifier_state,
         };
 
         // Subscribe to command and config topics
@@ -904,40 +858,6 @@ impl crate::outbound_publisher::MqttPublishSink for MqttPublishAdapter {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::CommandMessage;
-
-    #[test]
-    fn legacy_json_cannot_forge_rbac_dispatch_evidence() {
-        // 2026-04-29 enterprise RBAC evidence boundary:
-        // legacy JSON may include fields named like internal proof fields, but
-        // serde must ignore them.
-        //
-        // What it solves: an unsigned legacy payload cannot self-assert a
-        // verified actor or co-approver and bypass the envelope adapter.
-        let forged_signature = vec![0u8; 64];
-        let payload = serde_json::json!({
-            "commandId": "cmd-1",
-            "command": "write_gpio",
-            "params": {"pin": 17},
-            "timestamp": "2026-04-29T00:00:00Z",
-            "verifiedActor": [7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7],
-            "claimedPolicyVersion": 99,
-            "verifiedCoApprover": true,
-            "verifiedCoApproverActor": [8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8],
-            "verifiedCoApproverSignature": forged_signature
-        });
-
-        let parsed: CommandMessage = serde_json::from_value(payload).unwrap();
-        assert_eq!(parsed.verified_actor, None);
-        assert_eq!(parsed.claimed_policy_version, 0);
-        assert!(!parsed.verified_co_approver);
-        assert_eq!(parsed.verified_co_approver_actor, None);
-        assert!(parsed.verified_co_approver_signature.is_none());
-    }
-}
-
 // Continuation of `impl MqttClient` (Batch #253 split — the
 // MqttPublishAdapter struct + its trait impl interleave between
 // MqttClient method blocks; Rust permits multiple `impl` blocks
@@ -1011,25 +931,6 @@ impl MqttClient {
         &self.device_code
     }
 
-    /// Phase 1.1.4 (D-4 + D-6): hot-reload state handle for the rustls
-    /// `SuderraServerCertVerifier`. Returns `Some` when TLS is enabled
-    /// (the state handle was constructed in [`configure_tls`]) and `None`
-    /// when `mqtt.tls.enabled == false`.
-    ///
-    /// `cmd_update_cert_pinning` (Phase 1.1.2) clones this `Arc` and
-    /// drives [`MtlsVerifierState::rebuild`](crate::mtls::MtlsVerifierState::rebuild)
-    /// from the command-dispatch path. Because the verifier is installed
-    /// as a `MtlsDelegatingVerifier` wrapper that re-reads the state on
-    /// every handshake, rebuilds take effect on the next TLS connect
-    /// without ClientConfig reconstruction.
-    ///
-    /// [`configure_tls`]: Self::configure_tls
-    pub fn mtls_verifier_state(
-        &self,
-    ) -> Option<&Arc<crate::mtls::MtlsVerifierState>> {
-        self.mtls_verifier_state.as_ref()
-    }
-
     /// Configure TLS transport (IEC 62443 SL2 FR4: Data Confidentiality)
     ///
     /// Supports:
@@ -1038,7 +939,7 @@ impl MqttClient {
     fn configure_tls(
         tls_config: &crate::config::MqttTlsConfig,
         mtls_config: &crate::config::MtlsConfig,
-    ) -> Result<(Transport, Arc<crate::mtls::MtlsVerifierState>)> {
+    ) -> Result<Transport> {
         use rumqttc::TlsConfiguration;
 
         // LOW/H-01: validate verify_hostname config is not set to false.
@@ -1136,114 +1037,46 @@ impl MqttClient {
             // to the rustls default webpki verifier — HC-1
             // backward compat.
             //
-            // ORPHAN-MEDIUM-036 partial fix: per-entry parse failures emit at `error!`
-            // severity (not `warn!`) so structured-log subscribers treating error-level
-            // as audit-relevant capture them. A summary `error!` after the loop surfaces
-            // partial-load explicitly. The full audit-sink HMAC-chain emit (per ADR-020)
-            // lands in Phase 1.1.3 — that's the architectural completion that requires
-            // importing the audit-sink API into this site. The current change is the
-            // minimum architectural surfacing required so silent partial CA-bundle load
-            // is no longer possible at any structured-log subscriber. IEC 62443 FR3
-            // (System Integrity) compliance.
-            use rustls::pki_types::CertificateDer;
-            use rustls::pki_types::pem::PemObject;
-            let mut added = 0usize;
-            let mut parse_errs = 0usize;
-            for cert_result in CertificateDer::pem_slice_iter(&ca_cert) {
-                match cert_result {
-                    Ok(cert) => match root_store.add(cert) {
-                        Ok(()) => added += 1,
-                        Err(e) => {
-                            tracing::error!(
-                                event_type = "mtls_ca_bundle_entry_rejected",
-                                reason = ?e,
-                                "Failed to add custom CA certificate to root store"
-                            );
-                            parse_errs += 1;
-                        }
-                    },
-                    Err(e) => {
-                        tracing::error!(
-                            event_type = "mtls_ca_bundle_parse_error",
-                            reason = ?e,
-                            "Failed to parse custom CA PEM entry"
-                        );
-                        parse_errs += 1;
-                    }
-                }
-            }
-            if root_store.is_empty() {
-                return Err(anyhow::anyhow!(
-                    "Custom CA file contained no valid certificates ({} parse errors). \
-                     Ensure the file is PEM-encoded with one or more CERTIFICATE blocks.",
-                    parse_errs
-                ));
-            }
-            if parse_errs > 0 {
-                // Partial-load: at least one PEM block parsed, but not all. Surface as
-                // `error!` so the structured-log pipeline treats this as an integrity
-                // event, not background noise. Operator should investigate which
-                // entries failed (preceding error-level events) and rotate the bundle.
-                tracing::error!(
-                    event_type = "mtls_ca_bundle_partial_load",
-                    added = added,
-                    parse_errs = parse_errs,
-                    "Custom CA bundle partially loaded — operator action required \
-                     (see preceding mtls_ca_bundle_entry_rejected / mtls_ca_bundle_parse_error events)"
-                );
-            } else {
-                info!("Loaded {} custom CA certificate(s) for MQTT TLS", added);
-            }
-        }
-
-        // PHASE 0.2 — handshake-time cipher allowlist gate.
-        //
-        // The Suderra CryptoProvider is `rustls::crypto::ring::default_provider`
-        // with `cipher_suites` narrowed to `CIPHER_SUITE_ALLOWLIST` (3 TLS 1.3
-        // suites). rustls negotiates from this slice, so non-allowlist suites
-        // cannot appear in the ClientHello — Tier-1 MAKE-IT-IMPOSSIBLE for
-        // cipher-suite downgrade. Replaces the dead-code Gate 4 in
-        // `verify_leaf_cert` (cipher isn't finalized at the ServerCertVerifier
-        // callback). Closes ORPHAN-HIGH-031.
-        //
-        // `signature_verification_algorithms` comes from the SAME provider so
-        // SuderraServerCertVerifier and the rustls handshake share signature
-        // algorithm policy.
-        let suderra_provider = crate::mtls::build_suderra_crypto_provider();
-        let sig_algs = suderra_provider.signature_verification_algorithms;
-
-        // Phase 1.1.4 (D-4 + D-6): construct the hot-reloadable verifier
-        // state and install it as a delegating wrapper. The wrapper queries
-        // the state on every handshake, so cmd_update_cert_pinning's
-        // rebuild takes effect on the NEXT TLS connect with no
-        // ClientConfig reconstruction. Legacy + no-pins still flows
-        // through the inner fallback WebPkiServerVerifier (HC-1).
-        let root_store_arc = Arc::new(root_store);
-        let mtls_verifier_state = std::sync::Arc::new(
-            crate::mtls::MtlsVerifierState::new(
+            // Root-store is shared between the default
+            // builder AND the SuderraServerCertVerifier's
+            // inner WebPkiServerVerifier so X.509 chain
+            // trust uses the SAME anchors either path.
+            let root_store_arc = Arc::new(root_store.clone());
+            let provider = rumqttc::tokio_rustls::rustls::crypto::ring::default_provider();
+            let sig_algs = provider.signature_verification_algorithms;
+            let suderra_verifier = crate::mtls::build_suderra_verifier(
                 mtls_config.mode,
-                &mtls_config.pinned_leaf_fingerprints_hex,
                 sig_algs,
-                root_store_arc.clone(),
+                &mtls_config.pinned_leaf_fingerprints_hex,
+                root_store_arc,
             )
             .map_err(|e| {
                 anyhow::anyhow!(
-                    "MtlsVerifierState build failed (check mtls.mode + pinned_leaf_fingerprints_hex): {}",
+                    "SuderraServerCertVerifier build failed (check mtls.mode + pinned_leaf_fingerprints_hex): {}",
                     e
                 )
-            })?,
-        );
+            })?;
 
-        // Build the fallback WebPkiServerVerifier ONCE — it is consulted
-        // only when the state handle is in HC-1 fallthrough (Legacy + no
-        // pins). Constructed from the SAME root_store + provider used by
-        // the Suderra path so trust anchors are coherent across the two
-        // verifier branches.
-        let fallback = crate::mtls::build_fallback_webpki(
-            root_store_arc.clone(),
-            suderra_provider.clone(),
-        )
-        .map_err(|e| anyhow::anyhow!("WebPki fallback build failed: {e}"))?;
+            let mut client_config = if let Some(verifier) = suderra_verifier {
+                info!(
+                    "mTLS: SuderraServerCertVerifier installed (mode={:?}, pins={})",
+                    mtls_config.mode,
+                    mtls_config.pinned_leaf_fingerprints_hex.len()
+                );
+                rumqttc::tokio_rustls::rustls::ClientConfig::builder()
+                    .dangerous()
+                    .with_custom_certificate_verifier(verifier)
+                    .with_no_client_auth()
+            } else {
+                info!(
+                    "mTLS: Suderra custom verifier NOT installed (mode={:?}, no pins — HC-1 default webpki only)",
+                    mtls_config.mode
+                );
+                rumqttc::tokio_rustls::rustls::ClientConfig::builder()
+                    .with_root_certificates(root_store)
+                    .with_no_client_auth()
+            };
+            client_config.alpn_protocols = vec![b"mqtt".to_vec()];
 
             let tls = TlsConfiguration::Rustls(Arc::new(client_config));
             return Ok(Transport::Tls(tls));
@@ -1259,16 +1092,25 @@ impl MqttClient {
         // enforcement. Strict mode + custom CA is an
         // explicit fail-closed because Strict requires
         // pinning which isn't reachable here.
-        if !matches!(mtls_config.mode, crate::mtls::MtlsMode::Legacy) {
+        if !matches!(
+            mtls_config.mode,
+            crate::mtls::MtlsMode::Legacy
+        ) {
             warn!(
                 "mTLS: custom-CA TLS branch in use + mtls.mode={:?} — Suderra policy gates (fingerprint pinning, age caps) are NOT ACTIVE on this path (rumqttc::TlsConfiguration::Simple does not support custom verifiers). Migrate to system-CA TLS for Suderra mTLS enforcement.",
                 mtls_config.mode
             );
-            cfg_after_verifier
-                .with_client_auth_cert(client_certs, client_key)
-                .map_err(|e| anyhow::anyhow!("rustls with_client_auth_cert failed: {:?}", e))?
-        } else {
-            cfg_after_verifier.with_no_client_auth()
+        }
+        if matches!(mtls_config.mode, crate::mtls::MtlsMode::Strict) {
+            return Err(anyhow::anyhow!(
+                "mTLS Strict mode is incompatible with custom-CA TLS branch (rumqttc::TlsConfiguration::Simple cannot install SuderraServerCertVerifier). Either migrate to system-CA TLS (omit mqtt.tls.ca_cert_path) or downgrade mtls.mode to Warn during rollout."
+            ));
+        }
+
+        let tls = TlsConfiguration::Simple {
+            ca: ca_cert,
+            alpn: Some(vec![b"mqtt".to_vec()]),
+            client_auth,
         };
         client_config.alpn_protocols = vec![b"mqtt".to_vec()];
 

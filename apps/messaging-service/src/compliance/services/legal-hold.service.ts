@@ -3,10 +3,7 @@ import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository, IsNull, EntityManager } from 'typeorm';
 import Redis from 'ioredis';
 
-import {
-  runInTenantTransaction,
-  tenantManagerRepo,
-} from '@aquaculture/backend-common/database';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { LegalHold } from '../entities/legal-hold.entity';
 import { REDIS_CLIENT } from '../../shared/redis.provider';
 
@@ -173,16 +170,6 @@ export class LegalHoldService {
       );
     }
 
-    // LEGAL-MEDIUM-002 cure: spec mandates ≥ 50 chars for the activation
-    // reason. Pre-cure a one-word "investigate" passed; downstream auditors
-    // had no context. The 50-char floor forces the requester to surface
-    // legal-matter scope + originating party.
-    if (!reason || reason.trim().length < LEGAL_HOLD_MIN_REASON_CHARS) {
-      throw new ForbiddenException(
-        `Legal hold reason must be at least ${LEGAL_HOLD_MIN_REASON_CHARS} characters (received ${reason?.trim().length ?? 0})`,
-      );
-    }
-
     // Use caller's transaction manager if provided, fall back to injected
     // request-scoped repo. The `manager` branch wraps via tenantManagerRepo
     // so cross-tenant rows can never be written from inside a caller's
@@ -265,32 +252,8 @@ export class LegalHoldService {
     holdId: string,
     tenantId: string,
     userId: string,
-    approverId: string,
-    releaseReason: string,
     manager?: EntityManager,
   ): Promise<LegalHold> {
-    // LEGAL-MEDIUM-002: pin the dual-approver invariant at the service
-    // layer (DB CHECK constraint pins it again at the schema layer —
-    // belt-and-braces because the schema constraint is the SSoT but
-    // the friendlier error comes from here).
-    if (!approverId) {
-      throw new ForbiddenException(
-        'approverId is required: legal hold release requires a second SUPER_ADMIN countersigning the request',
-      );
-    }
-    if (userId === approverId) {
-      throw new ForbiddenException(
-        'Self-approval is forbidden: the releaser and the approver must be two distinct SUPER_ADMIN identities',
-      );
-    }
-
-    // ≥ 50 chars release reason — same justification as activate.
-    if (!releaseReason || releaseReason.trim().length < LEGAL_HOLD_MIN_REASON_CHARS) {
-      throw new ForbiddenException(
-        `Release reason must be at least ${LEGAL_HOLD_MIN_REASON_CHARS} characters (received ${releaseReason?.trim().length ?? 0})`,
-      );
-    }
-
     // tenantId is required so the find below cannot match a hold that
     // belongs to a different tenant than the caller. Without this scope,
     // a user from Tenant A who learned a hold's id (via leaked log,

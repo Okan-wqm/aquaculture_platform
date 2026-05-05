@@ -34,7 +34,7 @@
 //! Sprint 6.x hardening target: wrap creds in
 //! `secrecy::Secret<String>` + zeroize-on-drop per ADR-018 §5.
 
-mod catalog;
-mod lifecycle;
-mod status;
 mod upload;
+mod status;
+mod lifecycle;
+mod catalog;

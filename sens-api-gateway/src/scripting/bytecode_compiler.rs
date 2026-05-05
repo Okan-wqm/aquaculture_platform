@@ -183,15 +183,18 @@ impl SymbolTable {
         instance_name: impl Into<String>,
         outputs: HashMap<String, StValueType>,
     ) {
-        self.fb_instance_outputs
-            .insert(instance_name.into(), outputs);
+        self.fb_instance_outputs.insert(instance_name.into(), outputs);
     }
 
     /// Batch 182: look up an FB instance output pin's
     /// declared type. Returns None when either the FB
     /// instance or the named pin is unknown — caller
     /// falls back to the Batch 181 placeholder (Real).
-    pub fn fb_output_type(&self, instance_name: &str, pin_name: &str) -> Option<StValueType> {
+    pub fn fb_output_type(
+        &self,
+        instance_name: &str,
+        pin_name: &str,
+    ) -> Option<StValueType> {
         self.fb_instance_outputs
             .get(instance_name)?
             .get(pin_name)
@@ -206,7 +209,8 @@ impl SymbolTable {
         instance_name: impl Into<String>,
         inputs: HashMap<String, StValueType>,
     ) {
-        self.fb_instance_inputs.insert(instance_name.into(), inputs);
+        self.fb_instance_inputs
+            .insert(instance_name.into(), inputs);
     }
 
     /// Batch 183: look up an FB instance input pin's
@@ -214,7 +218,11 @@ impl SymbolTable {
     /// named pin is not registered — caller skips the
     /// compile-time type check (matches Batch 181
     /// runtime-only behavior for unregistered FBs).
-    pub fn fb_input_type(&self, instance_name: &str, pin_name: &str) -> Option<StValueType> {
+    pub fn fb_input_type(
+        &self,
+        instance_name: &str,
+        pin_name: &str,
+    ) -> Option<StValueType> {
         self.fb_instance_inputs
             .get(instance_name)?
             .get(pin_name)
@@ -258,7 +266,10 @@ pub enum CompileError {
     },
     /// Unary operator received an operand type it
     /// cannot handle (e.g. NOT on Int).
-    UnaryTypeMismatch { op: String, operand: InferredType },
+    UnaryTypeMismatch {
+        op: String,
+        operand: InferredType,
+    },
     /// Expression contains a construct not yet
     /// supported by the Batch 149 compiler. Batches
     /// 150+ extend coverage.
@@ -327,12 +338,18 @@ pub fn compile_expression(
             StValueType::Real,
         )),
         Expression::Variable(name, _span) => {
-            let entry = symbols
-                .get(name)
-                .ok_or_else(|| CompileError::UnknownVariable { name: name.clone() })?;
+            let entry = symbols.get(name).ok_or_else(|| {
+                CompileError::UnknownVariable {
+                    name: name.clone(),
+                }
+            })?;
             let load_op = match entry.kind {
-                SymbolKind::Local { local_index } => Opcode::LoadLocal { index: local_index },
-                SymbolKind::Tag => Opcode::LoadTag { name: name.clone() },
+                SymbolKind::Local { local_index } => {
+                    Opcode::LoadLocal { index: local_index }
+                }
+                SymbolKind::Tag => Opcode::LoadTag {
+                    name: name.clone(),
+                },
             };
             Ok((vec![load_op], entry.declared_type))
         }
@@ -359,12 +376,11 @@ pub fn compile_expression(
         }
         Expression::BinaryOp { left, op, right } => compile_binary_op(left, op, right, symbols),
         Expression::Parenthesized(inner) => compile_expression(inner, symbols),
-        Expression::StringLiteral(_) | Expression::TimeLiteral(_) => {
-            Err(CompileError::Unsupported {
-                what: "string / time literals (future batch adds String/Time StValue variants)"
-                    .to_string(),
-            })
-        }
+        Expression::StringLiteral(_) | Expression::TimeLiteral(_) => Err(
+            CompileError::Unsupported {
+                what: "string / time literals (future batch adds String/Time StValue variants)".to_string(),
+            },
+        ),
         Expression::ArrayAccess { .. } => Err(CompileError::Unsupported {
             what: "array access (future batch)".to_string(),
         }),
@@ -602,7 +618,11 @@ fn compile_stdlib_function_call(
             }
             (expected_t, got_t) => {
                 return Err(CompileError::TypeMismatch {
-                    op: format!("{}(arg {})", name.to_ascii_uppercase(), i + 1),
+                    op: format!(
+                        "{}(arg {})",
+                        name.to_ascii_uppercase(),
+                        i + 1
+                    ),
                     // Map StdlibArgType → StValueType for the
                     // error shape consumers already handle.
                     left: match expected_t {
@@ -807,7 +827,8 @@ pub fn compile_statement(
                 // matches Batch 153 mixed-arithmetic rule.
                 // Only the exact Int→Real direction is
                 // implicit; other mismatches stay errors.
-                if target_entry.declared_type == StValueType::Real && value_type == StValueType::Int
+                if target_entry.declared_type == StValueType::Real
+                    && value_type == StValueType::Int
                 {
                     ops.extend(value_ops);
                     ops.push(Opcode::CastIntToReal);
@@ -892,14 +913,7 @@ pub fn compile_statement(
             body,
             ..
         } => compile_for(
-            variable,
-            from,
-            to,
-            by.as_ref(),
-            body,
-            symbols,
-            ops,
-            loop_stack,
+            variable, from, to, by.as_ref(), body, symbols, ops, loop_stack,
         ),
         Statement::Case {
             expr,
@@ -914,11 +928,7 @@ pub fn compile_statement(
             ops,
             loop_stack,
         ),
-        Statement::FunctionBlockCall {
-            fb_name,
-            assignments,
-            ..
-        } => {
+        Statement::FunctionBlockCall { fb_name, assignments, .. } => {
             // Batch 181 Faz 3: compile the IEC 61131-3
             // `fb_instance(IN1 := expr1, IN2 := expr2);`
             // syntax to a sequence of argument-push
@@ -931,9 +941,11 @@ pub fn compile_statement(
             // pop is the LAST argument; the VM's FbCall
             // handler reverses to match the
             // `input_names` vector.
-            let mut input_names: Vec<String> = Vec::with_capacity(assignments.len());
+            let mut input_names: Vec<String> =
+                Vec::with_capacity(assignments.len());
             for (input_name, value_expr) in assignments {
-                let (value_ops, value_type) = compile_expression(value_expr, symbols)?;
+                let (value_ops, value_type) =
+                    compile_expression(value_expr, symbols)?;
 
                 // Batch 183: compile-time type check
                 // against the registered pin type when
@@ -947,7 +959,8 @@ pub fn compile_statement(
                 let promoted_ops = match symbols.fb_input_type(fb_name, input_name) {
                     Some(expected) if expected == value_type => value_ops,
                     Some(expected)
-                        if expected == StValueType::Real && value_type == StValueType::Int =>
+                        if expected == StValueType::Real
+                            && value_type == StValueType::Int =>
                     {
                         let mut promoted = value_ops;
                         promoted.push(Opcode::CastIntToReal);
@@ -955,7 +968,10 @@ pub fn compile_statement(
                     }
                     Some(expected) => {
                         return Err(CompileError::TypeMismatch {
-                            op: format!("fb-input `{}.{}`", fb_name, input_name),
+                            op: format!(
+                                "fb-input `{}.{}`",
+                                fb_name, input_name
+                            ),
                             left: expected,
                             right: value_type,
                         });
@@ -980,7 +996,8 @@ pub fn compile_statement(
             // tolerate this shape). Batch 155 Faz 3 wires
             // the expression compiler + appends a Pop so
             // the stack stays balanced.
-            let (call_ops, _ret_type) = compile_stdlib_function_call(name, args, symbols)?;
+            let (call_ops, _ret_type) =
+                compile_stdlib_function_call(name, args, symbols)?;
             ops.extend(call_ops);
             ops.push(Opcode::Pop);
             Ok(())
@@ -1172,16 +1189,17 @@ fn compile_for(
     // BY clause gate.
     if by.is_some() {
         return Err(CompileError::Unsupported {
-            what: "FOR … BY clause (batch 163 adds step semantics)".to_string(),
+            what: "FOR … BY clause (batch 163 adds step semantics)"
+                .to_string(),
         });
     }
 
     // Loop variable MUST be a declared Int local.
-    let loop_var_entry = symbols
-        .get(variable)
-        .ok_or_else(|| CompileError::UnknownVariable {
+    let loop_var_entry = symbols.get(variable).ok_or_else(|| {
+        CompileError::UnknownVariable {
             name: variable.to_string(),
-        })?;
+        }
+    })?;
     if loop_var_entry.declared_type != StValueType::Int {
         return Err(CompileError::TypeMismatch {
             op: "for-loop-variable".to_string(),
@@ -1355,7 +1373,10 @@ fn compile_case(
     for (branch_idx, (match_values, _body)) in branches.iter().enumerate() {
         if match_values.is_empty() {
             return Err(CompileError::Unsupported {
-                what: format!("CASE branch {} has no match values", branch_idx),
+                what: format!(
+                    "CASE branch {} has no match values",
+                    branch_idx
+                ),
             });
         }
         for match_expr in match_values {
@@ -1637,14 +1658,18 @@ pub fn compile_program(
 
     for block in &program.var_blocks {
         for decl in &block.declarations {
-            let st_type =
-                data_type_to_st_type(&decl.data_type).ok_or_else(|| CompileError::Unsupported {
+            let st_type = data_type_to_st_type(&decl.data_type).ok_or_else(|| {
+                CompileError::Unsupported {
                     what: format!(
                         "variable `{}` of type {:?} — only BOOL/INT/REAL supported at Batch 150",
                         decl.name, decl.data_type
                     ),
-                })?;
-            symbols.insert(decl.name.clone(), SymbolEntry::local(local_count, st_type));
+                }
+            })?;
+            symbols.insert(
+                decl.name.clone(),
+                SymbolEntry::local(local_count, st_type),
+            );
             if block.retain {
                 // Batch 175: record the local_index
                 // BEFORE incrementing so the VM can
@@ -1738,7 +1763,11 @@ mod tests {
 
     /// Batch 157 helper: construct a tag-kind symbol
     /// entry for read/write compiler tests.
-    fn sym_tag(name: &str, ty: StValueType, writable: bool) -> (String, SymbolEntry) {
+    fn sym_tag(
+        name: &str,
+        ty: StValueType,
+        writable: bool,
+    ) -> (String, SymbolEntry) {
         (name.into(), SymbolEntry::tag(ty, writable))
     }
 
@@ -1757,7 +1786,8 @@ mod tests {
     #[test]
     fn compile_int_literal_emits_push_const_int() {
         let (ops, t) =
-            compile_expression(&Expression::IntLiteral(42), &SymbolTable::new()).expect("ok");
+            compile_expression(&Expression::IntLiteral(42), &SymbolTable::new())
+                .expect("ok");
         assert_eq!(t, StValueType::Int);
         assert_eq!(
             ops,
@@ -1770,21 +1800,20 @@ mod tests {
     #[test]
     fn compile_real_literal_emits_push_const_real() {
         let (ops, t) =
-            compile_expression(&Expression::RealLiteral(3.14), &SymbolTable::new()).expect("ok");
+            compile_expression(&Expression::RealLiteral(3.14), &SymbolTable::new())
+                .expect("ok");
         assert_eq!(t, StValueType::Real);
         assert_eq!(ops.len(), 1);
-        assert!(matches!(
-            ops[0],
-            Opcode::PushConst {
-                value: StValue::Real(_)
-            }
-        ));
+        assert!(matches!(ops[0], Opcode::PushConst { value: StValue::Real(_) }));
     }
 
     #[test]
     fn compile_bool_literal_emits_push_const_bool() {
-        let (ops, t) =
-            compile_expression(&Expression::BoolLiteral(true), &SymbolTable::new()).expect("ok");
+        let (ops, t) = compile_expression(
+            &Expression::BoolLiteral(true),
+            &SymbolTable::new(),
+        )
+        .expect("ok");
         assert_eq!(t, StValueType::Bool);
         assert_eq!(
             ops,
@@ -1801,8 +1830,11 @@ mod tests {
     #[test]
     fn compile_variable_resolves_symbol_and_emits_load_local() {
         let syms = build_symbols(vec![sym("x", 5, StValueType::Int)]);
-        let (ops, t) =
-            compile_expression(&Expression::Variable("x".into(), None), &syms).expect("ok");
+        let (ops, t) = compile_expression(
+            &Expression::Variable("x".into(), None),
+            &syms,
+        )
+        .expect("ok");
         assert_eq!(t, StValueType::Int);
         assert_eq!(ops, vec![Opcode::LoadLocal { index: 5 }]);
     }
@@ -1895,12 +1927,8 @@ mod tests {
         assert_eq!(
             ops,
             vec![
-                Opcode::PushConst {
-                    value: StValue::Int(2)
-                },
-                Opcode::PushConst {
-                    value: StValue::Int(3)
-                },
+                Opcode::PushConst { value: StValue::Int(2) },
+                Opcode::PushConst { value: StValue::Int(3) },
                 Opcode::AddInt,
             ]
         );
@@ -1941,13 +1969,9 @@ mod tests {
         assert_eq!(
             ops,
             vec![
-                Opcode::PushConst {
-                    value: StValue::Int(2)
-                },
+                Opcode::PushConst { value: StValue::Int(2) },
                 Opcode::CastIntToReal,
-                Opcode::PushConst {
-                    value: StValue::Real(3.5)
-                },
+                Opcode::PushConst { value: StValue::Real(3.5) },
                 Opcode::AddReal,
             ]
         );
@@ -1971,12 +1995,8 @@ mod tests {
         assert_eq!(
             ops,
             vec![
-                Opcode::PushConst {
-                    value: StValue::Real(3.5)
-                },
-                Opcode::PushConst {
-                    value: StValue::Int(2)
-                },
+                Opcode::PushConst { value: StValue::Real(3.5) },
+                Opcode::PushConst { value: StValue::Int(2) },
                 Opcode::CastIntToReal,
                 Opcode::AddReal,
             ]
@@ -2105,13 +2125,9 @@ mod tests {
             ops,
             vec![
                 Opcode::LoadLocal { index: 0 },
-                Opcode::PushConst {
-                    value: StValue::Int(1)
-                },
+                Opcode::PushConst { value: StValue::Int(1) },
                 Opcode::AddInt,
-                Opcode::PushConst {
-                    value: StValue::Int(2)
-                },
+                Opcode::PushConst { value: StValue::Int(2) },
                 Opcode::MulInt,
             ]
         );
@@ -2123,8 +2139,11 @@ mod tests {
 
     #[test]
     fn compile_string_literal_is_unsupported() {
-        let err = compile_expression(&Expression::StringLiteral("hi".into()), &SymbolTable::new())
-            .expect_err("unsupported");
+        let err = compile_expression(
+            &Expression::StringLiteral("hi".into()),
+            &SymbolTable::new(),
+        )
+        .expect_err("unsupported");
         assert!(matches!(err, CompileError::Unsupported { .. }));
     }
 
@@ -2146,9 +2165,7 @@ mod tests {
         assert_eq!(
             ops,
             vec![
-                Opcode::PushConst {
-                    value: StValue::Int(-7)
-                },
+                Opcode::PushConst { value: StValue::Int(-7) },
                 Opcode::StdlibCall {
                     fn_id: super::super::bytecode::StdlibFunctionId::AbsInt,
                 },
@@ -2309,7 +2326,10 @@ mod tests {
         let err = compile_expression(
             &Expression::FunctionCall {
                 name: "SQRT".into(),
-                args: vec![Expression::RealLiteral(1.0), Expression::RealLiteral(2.0)], // SQRT is unary
+                args: vec![
+                    Expression::RealLiteral(1.0),
+                    Expression::RealLiteral(2.0),
+                ], // SQRT is unary
             },
             &SymbolTable::new(),
         )
@@ -2360,7 +2380,8 @@ mod tests {
     #[test]
     fn compile_empty_statement_emits_nothing() {
         let mut ops = vec![];
-        compile_stmt_program_scope(&Statement::Empty, &SymbolTable::new(), &mut ops).expect("ok");
+        compile_stmt_program_scope(&Statement::Empty, &SymbolTable::new(), &mut ops)
+            .expect("ok");
         assert!(ops.is_empty());
     }
 
@@ -2397,9 +2418,7 @@ mod tests {
         assert_eq!(
             ops,
             vec![
-                Opcode::PushConst {
-                    value: StValue::Int(42)
-                },
+                Opcode::PushConst { value: StValue::Int(42) },
                 Opcode::StoreLocal { index: 0 },
             ]
         );
@@ -2476,12 +2495,7 @@ mod tests {
         assert_eq!(ops.len(), 4);
         assert_eq!(ops[0], Opcode::LoadLocal { index: 0 });
         assert!(matches!(ops[1], Opcode::JumpIfFalse { target: 4 }));
-        assert_eq!(
-            ops[2],
-            Opcode::PushConst {
-                value: StValue::Int(1)
-            }
-        );
+        assert_eq!(ops[2], Opcode::PushConst { value: StValue::Int(1) });
         assert_eq!(ops[3], Opcode::StoreLocal { index: 1 });
     }
 
@@ -2582,12 +2596,7 @@ mod tests {
         assert_eq!(ops.len(), 5);
         assert_eq!(ops[0], Opcode::LoadLocal { index: 0 });
         assert!(matches!(ops[1], Opcode::JumpIfFalse { target: 5 }));
-        assert_eq!(
-            ops[2],
-            Opcode::PushConst {
-                value: StValue::Int(1)
-            }
-        );
+        assert_eq!(ops[2], Opcode::PushConst { value: StValue::Int(1) });
         assert_eq!(ops[3], Opcode::StoreLocal { index: 1 });
         assert!(matches!(ops[4], Opcode::Jump { target: 0 }));
     }
@@ -2690,12 +2699,7 @@ mod tests {
         //  3: JumpIfFalse{target=0}    (false → keep looping)
         // [end = 4]
         assert_eq!(ops.len(), 4);
-        assert_eq!(
-            ops[0],
-            Opcode::PushConst {
-                value: StValue::Int(1)
-            }
-        );
+        assert_eq!(ops[0], Opcode::PushConst { value: StValue::Int(1) });
         assert_eq!(ops[1], Opcode::StoreLocal { index: 1 });
         assert_eq!(ops[2], Opcode::LoadLocal { index: 0 });
         assert!(matches!(ops[3], Opcode::JumpIfFalse { target: 0 }));
@@ -2727,12 +2731,7 @@ mod tests {
         assert_eq!(ops.len(), 4);
         assert!(matches!(ops[0], Opcode::Jump { target: 4 }));
         assert!(matches!(ops[1], Opcode::Jump { target: 2 }));
-        assert_eq!(
-            ops[2],
-            Opcode::PushConst {
-                value: StValue::Bool(false)
-            }
-        );
+        assert_eq!(ops[2], Opcode::PushConst { value: StValue::Bool(false) });
         assert!(matches!(ops[3], Opcode::JumpIfFalse { target: 0 }));
     }
 
@@ -2854,7 +2853,10 @@ mod tests {
         assert_eq!(bc.retain_vars.len(), 0);
         // body = PushConst(10), StoreLocal{index=0}, Return
         assert_eq!(bc.opcodes.len(), 3);
-        assert_eq!(bc.opcodes.last().unwrap(), &Opcode::Return);
+        assert_eq!(
+            bc.opcodes.last().unwrap(),
+            &Opcode::Return
+        );
     }
 
     #[test]
@@ -2920,9 +2922,16 @@ mod tests {
 
     #[test]
     fn compile_variable_tag_emits_load_tag() {
-        let syms = build_symbols(vec![sym_tag("water_temp", StValueType::Real, false)]);
-        let (ops, t) = compile_expression(&Expression::Variable("water_temp".into(), None), &syms)
-            .expect("ok");
+        let syms = build_symbols(vec![sym_tag(
+            "water_temp",
+            StValueType::Real,
+            false,
+        )]);
+        let (ops, t) = compile_expression(
+            &Expression::Variable("water_temp".into(), None),
+            &syms,
+        )
+        .expect("ok");
         assert_eq!(t, StValueType::Real);
         assert_eq!(
             ops,
@@ -2934,7 +2943,11 @@ mod tests {
 
     #[test]
     fn compile_assignment_to_writable_tag_emits_write_tag() {
-        let syms = build_symbols(vec![sym_tag("feeder_rate", StValueType::Real, true)]);
+        let syms = build_symbols(vec![sym_tag(
+            "feeder_rate",
+            StValueType::Real,
+            true,
+        )]);
         let mut ops = vec![];
         compile_stmt_program_scope(
             &Statement::Assignment {
@@ -2949,9 +2962,7 @@ mod tests {
         assert_eq!(
             ops,
             vec![
-                Opcode::PushConst {
-                    value: StValue::Real(2.5)
-                },
+                Opcode::PushConst { value: StValue::Real(2.5) },
                 Opcode::WriteTag {
                     name: "feeder_rate".into()
                 },
@@ -2961,7 +2972,11 @@ mod tests {
 
     #[test]
     fn compile_assignment_to_read_only_tag_rejects() {
-        let syms = build_symbols(vec![sym_tag("ph_sensor", StValueType::Real, false)]);
+        let syms = build_symbols(vec![sym_tag(
+            "ph_sensor",
+            StValueType::Real,
+            false,
+        )]);
         let mut ops = vec![];
         let err = compile_stmt_program_scope(
             &Statement::Assignment {
@@ -3083,16 +3098,14 @@ mod tests {
 
         let bc = compile_program(&prog, &tags, "p".into(), 10_000).expect("ok");
         // The assignment must emit StoreLocal, NOT WriteTag.
-        assert!(
-            bc.opcodes
-                .iter()
-                .any(|op| matches!(op, Opcode::StoreLocal { .. }))
-        );
-        assert!(
-            !bc.opcodes
-                .iter()
-                .any(|op| matches!(op, Opcode::WriteTag { .. }))
-        );
+        assert!(bc
+            .opcodes
+            .iter()
+            .any(|op| matches!(op, Opcode::StoreLocal { .. })));
+        assert!(!bc
+            .opcodes
+            .iter()
+            .any(|op| matches!(op, Opcode::WriteTag { .. })));
         // And allowed_write_tags stays empty.
         assert!(bc.allowed_write_tags.is_empty());
     }
@@ -3101,7 +3114,11 @@ mod tests {
     fn compile_assignment_int_literal_to_real_tag_promotes() {
         // feeder_rate: Real (tag writable) := 3  (Int literal)
         // → compiler emits CastIntToReal before WriteTag.
-        let syms = build_symbols(vec![sym_tag("feeder_rate", StValueType::Real, true)]);
+        let syms = build_symbols(vec![sym_tag(
+            "feeder_rate",
+            StValueType::Real,
+            true,
+        )]);
         let mut ops = vec![];
         compile_stmt_program_scope(
             &Statement::Assignment {
@@ -3116,9 +3133,7 @@ mod tests {
         assert_eq!(
             ops,
             vec![
-                Opcode::PushConst {
-                    value: StValue::Int(3)
-                },
+                Opcode::PushConst { value: StValue::Int(3) },
                 Opcode::CastIntToReal,
                 Opcode::WriteTag {
                     name: "feeder_rate".into()
@@ -3135,14 +3150,22 @@ mod tests {
     fn compile_fb_call_emits_push_args_then_fb_call_opcode() {
         // my_timer(IN := flag, PT := 5000);
         // where flag: Bool, 5000 is IntLiteral.
-        let syms = build_symbols(vec![sym("flag", 0, StValueType::Bool)]);
+        let syms = build_symbols(vec![
+            sym("flag", 0, StValueType::Bool),
+        ]);
         let mut ops = vec![];
         compile_stmt_program_scope(
             &Statement::FunctionBlockCall {
                 fb_name: "my_timer".into(),
                 assignments: vec![
-                    ("IN".to_string(), Expression::Variable("flag".into(), None)),
-                    ("PT".to_string(), Expression::IntLiteral(5000)),
+                    (
+                        "IN".to_string(),
+                        Expression::Variable("flag".into(), None),
+                    ),
+                    (
+                        "PT".to_string(),
+                        Expression::IntLiteral(5000),
+                    ),
                 ],
                 span: None,
             },
@@ -3156,16 +3179,14 @@ mod tests {
         //  2: FbCall { fb_id: "my_timer", input_names: [IN, PT] }
         assert_eq!(ops.len(), 3);
         assert_eq!(ops[0], Opcode::LoadLocal { index: 0 });
-        assert_eq!(
-            ops[1],
-            Opcode::PushConst {
-                value: StValue::Int(5000)
-            }
-        );
+        assert_eq!(ops[1], Opcode::PushConst { value: StValue::Int(5000) });
         match &ops[2] {
             Opcode::FbCall { fb_id, input_names } => {
                 assert_eq!(fb_id, "my_timer");
-                assert_eq!(input_names, &vec!["IN".to_string(), "PT".to_string()]);
+                assert_eq!(
+                    input_names,
+                    &vec!["IN".to_string(), "PT".to_string()]
+                );
             }
             other => panic!("expected FbCall, got {:?}", other),
         }
@@ -3200,7 +3221,10 @@ mod tests {
         // my_timer.Q  (as an expression)
         let (ops, t) = compile_expression(
             &Expression::MemberAccess {
-                object: Box::new(Expression::Variable("my_timer".into(), None)),
+                object: Box::new(Expression::Variable(
+                    "my_timer".into(),
+                    None,
+                )),
                 member: "Q".into(),
             },
             &SymbolTable::new(),
@@ -3227,7 +3251,9 @@ mod tests {
         // type-check but we don't have String literals
         // compiled yet. Use an Int argument on a Real
         // pin to check the promotion path.
-        let mut syms = build_symbols(vec![sym("true_flag", 0, StValueType::Bool)]);
+        let mut syms = build_symbols(vec![
+            sym("true_flag", 0, StValueType::Bool),
+        ]);
         let mut inputs = HashMap::new();
         inputs.insert("IN".to_string(), StValueType::Bool);
         inputs.insert("PT".to_string(), StValueType::Real);
@@ -3260,12 +3286,7 @@ mod tests {
         //  3: FbCall { ... }
         assert_eq!(ops.len(), 4);
         assert_eq!(ops[0], Opcode::LoadLocal { index: 0 });
-        assert_eq!(
-            ops[1],
-            Opcode::PushConst {
-                value: StValue::Int(5000)
-            }
-        );
+        assert_eq!(ops[1], Opcode::PushConst { value: StValue::Int(5000) });
         assert_eq!(ops[2], Opcode::CastIntToReal);
         assert!(matches!(ops[3], Opcode::FbCall { .. }));
     }
@@ -3283,7 +3304,10 @@ mod tests {
         let err = compile_stmt_program_scope(
             &Statement::FunctionBlockCall {
                 fb_name: "my_timer".into(),
-                assignments: vec![("IN".to_string(), Expression::IntLiteral(1))],
+                assignments: vec![(
+                    "IN".to_string(),
+                    Expression::IntLiteral(1),
+                )],
                 span: None,
             },
             &syms,
@@ -3301,7 +3325,10 @@ mod tests {
         compile_stmt_program_scope(
             &Statement::FunctionBlockCall {
                 fb_name: "unregistered_fb".into(),
-                assignments: vec![("whatever".to_string(), Expression::IntLiteral(1))],
+                assignments: vec![(
+                    "whatever".to_string(),
+                    Expression::IntLiteral(1),
+                )],
                 span: None,
             },
             &SymbolTable::new(),
@@ -3327,7 +3354,10 @@ mod tests {
         // Q → Bool.
         let (_ops, t_q) = compile_expression(
             &Expression::MemberAccess {
-                object: Box::new(Expression::Variable("my_timer".into(), None)),
+                object: Box::new(Expression::Variable(
+                    "my_timer".into(),
+                    None,
+                )),
                 member: "Q".into(),
             },
             &syms,
@@ -3338,7 +3368,10 @@ mod tests {
         // ET → Int.
         let (_ops, t_et) = compile_expression(
             &Expression::MemberAccess {
-                object: Box::new(Expression::Variable("my_timer".into(), None)),
+                object: Box::new(Expression::Variable(
+                    "my_timer".into(),
+                    None,
+                )),
                 member: "ET".into(),
             },
             &syms,
@@ -3353,7 +3386,10 @@ mod tests {
         // type stays Real (Batch 181 backward-compat).
         let (_ops, t) = compile_expression(
             &Expression::MemberAccess {
-                object: Box::new(Expression::Variable("unknown_fb".into(), None)),
+                object: Box::new(Expression::Variable(
+                    "unknown_fb".into(),
+                    None,
+                )),
                 member: "Q".into(),
             },
             &SymbolTable::new(),
@@ -3373,7 +3409,10 @@ mod tests {
 
         let (_ops, t) = compile_expression(
             &Expression::MemberAccess {
-                object: Box::new(Expression::Variable("my_timer".into(), None)),
+                object: Box::new(Expression::Variable(
+                    "my_timer".into(),
+                    None,
+                )),
                 member: "NotDeclared".into(),
             },
             &syms,
@@ -3398,7 +3437,10 @@ mod tests {
         compile_stmt_program_scope(
             &Statement::If {
                 condition: Expression::MemberAccess {
-                    object: Box::new(Expression::Variable("my_timer".into(), None)),
+                    object: Box::new(Expression::Variable(
+                        "my_timer".into(),
+                        None,
+                    )),
                     member: "Q".into(),
                 },
                 then_body: vec![Statement::Assignment {
@@ -3479,12 +3521,7 @@ mod tests {
         // 12: Jump{target=2}           (back to LOOP_START = ops[2])
         // [end = 13]
         assert_eq!(ops.len(), 13);
-        assert_eq!(
-            ops[0],
-            Opcode::PushConst {
-                value: StValue::Int(1)
-            }
-        );
+        assert_eq!(ops[0], Opcode::PushConst { value: StValue::Int(1) });
         assert_eq!(ops[1], Opcode::StoreLocal { index: 0 });
         assert_eq!(ops[4], Opcode::LtInt);
         assert_eq!(ops[5], Opcode::Not);
@@ -3543,7 +3580,11 @@ mod tests {
 
     #[test]
     fn compile_for_rejects_tag_loop_variable() {
-        let syms = build_symbols(vec![sym_tag("counter_tag", StValueType::Int, true)]);
+        let syms = build_symbols(vec![sym_tag(
+            "counter_tag",
+            StValueType::Int,
+            true,
+        )]);
         let mut ops = vec![];
         let err = compile_stmt_program_scope(
             &Statement::For {
@@ -3728,7 +3769,10 @@ mod tests {
         let err = compile_stmt_program_scope(
             &Statement::Case {
                 expr: Expression::Variable("n".into(), None),
-                branches: vec![(vec![Expression::Variable("n".into(), None)], vec![])],
+                branches: vec![(
+                    vec![Expression::Variable("n".into(), None)],
+                    vec![],
+                )],
                 else_body: None,
                 span: None,
             },

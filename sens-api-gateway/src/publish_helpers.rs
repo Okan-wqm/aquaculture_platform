@@ -41,12 +41,15 @@
 //! crate::publish_helpers::publish_telemetry(&state, metrics).await;
 //! ```
 //!
-//! 2026-04-29 enterprise delivery semantics: every helper now has a checked
-//! variant that returns [`PublishRouteError`].
-//!
-//! What it solves: command responses, alarm events and status transitions can
-//! no longer fail as warn-only side effects. Critical callers use the checked
-//! variants and attach command/domain context to the failure.
+//! Helpers consume `&AppState` (read-only access; no mutation
+//! needed for publish path). They do NOT return `Result` for the
+//! same reason the pre-existing call sites already discarded the
+//! result — a publish failure under the OutboundPublisher path
+//! either means the queue is full (operator-actionable but not
+//! caller-actionable from telemetry hot path) or the broker
+//! rejected (e.g., topic ACL — operator-actionable). In both
+//! cases the caller of `publish_telemetry` cannot do anything
+//! except retry next tick, which the drain task already does.
 
 #![allow(dead_code)]
 
@@ -55,106 +58,52 @@ use tracing::warn;
 
 use crate::offline_queue::MessagePriority;
 
-/// 2026-04-29 enterprise publish error taxonomy.
-///
-/// What it solves: callers can distinguish serialization failure, missing MQTT
-/// wiring, queue/dispatcher failure and legacy transport failure without
-/// parsing log strings.
-#[derive(Debug)]
-pub enum PublishRouteError {
-    Serialize { label: String, reason: String },
-    NoMqttClient { label: String },
-    Outbound { label: String, reason: String },
-    Legacy { label: String, reason: String },
-}
-
-impl std::fmt::Display for PublishRouteError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Serialize { label, reason } => {
-                write!(f, "publish serialize failed for {}: {}", label, reason)
-            }
-            Self::NoMqttClient { label } => {
-                write!(
-                    f,
-                    "publish skipped for {}: mqtt client not initialized",
-                    label
-                )
-            }
-            Self::Outbound { label, reason } => {
-                write!(f, "outbound publish failed for {}: {}", label, reason)
-            }
-            Self::Legacy { label, reason } => {
-                write!(f, "legacy mqtt publish failed for {}: {}", label, reason)
-            }
-        }
-    }
-}
-
-impl std::error::Error for PublishRouteError {}
-
 /// Internal helper: route payload bytes through the dispatcher
 /// when available, falling back to the supplied legacy direct
 /// publish closure when not. Centralizes the Some/None branching
 /// + bytes serialization.
-async fn publish_routed_checked<P: Serialize + ?Sized>(
+async fn publish_routed(
     state: &crate::AppState,
     topic: &str,
-    payload: &P,
-    priority: MessagePriority,
-    qos: u8,
-    retain: bool,
-    legacy_label: &str,
-) -> Result<(), PublishRouteError> {
-    let payload_bytes = match serde_json::to_vec(payload) {
-        Ok(b) => b,
-        Err(e) => {
-            return Err(PublishRouteError::Serialize {
-                label: legacy_label.to_string(),
-                reason: e.to_string(),
-            });
-        }
-    };
-
-    if let Some(ref publisher) = state.outbound_publisher {
-        publisher
-            .publish(topic, &payload_bytes, priority, qos, retain)
-            .await
-            .map(|_| ())
-            .map_err(|e| PublishRouteError::Outbound {
-                label: legacy_label.to_string(),
-                reason: e.to_string(),
-            })?;
-        return Ok(());
-    }
-
-    if let Some(ref mqtt) = state.mqtt_client {
-        return mqtt.publish_raw(topic, &payload_bytes).await.map_err(|e| {
-            PublishRouteError::Legacy {
-                label: legacy_label.to_string(),
-                reason: e.to_string(),
-            }
-        });
-    }
-
-    Err(PublishRouteError::NoMqttClient {
-        label: legacy_label.to_string(),
-    })
-}
-
-async fn publish_routed<P: Serialize + ?Sized>(
-    state: &crate::AppState,
-    topic: &str,
-    payload: &P,
+    payload: &impl Serialize,
     priority: MessagePriority,
     qos: u8,
     retain: bool,
     legacy_label: &str,
 ) {
-    if let Err(e) =
-        publish_routed_checked(state, topic, payload, priority, qos, retain, legacy_label).await
-    {
-        warn!("publish_helpers: {}", e);
+    let payload_bytes = match serde_json::to_vec(payload) {
+        Ok(b) => b,
+        Err(e) => {
+            warn!(
+                "publish_helpers: serialize failed for {}: {}",
+                legacy_label, e
+            );
+            return;
+        }
+    };
+
+    if let Some(ref publisher) = state.outbound_publisher {
+        if let Err(e) = publisher
+            .publish(topic, &payload_bytes, priority, qos, retain)
+            .await
+        {
+            warn!(
+                "publish_helpers: OutboundPublisher.publish({}) failed: {}",
+                legacy_label, e
+            );
+        }
+        return;
+    }
+
+    if let Some(ref mqtt) = state.mqtt_client {
+        if let Err(e) =
+            mqtt.publish_raw(topic, &payload_bytes).await
+        {
+            warn!(
+                "publish_helpers: MqttClient.publish_raw({}) failed: {}",
+                legacy_label, e
+            );
+        }
     }
 }
 
@@ -163,25 +112,15 @@ async fn publish_routed<P: Serialize + ?Sized>(
 /// replays alarms BEFORE telemetry/status/etc. on reconnect —
 /// life-safety hot path (FDA 21 CFR 117.135, EU Machinery
 /// Directive alignment).
-pub async fn publish_alarms(state: &crate::AppState, payload: &impl Serialize) {
-    if let Err(e) = publish_alarms_checked(state, payload).await {
-        warn!("publish_helpers: {}", e);
-    }
-}
-
-pub async fn publish_alarms_checked<P: Serialize + ?Sized>(
+pub async fn publish_alarms(
     state: &crate::AppState,
-    payload: &P,
-) -> Result<(), PublishRouteError> {
+    payload: &impl Serialize,
+) {
     let topic = match state.mqtt_client.as_ref() {
         Some(m) => m.topics().alarms.clone(),
-        None => {
-            return Err(PublishRouteError::NoMqttClient {
-                label: "alarms".to_string(),
-            });
-        }
+        None => return,
     };
-    publish_routed_checked(
+    publish_routed(
         state,
         &topic,
         payload,
@@ -190,31 +129,21 @@ pub async fn publish_alarms_checked<P: Serialize + ?Sized>(
         false,
         "alarms",
     )
-    .await
+    .await;
 }
 
 /// Publish telemetry metrics (CPU/memory/disk, etc.) at
 /// [`MessagePriority::Normal`]. High frequency, observability
 /// data — drains AFTER alarms + status on reconnect.
-pub async fn publish_telemetry<P: Serialize>(state: &crate::AppState, payload: &P) {
-    if let Err(e) = publish_telemetry_checked(state, payload).await {
-        warn!("publish_helpers: {}", e);
-    }
-}
-
-pub async fn publish_telemetry_checked<P: Serialize + ?Sized>(
+pub async fn publish_telemetry<P: Serialize>(
     state: &crate::AppState,
     payload: &P,
-) -> Result<(), PublishRouteError> {
+) {
     let topic = match state.mqtt_client.as_ref() {
         Some(m) => m.topics().telemetry.clone(),
-        None => {
-            return Err(PublishRouteError::NoMqttClient {
-                label: "telemetry".to_string(),
-            });
-        }
+        None => return,
     };
-    publish_routed_checked(
+    publish_routed(
         state,
         &topic,
         payload,
@@ -223,32 +152,22 @@ pub async fn publish_telemetry_checked<P: Serialize + ?Sized>(
         false,
         "telemetry",
     )
-    .await
+    .await;
 }
 
 /// Publish a device-status transition (Online / Offline /
 /// Maintenance / Error) at [`MessagePriority::High`] —
 /// connection lifecycle events that operators + cloud automation
 /// react to (e.g., alerting on stale device).
-pub async fn publish_status<P: Serialize>(state: &crate::AppState, payload: &P) {
-    if let Err(e) = publish_status_checked(state, payload).await {
-        warn!("publish_helpers: {}", e);
-    }
-}
-
-pub async fn publish_status_checked<P: Serialize + ?Sized>(
+pub async fn publish_status<P: Serialize>(
     state: &crate::AppState,
     payload: &P,
-) -> Result<(), PublishRouteError> {
+) {
     let topic = match state.mqtt_client.as_ref() {
         Some(m) => m.topics().status.clone(),
-        None => {
-            return Err(PublishRouteError::NoMqttClient {
-                label: "status".to_string(),
-            });
-        }
+        None => return,
     };
-    publish_routed_checked(
+    publish_routed(
         state,
         &topic,
         payload,
@@ -257,7 +176,7 @@ pub async fn publish_status_checked<P: Serialize + ?Sized>(
         false,
         "status",
     )
-    .await
+    .await;
 }
 
 /// Publish a command-response payload at
@@ -265,25 +184,15 @@ pub async fn publish_status_checked<P: Serialize + ?Sized>(
 /// these by `command_id`; loss during outage breaks the
 /// request-response loop until a timeout fires the cloud-side
 /// retry — minimizing the response-loss window matters.
-pub async fn publish_response<P: Serialize>(state: &crate::AppState, payload: &P) {
-    if let Err(e) = publish_response_checked(state, payload).await {
-        warn!("publish_helpers: {}", e);
-    }
-}
-
-pub async fn publish_response_checked<P: Serialize + ?Sized>(
+pub async fn publish_response<P: Serialize>(
     state: &crate::AppState,
     payload: &P,
-) -> Result<(), PublishRouteError> {
+) {
     let topic = match state.mqtt_client.as_ref() {
         Some(m) => m.topics().responses.clone(),
-        None => {
-            return Err(PublishRouteError::NoMqttClient {
-                label: "response".to_string(),
-            });
-        }
+        None => return,
     };
-    publish_routed_checked(
+    publish_routed(
         state,
         &topic,
         payload,
@@ -292,30 +201,20 @@ pub async fn publish_response_checked<P: Serialize + ?Sized>(
         false,
         "response",
     )
-    .await
+    .await;
 }
 
 /// Publish IO data tags at [`MessagePriority::Normal`]. High-
 /// frequency telemetry-class — drains in normal priority order.
-pub async fn publish_io_data<P: Serialize>(state: &crate::AppState, payload: &P) {
-    if let Err(e) = publish_io_data_checked(state, payload).await {
-        warn!("publish_helpers: {}", e);
-    }
-}
-
-pub async fn publish_io_data_checked<P: Serialize + ?Sized>(
+pub async fn publish_io_data<P: Serialize>(
     state: &crate::AppState,
     payload: &P,
-) -> Result<(), PublishRouteError> {
+) {
     let topic = match state.mqtt_client.as_ref() {
         Some(m) => m.topics().io_data.clone(),
-        None => {
-            return Err(PublishRouteError::NoMqttClient {
-                label: "io_data".to_string(),
-            });
-        }
+        None => return,
     };
-    publish_routed_checked(
+    publish_routed(
         state,
         &topic,
         payload,
@@ -324,7 +223,7 @@ pub async fn publish_io_data_checked<P: Serialize + ?Sized>(
         false,
         "io_data",
     )
-    .await
+    .await;
 }
 
 /// **Batch #302 Faz 4 step 5 closure.** Publish per-task
@@ -341,25 +240,15 @@ pub async fn publish_io_data_checked<P: Serialize + ?Sized>(
 /// unwarranted. Operators tolerating lower fidelity for the
 /// scheduler-stats stream is the canonical observability
 /// trade-off.
-pub async fn publish_task_stats<P: Serialize>(state: &crate::AppState, payload: &P) {
-    if let Err(e) = publish_task_stats_checked(state, payload).await {
-        warn!("publish_helpers: {}", e);
-    }
-}
-
-pub async fn publish_task_stats_checked<P: Serialize + ?Sized>(
+pub async fn publish_task_stats<P: Serialize>(
     state: &crate::AppState,
     payload: &P,
-) -> Result<(), PublishRouteError> {
+) {
     let topic = match state.mqtt_client.as_ref() {
         Some(m) => m.topics().task_stats.clone(),
-        None => {
-            return Err(PublishRouteError::NoMqttClient {
-                label: "task_stats".to_string(),
-            });
-        }
+        None => return,
     };
-    publish_routed_checked(
+    publish_routed(
         state,
         &topic,
         payload,
@@ -368,30 +257,20 @@ pub async fn publish_task_stats_checked<P: Serialize + ?Sized>(
         false,
         "task_stats",
     )
-    .await
+    .await;
 }
 
 /// Publish a LoRaWAN event (uplink / join / downlink ack) at
 /// [`MessagePriority::Normal`].
-pub async fn publish_lora_event<P: Serialize>(state: &crate::AppState, payload: &P) {
-    if let Err(e) = publish_lora_event_checked(state, payload).await {
-        warn!("publish_helpers: {}", e);
-    }
-}
-
-pub async fn publish_lora_event_checked<P: Serialize + ?Sized>(
+pub async fn publish_lora_event<P: Serialize>(
     state: &crate::AppState,
     payload: &P,
-) -> Result<(), PublishRouteError> {
+) {
     let topic = match state.mqtt_client.as_ref() {
         Some(m) => m.topics().lora_events.clone(),
-        None => {
-            return Err(PublishRouteError::NoMqttClient {
-                label: "lora_event".to_string(),
-            });
-        }
+        None => return,
     };
-    publish_routed_checked(
+    publish_routed(
         state,
         &topic,
         payload,
@@ -400,7 +279,7 @@ pub async fn publish_lora_event_checked<P: Serialize + ?Sized>(
         false,
         "lora_event",
     )
-    .await
+    .await;
 }
 
 /// Publish raw bytes to a caller-supplied topic at
@@ -414,38 +293,24 @@ pub async fn publish_raw_bytes(
     payload: &[u8],
     priority: MessagePriority,
 ) {
-    if let Err(e) = publish_raw_bytes_checked(state, topic, payload, priority).await {
-        warn!("publish_helpers: {}", e);
-    }
-}
-
-pub async fn publish_raw_bytes_checked(
-    state: &crate::AppState,
-    topic: &str,
-    payload: &[u8],
-    priority: MessagePriority,
-) -> Result<(), PublishRouteError> {
     if let Some(ref publisher) = state.outbound_publisher {
-        publisher
+        if let Err(e) = publisher
             .publish(topic, payload, priority, 1, false)
             .await
-            .map(|_| ())
-            .map_err(|e| PublishRouteError::Outbound {
-                label: topic.to_string(),
-                reason: e.to_string(),
-            })?;
-        return Ok(());
+        {
+            warn!(
+                "publish_helpers: OutboundPublisher.publish_raw({}) failed: {}",
+                topic, e
+            );
+        }
+        return;
     }
     if let Some(ref mqtt) = state.mqtt_client {
-        return mqtt
-            .publish_raw(topic, payload)
-            .await
-            .map_err(|e| PublishRouteError::Legacy {
-                label: topic.to_string(),
-                reason: e.to_string(),
-            });
+        if let Err(e) = mqtt.publish_raw(topic, payload).await {
+            warn!(
+                "publish_helpers: MqttClient.publish_raw({}) failed: {}",
+                topic, e
+            );
+        }
     }
-    Err(PublishRouteError::NoMqttClient {
-        label: topic.to_string(),
-    })
 }

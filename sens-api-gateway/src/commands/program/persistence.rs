@@ -94,10 +94,7 @@ impl CommandHandler {
     /// load_program_state's parse path on next boot; atomic
     /// rename keeps the old file valid until the new file is
     /// fully flushed.
-    pub(in crate::commands) fn save_program_state(
-        &self,
-        state: &ProgramState,
-    ) -> anyhow::Result<()> {
+    pub(in crate::commands) fn save_program_state(&self, state: &ProgramState) -> anyhow::Result<()> {
         if let Some(parent) = self.program_state_path.parent() {
             fs::create_dir_all(parent)?;
         }

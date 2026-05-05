@@ -1,13 +1,6 @@
-// BATCH-001-CI-FIX-015 (HISTORICAL): pre-staged types for Sprint 6.1-6.8
-// runtime wiring originally needed `#![allow(unused_imports)]` because the
-// re-exports were anchor-only. Phases 0.1-0.4 + Phase 1.1.1-1.1.5 +
-// Phase 1.1.3a wired all primitives into runtime consumers (mqtt.rs +
-// provisioning.rs + commands/firmware.rs + scripting/engine.rs +
-// tests/invariants/{cipher_allowlist_fleet_compat,d4_d6_mtls_unified}.rs),
-// so the blanket allow is no longer needed and is removed here. Per-item
-// `#[allow(dead_code)]` annotations cover the few remaining Batch-11
-// pre-staged items that are kept on the library surface for future
-// SignedCertPinningManifest wire (Phase 1.1.2 / ORPHAN-HIGH-042).
+// BATCH-001-CI-FIX-015: pre-staged types for Sprint 6.1-6.8 runtime wiring.
+// Re-exports are intentionally unused until the runtime consumers land.
+#![allow(unused_imports)]
 
 //! # mTLS 3-stage rollout + leaf cert pinning (plan §5 Faz 2 item 7 + D-6)
 //!
@@ -75,12 +68,6 @@ pub mod pinning;
 // the verify callback; delegates X.509 chain trust +
 // hostname match to the rustls WebPkiServerVerifier.
 pub mod rustls_verifier;
-// Phase 1.1.1 (D-4 + D-6): hot-reloadable handle wrapping
-// SuderraServerCertVerifier so cmd_update_cert_pinning
-// (Phase 1.1.2) can apply a new pin set without restarting
-// the agent. Atomic Arc swap with pre-validation; failed
-// rebuilds preserve the running verifier.
-pub mod state_handle;
 pub mod verify;
 
 pub use cipher::{CIPHER_SUITE_ALLOWLIST, CipherSuite};
@@ -93,5 +80,10 @@ pub use pinning::{CertRotationStage, LeafCertFingerprint, PinnedLeafCert, Pinned
 pub use rustls_verifier::{
     SuderraServerCertVerifier, SuderraVerifierBuildError, build_rotation_stage_from_pins_hex,
     build_suderra_verifier, verify_cert_at_handshake,
+};
+pub use rustls_verifier::{
+    build_rotation_stage_from_pins_hex, build_suderra_verifier,
+    verify_cert_at_handshake, SuderraServerCertVerifier,
+    SuderraVerifierBuildError,
 };
 pub use verify::verify_leaf_cert;

@@ -58,12 +58,14 @@ use std::time::SystemTime;
 
 use super::manifest_version_store::ManifestVersionStore;
 use super::permission::TenantId;
-use super::signing_key_util::{SigningKeyHexError, parse_ed25519_pubkey_hex};
+use super::signing_key_util::{parse_ed25519_pubkey_hex, SigningKeyHexError};
 use super::user_token_manifest::{
-    SignedUserTokenManifest, UserTokenManifest, UserTokenManifestVerifyError,
-    verify_user_token_manifest,
+    verify_user_token_manifest, SignedUserTokenManifest, UserTokenManifest,
+    UserTokenManifestVerifyError,
 };
-use crate::opc_ua_server_user_tokens::{EnrollmentBuildError, UserTokenEnrollment};
+use crate::opc_ua_server_user_tokens::{
+    EnrollmentBuildError, UserTokenEnrollment,
+};
 
 /// Runtime atom holding the currently-active user-token manifest
 /// AND the cached enrollment built from it.
@@ -115,7 +117,10 @@ impl UserTokenManifestStore {
     /// call this). Production boot path attaches the version store
     /// opened via `ManifestVersionStore::open_for_stream(path,
     /// STREAM_ID_USER_TOKEN)`.
-    pub fn with_version_store(mut self, store: Arc<ManifestVersionStore>) -> Self {
+    pub fn with_version_store(
+        mut self,
+        store: Arc<ManifestVersionStore>,
+    ) -> Self {
         self.version_store = Some(store);
         self
     }
@@ -131,7 +136,10 @@ impl UserTokenManifestStore {
     /// PHC hash the cloud signer should have caught). On error the
     /// store state is LEFT UNCHANGED — old manifest keeps serving
     /// authentication attempts.
-    pub fn ingest_verified(&self, manifest: UserTokenManifest) -> Result<(), EnrollmentBuildError> {
+    pub fn ingest_verified(
+        &self,
+        manifest: UserTokenManifest,
+    ) -> Result<(), EnrollmentBuildError> {
         let enrollment = UserTokenEnrollment::from_manifest(&manifest)?;
         let entry = CachedEntry {
             manifest,
@@ -173,7 +181,10 @@ impl UserTokenManifestStore {
     /// The closure runs UNDER the lock — keep it fast. The two
     /// current callers (`UserTokenValidator::validate_user_pass`
     /// + `validate_x509`) do exactly one lookup + return.
-    pub fn with_enrollment<R>(&self, f: impl FnOnce(Option<&UserTokenEnrollment>) -> R) -> R {
+    pub fn with_enrollment<R>(
+        &self,
+        f: impl FnOnce(Option<&UserTokenEnrollment>) -> R,
+    ) -> R {
         match self.inner.read() {
             Ok(guard) => f(guard.as_ref().map(|e| &e.enrollment)),
             Err(poisoned) => {
@@ -240,16 +251,21 @@ impl UserTokenManifestStore {
 
         // Step 2: verify (7 gates including version monotonicity
         // against the floor).
-        let verified =
-            verify_user_token_manifest(signed, expected_tenant, floor, now, verify_signature)
-                .map_err(IngestError::VerifyFailed)?;
+        let verified = verify_user_token_manifest(
+            signed,
+            expected_tenant,
+            floor,
+            now,
+            verify_signature,
+        )
+        .map_err(IngestError::VerifyFailed)?;
 
         let accepted_version = verified.policy_version;
 
         // Step 3: build typed enrollment (may fail on signer-side
         // bug — duplicate username / malformed PHC).
-        let enrollment =
-            UserTokenEnrollment::from_manifest(&verified).map_err(IngestError::BuildFailed)?;
+        let enrollment = UserTokenEnrollment::from_manifest(&verified)
+            .map_err(IngestError::BuildFailed)?;
 
         // Step 4: atomic swap.
         let entry = CachedEntry {
@@ -296,9 +312,11 @@ impl UserTokenManifestStore {
         expected_tenant: &TenantId,
         now: SystemTime,
     ) -> Result<IngestOutcome, HotReloadError> {
-        let hex = signing_pubkey_hex.ok_or(HotReloadError::SigningPubkeyNotConfigured)?;
+        let hex = signing_pubkey_hex
+            .ok_or(HotReloadError::SigningPubkeyNotConfigured)?;
 
-        let pubkey = parse_ed25519_pubkey_hex(hex).map_err(HotReloadError::InvalidSigningPubkey)?;
+        let pubkey = parse_ed25519_pubkey_hex(hex)
+            .map_err(HotReloadError::InvalidSigningPubkey)?;
 
         let signed: SignedUserTokenManifest = serde_json::from_slice(bytes)
             .map_err(|e| HotReloadError::JsonParseFailed(e.to_string()))?;
@@ -344,7 +362,9 @@ pub enum HotReloadError {
 impl std::fmt::Display for HotReloadError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::SigningPubkeyNotConfigured => f.write_str("signing_pubkey_not_configured"),
+            Self::SigningPubkeyNotConfigured => {
+                f.write_str("signing_pubkey_not_configured")
+            }
             Self::InvalidSigningPubkey(e) => {
                 write!(f, "invalid_signing_pubkey: {}", e)
             }
@@ -522,7 +542,8 @@ mod tests {
 
         // Manifest with a corrupt PHC — ingest rejects, store keeps v1.
         let mut broken = manifest_v2_bob_added();
-        broken.user_pass_bindings[1].argon2id_phc = "completely-malformed-phc".to_string();
+        broken.user_pass_bindings[1].argon2id_phc =
+            "completely-malformed-phc".to_string();
         let err = s.ingest_verified(broken).unwrap_err();
         match err {
             EnrollmentBuildError::HashInvalid { operator_id, .. } => {
@@ -556,7 +577,9 @@ mod tests {
         // reference — so the read guard can drop immediately after.
         let s = UserTokenManifestStore::new();
         s.ingest_verified(manifest_v1()).unwrap();
-        let user_pass_count = s.with_enrollment(|e| e.map(|e| e.user_pass_count()).unwrap_or(0));
+        let user_pass_count = s.with_enrollment(|e| {
+            e.map(|e| e.user_pass_count()).unwrap_or(0)
+        });
         assert_eq!(user_pass_count, 1);
         // Holding no guard here; a subsequent ingest must not deadlock.
         s.ingest_verified(manifest_v2_bob_added()).unwrap();
@@ -574,7 +597,9 @@ mod tests {
     // Batch #247 — ingest_signed end-to-end wire
     // ========================================================
 
-    use super::super::manifest_version_store::{ManifestVersionStore, STREAM_ID_USER_TOKEN};
+    use super::super::manifest_version_store::{
+        ManifestVersionStore, STREAM_ID_USER_TOKEN,
+    };
     use super::super::policy::Ed25519SignatureBytes;
     use super::super::user_token_manifest::SignedUserTokenManifest;
     use std::time::Duration;
@@ -621,7 +646,12 @@ mod tests {
         let s = UserTokenManifestStore::new(); // no version store
         let signed = sign_with_dummy(manifest_v1());
         let out = s
-            .ingest_signed(&signed, &tenant(), now_inside(), |_, _| true)
+            .ingest_signed(
+                &signed,
+                &tenant(),
+                now_inside(),
+                |_, _| true,
+            )
             .unwrap();
         assert_eq!(out.accepted_version, 1);
         assert!(s.is_loaded());
@@ -664,27 +694,38 @@ mod tests {
     #[test]
     fn ingest_signed_with_persistence_advances_floor() {
         let path = tmp_version_db();
-        let Some(vs) = try_version_store(&path) else {
-            return;
-        };
-        let s = UserTokenManifestStore::new().with_version_store(vs.clone());
+        let Some(vs) = try_version_store(&path) else { return };
+        let s =
+            UserTokenManifestStore::new().with_version_store(vs.clone());
 
         let signed_v1 = sign_with_dummy(manifest_v1());
         let out = s
-            .ingest_signed(&signed_v1, &tenant(), now_inside(), |_, _| true)
+            .ingest_signed(
+                &signed_v1,
+                &tenant(),
+                now_inside(),
+                |_, _| true,
+            )
             .unwrap();
         assert_eq!(out.accepted_version, 1);
         assert_eq!(vs.get_highest_seen().unwrap(), 1);
 
         // Replay the same manifest — stale version rejected.
         let err = s
-            .ingest_signed(&signed_v1, &tenant(), now_inside(), |_, _| true)
+            .ingest_signed(
+                &signed_v1,
+                &tenant(),
+                now_inside(),
+                |_, _| true,
+            )
             .unwrap_err();
         match err {
-            IngestError::VerifyFailed(UserTokenManifestVerifyError::StalePolicyVersion {
-                claimed,
-                highest_seen,
-            }) => {
+            IngestError::VerifyFailed(
+                UserTokenManifestVerifyError::StalePolicyVersion {
+                    claimed,
+                    highest_seen,
+                },
+            ) => {
                 assert_eq!(claimed, 1);
                 assert_eq!(highest_seen, 1);
             }
@@ -695,10 +736,9 @@ mod tests {
     #[test]
     fn ingest_signed_rejects_rollback_across_reboot_simulation() {
         let path = tmp_version_db();
-        let Some(vs) = try_version_store(&path) else {
-            return;
-        };
-        let s = UserTokenManifestStore::new().with_version_store(vs.clone());
+        let Some(vs) = try_version_store(&path) else { return };
+        let s =
+            UserTokenManifestStore::new().with_version_store(vs.clone());
 
         // Ingest v2 first.
         let signed_v2 = sign_with_dummy(manifest_v2_bob_added());
@@ -709,20 +749,26 @@ mod tests {
         // Simulate reboot: NEW store + REOPENED version store on the
         // same path. Attacker replays the captured v1 manifest.
         drop(s);
-        let Some(vs2) = try_version_store(&path) else {
-            return;
-        };
-        let s2 = UserTokenManifestStore::new().with_version_store(vs2.clone());
+        let Some(vs2) = try_version_store(&path) else { return };
+        let s2 =
+            UserTokenManifestStore::new().with_version_store(vs2.clone());
 
         let signed_v1 = sign_with_dummy(manifest_v1());
         let err = s2
-            .ingest_signed(&signed_v1, &tenant(), now_inside(), |_, _| true)
+            .ingest_signed(
+                &signed_v1,
+                &tenant(),
+                now_inside(),
+                |_, _| true,
+            )
             .unwrap_err();
         match err {
-            IngestError::VerifyFailed(UserTokenManifestVerifyError::StalePolicyVersion {
-                claimed: 1,
-                highest_seen: 2,
-            }) => {}
+            IngestError::VerifyFailed(
+                UserTokenManifestVerifyError::StalePolicyVersion {
+                    claimed: 1,
+                    highest_seen: 2,
+                },
+            ) => {}
             other => panic!("wrong variant: {:?}", other),
         }
     }
@@ -730,10 +776,9 @@ mod tests {
     #[test]
     fn ingest_signed_with_persistence_accepts_monotonic_bump() {
         let path = tmp_version_db();
-        let Some(vs) = try_version_store(&path) else {
-            return;
-        };
-        let s = UserTokenManifestStore::new().with_version_store(vs.clone());
+        let Some(vs) = try_version_store(&path) else { return };
+        let s =
+            UserTokenManifestStore::new().with_version_store(vs.clone());
 
         let signed_v1 = sign_with_dummy(manifest_v1());
         s.ingest_signed(&signed_v1, &tenant(), now_inside(), |_, _| true)
@@ -742,7 +787,12 @@ mod tests {
         // v2 > v1 → accepted, floor advances.
         let signed_v2 = sign_with_dummy(manifest_v2_bob_added());
         let out = s
-            .ingest_signed(&signed_v2, &tenant(), now_inside(), |_, _| true)
+            .ingest_signed(
+                &signed_v2,
+                &tenant(),
+                now_inside(),
+                |_, _| true,
+            )
             .unwrap();
         assert_eq!(out.accepted_version, 2);
         assert_eq!(vs.get_highest_seen().unwrap(), 2);
@@ -758,21 +808,24 @@ mod tests {
     // Batch #249a — hot_reload_from_bytes bytes-to-outcome wrapper
     // ========================================================
 
-    use ed25519_dalek::{SECRET_KEY_LENGTH, Signer, SigningKey};
+    use ed25519_dalek::{SigningKey, Signer, SECRET_KEY_LENGTH};
 
     /// Mint a real signing key + pubkey hex + signed manifest body.
     /// Uses a deterministic secret so tests are reproducible.
     fn real_signed_bytes(m: UserTokenManifest) -> (String, Vec<u8>) {
         let sk = SigningKey::from_bytes(&[42u8; SECRET_KEY_LENGTH]);
         let vk = sk.verifying_key();
-        let pubkey_hex: String = vk.to_bytes().iter().map(|b| format!("{:02x}", b)).collect();
+        let pubkey_hex: String =
+            vk.to_bytes().iter().map(|b| format!("{:02x}", b)).collect();
 
         let canonical = m.canonical_bytes().expect("canonical");
         let sig = sk.sign(&canonical);
         let signed = SignedUserTokenManifest {
             manifest: m,
-            signature: super::super::policy::Ed25519SignatureBytes::from_slice(&sig.to_bytes())
-                .unwrap(),
+            signature: super::super::policy::Ed25519SignatureBytes::from_slice(
+                &sig.to_bytes(),
+            )
+            .unwrap(),
         };
         let bytes = serde_json::to_vec(&signed).expect("json");
         (pubkey_hex, bytes)
@@ -783,7 +836,12 @@ mod tests {
         let s = UserTokenManifestStore::new();
         let (hex, bytes) = real_signed_bytes(manifest_v1());
         let out = s
-            .hot_reload_from_bytes(Some(&hex), &bytes, &tenant(), now_inside())
+            .hot_reload_from_bytes(
+                Some(&hex),
+                &bytes,
+                &tenant(),
+                now_inside(),
+            )
             .unwrap();
         assert_eq!(out.accepted_version, 1);
         assert!(s.is_loaded());
@@ -807,7 +865,12 @@ mod tests {
         let s = UserTokenManifestStore::new();
         let (_, bytes) = real_signed_bytes(manifest_v1());
         let err = s
-            .hot_reload_from_bytes(Some("not-hex"), &bytes, &tenant(), now_inside())
+            .hot_reload_from_bytes(
+                Some("not-hex"),
+                &bytes,
+                &tenant(),
+                now_inside(),
+            )
             .unwrap_err();
         match err {
             HotReloadError::InvalidSigningPubkey(_) => {}
@@ -820,7 +883,12 @@ mod tests {
         let s = UserTokenManifestStore::new();
         let (hex, _) = real_signed_bytes(manifest_v1());
         let err = s
-            .hot_reload_from_bytes(Some(&hex), b"not json at all", &tenant(), now_inside())
+            .hot_reload_from_bytes(
+                Some(&hex),
+                b"not json at all",
+                &tenant(),
+                now_inside(),
+            )
             .unwrap_err();
         match err {
             HotReloadError::JsonParseFailed(_) => {}
@@ -844,7 +912,12 @@ mod tests {
             .collect();
 
         let err = s
-            .hot_reload_from_bytes(Some(&wrong_hex), &bytes, &tenant(), now_inside())
+            .hot_reload_from_bytes(
+                Some(&wrong_hex),
+                &bytes,
+                &tenant(),
+                now_inside(),
+            )
             .unwrap_err();
         match err {
             HotReloadError::Ingest(IngestError::VerifyFailed(
@@ -862,7 +935,12 @@ mod tests {
         // Device-side expected tenant != manifest tenant.
         let other_tenant = TenantId::new_from_verified([0xBB; 16]);
         let err = s
-            .hot_reload_from_bytes(Some(&hex), &bytes, &other_tenant, now_inside())
+            .hot_reload_from_bytes(
+                Some(&hex),
+                &bytes,
+                &other_tenant,
+                now_inside(),
+            )
             .unwrap_err();
         match err {
             HotReloadError::Ingest(IngestError::VerifyFailed(
@@ -895,10 +973,16 @@ mod tests {
         // Ingest v2 with a malformed PHC hash — verify succeeds,
         // build fails, old cache retained.
         let mut broken = manifest_v2_bob_added();
-        broken.user_pass_bindings[1].argon2id_phc = "not-a-phc".to_string();
+        broken.user_pass_bindings[1].argon2id_phc =
+            "not-a-phc".to_string();
         let signed_broken = sign_with_dummy(broken);
         let err = s
-            .ingest_signed(&signed_broken, &tenant(), now_inside(), |_, _| true)
+            .ingest_signed(
+                &signed_broken,
+                &tenant(),
+                now_inside(),
+                |_, _| true,
+            )
             .unwrap_err();
         match err {
             IngestError::BuildFailed(EnrollmentBuildError::HashInvalid { .. }) => {}

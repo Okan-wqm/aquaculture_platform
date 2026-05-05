@@ -79,9 +79,7 @@ impl CommandHandler {
     /// rollback surface would require an audit trail beyond the
     /// current program.json format.
 
-    pub(in crate::commands) async fn cmd_rollback_program(
-        &mut self,
-    ) -> (bool, Value, Option<String>) {
+    pub(in crate::commands) async fn cmd_rollback_program(&mut self) -> (bool, Value, Option<String>) {
         let _deploy_guard = self.deploy_lock.lock().await;
         info!("Executing rollback_program command");
 

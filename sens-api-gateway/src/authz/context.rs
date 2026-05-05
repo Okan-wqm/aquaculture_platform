@@ -307,9 +307,7 @@ mod tests {
     ///      need; smoke-test all getters roundtrip ctor inputs.
     #[test]
     fn authorized_context_getters_roundtrip() {
-        let perm = Permission::WriteTag {
-            tag_id: TagId::from("pond3_aerator".to_string()),
-        };
+        let perm = Permission::WriteTag { tag_id: TagId::from("pond3_aerator".to_string()) };
         let ctx = build_ctx(perm.clone(), true);
         assert_eq!(ctx.granted_permission(), &perm);
         assert_eq!(ctx.tenant().as_bytes(), &[0x42u8; 16]);

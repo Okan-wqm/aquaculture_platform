@@ -155,11 +155,19 @@ impl TrybootBootloaderHandle {
 
     fn read_autoboot_contents(&self) -> Result<String, BootloaderError> {
         let mut file = File::open(&self.autoboot_path).map_err(|e| {
-            BootloaderError::IoError(format!("open {}: {}", self.autoboot_path.display(), e))
+            BootloaderError::IoError(format!(
+                "open {}: {}",
+                self.autoboot_path.display(),
+                e
+            ))
         })?;
         let mut contents = String::new();
         file.read_to_string(&mut contents).map_err(|e| {
-            BootloaderError::IoError(format!("read {}: {}", self.autoboot_path.display(), e))
+            BootloaderError::IoError(format!(
+                "read {}: {}",
+                self.autoboot_path.display(),
+                e
+            ))
         })?;
         Ok(contents)
     }
@@ -174,8 +182,13 @@ impl TrybootBootloaderHandle {
                 self.autoboot_path.display()
             ))
         })?;
-        std::fs::create_dir_all(parent)
-            .map_err(|e| BootloaderError::IoError(format!("mkdir {}: {}", parent.display(), e)))?;
+        std::fs::create_dir_all(parent).map_err(|e| {
+            BootloaderError::IoError(format!(
+                "mkdir {}: {}",
+                parent.display(),
+                e
+            ))
+        })?;
         let filename = self.autoboot_path.file_name().ok_or_else(|| {
             BootloaderError::IoError(format!(
                 "autoboot path has no filename: {}",
@@ -200,7 +213,12 @@ impl TrybootBootloaderHandle {
         let seq = TEMPFILE_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let mut tmp_name = filename.to_os_string();
         tmp_name.push(".tmp.");
-        tmp_name.push(format!("{}-{:x}-{}", std::process::id(), nanos, seq));
+        tmp_name.push(format!(
+            "{}-{:x}-{}",
+            std::process::id(),
+            nanos,
+            seq
+        ));
         let tmp_path = parent.join(tmp_name);
 
         {
@@ -217,10 +235,18 @@ impl TrybootBootloaderHandle {
                     ))
                 })?;
             tmp_file.write_all(contents.as_bytes()).map_err(|e| {
-                BootloaderError::IoError(format!("write tempfile {}: {}", tmp_path.display(), e))
+                BootloaderError::IoError(format!(
+                    "write tempfile {}: {}",
+                    tmp_path.display(),
+                    e
+                ))
             })?;
             tmp_file.sync_all().map_err(|e| {
-                BootloaderError::IoError(format!("fsync tempfile {}: {}", tmp_path.display(), e))
+                BootloaderError::IoError(format!(
+                    "fsync tempfile {}: {}",
+                    tmp_path.display(),
+                    e
+                ))
             })?;
         }
 
@@ -236,14 +262,18 @@ impl TrybootBootloaderHandle {
     }
 
     /// Build the autoboot.txt content that sets BOTH the
-    /// stable `[all]` block AND the `[tryboot]` block. Called
+    /// stable [all] block AND the [tryboot] block. Called
     /// on `set_next_boot_slot` — the agent is asking the
     /// bootloader to tryboot the target on next reboot.
     ///
     /// `stable_slot` is the slot that's currently Active
     /// + stays Active if the tryboot fails; `trial_slot`
     /// is the new slot being tried.
-    fn build_tryboot_contents(&self, stable_slot: AbPartition, trial_slot: AbPartition) -> String {
+    fn build_tryboot_contents(
+        &self,
+        stable_slot: AbPartition,
+        trial_slot: AbPartition,
+    ) -> String {
         format!(
             "# suderra agent — tryboot overlay\n\
              # stable: slot {:?} (partition {})\n\
@@ -265,7 +295,7 @@ impl TrybootBootloaderHandle {
     }
 
     /// Build the autoboot.txt content with ONLY the
-    /// stable `[all]` block (no tryboot). Called on
+    /// stable [all] block (no tryboot). Called on
     /// `clear_pending_boot` (promote trial to stable) +
     /// `rollback_next_boot` (revert to previous stable).
     fn build_stable_contents(&self, stable_slot: AbPartition) -> String {
@@ -282,7 +312,7 @@ impl TrybootBootloaderHandle {
         )
     }
 
-    /// Parse the CURRENT `[all].boot_partition` from an
+    /// Parse the CURRENT [all].boot_partition from an
     /// existing autoboot.txt content, if present.
     /// Used to determine the "stable" slot that we keep
     /// on set_next_boot_slot (so tryboot fallback
@@ -328,10 +358,11 @@ impl BootloaderHandle for TrybootBootloaderHandle {
         let stable_slot = match self.read_autoboot_contents() {
             Ok(contents) => {
                 if let Some(partition) = Self::parse_stable_partition(&contents) {
-                    self.slot_for_partition(partition).unwrap_or(match slot {
-                        AbPartition::A => AbPartition::B,
-                        AbPartition::B => AbPartition::A,
-                    })
+                    self.slot_for_partition(partition)
+                        .unwrap_or(match slot {
+                            AbPartition::A => AbPartition::B,
+                            AbPartition::B => AbPartition::A,
+                        })
                 } else {
                     match slot {
                         AbPartition::A => AbPartition::B,
@@ -349,10 +380,7 @@ impl BootloaderHandle for TrybootBootloaderHandle {
         self.write_autoboot_contents(&contents)?;
         info!(
             "TrybootBootloader: set_next_boot_slot({:?}) wrote tryboot overlay (stable={:?}, trial={:?}, path={})",
-            slot,
-            stable_slot,
-            slot,
-            self.autoboot_path.display()
+            slot, stable_slot, slot, self.autoboot_path.display()
         );
         Ok(())
     }
@@ -365,8 +393,7 @@ impl BootloaderHandle for TrybootBootloaderHandle {
         self.write_autoboot_contents(&contents)?;
         info!(
             "TrybootBootloader: clear_pending_boot({:?}) promoted trial to stable (path={})",
-            slot,
-            self.autoboot_path.display()
+            slot, self.autoboot_path.display()
         );
         Ok(())
     }
@@ -380,8 +407,7 @@ impl BootloaderHandle for TrybootBootloaderHandle {
         self.write_autoboot_contents(&contents)?;
         warn!(
             "TrybootBootloader: rollback_next_boot({:?}) wrote stable-only autoboot.txt (path={})",
-            to_slot,
-            self.autoboot_path.display()
+            to_slot, self.autoboot_path.display()
         );
         Ok(())
     }
@@ -444,7 +470,8 @@ mod tests {
         let handle = TrybootBootloaderHandle::new_with_autoboot_path(path.clone());
 
         // Stage a tryboot overlay: stable A, trial B.
-        let tryboot_overlay = handle.build_tryboot_contents(AbPartition::A, AbPartition::B);
+        let tryboot_overlay =
+            handle.build_tryboot_contents(AbPartition::A, AbPartition::B);
         std::fs::write(&path, tryboot_overlay).expect("write overlay");
 
         handle
@@ -453,10 +480,7 @@ mod tests {
 
         let contents = std::fs::read_to_string(&path).expect("read");
         assert!(contents.contains("[all]"));
-        assert!(
-            !contents.contains("[tryboot]"),
-            "tryboot block should be gone"
-        );
+        assert!(!contents.contains("[tryboot]"), "tryboot block should be gone");
         assert!(contents.contains("boot_partition=3")); // new stable B
 
         let _ = std::fs::remove_file(&path);
@@ -470,10 +494,13 @@ mod tests {
 
         // Stage a tryboot: stable A, trial B (simulates
         // mid-deploy state).
-        let overlay = handle.build_tryboot_contents(AbPartition::A, AbPartition::B);
+        let overlay =
+            handle.build_tryboot_contents(AbPartition::A, AbPartition::B);
         std::fs::write(&path, overlay).expect("write overlay");
 
-        handle.rollback_next_boot(AbPartition::A).expect("rollback");
+        handle
+            .rollback_next_boot(AbPartition::A)
+            .expect("rollback");
 
         let contents = std::fs::read_to_string(&path).expect("read");
         assert!(!contents.contains("[tryboot]"));
@@ -558,7 +585,9 @@ boot_partition=3
         let path = tmp_autoboot_path();
         let handle = TrybootBootloaderHandle::new_with_config(path.clone(), 5, 6);
 
-        handle.set_next_boot_slot(AbPartition::B).expect("set");
+        handle
+            .set_next_boot_slot(AbPartition::B)
+            .expect("set");
 
         let contents = std::fs::read_to_string(&path).expect("read");
         assert!(contents.contains("boot_partition=6"));
@@ -616,7 +645,9 @@ boot_partition=3
     fn atomic_rename_leaves_no_tempfile_on_success() {
         let path = tmp_autoboot_path();
         let handle = TrybootBootloaderHandle::new_with_autoboot_path(path.clone());
-        handle.set_next_boot_slot(AbPartition::A).expect("set");
+        handle
+            .set_next_boot_slot(AbPartition::A)
+            .expect("set");
 
         // Final file exists; no .tmp.<pid> tempfile left
         // behind.
@@ -626,7 +657,8 @@ boot_partition=3
             .filter_map(|e| e.ok())
             .map(|e| e.file_name().to_string_lossy().to_string())
             .collect();
-        let leftover_tmp: Vec<_> = entries.iter().filter(|n| n.contains(".tmp.")).collect();
+        let leftover_tmp: Vec<_> =
+            entries.iter().filter(|n| n.contains(".tmp.")).collect();
         assert!(
             leftover_tmp.is_empty(),
             "tempfile(s) leaked: {:?}",

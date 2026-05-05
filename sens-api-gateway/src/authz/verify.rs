@@ -35,7 +35,7 @@
 use std::time::SystemTime;
 
 use super::manifest::{CanonicalBytesError, RbacManifest, SignedRbacManifest};
-use super::manifest_common::{ManifestStructuralError, run_envelope_gates};
+use super::manifest_common::{run_envelope_gates, ManifestStructuralError};
 use super::permission::TenantId;
 
 /// Structured verification errors. Every variant discriminates a distinct

@@ -554,16 +554,7 @@ impl LoRaActor {
                         .collect::<Vec<_>>(),
                     "timestamp": chrono::Utc::now().to_rfc3339(),
                 });
-                // 2026-04-29 enterprise publish reliability:
-                // LoRa uplink summary uses checked outbound routing.
-                //
-                // What it solves: queue or broker failures keep LoRa context
-                // in the error log instead of disappearing inside a helper.
-                if let Err(e) =
-                    crate::publish_helpers::publish_lora_event_checked(&state, &event_payload).await
-                {
-                    error!("LoRa uplink summary publish failed: {}", e);
-                }
+                crate::publish_helpers::publish_lora_event(&state, &event_payload).await;
             }
 
             MacEvent::SendJoinAccept {
@@ -591,16 +582,7 @@ impl LoRaActor {
                     "dev_addr": format!("{}", dev_addr),
                     "timestamp": chrono::Utc::now().to_rfc3339(),
                 });
-                // 2026-04-29 enterprise publish reliability:
-                // join-accept events use checked outbound routing.
-                //
-                // What it solves: operator-visible join state cannot fail as
-                // a warn-only helper side effect.
-                if let Err(e) =
-                    crate::publish_helpers::publish_lora_event_checked(&state, &event).await
-                {
-                    error!("LoRa join_accept publish failed: {}", e);
-                }
+                crate::publish_helpers::publish_lora_event(&state, &event).await;
             }
 
             MacEvent::SendDownlink { tx_packet } => {
@@ -670,17 +652,7 @@ impl LoRaActor {
             timestamp: chrono::Utc::now().to_rfc3339(),
             tags: io_tags,
         };
-        // 2026-04-29 enterprise publish reliability:
-        // batched LoRa io_data uses checked outbound routing.
-        //
-        // What it solves: batch loss from queue/transport failure is visible
-        // with tag-count context.
-        if let Err(e) = crate::publish_helpers::publish_io_data_checked(&state, &payload).await {
-            error!(
-                "LoRa io_data batch publish failed: tags={} error={}",
-                tag_count, e
-            );
-        }
+        crate::publish_helpers::publish_io_data(&state, &payload).await;
         debug!("LoRa io_data batch yayinlandi: {} tag", tag_count);
     }
 }

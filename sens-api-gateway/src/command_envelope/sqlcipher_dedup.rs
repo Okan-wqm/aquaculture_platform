@@ -78,7 +78,7 @@ use async_trait::async_trait;
 use rusqlite::Connection;
 use tracing::{debug, info};
 
-use super::jti::{DedupResult, DedupTableError, Jti, JtiDedupTable};
+use super::jti::{DedupResult, DedupTableError, JtiDedupTable, Jti};
 
 /// Persistent 72h dedup store backed by SQLCipher.
 pub struct SqlCipherJtiDedupTable {
@@ -91,12 +91,22 @@ impl SqlCipherJtiDedupTable {
     /// derivation helper.
     pub fn open(path: &Path) -> Result<Self, String> {
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| format!("SqlCipherJtiDedupTable mkdir {}: {}", parent.display(), e))?;
+            std::fs::create_dir_all(parent).map_err(|e| {
+                format!(
+                    "SqlCipherJtiDedupTable mkdir {}: {}",
+                    parent.display(),
+                    e
+                )
+            })?;
         }
 
-        let conn = Connection::open(path)
-            .map_err(|e| format!("SqlCipherJtiDedupTable open {}: {}", path.display(), e))?;
+        let conn = Connection::open(path).map_err(|e| {
+            format!(
+                "SqlCipherJtiDedupTable open {}: {}",
+                path.display(),
+                e
+            )
+        })?;
 
         let hex_key = crate::offline_queue::derive_db_encryption_key()
             .map_err(|e| format!("SqlCipherJtiDedupTable key derivation: {}", e))?;
@@ -133,7 +143,8 @@ impl SqlCipherJtiDedupTable {
     /// the SQL logic without the derive-key dependency.
     #[cfg(test)]
     pub fn in_memory() -> Result<Self, String> {
-        let conn = Connection::open_in_memory().map_err(|e| format!("in_memory open: {}", e))?;
+        let conn = Connection::open_in_memory()
+            .map_err(|e| format!("in_memory open: {}", e))?;
         conn.execute_batch(
             "
             CREATE TABLE IF NOT EXISTS jti_dedup (
@@ -173,10 +184,7 @@ impl JtiDedupTable for SqlCipherJtiDedupTable {
 
         let jti_str = jti.as_str().to_string();
 
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| DedupTableError::StoreIoError)?;
+        let conn = self.conn.lock().map_err(|_| DedupTableError::StoreIoError)?;
 
         // First: probe whether a non-expired row exists (FAST,
         // index-covered by idx_jti_expires_at + PK). Separate
@@ -199,10 +207,7 @@ impl JtiDedupTable for SqlCipherJtiDedupTable {
 
         if let Some(exp) = existing {
             if exp > now_secs {
-                debug!(
-                    "SqlCipherJtiDedupTable: duplicate jti (expires in {}s)",
-                    exp - now_secs
-                );
+                debug!("SqlCipherJtiDedupTable: duplicate jti (expires in {}s)", exp - now_secs);
                 return Ok(DedupResult::Duplicate);
             }
             // Expired row present — replace via INSERT OR
@@ -225,10 +230,7 @@ impl JtiDedupTable for SqlCipherJtiDedupTable {
             .map(|d| d.as_secs() as i64)
             .unwrap_or(0);
 
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| DedupTableError::StoreIoError)?;
+        let conn = self.conn.lock().map_err(|_| DedupTableError::StoreIoError)?;
         let count: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM jti_dedup WHERE expires_at > ?1",
@@ -245,10 +247,7 @@ impl JtiDedupTable for SqlCipherJtiDedupTable {
             .map(|d| d.as_secs() as i64)
             .unwrap_or(0);
 
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|_| DedupTableError::StoreIoError)?;
+        let conn = self.conn.lock().map_err(|_| DedupTableError::StoreIoError)?;
         let removed = conn
             .execute("DELETE FROM jti_dedup WHERE expires_at <= ?1", [now_secs])
             .map_err(|_| DedupTableError::StoreIoError)?;
@@ -305,13 +304,8 @@ mod tests {
             let conn = t.conn.lock().unwrap();
             conn.execute(
                 "INSERT INTO jti_dedup (jti, expires_at) VALUES (?1, ?2)",
-                rusqlite::params![
-                    "abc",
-                    (SystemTime::now() - Duration::from_secs(1))
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs() as i64
-                ],
+                rusqlite::params!["abc", (SystemTime::now() - Duration::from_secs(1))
+                    .duration_since(UNIX_EPOCH).unwrap().as_secs() as i64],
             )
             .unwrap();
         }
@@ -350,13 +344,8 @@ mod tests {
             let conn = t.conn.lock().unwrap();
             conn.execute(
                 "INSERT INTO jti_dedup (jti, expires_at) VALUES (?1, ?2)",
-                rusqlite::params![
-                    "c",
-                    (SystemTime::now() - Duration::from_secs(1))
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs() as i64
-                ],
+                rusqlite::params!["c", (SystemTime::now() - Duration::from_secs(1))
+                    .duration_since(UNIX_EPOCH).unwrap().as_secs() as i64],
             )
             .unwrap();
         }
@@ -374,13 +363,8 @@ mod tests {
             let conn = t.conn.lock().unwrap();
             conn.execute(
                 "INSERT INTO jti_dedup (jti, expires_at) VALUES (?1, ?2)",
-                rusqlite::params![
-                    "stale",
-                    (SystemTime::now() - Duration::from_secs(1))
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs() as i64
-                ],
+                rusqlite::params!["stale", (SystemTime::now() - Duration::from_secs(1))
+                    .duration_since(UNIX_EPOCH).unwrap().as_secs() as i64],
             )
             .unwrap();
         }

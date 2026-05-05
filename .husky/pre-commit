@@ -29,3 +29,22 @@ GATE_TSCONFIG="--project tools/gates/tsconfig.json"
 "$GATE_TS_NODE" $GATE_TSCONFIG tools/gates/banned-phrase.ts --mode=staged || exit 1
 "$GATE_TS_NODE" $GATE_TSCONFIG tools/gates/migration-sql-lint.ts --mode=staged || exit 1
 "$GATE_TS_NODE" $GATE_TSCONFIG tools/gates/tier-claim-lint.ts --mode=staged || exit 1
+
+# Step N — run unit tests for tools/gates pure helpers
+# (Batch #351 — wires Batches #348/#349/#350 spec files
+# into the pre-commit gate so the helper tests fire on
+# every commit, not just when invoked manually).
+#
+# Glob-based discovery: any `tools/gates/*.spec.ts` file
+# automatically joins the gate. The `[ -f "$spec" ]`
+# guard handles the no-match case (POSIX sh passes the
+# literal pattern when no files match; without the
+# check, ts-node would error on a non-existent file).
+#
+# Tests run via node:test; ~160ms total for the current
+# 39-test suite (16 clippy-affected + 23 commit-msg-
+# validator). Fast enough for per-commit ergonomics.
+for spec in tools/gates/*.spec.ts; do
+  [ -f "$spec" ] || continue
+  "$GATE_TS_NODE" $GATE_TSCONFIG "$spec" || exit 1
+done

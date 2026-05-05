@@ -20,8 +20,7 @@ import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
 import { SourceSchemaBootstrapService, createTenantConnectionBootstrap, TenantSchemaSyncService, SourceSchemaWriteGuardService, AuditColumnsModule, createMigrationRunnerService, SchemaDriftModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common/database';
 import { TenantGuard, RolesGuard, ServiceIdentityGuard } from '@aquaculture/backend-common/guards';
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
-import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware, createTenantSchemaMiddleware, StripInternalHeadersMiddleware } from '@aquaculture/backend-common/middleware';
-import { AuditedOperationModule } from '@aquaculture/backend-common/audit';
+import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware, createTenantSchemaMiddleware } from '@aquaculture/backend-common/middleware';
 import { AuditLogModule, AuditLogInterceptor } from '@aquaculture/backend-common/audit';
 
 /**

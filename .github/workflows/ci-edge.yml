@@ -67,10 +67,7 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  # 2026-04-30: Keep the legacy edge gate pinned to the same compiler as
-  # rust-toolchain.toml and SENS API Gateway CI. Using floating stable made this
-  # workflow a different contract from the authoritative gateway workflow.
-  RUST_TOOLCHAIN: 1.88.0
+  RUST_TOOLCHAIN: stable
 
 jobs:
   check:
@@ -105,7 +102,7 @@ jobs:
         # print_stderr, any unsafe_op_in_unsafe_fn will hard-fail here.
         # 153-warning baseline is INTENTIONALLY not asserted as a count
         # gate (follow-up batch); this step fails only on hard errors.
-        run: cargo check --locked --features health
+        run: cargo check --features health
 
       - name: cargo check --tests (ORPHAN-HIGH-012 closure)
         working-directory: sens-api-gateway
@@ -116,7 +113,7 @@ jobs:
         # time, not discovered N batches later in a manual verify run.
         # Pre-Batch-69 this produced 18 errors on HEAD; Batch 69 fixed
         # them and this step now gates against recurrence.
-        run: cargo check --locked --features health --tests
+        run: cargo check --features health --tests
 
       - name: cargo test (ORPHAN-HIGH-013 closure gate)
         working-directory: sens-api-gateway
@@ -128,7 +125,8 @@ jobs:
         # the suite to 855/855 green; this gate now blocks any PR
         # that regresses even one test.
         #
-        # Scoped to --bin suderra-agent (main production binary). The newer
-        # SENS API Gateway CI workflow owns all-targets and CI-feature coverage;
-        # this legacy edge gate remains a fast health-feature regression check.
-        run: cargo test --locked --features health --bin suderra-agent --no-fail-fast
+        # Scoped to --bin suderra-agent (main production binary) +
+        # the registered [[test]] invariant harnesses. Integration
+        # tests behind --ignored stay out of PR gate (those are
+        # slow; release workflow runs them).
+        run: cargo test --features health --bin suderra-agent

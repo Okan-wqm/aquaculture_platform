@@ -5,10 +5,6 @@ import { Repository, DataSource, LessThan, Between } from 'typeorm';
 import * as os from 'os';
 import * as fs from 'fs';
 import { buildSignedInternalHeaders } from '@aquaculture/backend-common/http';
-import {
-  CircuitBreakerService,
-  DEFAULT_BREAKER_OPTIONS,
-} from '@aquaculture/backend-common/resilience';
 
 import {
   PerformanceMetric,

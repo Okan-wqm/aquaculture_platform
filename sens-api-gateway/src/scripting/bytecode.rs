@@ -167,9 +167,7 @@ impl StdlibFunctionId {
 pub enum Opcode {
     // ============================ Stack ops ============
     /// Push a constant onto the VM stack.
-    PushConst {
-        value: StValue,
-    },
+    PushConst { value: StValue },
     /// Pop top of stack + discard.
     Pop,
     /// Duplicate top of stack.
@@ -255,50 +253,36 @@ pub enum Opcode {
 
     // ============================= Control ============
     /// Unconditional jump to `target` opcode index.
-    Jump {
-        target: u32,
-    },
+    Jump { target: u32 },
     /// Pop a Bool; if FALSE, jump to `target`. Common
     /// IF-THEN pattern.
-    JumpIfFalse {
-        target: u32,
-    },
+    JumpIfFalse { target: u32 },
     /// End program + return to caller.
     Return,
 
     // ============================ Memory ==============
     /// Push local variable at `index` (within
     /// `Bytecode.locals`).
-    LoadLocal {
-        index: u32,
-    },
+    LoadLocal { index: u32 },
     /// Pop + store into local variable at `index`.
-    StoreLocal {
-        index: u32,
-    },
+    StoreLocal { index: u32 },
 
     // ========================= Tag IO (IO Channel) ====
     /// Push the current value of tag `name` from
     /// ProcessImage. VM reads via IPC to the
     /// ProcessImage shared store.
-    LoadTag {
-        name: String,
-    },
+    LoadTag { name: String },
     /// Pop value, write to tag `name` via
     /// RbacGatedWriter. VM rejects at dispatch time if
     /// `name` is NOT in
     /// `Bytecode.allowed_write_tags` (compile-time
     /// whitelist enforcement per plan R-1).
-    WriteTag {
-        name: String,
-    },
+    WriteTag { name: String },
 
     // ========================== Stdlib ================
     /// Call a stdlib function. VM pops the expected
     /// argument count from stack + pushes result.
-    StdlibCall {
-        fn_id: StdlibFunctionId,
-    },
+    StdlibCall { fn_id: StdlibFunctionId },
 
     // =========================== Safety ===============
     /// Per-opcode gas-budget tick. VM decrements gas
@@ -368,16 +352,8 @@ impl Opcode {
             Self::PushConst { .. } | Self::Pop | Self::Dup => 1,
 
             // Arithmetic: all 1 gas (integer + real).
-            Self::AddInt
-            | Self::SubInt
-            | Self::MulInt
-            | Self::DivInt
-            | Self::NegInt
-            | Self::AddReal
-            | Self::SubReal
-            | Self::MulReal
-            | Self::DivReal
-            | Self::NegReal => 1,
+            Self::AddInt | Self::SubInt | Self::MulInt | Self::DivInt | Self::NegInt
+            | Self::AddReal | Self::SubReal | Self::MulReal | Self::DivReal | Self::NegReal => 1,
 
             // Comparison + logic: 1 gas.
             Self::Eq | Self::LtInt | Self::LtReal | Self::And | Self::Or | Self::Not => 1,
@@ -514,7 +490,8 @@ impl Bytecode {
         let mut ids = std::collections::BTreeSet::new();
         for op in &self.opcodes {
             match op {
-                Opcode::FbCall { fb_id, .. } | Opcode::FbReadOutput { fb_id, .. } => {
+                Opcode::FbCall { fb_id, .. }
+                | Opcode::FbReadOutput { fb_id, .. } => {
                     ids.insert(fb_id.clone());
                 }
                 _ => {}
@@ -612,8 +589,20 @@ mod tests {
         assert_eq!(Opcode::Return.wire_tag(), 21);
         assert_eq!(Opcode::LoadLocal { index: 0 }.wire_tag(), 22);
         assert_eq!(Opcode::StoreLocal { index: 0 }.wire_tag(), 23);
-        assert_eq!(Opcode::LoadTag { name: "t".into() }.wire_tag(), 24);
-        assert_eq!(Opcode::WriteTag { name: "t".into() }.wire_tag(), 25);
+        assert_eq!(
+            Opcode::LoadTag {
+                name: "t".into()
+            }
+            .wire_tag(),
+            24
+        );
+        assert_eq!(
+            Opcode::WriteTag {
+                name: "t".into()
+            }
+            .wire_tag(),
+            25
+        );
         assert_eq!(
             Opcode::StdlibCall {
                 fn_id: StdlibFunctionId::AbsInt

@@ -67,7 +67,7 @@ use tracing::{debug, info, warn};
 
 use super::bytecode::StValueType;
 use super::bytecode_registry::BytecodeProgramRegistry;
-use super::bytecode_runner::{BytecodeRunResult, ScanTickOptions, run_scan_tick};
+use super::bytecode_runner::{run_scan_tick, BytecodeRunResult, ScanTickOptions};
 use crate::process_image::ProcessImage;
 
 /// Summary returned when the scan-cycle loop exits.
@@ -118,14 +118,9 @@ pub async fn run_scan_cycle_loop(
         let tick_start = std::time::Instant::now();
 
         // Execute one scan tick.
-        let results = run_scan_tick(
-            &registry,
-            &pi,
-            &declared_types,
-            persistence.as_deref(),
-            &tick_options,
-        )
-        .await;
+        let results =
+            run_scan_tick(&registry, &pi, &declared_types, persistence.as_deref(), &tick_options)
+                .await;
         summary.ticks_executed += 1;
 
         for (program_id, result) in &results {
@@ -201,11 +196,11 @@ pub async fn run_scan_cycle_loop(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use super::super::bytecode::{Bytecode, Opcode, StValue};
     use super::super::bytecode_registry::ProgramEntry;
-    use super::*;
-    use crate::process_image::{TagQuality, TagSource};
     use chrono::Utc;
+    use crate::process_image::{TagQuality, TagSource};
 
     fn mk_entry(program_id: &str, bc: Bytecode) -> ProgramEntry {
         ProgramEntry {
@@ -245,9 +240,7 @@ mod tests {
             allowed_write_tags: vec!["setpoint".to_string()],
             safe_state_pinned_tags: vec![],
             opcodes: vec![
-                Opcode::PushConst {
-                    value: StValue::Real(value),
-                },
+                Opcode::PushConst { value: StValue::Real(value) },
                 Opcode::WriteTag {
                     name: "setpoint".to_string(),
                 },
@@ -365,7 +358,10 @@ mod tests {
         let summary = handle.await.expect("join ok");
         // Each tick runs 2 programs (writer + noop).
         // Across N ticks: programs_ok = 2*N, programs_failed = 0.
-        assert!(summary.ticks_executed >= 1, "expected at least 1 tick");
+        assert!(
+            summary.ticks_executed >= 1,
+            "expected at least 1 tick"
+        );
         assert_eq!(
             summary.programs_ok,
             summary.ticks_executed * 2,

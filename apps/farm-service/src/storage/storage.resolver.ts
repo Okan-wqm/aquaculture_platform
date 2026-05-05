@@ -6,7 +6,7 @@ import { UseGuards, Logger } from '@nestjs/common';
 import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
 import { CurrentTenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
 import { TenantGuard } from '@aquaculture/backend-common/guards';
-import { fromCqrsPaginated } from '@aquaculture/backend-common/pagination';
+import { fromCqrsPaginated, CursorPaginationInput } from '@aquaculture/backend-common/pagination';
 import { StorageLocationResponse, PaginatedStorageLocationsResponse } from './dto/storage-location.response';
 import { StorageInventoryResponse } from './dto/storage-inventory.response';
 import { StorageInventoryCursorConnection } from './dto/storage-inventory-cursor.response';

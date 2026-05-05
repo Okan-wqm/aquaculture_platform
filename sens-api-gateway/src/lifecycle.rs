@@ -76,15 +76,16 @@ use serde_json::json;
 use tracing::{error, info, warn};
 
 use crate::audit::{
-    AuditAction, AuditActor, AuditEntry, AuditOutcome, AuditPhase, AuditResource, AuditSink,
+    AuditAction, AuditActor, AuditEntry, AuditOutcome, AuditPhase, AuditResource,
+    AuditSink,
 };
 use crate::authz::permission::TenantId;
 use crate::lifecycle_auth::{
-    AuthError, HEADER_HMAC, HEADER_TIMESTAMP, LifecycleAuthKey, verify_request,
+    verify_request, AuthError, LifecycleAuthKey, HEADER_HMAC, HEADER_TIMESTAMP,
 };
 use crate::updater::{
-    AbPartition, BootloaderHandle, ConfirmOutcome, ConfirmSlotSelector, PartitionStore,
-    perform_confirm_slot,
+    perform_confirm_slot, AbPartition, BootloaderHandle, ConfirmOutcome,
+    ConfirmSlotSelector, PartitionStore,
 };
 
 /// Shared lifecycle context — the handles the HTTP
@@ -107,6 +108,18 @@ pub struct LifecycleHandles {
     /// HealthState wasn't constructed at lifecycle cell
     /// population time.
     pub health_state: Option<crate::health::HealthState>,
+    /// **Batch #324 D-9 migration:** clock authority
+    /// reference for verify_request's trustworthy_wall_clock
+    /// gate. Replaces the pre-#324 SystemTime::now() read
+    /// that was vulnerable to operator clock-rollback
+    /// DOS. Always Some in production (AppState always
+    /// has a clock_authority — defaults to
+    /// SystemClockAuthority in init_clock_authority);
+    /// Option<> here so legacy LifecycleHandles
+    /// constructors that don't have the clock yet can
+    /// migrate gradually.
+    pub clock_authority:
+        Option<Arc<dyn crate::runtime_safety::ClockAuthority>>,
 }
 
 /// Axum-shareable container for `LifecycleHandles`.
@@ -145,9 +158,7 @@ pub async fn confirm_active_handler(
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse {
     let Some(handles) = cell.get() else {
-        warn!(
-            "lifecycle confirm_active: cell not yet populated (partition_store init pending or disabled)"
-        );
+        warn!("lifecycle confirm_active: cell not yet populated (partition_store init pending or disabled)");
         return (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(json!({
@@ -163,16 +174,43 @@ pub async fn confirm_active_handler(
     // Disabled or systemd-creds not loaded), skip — HC-1
     // backward compat.
     if let Some(auth_key) = handles.auth_key.as_ref() {
-        let hmac_header = headers.get(HEADER_HMAC).and_then(|v| v.to_str().ok());
-        let ts_header = headers.get(HEADER_TIMESTAMP).and_then(|v| v.to_str().ok());
+        let hmac_header = headers
+            .get(HEADER_HMAC)
+            .and_then(|v| v.to_str().ok());
+        let ts_header = headers
+            .get(HEADER_TIMESTAMP)
+            .and_then(|v| v.to_str().ok());
+        // Batch #324 D-9 migration: pull the clock authority
+        // from handles. AppState boot wires it post-cell-
+        // population; if somehow None at this point (legacy
+        // call site), fall back to a fresh SystemClockAuthority
+        // for backward-compat — the trusting-0-age default
+        // is a STRICTLY WEAKER posture than the migrated path
+        // but matches pre-#324 behaviour. Production wiring
+        // is expected to populate the field.
+        let clock_authority_owned;
+        let clock_ref: &dyn crate::runtime_safety::ClockAuthority =
+            if let Some(c) = handles.clock_authority.as_ref() {
+                &**c
+            } else {
+                clock_authority_owned =
+                    crate::runtime_safety::SystemClockAuthority::new();
+                &clock_authority_owned
+            };
         if let Err(auth_err) = verify_request(
             auth_key,
             "POST",
             "/lifecycle/confirm-active",
             hmac_header,
             ts_header,
-        ) {
-            warn!("lifecycle confirm_active: HMAC auth REJECTED: {}", auth_err);
+            clock_ref,
+        )
+        .await
+        {
+            warn!(
+                "lifecycle confirm_active: HMAC auth REJECTED: {}",
+                auth_err
+            );
             let is_invalid_hmac = matches!(auth_err, AuthError::InvalidHmac);
             let gate_label = match auth_err {
                 AuthError::MissingHmacHeader => "missing_hmac_header",
@@ -181,6 +219,11 @@ pub async fn confirm_active_handler(
                 AuthError::MalformedTimestampHeader => "malformed_timestamp_header",
                 AuthError::TimestampOutOfWindow { .. } => "timestamp_out_of_window",
                 AuthError::InvalidHmac => "invalid_hmac",
+                // Batch #324 D-9 migration: ClockUnhealthy
+                // arm — operator-actionable label so
+                // dashboards can distinguish "agent's clock
+                // broken" from "client sent bad timestamp".
+                AuthError::ClockUnhealthy(_) => "clock_unhealthy",
             };
             // Batch 135 Sprint 6.5 — closes Batch 132 obs
             // #3: bump auth rejection counters. invalid_hmac
@@ -330,10 +373,7 @@ pub async fn confirm_active_handler(
             )
         }
         ConfirmOutcome::SnapshotFailed(e) => {
-            error!(
-                "lifecycle confirm_active: snapshot failed after idempotency check: {}",
-                e
-            );
+            error!("lifecycle confirm_active: snapshot failed after idempotency check: {}", e);
             emit_audit(
                 handles,
                 AuditPhase::Post,
@@ -407,7 +447,9 @@ fn emit_audit(
         .unwrap_or_default();
     let action = match (phase, outcome) {
         (AuditPhase::Pre, _) => AuditAction::FirmwareDeployRequested,
-        (AuditPhase::Post, AuditOutcome::Success) => AuditAction::FirmwareDeployApplied,
+        (AuditPhase::Post, AuditOutcome::Success) => {
+            AuditAction::FirmwareDeployApplied
+        }
         (AuditPhase::Post, _) => AuditAction::FirmwareDeployRequested,
     };
     let entry = AuditEntry {
@@ -415,7 +457,10 @@ fn emit_audit(
         timestamp_nanos: now.subsec_nanos(),
         correlation_id: format!("lifecycle-http-{}", now.as_nanos()),
         phase,
-        actor: AuditActor::new(format!("system:lifecycle_http:{}", handles.device_id)),
+        actor: AuditActor::new(format!(
+            "system:lifecycle_http:{}",
+            handles.device_id
+        )),
         tenant: handles.tenant,
         policy_version: 0,
         two_person_integrity_verified: false,
@@ -456,11 +501,20 @@ mod tests {
             tenant: TenantId::new_from_verified([0u8; 16]),
             auth_key: None,
             health_state: None,
+            // Batch #324 D-9: tests use legacy None;
+            // verify_request falls back to a fresh
+            // SystemClockAuthority via the lifecycle.rs
+            // call site's owned-fallback path.
+            clock_authority: None,
         }
     }
 
-    fn build_handles_with_auth(store: Arc<PartitionStore>, key_bytes: Vec<u8>) -> LifecycleHandles {
-        let key = LifecycleAuthKey::from_bytes(key_bytes).expect("valid test key");
+    fn build_handles_with_auth(
+        store: Arc<PartitionStore>,
+        key_bytes: Vec<u8>,
+    ) -> LifecycleHandles {
+        let key =
+            LifecycleAuthKey::from_bytes(key_bytes).expect("valid test key");
         LifecycleHandles {
             partition_store: store,
             bootloader: Arc::new(NoopBootloaderHandle),
@@ -469,6 +523,7 @@ mod tests {
             tenant: TenantId::new_from_verified([0u8; 16]),
             auth_key: Some(Arc::new(key)),
             health_state: None,
+            clock_authority: None,
         }
     }
 
@@ -484,6 +539,7 @@ mod tests {
             tenant: TenantId::new_from_verified([0u8; 16]),
             auth_key: None,
             health_state: Some(health),
+            clock_authority: None,
         }
     }
 
@@ -540,19 +596,12 @@ mod tests {
         let store = Arc::new(PartitionStore::open(Some(&path)).expect("open"));
         store
             .apply_roll(
-                PartitionRoll::InitialInstall {
-                    target: AbPartition::A,
-                },
+                PartitionRoll::InitialInstall { target: AbPartition::A },
                 3600,
             )
             .expect("install");
         store
-            .apply_roll(
-                PartitionRoll::Confirm {
-                    slot: AbPartition::A,
-                },
-                3600,
-            )
+            .apply_roll(PartitionRoll::Confirm { slot: AbPartition::A }, 3600)
             .expect("confirm");
 
         let cell: LifecycleHandlesCell = new_cell();
@@ -667,6 +716,7 @@ mod tests {
             tenant: TenantId::new_from_verified([0u8; 16]),
             auth_key: Some(Arc::new(key)),
             health_state: Some(health.clone()),
+            clock_authority: None,
         })
         .ok();
 
@@ -734,13 +784,15 @@ mod tests {
             tenant: TenantId::new_from_verified([0u8; 16]),
             auth_key: Some(Arc::new(key)),
             health_state: Some(health.clone()),
+            clock_authority: None,
         })
         .ok();
 
         // Empty headers — auth enabled → MissingHmacHeader.
-        let resp = confirm_active_handler(Extension(cell), axum::http::HeaderMap::new())
-            .await
-            .into_response();
+        let resp =
+            confirm_active_handler(Extension(cell), axum::http::HeaderMap::new())
+                .await
+                .into_response();
         assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
 
         let metrics = health.metrics_prometheus();
@@ -783,9 +835,7 @@ mod tests {
         // Install v7 + leave slot A PendingConfirm.
         store
             .apply_roll_with_version_bump(
-                crate::updater::PartitionRoll::InitialInstall {
-                    target: AbPartition::A,
-                },
+                crate::updater::PartitionRoll::InitialInstall { target: AbPartition::A },
                 3600,
                 7,
             )
@@ -796,9 +846,12 @@ mod tests {
         cell.set(build_handles_with_health(store.clone(), health.clone()))
             .ok();
 
-        let resp = confirm_active_handler(Extension(cell), axum::http::HeaderMap::new())
-            .await
-            .into_response();
+        let resp = confirm_active_handler(
+            Extension(cell),
+            axum::http::HeaderMap::new(),
+        )
+        .await
+        .into_response();
         assert_eq!(resp.status(), StatusCode::OK);
 
         let metrics = health.metrics_prometheus();
@@ -847,19 +900,12 @@ mod tests {
         let store = Arc::new(PartitionStore::open(Some(&path)).expect("open"));
         store
             .apply_roll(
-                crate::updater::PartitionRoll::InitialInstall {
-                    target: AbPartition::A,
-                },
+                crate::updater::PartitionRoll::InitialInstall { target: AbPartition::A },
                 3600,
             )
             .expect("install");
         store
-            .apply_roll(
-                crate::updater::PartitionRoll::Confirm {
-                    slot: AbPartition::A,
-                },
-                3600,
-            )
+            .apply_roll(crate::updater::PartitionRoll::Confirm { slot: AbPartition::A }, 3600)
             .expect("confirm");
         // Slot A already Active → idempotent 200 path.
 
@@ -874,8 +920,12 @@ mod tests {
             .as_secs() as i64;
         // Compute HMAC as the client would.
         let key = LifecycleAuthKey::from_bytes(key_bytes).unwrap();
-        let mac =
-            crate::lifecycle_auth::compute_hmac(&key, ts, "POST", "/lifecycle/confirm-active");
+        let mac = crate::lifecycle_auth::compute_hmac(
+            &key,
+            ts,
+            "POST",
+            "/lifecycle/confirm-active",
+        );
         let hmac_hex: String = mac.iter().map(|b| format!("{:02x}", b)).collect();
 
         let mut headers = axum::http::HeaderMap::new();
@@ -914,9 +964,7 @@ mod tests {
         let store = Arc::new(PartitionStore::open(Some(&path)).expect("open"));
         store
             .apply_roll(
-                PartitionRoll::InitialInstall {
-                    target: AbPartition::A,
-                },
+                PartitionRoll::InitialInstall { target: AbPartition::A },
                 3600,
             )
             .expect("install");

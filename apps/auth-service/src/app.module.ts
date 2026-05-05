@@ -12,8 +12,7 @@ import { RlsModule, SchemaDriftModule, createServiceTypeOrmConfig } from '@aquac
 import { TenantGuard, RolesGuard, ServiceIdentityGuard } from '@aquaculture/backend-common/guards';
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
 import { MetricsMiddleware } from '@aquaculture/backend-common/metrics';
-import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware, RequestLoggingMiddleware, StripInternalHeadersMiddleware } from '@aquaculture/backend-common/middleware';
-import { AuditedOperationModule } from '@aquaculture/backend-common/audit';
+import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware, RequestLoggingMiddleware } from '@aquaculture/backend-common/middleware';
 import { RedisModule } from '@aquaculture/backend-common/redis';
 import { TOKEN_BLACKLIST, ITokenBlacklist } from '@aquaculture/backend-common/security';
 import { EventBusModule } from '@platform/event-bus';

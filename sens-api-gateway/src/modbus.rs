@@ -642,9 +642,11 @@ impl ModbusClient {
         // (e.g., client cert without client key) fail-fast with
         // an operator-actionable error string before any socket
         // is opened.
-        let tls_mode = self.config.tls.to_mode().map_err(|e| {
-            anyhow::anyhow!("Modbus '{}' TLS config invalid: {}", self.config.name, e)
-        })?;
+        let tls_mode = self
+            .config
+            .tls
+            .to_mode()
+            .map_err(|e| anyhow::anyhow!("Modbus '{}' TLS config invalid: {}", self.config.name, e))?;
 
         let channel = match tls_mode {
             crate::config::TlsMode::Full {

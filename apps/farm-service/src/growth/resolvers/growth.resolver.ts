@@ -27,6 +27,7 @@ import { Repository } from 'typeorm';
 import { CurrentTenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
 import { TenantGuard } from '@aquaculture/backend-common/guards';
 import { StandardPaginationInput, StandardPaginatedResponse, fromCqrsPaginated, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
+import { Cacheable } from '../../common/cache/cacheable.decorator';
 import GraphQLJSON from 'graphql-type-json';
 
 // Entities

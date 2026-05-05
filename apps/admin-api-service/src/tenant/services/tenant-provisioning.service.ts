@@ -3,7 +3,6 @@ import * as crypto from 'crypto';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { SchemaManagerService, DEFAULT_TENANT_MODULES } from '@aquaculture/backend-common/database';
-import { LegalHoldService } from '@aquaculture/backend-common/compliance';
 import { Repository, DataSource } from 'typeorm';
 
 import {

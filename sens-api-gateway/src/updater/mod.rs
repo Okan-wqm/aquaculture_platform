@@ -114,9 +114,24 @@ pub use manifest::{
 };
 pub use partition::{AbPartition, PartitionRoll, SlotState};
 pub use partition_store::{PartitionState, PartitionStore, PartitionStoreError};
+pub use watchdog::{
+    run_cold_boot_watchdog, watchdog_tick, WatchdogAuditCtx, WatchdogTickOutcome,
+    DEFAULT_WATCHDOG_POLL_INTERVAL_SECS,
+};
+pub use bootloader::{BootloaderError, BootloaderHandle, NoopBootloaderHandle};
 pub use tryboot::{
-    DEFAULT_AUTOBOOT_TXT_PATH, DEFAULT_SLOT_A_PARTITION, DEFAULT_SLOT_B_PARTITION,
-    TrybootBootloaderHandle,
+    TrybootBootloaderHandle, DEFAULT_AUTOBOOT_TXT_PATH, DEFAULT_SLOT_A_PARTITION,
+    DEFAULT_SLOT_B_PARTITION,
+};
+pub use confirm_orchestrator::{
+    parse_slot_param, perform_confirm_slot, ConfirmOutcome, ConfirmSlotSelector,
+};
+pub use file_verify::{
+    verify_all_files, verify_file_against_entry, BatchVerifyReport, FileVerifyError,
+};
+pub use file_stream::{
+    stream_files_to_standby, FileSource, FileSourceError, InMemoryFileSource,
+    StreamError, StreamReport,
 };
 pub use verify::verify_firmware_manifest;
 pub use watchdog::{

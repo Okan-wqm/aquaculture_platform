@@ -268,10 +268,7 @@ impl ClockAuthority for ChronyNtsClockAuthority {
 /// in Phase 2 / Batch 90 once we wire the native chrony
 /// socket (rather than subprocess).
 fn parse_chronyc_csv_tracking(csv: &str) -> Result<u64, String> {
-    let line = csv
-        .lines()
-        .next()
-        .ok_or_else(|| "empty stdout".to_string())?;
+    let line = csv.lines().next().ok_or_else(|| "empty stdout".to_string())?;
     let fields: Vec<&str> = line.split(',').collect();
     if fields.len() < 12 {
         return Err(format!(
@@ -369,6 +366,8 @@ mod tests {
         let c = ChronyNtsClockAuthority::new(3600);
         let a = c.monotonic_now().expect("a");
         let b = c.monotonic_now().expect("b");
-        let _delta = b.saturating_duration_since(a).expect("non-decreasing");
+        let _delta = b
+            .saturating_duration_since(a)
+            .expect("non-decreasing");
     }
 }

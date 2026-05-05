@@ -105,8 +105,7 @@ fn st_source_body_claims_flow_through_to_bytecode() {
     //   d1_source_compile_roundtrip_meaningful_program
     //   (asserts entry.bytecode.tenant_id == body.tenant_id
     //    AND entry.bytecode.policy_version == body.policy_version)
-    let _contract =
-        "SignedStSource body claims flow through to compiled Bytecode tenant + policy_version";
+    let _contract = "SignedStSource body claims flow through to compiled Bytecode tenant + policy_version";
     assert!(!_contract.is_empty());
 }
 

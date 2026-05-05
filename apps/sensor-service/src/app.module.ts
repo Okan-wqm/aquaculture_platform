@@ -15,9 +15,7 @@ import { SourceSchemaBootstrapService, RlsModule, createServiceTypeOrmConfig } f
 import { TenantGuard, RolesGuard, ServiceIdentityGuard } from '@aquaculture/backend-common/guards';
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
 import { MetricsMiddleware } from '@aquaculture/backend-common/metrics';
-import { UserContextMiddleware, TenantContextMiddleware, CorrelationIdMiddleware, StripInternalHeadersMiddleware } from '@aquaculture/backend-common/middleware';
-import { CircuitBreakerModule } from '@aquaculture/backend-common/resilience';
-import { AuditedOperationModule } from '@aquaculture/backend-common/audit';
+import { UserContextMiddleware, TenantContextMiddleware, CorrelationIdMiddleware } from '@aquaculture/backend-common/middleware';
 import { RedisModule } from '@aquaculture/backend-common/redis';
 import { EventBusModule } from '@platform/event-bus';
 import depthLimit from 'graphql-depth-limit';

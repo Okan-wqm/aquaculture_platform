@@ -231,11 +231,16 @@ mod uuid_bytes_serde {
 mod uuid_bytes_opt_serde {
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-    pub fn serialize<S: Serializer>(b: &Option<[u8; 16]>, s: S) -> Result<S::Ok, S::Error> {
+    pub fn serialize<S: Serializer>(
+        b: &Option<[u8; 16]>,
+        s: S,
+    ) -> Result<S::Ok, S::Error> {
         b.serialize(s)
     }
 
-    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<[u8; 16]>, D::Error> {
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        d: D,
+    ) -> Result<Option<[u8; 16]>, D::Error> {
         Option::<[u8; 16]>::deserialize(d)
     }
 }
@@ -313,9 +318,15 @@ impl std::fmt::Display for EnvelopeVerifyError {
             }
             Self::SignatureInvalid => f.write_str("signature_invalid"),
             Self::JtiReplay => f.write_str("jti_replay"),
-            Self::CoApproverSignatureMissing => f.write_str("co_approver_signature_missing"),
-            Self::CoApproverSignatureInvalid => f.write_str("co_approver_signature_invalid"),
-            Self::CoApproverSelfSignature => f.write_str("co_approver_self_signature"),
+            Self::CoApproverSignatureMissing => {
+                f.write_str("co_approver_signature_missing")
+            }
+            Self::CoApproverSignatureInvalid => {
+                f.write_str("co_approver_signature_invalid")
+            }
+            Self::CoApproverSelfSignature => {
+                f.write_str("co_approver_self_signature")
+            }
         }
     }
 }
@@ -1198,7 +1209,8 @@ mod tests {
             "nonce": "v1-nonce",
             "cmd_hash": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
         });
-        let env: CommandEnvelope = serde_json::from_value(v1_wire).expect("v1 deserializes");
+        let env: CommandEnvelope =
+            serde_json::from_value(v1_wire).expect("v1 deserializes");
         assert_eq!(
             env.claimed_policy_version, 0,
             "v1 wire (no field) MUST default to 0"
@@ -1271,7 +1283,8 @@ mod tests {
             "nonce": "v2-nonce",
             "cmd_hash": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
         });
-        let env: CommandEnvelope = serde_json::from_value(v2_wire).expect("v2 deserializes");
+        let env: CommandEnvelope =
+            serde_json::from_value(v2_wire).expect("v2 deserializes");
         assert_eq!(
             env.co_approver_actor, None,
             "v2 wire (no co_approver field) MUST default to None"

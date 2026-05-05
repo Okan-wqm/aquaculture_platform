@@ -141,7 +141,9 @@ pub struct StSourceBody {
 pub enum StSourceVerifyError {
     /// Canonical encoding failed — unencodable field length
     /// (e.g. a source longer than u32::MAX bytes).
-    CanonicalEncoding { what: &'static str },
+    CanonicalEncoding {
+        what: &'static str,
+    },
     /// ed25519 signature verification returned false.
     InvalidSignature,
 }
@@ -181,18 +183,13 @@ const DOMAIN_TAG_V1: &[u8] = b"st-source-v1";
 /// Produce the canonical byte representation of a `StSourceBody`
 /// for signing / verification. Encoding documented in the
 /// module-level docstring.
-pub fn canonical_bytes(body: &StSourceBody) -> Result<Vec<u8>, StSourceVerifyError> {
+pub fn canonical_bytes(
+    body: &StSourceBody,
+) -> Result<Vec<u8>, StSourceVerifyError> {
     let mut out = Vec::with_capacity(
-        4 + 2
-            + 4
-            + body.program_id.len()
-            + 1
-            + 4
-            + body.tenant_id.as_ref().map(|t| t.len()).unwrap_or(0)
-            + 8
-            + 4
-            + 4
-            + body.source.len()
+        4 + 2 + 4 + body.program_id.len()
+            + 1 + 4 + body.tenant_id.as_ref().map(|t| t.len()).unwrap_or(0)
+            + 8 + 4 + 4 + body.source.len()
             + DOMAIN_TAG_V1.len(),
     );
 
@@ -266,12 +263,17 @@ fn write_u32_len(
     len: usize,
     what: &'static str,
 ) -> Result<(), StSourceVerifyError> {
-    let as_u32 = u32::try_from(len).map_err(|_| StSourceVerifyError::CanonicalEncoding { what })?;
+    let as_u32 = u32::try_from(len)
+        .map_err(|_| StSourceVerifyError::CanonicalEncoding { what })?;
     out.extend_from_slice(&as_u32.to_be_bytes());
     Ok(())
 }
 
-fn write_str(out: &mut Vec<u8>, s: &str, what: &'static str) -> Result<(), StSourceVerifyError> {
+fn write_str(
+    out: &mut Vec<u8>,
+    s: &str,
+    what: &'static str,
+) -> Result<(), StSourceVerifyError> {
     let bytes = s.as_bytes();
     write_u32_len(out, bytes.len(), what)?;
     out.extend_from_slice(bytes);
@@ -393,7 +395,10 @@ mod tests {
         });
         assert!(result.is_ok());
         // Closure received the recomputed canonical bytes.
-        assert_eq!(received_canonical.unwrap(), canonical_bytes(&body).unwrap());
+        assert_eq!(
+            received_canonical.unwrap(),
+            canonical_bytes(&body).unwrap()
+        );
         assert_eq!(received_sig.unwrap(), [0u8; 64]);
     }
 

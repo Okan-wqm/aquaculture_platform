@@ -12,14 +12,13 @@ import { GraphQLError } from 'graphql';
 import depthLimit from 'graphql-depth-limit';
 import { fieldExtensionsEstimator, getComplexity, simpleEstimator } from 'graphql-query-complexity';
 import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
-import { CircuitBreakerModule } from '@aquaculture/backend-common/resilience';
 import { SourceSchemaBootstrapService, createTenantConnectionBootstrap, TenantSchemaSyncService, SourceSchemaWriteGuardService, AuditColumnsModule, RlsModule, createMigrationRunnerService, SchemaDriftModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common/database';
 import { RolesGuard, TenantGuard } from '@aquaculture/backend-common/guards';
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
-import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware, createTenantSchemaMiddleware, StripInternalHeadersMiddleware } from '@aquaculture/backend-common/middleware';
+import { TenantContextMiddleware, CorrelationIdMiddleware, UserContextMiddleware, createTenantSchemaMiddleware } from '@aquaculture/backend-common/middleware';
 import { RedisModule } from '@aquaculture/backend-common/redis';
 import { ThrottlerModule, ThrottlerGuard, SlidingWindowStrategy } from '@aquaculture/backend-common/security';
-import { AuditLogModule, AuditLogInterceptor, AuditedOperationModule } from '@aquaculture/backend-common/audit';
+import { AuditLogModule, AuditLogInterceptor } from '@aquaculture/backend-common/audit';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('ai');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('ai');
 

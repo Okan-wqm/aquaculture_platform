@@ -49,9 +49,6 @@
       "@aquaculture/backend-common/bootstrap": [
         "libs/backend-common/src/bootstrap/index.ts"
       ],
-      "@aquaculture/backend-common/compliance": [
-        "libs/backend-common/src/compliance/index.ts"
-      ],
       "@aquaculture/backend-common/config": ["libs/backend-common/src/config/index.ts"],
       "@aquaculture/backend-common/constants": [
         "libs/backend-common/src/constants/index.ts"
@@ -105,9 +102,6 @@
         "libs/backend-common/src/pagination/index.ts"
       ],
       "@aquaculture/backend-common/redis": ["libs/backend-common/src/redis/index.ts"],
-      "@aquaculture/backend-common/resilience": [
-        "libs/backend-common/src/resilience/index.ts"
-      ],
       "@aquaculture/backend-common/security": [
         "libs/backend-common/src/security/index.ts"
       ],

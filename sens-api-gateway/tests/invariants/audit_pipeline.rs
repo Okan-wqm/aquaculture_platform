@@ -19,8 +19,7 @@ fn chain_genesis_uses_zero_prev_hmac_sentinel() {
     // marker in ADR-020 §3 — audit-verify CLI recognizes it
     // as "first entry, no predecessor" without needing a
     // separate metadata flag.
-    let _contract =
-        "AuditSink::open on empty file -> last_hmac = zeros, first append prev_hmac_hex = 64 zeros";
+    let _contract = "AuditSink::open on empty file -> last_hmac = zeros, first append prev_hmac_hex = 64 zeros";
     assert!(!_contract.is_empty());
 }
 
@@ -37,7 +36,8 @@ fn chain_recovery_fails_closed_on_corrupt_tail() {
     // needs to SEE that the log was corrupted before the
     // agent appends new entries that would blur the
     // boundary.
-    let _contract = "AuditSink::open: corrupt last-line JSON or bad hmac hex -> AuditSinkError, NOT silent genesis reset";
+    let _contract =
+        "AuditSink::open: corrupt last-line JSON or bad hmac hex -> AuditSinkError, NOT silent genesis reset";
     assert!(!_contract.is_empty());
 }
 
@@ -71,8 +71,7 @@ fn reopen_preserves_memory_state_across_rotation() {
     // In-memory state is the source of truth across
     // rotation; disk-on-boot is the source of truth for a
     // fresh process.
-    let _contract =
-        "reopen() preserves (last_hmac, last_sequence); does NOT call recover_chain_state";
+    let _contract = "reopen() preserves (last_hmac, last_sequence); does NOT call recover_chain_state";
     assert!(!_contract.is_empty());
 }
 
@@ -89,8 +88,7 @@ fn reopen_enables_cross_file_chain_linkage() {
     // the first entry of each post-rotation file EXPLICITLY
     // references the last entry of the pre-rotation file
     // via HMAC — breaking the link is detectable.
-    let _contract =
-        "cross-file invariant: new_file_first.prev_hmac_hex == rotated_file_last.current_hmac_hex";
+    let _contract = "cross-file invariant: new_file_first.prev_hmac_hex == rotated_file_last.current_hmac_hex";
     assert!(!_contract.is_empty());
 }
 
@@ -107,8 +105,7 @@ fn sighup_triggers_audit_reopen_after_config_reload() {
     // AuditSink holds its own PathBuf — Phase 2 / Batch 82
     // follow-up wires log_path change detection +
     // sink rebuild.
-    let _contract =
-        "SIGHUP handler: config-reload -> audit.reopen() (sink preserved across config change)";
+    let _contract = "SIGHUP handler: config-reload -> audit.reopen() (sink preserved across config change)";
     assert!(!_contract.is_empty());
 }
 
@@ -129,8 +126,7 @@ fn sighup_audit_reopen_failure_does_not_kill_agent() {
     // Phase 2 / Batch 82 adds a Prometheus metric
     // `audit_sink_reopen_failures_total` so ops dashboards
     // can alert on this without agent restart.
-    let _contract =
-        "SIGHUP reopen failure -> ERROR log + continue; agent does NOT exit(1) at runtime";
+    let _contract = "SIGHUP reopen failure -> ERROR log + continue; agent does NOT exit(1) at runtime";
     assert!(!_contract.is_empty());
 }
 
@@ -161,8 +157,7 @@ fn command_handler_audit_emit_is_noop_when_sink_disabled() {
     // WHY: Disabled mode is the HC-1 backward-compat default.
     // Existing deployments that haven't opted into audit
     // must see NO behavior change from Batch 79.
-    let _contract =
-        "audit.mode=Disabled -> audit_sink=None -> emit_*_event no-ops (HC-1 backward compat)";
+    let _contract = "audit.mode=Disabled -> audit_sink=None -> emit_*_event no-ops (HC-1 backward compat)";
     assert!(!_contract.is_empty());
 }
 
@@ -195,8 +190,7 @@ fn verify_cli_rejects_wrong_hmac_key() {
     //
     // Runtime evidence: audit::verify::tests::
     // verify_rejects_wrong_key.
-    let _contract =
-        "audit-verify wrong key -> entry 1 HMAC mismatch -> exit 1 (forgery-resistance invariant)";
+    let _contract = "audit-verify wrong key -> entry 1 HMAC mismatch -> exit 1 (forgery-resistance invariant)";
     assert!(!_contract.is_empty());
 }
 
@@ -213,8 +207,7 @@ fn verify_cli_detects_tampered_detail_at_entry_level() {
     // audit tamper can be LOCALIZED to the exact entry
     // that was modified — forensic investigators don't
     // need to discard the whole log.
-    let _contract =
-        "tampered field -> HMAC mismatch localized to entry_number; prior entries still verifiable";
+    let _contract = "tampered field -> HMAC mismatch localized to entry_number; prior entries still verifiable";
     assert!(!_contract.is_empty());
 }
 

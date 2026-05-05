@@ -26,32 +26,32 @@
 //
 // Per-domain handler submodules (each adds an
 // `impl CommandHandler { ... cmd_X ... }` block):
-mod apply_signed_manifest;
-mod audit_emit;
-mod confirm_slot;
-mod deploy_bytecode_program;
-mod diagnostic;
-mod envelope_adapter;
-mod failover;
-mod firmware;
 mod helpers;
-mod ide_deploy;
+pub mod ping_handler;
+pub(crate) mod required_permission;
+mod envelope_adapter;
+mod diagnostic;
+mod failover;
+mod script;
+mod read;
+mod system;
+mod write;
 mod io_config;
 #[cfg(feature = "lorawan")]
 mod lora;
-pub mod ping_handler;
-mod plc;
+mod firmware;
 mod program;
+mod plc;
+mod ide_deploy;
 mod rbac;
-mod read;
-mod refresh_license;
-pub(crate) mod required_permission;
-mod rotate_master;
-mod script;
-mod system;
 mod user_token;
+mod audit_emit;
+mod rotate_master;
+mod confirm_slot;
 mod verify_signed_manifest;
-mod write;
+mod apply_signed_manifest;
+mod refresh_license;
+mod deploy_bytecode_program;
 // Batch #299 ORPHAN-HIGH-020 closure: cmd_deploy_st_source —
 // operator-signed ST source MQTT command handler. Parallel to
 // deploy_bytecode_program but takes raw .st source via
@@ -59,8 +59,8 @@ mod write;
 // compile_and_deploy_signed_source (Batch #298 adapter) which
 // internally orchestrates verify+parse+compile+deploy. Same
 // AppState read-guard discipline as deploy_bytecode_program.
-mod bytecode_ops;
 mod deploy_st_source;
+mod bytecode_ops;
 mod force_commands;
 mod watch_commands;
 
@@ -70,9 +70,9 @@ mod watch_commands;
 // commands module boundary so external callers compile unchanged.
 mod program_def;
 pub use program_def::{ProgramDefinition, ProgramState};
-mod config_dispatch;
-mod dispatch_lifecycle;
 mod mqtt_dispatch;
+mod dispatch_lifecycle;
+mod config_dispatch;
 
 // Imports for the post-extraction mod.rs body
 // (CommandHandler struct + new() + tests).
@@ -87,11 +87,8 @@ use crate::AppState;
 use crate::scripting::ScriptStorage;
 
 use self::helpers::RateLimiter;
-#[allow(unused_imports)]
-// param helpers: not all handlers use every extractor; imported at module scope for uniform call syntax across moved sub-modules (Batches 20c+).
-use self::helpers::{
-    get_bool_param, get_str_param, get_u64_param, require_str_param, require_u64_param,
-};
+#[allow(unused_imports)] // param helpers: not all handlers use every extractor; imported at module scope for uniform call syntax across moved sub-modules (Batches 20c+).
+use self::helpers::{get_bool_param, get_str_param, get_u64_param, require_str_param, require_u64_param};
 
 /// Default delay before system reboot (seconds) - v1.2.6
 const DEFAULT_REBOOT_DELAY_SECS: u64 = 5;
@@ -255,6 +252,7 @@ impl CommandHandler {
     // remains pub(super) — the only caller is handle_message
     // in the sibling mqtt_dispatch.rs module.
 
+
     // Per-command handlers (cmd_*) are defined as
     // `impl super::CommandHandler { ... }` blocks across the
     // domain submodules declared near the top of this file
@@ -305,23 +303,11 @@ mod tests {
         let json = serde_json::to_string(&response).unwrap();
         // Assert camelCase field serialization (matches
         // actual wire format).
-        assert!(
-            json.contains("commandId"),
-            "expected camelCase commandId: {}",
-            json
-        );
-        assert!(
-            json.contains("deviceId"),
-            "expected camelCase deviceId: {}",
-            json
-        );
+        assert!(json.contains("commandId"), "expected camelCase commandId: {}", json);
+        assert!(json.contains("deviceId"), "expected camelCase deviceId: {}", json);
         assert!(json.contains("pong"));
         // None fields skip via `skip_serializing_if`.
-        assert!(
-            !json.contains("error"),
-            "error=None should be omitted: {}",
-            json
-        );
+        assert!(!json.contains("error"), "error=None should be omitted: {}", json);
         // Pin the canonical field presence so a future
         // rename_all change is caught.
         assert!(json.contains("success"));

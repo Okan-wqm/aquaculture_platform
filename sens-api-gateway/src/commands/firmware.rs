@@ -233,20 +233,7 @@ impl CommandHandler {
                         error: None,
                     };
                     let s = state.read().await;
-                    // 2026-04-29 enterprise publish reliability:
-                    // firmware progress responses use checked routing.
-                    //
-                    // What it solves: deployment telemetry failures keep their
-                    // command id and stage in logs instead of becoming generic
-                    // helper warnings.
-                    if let Err(e) =
-                        crate::publish_helpers::publish_response_checked(&s, &response).await
-                    {
-                        error!(
-                            "Firmware progress response publish failed: stage='{}' command_id='{}' error={}",
-                            stage, response.command_id, e
-                        );
-                    }
+                    crate::publish_helpers::publish_response(&s, &response).await;
                 }
             };
 
@@ -265,19 +252,7 @@ impl CommandHandler {
                         error: Some(error_msg),
                     };
                     let s = state.read().await;
-                    // 2026-04-29 enterprise publish reliability:
-                    // firmware failure responses use checked routing.
-                    //
-                    // What it solves: a failed deploy cannot also silently lose
-                    // the operator-visible failure response.
-                    if let Err(e) =
-                        crate::publish_helpers::publish_response_checked(&s, &response).await
-                    {
-                        error!(
-                            "Firmware failure response publish failed: command_id='{}' error={}",
-                            response.command_id, e
-                        );
-                    }
+                    crate::publish_helpers::publish_response(&s, &response).await;
                 }
             };
 
@@ -292,9 +267,7 @@ impl CommandHandler {
                 }
             };
 
-            let resolved_version = resolved_tag
-                .strip_prefix("agent-v")
-                .unwrap_or(&resolved_tag);
+            let resolved_version = resolved_tag.strip_prefix("agent-v").unwrap_or(&resolved_tag);
 
             if resolved_version == current_version {
                 send_progress(
@@ -350,15 +323,21 @@ impl CommandHandler {
             let tarball_path = update_dir.join(&tarball_name);
             let checksum_path = update_dir.join(&checksum_name);
 
-            if let Err(e) =
-                download_file(&format!("{}{}", base_url, tarball_name), &tarball_path).await
+            if let Err(e) = download_file(
+                &format!("{}{}", base_url, tarball_name),
+                &tarball_path,
+            )
+            .await
             {
                 send_failed(format!("Failed to download tarball: {}", e)).await;
                 return;
             }
 
-            if let Err(e) =
-                download_file(&format!("{}{}", base_url, checksum_name), &checksum_path).await
+            if let Err(e) = download_file(
+                &format!("{}{}", base_url, checksum_name),
+                &checksum_path,
+            )
+            .await
             {
                 send_failed(format!("Failed to download checksum file: {}", e)).await;
                 return;
@@ -545,13 +524,7 @@ pub(super) fn is_valid_github_repo(repo: &str) -> bool {
             && !s.starts_with('.')
             && !s.contains("..")
     };
-    let Some(owner) = parts.first() else {
-        return false;
-    };
-    let Some(repo_name) = parts.get(1) else {
-        return false;
-    };
-    valid_chars(owner) && valid_chars(repo_name)
+    valid_chars(parts[0]) && valid_chars(parts[1])
 }
 
 /// Validate that a version/tag string contains only safe
@@ -573,7 +546,10 @@ pub(super) fn is_valid_version_string(version: &str) -> bool {
 ///   releases).
 /// - "agent-v1.5.3" → used as-is.
 /// - "1.5.2" → prefixed with "agent-v".
-pub(super) async fn resolve_firmware_version(target: &str, repo: &str) -> anyhow::Result<String> {
+pub(super) async fn resolve_firmware_version(
+    target: &str,
+    repo: &str,
+) -> anyhow::Result<String> {
     if target == "latest" {
         fetch_latest_agent_tag(repo).await
     } else if !is_valid_version_string(target) {
@@ -594,19 +570,8 @@ pub(super) async fn resolve_firmware_version(target: &str, repo: &str) -> anyhow
 pub(super) async fn fetch_latest_agent_tag(repo: &str) -> anyhow::Result<String> {
     let url = format!("https://api.github.com/repos/{}/releases", repo);
 
-    // Phase 1.1.3a (closes ORPHAN-HIGH-035 cipher dimension): apply the
-    // Suderra TLS 1.3 + cipher allowlist to the GitHub releases API
-    // call. This endpoint hits `api.github.com` (DigiCert / public CA
-    // chain) — Suderra leaf-cert pinning is intentionally NOT applied
-    // because GitHub rotates its certs independently of the Suderra
-    // signing ceremony. Cipher-allowlist + TLS 1.3 pin are still
-    // operative — defense-in-depth against cipher-suite-downgrade
-    // attacks even on non-Suderra-controlled HTTPS endpoints.
-    let suderra_tls = crate::mtls::build_suderra_https_client_config()
-        .map_err(|e| anyhow::anyhow!("Failed to build Suderra HTTPS ClientConfig: {e}"))?;
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
-        .use_preconfigured_tls((*suderra_tls).clone())
         .build()?;
 
     let response = client

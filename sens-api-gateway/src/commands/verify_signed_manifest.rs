@@ -159,8 +159,7 @@ impl CommandHandler {
                         "gate": "device_not_activated",
                     }),
                     Some(
-                        "verify_signed_manifest rejected: device not activated (tenant_id is None)"
-                            .to_string(),
+                        "verify_signed_manifest rejected: device not activated (tenant_id is None)".to_string(),
                     ),
                 );
             }
@@ -179,8 +178,7 @@ impl CommandHandler {
                         "param": "manifest",
                     }),
                     Some(
-                        "verify_signed_manifest rejected: missing required 'manifest' parameter"
-                            .to_string(),
+                        "verify_signed_manifest rejected: missing required 'manifest' parameter".to_string(),
                     ),
                 );
             }
@@ -251,7 +249,10 @@ impl CommandHandler {
                 )
             }
             Err(e) => {
-                warn!("verify_signed_manifest REJECTED: gate={:?}", e);
+                warn!(
+                    "verify_signed_manifest REJECTED: gate={:?}",
+                    e
+                );
                 (
                     false,
                     json!({
@@ -301,10 +302,7 @@ mod tests {
             "target_arch_mismatch"
         );
         assert_eq!(gate_label_for_err(&M::TenantMismatch), "tenant_mismatch");
-        assert_eq!(
-            gate_label_for_err(&M::InvalidSignature),
-            "invalid_signature"
-        );
+        assert_eq!(gate_label_for_err(&M::InvalidSignature), "invalid_signature");
         assert_eq!(
             gate_label_for_err(&M::InvalidValidityWindow {
                 valid_from: 0,

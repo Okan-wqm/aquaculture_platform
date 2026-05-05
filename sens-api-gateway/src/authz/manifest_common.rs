@@ -44,7 +44,8 @@
 //!
 //! Every gate returns an error variant tagged by gate name. Callers map
 //! the common error into their local error enum via `From` impls — see
-//! `ManifestVerifyError` and `UserTokenManifestVerifyError`.
+//! [`super::verify::ManifestVerifyError::From`] and
+//! [`super::user_token_manifest::UserTokenManifestVerifyError::From`].
 
 use std::time::SystemTime;
 
@@ -71,16 +72,15 @@ pub enum ManifestStructuralError {
     NotYetValid { now_unix_secs: i64, valid_from: i64 },
 
     /// `now` is after `valid_until` — expired manifest.
-    Expired {
-        now_unix_secs: i64,
-        valid_until: i64,
-    },
+    Expired { now_unix_secs: i64, valid_until: i64 },
 }
 
 impl std::fmt::Display for ManifestStructuralError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::InvalidValidityWindow { .. } => f.write_str("invalid_validity_window"),
+            Self::InvalidValidityWindow { .. } => {
+                f.write_str("invalid_validity_window")
+            }
             Self::InvalidNow => f.write_str("invalid_now"),
             Self::TenantMismatch => f.write_str("tenant_mismatch"),
             Self::StalePolicyVersion { .. } => f.write_str("stale_policy_version"),

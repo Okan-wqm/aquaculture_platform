@@ -62,8 +62,12 @@
 
 use chrono::Utc;
 
-use super::bytecode_registry::{BytecodeProgramRegistry, ProgramEntry, RegistryError};
-use super::bytecode_sig::{BytecodeVerifyError, SignedBytecode, verify_signed_bytecode};
+use super::bytecode_registry::{
+    BytecodeProgramRegistry, ProgramEntry, RegistryError,
+};
+use super::bytecode_sig::{
+    verify_signed_bytecode, BytecodeVerifyError, SignedBytecode,
+};
 
 /// Success response from `verify_and_deploy`. The command
 /// handler surfaces these fields in the MQTT response +
@@ -161,9 +165,11 @@ impl std::fmt::Display for DeployError {
             Self::StSourceSignatureInvalid => {
                 write!(f, "deploy: ST source signature verification failed")
             }
-            Self::StSourceCanonicalEncoding { what } => {
-                write!(f, "deploy: ST source canonical encoding failed: {}", what)
-            }
+            Self::StSourceCanonicalEncoding { what } => write!(
+                f,
+                "deploy: ST source canonical encoding failed: {}",
+                what
+            ),
             Self::StSourceParseFailed {
                 error_count,
                 first_error,
@@ -184,7 +190,9 @@ impl std::error::Error for DeployError {}
 impl From<BytecodeVerifyError> for DeployError {
     fn from(e: BytecodeVerifyError) -> Self {
         match e {
-            BytecodeVerifyError::CanonicalEncoding { what } => Self::CanonicalEncoding { what },
+            BytecodeVerifyError::CanonicalEncoding { what } => {
+                Self::CanonicalEncoding { what }
+            }
             BytecodeVerifyError::InvalidSignature => Self::SignatureInvalid,
         }
     }
@@ -332,7 +340,9 @@ pub async fn compile_and_deploy_signed_source(
     tags: &[super::bytecode_compiler::TagDescriptor],
     verify_signature: impl FnOnce(&[u8], &[u8; 64]) -> bool,
 ) -> Result<DeployReport, DeployError> {
-    use super::st_source_sig::{StSourceVerifyError, verify_signed_st_source};
+    use super::st_source_sig::{
+        verify_signed_st_source, StSourceVerifyError,
+    };
 
     // Gate 1 — ST source signature verify.
     let body = match verify_signed_st_source(signed, verify_signature) {
@@ -426,9 +436,9 @@ pub async fn compile_and_deploy_signed_source(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use super::super::bytecode::{Bytecode, Opcode, StValue};
     use super::super::bytecode_sig::canonical_bytes;
-    use super::*;
     use crate::authz::policy::Ed25519SignatureBytes;
     use ed25519_dalek::{Signer, SigningKey, Verifier, VerifyingKey};
 
@@ -440,7 +450,11 @@ mod tests {
         SigningKey::from_bytes(&[2u8; 32])
     }
 
-    fn mk_bc(program_id: &str, tenant: Option<&str>, version: u64) -> Bytecode {
+    fn mk_bc(
+        program_id: &str,
+        tenant: Option<&str>,
+        version: u64,
+    ) -> Bytecode {
         Bytecode {
             program_id: program_id.to_string(),
             program_name: format!("{}-name", program_id),
@@ -452,9 +466,7 @@ mod tests {
             allowed_write_tags: vec![],
             safe_state_pinned_tags: vec![],
             opcodes: vec![
-                Opcode::PushConst {
-                    value: StValue::Real(0.0),
-                },
+                Opcode::PushConst { value: StValue::Real(0.0) },
                 Opcode::Pop,
                 Opcode::Return,
             ],
@@ -470,7 +482,9 @@ mod tests {
         }
     }
 
-    fn verify_with(key: VerifyingKey) -> impl FnOnce(&[u8], &[u8; 64]) -> bool {
+    fn verify_with(
+        key: VerifyingKey,
+    ) -> impl FnOnce(&[u8], &[u8; 64]) -> bool {
         move |msg, sig_bytes| {
             let sig = ed25519_dalek::Signature::from_bytes(sig_bytes);
             key.verify(msg, &sig).is_ok()
@@ -588,7 +602,10 @@ mod tests {
         .expect("v2 deploy ok");
         assert!(report.replaced_existing);
         assert_eq!(report.policy_version, 2);
-        assert_eq!(reg.get("p1").await.expect("exists").policy_version, 2);
+        assert_eq!(
+            reg.get("p1").await.expect("exists").policy_version,
+            2
+        );
     }
 
     #[tokio::test]
@@ -619,7 +636,10 @@ mod tests {
             DeployError::Registry(RegistryError::PolicyVersionNotMonotonic { .. })
         ));
         // Original v5 still in place.
-        assert_eq!(reg.get("p1").await.expect("exists").policy_version, 5);
+        assert_eq!(
+            reg.get("p1").await.expect("exists").policy_version,
+            5
+        );
     }
 
     #[tokio::test]
@@ -677,15 +697,10 @@ mod tests {
     // unit tests.
 
     use super::super::st_source_sig::{
-        SignedStSource, StSourceBody, canonical_bytes as src_canonical_bytes,
+        canonical_bytes as src_canonical_bytes, SignedStSource, StSourceBody,
     };
 
-    fn mk_st_body(
-        program_id: &str,
-        tenant: Option<&str>,
-        version: u64,
-        source: &str,
-    ) -> StSourceBody {
+    fn mk_st_body(program_id: &str, tenant: Option<&str>, version: u64, source: &str) -> StSourceBody {
         StSourceBody {
             program_id: program_id.to_string(),
             tenant_id: tenant.map(|s| s.to_string()),
@@ -763,8 +778,7 @@ mod tests {
         let body_a = mk_st_body("p-src-3", Some("tenant-a"), 1, MINIMAL_VALID_SOURCE);
         let mut signed = sign_source(&body_a, &key);
         // Mutate the source post-sign — tampered envelope.
-        signed.body.source =
-            "PROGRAM Tampered\nVAR\n  y : REAL;\nEND_VAR\nEND_PROGRAM\n".to_string();
+        signed.body.source = "PROGRAM Tampered\nVAR\n  y : REAL;\nEND_VAR\nEND_PROGRAM\n".to_string();
         let err = compile_and_deploy_signed_source(
             &reg,
             &signed,
@@ -1037,10 +1051,7 @@ mod tests {
         // VM gate at scan-cycle time uses this list as the
         // SSoT for write authorization.
         assert!(
-            entry
-                .bytecode
-                .allowed_write_tags
-                .contains(&"setpoint".to_string()),
+            entry.bytecode.allowed_write_tags.contains(&"setpoint".to_string()),
             "expected `setpoint` in allowed_write_tags; got {:?}",
             entry.bytecode.allowed_write_tags
         );
@@ -1049,10 +1060,7 @@ mod tests {
         // source never writes to it; allowed_write_tags MUST
         // NOT contain it.
         assert!(
-            !entry
-                .bytecode
-                .allowed_write_tags
-                .contains(&"sensor_temp".to_string()),
+            !entry.bytecode.allowed_write_tags.contains(&"sensor_temp".to_string()),
             "sensor_temp MUST NOT be in allowed_write_tags (source never writes it; catalog marks it read-only)",
         );
 

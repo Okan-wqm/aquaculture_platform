@@ -341,21 +341,29 @@ impl FileBackedKeystore {
     ) -> Result<Self, KeystoreError> {
         // Step 1 — derive the master via the existing
         // sync ctor.
-        let mut keystore = Self::open(passphrase_path, salt_path, params, acceptance)?;
+        let mut keystore =
+            Self::open(passphrase_path, salt_path, params, acceptance)?;
 
         // Step 2 — initialize the rotation marker. First
         // boot mints + persists; subsequent boots read.
-        use super::error::KeystoreErrorKind;
-        use crate::keystore::KeystoreRotationDeadline;
         use crate::keystore::rotation_marker_store::read_or_init;
-        let deadline = read_or_init(&rotation_marker_path, &*clock, |now_unix_secs| {
-            KeystoreRotationDeadline::new_with_defaults(now_unix_secs)
-        })
+        use crate::keystore::KeystoreRotationDeadline;
+        use super::error::KeystoreErrorKind;
+        let deadline = read_or_init(
+            &rotation_marker_path,
+            &*clock,
+            |now_unix_secs| {
+                KeystoreRotationDeadline::new_with_defaults(now_unix_secs)
+            },
+        )
         .await
         .map_err(|e| {
             KeystoreError::new(
                 KeystoreErrorKind::IoError,
-                format!("FileBackedKeystore: rotation marker init failed: {}", e),
+                format!(
+                    "FileBackedKeystore: rotation marker init failed: {}",
+                    e
+                ),
             )
         })?;
 
@@ -365,7 +373,9 @@ impl FileBackedKeystore {
             clock,
         });
 
-        info!("FileBackedKeystore opened with rotation tracking enabled");
+        info!(
+            "FileBackedKeystore opened with rotation tracking enabled"
+        );
         Ok(keystore)
     }
 
@@ -388,8 +398,12 @@ impl FileBackedKeystore {
     ///   directly + don't want to round-trip via JSON).
     pub async fn rotation_status(
         &self,
-    ) -> Option<Result<crate::keystore::RotationStatus, crate::keystore::RotationDeadlineError>>
-    {
+    ) -> Option<
+        Result<
+            crate::keystore::RotationStatus,
+            crate::keystore::RotationDeadlineError,
+        >,
+    > {
         let tracker = self.rotation_tracker.as_ref()?;
         let deadline_guard = tracker.deadline.read().await;
         Some(deadline_guard.evaluate(&*tracker.clock).await)
@@ -436,8 +450,12 @@ impl FileBackedKeystore {
         if let Some(tracker) = self.rotation_tracker.as_ref() {
             use crate::keystore::rotation_marker_store::record_rotation_now;
             let mut guard = tracker.deadline.write().await;
-            if let Err(e) =
-                record_rotation_now(&tracker.marker_path, &mut *guard, &*tracker.clock).await
+            if let Err(e) = record_rotation_now(
+                &tracker.marker_path,
+                &mut *guard,
+                &*tracker.clock,
+            )
+            .await
             {
                 warn!(
                     "FileBackedKeystore rotate_master_from_files_with_tracking: \
@@ -538,7 +556,11 @@ impl FileBackedKeystore {
         let salt = std::fs::read(salt_path).map_err(|e| {
             KeystoreError::new(
                 KeystoreErrorKind::IoError,
-                format!("rotate: read salt {}: {}", salt_path.display(), e),
+                format!(
+                    "rotate: read salt {}: {}",
+                    salt_path.display(),
+                    e
+                ),
             )
         })?;
         if salt.len() < 16 {
@@ -622,7 +644,9 @@ impl FileBackedKeystore {
         // compute.
         let master_bytes: [u8; 32] = {
             let guard = self.master.read().map_err(|_| {
-                KeyDerivationError::HkdfFailure("master RwLock poisoned".to_string())
+                KeyDerivationError::HkdfFailure(
+                    "master RwLock poisoned".to_string(),
+                )
             })?;
             *guard.expose_secret_crate()
         };
@@ -661,8 +685,9 @@ impl FileBackedKeystore {
             mb
         };
 
-        expand_result
-            .map_err(|e| KeyDerivationError::HkdfFailure(format!("HKDF expand: {}", e)))?;
+        expand_result.map_err(|e| {
+            KeyDerivationError::HkdfFailure(format!("HKDF expand: {}", e))
+        })?;
         Ok(okm)
     }
 }
@@ -736,11 +761,13 @@ impl Keystore for FileBackedKeystore {
                 KeystoreErrorKind::NotImplemented,
                 "FileBackedKeystore does not accept TpmReseal rotation source".to_string(),
             )),
-            crate::keystore::RotationSource::SystemdCredsReissue => Err(KeystoreError::new(
-                KeystoreErrorKind::NotImplemented,
-                "FileBackedKeystore does not accept SystemdCredsReissue rotation source"
-                    .to_string(),
-            )),
+            crate::keystore::RotationSource::SystemdCredsReissue => {
+                Err(KeystoreError::new(
+                    KeystoreErrorKind::NotImplemented,
+                    "FileBackedKeystore does not accept SystemdCredsReissue rotation source"
+                        .to_string(),
+                ))
+            }
         }
     }
 }
@@ -840,7 +867,12 @@ mod tests {
         // an unchecked bypass — we test the code path works
         // at OWASP floor via open_with_owasp_params_bench
         // in benches/, not here.
-        let ks = FileBackedKeystore::open(&pass, &salt, test_params_owasp_ok(), build_acceptance());
+        let ks = FileBackedKeystore::open(
+            &pass,
+            &salt,
+            test_params_owasp_ok(),
+            build_acceptance(),
+        );
         assert!(ks.is_ok(), "open should succeed: {:?}", ks.err());
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -852,8 +884,12 @@ mod tests {
         write_file(&salt, &[0x42u8; 16]);
 
         let missing = dir.join("nonexistent");
-        let ks =
-            FileBackedKeystore::open(&missing, &salt, test_params_owasp_ok(), build_acceptance());
+        let ks = FileBackedKeystore::open(
+            &missing,
+            &salt,
+            test_params_owasp_ok(),
+            build_acceptance(),
+        );
         assert!(ks.is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -866,7 +902,12 @@ mod tests {
         write_file(&pass, b"passphrase");
         write_file(&salt, &[0x42u8; 8]); // 8 bytes < 16
 
-        let ks = FileBackedKeystore::open(&pass, &salt, test_params_owasp_ok(), build_acceptance());
+        let ks = FileBackedKeystore::open(
+            &pass,
+            &salt,
+            test_params_owasp_ok(),
+            build_acceptance(),
+        );
         assert!(ks.is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1035,8 +1076,13 @@ mod tests {
         write_file(&p2, b"passphrase-two-different");
         write_file(&s2, &[0x22u8; 16]);
 
-        let ks = FileBackedKeystore::open(&p1, &s1, test_params_owasp_ok(), build_acceptance())
-            .expect("open");
+        let ks = FileBackedKeystore::open(
+            &p1,
+            &s1,
+            test_params_owasp_ok(),
+            build_acceptance(),
+        )
+        .expect("open");
 
         let k1 = ks
             .derive_key(KeyPurpose::AuditHmacChain, b"ctx")
@@ -1053,7 +1099,10 @@ mod tests {
             .expect("k2");
         let k2_bytes = *k2.expose_secret();
 
-        assert_ne!(k1_bytes, k2_bytes, "rotation MUST change every derived key");
+        assert_ne!(
+            k1_bytes, k2_bytes,
+            "rotation MUST change every derived key"
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1066,8 +1115,13 @@ mod tests {
         write_file(&p, b"initial");
         write_file(&s, &[0x42u8; 16]);
 
-        let ks = FileBackedKeystore::open(&p, &s, test_params_owasp_ok(), build_acceptance())
-            .expect("open");
+        let ks = FileBackedKeystore::open(
+            &p,
+            &s,
+            test_params_owasp_ok(),
+            build_acceptance(),
+        )
+        .expect("open");
 
         let missing = dir.join("does-not-exist");
         let err = ks
@@ -1132,8 +1186,13 @@ mod tests {
         std::fs::write(&pp, b"correct horse battery").unwrap();
         std::fs::write(&salt, [0xa5u8; 32]).unwrap();
 
-        let ks = FileBackedKeystore::open(&pp, &salt, test_params_owasp_ok(), build_acceptance())
-            .expect("open");
+        let ks = FileBackedKeystore::open(
+            &pp,
+            &salt,
+            test_params_owasp_ok(),
+            build_acceptance(),
+        )
+        .expect("open");
 
         // Legacy ctor leaves tracker None — rotation_status
         // returns None (NOT an error; expressing the
@@ -1154,7 +1213,9 @@ mod tests {
         let salt = dir.join("salt");
         std::fs::write(&pp, b"correct horse battery").unwrap();
         std::fs::write(&salt, [0xa5u8; 32]).unwrap();
-        let marker_path = dir.join(crate::keystore::ROTATION_MARKER_FILENAME);
+        let marker_path = dir.join(
+            crate::keystore::ROTATION_MARKER_FILENAME,
+        );
         assert!(!marker_path.exists(), "first-boot precondition");
 
         let clock: Arc<dyn crate::runtime_safety::ClockAuthority> =
@@ -1198,17 +1259,23 @@ mod tests {
         let salt = dir.join("salt");
         std::fs::write(&pp, b"correct horse battery").unwrap();
         std::fs::write(&salt, [0xa5u8; 32]).unwrap();
-        let marker_path = dir.join(crate::keystore::ROTATION_MARKER_FILENAME);
+        let marker_path = dir.join(
+            crate::keystore::ROTATION_MARKER_FILENAME,
+        );
 
         // Pre-seed the marker with a 200-days-ago timestamp
         // so the deadline is overdue.
-        use crate::keystore::{KeystoreRotationDeadline, write_marker};
+        use crate::keystore::{
+            write_marker, KeystoreRotationDeadline,
+        };
         let now_unix = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs() as i64;
-        let overdue_deadline =
-            KeystoreRotationDeadline::new_with_defaults(now_unix - 200 * 86_400).unwrap();
+        let overdue_deadline = KeystoreRotationDeadline::new_with_defaults(
+            now_unix - 200 * 86_400,
+        )
+        .unwrap();
         write_marker(&marker_path, &overdue_deadline).unwrap();
 
         let clock: Arc<dyn crate::runtime_safety::ClockAuthority> =
@@ -1249,15 +1316,22 @@ mod tests {
         let salt = dir.join("salt");
         std::fs::write(&pp, b"old passphrase").unwrap();
         std::fs::write(&salt, [0xa5u8; 32]).unwrap();
-        let marker_path = dir.join(crate::keystore::ROTATION_MARKER_FILENAME);
+        let marker_path = dir.join(
+            crate::keystore::ROTATION_MARKER_FILENAME,
+        );
 
         // Pre-seed overdue marker.
-        use crate::keystore::{KeystoreRotationDeadline, write_marker};
+        use crate::keystore::{
+            write_marker, KeystoreRotationDeadline,
+        };
         let now_unix = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs() as i64;
-        let stale = KeystoreRotationDeadline::new_with_defaults(now_unix - 200 * 86_400).unwrap();
+        let stale = KeystoreRotationDeadline::new_with_defaults(
+            now_unix - 200 * 86_400,
+        )
+        .unwrap();
         write_marker(&marker_path, &stale).unwrap();
 
         let clock: Arc<dyn crate::runtime_safety::ClockAuthority> =
@@ -1275,17 +1349,18 @@ mod tests {
 
         // Pre-rotate: status is Overdue.
         let pre = ks.rotation_status().await.unwrap().unwrap();
-        assert!(matches!(
-            pre,
-            crate::keystore::RotationStatus::Overdue { .. }
-        ));
+        assert!(matches!(pre, crate::keystore::RotationStatus::Overdue { .. }));
 
         // Rotate the master + advance the marker. NEW
         // passphrase + same salt produces a new master.
         std::fs::write(&pp, b"new passphrase").unwrap();
-        ks.rotate_master_from_files_with_tracking(&pp, &salt, test_params_owasp_ok())
-            .await
-            .expect("rotate_with_tracking");
+        ks.rotate_master_from_files_with_tracking(
+            &pp,
+            &salt,
+            test_params_owasp_ok(),
+        )
+        .await
+        .expect("rotate_with_tracking");
 
         // Post-rotate: status is WithinPolicy (deadline
         // anchored at the rotation moment).
@@ -1297,7 +1372,9 @@ mod tests {
         );
 
         // Persisted marker reflects the new timestamp.
-        let loaded = crate::keystore::read_marker(&marker_path).unwrap().unwrap();
+        let loaded = crate::keystore::read_marker(&marker_path)
+            .unwrap()
+            .unwrap();
         assert!(
             loaded.last_rotation_at_unix_secs() > now_unix - 60,
             "persisted marker must reflect the fresh rotation timestamp"

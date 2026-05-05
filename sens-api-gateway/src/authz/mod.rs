@@ -135,13 +135,13 @@ pub use manifest::{
     RbacManifest, SignedRbacManifest,
 };
 
-pub use verify::{ManifestVerifyError, verify_manifest};
+pub use verify::{verify_manifest, ManifestVerifyError};
 
-pub use manifest_common::{ManifestStructuralError, run_envelope_gates};
+pub use manifest_common::{run_envelope_gates, ManifestStructuralError};
 
 pub use user_token_manifest::{
-    SignedUserTokenManifest, UserPassManifestBinding, UserTokenManifest,
-    UserTokenManifestVerifyError, X509ManifestBinding, verify_user_token_manifest,
+    verify_user_token_manifest, SignedUserTokenManifest, UserPassManifestBinding,
+    UserTokenManifest, UserTokenManifestVerifyError, X509ManifestBinding,
 };
 
 pub use user_token_manifest_runtime::UserTokenManifestStore;

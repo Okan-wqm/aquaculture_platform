@@ -220,7 +220,11 @@ impl BytecodeProgramRegistry {
     }
 
     /// Toggle the enabled flag on an existing entry.
-    pub async fn set_enabled(&self, program_id: &str, enabled: bool) -> Result<(), RegistryError> {
+    pub async fn set_enabled(
+        &self,
+        program_id: &str,
+        enabled: bool,
+    ) -> Result<(), RegistryError> {
         let mut inner = self.inner.write().await;
         match inner.get_mut(program_id) {
             Some(entry) => {
@@ -284,8 +288,8 @@ impl BytecodeProgramRegistry {
 
 #[cfg(test)]
 mod tests {
-    use super::super::bytecode::Opcode;
     use super::*;
+    use super::super::bytecode::Opcode;
 
     fn mk_bc(program_id: &str) -> Bytecode {
         Bytecode {
@@ -302,7 +306,11 @@ mod tests {
         }
     }
 
-    fn mk_entry(program_id: &str, tenant: Option<&str>, version: u64) -> ProgramEntry {
+    fn mk_entry(
+        program_id: &str,
+        tenant: Option<&str>,
+        version: u64,
+    ) -> ProgramEntry {
         ProgramEntry {
             program_id: program_id.to_string(),
             bytecode: mk_bc(program_id),
@@ -341,7 +349,10 @@ mod tests {
         reg.insert(mk_entry("p1", Some("tenant-a"), 2))
             .await
             .expect("replace ok");
-        assert_eq!(reg.get("p1").await.expect("exists").policy_version, 2);
+        assert_eq!(
+            reg.get("p1").await.expect("exists").policy_version,
+            2
+        );
     }
 
     #[tokio::test]
@@ -356,7 +367,9 @@ mod tests {
             .expect_err("not monotonic");
         match err {
             RegistryError::PolicyVersionNotMonotonic {
-                existing, incoming, ..
+                existing,
+                incoming,
+                ..
             } => {
                 assert_eq!(existing, 5);
                 assert_eq!(incoming, 5);
@@ -393,7 +406,9 @@ mod tests {
             .expect_err("tenant mismatch");
         match err {
             RegistryError::TenantMismatch {
-                existing, incoming, ..
+                existing,
+                incoming,
+                ..
             } => {
                 assert_eq!(existing, Some("tenant-a".to_string()));
                 assert_eq!(incoming, Some("tenant-b".to_string()));
@@ -402,7 +417,10 @@ mod tests {
         }
         // Original entry must still be intact.
         assert_eq!(
-            reg.get("p1").await.expect("exists").tenant_id,
+            reg.get("p1")
+                .await
+                .expect("exists")
+                .tenant_id,
             Some("tenant-a".to_string())
         );
     }
@@ -410,7 +428,9 @@ mod tests {
     #[tokio::test]
     async fn insert_rejects_swap_none_tenant_to_some() {
         let reg = BytecodeProgramRegistry::new();
-        reg.insert(mk_entry("p1", None, 1)).await.expect("ok");
+        reg.insert(mk_entry("p1", None, 1))
+            .await
+            .expect("ok");
         let err = reg
             .insert(mk_entry("p1", Some("tenant-a"), 2))
             .await

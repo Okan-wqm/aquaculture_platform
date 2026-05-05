@@ -697,17 +697,9 @@ mod tests {
     ///      stability contract for audit-verify CLI retroactive chain walk.
     #[test]
     fn audit_resource_wire_tags_stable() {
-        let t = AuditResource::Tag {
-            name: "x".to_string(),
-        };
+        let t = AuditResource::Tag { name: "x".to_string() };
         let p = AuditResource::Permission {
             permission: Permission::ReadTag,
-        };
-        let pg = AuditResource::Program {
-            program_id: "x".to_string(),
-        };
-        let fi = AuditResource::FirmwareImage {
-            image_digest_hex: "x".to_string(),
         };
         let pv = AuditResource::PolicyManifestVersion { version: 1 };
         let ks = AuditResource::Keystore {

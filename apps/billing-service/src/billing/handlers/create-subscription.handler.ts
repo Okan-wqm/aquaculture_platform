@@ -71,14 +71,10 @@ export class CreateSubscriptionHandler
     try {
       const subscriptionRepo = tenantManagerRepo(queryRunner.manager, Subscription, tenantId);
 
-      // BILLING-MEDIUM-004 cure: filter out already-soft-deleted rows so
-      // a tenant with a long history of cancellations isn't blocked by
-      // a stale row whose isDeleted=true was set on a previous cycle.
-      // The partial unique index (UQ_subscriptions_tenantId_active) is
-      // scoped to isDeleted=false; soft-deleted rows do not occupy a
-      // unique slot and must not occupy a logical "active" slot either.
+      // Check for existing subscription with pessimistic lock to prevent race conditions.
+      // tenantId auto-injected by the scoped wrapper.
       const existingSubscription = await subscriptionRepo.findOne({
-        where: { isDeleted: false },
+        where: {},
         lock: { mode: 'pessimistic_write' },
       });
 
@@ -86,14 +82,9 @@ export class CreateSubscriptionHandler
         if (existingSubscription.status !== SubscriptionStatus.CANCELLED) {
           throw new ConflictException(`Active subscription already exists for tenant ${tenantId}`);
         }
-        // BILLING-MEDIUM-004 cure: SOFT-delete the cancelled subscription
-        // so the partial unique index on tenantId WHERE isDeleted=false
-        // is not violated, but the row stays for billing reconciliation /
-        // dispute history. Pre-cure used `subscriptionRepo.delete()` —
-        // a hard delete that destroyed the audit trail for invoices +
-        // payments tied to the cancelled subscription.
-        existingSubscription.softDelete(userId);
-        await subscriptionRepo.save(existingSubscription);
+        // Delete the cancelled subscription so the unique index on tenantId
+        // is not violated when the new row is inserted below.
+        await subscriptionRepo.delete({ id: existingSubscription.id });
       }
 
       const periodEnd = this.calculatePeriodEnd(startDate, input.billingCycle);

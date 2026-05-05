@@ -73,7 +73,10 @@ impl CommandHandler {
     }
 
     /// Get a specific script (v1.2.0 - async API)
-    pub(super) async fn cmd_get_script(&self, params: &Value) -> (bool, Value, Option<String>) {
+    pub(super) async fn cmd_get_script(
+        &self,
+        params: &Value,
+    ) -> (bool, Value, Option<String>) {
         let script_id = match params.get("id").and_then(|v| v.as_str()) {
             Some(id) => id,
             None => {

@@ -150,8 +150,7 @@ fn config_integrity_permissive_requires_factory_pubkey() {
     //   cfg.config_integrity.mode = ConfigIntegrityMode::Permissive;
     //   cfg.config_integrity.factory_pubkey_hex = None;
     //   assert!(cfg.validate().is_err());
-    let _contract =
-        "config_integrity.mode != disabled + factory_pubkey_hex=None -> config load error";
+    let _contract = "config_integrity.mode != disabled + factory_pubkey_hex=None -> config load error";
     assert!(!_contract.is_empty());
 }
 
@@ -233,8 +232,7 @@ fn rbac_manifest_permissive_requires_signing_pubkey() {
     // 4 (config_integrity): pre-Sprint-6.1 the firmware-
     // embedded key doesn't exist; operators opting in MUST
     // supply their own test key.
-    let _contract =
-        "rbac_manifest.mode != disabled + manifest_signing_pubkey_hex=None -> config load error";
+    let _contract = "rbac_manifest.mode != disabled + manifest_signing_pubkey_hex=None -> config load error";
     assert!(!_contract.is_empty());
 }
 

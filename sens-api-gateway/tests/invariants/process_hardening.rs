@@ -85,8 +85,7 @@ fn prctl_set_dumpable_actually_changes_flag() {
     // flag doesn't leak outside this process.
     let rc = unsafe { libc::prctl(PR_SET_DUMPABLE, 0, 0, 0, 0) };
     assert_eq!(
-        rc,
-        0,
+        rc, 0,
         "prctl(PR_SET_DUMPABLE, 0) failed: {}",
         std::io::Error::last_os_error()
     );

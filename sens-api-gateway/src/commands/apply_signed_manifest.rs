@@ -114,18 +114,23 @@ impl CommandHandler {
             let state = self.state.read().await;
             state.health_state.clone()
         };
-        let (success, result, error) = self.cmd_apply_signed_manifest_impl(params).await;
+        let (success, result, error) =
+            self.cmd_apply_signed_manifest_impl(params).await;
         if let Some(hs) = health_state.as_ref() {
             if success {
                 hs.inc_firmware_apply_applied();
-                if let Some(slot_str) = result.get("target_slot").and_then(|v| v.as_str()) {
+                if let Some(slot_str) =
+                    result.get("target_slot").and_then(|v| v.as_str())
+                {
                     match slot_str {
                         "a" => hs.set_firmware_active_slot(0),
                         "b" => hs.set_firmware_active_slot(1),
                         _ => {}
                     }
                 }
-                if let Some(v) = result.get("firmware_version").and_then(|v| v.as_u64()) {
+                if let Some(v) =
+                    result.get("firmware_version").and_then(|v| v.as_u64())
+                {
                     hs.set_firmware_active_version(v);
                 }
             } else {
@@ -222,8 +227,7 @@ impl CommandHandler {
                         "gate": "device_not_activated",
                     }),
                     Some(
-                        "apply_signed_manifest rejected: device not activated (tenant_id is None)"
-                            .to_string(),
+                        "apply_signed_manifest rejected: device not activated (tenant_id is None)".to_string(),
                     ),
                 );
             }
@@ -240,8 +244,7 @@ impl CommandHandler {
                         "param": "manifest",
                     }),
                     Some(
-                        "apply_signed_manifest rejected: missing required 'manifest' parameter"
-                            .to_string(),
+                        "apply_signed_manifest rejected: missing required 'manifest' parameter".to_string(),
                     ),
                 );
             }
@@ -420,7 +423,10 @@ impl CommandHandler {
             apply_streaming_step(params, &ab_partitions, &manifest, target_slot);
         let streaming_status_json = match &streaming_outcome {
             StreamingStep::Skipped { reason } => {
-                info!("apply_signed_manifest: streaming skipped ({})", reason);
+                info!(
+                    "apply_signed_manifest: streaming skipped ({})",
+                    reason
+                );
                 json!({
                     "status": "skipped",
                     "reason": reason,
@@ -436,12 +442,7 @@ impl CommandHandler {
                     "verified_count": verified_count,
                 })
             }
-            StreamingStep::Rejected {
-                gate,
-                reason,
-                verified_count,
-                failed,
-            } => {
+            StreamingStep::Rejected { gate, reason, verified_count, failed } => {
                 warn!(
                     "apply_signed_manifest: streaming REJECTED ({}): {}",
                     gate, reason
@@ -468,7 +469,8 @@ impl CommandHandler {
         };
 
         // 5b. Apply transition atomically with version bump.
-        let cold_boot_budget_secs = crate::updater::partition::DEFAULT_COLD_BOOT_BUDGET_SECS;
+        let cold_boot_budget_secs =
+            crate::updater::partition::DEFAULT_COLD_BOOT_BUDGET_SECS;
 
         let new_state = match partition_store.apply_roll_with_version_bump(
             roll,
@@ -496,7 +498,11 @@ impl CommandHandler {
 
         info!(
             "apply_signed_manifest APPLIED: transition={} target_slot={:?} version {}->{} new_state={:?}",
-            transition_label, target_slot, highest_seen, manifest.firmware_version, new_state
+            transition_label,
+            target_slot,
+            highest_seen,
+            manifest.firmware_version,
+            new_state
         );
 
         // 6. Bootloader coordination — set next boot to
@@ -563,7 +569,8 @@ pub(super) fn plan_transition(
 
         // One Active + one Empty/Standby — swap to the
         // other slot as new_pending.
-        (SlotState::Active, SlotState::Empty) | (SlotState::Active, SlotState::Standby) => {
+        (SlotState::Active, SlotState::Empty)
+        | (SlotState::Active, SlotState::Standby) => {
             if snapshot.active != AbPartition::A {
                 return Err(format!(
                     "snapshot inconsistent: slot_a=Active but snapshot.active={:?}",
@@ -579,7 +586,8 @@ pub(super) fn plan_transition(
                 "SwapToPending",
             ))
         }
-        (SlotState::Empty, SlotState::Active) | (SlotState::Standby, SlotState::Active) => {
+        (SlotState::Empty, SlotState::Active)
+        | (SlotState::Standby, SlotState::Active) => {
             if snapshot.active != AbPartition::B {
                 return Err(format!(
                     "snapshot inconsistent: slot_b=Active but snapshot.active={:?}",
@@ -694,9 +702,7 @@ pub(super) fn apply_streaming_step(
 ) -> StreamingStep {
     if !ab_partitions.is_fully_configured() {
         return StreamingStep::Skipped {
-            reason:
-                "ab_partitions mount paths not configured (HC-1 backward compat — state-only apply)"
-                    .to_string(),
+            reason: "ab_partitions mount paths not configured (HC-1 backward compat — state-only apply)".to_string(),
         };
     }
 
@@ -791,7 +797,8 @@ pub(super) fn apply_streaming_step(
         };
     }
 
-    let report = crate::updater::stream_files_to_standby(&source, manifest, target_mount);
+    let report =
+        crate::updater::stream_files_to_standby(&source, manifest, target_mount);
     if report.all_ok() {
         return StreamingStep::Streamed {
             verified_count: report.verified_count,
@@ -998,11 +1005,12 @@ mod tests {
 
     use crate::authz::permission::TenantId as TenantIdFull;
     use crate::updater::{
-        FileDigest, FileEntry, FirmwareManifest, Sha256Digest, SignedFirmwareManifest, TargetArch,
+        FileDigest, FileEntry, FirmwareManifest, Sha256Digest,
+        SignedFirmwareManifest, TargetArch,
     };
     use ed25519_dalek::{Signer, SigningKey};
-    use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     /// Bootloader test fixture that records every
@@ -1093,8 +1101,11 @@ mod tests {
         };
         let canonical = manifest.canonical_bytes().expect("canonical ok");
         let sig = signing_key.sign(&canonical);
-        SignedFirmwareManifest::from_body_and_signature_bytes(manifest, &sig.to_bytes())
-            .expect("signature bytes ok")
+        SignedFirmwareManifest::from_body_and_signature_bytes(
+            manifest,
+            &sig.to_bytes(),
+        )
+        .expect("signature bytes ok")
     }
 
     #[test]
@@ -1112,7 +1123,9 @@ mod tests {
         // 2. Open a fresh PartitionStore — both slots Empty.
         let path = tmp_partition_store_path();
         let _ = std::fs::remove_file(&path);
-        let partition_store = Arc::new(PartitionStore::open(Some(&path)).expect("store open"));
+        let partition_store = Arc::new(
+            PartitionStore::open(Some(&path)).expect("store open"),
+        );
 
         // Keep a concrete Arc for atomic-counter asserts +
         // use the SAME Arc for bootloader method calls
@@ -1143,7 +1156,8 @@ mod tests {
         .expect("v1 verify ok");
         assert_eq!(manifest_v1.firmware_version, 1);
 
-        let (roll, target, label) = plan_transition(&snap_before).expect("plan v1");
+        let (roll, target, label) =
+            plan_transition(&snap_before).expect("plan v1");
         assert_eq!(label, "InitialInstall");
 
         let new_state = partition_store
@@ -1162,11 +1176,7 @@ mod tests {
             .expect("confirm v1");
         let snap_v1_confirmed = partition_store.snapshot().expect("snap v1");
         assert_eq!(snap_v1_confirmed.state_of(target), SlotState::Active);
-        assert!(
-            snap_v1_confirmed
-                .pending_confirm_deadline_unix_secs
-                .is_none()
-        );
+        assert!(snap_v1_confirmed.pending_confirm_deadline_unix_secs.is_none());
 
         // 6. Deploy v2 — exercises SwapToPending + version
         //    bump 1 → 2.
@@ -1185,7 +1195,8 @@ mod tests {
         .expect("v2 verify ok");
         assert_eq!(manifest_v2.firmware_version, 2);
 
-        let (roll_v2, target_v2, label_v2) = plan_transition(&snap_v1_confirmed).expect("plan v2");
+        let (roll_v2, target_v2, label_v2) =
+            plan_transition(&snap_v1_confirmed).expect("plan v2");
         assert_eq!(label_v2, "SwapToPending");
         // v1 landed on slot A (default); v2 targets slot B.
         assert_eq!(target, AbPartition::A);
@@ -1263,8 +1274,8 @@ mod tests {
     // ========================================================================
 
     use crate::config::AbPartitionMountConfig;
-    use base64::Engine;
     use sha2::{Digest as Sha2Digest, Sha256};
+    use base64::Engine;
 
     fn tmp_mount_pair() -> (std::path::PathBuf, std::path::PathBuf) {
         let a = std::env::temp_dir().join(format!(
@@ -1316,11 +1327,15 @@ mod tests {
 
     #[test]
     fn apply_streaming_step_skipped_when_ab_partitions_not_configured() {
-        let manifest = build_manifest_for_streaming(vec![("bin/a".to_string(), b"alpha".to_vec())]);
+        let manifest = build_manifest_for_streaming(vec![(
+            "bin/a".to_string(),
+            b"alpha".to_vec(),
+        )]);
         let params = json!({});
         let ab = AbPartitionMountConfig::default();
 
-        let out = apply_streaming_step(&params, &ab, &manifest, AbPartition::A);
+        let out =
+            apply_streaming_step(&params, &ab, &manifest, AbPartition::A);
         assert!(matches!(out, StreamingStep::Skipped { .. }));
     }
 
@@ -1331,10 +1346,14 @@ mod tests {
             slot_a_mount: Some(a.clone()),
             slot_b_mount: Some(b.clone()),
         };
-        let manifest = build_manifest_for_streaming(vec![("bin/a".to_string(), b"alpha".to_vec())]);
+        let manifest = build_manifest_for_streaming(vec![(
+            "bin/a".to_string(),
+            b"alpha".to_vec(),
+        )]);
         let params = json!({}); // no "files"
 
-        let out = apply_streaming_step(&params, &ab, &manifest, AbPartition::B);
+        let out =
+            apply_streaming_step(&params, &ab, &manifest, AbPartition::B);
         match out {
             StreamingStep::Rejected { gate, .. } => {
                 assert_eq!(gate, "no_file_source_configured");
@@ -1355,7 +1374,8 @@ mod tests {
         let manifest = build_manifest_for_streaming(vec![]);
         let params = json!({ "files": "not-an-object" });
 
-        let out = apply_streaming_step(&params, &ab, &manifest, AbPartition::B);
+        let out =
+            apply_streaming_step(&params, &ab, &manifest, AbPartition::B);
         match out {
             StreamingStep::Rejected { gate, .. } => {
                 assert_eq!(gate, "files_param_not_object");
@@ -1373,14 +1393,18 @@ mod tests {
             slot_a_mount: Some(a.clone()),
             slot_b_mount: Some(b.clone()),
         };
-        let manifest = build_manifest_for_streaming(vec![("bin/a".to_string(), b"alpha".to_vec())]);
+        let manifest = build_manifest_for_streaming(vec![(
+            "bin/a".to_string(),
+            b"alpha".to_vec(),
+        )]);
         let params = json!({
             "files": {
                 "bin/a": "!!!-not-valid-base64-!!!"
             }
         });
 
-        let out = apply_streaming_step(&params, &ab, &manifest, AbPartition::B);
+        let out =
+            apply_streaming_step(&params, &ab, &manifest, AbPartition::B);
         match out {
             StreamingStep::Rejected { gate, failed, .. } => {
                 assert_eq!(gate, "files_param_decode_failed");
@@ -1416,7 +1440,8 @@ mod tests {
         let params = json!({ "files": files_map });
 
         // Target slot B → files should land under `b` mount.
-        let out = apply_streaming_step(&params, &ab, &manifest, AbPartition::B);
+        let out =
+            apply_streaming_step(&params, &ab, &manifest, AbPartition::B);
         match out {
             StreamingStep::Streamed { verified_count } => {
                 assert_eq!(verified_count, 2);
@@ -1425,7 +1450,10 @@ mod tests {
         }
 
         // Files materialized at slot B.
-        assert_eq!(std::fs::read(b.join("bin/agent")).unwrap(), bytes_agent);
+        assert_eq!(
+            std::fs::read(b.join("bin/agent")).unwrap(),
+            bytes_agent
+        );
         assert_eq!(
             std::fs::read(b.join("etc/suderra/config.yaml")).unwrap(),
             bytes_config
@@ -1448,14 +1476,18 @@ mod tests {
         };
 
         let bytes = b"binary-for-slot-a".to_vec();
-        let manifest = build_manifest_for_streaming(vec![("bin/one".to_string(), bytes.clone())]);
+        let manifest = build_manifest_for_streaming(vec![(
+            "bin/one".to_string(),
+            bytes.clone(),
+        )]);
         let params = json!({
             "files": {
                 "bin/one": base64::engine::general_purpose::STANDARD.encode(&bytes),
             }
         });
 
-        let out = apply_streaming_step(&params, &ab, &manifest, AbPartition::A);
+        let out =
+            apply_streaming_step(&params, &ab, &manifest, AbPartition::A);
         assert!(matches!(out, StreamingStep::Streamed { verified_count: 1 }));
         assert_eq!(std::fs::read(a.join("bin/one")).unwrap(), bytes);
         assert!(!b.join("bin/one").exists());
@@ -1484,14 +1516,10 @@ mod tests {
             }
         });
 
-        let out = apply_streaming_step(&params, &ab, &manifest, AbPartition::B);
+        let out =
+            apply_streaming_step(&params, &ab, &manifest, AbPartition::B);
         match out {
-            StreamingStep::Rejected {
-                gate,
-                failed,
-                verified_count,
-                ..
-            } => {
+            StreamingStep::Rejected { gate, failed, verified_count, .. } => {
                 assert_eq!(gate, "stream_rejected");
                 assert_eq!(verified_count, 1);
                 assert_eq!(failed.len(), 1);
@@ -1544,9 +1572,11 @@ mod tests {
             release_tag: "v1-TAMPERED".to_string(),
             ..manifest1
         };
-        let signed_tampered =
-            SignedFirmwareManifest::from_body_and_signature_bytes(manifest2, &sig1.to_bytes())
-                .expect("signature bytes ok");
+        let signed_tampered = SignedFirmwareManifest::from_body_and_signature_bytes(
+            manifest2,
+            &sig1.to_bytes(),
+        )
+        .expect("signature bytes ok");
 
         let err = crate::updater::verify_firmware_manifest(
             &signed_tampered,

@@ -533,24 +533,6 @@ pub enum Permission {
     /// `ManagePolicy` but gates a distinct key + distinct monotonic
     /// version stream per Plan B R-4 3-key segregation.
     ManageUserTokenManifest,
-    /// Push a new mTLS leaf-cert pinning rotation via
-    /// `cmd_update_cert_pinning` (Phase 1.1.2 D-4 operator surface).
-    /// The handler calls `MtlsVerifierState::rebuild` which enforces the
-    /// Tier-1 downgrade gate (commit a2242f36) — Strict→Warn / Strict→
-    /// Legacy / Warn→Legacy / pin-set-emptying are rejected at the API
-    /// floor regardless of how this permission is granted, so an
-    /// operator with `ManageCertPinning` can ONLY rotate pins or promote
-    /// the policy floor. Break-glass to weaken the floor is out-of-band
-    /// (signed `/etc/suderra/emergency_policy.json.sig` per ADR-018 §5).
-    ///
-    /// HSM key separation: per ADR-021 §1 the cloud-side signing
-    /// ceremony reserves a distinct slot for cert-pinning manifests
-    /// (separate from RBAC/UserToken/Firmware keys). Until the slot is
-    /// minted, Phase 1.1.2 verifies the manifest signature via the
-    /// existing envelope-adapter ed25519 path (operator-bound) — the
-    /// MtlsVerifierState's downgrade gate is the load-bearing
-    /// architectural floor that makes this acceptable.
-    ManageCertPinning,
 
     // -------------------------------------------------------------------------
     // Debug + live operations
@@ -706,7 +688,8 @@ mod tests {
         // the edge-side single signature is the ed25519 manifest
         // signature, not an operator single-person action.
         assert!(!Permission::ManagePolicy.requires_two_person_integrity());
-        assert!(!Permission::ManageUserTokenManifest.requires_two_person_integrity());
+        assert!(!Permission::ManageUserTokenManifest
+            .requires_two_person_integrity());
     }
 
     // WHY: is_mutating drives signature-enforcement routing; same regression

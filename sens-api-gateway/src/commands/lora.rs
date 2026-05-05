@@ -122,8 +122,7 @@ impl CommandHandler {
                 match crate::lora::types::DevEui::from_hex(existing_eui) {
                     Ok(dev_eui) => {
                         if let Err(e) = lora_handle.remove_device(dev_eui).await {
-                            errors
-                                .push(format!("Device remove failed for {}: {}", existing_eui, e));
+                            errors.push(format!("Device remove failed for {}: {}", existing_eui, e));
                         } else {
                             removed += 1;
                             info!("LoRa device removed via diff: dev_eui={}", existing_eui);
@@ -187,7 +186,10 @@ impl CommandHandler {
             }
         };
 
-        let f_port = params.get("f_port").and_then(|v| v.as_u64()).unwrap_or(1) as u8;
+        let f_port = params
+            .get("f_port")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(1) as u8;
 
         let confirmed = params
             .get("confirmed")
@@ -197,7 +199,11 @@ impl CommandHandler {
         let dev_addr = match crate::lora::types::DevAddr::from_hex(dev_addr_hex) {
             Ok(addr) => addr,
             Err(e) => {
-                return (false, json!(null), Some(format!("Invalid dev_addr: {}", e)));
+                return (
+                    false,
+                    json!(null),
+                    Some(format!("Invalid dev_addr: {}", e)),
+                );
             }
         };
 
@@ -249,21 +255,14 @@ impl CommandHandler {
 
         match lora_handle.queue_downlink(item).await {
             Ok(()) => {
-                info!(
-                    "LoRa downlink queued: dev_addr={}, f_port={}",
-                    dev_addr_hex, f_port
-                );
+                info!("LoRa downlink queued: dev_addr={}, f_port={}", dev_addr_hex, f_port);
                 (
                     true,
                     json!({ "dev_addr": dev_addr_hex, "f_port": f_port, "confirmed": confirmed }),
                     None,
                 )
             }
-            Err(e) => (
-                false,
-                json!(null),
-                Some(format!("Downlink queue failed: {}", e)),
-            ),
+            Err(e) => (false, json!(null), Some(format!("Downlink queue failed: {}", e))),
         }
     }
 }

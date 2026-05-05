@@ -68,8 +68,7 @@ fn bounded_memory_prevents_unbounded_vecdeque_growth() {
     // and rely on eviction to shrink — but that would create
     // an unbounded-growth window (however brief) between
     // push and next eviction.
-    let _contract =
-        "RateLimiter memory bounded at max_commands entries (push guarded by capacity check)";
+    let _contract = "RateLimiter memory bounded at max_commands entries (push guarded by capacity check)";
     assert!(!_contract.is_empty());
 }
 
@@ -86,7 +85,6 @@ fn rate_limiter_integration_point_is_run_loop_not_inner() {
     // rate-limit gate is the FIRST hurdle incoming commands
     // face. Future refactors adding new inbound paths MUST
     // route through the same gate.
-    let _contract =
-        "RateLimiter integration point is CommandHandler::run loop; alternate paths must re-invoke";
+    let _contract = "RateLimiter integration point is CommandHandler::run loop; alternate paths must re-invoke";
     assert!(!_contract.is_empty());
 }

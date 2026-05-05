@@ -40,7 +40,9 @@ impl CommandHandler {
     /// API + CommandHandler holding a reference to it — Sprint 6.x
     /// wire-up. Until then the response body is honest about what
     /// it reports.
-    pub(super) async fn cmd_failover_status(&self) -> (bool, Value, Option<String>) {
+    pub(super) async fn cmd_failover_status(
+        &self,
+    ) -> (bool, Value, Option<String>) {
         info!("Executing failover_status command");
 
         let state = self.state.read().await;
@@ -57,19 +59,9 @@ impl CommandHandler {
             );
         }
 
-        let primary_broker = state
-            .config
-            .mqtt
-            .broker
-            .as_deref()
-            .unwrap_or("not configured");
-        let backup_broker = failover_config
-            .backup_broker
-            .as_deref()
-            .unwrap_or("not configured");
-        let backup_port = failover_config
-            .backup_port
-            .unwrap_or(state.config.mqtt.port);
+        let primary_broker = state.config.mqtt.broker.as_deref().unwrap_or("not configured");
+        let backup_broker = failover_config.backup_broker.as_deref().unwrap_or("not configured");
+        let backup_port = failover_config.backup_port.unwrap_or(state.config.mqtt.port);
 
         (
             true,
@@ -135,7 +127,11 @@ impl CommandHandler {
                 }
                 Err(e) => {
                     error!("Manual failover FAILED: {}", e);
-                    (false, json!(null), Some(format!("Failover failed: {}", e)))
+                    (
+                        false,
+                        json!(null),
+                        Some(format!("Failover failed: {}", e)),
+                    )
                 }
             },
             None => {
@@ -143,10 +139,7 @@ impl CommandHandler {
                 (
                     false,
                     json!(null),
-                    Some(
-                        "FailoverManager not initialized. MQTT failover wiring incomplete."
-                            .to_string(),
-                    ),
+                    Some("FailoverManager not initialized. MQTT failover wiring incomplete.".to_string()),
                 )
             }
         }
@@ -199,7 +192,11 @@ impl CommandHandler {
                 }
                 Err(e) => {
                     error!("Manual recovery FAILED: {}", e);
-                    (false, json!(null), Some(format!("Recovery failed: {}", e)))
+                    (
+                        false,
+                        json!(null),
+                        Some(format!("Recovery failed: {}", e)),
+                    )
                 }
             },
             None => {
@@ -207,10 +204,7 @@ impl CommandHandler {
                 (
                     false,
                     json!(null),
-                    Some(
-                        "FailoverManager not initialized. MQTT failover wiring incomplete."
-                            .to_string(),
-                    ),
+                    Some("FailoverManager not initialized. MQTT failover wiring incomplete.".to_string()),
                 )
             }
         }

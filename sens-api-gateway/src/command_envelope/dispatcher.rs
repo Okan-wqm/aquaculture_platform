@@ -6,7 +6,7 @@
 //! Owns the per-command registry of [`EnvelopeHandler`] implementations
 //! + coordinates the full verify→authorize→dispatch chain such that a
 //! handler body cannot run without the authz gate having minted an
-//! `AuthorizedContext`. Combined with the Batch #236 `HandlerInput<P>`
+//! [`AuthorizedContext`]. Combined with the Batch #236 `HandlerInput<P>`
 //! sealed constructor, this closes the ultra-plan A-1 dependency-
 //! inversion gap at Tier-1: "forgot to authorize" is a build-time type
 //! error + a dispatcher-layer routing invariant, never a runtime review
@@ -188,15 +188,21 @@ where
         engine: &dyn PolicyEngine,
     ) -> Result<HandlerResponse, DispatchError> {
         // Step 1: deserialize.
-        let payload: <H as EnvelopeHandler>::Payload = serde_json::from_value(params.clone())
-            .map_err(|e| DispatchError::PayloadInvalid(e.to_string()))?;
+        let payload: <H as EnvelopeHandler>::Payload =
+            serde_json::from_value(params.clone())
+                .map_err(|e| DispatchError::PayloadInvalid(e.to_string()))?;
 
         // Step 2: permission from typed payload.
         let perm = self.required_permission(&payload);
 
         // Step 3: authorize.
-        let req =
-            AuthorizationRequest::new(actor, perm, tenant, claimed_policy_version, received_at);
+        let req = AuthorizationRequest::new(
+            actor,
+            perm,
+            tenant,
+            claimed_policy_version,
+            received_at,
+        );
         let decision = engine
             .authorize(req)
             .await
@@ -335,7 +341,8 @@ impl CommandDispatcher {
         // claim. Once all callers thread `env.claimed_policy_version`
         // explicitly, the separate parameter can be deleted.
         debug_assert_eq!(
-            claimed_policy_version, env.claimed_policy_version,
+            claimed_policy_version,
+            env.claimed_policy_version,
             "Batch #295 ORPHAN-MEDIUM-019 invariant: caller's \
              claimed_policy_version must equal env.claimed_policy_version \
              (the envelope claim is signature-bound; the separate \
@@ -514,13 +521,7 @@ mod tests {
         let env = canned_envelope("ghost_cmd", serde_json::json!({}));
         let jti = Jti::try_new(env.jti.clone()).unwrap();
         let result = d
-            .run(
-                &env,
-                jti,
-                canned_actor(),
-                env.claimed_policy_version,
-                UNIX_EPOCH,
-            )
+            .run(&env, jti, canned_actor(), env.claimed_policy_version, UNIX_EPOCH)
             .await;
         match result {
             Err(DispatchError::UnknownCommand(cmd)) => {
@@ -541,44 +542,28 @@ mod tests {
         let env = canned_envelope("read_tag", serde_json::json!({"typo": "x"}));
         let jti = Jti::try_new(env.jti.clone()).unwrap();
         let result = d
-            .run(
-                &env,
-                jti,
-                canned_actor(),
-                env.claimed_policy_version,
-                UNIX_EPOCH,
-            )
+            .run(&env, jti, canned_actor(), env.claimed_policy_version, UNIX_EPOCH)
             .await;
         match result {
             Err(DispatchError::PayloadInvalid(_)) => {}
             other => panic!("expected PayloadInvalid, got {:?}", other),
         }
-        assert_eq!(
-            engine.call_count(),
-            0,
-            "engine MUST NOT see invalid payload"
-        );
+        assert_eq!(engine.call_count(), 0, "engine MUST NOT see invalid payload");
         assert_eq!(*hc.lock().unwrap(), 0, "handler MUST NOT run");
     }
 
     #[tokio::test]
     async fn run_engine_deny_blocks_handler() {
-        let engine = Arc::new(ScriptedEngine::new(Ok(AuthorizationDecision::Deny(
-            AuthorizationDenyReason::PermissionNotGranted,
-        ))));
+        let engine = Arc::new(ScriptedEngine::new(Ok(
+            AuthorizationDecision::Deny(AuthorizationDenyReason::PermissionNotGranted),
+        )));
         let mut d = CommandDispatcher::new(engine.clone(), canned_tenant());
         let (h, hc) = CountingReadTag::new();
         d.register(h);
         let env = canned_envelope("read_tag", serde_json::json!({"tag": "do_pump"}));
         let jti = Jti::try_new(env.jti.clone()).unwrap();
         let result = d
-            .run(
-                &env,
-                jti,
-                canned_actor(),
-                env.claimed_policy_version,
-                UNIX_EPOCH,
-            )
+            .run(&env, jti, canned_actor(), env.claimed_policy_version, UNIX_EPOCH)
             .await;
         match result {
             Err(DispatchError::Denied(AuthorizationDenyReason::PermissionNotGranted)) => {}
@@ -599,13 +584,7 @@ mod tests {
         let env = canned_envelope("read_tag", serde_json::json!({"tag": "do_pump"}));
         let jti = Jti::try_new(env.jti.clone()).unwrap();
         let result = d
-            .run(
-                &env,
-                jti,
-                canned_actor(),
-                env.claimed_policy_version,
-                UNIX_EPOCH,
-            )
+            .run(&env, jti, canned_actor(), env.claimed_policy_version, UNIX_EPOCH)
             .await;
         match result {
             Err(DispatchError::EngineError(PolicyEngineError::ManifestUnavailable)) => {}
@@ -624,13 +603,7 @@ mod tests {
         let env = canned_envelope("read_tag", serde_json::json!({"tag": "do_pump"}));
         let jti = Jti::try_new(env.jti.clone()).unwrap();
         let resp = d
-            .run(
-                &env,
-                jti,
-                canned_actor(),
-                env.claimed_policy_version,
-                UNIX_EPOCH,
-            )
+            .run(&env, jti, canned_actor(), env.claimed_policy_version, UNIX_EPOCH)
             .await
             .expect("allow path");
         assert_eq!(resp.payload["tag"], "do_pump");
@@ -679,13 +652,7 @@ mod tests {
         let env = canned_envelope("write_tag", serde_json::json!({"tag": "pond3_aerator"}));
         let jti = Jti::try_new(env.jti.clone()).unwrap();
         let _ = d
-            .run(
-                &env,
-                jti,
-                canned_actor(),
-                env.claimed_policy_version,
-                UNIX_EPOCH,
-            )
+            .run(&env, jti, canned_actor(), env.claimed_policy_version, UNIX_EPOCH)
             .await
             .unwrap();
         let perm = captured.lock().unwrap().clone().unwrap();
@@ -728,13 +695,7 @@ mod tests {
         let env = canned_envelope("always_fail", serde_json::json!({"_tag": "x"}));
         let jti = Jti::try_new(env.jti.clone()).unwrap();
         let result = d
-            .run(
-                &env,
-                jti,
-                canned_actor(),
-                env.claimed_policy_version,
-                UNIX_EPOCH,
-            )
+            .run(&env, jti, canned_actor(), env.claimed_policy_version, UNIX_EPOCH)
             .await;
         match result {
             Err(DispatchError::Handler(HandlerError::SideEffectFailed { reason })) => {

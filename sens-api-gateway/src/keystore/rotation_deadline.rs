@@ -136,10 +136,7 @@ pub enum RotationDeadlineError {
     /// operator clock disaster scenario; operator must
     /// reconcile manually before the deadline subsystem
     /// can proceed.
-    LastRotationInFuture {
-        last_unix_secs: i64,
-        now_unix_secs: i64,
-    },
+    LastRotationInFuture { last_unix_secs: i64, now_unix_secs: i64 },
     /// Configuration invalid — alarm_lead_time exceeds
     /// rotation_period (would make every freshly-rotated
     /// master immediately Overdue). Caught at construction
@@ -159,10 +156,7 @@ impl std::fmt::Display for RotationDeadlineError {
                 "rotation_deadline_last_rotation_in_future: last={} now={}",
                 last_unix_secs, now_unix_secs
             ),
-            Self::LeadTimeExceedsPeriod {
-                lead_secs,
-                period_secs,
-            } => write!(
+            Self::LeadTimeExceedsPeriod { lead_secs, period_secs } => write!(
                 f,
                 "rotation_deadline_lead_time_{}s_exceeds_period_{}s",
                 lead_secs, period_secs
@@ -202,9 +196,10 @@ impl RotationStatus {
     /// boot-log / audit-event / dashboard rendering.
     pub fn summary_string(&self) -> String {
         match self {
-            Self::WithinPolicy { remaining } => {
-                format!("within_policy_{}d_remaining", remaining.as_secs() / 86_400)
-            }
+            Self::WithinPolicy { remaining } => format!(
+                "within_policy_{}d_remaining",
+                remaining.as_secs() / 86_400
+            ),
             Self::LeadTimeExceeded { remaining } => format!(
                 "lead_time_exceeded_{}d_remaining",
                 remaining.as_secs() / 86_400
@@ -218,7 +213,10 @@ impl RotationStatus {
     /// True when the status carries an alarm signal — used
     /// by the alarm runner to gate audit emission.
     pub fn is_alarm(&self) -> bool {
-        matches!(self, Self::LeadTimeExceeded { .. } | Self::Overdue { .. })
+        matches!(
+            self,
+            Self::LeadTimeExceeded { .. } | Self::Overdue { .. }
+        )
     }
 }
 
@@ -297,7 +295,9 @@ impl KeystoreRotationDeadline {
         let now_unix_secs = now_reading
             .system_time
             .duration_since(UNIX_EPOCH)
-            .map_err(|_| RotationDeadlineError::Clock(ClockError::PreEpochWallClock))?
+            .map_err(|_| {
+                RotationDeadlineError::Clock(ClockError::PreEpochWallClock)
+            })?
             .as_secs() as i64;
 
         if self.last_rotation_at_unix_secs > now_unix_secs {
@@ -307,7 +307,8 @@ impl KeystoreRotationDeadline {
             });
         }
 
-        let elapsed_secs = (now_unix_secs - self.last_rotation_at_unix_secs) as u64;
+        let elapsed_secs = (now_unix_secs - self.last_rotation_at_unix_secs)
+            as u64;
         let elapsed = Duration::from_secs(elapsed_secs);
 
         if elapsed >= self.rotation_period {
@@ -335,7 +336,9 @@ impl KeystoreRotationDeadline {
         let now_unix_secs = reading
             .system_time
             .duration_since(UNIX_EPOCH)
-            .map_err(|_| RotationDeadlineError::Clock(ClockError::PreEpochWallClock))?
+            .map_err(|_| {
+                RotationDeadlineError::Clock(ClockError::PreEpochWallClock)
+            })?
             .as_secs() as i64;
         self.last_rotation_at_unix_secs = now_unix_secs;
         Ok(())
@@ -356,7 +359,9 @@ pub fn system_time_to_unix_secs(t: SystemTime) -> Option<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::runtime_safety::clock::{MonotonicAnchor, WallClockReading};
+    use crate::runtime_safety::clock::{
+        MonotonicAnchor, WallClockReading,
+    };
     use async_trait::async_trait;
     use std::sync::Mutex;
 
@@ -404,7 +409,9 @@ mod tests {
             let s = self.state.lock().unwrap();
             Ok(MonotonicAnchor::for_test(s.monotonic_nanos))
         }
-        async fn trustworthy_wall_clock(&self) -> Result<WallClockReading, ClockError> {
+        async fn trustworthy_wall_clock(
+            &self,
+        ) -> Result<WallClockReading, ClockError> {
             let s = self.state.lock().unwrap();
             if s.force_pre_epoch {
                 return Err(ClockError::PreEpochWallClock);
@@ -435,8 +442,8 @@ mod tests {
     fn ctor_rejects_lead_time_exceeding_period() {
         let err = KeystoreRotationDeadline::new(
             0,
-            Duration::from_secs(86_400),     // 1 day
-            Duration::from_secs(2 * 86_400), // 2 days lead
+            Duration::from_secs(86_400),       // 1 day
+            Duration::from_secs(2 * 86_400),   // 2 days lead
         )
         .unwrap_err();
         assert!(matches!(
@@ -565,8 +572,10 @@ mod tests {
         let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
         let clock = MockClock::new(now);
         // Initial deadline pretends we're already overdue.
-        let mut d =
-            KeystoreRotationDeadline::new_with_defaults(unix_secs(now) - (200 * 86_400)).unwrap();
+        let mut d = KeystoreRotationDeadline::new_with_defaults(
+            unix_secs(now) - (200 * 86_400),
+        )
+        .unwrap();
         // Record rotation now.
         d.record_rotation_now(&clock).await.unwrap();
         // Subsequent evaluate is WithinPolicy.
@@ -595,33 +604,27 @@ mod tests {
     /// RotationDeadlineError Display strings pinned.
     #[test]
     fn rotation_deadline_error_display_strings_pinned() {
-        assert!(
-            format!(
-                "{}",
-                RotationDeadlineError::LeadTimeExceedsPeriod {
-                    lead_secs: 100,
-                    period_secs: 50
-                }
-            )
-            .contains("lead_time_100s_exceeds_period_50s")
-        );
-        assert!(
-            format!(
-                "{}",
-                RotationDeadlineError::LastRotationInFuture {
-                    last_unix_secs: 5,
-                    now_unix_secs: 1
-                }
-            )
-            .contains("last_rotation_in_future")
-        );
-        assert!(
-            format!(
-                "{}",
-                RotationDeadlineError::Clock(ClockError::MonotonicBackward)
-            )
-            .contains("monotonic_backward")
-        );
+        assert!(format!(
+            "{}",
+            RotationDeadlineError::LeadTimeExceedsPeriod {
+                lead_secs: 100,
+                period_secs: 50
+            }
+        )
+        .contains("lead_time_100s_exceeds_period_50s"));
+        assert!(format!(
+            "{}",
+            RotationDeadlineError::LastRotationInFuture {
+                last_unix_secs: 5,
+                now_unix_secs: 1
+            }
+        )
+        .contains("last_rotation_in_future"));
+        assert!(format!(
+            "{}",
+            RotationDeadlineError::Clock(ClockError::MonotonicBackward)
+        )
+        .contains("monotonic_backward"));
     }
 
     /// Implements std::error::Error.

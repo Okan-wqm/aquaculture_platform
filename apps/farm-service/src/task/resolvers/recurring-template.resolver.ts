@@ -29,7 +29,7 @@ import {
 } from 'class-validator';
 import GraphQLJSON from 'graphql-type-json';
 import { GqlAuthGuard } from '../../common/guards/gql-auth.guard';
-import { CurrentTenant, CurrentUser } from '@aquaculture/backend-common/decorators';
+import { CurrentTenant, CurrentUser, Role, Roles } from '@aquaculture/backend-common/decorators';
 import { RecurringTemplate, RecurrenceFrequency } from '../entities/recurring-template.entity';
 import { TaskCategory, TaskChecklistItem, TaskPriority } from '../entities/task.entity';
 import { RecurringTaskService } from '../services/recurring-task.service';

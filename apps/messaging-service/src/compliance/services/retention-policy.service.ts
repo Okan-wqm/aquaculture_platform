@@ -3,10 +3,7 @@ import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, LessThan, IsNull, EntityManager } from 'typeorm';
 import { Cron, CronExpression } from '@nestjs/schedule';
 
-import {
-  runInTenantTransaction,
-  tenantManagerRepo,
-} from '@aquaculture/backend-common/database';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { RetentionPolicy } from '../entities/retention-policy.entity';
 import { Message } from '../../message/entities/message.entity';
 import { LegalHoldService } from './legal-hold.service';

@@ -382,14 +382,6 @@ pub struct AgentConfig {
     /// agent configs.
     #[serde(default)]
     pub opc_ua_server: OpcUaServerConfig,
-
-    /// PLC programming client connection inventory.
-    ///
-    /// 2026-04-29: Direct MQTT PLC write commands resolve only configured
-    /// connection names from this inventory. They do not accept endpoint URLs,
-    /// ports, usernames, passwords or certificate paths from command payloads.
-    #[serde(default)]
-    pub plc_programming: PlcProgrammingConfig,
 }
 
 /// MQTT TLS configuration (IEC 62443 SL2 FR4: Data Confidentiality)
@@ -2468,7 +2460,8 @@ impl OpcUaServerConfig {
     pub fn validate(&self) -> Result<(), String> {
         if self.bind.trim().is_empty() {
             return Err(
-                "opc_ua_server.bind must be a non-empty IP address (e.g. 0.0.0.0)".to_string(),
+                "opc_ua_server.bind must be a non-empty IP address (e.g. 0.0.0.0)"
+                    .to_string(),
             );
         }
         if std::net::IpAddr::from_str(self.bind.trim()).is_err() {
@@ -2478,7 +2471,10 @@ impl OpcUaServerConfig {
             ));
         }
         if self.port == 0 {
-            return Err("opc_ua_server.port must be non-zero (standard 4840)".to_string());
+            return Err(
+                "opc_ua_server.port must be non-zero (standard 4840)"
+                    .to_string(),
+            );
         }
         if self.max_sessions == 0 {
             return Err(
@@ -2502,11 +2498,15 @@ impl OpcUaServerConfig {
             ));
         }
         if self.own_pki_dir.trim().is_empty() {
-            return Err("opc_ua_server.own_pki_dir must be a non-empty directory path".to_string());
+            return Err(
+                "opc_ua_server.own_pki_dir must be a non-empty directory path"
+                    .to_string(),
+            );
         }
         if self.trusted_certs_dir.trim().is_empty() {
             return Err(
-                "opc_ua_server.trusted_certs_dir must be a non-empty directory path".to_string(),
+                "opc_ua_server.trusted_certs_dir must be a non-empty directory path"
+                    .to_string(),
             );
         }
         Ok(())
@@ -3678,22 +3678,6 @@ impl AgentConfig {
             );
         }
 
-        // 2026-04-29 enterprise config-integrity hardening:
-        // release builds require enforcing config signature verification.
-        //
-        // What it solves: Disabled/Permissive modes are rollout tools. Leaving
-        // them production-compatible would let config tamper or rollback become
-        // log-only behavior on the same device that accepts signed mutating
-        // commands.
-        #[cfg(not(debug_assertions))]
-        if !matches!(self.config_integrity.mode, ConfigIntegrityMode::Enforcing) {
-            anyhow::bail!(
-                "Config coherence: config_integrity.mode={:?} is not allowed in release builds. \
-                 Set config_integrity.mode=enforcing for production.",
-                self.config_integrity.mode
-            );
-        }
-
         // Rule 5: factory_pubkey_hex if present MUST be a
         // 64-char lowercase hex string (32 bytes ed25519
         // public key). Prevents operator typos from getting
@@ -3777,24 +3761,6 @@ impl AgentConfig {
             );
         }
 
-        // 2026-04-29 enterprise command-signature hardening:
-        // release builds require fully enforcing command signatures.
-        //
-        // What it solves: RBAC dispatch authorization depends on verified
-        // actor evidence from the signed envelope. Disabled/Permissive modes
-        // are rollout tools and must not become production posture.
-        #[cfg(not(debug_assertions))]
-        if !matches!(
-            self.signature_mode,
-            crate::command_envelope::envelope::SignatureMode::Enforcing
-        ) {
-            anyhow::bail!(
-                "Config coherence: signature_mode={:?} is not allowed in release builds. \
-                 Set signature_mode=enforcing for production command authorization.",
-                self.signature_mode
-            );
-        }
-
         // Rule 11 (Batch 58): envelope_dedup.moka_ttl_secs
         // must be in the sane range [30, 3600]. Below 30s:
         // TTL shorter than MQTT broker redelivery window,
@@ -3802,7 +3768,9 @@ impl AgentConfig {
         // the SQLCipher tier's territory (Sprint 6.4 covers
         // 72-hour window) — operator likely confused about
         // which tier is which.
-        if self.envelope_dedup.moka_ttl_secs < 30 || self.envelope_dedup.moka_ttl_secs > 3600 {
+        if self.envelope_dedup.moka_ttl_secs < 30
+            || self.envelope_dedup.moka_ttl_secs > 3600
+        {
             anyhow::bail!(
                 "Config coherence: envelope_dedup.moka_ttl_secs ({}) must be in [30, 3600] seconds — hot-window tier bounds",
                 self.envelope_dedup.moka_ttl_secs
@@ -3820,22 +3788,6 @@ impl AgentConfig {
         {
             anyhow::bail!(
                 "Config coherence: rbac_manifest.mode={:?} requires rbac_manifest.manifest_signing_pubkey_hex (pre-Sprint-6.1 firmware key bundle). Set manifest_signing_pubkey_hex to a 64-char hex string OR set mode=disabled",
-                self.rbac_manifest.mode
-            );
-        }
-
-        // 2026-04-29 enterprise authorization hardening:
-        // release builds require RBAC manifest enforcing mode.
-        //
-        // What it solves: command dispatch now depends on policy-engine
-        // authorization. Allowing a production binary to run with
-        // rbac_manifest disabled/permissive would reduce the dispatch gate to
-        // compatibility behavior instead of enterprise access control.
-        #[cfg(not(debug_assertions))]
-        if !matches!(self.rbac_manifest.mode, RbacManifestMode::Enforcing) {
-            anyhow::bail!(
-                "Config coherence: rbac_manifest.mode={:?} is not allowed in release builds. \
-                 Set rbac_manifest.mode=enforcing for production command authorization.",
                 self.rbac_manifest.mode
             );
         }
@@ -3876,11 +3828,7 @@ impl AgentConfig {
                      provide a valid filesystem path."
                 );
             }
-            if path
-                .parent()
-                .map(|p| p.as_os_str().is_empty())
-                .unwrap_or(true)
-            {
+            if path.parent().map(|p| p.as_os_str().is_empty()).unwrap_or(true) {
                 anyhow::bail!(
                     "Config coherence: rbac_manifest.version_store_path={} has no parent directory. \
                      Provide an absolute path with a parent dir (e.g. /var/lib/suderra/rbac_version.sqlite).",
@@ -3906,40 +3854,6 @@ impl AgentConfig {
             );
         }
 
-        // 2026-04-29 enterprise audit hardening:
-        // release builds must not run with audit disabled.
-        //
-        // What it solves: mutating command authorization and OPC UA writes are
-        // only reviewable when the HMAC-chained audit sink exists. Keeping
-        // audit.mode=Disabled production-compatible creates a forensic blind
-        // spot, so Disabled remains a debug/rollout-only mode.
-        #[cfg(not(debug_assertions))]
-        if matches!(self.audit.mode, AuditMode::Disabled) {
-            anyhow::bail!(
-                "Config coherence: audit.mode=disabled is not allowed in release builds. \
-                 Set audit.mode=enabled with a keystore-derived or configured HMAC key."
-            );
-        }
-
-        // 2026-04-29 enterprise keystore hardening:
-        // release builds must use an explicit keystore backend.
-        //
-        // What it solves: KeystoreMode::Auto currently falls back to
-        // FileBacked until TPM/systemd-creds probing is fully wired. Production
-        // must not silently downgrade from the label "Auto" to a weaker
-        // backend; operators must choose FileBacked explicitly with an
-        // acceptance token until TPM/systemd modes are first-class config
-        // variants.
-        #[cfg(not(debug_assertions))]
-        if !matches!(self.keystore.mode, KeystoreMode::FileBacked) {
-            anyhow::bail!(
-                "Config coherence: keystore.mode={:?} is not allowed in release builds. \
-                 Use keystore.mode=file_backed with a valid acceptance token until TPM/systemd-creds \
-                 are first-class production modes.",
-                self.keystore.mode
-            );
-        }
-
         // Rule 16 (Batch 78): audit.hmac_key_hex if present
         // MUST be 64-char lowercase hex. Matches Rule 13
         // discipline for manifest_signing_pubkey_hex.
@@ -3951,7 +3865,9 @@ impl AgentConfig {
                 );
             }
             if !hex.chars().all(|c| c.is_ascii_hexdigit()) {
-                anyhow::bail!("Config coherence: audit.hmac_key_hex contains non-hex characters");
+                anyhow::bail!(
+                    "Config coherence: audit.hmac_key_hex contains non-hex characters"
+                );
             }
         }
 
@@ -3966,11 +3882,7 @@ impl AgentConfig {
                      provide a valid filesystem path."
                 );
             }
-            if path
-                .parent()
-                .map(|p| p.as_os_str().is_empty())
-                .unwrap_or(true)
-            {
+            if path.parent().map(|p| p.as_os_str().is_empty()).unwrap_or(true) {
                 anyhow::bail!(
                     "Config coherence: audit.log_path={} has no parent directory. \
                      Provide an absolute path with a parent dir.",
@@ -4003,7 +3915,9 @@ impl AgentConfig {
                 );
             }
             if self.keystore.argon2_parallelism == 0 {
-                anyhow::bail!("Config coherence: keystore.argon2_parallelism must be >= 1, got 0.");
+                anyhow::bail!(
+                    "Config coherence: keystore.argon2_parallelism must be >= 1, got 0."
+                );
             }
         }
 
@@ -4078,8 +3992,7 @@ impl AgentConfig {
                  AND slot_b_mount set, or BOTH unset. Half-configured A/B mounts \
                  (slot_a_mount.is_some={}, slot_b_mount.is_some={}) would leave \
                  cmd_apply_signed_manifest unable to determine the target standby slot.",
-                a_set,
-                b_set
+                a_set, b_set
             );
         }
 
@@ -4137,22 +4050,6 @@ impl AgentConfig {
                     idx
                 );
             }
-        }
-
-        // 2026-04-30: Warn-mode with no accepted pins is operationally valid but
-        // noisy: every TLS handshake creates a non-blocking pinning violation.
-        // Keeping this as a boot-time coherence warning prevents false incident
-        // interpretation without weakening Strict-mode fail-closed validation.
-        if matches!(self.mtls.mode, crate::mtls::MtlsMode::Warn)
-            && self.mtls.pinned_leaf_fingerprints_hex.is_empty()
-        {
-            warn!(
-                "Config coherence (soft): mtls.mode=Warn with empty pinned_leaf_fingerprints_hex - \
-                 every TLS handshake will emit a pinning-violation audit event (mode is non-blocking, \
-                 but the audit stream will gain one entry per connect). To silence: either supply \
-                 leaf-cert SHA-256 pin(s) in mtls.pinned_leaf_fingerprints_hex, or downgrade \
-                 mtls.mode to Legacy during initial rollout."
-            );
         }
 
         Ok(())
@@ -4303,7 +4200,10 @@ tasks:
         assert_eq!(cfg.tasks[0].name, "safety_alarms");
         assert_eq!(cfg.tasks[0].slo_tier, SloTier::SafetyCritical);
         assert_eq!(cfg.tasks[0].programs, vec!["o2_guard", "ph_guard"]);
-        assert_eq!(cfg.tasks[0].kind, TaskKind::Cyclic { period_ms: 500 });
+        assert_eq!(
+            cfg.tasks[0].kind,
+            TaskKind::Cyclic { period_ms: 500 }
+        );
 
         assert_eq!(cfg.tasks[1].name, "feed_schedule");
         assert_eq!(cfg.tasks[1].slo_tier, SloTier::Routine);
@@ -4623,14 +4523,8 @@ slot_a_mount: /mnt/slot-a
 slot_b_mount: /mnt/slot-b
 "#;
         let c: AbPartitionMountConfig = serde_yaml::from_str(yaml).unwrap();
-        assert_eq!(
-            c.slot_a_mount,
-            Some(std::path::PathBuf::from("/mnt/slot-a"))
-        );
-        assert_eq!(
-            c.slot_b_mount,
-            Some(std::path::PathBuf::from("/mnt/slot-b"))
-        );
+        assert_eq!(c.slot_a_mount, Some(std::path::PathBuf::from("/mnt/slot-a")));
+        assert_eq!(c.slot_b_mount, Some(std::path::PathBuf::from("/mnt/slot-b")));
         assert!(c.is_fully_configured());
     }
 

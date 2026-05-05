@@ -128,14 +128,27 @@ impl ManifestVersionStore {
     /// - PRAGMA key failure (corrupted db / wrong key)
     /// - schema init failure
     /// - legacy migration failure
-    pub(crate) fn open_for_stream(path: &Path, stream_id: &'static str) -> Result<Self, String> {
+    pub(crate) fn open_for_stream(
+        path: &Path,
+        stream_id: &'static str,
+    ) -> Result<Self, String> {
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| format!("ManifestVersionStore mkdir {}: {}", parent.display(), e))?;
+            std::fs::create_dir_all(parent).map_err(|e| {
+                format!(
+                    "ManifestVersionStore mkdir {}: {}",
+                    parent.display(),
+                    e
+                )
+            })?;
         }
 
-        let conn = Connection::open(path)
-            .map_err(|e| format!("ManifestVersionStore open {}: {}", path.display(), e))?;
+        let conn = Connection::open(path).map_err(|e| {
+            format!(
+                "ManifestVersionStore open {}: {}",
+                path.display(),
+                e
+            )
+        })?;
 
         let hex_key = crate::offline_queue::derive_db_encryption_key()
             .map_err(|e| format!("ManifestVersionStore key derivation: {}", e))?;
@@ -370,7 +383,10 @@ mod tests {
     // Batch #246 multi-stream refactor — new tests
     // ========================================================
 
-    fn try_open_stream(path: &Path, stream_id: &'static str) -> Option<ManifestVersionStore> {
+    fn try_open_stream(
+        path: &Path,
+        stream_id: &'static str,
+    ) -> Option<ManifestVersionStore> {
         match ManifestVersionStore::open_for_stream(path, stream_id) {
             Ok(s) => Some(s),
             Err(e) => {
@@ -405,9 +421,7 @@ mod tests {
     fn streams_are_independent_per_store() {
         let _g = TEST_LOCK.lock().expect("test lock");
         let path = tmp_db_path();
-        let Some(rbac) = try_open_stream(&path, STREAM_ID_RBAC) else {
-            return;
-        };
+        let Some(rbac) = try_open_stream(&path, STREAM_ID_RBAC) else { return };
         let Some(ut) = try_open_stream(&path, STREAM_ID_USER_TOKEN) else {
             return;
         };
@@ -432,9 +446,7 @@ mod tests {
         let _g = TEST_LOCK.lock().expect("test lock");
         let path = tmp_db_path();
 
-        let Some(rbac) = try_open_stream(&path, STREAM_ID_RBAC) else {
-            return;
-        };
+        let Some(rbac) = try_open_stream(&path, STREAM_ID_RBAC) else { return };
         rbac.record_accepted(55).expect("rbac upsert");
         drop(rbac);
 
@@ -483,9 +495,7 @@ mod tests {
 
         // Stage 2: open via new API — migration should run + RBAC
         // floor should be 99 in the new table.
-        let Some(rbac) = try_open_stream(&path, STREAM_ID_RBAC) else {
-            return;
-        };
+        let Some(rbac) = try_open_stream(&path, STREAM_ID_RBAC) else { return };
         assert_eq!(rbac.get_highest_seen().expect("post-migrate"), 99);
 
         // Stage 3: re-open again — migration is idempotent (no
@@ -540,9 +550,7 @@ mod tests {
         assert_eq!(ut.get_highest_seen().expect("user_token fresh"), 0);
 
         // And RBAC (opened after) sees the migrated 77.
-        let Some(rbac) = try_open_stream(&path, STREAM_ID_RBAC) else {
-            return;
-        };
+        let Some(rbac) = try_open_stream(&path, STREAM_ID_RBAC) else { return };
         assert_eq!(rbac.get_highest_seen().expect("rbac migrated"), 77);
     }
 }

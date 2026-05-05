@@ -5,8 +5,10 @@
 //!
 //! Batch 224 introduced `parse_opc_ua_session_actor(&str) ->
 //! Option<ActorIdentity>` that reads a session-layer actor string
-//! (`"op:<hex32>"`, `"svc:<cn>"`, `"opc-ua-anonymous"`) and returns
-//! an authz `ActorIdentity`. The `&str` input is a convention —
+//! (`"op:<hex32>"`, `"svc:<cn>"`, plus a third legacy
+//! anonymous-actor wire-string banned by the Batch #354
+//! audit_actor_label_no_legacy invariant) and returns an authz
+//! `ActorIdentity`. The `&str` input is a convention —
 //! nothing in the type system binds the string back to a real
 //! authenticated session. Once that string escapes the OPC UA
 //! session layer, any caller can fabricate one.
@@ -214,13 +216,17 @@ impl AuthenticatedUser {
     /// OPC UA write surface's fail-closed contract.
     pub fn to_actor_identity(&self) -> Result<ActorIdentity, SessionActorError> {
         match &self.0 {
-            AuthenticatedUserInner::Anonymous => Err(SessionActorError::AnonymousSessionRejected),
+            AuthenticatedUserInner::Anonymous => {
+                Err(SessionActorError::AnonymousSessionRejected)
+            }
             AuthenticatedUserInner::UserPass { operator_id } => {
                 Ok(ActorIdentity::Operator(operator_id.clone()))
             }
-            AuthenticatedUserInner::X509 { issuer_cn, .. } => Ok(ActorIdentity::MachineIssuer {
-                subject_cn: issuer_cn.as_str().to_string(),
-            }),
+            AuthenticatedUserInner::X509 { issuer_cn, .. } => {
+                Ok(ActorIdentity::MachineIssuer {
+                    subject_cn: issuer_cn.as_str().to_string(),
+                })
+            }
         }
     }
 
@@ -277,10 +283,18 @@ pub enum SessionActorError {
 impl fmt::Display for SessionActorError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::AnonymousSessionRejected => f.write_str("anonymous session rejected"),
-            Self::OperatorNotEnrolled => f.write_str("operator not enrolled in RBAC manifest"),
-            Self::MachineIssuerRevoked => f.write_str("machine issuer revoked"),
-            Self::MachineIssuerEmptyCn => f.write_str("machine issuer common name is empty"),
+            Self::AnonymousSessionRejected => {
+                f.write_str("anonymous session rejected")
+            }
+            Self::OperatorNotEnrolled => {
+                f.write_str("operator not enrolled in RBAC manifest")
+            }
+            Self::MachineIssuerRevoked => {
+                f.write_str("machine issuer revoked")
+            }
+            Self::MachineIssuerEmptyCn => {
+                f.write_str("machine issuer common name is empty")
+            }
         }
     }
 }
@@ -347,7 +361,10 @@ impl OpcUaActorResolver {
     ///   extension will add a `machine_issuers` table with explicit
     ///   revocation timestamps + the resolver will cross-check CN
     ///   → revoked_at (raised as `MachineIssuerRevoked`).
-    pub fn resolve(&self, user: &AuthenticatedUser) -> Result<ActorIdentity, SessionActorError> {
+    pub fn resolve(
+        &self,
+        user: &AuthenticatedUser,
+    ) -> Result<ActorIdentity, SessionActorError> {
         // Short-circuit Anonymous BEFORE touching the manifest —
         // anonymous never reaches an enrollment check.
         if user.is_anonymous() {

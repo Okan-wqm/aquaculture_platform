@@ -737,196 +737,110 @@ impl HealthState {
             out.push_str(&format!("{}{{{}}} {}\n", name, labels, value));
         };
 
-        counter(
-            &mut out,
-            "suderra_uptime_seconds_total",
+        counter(&mut out, "suderra_uptime_seconds_total",
             "Total uptime since agent start",
-            self.uptime_secs(),
-            &labels,
-        );
-        counter(
-            &mut out,
-            "suderra_mqtt_messages_sent_total",
+            self.uptime_secs(), &labels);
+        counter(&mut out, "suderra_mqtt_messages_sent_total",
             "Total MQTT messages published",
-            self.inner.mqtt_sent.load(Ordering::Acquire),
-            &labels,
-        );
-        counter(
-            &mut out,
-            "suderra_mqtt_messages_received_total",
+            self.inner.mqtt_sent.load(Ordering::Acquire), &labels);
+        counter(&mut out, "suderra_mqtt_messages_received_total",
             "Total MQTT messages received",
-            self.inner.mqtt_received.load(Ordering::Acquire),
-            &labels,
-        );
-        gauge(
-            &mut out,
-            "suderra_mqtt_connected",
+            self.inner.mqtt_received.load(Ordering::Acquire), &labels);
+        gauge(&mut out, "suderra_mqtt_connected",
             "MQTT broker connection state (1=connected, 0=disconnected)",
             u64::from(self.inner.mqtt_connected.load(Ordering::Acquire)),
-            &labels,
-        );
-        counter(
-            &mut out,
-            "suderra_modbus_reads_total",
+            &labels);
+        counter(&mut out, "suderra_modbus_reads_total",
             "Total Modbus register reads completed",
-            self.inner.modbus_reads.load(Ordering::Acquire),
-            &labels,
-        );
-        counter(
-            &mut out,
-            "suderra_modbus_errors_total",
+            self.inner.modbus_reads.load(Ordering::Acquire), &labels);
+        counter(&mut out, "suderra_modbus_errors_total",
             "Total Modbus read errors",
-            self.inner.modbus_errors.load(Ordering::Acquire),
-            &labels,
-        );
-        counter(
-            &mut out,
-            "suderra_script_executions_total",
+            self.inner.modbus_errors.load(Ordering::Acquire), &labels);
+        counter(&mut out, "suderra_script_executions_total",
             "Total ST script executions",
             self.inner.script_executions.load(Ordering::Acquire),
-            &labels,
-        );
-        counter(
-            &mut out,
-            "suderra_script_errors_total",
+            &labels);
+        counter(&mut out, "suderra_script_errors_total",
             "Total ST script execution errors",
-            self.inner.script_errors.load(Ordering::Acquire),
-            &labels,
-        );
-        gauge(
-            &mut out,
-            "suderra_offline_queue_size",
+            self.inner.script_errors.load(Ordering::Acquire), &labels);
+        gauge(&mut out, "suderra_offline_queue_size",
             "Current number of messages queued offline",
             self.inner.offline_queue_size.load(Ordering::Acquire),
-            &labels,
-        );
-        gauge(
-            &mut out,
-            "suderra_offline_queue_capacity",
+            &labels);
+        gauge(&mut out, "suderra_offline_queue_capacity",
             "Offline queue capacity ceiling",
             self.inner.offline_queue_capacity.load(Ordering::Acquire),
-            &labels,
-        );
-        counter(
-            &mut out,
-            "suderra_offline_queue_queued_total",
+            &labels);
+        counter(&mut out, "suderra_offline_queue_queued_total",
             "Total messages ever queued offline (lifetime)",
             self.inner.offline_total_queued.load(Ordering::Acquire),
-            &labels,
-        );
-        counter(
-            &mut out,
-            "suderra_offline_queue_sent_total",
+            &labels);
+        counter(&mut out, "suderra_offline_queue_sent_total",
             "Total messages ever sent from offline queue (lifetime)",
             self.inner.offline_total_sent.load(Ordering::Acquire),
-            &labels,
-        );
-        gauge(
-            &mut out,
-            "suderra_modbus_clients",
+            &labels);
+        gauge(&mut out, "suderra_modbus_clients",
             "Number of currently-registered Modbus clients",
             self.inner.modbus_client_count.load(Ordering::Acquire),
-            &labels,
-        );
-        gauge(
-            &mut out,
-            "suderra_scripts_loaded",
+            &labels);
+        gauge(&mut out, "suderra_scripts_loaded",
             "Number of ST scripts loaded",
             self.inner.script_loaded_count.load(Ordering::Acquire),
-            &labels,
-        );
-        gauge(
-            &mut out,
-            "suderra_scripts_active",
+            &labels);
+        gauge(&mut out, "suderra_scripts_active",
             "Number of ST scripts actively executing",
             self.inner.script_active_count.load(Ordering::Acquire),
-            &labels,
-        );
-        gauge(
-            &mut out,
-            "suderra_function_blocks",
+            &labels);
+        gauge(&mut out, "suderra_function_blocks",
             "Number of function block instances",
             self.inner.fb_instance_count.load(Ordering::Acquire),
-            &labels,
-        );
+            &labels);
 
         // Batch 132 Sprint 6.5: firmware lifecycle metrics.
         // Plan §4.2 IEC 62443 SL-2 observability evidence.
-        counter(
-            &mut out,
-            "suderra_firmware_apply_applied_total",
+        counter(&mut out, "suderra_firmware_apply_applied_total",
             "Total signed-manifest firmware applies that succeeded end-to-end (verify + stream + apply_roll + bootloader coord)",
             self.inner.firmware_apply_applied.load(Ordering::Acquire),
-            &labels,
-        );
-        counter(
-            &mut out,
-            "suderra_firmware_apply_rejected_total",
+            &labels);
+        counter(&mut out, "suderra_firmware_apply_rejected_total",
             "Total signed-manifest firmware applies that were rejected at any gate (verify / streaming / apply_roll)",
             self.inner.firmware_apply_rejected.load(Ordering::Acquire),
-            &labels,
-        );
-        counter(
-            &mut out,
-            "suderra_firmware_confirm_total",
+            &labels);
+        counter(&mut out, "suderra_firmware_confirm_total",
             "Total A/B slot confirms that succeeded (PendingConfirm -> Active transition)",
             self.inner.firmware_confirm.load(Ordering::Acquire),
-            &labels,
-        );
-        counter(
-            &mut out,
-            "suderra_firmware_rollback_total",
+            &labels);
+        counter(&mut out, "suderra_firmware_rollback_total",
             "Total watchdog-fired firmware rollbacks (cold-boot-budget expired on PendingConfirm slot)",
             self.inner.firmware_rollback.load(Ordering::Acquire),
-            &labels,
-        );
-        gauge(
-            &mut out,
-            "suderra_firmware_active_slot",
+            &labels);
+        gauge(&mut out, "suderra_firmware_active_slot",
             "Currently-active A/B partition slot (0=slot_a, 1=slot_b)",
             self.inner.firmware_active_slot.load(Ordering::Acquire),
-            &labels,
-        );
-        gauge(
-            &mut out,
-            "suderra_firmware_active_version",
+            &labels);
+        gauge(&mut out, "suderra_firmware_active_version",
             "Monotonic firmware version currently active on the device",
             self.inner.firmware_active_version.load(Ordering::Acquire),
-            &labels,
-        );
+            &labels);
         // Batch 135 Sprint 6.5: lifecycle HTTP HMAC auth
         // rejection counters. Total = any reject reason;
         // invalid_hmac = specifically wrong-key path.
-        counter(
-            &mut out,
-            "suderra_lifecycle_auth_rejected_total",
+        counter(&mut out, "suderra_lifecycle_auth_rejected_total",
             "Total POST /lifecycle/* HMAC auth rejections across all gates (missing header, malformed, timestamp skew, wrong hmac)",
             self.inner.lifecycle_auth_rejected.load(Ordering::Acquire),
-            &labels,
-        );
-        counter(
-            &mut out,
-            "suderra_lifecycle_auth_invalid_hmac_total",
+            &labels);
+        counter(&mut out, "suderra_lifecycle_auth_invalid_hmac_total",
             "POST /lifecycle/* HMAC auth rejections where HMAC bytes parsed correctly but did not match (client+server key mismatch signal)",
-            self.inner
-                .lifecycle_auth_invalid_hmac
-                .load(Ordering::Acquire),
-            &labels,
-        );
-        gauge(
-            &mut out,
-            "suderra_device_activated",
+            self.inner.lifecycle_auth_invalid_hmac.load(Ordering::Acquire),
+            &labels);
+        gauge(&mut out, "suderra_device_activated",
             "Device activation state (1=activated, 0=pending-provisioning)",
             u64::from(self.inner.device_activated.load(Ordering::Acquire)),
-            &labels,
-        );
-        gauge(
-            &mut out,
-            "suderra_config_loaded",
+            &labels);
+        gauge(&mut out, "suderra_config_loaded",
             "Config load state (1=loaded, 0=not-yet)",
             u64::from(self.inner.config_loaded.load(Ordering::Acquire)),
-            &labels,
-        );
+            &labels);
 
         out
     }
@@ -1112,10 +1026,7 @@ pub async fn start_health_server(
     state: HealthState,
     lifecycle_cell: Option<crate::lifecycle::LifecycleHandlesCell>,
 ) -> tokio::task::JoinHandle<()> {
-    use axum::{
-        Extension, Router,
-        routing::{get, post},
-    };
+    use axum::{routing::{get, post}, Extension, Router};
 
     // Build the router. The lifecycle cell is layered in
     // as Extension so the confirm-active handler can read
@@ -1576,7 +1487,11 @@ mod tests {
             .lines()
             .find(|l| l.starts_with("suderra_firmware_active_slot"))
             .expect("missing gauge line");
-        assert!(line.ends_with(" 1"), "expected slot=1 (B), got: {}", line);
+        assert!(
+            line.ends_with(" 1"),
+            "expected slot=1 (B), got: {}",
+            line
+        );
     }
 
     #[test]
@@ -1591,7 +1506,11 @@ mod tests {
             .lines()
             .find(|l| l.starts_with("suderra_firmware_active_slot"))
             .expect("missing gauge line");
-        assert!(line.ends_with(" 1"), "expected clamped=1, got: {}", line);
+        assert!(
+            line.ends_with(" 1"),
+            "expected clamped=1, got: {}",
+            line
+        );
     }
 
     #[test]

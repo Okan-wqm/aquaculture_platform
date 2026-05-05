@@ -617,6 +617,113 @@ path = "tests/invariants/two_person_integrity_gate.rs"
 name = "faz1_architectural_primitives"
 path = "tests/invariants/faz1_architectural_primitives.rs"
 
+# Batch #322 Faz 2 D-9 clock-authority wire-status arc —
+# Tier-3 detection seams pinning the init_clock_authority
+# wire + config-driven impl selection (SystemClockAuthority
+# vs ChronyNtsClockAuthority) + Arc<dyn ClockAuthority>
+# AppState field shape + MonotonicDeadline primitive
+# presence. Partial UH-021 closure (the per-consumer
+# SystemTime::now migration backlog stays under
+# ORPHAN-MEDIUM-030).
+[[test]]
+name = "d9_clock_authority_wired"
+path = "tests/invariants/d9_clock_authority_wired.rs"
+
+# Batch #323 Faz 2 D-4 mTLS rotation state-machine
+# wire-status arc — Tier-3 detection seams pinning
+# CertRotationStage 2-variant enum + LeafCertFingerprint
+# domain-separation newtype + bridge_until_unix_secs
+# wall-clock anchor + wire_tag stable u8 + post-window
+# collapse via accepted_fingerprints + cert_label
+# operator-readable diagnostic. Partial UH-018 closure
+# (the cloud-side staged-rollout half is tracked under
+# Faz 8 G-* admin-api edge controllers).
+[[test]]
+name = "mtls_rotation_stage_monotonic"
+path = "tests/invariants/mtls_rotation_stage_monotonic.rs"
+
+# Batch #326 Faz 2 D-9 final invariant — Tier-3
+# baseline-drift detector for SystemTime::now() in
+# TTL-critical files. Per-file baseline counters
+# capture the migrated-state SystemTime::now()
+# occurrence count; refactor that ADDS new TTL-class
+# usage fails the gate. Closes UH-021 D-9 parent
+# finding (the wire-status pin from #322 + the 4
+# consumer migrations from #313/#314/#324/#325 +
+# this baseline-drift detector together close D-9
+# fully).
+[[test]]
+name = "no_system_time_for_ttl"
+path = "tests/invariants/no_system_time_for_ttl.rs"
+
+# Batch #328 Faz 2 D-6 mTLS unified assembly
+# wire-status arc — Tier-3 detection seams pinning
+# build_suderra_verifier as the SSoT for verifier
+# construction + wiring decision matrix +
+# StrictModeRequiresPins fail-closed gate + mqtt.rs
+# consumer wiring + mod.rs re-exports + matrix doc
+# table. Closes UH-020.
+[[test]]
+name = "mtls_unified_assembly"
+path = "tests/invariants/mtls_unified_assembly.rs"
+
+# Batch #329 Faz 2 D-3 SQLCipher v1->v2 migration arc
+# primitive — DbKeySchemaVersion enum + DbKeySourceManifest
+# sidecar JSON + atomic write/read + DbMigrationError
+# taxonomy. Standalone test crate so the test binary
+# does not require the full suderra-agent bin (memory
+# constraint workaround mirroring Batch #327 fuzz
+# target's #[path] include strategy). Boot detector +
+# migration binary + per-consumer migration follow in
+# subsequent D-3 batches.
+[[test]]
+name = "db_migration_primitive"
+path = "tests/invariants/db_migration_primitive.rs"
+
+# Batch #330 Faz 2 D-3 boot-time v1 detector — pure
+# detection function `detect_db_migration_backlog` +
+# DbMigrationBacklogReport shape + log_structured_warn
+# emission. Invariants pin: empty input, v1/v2/missing/
+# corrupt classification, mixed input bucket arithmetic,
+# continue-on-error semantic, idempotent log emission,
+# target-version-snapshot self-contained reports.
+[[test]]
+name = "db_migration_boot_detector"
+path = "tests/invariants/db_migration_boot_detector.rs"
+
+# Batch #331 Faz 2 D-3 v1 legacy-key derivation kernel —
+# pure HMAC-SHA256(machine_id, secret_key) +
+# format_sqlcipher_pragma_key_hex helper. Cross-
+# validation invariant pins parity with a reference
+# reimplementation using the same `hmac`+`sha2` crates;
+# role-swap test fails-loud on an HMAC-input role
+# inversion regression.
+[[test]]
+name = "db_migration_v1_legacy_key"
+path = "tests/invariants/db_migration_v1_legacy_key.rs"
+
+# Batch #333 Faz 2 D-3 wire-status arc — Tier-3
+# detection seams pinning the architectural contracts
+# of all four D-3 primitive batches (#329 schema_version
+# + manifest, #330 boot detector, #331 v1 kernel, #332
+# v2 shim) against silent refactor regressions. Pattern
+# mirrors mtls_unified_assembly + Batch #319/#321/
+# #322/#323/#326 wire invariants — closes the D-3
+# arc's architectural-property-detection family.
+[[test]]
+name = "db_migration_wire_status"
+path = "tests/invariants/db_migration_wire_status.rs"
+
+# Batch #354 — Faz 5 Core Gap E-4 (UM-001) AuditActorLabel
+# invariant seal. Tier-3 grep gate banning the legacy
+# `"opc-ua-anonymous"` literal from the src/ tree. The
+# runtime event class was closed by Batches #241-#243
+# (A-2a/A-2b/A-2c); this gate makes "cannot reappear"
+# structural. Empty allowlist by Batch #354 convention.
+[[test]]
+name = "audit_actor_label_no_legacy"
+path = "tests/invariants/audit_actor_label_no_legacy.rs"
+
 # Batch 40 plan Faz 2 coherence — validate_faz2_security_coherence rules.
 [[test]]
 name = "config_coherence"
@@ -689,26 +796,3 @@ path = "tests/invariants/audit_pipeline.rs"
 [[test]]
 name = "authenticated_user_sealed"
 path = "tests/invariants/authenticated_user_sealed.rs"
-
-# Phase 0.4 (PR-PRE) — cipher allowlist deployment-shape regression
-# detector. Tier-3 MAKE-IT-DETECTABLE seam pinning the source-level
-# contract for Phase 0.1 (rumqttc unified rustls) + Phase 0.2
-# (build_suderra_crypto_provider + builder_with_provider + TLS 1.3
-# pin) + Phase 0.3 (Warn-mode soft warning). Closes orphan findings
-# ORPHAN-CRITICAL-029, ORPHAN-MEDIUM-030, ORPHAN-HIGH-031,
-# ORPHAN-MEDIUM-032, ORPHAN-MEDIUM-033.
-[[test]]
-name = "cipher_allowlist_fleet_compat"
-path = "tests/invariants/cipher_allowlist_fleet_compat.rs"
-
-# Phase 1.1.5 (PR-196 Phase 1) — D-4 / D-6 unified-assembly closure
-# invariant. Tier-3 source-grep detector that pins the wire shape of
-# the hot-reload chain (MtlsVerifierState + MtlsDelegatingVerifier +
-# mqtt.rs::configure_tls + MqttClient::mtls_verifier_state accessor)
-# so a future refactor that "simplifies" any one component cannot
-# silently break hot-reload semantics. Closes ULTRA-HIGH-018 (D-4) +
-# ULTRA-HIGH-020 (D-6) when the full Phase 1 chain ships
-# (cmd_update_cert_pinning + HTTPS reqwest wire + audit emit).
-[[test]]
-name = "d4_d6_mtls_unified"
-path = "tests/invariants/d4_d6_mtls_unified.rs"

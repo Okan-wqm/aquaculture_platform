@@ -5,10 +5,6 @@ import { Repository, In, DataSource } from 'typeorm';
 import { createCipheriv, createDecipheriv, randomBytes, createHash } from 'crypto';
 import { RedisService } from '@aquaculture/backend-common/redis';
 import {
-  CircuitBreakerService,
-  DEFAULT_BREAKER_OPTIONS,
-} from '@aquaculture/backend-common/resilience';
-import {
   NotificationLog,
   NotificationStatus,
   NotificationChannel,

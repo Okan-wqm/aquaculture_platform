@@ -12,10 +12,9 @@ import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
 import { RlsModule, AuditColumnsModule, createMigrationRunnerService, SchemaDriftModule, createServiceTypeOrmConfig } from '@aquaculture/backend-common/database';
 import { ServiceIdentityGuard, TenantGuard, RolesGuard } from '@aquaculture/backend-common/guards';
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
-import { CorrelationIdMiddleware, UserContextMiddleware, TenantContextMiddleware, StripInternalHeadersMiddleware } from '@aquaculture/backend-common/middleware';
+import { CorrelationIdMiddleware, UserContextMiddleware, TenantContextMiddleware } from '@aquaculture/backend-common/middleware';
 import { RedisModule } from '@aquaculture/backend-common/redis';
-import { CircuitBreakerModule } from '@aquaculture/backend-common/resilience';
-import { AuditLogModule, AuditLogInterceptor, AuditedOperationModule } from '@aquaculture/backend-common/audit';
+import { AuditLogModule, AuditLogInterceptor } from '@aquaculture/backend-common/audit';
 
 /**
  * NotificationMigrationRunnerService — runs pending TypeORM migrations

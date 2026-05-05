@@ -56,7 +56,7 @@ use std::time::SystemTime;
 use serde::{Deserialize, Serialize};
 
 use super::manifest::CanonicalBytesError;
-use super::manifest_common::{ManifestStructuralError, run_envelope_gates};
+use super::manifest_common::{run_envelope_gates, ManifestStructuralError};
 use super::permission::{OperatorId, TenantId};
 use super::policy::{Ed25519SignatureBytes, InvalidSignatureLength};
 
@@ -281,10 +281,7 @@ pub enum UserTokenManifestVerifyError {
     NotYetValid { now_unix_secs: i64, valid_from: i64 },
 
     /// `now` is after `manifest_valid_until_unix_secs` — expired manifest.
-    Expired {
-        now_unix_secs: i64,
-        valid_until: i64,
-    },
+    Expired { now_unix_secs: i64, valid_until: i64 },
 
     /// Canonical-bytes serialization failed.
     CanonicalBytesFailure(CanonicalBytesError),
@@ -442,7 +439,9 @@ mod tests {
             user_pass_bindings: vec![UserPassManifestBinding {
                 operator_id: op(0x01),
                 username_normalized: "alice".to_string(),
-                argon2id_phc: "$argon2id$v=19$m=19456,t=2,p=1$c2FsdHNhbHRzYWx0$abcdef".to_string(),
+                argon2id_phc:
+                    "$argon2id$v=19$m=19456,t=2,p=1$c2FsdHNhbHRzYWx0$abcdef"
+                        .to_string(),
             }],
             x509_bindings: vec![X509ManifestBinding {
                 operator_id: op(0x02),
@@ -473,7 +472,10 @@ mod tests {
     fn canonical_bytes_is_deterministic() {
         let m1 = canned_manifest();
         let m2 = canned_manifest();
-        assert_eq!(m1.canonical_bytes().unwrap(), m2.canonical_bytes().unwrap());
+        assert_eq!(
+            m1.canonical_bytes().unwrap(),
+            m2.canonical_bytes().unwrap()
+        );
     }
 
     #[test]
@@ -504,7 +506,8 @@ mod tests {
         assert_ne!(base, edit_version.canonical_bytes().unwrap());
 
         let mut edit_username = canned_manifest();
-        edit_username.user_pass_bindings[0].username_normalized = "alice2".to_string();
+        edit_username.user_pass_bindings[0].username_normalized =
+            "alice2".to_string();
         assert_ne!(base, edit_username.canonical_bytes().unwrap());
 
         let mut edit_phc = canned_manifest();
@@ -563,8 +566,14 @@ mod tests {
         m.manifest_valid_from_unix_secs = 1_800_000_000;
         m.manifest_valid_until_unix_secs = 1_700_000_000;
         let signed = sign(&m);
-        let err = verify_user_token_manifest(&signed, &tenant(0xAA), 0, now_inside(), |_, _| true)
-            .unwrap_err();
+        let err = verify_user_token_manifest(
+            &signed,
+            &tenant(0xAA),
+            0,
+            now_inside(),
+            |_, _| true,
+        )
+        .unwrap_err();
         match err {
             UserTokenManifestVerifyError::InvalidValidityWindow { .. } => {}
             other => panic!("wrong variant: {:?}", other),
@@ -676,15 +685,21 @@ mod tests {
     #[test]
     fn verify_signature_receives_canonical_bytes_and_signature_bytes() {
         let signed = sign(&canned_manifest());
-        let expected_canon = signed.manifest.canonical_bytes().unwrap();
+        let expected_canon =
+            signed.manifest.canonical_bytes().unwrap();
         let expected_sig = *signed.signature.as_bytes();
 
-        let r =
-            verify_user_token_manifest(&signed, &tenant(0xAA), 0, now_inside(), |canon, sig| {
+        let r = verify_user_token_manifest(
+            &signed,
+            &tenant(0xAA),
+            0,
+            now_inside(),
+            |canon, sig| {
                 assert_eq!(canon, expected_canon.as_slice());
                 assert_eq!(sig, &expected_sig);
                 true
-            });
+            },
+        );
         assert!(r.is_ok());
     }
 
@@ -711,10 +726,16 @@ mod tests {
         // last. Any structural failure must surface before signature check.
         let signed = sign(&canned_manifest());
         let mut called = false;
-        let r = verify_user_token_manifest(&signed, &tenant(0xAA), 0, now_inside(), |_, _| {
-            called = true;
-            false
-        });
+        let r = verify_user_token_manifest(
+            &signed,
+            &tenant(0xAA),
+            0,
+            now_inside(),
+            |_, _| {
+                called = true;
+                false
+            },
+        );
         assert!(r.is_err());
         assert!(
             called,
@@ -725,9 +746,14 @@ mod tests {
     #[test]
     fn verify_returns_cloned_manifest_on_success() {
         let signed = sign(&canned_manifest());
-        let verified =
-            verify_user_token_manifest(&signed, &tenant(0xAA), 0, now_inside(), |_, _| true)
-                .unwrap();
+        let verified = verify_user_token_manifest(
+            &signed,
+            &tenant(0xAA),
+            0,
+            now_inside(),
+            |_, _| true,
+        )
+        .unwrap();
         assert_eq!(verified, signed.manifest);
     }
 

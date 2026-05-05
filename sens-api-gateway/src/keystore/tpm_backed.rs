@@ -164,7 +164,7 @@ pub struct PcrSelection {
 impl PcrSelection {
     /// Canonical "firmware + secure-boot" selection.
     /// PCR[0..3] = UEFI firmware components; PCR[4..6] =
-    /// Option ROMs / boot loader; `PCR[7]` = SecureBoot
+    /// Option ROMs / boot loader; PCR[7] = SecureBoot
     /// db/dbx state.
     pub fn firmware_and_boot() -> Self {
         Self {
@@ -394,7 +394,10 @@ pub trait TpmDevice: Send + Sync + 'static {
     /// Returns `NotProvisioned` if no sealed blob exists
     /// at the configured NV index — first boot path,
     /// caller invokes `provision_master`.
-    fn unseal_master(&self, config: &TpmKeystoreConfig) -> Result<UnsealedMaster, TpmDeviceError>;
+    fn unseal_master(
+        &self,
+        config: &TpmKeystoreConfig,
+    ) -> Result<UnsealedMaster, TpmDeviceError>;
 
     /// Provision the master key for the FIRST time. Seals
     /// the supplied 32-byte master to the configured PCR
@@ -437,8 +440,10 @@ pub trait TpmDevice: Send + Sync + 'static {
     /// `TpmKeystore::open` to enforce
     /// `unsealed.counter >= current_counter` (anti-
     /// rollback). Cheap operation (no PCR check).
-    fn read_nv_counter(&self, config: &TpmKeystoreConfig)
-    -> Result<NvCounterValue, TpmDeviceError>;
+    fn read_nv_counter(
+        &self,
+        config: &TpmKeystoreConfig,
+    ) -> Result<NvCounterValue, TpmDeviceError>;
 }
 
 /// Result of a successful unseal operation. The 32-byte
@@ -517,7 +522,11 @@ pub struct TpmKeystore<D: TpmDevice + ?Sized> {
 /// than at every call site.
 impl<D: TpmDevice + ?Sized> std::fmt::Debug for TpmKeystore<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let bound = self.bound_counter.read().map(|g| g.0).unwrap_or(u64::MAX);
+        let bound = self
+            .bound_counter
+            .read()
+            .map(|g| g.0)
+            .unwrap_or(u64::MAX);
         f.debug_struct("TpmKeystore")
             .field("backend", &"Tpm")
             .field("bound_counter", &bound)
@@ -638,7 +647,9 @@ impl<D: TpmDevice + ?Sized> TpmKeystore<D> {
     ) -> Result<[u8; 32], KeyDerivationError> {
         let master_bytes: [u8; 32] = {
             let guard = self.master.read().map_err(|_| {
-                KeyDerivationError::HkdfFailure("TpmKeystore master RwLock poisoned".to_string())
+                KeyDerivationError::HkdfFailure(
+                    "TpmKeystore master RwLock poisoned".to_string(),
+                )
             })?;
             *guard.expose_secret_crate()
         };
@@ -661,8 +672,9 @@ impl<D: TpmDevice + ?Sized> TpmKeystore<D> {
             mb.zeroize();
         }
 
-        expand_result
-            .map_err(|e| KeyDerivationError::HkdfFailure(format!("HKDF expand: {}", e)))?;
+        expand_result.map_err(|e| {
+            KeyDerivationError::HkdfFailure(format!("HKDF expand: {}", e))
+        })?;
         Ok(okm)
     }
 
@@ -675,7 +687,8 @@ impl<D: TpmDevice + ?Sized> TpmKeystore<D> {
         &self,
         new_master_bytes: [u8; 32],
     ) -> Result<NvCounterValue, KeystoreError> {
-        let new_counter = self.device.rotate_master(&self.config, &new_master_bytes)?;
+        let new_counter =
+            self.device.rotate_master(&self.config, &new_master_bytes)?;
 
         let new_master = MasterKeyMaterial::from_bytes(new_master_bytes);
 
@@ -700,7 +713,10 @@ impl<D: TpmDevice + ?Sized> TpmKeystore<D> {
             *counter_guard = new_counter;
         }
 
-        info!("TpmKeystore rotated: new_bound_counter={}", new_counter.0,);
+        info!(
+            "TpmKeystore rotated: new_bound_counter={}",
+            new_counter.0,
+        );
         Ok(new_counter)
     }
 }
@@ -891,8 +907,14 @@ impl Default for MockTpmDevice {
 }
 
 impl TpmDevice for MockTpmDevice {
-    fn unseal_master(&self, _config: &TpmKeystoreConfig) -> Result<UnsealedMaster, TpmDeviceError> {
-        let mut state = self.state.lock().expect("MockTpmDevice mutex poisoned");
+    fn unseal_master(
+        &self,
+        _config: &TpmKeystoreConfig,
+    ) -> Result<UnsealedMaster, TpmDeviceError> {
+        let mut state = self
+            .state
+            .lock()
+            .expect("MockTpmDevice mutex poisoned");
         Self::consume_fault(&mut state)?;
         let (blob, bound_counter) = state
             .sealed
@@ -918,10 +940,15 @@ impl TpmDevice for MockTpmDevice {
         _config: &TpmKeystoreConfig,
         master: &[u8; 32],
     ) -> Result<NvCounterValue, TpmDeviceError> {
-        let mut state = self.state.lock().expect("MockTpmDevice mutex poisoned");
+        let mut state = self
+            .state
+            .lock()
+            .expect("MockTpmDevice mutex poisoned");
         Self::consume_fault(&mut state)?;
         if state.sealed.is_some() {
-            return Err(TpmDeviceError::Hardware("already_provisioned".to_string()));
+            return Err(TpmDeviceError::Hardware(
+                "already_provisioned".to_string(),
+            ));
         }
         let counter = NvCounterValue(1);
         state.sealed = Some((master.to_vec(), counter));
@@ -934,7 +961,10 @@ impl TpmDevice for MockTpmDevice {
         _config: &TpmKeystoreConfig,
         new_master: &[u8; 32],
     ) -> Result<NvCounterValue, TpmDeviceError> {
-        let mut state = self.state.lock().expect("MockTpmDevice mutex poisoned");
+        let mut state = self
+            .state
+            .lock()
+            .expect("MockTpmDevice mutex poisoned");
         Self::consume_fault(&mut state)?;
         if state.sealed.is_none() {
             return Err(TpmDeviceError::NotProvisioned);
@@ -951,7 +981,10 @@ impl TpmDevice for MockTpmDevice {
         &self,
         _config: &TpmKeystoreConfig,
     ) -> Result<NvCounterValue, TpmDeviceError> {
-        let mut state = self.state.lock().expect("MockTpmDevice mutex poisoned");
+        let mut state = self
+            .state
+            .lock()
+            .expect("MockTpmDevice mutex poisoned");
         Self::consume_fault(&mut state)?;
         Ok(state.on_chip_counter)
     }
@@ -999,11 +1032,7 @@ mod tests {
         let mut cfg = TpmKeystoreConfig::production_default();
         cfg.pcr_selection.slots.clear();
         let err = cfg.validate().unwrap_err();
-        assert!(
-            err.contains("empty"),
-            "expected empty-PCR rejection: {}",
-            err
-        );
+        assert!(err.contains("empty"), "expected empty-PCR rejection: {}", err);
     }
 
     #[test]
@@ -1040,10 +1069,7 @@ mod tests {
     #[test]
     fn tpm_device_error_to_keystore_error_kind_mapping_pinned() {
         let pairs: Vec<(TpmDeviceError, KeystoreErrorKind)> = vec![
-            (
-                TpmDeviceError::NotProvisioned,
-                KeystoreErrorKind::MasterMissing,
-            ),
+            (TpmDeviceError::NotProvisioned, KeystoreErrorKind::MasterMissing),
             (
                 TpmDeviceError::PolicyUnsatisfied("pcr".into()),
                 KeystoreErrorKind::MasterUnsealFailed,
@@ -1123,7 +1149,10 @@ mod tests {
     #[tokio::test]
     async fn tpm_keystore_hkdf_parity_with_known_master() {
         let master = [0xa5u8; 32];
-        let device = std::sync::Arc::new(MockTpmDevice::pre_provisioned(master, NvCounterValue(1)));
+        let device = std::sync::Arc::new(MockTpmDevice::pre_provisioned(
+            master,
+            NvCounterValue(1),
+        ));
         let cfg = TpmKeystoreConfig::production_default();
         let ks = TpmKeystore::open(device, cfg).unwrap();
 
@@ -1217,8 +1246,10 @@ mod tests {
     /// use the explicit-bytes entry. Pin the contract.
     #[tokio::test]
     async fn tpm_keystore_trait_rotate_master_returns_not_implemented() {
-        let device =
-            std::sync::Arc::new(MockTpmDevice::pre_provisioned([0u8; 32], NvCounterValue(1)));
+        let device = std::sync::Arc::new(MockTpmDevice::pre_provisioned(
+            [0u8; 32],
+            NvCounterValue(1),
+        ));
         let cfg = TpmKeystoreConfig::production_default();
         let ks = TpmKeystore::open(device, cfg).unwrap();
         let err = ks.rotate_master().await.unwrap_err();

@@ -98,9 +98,9 @@ use std::sync::Arc;
 use async_trait::async_trait;
 
 #[cfg(feature = "opc-ua-server")]
-use opcua::nodes::DefaultTypeTree;
-#[cfg(feature = "opc-ua-server")]
 use opcua::server::diagnostics::NamespaceMetadata;
+#[cfg(feature = "opc-ua-server")]
+use opcua::nodes::DefaultTypeTree;
 #[cfg(feature = "opc-ua-server")]
 use opcua::server::node_manager::{
     DynNodeManager, NodeManager, NodeManagerBuilder, RequestContext, ServerContext,
@@ -120,8 +120,9 @@ use opcua::types::NodeId;
 use opcua::server::node_manager::{AddReferenceResult, BrowseNode};
 #[cfg(feature = "opc-ua-server")]
 use opcua::types::{
-    BrowseDirection, ExpandedNodeId, LocalizedText, NodeClass, ObjectId, ObjectTypeId,
-    QualifiedName, ReferenceDescription, ReferenceTypeId, StatusCode, VariableTypeId,
+    BrowseDirection, ExpandedNodeId, LocalizedText, NodeClass, ObjectId,
+    ObjectTypeId, QualifiedName, ReferenceDescription, ReferenceTypeId,
+    StatusCode, VariableTypeId,
 };
 #[cfg(feature = "opc-ua-server")]
 use std::collections::VecDeque;
@@ -136,8 +137,9 @@ use std::collections::VecDeque;
 use crate::authz::permission::TenantId;
 #[cfg(feature = "opc-ua-server")]
 use crate::opc_ua_server::{
-    OpcUaAuditPort, OpcUaForceRegistryPort, OpcUaProcessImagePort, OpcUaTagRegistry,
-    OpcUaWriteOutcome, OpcUaWriteRequest, execute_opcua_write_post_typed_authz,
+    OpcUaAuditPort, OpcUaForceRegistryPort, OpcUaProcessImagePort,
+    OpcUaTagRegistry, OpcUaWriteOutcome, OpcUaWriteRequest,
+    execute_opcua_write_post_typed_authz,
 };
 #[cfg(feature = "opc-ua-server")]
 use crate::opc_ua_server_typed_authz::TypedAuthzPort;
@@ -281,7 +283,7 @@ pub struct SensNodeManager {
     /// **Batch #291 5f-wire field.** Audit port. Every write
     /// outcome (Allow + commit; Allow + rejected by
     /// pre-commit gate; Allow + commit failed) fires
-    /// `audit.record_write_outcome(...)` via the delegate.
+    /// `audit.record_write_attempt(...)` via the delegate.
     /// The Deny path (typed-authz refused) is currently
     /// audited only via the typed-authz adapter — the Deny
     /// branch in `write()` does NOT call this audit port to
@@ -289,6 +291,19 @@ pub struct SensNodeManager {
     /// future Batch may unify the audit shapes; today the
     /// split matches the typed-authz vs legacy-write boundary.
     write_audit: Arc<dyn OpcUaAuditPort>,
+
+    /// **Batch #325 D-9 migration field.** Clock authority
+    /// for the per-write `received_at` timestamp threaded
+    /// to TypedAuthzPort::authorize_write. The pre-#325
+    /// implementation read SystemTime::now() directly,
+    /// vulnerable to operator clock-rollback against
+    /// downstream policy-version freshness checks. Reading
+    /// received_at via clock.trustworthy_wall_clock()
+    /// fails-closed on stale-NTS via ClockAuthority's
+    /// gate; OPC UA writes are denied with
+    /// BadUserAccessDenied on clock-side error rather
+    /// than risking silent policy bypass.
+    clock: Arc<dyn crate::runtime_safety::ClockAuthority>,
 
     /// Debug name returned by `name()`. Static literal because
     /// we instantiate exactly one custom manager per agent.
@@ -326,6 +341,11 @@ impl SensNodeManager {
         write_force: Arc<dyn OpcUaForceRegistryPort>,
         write_process_image: Arc<dyn OpcUaProcessImagePort>,
         write_audit: Arc<dyn OpcUaAuditPort>,
+        // Batch #325 D-9 migration: 9th param threads the
+        // clock through. Production wire passes
+        // AppState::clock_authority; tests pass a fresh
+        // SystemClockAuthority via the test fixture.
+        clock: Arc<dyn crate::runtime_safety::ClockAuthority>,
     ) -> Self {
         Self {
             namespace_uri: Self::NAMESPACE_URI.to_string(),
@@ -338,6 +358,7 @@ impl SensNodeManager {
             write_force,
             write_process_image,
             write_audit,
+            clock,
             manager_name: Self::NAME,
         }
     }
@@ -395,7 +416,10 @@ impl NodeManager for SensNodeManager {
     /// hide operator-class namespaces from anonymous clients) —
     /// today every authenticated user sees the same Suderra
     /// namespace.
-    fn namespaces_for_user(&self, _context: &RequestContext) -> Vec<NamespaceMetadata> {
+    fn namespaces_for_user(
+        &self,
+        _context: &RequestContext,
+    ) -> Vec<NamespaceMetadata> {
         vec![NamespaceMetadata {
             namespace_uri: self.namespace_uri.clone(),
             ..Default::default()
@@ -442,13 +466,16 @@ impl NodeManager for SensNodeManager {
     /// part 5 still has sub-steps 5b-5f pending). Address space
     /// population (per-tag VariableNode dispatch) lands in
     /// Batch #288 step 5b.
-    async fn init(&self, type_tree: &mut DefaultTypeTree, _context: ServerContext) {
+    async fn init(
+        &self,
+        type_tree: &mut DefaultTypeTree,
+        _context: ServerContext,
+    ) {
         // Step 5a — namespace registration. The async-opcua
         // runtime trait-method gives us `&mut DefaultTypeTree`
         // directly; no inner lock needed here.
-        let assigned_index = type_tree
-            .namespaces_mut()
-            .add_namespace(&self.namespace_uri);
+        let assigned_index =
+            type_tree.namespaces_mut().add_namespace(&self.namespace_uri);
 
         // Atomically store the assigned index. The trait method
         // is `async`; using `tokio::RwLock` matches the
@@ -523,7 +550,9 @@ impl NodeManager for SensNodeManager {
                 // BadNoCommunication so HMIs see a transient
                 // boot state rather than silent BadNothingToDo.
                 for n in nodes_to_read.iter_mut() {
-                    n.set_error(opcua::types::StatusCode::BadNoCommunication);
+                    n.set_error(
+                        opcua::types::StatusCode::BadNoCommunication,
+                    );
                 }
                 return Ok(());
             }
@@ -544,7 +573,9 @@ impl NodeManager for SensNodeManager {
             // accessor returns the AttributeId enum directly.
             let attr_id = node.node().attribute_id;
             if attr_id != opcua::types::AttributeId::Value {
-                node.set_error(opcua::types::StatusCode::BadAttributeIdInvalid);
+                node.set_error(
+                    opcua::types::StatusCode::BadAttributeIdInvalid,
+                );
                 continue;
             }
 
@@ -554,29 +585,41 @@ impl NodeManager for SensNodeManager {
             let browse_name = match &read_id.identifier {
                 opcua::types::Identifier::String(s) => s.to_string(),
                 _ => {
-                    node.set_error(opcua::types::StatusCode::BadNodeIdInvalid);
+                    node.set_error(
+                        opcua::types::StatusCode::BadNodeIdInvalid,
+                    );
                     continue;
                 }
             };
 
             // Step 4: reverse-lookup canonical tag_name.
-            let tag_node = match self.tag_registry.find_by_browse_name(&browse_name) {
+            let tag_node = match self
+                .tag_registry
+                .find_by_browse_name(&browse_name)
+            {
                 Some(t) => t,
                 None => {
-                    node.set_error(opcua::types::StatusCode::BadNodeIdUnknown);
+                    node.set_error(
+                        opcua::types::StatusCode::BadNodeIdUnknown,
+                    );
                     continue;
                 }
             };
 
             // Step 5: snapshot current tag value.
-            let tag_value = self.process_image.get_tag(&tag_node.tag_name).await;
+            let tag_value = self
+                .process_image
+                .get_tag(&tag_node.tag_name)
+                .await;
             let tag_value = match tag_value {
                 Some(v) => v,
                 None => {
                     // Tag is in the catalog but not yet in the
                     // process image — first-boot before the I/O
                     // poll has populated it.
-                    node.set_error(opcua::types::StatusCode::BadDataUnavailable);
+                    node.set_error(
+                        opcua::types::StatusCode::BadDataUnavailable,
+                    );
                     continue;
                 }
             };
@@ -590,7 +633,9 @@ impl NodeManager for SensNodeManager {
             let dv = opcua::types::DataValue {
                 value: Some(opcua::types::Variant::Double(tag_value.value)),
                 status: Some(quality_to_opcua_status(&tag_value.quality)),
-                source_timestamp: Some(opcua::types::DateTime::from(tag_value.timestamp)),
+                source_timestamp: Some(opcua::types::DateTime::from(
+                    tag_value.timestamp,
+                )),
                 server_timestamp: Some(opcua::types::DateTime::now()),
                 source_picoseconds: None,
                 server_picoseconds: None,
@@ -615,24 +660,25 @@ impl NodeManager for SensNodeManager {
     ///    (already production-tested).
     /// 4. On Deny: set per-node `BadUserAccessDenied`.
     ///
-    /// **Linked finding:** ORPHAN-CRITICAL-021 — the actor
-    /// hardcode (`actor: "opc-ua-anonymous"`) lives in the
-    /// `add_write_callback` body that this `write` method
-    /// REPLACES. Once Batch #265 wires the real authz, that
-    /// callback is unwired + the legacy hardcode is deleted in
-    /// the same commit (no parallel paths — divergent authz
-    /// would defeat the gate).
+    /// **Linked finding:** ORPHAN-CRITICAL-021 — the legacy
+    /// anonymous-actor hardcode (string-literal banned by
+    /// the Batch #354 audit_actor_label_no_legacy invariant)
+    /// lived in the `add_write_callback` body that this
+    /// `write` method REPLACES. Once Batch #265 wires the
+    /// real authz, that callback is unwired + the legacy
+    /// hardcode is deleted in the same commit (no parallel
+    /// paths — divergent authz would defeat the gate).
     /// **Wire status:** real implementation (Batch #265 A-2b part 3).
     ///
     /// This is the architectural fix for ORPHAN-CRITICAL-021. The
     /// pre-Batch-265 SimpleNodeManager `add_write_callback` API
-    /// hardcoded `actor: "opc-ua-anonymous"` because callback
-    /// signatures carried no session context — every write was
-    /// authz-checked under the anonymous identity, which the
-    /// policy engine rejects unconditionally. Net effect: Gap
-    /// A-3's typed-authz chain (Batches #239-#250) had zero
-    /// observable production value because no HMI write could
-    /// reach it.
+    /// hardcoded the legacy anonymous-actor wire-string because
+    /// callback signatures carried no session context — every
+    /// write was authz-checked under the anonymous identity,
+    /// which the policy engine rejects unconditionally. Net
+    /// effect: Gap A-3's typed-authz chain (Batches #239-#250)
+    /// had zero observable production value because no HMI
+    /// write could reach it.
     ///
     /// This method consumes `context.session.user_token()` (an
     /// `Option<&UserToken>` populated by `SensAuthManager` —
@@ -670,9 +716,10 @@ impl NodeManager for SensNodeManager {
     ///    in audit log.
     ///
     /// **Linked finding:** ORPHAN-CRITICAL-021 — closed by this
-    /// method's wire (the literal "opc-ua-anonymous" hardcode is
-    /// REPLACED in Batch #267 runtime swap when `simple_node_manager`
-    /// gets removed in favor of `with_node_manager(SensNodeManager)`).
+    /// method's wire (the legacy anonymous-actor hardcode in
+    /// `simple_node_manager` is REPLACED in Batch #267 runtime
+    /// swap when that path is removed in favor of
+    /// `with_node_manager(SensNodeManager)`).
     async fn write(
         &self,
         context: &RequestContext,
@@ -683,7 +730,9 @@ impl NodeManager for SensNodeManager {
             Some(idx) => idx,
             None => {
                 for n in nodes_to_write.iter_mut() {
-                    n.set_status(opcua::types::StatusCode::BadNoCommunication);
+                    n.set_status(
+                        opcua::types::StatusCode::BadNoCommunication,
+                    );
                 }
                 return Ok(());
             }
@@ -716,7 +765,9 @@ impl NodeManager for SensNodeManager {
                         OPERATOR_TOKEN_PREFIX.len() + 32
                     );
                     for n in nodes_to_write.iter_mut() {
-                        n.set_status(opcua::types::StatusCode::BadUserAccessDenied);
+                        n.set_status(
+                            opcua::types::StatusCode::BadUserAccessDenied,
+                        );
                     }
                     return Ok(());
                 }
@@ -728,7 +779,9 @@ impl NodeManager for SensNodeManager {
                      authenticated session via SensAuthManager."
                 );
                 for n in nodes_to_write.iter_mut() {
-                    n.set_status(opcua::types::StatusCode::BadUserAccessDenied);
+                    n.set_status(
+                        opcua::types::StatusCode::BadUserAccessDenied,
+                    );
                 }
                 return Ok(());
             }
@@ -749,16 +802,23 @@ impl NodeManager for SensNodeManager {
             let browse_name = match &write_node_id.identifier {
                 opcua::types::Identifier::String(s) => s.to_string(),
                 _ => {
-                    node.set_status(opcua::types::StatusCode::BadNodeIdInvalid);
+                    node.set_status(
+                        opcua::types::StatusCode::BadNodeIdInvalid,
+                    );
                     continue;
                 }
             };
 
             // Step 6: reverse-lookup canonical tag_name.
-            let tag_node = match self.tag_registry.find_by_browse_name(&browse_name) {
+            let tag_node = match self
+                .tag_registry
+                .find_by_browse_name(&browse_name)
+            {
                 Some(t) => t,
                 None => {
-                    node.set_status(opcua::types::StatusCode::BadNodeIdUnknown);
+                    node.set_status(
+                        opcua::types::StatusCode::BadNodeIdUnknown,
+                    );
                     continue;
                 }
             };
@@ -778,17 +838,43 @@ impl NodeManager for SensNodeManager {
             // typed-authz chain. The operator_id is the load-
             // bearing claim; AuthenticatedUser::user_pass wraps
             // it as the sealed type the engine consumes.
-            let authn =
-                crate::opc_ua_server_session::AuthenticatedUser::user_pass(operator_id.clone());
-            let received_at = std::time::SystemTime::now();
+            let authn = crate::opc_ua_server_session::AuthenticatedUser::user_pass(
+                operator_id.clone(),
+            );
+            // Batch #325 D-9 migration: read received_at via
+            // the trustworthy wallclock gate. NTS-stale
+            // clock → fail-closed (BadUserAccessDenied),
+            // matching the architectural pattern from
+            // PolicyEngineOpcUaAdapter (Batch #325). The
+            // policy-version freshness check downstream
+            // depends on a trusted received_at; an
+            // operator-rolled wallclock could either pass
+            // an expired policy as fresh or fail a valid
+            // policy as stale.
+            let received_at = match self.clock.trustworthy_wall_clock().await {
+                Ok(reading) => reading.system_time,
+                Err(e) => {
+                    tracing::warn!(
+                        "SensNodeManager::write: clock unhealthy ({}) — \
+                         REJECTING write for tag={} operator_id_hex={:?} \
+                         (fail-closed per Batch #325 D-9)",
+                        e,
+                        tag_node.tag_name,
+                        operator_id.as_bytes(),
+                    );
+                    node.set_status(
+                        opcua::types::StatusCode::BadUserAccessDenied,
+                    );
+                    continue;
+                }
+            };
             let authz_outcome = self
                 .authz
-                // 2026-04-30: OPC UA session writes currently have no
-                // co-approver evidence channel. Passing `None` is intentional:
-                // the typed authz port and policy engine fail-closed for
-                // high-risk `OpcUaWrite` until a signed co-approval path is
-                // wired into the session/write request contract.
-                .authorize_write(&authn, &tag_node.tag_name, None, received_at)
+                .authorize_write(
+                    &authn,
+                    &tag_node.tag_name,
+                    received_at,
+                )
                 .await;
             let _ctx = match authz_outcome {
                 Ok(ctx) => ctx,
@@ -800,7 +886,9 @@ impl NodeManager for SensNodeManager {
                         operator_id.as_bytes(),
                         e
                     );
-                    node.set_status(opcua::types::StatusCode::BadUserAccessDenied);
+                    node.set_status(
+                        opcua::types::StatusCode::BadUserAccessDenied,
+                    );
                     continue;
                 }
             };
@@ -850,7 +938,9 @@ impl NodeManager for SensNodeManager {
                              value type cannot coerce to f64",
                             tag_node.tag_name
                         );
-                        node.set_status(opcua::types::StatusCode::BadTypeMismatch);
+                        node.set_status(
+                            opcua::types::StatusCode::BadTypeMismatch,
+                        );
                         continue;
                     }
                 },
@@ -860,7 +950,9 @@ impl NodeManager for SensNodeManager {
                          DataValue carried no Variant payload",
                         tag_node.tag_name
                     );
-                    node.set_status(opcua::types::StatusCode::BadNothingToDo);
+                    node.set_status(
+                        opcua::types::StatusCode::BadNothingToDo,
+                    );
                     continue;
                 }
             };
@@ -887,7 +979,9 @@ impl NodeManager for SensNodeManager {
             // existing HMI dashboards (which check for these
             // specific status codes) remain compatible.
             let status = match outcome {
-                OpcUaWriteOutcome::Success { .. } => opcua::types::StatusCode::Good,
+                OpcUaWriteOutcome::Success { .. } => {
+                    opcua::types::StatusCode::Good
+                }
                 OpcUaWriteOutcome::RejectedUnknownTag { .. } => {
                     opcua::types::StatusCode::BadNodeIdUnknown
                 }
@@ -910,13 +1004,6 @@ impl NodeManager for SensNodeManager {
                     // map it defensively in case a future
                     // refactor adds it back.
                     opcua::types::StatusCode::BadUserAccessDenied
-                }
-                OpcUaWriteOutcome::RejectedAuditUnavailable { .. } => {
-                    // 2026-04-30: fail-closed audit policy. A write whose
-                    // durable audit intent/outcome cannot be recorded is a
-                    // server-side compliance failure, not an HMI permission or
-                    // range error.
-                    opcua::types::StatusCode::BadInternalError
                 }
                 OpcUaWriteOutcome::RejectedProcessImage { .. } => {
                     opcua::types::StatusCode::BadInternalError
@@ -1047,7 +1134,9 @@ impl NodeManager for SensNodeManager {
 
         for node in nodes_to_browse.iter_mut() {
             // Step 1: continuation point resume.
-            if let Some(mut cp) = node.take_continuation_point::<SuderraBrowseCp>() {
+            if let Some(mut cp) =
+                node.take_continuation_point::<SuderraBrowseCp>()
+            {
                 while node.remaining() > 0 {
                     let Some(ref_desc) = cp.refs.pop_front() else {
                         break;
@@ -1069,7 +1158,11 @@ impl NodeManager for SensNodeManager {
 
             // Step 2: ObjectsFolder (ns=0, opaque ObjectsFolder).
             if target_id == NodeId::from(ObjectId::ObjectsFolder) {
-                self.browse_objects_folder_attach(node, type_tree, my_namespace);
+                self.browse_objects_folder_attach(
+                    node,
+                    type_tree,
+                    my_namespace,
+                );
                 continue;
             }
 
@@ -1084,10 +1177,18 @@ impl NodeManager for SensNodeManager {
                 };
                 match identifier_str.as_str() {
                     SUDERRA_ROOT_BROWSE_NAME => {
-                        self.browse_suderra_root(node, type_tree, my_namespace);
+                        self.browse_suderra_root(
+                            node,
+                            type_tree,
+                            my_namespace,
+                        );
                     }
                     TAGS_FOLDER_BROWSE_NAME => {
-                        self.browse_tags_folder(node, type_tree, my_namespace);
+                        self.browse_tags_folder(
+                            node,
+                            type_tree,
+                            my_namespace,
+                        );
                     }
                     other => {
                         // Per-tag node — registry lookup. None
@@ -1095,10 +1196,20 @@ impl NodeManager for SensNodeManager {
                         // browse name (HMI cached a stale
                         // address-space + the tag was removed
                         // by config reload); fail closed.
-                        if let Some(tag) = self.tag_registry.find_by_browse_name(other) {
-                            self.browse_tag_node(node, type_tree, my_namespace, tag);
+                        if let Some(tag) = self
+                            .tag_registry
+                            .find_by_browse_name(other)
+                        {
+                            self.browse_tag_node(
+                                node,
+                                type_tree,
+                                my_namespace,
+                                tag,
+                            );
                         } else {
-                            node.set_status(StatusCode::BadNodeIdUnknown);
+                            node.set_status(
+                                StatusCode::BadNodeIdUnknown,
+                            );
                         }
                     }
                 }
@@ -1158,12 +1269,26 @@ impl SensNodeManager {
     /// HasComponent ref from Tags → Suderra) AND
     /// `resolve_external_references()` (Batch #289+ extension —
     /// the core manager may ask us for metadata of nodes WE own).
-    fn suderra_root_metadata(&self, ns_idx: u16) -> opcua::server::node_manager::NodeMetadata {
+    fn suderra_root_metadata(
+        &self,
+        ns_idx: u16,
+    ) -> opcua::server::node_manager::NodeMetadata {
         opcua::server::node_manager::NodeMetadata {
-            node_id: ExpandedNodeId::new(NodeId::new(ns_idx, SUDERRA_ROOT_BROWSE_NAME)),
-            type_definition: ExpandedNodeId::new(ObjectTypeId::FolderType),
-            browse_name: QualifiedName::new(ns_idx, SUDERRA_ROOT_BROWSE_NAME),
-            display_name: LocalizedText::new("", "Suderra Edge Agent"),
+            node_id: ExpandedNodeId::new(NodeId::new(
+                ns_idx,
+                SUDERRA_ROOT_BROWSE_NAME,
+            )),
+            type_definition: ExpandedNodeId::new(
+                ObjectTypeId::FolderType,
+            ),
+            browse_name: QualifiedName::new(
+                ns_idx,
+                SUDERRA_ROOT_BROWSE_NAME,
+            ),
+            display_name: LocalizedText::new(
+                "",
+                "Suderra Edge Agent",
+            ),
             node_class: NodeClass::Object,
         }
     }
@@ -1171,11 +1296,22 @@ impl SensNodeManager {
     /// Build the canonical `Tags` container Object node's
     /// metadata. Reused by browse() (parent inverse-HasComponent
     /// ref construction) AND future external-reference resolution.
-    fn tags_folder_metadata(&self, ns_idx: u16) -> opcua::server::node_manager::NodeMetadata {
+    fn tags_folder_metadata(
+        &self,
+        ns_idx: u16,
+    ) -> opcua::server::node_manager::NodeMetadata {
         opcua::server::node_manager::NodeMetadata {
-            node_id: ExpandedNodeId::new(NodeId::new(ns_idx, TAGS_FOLDER_BROWSE_NAME)),
-            type_definition: ExpandedNodeId::new(ObjectTypeId::FolderType),
-            browse_name: QualifiedName::new(ns_idx, TAGS_FOLDER_BROWSE_NAME),
+            node_id: ExpandedNodeId::new(NodeId::new(
+                ns_idx,
+                TAGS_FOLDER_BROWSE_NAME,
+            )),
+            type_definition: ExpandedNodeId::new(
+                ObjectTypeId::FolderType,
+            ),
+            browse_name: QualifiedName::new(
+                ns_idx,
+                TAGS_FOLDER_BROWSE_NAME,
+            ),
             display_name: LocalizedText::new("", "Tags"),
             node_class: NodeClass::Object,
         }
@@ -1188,9 +1324,17 @@ impl SensNodeManager {
         tag: &crate::opc_ua_server::OpcUaTagNode,
     ) -> opcua::server::node_manager::NodeMetadata {
         opcua::server::node_manager::NodeMetadata {
-            node_id: ExpandedNodeId::new(NodeId::new(ns_idx, tag.browse_name.as_str())),
-            type_definition: ExpandedNodeId::new(VariableTypeId::BaseDataVariableType),
-            browse_name: QualifiedName::new(ns_idx, tag.browse_name.as_str()),
+            node_id: ExpandedNodeId::new(NodeId::new(
+                ns_idx,
+                tag.browse_name.as_str(),
+            )),
+            type_definition: ExpandedNodeId::new(
+                VariableTypeId::BaseDataVariableType,
+            ),
+            browse_name: QualifiedName::new(
+                ns_idx,
+                tag.browse_name.as_str(),
+            ),
             display_name: LocalizedText::new("", &tag.tag_name),
             node_class: NodeClass::Variable,
         }
@@ -1212,25 +1356,31 @@ impl SensNodeManager {
         ) {
             return;
         }
-        if !node.allows_reference_type(&ReferenceTypeId::HasComponent.into(), type_tree) {
+        if !node.allows_reference_type(
+            &ReferenceTypeId::HasComponent.into(),
+            type_tree,
+        ) {
             return;
         }
 
         let metadata = self.suderra_root_metadata(ns_idx);
-        let ref_desc = metadata.into_ref_desc(true, ReferenceTypeId::HasComponent);
+        let ref_desc = metadata.into_ref_desc(
+            true,
+            ReferenceTypeId::HasComponent,
+        );
         // ObjectsFolder browse is one ref — no continuation
         // point handling needed (max_references_per_node is
         // bounded but always >= 1 in practice; if it's 0 the
         // ref drops + the runtime treats that as the BrowseNode
         // already-full case).
-        if let AddReferenceResult::Full(_) = node.add(type_tree, ref_desc) {
+        if let AddReferenceResult::Full(_) = node.add(type_tree, ref_desc)
+        {
             // Defense-in-depth: stash even a single reference
             // if the node is full from prior managers' adds.
             let mut cp = SuderraBrowseCp::default();
-            cp.refs.push_back(
-                self.suderra_root_metadata(ns_idx)
-                    .into_ref_desc(true, ReferenceTypeId::HasComponent),
-            );
+            cp.refs.push_back(self
+                .suderra_root_metadata(ns_idx)
+                .into_ref_desc(true, ReferenceTypeId::HasComponent));
             node.set_next_continuation_point(Box::new(cp));
         }
     }
@@ -1238,7 +1388,12 @@ impl SensNodeManager {
     /// Step 3 — Suderra root browse: forward = HasComponent →
     /// Tags + HasTypeDefinition → FolderType. Inverse =
     /// HasComponent inverse → ObjectsFolder.
-    fn browse_suderra_root(&self, node: &mut BrowseNode, type_tree: &DefaultTypeTree, ns_idx: u16) {
+    fn browse_suderra_root(
+        &self,
+        node: &mut BrowseNode,
+        type_tree: &DefaultTypeTree,
+        ns_idx: u16,
+    ) {
         let mut cp = SuderraBrowseCp::default();
 
         if matches!(
@@ -1246,29 +1401,50 @@ impl SensNodeManager {
             BrowseDirection::Forward | BrowseDirection::Both
         ) {
             // HasComponent → Tags
-            if node.allows_reference_type(&ReferenceTypeId::HasComponent.into(), type_tree)
-                && node.allows_node_class(NodeClass::Object)
+            if node.allows_reference_type(
+                &ReferenceTypeId::HasComponent.into(),
+                type_tree,
+            ) && node.allows_node_class(NodeClass::Object)
             {
                 let ref_desc = self
                     .tags_folder_metadata(ns_idx)
-                    .into_ref_desc(true, ReferenceTypeId::HasComponent);
-                if let AddReferenceResult::Full(c) = node.add(type_tree, ref_desc) {
+                    .into_ref_desc(
+                        true,
+                        ReferenceTypeId::HasComponent,
+                    );
+                if let AddReferenceResult::Full(c) =
+                    node.add(type_tree, ref_desc)
+                {
                     cp.refs.push_back(c);
                 }
             }
 
             // HasTypeDefinition → FolderType
-            if node.allows_reference_type(&ReferenceTypeId::HasTypeDefinition.into(), type_tree) {
+            if node.allows_reference_type(
+                &ReferenceTypeId::HasTypeDefinition.into(),
+                type_tree,
+            ) {
                 let ref_desc = ReferenceDescription {
-                    reference_type_id: ReferenceTypeId::HasTypeDefinition.into(),
+                    reference_type_id:
+                        ReferenceTypeId::HasTypeDefinition.into(),
                     is_forward: true,
-                    node_id: ExpandedNodeId::new(ObjectTypeId::FolderType),
-                    browse_name: QualifiedName::new(0, "FolderType"),
-                    display_name: LocalizedText::new("", "FolderType"),
+                    node_id: ExpandedNodeId::new(
+                        ObjectTypeId::FolderType,
+                    ),
+                    browse_name: QualifiedName::new(
+                        0,
+                        "FolderType",
+                    ),
+                    display_name: LocalizedText::new(
+                        "",
+                        "FolderType",
+                    ),
                     node_class: NodeClass::ObjectType,
                     type_definition: ExpandedNodeId::null(),
                 };
-                if let AddReferenceResult::Full(c) = node.add(type_tree, ref_desc) {
+                if let AddReferenceResult::Full(c) =
+                    node.add(type_tree, ref_desc)
+                {
                     cp.refs.push_back(c);
                 }
             }
@@ -1279,17 +1455,30 @@ impl SensNodeManager {
             BrowseDirection::Inverse | BrowseDirection::Both
         ) {
             // HasComponent inverse → ObjectsFolder
-            if node.allows_reference_type(&ReferenceTypeId::HasComponent.into(), type_tree) {
+            if node.allows_reference_type(
+                &ReferenceTypeId::HasComponent.into(),
+                type_tree,
+            ) {
                 let ref_desc = ReferenceDescription {
-                    reference_type_id: ReferenceTypeId::HasComponent.into(),
+                    reference_type_id:
+                        ReferenceTypeId::HasComponent.into(),
                     is_forward: false,
-                    node_id: ExpandedNodeId::new(ObjectId::ObjectsFolder),
+                    node_id: ExpandedNodeId::new(
+                        ObjectId::ObjectsFolder,
+                    ),
                     browse_name: QualifiedName::new(0, "Objects"),
-                    display_name: LocalizedText::new("", "Objects"),
+                    display_name: LocalizedText::new(
+                        "",
+                        "Objects",
+                    ),
                     node_class: NodeClass::Object,
-                    type_definition: ExpandedNodeId::new(ObjectTypeId::FolderType),
+                    type_definition: ExpandedNodeId::new(
+                        ObjectTypeId::FolderType,
+                    ),
                 };
-                if let AddReferenceResult::Full(c) = node.add(type_tree, ref_desc) {
+                if let AddReferenceResult::Full(c) =
+                    node.add(type_tree, ref_desc)
+                {
                     cp.refs.push_back(c);
                 }
             }
@@ -1303,7 +1492,12 @@ impl SensNodeManager {
     /// Step 4 — Tags folder browse: forward = HasComponent → each
     /// tag in registry + HasTypeDefinition → FolderType. Inverse
     /// = HasComponent inverse → Suderra root.
-    fn browse_tags_folder(&self, node: &mut BrowseNode, type_tree: &DefaultTypeTree, ns_idx: u16) {
+    fn browse_tags_folder(
+        &self,
+        node: &mut BrowseNode,
+        type_tree: &DefaultTypeTree,
+        ns_idx: u16,
+    ) {
         let mut cp = SuderraBrowseCp::default();
 
         if matches!(
@@ -1314,13 +1508,18 @@ impl SensNodeManager {
             // OpcUaTagRegistry's BTreeMap order (lexicographic
             // by tag_name); this gives HMIs a deterministic
             // browse response across reconnects.
-            if node.allows_reference_type(&ReferenceTypeId::HasComponent.into(), type_tree)
-                && node.allows_node_class(NodeClass::Variable)
+            if node.allows_reference_type(
+                &ReferenceTypeId::HasComponent.into(),
+                type_tree,
+            ) && node.allows_node_class(NodeClass::Variable)
             {
                 for tag in self.tag_registry.iter() {
                     let ref_desc = self
                         .tag_node_metadata(ns_idx, tag)
-                        .into_ref_desc(true, ReferenceTypeId::HasComponent);
+                        .into_ref_desc(
+                            true,
+                            ReferenceTypeId::HasComponent,
+                        );
                     match node.add(type_tree, ref_desc) {
                         AddReferenceResult::Added => {}
                         AddReferenceResult::Full(c) => {
@@ -1332,17 +1531,31 @@ impl SensNodeManager {
             }
 
             // HasTypeDefinition → FolderType
-            if node.allows_reference_type(&ReferenceTypeId::HasTypeDefinition.into(), type_tree) {
+            if node.allows_reference_type(
+                &ReferenceTypeId::HasTypeDefinition.into(),
+                type_tree,
+            ) {
                 let ref_desc = ReferenceDescription {
-                    reference_type_id: ReferenceTypeId::HasTypeDefinition.into(),
+                    reference_type_id:
+                        ReferenceTypeId::HasTypeDefinition.into(),
                     is_forward: true,
-                    node_id: ExpandedNodeId::new(ObjectTypeId::FolderType),
-                    browse_name: QualifiedName::new(0, "FolderType"),
-                    display_name: LocalizedText::new("", "FolderType"),
+                    node_id: ExpandedNodeId::new(
+                        ObjectTypeId::FolderType,
+                    ),
+                    browse_name: QualifiedName::new(
+                        0,
+                        "FolderType",
+                    ),
+                    display_name: LocalizedText::new(
+                        "",
+                        "FolderType",
+                    ),
                     node_class: NodeClass::ObjectType,
                     type_definition: ExpandedNodeId::null(),
                 };
-                if let AddReferenceResult::Full(c) = node.add(type_tree, ref_desc) {
+                if let AddReferenceResult::Full(c) =
+                    node.add(type_tree, ref_desc)
+                {
                     cp.refs.push_back(c);
                 }
             }
@@ -1352,11 +1565,19 @@ impl SensNodeManager {
             node.browse_direction(),
             BrowseDirection::Inverse | BrowseDirection::Both
         ) {
-            if node.allows_reference_type(&ReferenceTypeId::HasComponent.into(), type_tree) {
+            if node.allows_reference_type(
+                &ReferenceTypeId::HasComponent.into(),
+                type_tree,
+            ) {
                 let ref_desc = self
                     .suderra_root_metadata(ns_idx)
-                    .into_ref_desc(false, ReferenceTypeId::HasComponent);
-                if let AddReferenceResult::Full(c) = node.add(type_tree, ref_desc) {
+                    .into_ref_desc(
+                        false,
+                        ReferenceTypeId::HasComponent,
+                    );
+                if let AddReferenceResult::Full(c) =
+                    node.add(type_tree, ref_desc)
+                {
                     cp.refs.push_back(c);
                 }
             }
@@ -1386,17 +1607,31 @@ impl SensNodeManager {
             node.browse_direction(),
             BrowseDirection::Forward | BrowseDirection::Both
         ) {
-            if node.allows_reference_type(&ReferenceTypeId::HasTypeDefinition.into(), type_tree) {
+            if node.allows_reference_type(
+                &ReferenceTypeId::HasTypeDefinition.into(),
+                type_tree,
+            ) {
                 let ref_desc = ReferenceDescription {
-                    reference_type_id: ReferenceTypeId::HasTypeDefinition.into(),
+                    reference_type_id:
+                        ReferenceTypeId::HasTypeDefinition.into(),
                     is_forward: true,
-                    node_id: ExpandedNodeId::new(VariableTypeId::BaseDataVariableType),
-                    browse_name: QualifiedName::new(0, "BaseDataVariableType"),
-                    display_name: LocalizedText::new("", "BaseDataVariableType"),
+                    node_id: ExpandedNodeId::new(
+                        VariableTypeId::BaseDataVariableType,
+                    ),
+                    browse_name: QualifiedName::new(
+                        0,
+                        "BaseDataVariableType",
+                    ),
+                    display_name: LocalizedText::new(
+                        "",
+                        "BaseDataVariableType",
+                    ),
                     node_class: NodeClass::VariableType,
                     type_definition: ExpandedNodeId::null(),
                 };
-                if let AddReferenceResult::Full(c) = node.add(type_tree, ref_desc) {
+                if let AddReferenceResult::Full(c) =
+                    node.add(type_tree, ref_desc)
+                {
                     cp.refs.push_back(c);
                 }
             }
@@ -1406,11 +1641,19 @@ impl SensNodeManager {
             node.browse_direction(),
             BrowseDirection::Inverse | BrowseDirection::Both
         ) {
-            if node.allows_reference_type(&ReferenceTypeId::HasComponent.into(), type_tree) {
+            if node.allows_reference_type(
+                &ReferenceTypeId::HasComponent.into(),
+                type_tree,
+            ) {
                 let ref_desc = self
                     .tags_folder_metadata(ns_idx)
-                    .into_ref_desc(false, ReferenceTypeId::HasComponent);
-                if let AddReferenceResult::Full(c) = node.add(type_tree, ref_desc) {
+                    .into_ref_desc(
+                        false,
+                        ReferenceTypeId::HasComponent,
+                    );
+                if let AddReferenceResult::Full(c) =
+                    node.add(type_tree, ref_desc)
+                {
                     cp.refs.push_back(c);
                 }
             }
@@ -1554,9 +1797,16 @@ pub struct SensNodeManagerBuilder {
 
     /// **Batch #291 5f-wire field.** Audit port. Every Allow
     /// outcome (commit success or pre-commit reject or
-    /// commit error) fires `record_write_outcome` via the
+    /// commit error) fires `record_write_attempt` via the
     /// delegate.
     write_audit: Arc<dyn OpcUaAuditPort>,
+
+    /// **Batch #325 D-9 migration field.** Clock authority
+    /// threaded through the builder so SensNodeManager
+    /// constructed via build() inherits the same clock
+    /// the rest of the agent uses (AppState's
+    /// clock_authority).
+    clock: Arc<dyn crate::runtime_safety::ClockAuthority>,
 }
 
 #[cfg(feature = "opc-ua-server")]
@@ -1585,6 +1835,9 @@ impl SensNodeManagerBuilder {
         write_force: Arc<dyn OpcUaForceRegistryPort>,
         write_process_image: Arc<dyn OpcUaProcessImagePort>,
         write_audit: Arc<dyn OpcUaAuditPort>,
+        // Batch #325 D-9 migration: 9th param threads the
+        // clock through the builder.
+        clock: Arc<dyn crate::runtime_safety::ClockAuthority>,
     ) -> Self {
         Self {
             tenant_id,
@@ -1595,6 +1848,7 @@ impl SensNodeManagerBuilder {
             write_force,
             write_process_image,
             write_audit,
+            clock,
         }
     }
 }
@@ -1683,7 +1937,8 @@ pub struct SensRuntimeBundle {
     /// `Arc<dyn AuthManager>` — Arc-wrap at construction
     /// time so the type system records the trait-object
     /// promotion explicitly.
-    pub auth_manager: Arc<crate::opc_ua_sens_auth_manager::SensAuthManager>,
+    pub auth_manager:
+        Arc<crate::opc_ua_sens_auth_manager::SensAuthManager>,
 }
 
 #[cfg(feature = "opc-ua-server")]
@@ -1719,7 +1974,10 @@ impl NodeManagerBuilder for SensNodeManagerBuilder {
     /// call — keeping init as the sole writer is load-bearing
     /// for the Tier-1 "make-it-impossible" property of the
     /// `current_namespace_index().await` reader.
-    fn build(self: Box<Self>, _context: ServerContext) -> Arc<DynNodeManager> {
+    fn build(
+        self: Box<Self>,
+        _context: ServerContext,
+    ) -> Arc<DynNodeManager> {
         Arc::new(SensNodeManager::new(
             self.tenant_id,
             self.authz,
@@ -1729,6 +1987,9 @@ impl NodeManagerBuilder for SensNodeManagerBuilder {
             self.write_force,
             self.write_process_image,
             self.write_audit,
+            // Batch #325 D-9 migration: thread the
+            // clock from builder to manager.
+            self.clock,
         ))
     }
 }
@@ -1783,8 +2044,12 @@ pub(crate) const OPERATOR_TOKEN_PREFIX: &str = "sens:operator:";
 /// here so the write-path parse + the auth-path encode share one
 /// definition (single source of truth — no token format drift).
 #[cfg(feature = "opc-ua-server")]
-pub(crate) fn format_operator_token(operator_id: &crate::authz::permission::OperatorId) -> String {
-    let mut hex = String::with_capacity(OPERATOR_TOKEN_PREFIX.len() + 32);
+pub(crate) fn format_operator_token(
+    operator_id: &crate::authz::permission::OperatorId,
+) -> String {
+    let mut hex = String::with_capacity(
+        OPERATOR_TOKEN_PREFIX.len() + 32,
+    );
     hex.push_str(OPERATOR_TOKEN_PREFIX);
     for b in operator_id.as_bytes() {
         hex.push_str(&format!("{:02x}", b));
@@ -1819,9 +2084,9 @@ pub(crate) fn parse_operator_token(
         let hex_byte = payload.get(byte_idx..byte_idx + 2)?;
         *b = u8::from_str_radix(hex_byte, 16).ok()?;
     }
-    Some(crate::authz::permission::OperatorId::new_from_verified(
-        bytes,
-    ))
+    Some(
+        crate::authz::permission::OperatorId::new_from_verified(bytes),
+    )
 }
 
 /// **Batch #291 5f-wire helper.** Coerce an incoming OPC UA
@@ -1848,7 +2113,9 @@ pub(crate) fn parse_operator_token(
 /// write() Allow path. Helper kept module-private until a
 /// second consumer needs it.
 #[cfg(feature = "opc-ua-server")]
-fn cast_variant_to_f64(variant: &opcua::types::Variant) -> Option<f64> {
+fn cast_variant_to_f64(
+    variant: &opcua::types::Variant,
+) -> Option<f64> {
     use opcua::types::Variant;
     match variant {
         Variant::Boolean(b) => Some(if *b { 1.0 } else { 0.0 }),
@@ -1900,7 +2167,9 @@ fn cast_variant_to_f64(variant: &opcua::types::Variant) -> Option<f64> {
 ///   surfacing Uncertain to HMIs makes the simulation visible
 ///   without inventing a non-spec value).
 #[cfg(feature = "opc-ua-server")]
-fn quality_to_opcua_status(quality: &crate::process_image::TagQuality) -> opcua::types::StatusCode {
+fn quality_to_opcua_status(
+    quality: &crate::process_image::TagQuality,
+) -> opcua::types::StatusCode {
     use crate::process_image::TagQuality;
     use opcua::types::StatusCode;
     match quality {
@@ -1982,21 +2251,24 @@ mod tests {
     #[test]
     fn parse_rejects_short_payload() {
         // Prefix + 30 hex chars — payload too short.
-        let bad = "sens:operator:0123456789abcdef0123456789abcd";
+        let bad =
+            "sens:operator:0123456789abcdef0123456789abcd";
         assert!(parse_operator_token(bad).is_none());
     }
 
     #[test]
     fn parse_rejects_long_payload() {
         // Prefix + 34 hex chars — payload too long.
-        let bad = "sens:operator:0123456789abcdef0123456789abcdef00";
+        let bad =
+            "sens:operator:0123456789abcdef0123456789abcdef00";
         assert!(parse_operator_token(bad).is_none());
     }
 
     #[test]
     fn parse_rejects_non_hex_payload() {
         // Prefix + 32 chars but one is 'g' (not hex).
-        let bad = "sens:operator:0123456789abcdef0123456789abcdeg";
+        let bad =
+            "sens:operator:0123456789abcdef0123456789abcdeg";
         assert!(parse_operator_token(bad).is_none());
     }
 
@@ -2063,14 +2335,19 @@ mod tests {
     // canonical shape so that drift fails at unit-test time
     // instead of at the integration-test boundary.
 
-    use crate::authz::context::{AuthorizationDenyReason, AuthorizedContext};
+    use crate::authz::context::{
+        AuthorizationDenyReason, AuthorizedContext,
+    };
     use crate::authz::user_token_manifest_runtime::UserTokenManifestStore;
     use crate::opc_ua_server::{
-        OpcUaAuditPort, OpcUaForceRegistryPort, OpcUaProcessImagePort, OpcUaTagRegistry,
+        OpcUaAuditPort, OpcUaForceRegistryPort,
+        OpcUaProcessImagePort, OpcUaTagRegistry,
         OpcUaWriteOutcome,
     };
+    use crate::opc_ua_server_typed_authz::{
+        TypedAuthzError, TypedAuthzPort,
+    };
     use crate::opc_ua_server_session::AuthenticatedUser;
-    use crate::opc_ua_server_typed_authz::{TypedAuthzError, TypedAuthzPort};
     use crate::process_image::{IoType, ProcessImage};
 
     /// Build a SensNodeManager with empty tag_registry — used
@@ -2088,7 +2365,6 @@ mod tests {
                 &self,
                 _user: &AuthenticatedUser,
                 _tag_name: &str,
-                _co_approver: Option<crate::authz::policy::CoApproverEvidence>,
                 _received_at: std::time::SystemTime,
             ) -> Result<AuthorizedContext, TypedAuthzError> {
                 // Mock returns a deny variant; the metadata
@@ -2135,28 +2411,21 @@ mod tests {
         struct MockAudit;
         #[async_trait]
         impl OpcUaAuditPort for MockAudit {
-            async fn record_write_intent(
-                &self,
-                _actor: &str,
-                _tag_name: &str,
-                _value: f64,
-            ) -> Result<(), crate::opc_ua_server::OpcUaAuditError> {
-                Ok(())
-            }
-
-            async fn record_write_outcome(
+            async fn record_write_attempt(
                 &self,
                 _actor: &str,
                 _tag_name: &str,
                 _value: f64,
                 _outcome: &OpcUaWriteOutcome,
-            ) -> Result<(), crate::opc_ua_server::OpcUaAuditError> {
-                Ok(())
+            ) {
             }
         }
-        let write_force: Arc<dyn OpcUaForceRegistryPort> = Arc::new(MockForce);
-        let write_process_image: Arc<dyn OpcUaProcessImagePort> = Arc::new(MockPi);
-        let write_audit: Arc<dyn OpcUaAuditPort> = Arc::new(MockAudit);
+        let write_force: Arc<dyn OpcUaForceRegistryPort> =
+            Arc::new(MockForce);
+        let write_process_image: Arc<dyn OpcUaProcessImagePort> =
+            Arc::new(MockPi);
+        let write_audit: Arc<dyn OpcUaAuditPort> =
+            Arc::new(MockAudit);
 
         SensNodeManager::new(
             tenant,
@@ -2167,6 +2436,10 @@ mod tests {
             write_force,
             write_process_image,
             write_audit,
+            // Batch #325 D-9: test fixture clock — fresh
+            // SystemClockAuthority for the trustworthy
+            // wallclock gate.
+            Arc::new(crate::runtime_safety::SystemClockAuthority::new()),
         )
     }
 
@@ -2177,17 +2450,24 @@ mod tests {
         // NodeId.namespace must equal the assigned ns_idx
         // (caller passes the namespace_index from init()).
         assert_eq!(
-            meta.node_id.node_id.namespace, 7,
+            meta.node_id.node_id.namespace,
+            7,
             "Suderra root NodeId namespace must equal init-assigned ns_idx"
         );
         // browse_name canonicalized as "Suderra"
-        assert_eq!(meta.browse_name.name.as_ref(), SUDERRA_ROOT_BROWSE_NAME);
+        assert_eq!(
+            meta.browse_name.name.as_ref(),
+            SUDERRA_ROOT_BROWSE_NAME
+        );
         // type_definition is FolderType (Suderra is an Object
         // organizing its children — same shape as ObjectsFolder).
         // PartialEq impl `NodeId == ObjectTypeId` is provided
         // by opcua_types — pass the enum variant directly (no
         // `.into()` to avoid impl ambiguity).
-        assert!(meta.type_definition.node_id == ObjectTypeId::FolderType);
+        assert!(
+            meta.type_definition.node_id
+                == ObjectTypeId::FolderType
+        );
         // node_class
         assert_eq!(meta.node_class, NodeClass::Object);
     }
@@ -2197,8 +2477,14 @@ mod tests {
         let mgr = test_manager();
         let meta = mgr.tags_folder_metadata(13);
         assert_eq!(meta.node_id.node_id.namespace, 13);
-        assert_eq!(meta.browse_name.name.as_ref(), TAGS_FOLDER_BROWSE_NAME);
-        assert!(meta.type_definition.node_id == ObjectTypeId::FolderType);
+        assert_eq!(
+            meta.browse_name.name.as_ref(),
+            TAGS_FOLDER_BROWSE_NAME
+        );
+        assert!(
+            meta.type_definition.node_id
+                == ObjectTypeId::FolderType
+        );
         assert_eq!(meta.node_class, NodeClass::Object);
     }
 
@@ -2226,11 +2512,17 @@ mod tests {
         // BrowseName carries the same browse_name.
         assert_eq!(meta.browse_name.name.as_ref(), "tank_a_flow");
         // DisplayName uses tag_name (the operator-facing name).
-        assert_eq!(meta.display_name.text.as_ref(), "tank/a:flow");
+        assert_eq!(
+            meta.display_name.text.as_ref(),
+            "tank/a:flow"
+        );
         // type_definition: BaseDataVariableType (the canonical
         // base for Variable instance nodes that don't fit a
         // more specialized AnalogItemType / DataItemType).
-        assert!(meta.type_definition.node_id == VariableTypeId::BaseDataVariableType);
+        assert!(
+            meta.type_definition.node_id
+                == VariableTypeId::BaseDataVariableType
+        );
         assert_eq!(meta.node_class, NodeClass::Variable);
     }
 
@@ -2290,7 +2582,6 @@ mod tests {
                 &self,
                 _user: &AuthenticatedUser,
                 _tag_name: &str,
-                _co_approver: Option<crate::authz::policy::CoApproverEvidence>,
                 _received_at: std::time::SystemTime,
             ) -> Result<AuthorizedContext, TypedAuthzError> {
                 Err(TypedAuthzError::EngineDenied(
@@ -2328,28 +2619,21 @@ mod tests {
         struct MockAudit2;
         #[async_trait]
         impl OpcUaAuditPort for MockAudit2 {
-            async fn record_write_intent(
-                &self,
-                _actor: &str,
-                _tag_name: &str,
-                _value: f64,
-            ) -> Result<(), crate::opc_ua_server::OpcUaAuditError> {
-                Ok(())
-            }
-
-            async fn record_write_outcome(
+            async fn record_write_attempt(
                 &self,
                 _actor: &str,
                 _tag_name: &str,
                 _value: f64,
                 _outcome: &OpcUaWriteOutcome,
-            ) -> Result<(), crate::opc_ua_server::OpcUaAuditError> {
-                Ok(())
+            ) {
             }
         }
-        let write_force: Arc<dyn OpcUaForceRegistryPort> = Arc::new(MockForce2);
-        let write_process_image: Arc<dyn OpcUaProcessImagePort> = Arc::new(MockPi2);
-        let write_audit: Arc<dyn OpcUaAuditPort> = Arc::new(MockAudit2);
+        let write_force: Arc<dyn OpcUaForceRegistryPort> =
+            Arc::new(MockForce2);
+        let write_process_image: Arc<dyn OpcUaProcessImagePort> =
+            Arc::new(MockPi2);
+        let write_audit: Arc<dyn OpcUaAuditPort> =
+            Arc::new(MockAudit2);
 
         // Pre-construction strong counts: each Arc has 1 ref
         // (the local binding).
@@ -2370,6 +2654,7 @@ mod tests {
             write_force.clone(),
             write_process_image.clone(),
             write_audit.clone(),
+            Arc::new(crate::runtime_safety::SystemClockAuthority::new()),
         );
 
         // Post-construction strong counts: builder holds a 2nd
@@ -2423,14 +2708,8 @@ mod tests {
             cast_variant_to_f64(&Variant::UInt32(4_000_000_000)),
             Some(4_000_000_000.0)
         );
-        assert_eq!(
-            cast_variant_to_f64(&Variant::Float(3.14)),
-            Some(3.14_f32 as f64)
-        );
-        assert_eq!(
-            cast_variant_to_f64(&Variant::Double(2.71828)),
-            Some(2.71828)
-        );
+        assert_eq!(cast_variant_to_f64(&Variant::Float(3.14)), Some(3.14_f32 as f64));
+        assert_eq!(cast_variant_to_f64(&Variant::Double(2.71828)), Some(2.71828));
     }
 
     #[test]
@@ -2447,9 +2726,18 @@ mod tests {
             Some(-max_exact as f64)
         );
         // Beyond ±2^53: reject (silent precision loss).
-        assert_eq!(cast_variant_to_f64(&Variant::Int64(max_exact + 1)), None);
-        assert_eq!(cast_variant_to_f64(&Variant::Int64(i64::MAX)), None);
-        assert_eq!(cast_variant_to_f64(&Variant::Int64(i64::MIN)), None);
+        assert_eq!(
+            cast_variant_to_f64(&Variant::Int64(max_exact + 1)),
+            None
+        );
+        assert_eq!(
+            cast_variant_to_f64(&Variant::Int64(i64::MAX)),
+            None
+        );
+        assert_eq!(
+            cast_variant_to_f64(&Variant::Int64(i64::MIN)),
+            None
+        );
     }
 
     #[test]
@@ -2460,8 +2748,14 @@ mod tests {
             cast_variant_to_f64(&Variant::UInt64(max_exact)),
             Some(max_exact as f64)
         );
-        assert_eq!(cast_variant_to_f64(&Variant::UInt64(max_exact + 1)), None);
-        assert_eq!(cast_variant_to_f64(&Variant::UInt64(u64::MAX)), None);
+        assert_eq!(
+            cast_variant_to_f64(&Variant::UInt64(max_exact + 1)),
+            None
+        );
+        assert_eq!(
+            cast_variant_to_f64(&Variant::UInt64(u64::MAX)),
+            None
+        );
     }
 
     #[test]
@@ -2469,7 +2763,10 @@ mod tests {
         use opcua::types::Variant;
         // Strings reject — HMI must not write a string into
         // a numeric tag and have it silently coerce.
-        assert_eq!(cast_variant_to_f64(&Variant::String("42".into())), None);
+        assert_eq!(
+            cast_variant_to_f64(&Variant::String("42".into())),
+            None
+        );
         assert_eq!(cast_variant_to_f64(&Variant::Empty), None);
     }
 
@@ -2481,7 +2778,8 @@ mod tests {
         // DiagnosticsNodeManager uses.
         let mut cp = SuderraBrowseCp::default();
         let make = |id: u32| ReferenceDescription {
-            reference_type_id: ReferenceTypeId::HasComponent.into(),
+            reference_type_id: ReferenceTypeId::HasComponent
+                .into(),
             is_forward: true,
             node_id: ExpandedNodeId::new(NodeId::new(0, id)),
             browse_name: QualifiedName::new(0, format!("n{}", id)),
@@ -2494,12 +2792,10 @@ mod tests {
         cp.refs.push_back(make(3));
         // FIFO drain: pop_front yields 1, 2, 3 in order.
         let drained: Vec<u32> = std::iter::from_fn(|| {
-            cp.refs
-                .pop_front()
-                .map(|r| match r.node_id.node_id.identifier {
-                    opcua::types::Identifier::Numeric(n) => n,
-                    _ => 0,
-                })
+            cp.refs.pop_front().map(|r| match r.node_id.node_id.identifier {
+                opcua::types::Identifier::Numeric(n) => n,
+                _ => 0,
+            })
         })
         .collect();
         assert_eq!(drained, vec![1, 2, 3]);

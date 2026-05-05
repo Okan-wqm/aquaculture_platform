@@ -86,8 +86,7 @@ fn hot_reload_rejects_when_mode_disabled() {
     // explicit opt-out of RBAC entirely + MUST require
     // agent restart after a mode change (config reload is
     // not in scope for this handler).
-    let _contract =
-        "cmd_update_policy: mode=Disabled -> rejected with structured error, no mutation";
+    let _contract = "cmd_update_policy: mode=Disabled -> rejected with structured error, no mutation";
     assert!(!_contract.is_empty());
 }
 
@@ -99,7 +98,8 @@ fn hot_reload_rejects_before_provisioning() {
     // verify check in verify_manifest; without a known
     // tenant we cannot enforce it. Rejecting explicitly
     // is clearer than a downstream "TenantMismatch" error.
-    let _contract = "cmd_update_policy: tenant_id=None -> rejected (cannot enforce tenant binding pre-provisioning)";
+    let _contract =
+        "cmd_update_policy: tenant_id=None -> rejected (cannot enforce tenant binding pre-provisioning)";
     assert!(!_contract.is_empty());
 }
 

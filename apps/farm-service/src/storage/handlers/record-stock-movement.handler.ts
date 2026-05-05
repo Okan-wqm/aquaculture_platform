@@ -577,7 +577,7 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
     switch (itemType) {
       case StorageItemType.FEED: {
         const feedRepo = tenantManagerRepo(manager, Feed, tenantId);
-        const feed = await feedRepo.findOne({ where: { id: itemId } });
+        const feed = await feedRepo.findOne({ where: { id: itemId, tenantId } });
         if (feed) {
           feed.quantity = totalQuantity;
           // Use the FeedStatus enum to ensure type-safe status assignment.
@@ -591,7 +591,7 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
       }
       case StorageItemType.CHEMICAL: {
         const chemRepo = tenantManagerRepo(manager, Chemical, tenantId);
-        const chem = await chemRepo.findOne({ where: { id: itemId } });
+        const chem = await chemRepo.findOne({ where: { id: itemId, tenantId } });
         if (chem) {
           chem.quantity = totalQuantity;
           chem.updateStockStatus();
@@ -601,7 +601,7 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
       }
       case StorageItemType.CONSUMABLE: {
         const consRepo = tenantManagerRepo(manager, Consumable, tenantId);
-        const cons = await consRepo.findOne({ where: { id: itemId } });
+        const cons = await consRepo.findOne({ where: { id: itemId, tenantId } });
         if (cons) {
           cons.quantity = totalQuantity;
           cons.updateStockStatus();
@@ -615,7 +615,7 @@ export class RecordStockMovementHandler implements ICommandHandler<RecordStockMo
         // the aggregate across all storage locations, just like feeds and chemicals.
         const healthcareRepo = tenantManagerRepo(manager, Consumable, tenantId);
         const healthcare = await healthcareRepo.findOne({
-          where: { id: itemId },
+          where: { id: itemId, tenantId },
         });
         if (healthcare) {
           healthcare.quantity = totalQuantity;

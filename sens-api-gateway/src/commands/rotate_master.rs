@@ -72,7 +72,10 @@ impl CommandHandler {
     /// Returns (on success):
     ///   {"keystore_rotated": true, "audit_sink_reloaded":
     ///    true, "note": "..." }
-    pub(super) async fn cmd_rotate_master(&self, params: &Value) -> (bool, Value, Option<String>) {
+    pub(super) async fn cmd_rotate_master(
+        &self,
+        params: &Value,
+    ) -> (bool, Value, Option<String>) {
         info!("Executing rotate_master command (Sprint 6.3 final orchestration)");
 
         // Snapshot wiring we need from AppState.
@@ -88,13 +91,12 @@ impl CommandHandler {
                 .keystore
                 .passphrase_path
                 .clone()
-                .unwrap_or_else(|| std::path::PathBuf::from("/etc/suderra/keystore.passphrase"));
-            let cfg_salt = state
-                .config
-                .keystore
-                .salt_path
-                .clone()
-                .unwrap_or_else(|| std::path::PathBuf::from("/etc/suderra/keystore.salt"));
+                .unwrap_or_else(|| {
+                    std::path::PathBuf::from("/etc/suderra/keystore.passphrase")
+                });
+            let cfg_salt = state.config.keystore.salt_path.clone().unwrap_or_else(|| {
+                std::path::PathBuf::from("/etc/suderra/keystore.salt")
+            });
             (
                 state.keystore.clone(),
                 state.audit_sink.clone(),
@@ -178,7 +180,9 @@ impl CommandHandler {
                     params: params_override,
                 }
             }
-            crate::keystore::KeyBackend::Tpm => crate::keystore::RotationSource::TpmReseal,
+            crate::keystore::KeyBackend::Tpm => {
+                crate::keystore::RotationSource::TpmReseal
+            }
             crate::keystore::KeyBackend::SystemdCreds => {
                 crate::keystore::RotationSource::SystemdCredsReissue
             }
@@ -215,20 +219,22 @@ impl CommandHandler {
         // under OLD key (operationally OK: the rotation
         // partially completed but old audit chain isn't
         // broken).
-        let new_audit_key_material =
-            match keystore.derive_key(KeyPurpose::AuditHmacChain, b"").await {
-                Ok(k) => k,
-                Err(e) => {
-                    return (
-                        false,
-                        json!(null),
-                        Some(format!(
-                            "new audit HMAC key derivation failed after rotation: {}",
-                            e
-                        )),
-                    );
-                }
-            };
+        let new_audit_key_material = match keystore
+            .derive_key(KeyPurpose::AuditHmacChain, b"")
+            .await
+        {
+            Ok(k) => k,
+            Err(e) => {
+                return (
+                    false,
+                    json!(null),
+                    Some(format!(
+                        "new audit HMAC key derivation failed after rotation: {}",
+                        e
+                    )),
+                );
+            }
+        };
         let mut new_audit_key_bytes = [0u8; 32];
         new_audit_key_bytes.copy_from_slice(new_audit_key_material.expose_secret());
 

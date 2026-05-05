@@ -122,9 +122,12 @@ impl LifecycleAuthKey {
     /// LoadCredential); returns CredentialFileMissing
     /// when the directory is set but the named file
     /// doesn't exist.
-    pub fn load_from_credentials_dir(credential_name: &str) -> Result<Self, AuthKeyError> {
-        let dir = std::env::var("CREDENTIALS_DIRECTORY")
-            .map_err(|_| AuthKeyError::CredentialsDirMissing)?;
+    pub fn load_from_credentials_dir(
+        credential_name: &str,
+    ) -> Result<Self, AuthKeyError> {
+        let dir = std::env::var("CREDENTIALS_DIRECTORY").map_err(|_| {
+            AuthKeyError::CredentialsDirMissing
+        })?;
         let path = std::path::PathBuf::from(&dir).join(credential_name);
         let bytes = std::fs::read(&path).map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
@@ -174,27 +177,16 @@ impl std::fmt::Display for AuthKeyError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::TooShort { got, need } => {
-                write!(
-                    f,
-                    "lifecycle HMAC key too short: {} bytes (need >= {})",
-                    got, need
-                )
+                write!(f, "lifecycle HMAC key too short: {} bytes (need >= {})", got, need)
             }
             Self::CredentialsDirMissing => {
-                write!(
-                    f,
-                    "$CREDENTIALS_DIRECTORY not set — agent must be started via systemd with LoadCredential to enable HmacToken auth mode"
-                )
+                write!(f, "$CREDENTIALS_DIRECTORY not set — agent must be started via systemd with LoadCredential to enable HmacToken auth mode")
             }
             Self::CredentialFileMissing { path } => {
                 write!(f, "lifecycle HMAC credential file missing: {}", path)
             }
             Self::Io { path, reason } => {
-                write!(
-                    f,
-                    "lifecycle HMAC credential read failed {}: {}",
-                    path, reason
-                )
+                write!(f, "lifecycle HMAC credential read failed {}: {}", path, reason)
             }
         }
     }
@@ -224,24 +216,25 @@ pub enum AuthError {
     /// HMAC bytes don't match the computed MAC. Wrong key
     /// or tampered request.
     InvalidHmac,
+    /// **Batch #324 D-9 migration:** clock authority
+    /// reports the wallclock is untrustworthy
+    /// (NTS-stale, MonotonicBackward, PreEpochWallClock).
+    /// The HMAC timestamp window cannot be evaluated
+    /// against an unverified server clock — fail-closed
+    /// rather than risk false-accept (clock rolled back
+    /// past replay window) or false-reject (clock rolled
+    /// forward, all real requests look stale).
+    ClockUnhealthy(String),
 }
 
 impl std::fmt::Display for AuthError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::MissingHmacHeader => write!(f, "missing X-Suderra-Lifecycle-Hmac header"),
-            Self::MissingTimestampHeader => {
-                write!(f, "missing X-Suderra-Lifecycle-Timestamp header")
-            }
+            Self::MissingTimestampHeader => write!(f, "missing X-Suderra-Lifecycle-Timestamp header"),
             Self::MalformedHmacHeader => write!(f, "malformed hex in X-Suderra-Lifecycle-Hmac"),
-            Self::MalformedTimestampHeader => {
-                write!(f, "malformed integer in X-Suderra-Lifecycle-Timestamp")
-            }
-            Self::TimestampOutOfWindow {
-                client_ts,
-                server_ts,
-                window,
-            } => {
+            Self::MalformedTimestampHeader => write!(f, "malformed integer in X-Suderra-Lifecycle-Timestamp"),
+            Self::TimestampOutOfWindow { client_ts, server_ts, window } => {
                 write!(
                     f,
                     "timestamp {} outside ±{}s window around server time {}",
@@ -249,34 +242,85 @@ impl std::fmt::Display for AuthError {
                 )
             }
             Self::InvalidHmac => write!(f, "HMAC did not match expected value"),
+            Self::ClockUnhealthy(reason) => {
+                write!(f, "clock unhealthy: {}", reason)
+            }
         }
     }
 }
 
 impl std::error::Error for AuthError {}
 
+impl From<crate::runtime_safety::clock::ClockError> for AuthError {
+    fn from(e: crate::runtime_safety::clock::ClockError) -> Self {
+        Self::ClockUnhealthy(e.to_string())
+    }
+}
+
 /// Verify a request carries a valid HMAC for the given
-/// method + path. Uses `SystemTime::now()` for the server
-/// timestamp; a future test-injection seam could swap
-/// this for a pluggable clock.
-pub fn verify_request(
+/// method + path. **Batch #324 D-9 migration:** the
+/// server timestamp is read from the injected
+/// ClockAuthority's trustworthy_wall_clock, not from
+/// SystemTime::now() directly.
+///
+/// **Why the migration matters (Tier-1 fix):** the
+/// pre-#324 implementation read SystemTime::now() for
+/// `server_ts` then compared `(client_ts - server_ts).abs()
+/// > HMAC_TIMESTAMP_WINDOW_SECS` — a SYMMETRIC window
+/// rejecting requests too far in the future OR too far
+/// in the past. Operator clock manipulation breaks both
+/// directions:
+///
+/// - Server clock rolled BACKWARD (past) → real-now
+///   requests look "from the future" → REJECTED
+///   → DOS attack.
+/// - Server clock rolled FORWARD (future) → real-now
+///   requests look "from the past" → REJECTED → DOS.
+/// - Server clock rolled SLIGHTLY backward (just past
+///   the window) but client_ts ALSO crafted just past
+///   server_ts → request might pass replay window
+///   that should have rejected it.
+///
+/// The architectural fix is to read server_ts via
+/// trustworthy_wall_clock() which fails-closed on
+/// stale-NTS via the ClockAuthority gate. Result:
+/// chrony-stopped or NTS-attacker-MITM scenarios
+/// surface as ClockUnhealthy, not as silent
+/// timestamp-window false-accept/false-reject.
+///
+/// **Architectural note** about migration shape: the
+/// previous doc comment said "a future test-injection
+/// seam could swap this for a pluggable clock". This
+/// batch IS that future migration; the seam is the
+/// `&dyn ClockAuthority` parameter.
+pub async fn verify_request(
     key: &LifecycleAuthKey,
     method: &str,
     path: &str,
     hmac_header: Option<&str>,
     timestamp_header: Option<&str>,
+    clock: &dyn crate::runtime_safety::ClockAuthority,
 ) -> Result<(), AuthError> {
     let hmac_hex = hmac_header.ok_or(AuthError::MissingHmacHeader)?;
     let ts_str = timestamp_header.ok_or(AuthError::MissingTimestampHeader)?;
 
-    let client_ts: i64 = ts_str
-        .parse()
-        .map_err(|_| AuthError::MalformedTimestampHeader)?;
+    let client_ts: i64 = ts_str.parse().map_err(|_| AuthError::MalformedTimestampHeader)?;
 
-    let server_ts = SystemTime::now()
+    // Batch #324 D-9 migration: trustworthy_wall_clock
+    // fails-closed on NTS-stale; the HMAC timestamp
+    // window cannot be evaluated against an unverified
+    // server clock. ClockError -> AuthError::ClockUnhealthy
+    // via the From impl.
+    let reading = clock.trustworthy_wall_clock().await?;
+    let server_ts = reading
+        .system_time
         .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
+        .map_err(|_| {
+            AuthError::ClockUnhealthy(
+                "system_time before UNIX_EPOCH (RTC drained?)".to_string(),
+            )
+        })?
+        .as_secs() as i64;
 
     if (client_ts - server_ts).abs() > HMAC_TIMESTAMP_WINDOW_SECS {
         return Err(AuthError::TimestampOutOfWindow {
@@ -303,7 +347,12 @@ pub fn verify_request(
 /// timestamp + method + path tuple. Used by both the
 /// verify path (server) + the systemd timer's sign-the-
 /// request tool (client).
-pub fn compute_hmac(key: &LifecycleAuthKey, timestamp: i64, method: &str, path: &str) -> [u8; 32] {
+pub fn compute_hmac(
+    key: &LifecycleAuthKey,
+    timestamp: i64,
+    method: &str,
+    path: &str,
+) -> [u8; 32] {
     type HmacSha256 = Hmac<Sha256>;
     let mut mac = HmacSha256::new_from_slice(key.as_bytes())
         .expect("HMAC can take key of any size >= MIN_KEY_LEN_BYTES");
@@ -349,9 +398,18 @@ fn hex_nibble(byte: &u8) -> Option<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::runtime_safety::SystemClockAuthority;
 
     fn test_key() -> LifecycleAuthKey {
         LifecycleAuthKey::from_bytes(vec![0x42u8; 32]).expect("valid")
+    }
+
+    /// Test fixture: a fresh SystemClockAuthority for each
+    /// verify_request invocation. Tests that exercise the
+    /// CLOCK-UNHEALTHY path (NTS-stale, pre-epoch) use a
+    /// programmable mock instead.
+    fn test_clock() -> SystemClockAuthority {
+        SystemClockAuthority::new()
     }
 
     fn now_ts() -> i64 {
@@ -410,9 +468,10 @@ mod tests {
         assert_ne!(a, b);
     }
 
-    #[test]
-    fn verify_request_happy_path() {
+    #[tokio::test]
+    async fn verify_request_happy_path() {
         let key = test_key();
+        let clock = test_clock();
         let ts = now_ts();
         let mac = compute_hmac(&key, ts, "POST", "/lifecycle/confirm-active");
         let result = verify_request(
@@ -421,13 +480,16 @@ mod tests {
             "/lifecycle/confirm-active",
             Some(&hex_encode(&mac)),
             Some(&ts.to_string()),
-        );
+            &clock,
+        )
+        .await;
         assert!(result.is_ok(), "expected Ok, got {:?}", result);
     }
 
-    #[test]
-    fn verify_request_missing_hmac_header() {
+    #[tokio::test]
+    async fn verify_request_missing_hmac_header() {
         let key = test_key();
+        let clock = test_clock();
         let ts = now_ts();
         let err = verify_request(
             &key,
@@ -435,28 +497,34 @@ mod tests {
             "/lifecycle/confirm-active",
             None,
             Some(&ts.to_string()),
+            &clock,
         )
+        .await
         .expect_err("must reject");
         assert_eq!(err, AuthError::MissingHmacHeader);
     }
 
-    #[test]
-    fn verify_request_missing_timestamp_header() {
+    #[tokio::test]
+    async fn verify_request_missing_timestamp_header() {
         let key = test_key();
+        let clock = test_clock();
         let err = verify_request(
             &key,
             "POST",
             "/lifecycle/confirm-active",
             Some("00".repeat(32).as_str()),
             None,
+            &clock,
         )
+        .await
         .expect_err("must reject");
         assert_eq!(err, AuthError::MissingTimestampHeader);
     }
 
-    #[test]
-    fn verify_request_malformed_hmac_rejects() {
+    #[tokio::test]
+    async fn verify_request_malformed_hmac_rejects() {
         let key = test_key();
+        let clock = test_clock();
         let ts = now_ts();
         let err = verify_request(
             &key,
@@ -464,28 +532,34 @@ mod tests {
             "/lifecycle/confirm-active",
             Some("zz".repeat(32).as_str()), // non-hex chars
             Some(&ts.to_string()),
+            &clock,
         )
+        .await
         .expect_err("must reject");
         assert_eq!(err, AuthError::MalformedHmacHeader);
     }
 
-    #[test]
-    fn verify_request_malformed_timestamp_rejects() {
+    #[tokio::test]
+    async fn verify_request_malformed_timestamp_rejects() {
         let key = test_key();
+        let clock = test_clock();
         let err = verify_request(
             &key,
             "POST",
             "/lifecycle/confirm-active",
             Some("00".repeat(32).as_str()),
             Some("not-a-number"),
+            &clock,
         )
+        .await
         .expect_err("must reject");
         assert_eq!(err, AuthError::MalformedTimestampHeader);
     }
 
-    #[test]
-    fn verify_request_rejects_timestamp_too_old() {
+    #[tokio::test]
+    async fn verify_request_rejects_timestamp_too_old() {
         let key = test_key();
+        let clock = test_clock();
         let old_ts = now_ts() - HMAC_TIMESTAMP_WINDOW_SECS - 1;
         let mac = compute_hmac(&key, old_ts, "POST", "/x");
         let err = verify_request(
@@ -494,14 +568,17 @@ mod tests {
             "/x",
             Some(&hex_encode(&mac)),
             Some(&old_ts.to_string()),
+            &clock,
         )
+        .await
         .expect_err("must reject");
         assert!(matches!(err, AuthError::TimestampOutOfWindow { .. }));
     }
 
-    #[test]
-    fn verify_request_rejects_timestamp_too_new() {
+    #[tokio::test]
+    async fn verify_request_rejects_timestamp_too_new() {
         let key = test_key();
+        let clock = test_clock();
         let future_ts = now_ts() + HMAC_TIMESTAMP_WINDOW_SECS + 1;
         let mac = compute_hmac(&key, future_ts, "POST", "/x");
         let err = verify_request(
@@ -510,14 +587,17 @@ mod tests {
             "/x",
             Some(&hex_encode(&mac)),
             Some(&future_ts.to_string()),
+            &clock,
         )
+        .await
         .expect_err("must reject");
         assert!(matches!(err, AuthError::TimestampOutOfWindow { .. }));
     }
 
-    #[test]
-    fn verify_request_rejects_wrong_hmac() {
+    #[tokio::test]
+    async fn verify_request_rejects_wrong_hmac() {
         let key = test_key();
+        let clock = test_clock();
         let ts = now_ts();
         let wrong_mac = [0xAAu8; 32]; // not the right MAC
         let err = verify_request(
@@ -526,15 +606,18 @@ mod tests {
             "/lifecycle/confirm-active",
             Some(&hex_encode(&wrong_mac)),
             Some(&ts.to_string()),
+            &clock,
         )
+        .await
         .expect_err("must reject");
         assert_eq!(err, AuthError::InvalidHmac);
     }
 
-    #[test]
-    fn verify_request_rejects_hmac_computed_for_different_path() {
+    #[tokio::test]
+    async fn verify_request_rejects_hmac_computed_for_different_path() {
         // Client signs for /x but sends to /y. Must reject.
         let key = test_key();
+        let clock = test_clock();
         let ts = now_ts();
         let mac = compute_hmac(&key, ts, "POST", "/x");
         let err = verify_request(
@@ -543,9 +626,126 @@ mod tests {
             "/y",
             Some(&hex_encode(&mac)),
             Some(&ts.to_string()),
+            &clock,
         )
+        .await
         .expect_err("must reject");
         assert_eq!(err, AuthError::InvalidHmac);
+    }
+
+    // ================================================================
+    // Batch #324 D-9 architectural property tests
+    // ================================================================
+    //
+    // Programmable mock clock pattern matches Batch #313
+    // MonotonicDeadline + Batch #315 KeystoreRotationDeadline +
+    // Batch #317 alarm runner test fixtures for uniformity.
+
+    use crate::runtime_safety::clock::{
+        ClockAuthority as ClockAuthorityTrait, ClockError, MonotonicAnchor,
+        WallClockReading,
+    };
+    use async_trait::async_trait;
+    use std::sync::Mutex as StdMutex;
+
+    struct MockClock {
+        force_nts_stale: StdMutex<bool>,
+    }
+    impl MockClock {
+        fn new() -> Self {
+            Self {
+                force_nts_stale: StdMutex::new(false),
+            }
+        }
+        fn set_nts_stale(&self, v: bool) {
+            *self.force_nts_stale.lock().unwrap() = v;
+        }
+    }
+    #[async_trait]
+    impl ClockAuthorityTrait for MockClock {
+        fn monotonic_now(&self) -> Result<MonotonicAnchor, ClockError> {
+            Ok(MonotonicAnchor::for_test(0))
+        }
+        async fn trustworthy_wall_clock(
+            &self,
+        ) -> Result<WallClockReading, ClockError> {
+            if *self.force_nts_stale.lock().unwrap() {
+                return Err(ClockError::NtsSyncStale {
+                    last_sync_age_secs: 99999,
+                    threshold_secs: 3600,
+                });
+            }
+            Ok(WallClockReading {
+                system_time: SystemTime::now(),
+                monotonic_anchor: MonotonicAnchor::for_test(0),
+                nts_sync_age_secs: 0,
+            })
+        }
+        fn nts_sync_max_skew_secs(&self) -> u64 {
+            3600
+        }
+    }
+
+    /// **Architectural property test 1:** when the clock
+    /// authority reports NTS-stale, verify_request
+    /// fail-CLOSEDS with ClockUnhealthy regardless of
+    /// whether the HMAC is otherwise valid. Pre-#324 a
+    /// stale clock would silently use SystemTime::now()
+    /// → false-accept or false-reject windows; post-#324
+    /// the clock-side error wins.
+    #[tokio::test]
+    async fn verify_request_fail_closed_on_nts_stale_clock() {
+        let key = test_key();
+        let clock = MockClock::new();
+        clock.set_nts_stale(true);
+        let ts = now_ts();
+        // Valid HMAC for the request — pre-#324 with a
+        // trusting SystemClockAuthority this would be Ok.
+        let mac = compute_hmac(&key, ts, "POST", "/lifecycle/confirm-active");
+        let err = verify_request(
+            &key,
+            "POST",
+            "/lifecycle/confirm-active",
+            Some(&hex_encode(&mac)),
+            Some(&ts.to_string()),
+            &clock,
+        )
+        .await
+        .expect_err("NTS-stale clock MUST fail-closed regardless of HMAC validity");
+        match err {
+            AuthError::ClockUnhealthy(reason) => {
+                assert!(
+                    reason.contains("nts_sync_stale"),
+                    "ClockUnhealthy reason should name the underlying ClockError class: {}",
+                    reason
+                );
+            }
+            other => panic!(
+                "expected ClockUnhealthy, got {:?} — clock fail-closed contract violated",
+                other
+            ),
+        }
+    }
+
+    /// **Architectural property test 2:** AuthError
+    /// Display string for ClockUnhealthy is operator-
+    /// readable (audit-stable identifier). Operator
+    /// dashboards key on the prefix `clock unhealthy:` to
+    /// route alerts.
+    #[test]
+    fn auth_error_clock_unhealthy_display_is_operator_readable() {
+        let err = AuthError::ClockUnhealthy("nts_sync_stale".to_string());
+        let s = format!("{}", err);
+        assert!(
+            s.starts_with("clock unhealthy:"),
+            "ClockUnhealthy Display must start with `clock unhealthy:` for audit-stable matching: {}",
+            s
+        );
+        assert!(
+            s.contains("nts_sync_stale"),
+            "ClockUnhealthy Display must include the underlying reason: {}",
+            s
+        );
     }
 
     #[test]

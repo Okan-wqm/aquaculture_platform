@@ -45,7 +45,7 @@
 
 use serde_json::Value;
 
-use crate::authz::permission::{ModbusDeviceId, ModbusRegisterRange, Permission, TagId};
+use crate::authz::permission::{Permission, TagId};
 
 /// Map a command name + params to the `Permission` the RBAC gate
 /// MUST verify before dispatch.
@@ -95,32 +95,7 @@ pub(crate) fn permission_for_command(cmd: &str, params: &Value) -> Option<Permis
             // params fall back to the most-restrictive permission
             // (SafeStateTrigger) so a malformed write cannot bypass the
             // gate by evading the extractor.
-            // 2026-04-29: The permission is now resource-scoped when the
-            // command carries an explicit Modbus slave identifier. A device
-            // display name alone is not a stable authz principal, so missing
-            // `device_id`/`slave_id` remains fail-closed via SafeStateTrigger.
-            let device_id = params
-                .get("device_id")
-                .or_else(|| params.get("slave_id"))
-                .or_else(|| params.get("device"))
-                .and_then(|v| v.as_u64())
-                .and_then(|v| u8::try_from(v).ok());
-            let address = params
-                .get("address")
-                .and_then(|v| v.as_u64())
-                .and_then(|v| u16::try_from(v).ok());
-            match (device_id, address) {
-                (Some(device_id), Some(address)) => {
-                    match ModbusRegisterRange::new(address, address) {
-                        Ok(register_range) => Some(Permission::ModbusWrite {
-                            device_id: ModbusDeviceId(device_id),
-                            register_range,
-                        }),
-                        Err(_) => Some(Permission::SafeStateTrigger),
-                    }
-                }
-                _ => Some(Permission::SafeStateTrigger),
-            }
+            Some(Permission::SafeStateTrigger)
         }
         "write_gpio" => {
             // Extract pin from params. If missing, fall back to
@@ -144,12 +119,7 @@ pub(crate) fn permission_for_command(cmd: &str, params: &Value) -> Option<Permis
                 None => Some(Permission::SafeStateTrigger),
             }
         }
-        "write_s7" => match params.get("address").and_then(|v| v.as_str()) {
-            Some(address) => Some(Permission::S7Write {
-                address: TagId::new(address.to_string()),
-            }),
-            None => Some(Permission::SafeStateTrigger),
-        },
+        "write_s7" => Some(Permission::SafeStateTrigger),
         "set_output" => {
             match params.get("tag_name").and_then(|v| v.as_str()) {
                 Some(name) => Some(Permission::WriteTag {
@@ -223,19 +193,6 @@ pub(crate) fn permission_for_command(cmd: &str, params: &Value) -> Option<Permis
         // themselves arbitrary future permissions. Plan §3 R-5
         // + ADR-018 §3 specify ManagePolicy as the gate.
         "update_policy" => Some(Permission::ManagePolicy),
-
-        // -----------------------------------------------------------------
-        // mTLS leaf-cert pinning rotation (Phase 1.1.2 D-4).
-        // -----------------------------------------------------------------
-        // WHY ManageCertPinning specifically (not ManagePolicy): cloud-side
-        // signing ceremony reserves a separate HSM slot per ADR-021 §1 —
-        // operators with RBAC-rotation authority must not automatically
-        // inherit pinning-rotation authority. The Tier-1 downgrade gate
-        // inside MtlsVerifierState::rebuild (commit a2242f36) ensures that
-        // even an over-privileged operator can ONLY rotate pins or promote
-        // the mode floor, never weaken the policy. Distinct permission +
-        // distinct HSM slot is defense-in-depth.
-        "update_cert_pinning" => Some(Permission::ManageCertPinning),
 
         // -----------------------------------------------------------------
         // Master-key rotation (Batch 100 Sprint 6.3).
@@ -339,30 +296,6 @@ mod tests {
     }
 
     #[test]
-    fn write_modbus_extracts_resource_scope_when_slave_id_present() {
-        let p = permission_for_command(
-            "write_modbus",
-            &json!({"device": "pump-vfd", "slave_id": 7, "address": 401}),
-        );
-        assert!(matches!(
-            p,
-            Some(Permission::ModbusWrite {
-                device_id: ModbusDeviceId(7),
-                register_range
-            }) if register_range.contains(401)
-        ));
-    }
-
-    #[test]
-    fn write_modbus_name_only_falls_back_to_safe_state() {
-        let p = permission_for_command(
-            "write_modbus",
-            &json!({"device": "pump-vfd", "address": 401}),
-        );
-        assert!(matches!(p, Some(Permission::SafeStateTrigger)));
-    }
-
-    #[test]
     fn write_gpio_malformed_falls_back_to_safe_state() {
         let p = permission_for_command("write_gpio", &json!({"pin": "not a number"}));
         assert!(matches!(p, Some(Permission::SafeStateTrigger)));
@@ -452,7 +385,10 @@ mod tests {
         // ManageUserTokenManifest, NOT ManagePolicy — collapsing
         // the two would defeat the R-4 3-key segregation.
         assert!(matches!(
-            permission_for_command("update_user_token_manifest", &json!({})),
+            permission_for_command(
+                "update_user_token_manifest",
+                &json!({})
+            ),
             Some(Permission::ManageUserTokenManifest)
         ));
     }
@@ -463,7 +399,10 @@ mod tests {
         // ManagePolicy "for convenience", that collapses the key
         // segregation. Guard with an explicit negative assertion.
         assert!(!matches!(
-            permission_for_command("update_user_token_manifest", &json!({})),
+            permission_for_command(
+                "update_user_token_manifest",
+                &json!({})
+            ),
             Some(Permission::ManagePolicy)
         ));
     }

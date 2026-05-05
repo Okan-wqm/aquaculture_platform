@@ -258,13 +258,8 @@ fn verify_at_boot_inner(
             e
         )
     })?;
-    let signed: SignedConfigMeta = serde_json::from_slice(&sidecar_bytes).map_err(|e| {
-        format!(
-            "Failed to parse sidecar JSON at {}: {}",
-            sidecar_path.display(),
-            e
-        )
-    })?;
+    let signed: SignedConfigMeta = serde_json::from_slice(&sidecar_bytes)
+        .map_err(|e| format!("Failed to parse sidecar JSON at {}: {}", sidecar_path.display(), e))?;
 
     let highest_seen = load_highest_seen_version(data_dir);
 

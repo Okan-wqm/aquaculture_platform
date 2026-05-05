@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
 
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import {
   runInTenantTransaction,
   tenantManagerRepo,
@@ -78,8 +79,11 @@ export class ComplianceAuditService {
     // can never carry a tenantId different from the caller's request scope.
     // Outside-transaction fallback (fire-and-forget) carries explicit
     // tenantId in the entry payload below.
-    const doLog = async (activeManager: EntityManager): Promise<void> => {
-      const repo = tenantManagerRepo(activeManager, ComplianceAuditLog, params.tenantId);
+    const repo = manager
+      ? tenantManagerRepo(manager, ComplianceAuditLog, params.tenantId)
+      : this.auditRepo;
+
+    const doLog = async (): Promise<void> => {
       const entry = repo.create({
         tenantId: params.tenantId,
         userId: params.userId,

@@ -204,10 +204,18 @@ const EXEMPT_PATHS: readonly RegExp[] = [
   // rows. The file is exempt only for the "deferred" rule; other banned
   // phrases (for now, pragmatic, etc.) still apply.
   /^apps\/hr-service\/src\/performance\/entities\/goal\.entity\.ts$/,
-  // Same rationale: the migration that CREATES the goal_status enum must
-  // ship `'deferred'` as a SQL literal to match the entity. Phrase appears
+  // Same rationale: the migration that CREATES the goal_status enum ships
+  // `'deferred'` as a SQL literal to match the entity. The phrase appears
   // inside an SQL string, not as a gating excuse.
   /^apps\/hr-service\/src\/database\/migrations\/1736000000000-CreateHRModuleSchema\.ts$/,
+  // The defer-goal command handler reads / writes `GoalStatus.DEFERRED`
+  // and embeds the word "Deferred:" in the audit log entry it constructs.
+  // Same rationale as the enum file above: the word IS the product
+  // semantics for the performance-management domain (a parked goal),
+  // not an architectural gating excuse. Renaming the enum or the audit
+  // string would require database + audit-log migrations on persisted
+  // historical state.
+  /^apps\/hr-service\/src\/performance\/handlers\/defer-goal\.handler\.ts$/,
 ];
 
 interface Violation {

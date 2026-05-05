@@ -57,7 +57,10 @@ impl CommandHandler {
     /// - On success: `{"policy_version": N, "operator_count": M,
     ///   "role_count": K}`.
     /// - On failure: structured error with `reason` field.
-    pub(super) async fn cmd_update_policy(&self, params: &Value) -> (bool, Value, Option<String>) {
+    pub(super) async fn cmd_update_policy(
+        &self,
+        params: &Value,
+    ) -> (bool, Value, Option<String>) {
         info!("Executing update_policy command (Sprint 6.1 hot-reload)");
 
         // Extract signed_manifest param as a JSON Value (we
@@ -96,15 +99,17 @@ impl CommandHandler {
         // read-guard, then drop the guard before the blocking
         // verify/disk work runs. Avoids holding the state
         // read-lock across filesystem IO.
-        let (mode, pubkey_hex, manifest_path_override, tenant_id_str, rbac_store) = {
+        let (
+            mode,
+            pubkey_hex,
+            manifest_path_override,
+            tenant_id_str,
+            rbac_store,
+        ) = {
             let state = self.state.read().await;
             (
                 state.config.rbac_manifest.mode,
-                state
-                    .config
-                    .rbac_manifest
-                    .manifest_signing_pubkey_hex
-                    .clone(),
+                state.config.rbac_manifest.manifest_signing_pubkey_hex.clone(),
                 state.config.rbac_manifest.manifest_path.clone(),
                 state.tenant_id.clone(),
                 state.rbac_manifest_store.clone(),
@@ -168,7 +173,9 @@ impl CommandHandler {
                 // operator_count + role_count in the response.
                 // The store's in-memory snapshot is already the
                 // new one at this point.
-                let (op_count, role_count) = rbac_store.snapshot_counts().unwrap_or((0, 0));
+                let (op_count, role_count) = rbac_store
+                    .snapshot_counts()
+                    .unwrap_or((0, 0));
                 info!(
                     "update_policy SUCCESS: policy_version={} operators={} roles={}",
                     new_version, op_count, role_count
@@ -184,7 +191,10 @@ impl CommandHandler {
                 )
             }
             Err(reason) => {
-                warn!("update_policy REJECTED: {}", sanitize_for_log(&reason));
+                warn!(
+                    "update_policy REJECTED: {}",
+                    sanitize_for_log(&reason)
+                );
                 (
                     false,
                     json!({

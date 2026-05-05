@@ -13,166 +13,232 @@ import {
 import { TenantRlsService } from './tenant-rls.service';
 
 /**
- * RlsModule — typed API
+ * RlsModule
  * ============================================================================
  *
- * Two entry points, one for each shape of host service. The split is the
- * Tier-1 Make-Impossible answer to the 2026-04-14 gateway-api incident
- * where `RlsModule.forRoot({ serviceName: 'gateway' })` crashed at boot
- * with `Nest can't resolve RlsConnectionBootstrapImpl` because the host
- * module had no `DataSource` in scope.
+ * Tier-1 typed API for tenant Row-Level Security wiring.
  *
- * With the old `forRoot()`, ALL call sites looked identical — the
- * presence or absence of `TypeOrmModule` in the host's imports[] was
- * invisible at the call site. Operators had to remember "this service
- * has a pool" on every new registration; that contract was never
- * enforced and drift was inevitable.
+ * # Why there are two entry points (and not one `forRoot`)
  *
- * The split forces the caller to NAME the shape:
+ * The legacy `forRoot({ serviceName })` signature had a subtle footgun: it
+ * unconditionally registered `RlsConnectionBootstrap`, which constructor-
+ * injects `DataSource`. A service without `TypeOrmModule.forRoot(...)` in
+ * its imports graph (e.g., gateway-api) would crash at DI resolution time
+ * with a cryptic `Nest can't resolve dependencies of RlsConnectionBootstrapImpl`
+ * deep in the bootstrap path — exactly what the 2026-04-14 gateway-api
+ * outage was (fixed site-locally in `607f9d9d`).
  *
- *   RlsModule.forPoolService({...})  // host has TypeOrmModule / DataSource
- *   RlsModule.forBypassOnly({...})   // host has NO DataSource
+ * Root-cause fix per CLAUDE.md architectural hierarchy:
  *
- * Choosing between them is now an explicit architectural decision
- * captured in the call site. Mis-picking `forPoolService` in a
- * DataSource-less service still fails at DI-time (NestJS cannot
- * fabricate a DataSource), but the error text tells the operator
- * exactly what to do: switch to `forBypassOnly`.
+ *   - **Tier-1 at the API surface**: two distinct named static methods —
+ *     `forPoolService(...)` and `forBypassOnly(...)` — make the decision
+ *     structural. The service author chooses the pool-bound variant OR the
+ *     bypass-only variant at import time; there is no code path that
+ *     registers pool-bound providers without declaring a pool dependency.
  *
- * # `forPoolService({...})` — services with a DB pool
+ *   - **Tier-3 runtime guard**: inside `forPoolService`, the pool bootstrap
+ *     asserts the `DataSource` it receives is a usable pg pool and throws
+ *     a LOUD, actionable error with remediation steps if the token was
+ *     resolved from a non-pool source (or is missing a pg master). This
+ *     catches edge cases NestJS DI cannot statically prove — e.g., a
+ *     misconfigured `TypeOrmModule` that resolves `DataSource` to a stub.
  *
- * Registers:
- *   - `RlsConnectionBootstrap` — pg pool patch that injects
- *     `app.current_tenant` and `app.bypass_rls` GUCs on every
- *     connection checkout, sourced from AsyncLocalStorage.
- *   - `BypassRlsService` — scoped, audited bypass for SUPER_ADMIN
- *     endpoints, background workers, and legitimately cross-tenant
- *     code paths.
- *   - `TenantRlsService` — table-level helpers used by ad-hoc admin
- *     tools. Requires `DataSource`, so it's pool-only.
- *   - `RlsSchemaBootstrap` (when `autoApply: true`) — startup-time
- *     installer for services without a migration runner.
- *   - `TenantRlsSyncService` (when `syncTenantSchemas: true`) —
- *     per-tenant schema sweep for schema-per-tenant services.
+ * The two mechanisms compose: the compile-time API split prevents the
+ * common case; the runtime guard catches configuration-level drift.
  *
- * Example (farm-service AppModule):
+ * # `forPoolService` — services that OWN a TypeORM DataSource
+ *
+ * Requires `TypeOrmModule.forRoot(...)` (or `forRootAsync(...)`) in the
+ * host module's imports. Registers:
+ *
+ *   1. `RlsConnectionBootstrap` — pool patch that injects
+ *      `app.current_tenant` + `app.bypass_rls` GUCs on every checkout,
+ *      sourced from `AsyncLocalStorage`. Pairs with the
+ *      `tenant_isolation_policy` installed by `applyTenantRlsToSchema`.
+ *
+ *   2. `BypassRlsService` — scoped, audited bypass for SUPER_ADMIN
+ *      endpoints and background workers.
+ *
+ *   3. `TenantRlsService` — table-level helpers used by admin tooling.
+ *
+ *   4. **(optional)** `RlsSchemaBootstrap` when `autoApply: true` — runs
+ *      `applyTenantRlsToSchema` at `OnApplicationBootstrap`. Used by
+ *      services WITHOUT a TypeORM migration runner (billing, ai,
+ *      notification, alert, config, event-store). Services WITH a
+ *      migration runner (farm, sensor, hr, messaging) install policies
+ *      via a regular migration and should leave `autoApply` at its
+ *      default (`false`).
+ *
+ *   5. **(optional)** `TenantRlsSyncService` when `syncTenantSchemas:
+ *      true` — iterates every `tenant_<uuid>` schema at
+ *      `OnApplicationBootstrap` and reinstalls the canonical
+ *      `tenant_isolation_policy`. Required for schema-per-tenant
+ *      services because `CREATE TABLE LIKE INCLUDING ALL` does NOT
+ *      propagate RLS policies to tenant-cloned tables.
+ *
  * ```ts
- * RlsModule.forPoolService({
- *   serviceName: 'farm',
- *   autoApply: false,          // farm-service has a migration runner
- *   syncTenantSchemas: true,   // schema-per-tenant — sweep tenant_* schemas
- *   excludeTables: ['farm_outbox'],
+ * import { RlsModule } from '@aquaculture/backend-common';
+ *
+ * @Module({
+ *   imports: [
+ *     TypeOrmModule.forRoot({ ... }),
+ *     RlsModule.forPoolService({
+ *       serviceName: 'billing',
+ *       autoApply: true,
+ *       excludeTables: ['billing_outbox'],
+ *     }),
+ *   ],
  * })
+ * export class AppModule {}
  * ```
  *
- * # `forBypassOnly({...})` — services without a DB pool
+ * # `forBypassOnly` — services that need `BypassRlsService` but have NO pool
  *
- * Registers:
- *   - `BypassRlsService` ONLY — the `AsyncLocalStorage` bypass primitive
- *     is pure (no DataSource), so it's safe to expose even where no
- *     TypeORM connection exists.
+ * For services that must use `BypassRlsService` (background workers,
+ * impersonation auditors that call remote subgraphs, etc.) but do NOT own
+ * a local TypeORM pool. Registers ONLY `BypassRlsService`.
  *
- * No pool patch. No schema bootstrap. No tenant sync. No
- * `TenantRlsService` (it requires DataSource). If you realise you
- * actually DO need any of the pool-backed features, switch the call
- * site to `forPoolService` and add `TypeOrmModule` to imports[].
+ * NOTE: Pool-less services that do NOT need bypass should not import
+ * `RlsModule` at all. Gateway-api is the canonical example — it has no
+ * DataSource and no rows to bypass, so it stays out of the RLS module
+ * graph entirely (the commit history of `607f9d9d` and the comment
+ * block in gateway-api's `app.module.ts` serve as the architectural
+ * reference for this negative case).
  *
- * Example (hypothetical gateway-api AppModule):
  * ```ts
- * RlsModule.forBypassOnly({
- *   serviceName: 'gateway',   // audit label only
+ * import { RlsModule } from '@aquaculture/backend-common';
+ *
+ * @Module({
+ *   imports: [
+ *     RlsModule.forBypassOnly({ serviceName: 'some-bypass-only-service' }),
+ *   ],
  * })
+ * export class AppModule {}
  * ```
  *
  * # Registration is explicit; consumption is global-within-service
  *
- * Each service MUST call one of the two methods in its AppModule —
- * there is no auto-registration. Once registered, the exports below
- * are injectable throughout the service's module tree (`global: true`).
+ * Each service MUST call one of the static methods in its AppModule —
+ * there is no auto-registration. This guarantees "I forgot to wire RLS
+ * into the new service" is caught at service setup time.
  *
- * The caller does NOT get `RlsConnectionBootstrap` or
- * `RlsSchemaBootstrap` as an inject target — those run at startup
- * via lifecycle hooks and have no code outside the module that
- * should reference them directly.
+ * Once registered, the exports (`BypassRlsService` + `TenantRlsService`
+ * in the pool variant, `BypassRlsService` alone in the bypass-only
+ * variant) are `global: true` within that service's module tree, so
+ * feature modules can inject them without re-importing `RlsModule`.
+ * This is deliberate: these services have no per-service configuration
+ * (audit label is caller-supplied) and requiring every submodule that
+ * needs bypass to thread `RlsModule` through its imports creates
+ * import-order hazards with no architectural payoff.
  */
 
 /**
- * Options for `RlsModule.forPoolService()`.
+ * Options accepted by `RlsModule.forPoolService()`.
  *
- * Host module MUST have a `DataSource` in scope (typically via
- * `TypeOrmModule.forRootAsync({...})`). If no `DataSource` is
- * available, NestJS DI resolution will fail at boot.
+ * Combines wiring concerns (`serviceName`) with the helper's options
+ * (`excludeTables`, `tenantIdColumns`) and the two optional bootstraps
+ * (`autoApply`, `syncTenantSchemas`).
  */
 export interface RlsPoolServiceOptions {
   /**
-   * Lowercase service tag used in log prefixes. Must match
-   * `^[a-z][a-z0-9_-]*$`. Example: `'billing'`, `'ai-service'`.
+   * Lowercase service tag used in log prefixes.
+   * Must match `^[a-z][a-z0-9_-]*$`.
+   * Example: `'billing'`, `'ai-service'`, `'notification'`.
    */
   serviceName: string;
   /**
-   * If `true`, register `RlsSchemaBootstrap` so
-   * `applyTenantRlsToSchema` runs at `OnApplicationBootstrap` against
-   * the service's source schema. Use this for services with NO
-   * TypeORM migration runner (billing, ai, notification, alert,
-   * config, event-store). Default: `false`.
+   * If `true`, register `RlsSchemaBootstrap` so the helper runs at
+   * `OnApplicationBootstrap` and installs policies on every cold start.
+   * Use this for services that have NO TypeORM migration runner.
+   *
+   * Defaults to `false` — services with their own migration runner should
+   * call `applyTenantRlsToSchema` from a regular migration instead, so the
+   * deploy pipeline keeps a single source of truth for schema state.
    */
   autoApply?: boolean;
-  /** Tables to skip in the discovery pass. Forwarded to both
-   * `RlsSchemaBootstrap` and `TenantRlsSyncService` when enabled. */
+  /**
+   * Tables to skip when discovering tenant-scoped tables. Forwarded into
+   * `applyTenantRlsToSchema` and ignored when `autoApply` is false.
+   * @see ApplyTenantRlsOptions.excludeTables
+   */
   excludeTables?: readonly string[];
-  /** Override discovered tenant column names. Defaults to
-   * `['tenantId', 'tenant_id']`. */
+  /**
+   * Override the discovered tenant column names. Defaults to
+   * `['tenantId', 'tenant_id']`. Forwarded into `applyTenantRlsToSchema`
+   * and ignored when `autoApply` is false.
+   * @see ApplyTenantRlsOptions.tenantIdColumns
+   */
   tenantIdColumns?: readonly string[];
   /**
-   * Schema-per-tenant services (farm, sensor, hr, messaging,
-   * hydroponics, ai, alert) must enable this so the sync service
-   * installs the canonical tenant_isolation_policy on every
-   * `tenant_<uuid>` schema at boot. `CREATE TABLE LIKE INCLUDING
-   * ALL` does NOT propagate policies, so without this sync RLS is
-   * wired only on the template tables. Default: `false`.
+   * If `true`, register `TenantRlsSyncService` so the helper iterates
+   * every `tenant_<uuid>` schema at `OnApplicationBootstrap` and
+   * installs the canonical `tenant_isolation_policy` on each.
+   *
+   * Required for schema-per-tenant services. The Phase 1 migration
+   * pattern (running `applyTenantRlsToSchema` against `current_schema`)
+   * only installs policies on the SOURCE schema's template tables —
+   * production data lives in `tenant_<uuid>` tables created via
+   * `CREATE TABLE LIKE INCLUDING ALL`, which does NOT copy RLS
+   * policies. Without this sync, RLS is non-functional in
+   * schema-per-tenant services.
+   *
+   * Defaults to `false`. Enable explicitly for farm-service, hr-service,
+   * sensor-service, ai-service, alert-engine, hydroponics-service,
+   * messaging-service, and any other schema-per-tenant service.
    */
   syncTenantSchemas?: boolean;
 }
 
 /**
- * Options for `RlsModule.forBypassOnly()`.
+ * Options accepted by `RlsModule.forBypassOnly()`.
  *
- * The audit label is the sole per-service configuration —
- * everything else is either pool-backed (and thus unavailable in
- * bypass-only mode) or pure pass-through.
+ * Deliberately narrower than `RlsPoolServiceOptions` — the bypass-only
+ * variant registers no pool patch and no schema bootstrap, so the pool-
+ * specific options (`autoApply`, `excludeTables`, `tenantIdColumns`,
+ * `syncTenantSchemas`) are rejected at compile time.
  */
 export interface RlsBypassOnlyOptions {
-  /** Lowercase service tag used only in audit log prefixes. */
+  /**
+   * Lowercase service tag used in log prefixes.
+   * Must match `^[a-z][a-z0-9_-]*$`.
+   */
   serviceName: string;
 }
 
 @Module({})
 export class RlsModule {
   /**
-   * Wire RLS into a service that HAS a `DataSource` (i.e. imports
-   * `TypeOrmModule`).
+   * Wire RLS into a service that owns a TypeORM `DataSource`.
    *
-   * @throws at boot (via NestJS DI) when no `DataSource` is
-   *   available in the host module — the error names
-   *   `RlsConnectionBootstrap` as the dependency that can't resolve.
-   *   If you see that error, either add `TypeOrmModule` to the host's
-   *   imports[] or switch to `RlsModule.forBypassOnly` instead.
+   * **Prerequisite**: the host module's imports graph MUST include
+   * `TypeOrmModule.forRoot(...)` (or `forRootAsync(...)`). If the
+   * `DataSource` token cannot be resolved or resolves to an object
+   * without a pg master pool, `RlsConnectionBootstrap.onModuleInit()`
+   * throws an actionable error at boot (see runtime guard in
+   * `rls-connection-bootstrap.service.ts`).
+   *
+   * @see RlsPoolServiceOptions
    */
   static forPoolService(options: RlsPoolServiceOptions): DynamicModule {
+    // Build the service-specific bootstrap class. The factory enforces
+    // the identifier shape (no need to validate again here) and emits a
+    // distinct logger context per service tag.
     const RlsConnectionBootstrap: Type<unknown> =
       createRlsConnectionBootstrap(options.serviceName);
 
-    // Pool-backed providers. DataSource is injected via the standard
-    // NestJS token; no DataSource in scope → DI fails at boot with
-    // the standard "can't resolve" error. We rely on the caller
-    // picking forBypassOnly rather than forPoolService when they
-    // don't have a pool — the method name is the contract.
+    // Mandatory providers — the pool patch and the table-level helpers.
+    // These are the bare minimum every pool-owning service gets.
     const providers: Provider[] = [
+      // Listed first so the @Module() factory wires it first; pool
+      // patching must complete before any code uses the DataSource.
       RlsConnectionBootstrap,
       BypassRlsService,
       TenantRlsService,
     ];
 
+    // Optional: register the startup-time installer. We construct
+    // `RlsSchemaBootstrap` via `useFactory` so we can inject the
+    // service-specific options object alongside the DataSource.
     if (options.autoApply === true) {
       providers.push({
         provide: RlsSchemaBootstrap,
@@ -186,6 +252,12 @@ export class RlsModule {
       });
     }
 
+    // Optional: register the per-tenant schema sweep. Schema-per-tenant
+    // services need this because the Phase 1 migration only touches the
+    // SOURCE schema (current_schema in migration runner context), and
+    // CREATE TABLE LIKE INCLUDING ALL does NOT propagate RLS policies
+    // to per-tenant copies. Without this sync, RLS is installed on
+    // template tables that production never queries.
     if (options.syncTenantSchemas === true) {
       providers.push({
         provide: TenantRlsSyncService,
@@ -201,32 +273,45 @@ export class RlsModule {
 
     return {
       module: RlsModule,
+      // global: true makes the exports below injectable throughout the
+      // service's module tree without every feature module having to
+      // re-import RlsModule. Registration itself stays explicit — this
+      // only affects consumption of the already-registered providers.
       global: true,
       providers,
+      // Re-export the bypass + table helpers so feature modules can
+      // inject them without re-importing RlsModule. The bootstraps
+      // intentionally stay internal — nothing outside this module
+      // should call them.
       exports: [BypassRlsService, TenantRlsService],
     };
   }
 
   /**
-   * Wire the bypass primitive into a service that has NO
-   * `DataSource`. Registers only `BypassRlsService`.
+   * Wire RLS into a service that needs `BypassRlsService` but has NO
+   * TypeORM `DataSource`.
    *
-   * This is the correct path for any host module that does NOT
-   * import `TypeOrmModule` — admin gateways, pure proxies,
-   * orchestrator services, etc.
+   * Registers `BypassRlsService` only. No pool patch, no schema
+   * bootstrap — nothing that constructor-injects `DataSource`. Safe to
+   * use in modules without `TypeOrmModule`.
    *
-   * `TenantRlsService` is NOT exported here because it injects
-   * `DataSource`. If a consumer needs it, the service isn't
-   * bypass-only: switch to `forPoolService`.
+   * Pool-less services that also do NOT need bypass should simply not
+   * import `RlsModule` at all (gateway-api is the canonical example).
+   *
+   * @see RlsBypassOnlyOptions
    */
   static forBypassOnly(options: RlsBypassOnlyOptions): DynamicModule {
-    // serviceName is preserved in the API for parity with
-    // forPoolService and for future use (per-service bypass audit
-    // labels). BypassRlsService itself does not take a serviceName
-    // constructor arg — the audit label is per-call. Reference the
-    // option here to make the "unused but intentional" clear to the
-    // compiler without an eslint-disable.
-    void options.serviceName;
+    // Enforce the service-name shape here too — `forBypassOnly` does
+    // not go through `createRlsConnectionBootstrap`, which is where the
+    // validation normally happens for the pool variant. Without this
+    // check, a caller could pass `'  '` or `'Bad Name!'` and the audit
+    // logs would reference a malformed tag.
+    if (!/^[a-z][a-z0-9_-]*$/.test(options.serviceName)) {
+      throw new Error(
+        `RlsModule.forBypassOnly: invalid serviceName "${options.serviceName}" — ` +
+          `must be lowercase, alphanumeric, hyphens or underscores only`,
+      );
+    }
 
     return {
       module: RlsModule,

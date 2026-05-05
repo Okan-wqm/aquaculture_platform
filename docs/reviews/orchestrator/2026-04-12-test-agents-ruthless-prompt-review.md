@@ -1,12 +1,12 @@
 # Test Agents Ruthless Prompt Review
 
 **Date:** 2026-04-12
-**Scope:** `.claude/test-agents/*.md`, plus the control-plane docs `.claude/test-agents/README.md` and `.claude/test-agents/INVOCATION-PACK.md`
+**Scope:** `.claude/agents/product-audit/*.md`, plus the control-plane docs `.claude/agents/product-audit/README.md` and `.claude/agents/product-audit/INVOCATION-PACK.md`
 **Question:** do these prompts behave like a coherent professional review team, with clear ownership, clean handoffs, low conflict risk, and enterprise-scale operational quality?
 
 ## Executive Verdict
 
-The `.claude/test-agents/` set is now a **real coordinated review system**, not a loose pile of prompts.
+The `.claude/agents/product-audit/` set is now a **real coordinated review system**, not a loose pile of prompts.
 
 It is strong in:
 
@@ -61,9 +61,9 @@ What remains materially true from the original review:
 
 Evidence:
 
-- [ui-action-mapper.md](/var/aqua-saas/.claude/test-agents/ui-action-mapper.md) says: "Send role and tenant gating concerns to `tenant-isolation-auditor`"
-- [access-boundary-auditor.md](/var/aqua-saas/.claude/test-agents/access-boundary-auditor.md) is the actual specialist for roles, guards, permissions, impersonation state, and feature flags
-- [orchestrator.md](/var/aqua-saas/.claude/test-agents/orchestrator.md) also routes guards, roles, permissions, impersonation, and feature flags to `access-boundary-auditor`
+- [ui-action-mapper.md](/var/aqua-saas/.claude/agents/product-audit/ui-action-mapper.md) says: "Send role and tenant gating concerns to `tenant-isolation-auditor`"
+- [access-boundary-auditor.md](/var/aqua-saas/.claude/agents/product-audit/access-boundary-auditor.md) is the actual specialist for roles, guards, permissions, impersonation state, and feature flags
+- [orchestrator.md](/var/aqua-saas/.claude/agents/product-audit/orchestrator.md) also routes guards, roles, permissions, impersonation, and feature flags to `access-boundary-auditor`
 
 Assessment:
 
@@ -80,11 +80,11 @@ Why it matters:
 
 Most improved specialists now include repo-specific discovery guidance and explicit out-of-scope ownership. But these important reviewers still do not:
 
-- [chart-widget-auditor.md](/var/aqua-saas/.claude/test-agents/chart-widget-auditor.md)
-- [file-transfer-auditor.md](/var/aqua-saas/.claude/test-agents/file-transfer-auditor.md)
-- [mobile-app-auditor.md](/var/aqua-saas/.claude/test-agents/mobile-app-auditor.md)
-- [table-grid-auditor.md](/var/aqua-saas/.claude/test-agents/table-grid-auditor.md)
-- [workflow-state-auditor.md](/var/aqua-saas/.claude/test-agents/workflow-state-auditor.md)
+- [chart-widget-auditor.md](/var/aqua-saas/.claude/agents/product-audit/chart-widget-auditor.md)
+- [file-transfer-auditor.md](/var/aqua-saas/.claude/agents/product-audit/file-transfer-auditor.md)
+- [mobile-app-auditor.md](/var/aqua-saas/.claude/agents/product-audit/mobile-app-auditor.md)
+- [table-grid-auditor.md](/var/aqua-saas/.claude/agents/product-audit/table-grid-auditor.md)
+- [workflow-state-auditor.md](/var/aqua-saas/.claude/agents/product-audit/workflow-state-auditor.md)
 
 Assessment:
 
@@ -107,12 +107,12 @@ Observed handoff pattern across the prompt graph:
 
 Representative evidence:
 
-- [access-boundary-auditor.md](/var/aqua-saas/.claude/test-agents/access-boundary-auditor.md)
-- [button-action-auditor.md](/var/aqua-saas/.claude/test-agents/button-action-auditor.md)
-- [form-write-auditor.md](/var/aqua-saas/.claude/test-agents/form-write-auditor.md)
-- [data-readback-auditor.md](/var/aqua-saas/.claude/test-agents/data-readback-auditor.md)
-- [realtime-sync-auditor.md](/var/aqua-saas/.claude/test-agents/realtime-sync-auditor.md)
-- [orchestrator.md](/var/aqua-saas/.claude/test-agents/orchestrator.md)
+- [access-boundary-auditor.md](/var/aqua-saas/.claude/agents/product-audit/access-boundary-auditor.md)
+- [button-action-auditor.md](/var/aqua-saas/.claude/agents/product-audit/button-action-auditor.md)
+- [form-write-auditor.md](/var/aqua-saas/.claude/agents/product-audit/form-write-auditor.md)
+- [data-readback-auditor.md](/var/aqua-saas/.claude/agents/product-audit/data-readback-auditor.md)
+- [realtime-sync-auditor.md](/var/aqua-saas/.claude/agents/product-audit/realtime-sync-auditor.md)
+- [orchestrator.md](/var/aqua-saas/.claude/agents/product-audit/orchestrator.md)
 
 Assessment:
 
@@ -129,8 +129,8 @@ Why it matters:
 
 Evidence:
 
-- [orchestrator.md](/var/aqua-saas/.claude/test-agents/orchestrator.md) uses `effort: high`
-- [context-manager.md](/var/aqua-saas/.claude/test-agents/context-manager.md) uses `effort: high`
+- [orchestrator.md](/var/aqua-saas/.claude/agents/product-audit/orchestrator.md) uses `effort: high`
+- [context-manager.md](/var/aqua-saas/.claude/agents/product-audit/context-manager.md) uses `effort: high`
 - most specialists use `effort: xmax`
 
 Assessment:
@@ -148,11 +148,11 @@ Why it matters:
 
 The highest-friction pairs remain:
 
-- [form-write-auditor.md](/var/aqua-saas/.claude/test-agents/form-write-auditor.md) vs [button-action-auditor.md](/var/aqua-saas/.claude/test-agents/button-action-auditor.md)
-- [data-readback-auditor.md](/var/aqua-saas/.claude/test-agents/data-readback-auditor.md) vs [list-visibility-auditor.md](/var/aqua-saas/.claude/test-agents/list-visibility-auditor.md)
-- [access-boundary-auditor.md](/var/aqua-saas/.claude/test-agents/access-boundary-auditor.md) vs [tenant-isolation-auditor.md](/var/aqua-saas/.claude/test-agents/tenant-isolation-auditor.md)
-- [mobile-app-auditor.md](/var/aqua-saas/.claude/test-agents/mobile-app-auditor.md) vs [realtime-sync-auditor.md](/var/aqua-saas/.claude/test-agents/realtime-sync-auditor.md)
-- [chart-widget-auditor.md](/var/aqua-saas/.claude/test-agents/chart-widget-auditor.md) vs [data-readback-auditor.md](/var/aqua-saas/.claude/test-agents/data-readback-auditor.md)
+- [form-write-auditor.md](/var/aqua-saas/.claude/agents/product-audit/form-write-auditor.md) vs [button-action-auditor.md](/var/aqua-saas/.claude/agents/product-audit/button-action-auditor.md)
+- [data-readback-auditor.md](/var/aqua-saas/.claude/agents/product-audit/data-readback-auditor.md) vs [list-visibility-auditor.md](/var/aqua-saas/.claude/agents/product-audit/list-visibility-auditor.md)
+- [access-boundary-auditor.md](/var/aqua-saas/.claude/agents/product-audit/access-boundary-auditor.md) vs [tenant-isolation-auditor.md](/var/aqua-saas/.claude/agents/product-audit/tenant-isolation-auditor.md)
+- [mobile-app-auditor.md](/var/aqua-saas/.claude/agents/product-audit/mobile-app-auditor.md) vs [realtime-sync-auditor.md](/var/aqua-saas/.claude/agents/product-audit/realtime-sync-auditor.md)
+- [chart-widget-auditor.md](/var/aqua-saas/.claude/agents/product-audit/chart-widget-auditor.md) vs [data-readback-auditor.md](/var/aqua-saas/.claude/agents/product-audit/data-readback-auditor.md)
 
 Assessment:
 
@@ -187,17 +187,17 @@ That consistency is professional and enterprise-compatible.
 
 After the recent hardening pass:
 
-- [README.md](/var/aqua-saas/.claude/test-agents/README.md) now states current coverage limits more honestly
-- [INVOCATION-PACK.md](/var/aqua-saas/.claude/test-agents/INVOCATION-PACK.md) now includes discovery discipline and a coverage guardrail
-- [orchestrator.md](/var/aqua-saas/.claude/test-agents/orchestrator.md) now warns against over-claiming confidence outside the roster
+- [README.md](/var/aqua-saas/.claude/agents/product-audit/README.md) now states current coverage limits more honestly
+- [INVOCATION-PACK.md](/var/aqua-saas/.claude/agents/product-audit/INVOCATION-PACK.md) now includes discovery discipline and a coverage guardrail
+- [orchestrator.md](/var/aqua-saas/.claude/agents/product-audit/orchestrator.md) now warns against over-claiming confidence outside the roster
 
 That is a meaningful improvement in enterprise professionalism.
 
 ### 4. The meta layer is real and correctly shaped
 
-- [orchestrator.md](/var/aqua-saas/.claude/test-agents/orchestrator.md) coordinates rather than freelancing
-- [context-manager.md](/var/aqua-saas/.claude/test-agents/context-manager.md) compacts rather than re-reviewing
-- [architectural-arbiter.md](/var/aqua-saas/.claude/test-agents/architectural-arbiter.md) resolves conflicts rather than blurring them
+- [orchestrator.md](/var/aqua-saas/.claude/agents/product-audit/orchestrator.md) coordinates rather than freelancing
+- [context-manager.md](/var/aqua-saas/.claude/agents/product-audit/context-manager.md) compacts rather than re-reviewing
+- [architectural-arbiter.md](/var/aqua-saas/.claude/agents/product-audit/architectural-arbiter.md) resolves conflicts rather than blurring them
 
 This is the right shape for a multi-agent audit system.
 
@@ -207,51 +207,51 @@ This is the right shape for a multi-agent audit system.
 
 | File | Verdict | Review |
 |---|---|---|
-| [README.md](/var/aqua-saas/.claude/test-agents/README.md) | Good | Clearer and more honest after the coverage-limit additions |
-| [INVOCATION-PACK.md](/var/aqua-saas/.claude/test-agents/INVOCATION-PACK.md) | Strong | Operationally mature; one of the strongest files in the set |
+| [README.md](/var/aqua-saas/.claude/agents/product-audit/README.md) | Good | Clearer and more honest after the coverage-limit additions |
+| [INVOCATION-PACK.md](/var/aqua-saas/.claude/agents/product-audit/INVOCATION-PACK.md) | Strong | Operationally mature; one of the strongest files in the set |
 
 ### Meta agents
 
 | Agent | Verdict | Review |
 |---|---|---|
-| [orchestrator.md](/var/aqua-saas/.claude/test-agents/orchestrator.md) | Strong with one rigor caveat | Best systems-thinking file in the set; only notable weakness is lower `effort` than most specialists |
-| [context-manager.md](/var/aqua-saas/.claude/test-agents/context-manager.md) | Strong | Clear meta role, clean compaction contract, good budget discipline |
-| [architectural-arbiter.md](/var/aqua-saas/.claude/test-agents/architectural-arbiter.md) | Good | Properly scoped, but comparatively thin; acceptable because its job is narrower |
+| [orchestrator.md](/var/aqua-saas/.claude/agents/product-audit/orchestrator.md) | Strong with one rigor caveat | Best systems-thinking file in the set; only notable weakness is lower `effort` than most specialists |
+| [context-manager.md](/var/aqua-saas/.claude/agents/product-audit/context-manager.md) | Strong | Clear meta role, clean compaction contract, good budget discipline |
+| [architectural-arbiter.md](/var/aqua-saas/.claude/agents/product-audit/architectural-arbiter.md) | Good | Properly scoped, but comparatively thin; acceptable because its job is narrower |
 
 ### Core roundtrip spine
 
 | Agent | Verdict | Review |
 |---|---|---|
-| [ui-action-mapper.md](/var/aqua-saas/.claude/test-agents/ui-action-mapper.md) | Good but misrouted | Strong inventory role, but still has the wrong handoff for role-gating concerns |
-| [form-write-auditor.md](/var/aqua-saas/.claude/test-agents/form-write-auditor.md) | Strong | One of the better-defined specialists after discovery and out-of-scope hardening |
-| [button-action-auditor.md](/var/aqua-saas/.claude/test-agents/button-action-auditor.md) | Strong | Good differentiation around false-success, in-flight, and action truthfulness |
-| [data-readback-auditor.md](/var/aqua-saas/.claude/test-agents/data-readback-auditor.md) | Strong | Clean read-truth role and improved separation from visibility concerns |
-| [list-visibility-auditor.md](/var/aqua-saas/.claude/test-agents/list-visibility-auditor.md) | Strong | Clear post-write surface contract; much better separated from data-readback now |
+| [ui-action-mapper.md](/var/aqua-saas/.claude/agents/product-audit/ui-action-mapper.md) | Good but misrouted | Strong inventory role, but still has the wrong handoff for role-gating concerns |
+| [form-write-auditor.md](/var/aqua-saas/.claude/agents/product-audit/form-write-auditor.md) | Strong | One of the better-defined specialists after discovery and out-of-scope hardening |
+| [button-action-auditor.md](/var/aqua-saas/.claude/agents/product-audit/button-action-auditor.md) | Strong | Good differentiation around false-success, in-flight, and action truthfulness |
+| [data-readback-auditor.md](/var/aqua-saas/.claude/agents/product-audit/data-readback-auditor.md) | Strong | Clean read-truth role and improved separation from visibility concerns |
+| [list-visibility-auditor.md](/var/aqua-saas/.claude/agents/product-audit/list-visibility-auditor.md) | Strong | Clear post-write surface contract; much better separated from data-readback now |
 
 ### Parity and boundary specialists
 
 | Agent | Verdict | Review |
 |---|---|---|
-| [contract-parity-auditor.md](/var/aqua-saas/.claude/test-agents/contract-parity-auditor.md) | Strong | Good semantic focus, now clearly distinct from schema-surface parity |
-| [schema-surface-parity-auditor.md](/var/aqua-saas/.claude/test-agents/schema-surface-parity-auditor.md) | Strong | Improved significantly; now one of the more usable high-leverage prompts |
-| [access-boundary-auditor.md](/var/aqua-saas/.claude/test-agents/access-boundary-auditor.md) | Strong | Clear auth/access ownership; one of the cleanest domain boundaries in the set |
-| [tenant-isolation-auditor.md](/var/aqua-saas/.claude/test-agents/tenant-isolation-auditor.md) | Strong but overloaded | Powerful and important, but currently too central to the handoff graph |
+| [contract-parity-auditor.md](/var/aqua-saas/.claude/agents/product-audit/contract-parity-auditor.md) | Strong | Good semantic focus, now clearly distinct from schema-surface parity |
+| [schema-surface-parity-auditor.md](/var/aqua-saas/.claude/agents/product-audit/schema-surface-parity-auditor.md) | Strong | Improved significantly; now one of the more usable high-leverage prompts |
+| [access-boundary-auditor.md](/var/aqua-saas/.claude/agents/product-audit/access-boundary-auditor.md) | Strong | Clear auth/access ownership; one of the cleanest domain boundaries in the set |
+| [tenant-isolation-auditor.md](/var/aqua-saas/.claude/agents/product-audit/tenant-isolation-auditor.md) | Strong but overloaded | Powerful and important, but currently too central to the handoff graph |
 
 ### Surface specialists
 
 | Agent | Verdict | Review |
 |---|---|---|
-| [table-grid-auditor.md](/var/aqua-saas/.claude/test-agents/table-grid-auditor.md) | Good but under-instrumented | Good intent, but still missing the hardened discovery/boundary treatment |
-| [chart-widget-auditor.md](/var/aqua-saas/.claude/test-agents/chart-widget-auditor.md) | Good but under-instrumented | Good truth framing, but still too inference-heavy operationally |
-| [file-transfer-auditor.md](/var/aqua-saas/.claude/test-agents/file-transfer-auditor.md) | Good but under-instrumented | Strong domain idea, but still needs repo-specific discovery and boundary hardening |
-| [workflow-state-auditor.md](/var/aqua-saas/.claude/test-agents/workflow-state-auditor.md) | Good but under-instrumented | Valuable domain, still somewhat thin for enterprise repeatability |
+| [table-grid-auditor.md](/var/aqua-saas/.claude/agents/product-audit/table-grid-auditor.md) | Good but under-instrumented | Good intent, but still missing the hardened discovery/boundary treatment |
+| [chart-widget-auditor.md](/var/aqua-saas/.claude/agents/product-audit/chart-widget-auditor.md) | Good but under-instrumented | Good truth framing, but still too inference-heavy operationally |
+| [file-transfer-auditor.md](/var/aqua-saas/.claude/agents/product-audit/file-transfer-auditor.md) | Good but under-instrumented | Strong domain idea, but still needs repo-specific discovery and boundary hardening |
+| [workflow-state-auditor.md](/var/aqua-saas/.claude/agents/product-audit/workflow-state-auditor.md) | Good but under-instrumented | Valuable domain, still somewhat thin for enterprise repeatability |
 
 ### Mobile and live-state specialists
 
 | Agent | Verdict | Review |
 |---|---|---|
-| [mobile-app-auditor.md](/var/aqua-saas/.claude/test-agents/mobile-app-auditor.md) | Good but under-instrumented | Important specialist, but still relies too much on broad inference rather than deterministic discovery |
-| [realtime-sync-auditor.md](/var/aqua-saas/.claude/test-agents/realtime-sync-auditor.md) | Strong | Improved meaningfully after discovery and boundary additions |
+| [mobile-app-auditor.md](/var/aqua-saas/.claude/agents/product-audit/mobile-app-auditor.md) | Good but under-instrumented | Important specialist, but still relies too much on broad inference rather than deterministic discovery |
+| [realtime-sync-auditor.md](/var/aqua-saas/.claude/agents/product-audit/realtime-sync-auditor.md) | Strong | Improved meaningfully after discovery and boundary additions |
 
 ## Team Dynamics Verdict
 

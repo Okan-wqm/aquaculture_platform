@@ -1,7 +1,7 @@
 # Test Agents E2E Alignment Review
 
 **Date:** 2026-04-12  
-**Scope:** `.claude/test-agents/*.md`
+**Scope:** `.claude/agents/product-audit/*.md`
 
 ## Verdict
 
@@ -64,29 +64,29 @@ After this pass, the system is materially stronger and more honestly end-to-end:
 
 Updated prompts:
 
-- `.claude/test-agents/ui-action-mapper.md`
-- `.claude/test-agents/access-boundary-auditor.md`
-- `.claude/test-agents/button-action-auditor.md`
-- `.claude/test-agents/chart-widget-auditor.md`
-- `.claude/test-agents/form-write-auditor.md`
-- `.claude/test-agents/data-readback-auditor.md`
-- `.claude/test-agents/contract-parity-auditor.md`
-- `.claude/test-agents/file-transfer-auditor.md`
-- `.claude/test-agents/tenant-isolation-auditor.md`
-- `.claude/test-agents/list-visibility-auditor.md`
-- `.claude/test-agents/mobile-app-auditor.md`
-- `.claude/test-agents/orchestrator.md`
-- `.claude/test-agents/realtime-sync-auditor.md`
-- `.claude/test-agents/schema-surface-parity-auditor.md`
-- `.claude/test-agents/table-grid-auditor.md`
-- `.claude/test-agents/workflow-state-auditor.md`
-- `.claude/test-agents/context-manager.md`
-- `.claude/test-agents/job-queue-auditor.md`
+- `.claude/agents/product-audit/ui-action-mapper.md`
+- `.claude/agents/product-audit/access-boundary-auditor.md`
+- `.claude/agents/product-audit/button-action-auditor.md`
+- `.claude/agents/product-audit/chart-widget-auditor.md`
+- `.claude/agents/product-audit/form-write-auditor.md`
+- `.claude/agents/product-audit/data-readback-auditor.md`
+- `.claude/agents/product-audit/contract-parity-auditor.md`
+- `.claude/agents/product-audit/file-transfer-auditor.md`
+- `.claude/agents/product-audit/tenant-isolation-auditor.md`
+- `.claude/agents/product-audit/list-visibility-auditor.md`
+- `.claude/agents/product-audit/mobile-app-auditor.md`
+- `.claude/agents/product-audit/orchestrator.md`
+- `.claude/agents/product-audit/realtime-sync-auditor.md`
+- `.claude/agents/product-audit/schema-surface-parity-auditor.md`
+- `.claude/agents/product-audit/table-grid-auditor.md`
+- `.claude/agents/product-audit/workflow-state-auditor.md`
+- `.claude/agents/product-audit/context-manager.md`
+- `.claude/agents/product-audit/job-queue-auditor.md`
 
 System-level discipline updates:
 
-- `.claude/test-agents/README.md`
-- `.claude/test-agents/INVOCATION-PACK.md`
+- `.claude/agents/product-audit/README.md`
+- `.claude/agents/product-audit/INVOCATION-PACK.md`
 
 ## Mobile-Specific Conclusion
 

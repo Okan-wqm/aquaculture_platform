@@ -1,7 +1,7 @@
 # V2 Agents Review-Only Compliance Review
 
 **Date:** 2026-04-10
-**Scope:** `.claude/agents-enterprise-v2/*.md` (README excluded from agent verdicts)
+**Scope:** `.claude/agents/*.md` (README excluded from agent verdicts)
 **Goal:** verify that the V2 agent set stays inside a strict `review-only` operating model and does not drift into source editing or execution ownership.
 
 ## Review Criteria
@@ -32,8 +32,8 @@ The V2 set is **mostly aligned** with a strict review-only model, but not perfec
 ### HIGH-001: `prompt-writer` is not a review agent under a strict review-only charter
 
 Evidence:
-- `.claude/agents-enterprise-v2/prompt-writer.md:3` says it "Generates enterprise production-grade system prompts"
-- `.claude/agents-enterprise-v2/prompt-writer.md:10-12` explicitly says its purpose is to write agent definitions
+- `.claude/agents/prompt-writer.md:3` says it "Generates enterprise production-grade system prompts"
+- `.claude/agents/prompt-writer.md:10-12` explicitly says its purpose is to write agent definitions
 
 Assessment:
 - This is a **tooling/authoring agent**, not a code reviewer or meta-reviewer.
@@ -47,9 +47,9 @@ Operational implication:
 ### MEDIUM-001: `implementation-planner` stays doc-only but extends beyond pure review into remediation planning
 
 Evidence:
-- `.claude/agents-enterprise-v2/implementation-planner.md:3` says it produces an implementation plan
-- `.claude/agents-enterprise-v2/implementation-planner.md:10` says it writes plans for executors
-- `.claude/agents-enterprise-v2/implementation-planner.md:16-20` writes under `docs/plans/`
+- `.claude/agents/implementation-planner.md:3` says it produces an implementation plan
+- `.claude/agents/implementation-planner.md:10` says it writes plans for executors
+- `.claude/agents/implementation-planner.md:16-20` writes under `docs/plans/`
 
 Assessment:
 - This agent is **not a code editor**, so it does not violate the no-source-change rule.
@@ -63,8 +63,8 @@ Operational implication:
 ### MEDIUM-002: `orchestrator` is review-first, but its Phase 6 path expands the pipeline into planning
 
 Evidence:
-- `.claude/agents-enterprise-v2/orchestrator.md:207-227` defines Phase 6 implementation packaging
-- `.claude/agents-enterprise-v2/orchestrator.md:216` dispatches `implementation-planner`
+- `.claude/agents/orchestrator.md:207-227` defines Phase 6 implementation packaging
+- `.claude/agents/orchestrator.md:216` dispatches `implementation-planner`
 
 Assessment:
 - The orchestrator is fundamentally a **meta-review coordinator** and is valid in a review-only system.

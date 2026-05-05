@@ -6,30 +6,22 @@
     "strict": true,
     "noImplicitAny": true,
     "strictNullChecks": true,
-    "strictFunctionTypes": true,
-    "strictBindCallApply": true,
-    "strictPropertyInitialization": true,
-    "noImplicitReturns": true,
-    "noFallthroughCasesInSwitch": true,
-    "noUncheckedIndexedAccess": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "moduleResolution": "node",
-    "allowSyntheticDefaultImports": true,
+    "declaration": false,
     "outDir": "./dist",
     "rootDir": ".",
-    "sourceMap": true,
-    "declaration": false
+    "baseUrl": ".",
+    "typeRoots": ["../node_modules/@types"],
+    "types": ["node"],
+    "paths": {
+      "@e2e/helpers/*": ["./helpers/*"],
+      "@e2e/fixtures/*": ["./fixtures/*"]
+    }
   },
-  "include": [
-    "**/*.ts"
-  ],
-  "exclude": [
-    "node_modules",
-    "dist",
-    "test-results",
-    "playwright-report"
-  ]
+  "include": ["**/*.ts"],
+  "exclude": ["node_modules", "dist"]
 }

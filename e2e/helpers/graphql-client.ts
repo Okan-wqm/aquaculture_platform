@@ -1,234 +1,183 @@
 /**
- * Type-safe GraphQL test client for E2E tests.
+ * GraphQL Test Client
  *
- * Sends queries/mutations to the Gateway API (Apollo Federation v2)
- * with proper authentication headers and tenant context.
+ * Typed wrapper around Playwright's APIRequestContext for GraphQL operations.
+ * Provides type-safe query/mutation execution with proper error handling.
  */
 
-/** A single GraphQL error entry */
-export interface GraphQLError {
-  message: string;
-  locations?: Array<{ line: number; column: number }>;
-  path?: Array<string | number>;
-  extensions?: Record<string, unknown>;
-}
+import type { APIRequestContext } from '@playwright/test';
 
-/** Full GraphQL response envelope */
+const GATEWAY_URL = process.env['GATEWAY_URL'] || 'http://localhost:4000';
+const GRAPHQL_ENDPOINT = `${GATEWAY_URL}/graphql`;
+
+/**
+ * GraphQL response shape
+ */
 export interface GraphQLResponse<T = Record<string, unknown>> {
   data?: T;
   errors?: GraphQLError[];
 }
 
-/** Options for GraphQL requests */
-export interface GraphQLRequestOptions {
-  /** Additional HTTP headers */
-  headers?: Record<string, string>;
-  /** Request timeout in ms (default: 10000) */
-  timeout?: number;
-}
-
 /**
- * Error thrown when a GraphQL response contains errors.
+ * GraphQL error shape
  */
-export class GraphQLTestError extends Error {
-  public readonly errors: GraphQLError[];
-  public readonly data: unknown;
-
-  constructor(errors: GraphQLError[], data: unknown) {
-    const messages = errors.map((e) => e.message).join('; ');
-    super(`GraphQL errors: ${messages}`);
-    this.name = 'GraphQLTestError';
-    this.errors = errors;
-    this.data = data;
-  }
+export interface GraphQLError {
+  message: string;
+  locations?: Array<{ line: number; column: number }>;
+  path?: string[];
+  extensions?: {
+    code?: string;
+    [key: string]: unknown;
+  };
 }
 
 /**
- * Type-safe GraphQL test client.
- *
- * Usage:
- *   const client = new GraphQLTestClient(baseUrl, token, tenantId);
- *   const result = await client.query<{ users: User[] }>(`{ users { id name } }`);
+ * Options for GraphQL requests
+ */
+export interface GraphQLRequestOptions {
+  token?: string;
+  tenantId?: string;
+  csrfToken?: string;
+  extraHeaders?: Record<string, string>;
+}
+
+/**
+ * Full HTTP response from a GraphQL request
+ */
+export interface GraphQLHttpResponse<T = Record<string, unknown>> {
+  status: number;
+  statusText: string;
+  body: GraphQLResponse<T>;
+  headers: Record<string, string>;
+}
+
+/**
+ * GraphQL Test Client for e2e security testing
  */
 export class GraphQLTestClient {
-  private readonly graphqlUrl: string;
-
-  constructor(
-    private readonly baseUrl: string,
-    private readonly token: string,
-    private readonly tenantId?: string,
-  ) {
-    // Gateway exposes GraphQL at /graphql
-    this.graphqlUrl = `${baseUrl}/graphql`;
-  }
+  constructor(private readonly request: APIRequestContext) {}
 
   /**
-   * Execute a GraphQL query. Throws GraphQLTestError if the response contains errors.
-   *
-   * @param query   - GraphQL query string
-   * @param variables - Query variables
-   * @param options - Additional request options
-   * @returns The `data` field from the response, typed as T
+   * Execute a GraphQL query
    */
   async query<T = Record<string, unknown>>(
     query: string,
     variables?: Record<string, unknown>,
     options?: GraphQLRequestOptions,
-  ): Promise<T> {
-    const response = await this.rawRequest(query, variables, options);
-    const body = (await response.json()) as GraphQLResponse<T>;
-
-    if (body.errors && body.errors.length > 0) {
-      throw new GraphQLTestError(body.errors, body.data);
-    }
-
-    if (body.data === undefined) {
-      throw new Error('GraphQL response missing data field');
-    }
-
-    return body.data;
+  ): Promise<GraphQLHttpResponse<T>> {
+    return this.execute<T>(query, variables, options);
   }
 
   /**
-   * Execute a GraphQL mutation. Same behavior as query() — alias for readability.
+   * Execute a GraphQL mutation
    */
   async mutate<T = Record<string, unknown>>(
     mutation: string,
     variables?: Record<string, unknown>,
     options?: GraphQLRequestOptions,
-  ): Promise<T> {
-    return this.query<T>(mutation, variables, options);
+  ): Promise<GraphQLHttpResponse<T>> {
+    return this.execute<T>(mutation, variables, options);
   }
 
   /**
-   * Execute a GraphQL query and return the full response envelope.
-   * Does NOT throw on GraphQL errors — use for testing error responses.
+   * Execute a raw GraphQL operation
    */
-  async queryRaw<T = Record<string, unknown>>(
-    query: string,
+  private async execute<T = Record<string, unknown>>(
+    operation: string,
     variables?: Record<string, unknown>,
     options?: GraphQLRequestOptions,
-  ): Promise<GraphQLResponse<T>> {
-    const response = await this.rawRequest(query, variables, options);
-    return (await response.json()) as GraphQLResponse<T>;
-  }
-
-  /**
-   * Execute a raw HTTP request to the GraphQL endpoint.
-   * Returns the raw fetch Response for status code / header assertions.
-   */
-  async rawRequest(
-    query: string,
-    variables?: Record<string, unknown>,
-    options?: GraphQLRequestOptions,
-  ): Promise<Response> {
+  ): Promise<GraphQLHttpResponse<T>> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${this.token}`,
-      ...options?.headers,
     };
 
-    if (this.tenantId) {
-      headers['x-tenant-id'] = this.tenantId;
+    if (options?.token) {
+      headers['Authorization'] = `Bearer ${options.token}`;
     }
 
-    const controller = new AbortController();
-    const timeoutMs = options?.timeout ?? 10_000;
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    if (options?.tenantId) {
+      headers['X-Tenant-Id'] = options.tenantId;
+    }
 
+    if (options?.csrfToken) {
+      headers['X-CSRF-Token'] = options.csrfToken;
+    }
+
+    if (options?.extraHeaders) {
+      Object.assign(headers, options.extraHeaders);
+    }
+
+    const response = await this.request.post(GRAPHQL_ENDPOINT, {
+      headers,
+      data: {
+        query: operation,
+        variables: variables || {},
+      },
+    });
+
+    const status = response.status();
+    const statusText = response.statusText();
+    const responseHeaders: Record<string, string> = {};
+
+    // Collect response headers
+    const allHeaders = response.headers();
+    for (const [key, value] of Object.entries(allHeaders)) {
+      responseHeaders[key] = value;
+    }
+
+    let body: GraphQLResponse<T>;
     try {
-      return await fetch(this.graphqlUrl, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ query, variables }),
-        signal: controller.signal,
-      });
-    } finally {
-      clearTimeout(timeoutId);
+      body = await response.json() as GraphQLResponse<T>;
+    } catch {
+      body = {} as GraphQLResponse<T>;
     }
+
+    return {
+      status,
+      statusText,
+      body,
+      headers: responseHeaders,
+    };
   }
 
   /**
-   * Create a new client instance with a different token.
-   * Useful for testing as different users.
+   * Execute a raw POST request to the GraphQL endpoint
    */
-  withToken(newToken: string): GraphQLTestClient {
-    return new GraphQLTestClient(this.baseUrl, newToken, this.tenantId);
-  }
+  async rawPost(
+    data: string | Record<string, unknown>,
+    options?: GraphQLRequestOptions,
+  ): Promise<{ status: number; body: string }> {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
 
-  /**
-   * Create a new client instance with a different tenant.
-   * Useful for testing tenant isolation.
-   */
-  withTenant(newTenantId: string): GraphQLTestClient {
-    return new GraphQLTestClient(this.baseUrl, this.token, newTenantId);
-  }
+    if (options?.token) {
+      headers['Authorization'] = `Bearer ${options.token}`;
+    }
 
-  /**
-   * Create a new client instance without any auth token.
-   * Useful for testing unauthenticated access.
-   */
-  withoutAuth(): UnauthenticatedGraphQLTestClient {
-    return new UnauthenticatedGraphQLTestClient(this.baseUrl, this.tenantId);
+    if (options?.tenantId) {
+      headers['X-Tenant-Id'] = options.tenantId;
+    }
+
+    if (options?.extraHeaders) {
+      Object.assign(headers, options.extraHeaders);
+    }
+
+    const response = await this.request.post(GRAPHQL_ENDPOINT, {
+      headers,
+      data: typeof data === 'string' ? data : JSON.stringify(data),
+    });
+
+    return {
+      status: response.status(),
+      body: await response.text(),
+    };
   }
 }
 
 /**
- * GraphQL client without authentication.
- * Used for testing endpoints that should reject unauthenticated requests.
+ * Gateway URL getter for non-GraphQL requests
  */
-export class UnauthenticatedGraphQLTestClient {
-  private readonly graphqlUrl: string;
-
-  constructor(
-    private readonly baseUrl: string,
-    private readonly tenantId?: string,
-  ) {
-    this.graphqlUrl = `${baseUrl}/graphql`;
-  }
-
-  /**
-   * Execute a raw HTTP request without auth headers.
-   */
-  async rawRequest(
-    query: string,
-    variables?: Record<string, unknown>,
-    options?: GraphQLRequestOptions,
-  ): Promise<Response> {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      ...options?.headers,
-    };
-
-    if (this.tenantId) {
-      headers['x-tenant-id'] = this.tenantId;
-    }
-
-    const controller = new AbortController();
-    const timeoutMs = options?.timeout ?? 10_000;
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-    try {
-      return await fetch(this.graphqlUrl, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ query, variables }),
-        signal: controller.signal,
-      });
-    } finally {
-      clearTimeout(timeoutId);
-    }
-  }
-
-  /**
-   * Execute query and return full response envelope (no auth).
-   */
-  async queryRaw<T = Record<string, unknown>>(
-    query: string,
-    variables?: Record<string, unknown>,
-    options?: GraphQLRequestOptions,
-  ): Promise<GraphQLResponse<T>> {
-    const response = await this.rawRequest(query, variables, options);
-    return (await response.json()) as GraphQLResponse<T>;
-  }
+export function getGatewayUrl(): string {
+  return GATEWAY_URL;
 }

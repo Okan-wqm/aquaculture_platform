@@ -116,6 +116,7 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.37",
+    "@anthropic-ai/sdk": "^0.93.0",
     "@apollo/gateway": "^2.13.3",
     "@apollo/server": "^4.13.0",
     "@apollo/subgraph": "^2.13.3",

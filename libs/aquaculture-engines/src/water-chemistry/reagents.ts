@@ -259,10 +259,16 @@ function calcTwoReagentDosing(
   if (chemAdj2Grams > 0.001) steps.push(step2);
   if (steps.length === 0) return null;
 
+  const firstStep = steps[0];
+  if (steps.length === 1 && firstStep) {
+    return {
+      description: `${firstStep.formula} only`,
+      steps,
+    };
+  }
+
   return {
-    description: steps.length === 1
-      ? `${steps[0].formula} only`
-      : `${step1.formula} + ${step2.formula}`,
+    description: `${step1.formula} + ${step2.formula}`,
     steps,
   };
 }
@@ -304,6 +310,9 @@ export function calculateDosingRecipes(
     for (let j = i + 1; j < selected.length; j++) {
       const r1 = selected[i];
       const r2 = selected[j];
+      if (!r1 || !r2) {
+        continue;
+      }
 
       // Skip duplicate slope pairs (e.g., Na₂CO₃ and CaCO₃ both have slope=2)
       const pairKey = [Math.min(r1.radians, r2.radians), Math.max(r1.radians, r2.radians)].join(',');
@@ -552,7 +561,12 @@ export function calcForwardDosing(
   let alk = current.alk;
 
   for (let i = 0; i < steps.length; i++) {
-    const { reagentKey, amountGrams } = steps[i];
+    const input = steps[i];
+    if (!input) {
+      continue;
+    }
+
+    const { reagentKey, amountGrams } = input;
     if (amountGrams <= 0) continue;
 
     const reagent = REAGENTS.find(r => r.name === reagentKey);
@@ -582,7 +596,10 @@ export function calcForwardDosing(
 
   // Rename last step as "Final" if more than one reagent step
   if (result.length > 2) {
-    result[result.length - 1].label = 'Final';
+    const finalStep = result[result.length - 1];
+    if (finalStep) {
+      finalStep.label = 'Final';
+    }
   }
 
   return result;

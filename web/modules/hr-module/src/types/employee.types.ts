@@ -119,27 +119,6 @@ export interface Employee extends BaseEntity {
   version?: number;
 }
 
-// WHY: GraphQL enums use the TypeScript enum KEYS as values, not the DB column strings.
-// NestJS registerEnumType(DepartmentType, { name: 'HRDepartmentType' }) registers
-// OPERATIONS, MAINTENANCE, etc. as the valid GraphQL enum values.
-// Using lowercase values caused "does not exist in 'HRDepartmentType' enum" 400 errors
-// on department create/update mutations.
-export enum DepartmentType {
-  OPERATIONS = 'OPERATIONS',
-  MAINTENANCE = 'MAINTENANCE',
-  FEEDING = 'FEEDING',
-  QUALITY_CONTROL = 'QUALITY_CONTROL',
-  ADMINISTRATION = 'ADMINISTRATION',
-  MANAGEMENT = 'MANAGEMENT',
-  LOGISTICS = 'LOGISTICS',
-  SECURITY = 'SECURITY',
-  HATCHERY = 'HATCHERY',
-  GROW_OUT = 'GROW_OUT',
-  PROCESSING = 'PROCESSING',
-  LABORATORY = 'LABORATORY',
-  GENERAL = 'GENERAL',
-}
-
 export interface Department {
   id: string;
   tenantId?: string;
@@ -147,7 +126,6 @@ export interface Department {
   parentDepartmentId?: string;
   name: string;
   code: string;
-  type: DepartmentType;
   description?: string;
   managerId?: string;
   budgetCode?: string;
@@ -162,7 +140,6 @@ export interface Department {
 export interface CreateDepartmentInput {
   name: string;
   code: string;
-  type?: DepartmentType;
   description?: string;
   siteId?: string;
   parentDepartmentId?: string;
@@ -175,7 +152,6 @@ export interface UpdateDepartmentInput {
   id: string;
   name?: string;
   code?: string;
-  type?: DepartmentType;
   description?: string;
   siteId?: string;
   parentDepartmentId?: string;

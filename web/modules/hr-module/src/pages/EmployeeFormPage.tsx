@@ -64,7 +64,7 @@ const CURRENCY_OPTIONS = [
  * department enum string that the employee entity expects.
  */
 function mapDepartmentType(dept: Department): string {
-  return dept.type || dept.code || dept.name.toLowerCase();
+  return dept.code || dept.name.toLowerCase();
 }
 
 // ============================================================================

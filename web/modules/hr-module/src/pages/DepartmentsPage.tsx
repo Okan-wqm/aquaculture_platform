@@ -8,7 +8,7 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Building2, Users, Plus, ChevronRight, X, Pencil } from 'lucide-react';
 import { useDepartments, useCreateDepartment, useUpdateDepartment } from '../hooks';
-import type { Department, CreateDepartmentInput, UpdateDepartmentInput, DepartmentType } from '../types';
+import type { Department, CreateDepartmentInput, UpdateDepartmentInput } from '../types';
 
 // ============================================================================
 // Department Form Modal
@@ -19,27 +19,6 @@ interface DepartmentFormModalProps {
   onClose: () => void;
 }
 
-// WHY: GraphQL enum values must match the backend schema exactly (UPPERCASE keys).
-// NestJS registerEnumType registers DepartmentType with UPPERCASE keys (GENERAL, OPERATIONS, etc.)
-// even though the TypeORM DB column stores lowercase values. The GraphQL transport layer
-// expects the enum KEY, not the DB value. Using lowercase here silently causes
-// "Value 'general' does not exist in 'HRDepartmentType' enum" 400 errors on mutations.
-const DEPARTMENT_TYPES: { value: string; label: string }[] = [
-  { value: 'GENERAL', label: 'General' },
-  { value: 'OPERATIONS', label: 'Operations' },
-  { value: 'MAINTENANCE', label: 'Maintenance' },
-  { value: 'FEEDING', label: 'Feeding' },
-  { value: 'QUALITY_CONTROL', label: 'Quality Control' },
-  { value: 'ADMINISTRATION', label: 'Administration' },
-  { value: 'MANAGEMENT', label: 'Management' },
-  { value: 'LOGISTICS', label: 'Logistics' },
-  { value: 'SECURITY', label: 'Security' },
-  { value: 'HATCHERY', label: 'Hatchery' },
-  { value: 'GROW_OUT', label: 'Grow Out' },
-  { value: 'PROCESSING', label: 'Processing' },
-  { value: 'LABORATORY', label: 'Laboratory' },
-];
-
 const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ department, onClose }) => {
   const isEditing = !!department;
   const createMutation = useCreateDepartment();
@@ -47,12 +26,6 @@ const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ department, o
 
   const [name, setName] = useState(department?.name || '');
   const [code, setCode] = useState(department?.code || '');
-  // WHY: Default must be the UPPERCASE GraphQL enum key, not the lowercase DB value.
-  // When editing, the backend returns the lowercase DB value — map it to UPPERCASE
-  // so the dropdown selection matches and re-submission sends the correct enum key.
-  const [type, setType] = useState<string>(
-    department?.type ? department.type.toUpperCase() : 'GENERAL'
-  );
   const [description, setDescription] = useState(department?.description || '');
   const [budgetCode, setBudgetCode] = useState(department?.budgetCode || '');
   const [costCenter, setCostCenter] = useState(department?.costCenter || '');
@@ -75,7 +48,6 @@ const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ department, o
           id: department.id,
           name: name.trim(),
           code: code.trim(),
-          type: type as DepartmentType,
           description: description.trim() || undefined,
           budgetCode: budgetCode.trim() || undefined,
           costCenter: costCenter.trim() || undefined,
@@ -85,7 +57,6 @@ const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ department, o
         const input: CreateDepartmentInput = {
           name: name.trim(),
           code: code.trim(),
-          type: type as DepartmentType,
           description: description.trim() || undefined,
           budgetCode: budgetCode.trim() || undefined,
           costCenter: costCenter.trim() || undefined,
@@ -148,23 +119,6 @@ const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ department, o
               className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
               required
             />
-          </div>
-
-          <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Type
-            </label>
-            <select
-              value={type}
-              onChange={(e) => setType(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-            >
-              {DEPARTMENT_TYPES.map((dt) => (
-                <option key={dt.value} value={dt.value}>
-                  {dt.label}
-                </option>
-              ))}
-            </select>
           </div>
 
           <div>
@@ -233,24 +187,6 @@ const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ department, o
 // Department Type Badge
 // ============================================================================
 
-// WHY: Backend returns type values in lowercase (DB column value).
-// Normalise to lowercase for color lookup so both old and new data renders correctly.
-const TYPE_COLORS: Record<string, string> = {
-  operations: '#6366f1',
-  maintenance: '#f59e0b',
-  feeding: '#10b981',
-  quality_control: '#3b82f6',
-  administration: '#8b5cf6',
-  management: '#ec4899',
-  logistics: '#f97316',
-  security: '#ef4444',
-  hatchery: '#14b8a6',
-  grow_out: '#06b6d4',
-  processing: '#84cc16',
-  laboratory: '#a855f7',
-  general: '#6b7280',
-};
-
 // ============================================================================
 // Departments Page
 // ============================================================================
@@ -273,12 +209,6 @@ const DepartmentsPage: React.FC = () => {
   const handleCloseModal = () => {
     setShowModal(false);
     setEditingDepartment(null);
-  };
-
-  // WHY: Backend may return the type as lowercase (DB value) or uppercase (enum key).
-  // Normalise to lowercase for reliable color lookup.
-  const getColorForType = (type?: string): string => {
-    return TYPE_COLORS[(type || 'general').toLowerCase()] || '#6366f1';
   };
 
   return (
@@ -323,7 +253,7 @@ const DepartmentsPage: React.FC = () => {
       {!isLoading && departments && departments.length > 0 && (
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
           {departments.map((department) => {
-            const color = getColorForType(department.type);
+            const color = '#6366f1';
             return (
               <div
                 key={department.id}
@@ -348,12 +278,6 @@ const DepartmentsPage: React.FC = () => {
                         </h3>
                         <p className="text-xs text-gray-500 dark:text-gray-400">
                           {department.code}
-                          {/* WHY: Backend returns lowercase type values; compare case-insensitively */}
-                          {department.type && department.type.toLowerCase() !== 'general' && (
-                            <span className="ml-2 inline-block rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600 dark:bg-gray-700 dark:text-gray-400">
-                              {department.type.toLowerCase().replace(/_/g, ' ')}
-                            </span>
-                          )}
                         </p>
                       </div>
                     </div>

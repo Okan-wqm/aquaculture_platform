@@ -116,18 +116,6 @@ export class CreateHRModuleSchema1736000000000 implements MigrationInterface {
       END $$
     `);
 
-    // Department Type
-    await queryRunner.query(`
-      DO $$ BEGIN
-        CREATE TYPE department_type AS ENUM (
-          'operations', 'maintenance', 'feeding', 'quality_control',
-          'administration', 'management', 'logistics', 'security',
-          'hatchery', 'grow_out', 'processing', 'laboratory', 'general'
-        );
-      EXCEPTION WHEN duplicate_object THEN NULL;
-      END $$
-    `);
-
     // Position Level
     await queryRunner.query(`
       DO $$ BEGIN
@@ -380,7 +368,7 @@ export class CreateHRModuleSchema1736000000000 implements MigrationInterface {
 
   private async dropEnums(queryRunner: QueryRunner): Promise<void> {
     const enums = [
-      'personnel_category', 'department_type', 'position_level', 'pay_frequency',
+      'personnel_category', 'position_level', 'pay_frequency',
       'leave_category', 'leave_request_status', 'half_day_period',
       'shift_type', 'schedule_status', 'attendance_method', 'attendance_status',
       'certification_category', 'certification_status',
@@ -404,7 +392,6 @@ export class CreateHRModuleSchema1736000000000 implements MigrationInterface {
         "parent_department_id" uuid,
         "name" varchar(150) NOT NULL,
         "code" varchar(20) NOT NULL,
-        "type" department_type NOT NULL DEFAULT 'general',
         "description" text,
         "manager_id" uuid,
         "budget_code" varchar(50),
